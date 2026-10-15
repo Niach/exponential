@@ -701,6 +701,10 @@ pub struct SessionRow {
     pub computer_use: bool,
     #[serde(default, deserialize_with = "tolerant_bool_or_false")]
     pub ultracode: bool,
+    /// A DISPATCHER root (every new thread or team agent): it runs on the
+    /// device's thread model and hands the work to children.
+    #[serde(default, deserialize_with = "tolerant_bool_or_false")]
+    pub dispatch: bool,
     #[serde(default)]
     pub repository_id: Option<String>,
     #[serde(default)]

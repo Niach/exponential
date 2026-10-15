@@ -23,8 +23,47 @@
 //! and fails when it names a tool the server does not register or grows
 //! past [`RUN_SKILL_MAX_BYTES`].
 
-/// The playbook, verbatim.
+/// The playbook FILE, verbatim: every section, the budget's subject. A run
+/// gets [`playbook`]'s cut of it.
 pub const RUN_SKILL: &str = include_str!("runbook.md");
+
+/// The section only a DISPATCHER (a dispatcher root, a team agent) reads.
+pub const DISPATCH_HEADING: &str = "## Dispatch";
+
+/// The coding-work sections a dispatcher never reads: it hands that work
+/// to children instead.
+pub const CODING_ONLY_HEADINGS: [&str; 3] = ["## Fan out", "## Pull requests", "## Guide"];
+
+/// The playbook ONE run gets: a dispatcher's swaps the coding-work sections
+/// ([`CODING_ONLY_HEADINGS`]) for [`DISPATCH_HEADING`]; every other run
+/// reads everything but that section. Byte-exact cuts of [`RUN_SKILL`].
+pub fn playbook(dispatch: bool) -> &'static str {
+    static CODING: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    static DISPATCH: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    let cell = if dispatch { &DISPATCH } else { &CODING };
+    cell.get_or_init(|| {
+        playbook_sections(RUN_SKILL)
+            .into_iter()
+            .filter(|section| {
+                let heading = section.lines().next().unwrap_or_default().trim_end();
+                if dispatch {
+                    !CODING_ONLY_HEADINGS.contains(&heading)
+                } else {
+                    heading != DISPATCH_HEADING
+                }
+            })
+            .collect()
+    })
+}
+
+/// `text` cut before every `## ` heading line; the chunks concatenate back
+/// to `text`.
+fn playbook_sections(text: &str) -> Vec<&str> {
+    let mut starts = vec![0];
+    starts.extend(text.match_indices("\n## ").map(|(at, _)| at + 1));
+    starts.push(text.len());
+    starts.windows(2).map(|pair| &text[pair[0]..pair[1]]).collect()
+}
 
 /// Hard ceiling. Nothing truncates the text (it rides the agent's own
 /// additive system-prompt channel), so the cap is a CONTEXT budget: the
@@ -74,7 +113,7 @@ pub fn system_append(team_prompt: Option<&str>) -> String {
 /// EXP-1196/EXP-1236 — what ONE launch carries beyond the playbook: the
 /// `computer` MCP server (with the model alias its screen-driving subagents
 /// run on) and the `codemode` server. Each adds its own section; an agent
-/// shell carries neither.
+/// shell carries neither. `dispatch` picks the dispatcher's [`playbook`].
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Extras {
     /// `Some(model)` = the launch wired the `computer` server; `model` is
@@ -83,11 +122,13 @@ pub struct Extras {
     pub computer_use: Option<String>,
     /// The launch wired the `codemode` server.
     pub code_mode: bool,
+    /// A dispatcher root or a team agent ([`crate::launcher::dispatches`]).
+    pub dispatch: bool,
 }
 
 impl Extras {
     /// The bare playbook (an agent shell, a test).
-    pub const NONE: Extras = Extras { computer_use: None, code_mode: false };
+    pub const NONE: Extras = Extras { computer_use: None, code_mode: false, dispatch: false };
 }
 
 /// EXP-1196 — what a run is told when THIS device's Computer use switch is
@@ -149,7 +190,7 @@ at once; verify each effect in the script as you would a direct call, and print 
 /// playbook, plus [`COMPUTER_USE_SECTION`] and [`CODE_MODE_SECTION`] as the
 /// launch carries them.
 pub fn fixed_append(extras: &Extras) -> String {
-    let mut text = RUN_SKILL.to_string();
+    let mut text = playbook(extras.dispatch).to_string();
     if let Some(model) = &extras.computer_use {
         text = format!("{}\n\n{}", text.trim_end(), computer_use_section(model));
     }
@@ -230,7 +271,7 @@ mod tests {
     }
 
     fn computer(model: &str) -> Extras {
-        Extras { computer_use: Some(model.to_string()), code_mode: false }
+        Extras { computer_use: Some(model.to_string()), ..Extras::NONE }
     }
 
     /// EXP-1196: the computer-use section sits between the playbook and the
@@ -238,17 +279,17 @@ mod tests {
     /// names no em dash either.
     #[test]
     fn the_computer_use_section_rides_between_the_playbook_and_the_team_prompt() {
-        assert_eq!(system_append_with(None, &Extras::NONE), RUN_SKILL);
+        assert_eq!(system_append_with(None, &Extras::NONE), playbook(false));
         assert_eq!(system_append_with(Some("Rules"), &Extras::NONE), system_append(Some("Rules")));
         let alone = system_append_with(None, &computer("haiku"));
-        assert!(alone.starts_with(RUN_SKILL.trim_end()));
+        assert!(alone.starts_with(playbook(false).trim_end()));
         assert!(alone.ends_with(&computer_use_section("haiku")));
         assert!(alone.contains("SUBAGENTS on model `haiku`"));
         assert!(!alone.contains("{model}"));
         let both = system_append_with(Some("Rules"), &computer("sonnet"));
         let section = both.find("# Computer use").unwrap();
         let team = both.find(TEAM_PROMPT_HEADING).unwrap();
-        assert!(RUN_SKILL.trim_end().len() < section && section < team);
+        assert!(playbook(false).trim_end().len() < section && section < team);
         assert!(both.ends_with("\n\nRules\n"));
         assert!(both.contains("model `sonnet`"));
         assert!(!COMPUTER_USE_SECTION.contains('\u{2014}'));
@@ -260,12 +301,12 @@ mod tests {
     /// playbook directly.
     #[test]
     fn the_code_mode_section_rides_after_computer_use_and_before_the_team_prompt() {
-        let code = Extras { computer_use: None, code_mode: true };
+        let code = Extras { code_mode: true, ..Extras::NONE };
         let alone = system_append_with(None, &code);
-        assert!(alone.starts_with(RUN_SKILL.trim_end()));
+        assert!(alone.starts_with(playbook(false).trim_end()));
         assert!(alone.ends_with(CODE_MODE_SECTION));
         assert!(!alone.contains("# Computer use"));
-        let all = Extras { computer_use: Some("haiku".into()), code_mode: true };
+        let all = Extras { computer_use: Some("haiku".into()), code_mode: true, dispatch: false };
         let everything = system_append_with(Some("Rules"), &all);
         let computer = everything.find("# Computer use").unwrap();
         let code_mode = everything.find("# Code mode").unwrap();
@@ -282,9 +323,9 @@ mod tests {
     /// EXP-1025: no team prompt = the playbook, byte for byte.
     #[test]
     fn system_append_without_a_team_prompt_is_the_bare_playbook() {
-        assert_eq!(system_append(None), RUN_SKILL);
-        assert_eq!(system_append(Some("")), RUN_SKILL);
-        assert_eq!(system_append(Some("  \n\t")), RUN_SKILL);
+        assert_eq!(system_append(None), playbook(false));
+        assert_eq!(system_append(Some("")), playbook(false));
+        assert_eq!(system_append(Some("  \n\t")), playbook(false));
     }
 
     /// EXP-1025: the team prompt follows the playbook under its own
@@ -292,8 +333,8 @@ mod tests {
     #[test]
     fn system_append_places_the_team_prompt_after_the_playbook() {
         let text = system_append(Some("## Rules\n\n- Always run `bun test`.\n\n"));
-        assert!(text.starts_with(RUN_SKILL.trim_end()));
-        let tail = &text[RUN_SKILL.trim_end().len()..];
+        assert!(text.starts_with(playbook(false).trim_end()));
+        let tail = &text[playbook(false).trim_end().len()..];
         assert_eq!(
             tail,
             "\n\n# Team instructions\n\nWritten by this team's owners in Exponential; it applies to \
@@ -310,17 +351,17 @@ run `bun test`.\n"
     #[test]
     fn agent_instructions_ride_after_the_team_prompt() {
         let extras = Extras::NONE;
-        assert_eq!(system_append_layers(None, None, &extras), RUN_SKILL);
-        assert_eq!(system_append_layers(Some(" "), Some("\n"), &extras), RUN_SKILL);
+        assert_eq!(system_append_layers(None, None, &extras), playbook(false));
+        assert_eq!(system_append_layers(Some(" "), Some("\n"), &extras), playbook(false));
         assert_eq!(system_append_layers(Some("Rules"), None, &extras), system_append(Some("Rules")));
         let both = system_append_layers(Some("Rules"), Some("Watch the inbox."), &extras);
         let team = both.find(TEAM_PROMPT_HEADING).unwrap();
         let agent = both.find(AGENT_INSTRUCTIONS_HEADING).unwrap();
-        assert!(RUN_SKILL.trim_end().len() < team && team < agent);
+        assert!(playbook(false).trim_end().len() < team && team < agent);
         assert!(both.ends_with(&format!(
             "\n\n{AGENT_INSTRUCTIONS_HEADING}\n\n{AGENT_INSTRUCTIONS_LEAD}\n\nWatch the inbox.\n"
         )));
-        let alone = system_append_layers(None, Some("Watch the inbox."), &Extras { computer_use: None, code_mode: true });
+        let alone = system_append_layers(None, Some("Watch the inbox."), &Extras { code_mode: true, ..Extras::NONE });
         assert!(!alone.contains(TEAM_PROMPT_HEADING));
         assert!(alone.find("# Code mode").unwrap() < alone.find(AGENT_INSTRUCTIONS_HEADING).unwrap());
         assert!(!AGENT_INSTRUCTIONS_LEAD.contains('\u{2014}'));
@@ -395,7 +436,44 @@ run `bun test`.\n"
         assert!(RUN_SKILL.contains("Caps: depth 3, 10 sessions per tree"));
         assert!(RUN_SKILL.contains("merge a tree root first"));
         assert!(RUN_SKILL.contains("`stack: true`"));
-        assert!(RUN_SKILL.contains("## Agents (only when you are a team agent)"));
+        assert!(RUN_SKILL.contains(DISPATCH_HEADING));
+    }
+
+    /// A dispatcher reads the Dispatch section and none of the coding-work
+    /// ones; every other run reads everything else. Both are byte-exact
+    /// cuts of the file, which holds each section once.
+    #[test]
+    fn the_playbook_cut_follows_dispatch() {
+        let coding = playbook(false);
+        let dispatch = playbook(true);
+        assert!(!coding.contains(DISPATCH_HEADING));
+        for heading in CODING_ONLY_HEADINGS {
+            assert_eq!(RUN_SKILL.matches(heading).count(), 1, "{heading}");
+            assert!(coding.contains(heading), "{heading}");
+            assert!(!dispatch.contains(heading), "{heading}");
+        }
+        assert_eq!(RUN_SKILL.matches(DISPATCH_HEADING).count(), 1);
+        for shared in ["# Working inside Exponential", "## Where you are", "## Scope", "## Talk", "## End"] {
+            assert!(coding.contains(shared) && dispatch.contains(shared), "{shared}");
+        }
+        assert!(coding.len() < RUN_SKILL.len() && dispatch.len() < RUN_SKILL.len());
+        // The dispatch rules, by their load-bearing words.
+        let section = dispatch.split(DISPATCH_HEADING).nth(1).unwrap();
+        for words in [
+            "read-only",
+            "`exponential_sessions_send({parentId: <your session>, text})`",
+            "no `parentId`",
+            "self-contained brief",
+            "one or two lines",
+            "never narrate",
+            "Never wait for a child",
+        ] {
+            assert!(section.contains(words), "the Dispatch section never says {words}");
+        }
+        let fixed = fixed_append(&Extras { dispatch: true, ..Extras::NONE });
+        assert_eq!(fixed, dispatch);
+        assert!(system_append_layers(Some("Rules"), None, &Extras { dispatch: true, ..Extras::NONE })
+            .starts_with(dispatch.trim_end()));
     }
 
     #[test]

@@ -405,6 +405,7 @@ pub const SHAPES: [ShapeSpec; 25] = [
             "plan_mode",
             "computer_use",
             "ultracode",
+            "dispatch",
             "repository_id",
             "branch",
             "status",

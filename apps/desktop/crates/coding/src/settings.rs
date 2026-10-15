@@ -36,21 +36,27 @@ pub const DEFAULT_BRANCH_PREFIX: &str = "exp/";
 /// `claude-fable-5-1`: pinning would go stale at the next release and churn
 /// the contract on four clients, while the alias tracks the CLI's own default.
 pub const DEFAULT_CLAUDE_MODEL: &str = domain::contract::DEVICE_AGENT_DEFAULTS_MODEL;
-/// EXP-1029: the fresh-install subagent model — contract
-/// `deviceAgentDefaults.subagentModel`, BLANK (= the CLI's own default).
+/// EXP-1029: the fresh-install subagent model, contract
+/// `deviceAgentDefaults.subagentModel` (`opus`). Every model is explicit:
+/// no blank "CLI default" anywhere.
 pub const DEFAULT_CLAUDE_SUBAGENT_MODEL: &str =
     domain::contract::DEVICE_AGENT_DEFAULTS_SUBAGENT_MODEL;
-/// The `--model` aliases the CLI accepts (and the ui selects offer) —
-/// [`Settings::load`] normalizes anything else back to the default.
-pub const MODEL_ALIASES: [&str; 3] = ["fable", "opus", "sonnet"];
-/// EXP-1236: the model aliases a run may hand its screen-driving subagents
-/// (`Settings::computer_use_model`); claude's `Agent` tool resolves each to
-/// the CLI's newest model of that family. Mirrors the contract's
-/// `computerUseModel.values`; [`Settings::load`] normalizes anything else
-/// back to [`DEFAULT_COMPUTER_USE_MODEL`].
-pub const COMPUTER_USE_MODELS: [&str; 4] = ["haiku", "sonnet", "opus", "fable"];
-/// EXP-1236: the fast one — computer use is many short look-and-click turns.
-pub const DEFAULT_COMPUTER_USE_MODEL: &str = "haiku";
+/// The dispatcher root's claude model (threads + team agents), contract
+/// `deviceAgentDefaults.threadModel`.
+pub const DEFAULT_CLAUDE_THREAD_MODEL: &str = domain::contract::DEVICE_AGENT_DEFAULTS_THREAD_MODEL;
+/// The fresh-install codex model, contract `deviceAgentDefaults.codexModel`.
+pub const DEFAULT_CODEX_MODEL: &str = domain::contract::DEVICE_AGENT_DEFAULTS_CODEX_MODEL;
+/// The dispatcher root's codex model, contract
+/// `deviceAgentDefaults.codexThreadModel`.
+pub const DEFAULT_CODEX_THREAD_MODEL: &str =
+    domain::contract::DEVICE_AGENT_DEFAULTS_CODEX_THREAD_MODEL;
+/// THE claude model vocabulary (contract `codingModel.values`) for EVERY
+/// pick: the session model, subagents, the thread model and computer use.
+/// [`Settings::load`] normalizes anything else back to the field default.
+pub const MODEL_ALIASES: &[&str] = domain::contract::CODING_MODEL_VALUES;
+/// EXP-1236: the fast one, computer use is many short look-and-click turns
+/// (contract `deviceComputerUseDefaults.model`).
+pub const DEFAULT_COMPUTER_USE_MODEL: &str = domain::contract::DEVICE_COMPUTER_USE_DEFAULTS_MODEL;
 /// The `--effort` levels the CLI accepts (blank = omit the flag) —
 /// [`Settings::load`] normalizes anything else back to blank.
 pub const EFFORT_LEVELS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
@@ -147,14 +153,22 @@ pub struct Settings {
     /// anything else to blank.
     pub claude_effort: String,
     /// EXP-981: the model claude's SUBAGENTS run on, exported as
-    /// `CLAUDE_CODE_SUBAGENT_MODEL` on every claude spawn when non-blank.
-    /// One of [`MODEL_ALIASES`] or blank (= the CLI's own default, which is
-    /// what a fresh install has); `load` normalizes anything else to blank.
-    /// Claude-only: codex has no subagent model to pin.
+    /// `CLAUDE_CODE_SUBAGENT_MODEL` on every claude spawn. One of
+    /// [`MODEL_ALIASES`]; `load` normalizes blank/unknown to
+    /// [`DEFAULT_CLAUDE_SUBAGENT_MODEL`]. Claude-only.
     pub claude_subagent_model: String,
-    /// Codex model slug (`-m`); one of [`CODEX_MODELS`] or blank (= omit the
-    /// flag — Codex's own default model applies).
+    /// The model a claude DISPATCHER root runs on (threads + team agents,
+    /// `sessions.dispatch`). One of [`MODEL_ALIASES`], default
+    /// [`DEFAULT_CLAUDE_THREAD_MODEL`]; rides
+    /// `launch_defaults.agents.claude.threadModel`.
+    pub claude_thread_model: String,
+    /// Codex model slug (`-m`), one of [`CODEX_MODELS`]; `load` normalizes
+    /// blank/unknown to [`DEFAULT_CODEX_MODEL`] (no blank "CLI default").
     pub codex_model: String,
+    /// The model a codex DISPATCHER root runs on, one of [`CODEX_MODELS`],
+    /// default [`DEFAULT_CODEX_THREAD_MODEL`]; rides
+    /// `launch_defaults.agents.codex.threadModel`.
+    pub codex_thread_model: String,
     /// Codex reasoning effort (`-c model_reasoning_effort=<v>`); one of
     /// [`CODEX_EFFORTS`] or blank (= omit).
     pub codex_effort: String,
@@ -181,7 +195,7 @@ pub struct Settings {
     pub computer_use: bool,
     /// EXP-1236: the model alias the run's screen-driving SUBAGENTS run on
     /// (the computer-use section tells the agent to delegate screen work to
-    /// subagents on it). One of [`COMPUTER_USE_MODELS`], default
+    /// subagents on it). One of [`MODEL_ALIASES`], default
     /// [`DEFAULT_COMPUTER_USE_MODEL`]. Device-level like `computer_use`
     /// (`launch_defaults.computerUseModel`); claude-only in effect.
     pub computer_use_model: String,
@@ -278,7 +292,9 @@ impl Default for Settings {
             claude_model: DEFAULT_CLAUDE_MODEL.to_string(),
             claude_effort: DEFAULT_CLAUDE_EFFORT.to_string(),
             claude_subagent_model: DEFAULT_CLAUDE_SUBAGENT_MODEL.to_string(),
-            codex_model: String::new(),
+            claude_thread_model: DEFAULT_CLAUDE_THREAD_MODEL.to_string(),
+            codex_model: DEFAULT_CODEX_MODEL.to_string(),
+            codex_thread_model: DEFAULT_CODEX_THREAD_MODEL.to_string(),
             codex_effort: String::new(),
             claude_ultracode: false,
             claude_plan_mode: true,
@@ -328,21 +344,31 @@ impl Settings {
         if settings.branch_prefix.trim().is_empty() {
             settings.branch_prefix = defaults.branch_prefix;
         }
+        // Every model is explicit: blank or unknown reads as the default.
         settings.claude_model =
-            normalize_choice(&settings.claude_model, &MODEL_ALIASES, DEFAULT_CLAUDE_MODEL);
+            normalize_choice(&settings.claude_model, MODEL_ALIASES, DEFAULT_CLAUDE_MODEL);
         settings.claude_effort = normalize_choice(&settings.claude_effort, &EFFORT_LEVELS, "");
-        // EXP-981: blank is the VALID "let the CLI decide" value here.
         settings.claude_subagent_model = normalize_choice(
             &settings.claude_subagent_model,
-            &MODEL_ALIASES,
+            MODEL_ALIASES,
             DEFAULT_CLAUDE_SUBAGENT_MODEL,
         );
-        // Codex allows BLANK ("CLI default") — unknown values degrade to it.
-        settings.codex_model = normalize_choice(&settings.codex_model, &CODEX_MODELS, "");
+        settings.claude_thread_model = normalize_choice(
+            &settings.claude_thread_model,
+            MODEL_ALIASES,
+            DEFAULT_CLAUDE_THREAD_MODEL,
+        );
+        settings.codex_model =
+            normalize_choice(&settings.codex_model, &CODEX_MODELS, DEFAULT_CODEX_MODEL);
+        settings.codex_thread_model = normalize_choice(
+            &settings.codex_thread_model,
+            &CODEX_MODELS,
+            DEFAULT_CODEX_THREAD_MODEL,
+        );
         settings.codex_effort = normalize_choice(&settings.codex_effort, &CODEX_EFFORTS, "");
         settings.computer_use_model = normalize_choice(
             &settings.computer_use_model,
-            &COMPUTER_USE_MODELS,
+            MODEL_ALIASES,
             DEFAULT_COMPUTER_USE_MODEL,
         );
         // Blank/whitespace shell degrades to None (= auto-detect).
@@ -445,12 +471,20 @@ impl Settings {
         }
     }
 
-    /// EXP-981: the subagent-model default for `agent` (dialog seed). Always
-    /// blank for codex: only claude spawns subagents on a pinned model.
+    /// EXP-981: the subagent-model default for `agent` (dialog seed). Blank
+    /// for codex: only claude spawns subagents on a pinned model.
     pub fn subagent_model_for(&self, agent: CodingAgent) -> &str {
         match agent {
             CodingAgent::Claude => &self.claude_subagent_model,
             CodingAgent::Codex => "",
+        }
+    }
+
+    /// The DISPATCHER root's model for `agent` (`sessions.dispatch`).
+    pub fn thread_model_for(&self, agent: CodingAgent) -> &str {
+        match agent {
+            CodingAgent::Claude => &self.claude_thread_model,
+            CodingAgent::Codex => &self.codex_thread_model,
         }
     }
 
@@ -604,13 +638,56 @@ mod tests {
         }
     }
 
-    /// EXP-1236: the screen-driving model vocabulary is the contract's,
-    /// byte for byte, and the default is the contract's device default.
+    /// ONE claude model vocabulary (contract `codingModel`) for every pick,
+    /// and every default is the contract's.
     #[test]
-    fn computer_use_models_mirror_the_contract() {
-        assert_eq!(COMPUTER_USE_MODELS.as_slice(), domain::contract::COMPUTER_USE_MODEL_VALUES);
-        assert_eq!(DEFAULT_COMPUTER_USE_MODEL, domain::contract::DEVICE_COMPUTER_USE_DEFAULTS_MODEL);
-        assert_eq!(Settings::default().computer_use_model, "haiku");
+    fn model_vocabulary_and_defaults_mirror_the_contract() {
+        assert_eq!(MODEL_ALIASES, domain::contract::CODING_MODEL_VALUES);
+        assert_eq!(MODEL_ALIASES, ["fable", "opus", "sonnet", "haiku"]);
+        let settings = Settings::default();
+        assert_eq!(settings.computer_use_model, "haiku");
+        assert_eq!(settings.claude_model, "fable");
+        assert_eq!(settings.claude_subagent_model, "opus");
+        assert_eq!(settings.claude_thread_model, "haiku");
+        assert_eq!(settings.codex_model, "gpt-5.6-sol");
+        assert_eq!(settings.codex_thread_model, "gpt-5.6-luna");
+        assert_eq!(settings.thread_model_for(CodingAgent::Claude), "haiku");
+        assert_eq!(settings.thread_model_for(CodingAgent::Codex), "gpt-5.6-luna");
+    }
+
+    /// No blank "CLI default" model survives a load: blank, unknown or
+    /// missing model keys read as the contract defaults, a known one stays.
+    #[test]
+    fn blank_and_unknown_models_normalize_to_the_defaults() {
+        let dir = TempDir::new("explicit-models");
+        let path = dir.0.join("settings.json");
+        fs::write(
+            &path,
+            r#"{"claudeModel":"","claudeSubagentModel":"","claudeThreadModel":"gpt-5.6-sol","codexModel":"","codexThreadModel":"opus","computerUseModel":""}"#,
+        )
+        .unwrap();
+        let settings = Settings::load(&path);
+        assert_eq!(settings.claude_model, "fable");
+        assert_eq!(settings.claude_subagent_model, "opus");
+        assert_eq!(settings.claude_thread_model, "haiku");
+        assert_eq!(settings.codex_model, "gpt-5.6-sol");
+        assert_eq!(settings.codex_thread_model, "gpt-5.6-luna");
+        assert_eq!(settings.computer_use_model, "haiku");
+        fs::write(
+            &path,
+            r#"{"claudeSubagentModel":" Sonnet ","claudeThreadModel":"fable","codexThreadModel":"gpt-5.6-terra"}"#,
+        )
+        .unwrap();
+        let settings = Settings::load(&path);
+        assert_eq!(settings.claude_subagent_model, "sonnet");
+        assert_eq!(settings.claude_thread_model, "fable");
+        assert_eq!(settings.codex_thread_model, "gpt-5.6-terra");
+        // A file written before the keys existed reads the defaults.
+        fs::write(&path, r#"{"claudeModel":"opus"}"#).unwrap();
+        let settings = Settings::load(&path);
+        assert_eq!(settings.claude_thread_model, "haiku");
+        assert_eq!(settings.codex_thread_model, "gpt-5.6-luna");
+        assert_eq!(settings.codex_model, "gpt-5.6-sol");
     }
 
     #[test]
@@ -665,8 +742,8 @@ mod tests {
         assert_eq!(settings.branch_prefix, "exp/");
         assert_eq!(settings.claude_model, "fable");
         assert_eq!(settings.claude_effort, "");
-        // Codex defaults to the CLI's own model + effort (blank = omit).
-        assert_eq!(settings.codex_model, "");
+        // Codex: the contract model, the CLI's own effort (blank = omit).
+        assert_eq!(settings.codex_model, "gpt-5.6-sol");
         assert_eq!(settings.codex_effort, "");
         // Per-agent run defaults (EXP-206 — no issue/batch split): Claude
         // plan mode ON, ultracode OFF. EXP-690: skip-permissions is no
@@ -729,7 +806,7 @@ mod tests {
     }
 
     /// EXP-201: the codex model + effort fields normalize into their own
-    /// closed sets, with blank ("CLI default") as the fallback.
+    /// closed sets (effort falls back to blank, the model to its default).
     #[test]
     fn codex_choices_normalize_on_load() {
         let dir = TempDir::new("agent-choices");
@@ -818,6 +895,10 @@ mod tests {
 
         fs::write(&path, r#"{"claudeModel":"haiku","claudeEffort":"extreme"}"#).unwrap();
         let settings = Settings::load(&path);
+        assert_eq!(settings.claude_model, "haiku", "haiku is in the vocabulary");
+        assert_eq!(settings.claude_effort, "", "unknown effort → omit");
+        fs::write(&path, r#"{"claudeModel":"gpt-5.6-sol"}"#).unwrap();
+        let settings = Settings::load(&path);
         assert_eq!(settings.claude_model, "fable", "unknown model → fable");
         assert_eq!(settings.claude_effort, "", "unknown effort → omit");
     }
@@ -892,7 +973,9 @@ mod tests {
             claude_model: "sonnet".to_string(),
             claude_effort: "xhigh".to_string(),
             claude_subagent_model: "sonnet".to_string(),
+            claude_thread_model: "sonnet".to_string(),
             codex_model: "gpt-5.6-terra".to_string(),
+            codex_thread_model: "gpt-5.6-terra".to_string(),
             codex_effort: "high".to_string(),
             claude_ultracode: true,
             claude_plan_mode: false,

@@ -28,9 +28,9 @@ The thread has ONE Guide and it is every PR body: write it with `exponential_gui
 
 Cheapest capture per platform: web `cd apps/web && bun run capture:views -- --form-factor web|web-mobile --views <id>`; ios, android, desktop `bun run shots -- --platform <p> --views <id> --skip-seed` (docker stack up, simulator/emulator booted); a primitive = its styleguide entry. `exponential_pr_open` refuses a diff touching a platform's UI without such a picture unless `notRun` names the screen (`ios: the share sheet`).
 
-## Agents (only when you are a team agent)
+## Dispatch
 
-You are a caretaker. Never write code in your channel: spawn a thread per piece of work with `exponential_sessions_send({teamId, deviceId, issueIds?, text})` and report it in one line. A trigger firing arrives as a message; act on it, then wait.
+You are this thread's dispatcher (a team agent: the team's main agent). Answer a quick question yourself from what you can read; your checkout is read-only: no edits, commits, branches, PRs or worktree changes. Everything else (edits, a branch or PR, an issue implemented, a deep exploration, a plan) goes to a child: `exponential_sessions_send({parentId: <your session>, text})`; a team agent starts a thread instead (`exponential_sessions_send({teamId, deviceId, issueIds?, text})`, no `parentId`). One per independent piece; `text` is a self-contained brief: the goal, issues by `#IDENT`, constraints, what done means. Reply in one or two lines saying what you started; never narrate. A child's report arrives as a message: relay its outcome in one or two lines with links (`#IDENT`, PR #n), then decide the next step. A trigger firing arrives as a message too. Never wait for a child: end your turn.
 
 ## End
 

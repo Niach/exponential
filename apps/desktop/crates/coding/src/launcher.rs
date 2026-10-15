@@ -201,19 +201,45 @@ pub fn default_device_label() -> String {
 pub const SESSION_BRANCH_PREFIX: &str = "exp/session-";
 
 /// EXP-1292 — the branch rule: the row's own `branch` when it already has
-/// one (a resume, a reclaimed row); else a ROOT with exactly one linked issue
-/// takes the issue's (`<prefix><IDENTIFIER>`, the PR-linking convention);
-/// else `exp/session-<id8>` ([`session_own_branch`]). A child never takes
-/// the issue branch — the identifiers it is handed are its ROOT's, whose
-/// session runs on that very branch.
-pub fn session_branch(row: &SessionRow, issue_identifiers: &[String], branch_prefix: &str) -> String {
+/// one (a resume, a reclaimed row); else the session that OWNS the root's
+/// issue work ([`owns_issue_work`]) with exactly one linked issue takes the
+/// issue's (`<prefix><IDENTIFIER>`, the PR-linking convention); else
+/// `exp/session-<id8>` ([`session_own_branch`]). `parent_branch` = the
+/// brief's (a child of a coding parent works under that parent's branch, so
+/// the issue branch is the parent's, never its own).
+pub fn session_branch(
+    row: &SessionRow,
+    issue_identifiers: &[String],
+    branch_prefix: &str,
+    parent_branch: Option<&str>,
+) -> String {
     if let Some(branch) = row.branch.as_deref().map(str::trim).filter(|b| !b.is_empty()) {
         return branch.to_string();
     }
-    if let ([identifier], false) = (issue_identifiers, is_child_session(row)) {
+    if let ([identifier], true) = (issue_identifiers, owns_issue_work(row, parent_branch)) {
         return branch_name(branch_prefix, identifier);
     }
     session_own_branch(row)
+}
+
+/// Whether this session carries its ROOT's issue work (its issue branch,
+/// its run record's issues): a pre-dispatch root, or a work child of a
+/// DISPATCHER root, which has no branch (the brief names no
+/// `parent_branch`). A dispatcher itself never does (it has no branch), nor
+/// does a child of a coding parent (that parent holds the issue branch).
+pub fn owns_issue_work(row: &SessionRow, parent_branch: Option<&str>) -> bool {
+    if is_child_session(row) {
+        parent_branch.map(str::trim).is_none_or(str::is_empty)
+    } else {
+        !row.dispatch
+    }
+}
+
+/// Whether the session runs the `## Dispatch` part of the playbook: a
+/// dispatcher root, and every team agent (dispatch or not, an agent's
+/// channel never codes).
+pub fn dispatches(row: &SessionRow) -> bool {
+    row.dispatch || (row.is_agent() && row.is_root())
 }
 
 /// A trimmed, non-blank text field.
@@ -273,7 +299,42 @@ pub fn session_label(row: &SessionRow, issue_identifiers: &[String]) -> String {
 /// model/effort (normalized against the agent's closed sets; blank keeps the
 /// default), plan mode, ultracode, computer use and account. Capabilities
 /// mask everything (codex never plans, only claude runs ultracode).
+///
+/// A DISPATCHER root (`row.dispatch`) runs on the device's THREAD model for
+/// its agent with the default effort and never plans, runs ultracode or
+/// drives the screen: its work picks belong to its children. Every launch
+/// leaves here with an explicit model.
 pub fn session_launch_options(row: &SessionRow, base: &LaunchOptions, settings: &Settings) -> LaunchOptions {
+    let mut options = runner_options(row, base, settings);
+    let agent = options.agent;
+    if row.dispatch {
+        options.model = settings.thread_model_for(agent).to_string();
+        options.effort = String::new();
+        options.plan_mode = false;
+        options.ultracode = false;
+        options.computer_use = Some(false);
+    }
+    options.model = explicit_model(agent, &options.model, settings);
+    if agent.supports_subagent_model() {
+        options.subagent_model = crate::settings::normalize_choice(
+            &options.subagent_model,
+            agent.model_values(),
+            settings.subagent_model_for(agent),
+        );
+    }
+    options
+}
+
+/// `model` inside `agent`'s closed set, else this machine's default model
+/// for it: no launch omits the model flag.
+fn explicit_model(agent: CodingAgent, model: &str, settings: &Settings) -> String {
+    let fallback = Some(settings.model_for(agent))
+        .filter(|model| agent.model_values().contains(model))
+        .unwrap_or(agent.default_model());
+    crate::settings::normalize_choice(model, agent.model_values(), fallback)
+}
+
+fn runner_options(row: &SessionRow, base: &LaunchOptions, settings: &Settings) -> LaunchOptions {
     use crate::settings::normalize_choice;
     let agent = row
         .cli
@@ -375,6 +436,18 @@ pub trait WorktreeProvider: Send + Sync {
         url: &TokenUrl,
         expires_at: Option<&str>,
     ) -> Result<PathBuf, GitError>;
+
+    /// A DISPATCHER root's workspace: the clone's read-only checkout,
+    /// DETACHED at `origin/<default_branch>` (no session branch), with the
+    /// same clone + ambient-auth preparation as [`Self::prepare`].
+    fn prepare_detached(
+        &self,
+        repos_root: &Path,
+        full_name: &str,
+        default_branch: &str,
+        url: &TokenUrl,
+        expires_at: Option<&str>,
+    ) -> Result<PathBuf, GitError>;
 }
 
 /// The real git path: `ensure_clone` → [`git_credentials::ensure`] (bare
@@ -413,6 +486,28 @@ impl WorktreeProvider for GitWorktrees {
         Ok(worktree)
     }
 
+    fn prepare_detached(
+        &self,
+        repos_root: &Path,
+        full_name: &str,
+        default_branch: &str,
+        url: &TokenUrl,
+        expires_at: Option<&str>,
+    ) -> Result<PathBuf, GitError> {
+        let clone = ensure_clone(repos_root, full_name, url)?;
+        git_credentials::ensure(&clone, url, expires_at)?;
+        let seeded = seed_empty_remote(&clone, default_branch, url)?;
+        if !seeded {
+            let _ = fetch_base(&clone, default_branch, url);
+        }
+        let worktree = crate::git_worktree::create_detached_worktree(
+            &clone,
+            &format!("origin/{default_branch}"),
+            url,
+        )?;
+        let _ = crate::git_worktree::ensure_local_excludes(&clone, LOCAL_EXCLUDES);
+        Ok(worktree)
+    }
 }
 
 /// The injected collaborators (§7.1) — everything the sequence needs, so the
@@ -1179,10 +1274,16 @@ fn attach_code_mode(
 /// EXP-1196/EXP-1236: what this launch carries beyond the playbook, for
 /// [`crate::skill::system_append_layers`]: the computer-use section names the device's
 /// subagent model.
-fn run_extras(deps: &CodingDeps, computer_use: bool, code_mode: bool) -> crate::skill::Extras {
+fn run_extras(
+    deps: &CodingDeps,
+    computer_use: bool,
+    code_mode: bool,
+    dispatch: bool,
+) -> crate::skill::Extras {
     crate::skill::Extras {
         computer_use: computer_use.then(|| deps.settings.computer_use_model.clone()),
         code_mode,
+        dispatch,
     }
 }
 
@@ -1378,9 +1479,21 @@ fn prepare_session(
     let account_pick = apply_start_pick(&mut options, deps, report.check_for(agent));
     note_start_pick(account_pick.as_ref());
     let options = &options;
-    // EXP-1292: a child is handed its ROOT's issues (its label) but works on
-    // a branch of its own, so it owns its worktree like an issue-less one.
-    let own_issues: &[String] = if is_child_session(row) { &[] } else { &req.issue_identifiers };
+    let parent_branch = req
+        .brief
+        .parent_branch
+        .as_deref()
+        .map(str::trim)
+        .filter(|parent| !parent.is_empty());
+    // EXP-1292: a child is handed its ROOT's issues (its label); one under a
+    // coding parent works on a branch of its own, so it owns its worktree
+    // like an issue-less one. A dispatcher's work child carries the issue
+    // work itself ([`owns_issue_work`]); the dispatcher keeps them as labels.
+    let own_issues: &[String] = if owns_issue_work(row, parent_branch) || row.dispatch {
+        &req.issue_identifiers
+    } else {
+        &[]
+    };
     let repository_id = row
         .repository_id
         .as_deref()
@@ -1428,66 +1541,81 @@ fn prepare_session(
             // thread; only the MCP wiring needs the result.
             key_handle = Some(spawn_personal_key(deps));
             let url = minted.url.clone();
-            let mut branch = session_branch(row, own_issues, &deps.settings.branch_prefix);
-            // EXP-1292: an issue sits in any number of threads; a second one
-            // starting while another LIVE session on this machine holds the
-            // issue's branch takes its own instead of sharing the checkout.
-            if row.branch.as_deref().is_none_or(|own| own.trim().is_empty())
-                && branch != session_own_branch(row)
-                && crate::run_registry::live_branch_holder(
-                    &deps.data_dir,
-                    repository_id,
-                    &branch,
-                    &session_id,
-                )
-                .is_some()
-            {
-                log::info!(
-                    "session {session_id}: {branch} is held by a live session here — taking its own branch"
-                );
-                branch = session_own_branch(row);
-            }
-            crate::git_worktree::validate_branch_arg(&branch, "session")?;
-            // EXP-1292: a child works ON its parent's branch line — its
-            // worktree is cut from `origin/<parent branch>` (and its PR then
-            // stacks on the parent's). Server data is untrusted, so the ref
-            // is validated before it can reach git argv.
-            let base_branch = match req
-                .brief
-                .parent_branch
-                .as_deref()
-                .map(str::trim)
-                .filter(|parent| !parent.is_empty())
-            {
-                Some(parent) => {
-                    crate::git_worktree::validate_branch_arg(parent, "parent branch")?;
-                    parent.to_string()
-                }
-                None => minted.default_branch.clone(),
-            };
             let repos_root = deps.settings.repos_root_path();
-            // The clone path the worktree hangs off — the P9 token
-            // refresher's target.
             let clone = clone_path(&repos_root, url.full_name());
-            // EXP-478: gate BEFORE the worktree exists — from here until the
-            // host registers the session, the auto-prune must not run on
-            // this clone.
             launch_hold = Some(crate::launch_gate::hold(&clone));
-            let worktree = deps.worktrees.prepare(
-                &repos_root,
-                url.full_name(),
-                &base_branch,
-                &branch,
-                &url,
-                minted.expires_at.as_deref(),
-            )?;
-            workspace = Some(RepoWorkspace {
-                clone,
-                full_name: url.full_name().to_string(),
-                branch,
-                base_branch,
-            });
-            worktree
+            if row.dispatch {
+                // A dispatcher only reads: the clone's shared checkout,
+                // detached at the default branch, and no branch of its own.
+                let base_branch = minted.default_branch.clone();
+                crate::git_worktree::validate_branch_arg(&base_branch, "dispatcher base")?;
+                let worktree = deps.worktrees.prepare_detached(
+                    &repos_root,
+                    url.full_name(),
+                    &base_branch,
+                    &url,
+                    minted.expires_at.as_deref(),
+                )?;
+                workspace = Some(RepoWorkspace {
+                    clone,
+                    full_name: url.full_name().to_string(),
+                    branch: None,
+                    base_branch,
+                });
+                worktree
+            } else {
+                let mut branch = session_branch(row, own_issues, &deps.settings.branch_prefix, parent_branch);
+                // EXP-1292: an issue sits in any number of threads; a second one
+                // starting while another LIVE session on this machine holds the
+                // issue's branch takes its own instead of sharing the checkout.
+                if row.branch.as_deref().is_none_or(|own| own.trim().is_empty())
+                    && branch != session_own_branch(row)
+                    && crate::run_registry::live_branch_holder(
+                        &deps.data_dir,
+                        repository_id,
+                        &branch,
+                        &session_id,
+                    )
+                    .is_some()
+                {
+                    log::info!(
+                        "session {session_id}: {branch} is held by a live session here — taking its own branch"
+                    );
+                    branch = session_own_branch(row);
+                }
+                crate::git_worktree::validate_branch_arg(&branch, "session")?;
+                // EXP-1292: a child works ON its parent's branch line — its
+                // worktree is cut from `origin/<parent branch>` (and its PR then
+                // stacks on the parent's); a dispatcher's child (no parent
+                // branch) cuts from the repo default. Server data is untrusted,
+                // so the ref is validated before it can reach git argv.
+                let base_branch = match parent_branch {
+                    Some(parent) => {
+                        crate::git_worktree::validate_branch_arg(parent, "parent branch")?;
+                        parent.to_string()
+                    }
+                    None => minted.default_branch.clone(),
+                };
+                // EXP-478: the gate above is taken BEFORE the worktree exists:
+                // from there until the host registers the session, the
+                // auto-prune must not run on this clone (the clone path is the
+                // P9 token refresher's target too).
+                let worktree = deps.worktrees.prepare(
+                    &repos_root,
+                    url.full_name(),
+                    &base_branch,
+                    &branch,
+                    &url,
+                    minted.expires_at.as_deref(),
+                )?;
+                workspace = Some(RepoWorkspace {
+                    clone,
+                    full_name: url.full_name().to_string(),
+                    branch: Some(branch),
+                    base_branch,
+                });
+                worktree
+            }
         }
         // Repo-less: a scratch dir meant to hold only the launcher's
         // sidecars — purged whole with the session (EXP-764). No git, no
@@ -1496,9 +1624,10 @@ fn prepare_session(
     };
 
     let personal_key = join_personal_key(key_handle.unwrap_or_else(|| spawn_personal_key(deps)))?;
-    // Step 2 — the branch the row runs on, now that its worktree exists.
-    if let Some(workspace) = &workspace {
-        report_branch(&deps.trpc, &session_id, &workspace.branch);
+    // Step 2 — the branch the row runs on, now that its worktree exists (a
+    // dispatcher has none: its row's branch stays null).
+    if let Some(branch) = workspace.as_ref().and_then(|workspace| workspace.branch.as_deref()) {
+        report_branch(&deps.trpc, &session_id, branch);
     }
 
     // Step 3 — the EXP-474 ignore guard, then the per-agent MCP wiring
@@ -1580,7 +1709,7 @@ fn prepare_session(
             clone: workspace.as_ref().map(|workspace| workspace.clone.clone()),
             repo: workspace.as_ref().map(|workspace| workspace.full_name.clone()),
             repository_id: repository_id.clone(),
-            branch: workspace.as_ref().map(|workspace| workspace.branch.clone()),
+            branch: workspace.as_ref().and_then(|workspace| workspace.branch.clone()),
             base_branch: workspace.as_ref().map(|workspace| workspace.base_branch.clone()),
             claude_session_id: None,
             codex_originator: codex_originator.clone(),
@@ -1606,6 +1735,12 @@ fn prepare_session(
                         row.account.as_deref(),
                     )),
                 );
+                if row.dispatch {
+                    extra.insert(
+                        crate::run_registry::DISPATCH_KEY.to_string(),
+                        serde_json::Value::Bool(true),
+                    );
+                }
                 extra
             },
         },
@@ -1631,7 +1766,7 @@ fn prepare_session(
     let system_append = crate::skill::system_append_layers(
         req.brief.team_prompt.as_deref(),
         req.brief.agent_instructions.as_deref(),
-        &run_extras(deps, computer_use, code_mode),
+        &run_extras(deps, computer_use, code_mode, dispatches(row)),
     );
     // EXP-1051: a fresh session carries no base from anywhere — every layer
     // is one this launch just built.
@@ -1653,11 +1788,13 @@ fn prepare_session(
     let run_cleanup = workspace
         .as_ref()
         .filter(|_| own_issues.is_empty())
-        .map(|workspace| RunCleanup {
-            clone: workspace.clone.clone(),
-            worktree: cwd.clone(),
-            branch: workspace.branch.clone(),
-            base_branch: workspace.base_branch.clone(),
+        .and_then(|workspace| {
+            Some(RunCleanup {
+                clone: workspace.clone.clone(),
+                worktree: cwd.clone(),
+                branch: workspace.branch.clone()?,
+                base_branch: workspace.base_branch.clone(),
+            })
         });
     Ok(Prepared::Ready(PreparedLaunch {
         session_id: session_id.clone(),
@@ -1671,7 +1808,7 @@ fn prepare_session(
         repository_id,
         branch: workspace
             .as_ref()
-            .map(|workspace| workspace.branch.clone())
+            .and_then(|workspace| workspace.branch.clone())
             .unwrap_or_default(),
         base_branch: run_cleanup.as_ref().map(|cleanup| cleanup.base_branch.clone()),
         base_ref: workspace
@@ -1710,7 +1847,8 @@ fn prepare_session(
 struct RepoWorkspace {
     clone: PathBuf,
     full_name: String,
-    branch: String,
+    /// `None` = a dispatcher's detached read-only checkout.
+    branch: Option<String>,
     /// What the branch was cut from (the parent's branch for a child).
     base_branch: String,
 }
@@ -1808,24 +1946,34 @@ fn prepare_resume(
             .filter(|value| !value.is_empty())
             .map(str::to_string)
     };
+    let dispatch = row.dispatch || record.is_dispatch();
     let options = LaunchOptions {
         agent,
         // The row's pick wins (a person may change the model on a live
-        // session); the record keeps what the run last ran on.
-        model: picked(&row.model).unwrap_or_else(|| record.model.clone()),
+        // session); the record keeps what the run last ran on. Explicit
+        // always: a blank falls to this machine's default (a dispatcher's:
+        // its thread model).
+        model: {
+            let model = picked(&row.model).unwrap_or_else(|| record.model.clone());
+            if dispatch && model.trim().is_empty() {
+                deps.settings.thread_model_for(agent).to_string()
+            } else {
+                explicit_model(agent, &model, &deps.settings)
+            }
+        },
         effort: picked(&row.effort).unwrap_or_else(|| record.effort.clone()),
-        ultracode: record.ultracode,
+        ultracode: record.ultracode && !dispatch,
         // The plan already happened in the run being continued.
         plan_mode: false,
-        // EXP-981: the run registry keeps no subagent pin, so a resume
-        // leaves claude's subagents on the CLI's own default.
-        subagent_model: String::new(),
+        // EXP-981: the run registry keeps no subagent pin, so a resume runs
+        // claude's subagents on this machine's subagent model.
+        subagent_model: deps.settings.subagent_model_for(agent).to_string(),
         // EXP-1292: the pick lives on the row, resolved server-side.
         mcp_server_ids: Vec::new(),
         // EXP-792: the SAME config dir (credentials, trust, codex rollouts)
         // the run used — unless this resume switches (gated below).
         account: resume_account.clone(),
-        computer_use: Some(row.computer_use),
+        computer_use: Some(row.computer_use && !dispatch),
     };
     let profile_dir = crate::agent_profiles::account_dir(
         &deps.data_dir,
@@ -1880,7 +2028,7 @@ fn prepare_resume(
         std::fs::create_dir_all(&cwd)
             .map_err(|e| CodingError::Io(format!("re-create session scratch dir: {e}")))?;
         crate::scratch::touch(&cwd);
-    } else if !cwd.is_dir() && !workspace_reclaimed {
+    } else if !cwd.is_dir() && !workspace_reclaimed && !record.is_dispatch() {
         return Err(CodingError::Io(format!(
             "this session's workspace is gone ({})",
             cwd.display()
@@ -1961,6 +2109,18 @@ fn prepare_resume(
                     }
                     cwd = worktree;
                 }
+            }
+            // A dispatcher's shared checkout is re-made (or refreshed) at
+            // the current default, detached like a fresh launch's.
+            None if record.is_dispatch() => {
+                crate::git_worktree::validate_branch_arg(&minted.default_branch, "dispatcher base")?;
+                cwd = deps.worktrees.prepare_detached(
+                    &deps.settings.repos_root_path(),
+                    url.full_name(),
+                    &minted.default_branch,
+                    &url,
+                    minted.expires_at.as_deref(),
+                )?;
             }
             // A branch-less repo-backed record still needs its ambient auth
             // reinstalled.
@@ -2186,7 +2346,7 @@ fn prepare_resume(
     let system_append = crate::skill::system_append_layers(
         req.brief.team_prompt.as_deref(),
         req.brief.agent_instructions.as_deref(),
-        &run_extras(deps, computer_use, code_mode),
+        &run_extras(deps, computer_use, code_mode, dispatch || dispatches(row)),
     );
     // EXP-1051: a NATIVE resume re-enters a transcript whose base context
     // this launch never built, so the recorded measured number is the only
@@ -2384,7 +2544,7 @@ fn shell_system_append(deps: &CodingDeps, team_id: Option<&str>) -> String {
 /// context_layers`]). Every number is a BYTE COUNT of something this
 /// launcher itself composed:
 ///
-/// - the playbook, verbatim ([`crate::skill::RUN_SKILL`]);
+/// - the playbook, verbatim ([`crate::skill::playbook`]);
 /// - the brief's team prompt and agent instructions, read back off the
 ///   composed `system_append` (which is what actually reaches the agent);
 /// - the seed prompt, `None` when there is none;
@@ -3099,23 +3259,95 @@ mod tests {
     #[test]
     fn the_branch_rule_is_the_rows_then_one_issue_then_the_session_id() {
         let mut fresh = row(SESSION_ID, Some("repo-1"));
-        assert_eq!(session_branch(&fresh, &["EXP-42".to_string()], "exp/"), "exp/EXP-42");
+        let one = ["EXP-42".to_string()];
+        assert_eq!(session_branch(&fresh, &one, "exp/", None), "exp/EXP-42");
         // Several issues (or none): the session's own, lowercased so the
         // server's identifier parse can never link it.
         let two = ["EXP-42".to_string(), "EXP-43".to_string()];
-        assert_eq!(session_branch(&fresh, &two, "exp/"), "exp/session-5ecb3c42");
-        assert_eq!(session_branch(&fresh, &[], "exp/"), "exp/session-5ecb3c42");
+        assert_eq!(session_branch(&fresh, &two, "exp/", None), "exp/session-5ecb3c42");
+        assert_eq!(session_branch(&fresh, &[], "exp/", None), "exp/session-5ecb3c42");
         assert!(SESSION_BRANCH_PREFIX.starts_with("exp/"));
         // A row that already runs on a branch keeps it (a reclaimed row).
         fresh.branch = Some("exp/EXP-7".to_string());
-        assert_eq!(session_branch(&fresh, &two, "exp/"), "exp/EXP-7");
+        assert_eq!(session_branch(&fresh, &two, "exp/", None), "exp/EXP-7");
         fresh.branch = Some("  ".to_string());
-        assert_eq!(session_branch(&fresh, &[], "exp/"), "exp/session-5ecb3c42");
-        // EXP-1292: a child is handed its ROOT's issue, whose session runs on
-        // that branch — the child takes its own.
+        assert_eq!(session_branch(&fresh, &[], "exp/", None), "exp/session-5ecb3c42");
+        // EXP-1292: a child of a CODING parent is handed its ROOT's issue,
+        // whose branch the parent runs on: the child takes its own.
         let mut child = row(SESSION_ID, Some("repo-1"));
         child.parent_id = Some("parent-1".to_string());
-        assert_eq!(session_branch(&child, &["EXP-42".to_string()], "exp/"), "exp/session-5ecb3c42");
+        assert_eq!(
+            session_branch(&child, &one, "exp/", Some("exp/EXP-42")),
+            "exp/session-5ecb3c42"
+        );
+        // A DISPATCHER's child (the parent has no branch) takes the issue
+        // branch: the issue naming moved from the root to its work child.
+        assert_eq!(session_branch(&child, &one, "exp/", None), "exp/EXP-42");
+        assert_eq!(session_branch(&child, &one, "exp/", Some("  ")), "exp/EXP-42");
+        assert_eq!(session_branch(&child, &two, "exp/", None), "exp/session-5ecb3c42");
+        // The dispatcher root itself never owns the issue work.
+        let mut dispatcher = row(SESSION_ID, Some("repo-1"));
+        dispatcher.dispatch = true;
+        assert!(!owns_issue_work(&dispatcher, None));
+        assert!(owns_issue_work(&row(SESSION_ID, None), None));
+        assert!(owns_issue_work(&child, None) && !owns_issue_work(&child, Some("exp/x")));
+    }
+
+    /// Who reads the Dispatch playbook: a dispatcher root and every team
+    /// agent's channel, never a work child or a pre-dispatch thread.
+    #[test]
+    fn dispatchers_and_agents_read_the_dispatch_playbook() {
+        let mut thread = row("t-1", None);
+        assert!(!dispatches(&thread));
+        thread.dispatch = true;
+        assert!(dispatches(&thread));
+        let mut agent = row("a-1", None);
+        agent.kind = Some("agent".to_string());
+        assert!(dispatches(&agent), "a pre-dispatch agent is a caretaker too");
+        let mut child = row("c-1", None);
+        child.parent_id = Some("t-1".to_string());
+        assert!(!dispatches(&child));
+    }
+
+    /// A dispatcher root runs on the device's THREAD model for its agent,
+    /// never plans, runs ultracode or drives the screen, whatever the row
+    /// or the host defaults say; every launch carries an explicit model.
+    #[test]
+    fn a_dispatcher_launches_on_the_thread_model_with_plan_mode_off() {
+        let dir = temp_dir("dispatch-options");
+        let mut deps = make_deps("http://127.0.0.1:1", &dir.0, fake_worktrees(&dir.0.join("wt")));
+        let mut dispatcher = row("d-1", None);
+        dispatcher.dispatch = true;
+        dispatcher.model = Some("opus".to_string());
+        dispatcher.effort = Some("max".to_string());
+        dispatcher.ultracode = true;
+        dispatcher.computer_use = true;
+        let mut host = base_options();
+        host.plan_mode = true;
+        host.ultracode = true;
+        host.effort = "high".to_string();
+        let options = session_launch_options(&dispatcher, &host, &deps.settings);
+        assert_eq!(options.model, "haiku", "the contract thread model");
+        assert_eq!(options.effort, "");
+        assert!(!options.plan_mode && !options.ultracode);
+        assert_eq!(options.computer_use, Some(false));
+        assert_eq!(options.subagent_model, "opus", "explicit subagents too");
+        deps.settings.claude_thread_model = "sonnet".to_string();
+        assert_eq!(session_launch_options(&dispatcher, &host, &deps.settings).model, "sonnet");
+        // A codex dispatcher: the codex thread model.
+        dispatcher.cli = Some("codex".to_string());
+        let options = session_launch_options(&dispatcher, &host, &deps.settings);
+        assert_eq!(options.agent, CodingAgent::Codex);
+        assert_eq!(options.model, "gpt-5.6-luna");
+        // A blank model anywhere still launches explicit.
+        let mut blank_host = base_options();
+        blank_host.model = String::new();
+        let mut plain = row("p-1", None);
+        plain.model = None;
+        assert_eq!(session_launch_options(&plain, &blank_host, &deps.settings).model, "fable");
+        plain.cli = Some("codex".to_string());
+        deps.settings.codex_model = String::new();
+        assert_eq!(session_launch_options(&plain, &blank_host, &deps.settings).model, "gpt-5.6-sol");
     }
 
     #[test]
@@ -3331,6 +3563,80 @@ mod tests {
         assert_eq!(record.base_branch.as_deref(), Some("exp/EXP-41"));
     }
 
+    /// A DISPATCHER root reads, never codes: the clone's checkout DETACHED
+    /// at the default branch, no branch reported (the row's stays null), no
+    /// run cleanup, the Dispatch playbook instead of the coding-work parts,
+    /// and the record flagged for its resume.
+    #[test]
+    fn a_dispatcher_root_runs_branchless_in_the_detached_checkout() {
+        let dir = temp_dir("dispatch-root");
+        let worktree = dir.0.join("dispatch");
+        fs::create_dir_all(&worktree).unwrap();
+        let (base, captured) = canned_server_recording(vec![
+            (200, TOKEN_OK.to_string()),
+            (200, RESOLVE_NONE.to_string()),
+        ]);
+        let worktrees = fake_worktrees(&worktree);
+        let deps = make_deps(&base, &dir.0, worktrees.clone());
+        let mut dispatcher = row("disp-1", Some("repo-d"));
+        dispatcher.dispatch = true;
+
+        let prepared = ready(launch(session_request(dispatcher, &["EXP-42"]), &deps));
+        assert_eq!(prepared.branch, "", "no branch of its own");
+        assert_eq!(prepared.worktree, worktree);
+        assert!(prepared.run_cleanup.is_none());
+        assert_eq!(prepared.issue_identifier, "EXP-42");
+        assert_eq!(prepared.acp.options.model, "haiku");
+        assert!(!prepared.acp.options.plan_mode && !prepared.plan_mode);
+        let seen = worktrees.seen.lock().unwrap().clone();
+        assert_eq!(seen.len(), 1);
+        assert_eq!((seen[0].1.as_str(), seen[0].2.as_str()), ("main", ""), "detached at the default");
+        let append = &prepared.acp.system_append;
+        assert!(append.contains(crate::skill::DISPATCH_HEADING));
+        for heading in crate::skill::CODING_ONLY_HEADINGS {
+            assert!(!append.contains(heading), "{heading}");
+        }
+        let requests = captured.lock().unwrap();
+        assert_eq!(requests.len(), 2, "{requests:?}");
+        assert!(!requests.iter().any(|r| r.contains("sessions.report")), "{requests:?}");
+        drop(requests);
+        let record = crate::run_registry::get(&dir.0, "disp-1").expect("record");
+        assert!(record.is_dispatch() && record.resumable());
+        assert_eq!(record.branch, None);
+        assert_eq!(record.base_branch.as_deref(), Some("main"));
+        assert_eq!(record.model, "haiku");
+    }
+
+    /// A dispatcher's WORK child (its brief names no parent branch) cuts
+    /// from the repo default and takes the root's one issue branch, owning
+    /// the issue work like a pre-dispatch root did.
+    #[test]
+    fn a_dispatchers_child_takes_the_issue_branch_off_the_default() {
+        let dir = temp_dir("dispatch-child");
+        let worktree = dir.0.join("wt");
+        fs::create_dir_all(&worktree).unwrap();
+        let (base, captured) = canned_server_recording(repo_calls());
+        let worktrees = fake_worktrees(&worktree);
+        let deps = make_deps(&base, &dir.0, worktrees.clone());
+        let mut child = row(SESSION_ID, Some("repo-dc"));
+        child.parent_id = Some("disp-1".to_string());
+        child.root_id = Some("disp-1".to_string());
+        let prepared = ready(launch(session_request(child, &["EXP-42"]), &deps));
+        assert_eq!(prepared.branch, "exp/EXP-42");
+        let seen = worktrees.seen.lock().unwrap().clone();
+        assert_eq!((seen[0].1.as_str(), seen[0].2.as_str()), ("main", "exp/EXP-42"));
+        assert!(prepared.run_cleanup.is_none(), "an issue's worktree is the prune's");
+        assert!(!prepared.acp.system_append.contains(crate::skill::DISPATCH_HEADING));
+        let requests = captured.lock().unwrap();
+        assert!(requests[1].ends_with(&format!(
+            r#"{{"sessionId":"{SESSION_ID}","branch":"exp/EXP-42"}}"#
+        )));
+        drop(requests);
+        let record = crate::run_registry::get(&dir.0, SESSION_ID).expect("record");
+        assert_eq!(record.issues, vec!["EXP-42".to_string()]);
+        assert!(!record.is_dispatch());
+    }
+
     /// EXP-1292: an issue sits in many threads — a second one starting while
     /// a LIVE session here holds the issue's branch takes its own branch
     /// instead of sharing the checkout.
@@ -3440,7 +3746,8 @@ mod tests {
         let append = &prepared.acp.system_append;
         let team = append.find(crate::skill::TEAM_PROMPT_HEADING).expect("team block");
         let agent = append.find(crate::skill::AGENT_INSTRUCTIONS_HEADING).expect("agent block");
-        assert!(append.starts_with(crate::skill::RUN_SKILL.trim_end()));
+        // An agent's channel reads the Dispatch playbook (the caretaker).
+        assert!(append.starts_with(crate::skill::playbook(true).trim_end()));
         assert!(team < agent, "{append}");
         assert!(append.ends_with("Triage new issues.\n"), "{append}");
         // Both server layers count as the team segment.
@@ -3491,7 +3798,7 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
         let before = append.strip_suffix(&format!("\n\n{note}")).unwrap();
         // EXP-1236: every launch carries the code-mode server, so its
         // section rides between the playbook and the team prompt.
-        let extras = crate::skill::Extras { computer_use: None, code_mode: true };
+        let extras = crate::skill::Extras { code_mode: true, ..crate::skill::Extras::NONE };
         let unnoted = crate::skill::system_append_layers(Some("Always write tests."), None, &extras);
         assert_eq!(before, unnoted.trim_end());
         assert_eq!(
@@ -4333,6 +4640,41 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
             }
             other => panic!("expected the missing-workspace error, got {other:?}"),
         }
+    }
+
+    /// A DISPATCHER's record has no branch and a shared checkout: a resume
+    /// whose dir is gone re-makes it detached, on the recorded thread model,
+    /// and keeps the Dispatch playbook.
+    #[test]
+    fn a_dispatcher_resume_re_makes_its_detached_checkout() {
+        let dir = temp_dir("resume-dispatch");
+        let checkout = dir.0.join("dispatch");
+        let (base, _captured) = canned_server_recording(vec![
+            (200, TOKEN_OK.to_string()),
+            (200, RESOLVE_NONE.to_string()),
+        ]);
+        let worktrees = fake_worktrees(&checkout);
+        let deps = make_deps(&base, &dir.0, worktrees.clone());
+        let mut record = resume_record(&dir.0, "disp-old");
+        record.clone = Some(dir.0.join("clone"));
+        record.repository_id = Some("repo-d".to_string());
+        record.repo = Some("acme/web".to_string());
+        record.cwd = dir.0.join("vanished");
+        record.model = "haiku".to_string();
+        record.extra.insert(
+            crate::run_registry::DISPATCH_KEY.to_string(),
+            serde_json::Value::Bool(true),
+        );
+        let mut req = resume_request(record);
+        req.session.model = None;
+        let prepared = ready(launch(req, &deps));
+        assert_eq!(prepared.worktree, checkout);
+        assert_eq!(prepared.branch, "");
+        assert_eq!(prepared.acp.options.model, "haiku");
+        assert!(!prepared.acp.options.ultracode);
+        assert!(prepared.acp.system_append.contains(crate::skill::DISPATCH_HEADING));
+        let seen = worktrees.seen.lock().unwrap().clone();
+        assert_eq!((seen[0].1.as_str(), seen[0].2.as_str()), ("main", ""));
     }
 
     /// A session's worktree the prune reclaimed once its PR merged: the

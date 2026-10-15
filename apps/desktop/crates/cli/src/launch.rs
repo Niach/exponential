@@ -531,6 +531,9 @@ pub fn session_row_from_remote(remote: &RemoteSession, input: &SessionsSendInput
         plan_mode: input.plan_mode.unwrap_or(false),
         computer_use: input.computer_use.unwrap_or(false),
         ultracode: input.ultracode.unwrap_or(false),
+        // The MCP projection carries no `dispatch`: every NEW root the
+        // server queues is a dispatcher (threads and team agents alike).
+        dispatch: input.session_id.is_none() && input.parent_id.is_none(),
         repository_id: remote.repository_id.clone(),
         branch: remote.branch.clone(),
         status: Some(if remote.status.is_empty() {
