@@ -4548,13 +4548,14 @@
         },
         "anchorDelayMs": 2500,
         "env": {
-          "EXP_DEV_SHOW_WORK": "1"
+          "EXP_DEV_SHOW_WORK": "1",
+          "EXP_DEV_SCROLL_TO": "work-card"
         }
       },
       "notes": {
         "web": "The raw session view (`session`; EXP-1293: its feed always shows the work): `scrollToWorkCards` centres the demo feed's workflow card (`cold-start-review`, apps/web/scripts/screenshot-desktop.ts). Needs `bun run screenshots:desktop`, like `steering`.",
         "web-mobile": "Inherits web: the phone transcript draws the same card at full width.",
-        "desktop": "The `steering` drive with `EXP_DEV_SHOW_WORK=1`: the demo feed's workflow card (apps/web/scripts/screenshot-desktop.ts) sits in the transcript. Needs `bun run screenshots:desktop` and the steer relay, like `steering`."
+        "desktop": "The `steering` drive with `EXP_DEV_SHOW_WORK=1` and `EXP_DEV_SCROLL_TO=work-card`: the transcript parks on the demo feed's workflow card (`cold-start-review`, apps/web/scripts/screenshot-desktop.ts) instead of the tail. Needs `bun run screenshots:desktop` and the steer relay, like `steering`."
       }
     },
     {

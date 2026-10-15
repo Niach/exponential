@@ -1313,16 +1313,21 @@ impl SteerSessionView {
     /// while that row's index moves (the replay still landing rows above
     /// it), so a wheel is never fought.
     fn dev_scroll_to_script_card(&mut self) {
-        if !crate::screens::dev_scroll_to_script_card() {
+        let Some(target) = crate::screens::dev_scroll_to() else {
             return;
-        }
+        };
         let items = self.feed.items();
         let script_row = self.rows.iter().position(|spec| {
             spec.item_indices().iter().any(|&ix| {
-                matches!(
-                    items.get(ix).map(|item| &item.kind),
-                    Some(FeedKind::Tool { name, .. }) if steer::script_card::is_script_tool(name)
-                )
+                let Some(item) = items.get(ix) else { return false };
+                match target {
+                    // EXP-1324: the workflow's Work card rides its tool row.
+                    "work-card" => self.workflow_of(item).is_some(),
+                    _ => matches!(
+                        &item.kind,
+                        FeedKind::Tool { name, .. } if steer::script_card::is_script_tool(name)
+                    ),
+                }
             })
         });
         let Some(row) = script_row else {

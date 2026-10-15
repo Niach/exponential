@@ -420,6 +420,13 @@
         "bytes": 44838,
         "sha256": "02be8d86bdb789edff4b4a684c064b92e96dcfde19bf60d24ae4b28dfc284355"
       },
+      "desktop": {
+        "file": "shots/code-block/desktop.webp",
+        "width": 1800,
+        "height": 1126,
+        "bytes": 44792,
+        "sha256": "c369c06ce2bdf62f754ab439e612687656cc7b7bdc088e24967316da9bcc38d0"
+      },
       "ios": {
         "file": "shots/code-block/ios.webp",
         "width": 828,
@@ -2997,8 +3004,8 @@
         "file": "shots/issue-detail/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 69402,
-        "sha256": "4d8fcda7213819ac3b51d4c0114a56139affdf51a9f7c5166f9c3fa76bb0099f"
+        "bytes": 68994,
+        "sha256": "84d1f31a60a15299220845906f33575f3ebb43a99b32c99f722ebed375ad131c"
       },
       "ios": {
         "file": "shots/issue-detail/ios.webp",
@@ -3459,8 +3466,8 @@
         "file": "shots/session/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 78310,
-        "sha256": "df758ffeb4bf83e301ee0b465a529dc990e02a912d746dbc0227fd5b1bd19f3d"
+        "bytes": 77466,
+        "sha256": "5b8e6e4b98303ef9c0de54e7ba18b5b70b39984aaf273e0e4b19f5432d5a2a68"
       },
       "ios": {
         "file": "shots/session/ios.webp",
@@ -4119,6 +4126,13 @@
         "bytes": 37548,
         "sha256": "2a373a03a01c501f77c3450062299eb744c60c153a7c0536cf4284aff9c418e9"
       },
+      "desktop": {
+        "file": "shots/trace/desktop.webp",
+        "width": 1800,
+        "height": 1126,
+        "bytes": 42928,
+        "sha256": "43027f6d653335b86ffe2fa9d4e635d7a0c4db4a13893d6245fa732fb2e4889e"
+      },
       "ios": {
         "file": "shots/trace/ios.webp",
         "width": 828,
@@ -4153,8 +4167,8 @@
         "file": "shots/work-card/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 78332,
-        "sha256": "dc3f78423840bb6832e4e1e824c9579315c4e30c35fd5f3b7156f69cb7825f73"
+        "bytes": 74108,
+        "sha256": "0a48e095e7f5702d28d5b3c97b5482e2c339baec3316603bd040224322f53733"
       },
       "ios": {
         "file": "shots/work-card/ios.webp",
