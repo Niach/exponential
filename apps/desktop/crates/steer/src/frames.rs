@@ -318,6 +318,23 @@ pub enum ActivityEvent {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         at: Option<i64>,
     },
+    /// EXP-1324: a THOUGHT's lifecycle, never its text. `started` on the
+    /// first thought chunk, `ended` (with `durationMs`) when the thought
+    /// closes — the next non-thought update in its lane or the turn end.
+    /// Clients paint the Trace Reasoning line off it ("Thinking" shimmering,
+    /// then "Thought for 5s"); the chain of thought itself stays on the
+    /// device (the desktop's own line opens to it). `id` pairs the edges.
+    #[serde(rename_all = "camelCase")]
+    Thought {
+        id: String,
+        state: ThoughtState,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        duration_ms: Option<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        subagent_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        at: Option<i64>,
+    },
     /// A tool-call headline: the tool name + a single primary argument
     /// (file path / pattern / Bash description — NEVER a command string or a
     /// tool result). `subagentId` attributes the call to a running
@@ -699,6 +716,14 @@ pub enum ActivityEvent {
     },
 }
 
+/// EXP-1324: the two edges of an [`ActivityEvent::Thought`].
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ThoughtState {
+    Started,
+    Ended,
+}
+
 /// EXP-861: one unread message of the [`ActivityEvent::Queue`] slot.
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
 pub struct QueuedMessage {
@@ -733,6 +758,10 @@ pub struct BackgroundTask {
     /// — the tool row a client may link the line to.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tool_id: Option<String>,
+    /// EXP-1324: when the engine FIRST saw the task (unix ms) — the Queue's
+    /// ticking elapsed time. Kept across re-listings of the same id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub started_at: Option<i64>,
 }
 
 /// Contract `backgroundTaskKind` — claude's `task_type` folded onto four
@@ -1464,6 +1493,8 @@ impl ActivityEvent {
             ActivityEvent::Narration { text, .. } | ActivityEvent::UserMessage { text, .. } => {
                 vec![text]
             }
+            // EXP-1324: a thought's edges carry no text at all.
+            ActivityEvent::Thought { .. } => vec![],
             ActivityEvent::Tool { name, detail, .. } => {
                 let mut fields = vec![name];
                 fields.extend(detail.as_mut());
@@ -1602,6 +1633,7 @@ impl ActivityEvent {
     pub fn at_mut(&mut self) -> &mut Option<i64> {
         match self {
             ActivityEvent::Narration { at, .. }
+            | ActivityEvent::Thought { at, .. }
             | ActivityEvent::Tool { at, .. }
             | ActivityEvent::Diff { at, .. }
             | ActivityEvent::UserMessage { at, .. }
@@ -4028,12 +4060,14 @@ mod exp850_tests {
                 kind: BackgroundTaskKind::Shell,
                 description: "Sleep in the background".to_string(),
                 tool_id: Some("toolu_01MCRoRaXN1cvEsHJzDEg2B3".to_string()),
+                started_at: None,
             },
             BackgroundTask {
                 id: "w5zr2977l".to_string(),
                 kind: BackgroundTaskKind::Workflow,
                 description: "Probe the workflow progress wire".to_string(),
                 tool_id: None,
+                started_at: None,
             },
         ]);
         let json = serde_json::to_string(&event).unwrap();
@@ -4054,6 +4088,50 @@ mod exp850_tests {
             BackgroundTaskKind::from_task_type("local_teleport"),
             BackgroundTaskKind::Other
         );
+    }
+
+    /// EXP-1324: a thought's edges and a background task's first sight, in
+    /// the relay's field names; a thought never carries text.
+    #[test]
+    fn thought_edges_and_started_at_serialize_to_the_relay_schema() {
+        let started = ActivityEvent::Thought {
+            id: "m-1#thought".to_string(),
+            state: ThoughtState::Started,
+            duration_ms: None,
+            subagent_id: None,
+            at: None,
+        };
+        let json = serde_json::to_string(&started).unwrap();
+        assert_eq!(json, r#"{"kind":"thought","id":"m-1#thought","state":"started"}"#);
+        assert_eq!(serde_json::from_str::<ActivityEvent>(&json).unwrap(), started);
+        let ended = ActivityEvent::Thought {
+            id: "m-1#thought".to_string(),
+            state: ThoughtState::Ended,
+            duration_ms: Some(5400),
+            subagent_id: Some("task-1".to_string()),
+            at: Some(7),
+        };
+        let json = serde_json::to_string(&ended).unwrap();
+        assert_eq!(
+            json,
+            r#"{"kind":"thought","id":"m-1#thought","state":"ended","durationMs":5400,"subagentId":"task-1","at":7}"#
+        );
+        assert_eq!(serde_json::from_str::<ActivityEvent>(&json).unwrap(), ended);
+        let mut ended = ended;
+        assert!(ended.text_fields_mut().is_empty());
+        let tasks = ActivityEvent::background_tasks(vec![BackgroundTask {
+            id: "b1".to_string(),
+            kind: BackgroundTaskKind::Shell,
+            description: "Rerun the captures".to_string(),
+            tool_id: None,
+            started_at: Some(1_792_000_000_000),
+        }]);
+        let json = serde_json::to_string(&tasks).unwrap();
+        assert_eq!(
+            json,
+            r#"{"kind":"background_tasks","tasks":[{"id":"b1","kind":"shell","description":"Rerun the captures","startedAt":1792000000000}]}"#
+        );
+        assert_eq!(serde_json::from_str::<ActivityEvent>(&json).unwrap(), tasks);
     }
 
     /// EXP-850 §3: the workflow card. Field order IS serialization order and
@@ -4120,6 +4198,7 @@ mod exp850_tests {
             kind: BackgroundTaskKind::Shell,
             description: "sleep".to_string(),
             tool_id: Some("toolu_1".to_string()),
+            started_at: None,
         }]);
         assert_eq!(
             tasks.text_fields_mut().iter().map(|f| f.as_str()).collect::<Vec<_>>(),

@@ -1931,6 +1931,46 @@ describe(`activity event kinds`, () => {
     expect(kept[0].id).toBe(`w5zr2977l`)
   })
 
+  // EXP-1324: `startedAt` survives the re-serialize.
+  test(`background_tasks carries startedAt`, () => {
+    const hub = new Hub()
+    const pub = connectPublisher(hub)
+    const tasks = [
+      { id: `b1`, kind: `shell`, description: `Rerun the captures`, startedAt: 1792000000000 },
+    ]
+    activity(hub, pub, { kind: `background_tasks`, tasks })
+    expect(slot(hub, `background_tasks`)).toEqual({ kind: `background_tasks`, tasks })
+  })
+
+  // EXP-1324: a thought's edges are LOG rows like `tool` (replayed in order,
+  // never a slot), every declared field survives, and its text never does.
+  test(`thought edges replay in order like tool rows`, () => {
+    const hub = new Hub()
+    const pub = connectPublisher(hub)
+    activity(hub, pub, { kind: `thought`, id: `m-1#thought`, state: `started` })
+    activity(hub, pub, { kind: `thought`, id: `m-1#thought`, state: `ended`, durationMs: 5400 })
+    activity(hub, pub, { kind: `tool`, name: `Bash`, id: `tc-1`, toolKind: `execute` })
+    activity(hub, pub, {
+      kind: `thought`,
+      id: `s-1#thought`,
+      state: `started`,
+      subagentId: `task-1`,
+      text: `the chain of thought`,
+    })
+    // An unknown state drops the frame whole.
+    activity(hub, pub, { kind: `thought`, id: `x`, state: `paused` })
+
+    const member = connectMember(hub)
+    expect(member.events()).toEqual([
+      { kind: `thought`, id: `m-1#thought`, state: `started` },
+      { kind: `thought`, id: `m-1#thought`, state: `ended`, durationMs: 5400 },
+      { kind: `tool`, name: `Bash`, id: `tc-1`, toolKind: `execute` },
+      { kind: `thought`, id: `s-1#thought`, state: `started`, subagentId: `task-1` },
+    ] as never)
+    // A subagent's thought sits in the evictable subagent tier.
+    expect(room(hub).activityLog.at(-1)?.subagentTool).toBe(`task-1`)
+  })
+
   // EXP-927: `task_list` is a latest-wins slot, replayed right behind
   // `background_tasks` (the strip it renders in) and before the diff.
   test(`task_list is latest-wins, replayed after background_tasks`, () => {

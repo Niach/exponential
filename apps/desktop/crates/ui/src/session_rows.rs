@@ -741,6 +741,7 @@ mod tests {
             kind: steer::BackgroundTaskKind::Shell,
             description: "Sleep in the background".to_string(),
             tool_id: None,
+            started_at: None,
         }];
         let mut waiting = tool(2, Some(ToolKind::Wait), false, None);
         if let FeedKind::Tool { detail, name, .. } = &mut waiting.kind {
@@ -768,6 +769,7 @@ mod tests {
             kind,
             description: description.to_string(),
             tool_id: None,
+            started_at: None,
         };
         let tasks = vec![
             task(steer::BackgroundTaskKind::Agent, "Explore the crate"),

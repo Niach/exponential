@@ -303,6 +303,12 @@ pub struct Mapper {
     /// actually went out — an identical re-emit says nothing, exactly like
     /// `config_state`.
     last_background_tasks: Option<ActivityEvent>,
+    /// EXP-1324: when the engine first saw each LISTED background task (unix
+    /// ms), by task id — the wire's `startedAt`. Pruned to the current list.
+    background_seen: HashMap<String, i64>,
+    /// EXP-1324: the thoughts open right now, one per lane (main = `None`
+    /// subagent). `started` went out; `ended` goes when the lane moves on.
+    open_thoughts: Vec<OpenThought>,
     /// Keyed by workflow id and kept in first-appearance order, capped at
     /// [`steer::journal::JOURNAL_WORKFLOW_CAP`] like every other fold of this
     /// slot (the journal, the relay room, the local feed) — a mapper lives
@@ -434,6 +440,16 @@ struct Coalescer {
     since: Option<Instant>,
 }
 
+/// EXP-1324: one thought in flight — the id its `started` edge carried, the
+/// agent message it belongs to (a new message id is a new thought), its lane
+/// and when it opened (the `ended` edge's `durationMs`).
+struct OpenThought {
+    id: String,
+    message_id: Option<String>,
+    subagent_id: Option<String>,
+    since: Instant,
+}
+
 /// One coalesced message, with the identity every event it produces carries:
 /// the agent's `messageId` (EXP-772, the clients' merge key) and the subagent
 /// it belongs to (EXP-773).
@@ -555,6 +571,8 @@ impl Mapper {
             turn_tokens: 0,
             turn_tokens_published_at: None,
             last_background_tasks: None,
+            background_seen: HashMap::new(),
+            open_thoughts: Vec::new(),
             last_workflows: Vec::new(),
             compacting_since: None,
             ordinal: 0,
@@ -686,6 +704,7 @@ impl Mapper {
             SessionUpdate::UserMessageChunk(chunk) => {
                 self.flush_message(out);
                 self.flush_thought(out);
+                self.close_thought(chunk_subagent.as_deref(), out);
                 // EXP-873: an id-less USER chunk is a whole message (the
                 // adapters never stream a user message as deltas — claude
                 // replays each one as one entry, and its interrupt marker is
@@ -710,6 +729,7 @@ impl Mapper {
                 }
                 self.flush_user(out);
                 self.flush_thought(out);
+                self.close_thought(chunk_subagent.as_deref(), out);
                 if let Some(flushed) =
                     self.message.push(message_id(chunk), chunk_subagent, &chunk_text(chunk))
                 {
@@ -726,13 +746,20 @@ impl Mapper {
                 self.reopen_on_output(out);
                 self.flush_user(out);
                 self.flush_message(out);
-                if let Some(flushed) = self.thought.push(message_id(chunk), chunk_subagent, &text) {
+                let source_id = message_id(chunk);
+                if let Some(flushed) =
+                    self.thought.push(source_id.clone(), chunk_subagent.clone(), &text)
+                {
                     self.emit_thought(&flushed, out);
                 }
+                self.open_thought(source_id, chunk_subagent, &text, out);
             }
             SessionUpdate::ToolCall(call) => {
                 // EXP-1224 (C): so is a tool call.
                 self.reopen_on_output(out);
+                // EXP-1324: the lane's thought ends where its work starts.
+                self.flush_scope(chunk_subagent.as_deref(), out);
+                self.close_thought(chunk_subagent.as_deref(), out);
                 self.on_tool_call(call, notification.meta.as_ref(), out)
             }
             SessionUpdate::ToolCallUpdate(update) => self.on_tool_call_update(update, out),
@@ -1296,6 +1323,15 @@ impl Mapper {
                 .map(|id| steer::truncate(id, ID_MAX))
                 .filter(|id| !id.is_empty());
         }
+        // EXP-1324: the Queue's elapsed time counts from the engine's FIRST
+        // sight of a task id, kept across re-listings.
+        let now = steer::now_unix_millis();
+        self.background_seen
+            .retain(|id, _| tasks.iter().any(|task| task.id == *id));
+        for task in tasks.iter_mut() {
+            let seen = *self.background_seen.entry(task.id.clone()).or_insert(now);
+            task.started_at = Some(seen);
+        }
         let event = ActivityEvent::background_tasks(tasks);
         if self.last_background_tasks.as_ref() == Some(&event) {
             return;
@@ -1783,6 +1819,78 @@ impl Mapper {
         self.flush_message(out);
         self.flush_thought(out);
         self.flush_user(out);
+        // EXP-1324: every caller is a hard boundary (a card, a prompt, a
+        // stop, a compaction): no thought outlives it.
+        self.close_all_thoughts(out);
+    }
+
+    /// EXP-1324: the `started` edge of a thought — once per thought. A chunk
+    /// of a NEW agent message in the same lane closes the old one first.
+    fn open_thought(
+        &mut self,
+        message_id: Option<String>,
+        subagent_id: Option<String>,
+        text: &str,
+        out: &mut MapOut,
+    ) {
+        if let Some(index) = self
+            .open_thoughts
+            .iter()
+            .position(|open| open.subagent_id == subagent_id)
+        {
+            let open = &self.open_thoughts[index];
+            if open.message_id == message_id || message_id.is_none() {
+                return;
+            }
+            // The push above already flushed the old message's text (a new
+            // id is a coalescer boundary); the buffer now holds the new one.
+            let open = self.open_thoughts.remove(index);
+            emit_thought_ended(open, out);
+        }
+        let id = match &message_id {
+            Some(id) => thought_message_id(id),
+            None => self.synthetic_id("thought", text),
+        };
+        emit(
+            out,
+            ActivityEvent::Thought {
+                id: id.clone(),
+                state: steer::ThoughtState::Started,
+                duration_ms: None,
+                subagent_id: subagent_id.clone(),
+                at: None,
+            },
+            None,
+        );
+        self.open_thoughts.push(OpenThought {
+            id,
+            message_id,
+            subagent_id,
+            since: Instant::now(),
+        });
+    }
+
+    /// EXP-1324: the `ended` edge of `subagent_id`'s lane thought, if one is
+    /// open. Its text (the local half) flushes first.
+    fn close_thought(&mut self, subagent_id: Option<&str>, out: &mut MapOut) {
+        let Some(index) = self
+            .open_thoughts
+            .iter()
+            .position(|open| open.subagent_id.as_deref() == subagent_id)
+        else {
+            return;
+        };
+        if self.thought.subagent_id.as_deref() == subagent_id {
+            self.flush_thought(out);
+        }
+        let open = self.open_thoughts.remove(index);
+        emit_thought_ended(open, out);
+    }
+
+    fn close_all_thoughts(&mut self, out: &mut MapOut) {
+        for open in std::mem::take(&mut self.open_thoughts) {
+            emit_thought_ended(open, out);
+        }
     }
 
     /// EXP-846 — flush only the buffers in `subagent_id`'s OWN lane.
@@ -2016,18 +2124,14 @@ impl Mapper {
             return;
         }
         let clean = self.clean(&flushed.text, NARRATION_MAX);
-        let message_id = flushed.message_id.as_ref().map(|id| thought_message_id(id));
-        emit(
-            out,
-            ActivityEvent::Narration {
-                text: clean.clone(),
-                before_question_id: None,
-                message_id: message_id.clone(),
-                subagent_id: flushed.subagent_id.clone(),
-                at: None,
-            },
-            None,
-        );
+        // The id of the thought this text belongs to — the open one in its
+        // lane (its `started` edge already went out), else the derived id.
+        let message_id = self
+            .open_thoughts
+            .iter()
+            .find(|open| open.subagent_id == flushed.subagent_id)
+            .map(|open| open.id.clone())
+            .or_else(|| flushed.message_id.as_ref().map(|id| thought_message_id(id)));
         out.local.push(LocalFeedEvent::Thought {
             message_id,
             text: clean,
@@ -3699,6 +3803,22 @@ fn message_id(chunk: &ContentChunk) -> Option<String> {
     chunk.message_id.as_ref().map(|id| id.0.to_string())
 }
 
+/// EXP-1324: the `ended` edge of one thought.
+fn emit_thought_ended(open: OpenThought, out: &mut MapOut) {
+    let duration_ms = u64::try_from(open.since.elapsed().as_millis()).unwrap_or(u64::MAX);
+    emit(
+        out,
+        ActivityEvent::Thought {
+            id: open.id,
+            state: steer::ThoughtState::Ended,
+            duration_ms: Some(duration_ms),
+            subagent_id: open.subagent_id,
+            at: None,
+        },
+        None,
+    );
+}
+
 /// The suffix that separates a thought's narration id from its message's.
 const THOUGHT_ID_SUFFIX: &str = "#thought";
 
@@ -4173,13 +4293,24 @@ mod tests {
             .iter()
             .map(|event| serde_json::to_value(event).unwrap()["kind"].as_str().unwrap().to_string())
             .collect();
-        assert_eq!(kinds, vec!["user_message", "narration", "narration"], "{:?}", out.wire);
+        // EXP-1324: the thought is its two edges on the wire, in place.
+        assert_eq!(
+            kinds,
+            vec!["user_message", "thought", "thought", "narration"],
+            "{:?}",
+            out.wire
+        );
         let texts: Vec<String> = out
             .wire
             .iter()
-            .map(|event| serde_json::to_value(event).unwrap()["text"].as_str().unwrap().to_string())
+            .filter_map(|event| serde_json::to_value(event).unwrap()["text"].as_str().map(str::to_string))
             .collect();
-        assert_eq!(texts, vec!["fix the login bug", "Planning the fix", "On it."]);
+        assert_eq!(texts, vec!["fix the login bug", "On it."]);
+        // The chain of thought stays local.
+        assert!(out.local.iter().any(|event| matches!(
+            event,
+            LocalFeedEvent::Thought { text, .. } if text == "Planning the fix"
+        )));
     }
 
     #[test]
@@ -5471,15 +5602,20 @@ mod tests {
         ));
     }
 
-    /// A thought and the answer that follows it carry ONE agent `messageId`,
-    /// and clients merge narration rows by it: the thought has to publish
-    /// under an id of its own or the chain of thought lands in the answer.
+    /// EXP-1324: a thought is a `thought` lifecycle on the wire — `started`
+    /// on its first chunk, `ended` with a duration when the answer begins —
+    /// and NEVER its text. The local item carries the text under the same id,
+    /// so the desktop's own Reasoning line opens to it.
     #[test]
-    fn a_thought_and_its_answer_never_share_a_message_id() {
+    fn a_thought_is_its_edges_on_the_wire_and_its_text_stays_local() {
         let mut mapper = mapper();
         let mut out = MapOut::default();
         mapper.on_update(
-            &notify(SessionUpdate::AgentThoughtChunk(chunk("Weighing it up", Some("msg-1")))),
+            &notify(SessionUpdate::AgentThoughtChunk(chunk("Weighing ", Some("msg-1")))),
+            &mut out,
+        );
+        mapper.on_update(
+            &notify(SessionUpdate::AgentThoughtChunk(chunk("it up", Some("msg-1")))),
             &mut out,
         );
         mapper.on_update(
@@ -5487,28 +5623,99 @@ mod tests {
             &mut out,
         );
         mapper.on_stop(StopReason::EndTurn, &mut out);
-        let ids: Vec<Option<String>> = out
+        let id = thought_message_id("msg-1");
+        let thoughts: Vec<&ActivityEvent> = out
+            .wire
+            .iter()
+            .filter(|event| matches!(event, ActivityEvent::Thought { .. }))
+            .collect();
+        assert_eq!(thoughts.len(), 2, "{:?}", out.wire);
+        assert!(matches!(
+            thoughts[0],
+            ActivityEvent::Thought { id: got, state: steer::ThoughtState::Started, duration_ms: None, .. }
+                if *got == id
+        ));
+        assert!(matches!(
+            thoughts[1],
+            ActivityEvent::Thought { id: got, state: steer::ThoughtState::Ended, duration_ms: Some(_), .. }
+                if *got == id
+        ));
+        // No thought text rides the wire: the one narration is the answer.
+        let narration: Vec<&str> = out
             .wire
             .iter()
             .filter_map(|event| match event {
-                ActivityEvent::Narration { message_id, .. } => Some(message_id.clone()),
+                ActivityEvent::Narration { text, .. } => Some(text.as_str()),
                 _ => None,
             })
             .collect();
-        assert_eq!(ids.len(), 2, "{:?}", out.wire);
-        assert_ne!(ids[0], ids[1], "the thought merged into the answer row");
-        // The answer keeps the agent's own id; the thought derives one, so
-        // two thoughts of one message still merge with each other.
-        assert_eq!(ids[1], Some("msg-1".to_string()));
-        assert_eq!(ids[0], Some(thought_message_id("msg-1")));
-        // The local item agrees with the wire row.
+        assert_eq!(narration, vec!["Here is the fix."]);
+        assert!(!serde_json::to_string(&out.wire).unwrap().contains("Weighing"));
+        // The local item carries the text under the wire's id.
         assert!(out.local.iter().any(|event| matches!(
             event,
-            LocalFeedEvent::Thought { message_id, .. }
-                if message_id.as_deref() == Some(thought_message_id("msg-1").as_str())
+            LocalFeedEvent::Thought { message_id, text }
+                if message_id.as_deref() == Some(id.as_str()) && text == "Weighing it up"
         )));
         // A long id still fits the relay's id cap after the suffix.
         assert!(thought_message_id(&"m".repeat(ID_MAX * 2)).len() <= ID_MAX);
+    }
+
+    /// EXP-1324: a subagent's thought closes in ITS lane only, and a turn end
+    /// closes every open one.
+    #[test]
+    fn thoughts_close_per_lane_and_at_the_turn_end() {
+        let mut mapper = mapper();
+        let mut out = MapOut::default();
+        mapper.on_update(
+            &notify(SessionUpdate::AgentThoughtChunk(chunk("Main lane", Some("m-1")))),
+            &mut out,
+        );
+        let mut sub = notify(SessionUpdate::AgentMessageChunk(chunk("sub says", Some("s-1"))));
+        let mut meta = serde_json::Map::new();
+        meta.insert(SUBAGENT_ID_META_KEY.to_string(), serde_json::json!("task-1"));
+        sub.meta = Some(meta);
+        mapper.on_update(&sub, &mut out);
+        let ended = |out: &MapOut| {
+            out.wire
+                .iter()
+                .filter(|event| {
+                    matches!(event, ActivityEvent::Thought { state: steer::ThoughtState::Ended, .. })
+                })
+                .count()
+        };
+        assert_eq!(ended(&out), 0, "a subagent's prose must not close the main thought");
+        mapper.on_stop(StopReason::EndTurn, &mut out);
+        assert_eq!(ended(&out), 1);
+    }
+
+    /// EXP-1324: every listed background task carries the engine's first
+    /// sight of it, kept across re-listings.
+    #[test]
+    fn background_tasks_carry_their_first_sight() {
+        let mut mapper = mapper();
+        let task = |id: &str, description: &str| {
+            serde_json::json!({ "id": id, "kind": "shell", "description": description })
+        };
+        let mut out = MapOut::default();
+        mapper.emit_background_tasks(serde_json::json!([task("b1", "one")]), &mut out);
+        let first = match out.wire.last() {
+            Some(ActivityEvent::BackgroundTasks { tasks, .. }) => tasks[0].started_at,
+            other => panic!("{other:?}"),
+        };
+        assert!(first.is_some());
+        let mut out = MapOut::default();
+        mapper.emit_background_tasks(
+            serde_json::json!([task("b1", "one"), task("b2", "two")]),
+            &mut out,
+        );
+        match out.wire.last() {
+            Some(ActivityEvent::BackgroundTasks { tasks, .. }) => {
+                assert_eq!(tasks[0].started_at, first);
+                assert!(tasks[1].started_at.is_some());
+            }
+            other => panic!("{other:?}"),
+        }
     }
 
     /// codex streams a tool call's output PAST its completed status: the

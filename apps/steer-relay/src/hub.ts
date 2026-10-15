@@ -1287,6 +1287,7 @@ export class Hub {
     if (
       (event.kind === `tool` ||
         event.kind === `narration` ||
+        event.kind === `thought` ||
         event.kind === `api_error`) &&
       event.subagentId
     ) {

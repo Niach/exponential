@@ -971,6 +971,7 @@ mod exp850_tests {
                     kind: crate::frames::BackgroundTaskKind::Shell,
                     description: format!("task {i}"),
                     tool_id: None,
+                    started_at: None,
                 })
                 .collect(),
         )

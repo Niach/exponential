@@ -4409,7 +4409,20 @@ impl SteerSessionView {
                 error_type,
                 ..
             } => self.render_api_error_row(message, error_type.as_deref(), cx),
+            FeedKind::Thought { .. } => self.render_thought(item, cx),
         }
+    }
+
+    /// EXP-1324: the Reasoning line (placeholder until the Trace lands).
+    fn render_thought(&self, item: &FeedItem, cx: &mut gpui::Context<Self>) -> AnyElement {
+        let FeedKind::Thought { running, duration_ms, .. } = &item.kind else {
+            return div().into_any_element();
+        };
+        let line = steer::trace::trace_reasoning(*running, *duration_ms);
+        tool_text(div())
+            .text_color(cx.theme().muted_foreground)
+            .child(SharedString::from(line.title))
+            .into_any_element()
     }
 
     /// A transient failure the agent CLI reported inline (claude's

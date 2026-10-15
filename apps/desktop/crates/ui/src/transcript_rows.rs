@@ -175,6 +175,15 @@ pub(crate) fn row_fingerprint(
                 card.header.as_ref().map(String::len).hash(&mut hasher);
             }
             FeedKind::Compaction => {}
+            // EXP-1324: the Reasoning line's title moves with its state.
+            FeedKind::Thought {
+                running,
+                duration_ms,
+                ..
+            } => {
+                running.hash(&mut hasher);
+                duration_ms.hash(&mut hasher);
+            }
         }
     }
     hasher.finish()

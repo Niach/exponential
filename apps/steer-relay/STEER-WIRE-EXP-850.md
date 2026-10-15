@@ -59,8 +59,11 @@ zod) but REJECTS `toolKind: "script"`, so the relay deploys first.
 ## 2. `background_tasks` (latest-wins slot)
 
 ```
-{ kind: "background_tasks", tasks: [{ id, kind, description, toolId? }], at }
+{ kind: "background_tasks", tasks: [{ id, kind, description, toolId?, startedAt? }], at }
 ```
+EXP-1324: `startedAt` = when the ENGINE first saw the task id (unix ms, kept
+across re-listings) — the Queue's ticking elapsed time; a client without it
+counts from its own first sight.
 `kind` ∈ contract `backgroundTaskKind` (`local_bash` → `shell`,
 `local_workflow` → `workflow`, `local_agent` → `agent`, else `other`);
 `description` ≤ 160 chars; `toolId` = the launching tool_use_id when known.
@@ -399,3 +402,19 @@ through `crates/steer` `control_channel`, which ignores a `start_session`
 whose `startId` it already started (in-memory, the last 256 ids within 30 min;
 a restart forgets them). A start that failed (`steer.reportStartFailure`)
 gives its id back, so its Retry may run.
+
+## 15. `thought` rows (EXP-1324)
+
+```
+{ kind: "thought", id, state: "started" | "ended", durationMs?, subagentId?, at }
+```
+A thought's LIFECYCLE, never its text (thoughts used to ride as `narration`
+under a `<messageId>#thought` id; that is gone). `started` on the first
+thought chunk, `ended` with `durationMs` when the thought closes: the next
+message/user/tool update in its lane, or any hard boundary (a card, a prompt,
+the turn end). `id` = `<messageId>#thought`, or a synthetic one for an id-less
+thought; `subagentId` scopes it like narration. A LOG row like `tool`: replayed
+in order, the subagent tier evicts it first. Clients paint the Trace
+Reasoning line: `started` alone = "Thinking" (shimmer), `ended` = "Thought for
+5s" (`fixtures/trace.json`). The running desktop keeps the text locally and
+opens its line to it; every other viewer's line is not expandable.
