@@ -793,7 +793,7 @@ fun ThreadAskCard(row: SessionTree.ThreadRow, onAnswer: ThreadAnswer, onDecidePl
         is SessionTree.ThreadRow.Question -> AgentFeedItem.Question(
             id = row.id.hashCode().toLong(),
             text = row.question,
-            options = row.options.map { QuestionOption(label = it, key = it) },
+            options = row.options.map { QuestionOption(label = it.label, key = it.label, description = it.description) },
             multiSelect = false,
             resolved = row.answered,
             answer = row.answer,

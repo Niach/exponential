@@ -343,12 +343,15 @@ object SessionTree {
         data class Question(
             override val id: String,
             val question: String,
-            val options: List<String>,
+            val options: List<QuestionChoice>,
             /** A free-text "Other" answer is offered (always, EXP-1316). */
             val custom: Boolean,
             val answer: String?,
             val answered: Boolean,
         ) : ThreadRow
+
+        /** One choice of a question card: the answer is the [label] (EXP-1322). */
+        data class QuestionChoice(val label: String, val description: String?)
 
         data class Plan(override val id: String, val plan: String, val decision: String?) : ThreadRow
 
@@ -483,8 +486,16 @@ object SessionTree {
                     ThreadRow.Question(
                         id = message.id,
                         question = card.text("question"),
-                        options = (card["options"] as? JsonArray)?.map { option ->
-                            if (option is JsonPrimitive) option.content else option.toString()
+                        // EXP-1322: a synced option is a bare label or `{label, description?}`.
+                        // anything else is dropped (`questionOption`).
+                        options = (card["options"] as? JsonArray)?.mapNotNull { option ->
+                            when {
+                                option is JsonPrimitive && option.isString -> ThreadRow.QuestionChoice(option.content, null)
+                                option is JsonObject -> option.str("label")?.let { label ->
+                                    ThreadRow.QuestionChoice(label, option.str("description")?.takeIf { it.isNotEmpty() })
+                                }
+                                else -> null
+                            }
                         } ?: emptyList(),
                         custom = true,
                         answer = card.str("answer"),

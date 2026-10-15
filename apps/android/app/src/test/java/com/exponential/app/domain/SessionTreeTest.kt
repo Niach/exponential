@@ -161,7 +161,17 @@ class SessionTreeTest {
             put("type", "question")
             put("id", row.id)
             put("question", row.question)
-            put("options", JsonArray(row.options.map(::JsonPrimitive)))
+            put(
+                "options",
+                JsonArray(
+                    row.options.map { option ->
+                        buildJsonObject {
+                            put("label", option.label)
+                            put("description", nullable(option.description))
+                        }
+                    },
+                ),
+            )
             put("custom", row.custom)
             put("answer", nullable(row.answer))
             put("answered", row.answered)
