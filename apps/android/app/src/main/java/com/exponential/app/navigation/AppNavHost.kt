@@ -451,6 +451,7 @@ private fun AuthenticatedNav(
     // EXP-1291: the Threads tab's amber dot (a thread needs a person).
     val threadsVm: ThreadsViewModel = hiltViewModel()
     val threadsNeedYou by threadsVm.needsYou.collectAsStateWithLifecycle()
+    val threadsUnread by threadsVm.unread.collectAsStateWithLifecycle()
     // EXP-825: every launcher entry point is NAVIGATION onto the Agent page
     // with a preselection seed — every play button with what it acts on.
     // The seed rides the route string, so the concrete route differs per seed:
@@ -663,7 +664,10 @@ private fun AuthenticatedNav(
         composable(Routes.THREADS) {
             // EXP-1291: the Threads tab (it replaced Reviews) — a row opens
             // its thread, an agent row its channel (the same screen).
-            ThreadsScreen(onOpenThread = { id -> navController.navigate(Routes.thread(id)) })
+            ThreadsScreen(
+                onOpenThread = { id -> navController.navigate(Routes.thread(id)) },
+                onOpenSession = { id -> navController.navigate(Routes.session(id)) },
+            )
         }
         composable("settings") {
             SettingsScreen(
@@ -954,6 +958,7 @@ private fun AuthenticatedNav(
             agentsRunning = agentsRunning,
             agentsNeedInput = agentsNeedInput,
             threadsNeedYou = threadsNeedYou,
+            threadsUnread = threadsUnread,
             // The Chat arm (the Agent page, with its sessions list and live
             // dot) rides every top-level surface, with New issue beside it in
             // one capsule (EXP-827/EXP-973) — dimmed while the team has no

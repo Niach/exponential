@@ -1,6 +1,12 @@
 package com.exponential.app.ui.thread
 
 import android.content.Intent
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.layout.RowScope
+import com.exponential.app.ui.components.GlassPill
+import com.exponential.app.ui.components.GlassSheet
+import com.exponential.app.ui.components.GlassSheetRow
+import com.exponential.app.ui.components.PillSize
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -25,6 +31,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -465,18 +472,51 @@ internal fun sessionToneColor(tone: String): Color = when (tone) {
  * account or branch. Tapping opens that session ([onClick]).
  */
 @Composable
-fun SessionCard(card: SessionTree.SessionCard, onClick: (() -> Unit)?, modifier: Modifier = Modifier) {
+fun SessionCard(
+    card: SessionTree.SessionCard,
+    onClick: (() -> Unit)?,
+    modifier: Modifier = Modifier,
+    /** EXP-1323: inside another card (a started suggestion): no own shell. */
+    bare: Boolean = false,
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .then(if (bare) Modifier else Modifier.threadCard())
+            .then(if (onClick != null) Modifier.clickable(role = Role.Button, onClick = onClick) else Modifier)
+            .testTag(card.testId),
+    ) {
+        SessionCardHeader(card)
+        // EXP-1323: the live caption = the muted second line, at the name's x
+        // (12dp padding + the 14dp icon + its 8dp gap).
+        card.caption?.let { caption ->
+            Text(
+                caption,
+                style = threadCardTextStyle(),
+                color = Muted,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    // Drawn 6dp up into the header row (web `-mt-1.5`): the
+                    // 2dp of layout below + those 6 = the 8dp bottom inset.
+                    .offset(y = (-6).dp)
+                    .padding(start = 34.dp, end = 12.dp, bottom = 2.dp)
+                    .testTag("session-card-caption"),
+            )
+        }
+    }
+}
+
+@Composable
+private fun SessionCardHeader(card: SessionTree.SessionCard) {
     val style = threadCardTextStyle()
     val muted = Muted
     val toneColor = sessionToneColor(card.tone)
     Row(
-        modifier = modifier
+        modifier = Modifier
             .fillMaxWidth()
-            .threadCard()
-            .then(if (onClick != null) Modifier.clickable(role = Role.Button, onClick = onClick) else Modifier)
             .height(WorkCardSpec.HEADER.dp)
-            .padding(horizontal = 12.dp)
-            .testTag(card.testId),
+            .padding(horizontal = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -543,6 +583,13 @@ fun ThreadConversation(
     state: LazyListState = rememberLazyListState(),
     /** The floating band's height: the jump button sits above it. */
     jumpBottomInset: Dp = 0.dp,
+    /** EXP-1323: a report line / a started suggestion opens that session. */
+    onOpenSession: ((sessionId: String) -> Unit)? = null,
+    /** EXP-1323: the suggested tasks cards' actions (null = read-only). */
+    suggestions: ThreadSuggestionActions? = null,
+    /** EXP-1323: the live tail after the last row (the Tasks card + the
+     *  status line), the host's; null = none. */
+    tail: (@Composable () -> Unit)? = null,
 ) {
     val shown = remember(rows, agent, rootId) {
         if (agent != null) rows.filterNot { it is SessionTree.ThreadRow.SessionRow && it.id == rootId } else rows
@@ -620,7 +667,19 @@ fun ThreadConversation(
                     )
                     is SessionTree.ThreadRow.Picture -> ThreadPictureRow(row)
                     is SessionTree.ThreadRow.Event -> ThreadEventLine(row.text)
+                    is SessionTree.ThreadRow.Report -> ThreadReportLine(
+                        text = row.text,
+                        onOpen = onOpenSession?.let { open -> { open(row.sessionId) } },
+                    )
+                    is SessionTree.ThreadRow.Suggestions -> ThreadSuggestionsCard(
+                        row = row,
+                        actions = suggestions,
+                        onOpenSession = onOpenSession,
+                    )
                 }
+            }
+            if (tail != null) {
+                item(key = "__live_tail__") { tail() }
             }
         }
         JumpToBottomButton(
@@ -862,3 +921,339 @@ fun ThreadEventLine(text: String) {
     )
 }
 
+// ── EXP-1323: reports + suggested tasks ─────────────────────────────────────
+
+/** EXP-1323: a child's report = ONE event line `Report from <session> ›`
+ *  opening that session; its summary is never repeated (the parent's next
+ *  message relays it). */
+@Composable
+fun ThreadReportLine(text: String, onOpen: (() -> Unit)?) {
+    Row(
+        modifier = Modifier
+            .then(if (onOpen != null) Modifier.clickable(role = Role.Button, onClick = onOpen) else Modifier)
+            .padding(horizontal = 4.dp, vertical = 2.dp)
+            .testTag("thread-report"),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Icon(ExpIcons.notificationReporterReply, contentDescription = null, tint = Muted, modifier = Modifier.size(14.dp))
+        Text(
+            text,
+            style = MaterialTheme.typography.labelSmall,
+            color = Muted,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f, fill = false),
+        )
+        if (onOpen != null) {
+            Icon(ExpIcons.uiChevronRight, contentDescription = null, tint = Muted, modifier = Modifier.size(14.dp))
+        }
+    }
+}
+
+/** A Start on… row: a runnable device. */
+data class SuggestionDevice(val id: String, val name: String, val icon: ImageVector)
+
+/**
+ * EXP-1323: what a suggested tasks card can do (`sessions.startSuggestion` /
+ * `startAllSuggestions` / `dismissSuggestion` / `fileSuggestion`). [models] =
+ * contract `codingModel` (value → label), never a Default row; [pending] =
+ * in-flight [suggestionKey]s.
+ */
+data class ThreadSuggestionActions(
+    val onStart: (rowId: String, itemId: String, deviceId: String?, model: String?) -> Unit,
+    val onStartAll: (rowId: String) -> Unit,
+    val onHere: (rowId: String, itemId: String) -> Unit,
+    val onDismiss: (rowId: String, itemId: String) -> Unit,
+    val onFile: (rowId: String, itemId: String) -> Unit,
+    val devices: List<SuggestionDevice> = emptyList(),
+    val models: List<Pair<String, String>> = emptyList(),
+    val pending: Set<String> = emptySet(),
+)
+
+/** The pending key of one item (or, without an item, the card's Start all). */
+fun suggestionKey(rowId: String, itemId: String? = null): String =
+    if (itemId != null) "$rowId:$itemId" else "$rowId:*"
+
+/**
+ * EXP-1323: THE suggested tasks card ×4 = the Work card's shell: a header
+ * (`3 suggested tasks`, `· 2 started`, Start all while more than one is open),
+ * then hairline-divided items. Open = title, text, × · and (phones STACK the
+ * buttons) Options · Do it here · Start; started = the child's session card
+ * (its caption under the name) opening it; here = `Sent here`; filed =
+ * `Filed EXP-9`.
+ */
+@Composable
+fun ThreadSuggestionsCard(
+    row: SessionTree.ThreadRow.Suggestions,
+    actions: ThreadSuggestionActions?,
+    onOpenSession: ((String) -> Unit)?,
+) {
+    var optionsFor by remember(row.id) { mutableStateOf<SessionTree.SuggestionRow?>(null) }
+    Column(modifier = Modifier.fillMaxWidth().threadCard().testTag("thread-suggestions")) {
+        Row(
+            modifier = Modifier.fillMaxWidth().heightIn(min = WorkCardSpec.HEADER.dp).padding(horizontal = 12.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Icon(ExpIcons.uiChecklist, contentDescription = null, tint = Muted, modifier = Modifier.size(14.dp))
+            Text(
+                row.header,
+                style = threadCardTextStyle().copy(fontWeight = FontWeight.Medium),
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f).testTag("thread-suggestions-header"),
+            )
+            if (row.startAll && actions != null) {
+                val key = suggestionKey(row.id)
+                GlassPill(
+                    label = SessionTree.SuggestionsCopy.START_ALL,
+                    onClick = { actions.onStartAll(row.id) },
+                    size = PillSize.Sm,
+                    primary = true,
+                    loading = key in actions.pending,
+                    enabled = key !in actions.pending,
+                    modifier = Modifier.testTag("thread-suggestions-start-all"),
+                )
+            }
+        }
+        row.items.forEach { item ->
+            HorizontalDivider(thickness = GlassTokens.Hairline, color = GlassTokens.StrokeRow)
+            SuggestionItemRow(
+                rowId = row.id,
+                item = item,
+                actions = actions,
+                onOpenSession = onOpenSession,
+                onOptions = { optionsFor = item },
+            )
+        }
+    }
+    val target = optionsFor
+    if (target != null && actions != null) {
+        SuggestionOptionsSheet(
+            item = target,
+            actions = actions,
+            onPick = { pick ->
+                optionsFor = null
+                pick(row.id, target.id)
+            },
+            onDismiss = { optionsFor = null },
+        )
+    }
+}
+
+@Composable
+private fun SuggestionItemRow(
+    rowId: String,
+    item: SessionTree.SuggestionRow,
+    actions: ThreadSuggestionActions?,
+    onOpenSession: ((String) -> Unit)?,
+    onOptions: () -> Unit,
+) {
+    val style = threadCardTextStyle()
+    val tag = Modifier.testTag("thread-suggestion-${item.state.wire}")
+    when (item.state) {
+        SessionTree.SuggestionState.Started -> {
+            val card = item.card
+            if (card != null) {
+                SessionCard(
+                    card = card,
+                    onClick = onOpenSession?.let { open -> { open(card.sessionId) } },
+                    bare = true,
+                    modifier = tag,
+                )
+            } else {
+                // Started; the child's row has not synced yet.
+                Row(
+                    modifier = tag.fillMaxWidth().heightIn(min = WorkCardSpec.HEADER.dp).padding(horizontal = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    InlineSpinner(size = 12.dp)
+                    Text(item.title, style = style, color = Muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+        }
+        SessionTree.SuggestionState.Here, SessionTree.SuggestionState.Filed -> Row(
+            modifier = tag.fillMaxWidth().heightIn(min = WorkCardSpec.HEADER.dp).padding(horizontal = 12.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(item.title, style = style, color = Muted, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+            Text(
+                if (item.state == SessionTree.SuggestionState.Here) {
+                    SessionTree.SuggestionsCopy.SENT_HERE
+                } else {
+                    SessionTree.SuggestionsCopy.FILED.replace("{issue}", item.identifier.orEmpty())
+                },
+                style = style,
+                color = Muted,
+                maxLines = 1,
+            )
+        }
+        SessionTree.SuggestionState.Open -> {
+            val busy = actions != null && suggestionKey(rowId, item.id) in actions.pending
+            Column(
+                modifier = tag.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            item.title,
+                            style = style.copy(fontWeight = FontWeight.Medium),
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        if (item.text.isNotEmpty()) {
+                            Spacer(Modifier.height(2.dp))
+                            Text(item.text, style = style, color = Muted)
+                        }
+                    }
+                    if (actions != null) {
+                        Box(
+                            modifier = Modifier
+                                .size(24.dp)
+                                .clip(CircleShape)
+                                .clickable(
+                                    enabled = !busy,
+                                    role = Role.Button,
+                                    onClickLabel = SessionTree.SuggestionsCopy.DISMISS,
+                                    onClick = { actions.onDismiss(rowId, item.id) },
+                                )
+                                .testTag("thread-suggestion-dismiss"),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                ExpIcons.uiClose,
+                                contentDescription = SessionTree.SuggestionsCopy.DISMISS,
+                                tint = Muted,
+                                modifier = Modifier.size(12.dp),
+                            )
+                        }
+                    }
+                }
+                if (actions != null) {
+                    // Phones STACK the buttons under the text (web `flex-col`).
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        GlassPill(
+                            label = SessionTree.SuggestionsCopy.OPTIONS,
+                            onClick = onOptions,
+                            size = PillSize.Md,
+                            enabled = !busy,
+                            trailing = {
+                                Icon(ExpIcons.uiChevronDown, contentDescription = null, modifier = Modifier.size(12.dp))
+                            },
+                            modifier = Modifier.fillMaxWidth().testTag("thread-suggestion-options"),
+                        )
+                        GlassPill(
+                            label = SessionTree.SuggestionsCopy.HERE,
+                            onClick = { actions.onHere(rowId, item.id) },
+                            size = PillSize.Md,
+                            enabled = !busy,
+                            modifier = Modifier.fillMaxWidth().testTag("thread-suggestion-here"),
+                        )
+                        GlassPill(
+                            label = SessionTree.SuggestionsCopy.START,
+                            onClick = { actions.onStart(rowId, item.id, null, null) },
+                            size = PillSize.Md,
+                            primary = true,
+                            loading = busy,
+                            enabled = !busy,
+                            modifier = Modifier.fillMaxWidth().testTag("thread-suggestion-start"),
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** What an Options pick does to (rowId, itemId). */
+private typealias SuggestionPick = (rowId: String, itemId: String) -> Unit
+
+/**
+ * EXP-1323: an open item's Options = THE menu as its phone sheet (the "+"'s
+ * idiom): Start on… › (the runnable devices) · Start with… › (the models,
+ * never a Default row) · File as issue · Dismiss. A submenu row pushes its
+ * page inside the sheet; back returns to the rows.
+ */
+@Composable
+private fun SuggestionOptionsSheet(
+    item: SessionTree.SuggestionRow,
+    actions: ThreadSuggestionActions,
+    onPick: (SuggestionPick) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var page by remember { mutableStateOf<String?>(null) }
+    val iconTint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
+    GlassSheet(title = item.title, onDismiss = onDismiss, modifier = Modifier.testTag("thread-suggestion-menu")) {
+        when (page) {
+            PAGE_DEVICE -> {
+                BackHandler { page = null }
+                GlassSheetRow(
+                    label = SessionTree.SuggestionsCopy.START_ON,
+                    onClick = { page = null },
+                    leading = { Icon(ExpIcons.uiBack, contentDescription = null, tint = iconTint, modifier = Modifier.size(18.dp)) },
+                )
+                actions.devices.forEach { device ->
+                    GlassSheetRow(
+                        label = device.name,
+                        onClick = { onPick { rowId, itemId -> actions.onStart(rowId, itemId, device.id, null) } },
+                        leading = { Icon(device.icon, contentDescription = null, tint = iconTint, modifier = Modifier.size(18.dp)) },
+                    )
+                }
+            }
+            PAGE_MODEL -> {
+                BackHandler { page = null }
+                GlassSheetRow(
+                    label = SessionTree.SuggestionsCopy.START_WITH,
+                    onClick = { page = null },
+                    leading = { Icon(ExpIcons.uiBack, contentDescription = null, tint = iconTint, modifier = Modifier.size(18.dp)) },
+                )
+                actions.models.forEach { (value, label) ->
+                    GlassSheetRow(
+                        label = label,
+                        onClick = { onPick { rowId, itemId -> actions.onStart(rowId, itemId, null, value) } },
+                    )
+                }
+            }
+            else -> {
+                val chevron: @Composable RowScope.() -> Unit = {
+                    Icon(ExpIcons.uiChevronRight, contentDescription = null, tint = iconTint, modifier = Modifier.size(16.dp))
+                }
+                GlassSheetRow(
+                    label = SessionTree.SuggestionsCopy.START_ON,
+                    onClick = { page = PAGE_DEVICE },
+                    enabled = actions.devices.isNotEmpty(),
+                    trailing = chevron,
+                )
+                GlassSheetRow(
+                    label = SessionTree.SuggestionsCopy.START_WITH,
+                    onClick = { page = PAGE_MODEL },
+                    enabled = actions.models.isNotEmpty(),
+                    trailing = chevron,
+                )
+                HorizontalDivider(
+                    thickness = GlassTokens.Hairline,
+                    color = GlassTokens.StrokeRow,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                )
+                GlassSheetRow(
+                    label = SessionTree.SuggestionsCopy.FILE,
+                    onClick = { onPick(actions.onFile) },
+                )
+                GlassSheetRow(
+                    label = SessionTree.SuggestionsCopy.DISMISS,
+                    onClick = { onPick(actions.onDismiss) },
+                )
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+    }
+}
+
+private const val PAGE_DEVICE = "device"
+private const val PAGE_MODEL = "model"

@@ -178,6 +178,7 @@ import com.exponential.app.domain.AgentFeedRow
 import com.exponential.app.domain.AgentHealthRules
 import com.exponential.app.domain.AgentPhase
 import com.exponential.app.domain.AgentRowClass
+import com.exponential.app.domain.ActivityFeedState
 import com.exponential.app.domain.AgentUsagePresentation
 import com.exponential.app.domain.ContextLayoutPresentation
 import com.exponential.app.domain.ConfigCommand
@@ -660,6 +661,8 @@ private fun RunFaceContent(
     // leaving the screen on a spinner nothing could clear. Foreground and
     // network revivals are the store's job, not this screen's.
     LaunchedEffect(Unit) { viewModel.ensureConnected() }
+    // EXP-1323: opening a session view reads it (bold rows + the nav dot).
+    LaunchedEffect(viewModel.codingSessionId) { viewModel.markRead() }
     // EXP-888: a sweep end is not an end — the composer stays live.
     val sessionEnded = session?.isEnded == true
     // A trailing question/plan means the session is blocked on a human — the
@@ -2356,13 +2359,48 @@ private const val WORKING_CLOCK_TICK_MS = 1_000L
 private const val WORKING_PULSE_MS = 1_400
 
 /**
+ * EXP-1323: a thread's live tail — the session view's Tasks card (while open
+ * tasks remain) and its working status line (mid-turn, nothing parked), both
+ * off [activity] = that session's relay state, reused as they are. Nothing
+ * shows while neither has anything to say.
+ */
+@Composable
+internal fun SessionLiveTail(activity: ActivityFeedState, session: SessionEntity?) {
+    val taskList = remember(activity.taskList) { taskListSummary(activity.taskList) }
+    val working = agentWorking(
+        live = true,
+        sessionEnded = session?.isEnded == true,
+        turnState = activity.turnState,
+        awaitingInput = false,
+        needsInput = session?.needsInput == true,
+        blocked = AgentUsagePresentation.parseBlocked(session?.blocked) != null,
+        compacting = activity.compacting != null,
+    )
+    if (taskList == null && !working) return
+    Column(
+        modifier = Modifier.fillMaxWidth().testTag("thread-live-tail"),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        if (taskList != null) TaskListWorkCard(entries = activity.taskList)
+        if (working) {
+            WorkingIndicatorRow(
+                startedAt = activity.turnStartedAt,
+                tokens = activity.turnTokens,
+                workflowCaption = activity.runningWorkflow()?.caption(),
+                agent = session?.cli?.takeIf { it.isNotBlank() } ?: DEFAULT_AGENT,
+            )
+        }
+    }
+}
+
+/**
  * EXP-927 (wire doc §2c): the agent's OWN task list — EXP-1191: the LAST
  * block above the composer. EXP-1240: as THE Work card (`Tasks · 3 / 7`, a
  * segment per task, the task in progress); opaque, since the band floats
  * over the transcript.
  */
 @Composable
-private fun TaskListWorkCard(entries: List<TaskListEntry>) {
+internal fun TaskListWorkCard(entries: List<TaskListEntry>) {
     val card = remember(entries) { taskListWorkCard(entries) }
     WorkCardView(
         card = card,

@@ -151,6 +151,22 @@ object SlashCommands {
             .firstOrNull { it.name.equals(head, ignoreCase = true) }
     }
 
+    /** EXP-1323: the contract's aside command (`/btw <question>`). */
+    const val ASIDE_COMMAND: String = "btw"
+
+    /**
+     * EXP-1323: the question of a `/btw <question>` draft when [agent] offers
+     * the command (contract `steerCommands` `btw`), else null. It never
+     * reaches the session as a message: the session view sends it as an
+     * aside child (`sessions.send({parentId, text, aside: true})`). A bare
+     * `/btw` asks nothing.
+     */
+    fun asideQuestion(text: String, agent: String?): String? {
+        val command = commandFor(text, agent) ?: return null
+        if (command.name != ASIDE_COMMAND) return null
+        return text.trim().drop(1 + command.name.length).trim().takeIf { it.isNotEmpty() }
+    }
+
     /** The confirm dialog's title — byte-identical ×4. */
     fun confirmTitle(name: String): String = "Run /$name?"
 

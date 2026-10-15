@@ -103,6 +103,8 @@ fun BottomNavBar(
     agentsNeedInput: Boolean,
     /** EXP-1291: an amber dot on Threads while a thread needs a person. */
     threadsNeedYou: Boolean,
+    /** EXP-1323: a thread has news the viewer has not read (`threadsUnread`). */
+    threadsUnread: Boolean = false,
     /** EXP-973: whether New issue has a board to file onto (it always shows). */
     composeEnabled: Boolean,
     onIssues: () -> Unit,
@@ -170,8 +172,9 @@ fun BottomNavBar(
                 contentDescription = "Threads",
                 testTag = "tab-threads",
                 active = threadsActive,
-                showDot = threadsNeedYou,
-                dotColor = AgentsNeedsInputAmber,
+                // EXP-1323: unread news lights it too; amber still wins.
+                showDot = threadsNeedYou || threadsUnread,
+                dotColor = if (threadsNeedYou) AgentsNeedsInputAmber else null,
                 onClick = onThreads,
             )
             // EXP-1187: Actions is a top-level tab (the More menu is gone;

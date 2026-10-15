@@ -694,6 +694,25 @@ class AgentSessionViewModel @AssistedInject constructor(
         val images = pendingImages.value
         if (text.isBlank() && images.isEmpty()) return
         if (_sending.value) return
+        // EXP-1323: `/btw <question>` = a read-only aside child of THIS
+        // session (its answer lands as a child card), never a message to it.
+        val aside = SlashCommands.asideQuestion(text, SlashCommands.agentId(session.value?.cli, sessionConfig.value != null))
+        if (aside != null && images.isEmpty()) {
+            viewModelScope.launch {
+                val accountId = auth.activeAccountId.value ?: return@launch
+                _sending.value = true
+                try {
+                    sessionsApi.send(accountId, SessionsSendInput.aside(codingSessionId, aside))
+                    connection.setDraft("")
+                } catch (t: Throwable) {
+                    if (t is CancellationException) throw t
+                    _sendError.value = trpcErrorMessage(t, "")
+                } finally {
+                    _sending.value = false
+                }
+            }
+            return
+        }
         viewModelScope.launch {
             val accountId = auth.activeAccountId.value ?: return@launch
             _sending.value = true
@@ -884,6 +903,19 @@ class AgentSessionViewModel @AssistedInject constructor(
 
     /** Detach from the connection — it keeps streaming for the next visit,
      *  and is dropped only once it has finished and nobody is watching. */
+    /** EXP-1323: opening a session view reads it (`sessions.markRead`);
+     *  background, so a failure stays silent. */
+    fun markRead() {
+        viewModelScope.launch {
+            val accountId = auth.activeAccountId.value ?: return@launch
+            try {
+                sessionsApi.markRead(accountId, codingSessionId)
+            } catch (t: Throwable) {
+                if (t is CancellationException) throw t
+            }
+        }
+    }
+
     override fun onCleared() {
         store.release(codingSessionId)
         super.onCleared()

@@ -984,6 +984,10 @@ class StyleguideScreenshotsTest {
         flow.screenshot("sg_script-card")
         showThreadCards(ThreadCardsKind.Comment)
         flow.screenshot("sg_comment-call-card")
+        // EXP-1323: the suggested tasks card (every item state), a child's
+        // report line and the session card's live caption.
+        showThreadCards(ThreadCardsKind.Suggestions)
+        flow.screenshot("sg_thread-suggestions")
 
         finished = true
     }

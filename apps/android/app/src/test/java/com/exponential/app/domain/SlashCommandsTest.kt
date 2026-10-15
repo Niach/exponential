@@ -31,8 +31,9 @@ class SlashCommandsTest {
         assertTrue("compact" in claude && "compact" in codex)
         // /clear is every agent's (the desktop maps it); it discards the
         // conversation, so it confirms.
-        assertEquals(listOf("compact", "clear"), claude)
-        assertEquals(claude, codex)
+        // EXP-1323: /btw (the aside) is claude's alone.
+        assertEquals(listOf("compact", "clear", "btw"), claude)
+        assertEquals(listOf("compact", "clear"), codex)
         // EXP-849: pi is gone from contract `codingAgent`, so its catalog — and
         // any unknown agent id's — is EMPTY rather than claude's.
         assertTrue(SlashCommands.catalogFor("pi").isEmpty())
@@ -97,6 +98,17 @@ class SlashCommandsTest {
         assertNull(SlashCommands.commandFor("compact", "claude"))
     }
 
+    @Test
+    fun `a btw draft is an aside question`() {
+        assertEquals("why is CI red?", SlashCommands.asideQuestion("/btw why is CI red?", "claude"))
+        assertEquals("x", SlashCommands.asideQuestion("  /BTW   x ", "claude"))
+        // A bare /btw asks nothing; codex has no aside; prose is not a command.
+        assertEquals(null, SlashCommands.asideQuestion("/btw", "claude"))
+        assertEquals(null, SlashCommands.asideQuestion("/btw why?", "codex"))
+        assertEquals(null, SlashCommands.asideQuestion("by the way /btw", "claude"))
+        assertEquals(null, SlashCommands.asideQuestion("/compact now", "claude"))
+    }
+
     // ── EXP-746: the run's own advertised commands ─────────────────────────
 
     @Test
@@ -107,7 +119,7 @@ class SlashCommandsTest {
             ConfigCommand("/usage", "Show usage"),
         )
         val merged = SlashCommands.merged(SlashCommands.catalogFor("claude"), agent)
-        assertEquals(listOf("compact", "clear", "review", "usage"), merged.map { it.name })
+        assertEquals(listOf("compact", "clear", "btw", "review", "usage"), merged.map { it.name })
         // Only the contract knows what discards context.
         assertFalse(merged.single { it.name == "review" }.confirm)
         assertEquals("<path>", merged.single { it.name == "review" }.argHint)
@@ -128,7 +140,7 @@ class SlashCommandsTest {
                 ConfigCommand("  ", "nameless"),
             ),
         )
-        assertEquals(listOf("compact", "clear", "review"), merged.map { it.name })
+        assertEquals(listOf("compact", "clear", "btw", "review"), merged.map { it.name })
         // The CONTRACT row survives, with its own copy and its confirm flag.
         assertTrue(merged.single { it.name == "compact" }.confirm.not())
         assertEquals("first wins", merged.single { it.name == "review" }.description)
@@ -138,7 +150,7 @@ class SlashCommandsTest {
     fun `the menu and the command lookup both see the advertised rows`() {
         val agent = listOf(ConfigCommand("review", "Review the diff"))
         assertEquals(
-            listOf("compact", "clear", "review"),
+            listOf("compact", "clear", "btw", "review"),
             SlashCommands.matches("/", "claude", agent).map { it.name },
         )
         assertEquals(listOf("review"), SlashCommands.matches("/rev", "claude", agent).map { it.name })

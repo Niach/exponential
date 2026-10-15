@@ -223,6 +223,33 @@ val MIGRATION_87_88: Migration = object : Migration(87, 88) {
     }
 }
 
+/**
+ * v89 (EXP-1323): `sessions.caption` + `aside`, `messages.author_session_id`
+ * and the NEW `session_reads` table (a per-user shape that snapshots from
+ * scratch). The sessions + messages shapes refetch (their offsets reset) so
+ * already-synced rows re-arrive carrying the new columns. DDL verbatim from
+ * the generated ExponentialDatabase_Impl.
+ */
+val MIGRATION_88_89: Migration = object : Migration(88, 89) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `sessions` ADD COLUMN `caption` TEXT")
+        db.execSQL("ALTER TABLE `sessions` ADD COLUMN `aside` INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE `messages` ADD COLUMN `author_session_id` TEXT")
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `session_reads` (`id` TEXT NOT NULL, `user_id` TEXT NOT NULL, " +
+                "`session_id` TEXT NOT NULL, `read_at` TEXT NOT NULL, `created_at` TEXT NOT NULL, " +
+                "`updated_at` TEXT NOT NULL, PRIMARY KEY(`id`))",
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_session_reads_session_id` ON `session_reads` (`session_id`)",
+        )
+        db.execSQL(
+            "UPDATE `electric_offsets` SET `handle` = '', `offset` = '-1', `is_live` = 0, " +
+                "`needs_refetch` = 1 WHERE `shape` IN ('sessions', 'messages')",
+        )
+    }
+}
+
 private fun rebuild(
     db: SupportSQLiteDatabase,
     table: String,

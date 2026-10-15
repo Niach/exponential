@@ -40,19 +40,34 @@ class ThreadsViewModel @Inject constructor(
         dbFlow.scopedQuery(emptyList()) { it.sessionIssueDao().observeAll() }.map { it.map(SessionTree::sessionIssue) },
         dbFlow.scopedQuery(emptyList()) { it.issueDao().observeAll() }.map { it.map(SessionTree::issue) },
         dbFlow.scopedQuery(emptyList()) { it.messageDao().observeAll() }.map { it.map(SessionTree::message) },
-    ) { s, links, issues, messages -> Inputs(s, links, issues, messages) }
+        // EXP-1323: the viewer's read marks (bold rows + the nav dot).
+        dbFlow.scopedQuery(emptyList()) { it.sessionReadDao().observeAll() }.map { it.map(SessionTree::sessionRead) },
+    ) { s, links, issues, messages, reads -> Inputs(s, links, issues, messages, reads) }
 
     private data class Inputs(
         val sessions: List<SessionTree.Session>,
         val links: List<SessionTree.SessionIssue>,
         val issues: List<SessionTree.Issue>,
         val messages: List<SessionTree.Message>,
+        val reads: List<SessionTree.SessionRead>,
     )
 
-    /** The grouped thread list across every member team (`teamId = null`). */
+    /** The grouped thread list across every member team (`teamId = null`);
+     *  EXP-1323: a live tree's children nest under their root (depth > 0). */
     val groups: StateFlow<List<SessionTree.ThreadsListGroup>> = inputs.map { input ->
-        SessionTree.partitionThreads(input.sessions, input.links, input.issues, input.messages, teamId = null)
+        SessionTree.partitionThreads(
+            input.sessions,
+            input.links,
+            input.issues,
+            input.messages,
+            teamId = null,
+            reads = input.reads,
+        )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** EXP-1323: the Threads nav dot (`threadsUnread`): a thread has news. */
+    val unread: StateFlow<Boolean> = groups.map(SessionTree::threadsUnread)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
     /** Each listed row's glyph + identifier, keyed by root session id. */
     val rowMeta: StateFlow<Map<String, ThreadRowMeta>> = combine(
@@ -103,7 +118,8 @@ class ThreadsViewModel @Inject constructor(
             val owner = s.associate { it.id to it.userId }
             g.filter { it.key == SessionTree.ThreadsGroupKey.NeedsYou || it.key == SessionTree.ThreadsGroupKey.Running }
                 .flatMap { it.rows }
-                .filter { owner[it.sessionId] == me }
+                // The threads themselves: nested children stay on the tab.
+                .filter { it.depth == 0 && owner[it.sessionId] == me }
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 

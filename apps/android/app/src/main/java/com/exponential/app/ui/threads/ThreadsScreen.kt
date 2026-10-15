@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -29,6 +30,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -36,6 +38,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.data.db.TeamEntity
 import com.exponential.app.domain.EmptyStateCopy
 import com.exponential.app.domain.SessionTree
+import com.exponential.app.domain.TreeGuides
 import com.exponential.app.ui.components.AgentRunMark
 import com.exponential.app.ui.components.AgentWorkingMark
 import com.exponential.app.ui.components.BottomBarInset
@@ -43,6 +46,7 @@ import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.ui.components.InlineSpinner
 import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.components.TeamSectionHeader
+import com.exponential.app.ui.components.TreeGuidesRow
 import com.exponential.app.ui.components.deviceIcon
 import com.exponential.app.ui.components.teamBands
 import com.exponential.app.ui.icons.ExpIcons
@@ -64,6 +68,8 @@ import com.exponential.app.ui.theme.flatRow
 @Composable
 fun ThreadsScreen(
     onOpenThread: (rootSessionId: String) -> Unit,
+    /** EXP-1323: a nested child row opens that session's view. */
+    onOpenSession: (sessionId: String) -> Unit = onOpenThread,
     viewModel: ThreadsViewModel = hiltViewModel(),
 ) {
     val groups by viewModel.groups.collectAsStateWithLifecycle()
@@ -79,6 +85,7 @@ fun ThreadsScreen(
             rowMeta = meta,
             words = words,
             onOpenThread = onOpenThread,
+            onOpenSession = onOpenSession,
             modifier = Modifier.padding(padding),
         )
     }
@@ -95,6 +102,8 @@ fun ThreadsContent(
     words: Map<String, SessionTree.ThreadRowWord>,
     onOpenThread: (rootSessionId: String) -> Unit,
     modifier: Modifier = Modifier,
+    /** EXP-1323: a nested child row (depth > 0) opens that session. */
+    onOpenSession: (sessionId: String) -> Unit = onOpenThread,
 ) {
     Column(modifier = modifier.fillMaxSize()) {
         // The root screens' header (Actions parity): a plain large title.
@@ -123,7 +132,7 @@ fun ThreadsContent(
                 }
                 item(key = "__agents_gap__") { Spacer(Modifier.height(12.dp)) }
             }
-            threadGroups(groups, teams, rowMeta, words, onOpenThread)
+            threadGroups(groups, teams, rowMeta, words, onOpenThread, onOpenSession)
         }
     }
 }
@@ -137,6 +146,7 @@ private fun LazyListScope.threadGroups(
     rowMeta: Map<String, ThreadRowMeta>,
     words: Map<String, SessionTree.ThreadRowWord>,
     onOpenThread: (String) -> Unit,
+    onOpenSession: (String) -> Unit,
 ) {
     val flat = groups.flatMap { group -> group.rows.map { GroupedRow(group.key, it) } }
     teamBands(flat, teams) { it.row.teamId }.forEach { band ->
@@ -148,14 +158,21 @@ private fun LazyListScope.threadGroups(
             item(key = "__group_${bandId}_${key.wire}__") {
                 SectionHeader(SessionTree.ListCopy.GROUPS.getValue(key), leading = { GroupGlyph(key) })
             }
-            items(rows, key = { "row_${it.row.sessionId}" }) { entry ->
-                ThreadListRow(
-                    row = entry.row,
-                    meta = rowMeta[entry.row.sessionId],
-                    onClick = { onOpenThread(entry.row.sessionId) },
-                    threadsTab = true,
-                    word = words[entry.row.sessionId],
-                )
+            // EXP-1323: a live tree's children hang off their root with THE
+            // tree connector (SessionRow depth + TreeGuides, ×4).
+            val guides = TreeGuides.compute(rows.map { it.row.depth })
+            itemsIndexed(rows, key = { _, it -> "row_${it.row.sessionId}" }) { index, entry ->
+                TreeGuidesRow(depth = entry.row.depth, guide = guides.getOrNull(index)) {
+                    ThreadListRow(
+                        row = entry.row,
+                        meta = rowMeta[entry.row.sessionId],
+                        onClick = {
+                            if (entry.row.depth == 0) onOpenThread(entry.row.sessionId) else onOpenSession(entry.row.sessionId)
+                        },
+                        threadsTab = true,
+                        word = words[entry.row.sessionId],
+                    )
+                }
             }
             item(key = "__group_gap_${bandId}_${key.wire}__") { Spacer(Modifier.height(12.dp)) }
         }
@@ -247,14 +264,29 @@ internal fun ThreadListRow(
         } else {
             AgentRunMark(agent = meta?.agent, state = state, size = 14.dp, badgeSize = 6.dp)
         }
-        Text(
-            row.title,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurface,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f),
-        )
+        Column(modifier = Modifier.weight(1f)) {
+            // EXP-1323: unread news = a bold title ×4.
+            Text(
+                row.title,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = if (row.unread) FontWeight.SemiBold else null,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.testTag(if (row.unread) "threads-row-unread" else "threads-row-title"),
+            )
+            // EXP-1323: the live caption (what it does right now), muted.
+            row.caption?.let { caption ->
+                Text(
+                    caption,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.testTag("threads-row-caption"),
+                )
+            }
+        }
         if (threadsTab && word != null) QuietWord(word)
         if (row.private) {
             Icon(
