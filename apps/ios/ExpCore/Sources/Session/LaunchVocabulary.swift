@@ -8,18 +8,20 @@ import Foundation
 // page composer, the trigger form, device launch defaults) now reads
 // them from here, so a contract change lands once.
 public enum LaunchVocabulary {
-    /// Sentinel for the blank "CLI default" choice (omit --effort; for codex
-    /// also the omit-model default — claude is explicit-always).
+    /// Sentinel for the blank "CLI default" EFFORT choice (omit --effort).
+    /// Models have no such row: every model is explicit (2026-10-15).
     public static let cliDefault = "cli-default"
 
     // MARK: - Option lists
 
-    /// Claude's model is explicit-always; codex offers a "CLI default" blank.
+    /// THE model list of an agent, for EVERY model pick (session model,
+    /// thread model, subagents, computer use): claude = contract
+    /// `codingModel`, codex = `codexModel`. No default row.
     /// Parameterized because a seed validates an advertised value against the
     /// agent it belongs to, which isn't always the selected one yet (EXP-437).
     public static func modelValues(for agent: String) -> [String] {
         switch agent {
-        case "codex": [cliDefault] + DomainContract.codexModelValues
+        case "codex": DomainContract.codexModelValues
         default: DomainContract.codingModelValues
         }
     }
@@ -31,31 +33,28 @@ public enum LaunchVocabulary {
         }
     }
 
-    /// The trigger variant's model list. A binding offers "CLI default" for
-    /// EVERY agent (a blank pin is what stores NULL on the row and lets the
-    /// machine decide), and the caller prepends it — so drop the copy
-    /// `modelValues` already inserts for codex.
-    public static func triggerModelValues(for agent: String) -> [String] {
-        modelValues(for: agent).filter { $0 != cliDefault }
-    }
-
+    /// The session model a machine that never set one runs (contract
+    /// `deviceAgentDefaults`).
     public static func defaultModel(for agent: String) -> String {
-        agent == "claude" ? (DomainContract.codingModelValues.first ?? "") : cliDefault
+        agent == "codex"
+            ? DomainContract.deviceAgentDefaultsCodexModel
+            : DomainContract.deviceAgentDefaultsModel
     }
 
-    /// EXP-981: the SUBAGENT model list — claude's own models plus a blank
-    /// "Default" row (the CLI's own choice), which is what an unset option
-    /// means. The blank is a real choice in a machine's launch defaults; on a
-    /// start it means the field is omitted (the server takes contract values
-    /// only).
-    public static func subagentModelValues() -> [String] {
-        [cliDefault] + DomainContract.codingModelValues
+    /// The dispatcher root's model (threads + team agents) a machine that
+    /// never set one runs.
+    public static func defaultThreadModel(for agent: String) -> String {
+        agent == "codex"
+            ? DomainContract.deviceAgentDefaultsCodexThreadModel
+            : DomainContract.deviceAgentDefaultsThreadModel
     }
 
-    /// The subagent model's blank row reads "Default", not "CLI default": it
-    /// is the agent's own subagent choice, not a flag we omit.
-    public static func subagentModelLabel(_ value: String) -> String {
-        value == cliDefault ? "Default" : modelLabel(value)
+    /// [value] when it is one of [agent]'s models, else [fallback] — absent,
+    /// blank (a pre-2026-10-15 "CLI default"), or a model this build cannot
+    /// name.
+    public static func seedModel(_ value: String?, for agent: String, fallback: String) -> String {
+        guard let value, modelValues(for: agent).contains(value) else { return fallback }
+        return value
     }
 
     /// Subagents are claude's (EXP-981) — codex has no such option, so the
@@ -64,26 +63,10 @@ public enum LaunchVocabulary {
         agent == "claude"
     }
 
-    /// EXP-1236: the Computer use model list — the aliases the run's
-    /// screen-driving subagents may run on, contract order, the default
-    /// (Haiku) first. A device-level pick, not an agent's: no blank row.
-    public static func computerUseModelValues() -> [String] {
-        DomainContract.computerUseModelValues
-    }
-
-    /// The Model picker's own alias labels (Haiku, Sonnet, Opus, Fable).
-    public static func computerUseModelLabel(_ value: String) -> String {
-        modelLabel(value)
-    }
-
     /// The stored `launchDefaults.computerUseModel` as the picker's draft: a
-    /// contract alias as itself, anything else (absent, an older row, a future
-    /// model this build cannot name) the contract default.
+    /// claude alias as itself, anything else the contract default.
     public static func seedComputerUseModel(_ advertised: String?) -> String {
-        if let advertised, DomainContract.computerUseModelValues.contains(advertised) {
-            return advertised
-        }
-        return DomainContract.deviceComputerUseDefaultsModel
+        seedModel(advertised, for: "claude", fallback: DomainContract.deviceComputerUseDefaultsModel)
     }
 
     /// Plan mode is claude's own (EXP-441); codex has no launch-into-plan
@@ -124,7 +107,6 @@ public enum LaunchVocabulary {
 
     public static func modelLabel(_ value: String) -> String {
         switch value {
-        case cliDefault: "CLI default"
         case "gpt-5.6-sol": "GPT-5.6 Sol"
         case "gpt-5.6-terra": "GPT-5.6 Terra"
         case "gpt-5.6-luna": "GPT-5.6 Luna"

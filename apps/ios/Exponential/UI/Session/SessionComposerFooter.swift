@@ -12,8 +12,8 @@ import SwiftUI
 /// opens the Usage sheet (EXP-1150: the face switcher that used to sit beside
 /// it is gone — the faces are the Work screen's tab strip, which this composer
 /// never covers). Rides `GlassComposer`'s `tools:` slot, so the send button
-/// stays the card's own. EXP-1295: a thread's box (`SessionComposerCard`
-/// with no `controls`) keeps only the `+`.
+/// stays the card's own. A thread's box carries the same controls for its
+/// ROOT session, minus the plan chip on a dispatcher root.
 struct SessionComposerFooter: View {
     /// The session view's own controls: the plan chip, the model pill and
     /// the usage ring.
@@ -27,6 +27,9 @@ struct SessionComposerFooter: View {
         let usageFraction: Double?
         let usageSeverity: AgentUsageSeverity
         let onUsage: () -> Void
+        /// A dispatcher root (`sessions.dispatch`) has no plan mode of its
+        /// own: its children take the launch's picks, so no plan chip.
+        var showsPlan: Bool = true
     }
 
     /// nil = the bare box (the `+` alone).
@@ -43,7 +46,7 @@ struct SessionComposerFooter: View {
     @State private var attachAnchor: CGRect = .zero
 
     var body: some View {
-        if let controls {
+        if let controls, controls.showsPlan {
             Text(AgentFeed.planModeFooterLabel)
                 .font(.caption.weight(.medium))
                 .foregroundStyle(

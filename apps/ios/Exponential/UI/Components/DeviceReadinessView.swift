@@ -145,12 +145,7 @@ struct DeviceReadinessView: View {
     /// EXP-1236: the Computer use model picker, the switch band's last row,
     /// in the band's own row rhythm (`rowView`).
     private func computerUseModelRow(_ selection: Binding<String>) -> some View {
-        GlassPickerRow(
-            "Computer use model",
-            selection: selection,
-            options: LaunchVocabulary.computerUseModelValues(),
-            label: { LaunchVocabulary.computerUseModelLabel($0) }
-        )
+        ModelPickerRow("Computer use model", selection: selection)
         .font(.subheadline)
         .padding(.horizontal, 12)
         .padding(.vertical, 8)

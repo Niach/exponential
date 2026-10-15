@@ -131,7 +131,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v61_one_path", "v62_device_doctor",
              "v63_issue_draft_id", "v64_attachment_as_file",
              "v65_trigger_id", "v66_threads",
-             "v67_issue_draft_thread", "v68_session_tree"]
+             "v67_issue_draft_thread", "v68_session_tree",
+             "v69_session_dispatch"]
         )
     }
 
@@ -184,7 +185,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v61_one_path", "v62_device_doctor",
              "v63_issue_draft_id", "v64_attachment_as_file",
              "v65_trigger_id", "v66_threads",
-             "v67_issue_draft_thread", "v68_session_tree"]
+             "v67_issue_draft_thread", "v68_session_tree",
+             "v69_session_dispatch"]
         )
     }
 
@@ -708,7 +710,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v61_one_path", "v62_device_doctor",
              "v63_issue_draft_id", "v64_attachment_as_file",
              "v65_trigger_id", "v66_threads",
-             "v67_issue_draft_thread", "v68_session_tree"]
+             "v67_issue_draft_thread", "v68_session_tree",
+             "v69_session_dispatch"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -809,7 +812,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v61_one_path", "v62_device_doctor",
              "v63_issue_draft_id", "v64_attachment_as_file",
              "v65_trigger_id", "v66_threads",
-             "v67_issue_draft_thread", "v68_session_tree"]
+             "v67_issue_draft_thread", "v68_session_tree",
+             "v69_session_dispatch"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }
@@ -1867,7 +1871,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "needs_input", "blocked", "started_at", "last_turn_at", "ended_at",
              "shared", "title", "guide", "action_id", "action_name", "action_inputs",
              "spawned_by_session_id", "name", "icon", "color", "triggers",
-             "sort_order", "created_at", "updated_at"]
+             "sort_order", "created_at", "updated_at", "dispatch"]
         )
         XCTAssertEqual(
             try columnNames(pool, "session_issues"),
@@ -1895,7 +1899,7 @@ final class DatabaseMigrationTests: XCTestCase {
         }
         XCTAssertEqual(
             sessionBools,
-            ["plan_mode", "computer_use", "ultracode", "busy", "needs_input", "shared"]
+            ["plan_mode", "computer_use", "ultracode", "busy", "needs_input", "shared", "dispatch"]
         )
 
         // Custom issue statuses (EXP-314, 16th shape): the team-scoped table

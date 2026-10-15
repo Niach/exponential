@@ -265,7 +265,7 @@ final class SyncApplyTests: XCTestCase {
             {"id":"s1","team_id":"ws1","parent_id":null,"root_id":"s1","depth":"0",
              "kind":"thread","user_id":"u1","device_id":"dev-1","cli":"claude",
              "account":"p-1","model":"fable","effort":"high","plan_mode":"t",
-             "computer_use":"f","ultracode":"f","repository_id":"r-1",
+             "computer_use":"f","ultracode":"f","dispatch":"t","repository_id":"r-1",
              "branch":"exp/s1","status":"running","busy":"t","needs_input":"f",
              "blocked":null,"started_at":"2026-10-13T09:00:00Z","last_turn_at":null,
              "ended_at":null,"shared":"t","title":null,
@@ -280,6 +280,7 @@ final class SyncApplyTests: XCTestCase {
         XCTAssertFalse(session.isAgent)
         XCTAssertTrue(session.isLive)
         XCTAssertTrue(session.planMode)
+        XCTAssertTrue(session.dispatch)
         XCTAssertTrue(session.busy)
         XCTAssertTrue(session.shared)
         XCTAssertEqual(session.actionInputs, #"{"repo":"r-1"}"#)
@@ -295,6 +296,7 @@ final class SyncApplyTests: XCTestCase {
         XCTAssertEqual(stored?.deviceId, "dev-1")
         XCTAssertEqual(stored?.repositoryId, "r-1")
         XCTAssertEqual(stored?.busy, true)
+        XCTAssertEqual(stored?.dispatch, true)
 
         let partial = ShapeMessage<SessionEntity>.partialUpdate(
             key: key,
