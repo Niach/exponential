@@ -413,6 +413,13 @@
       }
     },
     "code-block": {
+      "android": {
+        "file": "shots/code-block/android.webp",
+        "width": 810,
+        "height": 1800,
+        "bytes": 44838,
+        "sha256": "02be8d86bdb789edff4b4a684c064b92e96dcfde19bf60d24ae4b28dfc284355"
+      },
       "web": {
         "file": "shots/code-block/web.webp",
         "width": 1800,
@@ -4098,6 +4105,13 @@
       }
     },
     "trace": {
+      "android": {
+        "file": "shots/trace/android.webp",
+        "width": 810,
+        "height": 1800,
+        "bytes": 37548,
+        "sha256": "2a373a03a01c501f77c3450062299eb744c60c153a7c0536cf4284aff9c418e9"
+      },
       "web": {
         "file": "shots/trace/web.webp",
         "width": 1800,
