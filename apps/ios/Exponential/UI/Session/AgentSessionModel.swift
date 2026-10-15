@@ -394,6 +394,56 @@ final class AgentSessionModel {
     /// Whether this viewer may Stop the agent's turn (`sessions.stop`).
     var canStop: Bool { mayPost }
 
+    // MARK: EXP-849 — the usage wall's account switch
+
+    /// The host machine's signed-in logins for this session's agent, each
+    /// with its refusal (`SessionAccountSwitch.options`).
+    var accountSwitchOptions: [SessionAccountSwitch.Option] {
+        guard let session else { return [] }
+        return SessionAccountSwitch.options(
+            accounts: hostSteerDevice?.agentAccounts,
+            usage: hostSteerDevice?.agentUsage,
+            launchDefaults: hostSteerDevice?.launchDefaults,
+            cli: session.cli,
+            account: session.account
+        )
+    }
+
+    /// The run-level refusal (agent → machine → turn), or nil.
+    var accountSwitchBlocked: String? {
+        SessionAccountSwitch.blockedReason(
+            agent: SessionAccountSwitch.agent(
+                cli: session?.cli,
+                defaultAgent: hostSteerDevice?.launchDefaults?.defaultAgent
+            ),
+            deviceOnline: hostDevice.online == true,
+            busy: session?.busy == true
+        )
+    }
+
+    /// A switch is out — the wall's control dims until it lands.
+    private(set) var switchingAccount = false
+    /// Why the last switch failed — a toast, cleared on the next attempt.
+    private(set) var switchError: String?
+
+    /// EXP-849: continue this session on `option`'s login — ONE
+    /// `sessions.send({sessionId, account})`, no text. The host resumes the
+    /// SAME row on it between turns; the synced `account` is the confirmation.
+    func switchAccount(to option: AccountOption) async {
+        guard mayPost, !switchingAccount else { return }
+        switchError = nil
+        switchingAccount = true
+        defer { switchingAccount = false }
+        do {
+            try await sessionsApi.send(
+                accountId: accountId,
+                SessionAccountSwitch.sendInput(sessionId: sessionId, option: option)
+            )
+        } catch {
+            switchError = error.trpcUserMessage
+        }
+    }
+
     /// Recompute the cached projections (ids of the still-answerable question
     /// items, the collapsed render rows, the subagent runs) — the pure rules
     /// live in ExpCore's AgentFeed, mirroring Android.

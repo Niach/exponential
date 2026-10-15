@@ -76,6 +76,12 @@ final class SessionsApiWireTests: XCTestCase {
         XCTAssertEqual(files.keys.sorted(), ["attachmentIds", "sessionId"])
     }
 
+    func testAccountSwitchSendsOnlySessionIdAndAccount() throws {
+        let wire = try json(SessionsSendInput.switchAccount(sessionId: "s-1", account: "work"))
+        XCTAssertEqual(wire.keys.sorted(), ["account", "sessionId"])
+        XCTAssertEqual(wire["account"] as? String, "work")
+    }
+
     func testSendResultDecodesWithAndWithoutAMessage() throws {
         let withMessage = try JSONDecoder().decode(
             SessionsSendResult.self,

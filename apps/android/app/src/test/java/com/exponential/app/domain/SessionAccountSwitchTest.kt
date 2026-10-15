@@ -124,9 +124,19 @@ class SessionAccountSwitchTest {
 
     @Test
     fun `a switch names the account it targets`() {
-        // The PRESENCE of `account` is what makes the server accept a resume of
-        // a LIVE run, so the last used login is named here too.
+        // `account` on a `sessions.send` message IS the switch, so the last
+        // used login is named here too.
         assertEquals("me", SessionAccountSwitch.wireAccount(option("me")))
         assertEquals("work", SessionAccountSwitch.wireAccount(option("work")))
+    }
+
+    @Test
+    fun `a switch sends exactly sessionId and account`() {
+        val json = com.exponential.app.data.api.HttpClientModule.provideJson()
+        val wire = json.encodeToString(
+            com.exponential.app.data.api.SessionsSendInput.serializer(),
+            com.exponential.app.data.api.SessionsSendInput.switchAccount("s1", "work"),
+        )
+        assertEquals("""{"sessionId":"s1","account":"work"}""", wire)
     }
 }

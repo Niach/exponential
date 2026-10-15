@@ -6,13 +6,12 @@ import com.exponential.app.data.api.AgentUsage
 // EXP-849 phase 3: the MID-SESSION account switch, as the rule the session
 // screen's account rows render.
 //
-// A switch is a RESUME that names an account (`steer.startSession({
-// resumeSessionId, deviceId, account })`): the machine relaunches the run under
-// the other login in the same worktree and links the new `coding_sessions` row
-// by `resumed_from_id`, so the run reads as a continuation rather than a second
-// run. Claude only — codex stays one account per session (EXP-849 §E) — and
-// only between turns: a switch mid-turn would abandon work the agent has in
-// flight.
+// A switch is ONE `sessions.send({ sessionId, account })` with no text
+// ([com.exponential.app.data.api.SessionsSendInput.switchAccount]): the server
+// writes the synced `sessions.account` and the host machine resumes the SAME
+// row on that login between turns. Claude only — codex stays one account per
+// session (EXP-849 §E) — and only between turns: a switch mid-turn would
+// abandon work the agent has in flight.
 //
 // Everything here is pure. Hand-mirrored with the desktop's
 // `ResumeRunRequest.account` gate and the web/iOS account rows: same refusals,
@@ -198,9 +197,8 @@ object SessionAccountSwitch {
 
     /**
      * What the switch carries as `account` — the picked profile VERBATIM.
-     * Always present: the server reads the PRESENCE of `account` as "this
-     * resume is a switch", the only thing that lets a resume ride a LIVE run
-     * (web `session-account-switch.tsx` sends the profile id verbatim too).
+     * Always present: `account` on a `sessions.send` message IS the switch
+     * (desktop `switch_to` sends the profile id verbatim too).
      */
     fun wireAccount(option: SessionAccountOption): String = option.profileId
 }

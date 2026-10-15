@@ -401,9 +401,18 @@ impl LocalSessions {
 
     /// Drop `session_id` and release its P9 token-refresher hold. The engine's
     /// exit edge lands here exactly once.
-    fn remove(sessions: &Entity<LocalSessions>, session_id: &str, cx: &mut App) {
+    ///
+    /// EXP-1292: a SUSPENDED run (an account switch re-spawns the same row
+    /// right after) is no finished run: its entry goes, but its worktree or
+    /// scratch dir is what the resume re-enters, so nothing is reclaimed —
+    /// and an entry the resume already re-registered (a live engine) stays.
+    fn remove(sessions: &Entity<LocalSessions>, session_id: &str, suspended: bool, cx: &mut App) {
         let (removed, live) = sessions.update(cx, |this, cx| {
-            let entry = this.by_session.remove(session_id);
+            let relaunched = this
+                .by_session
+                .get(session_id)
+                .is_some_and(|entry| !entry.host.session.is_done());
+            let entry = if relaunched { None } else { this.by_session.remove(session_id) };
             cx.notify();
             // FEED-53: what the OTHER live sessions hold, taken with the
             // finished one already out, so its cleanup never removes a dir
@@ -421,7 +430,9 @@ impl LocalSessions {
             // provably clean and carries no commits ([`coding::run_cleanup`]).
             // Background, because it shells out to git.
             let data_dir = coding_data_dir(cx);
-            if let Some(cleanup) = entry.run_cleanup.clone() {
+            if suspended {
+                log::info!("[ui] session {session_id} suspended: its workspace stays for the resume");
+            } else if let Some(cleanup) = entry.run_cleanup.clone() {
                 let session_id = entry.session_id.clone();
                 cx.spawn(async move |cx| {
                     let verdict = cx
@@ -1010,13 +1021,17 @@ pub(crate) fn host_prepared(
                 } else {
                     log::info!("[ui] acp session {session_id} ended ({})", exit.outcome);
                 }
+                let suspended = exit.outcome == engine::SUSPEND_OUTCOME;
                 crate::steer_wiring::unwatch_kill(&session_id, cx);
                 if let Some(sessions) = sessions.upgrade() {
-                    LocalSessions::remove(&sessions, &session_id, cx);
+                    LocalSessions::remove(&sessions, &session_id, suspended, cx);
                 }
                 // EXP-758: with the failure carried in, so a run that died on
                 // its handshake is not an empty view that only says "ended".
-                crate::session_screen::mark_ended(&session_id, exit.error.clone(), cx);
+                // A suspended run (an account switch) continues at once.
+                if !suspended {
+                    crate::session_screen::mark_ended(&session_id, exit.error.clone(), cx);
+                }
             });
         })
         .detach();

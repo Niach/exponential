@@ -458,6 +458,10 @@ export const sessionsRouter = router({
         blocked: codingSessionBlockedSchema.nullable().optional(),
         branch: z.string().max(255).optional(),
         title: z.string().max(255).optional(),
+        // EXP-849: the login the run ACTUALLY runs on (a start pick or a
+        // rotation may move it off the row's), so the row says it and a
+        // person's later pick of the old one is a real switch.
+        account: z.string().min(1).max(64).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -490,6 +494,7 @@ export const sessionsRouter = router({
                 }),
             ...(input.blocked !== undefined ? { blocked: blocked ?? null } : {}),
             ...(input.branch ? { branch: input.branch } : {}),
+            ...(input.account ? { account: input.account } : {}),
             // The CLI's auto-name only fills a blank title (a person's or
             // the agent's own title wins).
             ...(input.title?.trim() && !session.title ? { title: input.title.trim() } : {}),

@@ -744,6 +744,42 @@ class AgentSessionViewModel @AssistedInject constructor(
         return true
     }
 
+    /** EXP-849: the profile a switch is in flight to (its row spins). */
+    private val _switchingAccount = MutableStateFlow<String?>(null)
+    val switchingAccount: StateFlow<String?> = _switchingAccount
+
+    /** A failed switch — `Couldn't switch the account`, raised once by the screen. */
+    private val _switchError = MutableStateFlow<String?>(null)
+    val switchError: StateFlow<String?> = _switchError
+    fun clearSwitchError() {
+        _switchError.value = null
+    }
+
+    /**
+     * EXP-849: continue this session on [option]'s login — ONE
+     * `sessions.send({sessionId, account})`, no text. The host machine resumes
+     * the same row on it between turns; the synced `account` re-marks the
+     * current row, so success needs nothing else.
+     */
+    fun switchAccount(option: SessionAccountOption) {
+        if (_switchingAccount.value != null) return
+        viewModelScope.launch {
+            val accountId = auth.activeAccountId.value ?: return@launch
+            _switchingAccount.value = option.profileId
+            try {
+                sessionsApi.send(
+                    accountId,
+                    SessionsSendInput.switchAccount(codingSessionId, SessionAccountSwitch.wireAccount(option)),
+                )
+            } catch (t: Throwable) {
+                if (t is CancellationException) throw t
+                _switchError.value = trpcErrorMessage(t, "")
+            } finally {
+                _switchingAccount.value = null
+            }
+        }
+    }
+
     /** EXP-1291: revoke one of the viewer's held messages (`sessions.unqueue`). */
     fun unqueueMessage(messageId: String) {
         viewModelScope.launch {
