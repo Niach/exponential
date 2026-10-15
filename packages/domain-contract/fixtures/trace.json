@@ -30,7 +30,23 @@
       "contentTrailing": 4
     },
     "descriptionAlpha": 0.7,
-    "pendingOpacity": 0.6
+    "pendingOpacity": 0.6,
+    "codeBlock": {
+      "$comment": "THE CodeBlock primitive (shadcn code-block, radix-nova) at size sm: tool output inside a Trace line's content. Box: radius token `lg`, `border` hairline in the input colour over the input colour at `fillAlpha` (dark), clipped. Header row (the `Output` title: sans, `titleSize`, medium, foreground; trailing the ghost icon-xs copy button, `copyButton` round with a `copyIcon` glyph, ui-copy → ui-check for 2s): `padding` left/right, `padding` top, `headerActionsOutset` pulled into the right/top padding. Code: mono `fontSize`/`lineHeight`, `padding` on every side except `contentTopWithHeader` under a header, scrolls sideways (never wraps), at most `maxLines` lines tall before it scrolls. destructive variant: hairline = destructive at `destructiveBorderAlpha`, title + code text destructive, no fill.",
+      "radius": "lg",
+      "border": 1,
+      "fillAlpha": 0.3,
+      "padding": 10,
+      "contentTopWithHeader": 6,
+      "titleSize": 12,
+      "fontSize": 12,
+      "lineHeight": 19.5,
+      "copyButton": 24,
+      "copyIcon": 12,
+      "headerActionsOutset": 4,
+      "maxLines": 16,
+      "destructiveBorderAlpha": 0.4
+    }
   },
   "icons": {
     "tool": "trace-tool",
