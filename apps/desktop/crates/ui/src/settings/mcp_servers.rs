@@ -9,8 +9,10 @@
 //!
 //! One list: per server the person's own connection and ONE action —
 //! Connect (the web settings page's connect in the signed-in system browser,
-//! then a 2 s poll of `mcpServers.list` until it reads connected), Set key, or a "Connected"
-//! menu with Test / Replace key / Share with team (FEED-73) / Disconnect. Owners add, edit and remove
+//! then a 2 s poll of `mcpServers.list` until it reads connected), Set key, or a
+//! read-only "Connected" caption. EXP-1285: a row has ONE "…" menu — the
+//! person's connection items (Test / Replace key / Share with team (FEED-73) /
+//! Disconnect) and, for an owner, Edit / Remove. Owners add, edit and remove
 //! servers through [`super::mcp_server_dialog`] (EXP-810).
 //!
 //! `mcp_servers` is server-only (never an Electric shape), so this is a
@@ -83,8 +85,15 @@ fn url_host(url: &str) -> String {
     }
 }
 
-/// FEED-73 — the Connected menu's share item (web `ConnectionAction`), by
-/// whether the viewer's OWN connection is shared.
+/// EXP-1285 — whether a row carries the "…" menu at all (web `ServerRow`):
+/// an owner always (Edit / Remove), a member only on a connected row (its
+/// connection items).
+fn row_menu_offered(owner: bool, connected: bool) -> bool {
+    owner || connected
+}
+
+/// FEED-73 — the row menu's share item (web `ServerRow`), by whether the
+/// viewer's OWN connection is shared.
 fn share_menu_label(shared: bool) -> &'static str {
     if shared {
         "Stop sharing"
@@ -93,8 +102,8 @@ fn share_menu_label(shared: bool) -> &'static str {
     }
 }
 
-/// FEED-73: whether the Connected menu carries a share item at all (web
-/// `ConnectionAction`: `http || shared`). A stdio server's secret stays on
+/// FEED-73: whether the row menu carries a share item at all (web
+/// `ServerRow`: `http || shared`). A stdio server's secret stays on
 /// this machine and the server refuses the share, so the item only shows
 /// on such a row to undo a share made before that refusal existed.
 fn share_menu_offered(http: bool, shared: bool) -> bool {
@@ -121,7 +130,7 @@ fn share_toast(name: &str, shared: bool) -> (String, &'static str) {
 enum RowAction {
     /// `none` auth: nothing to do.
     NotNeeded,
-    /// Connected: the menu (Test / Replace key / Disconnect).
+    /// Connected: a read-only caption (the actions live in the row menu).
     Connected,
     /// Expired or a failed refresh: Reconnect (the reason in the tooltip).
     Reconnect,
@@ -926,80 +935,24 @@ impl McpServersPane {
                 .text_color(muted)
                 .child("No sign-in needed")
                 .into_any_element(),
+            // EXP-1285: a caption, not a control — Test / Replace key /
+            // Share / Disconnect sit in the row's "…" menu (`render_row`).
             RowAction::Connected => {
-                let pane = cx.entity();
-                let http = config.is_http();
-                let secret = config.auth == "secret";
-                let shared = entry.shared;
-                let target = config.clone();
-                glass_pill_button(
-                    SharedString::from(format!("mcp-connected-{}", config.id)),
-                    PillSize::Sm,
-                    cx,
-                )
-                .icon(Icon::new(registry::UI_CHECK).text_color(cx.theme().success))
-                .label("Connected")
-                .loading(pending)
-                .disabled(pending)
-                .tooltip(SharedString::from(match &entry.connection.expires_at {
-                    Some(expires_at) => format!("Connected to {} (token until {expires_at})", config.name),
-                    None => format!("Connected to {}", config.name),
-                }))
-                .dropdown_menu(move |menu, _window, cx| {
-                    let mut menu = menu;
-                    if http {
-                        let (target, pane) = (target.clone(), pane.clone());
-                        menu = menu.item(
-                            crate::controls::pointer_label_item("Test connection", false)
-                                .icon(Icon::new(registry::UI_REFRESH))
-                                .on_click(move |_, window, cx| {
-                                    let target = target.clone();
-                                    pane.update(cx, |this, cx| this.test(&target, window, cx));
-                                }),
-                        );
-                    }
-                    if secret {
-                        let (target, pane) = (target.clone(), pane.clone());
-                        menu = menu.item(
-                            crate::controls::pointer_label_item("Replace key", false)
-                                .icon(Icon::new(registry::UI_EDIT))
-                                .on_click(move |_, window, cx| {
-                                    let target = target.clone();
-                                    pane.update(cx, |this, cx| {
-                                        this.open_key_dialog(&target, window, cx)
-                                    });
-                                }),
-                        );
-                    }
-                    // FEED-73: share the person's own connection with the
-                    // team (web: right before the separator). A stdio row
-                    // only offers the undo of an existing share.
-                    if share_menu_offered(http, shared) {
-                        let (target, pane) = (target.clone(), pane.clone());
-                        menu = menu.item(
-                            crate::controls::pointer_label_item(share_menu_label(shared), false)
-                                .icon(Icon::new(registry::UI_SHARE))
-                                .on_click(move |_, window, cx| {
-                                    let target = target.clone();
-                                    pane.update(cx, |this, cx| {
-                                        this.toggle_shared(&target, !shared, window, cx)
-                                    });
-                                }),
-                        );
-                    }
-                    menu = menu.separator();
-                    let (target, pane) = (target.clone(), pane.clone());
-                    menu.item(
-                        crate::controls::danger_menu_item("Disconnect", Icon::new(registry::UI_CLOSE), cx)
-                            .on_click(move |_, window, cx| {
-                                let target = target.clone();
-                                pane.update(cx, |this, cx| {
-                                    this.confirm_disconnect(&target, window, cx)
-                                });
-                            }),
+                let success = cx.theme().success;
+                h_flex()
+                    .flex_shrink_0()
+                    .gap_1()
+                    .items_center()
+                    .text_xs()
+                    .text_color(success)
+                    .child(
+                        Icon::new(registry::UI_SUCCESS)
+                            .size(gpui::px(14.))
+                            .flex_shrink_0()
+                            .text_color(success),
                     )
-                })
-                .into_any_element()
+                    .child("Connected")
+                    .into_any_element()
             }
             RowAction::Reconnect => {
                 let target = config.clone();
@@ -1037,8 +990,10 @@ impl McpServersPane {
         }
     }
 
-    /// One server row: identity + chips, the endpoint and member count, the
-    /// person's one connection action, and (owners) the Edit / Remove menu.
+    /// One server row: identity + chips, the endpoint, the person's one
+    /// connection action, and the row's ONE "…" menu (EXP-1285): the
+    /// person's connection items on a connected row, Edit / Remove for an
+    /// owner.
     fn render_row(
         &self,
         entry: &McpServerListEntry,
@@ -1061,11 +1016,18 @@ impl McpServersPane {
 
         let action = self.render_action(entry, cx);
 
-        // EXP-862 (web parity): the owner's writes sit behind ONE ghost "..."
-        // menu, not two pills competing with the connection action.
-        let owner_menu = owner.then(|| {
-            let edit = config.clone();
-            let remove = config.clone();
+        // EXP-862 / EXP-1285 (web parity): everything a person can DO to a
+        // row sits behind ONE ghost "..." menu — the connection items (Test,
+        // Replace key, Share) with the owner's Edit, then the destructive
+        // Disconnect / Remove below the separator. The Connected caption
+        // next to it is read-only.
+        let connected = row_action(entry) == RowAction::Connected;
+        let pending = self.pending.as_deref() == Some(config.id.as_str());
+        let row_menu = row_menu_offered(owner, connected).then(|| {
+            let http = config.is_http();
+            let secret = config.auth == "secret";
+            let shared = entry.shared;
+            let target = config.clone();
             let team = entry.config.team_id.clone();
             let pane = cx.entity();
             crate::controls::ghost_icon_button(
@@ -1074,35 +1036,91 @@ impl McpServersPane {
                 cx,
             )
             .tooltip(SharedString::from(format!("Server menu for {}", config.name)))
-            .disabled(self.busy)
+            .loading(connected && pending)
+            .disabled(self.busy || pending)
             .dropdown_menu(move |menu, _window, cx| {
-                let (edit, team, pane_edit) = (edit.clone(), team.clone(), pane.clone());
-                let (remove, pane_remove) = (remove.clone(), pane.clone());
-                menu.item(
-                    crate::controls::pointer_label_item("Edit", false)
-                        .icon(Icon::new(registry::UI_EDIT))
-                        .on_click(move |_, window, cx| {
-                            let (edit, team) = (edit.clone(), team.clone());
-                            pane_edit.update(cx, |this, cx| {
-                                this.open_editor(Some(edit), &team, window, cx);
-                            });
-                        }),
-                )
-                .item(
-                    // Destructive rows wear the danger tint (web
-                    // `DropdownMenuItem variant="destructive"`).
-                    crate::controls::danger_menu_item(
-                        "Remove",
-                        Icon::new(registry::UI_DELETE),
-                        cx,
-                    )
-                        .on_click(move |_, window, cx| {
-                            let remove = remove.clone();
-                            pane_remove.update(cx, |this, cx| {
-                                this.confirm_remove(&remove, window, cx);
-                            });
-                        }),
-                )
+                let mut menu = menu;
+                if connected && http {
+                    let (target, pane) = (target.clone(), pane.clone());
+                    menu = menu.item(
+                        crate::controls::pointer_label_item("Test connection", false)
+                            .icon(Icon::new(registry::UI_REFRESH))
+                            .on_click(move |_, window, cx| {
+                                let target = target.clone();
+                                pane.update(cx, |this, cx| this.test(&target, window, cx));
+                            }),
+                    );
+                }
+                if connected && secret {
+                    let (target, pane) = (target.clone(), pane.clone());
+                    menu = menu.item(
+                        crate::controls::pointer_label_item("Replace key", false)
+                            .icon(Icon::new(registry::UI_EDIT))
+                            .on_click(move |_, window, cx| {
+                                let target = target.clone();
+                                pane.update(cx, |this, cx| {
+                                    this.open_key_dialog(&target, window, cx)
+                                });
+                            }),
+                    );
+                }
+                // FEED-73: share the person's own connection with the
+                // team. A stdio row only offers the undo of an existing
+                // share.
+                if connected && share_menu_offered(http, shared) {
+                    let (target, pane) = (target.clone(), pane.clone());
+                    menu = menu.item(
+                        crate::controls::pointer_label_item(share_menu_label(shared), false)
+                            .icon(Icon::new(registry::UI_SHARE))
+                            .on_click(move |_, window, cx| {
+                                let target = target.clone();
+                                pane.update(cx, |this, cx| {
+                                    this.toggle_shared(&target, !shared, window, cx)
+                                });
+                            }),
+                    );
+                }
+                if owner {
+                    let (edit, team, pane) = (target.clone(), team.clone(), pane.clone());
+                    menu = menu.item(
+                        crate::controls::pointer_label_item("Edit", false)
+                            .icon(Icon::new(registry::UI_EDIT))
+                            .on_click(move |_, window, cx| {
+                                let (edit, team) = (edit.clone(), team.clone());
+                                pane.update(cx, |this, cx| {
+                                    this.open_editor(Some(edit), &team, window, cx);
+                                });
+                            }),
+                    );
+                }
+                menu = menu.separator();
+                // Destructive rows wear the danger tint (web
+                // `DropdownMenuItem variant="destructive"`).
+                if connected {
+                    let (target, pane) = (target.clone(), pane.clone());
+                    menu = menu.item(
+                        crate::controls::danger_menu_item("Disconnect", Icon::new(registry::UI_CLEAR), cx)
+                            .on_click(move |_, window, cx| {
+                                let target = target.clone();
+                                pane.update(cx, |this, cx| {
+                                    this.confirm_disconnect(&target, window, cx)
+                                });
+                            }),
+                    );
+                }
+                if owner {
+                    let (remove, pane) = (target.clone(), pane.clone());
+                    menu = menu.item(
+                        crate::controls::danger_menu_item("Remove", Icon::new(registry::UI_DELETE), cx)
+                            .on_click(move |_, window, cx| {
+                                let remove = remove.clone();
+                                pane.update(cx, |this, cx| {
+                                    this.confirm_remove(&remove, window, cx);
+                                });
+                            }),
+                    );
+                }
+                menu
             })
         });
 
@@ -1159,7 +1177,7 @@ impl McpServersPane {
                     }),
             )
             .child(div().flex_shrink_0().child(action))
-            .children(owner_menu)
+            .children(row_menu)
     }
 }
 
@@ -1289,7 +1307,7 @@ mod tests {
         }
     }
 
-    /// FEED-73 — the Connected menu item and its toasts, web copy verbatim.
+    /// FEED-73 — the row menu's share item and its toasts, web copy verbatim.
     #[test]
     fn share_copy_matches_the_web() {
         assert_eq!(share_menu_label(false), "Share with team");
@@ -1308,9 +1326,19 @@ mod tests {
         );
     }
 
+    /// EXP-1285 — ONE "…" menu per row: an owner always has it (Edit /
+    /// Remove), a member only on a connected row (web `ServerRow`).
+    #[test]
+    fn row_menu_for_owners_and_connected_rows_only() {
+        assert!(row_menu_offered(true, false));
+        assert!(row_menu_offered(true, true));
+        assert!(row_menu_offered(false, true));
+        assert!(!row_menu_offered(false, false));
+    }
+
     /// A stdio server's secret stays on this machine: no share item, except
     /// to undo a share made before the server refused them (web
-    /// `ConnectionAction`: `http || shared`).
+    /// `ServerRow`: `http || shared`).
     #[test]
     fn share_item_hidden_on_an_unshared_stdio_row() {
         assert!(share_menu_offered(true, false));
