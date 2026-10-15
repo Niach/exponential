@@ -38,11 +38,13 @@ struct SessionInlinePicture: View {
 /// the Results face's tile (EXP-879) and, at the inline height, the
 /// transcript's `sessions_show` tile (EXP-1172). A tap opens Quick Look over
 /// the download-to-temp path the comment strips use; a TALL picture
-/// (EXP-1128) opens `TallImageViewerSheet` instead.
+/// (EXP-1128) opens `TallImageViewerSheet` instead. EXP-1283: a Guide tile
+/// hands `onOpen` in — THE Guide picture viewer replaces both.
 struct SessionResultPictureTile: View {
     let entry: SessionResultEntry
     let height: CGFloat
     let caption: String
+    var onOpen: ((SessionResultEntry) -> Void)? = nil
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
@@ -93,6 +95,10 @@ struct SessionResultPictureTile: View {
     /// Same contract as the comment strip's: the bytes land in a
     /// per-attachment temp folder and are reused on a second tap.
     private func preview(_ entry: SessionResultEntry) {
+        if let onOpen {
+            onOpen(entry)
+            return
+        }
         if sessionResultIsTall(entry) {
             tallPreview = TallPreview(entry: entry)
             return

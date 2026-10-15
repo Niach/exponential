@@ -46,7 +46,6 @@ import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.auth.ServerAccount
 import com.exponential.app.data.db.MultiAccountTeamRepository
 import com.exponential.app.data.db.ServerTeamGroup
-import com.exponential.app.ui.components.GroupDivider
 import com.exponential.app.ui.components.LocalToaster
 import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.components.TeamAvatar
@@ -146,14 +145,13 @@ fun SettingsScreen(
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     SectionHeader("Servers")
                     Column(Modifier.fillMaxWidth().glassGroup().padding(vertical = 4.dp)) {
-                        accounts.forEachIndexed { i, account ->
-                            if (i > 0) GroupDivider()
+                        // EXP-1320: an entity list = flat gapless rows, no dividers.
+                        accounts.forEach { account ->
                             ServerRow(
                                 account = account,
                                 onClick = { onOpenServerDetail(account.id) },
                             )
                         }
-                        if (accounts.isNotEmpty()) GroupDivider()
                         SettingsRow(
                             icon = ExpIcons.uiAdd,
                             title = "Add server",
@@ -198,7 +196,6 @@ fun SettingsScreen(
                                     onClick = { gettingStartedOpen = true },
                                 )
                             }
-                            GroupDivider()
                         }
                         // EXP-232: staging-only — exposes live shape status and
                         // a "Resync now" data-wipe hatch, not for store builds.
@@ -208,7 +205,6 @@ fun SettingsScreen(
                                 title = "Sync diagnostics",
                                 onClick = onOpenSyncDiagnostics,
                             )
-                            GroupDivider()
                         }
                         // EXP-260 — Android is the only client with a store
                         // listing so far, so this row is Android-only.
@@ -224,7 +220,6 @@ fun SettingsScreen(
                                 }
                             },
                         )
-                        GroupDivider()
                         // EXP-262: version + third-party licence notices.
                         SettingsRow(
                             icon = ExpIcons.settingsAbout,
@@ -385,8 +380,7 @@ private fun TeamGroupBlock(
             }
         }
         Column(Modifier.fillMaxWidth().glassGroup().padding(vertical = 4.dp)) {
-            group.teams.forEachIndexed { i, team ->
-                if (i > 0) GroupDivider()
+            group.teams.forEach { team ->
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier

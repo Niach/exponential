@@ -91,7 +91,7 @@ pub(crate) fn find_issue(id: &str, cx: &App) -> Option<domain::rows::Issue> {
 
 /// A device by its machine `device_id` (what a `{deviceId, label}` answer
 /// carries) or its row id.
-fn find_device(id: &str, cx: &App) -> Option<domain::rows::DeviceRow> {
+pub(crate) fn find_device(id: &str, cx: &App) -> Option<domain::rows::DeviceRow> {
     let store = sync::Store::try_global(cx)?;
     let devices = store.collections().devices.read(cx);
     if let Some(device) = devices.get(id) {

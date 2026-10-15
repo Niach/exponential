@@ -16,6 +16,39 @@ import UIKit
 struct TallImageViewerSheet: View {
     let entry: SessionResultEntry
 
+    @State private var sheetWidth: CGFloat = 0
+
+    var body: some View {
+        GlassSheetChrome(title: entry.label, height: .full) {
+            ScrollView {
+                StripImageView(entry: entry, width: sheetWidth)
+                    .frame(maxWidth: .infinity)
+                    .padding(.bottom, 16)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { width in
+                sheetWidth = width
+            }
+            .accessibilityLabel("\(entry.topic), \(entry.label), tall")
+        }
+        .accessibilityIdentifier("tall-image-viewer")
+    }
+}
+
+/// EXP-1128/1283: one published picture fit to `width` (never wider than its
+/// natural point size), drawn as horizontal strips of `tallImageStripRanges`
+/// rows so no one layer outgrows Core Animation's texture cap; decoded
+/// through ImageIO no wider than it shows, off the main thread. The tall
+/// viewer's and THE Guide picture viewer's image.
+struct StripImageView: View {
+    let entry: SessionResultEntry
+    /// The width to fit; 0 = not measured yet (the screen's width decodes).
+    let width: CGFloat
+    /// EXP-1283: the most height it may take (the Guide viewer keeps its
+    /// panel in view): a taller fit shrinks to this height, centred on the
+    /// dark; nil = the whole picture at the fit width (it scrolls).
+    var maxHeight: CGFloat? = nil
+
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
     @Environment(\.displayScale) private var displayScale
@@ -27,18 +60,10 @@ struct TallImageViewerSheet: View {
     }
 
     @State private var phase: Phase = .loading
-    @State private var sheetWidth: CGFloat = 0
 
     var body: some View {
-        GlassSheetChrome(title: entry.label, height: .full) {
-            content
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { width in
-                    sheetWidth = width
-                }
-        }
-        .accessibilityIdentifier("tall-image-viewer")
-        .task(id: entry.attachmentId) { await load() }
+        content
+            .task(id: entry.attachmentId) { await load() }
     }
 
     @ViewBuilder
@@ -55,24 +80,24 @@ struct TallImageViewerSheet: View {
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 .padding(.vertical, 24)
         case let .ready(strips, naturalWidth, pixelWidth):
-            let width = max(1, min(sheetWidth, naturalWidth))
-            ScrollView {
-                LazyVStack(spacing: 0) {
-                    ForEach(Array(strips.enumerated()), id: \.offset) { _, strip in
-                        Image(uiImage: strip)
-                            .resizable()
-                            // Each strip's exact share of the scaled height,
-                            // so the seams line up.
-                            .frame(
-                                width: width,
-                                height: CGFloat(strip.cgImage?.height ?? 0) * width / pixelWidth
-                            )
-                    }
+            let fit = max(1, min(width > 0 ? width : UIScreen.main.bounds.width, naturalWidth))
+            let pixelHeight = strips.reduce(CGFloat(0)) { $0 + CGFloat($1.cgImage?.height ?? 0) }
+            let fitHeight = pixelHeight * fit / pixelWidth
+            let shown = maxHeight.map { cap in
+                fitHeight > cap && pixelHeight > 0 ? max(1, cap * pixelWidth / pixelHeight) : fit
+            } ?? fit
+            VStack(spacing: 0) {
+                ForEach(Array(strips.enumerated()), id: \.offset) { _, strip in
+                    Image(uiImage: strip)
+                        .resizable()
+                        // Each strip's exact share of the scaled height, so
+                        // the seams line up.
+                        .frame(
+                            width: shown,
+                            height: CGFloat(strip.cgImage?.height ?? 0) * shown / pixelWidth
+                        )
                 }
-                .frame(maxWidth: .infinity)
-                .padding(.bottom, 16)
             }
-            .accessibilityLabel("\(entry.topic), \(entry.label), tall")
         }
     }
 
@@ -85,8 +110,8 @@ struct TallImageViewerSheet: View {
             pendingImages: [:]
         )
         // The geometry may not have landed yet at first load: the screen's
-        // width is never narrower than the sheet, so it only over-decodes.
-        let pointWidth = sheetWidth > 0 ? sheetWidth : UIScreen.main.bounds.width
+        // width is never narrower than the viewer, so it only over-decodes.
+        let pointWidth = width > 0 ? width : UIScreen.main.bounds.width
         let maxPixelWidth = Int((pointWidth * displayScale).rounded(.up))
         guard let data = try? await loader.data(entry.url),
               let decoded = await Task.detached(priority: .userInitiated, operation: {
@@ -110,7 +135,7 @@ struct TallImageViewerSheet: View {
         phase = .ready(
             strips: strips,
             // The SOURCE's point size (1 px = 1 pt, like `UIImage(data:)`),
-            // so a picture narrower than the sheet keeps its natural width.
+            // so a picture narrower than the viewer keeps its natural width.
             naturalWidth: CGFloat(decoded.sourcePixelWidth),
             pixelWidth: CGFloat(cgImage.width)
         )

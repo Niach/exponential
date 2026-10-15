@@ -108,6 +108,11 @@ import {
   StatusGlyph,
   TeamAvatar,
   Textarea,
+  Composer,
+  ComposerSubmit,
+  ComposerTool,
+  GuidePictureViewerPanel,
+  MOBILE_WORK_CAPSULE_CLASS,
   TypeaheadMenu,
   TypeaheadRow,
   UserAvatar,
@@ -122,6 +127,8 @@ import {
   type StatusGlyphProps,
 } from "@exp/ui"
 
+import viewerFixture from "@exp/domain-contract/fixtures/session-results.json"
+import { guideViewer, type GuideViewerEntry } from "@exp/domain-contract/guide-viewer"
 import { tokenSlug } from "./component-styles.ts"
 import {
   escapeHtml,
@@ -268,6 +275,14 @@ const { glass, radius, size, motion } = designTokens
    it, and an island is the component's RESTING state. Glyphs come through
    `conceptIcon` for the same reason the product does — a multi-client surface
    names a CONCEPT, never a raw lucide import. */
+
+/** EXP-1283: the Guide picture viewer specimen's state — the contract's
+ *  first viewer case, its second picture (a topic with its text). */
+const GUIDE_VIEWER_STATE = guideViewer(
+  (viewerFixture as unknown as { viewer: { cases: { guide: GuideViewerEntry[] }[] } }).viewer
+    .cases[0]!.guide,
+  `a1`
+)
 
 const noop = (): void => {}
 
@@ -847,7 +862,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `issue-chip`,
     title: `Issue chip`,
     kind: `Buttons & chips`,
-    blurb: `The ONE badge that names an issue inline. A small rounded RECT — 6px on web, 4 on desktop, 5 on iOS, 5dp on Android — and never a capsule: a capsule is the pill, which carries a label, not a subject. A hairline border over the accent fill (the fill barely clears the surface, so the border is what makes the chip legible), then status glyph · mono muted identifier · the title in the foreground at medium weight, truncated. The left padding is tighter than the right because the glyph carries its own gap. The ✕ sits INSIDE the chip and exists for COMPOSERS only — nothing else hands a badge a control — and it takes the trailing padding down to its own hit box. Inside a markdown editor the identical box is a DECORATION painted over the bare \`#IDENT\` token, so the document text round-trips untouched and the two cannot drift. SLOP-15: the SMALL mode (\`size="sm"\`) is the same box without the title — glyph · identifier — for the surfaces that name many issues at a glance (the hover graph's nodes, the work header's badge on a phone, the badge overlay's rows); the title rides in the tooltip and the preview card.`,
+    blurb: `The ONE badge that names an issue inline. A small rounded RECT — 6px on web, 4 on desktop, 5 on iOS, 5dp on Android — and never a capsule: a capsule is the pill, which carries a label, not a subject. A hairline border over the accent fill (the fill barely clears the surface, so the border is what makes the chip legible), then status glyph · mono muted identifier · the title in the foreground at medium weight, truncated. The left padding is tighter than the right because the glyph carries its own gap. The ✕ sits INSIDE the chip and exists for COMPOSERS only — nothing else hands a badge a control — and it takes the trailing padding down to its own hit box. Inside a markdown editor the identical box is a DECORATION painted over the bare \`#IDENT\` token, so the document text round-trips untouched and the two cannot drift. SLOP-15: the SMALL mode (\`size="sm"\`) is the same box without the title — glyph · identifier — for the surfaces that name many issues at a glance (the hover graph's nodes, the work header's badge on a phone, the badge overlay's rows); the title rides in the tooltip and the preview card. EXP-1316: the TAB size (\`size="tab"\`) is the thread strip's chip: exactly the strip tab box (32px, text-sm, rounded-md, the tab border), glyph · mono identifier · title truncated at 11rem, the active one in the glass wash, so every chip in the strip stands as tall as Conversation and Guide.`,
     status: {
       web: ok(`IssueChip`, `packages/ui/src/issue-chip.tsx`, `The app's components/issue-chip.tsx is the binding that resolves the status and adds the hover preview.`),
       desktop: ok(`issue_chip`, `apps/desktop/crates/ui/src/issue_chip.rs`),
@@ -879,6 +894,22 @@ export const COMPONENTS: readonly ComponentSpec[] = [
           title="Stack badge, subtle"
           status={BACKLOG_GLYPH}
           size="sm"
+          onClick={noop}
+        />
+        {/* EXP-1316: the tab size — the thread strip's chip, active + rest. */}
+        <IssueChip
+          identifier="EXP-1316"
+          title="Thread header chips"
+          status={BACKLOG_GLYPH}
+          size="tab"
+          active
+          onClick={noop}
+        />
+        <IssueChip
+          identifier="EXP-1318"
+          title="Threads list rows"
+          status={DONE_GLYPH}
+          size="tab"
           onClick={noop}
         />
       </div>
@@ -1363,7 +1394,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `tokens-strokes`,
     title: `Strokes`,
     kind: `Colour`,
-    blurb: `Five hairlines. Row separates, section and card enclose, strong floats, active marks a selection — pick by JOB, never by contrast.`,
+    blurb: `Five hairlines. Row separates FORM fields (an entity list carries none: band over flat gapless rows, EXP-1320), section and card enclose, strong floats, active marks a selection — pick by JOB, never by contrast.`,
     status: {
       web: ok(`--glass-stroke-*`, `packages/ui/src/styles.css`),
       desktop: ok(`theme::glass::STROKE_*`, `apps/desktop/crates/theme/src/tokens.generated.rs`),
@@ -2510,6 +2541,74 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     island: () => (
       <div className="w-fit rounded-lg border border-glass-stroke-card bg-glass-card-opaque p-2">
         <PreviewMedia src={THUMB_FIXTURE_SRC} alt="Merge queue" label="merge-queue.png" />
+      </div>
+    ),
+  },
+  {
+    id: `guide-picture-viewer`,
+    title: `Guide picture viewer`,
+    kind: `Surfaces`,
+    blurb: `EXP-1283: tapping a picture in a thread's Guide opens it next to what it shows. Wide (web md+, the IDE): the lightbox in its PANEL mode, the picture large on the left (fit), a fixed 360 px panel on the right: the topic, the picture's label as a pill, the topic's GFM text, then ‹ n / N › through every Guide picture in the Guide's order (Summary first, no wrap), × top right; ←/→ step, Esc closes. Phones: a full-screen page, the picture on top, the same panel below it, a swipe steps. Model = guideViewer() (fixture session-results.json viewer ×4). The dialog is a portal, so the island lays its two halves out in place.`,
+    status: {
+      web: ok(
+        `GuidePictureViewer / GuidePictureViewerPanel`,
+        `packages/ui/src/guide-picture-viewer.tsx`,
+        `opened by SessionResultsView; the dialog is ImagePreviewDialog's panel mode`
+      ),
+      desktop: ok(`image_preview::open_guide_viewer`, `apps/desktop/crates/ui/src/image_preview.rs`),
+      ios: ok(`GuidePictureViewer`, `apps/ios/Exponential/UI/Work/GuidePictureViewer.swift`),
+      android: ok(
+        `GuidePictureViewer`,
+        `apps/android/app/src/main/java/com/exponential/app/ui/work/GuidePictureViewer.kt`
+      ),
+    },
+    island: () => (
+      <div className="flex h-[26rem] max-w-4xl overflow-hidden rounded-2xl border border-glass-stroke-card bg-card/85">
+        <div className="flex min-w-0 flex-1 items-center justify-center bg-black/30 p-4">
+          <img src={THUMB_FIXTURE_SRC} alt="" className="max-h-full max-w-full rounded-md object-contain" />
+        </div>
+        <div className="flex w-[360px] shrink-0 flex-col border-l border-glass-stroke">
+          {GUIDE_VIEWER_STATE ? (
+            <GuidePictureViewerPanel state={GUIDE_VIEWER_STATE} onSelect={noop} />
+          ) : null}
+        </div>
+      </div>
+    ),
+  },
+  {
+    id: `floating-composer`,
+    title: `Floating composer`,
+    kind: `Inputs & pickers`,
+    blurb: `EXP-1316: the phones' ONE reply box, on the thread conversation and the session view alike. Collapsed it is the floating bar's capsule (52 px, the floating glass, 20 px screen inset) reading the placeholder "Reply…", floating over the content above the bottom edge fade, never pushing it. A tap expands it into THE Composer card: the text, + for pictures and files, send, Stop while the session works. Focus leaving the card collapses it; the card stays mounted, so a draft survives and the capsule then reads the draft. Web md+ and the IDE keep the in-flow Composer box. The live bar is fixed to the viewport, so the island paints its two states in place.`,
+    status: {
+      web: ok(
+        `FloatingComposer`,
+        `packages/ui/src/floating-composer.tsx`,
+        `hosts: the thread route's ConversationBody and components/thread/session-body.tsx`
+      ),
+      desktop: { state: `n/a`, note: `The IDE keeps the in-flow Composer box.` },
+      ios: ok(`FloatingComposer`, `apps/ios/ExpUI/Sources/FloatingComposer.swift`),
+      android: ok(`FloatingComposer`, `${ANDROID_COMPONENTS}/FloatingComposer.kt`),
+    },
+    island: () => (
+      <div className="flex max-w-sm flex-col gap-6">
+        <div className="flex">
+          <span className={MOBILE_WORK_CAPSULE_CLASS}>Reply…</span>
+        </div>
+        <Composer
+          tools={
+            <ComposerTool aria-label="Add file">
+              <PlusGlyph />
+            </ComposerTool>
+          }
+          submit={<ComposerSubmit aria-label="Send" disabled />}
+        >
+          <Textarea
+            placeholder="Reply…"
+            rows={2}
+            className="min-h-20 resize-none border-0 bg-transparent px-3 pt-3 shadow-none focus-visible:ring-0"
+          />
+        </Composer>
       </div>
     ),
   },

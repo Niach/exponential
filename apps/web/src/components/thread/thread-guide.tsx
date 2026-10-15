@@ -219,11 +219,22 @@ export function ThreadGuideMenu({
 export function ThreadGuideMerge({
   pr,
   canMerge,
+  placement = `bottom`,
 }: {
   pr: PullRequestRow | null
   canMerge: boolean
+  /** EXP-1316: `header` = md+, the thread header's trailing slot on every
+   *  tab; `bottom` = phones, THE white capsule closing the Guide tab. */
+  placement?: `bottom` | `header`
 }) {
   if (!pr || pr.state !== `open` || !canMerge) return null
+  if (placement === `header`) {
+    return (
+      <div className="flex shrink-0 items-center" data-testid={THREAD_TEST_IDS.guideMerge}>
+        <PullRequestMergePill pr={pr} canMerge={canMerge} />
+      </div>
+    )
+  }
   return (
     <div
       className="flex shrink-0 justify-center px-4 pt-2 pb-4"

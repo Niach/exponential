@@ -98,7 +98,6 @@ struct SignInMethodsSection: View {
             emailRow(methods)
 
             ForEach(methods.providers) { provider in
-                GlassDivider()
                 providerRow(provider, in: methods)
             }
         }
@@ -111,8 +110,7 @@ struct SignInMethodsSection: View {
             if methods.passkeys.isEmpty {
                 EmptyState(.passkeys)
             } else {
-                ForEach(Array(methods.passkeys.enumerated()), id: \.element.id) { index, passkey in
-                    if index > 0 { GlassDivider() }
+                ForEach(methods.passkeys, id: \.id) { passkey in
                     passkeyRow(passkey, in: methods)
                 }
             }

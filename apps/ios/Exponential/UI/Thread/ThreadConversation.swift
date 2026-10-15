@@ -31,6 +31,10 @@ struct ThreadConversationView: View {
     /// A plan card's Approve / Reject: (message id, decision, the reject
     /// row's feedback).
     var onDecide: (String, PlanDecision, String?) -> Void = { _, _, _ in }
+    /// EXP-1317: the viewer's own queued message's X (`sessions.unqueue`).
+    var onUnqueue: (String) -> Void = { _ in }
+    /// The signed-in viewer (whose queued rows carry the X).
+    var viewerId: String?
     /// The card answer in flight (its buttons wait).
     var answeringId: String?
     /// Whether this reader may answer the cards (a member of the team).
@@ -46,6 +50,7 @@ struct ThreadConversationView: View {
         AgentQuestionOption(label: "Reject", key: "reject"),
     ]
     static let approveKey = "approve"
+
     static let queuedWord = "queued"
 
     /// Attachment images through the instance, `#EXP-1` refs chipped against
@@ -148,7 +153,8 @@ struct ThreadConversationView: View {
                 UserMessageBubble(
                     text: body,
                     context: markdownContext,
-                    caption: caption(messageId: id, authorId: authorId, queued: queued)
+                    caption: caption(messageId: id, authorId: authorId, queued: queued),
+                    onRemove: queued && viewerId != nil && authorId == viewerId ? { onUnqueue(id) } : nil
                 )
                 .opacity(queued ? 0.7 : 1)
                 .accessibilityIdentifier("thread-message")
@@ -161,23 +167,32 @@ struct ThreadConversationView: View {
                     onOpenSession(card.sessionId)
                 }
             }
-        case let .question(id, question, options, answer, answered):
+        case let .question(id, question, options, custom, answer, answered):
+            // THE session view's card (EXP-1316): the options AND the
+            // free-text answer (`withFreeTextRow`, ×4), closed once answered
+            // whichever path did it. The typed text IS the answer.
+            let base = AgentQuestion(
+                id: 0,
+                wireId: id,
+                text: question,
+                options: options.map { AgentQuestionOption(label: $0.label, key: $0.label, description: $0.description) },
+                resolved: answered,
+                answers: answer.map { [$0] } ?? []
+            )
+            let card = custom ? base.withFreeTextRow() : base
             QuestionCard(
-                question: AgentQuestion(
-                    id: 0,
-                    wireId: id,
-                    text: question,
-                    options: options.map { AgentQuestionOption(label: $0, key: $0) },
-                    resolved: answered,
-                    answers: answer.map { [$0] } ?? []
-                ),
+                question: card,
                 active: !answered,
                 canAnswer: canAnswer,
                 locked: answeringId == id,
                 pending: answeringId == id,
                 failed: false,
                 onAnswer: { keys, text in
-                    if let pick = text ?? keys.first { onAnswer(id, pick) }
+                    let typed = text?.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let freeKeys = Set(card.options.filter(\.freeText).map(\.key))
+                    if let pick = (typed?.isEmpty == false ? typed : nil) ?? keys.first(where: { !freeKeys.contains($0) }) {
+                        onAnswer(id, pick)
+                    }
                 },
                 markdownContext: markdownContext
             )
@@ -241,14 +256,14 @@ struct ThreadConversationView: View {
         }
     }
 
-    /// A person's bubble caption: `<name> · <time>`, or `queued` until the
-    /// device took the message.
+    /// A person's bubble caption: `<name> · <time>`, ending `· queued` until
+    /// the device took the message (EXP-1317, ×4; the X rides after it).
     private func caption(messageId: String, authorId: String?, queued: Bool) -> String {
-        if queued { return Self.queuedWord }
         let user = rows.user(id: authorId)
         let name = user?.name ?? user?.email
         let time = rows.messages.first { $0.id == messageId }.map { RelativeTime.compact(wire: $0.createdAt) }
-        return [name, time].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
+        return [name, time, queued ? Self.queuedWord : nil]
+            .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
     }
 }
 

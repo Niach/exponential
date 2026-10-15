@@ -29,7 +29,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -44,8 +43,10 @@ import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.ui.components.InlineSpinner
 import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.components.TeamSectionHeader
+import com.exponential.app.ui.components.deviceIcon
 import com.exponential.app.ui.components.teamBands
 import com.exponential.app.ui.icons.ExpIcons
+import com.exponential.app.ui.issue.NeedsInputAmber
 import com.exponential.app.ui.parseColor
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
@@ -114,7 +115,9 @@ fun ThreadsContent(
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = BottomBarInset),
         ) {
             if (agents.isNotEmpty()) {
-                item(key = "__agents__") { SectionHeader(SessionTree.ListCopy.AGENTS) }
+                item(key = "__agents__") {
+                    SectionHeader(SessionTree.ListCopy.AGENTS, leading = { BandGlyph(ExpIcons.settingsAgents, Muted) })
+                }
                 items(agents, key = { "agent_${it.sessionId}" }) { agent ->
                     AgentListRow(agent, onClick = { onOpenThread(agent.sessionId) })
                 }
@@ -143,7 +146,7 @@ private fun LazyListScope.threadGroups(
         }
         band.items.groupBy { it.key }.forEach { (key, rows) ->
             item(key = "__group_${bandId}_${key.wire}__") {
-                SectionHeader(SessionTree.ListCopy.GROUPS.getValue(key))
+                SectionHeader(SessionTree.ListCopy.GROUPS.getValue(key), leading = { GroupGlyph(key) })
             }
             items(rows, key = { "row_${it.row.sessionId}" }) { entry ->
                 ThreadListRow(
@@ -156,6 +159,24 @@ private fun LazyListScope.threadGroups(
             }
             item(key = "__group_gap_${bandId}_${key.wire}__") { Spacer(Modifier.height(12.dp)) }
         }
+    }
+}
+
+private val Muted: Color @Composable get() = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
+
+@Composable
+private fun BandGlyph(icon: androidx.compose.ui.graphics.vector.ImageVector, tint: Color) {
+    Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(14.dp))
+}
+
+/** EXP-1318 ×4: a group band's glyph — Needs you amber, Running the working
+ *  mark, Recent the check (web `GROUP_GLYPH`). */
+@Composable
+private fun GroupGlyph(key: SessionTree.ThreadsGroupKey) {
+    when (key) {
+        SessionTree.ThreadsGroupKey.NeedsYou -> BandGlyph(ExpIcons.codingNeedsInput, NeedsInputAmber)
+        SessionTree.ThreadsGroupKey.Running -> AgentWorkingMark(agent = null, size = 14.dp)
+        SessionTree.ThreadsGroupKey.Recent -> BandGlyph(ExpIcons.uiCheck, Muted)
     }
 }
 
@@ -195,14 +216,13 @@ private fun AgentListRow(agent: SessionTree.AgentRow, onClick: () -> Unit) {
     }
 }
 
-/** A thread: its state mark, the first linked issue's mono identifier, the
- *  title, a lock when private, then a spinner while busy or an amber dot
- *  when it needs you (the phone home's Running band). EXP-1309: on the
- *  Threads tab ([threadsTab], web `ThreadsListView`) the row ends on ONE
- *  quiet [word] instead (the lock wins) and its state moves into the lead
- *  (web `rowLead`): the working mark while busy, the badged mark when it
- *  needs you, the PR glyph `ready to merge` / `merged` name, else the mark
- *  (dimmed with no word). */
+/** A thread: its state mark, the title (it names the issue, EXP-1316: no
+ *  identifier slot), a lock when private, then a spinner while busy or an
+ *  amber dot when it needs you. EXP-1309/1318: on the Threads tab
+ *  ([threadsTab], web `ThreadsListView`) the row ends on ONE quiet [word]
+ *  AND the lock, and its state moves into the lead (web `rowLead`): the
+ *  working mark while busy, the badged mark when it needs you, the PR glyph
+ *  `ready to merge` / `merged` name, else the mark (dimmed with no word). */
 @Composable
 internal fun ThreadListRow(
     row: SessionTree.ThreadsListRow,
@@ -227,15 +247,6 @@ internal fun ThreadListRow(
         } else {
             AgentRunMark(agent = meta?.agent, state = state, size = 14.dp, badgeSize = 6.dp)
         }
-        meta?.identifier?.let { identifier ->
-            Text(
-                identifier,
-                style = MaterialTheme.typography.labelMedium,
-                fontFamily = FontFamily.Monospace,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                maxLines = 1,
-            )
-        }
         Text(
             row.title,
             style = MaterialTheme.typography.bodyMedium,
@@ -244,6 +255,7 @@ internal fun ThreadListRow(
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
         )
+        if (threadsTab && word != null) QuietWord(word)
         if (row.private) {
             Icon(
                 ExpIcons.uiPrivate,
@@ -252,8 +264,18 @@ internal fun ThreadListRow(
                 modifier = Modifier.size(12.dp).testTag("threads-row-private"),
             )
         }
+        // EXP-1318 ×4: the ROOT's device, last (after the word and the lock),
+        // its icon as the Devices screen draws it; unknown device = none.
+        meta?.device?.let { device ->
+            Icon(
+                deviceIcon(device.icon, device.isServer),
+                contentDescription = device.name,
+                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                modifier = Modifier.size(14.dp).testTag("threads-row-device"),
+            )
+        }
         when {
-            threadsTab -> if (!row.private && word != null) QuietWord(word)
+            threadsTab -> Unit
             row.needsYou -> NeedsYouDot()
             row.busy -> InlineSpinner()
         }

@@ -1,5 +1,5 @@
 {
-  "$comment": "EXP-1291 Threads v2: the Threads page (rail entry Threads, concept nav-threads; the composer on top) and the rail's Agents section, ×4 in the existing styleguide list (a filled group band, no count, over flat hairline rows). partitionThreads({sessions, sessionIssues, issues, messages, teamId}) = the roots of kind `thread` (teamId = the ACTIVE team on web/desktop; null = every team, phones band rows per team) grouped `needs_you` (any non-ended session of the tree has needsInput) · `running` (else any session queued or running) · `recent` (the rest), each by the tree's newest updatedAt desc (ties by id); empty groups omitted; no cap. A row = the thread title (session-thread.json threadTitle), a lock glyph when private (!shared), a spinner while busy, an amber dot when needsYou; ONE quiet trailing word off the team's PRs (web `threadRowWord`: stack · ready to merge · merged · question, EXP-1309) ×4. listAgents(sessions, teamId) = the agent roots (kind `agent`) by sortOrder, then name, then id, each icon + color like a board row (missing → `agentDefaults`), spinner while busy, amber dot when needsYou; the section sits above Boards and opens the agent's channel (the same Conversation + composer). Reference packages/domain-contract/src/session-tree.ts; mirrors replay `cases` and `agentCases` comparing the WHOLE expected value. EXP-1312: threadRowMarkState({needsYou, busy}) = the lead of a thread row outside the Threads tab (home Running band, the rail Running rows, work tabs) x4: needs_you (the brand mark with the amber badge) beats working (the working mark), else waiting (the bare brand mark); markCases replay it.",
+  "$comment": "EXP-1291 Threads v2: the Threads page (rail entry Threads, concept nav-threads; the composer on top) and the rail's Agents section, ×4 in the existing styleguide list (a filled group band, no count, over FLAT gapless rows, NO dividers ×4, EXP-1320). partitionThreads({sessions, sessionIssues, issues, messages, teamId}) = the roots of kind `thread` (teamId = the ACTIVE team on web/desktop; null = every team, phones band rows per team) grouped `needs_you` (any non-ended session of the tree has needsInput) · `running` (else any session queued or running) · `recent` (the rest), each by the tree's newest updatedAt desc (ties by id); empty groups omitted; no cap. A row = the thread title (session-thread.json threadTitle), a lock glyph when private (!shared), a spinner while busy, an amber dot when needsYou; ONE quiet trailing word off the team's PRs, EXP-1309. listAgents(sessions, teamId) = the agent roots (kind `agent`) by sortOrder, then name, then id, each icon + color like a board row (missing → `agentDefaults`), spinner while busy, amber dot when needsYou; the section sits above Boards and opens the agent's channel (the same Conversation + composer). Reference packages/domain-contract/src/session-tree.ts; mirrors replay `cases` and `agentCases` comparing the WHOLE expected value. EXP-1312: threadRowMarkState({needsYou, busy}) = the lead of a thread row outside the Threads tab (home Running band, the rail Running rows, work tabs) x4: needs_you (the brand mark with the amber badge) beats working (the working mark), else waiting (the bare brand mark); markCases replay it. EXP-1318 (owner 2026-10-14): ONE row ×4 = lead mark (busy → the working mark, needsYou → the amber badge, an open PR → pr-open emerald, merged → pr-merged VIOLET on every client incl. the IDE) · the title (no separate identifier slot: threadTitle names it) · trailing = the word AND the lock (private). The word = threadRowWord({pullRequests, busy, needsYou, inStack}) (keys; `copy.words` = the text), order stack → readyToMerge (an open PR while nothing works) → merged → question; inStack = threadInStack(threadPrs, teamPrs) (an open PR based on another open PR, or one based on it); mirrors replay `wordCases` + `stackCases`. Group bands carry their glyph ×4 (Needs you = coding-needs-input amber, Running = the working mark, Recent = ui-check), no count. Phones (teamId null): the TEAM band is OUTER (the filled team section header with the avatar), the group bands sit inside it, page title = the large in-content `copy.title`. The rail (web + IDE) = ONE band `copy.rail` = railThreads(groups, wordOf): every needs_you row, every running row, then the recent rows whose word is readyToMerge or stack, in that order (`railCases`, input words by sessionId); both list every thread the shapes make visible (no own-user filter). EXP-1318 (owner 2026-10-15): the device icon is back ×4: row trailing = word · lock · the DEVICE ICON (list-item.json SessionRow anatomy: the title line + the trailing device glyph). The row's `deviceId` = the ROOT session's logical device_id (null when unset or absent: mirrors read a missing field as null); the icon = that device row's icon through the `deviceIcon` concept map, tooltip/accessibility label = the device name; a device the viewer cannot see (not in their synced devices) or a null deviceId → no icon. Rail rows (railThreads) carry the same field.",
   "copy": {
     "title": "Threads",
     "agents": "Agents",
@@ -8,7 +8,15 @@
       "running": "Running",
       "recent": "Recent"
     },
-    "empty": "No sessions yet"
+    "empty": "No sessions yet",
+    "rail": "Active",
+    "words": {
+      "stack": "stack",
+      "readyToMerge": "ready to merge",
+      "merged": "merged",
+      "question": "question",
+      "needsInput": "needs input"
+    }
   },
   "agentDefaults": {
     "icon": "bot",
@@ -21,7 +29,7 @@
   },
   "cases": [
     {
-      "name": "the active team: needs you, running, recent; agents and other teams left out",
+      "name": "the active team: needs you, running, recent; agents and other teams left out; a root's device rides its row (a child's never; an absent field reads null)",
       "input": {
         "sessions": [
           {
@@ -29,6 +37,7 @@
             "parentId": null,
             "kind": "thread",
             "userId": "u-dana",
+            "deviceId": "dev-mac",
             "status": "idle",
             "busy": false,
             "needsInput": false,
@@ -53,6 +62,7 @@
             "parentId": "a",
             "kind": "thread",
             "userId": "u-dana",
+            "deviceId": "dev-child",
             "status": "running",
             "busy": false,
             "needsInput": true,
@@ -77,6 +87,7 @@
             "parentId": null,
             "kind": "thread",
             "userId": "u-dana",
+            "deviceId": "dev-mint",
             "status": "running",
             "busy": true,
             "needsInput": false,
@@ -125,6 +136,7 @@
             "parentId": null,
             "kind": "thread",
             "userId": "u-dana",
+            "deviceId": "dev-mac",
             "status": "idle",
             "busy": false,
             "needsInput": false,
@@ -149,6 +161,7 @@
             "parentId": null,
             "kind": "thread",
             "userId": "u-dana",
+            "deviceId": "dev-mac",
             "status": "ended",
             "busy": false,
             "needsInput": true,
@@ -173,6 +186,7 @@
             "parentId": null,
             "kind": "thread",
             "userId": "u-dana",
+            "deviceId": "dev-other",
             "status": "queued",
             "busy": false,
             "needsInput": false,
@@ -197,6 +211,7 @@
             "parentId": null,
             "kind": "agent",
             "userId": "u-dana",
+            "deviceId": null,
             "status": "idle",
             "busy": false,
             "needsInput": false,
@@ -221,6 +236,7 @@
             "parentId": null,
             "kind": "thread",
             "userId": "u-dana",
+            "deviceId": "dev-mint",
             "status": "ended",
             "busy": false,
             "needsInput": false,
@@ -245,6 +261,7 @@
             "parentId": "h",
             "kind": "thread",
             "userId": "u-dana",
+            "deviceId": "dev-child",
             "status": "running",
             "busy": false,
             "needsInput": false,
@@ -304,6 +321,7 @@
               "teamId": "t-team-1",
               "title": "Audit the billing page",
               "private": false,
+              "deviceId": "dev-mac",
               "busy": false,
               "needsYou": true,
               "activityAt": "2026-10-13T09:30:00.000Z"
@@ -319,6 +337,7 @@
               "teamId": "t-team-1",
               "title": "Running one",
               "private": false,
+              "deviceId": "dev-mint",
               "busy": true,
               "needsYou": false,
               "activityAt": "2026-10-13T08:00:00.000Z"
@@ -328,6 +347,7 @@
               "teamId": "t-team-1",
               "title": "Untitled",
               "private": false,
+              "deviceId": "dev-mint",
               "busy": false,
               "needsYou": false,
               "activityAt": "2026-10-13T06:10:00.000Z"
@@ -341,8 +361,9 @@
             {
               "sessionId": "d",
               "teamId": "t-team-1",
-              "title": "Login fails on Safari",
+              "title": "Implement EXP-12",
               "private": false,
+              "deviceId": "dev-mac",
               "busy": false,
               "needsYou": false,
               "activityAt": "2026-10-13T07:30:00.000Z"
@@ -352,6 +373,7 @@
               "teamId": "t-team-1",
               "title": "Private and done",
               "private": true,
+              "deviceId": null,
               "busy": false,
               "needsYou": false,
               "activityAt": "2026-10-13T07:00:00.000Z"
@@ -361,6 +383,7 @@
               "teamId": "t-team-1",
               "title": "Ended rows never need you",
               "private": false,
+              "deviceId": "dev-mac",
               "busy": false,
               "needsYou": false,
               "activityAt": "2026-10-13T06:00:00.000Z"
@@ -378,6 +401,7 @@
             "parentId": null,
             "kind": "thread",
             "userId": "u-dana",
+            "deviceId": "dev-mac",
             "status": "idle",
             "busy": false,
             "needsInput": false,
@@ -402,6 +426,7 @@
             "parentId": "a",
             "kind": "thread",
             "userId": "u-dana",
+            "deviceId": "dev-child",
             "status": "running",
             "busy": false,
             "needsInput": true,
@@ -426,6 +451,7 @@
             "parentId": null,
             "kind": "thread",
             "userId": "u-dana",
+            "deviceId": "dev-mint",
             "status": "running",
             "busy": true,
             "needsInput": false,
@@ -450,6 +476,7 @@
             "parentId": null,
             "kind": "thread",
             "userId": "u-dana",
+            "deviceId": null,
             "status": "ended",
             "busy": false,
             "needsInput": false,
@@ -474,6 +501,7 @@
             "parentId": null,
             "kind": "thread",
             "userId": "u-dana",
+            "deviceId": "dev-mac",
             "status": "idle",
             "busy": false,
             "needsInput": false,
@@ -498,6 +526,7 @@
             "parentId": null,
             "kind": "thread",
             "userId": "u-dana",
+            "deviceId": "dev-mac",
             "status": "ended",
             "busy": false,
             "needsInput": true,
@@ -522,6 +551,7 @@
             "parentId": null,
             "kind": "thread",
             "userId": "u-dana",
+            "deviceId": "dev-other",
             "status": "queued",
             "busy": false,
             "needsInput": false,
@@ -546,6 +576,7 @@
             "parentId": null,
             "kind": "agent",
             "userId": "u-dana",
+            "deviceId": null,
             "status": "idle",
             "busy": false,
             "needsInput": false,
@@ -570,6 +601,7 @@
             "parentId": null,
             "kind": "thread",
             "userId": "u-dana",
+            "deviceId": "dev-mint",
             "status": "ended",
             "busy": false,
             "needsInput": false,
@@ -594,6 +626,7 @@
             "parentId": "h",
             "kind": "thread",
             "userId": "u-dana",
+            "deviceId": "dev-child",
             "status": "running",
             "busy": false,
             "needsInput": false,
@@ -653,6 +686,7 @@
               "teamId": "t-team-1",
               "title": "Audit the billing page",
               "private": false,
+              "deviceId": "dev-mac",
               "busy": false,
               "needsYou": true,
               "activityAt": "2026-10-13T09:30:00.000Z"
@@ -668,6 +702,7 @@
               "teamId": "t-team-1",
               "title": "Running one",
               "private": false,
+              "deviceId": "dev-mint",
               "busy": true,
               "needsYou": false,
               "activityAt": "2026-10-13T08:00:00.000Z"
@@ -677,6 +712,7 @@
               "teamId": "t-team-1",
               "title": "Untitled",
               "private": false,
+              "deviceId": "dev-mint",
               "busy": false,
               "needsYou": false,
               "activityAt": "2026-10-13T06:10:00.000Z"
@@ -686,6 +722,7 @@
               "teamId": "t-team-2",
               "title": "Other team",
               "private": false,
+              "deviceId": "dev-other",
               "busy": false,
               "needsYou": false,
               "activityAt": "2026-10-13T05:00:00.000Z"
@@ -699,8 +736,9 @@
             {
               "sessionId": "d",
               "teamId": "t-team-1",
-              "title": "Login fails on Safari",
+              "title": "Implement EXP-12",
               "private": false,
+              "deviceId": "dev-mac",
               "busy": false,
               "needsYou": false,
               "activityAt": "2026-10-13T07:30:00.000Z"
@@ -710,6 +748,7 @@
               "teamId": "t-team-1",
               "title": "Private and done",
               "private": true,
+              "deviceId": null,
               "busy": false,
               "needsYou": false,
               "activityAt": "2026-10-13T07:00:00.000Z"
@@ -719,6 +758,7 @@
               "teamId": "t-team-1",
               "title": "Ended rows never need you",
               "private": false,
+              "deviceId": "dev-mac",
               "busy": false,
               "needsYou": false,
               "activityAt": "2026-10-13T06:00:00.000Z"
@@ -736,6 +776,7 @@
             "parentId": null,
             "kind": "agent",
             "userId": "u-dana",
+            "deviceId": null,
             "status": "idle",
             "busy": false,
             "needsInput": false,
@@ -1121,6 +1162,388 @@
         "busy": false
       },
       "expected": "waiting"
+    }
+  ],
+  "stackCases": [
+    {
+      "name": "a lone open PR is no stack",
+      "input": {
+        "pullRequests": [
+          {
+            "id": "a",
+            "state": "open",
+            "basePullRequestId": null
+          }
+        ],
+        "teamPrs": [
+          {
+            "id": "a",
+            "state": "open",
+            "basePullRequestId": null
+          }
+        ]
+      },
+      "expected": false
+    },
+    {
+      "name": "based on another open PR",
+      "input": {
+        "pullRequests": [
+          {
+            "id": "b",
+            "state": "open",
+            "basePullRequestId": "a"
+          }
+        ],
+        "teamPrs": [
+          {
+            "id": "a",
+            "state": "open",
+            "basePullRequestId": null
+          },
+          {
+            "id": "b",
+            "state": "open",
+            "basePullRequestId": "a"
+          }
+        ]
+      },
+      "expected": true
+    },
+    {
+      "name": "another thread's open PR is based on it",
+      "input": {
+        "pullRequests": [
+          {
+            "id": "a",
+            "state": "open",
+            "basePullRequestId": null
+          }
+        ],
+        "teamPrs": [
+          {
+            "id": "a",
+            "state": "open",
+            "basePullRequestId": null
+          },
+          {
+            "id": "b",
+            "state": "open",
+            "basePullRequestId": "a"
+          }
+        ]
+      },
+      "expected": true
+    },
+    {
+      "name": "a merged base no longer stacks",
+      "input": {
+        "pullRequests": [
+          {
+            "id": "b",
+            "state": "open",
+            "basePullRequestId": "a"
+          }
+        ],
+        "teamPrs": [
+          {
+            "id": "a",
+            "state": "merged",
+            "basePullRequestId": null
+          },
+          {
+            "id": "b",
+            "state": "open",
+            "basePullRequestId": "a"
+          }
+        ]
+      },
+      "expected": false
+    },
+    {
+      "name": "a merged PR never stacks",
+      "input": {
+        "pullRequests": [
+          {
+            "id": "b",
+            "state": "merged",
+            "basePullRequestId": "a"
+          }
+        ],
+        "teamPrs": [
+          {
+            "id": "a",
+            "state": "open",
+            "basePullRequestId": null
+          },
+          {
+            "id": "b",
+            "state": "merged",
+            "basePullRequestId": "a"
+          }
+        ]
+      },
+      "expected": false
+    }
+  ],
+  "wordCases": [
+    {
+      "name": "an open PR in a stack",
+      "input": {
+        "pullRequests": [
+          {
+            "state": "open"
+          }
+        ],
+        "busy": false,
+        "needsYou": false,
+        "inStack": true
+      },
+      "expected": "stack"
+    },
+    {
+      "name": "a stack beats working and a question",
+      "input": {
+        "pullRequests": [
+          {
+            "state": "open"
+          }
+        ],
+        "busy": true,
+        "needsYou": true,
+        "inStack": true
+      },
+      "expected": "stack"
+    },
+    {
+      "name": "an open PR while nothing works",
+      "input": {
+        "pullRequests": [
+          {
+            "state": "open"
+          }
+        ],
+        "busy": false,
+        "needsYou": false,
+        "inStack": false
+      },
+      "expected": "readyToMerge"
+    },
+    {
+      "name": "an open PR while working = no word",
+      "input": {
+        "pullRequests": [
+          {
+            "state": "open"
+          }
+        ],
+        "busy": true,
+        "needsYou": false,
+        "inStack": false
+      },
+      "expected": null
+    },
+    {
+      "name": "open beats merged",
+      "input": {
+        "pullRequests": [
+          {
+            "state": "open"
+          },
+          {
+            "state": "merged"
+          }
+        ],
+        "busy": false,
+        "needsYou": false,
+        "inStack": false
+      },
+      "expected": "readyToMerge"
+    },
+    {
+      "name": "merged beats a question",
+      "input": {
+        "pullRequests": [
+          {
+            "state": "merged"
+          }
+        ],
+        "busy": false,
+        "needsYou": true,
+        "inStack": false
+      },
+      "expected": "merged"
+    },
+    {
+      "name": "waiting on a person, a closed PR never counts",
+      "input": {
+        "pullRequests": [
+          {
+            "state": "closed"
+          }
+        ],
+        "busy": false,
+        "needsYou": true,
+        "inStack": false
+      },
+      "expected": "question"
+    },
+    {
+      "name": "nothing",
+      "input": {
+        "pullRequests": [],
+        "busy": false,
+        "needsYou": false,
+        "inStack": false
+      },
+      "expected": null
+    }
+  ],
+  "railCases": [
+    {
+      "name": "needs you, running, then recent rows that still ask for a merge",
+      "input": {
+        "groups": [
+          {
+            "key": "needs_you",
+            "title": "Needs you",
+            "rows": [
+              {
+                "sessionId": "a",
+                "teamId": "t-team-1",
+                "title": "a",
+                "private": false,
+                "deviceId": "dev-mac",
+                "busy": false,
+                "needsYou": false,
+                "activityAt": "2026-10-13T10:00:00.000Z"
+              }
+            ]
+          },
+          {
+            "key": "running",
+            "title": "Running",
+            "rows": [
+              {
+                "sessionId": "b",
+                "teamId": "t-team-1",
+                "title": "b",
+                "private": false,
+                "deviceId": "dev-mac",
+                "busy": false,
+                "needsYou": false,
+                "activityAt": "2026-10-13T10:00:00.000Z"
+              },
+              {
+                "sessionId": "c",
+                "teamId": "t-team-1",
+                "title": "c",
+                "private": false,
+                "deviceId": "dev-mac",
+                "busy": false,
+                "needsYou": false,
+                "activityAt": "2026-10-13T10:00:00.000Z"
+              }
+            ]
+          },
+          {
+            "key": "recent",
+            "title": "Recent",
+            "rows": [
+              {
+                "sessionId": "d",
+                "teamId": "t-team-1",
+                "title": "d",
+                "private": false,
+                "deviceId": "dev-mac",
+                "busy": false,
+                "needsYou": false,
+                "activityAt": "2026-10-13T10:00:00.000Z"
+              },
+              {
+                "sessionId": "e",
+                "teamId": "t-team-1",
+                "title": "e",
+                "private": false,
+                "deviceId": "dev-mac",
+                "busy": false,
+                "needsYou": false,
+                "activityAt": "2026-10-13T10:00:00.000Z"
+              },
+              {
+                "sessionId": "f",
+                "teamId": "t-team-1",
+                "title": "f",
+                "private": false,
+                "deviceId": "dev-mac",
+                "busy": false,
+                "needsYou": false,
+                "activityAt": "2026-10-13T10:00:00.000Z"
+              },
+              {
+                "sessionId": "g",
+                "teamId": "t-team-1",
+                "title": "g",
+                "private": false,
+                "deviceId": "dev-mac",
+                "busy": false,
+                "needsYou": false,
+                "activityAt": "2026-10-13T10:00:00.000Z"
+              }
+            ]
+          }
+        ],
+        "words": {
+          "a": "question",
+          "b": null,
+          "d": "merged",
+          "e": "readyToMerge",
+          "f": null,
+          "g": "stack"
+        }
+      },
+      "expected": [
+        "a",
+        "b",
+        "c",
+        "e",
+        "g"
+      ]
+    },
+    {
+      "name": "only recent, nothing to merge = empty",
+      "input": {
+        "groups": [
+          {
+            "key": "recent",
+            "title": "Recent",
+            "rows": [
+              {
+                "sessionId": "d",
+                "teamId": "t-team-1",
+                "title": "d",
+                "private": false,
+                "deviceId": "dev-mac",
+                "busy": false,
+                "needsYou": false,
+                "activityAt": "2026-10-13T10:00:00.000Z"
+              }
+            ]
+          }
+        ],
+        "words": {
+          "d": "merged"
+        }
+      },
+      "expected": []
+    },
+    {
+      "name": "no groups",
+      "input": {
+        "groups": [],
+        "words": {}
+      },
+      "expected": []
     }
   ]
 }

@@ -1,10 +1,18 @@
 import { useEffect, useState } from "react"
 import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router"
-import { BoardGlyph, conceptIcon, EmptyState, SkeletonRows, useIsMobile } from "@exp/ui"
+import {
+  BoardGlyph,
+  conceptIcon,
+  EmptyState,
+  JumpToBottomButton,
+  SkeletonRows,
+  useIsMobile,
+} from "@exp/ui"
 import type { User } from "@/db/schema"
 import { SessionComposer } from "@/components/session-composer"
 import { MobileDetailHeader } from "@/components/team/mobile-detail-header"
 import { AgentChannel } from "@/components/thread/agent-channel"
+import { useFollowScroll } from "@/hooks/use-follow-scroll"
 import { useSessionMessages, useSessionRow, useTeamSessions } from "@/hooks/use-session-tree"
 import { useTeamBySlug, useTeamUsers } from "@/hooks/use-team-data"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
@@ -42,6 +50,7 @@ function AgentChannelPage() {
   const permissions = useTeamPermissions(team)
   const { row: agent, isReady } = useSessionRow(agentId)
   const messages = useSessionMessages(agentId)
+  const follow = useFollowScroll([messages, agent?.id])
   const { rows: teamSessions } = useTeamSessions(team?.id)
   const { users } = useTeamUsers(team?.id)
   usePageTitle(agent?.name ? pageTitle(agent.name, THREADS_LIST_COPY.agents) : undefined)
@@ -109,17 +118,34 @@ function AgentChannelPage() {
           </h1>
         </div>
       )}
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-        <div className="mx-auto flex min-h-full w-full max-w-3xl flex-col justify-end px-4 pt-8 pb-8 md:px-6">
-          <AgentChannel
-            agent={agent}
-            messages={messages}
-            teamSessions={teamSessions}
-            users={users as User[]}
-            canAnswer={permissions.isMember}
-            onOpenSession={openSession}
-          />
+      {/* EXP-1316 (1n): the session feed's scroll (opens at the newest
+          row, follows while pinned, THE jump button once scrolled up). */}
+      <div className="relative min-h-0 flex-1">
+        <div
+          ref={follow.scrollRef}
+          onScroll={follow.onScroll}
+          data-testid="agent-channel-scroll"
+          className="h-full overflow-y-auto overscroll-contain"
+        >
+          <div
+            ref={follow.contentRef}
+            className="mx-auto flex min-h-full w-full max-w-3xl flex-col justify-end px-4 pt-8 pb-8 md:px-6"
+          >
+            <AgentChannel
+              agent={agent}
+              messages={messages}
+              teamSessions={teamSessions}
+              users={users as User[]}
+              canAnswer={permissions.isMember}
+              onOpenSession={openSession}
+            />
+          </div>
         </div>
+        <JumpToBottomButton
+          visible={!follow.atBottom && messages.length > 0}
+          className="absolute bottom-3 left-1/2 z-10 -translate-x-1/2"
+          onClick={follow.jumpToBottom}
+        />
       </div>
       {permissions.isMember && (
         <div className="shrink-0 px-4 pt-2 pb-4 md:px-6">

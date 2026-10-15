@@ -120,6 +120,13 @@ export function WorkTabsSync({
           ? path.sessionId
           : null
   const { row: sessionRow } = useSessionRow(routeSessionId)
+  // EXP-1316: `/sessions/<id>` only redirects into its thread (the session
+  // opens in place, the THREAD's tab focuses) unless the tree is an agent's.
+  const sessionRootId =
+    path?.kind === `session` && sessionRow && sessionRow.rootId && sessionRow.rootId !== sessionRow.id
+      ? sessionRow.rootId
+      : null
+  const { row: sessionRoot } = useSessionRow(sessionRootId)
 
   const route = useMemo<RouteTab | null>(() => {
     if (!path) return null
@@ -130,8 +137,12 @@ export function WorkTabsSync({
     if (!sessionRow || sessionRow.id !== routeSessionId || sessionRow.teamId !== teamId) {
       return null
     }
+    if (path.kind === `session`) {
+      const root = sessionRow.rootId && sessionRow.rootId !== sessionRow.id ? sessionRoot : sessionRow
+      if (root?.kind !== `agent`) return null
+    }
     return path
-  }, [path, issueRows, sessionRow, routeSessionId, teamId])
+  }, [path, issueRows, sessionRow, sessionRoot, routeSessionId, teamId])
   const routeKey = route ? JSON.stringify(route) : null
 
   useEffect(() => {

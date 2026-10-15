@@ -30,7 +30,8 @@ use crate::chrome::Chrome;
 ///
 /// Labels are SENTENCE CASE, never uppercase, and there is no count slot
 /// (EXP-698 retired header counts on every client). What sits under it is
-/// the hairline ladder, never a gapped stack of cards (EXP-1076).
+/// a list of flat gapless rows, no dividers (EXP-1320), never a gapped
+/// stack of cards (EXP-1076).
 pub fn glass_section_header(
     label: impl Into<SharedString>,
     trailing: Option<AnyElement>,
@@ -317,26 +318,6 @@ pub fn bare_row_shell() -> Div {
 /// that assembles a group by hand instead of through [`glass_group_rows`].
 pub fn glass_row_divider<T: Styled>(chrome: &Chrome, row: T) -> T {
     row.border_t_1().border_color(chrome.stroke_row)
-}
-
-/// EXP-994 — the same hairline for a LIST whose rows are built one by one
-/// (the settings ladders, the machines list): every row but the FIRST draws
-/// it, so a grouped list reads as one table instead of a stack of
-/// free-floating rows — and nothing draws an outer card border around them.
-/// A caller that already knows its index passes it; `ix == 0` is a no-op.
-pub fn list_row_divider<T: Styled>(chrome: &Chrome, row: T, ix: usize) -> T {
-    if ix == 0 {
-        row
-    } else {
-        glass_row_divider(chrome, row)
-    }
-}
-
-/// [`list_row_divider`] for a row the caller hands over as an opaque element
-/// (most list rows return `impl IntoElement`): the hairline rides a
-/// full-width wrapper instead of the row itself.
-pub fn list_row(chrome: &Chrome, row: impl IntoElement, ix: usize) -> Div {
-    list_row_divider(chrome, div().w_full().min_w_0(), ix).child(row)
 }
 
 /// The row RHYTHM of a [`glass_group`]: 16 horizontal / 12 vertical padding,

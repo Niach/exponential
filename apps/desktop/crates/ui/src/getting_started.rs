@@ -2,7 +2,7 @@
 //! block the contract `packages/domain-contract/fixtures/getting-started.json`
 //! specifies ×4: a header row (title, the muted `{done} of {total}`, a
 //! progress meter, a trailing Docs button) in the group band, over flat
-//! hairline-divided rows, one per visible step: done rows muted with a green
+//! flat rows (no dividers, EXP-1320), one per visible step: done rows muted with a green
 //! check, the ONE next row expanded (its `why` + a primary `cta` button),
 //! later rows plain with a quiet chevron ([`GettingStartedList`]).
 //!
@@ -797,7 +797,7 @@ fn run_target_here(target: Target, team_id: String, window: &mut Window, cx: &mu
 // ---------------------------------------------------------------------------
 
 /// THE block (web `GettingStartedList`): the group band (title, progress,
-/// meter, Docs) over flat hairline-divided rows, one per entry, at most
+/// meter, Docs) over flat rows (no dividers, EXP-1320), one per entry, at most
 /// [`MAX_W`] wide and centred in its column. Pure over `model`, so the
 /// styleguide draws it from a fixture case with `team_id` `None` (inert).
 #[derive(IntoElement)]
@@ -814,13 +814,11 @@ impl GettingStartedList {
 
 impl RenderOnce for GettingStartedList {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let last = self.model.entries.len().saturating_sub(1);
         let rows: Vec<gpui::AnyElement> = self
             .model
             .entries
             .iter()
-            .enumerate()
-            .map(|(ix, entry)| step_row(ix, ix == last, entry, self.team_id.as_deref(), cx))
+            .map(|entry| step_row(entry, self.team_id.as_deref(), cx))
             .collect();
         v_flex()
             .id(TEST_ID_BLOCK)
@@ -886,11 +884,8 @@ fn band(model: &Model, cx: &App) -> gpui::AnyElement {
         .into_any_element()
 }
 
-/// One step row. Every row but the first draws the hairline above itself;
-/// the expanded next row draws it on both edges.
+/// One step row: flat, no hairline (EXP-1320).
 fn step_row(
-    ix: usize,
-    is_last: bool,
     entry: &Entry,
     team_id: Option<&str>,
     cx: &App,
@@ -944,9 +939,6 @@ fn step_row(
             .py(px(ROW_EXPANDED_PADDING))
             .gap_1()
             .bg(chrome.fill_active)
-            .border_t_1()
-            .border_color(chrome.stroke_row)
-            .when(is_last, |this| this.border_b_1())
             .child(
                 h_flex()
                     .w_full()
@@ -999,7 +991,7 @@ fn step_row(
             .child(title)
             .child(trailing)
             .when(team.is_some(), |this| this.hover(move |this| this.bg(hover)));
-        crate::surface::list_row_divider(row, ix)
+        row
     };
     row.when_some(team, |this, team| {
         this.cursor_pointer()

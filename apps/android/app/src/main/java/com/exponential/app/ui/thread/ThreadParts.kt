@@ -13,6 +13,16 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.gestures.scrollBy
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.platform.LocalDensity
+import com.exponential.app.ui.components.JumpToBottomButton
+import com.exponential.app.ui.session.isNearBottom
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -50,13 +60,20 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.unit.Dp
+import com.exponential.app.ui.components.FloatingComposer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.net.toUri
 import com.exponential.app.data.db.UserEntity
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.PendingAttachment
+import com.exponential.app.domain.AgentFeedItem
+import com.exponential.app.domain.AnswerState
 import com.exponential.app.domain.QuestionOption
+import com.exponential.app.domain.withFreeTextRow
 import com.exponential.app.domain.ResolvedIssueStatus
 import com.exponential.app.domain.SessionTree
 import com.exponential.app.domain.WorkCardInput
@@ -69,11 +86,9 @@ import com.exponential.app.ui.components.FieldError
 import com.exponential.app.ui.components.GlassComposer
 import com.exponential.app.ui.components.GlassDropdownMenu
 import com.exponential.app.ui.components.GlassMenuItem
-import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.GlassTextField
 import com.exponential.app.ui.components.InlineSpinner
 import com.exponential.app.ui.components.PendingAttachmentStrip
-import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.components.StatusIcon
 import com.exponential.app.ui.components.TopBarBackButton
 import com.exponential.app.ui.components.UserAvatar
@@ -82,11 +97,10 @@ import com.exponential.app.ui.issue.LiveGreen
 import com.exponential.app.ui.issue.NeedsInputAmber
 import com.exponential.app.ui.markdown.LocalIssueRefBare
 import com.exponential.app.ui.markdown.MarkdownView
+import com.exponential.app.ui.markdown.MdStyle
 import com.exponential.app.ui.parseColor
-import com.exponential.app.ui.session.AnsweredRow
-import com.exponential.app.ui.session.AskCard
 import com.exponential.app.ui.session.LeadText
-import com.exponential.app.ui.session.QuestionOptionButton
+import com.exponential.app.ui.session.QuestionCard
 import com.exponential.app.ui.session.WorkCardView
 import com.exponential.app.ui.session.threadCard
 import com.exponential.app.ui.session.threadCardTextStyle
@@ -107,14 +121,14 @@ import com.exponential.app.ui.theme.glassCard
 internal object ThreadUiCopy {
     const val LINK_ISSUE = "Link an issue"
     const val NEW_ISSUE = "New issue"
-    const val RENAME = "Rename"
-    const val SAVE = "Save"
-    const val QUEUED = "Queued"
+    /** The contract word, lowercase (`Name · time · queued`). */
+    const val QUEUED = "queued"
+    /** EXP-1317 ×4: the queued bubble's ✕. */
+    const val REMOVE_FROM_QUEUE = "Remove from queue"
     const val APPROVE = "Approve"
     const val REJECT = "Reject"
     const val APPROVED = "Approved"
     const val REJECTED = "Rejected"
-    const val ANSWER = "Answer"
     const val SEND = "Send"
     const val ADD = "Add"
     const val SETTINGS = "Agent settings"
@@ -131,70 +145,43 @@ fun threadTabKey(tab: SessionTree.ThreadTab): String = when (tab) {
     SessionTree.ThreadTab.Conversation -> "conversation"
     is SessionTree.ThreadTab.IssueTab -> "issue:${tab.issueId}"
     SessionTree.ThreadTab.Add -> "add"
+    is SessionTree.ThreadTab.SessionTab -> "session:${tab.sessionId}"
     is SessionTree.ThreadTab.Guide -> "guide"
 }
+
+/** A `question` answer: (message id, answer, settled(ok)). */
+typealias ThreadAnswer = (messageId: String, answer: String, settled: (Boolean) -> Unit) -> Unit
+
+/** A `plan` decision: (message id, approved, feedback, settled(ok)). */
+typealias ThreadPlanDecision = (messageId: String, approved: Boolean, feedback: String?, settled: (Boolean) -> Unit) -> Unit
 
 private val Muted: Color @Composable get() = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
 private val Secondary: Color @Composable get() = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
 
 // ── Header ──────────────────────────────────────────────────────────────────
 
-/** The thread's header: back, then the title (a lock when private); a
- *  long-press on the title renames ([onRename]; null = no rename). */
-@OptIn(ExperimentalFoundationApi::class)
+/** The header band's title (EXP-1316): ONE line, the lock after it when
+ *  private. Derived, never renamed, not tappable. */
 @Composable
-fun ThreadHeader(
-    title: String,
-    private: Boolean,
-    onBack: (() -> Unit)?,
-    modifier: Modifier = Modifier,
-    onRename: (() -> Unit)? = null,
-    /** The header's trailing action slot (EXP-1302: Open on GitHub on the
-     *  Guide, as iOS draws it). */
-    action: (@Composable () -> Unit)? = null,
-) {
-    Column(modifier = modifier.fillMaxWidth().testTag("thread-header")) {
-        Row(
-            modifier = Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            if (onBack != null) TopBarBackButton(onClick = onBack)
-            Spacer(Modifier.weight(1f))
-            action?.invoke()
-        }
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp)
-                .padding(top = 2.dp, bottom = 10.dp)
-                .then(
-                    if (onRename != null) {
-                        Modifier.combinedClickable(onClick = {}, onLongClick = onRename)
-                    } else {
-                        Modifier
-                    },
-                ),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                title,
-                fontSize = 22.sp,
-                lineHeight = 28.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f, fill = false).testTag("thread-title"),
+fun ThreadTitle(title: String, private: Boolean, modifier: Modifier = Modifier) {
+    Row(modifier = modifier.testTag("thread-header"), verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            title,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f, fill = false).testTag("thread-title"),
+        )
+        if (private) {
+            Spacer(Modifier.width(6.dp))
+            Icon(
+                ExpIcons.uiPrivate,
+                contentDescription = ThreadUiCopy.PRIVATE,
+                tint = Muted,
+                modifier = Modifier.size(14.dp).testTag("thread-private"),
             )
-            if (private) {
-                Spacer(Modifier.width(8.dp))
-                Icon(
-                    ExpIcons.uiPrivate,
-                    contentDescription = ThreadUiCopy.PRIVATE,
-                    tint = Muted,
-                    modifier = Modifier.size(16.dp).testTag("thread-private"),
-                )
-            }
         }
     }
 }
@@ -297,7 +284,6 @@ fun AgentChannelHeader(
                 modifier = Modifier.testTag("thread-title"),
             )
         }
-        HorizontalDivider(thickness = GlassTokens.Hairline, color = GlassTokens.StrokeRow)
     }
 }
 
@@ -316,9 +302,11 @@ fun AgentGlyph(icon: String?, color: String?, size: androidx.compose.ui.unit.Dp,
 
 /**
  * Phones: the ONE strip IS the pager's tabs — Conversation, one chip per
- * linked issue (status glyph + mono identifier), "+" (link / file an issue),
- * Guide (a green dot while it holds anything). A long-press on an issue chip
- * opens its menu (Unlink).
+ * linked issue (status glyph + mono identifier in a bordered chip), "+"
+ * (link / file an issue, right after the issues), the session chips (the
+ * viewed level's sessions, their mark + name; a tap pushes that session's
+ * view), Guide (a green dot while it holds anything). Every chip is one
+ * height. A long-press on an issue chip opens its menu (Unlink).
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -330,6 +318,7 @@ fun ThreadTabStrip(
     issueStatus: (String) -> ResolvedIssueStatus?,
     modifier: Modifier = Modifier,
     onIssueMenu: ((SessionTree.ThreadTab.IssueTab) -> Unit)? = null,
+    onOpenSession: ((SessionTree.ThreadTab.SessionTab) -> Unit)? = null,
 ) {
     Column(modifier = modifier.fillMaxWidth()) {
         Row(
@@ -339,7 +328,7 @@ fun ThreadTabStrip(
                 .padding(start = 12.dp, end = 12.dp, bottom = 8.dp)
                 .testTag(SessionTree.ThreadCopy.TEST_ID_TABS),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(2.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             tabs.forEach { tab ->
                 val key = threadTabKey(tab)
@@ -347,7 +336,7 @@ fun ThreadTabStrip(
                 val textColor = if (selected) MaterialTheme.colorScheme.onSurface else Secondary
                 when (tab) {
                     SessionTree.ThreadTab.Add -> if (onAdd != null) {
-                        IconButton(onClick = onAdd, modifier = Modifier.size(36.dp).testTag("thread-tab-add")) {
+                        IconButton(onClick = onAdd, modifier = Modifier.size(ThreadTabHeight).testTag("thread-tab-add")) {
                             Icon(ExpIcons.uiAdd, contentDescription = ThreadUiCopy.ADD, tint = Secondary, modifier = Modifier.size(16.dp))
                         }
                     }
@@ -359,16 +348,36 @@ fun ThreadTabStrip(
                         onClick = { onSelect(tab) },
                         onLongClick = onIssueMenu?.let { menu -> { menu(tab) } },
                         testTag = "thread-tab-$key",
+                        chip = true,
                     ) {
                         issueStatus(tab.issueId)?.let {
                             StatusIcon(it, size = 14.dp)
-                            Spacer(Modifier.width(5.dp))
+                            Spacer(Modifier.width(6.dp))
                         }
                         Text(
                             tab.identifier,
                             style = MaterialTheme.typography.labelMedium,
                             fontFamily = FontFamily.Monospace,
-                            color = textColor,
+                            color = if (selected) MaterialTheme.colorScheme.onSurface else MdStyle.ChipToken,
+                            maxLines = 1,
+                        )
+                    }
+                    is SessionTree.ThreadTab.SessionTab -> ThreadTab(
+                        selected = false,
+                        onClick = { onOpenSession?.invoke(tab) },
+                        onLongClick = null,
+                        testTag = "thread-tab-session",
+                        chip = true,
+                    ) {
+                        SessionTabMark(tab.markState)
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            tab.name,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = Secondary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.widthIn(max = 160.dp),
                         )
                     }
                     is SessionTree.ThreadTab.Guide -> ThreadTab(selected, { onSelect(tab) }, null, "thread-tab-$key") {
@@ -381,10 +390,27 @@ fun ThreadTabStrip(
                 }
             }
         }
-        HorizontalDivider(thickness = GlassTokens.Hairline, color = GlassTokens.StrokeRow)
     }
 }
 
+/** EXP-1316: every chip of the strip is ONE height. */
+private val ThreadTabHeight = 36.dp
+
+/** A session chip's lead: the thread row mark of that session. */
+@Composable
+private fun SessionTabMark(state: SessionTree.SessionState) {
+    val (icon, tint) = when (state) {
+        SessionTree.SessionState.NeedsYou -> ExpIcons.codingNeedsInput to NeedsInputAmber
+        SessionTree.SessionState.Working -> ExpIcons.codingRunning to MaterialTheme.colorScheme.onSurface
+        SessionTree.SessionState.Ended -> ExpIcons.codingEnded to Muted
+        else -> ExpIcons.codingAssistant to Muted
+    }
+    Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(14.dp))
+}
+
+/** One strip tab. [chip] = an entity chip (issue / session): a bordered
+ *  capsule even when not selected; the others wear the frame only while
+ *  selected. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ThreadTab(
@@ -392,6 +418,7 @@ private fun ThreadTab(
     onClick: () -> Unit,
     onLongClick: (() -> Unit)?,
     testTag: String,
+    chip: Boolean = false,
     content: @Composable () -> Unit,
 ) {
     val shape = RoundedCornerShape(10.dp)
@@ -399,17 +426,17 @@ private fun ThreadTab(
         modifier = Modifier
             .clip(shape)
             .then(
-                if (selected) {
-                    Modifier
+                when {
+                    selected -> Modifier
                         .background(GlassTokens.OpaqueCardFill, shape)
                         .border(GlassTokens.Hairline, GlassTokens.StrokeStrong, shape)
-                } else {
-                    Modifier
+                    chip -> Modifier.border(GlassTokens.Hairline, GlassTokens.StrokeCard, shape)
+                    else -> Modifier
                 },
             )
             .combinedClickable(onClick = onClick, onLongClick = onLongClick)
-            .heightIn(min = 36.dp)
-            .padding(horizontal = 10.dp, vertical = 8.dp)
+            .height(ThreadTabHeight)
+            .padding(horizontal = 10.dp)
             .testTag(testTag),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -514,29 +541,54 @@ fun ThreadConversation(
     rootId: String,
     meta: (SessionTree.ThreadRow.MessageRow) -> ThreadRowMeta?,
     onOpenCard: (SessionTree.SessionCard) -> Unit,
-    onAnswer: (messageId: String, answer: String) -> Unit,
-    onDecidePlan: (messageId: String, approved: Boolean) -> Unit,
+    onAnswer: ThreadAnswer,
+    onDecidePlan: ThreadPlanDecision,
     canUnqueue: (SessionTree.ThreadRow.MessageRow) -> Boolean,
     onUnqueue: (messageId: String) -> Unit,
     modifier: Modifier = Modifier,
     agent: ThreadAgent? = null,
     contentPadding: PaddingValues = PaddingValues(0.dp),
     state: LazyListState = rememberLazyListState(),
+    /** The floating band's height: the jump button sits above it. */
+    jumpBottomInset: Dp = 0.dp,
 ) {
     val shown = remember(rows, agent, rootId) {
         if (agent != null) rows.filterNot { it is SessionTree.ThreadRow.SessionRow && it.id == rootId } else rows
     }
-    // The newest row stays in view as the conversation grows.
-    LaunchedEffect(shown.size) {
-        if (shown.isNotEmpty()) state.animateScrollToItem(shown.lastIndex)
+    // EXP-1316 (1n): the session feed's scroll — the thread opens at the
+    // newest row and follows new rows while the reader sits at the bottom
+    // (~96dp slack); a drag up stops following and shows THE jump-to-bottom
+    // button. Only user drags flip follow-mode.
+    var follow by rememberSaveable(rootId) { mutableStateOf(true) }
+    val followSlackPx = with(LocalDensity.current) { 96.dp.toPx() }
+    val jumpScope = rememberCoroutineScope()
+    LaunchedEffect(state, followSlackPx) {
+        snapshotFlow { state.isScrollInProgress to state.isNearBottom(followSlackPx) }
+            .distinctUntilChanged()
+            .collect { (dragging, nearBottom) -> if (dragging) follow = nearBottom }
+    }
+    // The floating band's height lands after the first layout: a follower
+    // re-pins to the true end when it does (the session view's rule).
+    // EXP-1316: re-pin whenever a follower could still scroll forward (a
+    // row grew after its first layout, the band changed height).
+    LaunchedEffect(state) {
+        snapshotFlow { follow && !state.isScrollInProgress && state.canScrollForward }
+            .collect { behind -> if (behind) state.scrollBy(1_000_000f) }
+    }
+    LaunchedEffect(shown.size, follow, jumpBottomInset) {
+        if (follow && shown.isNotEmpty()) {
+            state.scrollToItem(shown.lastIndex)
+            state.scrollBy(1_000_000f)
+        }
     }
     // EXP-760 ×4 (web `thread-markdown.tsx`): every conversation text chips
     // BARE identifiers too (`FB-8`; agents omit the `#`) when the screen
     // provides [LocalIssueRefs]. Display-only: the composer sits outside.
     CompositionLocalProvider(LocalIssueRefBare provides true) {
+        Box(modifier = modifier) {
         LazyColumn(
             state = state,
-            modifier = modifier.testTag(SessionTree.ThreadCopy.TEST_ID_CONVERSATION),
+            modifier = Modifier.fillMaxSize().testTag(SessionTree.ThreadCopy.TEST_ID_CONVERSATION),
             contentPadding = contentPadding,
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
@@ -569,8 +621,8 @@ fun ThreadConversation(
                         }
                     }
                     is SessionTree.ThreadRow.SessionRow -> SessionCard(row.card, onClick = { onOpenCard(row.card) })
-                    is SessionTree.ThreadRow.Question -> ThreadQuestionCard(row, onAnswer = { onAnswer(row.id, it) })
-                    is SessionTree.ThreadRow.Plan -> ThreadPlanCard(row, onDecide = { onDecidePlan(row.id, it) })
+                    is SessionTree.ThreadRow.Question -> ThreadAskCard(row, onAnswer, onDecidePlan)
+                    is SessionTree.ThreadRow.Plan -> ThreadAskCard(row, onAnswer, onDecidePlan)
                     is SessionTree.ThreadRow.Subagent -> WorkCardView(
                         card = WorkCards.of(WorkCardInput.Subagent(title = row.title, state = row.status)),
                     )
@@ -579,11 +631,24 @@ fun ThreadConversation(
                 }
             }
         }
+        JumpToBottomButton(
+            visible = !follow && shown.isNotEmpty(),
+            onClick = {
+                jumpScope.launch {
+                    state.animateScrollToItem(shown.lastIndex)
+                    state.scrollBy(1_000_000f)
+                    follow = true
+                }
+            },
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = jumpBottomInset + 8.dp),
+        )
+        }
     }
 }
 
 /** A person's message: the right-aligned bubble, `name · HH:mm` under it;
- *  while the device has not taken it: `Queued` + the revoke ✕ (mine only). */
+ *  while the device has not taken it: `· queued` + the revoke ✕ (mine only)
+ *  at the END of that caption line. */
 @Composable
 fun ThreadMessageBubble(
     text: String,
@@ -611,7 +676,13 @@ fun ThreadMessageBubble(
             modifier = Modifier.padding(top = 4.dp, end = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            // EXP-1317 ×4: ONE caption line `Name · time · queued`, the
+            // `Remove from queue` X at its END.
+            if (!caption.isNullOrEmpty()) {
+                Text(caption, style = MaterialTheme.typography.labelSmall, color = Muted, maxLines = 1)
+            }
             if (queued) {
+                if (!caption.isNullOrEmpty()) Text(" · ", style = MaterialTheme.typography.labelSmall, color = Muted)
                 Text(
                     ThreadUiCopy.QUEUED,
                     style = MaterialTheme.typography.labelSmall,
@@ -619,22 +690,8 @@ fun ThreadMessageBubble(
                     modifier = Modifier.testTag("thread-message-queued"),
                 )
                 if (onUnqueue != null) {
-                    Icon(
-                        ExpIcons.uiClose,
-                        contentDescription = null,
-                        tint = Muted,
-                        modifier = Modifier
-                            .padding(start = 4.dp)
-                            .size(14.dp)
-                            .clip(CircleShape)
-                            .clickable(role = Role.Button, onClick = onUnqueue)
-                            .testTag("thread-message-unqueue"),
-                    )
+                    UnqueueButton(onUnqueue)
                 }
-                if (!caption.isNullOrEmpty()) Text(" · ", style = MaterialTheme.typography.labelSmall, color = Muted)
-            }
-            if (!caption.isNullOrEmpty()) {
-                Text(caption, style = MaterialTheme.typography.labelSmall, color = Muted, maxLines = 1)
             }
         }
     }
@@ -691,17 +748,7 @@ fun ThreadCommentRow(
                     Spacer(Modifier.width(8.dp))
                     Text(ThreadUiCopy.QUEUED, style = MaterialTheme.typography.labelSmall, color = Muted, modifier = Modifier.testTag("thread-message-queued"))
                     if (onUnqueue != null) {
-                        Icon(
-                            ExpIcons.uiClose,
-                            contentDescription = null,
-                            tint = Muted,
-                            modifier = Modifier
-                                .padding(start = 4.dp)
-                                .size(14.dp)
-                                .clip(CircleShape)
-                                .clickable(role = Role.Button, onClick = onUnqueue)
-                                .testTag("thread-message-unqueue"),
-                        )
+                        UnqueueButton(onUnqueue)
                     }
                 }
             }
@@ -711,103 +758,86 @@ fun ThreadCommentRow(
     }
 }
 
-/** A `question` card, answered IN place — the session view's ask card
- *  ([AskCard] + [QuestionOptionButton] + [AnsweredRow]) over plain data: the
- *  question, one numbered row per option; answered = the answer row. No
- *  options = a field + Answer. */
+/** EXP-1317 ×4: a person's own queued row's ✕ (`sessions.unqueue`). */
 @Composable
-fun ThreadQuestionCard(row: SessionTree.ThreadRow.Question, onAnswer: (String) -> Unit) {
-    AskCard(plan = false, heading = null, meta = null, modifier = Modifier.testTag("thread-question-card")) {
-        MarkdownView(row.question, softBreaksAsNewlines = true)
-        if (row.answered) {
-            Box(Modifier.padding(top = 4.dp)) { AnsweredRow(row.answer) }
-        } else if (row.options.isNotEmpty()) {
-            Column(
-                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                row.options.forEachIndexed { index, option ->
-                    Box(Modifier.testTag("thread-question-option")) {
-                        QuestionOptionButton(
-                            option = QuestionOption(label = option, key = option),
-                            ordinal = index + 1,
-                            primary = false,
-                            selected = false,
-                            checked = null,
-                            enabled = true,
-                            dimmed = false,
-                            onClick = { onAnswer(option) },
-                        )
-                    }
-                }
-            }
-        } else {
-            var draft by remember(row.id) { mutableStateOf("") }
-            GlassTextField(
-                value = draft,
-                onValueChange = { draft = it },
-                modifier = Modifier.fillMaxWidth().testTag("thread-question-field"),
-                minLines = 1,
-                maxLines = 4,
-            )
-            GlassPill(
-                ThreadUiCopy.ANSWER,
-                size = PillSize.Sm,
-                primary = true,
-                enabled = draft.isNotBlank(),
-                onClick = { onAnswer(draft.trim()) },
-                modifier = Modifier.align(Alignment.End),
-            )
-        }
+private fun UnqueueButton(onUnqueue: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .padding(start = 2.dp)
+            .size(24.dp)
+            .clip(CircleShape)
+            .clickable(role = Role.Button, onClickLabel = ThreadUiCopy.REMOVE_FROM_QUEUE, onClick = onUnqueue)
+            .testTag("thread-message-unqueue"),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(ExpIcons.uiClose, contentDescription = ThreadUiCopy.REMOVE_FROM_QUEUE, tint = Muted, modifier = Modifier.size(14.dp))
     }
 }
 
-/** A `plan` card — the session view's "Plan ready" ask card over plain
- *  data: the plan (markdown), Approve (the primary row) / Reject; decided =
- *  the answer row with the decision word. */
+private const val PLAN_APPROVE_KEY = "approve"
+private const val PLAN_REJECT_KEY = "reject"
+
+/**
+ * EXP-1316 ONE card ×4: a `question` or `plan` row is THE session view's card
+ * ([QuestionCard]) over the row's data, answered through `sessions.answer`:
+ * a question's options plus the free-text row (`custom`), a plan's Approve /
+ * Reject with the reject's feedback field. An answered row renders closed
+ * (the answer / decision shown); the card locks while the answer is in
+ * flight and stays locked until the synced row flips.
+ */
 @Composable
-fun ThreadPlanCard(row: SessionTree.ThreadRow.Plan, onDecide: (approved: Boolean) -> Unit) {
-    AskCard(plan = true, heading = PLAN_READY_HEADING, meta = null, modifier = Modifier.testTag("thread-plan-card")) {
-        MarkdownView(markdown = row.plan, softBreaksAsNewlines = true)
-        when (row.decision) {
-            null -> Column(
-                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                Box(Modifier.testTag("thread-plan-approve")) {
-                    QuestionOptionButton(
-                        option = QuestionOption(label = ThreadUiCopy.APPROVE, key = "approve"),
-                        ordinal = 1,
-                        primary = true,
-                        selected = false,
-                        checked = null,
-                        enabled = true,
-                        dimmed = false,
-                        onClick = { onDecide(true) },
-                    )
+fun ThreadAskCard(row: SessionTree.ThreadRow, onAnswer: ThreadAnswer, onDecidePlan: ThreadPlanDecision) {
+    var state by remember(row.id) { mutableStateOf<AnswerState?>(null) }
+    val settle: (Boolean) -> Unit = { ok -> state = if (ok) AnswerState.Acked else null }
+    val item = when (row) {
+        is SessionTree.ThreadRow.Question -> AgentFeedItem.Question(
+            id = row.id.hashCode().toLong(),
+            text = row.question,
+            options = row.options.map { QuestionOption(label = it.label, key = it.label, description = it.description) },
+            multiSelect = false,
+            resolved = row.answered,
+            answer = row.answer,
+            wireId = row.id,
+        ).let { if (row.custom) it.withFreeTextRow() else it }
+        is SessionTree.ThreadRow.Plan -> AgentFeedItem.Question(
+            id = row.id.hashCode().toLong(),
+            text = row.plan,
+            options = listOf(
+                QuestionOption(ThreadUiCopy.APPROVE, PLAN_APPROVE_KEY),
+                QuestionOption(ThreadUiCopy.REJECT, PLAN_REJECT_KEY),
+            ),
+            multiSelect = false,
+            planMode = true,
+            resolved = row.decision != null,
+            answer = row.decision?.let { if (it == "approved") ThreadUiCopy.APPROVED else ThreadUiCopy.REJECTED },
+            wireId = row.id,
+        )
+        else -> return
+    }
+    Box(Modifier.testTag(if (row is SessionTree.ThreadRow.Plan) "thread-plan-card" else "thread-question-card")) {
+        QuestionCard(
+            item = item,
+            active = !item.resolved,
+            answerEnabled = true,
+            state = state.takeUnless { item.resolved },
+            stepLabel = null,
+            onAnswer = { keys, text ->
+                state = AnswerState.Sending
+                val key = keys.firstOrNull()
+                if (row is SessionTree.ThreadRow.Plan) {
+                    onDecidePlan(row.id, key == PLAN_APPROVE_KEY, null, settle)
+                } else {
+                    val answer = text?.takeIf { it.isNotBlank() } ?: key.orEmpty()
+                    onAnswer(row.id, answer, settle)
                 }
-                Box(Modifier.testTag("thread-plan-reject")) {
-                    QuestionOptionButton(
-                        option = QuestionOption(label = ThreadUiCopy.REJECT, key = "reject"),
-                        ordinal = 2,
-                        primary = false,
-                        selected = false,
-                        checked = null,
-                        enabled = true,
-                        dimmed = false,
-                        onClick = { onDecide(false) },
-                    )
-                }
-            }
-            else -> Box(Modifier.padding(top = 4.dp).testTag("thread-plan-decision")) {
-                AnsweredRow(if (row.decision == "approved") ThreadUiCopy.APPROVED else ThreadUiCopy.REJECTED)
-            }
-        }
+            },
+            onPlanFollowUp = { _, feedback ->
+                state = AnswerState.Sending
+                onDecidePlan(row.id, false, feedback, settle)
+            },
+        )
     }
 }
-
-/** The session view's plan heading (its ask card says the same). */
-private const val PLAN_READY_HEADING = "Plan ready"
 
 /** A `picture` card: the attachment through the markdown image path (auth,
  *  probed size), the caption muted under it. */
@@ -837,62 +867,82 @@ fun ThreadEventLine(text: String) {
 // ── The composer ────────────────────────────────────────────────────────────
 
 /**
- * THE session composer box ([GlassComposer], the one composer shell the
- * Agent page and the session view wear): the pending files, the field, the
- * "+" (attach) and the send glyph.
+ * EXP-1316 (1e): the thread's reply box = THE [FloatingComposer]: folded, the
+ * floating bar's capsule with the placeholder; tapped, THE composer card
+ * ([GlassComposer]: the pending files, the field, the "+" and the send
+ * glyph), folding again on blur / idle with nothing drafted.
  */
 @Composable
-fun ThreadComposerBox(
+fun ThreadReplyBox(
     value: String,
     onValueChange: (String) -> Unit,
     placeholder: String,
     pendingImages: List<PendingAttachment>,
     imageError: String?,
     sending: Boolean,
+    working: Boolean,
+    expanded: Boolean,
+    onExpandedChange: (Boolean) -> Unit,
     onAdd: (() -> Unit)?,
     onRemoveImage: (Int) -> Unit,
     onSend: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val canSend = (value.isNotBlank() || pendingImages.isNotEmpty()) && !sending
-    GlassComposer(
-        opaque = true,
+    FloatingComposer(
+        expanded = expanded,
+        onExpandedChange = onExpandedChange,
+        placeholder = placeholder,
+        hasDraft = value.isNotBlank() || pendingImages.isNotEmpty(),
+        working = working,
+        capsuleTestTag = "thread-composer-capsule",
         modifier = modifier.testTag(SessionTree.ThreadCopy.TEST_ID_COMPOSER),
-        strip = {
-            PendingAttachmentStrip(items = pendingImages, enabled = !sending, onRemove = onRemoveImage)
-            FieldError(imageError, modifier = Modifier.padding(bottom = 4.dp))
-        },
-        tools = {
-            if (onAdd != null) {
-                ComposerToolButton(
-                    ExpIcons.uiAdd,
-                    contentDescription = ThreadUiCopy.ADD,
-                    onClick = onAdd,
-                    enabled = !sending,
-                    modifier = Modifier.testTag("thread-composer-add"),
-                )
-            }
-        },
-        submit = {
-            ComposerSubmitButton(
-                ExpIcons.uiSubmit,
-                contentDescription = ThreadUiCopy.SEND,
-                onClick = onSend,
-                enabled = canSend,
-                sending = sending,
-                modifier = Modifier.testTag("thread-composer-send"),
-            )
-        },
     ) {
-        GlassTextField(
-            value = value,
-            onValueChange = onValueChange,
-            modifier = Modifier.fillMaxWidth().testTag("thread-composer-field"),
-            placeholder = placeholder,
-            minLines = 2,
-            maxLines = 8,
-            bordered = false,
-            containerColor = Color.Transparent,
-        )
+        val canSend = (value.isNotBlank() || pendingImages.isNotEmpty()) && !sending
+        val focusRequester = remember { FocusRequester() }
+        LaunchedEffect(Unit) { runCatching { focusRequester.requestFocus() } }
+        GlassComposer(
+            opaque = true,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            strip = {
+                PendingAttachmentStrip(items = pendingImages, enabled = !sending, onRemove = onRemoveImage)
+                FieldError(imageError, modifier = Modifier.padding(bottom = 4.dp))
+            },
+            tools = {
+                if (onAdd != null) {
+                    ComposerToolButton(
+                        ExpIcons.uiAdd,
+                        contentDescription = ThreadUiCopy.ADD,
+                        onClick = onAdd,
+                        enabled = !sending,
+                        modifier = Modifier.testTag("thread-composer-add"),
+                    )
+                }
+            },
+            submit = {
+                ComposerSubmitButton(
+                    ExpIcons.uiSubmit,
+                    contentDescription = ThreadUiCopy.SEND,
+                    onClick = onSend,
+                    enabled = canSend,
+                    sending = sending,
+                    modifier = Modifier.testTag("thread-composer-send"),
+                )
+            },
+        ) {
+            GlassTextField(
+                value = value,
+                onValueChange = onValueChange,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .focusRequester(focusRequester)
+                    .then(fieldModifier)
+                    .testTag("thread-composer-field"),
+                placeholder = placeholder,
+                minLines = 2,
+                maxLines = 8,
+                bordered = false,
+                containerColor = Color.Transparent,
+            )
+        }
     }
 }

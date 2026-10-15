@@ -211,15 +211,16 @@ class ThreadViewModel @Inject constructor(
     fun startChild(parentId: String, deviceId: String, text: String) =
         run("start", "the session") { sender.send(SessionsSendInput.child(parentId, deviceId, text)) }
 
-    /** Answer a `question` card ([answer]) in place. */
-    fun answer(messageId: String, answer: String) =
-        run("answer", "the question") { accountId ->
+    /** Answer a `question` card ([answer]: an option or free text) in place;
+     *  [settled] = whether the call went through. */
+    fun answer(messageId: String, answer: String, settled: (Boolean) -> Unit = {}) =
+        run("answer", "the question", settled = settled) { accountId ->
             sessionsApi.answer(accountId, AnswerInput(messageId = messageId, answer = answer))
         }
 
     /** Decide a `plan` card: [approved], with optional [feedback]. */
-    fun decidePlan(messageId: String, approved: Boolean, feedback: String? = null) =
-        run("answer", "the plan") { accountId ->
+    fun decidePlan(messageId: String, approved: Boolean, feedback: String? = null, settled: (Boolean) -> Unit = {}) =
+        run("answer", "the plan", settled = settled) { accountId ->
             sessionsApi.answer(
                 accountId,
                 AnswerInput(
@@ -238,9 +239,6 @@ class ThreadViewModel @Inject constructor(
 
     /** End a session (the ROOT ends the whole tree; agents refuse). */
     fun end(sessionId: String = rootId) = run("end", "the session") { sessionsApi.end(it, sessionId) }
-
-    /** Rename the thread; null/blank = back to the derived title. */
-    fun setTitle(title: String?) = run("rename", "the title") { sessionsApi.setTitle(it, rootId, title) }
 
     /** The header "+": link issues to the thread. */
     fun linkIssues(issueIds: List<String>) {
@@ -403,15 +401,22 @@ class ThreadViewModel @Inject constructor(
         verb: String,
         thing: String,
         busy: ((Boolean) -> Unit)? = null,
+        settled: ((Boolean) -> Unit)? = null,
         call: suspend (accountId: String) -> Unit,
     ) {
         viewModelScope.launch {
-            val accountId = auth.activeAccountId.value ?: return@launch
+            val accountId = auth.activeAccountId.value
+            if (accountId == null) {
+                settled?.invoke(false)
+                return@launch
+            }
             busy?.invoke(true)
             try {
                 call(accountId)
+                settled?.invoke(true)
             } catch (t: Throwable) {
                 if (t is CancellationException) throw t
+                settled?.invoke(false)
                 _failure.value = FailedAction(verb, thing, trpcErrorMessage(t, ""))
             } finally {
                 busy?.invoke(false)

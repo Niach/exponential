@@ -1458,6 +1458,24 @@ fun askComplete(steps: List<AgentFeedItem.Question>): Boolean {
 /** EXP-820 (byte-identical ×4): the inline field a "Type something." row opens. */
 const val FREE_TEXT_ANSWER_PLACEHOLDER = "Type your answer…"
 
+/** EXP-1316 (byte-identical ×4): the free-text row's label (claude's own). */
+const val FREE_TEXT_ANSWER_ROW = "Type something."
+
+/**
+ * EXP-1316: every question card offers the free-text answer (the CLI's
+ * AskUserQuestion always takes a custom one): a question whose publisher sent
+ * no `freeText` row gets one as option N+1, keyed like the CLI's own (its
+ * 1-based position), its typed reply riding the answer's `text`. Plans and an
+ * ask's submit step are left alone.
+ */
+fun AgentFeedItem.Question.withFreeTextRow(): AgentFeedItem.Question {
+    if (planMode || isSubmitStep || options.any { it.freeText }) return this
+    val key = (options.size + 1).toString().let { candidate ->
+        if (options.any { it.key == candidate }) "free-text" else candidate
+    }
+    return copy(options = options + QuestionOption(label = FREE_TEXT_ANSWER_ROW, key = key, freeText = true))
+}
+
 /** EXP-820 (byte-identical ×4): the inline field a plan's reject row opens. */
 const val PLAN_FEEDBACK_PLACEHOLDER = "Tell the agent what to change…"
 

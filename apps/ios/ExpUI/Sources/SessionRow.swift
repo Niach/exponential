@@ -8,7 +8,8 @@ import SwiftUI
 /// is label-free (no captions, threads-list.json): a lock while the thread
 /// is private, the inline spinner while it works, the amber dot while it
 /// needs you. EXP-1309: the Threads list instead ends on ONE quiet `word`
-/// (web `ThreadsListItem`: `stack`, `merged`, `question`…; the lock wins)
+/// (web `ThreadsListItem`: `stack`, `merged`, `question`…) beside the lock
+/// (EXP-1318: word AND lock)
 /// and carries its state in the lead. No fold chevron, no trailing
 /// chevron, no buttons.
 ///
@@ -25,6 +26,8 @@ public struct SessionRow<Lead: View>: View {
     private let active: Bool
     private let word: String?
     private let wordIcon: String?
+    private let deviceIcon: String?
+    private let deviceName: String?
     private let lead: Lead
 
     /// - Parameters:
@@ -34,8 +37,11 @@ public struct SessionRow<Lead: View>: View {
     ///   - isPrivate: started on a device not shared with the team (`!shared`).
     ///   - busy: a session of the tree works — the inline spinner.
     ///   - needsYou: a live session waits on a person — the amber dot.
-    ///   - word: ONE quiet trailing word (EXP-1309), hidden by the lock.
+    ///   - word: ONE quiet trailing word (EXP-1309), the lock rides after it.
     ///   - wordIcon: the word's glyph (`AppIcons.prStack` for `stack`).
+    ///   - deviceIcon: EXP-1316: the root's device glyph
+    ///     (`DeviceIconDisplay`), last on the row; nil = none.
+    ///   - deviceName: the device glyph's accessibility label.
     public init(
         identifier: String? = nil,
         title: String,
@@ -46,6 +52,8 @@ public struct SessionRow<Lead: View>: View {
         active: Bool = false,
         word: String? = nil,
         wordIcon: String? = nil,
+        deviceIcon: String? = nil,
+        deviceName: String? = nil,
         @ViewBuilder lead: () -> Lead
     ) {
         self.identifier = identifier
@@ -57,6 +65,8 @@ public struct SessionRow<Lead: View>: View {
         self.active = active
         self.word = word
         self.wordIcon = wordIcon
+        self.deviceIcon = deviceIcon
+        self.deviceName = deviceName
         self.lead = lead()
     }
 
@@ -80,11 +90,7 @@ public struct SessionRow<Lead: View>: View {
                     .truncationMode(.tail)
             }
             Spacer(minLength: 0)
-            if isPrivate {
-                AppIcon(AppIcons.uiPrivate, size: 12)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                    .accessibilityLabel("Private")
-            } else if let word, !word.isEmpty {
+            if let word, !word.isEmpty {
                 HStack(spacing: 4) {
                     if let wordIcon {
                         AppIcon(wordIcon, size: 11)
@@ -95,6 +101,17 @@ public struct SessionRow<Lead: View>: View {
                 }
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 .fixedSize()
+            }
+            if isPrivate {
+                AppIcon(AppIcons.uiPrivate, size: 12)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                    .accessibilityLabel("Private")
+            }
+            if let deviceIcon {
+                AppIcon(deviceIcon, size: 13)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                    .accessibilityLabel(deviceName ?? "")
+                    .accessibilityIdentifier("session-row-device")
             }
             if busy {
                 InlineSpinner()

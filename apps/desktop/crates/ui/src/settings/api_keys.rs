@@ -643,9 +643,9 @@ impl ApiKeysPane {
         device_key_id: Option<&str>,
         cx: &mut gpui::Context<Self>,
     ) -> gpui::Div {
-        let list = rows.into_iter().enumerate().map(|(index, row)| {
+        let list = rows.into_iter().map(|row| {
             let this_device = device_key_id == Some(row.id.as_str());
-            crate::surface::list_row(self.render_row(row, this_device, cx), index)
+            crate::surface::list_row(self.render_row(row, this_device, cx))
         });
         v_flex().w_full().min_w_0().children(list)
     }

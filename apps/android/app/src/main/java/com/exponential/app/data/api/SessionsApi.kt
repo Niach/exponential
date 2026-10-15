@@ -229,13 +229,6 @@ internal fun updateAgentInput(sessionId: String, patch: UpdateAgentPatch): JsonO
         patch.sortOrder?.let { put("sortOrder", it) }
     }
 
-/** `sessions.setTitle`: the key is REQUIRED; null (or blank) = back to the
- *  derived title. */
-internal fun setTitleInput(sessionId: String, title: String?): JsonObject = buildJsonObject {
-    put("sessionId", sessionId)
-    put("title", title?.trim()?.takeIf { it.isNotEmpty() }?.let(::JsonPrimitive) ?: JsonNull)
-}
-
 @Singleton
 class SessionsApi @Inject constructor(private val trpc: TrpcClient) {
 
@@ -256,16 +249,6 @@ class SessionsApi @Inject constructor(private val trpc: TrpcClient) {
     /** End a session (agents refuse); ending a ROOT ends its whole tree. */
     suspend fun end(accountId: String, sessionId: String) =
         unit(accountId, "sessions.end", sessionId)
-
-    /** Rename a thread root or a sub-session; null/blank clears it. */
-    suspend fun setTitle(accountId: String, sessionId: String, title: String?) {
-        trpc.mutationUnit(
-            accountId,
-            path = "sessions.setTitle",
-            input = setTitleInput(sessionId, title),
-            inputSerializer = JsonObject.serializer(),
-        )
-    }
 
     /** Link issues to a thread (lands on the ROOT). 1–30 ids. */
     suspend fun linkIssues(accountId: String, sessionId: String, issueIds: List<String>) {

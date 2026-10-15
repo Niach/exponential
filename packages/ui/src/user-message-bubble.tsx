@@ -39,6 +39,7 @@ export function UserMessageBubble({
   imageSrc,
   files,
   caption,
+  action,
   className,
 }: {
   text: string
@@ -50,6 +51,8 @@ export function UserMessageBubble({
    *  chips (glyph + name, opening the attachment). */
   files?: readonly { name: string; url: string }[]
   caption?: string | null
+  /** EXP-1317: a trailing control on the caption line (a queued row's X). */
+  action?: ReactNode
   className?: string
 }) {
   return (
@@ -76,9 +79,14 @@ export function UserMessageBubble({
           </div>
         ) : null}
       </div>
-      {caption ? (
-        <div data-slot="user-message-caption" className="pr-1 text-[0.6875rem] text-muted-foreground">
-          {caption}
+      {caption || action ? (
+        <div className="flex items-center gap-1">
+          {caption ? (
+            <div data-slot="user-message-caption" className="pr-1 text-[0.6875rem] text-muted-foreground">
+              {caption}
+            </div>
+          ) : null}
+          {action}
         </div>
       ) : null}
     </div>

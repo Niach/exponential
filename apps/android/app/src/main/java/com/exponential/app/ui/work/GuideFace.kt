@@ -73,6 +73,7 @@ import com.exponential.app.domain.GuideSectionKey
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.guideCoverage
 import com.exponential.app.domain.guideFileCountLabel
+import com.exponential.app.domain.GuideViewer
 import com.exponential.app.domain.SessionResultEntry
 import com.exponential.app.domain.guideSectionCaption
 import com.exponential.app.domain.sessionResultsGuide
@@ -257,7 +258,8 @@ fun GuideFace(
     }
 
     preview?.let { entry ->
-        ResultPreviewDialog(entry = entry, onDismiss = { preview = null })
+        // EXP-1283: a Guide picture opens THE picture viewer.
+        ResultPreviewDialog(entry = entry, onDismiss = { preview = null }, guide = groups)
     }
 }
 
@@ -612,7 +614,23 @@ private fun TallTileImage(entry: SessionResultEntry, tileHeight: Int, modifier: 
  *  A TALL shot (EXP-1128) instead fits to WIDTH and scrolls; only Close and
  *  Back dismiss it, since a scrim tap would fight the scroll. */
 @Composable
-internal fun ResultPreviewDialog(entry: SessionResultEntry, onDismiss: () -> Unit) {
+internal fun ResultPreviewDialog(
+    entry: SessionResultEntry,
+    onDismiss: () -> Unit,
+    /** EXP-1283: the Guide the picture belongs to — a Guide picture opens
+     *  THE picture viewer ([GuidePictureViewer], `GuideViewer.state`); null
+     *  (or a picture outside it) = the bare lightbox below. */
+    guide: List<SessionResultGroup>? = null,
+) {
+    if (guide != null) {
+        val inGuide = remember(guide, entry.attachmentId) {
+            GuideViewer.state(guideViewerEntries(guide), entry.attachmentId) != null
+        }
+        if (inGuide) {
+            GuidePictureViewer(groups = guide, start = entry, onDismiss = onDismiss)
+            return
+        }
+    }
     val tall = sessionResultIsTall(entry)
     val context = LocalContext.current
     Dialog(
@@ -762,5 +780,5 @@ private fun TallImageRetry(onRetry: () -> Unit, modifier: Modifier = Modifier) {
 
 /** The stored relative attachment URL — never absolutized here (EXP-824's
  *  rule): the image loader resolves it against the active instance. */
-private fun sessionResultImageUrl(entry: SessionResultEntry): String =
+internal fun sessionResultImageUrl(entry: SessionResultEntry): String =
     "/api/attachments/${entry.attachmentId}"

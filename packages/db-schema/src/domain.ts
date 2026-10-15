@@ -1078,13 +1078,23 @@ export const messageEventKindValues = [
 ] as const
 export type MessageEventKind = (typeof messageEventKindValues)[number]
 
+/** EXP-1322: one option of a question card: a plain label (the old form,
+ *  still valid everywhere) or the label with the description the session
+ *  view's card shows. An answer names the option by its label. */
+export type QuestionCardOption = string | { label: string; description?: string | null }
+
+export const questionCardOptionSchema = z.union([
+  z.string().max(500),
+  z.object({ label: z.string().max(500), description: z.string().max(2000).nullish() }).passthrough(),
+])
+
 /** messages.card: what a non-text conversation row shows. `session` = ONE
  *  child session's card (the Work card header row, EXP-1240; opens that
  *  session), `thread_started` = an agent channel's "started ▸ Thread" card,
  *  `question`/`plan` answer IN the card (`answer` + messages.answered_at),
  *  `picture` = a Guide picture the session showed while it worked. */
 export type MessageCard =
-  | { kind: `question`; question: string; options?: string[]; answer?: string | null }
+  | { kind: `question`; question: string; options?: QuestionCardOption[]; answer?: string | null }
   | { kind: `plan`; plan: string; decision?: `approved` | `rejected` | null; feedback?: string | null }
   | { kind: `subagent`; title: string; status: string; summary?: string | null }
   | { kind: `session`; sessionId: string }

@@ -112,8 +112,7 @@ struct DeviceReadinessView: View {
 
     private func rowList(_ rows: [DeviceReadiness.Row]) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
-                if index > 0 { GlassDivider() }
+            ForEach(rows, id: \.id) { row in
                 rowView(row)
             }
         }

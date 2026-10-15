@@ -308,8 +308,8 @@ impl Render for ArchivedBoardsPane {
                 let rows = rows.clone();
                 // EXP-1076: the gapless ladder under the band.
                 body = body.child(v_flex().w_full().min_w_0().children(
-                    rows.iter().enumerate().map(|(index, board)| {
-                        crate::surface::list_row(self.row(board, cx), index)
+                    rows.iter().map(|board| {
+                        crate::surface::list_row(self.row(board, cx))
                     }),
                 ));
             }

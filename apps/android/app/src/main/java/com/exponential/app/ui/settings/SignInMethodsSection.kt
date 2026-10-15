@@ -51,7 +51,6 @@ import com.exponential.app.ui.components.LocalToaster
 import com.exponential.app.ui.components.SkeletonRows
 import com.exponential.app.ui.components.GlassSheetDefaults
 import com.exponential.app.ui.components.GlassTextField
-import com.exponential.app.ui.components.GroupDivider
 import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.components.SheetPrimaryAction
 import com.exponential.app.ui.icons.ExpIcons
@@ -90,8 +89,8 @@ fun SignInMethodsSection(accountId: String, viewModel: ServerDetailViewModel) {
             is SignInMethodsState.Ready -> {
                 val methods = state.methods
                 EmailCodeRow(methods, onChange = { viewModel.openChangeEmail() })
+                // EXP-1320: a list = flat gapless rows, no dividers.
                 methods.providers.forEach { provider ->
-                    GroupDivider()
                     ProviderRow(
                         methods = methods,
                         provider = provider,
@@ -124,8 +123,7 @@ fun SignInMethodsSection(accountId: String, viewModel: ServerDetailViewModel) {
             if (ready.passkeys.isEmpty()) {
                 EmptyState(EmptyStateCopy.passkeys)
             } else {
-                ready.passkeys.forEachIndexed { i, passkey ->
-                    if (i > 0) GroupDivider()
+                ready.passkeys.forEach { passkey ->
                     PasskeyRow(
                         passkey = passkey,
                         enabled = canRemovePasskey(ready),

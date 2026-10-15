@@ -19,16 +19,15 @@ import { useAppLinkClick } from "@/hooks/use-app-link-click"
 import { splitIssueRefs } from "@/lib/issue-refs"
 import { Check, X } from "lucide-react"
 import {
+  AskCard,
+  AskPrompt,
+  ASK_CARD_COPY,
   conceptIcon,
   EditedFilesCard,
   JumpToBottomButton,
-  GlassCard,
-  Composer,
-  ComposerSubmit,
   useIsMobile,
   Button,
   Pill,
-  Textarea,
   Meter,
   IssueChip as IssueChipView,
   AgentWorkingMark,
@@ -40,6 +39,7 @@ import {
   WORK_COLUMN_CLASS,
   WORK_GUTTER_CLASS,
   DETAIL_FADE_BOTTOM_CLASS,
+  MOBILE_WORK_BAR_CLEARANCE,
   ExponentialLogo,
   ImagePreviewDialog,
   AttachmentFileLink,
@@ -53,6 +53,7 @@ import {
   type WorkCardLaneTarget,
 } from "@exp/ui"
 import { Empty } from "@/components/empty"
+import { useFollowScroll } from "@/hooks/use-follow-scroll"
 import { useSessionDevice } from "@/hooks/use-session-device"
 import { useTeamUsers } from "@/hooks/use-team-data"
 import { useNow } from "@/hooks/use-now"
@@ -68,8 +69,6 @@ import {
   expToolDisplay,
   freeAnswerFor,
   BACK_TO_CURRENT_STEP,
-  FREE_TEXT_PLACEHOLDER,
-  PLAN_FEEDBACK_PLACEHOLDER,
   groupFeedRows,
   groupLaneRows,
   FEED_WINDOW,
@@ -79,11 +78,8 @@ import {
   liveToolRowId,
   looksLikeMarkdown,
   nestedWorkflowId,
-  optionForHotkey,
   orphanWorkflowIds,
-  optionHotkey,
   pendingAnswerable,
-  opensInlineField,
   QUEUE_REMOVE_LABEL,
   QUEUE_STRIP_TITLE,
   type QueuedMessage,
@@ -137,7 +133,6 @@ import {
   acquireSteerSession,
   type FeedItem,
   type QuestionItem,
-  type QuestionOption,
   type ToolItem,
 } from "@/lib/steer-session-store"
 import { MarkdownEditor } from "@/components/issue-editor/markdown-editor"
@@ -159,13 +154,11 @@ import { cn } from "@/lib/utils"
 const CodingAssistantIcon = conceptIcon(`coding-assistant`)
 const CodingCompactIcon = conceptIcon(`coding-compact`)
 const CodingCommandIcon = conceptIcon(`coding-command`)
-const CodingPlanIcon = conceptIcon(`coding-plan`)
 const CodingSubagentIcon = conceptIcon(`coding-subagent`)
 const CodingToolIcon = conceptIcon(`coding-tool`)
 const EditorImageIcon = conceptIcon(`editor-image`)
 const UiDeviceOfflineIcon = conceptIcon(`ui-device-offline`)
 const UiEditIcon = conceptIcon(`ui-edit`)
-const UiHelpIcon = conceptIcon(`ui-help`)
 const UiLoadingIcon = conceptIcon(`ui-loading`)
 const UiPermissionIcon = conceptIcon(`ui-permission`)
 const UiRefreshIcon = conceptIcon(`ui-refresh`)
@@ -176,8 +169,6 @@ const UiQueuedIcon = conceptIcon(`ui-queued`)
 const UiCloseIcon = conceptIcon(`ui-close`)
 // EXP-529: multi-select options carry an explicit checkbox state (Android
 // parity) — the amber tint alone read as "nothing selected".
-const UiSelectedIcon = conceptIcon(`ui-selected`)
-const UiUnselectedIcon = conceptIcon(`ui-unselected`)
 
 // The custom-rendered agent-session viewer (EXP-63). NO terminal rendering:
 // the viewer joins the steer relay's scrubbed ACTIVITY channel
@@ -273,6 +264,7 @@ export function AgentSessionView({
   session,
   header,
   composer,
+  composerFloats = false,
 }: {
   /** The synced `sessions` row (any node of a tree). */
   session: SessionRow
@@ -280,6 +272,9 @@ export function AgentSessionView({
   header?: ReactNode
   /** The reply box under the feed (`SessionComposer`). */
   composer?: ReactNode
+  /** EXP-1316: the phones' `FloatingComposer` — it floats over the feed
+   *  (no in-flow slot), the feed reserves the capsule's clearance. */
+  composerFloats?: boolean
 }) {
   // EXP-621: the connection lives in a module-level per-session store that
   // outlives this view — mounting subscribes to the retained state and dials
@@ -312,11 +307,9 @@ export function AgentSessionView({
     [store, session.status]
   )
 
-  const [atBottom, setAtBottom] = useState(true)
   /** EXP-356: the selected conversation tab — `null` is the main agent; a
    *  subagent id focuses that agent's stream. */
   const [agentTab, setAgentTab] = useState<string | null>(null)
-  const scrollRef = useRef<HTMLDivElement | null>(null)
 
   const sendMessage = (text: string): boolean => store.sendMessage(text)
   const answerQuestion = (
@@ -327,53 +320,14 @@ export function AgentSessionView({
   ) => store.answerQuestion(item, keys, labels, text)
 
   // ── Follow-scroll: pinned to the newest event until the user scrolls up ───
-
-  const [feedScrolled, setFeedScrolled] = useState(false)
-  const handleFeedScroll = () => {
-    const el = scrollRef.current
-    if (!el) return
-    setAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 32)
-    setFeedScrolled(el.scrollTop > 0)
-  }
-
-  const jumpToBottom = () => {
-    const el = scrollRef.current
-    if (el) el.scrollTo({ top: el.scrollHeight })
-    setAtBottom(true)
-  }
-
-  // EXP-440: rows finish laying out AFTER the pin effect (deferred markdown,
-  // decoded images) — re-pin on every growth of the content column.
-  const atBottomRef = useRef(atBottom)
-  atBottomRef.current = atBottom
-  const contentObserverRef = useRef<ResizeObserver | null>(null)
-  const setContentRef = useCallback((node: HTMLDivElement | null) => {
-    contentObserverRef.current?.disconnect()
-    contentObserverRef.current = null
-    if (!node || typeof ResizeObserver === `undefined`) return
-    const observer = new ResizeObserver(() => {
-      if (!atBottomRef.current) return
-      const el = scrollRef.current
-      if (el) el.scrollTop = el.scrollHeight
-    })
-    observer.observe(node)
-    contentObserverRef.current = observer
-  }, [])
-
-  useEffect(() => () => contentObserverRef.current?.disconnect(), [])
-
-  useEffect(() => {
-    if (!atBottom) return
-    const el = scrollRef.current
-    if (el) el.scrollTop = el.scrollHeight
-  }, [feed, atBottom, phase.kind, session.needsInput, compactingNow])
+  // (`useFollowScroll`, shared with the thread Conversation, EXP-1316).
+  const follow = useFollowScroll([feed, phase.kind, session.needsInput, compactingNow])
+  const { scrollRef, atBottom, jumpToBottom } = follow
 
   // Switching conversation tabs re-pins to the newest event (EXP-356).
   useEffect(() => {
-    const el = scrollRef.current
-    if (el) el.scrollTop = el.scrollHeight
-    setAtBottom(true)
-  }, [agentTab])
+    jumpToBottom()
+  }, [agentTab, jumpToBottom])
 
   const live = phase.kind === `live`
   const sessionEnded = session.status === `ended`
@@ -786,13 +740,13 @@ export function AgentSessionView({
         <div className="relative min-h-0 flex-1">
           <div
             ref={scrollRef}
-            onScroll={handleFeedScroll}
+            onScroll={follow.onScroll}
             // `agent-feed`: the hook the inline-code tint keys on (EXP-698).
             className={cn(
               `agent-feed h-full overflow-y-auto overscroll-contain`,
               !isMobile && DETAIL_FADE_BOTTOM_CLASS
             )}
-            style={edgeFadeStyle({ top: feedScrolled, bottom: !isMobile })}
+            style={edgeFadeStyle({ top: follow.scrolled, bottom: !isMobile })}
           >
             {feedPlaceholder && paused ? (
               <CenteredState>
@@ -833,10 +787,11 @@ export function AgentSessionView({
               </CenteredState>
             ) : activeAgent !== null ? (
               <div
-                ref={setContentRef}
+                ref={follow.contentRef}
                 className={cn(
                   `flex min-h-full flex-col justify-end py-2`,
                   !isMobile && `pb-10`,
+                  composerFloats && MOBILE_WORK_BAR_CLEARANCE,
                   TRANSCRIPT_COLUMN
                 )}
               >
@@ -847,10 +802,11 @@ export function AgentSessionView({
               </div>
             ) : (
               <div
-                ref={setContentRef}
+                ref={follow.contentRef}
                 className={cn(
                   `flex min-h-full flex-col justify-end py-2`,
                   !isMobile && `pb-10`,
+                  composerFloats && MOBILE_WORK_BAR_CLEARANCE,
                   TRANSCRIPT_COLUMN
                 )}
               >
@@ -914,7 +870,10 @@ export function AgentSessionView({
           {/* EXP-1191: the arrow-only circle ×4, 12px above the composer. */}
           <JumpToBottomButton
             visible={!atBottom && feed.length > 0}
-            className="absolute bottom-3 left-1/2 z-10 -translate-x-1/2"
+            className={cn(
+              `absolute left-1/2 z-10 -translate-x-1/2`,
+              composerFloats ? `bottom-[calc(5.5rem+env(safe-area-inset-bottom))]` : `bottom-3`
+            )}
             onClick={jumpToBottom}
           />
         </div>
@@ -1013,7 +972,9 @@ export function AgentSessionView({
         <BackgroundStrip lines={stripLines} taskList={taskList} />
         {/* EXP-1306 (EXP-820 ×4): a card waiting on the viewer takes the
             composer's place; the draft comes back with it. */}
-        {composer && !composerYieldsToCard({ live, pendingAsk: pendingCard !== null }) ? (
+        {composer && composerFloats && !composerYieldsToCard({ live, pendingAsk: pendingCard !== null }) ? (
+          composer
+        ) : composer && !composerYieldsToCard({ live, pendingAsk: pendingCard !== null }) ? (
           <div className="py-2">
             <div className={cn(WORK_COLUMN_CLASS, WORK_GUTTER_CLASS)}>
               {composer}
@@ -1711,240 +1672,39 @@ function QuestionPrompt({
     !locked &&
     !unanswerable &&
     (editing || item.resolved !== true)
-  const [picked, setPicked] = useState<string[]>(() =>
-    editing ? recordedKeys(item) : []
-  )
-  /** EXP-820: the option whose inline field is open, by key. */
-  const [typing, setTyping] = useState<string | null>(null)
 
-  const labelsFor = (keys: string[]) =>
-    item.options.filter((o) => keys.includes(o.key)).map((o) => o.label)
-
+  // EXP-1316: THE card's prompt (`@exp/ui` AskPrompt, shared with the
+  // thread conversation); a plan reject's typed feedback follows as the next
+  // message (`freeAnswerFor`).
   const answer = (keys: string[], labels: string[], text?: string) => {
-    onAnswer(item, keys, labels, text)
+    if (item.planMode && text !== undefined) {
+      const free = freeAnswerFor(item, text)
+      if (!free) return
+      onAnswer(item, free.keys, free.labels, free.text)
+      if (free.followUp !== undefined) onSend?.(free.followUp)
+    } else {
+      onAnswer(item, keys, labels, text)
+    }
     onAnswered?.()
   }
 
-  const choose = (option: QuestionOption, index: number) => {
-    if (!answerable) return
-    if (item.multiSelect) {
-      // The picks stay local until the answer frame goes out.
-      setPicked((prev) =>
-        prev.includes(option.key)
-          ? prev.filter((k) => k !== option.key)
-          : [...prev, option.key]
-      )
-      return
-    }
-    // EXP-820: the free-text row (and a plan's reject) opens its field.
-    if (opensInlineField(item, index)) {
-      setTyping((prev) => (prev === option.key ? null : option.key))
-      return
-    }
-    answer([option.key], [option.label])
-  }
-
-  const submitPicked = () => {
-    if (!answerable || picked.length === 0) return
-    answer(picked, labelsFor(picked))
-  }
-
-  /** The inline field's send: a question's typed reply rides the row's key
-   *  as `text`; a plan's feedback rejects and follows as the next message
-   *  (`freeAnswerFor`), and an EMPTY plan send is the plain reject. */
-  const submitInline = (option: QuestionOption, text: string) => {
-    if (!answerable) return
-    const trimmed = text.trim()
-    if (item.planMode) {
-      if (trimmed.length === 0) {
-        answer([option.key], [option.label])
-        return
-      }
-      const free = freeAnswerFor(item, trimmed)
-      if (!free) return
-      answer(free.keys, free.labels, free.text)
-      if (free.followUp !== undefined) onSend?.(free.followUp)
-      return
-    }
-    if (trimmed.length === 0) return
-    answer([option.key], [trimmed], trimmed)
-  }
-
-  // EXP-788: `1`-`9` pick the option with that chip, Enter takes the primary
-  // (or submits the multi-select picks) — never while a field has focus (the
-  // inline answer field, a dialog's input), never with a modifier, a dialog
-  // or a popover in the way. The listener is window-wide because the card
-  // itself never holds focus.
-  const hot = answerable && hotkeys && typing === null
-  const chooseRef = useRef({ choose, submitPicked })
-  chooseRef.current = { choose, submitPicked }
-  useEffect(() => {
-    if (!hot) return
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.metaKey || event.ctrlKey || event.altKey) return
-      if (event.isComposing) return
-      const target = event.target as HTMLElement | null
-      if (
-        target &&
-        (target.tagName === `INPUT` ||
-          target.tagName === `TEXTAREA` ||
-          target.isContentEditable)
-      ) {
-        return
-      }
-      if (
-        document.querySelector(
-          `[role="dialog"][data-state="open"], [data-radix-popper-content-wrapper]`
-        )
-      ) {
-        return
-      }
-      if (event.key === `Enter`) {
-        if (event.shiftKey) return
-        if (item.multiSelect) {
-          chooseRef.current.submitPicked()
-          event.preventDefault()
-          return
-        }
-        const primary = item.options[0]
-        if (!primary) return
-        event.preventDefault()
-        chooseRef.current.choose(primary, 0)
-        return
-      }
-      const option = optionForHotkey(item.options, event.key)
-      if (!option) return
-      event.preventDefault()
-      chooseRef.current.choose(option, item.options.indexOf(option))
-    }
-    window.addEventListener(`keydown`, onKeyDown)
-    return () => window.removeEventListener(`keydown`, onKeyDown)
-  }, [hot, item])
-
-  if (locked) {
-    return (
-      <div className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
-        <UiLoadingIcon className="size-3 shrink-0 animate-spin" />
-        <span className="shrink-0">Answering…</span>
-        {answerState && answerState.labels.length > 0 && (
-          <span className="truncate font-medium text-foreground/80">
-            {answerState.labels.join(`, `)}
-          </span>
-        )}
-      </div>
-    )
-  }
-  if (item.resolved === true && !editing) {
-    return (
-      <AnsweredLine answer={item.answer} dismissed={item.dismissed === true} />
-    )
-  }
-
   return (
-    <>
-      <div className="mt-2 flex flex-col items-stretch gap-1">
-        {item.options.map((option, index) => {
-          const primary = variant !== `default` && index === 0
-          const selected = picked.includes(option.key)
-          const open = typing === option.key
-          const chip = optionHotkey(index)
-          const label =
-            variant === `submit` && index === 0 ? `Submit answers` : option.label
-          if (!answerable) {
-            return (
-              <span
-                key={option.key}
-                className="flex items-baseline gap-1.5 text-xs text-muted-foreground"
-              >
-                {chip && <span className="font-mono">{chip}</span>}
-                <span>{label}</span>
-              </span>
-            )
-          }
-          return (
-            <Fragment key={option.key}>
-              <Button
-                variant={primary ? `default` : `outline`}
-                size="sm"
-                className={cn(
-                  // EXP-850 §13: an option is a ROW, so it wears the row
-                  // radius (design token `radius.md` = 10px) ×4 — never the
-                  // Button's capsule.
-                  `h-auto min-h-8 w-full justify-start whitespace-normal rounded-md py-1.5 text-left text-xs`,
-                  // EXP-820: styleguide — the promoted option is the primary
-                  // fill, a pick (and an open field's row) the glass active
-                  // fill; nothing on this card is blue.
-                  !primary &&
-                    (selected || open) &&
-                    `border-glass-stroke-active bg-glass-active`
-                )}
-                aria-pressed={item.multiSelect ? selected : undefined}
-                aria-expanded={opensInlineField(item, index) ? open : undefined}
-                onClick={() => choose(option, index)}
-              >
-                {item.multiSelect ? (
-                  selected ? (
-                    <UiSelectedIcon className="size-3.5 shrink-0 text-foreground" />
-                  ) : (
-                    <UiUnselectedIcon className="size-3.5 shrink-0 text-muted-foreground" />
-                  )
-                ) : null}
-                <span className="flex min-w-0 flex-1 flex-col items-start gap-0.5">
-                  <span>{label}</span>
-                  {option.description && (
-                    <span
-                      className={cn(
-                        `font-normal text-[0.6875rem]`,
-                        primary
-                          ? `text-primary-foreground/80`
-                          : `text-muted-foreground`
-                      )}
-                    >
-                      {option.description}
-                    </span>
-                  )}
-                </span>
-                {chip && (
-                  <kbd
-                    className={cn(
-                      `ml-auto shrink-0 rounded-sm border px-1 font-mono text-[0.625rem] font-normal leading-4`,
-                      primary
-                        ? `border-primary-foreground/30 text-primary-foreground/80`
-                        : `border-glass-stroke-card text-muted-foreground`
-                    )}
-                  >
-                    {chip}
-                  </kbd>
-                )}
-              </Button>
-              {open && (
-                <InlineAnswerField
-                  placeholder={
-                    item.planMode
-                      ? PLAN_FEEDBACK_PLACEHOLDER
-                      : FREE_TEXT_PLACEHOLDER
-                  }
-                  // A plan's reject stands on its own; a typed reply needs text.
-                  allowEmpty={item.planMode}
-                  onSubmit={(text) => submitInline(option, text)}
-                  onCancel={() => setTyping(null)}
-                />
-              )}
-            </Fragment>
-          )
-        })}
-      </div>
-      {answerable && item.multiSelect && (
-        <Pill
-          size="sm"
-          mode="action"
-          className="mt-2"
-          disabled={picked.length === 0}
-          onClick={submitPicked}
-        >
-          Submit
-        </Pill>
-      )}
+    <AskPrompt
+      options={item.options}
+      multiSelect={item.multiSelect}
+      planMode={item.planMode}
+      variant={variant}
+      answerable={answerable}
+      locked={locked ? { labels: answerState?.labels ?? [] } : null}
+      resolved={
+        item.resolved === true && !editing
+          ? { answer: item.answer, dismissed: item.dismissed === true }
+          : null
+      }
+      initialPicked={editing ? recordedKeys(item) : undefined}
+      hotkeys={hotkeys}
+      onAnswer={answer}
+    >
       {answerState?.status === `error` && (
         <div className="mt-1.5 text-[0.6875rem] text-amber-400">
           No confirmation from the desktop. Pick again to retry.
@@ -1962,7 +1722,7 @@ function QuestionPrompt({
             : `Waiting for an answer. You're viewing read-only.`}
         </div>
       )}
-    </>
+    </AskPrompt>
   )
 }
 
@@ -1972,55 +1732,6 @@ function recordedKeys(item: QuestionItem): string[] {
   if (!item.answer) return []
   const labels = new Set(item.answer.split(`, `))
   return item.options.filter((o) => labels.has(o.label)).map((o) => o.key)
-}
-
-/** EXP-820: the inline answer field an option row opens under itself — the
- *  composer's own card (chrome and send glyph), a plain field inside. Enter
- *  sends, Shift+Enter breaks the line, Escape closes it. */
-function InlineAnswerField({
-  placeholder,
-  allowEmpty,
-  onSubmit,
-  onCancel,
-}: {
-  placeholder: string
-  /** A plan's reject sends with nothing typed; a typed reply never does. */
-  allowEmpty: boolean
-  onSubmit: (text: string) => void
-  onCancel: () => void
-}) {
-  const [text, setText] = useState(``)
-  const sendable = allowEmpty || text.trim().length > 0
-  return (
-    <Composer
-      className="mt-0.5"
-      submit={
-        <ComposerSubmit disabled={!sendable} onClick={() => onSubmit(text)} />
-      }
-    >
-      <Textarea
-        autoFocus
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        placeholder={placeholder}
-        aria-label={placeholder}
-        rows={1}
-        onKeyDown={(e) => {
-          if (e.nativeEvent.isComposing) return
-          if (e.key === `Escape`) {
-            e.preventDefault()
-            onCancel()
-            return
-          }
-          if (e.key === `Enter` && !e.shiftKey) {
-            e.preventDefault()
-            if (sendable) onSubmit(text)
-          }
-        }}
-        className="max-h-32 min-h-9 border-none bg-transparent px-3 pb-1 pt-3 text-sm shadow-none focus-visible:border-transparent"
-      />
-    </Composer>
-  )
 }
 
 /** EXP-784: the agent's rate-limit window, in the status stack beside the
@@ -2048,77 +1759,6 @@ function RateLimitBanner({ state }: { state: SessionRateLimitState }) {
         </span>
       </div>
     </div>
-  )
-}
-
-/** The resolution of a card — the chosen answer, or a dismissal (Esc). */
-function AnsweredLine({
-  answer,
-  dismissed,
-}: {
-  answer?: string
-  dismissed: boolean
-}) {
-  return (
-    <div className="mt-2 flex items-start gap-1.5 text-xs">
-      {dismissed ? (
-        <X className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
-      ) : (
-        <Check className="mt-0.5 size-3.5 shrink-0 text-emerald-500" />
-      )}
-      <span className="whitespace-pre-wrap break-words font-medium text-foreground/90">
-        {dismissed ? `Dismissed` : (answer ?? `Answered`)}
-      </span>
-    </div>
-  )
-}
-
-/** The chrome BOTH ask cards wear (EXP-698): the NEUTRAL glass card, and per
- *  the styleguide (EXP-820) only the header line is tinted — primary for a
- *  plan, yellow (tokens.json `semantic.yellow`) for a question — never blue.
- *  The two cards below stay separate components (a single-question card and a
- *  multi-step stepper have almost no body in common) but cannot drift apart
- *  on chrome. */
-function AskCard({
-  plan,
-  label,
-  meta,
-  children,
-}: {
-  plan?: boolean
-  label?: ReactNode
-  /** A trailing note beside the label — the stepper's "k of n". */
-  meta?: ReactNode
-  children: ReactNode
-}) {
-  return (
-    <GlassCard className="p-3">
-      <div className="flex items-start gap-2">
-        {plan ? (
-          <CodingPlanIcon className="mt-0.5 size-3.5 shrink-0 text-primary" />
-        ) : (
-          <UiHelpIcon className="mt-0.5 size-3.5 shrink-0 text-yellow-400" />
-        )}
-        <div className="min-w-0 flex-1">
-          {(label !== undefined || meta !== undefined) && (
-            <div className="mb-1 flex items-center gap-2">
-              {label !== undefined && (
-                <span
-                  className={cn(
-                    `truncate text-xs font-medium`,
-                    plan ? `text-primary` : `text-yellow-400`
-                  )}
-                >
-                  {label}
-                </span>
-              )}
-              {meta}
-            </div>
-          )}
-          {children}
-        </div>
-      </div>
-    </GlassCard>
   )
 }
 
@@ -2153,7 +1793,7 @@ function QuestionCard({
   const clampable = !plan && clamp.clampable
   const { expanded, setExpanded } = clamp
   return (
-    <AskCard plan={plan} label={plan ? `Plan ready` : item.header}>
+    <AskCard plan={plan} label={plan ? ASK_CARD_COPY.planReady : item.header}>
       <>
           {plan ? (
             // The plan is GFM markdown — always rendered as markdown, always

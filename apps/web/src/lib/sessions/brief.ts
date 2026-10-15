@@ -1,6 +1,7 @@
 import { TRPCError } from "@trpc/server"
 import { and, asc, eq } from "drizzle-orm"
 import { composeBrief, type BriefInput } from "@exp/domain-contract/session-brief"
+import { threadTitle } from "@exp/domain-contract/session-tree"
 import { db } from "@/db/connection"
 import { actions, issues, messages, sessionIssues, sessions, teams, type Session } from "@/db/schema"
 import { resolveActionInputs } from "@/lib/action-inputs"
@@ -11,15 +12,6 @@ import { actionInputLookups } from "@/lib/sessions/action-lookups"
 // session-brief.json) plus the system-append layers the device stacks under
 // its runbook: the team prompt and, in an agent's tree, the agent's
 // server-only instructions.
-
-/** The first line of a message body, as a title fallback. */
-function firstLine(body: string | null | undefined): string | null {
-  const line = (body ?? ``)
-    .split(`\n`)
-    .map((part) => part.trim())
-    .find((part) => part.length > 0 && !part.startsWith(`![`))
-  return line ? line.replace(/^#+\s*/, ``).slice(0, 120) : null
-}
 
 async function firstPersonMessage(sessionId: string): Promise<string | null> {
   const [row] = await db
@@ -40,19 +32,27 @@ async function rootIssues(rootId: string) {
     .orderBy(asc(sessionIssues.sortOrder), asc(sessionIssues.createdAt))
 }
 
-/** A session's display title, the ONE derivation the server uses (the
- *  clients' `buildThreadView` mirrors it): title ?? action name ?? agent
- *  name ?? the first issue's title ?? the first message's first line. */
+/** A session's display title, the ONE derivation the server uses = the
+ *  contract's `threadTitle` (EXP-1316): agent name · `Run <action>` ·
+ *  `Implement <IDENT>[ + n]` (roots only) · the stored auto-name · the first
+ *  person message's first line · `Untitled`. */
 export async function deriveSessionTitle(
-  session: Pick<Session, `id` | `rootId` | `title` | `actionName` | `name`>
-): Promise<string> {
-  const direct = session.title?.trim() || session.actionName?.trim() || session.name?.trim()
-  if (direct) return direct
-  if (session.rootId === session.id) {
-    const [issue] = await rootIssues(session.id)
-    if (issue) return issue.title
+  session: Pick<Session, `id` | `rootId` | `title` | `actionName` | `name`> & {
+    kind?: string | null
   }
-  return firstLine(await firstPersonMessage(session.id)) ?? `Untitled`
+): Promise<string> {
+  const quick = threadTitle(session, [], [])
+  if (session.kind === `agent` && session.name?.trim()) return quick
+  if (session.actionName?.trim()) return quick
+  const issues = session.rootId === session.id ? await rootIssues(session.id) : []
+  const body = issues.length > 0 || session.title?.trim() ? null : await firstPersonMessage(session.id)
+  return threadTitle(
+    session,
+    issues,
+    body === null
+      ? []
+      : [{ sessionId: session.id, authorKind: `user`, body, createdAt: new Date(0).toISOString() }]
+  )
 }
 
 export async function composeSessionBrief(sessionId: string): Promise<{

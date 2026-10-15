@@ -5,11 +5,13 @@
 //! no page title. Bands Needs you · Running · Recent
 //! (`domain::session_tree::partition_threads`, through the memoised
 //! [`crate::session_data::thread_lists`]), each a glass band with its glyph
-//! (no count) over flush ONE-line rows ([`crate::pr_rows::pr_row`]): the
-//! lead (the root's PR glyph tinted by its state, else the root session's
-//! agent mark) · the first linked issue's identifier (mono, muted) · the
-//! title · one quiet word (`question`, `ready to merge`, `stack`,
-//! `merged`) · a lock when private. A row opens the thread.
+//! (no count) over flat gapless ONE-line rows ([`crate::pr_rows::pr_row`],
+//! no dividers, EXP-1320): the lead (working mark while busy, else the
+//! root's PR glyph: open emerald, merged violet, else the root session's
+//! agent mark; the amber badge when it needs you) · the title (EXP-1316: it
+//! names the issue already, no identifier slot) · the contract's quiet word
+//! (`domain::session_tree::thread_row_word`) AND a lock when private. A row
+//! opens the thread.
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
@@ -18,13 +20,15 @@ use gpui::{
 };
 use gpui_component::{h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _};
 
-use domain::rows::{MessageRow, PullRequestRow, SessionRow};
-use domain::session_tree::{ThreadsListKey, ThreadsListRow, THREADS_LIST};
+use domain::rows::{PullRequestRow, SessionRow};
+use domain::session_tree::{
+    thread_in_stack, thread_row_word, StackPr, ThreadRowWord, ThreadsListKey, ThreadsListRow, THREADS_LIST,
+};
 
 use crate::actions_view::page_scaffold_with;
 use crate::icons::registry;
 use crate::navigation::{active_team_id, nav_for_window, Navigation, Screen};
-use crate::pr_rows::{pr_row, PrRowSpec, STACK_WORD};
+use crate::pr_rows::{pr_row, PrRowSpec};
 use crate::session_data::{self, PrSnapshot};
 
 /// The page column's cap — the list language's `max-w-3xl` (short rows, a
@@ -36,11 +40,6 @@ const LEAD_PX: f32 = 14.;
 /// The amber needs-you dot on a row's lead.
 const LEAD_BADGE_PX: f32 = 6.;
 
-/// The quiet words a row ends on.
-pub(crate) const QUESTION_WORD: &str = "question";
-pub(crate) const READY_WORD: &str = "ready to merge";
-pub(crate) const MERGED_WORD: &str = "merged";
-
 /// The pull request a row speaks for: the root's pull requests through THE
 /// Guide rule (`domain::session_tree::guide_pull_request`, EXP-1306).
 pub(crate) fn root_pull_request<'a>(root_id: &str, pulls: &'a [PullRequestRow]) -> Option<&'a PullRequestRow> {
@@ -51,33 +50,114 @@ pub(crate) fn root_pull_request<'a>(root_id: &str, pulls: &'a [PullRequestRow]) 
     )
 }
 
-/// Whether the root waits on an unanswered question or plan card.
-pub(crate) fn asks_a_question(messages: &[MessageRow]) -> bool {
-    messages.iter().any(|message| {
-        message.answered_at.is_none()
-            && matches!(
-                message.card_kind(),
-                Some(domain::contract::MESSAGE_CARD_KIND_QUESTION)
-                    | Some(domain::contract::MESSAGE_CARD_KIND_PLAN)
-            )
-    })
+/// EXP-1318: a thread row's quiet word ×4 (`threads-list.json`
+/// `wordCases`): the root's pull requests, whether they sit in an open
+/// stack (`stackCases`, over the team's pull requests) and the row's
+/// busy / needs-you.
+pub(crate) fn thread_word(root_id: &str, busy: bool, needs_you: bool, team_pulls: &[PullRequestRow]) -> Option<ThreadRowWord> {
+    let own: Vec<StackPr> = team_pulls
+        .iter()
+        .filter(|pull| pull.root_session_id.as_deref() == Some(root_id))
+        .map(StackPr::from_row)
+        .collect();
+    let team: Vec<StackPr> = team_pulls.iter().map(StackPr::from_row).collect();
+    let in_stack = thread_in_stack(&own, &team);
+    thread_row_word(own.iter().map(|pull| pull.state.as_str()), busy, needs_you, in_stack)
 }
 
-/// The row's quiet word (pure): a question waiting on you first, then the
-/// PR's state — `stack` for an open member of a stack, `ready to merge` for
-/// another open one, `merged`; else none.
-pub(crate) fn quiet_word(needs_you: bool, question: bool, pull: Option<&PullRequestRow>, stacked: bool) -> Option<&'static str> {
-    if needs_you && question {
-        return Some(QUESTION_WORD);
+/// The lead of a thread row ×4 (threads-list.json): the working mark while
+/// busy, else the root's Guide PR glyph (open emerald, merged violet) with
+/// the amber badge when it needs you, else the root session's mark.
+pub(crate) fn thread_row_lead(
+    root_id: &str,
+    busy: bool,
+    needs_you: bool,
+    team_pulls: &[PullRequestRow],
+    cx: &App,
+) -> gpui::AnyElement {
+    let root = session_data::session(root_id, cx);
+    match root_pull_request(root_id, team_pulls) {
+        _ if busy => crate::coding_selects::agent_working_mark(root_agent(root.as_ref()), LEAD_PX).into_any_element(),
+        Some(pull) => {
+            let (glyph, tint) = if pull.is_merged() {
+                (registry::PR_MERGED, crate::pr_rows::PR_MERGED_TINT)
+            } else {
+                (registry::PR_OPEN, theme::tokens::GREEN)
+            };
+            crate::thread_screen::with_needs_you_dot(
+                Icon::new(glyph).with_size(px(LEAD_PX)).text_color(tint.to_hsla()),
+                needs_you,
+                LEAD_BADGE_PX,
+            )
+        }
+        None => match root.as_ref() {
+            Some(root) => crate::thread_screen::root_mark(root, false, needs_you, LEAD_PX, LEAD_BADGE_PX),
+            None => Icon::new(registry::SETTINGS_AGENTS)
+                .with_size(px(LEAD_PX))
+                .text_color(cx.theme().muted_foreground)
+                .into_any_element(),
+        },
     }
-    let pull = pull?;
-    if pull.is_open() {
-        Some(if stacked { STACK_WORD } else { READY_WORD })
-    } else if pull.is_merged() {
-        Some(MERGED_WORD)
-    } else {
-        None
+}
+
+/// EXP-1318: a thread row's trailing DEVICE ICON — the root session's
+/// device resolved against the synced `devices` rows, its pick through the
+/// device-icon concept map (the Devices page's glyph), the device's name as
+/// the tooltip; an unknown or invisible device (or none) draws nothing.
+pub(crate) fn thread_device_icon(device_id: Option<&str>, row_key: &str, cx: &App) -> Option<gpui::AnyElement> {
+    use gpui::{InteractiveElement as _, StatefulInteractiveElement as _};
+    let device = crate::entity_preview::find_device(device_id?, cx)?;
+    let name = device
+        .label
+        .clone()
+        .map(|label| label.trim().to_string())
+        .filter(|label| !label.is_empty())
+        .unwrap_or_else(|| "Device".to_string());
+    let glyph = crate::icons::device_icon(device.icon.as_deref(), device.is_server());
+    Some(
+        gpui::div()
+            .id(SharedString::from(format!("thread-device-{row_key}")))
+            .flex_shrink_0()
+            .tooltip(move |window, cx| gpui_component::tooltip::Tooltip::new(name.clone()).build(window, cx))
+            .child(Icon::new(glyph).xsmall().text_color(cx.theme().muted_foreground))
+            .into_any_element(),
+    )
+}
+
+/// The row's trailing slot: the quiet word (the stack word carries the
+/// stack glyph in front), the lock when private, then the device icon;
+/// `None` when all are absent.
+pub(crate) fn thread_row_trailing(
+    word: Option<ThreadRowWord>,
+    private: bool,
+    device: Option<gpui::AnyElement>,
+    cx: &App,
+) -> Option<gpui::AnyElement> {
+    let muted = cx.theme().muted_foreground;
+    if word.is_none() && !private && device.is_none() {
+        return None;
     }
+    Some(
+        h_flex()
+            .flex_shrink_0()
+            .gap_2()
+            .items_center()
+            .children(word.map(|word| {
+                h_flex()
+                    .flex_shrink_0()
+                    .gap_1()
+                    .items_center()
+                    .text_size(px(11.5))
+                    .text_color(muted)
+                    .when(word == ThreadRowWord::Stack, |this| {
+                        this.child(Icon::new(registry::PR_STACK).xsmall().text_color(muted))
+                    })
+                    .child(word.text())
+            }))
+            .children(private.then(|| Icon::new(registry::UI_PRIVATE).xsmall().flex_shrink_0().text_color(muted)))
+            .children(device)
+            .into_any_element(),
+    )
 }
 
 /// The agent CLI a root runs.
@@ -124,80 +204,14 @@ impl ThreadsView {
     }
 
     fn row(&self, row: &ThreadsListRow, snapshot: &PrSnapshot, cx: &App) -> gpui::AnyElement {
-        let theme = cx.theme();
-        let muted = theme.muted_foreground;
-        let root = session_data::session(&row.session_id, cx);
-        let pull = root_pull_request(&row.session_id, &snapshot.pulls);
-        let stacked = pull.is_some_and(|pull| {
-            pull.is_open() && snapshot.with_set(|set| domain::pr_stack::stack_position(pull, set).is_some())
-        });
-        let question = row.needs_you && asks_a_question(&session_data::messages_of_session(&row.session_id, cx));
-        let word = quiet_word(row.needs_you, question, pull, stacked);
-        // threads-list.json: a spinner while busy, an amber dot when it
-        // needs you — over the PR glyph once the thread has a PR.
-        let lead: gpui::AnyElement = match pull {
-            _ if row.busy => crate::coding_selects::agent_working_mark(root_agent(root.as_ref()), LEAD_PX)
-                .into_any_element(),
-            Some(pull) => {
-                let (glyph, tint) = if pull.is_merged() {
-                    (registry::PR_MERGED, theme::tokens::BLUE)
-                } else {
-                    (registry::PR_OPEN, theme::tokens::GREEN)
-                };
-                crate::thread_screen::with_needs_you_dot(
-                    Icon::new(glyph).with_size(px(LEAD_PX)).text_color(tint.to_hsla()),
-                    row.needs_you,
-                    LEAD_BADGE_PX,
-                )
-            }
-            None => match root.as_ref() {
-                Some(root) => crate::thread_screen::root_mark(root, false, row.needs_you, LEAD_PX, LEAD_BADGE_PX),
-                None => Icon::new(registry::SETTINGS_AGENTS)
-                    .with_size(px(LEAD_PX))
-                    .text_color(muted)
-                    .into_any_element(),
-            },
-        };
-        // The stack word carries the stack glyph in front (draft 2).
-        let word_el = word.map(|word| {
-            h_flex()
-                .flex_shrink_0()
-                .gap_1()
-                .items_center()
-                .text_size(px(11.5))
-                .text_color(muted)
-                .when(word == STACK_WORD, |this| {
-                    this.child(Icon::new(registry::PR_STACK).xsmall().text_color(muted))
-                })
-                .child(word)
-                .into_any_element()
-        });
-        let lock = row.private.then(|| {
-            Icon::new(registry::UI_PRIVATE)
-                .xsmall()
-                .flex_shrink_0()
-                .text_color(muted)
-                .into_any_element()
-        });
-        let trailing = match (word_el, lock) {
-            (None, None) => None,
-            (word, lock) => Some(
-                h_flex()
-                    .flex_shrink_0()
-                    .gap_2()
-                    .items_center()
-                    .children(word)
-                    .children(lock)
-                    .into_any_element(),
-            ),
-        };
+        let lead = thread_row_lead(&row.session_id, row.busy, row.needs_you, &snapshot.pulls, cx);
+        let word = thread_word(&row.session_id, row.busy, row.needs_you, &snapshot.pulls);
+        let device = thread_device_icon(row.device_id.as_deref(), &row.session_id, cx);
+        let trailing = thread_row_trailing(word, row.private, device, cx);
         let session_id = row.session_id.clone();
         pr_row(
             PrRowSpec {
                 lead: Some(lead),
-                identifier: Some(SharedString::from(
-                    session_data::first_issue_identifier(&row.session_id, cx).unwrap_or_default(),
-                )),
                 trailing,
                 on_click: Some(Box::new(move |_: &ClickEvent, window: &mut Window, cx: &mut App| {
                     crate::navigation::navigate(
@@ -293,30 +307,23 @@ mod tests {
         assert!(root_pull_request("r3", &pulls).is_none());
     }
 
+    /// The word follows the contract: open in a stack → stack, open idle →
+    /// ready to merge, merged, else a question while it needs you.
     #[test]
-    fn the_quiet_word_puts_a_question_first_then_the_pr_state() {
-        let open = pull("p", "r", "open", "2026-10-13T08:00:00.000Z");
-        let merged = pull("p", "r", "merged", "2026-10-13T08:00:00.000Z");
-        let closed = pull("p", "r", "closed", "2026-10-13T08:00:00.000Z");
-        assert_eq!(quiet_word(true, true, Some(&open), false), Some("question"));
-        assert_eq!(quiet_word(false, true, Some(&open), false), Some("ready to merge"));
-        assert_eq!(quiet_word(false, false, Some(&open), true), Some("stack"));
-        assert_eq!(quiet_word(false, false, Some(&merged), false), Some("merged"));
-        assert_eq!(quiet_word(false, false, Some(&closed), false), None);
-        assert_eq!(quiet_word(true, false, None, false), None);
-    }
-
-    #[test]
-    fn an_unanswered_question_or_plan_card_asks() {
-        let message = |kind: &str, answered: Option<&str>| -> MessageRow {
-            serde_json::from_value(json!({
-                "id": "m", "session_id": "r", "card": {"kind": kind}, "answered_at": answered,
-            }))
-            .unwrap()
-        };
-        assert!(asks_a_question(&[message("question", None)]));
-        assert!(asks_a_question(&[message("plan", None)]));
-        assert!(!asks_a_question(&[message("question", Some("2026-10-13T08:00:00.000Z"))]));
-        assert!(!asks_a_question(&[message("event", None)]));
+    fn the_thread_word_follows_the_contract() {
+        let mut stacked = pull("p2", "r1", "open", "2026-10-13T08:00:00.000Z");
+        stacked.base_pull_request_id = Some("p1".into());
+        let pulls = vec![
+            pull("p1", "r0", "open", "2026-10-13T07:00:00.000Z"),
+            stacked,
+            pull("p3", "r2", "open", "2026-10-13T08:00:00.000Z"),
+            pull("p4", "r3", "merged", "2026-10-13T08:00:00.000Z"),
+        ];
+        assert_eq!(thread_word("r1", false, false, &pulls), Some(ThreadRowWord::Stack));
+        assert_eq!(thread_word("r2", false, true, &pulls), Some(ThreadRowWord::ReadyToMerge));
+        assert_eq!(thread_word("r2", true, false, &pulls), None);
+        assert_eq!(thread_word("r3", false, true, &pulls), Some(ThreadRowWord::Merged));
+        assert_eq!(thread_word("r4", false, true, &pulls), Some(ThreadRowWord::Question));
+        assert_eq!(thread_word("r4", false, false, &pulls), None);
     }
 }

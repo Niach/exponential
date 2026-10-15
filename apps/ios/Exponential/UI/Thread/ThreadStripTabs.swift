@@ -2,14 +2,16 @@ import ExpCore
 import ExpUI
 import SwiftUI
 
-/// EXP-1295: the thread header's ONE strip as the phone's pager tabs
-/// (fixture `session-thread.json` `tabs`): `Conversation`, one tab per
-/// linked issue (status glyph + mono identifier), `Guide` (a green dot while
-/// the root's Guide holds anything), scrolling sideways when it outgrows the
-/// width, with the "+" (link or file an issue) as a trailing button outside
-/// the scroller. The shown tab is the filled capsule. A long press on an
-/// issue tab opens its menu (Unlink). An issue linked while the screen was
-/// up fades in with a ring.
+/// EXP-1295/1316: the thread header's ONE strip as the phone's pager tabs
+/// (fixture `session-thread.json` `tabs`), in the contract's order:
+/// `Conversation` · one CHIP per linked issue (status glyph + mono identifier
+/// in a bordered capsule) · the "+" (link or file an issue) · one chip per
+/// session at the viewed level (its row mark + name; a tap opens that
+/// session, phones push it) · `Guide` (a green dot while the root's Guide
+/// holds anything), scrolling sideways when it outgrows the width. Every
+/// chip is ONE height (entity-chip.json tab size); the shown page is the
+/// filled capsule. A long press on an issue chip opens its menu (Unlink). An
+/// issue linked while the screen was up fades in with a ring.
 struct ThreadStripTabs: View {
     let tabs: [ThreadTab]
     let selection: ThreadPage
@@ -22,35 +24,25 @@ struct ThreadStripTabs: View {
     var onIssueMenu: (String) -> Void = { _ in }
     /// The "+" (nil = hidden: a reader who cannot add to the thread).
     var onAdd: (() -> Void)?
+    /// A session chip's tap (nil = session chips are not shown).
+    var onOpenSession: ((String) -> Void)?
+
+    /// entity-chip.json `tab` size: every chip in the strip is one height.
+    static let chipHeight: CGFloat = 32
 
     var body: some View {
-        HStack(spacing: 4) {
-            ScrollViewReader { scroller in
-                ScrollView(.horizontal) {
-                    HStack(spacing: 2) {
-                        ForEach(pages, id: \.self) { page in
-                            tab(page)
-                                .id(page)
-                        }
+        ScrollViewReader { scroller in
+            ScrollView(.horizontal) {
+                HStack(spacing: 4) {
+                    ForEach(Array(tabs.enumerated()), id: \.offset) { _, tab in
+                        item(tab)
                     }
-                    .padding(.leading, 8)
                 }
-                .scrollIndicators(.hidden)
-                .onChange(of: selection) { _, next in
-                    scroller.scrollTo(next, anchor: .center)
-                }
+                .padding(.horizontal, 8)
             }
-            if let onAdd, tabs.contains(.add) {
-                Button(action: onAdd) {
-                    AppIcon(AppIcons.uiAdd, size: AppIcon.Size.medium, weight: .medium)
-                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                        .frame(width: 36, height: 36)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Add an issue")
-                .accessibilityIdentifier("thread-strip-add")
-                .padding(.trailing, 8)
+            .scrollIndicators(.hidden)
+            .onChange(of: selection) { _, next in
+                scroller.scrollTo(next, anchor: .center)
             }
         }
         .padding(.vertical, 6)
@@ -58,20 +50,49 @@ struct ThreadStripTabs: View {
         .accessibilityIdentifier(SessionTree.ThreadCopy.tabsTestId)
     }
 
-    /// The pages in strip order (the "+" is a button, never a page).
-    private var pages: [ThreadPage] {
-        tabs.compactMap { tab in
-            switch tab {
-            case .conversation: .conversation
-            case let .issue(issueId, _): .issue(issueId)
-            case .guide: .guide
-            case .add: nil
+    @ViewBuilder
+    private func item(_ tab: ThreadTab) -> some View {
+        switch tab {
+        case .conversation:
+            pageTab(.conversation).id(ThreadPage.conversation)
+        case let .issue(issueId, _):
+            pageTab(.issue(issueId)).id(ThreadPage.issue(issueId))
+        case .guide:
+            pageTab(.guide).id(ThreadPage.guide)
+        case .add:
+            if let onAdd {
+                Button(action: onAdd) {
+                    AppIcon(AppIcons.uiAdd, size: AppIcon.Size.medium, weight: .medium)
+                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                        .frame(width: Self.chipHeight, height: Self.chipHeight)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Add an issue")
+                .accessibilityIdentifier("thread-strip-add")
+            }
+        case let .session(sessionId, name, markState):
+            if let onOpenSession {
+                ThreadStripTab(selected: false, bordered: true, fresh: false) {
+                    HStack(spacing: 5) {
+                        ThreadSessionChipMark(state: markState)
+                            .frame(width: 13, height: 13)
+                        Text(name)
+                            .font(.footnote.weight(.medium))
+                            .lineLimit(1)
+                    }
+                }
+                .onTapGesture { onOpenSession(sessionId) }
+                .accessibilityElement(children: .combine)
+                .accessibilityAddTraits(.isButton)
+                .accessibilityLabel("\(name), \(markState.word)")
+                .accessibilityIdentifier("thread-tab-session-\(sessionId)")
             }
         }
     }
 
     @ViewBuilder
-    private func tab(_ page: ThreadPage) -> some View {
+    private func pageTab(_ page: ThreadPage) -> some View {
         let selected = page == selection
         switch page {
         case let .issue(issueId):
@@ -79,8 +100,8 @@ struct ThreadStripTabs: View {
                 if case let .issue(id, identifier) = tab, id == issueId { return identifier }
                 return nil
             }.first ?? ""
-            ThreadStripTab(selected: selected, fresh: isFresh(issueId)) {
-                HStack(spacing: 4) {
+            ThreadStripTab(selected: selected, bordered: true, fresh: isFresh(issueId)) {
+                HStack(spacing: 5) {
                     let status = IssueStatus.from(issue(issueId)?.status)
                     AppIcon(status.iconName, size: AppIcon.Size.small)
                         .foregroundStyle(status.color)
@@ -96,7 +117,7 @@ struct ThreadStripTabs: View {
             .accessibilityIdentifier("thread-tab-\(identifier)")
         case .guide:
             let dot = tabs.contains(.guide(dot: true))
-            ThreadStripTab(selected: selected, fresh: false) {
+            ThreadStripTab(selected: selected, bordered: false, fresh: false) {
                 HStack(spacing: 5) {
                     Text(SessionTree.ThreadCopy.guide)
                         .font(.footnote.weight(.medium))
@@ -112,7 +133,7 @@ struct ThreadStripTabs: View {
             .accessibilityAddTraits(.isButton)
             .accessibilityIdentifier("thread-tab-guide")
         case .conversation:
-            ThreadStripTab(selected: selected, fresh: false) {
+            ThreadStripTab(selected: selected, bordered: false, fresh: false) {
                 Text(SessionTree.ThreadCopy.conversation)
                     .font(.footnote.weight(.medium))
             }
@@ -123,10 +144,40 @@ struct ThreadStripTabs: View {
     }
 }
 
-/// One tab: the filled capsule when shown, plain text otherwise; a FRESH tab
-/// fades in (motion tokens, decelerate) with a ring that settles away.
+/// A session chip's lead (`sessionTabMarkState` ×4): the working mark while
+/// it works, the brand mark amber-badged when it needs you, the bare mark
+/// while it waits, dimmed once it ended.
+struct ThreadSessionChipMark: View {
+    let state: SessionState
+
+    var body: some View {
+        switch state {
+        case .working:
+            AgentWorkingMark(agent: nil)
+        case .needsYou:
+            BeatingAgentMark(agent: nil, beating: false)
+                .overlay(alignment: .topTrailing) {
+                    Circle()
+                        .fill(DesignTokens.Semantic.yellow)
+                        .frame(width: 6, height: 6)
+                        .offset(x: 2, y: -2)
+                }
+        case .ended:
+            BeatingAgentMark(agent: nil, beating: false)
+                .opacity(0.5)
+        default:
+            BeatingAgentMark(agent: nil, beating: false)
+        }
+    }
+}
+
+/// One tab at the strip's ONE height: the filled capsule when shown; a chip
+/// (`bordered`: an issue or a session) keeps its hairline capsule otherwise,
+/// a word tab is plain text. A FRESH tab fades in (motion tokens,
+/// decelerate) with a ring that settles away.
 private struct ThreadStripTab<Content: View>: View {
     let selected: Bool
+    let bordered: Bool
     let fresh: Bool
     @ViewBuilder let content: () -> Content
 
@@ -137,27 +188,30 @@ private struct ThreadStripTab<Content: View>: View {
     var body: some View {
         content()
             .foregroundStyle(.white.opacity(selected ? TextOpacity.primary : TextOpacity.secondary))
-            .padding(.horizontal, 8)
-            .padding(.vertical, 7)
+            .padding(.horizontal, 10)
+            .frame(height: ThreadStripTabs.chipHeight)
             .background {
                 if selected {
-                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    Capsule(style: .continuous)
                         .fill(GlassTokens.fillCard)
                         .overlay(
-                            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                            Capsule(style: .continuous)
                                 .strokeBorder(GlassTokens.strokeCard, lineWidth: GlassTokens.hairline)
                         )
+                } else if bordered {
+                    Capsule(style: .continuous)
+                        .strokeBorder(GlassTokens.strokeCard, lineWidth: GlassTokens.hairline)
                 }
             }
             .overlay {
                 if fresh {
-                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    Capsule(style: .continuous)
                         .strokeBorder(DesignTokens.Semantic.blue, lineWidth: 1)
                         .opacity(ringed ? 0 : 1)
                 }
             }
             .opacity(fresh && !appeared ? 0 : 1)
-            .contentShape(Rectangle())
+            .contentShape(Capsule())
             .onAppear {
                 guard fresh else { return }
                 withAnimation(motion.decelerate(DesignTokens.Motion.Duration.slow)) { appeared = true }
@@ -169,9 +223,10 @@ private struct ThreadStripTab<Content: View>: View {
     }
 }
 
-/// EXP-1295: the header's title row — a thread's title with the lock glyph
-/// when it is private (`!root.shared`), or an agent's icon in its color
-/// before its name (the agent channel). Nothing else: no caption.
+/// EXP-1295/1316: the header's title — the nav row's principal item: a
+/// thread's title on ONE line (never tappable, nobody renames a thread) with
+/// the lock glyph when it is private (`!root.shared`), or an agent's icon in
+/// its color before its name (the agent channel). Nothing else: no caption.
 struct ThreadHeaderTitle: View {
     let title: String
     var isPrivate = false
@@ -180,16 +235,17 @@ struct ThreadHeaderTitle: View {
     var agentColor: String?
 
     var body: some View {
-        HStack(alignment: .center, spacing: 8) {
+        HStack(alignment: .center, spacing: 6) {
             if let agentIcon {
-                AppIcon(agentIcon, size: 20, weight: .medium)
+                AppIcon(agentIcon, size: 17, weight: .medium)
                     .foregroundStyle(Color(hex: agentColor) ?? .white)
                     .accessibilityHidden(true)
             }
             Text(title)
-                .font(.title3.weight(.semibold))
+                .font(.headline)
                 .foregroundStyle(.white)
-                .lineLimit(2)
+                .lineLimit(1)
+                .truncationMode(.tail)
                 .accessibilityAddTraits(.isHeader)
                 .accessibilityIdentifier("thread-title")
             if isPrivate {
@@ -199,7 +255,5 @@ struct ThreadHeaderTitle: View {
                     .accessibilityIdentifier("thread-private")
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 16)
     }
 }

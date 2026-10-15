@@ -1225,14 +1225,13 @@ impl Render for McpServersPane {
                 // Cloned so the row builder can take `&mut Context` (the
                 // listeners it hangs need it) without holding `self.load`.
                 let servers = servers.clone();
-                // EXP-1076: the team registry is an entity LIST — a gapless
-                // hairline ladder (`list_row` + `flat_row`, the web
-                // `SETTINGS_LIST_CLASS` twin), not gapped cards.
+                // EXP-1076/EXP-1320: the team registry is an entity LIST —
+                // flat gapless rows, no hairlines (`list_row` + `flat_row`,
+                // the web `SETTINGS_LIST_CLASS` twin), not gapped cards.
                 let mut list = v_flex().w_full().min_w_0();
-                for (index, entry) in servers.iter().enumerate() {
+                for entry in servers.iter() {
                     list = list.child(crate::surface::list_row(
                         self.render_row(entry, owner, cx),
-                        index,
                     ));
                 }
                 body = body.child(list);

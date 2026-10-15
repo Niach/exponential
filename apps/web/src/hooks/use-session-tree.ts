@@ -58,10 +58,35 @@ export function useTeamSessions(teamId: string | readonly string[] | null | unde
   }, [data, isReady, key])
 }
 
+/** EXP-1316: a thread title may fall back past its issues (to the stored
+ *  name, the first message) only once the shapes that could NAME an issue
+ *  have reported ready: the links, then the linked issues (none linked = no
+ *  wait), and the messages. Until then hosts hold the title (and the
+ *  chips), so nothing flips from the request text to `Implement EXP-12`. */
+export function titleShapesReady(input: {
+  linksReady: boolean
+  issueCount: number
+  issuesReady: boolean
+  messagesReady: boolean
+}): boolean {
+  return (
+    input.linksReady && (input.issueCount === 0 || input.issuesReady) && input.messagesReady
+  )
+}
+
+/** Hold every row title (empty) until the title shapes are ready. */
+export function holdTitles(groups: ThreadsListGroup[], ready: boolean): ThreadsListGroup[] {
+  if (ready) return groups
+  return groups.map((group) => ({
+    ...group,
+    rows: group.rows.map((row) => ({ ...row, title: `` })),
+  }))
+}
+
 /** The issue + message context `threadTitle` needs for a set of roots. */
 function useTitleContext(teamIds: readonly string[]) {
   const key = teamIds.join(`,`)
-  const { data: links } = useLiveQuery(
+  const { data: links, isReady: linksReady } = useLiveQuery(
     (query) =>
       teamIds.length > 0
         ? query
@@ -74,7 +99,7 @@ function useTitleContext(teamIds: readonly string[]) {
   // ids instead.
   const issueIds = [...new Set(((links ?? []) as SessionIssueRow[]).map((link) => link.issueId))]
   const issueKey = issueIds.sort().join(`,`)
-  const { data: issues } = useLiveQuery(
+  const { data: issues, isReady: issuesReady } = useLiveQuery(
     (query) =>
       issueIds.length > 0
         ? query
@@ -88,7 +113,7 @@ function useTitleContext(teamIds: readonly string[]) {
         : undefined,
     [issueKey]
   )
-  const { data: messages } = useLiveQuery(
+  const { data: messages, isReady: messagesReady } = useLiveQuery(
     (query) =>
       teamIds.length > 0
         ? query
@@ -97,19 +122,21 @@ function useTitleContext(teamIds: readonly string[]) {
         : undefined,
     [key]
   )
+  const ready = titleShapesReady({
+    linksReady: teamIds.length > 0 && linksReady,
+    issueCount: issueIds.length,
+    issuesReady,
+    messagesReady,
+  })
   return useMemo(
     () => ({
       sessionIssues: ((links ?? []) as SessionIssueRow[]).map(toTreeSessionIssue),
       issues: ((issues ?? []) as TreeIssue[]).map(toTreeIssue),
       messages: ((messages ?? []) as MessageRow[]).map(toTreeMessage),
+      ready,
     }),
-    [links, issues, messages]
+    [links, issues, messages, ready]
   )
-}
-
-export interface ThreadsListExtras {
-  /** The first linked issue's identifier per root (the row's id column). */
-  identifierByRoot: ReadonlyMap<string, string>
 }
 
 /**
@@ -118,7 +145,6 @@ export interface ThreadsListExtras {
  */
 export function useThreadsList(teamId: string | readonly string[] | null | undefined): {
   groups: ThreadsListGroup[]
-  extras: ThreadsListExtras
   isReady: boolean
 } {
   const teamIds = teamScopeIds(teamId ?? undefined)
@@ -132,14 +158,8 @@ export function useThreadsList(teamId: string | readonly string[] | null | undef
       messages: context.messages,
       teamId: null,
     })
-    const issueById = new Map(context.issues.map((issue) => [issue.id, issue]))
-    const identifierByRoot = new Map<string, string>()
-    for (const link of [...context.sessionIssues].sort((a, b) => a.sortOrder - b.sortOrder)) {
-      if (identifierByRoot.has(link.sessionId)) continue
-      const issue = issueById.get(link.issueId)
-      if (issue) identifierByRoot.set(link.sessionId, issue.identifier)
-    }
-    return { groups, extras: { identifierByRoot }, isReady }
+    // EXP-1316: rows hold their title until the issue shapes are ready.
+    return { groups: holdTitles(groups, context.ready), isReady: isReady && context.ready }
   }, [tree, context, isReady])
 }
 
@@ -239,16 +259,22 @@ export function useIssuePullRequests(issueId: string | null | undefined): PullRe
 }
 
 /** The thread screen's whole model (`buildSessionThread`, fixture-locked). */
-export function useSessionThread(rootId: string | null | undefined): {
+export function useSessionThread(
+  rootId: string | null | undefined,
+  /** EXP-1316: the session open in place (its chips = that level). */
+  focus: string | null = null
+): {
   view: SessionThreadView | null
   root: SessionRow | null
   rows: SessionRow[]
   pullRequests: PullRequestRow[]
   isReady: boolean
+  /** EXP-1316: the issue shapes reported ready (the title cannot flip). */
+  titleReady: boolean
 } {
   const { rows, tree, isReady } = useTreeSessions(rootId)
   const root = rows.find((row) => row.id === rootId) ?? null
-  const { data: links } = useLiveQuery(
+  const { data: links, isReady: linksReady } = useLiveQuery(
     (query) =>
       rootId
         ? query
@@ -259,7 +285,7 @@ export function useSessionThread(rootId: string | null | undefined): {
   )
   const issueIds = ((links ?? []) as SessionIssueRow[]).map((link) => link.issueId)
   const issueKey = [...issueIds].sort().join(`,`)
-  const { data: issues } = useLiveQuery(
+  const { data: issues, isReady: issuesReady } = useLiveQuery(
     (query) =>
       issueIds.length > 0
         ? query
@@ -273,7 +299,7 @@ export function useSessionThread(rootId: string | null | undefined): {
         : undefined,
     [issueKey]
   )
-  const { data: messages } = useLiveQuery(
+  const { data: messages, isReady: messagesReady } = useLiveQuery(
     (query) =>
       rootId
         ? query
@@ -282,6 +308,12 @@ export function useSessionThread(rootId: string | null | undefined): {
         : undefined,
     [rootId]
   )
+  const titleReady = titleShapesReady({
+    linksReady: Boolean(rootId) && linksReady,
+    issueCount: issueIds.length,
+    issuesReady,
+    messagesReady,
+  })
   const pullRequests = useRootPullRequests(rootId)
   const now = useNow(1_000)
   const view = useMemo(() => {
@@ -294,9 +326,9 @@ export function useSessionThread(rootId: string | null | undefined): {
       messages: ((messages ?? []) as MessageRow[]).map(toTreeMessage),
       pullRequests: pullRequests.map(toTreePullRequest),
       now: now.toISOString(),
-    })
-  }, [root, tree, links, issues, messages, pullRequests, now])
-  return { view, root, rows, pullRequests, isReady }
+    }, { focus })
+  }, [root, tree, links, issues, messages, pullRequests, now, focus])
+  return { view, root, rows, pullRequests, isReady, titleReady }
 }
 
 /** The messages of ONE session (an agent's channel, an opened child). */

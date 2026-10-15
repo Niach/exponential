@@ -440,15 +440,19 @@ fn thread_tab_title(root_id: &str, cx: &App) -> gpui::SharedString {
         .into()
 }
 
-/// EXP-1294: a session's label — its tree's first linked issue identifier
-/// and the thread's title (`EXP-42 · title`), the root being what the tab
-/// shares; `Session` while the row syncs.
+/// EXP-1294: a session's label — the root's title, the root being what the
+/// tab shares (EXP-1316: a thread's plain title; an agent's session keeps
+/// `EXP-42 · title`); `Session` while the row syncs.
 fn session_tab_title(session_id: &str, cx: &App) -> gpui::SharedString {
     let Some(root) = Store::try_global(cx).and_then(|_| crate::session_data::root_of(session_id, cx))
     else {
         return "Session".into();
     };
     let title = thread_tab_title(&root.id, cx);
+    // EXP-1316: a thread's title names its issue already.
+    if root.is_thread() {
+        return title;
+    }
     match crate::session_data::first_issue_identifier(&root.id, cx) {
         Some(identifier) => format!("{identifier} · {title}").into(),
         None => title,

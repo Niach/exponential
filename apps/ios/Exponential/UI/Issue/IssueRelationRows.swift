@@ -118,8 +118,7 @@ struct IssueRelationRowList: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
-                if index > 0 { GlassDivider() }
+            ForEach(rows, id: \.id) { row in
                 IssueRelationListRow(
                     row: row,
                     status: vm.relationStatus(id: row.id),

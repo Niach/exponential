@@ -88,20 +88,18 @@ struct SettingsView: View {
     }
 
     // EXP-721: ONE grouped card per section (Android's SettingsScreen) — the
-    // gapped stack of individually-filled rows is gone; rows sit hairline-
-    // separated inside a single `.glassSection()`. "Add server" is the last row
+    // gapped stack of individually-filled rows is gone; rows sit flat inside
+    // a single `.glassSection()`, no dividers (EXP-1320). "Add server" is the last row
     // of the Servers card, not a floating pill.
     private var serversSection: some View {
         sectionStack(title: "Servers") {
             VStack(spacing: 0) {
-                ForEach(Array(deps.auth.accounts.enumerated()), id: \.element.id) { index, account in
-                    if index > 0 { GlassDivider() }
+                ForEach(deps.auth.accounts, id: \.id) { account in
                     NavigationLink(value: AppRoute.serverDetail(accountId: account.id)) {
                         serverRow(account)
                     }
                     .buttonStyle(.plain)
                 }
-                if !deps.auth.accounts.isEmpty { GlassDivider() }
                 Button {
                     previousActiveAccountId = deps.auth.activeAccountId
                     showAddServer = true
@@ -185,8 +183,7 @@ struct SettingsView: View {
             }
 
             VStack(spacing: 0) {
-                ForEach(Array(group.teams.enumerated()), id: \.element.id) { index, team in
-                    if index > 0 { GlassDivider() }
+                ForEach(group.teams, id: \.id) { team in
                     Button {
                         handleTeamTap(accountId: group.accountId, teamId: team.id)
                     } label: {
@@ -226,7 +223,6 @@ struct SettingsView: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityIdentifier(GettingStarted.TestId.entry)
-                    GlassDivider()
                 }
                 // EXP-232: staging-only — exposes live shape status and a
                 // "Resync now" data-wipe hatch, not for store builds.
@@ -235,7 +231,6 @@ struct SettingsView: View {
                         settingsRow(icon: AppIcons.settingsSync, title: "Sync diagnostics")
                     }
                     .buttonStyle(.plain)
-                    GlassDivider()
                 }
                 NavigationLink(value: AppRoute.about) {
                     settingsRow(icon: AppIcons.settingsAbout, title: "About")

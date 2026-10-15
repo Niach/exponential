@@ -1,46 +1,21 @@
-import { useState } from "react"
 import { createFileRoute, Link, Navigate, redirect } from "@tanstack/react-router"
-import {
-  Button,
-  conceptIcon,
-  Pill,
-  SkeletonRows,
-  toast,
-  WORK_COLUMN_CLASS,
-  WORK_GUTTER_CLASS,
-} from "@exp/ui"
-import type { IconConcept } from "@exp/icons"
-import { AgentSessionView } from "@/components/agent-session"
-import { SessionComposer } from "@/components/session-composer"
+import { Button, SkeletonRows } from "@exp/ui"
 import { Empty } from "@/components/empty"
+import { SessionScreen } from "@/components/thread/session-body"
 import { emptyStateCopy } from "@/lib/empty-states"
-import {
-  useSessionCard,
-  useSessionRow,
-  useSessionThread,
-  useTreeSessions,
-} from "@/hooks/use-session-tree"
-import { useTeamBySlug, useTeamUsers } from "@/hooks/use-team-data"
-import { pageTitle, usePageTitle } from "@/lib/page-title"
-import type { SessionRow } from "@/lib/session-tree"
-import { trpc } from "@/lib/trpc-client"
-import { cn } from "@/lib/utils"
+import { useSessionRow } from "@/hooks/use-session-tree"
+import { useTeamBySlug } from "@/hooks/use-team-data"
+import { pageTitle } from "@/lib/page-title"
 
-const BackIcon = conceptIcon(`ui-back`)
-const StopIcon = conceptIcon(`coding-stop`)
-
-// EXP-1293 Threads v2: ONE session's RAW WORK, opened from its session card
-// (a thread's conversation, an agent's channel). The header leads back to
-// its thread (the root's title), names the session (the card's name, `Session
-// N` untitled) and offers Stop while it is live; under it the feed always
-// shows the work (no faces, no Show work, no Guide, no issue header), and the
-// reply box (`SessionComposer`) posts to THIS session. Visibility is the
-// shape's: a shared session syncs to every member, a private one to its
-// starter alone, so whoever can see it may post, answer and Stop.
-
+// EXP-1316: a session opens INSIDE its thread (`?tab=session&session=<id>`
+// on the thread route: the thread's header + strip stay, the body is the raw
+// work). This route stays for deep links, notifications and the work-tab
+// strip's stored session tabs: it REDIRECTS (replace) once the row resolves,
+// keeping `from`. A session under a team AGENT has no thread page: it keeps
+// its own screen here (back to the agent's channel).
+//
 // EXP-1291: the PR body's footer links `sessions/<rootId>?view=guide`; that
-// URL opens the thread's Guide tab (replace) once the row resolves. `from`
-// = where it was opened from (the shell's Back target), passed through.
+// URL opens the thread's Guide tab.
 type SessionSearch = { view?: `guide`; from?: string }
 
 export const Route = createFileRoute(`/t/$teamSlug/sessions/$sessionId`)({
@@ -60,24 +35,31 @@ export const Route = createFileRoute(`/t/$teamSlug/sessions/$sessionId`)({
   component: SessionPage,
 })
 
+function Loading() {
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      {/* D8 first load: the detail page's placeholder (3 list rows). */}
+      <div className="p-6">
+        <SkeletonRows />
+      </div>
+    </div>
+  )
+}
+
 function SessionPage() {
   const { teamSlug, sessionId } = Route.useParams()
-  const { view } = Route.useSearch()
+  const { view, from } = Route.useSearch()
   const team = useTeamBySlug(teamSlug)
   const { row, isReady } = useSessionRow(sessionId)
+  const rootId = row ? (row.rootId ?? row.id) : null
+  const { row: rootRow, isReady: rootReady } = useSessionRow(
+    rootId && rootId !== row?.id ? rootId : null
+  )
+  const root = rootId === row?.id ? row : rootRow
 
-  if (!team || (!row && !isReady)) {
-    return (
-      <div className="flex h-full min-h-0 flex-col">
-        {/* D8 first load: the detail page's placeholder (3 list rows). */}
-        <div className="p-6">
-          <SkeletonRows />
-        </div>
-      </div>
-    )
-  }
+  if (!team || (!row && !isReady)) return <Loading />
 
-  if (!row) {
+  if (!row || !rootId) {
     return (
       <div className="flex h-full min-h-0 flex-col items-center justify-center">
         <Empty id="run-not-found">
@@ -95,117 +77,25 @@ function SessionPage() {
     return (
       <Navigate
         to="/t/$teamSlug/threads/$threadId"
-        params={{ teamSlug, threadId: row.rootId ?? row.id }}
+        params={{ teamSlug, threadId: rootId }}
         search={{ tab: `guide` }}
         replace
       />
     )
   }
 
-  return <SessionScreen key={row.id} teamSlug={teamSlug} row={row} />
-}
-
-/** The loaded session: a child so its hooks stay unconditional. */
-function SessionScreen({ teamSlug, row }: { teamSlug: string; row: SessionRow }) {
-  const rootId = row.rootId ?? row.id
-  const { tree } = useTreeSessions(rootId)
-  const { row: syncedRoot } = useSessionRow(rootId === row.id ? null : rootId)
-  const rootRow = rootId === row.id ? row : syncedRoot
-  // Under a team agent the way back is the agent's channel, never /threads.
-  const agentRoot = rootRow?.kind === `agent` ? rootRow : null
-  const card = useSessionCard(row, tree)
-  const { view } = useSessionThread(rootId)
-  const { users } = useTeamUsers(row.teamId)
-  const threadTitle = view?.title ?? null
-  const name = card?.name ?? row.title ?? `Session`
-  usePageTitle(pageTitle(name, threadTitle ?? `Session`))
-
-  const live = row.status !== `ended`
-  const isRoot = rootId === row.id
-  const CardIcon = conceptIcon((card?.icon ?? `coding-assistant`) as IconConcept)
-
-  const header = (
-    <div
-      className={cn(WORK_COLUMN_CLASS, WORK_GUTTER_CLASS, `shrink-0 pt-4 pb-2`)}
-      data-testid="session-header"
-    >
-      {agentRoot ? (
-        <Link
-          to="/t/$teamSlug/agents/$agentId"
-          params={{ teamSlug, agentId: agentRoot.id }}
-          className="inline-flex max-w-full min-w-0 items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
-          data-testid="session-back"
-        >
-          <BackIcon className="size-4 shrink-0" />
-          <span className="truncate">{agentRoot.name || `Back`}</span>
-        </Link>
-      ) : !isRoot || threadTitle ? (
-        <Link
-          to="/t/$teamSlug/threads/$threadId"
-          params={{ teamSlug, threadId: rootId }}
-          className="inline-flex max-w-full min-w-0 items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
-          data-testid="session-back"
-        >
-          <BackIcon className="size-4 shrink-0" />
-          <span className="truncate">{threadTitle ?? `Back`}</span>
-        </Link>
-      ) : null}
-      <div className="mt-3 flex min-w-0 items-center gap-3">
-        <CardIcon className="size-5 shrink-0 text-muted-foreground" />
-        <h1
-          className="min-w-0 flex-1 truncate text-xl font-semibold"
-          data-testid="session-title"
-        >
-          {name}
-        </h1>
-        {live ? <StopPill sessionId={row.id} /> : null}
-      </div>
-    </div>
-  )
+  // The root decides: an agent's tree has no thread page.
+  if (!root && !rootReady) return <Loading />
+  if (root?.kind === `agent`) {
+    return <SessionScreen key={row.id} teamSlug={teamSlug} row={row} />
+  }
 
   return (
-    <AgentSessionView
-      session={row}
-      header={header}
-      composer={
-        <SessionComposer
-          teamId={row.teamId}
-          sessionId={row.id}
-          placeholder="Reply…"
-          users={users}
-          busy={row.busy}
-          canStop={live}
-          testId="session-composer"
-        />
-      }
+    <Navigate
+      to="/t/$teamSlug/threads/$threadId"
+      params={{ teamSlug, threadId: rootId }}
+      search={{ tab: `session`, session: row.id, ...(from ? { from } : {}) }}
+      replace
     />
-  )
-}
-
-/** Stop the session (`sessions.stop`); the synced row ends it. */
-function StopPill({ sessionId }: { sessionId: string }) {
-  const [stopping, setStopping] = useState(false)
-  return (
-    <Pill
-      mode="action"
-      className="shrink-0 text-destructive"
-      disabled={stopping}
-      onClick={async () => {
-        setStopping(true)
-        try {
-          await trpc.sessions.stop.mutate({ sessionId })
-        } catch {
-          toast.error(`Couldn't stop the session`)
-        } finally {
-          setStopping(false)
-        }
-      }}
-      aria-label="Stop the session"
-      title="Stop the session"
-      data-testid="session-stop"
-    >
-      <StopIcon className="size-3.5" />
-      Stop
-    </Pill>
   )
 }

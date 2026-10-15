@@ -18,7 +18,14 @@ import { resolveTeamAccess } from "@/lib/auth/access"
 import { boardVisible } from "@/lib/board-visibility"
 import { loadSessionForUser } from "@/lib/sessions/access"
 import { appBaseUrl, buildSessionDeepLinkPath } from "@/lib/notification-email-policy"
-import { PR_BODY_MAX, prBodyFromGuide } from "@/lib/pr-body"
+import { NOT_RUN_TOPIC, PR_BODY_MAX, prBodyFromGuide } from "@/lib/pr-body"
+import { writeGuide } from "@/lib/sessions/guide"
+import {
+  compareChangedPaths,
+  missingPicturesMessage,
+  missingPlatformPictures,
+  uiPlatformsOfPaths,
+} from "@/lib/pr-ui-guard"
 import {
   closePullRequest as closeOnGithub,
   createPullRequest,
@@ -116,6 +123,28 @@ async function repoToken(repo: Repo): Promise<string> {
     )
   }
   return token
+}
+
+/** EXP-1315: a thread's PR that changes UI needs a labelled Guide picture
+ *  per touched platform, or `notRun` naming it. A failed compare never
+ *  blocks the PR: it is logged and the guard skipped. */
+async function assertUiPictures(args: {
+  repo: string
+  base: string
+  head: string
+  token: string
+  guide: GuideEntry[] | null
+  notRun: string | null
+}): Promise<void> {
+  let paths: string[]
+  try {
+    paths = await compareChangedPaths(args)
+  } catch (err) {
+    console.warn(`[pr_open] UI picture guard skipped for ${args.repo} ${args.base}...${args.head}:`, err)
+    return
+  }
+  const missing = missingPlatformPictures(uiPlatformsOfPaths(paths), args.guide, args.notRun)
+  if (missing.length > 0) fail(`BAD_REQUEST`, missingPicturesMessage(missing))
 }
 
 async function loadRoot(rootId: string): Promise<{ id: string; teamId: string; guide: GuideEntry[] | null } | null> {
@@ -260,6 +289,8 @@ export async function openPullRequest(args: {
   body?: string
   draft?: boolean
   issueIds?: string[]
+  /** EXP-1315: the UI screens the agent could not run (`<platform>: <screen>`). */
+  notRun?: string
 }): Promise<{ pullRequestId: string; url: string; number: number; base: string; head: string }> {
   const caller = args.callerSessionId
     ? await loadSessionForUser(args.userId, args.callerSessionId)
@@ -309,7 +340,15 @@ export async function openPullRequest(args: {
     }
   }
   const linked = candidates.filter(belongs)
+  const notRun = args.notRun?.replace(/\s+/g, ` `).trim() || null
   const token = await repoToken(repo)
+  // EXP-1315: `notRun` lives in the Guide (topic `Not run`), so every later
+  // body render and the next pr_open keep it.
+  let guide = root?.guide ?? null
+  if (notRun && caller && root) {
+    await writeGuide({ userId: args.userId, sessionId: caller.id, topic: NOT_RUN_TOPIC, text: notRun })
+    guide = (await loadRoot(root.id))?.guide ?? null
+  }
   const guideUrl = root ? await guideUrlFor(repo.teamId, root.id) : null
   const actor = {
     actorUserId: args.userId,
@@ -336,7 +375,9 @@ export async function openPullRequest(args: {
   const existing = await loadLivePullRequestByHead(repo.id, head!)
   if (existing) {
     const body =
-      args.body ?? prBodyFromGuide(root?.guide ?? null, { prUrl: existing.url, guideUrl }) ?? undefined
+      args.body ??
+      prBodyFromGuide(guide, { prUrl: existing.url, guideUrl }) ??
+      undefined
     await patchPullDescription({
       repoFullName: repo.fullName,
       prNumber: existing.number,
@@ -368,7 +409,8 @@ export async function openPullRequest(args: {
         stopBranches: stackStopBranches(defaults),
       })
     ).base
-  const body = args.body ?? prBodyFromGuide(root?.guide ?? null, { prUrl: null, guideUrl }) ?? ``
+  const body = args.body ?? prBodyFromGuide(guide, { prUrl: null, guideUrl }) ?? ``
+  if (root) await assertUiPictures({ repo: repo.fullName, base, head: head!, token, guide, notRun })
 
   // EXP-494: the initiator is claimed BEFORE the GitHub call, so the
   // `opened` webhook (which beats our own write) fires attributed.

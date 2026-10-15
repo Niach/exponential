@@ -77,7 +77,7 @@ use gpui_component::{
 use steer::activity::SessionAgent;
 use steer::commands::parse_command;
 use steer::feed::{
-    COMPACTED_LABEL, COMPACTING_LABEL, COMPACTION_TIMEOUT, QUEUE_REMOVE_LABEL, QUEUE_STRIP_TITLE,
+    COMPACTED_LABEL, COMPACTING_LABEL, COMPACTION_TIMEOUT, QUEUE_STRIP_TITLE,
 };
 use steer::{
     answer_key, build_steer_image_message, parse_steer_message,
@@ -229,9 +229,9 @@ struct InlineAnswer {
 }
 
 /// The inline field's hint on a question's free-text row.
-const FREE_TEXT_PLACEHOLDER: &str = "Type your answer…";
+pub(crate) const FREE_TEXT_PLACEHOLDER: &str = "Type your answer…";
 /// …and on a plan card's reject row, where the text is the change request.
-const PLAN_REJECT_PLACEHOLDER: &str = "Tell the agent what to change…";
+pub(crate) const PLAN_REJECT_PLACEHOLDER: &str = "Tell the agent what to change…";
 
 /// Where a [`SteerSessionView`]'s feed comes from (EXP-746).
 ///
@@ -3639,12 +3639,155 @@ fn key_chip(index: usize, primary: bool, cx: &App) -> Option<AnyElement> {
     )
 }
 
+/// EXP-1316 — ONE option row of THE question / plan card (the session
+/// view's and the thread's, EXP-788/EXP-1191): a full-width button, the
+/// label column (its description under it) and the number key chip at the
+/// right end. `primary` = the promoted option (the app's PRIMARY button),
+/// `picked` = the glass active fill, `highlighted` = the keyboard cursor's
+/// strong stroke. The caller wires the click.
+#[allow(clippy::too_many_arguments)] // every flag is a render decision
+pub(crate) fn ask_option_button(
+    id: impl Into<gpui::ElementId>,
+    label: String,
+    description: Option<String>,
+    primary: bool,
+    picked: bool,
+    highlighted: bool,
+    index: usize,
+    cx: &App,
+) -> Button {
+        let muted = cx.theme().muted_foreground;
+        let label_color = if primary {
+            cx.theme().primary_foreground
+        } else {
+            cx.theme().foreground
+        };
+        let mut button = Button::new(id)
+            .cursor_pointer()
+            .w_full()
+            .h_auto()
+            .min_h(px(32.))
+            .px_3()
+            .py_1p5()
+            .rounded(px(theme::tokens::radius::MD));
+        button = if primary {
+            button.with_variant(ButtonVariant::Primary)
+        } else if picked {
+            let fill = theme::tokens::glass::FILL_ACTIVE.to_hsla();
+            // Hover/pressed step one rung up the same white ladder.
+            let raised = theme::tokens::glass::STROKE_ACTIVE.to_hsla();
+            button
+                .custom(
+                    gpui_component::button::ButtonCustomVariant::new(cx)
+                        .color(fill)
+                        .hover(raised)
+                        .active(raised)
+                        .foreground(cx.theme().foreground),
+                )
+                .border_color(theme::tokens::glass::STROKE_ACTIVE.to_hsla())
+        } else {
+            button.outline()
+        };
+        if highlighted {
+            button = button.border_color(theme::tokens::glass::STROKE_STRONG.to_hsla());
+        }
+        let description = description.filter(|text| !text.trim().is_empty());
+        button
+            .child(
+                // EXP-1191: web — the label column, then the key chip at
+                // the RIGHT end of the row.
+                h_flex()
+                    .w_full()
+                    .min_w_0()
+                    .gap_2()
+                    .items_center()
+                    .child(
+                        v_flex()
+                            .flex_1()
+                            .min_w_0()
+                            .items_start()
+                            .gap_0p5()
+                            .child(
+                                div()
+                                    .w_full()
+                                    .min_w_0()
+                                    .text_left()
+                                    .text_xs()
+                                    .font_weight(gpui::FontWeight::MEDIUM)
+                                    .text_color(label_color)
+                                    .child(SharedString::from(label)),
+                            )
+                            .when_some(description, |this, description| {
+                                this.child(
+                                    div()
+                                        .w_full()
+                                        .min_w_0()
+                                        .text_left()
+                                        .text_2xs()
+                                        .text_color(if primary {
+                                            label_color.opacity(0.8)
+                                        } else {
+                                            muted
+                                        })
+                                        .child(SharedString::from(description)),
+                                )
+                            }),
+                    )
+                    .children(key_chip(index, primary, cx)),
+            )
+}
+
+/// EXP-1316 — THE card's closed line: the check (or ×) and the chosen
+/// answer / decision (`Answered` without one, `Dismissed`).
+pub(crate) fn ask_resolved_line(answer: Option<&str>, dismissed: bool, cx: &App) -> AnyElement {
+    let muted = cx.theme().muted_foreground;
+    h_flex()
+        .gap_1p5()
+        .items_center()
+        .mt_1()
+        .child(
+            Icon::new(if dismissed { registry::UI_CLOSE } else { registry::UI_CHECK })
+                .xsmall()
+                .text_color(if dismissed { muted } else { theme::tokens::GREEN.to_hsla() }),
+        )
+        .child(div().text_xs().child(SharedString::from(if dismissed {
+            "Dismissed".to_string()
+        } else {
+            answer.unwrap_or("Answered").to_string()
+        })))
+        .into_any_element()
+}
+
+/// EXP-820/EXP-1316 — THE card's inline free-text field under its option
+/// row: the glass text field plus the composer's round Send (`send`, wired
+/// by the caller).
+pub(crate) fn ask_inline_field(
+    state: &Entity<InputState>,
+    send: impl IntoElement,
+    window: &Window,
+    cx: &App,
+) -> gpui::Div {
+    h_flex()
+        .w_full()
+        .min_w_0()
+        .gap_1()
+        .items_center()
+        .mt_0p5()
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .child(crate::controls::glass_input(state, window, cx).small()),
+        )
+        .child(send)
+}
+
 /// EXP-1191: the shared question / plan card (web `AskCard`) — the glass
 /// card, 12px padding, ONE top-aligned row: the 14px accent glyph beside a
 /// column holding the optional heading (12px medium, accent; `meta` = the
 /// stepper's "k of n" caption), then `body`. The glyph sits on the first
 /// text line, the options indent under the text.
-fn ask_card(
+pub(crate) fn ask_card(
     plan: bool,
     heading: Option<SharedString>,
     meta: Option<String>,
@@ -3726,7 +3869,7 @@ fn ask_card(
 }
 
 /// The question body (web `text-sm text-foreground/90`).
-fn ask_body_text(cx: &App) -> gpui::Div {
+pub(crate) fn ask_body_text(cx: &App) -> gpui::Div {
     body_text(div())
         .w_full()
         .min_w_0()
@@ -4542,6 +4685,7 @@ impl SteerSessionView {
             id,
             results::session_result_tile_caption(entry).to_string(),
             &self.images,
+            None,
             cx,
         )
     }
@@ -5415,7 +5559,7 @@ impl SteerSessionView {
             .min_w_0()
             .gap_0p5()
             .tooltip(|window, cx| gpui_component::tooltip::Tooltip::new(QUEUE_STRIP_TITLE).build(window, cx));
-        for (index, message) in queued.iter().enumerate() {
+        for message in queued.iter() {
             let id = message.id.clone();
             let text = message.text.clone();
             let line: String = text.split_whitespace().collect::<Vec<_>>().join(" ");
@@ -5438,17 +5582,18 @@ impl SteerSessionView {
                         .child(SharedString::from(line)),
                 );
             if !message.sent {
-                row = row.child(
-                    crate::controls::ghost_icon_button(
-                        ("steer-unqueue", index),
-                        Icon::new(registry::UI_CLOSE).xsmall(),
-                        cx,
-                    )
-                    .tooltip(QUEUE_REMOVE_LABEL)
-                    .on_click(cx.listener(move |this, _, window, cx| {
+                // EXP-1317: keyed on the message, the native tooltip dies
+                // with the X when the line is consumed.
+                let button_id = id.clone();
+                row = row.child(crate::thread_screen::unqueue_button(
+                    "steer-unqueue",
+                    &button_id,
+                    true,
+                    cx,
+                    cx.listener(move |this, _, window, cx| {
                         this.unqueue(&id, &text, window, cx);
-                    })),
-                );
+                    }),
+                ));
             }
             column = column.child(row);
         }
@@ -5826,33 +5971,7 @@ impl SteerSessionView {
         let errored = state.is_some_and(|state| state.status == AnswerStatus::Error);
 
         if card.resolved && !editing {
-            let answer = card
-                .answer
-                .clone()
-                .unwrap_or_else(|| "Answered".to_string());
-            return h_flex()
-                .gap_1p5()
-                .items_center()
-                .mt_1()
-                .child(
-                    Icon::new(if card.dismissed {
-                        registry::UI_CLOSE
-                    } else {
-                        registry::UI_CHECK
-                    })
-                    .xsmall()
-                    .text_color(if card.dismissed {
-                        muted
-                    } else {
-                        theme::tokens::GREEN.to_hsla()
-                    }),
-                )
-                .child(div().text_xs().child(SharedString::from(if card.dismissed {
-                    "Dismissed".to_string()
-                } else {
-                    answer
-                })))
-                .into_any_element();
+            return ask_resolved_line(card.answer.as_deref(), card.dismissed, cx);
         }
 
         // A re-opened step still carries its first answer's lock state; that
@@ -5985,32 +6104,19 @@ impl SteerSessionView {
         cx: &mut gpui::Context<Self>,
     ) -> AnyElement {
         let has_text = !inline.state.read(cx).value().trim().is_empty();
-        h_flex()
+        let send = crate::composer::composer_submit_kind(
+            ("steer-inline-send", inline.item as usize),
+            crate::composer::SubmitKind::Send,
+            !always_sendable && !has_text,
+            cx,
+        )
+        .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+            cx.stop_propagation();
+            this.send_inline(window, cx);
+        }));
+        ask_inline_field(&inline.state, send, window, cx)
             .key_context("SteerInlineAnswer")
-            .w_full()
-            .min_w_0()
-            .gap_1()
-            .items_center()
-            .mt_0p5()
             .capture_action(cx.listener(Self::on_inline_escape))
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .child(crate::controls::glass_input(&inline.state, window, cx).small()),
-            )
-            .child(
-                crate::composer::composer_submit_kind(
-                    ("steer-inline-send", inline.item as usize),
-                    crate::composer::SubmitKind::Send,
-                    !always_sendable && !has_text,
-                    cx,
-                )
-                .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                    cx.stop_propagation();
-                    this.send_inline(window, cx);
-                })),
-            )
             .into_any_element()
     }
 
@@ -6035,90 +6141,21 @@ impl SteerSessionView {
         highlighted: bool,
         cx: &mut gpui::Context<Self>,
     ) -> AnyElement {
-        let muted = cx.theme().muted_foreground;
         let label = if submit_label {
             "Submit answers".to_string()
         } else {
             option.label.clone()
         };
-        let label_color = if primary {
-            cx.theme().primary_foreground
-        } else {
-            cx.theme().foreground
-        };
-        let mut button = Button::new(("steer-option", item_id as usize * 64 + index))
-            .cursor_pointer()
-            .w_full()
-            .h_auto()
-            .min_h(px(32.))
-            .px_3()
-            .py_1p5()
-            .rounded(px(theme::tokens::radius::MD));
-        button = if primary {
-            button.with_variant(ButtonVariant::Primary)
-        } else if picked {
-            let fill = theme::tokens::glass::FILL_ACTIVE.to_hsla();
-            // Hover/pressed step one rung up the same white ladder.
-            let raised = theme::tokens::glass::STROKE_ACTIVE.to_hsla();
-            button
-                .custom(
-                    gpui_component::button::ButtonCustomVariant::new(cx)
-                        .color(fill)
-                        .hover(raised)
-                        .active(raised)
-                        .foreground(cx.theme().foreground),
-                )
-                .border_color(theme::tokens::glass::STROKE_ACTIVE.to_hsla())
-        } else {
-            button.outline()
-        };
-        if highlighted {
-            button = button.border_color(theme::tokens::glass::STROKE_STRONG.to_hsla());
-        }
-        let description = option.description.clone().filter(|text| !text.trim().is_empty());
-        button
-            .child(
-                // EXP-1191: web — the label column, then the key chip at
-                // the RIGHT end of the row.
-                h_flex()
-                    .w_full()
-                    .min_w_0()
-                    .gap_2()
-                    .items_center()
-                    .child(
-                        v_flex()
-                            .flex_1()
-                            .min_w_0()
-                            .items_start()
-                            .gap_0p5()
-                            .child(
-                                div()
-                                    .w_full()
-                                    .min_w_0()
-                                    .text_left()
-                                    .text_xs()
-                                    .font_weight(gpui::FontWeight::MEDIUM)
-                                    .text_color(label_color)
-                                    .child(SharedString::from(label)),
-                            )
-                            .when_some(description, |this, description| {
-                                this.child(
-                                    div()
-                                        .w_full()
-                                        .min_w_0()
-                                        .text_left()
-                                        .text_2xs()
-                                        .text_color(if primary {
-                                            label_color.opacity(0.8)
-                                        } else {
-                                            muted
-                                        })
-                                        .child(SharedString::from(description)),
-                                )
-                            }),
-                    )
-                    .children(key_chip(index, primary, cx)),
-            )
+        ask_option_button(
+            ("steer-option", item_id as usize * 64 + index),
+            label,
+            option.description.clone(),
+            primary,
+            picked,
+            highlighted,
+            index,
+            cx,
+        )
             .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                 cx.stop_propagation();
                 this.pick_option(item_id, index, window, cx);
@@ -8373,7 +8410,7 @@ mod tests {
         assert_eq!(COMPACTING_LABEL, "Compacting context…");
         // EXP-861: the queue bar's two captions, byte-identical ×4 too.
         assert_eq!(QUEUE_STRIP_TITLE, "Queued");
-        assert_eq!(QUEUE_REMOVE_LABEL, "Remove from queue");
+        assert_eq!(steer::feed::QUEUE_REMOVE_LABEL, "Remove from queue");
         assert_eq!(COMPACTED_LABEL, "Context compacted");
     }
 

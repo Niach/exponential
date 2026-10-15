@@ -257,10 +257,11 @@ impl Render for WidgetPane {
                 ));
             }
             Load::Ready(Ok(widgets)) => {
-                // EXP-994: a hairline between rows, nothing around them.
+                // EXP-1320: flat gapless rows, no hairlines, nothing around
+                // them.
                 let mut list = v_flex().w_full().min_w_0();
-                for (index, widget) in widgets.iter().enumerate() {
-                    list = list.child(crate::surface::list_row(self.render_row(widget, cx), index));
+                for widget in widgets.iter() {
+                    list = list.child(crate::surface::list_row(self.render_row(widget, cx)));
                 }
                 body = body.child(list);
             }

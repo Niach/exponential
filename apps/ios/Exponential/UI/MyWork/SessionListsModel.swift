@@ -1,4 +1,5 @@
 import ExpCore
+import ExpUI
 import Foundation
 import GRDB
 
@@ -27,6 +28,9 @@ final class SessionListsModel {
     /// EXP-1309: a Threads row's quiet word off its pull requests, by root id
     /// (`SessionTree.threadRowWord`).
     private(set) var words: [String: ThreadRowWord] = [:]
+    /// EXP-1316: a thread row's device glyph (the ROOT's `device_id` against
+    /// the synced devices rows), by root id; absent = no glyph.
+    private(set) var devices: [String: ThreadRowDevice] = [:]
     /// The board switcher's per-team dots (`liveByTeam`).
     private(set) var liveByTeam: [String: SessionTree.TeamLiveSessions] = [:]
     /// The first emission landed (before it, lists draw skeleton rows).
@@ -85,6 +89,7 @@ final class SessionListsModel {
         identifiers = [:]
         clis = [:]
         words = [:]
+        devices = [:]
         liveByTeam = [:]
         loaded = false
     }
@@ -98,6 +103,7 @@ final class SessionListsModel {
         var messages: [TreeMessage]
         var clis: [String: String]
         var pullRequests: [PullRequestEntity]
+        var deviceRows: [DeviceEntity]
     }
 
     private struct Derived: Sendable {
@@ -107,6 +113,7 @@ final class SessionListsModel {
         var identifiers: [String: String]
         var clis: [String: String]
         var words: [String: ThreadRowWord]
+        var devices: [String: ThreadRowDevice]
         var liveByTeam: [String: SessionTree.TeamLiveSessions]
     }
 
@@ -117,6 +124,7 @@ final class SessionListsModel {
         identifiers = derived.identifiers
         clis = derived.clis
         words = derived.words
+        devices = derived.devices
         liveByTeam = derived.liveByTeam
         loaded = true
     }
@@ -145,7 +153,8 @@ final class SessionListsModel {
                 sessions.filter(\.isRoot).map { ($0.id, $0.cli ?? "") },
                 uniquingKeysWith: { a, _ in a }
             ),
-            pullRequests: try PullRequestEntity.fetchAll(db)
+            pullRequests: try PullRequestEntity.fetchAll(db),
+            deviceRows: try DeviceEntity.fetchAll(db)
         )
     }
 
@@ -189,6 +198,22 @@ final class SessionListsModel {
                 teamPrs: prsByTeam[row.teamId] ?? []
             )
         }
+        // The root's device row (the starter's own first, like the session
+        // view's host row); an unknown or invisible device draws nothing.
+        let deviceRowsById = Dictionary(grouping: rows.deviceRows, by: \.deviceId)
+        let starters = Dictionary(
+            rows.sessions.map { ($0.id, $0.userId) }, uniquingKeysWith: { a, _ in a }
+        )
+        var devices: [String: ThreadRowDevice] = [:]
+        for row in groups.flatMap(\.rows) {
+            guard let deviceId = row.deviceId, let candidates = deviceRowsById[deviceId] else { continue }
+            guard let device = candidates.first(where: { $0.userId == starters[row.sessionId] }) ?? candidates.first
+            else { continue }
+            devices[row.sessionId] = ThreadRowDevice(
+                icon: DeviceIconDisplay.iconName(for: device),
+                name: device.label
+            )
+        }
         return Derived(
             groups: groups,
             agents: SessionTree.listAgents(rows.sessions, teamId: nil),
@@ -196,7 +221,15 @@ final class SessionListsModel {
             identifiers: identifiers,
             clis: rows.clis,
             words: words,
+            devices: devices,
             liveByTeam: SessionTree.liveByTeam(rows.sessions, userId: userId)
         )
     }
+}
+
+/// EXP-1316: a thread row's trailing device glyph (`DeviceIconDisplay`) and
+/// its accessibility label (the device's name).
+struct ThreadRowDevice: Equatable, Sendable {
+    let icon: String
+    let name: String
 }

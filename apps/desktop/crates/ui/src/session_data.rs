@@ -382,13 +382,18 @@ pub(crate) fn thread_title_of(root_id: &str, cx: &App) -> Option<String> {
     let issues = tree_issues_of_root(root_id, cx);
     let messages = messages_of_session(root_id, cx);
     let refs: Vec<&MessageRow> = messages.iter().collect();
-    Some(thread_title(&root, &issues, &refs).title)
+    Some(thread_title(&root, &issues, &refs))
 }
 
 /// The thread screen's model for `root_id` (`build_session_thread`): the
 /// tabs, the conversation rows, the composer target. `None` while the root
 /// has not synced. Works for an agent root too (its channel).
-pub(crate) fn session_thread_view(root_id: &str, now_ms: i64, cx: &App) -> Option<SessionThreadView> {
+pub(crate) fn session_thread_view(
+    root_id: &str,
+    focus: Option<&str>,
+    now_ms: i64,
+    cx: &App,
+) -> Option<SessionThreadView> {
     let store = Store::try_global(cx)?;
     let collections = store.collections();
     let sessions = collections.sessions.read(cx);
@@ -437,15 +442,18 @@ pub(crate) fn session_thread_view(root_id: &str, now_ms: i64, cx: &App) -> Optio
         .iter()
         .filter(|pull| pull.team_id == root.team_id)
         .collect();
-    Some(build_session_thread(SessionThreadInput {
-        root,
-        sessions: &team_sessions,
-        session_issues: &links,
-        issues: &issues,
-        messages: &messages,
-        pull_requests: &pulls,
-        now_ms,
-    }))
+    Some(build_session_thread(
+        SessionThreadInput {
+            root,
+            sessions: &team_sessions,
+            session_issues: &links,
+            issues: &issues,
+            messages: &messages,
+            pull_requests: &pulls,
+            now_ms,
+        },
+        focus,
+    ))
 }
 
 // ---------------------------------------------------------------------------
@@ -628,112 +636,66 @@ pub(crate) fn own_live_roots_by_team(cx: &App) -> BTreeMap<String, TeamLiveRuns>
     own_live_roots_by_team_from(&rows, &me)
 }
 
-/// One row of the rail's Running section: a thread of mine with a live
-/// session — the mark, the first issue's identifier and the title, no
-/// caption.
+/// One row of the rail's Active band (EXP-1318): a thread the shapes make
+/// visible that needs you, runs, or still asks for a merge — the mark and
+/// the title, no identifier, no caption.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct LiveRootRow {
     pub(crate) root_id: String,
     pub(crate) team_id: String,
-    pub(crate) identifier: Option<String>,
     pub(crate) title: String,
     pub(crate) busy: bool,
     pub(crate) needs_you: bool,
+    /// EXP-1318: the root session's device (the trailing device icon).
+    pub(crate) device_id: Option<String>,
     /// Every session of the tree — the row stays lit while one is on screen.
     pub(crate) session_ids: Vec<String>,
-    /// The tree's newest activity (the sort key), verbatim.
-    pub(crate) activity_at: String,
 }
 
-/// Pure core of [`live_roots_for_rail`]: newest activity first, ties by id.
+/// Pure core of [`live_roots_for_rail`]: the contract's `railThreads` over
+/// the Threads bands (`groups`, every visible thread, not only mine), the
+/// words off the team's pull requests; group order.
 pub(crate) fn live_roots_from(
+    groups: &[ThreadsListGroup],
     sessions: &[&SessionRow],
-    links: &[&SessionIssueRow],
-    issues: &[TreeIssue],
-    messages: &[&MessageRow],
-    team_id: &str,
-    me: &str,
+    team_pulls: &[PullRequestRow],
 ) -> Vec<LiveRootRow> {
-    let by_id: HashMap<&str, &SessionRow> = sessions
-        .iter()
-        .copied()
-        .map(|session| (session.id.as_str(), session))
-        .collect();
-    let mut rows: Vec<LiveRootRow> = Vec::new();
-    for (root_id, live) in my_live_trees(sessions, me) {
-        let Some(root) = by_id.get(root_id).copied() else {
-            continue;
-        };
-        if root.team_id.as_deref() != Some(team_id) {
-            continue;
-        }
+    domain::session_tree::rail_threads(groups, |row| {
+        crate::threads_view::thread_word(&row.session_id, row.busy, row.needs_you, team_pulls)
+    })
+    .into_iter()
+    .map(|row| {
         let tree: Vec<&SessionRow> = sessions
             .iter()
             .copied()
-            .filter(|session| session.id == root_id || session.root_id_or_self() == root_id)
+            .filter(|session| session.id == row.session_id || session.root_id_or_self() == row.session_id)
             .collect();
-        let root_links: Vec<&SessionIssueRow> = links.iter().copied().filter(|link| link.session_id == root_id).collect();
-        let root_issues = domain::session_tree::root_issues(root_id, &root_links, issues);
-        let own: Vec<&MessageRow> = messages.iter().copied().filter(|message| message.session_id == root_id).collect();
-        let activity_at = tree
-            .iter()
-            .map(|session| activity_key(session))
-            .max()
-            .unwrap_or("")
-            .to_string();
-        rows.push(LiveRootRow {
-            root_id: root_id.to_string(),
-            team_id: team_id.to_string(),
-            identifier: root_issues.first().map(|issue| issue.identifier.clone()),
-            title: thread_title(root, &root_issues, &own).title,
-            busy: live.iter().any(|session| session.busy),
-            needs_you: live.iter().any(|session| session_needs_you(session)),
+        LiveRootRow {
             session_ids: tree_order(&tree).iter().map(|session| session.id.clone()).collect(),
-            activity_at,
-        });
-    }
-    rows.sort_by(|a, b| {
-        b.activity_at
-            .cmp(&a.activity_at)
-            .then_with(|| a.root_id.cmp(&b.root_id))
-    });
-    rows
+            root_id: row.session_id,
+            team_id: row.team_id,
+            title: row.title,
+            busy: row.busy,
+            needs_you: row.needs_you,
+            device_id: row.device_id,
+        }
+    })
+    .collect()
 }
 
-/// The rail's Running section for `team_id`: my live threads
-/// ([`live_roots_from`]).
-pub(crate) fn live_roots_for_rail(team_id: &str, cx: &App) -> Vec<LiveRootRow> {
-    let Some(me) = signed_in_user(cx) else {
-        return Vec::new();
-    };
+/// The rail's Active band for `team_id` ([`live_roots_from`]).
+pub(crate) fn live_roots_for_rail(team_id: &str, cx: &mut App) -> Vec<LiveRootRow> {
+    let groups = thread_lists(team_id, cx);
     let Some(store) = Store::try_global(cx) else {
         return Vec::new();
     };
-    let collections = store.collections();
-    let sessions = collections.sessions.read(cx);
+    let pulls = team_pr_snapshot(team_id, cx).pulls;
+    let sessions = store.collections().sessions.read(cx);
     let rows: Vec<&SessionRow> = sessions
         .iter()
         .filter(|session| session.team_id.as_deref() == Some(team_id))
         .collect();
-    let links: Vec<&SessionIssueRow> = collections
-        .session_issues
-        .read(cx)
-        .iter()
-        .filter(|link| link.team_id.as_deref().is_none_or(|team| team == team_id))
-        .collect();
-    let all_issues = collections.issues.read(cx);
-    let issues: Vec<TreeIssue> = links
-        .iter()
-        .filter_map(|link| all_issues.get(&link.issue_id))
-        .map(TreeIssue::from_issue)
-        .collect();
-    let messages: Vec<&MessageRow> = collections
-        .messages
-        .read(cx)
-        .iter()
-        .filter(|message| message.team_id.as_deref().is_none_or(|team| team == team_id))
-        .collect();
-    live_roots_from(&rows, &links, &issues, &messages, team_id, &me)
+    live_roots_from(&groups, &rows, &pulls)
 }
 
 /// Re-render a view whenever one of the five session collections (or the
@@ -834,32 +796,43 @@ mod tests {
         assert!(own_live_roots_by_team_from(&refs, "me").is_empty());
     }
 
+    /// EXP-1318: the Active band = needs you + running + the recent rows
+    /// still asking for a merge, every visible thread (not only mine).
     #[test]
-    fn rail_rows_carry_the_first_issue_and_sort_by_activity() {
+    fn the_rail_lists_needs_you_running_and_ready_to_merge() {
+        let band = |key: ThreadsListKey, ids: &[&str]| ThreadsListGroup {
+            key,
+            title: key.title().to_string(),
+            rows: ids
+                .iter()
+                .map(|id| domain::session_tree::ThreadsListRow {
+                    session_id: id.to_string(),
+                    team_id: "t1".into(),
+                    title: id.to_string(),
+                    private: false,
+                    device_id: None,
+                    busy: false,
+                    needs_you: false,
+                    activity_at: String::new(),
+                })
+                .collect(),
+        };
+        let groups = [band(ThreadsListKey::Running, &["r1"]), band(ThreadsListKey::Recent, &["r2", "r3"])];
         let sessions = [
-            root("r1", "t1", "me", "running"),
-            root("r2", "t1", "me", "queued"),
-            child("c2", "r2", "t1", "me", "idle", "2026-10-13T11:00:00.000Z"),
-            root("r3", "t2", "me", "running"),
+            root("r1", "t1", "someone", "running"),
+            child("c1", "r1", "t1", "me", "running", "2026-10-13T11:00:00.000Z"),
+            root("r2", "t1", "me", "idle"),
+            root("r3", "t1", "me", "idle"),
         ];
         let refs: Vec<&SessionRow> = sessions.iter().collect();
-        let links: Vec<SessionIssueRow> = vec![serde_json::from_value(json!({
-            "id": "l1", "session_id": "r1", "issue_id": "i1", "sort_order": 1,
+        let pulls: Vec<PullRequestRow> = vec![serde_json::from_value(json!({
+            "id": "p", "root_session_id": "r3", "state": "open",
         }))
         .unwrap()];
-        let link_refs: Vec<&SessionIssueRow> = links.iter().collect();
-        let issues = vec![TreeIssue {
-            id: "i1".into(),
-            identifier: "EXP-1".into(),
-            title: "Fix the rail".into(),
-        }];
-        let rows = live_roots_from(&refs, &link_refs, &issues, &[], "t1", "me");
+        let rows = live_roots_from(&groups, &refs, &pulls);
         let ids: Vec<&str> = rows.iter().map(|row| row.root_id.as_str()).collect();
-        assert_eq!(ids, vec!["r2", "r1"]);
-        assert_eq!(rows[1].identifier.as_deref(), Some("EXP-1"));
-        assert_eq!(rows[1].title, "Fix the rail");
-        assert_eq!(rows[0].identifier, None);
-        assert_eq!(rows[0].session_ids, vec!["r2".to_string(), "c2".to_string()]);
+        assert_eq!(ids, vec!["r1", "r3"]);
+        assert_eq!(rows[0].session_ids, vec!["r1".to_string(), "c1".to_string()]);
     }
 
     #[test]
@@ -872,6 +845,7 @@ mod tests {
                 team_id: "t".into(),
                 title: "x".into(),
                 private: false,
+                device_id: None,
                 busy: false,
                 needs_you: false,
                 activity_at: String::new(),

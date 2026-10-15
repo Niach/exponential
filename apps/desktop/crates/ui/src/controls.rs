@@ -151,6 +151,198 @@ pub(crate) fn jump_to_bottom_button(
         .into_any_element()
 }
 
+/// EXP-1316 (1n) — how close to the end a scroller must sit to count as ON
+/// its tail (gpui's list re-arms within a pixel too).
+const TAIL_SLOP: f32 = 1.;
+
+/// Whether a scroller at `offset_y` (≤ 0, more negative further down) with
+/// `max_y` of scroll range sits on its tail. Nothing to scroll = on it.
+pub(crate) fn tail_reached(offset_y: f32, max_y: f32) -> bool {
+    max_y <= TAIL_SLOP || -offset_y >= max_y - TAIL_SLOP
+}
+
+/// EXP-1316 (1n) — the session feed's tail follow for a plain scroller (the
+/// thread conversation, the agent channel): the steer viewer's
+/// `FollowMode::Tail` rule over a [`gpui::ScrollHandle`]. It opens on the
+/// newest row and stays pinned while rows land AND while they grow (rows
+/// arrive async from the shapes, cards and pictures measure later: any
+/// growth under a pinned reader re-pins); an UPWARD wheel or a drag away
+/// from the end releases it (the jump-to-bottom button shows); scrolling
+/// back onto the end, or the button, re-arms it. Shared across frames.
+#[derive(Clone)]
+pub(crate) struct TailFollow(std::rc::Rc<std::cell::Cell<TailState>>);
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct TailState {
+    following: bool,
+    /// The scroll range at the last layout (growth vs a reader's drag).
+    last_max: f32,
+}
+
+/// What a layout means for the follow ([`TailFollow::on_layout`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum TailLayout {
+    /// Nothing changed.
+    Keep,
+    /// Pinned and the content grew past the view: snap to the end again.
+    Repin,
+    /// Pinned, but the reader moved off the end without growth (a
+    /// scrollbar drag): released.
+    Released,
+    /// Released, and the reader is back on the end: pinned again.
+    Rearmed,
+}
+
+impl Default for TailFollow {
+    fn default() -> Self {
+        Self(std::rc::Rc::new(std::cell::Cell::new(TailState {
+            following: true,
+            last_max: 0.,
+        })))
+    }
+}
+
+impl TailFollow {
+    pub(crate) fn following(&self) -> bool {
+        self.0.get().following
+    }
+
+    fn set_following(&self, following: bool) {
+        let mut state = self.0.get();
+        state.following = following;
+        self.0.set(state);
+    }
+
+    /// A wheel moved the scroller by `dy` (> 0 = toward the top): an upward
+    /// one releases the tail. Returns whether the state changed.
+    pub(crate) fn on_wheel(&self, dy: f32) -> bool {
+        if dy > 0. && self.following() {
+            self.set_following(false);
+            return true;
+        }
+        false
+    }
+
+    /// After layout (offset ≤ 0, `max_y` = the scroll range).
+    pub(crate) fn on_layout(&self, offset_y: f32, max_y: f32) -> TailLayout {
+        let mut state = self.0.get();
+        let grew = max_y > state.last_max + TAIL_SLOP;
+        state.last_max = max_y;
+        let at_end = tail_reached(offset_y, max_y);
+        let outcome = match (state.following, at_end) {
+            (true, true) | (false, false) => TailLayout::Keep,
+            (true, false) if grew => TailLayout::Repin,
+            (true, false) => {
+                state.following = false;
+                TailLayout::Released
+            }
+            (false, true) if max_y > TAIL_SLOP => {
+                state.following = true;
+                TailLayout::Rearmed
+            }
+            (false, true) => TailLayout::Keep,
+        };
+        self.0.set(state);
+        outcome
+    }
+
+    /// The jump-to-bottom button: re-pin.
+    pub(crate) fn pin(&self) {
+        self.set_following(true);
+    }
+
+    /// The scroller around `content` (`id`, tracked by `handle`; a
+    /// `track_scroll`ed `overflow_y_scroll` area + the overlay scrollbar, the
+    /// [`crate::scroll_pane::v_scroll_pane`] recipe — gpui-component's
+    /// `overflow_y_scrollbar` scrolls its OWN handle, never `handle`) with the
+    /// follow applied and the jump-to-bottom button ([`jump_to_bottom_button`],
+    /// [`JUMP_TO_BOTTOM_GAP`] above the bottom edge) while released.
+    /// `entity_id` = the view to repaint when the state flips.
+    pub(crate) fn scroller(
+        &self,
+        id: &'static str,
+        handle: &gpui::ScrollHandle,
+        content: impl IntoElement,
+        entity_id: gpui::EntityId,
+        cx: &App,
+    ) -> AnyElement {
+        let following = self.following();
+        if following {
+            handle.scroll_to_bottom();
+        }
+        let wheel = self.clone();
+        let probe_state = self.clone();
+        let probe_handle = handle.clone();
+        // Paint-time: the layout settled the offset and the range this frame.
+        let probe = gpui::canvas(
+            move |_, _, cx| {
+                let offset = f32::from(probe_handle.offset().y);
+                let max = f32::from(probe_handle.max_offset().y);
+                match probe_state.on_layout(offset, max) {
+                    TailLayout::Keep => {}
+                    TailLayout::Repin => {
+                        probe_handle.scroll_to_bottom();
+                        cx.defer(move |cx| cx.notify(entity_id));
+                    }
+                    TailLayout::Released | TailLayout::Rearmed => {
+                        cx.defer(move |cx| cx.notify(entity_id));
+                    }
+                }
+            },
+            |_, _: (), _, _| {},
+        )
+        .absolute()
+        .size_0();
+        let jump = (!following).then(|| {
+            let target = handle.clone();
+            let state = self.clone();
+            gpui_component::h_flex()
+                .absolute()
+                .left_0()
+                .right_0()
+                .bottom(px(JUMP_TO_BOTTOM_GAP))
+                .justify_center()
+                .child(jump_to_bottom_button(
+                    SharedString::from(format!("{id}-jump-to-bottom")),
+                    move |_, _, cx| {
+                        state.pin();
+                        target.scroll_to_bottom();
+                        cx.notify(entity_id);
+                    },
+                    cx,
+                ))
+        });
+        div()
+            .relative()
+            .flex_1()
+            .min_h_0()
+            .w_full()
+            .child(
+                div()
+                    .id(id)
+                    .size_full()
+                    .overflow_y_scroll()
+                    .track_scroll(handle)
+                    .on_scroll_wheel(move |event, window, cx| {
+                        let dy = f32::from(event.delta.pixel_delta(window.line_height()).y);
+                        if wheel.on_wheel(dy) {
+                            cx.notify(entity_id);
+                        }
+                    })
+                    .child(content),
+            )
+            .child(
+                div().absolute().top_0().left_0().right_0().bottom_0().child(
+                    gpui_component::scroll::Scrollbar::new(handle)
+                        .axis(gpui_component::scroll::ScrollbarAxis::Vertical),
+                ),
+            )
+            .child(probe)
+            .children(jump)
+            .into_any_element()
+    }
+}
+
 /// The size of a back glyph on every client (EXP-862): 16px, the `icon-sm`
 /// rung's glyph, bare in a back ROW (EXP-863 retired the session header's
 /// Back button; the sidebar carries navigation).
@@ -1018,6 +1210,39 @@ pub(crate) fn typeahead_row(id: impl Into<ElementId>, selected: bool, cx: &App) 
 
 #[cfg(test)]
 mod tests {
+    use super::{tail_reached, TailFollow, TailLayout};
+
+    /// EXP-1316 (1n): the follow opens pinned, an upward wheel releases
+    /// it, growth keeps it, landing back on the end re-arms it, the button
+    /// re-pins.
+    #[test]
+    fn the_tail_follow_releases_up_and_rearms_on_the_end() {
+        assert!(tail_reached(0., 0.), "nothing to scroll");
+        assert!(tail_reached(-400., 400.));
+        assert!(tail_reached(-399.5, 400.));
+        assert!(!tail_reached(-200., 400.));
+        let follow = TailFollow::default();
+        assert!(follow.following());
+        // Opening: the first layouts grow from nothing — re-pin each time.
+        assert_eq!(follow.on_layout(0., 0.), TailLayout::Keep);
+        assert_eq!(follow.on_layout(0., 600.), TailLayout::Repin, "rows landed async");
+        assert_eq!(follow.on_layout(-600., 600.), TailLayout::Keep);
+        assert_eq!(follow.on_layout(-600., 900.), TailLayout::Repin, "a card measured later");
+        assert!(follow.following());
+        assert!(!follow.on_wheel(-30.), "down keeps it");
+        assert!(follow.on_wheel(30.));
+        assert!(!follow.following());
+        assert_eq!(follow.on_layout(-200., 900.), TailLayout::Keep, "still up");
+        assert_eq!(follow.on_layout(-900., 900.), TailLayout::Rearmed, "back on the end");
+        assert!(follow.following());
+        // A drag off the end without growth releases it.
+        assert_eq!(follow.on_layout(-500., 900.), TailLayout::Released);
+        assert!(!follow.following());
+        follow.pin();
+        assert!(follow.following());
+    }
+
+
     /// EXP-862 — the structural half of [`super::web_switch`]: a `Switch`
     /// built anywhere else is a switch that does not point on hover, and no
     /// compiler can say so. A grep over the crate's own sources is the

@@ -54,6 +54,9 @@ export interface SessionRowProps
   active?: boolean
   /** An offline host: the row dims. */
   dimmed?: boolean
+  /** EXP-1316: a trailing word on the title line (the thread tree
+   *  popover's state word). */
+  trailing?: React.ReactNode
   /** The mark badge's ring = the ground the row sits on. */
   ringClassName?: string
   onClick?: () => void
@@ -73,6 +76,7 @@ export function SessionRow({
   deviceName = null,
   active = false,
   dimmed = false,
+  trailing,
   ringClassName = `ring-background`,
   onClick,
   className,
@@ -105,6 +109,7 @@ export function SessionRow({
             </span>
           )}
           <span className="truncate">{title}</span>
+          {trailing}
         </div>
         {big && caption && (
           <div
@@ -121,8 +126,10 @@ export function SessionRow({
 }
 
 /** Fixed, never truncated: WHERE the run is, its name on hover. The row
- *  carries its own provider so a list renders outside the app shell too. */
-function SessionRowDevice({
+ *  carries its own provider so a list renders outside the app shell too.
+ *  EXP-1318: the thread rows (Threads list, the rail's Active band) end on
+ *  the same glyph. */
+export function SessionRowDevice({
   icon: Icon,
   name,
 }: {
@@ -132,6 +139,7 @@ function SessionRowDevice({
   const glyph = (
     <span
       data-slot="session-row-device"
+      aria-label={name ?? undefined}
       className="flex shrink-0 items-center justify-center"
     >
       <Icon className="size-3.5 text-muted-foreground" />

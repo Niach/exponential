@@ -12,13 +12,13 @@ import {
   AgentWorkingMark,
   BoardGlyph,
   conceptIcon,
+  getDeviceIcon,
   GlassSectionHeader,
   IssueChip,
   SessionCard,
   ThreadTabs,
   ThreadTabsAddButton,
   ThreadsListItem,
-  threadTabChipClass,
 } from "@exp/ui"
 
 import type { ReactNode } from "react"
@@ -37,6 +37,8 @@ type ThreadInput = Parameters<typeof buildSessionThread>[0]
 type ListInput = Parameters<typeof partitionThreads>[0]
 
 const noop = (): void => {}
+/** EXP-1318: the specimen rows' root device (the Devices page's glyph). */
+const DEVICE = { icon: getDeviceIcon({ kind: `desktop` }), name: `Alex's MacBook Pro` }
 const PrivateIcon = conceptIcon(`ui-private`)
 const NeedsYouIcon = conceptIcon(`coding-needs-input`)
 const RecentIcon = conceptIcon(`ui-check`)
@@ -51,7 +53,6 @@ const STATUS = [
 const THREAD = buildSessionThread(threadFixture.cases[0]!.input as unknown as ThreadInput)
 const PRIVATE = buildSessionThread(threadFixture.cases[1]!.input as unknown as ThreadInput)
 const LIST = partitionThreads(listFixture.cases[0]!.input as unknown as ListInput)
-const LIST_INPUT = listFixture.cases[0]!.input as unknown as ListInput
 
 const NOW = `2026-10-13T10:00:00.000Z`
 const BASE = {
@@ -102,7 +103,8 @@ function Header({ view, active }: { view: typeof THREAD; active: string | null }
             identifier={tab.identifier}
             title={issueTitle(tab.issueId)}
             status={STATUS[index % STATUS.length]!}
-            className={threadTabChipClass(active === tab.issueId)}
+            size="tab"
+            active={active === tab.issueId}
             onClick={noop}
           />,
         ]
@@ -141,11 +143,6 @@ const WORDS: Record<string, { word: string; lead?: ReactNode; icon?: ReactNode }
   a: { word: `question` },
   b: { word: `stack`, icon: <PrStackIcon className="size-3 shrink-0" /> },
   d: { word: `ready to merge`, lead: <PrOpenIcon className="size-3.5 text-emerald-500" /> },
-}
-
-function identifierOf(sessionId: string): string | null {
-  const link = LIST_INPUT.sessionIssues.find((row) => row.sessionId === sessionId)
-  return link ? (LIST_INPUT.issues.find((issue) => issue.id === link.issueId)?.identifier ?? null) : null
 }
 
 function ThreadsList() {
@@ -191,11 +188,11 @@ function ThreadsList() {
                     ))
                   )
                 }
-                identifier={identifierOf(row.sessionId)}
                 title={row.title}
                 word={word?.word ?? null}
                 wordIcon={word?.icon}
                 locked={row.private}
+                device={row.deviceId ? DEVICE : null}
                 onOpen={noop}
               />
             )
@@ -211,7 +208,7 @@ export const entry: StyleguideEntry = {
   section: `special`,
   owner: `EXP-1293`,
   title: `Thread`,
-  blurb: `A thread IS a root session. Header: the title (renamed in place; a lock when private) and ONE tab strip: Conversation · one issue chip per linked issue (status glyph, mono identifier, title; its context menu unlinks) · "+" (link an issue) · Guide (a green dot while the root's Guide holds anything). No captions, no Stop, no right sidebar; phones use the strip as the pager. THE session card = the Work card's header row: the state icon, the name (\`Session N\` untitled), the muted state word (amber Needs you, rose Usage limit), trailing the elapsed and a spinner while working; it opens that session. The Threads page (and the phones' Threads tab) = Needs you · Running · Recent bands (filled, no count) over flat rows: the lead (spinner while busy, amber badge when it needs you, else the PR glyph), the first issue's identifier, the title, ONE quiet word (\`ready to merge\`, \`stack\`, \`merged\`, \`question\`) or a lock; phones put the Agents band on top. Models = \`buildSessionThread()\`, \`sessionCard()\`, \`partitionThreads()\` (fixtures \`session-thread.json\`, \`session-card.json\`, \`threads-list.json\` ×4).`,
+  blurb: `A thread IS a root session. Header: the title (\`Implement EXP-12\`, \`Run <action>\`, the agent's auto-name; nobody renames it; a lock when private) and ONE tab strip: Conversation · one issue chip per linked issue (IssueChip \`size="tab"\` = the strip tab box: status glyph, mono identifier, title; its context menu unlinks) · "+" (link an issue) · Guide (a green dot while the root's Guide holds anything). No captions, no right sidebar; md+: while the Guide's PR is open the title row's trailing slot carries Merge (\`Merge PR\` | \`Merge stack\`) on every tab, then the \`…\` on the Guide tab; phones use the strip as the pager and keep the bottom Merge capsule on the Guide. THE session card = the Work card's header row: the state icon, the name (\`Session N\` untitled), the muted state word (amber Needs you, rose Usage limit), trailing the elapsed and a spinner while working; it opens that session. The Threads page (and the phones' Threads tab) = Needs you · Running · Recent bands (filled, no count) over flat gapless rows, no dividers: the lead (spinner while busy, amber badge when it needs you, else the PR glyph), the title, ONE quiet word (\`ready to merge\`, \`stack\`, \`merged\`, \`question\`), the lock when private, then the root's device glyph (its name on hover, EXP-1318); phones put the Agents band on top. Models = \`buildSessionThread()\`, \`sessionCard()\`, \`partitionThreads()\` (fixtures \`session-thread.json\`, \`session-card.json\`, \`threads-list.json\` ×4).`,
   status: {
     web: {
       state: `ok`,

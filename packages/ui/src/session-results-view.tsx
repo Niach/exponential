@@ -1,17 +1,20 @@
 import {
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
   type RefObject,
 } from "react"
 import type { DiffFile } from "@exp/domain-contract/diff"
+import { guideViewer, type GuideViewerEntry } from "@exp/domain-contract/guide-viewer"
 import { contract } from "@exp/domain-contract"
 import { Button } from "./button"
 import { DiffCounts } from "./diff-counts"
 import { DisclosureHeader } from "./disclosure-header"
 import { GlassSectionHeader } from "./glass-rows"
 import { conceptIcon } from "./icons.generated"
+import { GuidePictureViewer } from "./guide-picture-viewer"
 import { ImagePreviewDialog } from "./image-preview-dialog"
 import {
   GUIDE_CHANGES_TOPIC,
@@ -431,6 +434,21 @@ export function SessionResultsView({
 }) {
   const [preview, setPreview] = useState<SessionResultEntry | null>(null)
   const pictures = sessionResultPictures(groups)
+  // EXP-1283: the viewer reads the Guide back as its entries (topic text +
+  // pictures, the Guide's order) — `guideViewer`, fixture-locked ×4.
+  const { guideEntries, entriesById } = useMemo(() => {
+    const raw: GuideViewerEntry[] = []
+    const byId = new Map<string, SessionResultEntry>()
+    for (const group of groups) {
+      if (group.text !== null) raw.push({ topic: group.topic, text: group.text })
+      for (const entry of [...group.entries, ...group.earlier]) {
+        raw.push({ topic: group.topic, label: entry.label, attachmentId: entry.attachmentId })
+        byId.set(entry.attachmentId, entry)
+      }
+    }
+    return { guideEntries: raw, entriesById: byId }
+  }, [groups])
+  const viewer = preview ? guideViewer(guideEntries, preview.attachmentId) : null
   const coverage = guideCoverage(groups, files)
   const opener = (target: GuideChangesTarget): (() => void) | undefined => {
     if (target.files.length === 0) return undefined
@@ -546,13 +564,31 @@ export function SessionResultsView({
           onOpen={opener({ section: `all`, files: coverage.complete.files })}
         />
       )}
-      {preview && (
-        <ResultPreview
-          entry={preview}
-          src={attachmentSrc(preview.attachmentId)}
-          onClose={() => setPreview(null)}
-        />
-      )}
+      {preview &&
+        (viewer ? (
+          // EXP-1283: THE Guide picture viewer (topic, label, text, ‹ n / N ›).
+          <GuidePictureViewer
+            state={viewer}
+            src={attachmentSrc(preview.attachmentId)}
+            naturalSize={
+              preview.width !== null && preview.height !== null
+                ? { width: preview.width, height: preview.height }
+                : null
+            }
+            renderText={renderText}
+            onSelect={(id) => {
+              const next = entriesById.get(id)
+              if (next) setPreview(next)
+            }}
+            onClose={() => setPreview(null)}
+          />
+        ) : (
+          <ResultPreview
+            entry={preview}
+            src={attachmentSrc(preview.attachmentId)}
+            onClose={() => setPreview(null)}
+          />
+        ))}
     </div>
   )
 }

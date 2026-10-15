@@ -279,20 +279,6 @@ private struct SessionIdInput: Encodable {
     let sessionId: String
 }
 
-private struct SetTitleInput: Encodable {
-    let sessionId: String
-    /// nil = clear (encoded as an explicit null: the field is `.nullable()`).
-    let title: String?
-
-    func encode(to encoder: Encoder) throws {
-        var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encode(sessionId, forKey: .sessionId)
-        try c.encode(title, forKey: .title)
-    }
-
-    enum CodingKeys: String, CodingKey { case sessionId, title }
-}
-
 private struct LinkIssuesInput: Encodable {
     let sessionId: String
     let issueIds: [String]
@@ -336,16 +322,6 @@ public final class SessionsApi: Sendable {
     public func end(accountId: String, sessionId: String) async throws {
         try await trpc.mutationVoid(
             accountId: accountId, path: "sessions.end", input: SessionIdInput(sessionId: sessionId)
-        )
-    }
-
-    /// Rename a thread (root) or a sub-session; nil clears it (the display
-    /// derives one).
-    public func setTitle(accountId: String, sessionId: String, title: String?) async throws {
-        try await trpc.mutationVoid(
-            accountId: accountId,
-            path: "sessions.setTitle",
-            input: SetTitleInput(sessionId: sessionId, title: title)
         )
     }
 

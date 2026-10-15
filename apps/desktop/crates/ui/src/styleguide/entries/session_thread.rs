@@ -30,7 +30,7 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
         let case = case(index);
         let mut conversation = v_flex().w_full().gap_5();
         for item in &case.view.rows {
-            conversation = conversation.child(row(&case, item, &images, cx));
+            conversation = conversation.child(row(&case, item, &images, window, cx));
         }
         column = column.child(conversation);
     }

@@ -43,6 +43,7 @@ export function SessionComposer({
   canStop = false,
   testId,
   className,
+  opaque = false,
 }: {
   teamId: string
   sessionId: string
@@ -53,6 +54,9 @@ export function SessionComposer({
   canStop?: boolean
   testId?: string
   className?: string
+  /** EXP-1316: the phones' floating card (`FloatingComposer`) floats over
+   *  the conversation: the opaque Composer surface, never see-through. */
+  opaque?: boolean
 }) {
   const [text, setText] = useState(``)
   const [files, setFiles] = useState<PendingFile[]>([])
@@ -122,6 +126,7 @@ export function SessionComposer({
 
   return (
     <Composer
+      opaque={opaque}
       data-testid={testId}
       className={cn(`w-full`, className)}
       strip={

@@ -117,6 +117,10 @@ final class StyleguideScreenshots: XCTestCase {
     /// APP-5 — the showcase issue: the only one the seed gives a comment thread
     /// (four comments, incl. an `@mention` + `#APP-2` issue ref).
     private static let showcaseTitle = "Reduce cold start below 800 ms"
+    /// EXP-1316: the cold-start thread (DEMO_THREAD_ID) is titled off its
+    /// linked issues (APP-5, APP-10, FB-3): `Implement APP-5 + 2`, never the
+    /// issue title, and its rows carry no identifier slot.
+    private static let coldStartThreadTitle = "Implement APP-5 + 2"
     /// First comment on APP-5, plain text before any markdown decoration.
     private static let showcaseCommentFragment = "Profiled on a mid-range device"
     /// Assigned to the demo user, so it is on My Issues.
@@ -180,8 +184,8 @@ final class StyleguideScreenshots: XCTestCase {
         let injected = launchSignedIn(app)
 
         // ── sg_agent-home: the home the app lands on (EXP-1253/1295) ────────
-        // The dawn behind the composer and its options line, my live threads
-        // in the Running band under it (FEED-100).
+        // EXP-1316: the column pinned to the bottom, the dawn standing on the
+        // composer card, its options line under it; no Running band.
         expect(
             anyElement(app, identified: "agent-page"),
             within: Wait.firstSync,
@@ -195,25 +199,20 @@ final class StyleguideScreenshots: XCTestCase {
         snapshot("sg_agent-home", settle: 2)
 
         // ── sg_session-row: THE session row (EXP-1248/1309) ─────────────────
-        // The same home, gated on the seeded rows of its Running band (my
-        // live threads): the cold-start thread waiting on me, the private
-        // spike, the busy ones.
+        // EXP-1316: Home lost its Running band — the rows live on the Threads
+        // tab. Gate on the cold-start thread's row there (it waits on me),
+        // with the private spike and the busy ones beside it.
+        let threadsTab = app.buttons["tab-threads"]
+        expect(threadsTab, within: Wait.sync, "Threads tab missing")
+        threadsTab.tap()
         expect(
-            anyElement(app, identified: "agent-threads-running"),
+            threadRow(app, containing: Self.coldStartThreadTitle),
             within: Wait.sync,
-            "The home drew no Running band — reseed with `bun run seed:screenshots`"
-        )
-        expect(
-            app.descendants(matching: .any)
-                .matching(identifier: "agent-thread-row")
-                .matching(NSPredicate(format: "label CONTAINS %@", Self.showcaseTitle))
-                .firstMatch,
-            within: Wait.sync,
-            "The Running band never listed the cold-start thread"
+            "The Threads tab never listed the cold-start thread — reseed with `bun run seed:screenshots`"
         )
         snapshot("sg_session-row", settle: 2)
 
-        // The app lands on the Agent tab — switch to Issues for the board.
+        // Switch to Issues for the board.
         let issuesTab = app.buttons["tab-issues"]
         expect(issuesTab, within: Wait.sync, "Tab bar never appeared")
         issuesTab.tap()
@@ -416,6 +415,11 @@ final class StyleguideScreenshots: XCTestCase {
         // autosave wrote (and writes nothing when none was written yet).
         clearText(of: titleField)
         app.buttons["Back"].firstMatch.tap()
+        // A clear that left a character behind (a slow keyboard) keeps
+        // content on the page, so Back asks the EXP-1212 leave prompt:
+        // Discard it — the run must leave nothing in the seed either way.
+        let discard = app.buttons["Discard"].firstMatch
+        if discard.waitForExistence(timeout: 2) { discard.tap() }
         _ = titleField.waitForNonExistence(timeout: Wait.nav)
 
         // ── sg_search: the search view with seeded results ───────────────────
@@ -912,7 +916,7 @@ final class StyleguideScreenshots: XCTestCase {
         goBack(app)
 
         // ── sg_thread: the cold-start thread (DEMO_THREAD_ID) ──────────────
-        let coldStart = threadRow(app, containing: Self.showcaseTitle)
+        let coldStart = threadRow(app, containing: Self.coldStartThreadTitle)
         expect(coldStart, within: Wait.nav, "Did not return to the Threads list")
         coldStart.tap()
         // The Conversation lands on its END (bottom-anchored): the seeded
@@ -951,13 +955,11 @@ final class StyleguideScreenshots: XCTestCase {
         )
         expect(anyElement(app, identified: "session-stop"), within: Wait.sync, "The session header drew no Stop")
         snapshot("sg_session", settle: 2)
-        // Back twice (session → thread → list) on the system back button:
-        // never the bar's Stop or the thread back row.
+        // Back twice (session → thread → list) on the system back button
+        // (`goBack`: by name, never the bar's Stop, the thread back row or
+        // the thread header's `…`).
         for _ in 0..<2 {
-            let back = app.navigationBars.buttons
-                .matching(NSPredicate(format: "NOT (identifier IN %@)", ["session-stop", "session-back"]))
-                .firstMatch
-            if back.waitForExistence(timeout: Wait.nav) { back.tap() }
+            goBack(app)
             settle(1)
         }
     }

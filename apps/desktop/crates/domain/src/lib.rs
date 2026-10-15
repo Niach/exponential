@@ -100,6 +100,7 @@ pub mod diff_tree;
 pub mod edit_card;
 pub mod entity_preview;
 pub mod enums;
+pub mod guide_viewer;
 pub mod hydrate;
 pub mod image_message;
 pub mod issue_draft;

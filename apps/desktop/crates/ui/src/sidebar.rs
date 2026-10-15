@@ -924,15 +924,16 @@ impl RailView {
         out
     }
 
-    /// EXP-923 — the rail's **Running** section: MY live threads in the
-    /// ACTIVE team, under the boards (EXP-1075: the other teams stay the
-    /// switcher's dot).
+    /// EXP-923 — the rail's **Active** band (EXP-1318, `threads-list.json`
+    /// `copy.rail`): the ACTIVE team's threads that need you, run, or still
+    /// ask for a merge (`railThreads`), every thread the shapes make visible,
+    /// under the boards (EXP-1075: the other teams stay the switcher's dot).
     ///
     /// A live run is a place, not a document: it never owns a tab, and the
     /// section HIDES entirely while nothing runs. EXP-1294: one plain row per
     /// thread ([`crate::session_data::live_roots_for_rail`]) — the agent's
-    /// mark (animating while it works, the amber badge while it needs you),
-    /// the first linked issue's identifier and the title, NO caption. A row
+    /// mark (animating while it works, the amber badge while it needs you)
+    /// and the title (it names the issue already), NO caption. A row
     /// opens the thread with no tab of its own (`navigate_from_live_rail`)
     /// and stays lit on the thread AND on any of its sessions.
     ///
@@ -972,7 +973,13 @@ impl RailView {
                         index,
                         agent,
                         state,
-                        identifier: row.identifier.map(SharedString::from),
+                        identifier: None,
+                        // EXP-1318: the root session's device icon trails.
+                        trailing: crate::threads_view::thread_device_icon(
+                            row.device_id.as_deref(),
+                            &format!("rail-{}", row.root_id),
+                            cx,
+                        ),
                         title: SharedString::from(row.title),
                         active,
                         on_open: Box::new(move |_, window, cx| {
@@ -995,7 +1002,7 @@ impl RailView {
                 .w_full()
                 .gap(px(RUNNING_ROW_GAP))
                 .child(rule)
-                .child(self.section_label("Running", cx))
+                .child(self.section_label(domain::session_tree::THREADS_LIST.copy.rail.as_str(), cx))
                 .child(v_flex().w_full().children(elements))
                 .into_any_element(),
         )

@@ -19,6 +19,11 @@ import type {
 
 export * from "@exp/domain-contract/session-tree"
 export {
+  guideViewer,
+  type GuideViewerEntry,
+  type GuideViewerState,
+} from "@exp/domain-contract/guide-viewer"
+export {
   AGENT_SETTINGS_COPY,
   AGENT_SETTINGS_FIELDS,
   agentAccountValue,
@@ -45,6 +50,7 @@ export function toTreeSession(row: SessionRow): TreeSession {
     rootId: row.rootId ?? row.id,
     kind: row.kind,
     userId: row.userId,
+    deviceId: row.deviceId ?? null,
     status: row.status,
     busy: row.busy,
     needsInput: row.needsInput,

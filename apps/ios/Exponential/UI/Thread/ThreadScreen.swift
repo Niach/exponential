@@ -6,15 +6,17 @@ import SwiftUI
 /// `session-thread.json`) — a THREAD, or a team AGENT's channel (the same
 /// Conversation, Slack-like, its started threads as session cards).
 ///
-/// * Header = the title (a lock when private; an agent's icon in its color
-///   before its name) and, for a thread, THE strip — Conversation · one tab
-///   per linked issue · "+" · Guide — as the pager (`FacePager`). Nothing
-///   else: no caption, no Stop, no device, no Show work.
+/// * Header = the title (plain, never renamed — EXP-1316; a lock when
+///   private; an agent's icon in its color before its name) and, for a
+///   thread, THE strip — Conversation · one chip per linked issue · "+" ·
+///   the session chips · Guide — as the pager (`FacePager`). Nothing else:
+///   no caption, no Stop, no device, no Show work.
 /// * Conversation = `ThreadConversationView` over `buildSessionThread`, with
 ///   THE session composer box under it (`ThreadComposer` →
 ///   `SessionComposerCard`), sending
 ///   `sessions.send({sessionId: root})`.
-/// * An issue tab = the existing issue page (`IssueFaceView`) of that issue.
+/// * An issue tab = the issue page EMBEDDED (EXP-1316): no own header, no
+///   Threads row, no Start; the bottom bar keeps properties + Comment.
 /// * Guide = the existing Guide face over the root's `guide` (the PR body),
 ///   counting the thread PR's files, with its Merge capsule while it is open
 ///   and ONE `…` in the header's action slot (EXP-1307: THE Menu's sheet,
@@ -57,6 +59,19 @@ struct ThreadScreen: View {
     @State private var linkSheetOpen = false
     /// The question / plan answer in flight.
     @State private var answeringId: String?
+    /// The Conversation follows its newest row (EXP-1316 1n).
+    @State private var atBottom = true
+    /// The composer expanded on a pinned reader: the keyboard's inset re-pins.
+    @State private var pinOnInset = false
+    /// The floating composer's measured height = the conversation's bottom
+    /// inset; a pinned conversation re-pins whenever it changes.
+    @State private var composerHeight: CGFloat = 0
+    /// The composer's top edge and the newest row's bottom anchor (global):
+    /// what the scroll view's inset leaves under the open composer while the
+    /// keyboard is up is measured and padded out (`insetCorrection`).
+    @State private var composerTop: CGFloat = 0
+    @State private var anchorBottom: CGFloat = 0
+    @State private var insetCorrection: CGFloat = 0
     // Guide
     @State private var guideSection: GuideSectionKey?
     @State private var focusPath: String?
@@ -90,7 +105,7 @@ struct ThreadScreen: View {
             case .conversation: .conversation
             case let .issue(issueId, _): .issue(issueId)
             case .guide: .guide
-            case .add: nil
+            case .add, .session: nil
             }
         }
     }
@@ -111,10 +126,11 @@ struct ThreadScreen: View {
                     pageView(page, rows: rows, view: view)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .safeAreaInset(edge: .top, spacing: 0) {
+                // EXP-1316 (detail-chrome.json): THE detail chrome band on
+                // every tab — the nav row (‹ · title + lock · …) over the
+                // strip, content scrolling under its scrim + edge fade.
+                .workHeaderBand {
                     header(rows: rows, view: view)
-                        .frame(maxWidth: .infinity)
-                        .headerEdgeChrome(ground: page == .conversation)
                 }
             } else if model?.missing == true {
                 EmptyState(.threadNotFound)
@@ -129,12 +145,31 @@ struct ThreadScreen: View {
             }
         }
         .navigationBarTitleDisplayMode(.inline)
+        // The header band draws the bar's material — the nav bar's own
+        // background and divider stand down (EXP-1150).
         .toolbarBackground(.hidden, for: .navigationBar)
         .toolbar {
-            // EXP-1307: ONE `…` rides the header's action slot on the Guide
-            // while it has a PR — Open on GitHub · Close PR, in THE Menu's sheet.
+            // EXP-1316: the title, ONE line, not tappable, the lock beside it.
+            ToolbarItem(placement: .principal) {
+                if let rows, let view = model?.view {
+                    if rows.isAgent {
+                        ThreadHeaderTitle(
+                            title: rows.root.name ?? view.title,
+                            isPrivate: view.isPrivate,
+                            agentIcon: BoardTypeDisplay.iconName(for: rows.root.icon)
+                                ?? SessionTree.ListCopy.agentDefaultIcon,
+                            agentColor: rows.root.color ?? SessionTree.ListCopy.agentDefaultColor
+                        )
+                    } else {
+                        ThreadHeaderTitle(title: view.title, isPrivate: view.isPrivate)
+                    }
+                }
+            }
+            // EXP-1307/1316: ONE `…` rides the header's action slot on every
+            // tab while the Guide has a PR — Open on GitHub · Close PR, in
+            // THE Menu's sheet.
             ToolbarItem(placement: .topBarTrailing) {
-                if page == .guide, !guideMenuEntries.isEmpty {
+                if !guideMenuEntries.isEmpty {
                     Button { openGuideMenu() } label: {
                         AppIcon(AppIcons.uiMore, size: AppIcon.Size.medium, weight: .medium)
                             .foregroundStyle(.white.opacity(TextOpacity.secondary))
@@ -217,35 +252,28 @@ struct ThreadScreen: View {
 
     // MARK: - Header
 
+    /// The band under the nav row: a thread's strip (the pager); an agent
+    /// channel has none.
     @ViewBuilder
     private func header(rows: ThreadRows, view: SessionThreadView) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            if rows.isAgent {
-                ThreadHeaderTitle(
-                    title: rows.root.name ?? view.title,
-                    isPrivate: view.isPrivate,
-                    agentIcon: BoardTypeDisplay.iconName(for: rows.root.icon)
-                        ?? SessionTree.ListCopy.agentDefaultIcon,
-                    agentColor: rows.root.color ?? SessionTree.ListCopy.agentDefaultColor
-                )
-                .padding(.bottom, 8)
-            } else {
-                ThreadHeaderTitle(title: view.title, isPrivate: view.isPrivate)
-                ThreadStripTabs(
-                    tabs: view.tabs,
-                    selection: page,
-                    issue: { rows.issue(id: $0) },
-                    isFresh: { model?.isFresh(issueId: $0) ?? false },
-                    onSelect: { next in
-                        pendingPage = nil
-                        selectPage(next)
-                    },
-                    onIssueMenu: { issueId in openMenu(issueId: issueId) },
-                    onAdd: canEdit ? { openMenu(issueId: nil) } : nil
-                )
-            }
+        if !rows.isAgent {
+            ThreadStripTabs(
+                tabs: view.tabs,
+                selection: page,
+                issue: { rows.issue(id: $0) },
+                isFresh: { model?.isFresh(issueId: $0) ?? false },
+                onSelect: { next in
+                    pendingPage = nil
+                    selectPage(next)
+                },
+                onIssueMenu: { issueId in openMenu(issueId: issueId) },
+                onAdd: canEdit ? { openMenu(issueId: nil) } : nil,
+                // Phones push the session screen (its own back header).
+                onOpenSession: { sessionId in
+                    pushRoute(.agentSession(accountId: accountId, sessionId: sessionId))
+                }
+            )
         }
-        .padding(.top, 4)
     }
 
     /// A member may link and file here (`resolveTeamAccess`: every member
@@ -269,45 +297,163 @@ struct ThreadScreen: View {
         }
     }
 
+    /// EXP-1316 (1n): the Conversation scrolls like the session feed — it
+    /// opens on the newest row, stays pinned while rows land unless the
+    /// reader scrolled up, and THE jump-to-bottom button re-pins (the
+    /// session view's `FollowPinTracker`).
     private func conversationPage(rows: ThreadRows, view: SessionThreadView) -> some View {
-        ScrollViewReader { scroller in
-            ScrollView {
-                ThreadConversationView(
-                    rows: rows,
-                    view: view,
-                    onOpenSession: { sessionId in
-                        pushRoute(.agentSession(accountId: accountId, sessionId: sessionId))
-                    },
-                    onOpenThread: { threadId in
-                        pushRoute(.thread(accountId: accountId, threadId: threadId))
-                    },
-                    onAnswer: { messageId, option in answer(messageId, answer: option) },
-                    onDecide: { messageId, decision, feedback in
-                        answer(messageId, decision: decision, feedback: feedback)
-                    },
-                    answeringId: answeringId,
-                    canAnswer: canEdit
-                )
-                .padding(.vertical, 12)
-                .transcriptColumn()
-                Color.clear
-                    .frame(height: 1)
-                    .id(Self.bottomId)
-            }
-            .defaultScrollAnchor(.bottom)
-            .scrollDismissesKeyboard(.interactively)
-            .onChange(of: view.rows.count) { _, _ in
-                withAnimation(motion.standard) { scroller.scrollTo(Self.bottomId, anchor: .bottom) }
-            }
-            .safeAreaInset(edge: .bottom) {
-                ThreadComposer(
-                    sessionId: view.composer.sessionId,
-                    placeholder: rows.composerPlaceholder(view)
-                )
+        GeometryReader { geo in
+            ScrollViewReader { scroller in
+                ScrollView {
+                    VStack(spacing: 0) {
+                        ThreadConversationView(
+                            rows: rows,
+                            view: view,
+                            onOpenSession: { sessionId in
+                                pushRoute(.agentSession(accountId: accountId, sessionId: sessionId))
+                            },
+                            onOpenThread: { threadId in
+                                pushRoute(.thread(accountId: accountId, threadId: threadId))
+                            },
+                            onAnswer: { messageId, option in answer(messageId, answer: option) },
+                            onDecide: { messageId, decision, feedback in
+                                answer(messageId, decision: decision, feedback: feedback)
+                            },
+                            onUnqueue: unqueue,
+                            viewerId: deps.auth.userId,
+                            answeringId: answeringId,
+                            canAnswer: canEdit
+                        )
+                        .padding(.vertical, 12)
+                        .transcriptColumn()
+                        Color.clear
+                            .frame(height: insetCorrection)
+                        Color.clear
+                            .frame(height: 1)
+                            .id(Self.bottomId)
+                            .onGeometryChange(for: CGFloat.self, of: { $0.frame(in: .global).maxY }) { bottom in
+                                anchorBottom = bottom
+                            }
+                    }
+                    .background(
+                        GeometryReader { content in
+                            Color.clear.preference(
+                                key: FeedBottomOverflowKey.self,
+                                value: content.frame(in: .named(Self.coordSpace)).maxY - geo.size.height
+                            )
+                        }
+                    )
+                }
+                .coordinateSpace(name: Self.coordSpace)
+                .scrollDismissesKeyboard(.interactively)
+                .modifier(FollowPinTracker(
+                    atBottom: $atBottom,
+                    slack: AgentSessionLayout.followSlack,
+                    repin: { scroller.scrollTo(Self.bottomId, anchor: .bottom) }
+                ))
+                .onAppear {
+                    scroller.scrollTo(Self.bottomId, anchor: .bottom)
+                    // Lazy rows can still be sizing on the first pass.
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .milliseconds(50))
+                        if atBottom { scroller.scrollTo(Self.bottomId, anchor: .bottom) }
+                    }
+                }
+                .onChange(of: view.rows.count) { _, _ in
+                    guard atBottom else { return }
+                    withAnimation(motion.standard) { scroller.scrollTo(Self.bottomId, anchor: .bottom) }
+                }
+                // EXP-1316: the composer expanding and the keyboard rising
+                // shrink the viewport from below — a reader on the newest row
+                // stays on it (Android parity), re-pinned once the inset lands.
+                .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidShowNotification)) { _ in
+                    guard pinOnInset || atBottom else { return }
+                    pinOnInset = false
+                    atBottom = true
+                    repin(scroller)
+                }
+                .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidHideNotification)) { _ in
+                    insetCorrection = 0
+                    guard atBottom else { return }
+                    withAnimation(motion.standard) { scroller.scrollTo(Self.bottomId, anchor: .bottom) }
+                }
+                .safeAreaInset(edge: .bottom) {
+                    ThreadComposer(
+                        sessionId: view.composer.sessionId,
+                        placeholder: rows.composerPlaceholder(view),
+                        busySessionIds: rows.sessions
+                            .filter { $0.busy && $0.status != DomainContract.sessionStatusEnded }
+                            .map(\.id),
+                        onExpand: {
+                            // Remember the pin BEFORE the inset moves it.
+                            pinOnInset = atBottom
+                        }
+                    )
+                    // EXP-1316 (Android 247c806b33): the floating composer's
+                    // MEASURED height (capsule or open card, + its edge) is
+                    // the conversation's bottom inset; a pinned conversation
+                    // re-pins whenever it changes — expansion, keyboard,
+                    // late layout — so the newest row never hides under it.
+                    .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) { frame in
+                        composerTop = frame.minY
+                        guard frame.height != composerHeight else { return }
+                        if frame.height < composerHeight { insetCorrection = 0 }
+                        composerHeight = frame.height
+                        guard pinOnInset || atBottom else { return }
+                        atBottom = true
+                        repin(scroller)
+                    }
+                    .overlay(alignment: .top) {
+                        ZStack {
+                            if !atBottom {
+                                JumpToBottomButton {
+                                    atBottom = true
+                                    withAnimation(motion.standard) {
+                                        scroller.scrollTo(Self.bottomId, anchor: .bottom)
+                                    }
+                                }
+                                .jumpToBottomTransition(motion)
+                                .accessibilityIdentifier("thread-jump-to-bottom")
+                            }
+                        }
+                        .alignmentGuide(.top) { $0[.bottom] + JumpToBottomButton.bottomGap }
+                        .animation(motion.standard, value: atBottom)
+                    }
+                }
             }
         }
     }
 
+    private static let coordSpace = "thread-conversation-scroll"
+
+    /// EXP-1316: pin the newest row above the floating composer — now, after
+    /// the next layout pass (the safe-area inset lands one pass late) and
+    /// once the card's open animation and the keyboard have settled.
+    private func repin(_ scroller: ScrollViewProxy) {
+        scroller.scrollTo(Self.bottomId, anchor: .bottom)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            guard atBottom else { return }
+            scroller.scrollTo(Self.bottomId, anchor: .bottom)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + DesignTokens.Motion.Duration.standard + 0.2) {
+            guard atBottom else { return }
+            scroller.scrollTo(Self.bottomId, anchor: .bottom)
+            // Settled: with the keyboard up the scroll view's inset falls
+            // short of the composer by the bottom safe area it swallowed
+            // (34pt on a home-indicator phone). The anchor always lands on
+            // the scroll view's own bottom, so the shortfall is measured
+            // against it once and padded out above the anchor; a later pass
+            // measures the same gap and changes nothing.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                let shortfall = anchorBottom - composerTop - insetCorrection
+                guard atBottom, composerTop > 0, shortfall > 0.5, shortfall < 200 else { return }
+                insetCorrection += shortfall
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                    scroller.scrollTo(Self.bottomId, anchor: .bottom)
+                }
+            }
+        }
+    }
     private static let bottomId = "thread-conversation-bottom"
 
     @ViewBuilder
@@ -318,8 +464,8 @@ struct ThreadScreen: View {
                 issue: issue,
                 barTrailing: .hidden,
                 onStartCoding: {},
-                // Its `Threads` row leaves THIS thread out.
-                hostThreadId: rootId
+                hostThreadId: rootId,
+                embedded: true
             )
         } else {
             SkeletonRows()
@@ -342,6 +488,7 @@ struct ThreadScreen: View {
             section: $guideSection,
             focusPath: $focusPath,
             stack: guideStack(rows: rows),
+            guideRaw: rows.root.guide,
             showsMerge: openPullRequest != nil
         ) {
             if let openPullRequest {
@@ -491,6 +638,23 @@ struct ThreadScreen: View {
                 )
             }
             answeringId = nil
+        }
+    }
+
+    /// EXP-1317: revoke the viewer's own queued message (`sessions.unqueue`);
+    /// the Electric echo drops the row, a refusal toasts.
+    private func unqueue(_ messageId: String) {
+        let api = deps.sessionsApi
+        let accountId = accountId
+        Task {
+            do {
+                try await api.unqueue(accountId: accountId, messageId: messageId)
+            } catch {
+                toaster.error(
+                    FeedbackStates.Errors.title(verb: "remove", thing: "the message"),
+                    description: error.userFacingMessage
+                )
+            }
         }
     }
 
@@ -759,38 +923,72 @@ final class ThreadComposerDraft: SessionComposerDraft {
     }
 }
 
-/// Mounts THE session composer box under a Conversation for one session.
+/// EXP-1316: THE floating composer (ExpUI `FloatingComposer`) under a
+/// Conversation for one session: the `Reply…` capsule floating over the
+/// content, a tap expands it into THE session composer box (text, `+`
+/// images/files, send, Stop while the tree works), blur folds it back when
+/// nothing would be lost (the session view's rule).
 struct ThreadComposer: View {
     let sessionId: String
     let placeholder: String
+    /// The tree's live sessions working a turn — Stop interrupts them.
+    var busySessionIds: [String] = []
+    /// The capsule was tapped open (the host keeps its feed pinned).
+    var onExpand: () -> Void = {}
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
     @Environment(\.toaster) private var toaster
+    @Environment(\.motion) private var motion
     @State private var draft: ThreadComposerDraft?
     @State private var attach = SessionComposerAttach()
+    @State private var expanded = false
+    /// Set by `expand`, cleared once the editor takes focus (or the retry
+    /// window passes): the blur fold stands down meanwhile.
+    @State private var focusPending = false
 
     var body: some View {
         Group {
             if let draft, draft.sessionId == sessionId {
-                SessionComposerCard(
-                    draft: draft,
+                let open = composerOpen
+                FloatingComposer(
                     placeholder: placeholder,
-                    attach: $attach,
-                    sendEnabled: !draft.steerSending,
-                    fieldIdentifier: "thread-composer-field"
-                )
+                    open: open,
+                    collapsedLabel: placeholder,
+                    collapsedIdentifier: "thread-composer-collapsed",
+                    onExpand: expand
+                ) {
+                    SessionComposerCard(
+                        draft: draft,
+                        placeholder: placeholder,
+                        attach: $attach,
+                        sendEnabled: !draft.steerSending,
+                        showsStop: !busySessionIds.isEmpty && !draft.hasContent,
+                        canStop: !busySessionIds.isEmpty,
+                        onStop: stop,
+                        fieldIdentifier: "thread-composer-field"
+                    )
+                }
+                .animation(motion.standard, value: open)
                 .onChange(of: draft.sendError) { _, message in
                     guard let message else { return }
                     toaster.error(FeedbackStates.Errors.title(verb: "send", thing: "the message"), description: message)
+                }
+                .onChange(of: draft.draftEditor.isEditing) { _, editing in
+                    if editing { focusPending = false }
+                    guard expanded, !editing, !focusPending else { return }
+                    guard !attach.busy, !draft.hasContent else { return }
+                    withAnimation(motion.standard) { expanded = false }
                 }
             } else {
                 Color.clear.frame(height: 1)
             }
         }
-        .transcriptColumn()
-        .padding(.bottom, 8)
-        .floatingBarEdge()
+        // The reading column, the bottom edge fade behind the whole bar
+        // (never behind an open card, which is opaque).
+        .frame(maxWidth: DesignTokens.Transcript.maxWidth)
+        .frame(maxWidth: .infinity)
+        .floatingBarEdge(!composerOpen)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(SessionTree.ThreadCopy.composerTestId)
         // The composed session can move (a resumed child): a new draft.
@@ -802,6 +1000,44 @@ struct ThreadComposer: View {
                     sessionsApi: deps.sessionsApi,
                     attachmentsApi: deps.attachmentsApi
                 )
+            }
+        }
+    }
+
+    /// The card shows: tapped open, or a draft / pick / open picker keeps it.
+    private var composerOpen: Bool {
+        guard let draft, draft.sessionId == sessionId else { return false }
+        return expanded || draft.hasContent || attach.busy
+    }
+
+    /// Expand + focus (one runloop hop, a 150ms retry — the session view's
+    /// `expandComposer`).
+    private func expand() {
+        onExpand()
+        withAnimation(motion.standard) { expanded = true }
+        focusPending = true
+        DispatchQueue.main.async { focus() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+            if expanded, draft?.draftEditor.isEditing == false { focus() }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { focusPending = false }
+    }
+
+    private func focus() {
+        guard let editor = draft?.draftEditor else { return }
+        editor.setFocused(editor.blocks.first?.id)
+    }
+
+    /// Stop = interrupt every working session of the tree.
+    private func stop() {
+        let api = deps.sessionsApi
+        let accountId = accountId
+        let ids = busySessionIds
+        Task {
+            do {
+                for id in ids { try await api.stop(accountId: accountId, sessionId: id) }
+            } catch {
+                toaster.error(FeedbackStates.Errors.title(verb: "stop", thing: "the session"), description: error.userFacingMessage)
             }
         }
     }

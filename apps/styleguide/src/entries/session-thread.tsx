@@ -1,6 +1,6 @@
 import fixture from "@exp/domain-contract/fixtures/session-thread.json"
 import { buildSessionThread } from "@exp/domain-contract/session-tree"
-import { ThreadConversation, userMessageCaption } from "@exp/ui"
+import { ThreadConversation, TooltipProvider, userMessageCaption } from "@exp/ui"
 
 import type { StyleguideEntry } from "./types.ts"
 
@@ -9,7 +9,9 @@ import type { StyleguideEntry } from "./types.ts"
 // (`session-thread.json`, ×4): the root's session card first, a person's
 // bubble right-aligned (`queued` until the device consumed it), the agent's
 // text, a child's session card, an event line, a question card answered in
-// the card.
+// the card (THE session view's card, `ask-card.tsx`, EXP-1316; case 0's
+// options carry descriptions, EXP-1322) and the
+// viewer's own queued row with its X (EXP-1317).
 
 type Input = Parameters<typeof buildSessionThread>[0]
 
@@ -28,6 +30,7 @@ function Case({ index }: { index: number }) {
   if (!found) return null
   const view = buildSessionThread(found.input as unknown as Input)
   return (
+    <TooltipProvider>
     <ThreadConversation
       rows={view.rows}
       renderText={paragraph}
@@ -39,7 +42,10 @@ function Case({ index }: { index: number }) {
       onOpenSession={() => {}}
       onAnswer={() => {}}
       onDecide={() => {}}
+      viewerId="u-dana"
+      onUnqueue={() => {}}
     />
+    </TooltipProvider>
   )
 }
 
@@ -48,7 +54,7 @@ export const entry: StyleguideEntry = {
   section: `special`,
   owner: `EXP-1293`,
   title: `Conversation`,
-  blurb: `A thread's Conversation tab (a thread IS a root session): the root's own session card first, then the ROOT's messages oldest first. A person's message is the right-aligned bubble (\`<name> · <time>\` under it, \`queued\` until the device consumed it); the agent's reply is markdown at the reading width; a system line is muted. A \`session\` / \`thread_started\` card is THE session card (the Work card's header row) opening that session; a question card offers its options IN the card, a plan card Approve / Reject; a subagent is a muted row, a picture the image, an event one muted line (\`Linked EXP-12\`, \`Opened PR #45\`). Children's own messages never inline. No captions, no Show work, no right sidebar. Model = \`buildSessionThread()\` (fixture \`session-thread.json\` ×4).`,
+  blurb: `A thread's Conversation tab (a thread IS a root session): the root's own session card first, then the ROOT's messages oldest first. A person's message is the right-aligned bubble (\`<name> · <time>\` under it, \`queued\` until the device consumed it; the viewer's OWN queued row carries the \`Remove from queue\` X with its tooltip, EXP-1317); the agent's reply is markdown at the reading width; a system line is muted. A \`session\` / \`thread_started\` card is THE session card (the Work card's header row) opening that session; a question or plan card is THE session view's card (EXP-1316, \`AskCard\` + \`AskPrompt\`): a question offers its options (label, and its description under it when the option carries one, EXP-1322) and a free-text row (\`Type something.\` opens the inline field), a plan Approve / Reject (Reject opens a note field); an answered card renders closed (the answer, options gone); a subagent is a muted row, a picture the image, an event one muted line (\`Linked EXP-12\`, \`Opened PR #45\`). Children's own messages never inline. No captions, no Show work, no right sidebar. Model = \`buildSessionThread()\` (fixture \`session-thread.json\` ×4).`,
   status: {
     web: {
       state: `ok`,

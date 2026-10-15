@@ -579,11 +579,24 @@ extension XCTestCase {
     }
 
     /// Pops the top view controller off the navigation stack (leading nav-bar
-    /// back button).
+    /// back button). EXP-1316: the system back button BY NAME first — a
+    /// thread's header now carries its `…` (and a principal title) on every
+    /// tab, so "the first nav-bar button" is no longer guaranteed to be Back;
+    /// the old first-match stays the fallback for a bar without one.
     @MainActor
     func goBack(_ app: XCUIApplication) {
-        let backButton = app.navigationBars.buttons.firstMatch
-        if backButton.waitForExistence(timeout: Wait.nav) {
+        let systemBack = app.navigationBars.buttons.matching(identifier: "BackButton").firstMatch
+        if systemBack.waitForExistence(timeout: Wait.nav) {
+            systemBack.tap()
+            return
+        }
+        let backButton = app.navigationBars.buttons
+            .matching(NSPredicate(
+                format: "NOT (identifier IN %@)",
+                ["thread-guide-menu", "session-stop", "session-back"]
+            ))
+            .firstMatch
+        if backButton.waitForExistence(timeout: 1) {
             backButton.tap()
         }
     }

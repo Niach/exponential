@@ -67,7 +67,8 @@ final class SessionTreeTests: XCTestCase {
             startedAt: string(row["startedAt"]),
             endedAt: string(row["endedAt"]),
             createdAt: try XCTUnwrap(string(row["createdAt"])),
-            updatedAt: try XCTUnwrap(string(row["updatedAt"]))
+            updatedAt: try XCTUnwrap(string(row["updatedAt"])),
+            deviceId: string(row["deviceId"])
         )
     }
 
@@ -140,6 +141,8 @@ final class SessionTreeTests: XCTestCase {
         case .conversation: ["kind": "conversation"]
         case let .issue(issueId, identifier): ["kind": "issue", "issueId": issueId, "identifier": identifier]
         case .add: ["kind": "add"]
+        case let .session(sessionId, name, markState):
+            ["kind": "session", "sessionId": sessionId, "name": name, "markState": markState.rawValue]
         case let .guide(dot): ["kind": "guide", "dot": dot]
         }
     }
@@ -150,8 +153,8 @@ final class SessionTreeTests: XCTestCase {
             ["type": "message", "id": id, "author": author, "authorId": json(authorId), "body": body, "queued": queued]
         case let .session(id, card):
             ["type": "session", "id": id, "card": json(card)]
-        case let .question(id, question, options, answer, answered):
-            ["type": "question", "id": id, "question": question, "options": options, "answer": json(answer), "answered": answered]
+        case let .question(id, question, options, custom, answer, answered):
+            ["type": "question", "id": id, "question": question, "options": options.map { ["label": $0.label, "description": json($0.description)] as [String: Any] }, "custom": custom, "answer": json(answer), "answered": answered]
         case let .plan(id, plan, decision):
             ["type": "plan", "id": id, "plan": plan, "decision": json(decision)]
         case let .subagent(id, title, status):
@@ -167,8 +170,8 @@ final class SessionTreeTests: XCTestCase {
         [
             "rootId": view.rootId,
             "title": view.title,
-            "titleDerived": view.titleDerived,
             "private": view.isPrivate,
+            "focusId": json(view.focusId),
             "tabs": view.tabs.map(json),
             "rows": view.rows.map(json),
             "composer": ["sessionId": view.composer.sessionId, "placeholder": view.composer.placeholder],
@@ -191,6 +194,7 @@ final class SessionTreeTests: XCTestCase {
                     "busy": row.busy,
                     "needsYou": row.needsYou,
                     "activityAt": row.activityAt,
+                    "deviceId": json(row.deviceId),
                 ]
             },
         ]
@@ -262,6 +266,10 @@ final class SessionTreeTests: XCTestCase {
         XCTAssertEqual(copy["placeholder"] as? String, SessionTree.ThreadCopy.placeholder)
         XCTAssertEqual(copy["conversation"] as? String, SessionTree.ThreadCopy.conversation)
         XCTAssertEqual(copy["guide"] as? String, SessionTree.ThreadCopy.guide)
+        let titles = try XCTUnwrap(fixture["titles"] as? [String: String])
+        XCTAssertEqual(titles["action"], SessionTree.ThreadCopy.titleAction)
+        XCTAssertEqual(titles["issue"], SessionTree.ThreadCopy.titleIssue)
+        XCTAssertEqual(titles["issues"], SessionTree.ThreadCopy.titleIssues)
         XCTAssertEqual(copy["events"] as? [String: String], SessionTree.ThreadCopy.events)
         XCTAssertEqual(fixture["titleMax"] as? Int, SessionTree.ThreadCopy.titleMax)
         let testIds = try XCTUnwrap(fixture["testIds"] as? [String: String])
@@ -333,7 +341,8 @@ final class SessionTreeTests: XCTestCase {
                 issues: try issues(input["issues"]),
                 messages: try messages(input["messages"]),
                 pullRequests: try pullRequests(input["pullRequests"]),
-                now: try date(input["now"])
+                now: try date(input["now"]),
+                focus: string((testCase["options"] as? [String: Any])?["focus"])
             )
             assertJSON(json(view), testCase["expected"], name)
         }
@@ -347,6 +356,12 @@ final class SessionTreeTests: XCTestCase {
         XCTAssertEqual(copy["title"] as? String, SessionTree.ListCopy.title)
         XCTAssertEqual(copy["agents"] as? String, SessionTree.ListCopy.agents)
         XCTAssertEqual(copy["empty"] as? String, SessionTree.ListCopy.empty)
+        XCTAssertEqual(copy["rail"] as? String, SessionTree.ListCopy.rail)
+        let words = try XCTUnwrap(copy["words"] as? [String: String])
+        XCTAssertEqual(Set(words.keys), Set(ThreadRowWord.allCases.map(\.rawValue)))
+        for word in ThreadRowWord.allCases {
+            XCTAssertEqual(words[word.rawValue], word.text, word.rawValue)
+        }
         let groups = try XCTUnwrap(copy["groups"] as? [String: String])
         XCTAssertEqual(Set(groups.keys), Set(ThreadsListGroup.Key.allCases.map(\.rawValue)))
         for key in ThreadsListGroup.Key.allCases {
@@ -400,6 +415,79 @@ final class SessionTreeTests: XCTestCase {
         }
     }
 
+    private func stackPrs(_ value: Any?) throws -> [StackPr] {
+        try XCTUnwrap(value as? [[String: Any]]).map {
+            StackPr(
+                id: try XCTUnwrap(string($0["id"])),
+                state: try XCTUnwrap(string($0["state"])),
+                basePullRequestId: string($0["basePullRequestId"])
+            )
+        }
+    }
+
+    /// EXP-1318: `wordCases` — the trailing word key, or none.
+    func testThreadRowWordReplaysEveryCase() throws {
+        for testCase in try cases(try fixture("threads-list.json"), "wordCases") {
+            let name = try XCTUnwrap(testCase["name"] as? String)
+            let input = try XCTUnwrap(testCase["input"] as? [String: Any])
+            let states = try XCTUnwrap(input["pullRequests"] as? [[String: Any]]).compactMap { $0["state"] as? String }
+            let word = SessionTree.threadRowWord(
+                prStates: states,
+                busy: try XCTUnwrap(input["busy"] as? Bool),
+                needsYou: try XCTUnwrap(input["needsYou"] as? Bool),
+                inStack: try XCTUnwrap(input["inStack"] as? Bool)
+            )
+            XCTAssertEqual(word?.rawValue, string(testCase["expected"]), name)
+        }
+    }
+
+    /// EXP-1318: `stackCases`.
+    func testThreadInStackReplaysEveryCase() throws {
+        for testCase in try cases(try fixture("threads-list.json"), "stackCases") {
+            let name = try XCTUnwrap(testCase["name"] as? String)
+            let input = try XCTUnwrap(testCase["input"] as? [String: Any])
+            XCTAssertEqual(
+                SessionTree.threadInStack(
+                    try stackPrs(input["pullRequests"]),
+                    teamPrs: try stackPrs(input["teamPrs"])
+                ),
+                try XCTUnwrap(testCase["expected"] as? Bool),
+                name
+            )
+        }
+    }
+
+    /// EXP-1318: `railCases` — the Active band's session ids in order.
+    func testRailThreadsReplaysEveryCase() throws {
+        for testCase in try cases(try fixture("threads-list.json"), "railCases") {
+            let name = try XCTUnwrap(testCase["name"] as? String)
+            let input = try XCTUnwrap(testCase["input"] as? [String: Any])
+            let groups = try XCTUnwrap(input["groups"] as? [[String: Any]]).map { group in
+                ThreadsListGroup(
+                    key: try XCTUnwrap(ThreadsListGroup.Key(rawValue: try XCTUnwrap(string(group["key"])))),
+                    title: try XCTUnwrap(string(group["title"])),
+                    rows: try XCTUnwrap(group["rows"] as? [[String: Any]]).map { row in
+                        ThreadsListRow(
+                            sessionId: try XCTUnwrap(string(row["sessionId"])),
+                            teamId: try XCTUnwrap(string(row["teamId"])),
+                            title: try XCTUnwrap(string(row["title"])),
+                            isPrivate: try XCTUnwrap(row["private"] as? Bool),
+                            busy: try XCTUnwrap(row["busy"] as? Bool),
+                            needsYou: try XCTUnwrap(row["needsYou"] as? Bool),
+                            activityAt: try XCTUnwrap(string(row["activityAt"])),
+                            deviceId: string(row["deviceId"])
+                        )
+                    }
+                )
+            }
+            let words = try XCTUnwrap(input["words"] as? [String: Any])
+            let rows = SessionTree.railThreads(groups) { row in
+                string(words[row.sessionId]).flatMap(ThreadRowWord.init(rawValue:))
+            }
+            XCTAssertEqual(rows.map(\.sessionId), try XCTUnwrap(testCase["expected"] as? [String]), name)
+        }
+    }
+
     // MARK: - Board switcher dots
 
     func testCountsOwnWorkingSessionsPerTeam() throws {
@@ -446,6 +534,11 @@ final class SessionTreeTests: XCTestCase {
             TreeMessageCard.parse(#"{"kind":"question","question":"Ship?","options":["Yes","No"]}"#),
             TreeMessageCard(kind: "question", question: "Ship?", options: ["Yes", "No"])
         )
+        // EXP-1322: `{label, description?}` options normalise beside plain labels.
+        XCTAssertEqual(
+            TreeMessageCard.parse(#"{"kind":"question","options":["Yes",{"label":"No","description":"Later"},{"label":"Maybe","description":""},{"description":"x"},3]}"#)?.options,
+            [TreeQuestionOption(label: "Yes"), TreeQuestionOption(label: "No", description: "Later"), TreeQuestionOption(label: "Maybe")]
+        )
     }
 
     // MARK: - EXP-1309: the Threads row's quiet word (web `threadRowWord`)
@@ -480,6 +573,6 @@ final class SessionTreeTests: XCTestCase {
         // Merged beats the question; a closed PR says nothing.
         XCTAssertEqual(SessionTree.threadRowWord(busy: false, needsYou: true, prs: [mergedBase], teamPrs: [mergedBase]), .merged)
         XCTAssertNil(SessionTree.threadRowWord(busy: false, needsYou: false, prs: [pr("c", "closed")], teamPrs: []))
-        XCTAssertEqual(ThreadRowWord.allCases.map(\.text), ["ready to merge", "stack", "merged", "question", "needs input"])
+        XCTAssertEqual(ThreadRowWord.allCases.map(\.text), ["stack", "ready to merge", "merged", "question", "needs input"])
     }
 }

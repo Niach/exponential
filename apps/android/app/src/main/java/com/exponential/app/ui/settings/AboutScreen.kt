@@ -29,7 +29,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import com.exponential.app.AppConstants
-import com.exponential.app.ui.components.GroupDivider
 import com.exponential.app.ui.components.TopBarBackButton
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.AppBackground
@@ -92,7 +91,6 @@ fun AboutScreen(
                         trailingIcon = ExpIcons.uiChevronRight,
                         onClick = onOpenThirdPartyLicenses,
                     )
-                    GroupDivider()
                     AboutRow(
                         icon = ExpIcons.uiGithub,
                         title = "Source code",
@@ -101,7 +99,6 @@ fun AboutScreen(
                             context.startActivity(Intent(Intent.ACTION_VIEW, SOURCE_URL.toUri()))
                         },
                     )
-                    GroupDivider()
                     AboutRow(
                         icon = ExpIcons.uiInfo,
                         title = "License (Apache-2.0)",

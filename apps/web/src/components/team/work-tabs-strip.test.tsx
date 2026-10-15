@@ -31,7 +31,6 @@ const agents = vi.hoisted(() => ({ value: [] as unknown[] }))
 vi.mock(`@/hooks/use-session-tree`, () => ({
   useThreadsList: () => ({
     groups: threadGroups.value,
-    extras: { identifierByRoot: new Map() },
     isReady: true,
   }),
   useAgents: () => ({ agents: agents.value, isReady: true }),

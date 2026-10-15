@@ -372,7 +372,7 @@ fn run_daemon(args: &[String]) -> CommandResult {
         runtime: runtime.clone(),
         personal_key: personal_key.clone(),
         sessions: Arc::clone(&sessions),
-        live: Arc::new(coding::pickup::LiveRegistry::default()),
+        live: crate::launch::answer_tapped_registry(Arc::clone(&ctx.trpc)),
         sync: sync_manager.clone(),
         device_id: device_id.clone(),
         in_flight: Arc::new(Mutex::new(HashSet::new())),

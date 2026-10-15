@@ -89,6 +89,9 @@ public struct TreeSession: Equatable, Sendable, Identifiable {
     public let endedAt: String?
     public let createdAt: String
     public let updatedAt: String
+    /// EXP-1316: the steer device id of the machine that runs it (the
+    /// thread row's device glyph); nil when unknown.
+    public let deviceId: String?
 
     public init(
         id: String,
@@ -112,8 +115,10 @@ public struct TreeSession: Equatable, Sendable, Identifiable {
         startedAt: String?,
         endedAt: String?,
         createdAt: String,
-        updatedAt: String
+        updatedAt: String,
+        deviceId: String? = nil
     ) {
+        self.deviceId = deviceId
         self.id = id
         self.teamId = teamId
         self.parentId = parentId
@@ -164,6 +169,25 @@ public struct TreeIssue: Equatable, Sendable, Identifiable {
     }
 }
 
+/// One question-card option (EXP-1322): the answer IS the label; the
+/// description (nil when absent) renders under it. The synced card carries a
+/// bare string or `{label, description?}`; both normalise here.
+public struct TreeQuestionOption: Equatable, Sendable {
+    public let label: String
+    public let description: String?
+
+    public init(label: String, description: String? = nil) {
+        self.label = label
+        self.description = description
+    }
+}
+
+extension TreeQuestionOption: ExpressibleByStringLiteral {
+    public init(stringLiteral value: String) {
+        self.init(label: value)
+    }
+}
+
 /// A message's `card` jsonb (contract `messageCardKindValues`), read
 /// tolerantly: every field the rows use, nil when absent or mistyped.
 public struct TreeMessageCard: Equatable, Sendable {
@@ -172,7 +196,7 @@ public struct TreeMessageCard: Equatable, Sendable {
     public let sessionId: String?
     /// question.
     public let question: String?
-    public let options: [String]
+    public let options: [TreeQuestionOption]
     public let answer: String?
     /// plan.
     public let plan: String?
@@ -194,7 +218,7 @@ public struct TreeMessageCard: Equatable, Sendable {
         kind: String?,
         sessionId: String? = nil,
         question: String? = nil,
-        options: [String] = [],
+        options: [TreeQuestionOption] = [],
         answer: String? = nil,
         plan: String? = nil,
         decision: String? = nil,
@@ -249,8 +273,12 @@ public struct TreeMessageCard: Equatable, Sendable {
             question: loose("question"),
             options: (object["options"] as? [Any])?.compactMap { option in
                 switch option {
-                case let string as String: string
-                case let number as NSNumber: number.stringValue
+                case let string as String: TreeQuestionOption(label: string)
+                case let entry as [String: Any]:
+                    (entry["label"] as? String).map {
+                        let description = entry["description"] as? String
+                        return TreeQuestionOption(label: $0, description: description?.isEmpty == false ? description : nil)
+                    }
                 default: nil
                 }
             } ?? [],
@@ -411,6 +439,11 @@ public enum ThreadTab: Equatable, Sendable {
     case issue(issueId: String, identifier: String)
     /// The "+" (link/file an issue).
     case add
+    /// EXP-1316: one chip per session at the VIEWED level (the root's run +
+    /// its direct children, or the focused session + ITS direct children).
+    /// `markState` = `threadRowMarkState` of that session, `.ended` once it
+    /// ended.
+    case session(sessionId: String, name: String, markState: SessionState)
     /// `dot` while the root's guide holds any text or picture.
     case guide(dot: Bool)
 }
@@ -422,7 +455,9 @@ public enum ThreadRow: Equatable, Sendable {
     case message(id: String, author: String, authorId: String?, body: String, queued: Bool)
     /// `id` = the root's id for its own card, else the card message's id.
     case session(id: String, card: SessionCard)
-    case question(id: String, question: String, options: [String], answer: String?, answered: Bool)
+    /// `custom` = a free-text answer is offered beside the options (always,
+    /// EXP-1316: THE session view's card).
+    case question(id: String, question: String, options: [TreeQuestionOption], custom: Bool, answer: String?, answered: Bool)
     case plan(id: String, plan: String, decision: String?)
     case subagent(id: String, title: String, status: String)
     case picture(id: String, attachmentId: String, width: Double?, height: Double?, caption: String?)
@@ -433,7 +468,7 @@ public enum ThreadRow: Equatable, Sendable {
         switch self {
         case let .message(id, _, _, _, _),
              let .session(id, _),
-             let .question(id, _, _, _, _),
+             let .question(id, _, _, _, _, _),
              let .plan(id, _, _),
              let .subagent(id, _, _),
              let .picture(id, _, _, _, _),
@@ -458,9 +493,10 @@ public struct ThreadComposer: Equatable, Sendable {
 public struct SessionThreadView: Equatable, Sendable {
     public let rootId: String
     public let title: String
-    public let titleDerived: Bool
     /// A lock glyph beside the title (`!root.shared`).
     public let isPrivate: Bool
+    /// The focused session (nil = the thread itself).
+    public let focusId: String?
     public let tabs: [ThreadTab]
     public let rows: [ThreadRow]
     public let composer: ThreadComposer
@@ -471,8 +507,8 @@ public struct SessionThreadView: Equatable, Sendable {
     public init(
         rootId: String,
         title: String,
-        titleDerived: Bool,
         isPrivate: Bool,
+        focusId: String?,
         tabs: [ThreadTab],
         rows: [ThreadRow],
         composer: ThreadComposer,
@@ -482,8 +518,8 @@ public struct SessionThreadView: Equatable, Sendable {
     ) {
         self.rootId = rootId
         self.title = title
-        self.titleDerived = titleDerived
         self.isPrivate = isPrivate
+        self.focusId = focusId
         self.tabs = tabs
         self.rows = rows
         self.composer = composer
@@ -502,6 +538,9 @@ public struct ThreadsListRow: Equatable, Sendable, Identifiable {
     public let needsYou: Bool
     /// The tree's newest `updatedAt` (wire text).
     public let activityAt: String
+    /// EXP-1316: the ROOT's device (the row's trailing device glyph,
+    /// resolved against the synced devices rows); nil = none.
+    public let deviceId: String?
 
     public var id: String { sessionId }
 
@@ -512,8 +551,10 @@ public struct ThreadsListRow: Equatable, Sendable, Identifiable {
         isPrivate: Bool,
         busy: Bool,
         needsYou: Bool,
-        activityAt: String
+        activityAt: String,
+        deviceId: String? = nil
     ) {
+        self.deviceId = deviceId
         self.sessionId = sessionId
         self.teamId = teamId
         self.title = title
@@ -556,8 +597,8 @@ public struct ThreadsListGroup: Equatable, Sendable, Identifiable {
 /// EXP-1309: a Threads row's ONE quiet trailing word (web
 /// `THREAD_ROW_WORDS`); `SessionTree.threadRowWord` picks it.
 public enum ThreadRowWord: String, Equatable, Sendable, CaseIterable {
-    case readyToMerge
     case stack
+    case readyToMerge
     case merged
     case question
     /// An agent row waiting on a person.
@@ -571,6 +612,23 @@ public enum ThreadRowWord: String, Equatable, Sendable, CaseIterable {
         case .question: "question"
         case .needsInput: "needs input"
         }
+    }
+}
+
+/// A pull request as far as the stack test reads it.
+public struct StackPr: Equatable, Sendable {
+    public let id: String
+    public let state: String
+    public let basePullRequestId: String?
+
+    public init(id: String, state: String, basePullRequestId: String?) {
+        self.id = id
+        self.state = state
+        self.basePullRequestId = basePullRequestId
+    }
+
+    public init(_ pr: PullRequestEntity) {
+        self.init(id: pr.id, state: pr.state, basePullRequestId: pr.basePullRequestId)
     }
 }
 
@@ -633,6 +691,10 @@ public enum SessionTree {
             "session_ended": "Session ended",
         ]
         public static let titleMax = 80
+        /// `titles`: `{action}`, `{issue}`, `{more}`.
+        public static let titleAction = "Run {action}"
+        public static let titleIssue = "Implement {issue}"
+        public static let titleIssues = "Implement {issue} + {more}"
         public static let tabsTestId = "thread-tabs"
         public static let conversationTestId = "thread-conversation"
         public static let composerTestId = "thread-composer"
@@ -645,9 +707,12 @@ public enum SessionTree {
     }
 
     /// fixtures/threads-list.json `copy` + `agentDefaults` + `testIds`
-    /// (group titles = `ThreadsListGroup.Key.title`).
+    /// (group titles = `ThreadsListGroup.Key.title`, words =
+    /// `ThreadRowWord.text`).
     public enum ListCopy {
         public static let title = "Threads"
+        /// The rail's one band (web + IDE).
+        public static let rail = "Active"
         public static let agents = "Agents"
         public static let empty = "No sessions yet"
         public static let agentDefaultIcon = "bot"
@@ -687,6 +752,13 @@ public enum SessionTree {
         return .waiting
     }
 
+    /// EXP-1316: a session chip's lead: that session's row mark, `.ended`
+    /// once it ended.
+    public static func sessionTabMarkState(_ session: TreeSession) -> SessionState {
+        if session.status == "ended" { return .ended }
+        return threadRowMarkState(needsYou: session.needsInput, busy: session.busy)
+    }
+
     /// Sessions of one tree in creation order (ties by id): `Session N` names.
     public static func treeOrder(_ sessions: [TreeSession]) -> [TreeSession] {
         sessions.sorted { a, b in
@@ -718,19 +790,32 @@ public enum SessionTree {
         )
     }
 
-    /// A thread's title: the stored one, else the action it ran, else its
-    /// first issue's title (sort order), else the first line of the first
-    /// person message, else `Untitled`. `derived` = not stored.
+    /// EXP-1316: a thread's title, never renamed by a person: an agent's
+    /// `name`; else `Run <action>`; else `Implement <IDENT>` (the first
+    /// synced issue by sortOrder, `+ <n-1>` with more); else the stored
+    /// title (the CLI's auto-name); else the first line of the root's first
+    /// person message (capped `titleMax`); else `Untitled`.
     public static func threadTitle(
         root: TreeSession,
         issues: [TreeIssue],
         messages: [TreeMessage]
-    ) -> (title: String, derived: Bool) {
-        let stored = root.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if !stored.isEmpty { return (stored, false) }
-        let action = root.actionName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if !action.isEmpty { return (action, true) }
-        if let first = issues.first { return (first.title, true) }
+    ) -> String {
+        func trimmed(_ value: String?) -> String {
+            value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        }
+        let name = trimmed(root.name)
+        if root.kind == "agent", !name.isEmpty { return name }
+        let action = trimmed(root.actionName)
+        if !action.isEmpty { return ThreadCopy.titleAction.replacingOccurrences(of: "{action}", with: action) }
+        if let first = issues.first {
+            return issues.count > 1
+                ? ThreadCopy.titleIssues
+                    .replacingOccurrences(of: "{issue}", with: first.identifier)
+                    .replacingOccurrences(of: "{more}", with: String(issues.count - 1))
+                : ThreadCopy.titleIssue.replacingOccurrences(of: "{issue}", with: first.identifier)
+        }
+        let stored = trimmed(root.title)
+        if !stored.isEmpty { return stored }
         let firstMessage = messages
             .filter { $0.sessionId == root.id && $0.authorKind == "user" }
             .enumerated()
@@ -740,14 +825,15 @@ public enum SessionTree {
                 return ma != mb ? ma < mb : a.offset < b.offset
             }?.element
         if let firstMessage, let line = firstLine(firstMessage.body, max: ThreadCopy.titleMax) {
-            return (line, true)
+            return line
         }
-        return (ThreadCopy.untitled, true)
+        return ThreadCopy.untitled
     }
 
     /// The thread screen: the header tabs, the root's conversation as rows
     /// (its own session card first, then its messages oldest first) and the
-    /// composer target (the root).
+    /// composer target (the root). `focus` = a session of the tree whose
+    /// level the session chips show (itself + its direct children).
     public static func buildSessionThread(
         root: TreeSession,
         sessions: [TreeSession],
@@ -755,7 +841,8 @@ public enum SessionTree {
         issues: [TreeIssue],
         messages: [TreeMessage],
         pullRequests: [TreePullRequest],
-        now: Date
+        now: Date,
+        focus: String? = nil
     ) -> SessionThreadView {
         var tree = treeOrder(sessions.filter { $0.rootId == root.id || $0.id == root.id })
         if !tree.contains(where: { $0.id == root.id }) { tree.insert(root, at: 0) }
@@ -776,7 +863,17 @@ public enum SessionTree {
                 if ma != mb { return ma < mb }
                 return a.id < b.id
             }
-        let named = threadTitle(root: root, issues: linked, messages: own)
+        let title = threadTitle(root: root, issues: linked, messages: own)
+        let focused = focus.flatMap { id in tree.first { $0.id == id } }
+        let level = focused ?? root
+        let sessionTabs: [ThreadTab] = ([level] + tree.filter { $0.parentId == level.id && $0.id != level.id })
+            .map { session in
+                .session(
+                    sessionId: session.id,
+                    name: sessionCard(session, ordinal: ordinals[session.id] ?? 1, now: now).name,
+                    markState: sessionTabMarkState(session)
+                )
+            }
 
         var rows: [ThreadRow] = [.session(id: root.id, card: sessionCard(root, ordinal: 1, now: now))]
         for message in own {
@@ -806,6 +903,7 @@ public enum SessionTree {
                     id: message.id,
                     question: card.question ?? "",
                     options: card.options,
+                    custom: true,
                     answer: card.answer,
                     answered: message.answeredAt != nil
                 ))
@@ -838,12 +936,12 @@ public enum SessionTree {
         let live = tree.filter { $0.status != "ended" }
         return SessionThreadView(
             rootId: root.id,
-            title: named.title,
-            titleDerived: named.derived,
+            title: title,
             isPrivate: !root.shared,
+            focusId: focused?.id,
             tabs: [.conversation]
                 + linked.map { .issue(issueId: $0.id, identifier: $0.identifier) }
-                + [.add, .guide(dot: guideDot)],
+                + [.add] + sessionTabs + [.guide(dot: guideDot)],
             rows: rows,
             composer: ThreadComposer(sessionId: root.id, placeholder: ThreadCopy.placeholder),
             live: !live.isEmpty,
@@ -881,7 +979,7 @@ public enum SessionTree {
                 root: root,
                 issues: rootIssues(root.id, sessionIssues: sessionIssues, issues: issues),
                 messages: messages
-            ).title
+            )
             let row = ThreadsListRow(
                 sessionId: root.id,
                 teamId: root.teamId,
@@ -889,7 +987,8 @@ public enum SessionTree {
                 isPrivate: !root.shared,
                 busy: live.contains { $0.busy },
                 needsYou: needsYou,
-                activityAt: activity
+                activityAt: activity,
+                deviceId: root.deviceId
             )
             buckets[needsYou ? .needsYou : running ? .running : .recent, default: []].append(row)
         }
@@ -987,31 +1086,67 @@ public enum SessionTree {
         return state == DomainContract.prStateOpen && member ? [.openGithub, .closePr] : [.openGithub]
     }
 
-    /// EXP-1309: ONE quiet trailing word for a Threads row (web
-    /// `threadRowWord`, desktop `quiet_word`): an open PR that sits in a
-    /// stack (based on another open PR, or one is based on it) → `stack`;
-    /// else an open PR while nothing works → `ready to merge`; no open PR but
-    /// a merged one → `merged`; else waiting on a person → `question`; else
-    /// none. `prs` = the root's own pull requests, `teamPrs` = its team's (a
-    /// stack edge may cross threads).
+    /// EXP-1318: an open PR of the thread sits in an open stack: based on
+    /// another open PR, or another open PR is based on it. `teamPrs` = the
+    /// team's PRs (a stack edge may cross threads). Fixture `stackCases`.
+    public static func threadInStack(_ prs: [StackPr], teamPrs: [StackPr]) -> Bool {
+        let open = DomainContract.prStateOpen
+        let openIds = Set(teamPrs.filter { $0.state == open }.map(\.id))
+        return prs.filter { $0.state == open }.contains { pr in
+            (pr.basePullRequestId.map(openIds.contains) ?? false)
+                || teamPrs.contains { $0.state == open && $0.basePullRequestId == pr.id }
+        }
+    }
+
+    /// EXP-1309/1318: ONE quiet trailing word for a Threads row ×4 (the lock
+    /// rides beside it): an open PR in a stack → `stack`; an open PR while
+    /// nothing works → `readyToMerge` (working = no word); no open PR but a
+    /// merged one → `merged`; else waiting on a person → `question`; else
+    /// none. Fixture `wordCases`.
+    public static func threadRowWord(
+        prStates: [String],
+        busy: Bool,
+        needsYou: Bool,
+        inStack: Bool
+    ) -> ThreadRowWord? {
+        if prStates.contains(DomainContract.prStateOpen) {
+            if inStack { return .stack }
+            return busy ? nil : .readyToMerge
+        }
+        if prStates.contains(DomainContract.prStateMerged) { return .merged }
+        return needsYou ? .question : nil
+    }
+
+    /// The synced-row form: `prs` = the root's own pull requests, `teamPrs`
+    /// = its team's.
     public static func threadRowWord(
         busy: Bool,
         needsYou: Bool,
         prs: [PullRequestEntity],
         teamPrs: [PullRequestEntity]
     ) -> ThreadRowWord? {
-        let open = prs.filter { $0.state == DomainContract.prStateOpen }
-        if !open.isEmpty {
-            let openIds = Set(teamPrs.filter { $0.state == DomainContract.prStateOpen }.map(\.id))
-            let stacked = open.contains { pr in
-                (pr.basePullRequestId.map(openIds.contains) ?? false)
-                    || teamPrs.contains { $0.state == DomainContract.prStateOpen && $0.basePullRequestId == pr.id }
+        threadRowWord(
+            prStates: prs.map(\.state),
+            busy: busy,
+            needsYou: needsYou,
+            inStack: threadInStack(prs.map(StackPr.init), teamPrs: teamPrs.map(StackPr.init))
+        )
+    }
+
+    /// The rail's Active band (`ListCopy.rail`): every Needs you row, every
+    /// Running row, then the Recent rows whose word still asks for a merge
+    /// (`readyToMerge` or `stack`), in group order. Fixture `railCases`.
+    public static func railThreads(
+        _ groups: [ThreadsListGroup],
+        wordOf: (ThreadsListRow) -> ThreadRowWord?
+    ) -> [ThreadsListRow] {
+        groups.flatMap { group -> [ThreadsListRow] in
+            guard group.key == .recent else { return group.rows }
+            return group.rows.filter { row in
+                let word = wordOf(row)
+                return word == .readyToMerge || word == .stack
             }
-            if stacked { return .stack }
-            return busy ? nil : .readyToMerge
         }
-        if prs.contains(where: { $0.state == DomainContract.prStateMerged }) { return .merged }
-        return needsYou ? .question : nil
     }
 
     /// EXP-1306 (EXP-820 ×4): a question or plan card waiting on the viewer

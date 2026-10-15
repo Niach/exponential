@@ -4,18 +4,24 @@ import { createFileRoute, Navigate, redirect, useNavigate } from "@tanstack/reac
 import {
   conceptIcon,
   EmptyState,
+  FLOATING_COMPOSER_CLEARANCE,
+  FloatingComposer,
   IssueChip,
+  JumpToBottomButton,
   Menu,
   MenuGestureHost,
   menuProps,
   SkeletonRows,
   ThreadConversation,
+  ThreadSessionGroup,
+  ThreadSessionTab,
+  ThreadSessionTree,
   ThreadTabs,
   ThreadTabsAddButton,
-  threadTabChipClass,
   useIsMobile,
   userMessageCaption,
   type MenuSessionProps,
+  type ThreadTreeRow,
 } from "@exp/ui"
 import type { Issue, User } from "@/db/schema"
 import { IssueDetailView } from "@/components/issue-detail-view"
@@ -23,6 +29,7 @@ import { statusColorClass } from "@/components/issue-properties/status-dropdown"
 import { SessionComposer } from "@/components/session-composer"
 import {
   HEADER_BUTTON_CLASS,
+  MOBILE_DETAIL_SCREEN_CLASS,
   MobileDetailHeader,
 } from "@/components/team/mobile-detail-header"
 import { parseGuideSection, type GuideSectionKey } from "@/components/guide-section-diff"
@@ -32,10 +39,13 @@ import {
   ThreadGuideMerge,
   threadGuidePullRequest,
 } from "@/components/thread/thread-guide"
-import { useAnswerMessage } from "@/components/thread/agent-channel"
+import { useAnswerMessage, useUnqueueMessage } from "@/components/thread/agent-channel"
 import { renderThreadText } from "@/components/thread/thread-markdown"
 import { useThreadMenu } from "@/components/thread/thread-menu"
-import { ThreadTitle } from "@/components/thread/thread-title"
+import { InPlaceSession, SessionScreen, SessionStopPill } from "@/components/thread/session-body"
+import { useMeasuredSize } from "@/hooks/use-detail-chrome"
+import { useFollowScroll } from "@/hooks/use-follow-scroll"
+import { useSession } from "@/hooks/use-session"
 import { useSessionMessages, useSessionThread } from "@/hooks/use-session-tree"
 import { useTeamBoards, useTeamBySlug, useTeamUsers } from "@/hooks/use-team-data"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
@@ -43,9 +53,14 @@ import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
 import type { Team } from "@/db/schema"
 import { issueCollection } from "@/lib/collections"
 import { pageTitle, usePageTitle } from "@/lib/page-title"
+import { cn } from "@/lib/utils"
 import {
+  sessionCard,
+  sessionTabMarkState,
   THREAD_COPY,
   THREADS_LIST_COPY,
+  toTreeSession,
+  treeOrder,
   type MessageRow,
   type PullRequestRow,
   type SessionRow,
@@ -53,24 +68,37 @@ import {
 } from "@/lib/session-tree"
 
 // EXP-1293 Threads v2: a THREAD = a root session (fixture
-// `session-thread.json` ×4, `buildSessionThread`). Header: the title (rename
-// in place, a lock when private) + ONE tab strip: Conversation · one issue
-// chip per linked issue · "+" · Guide (a dot while it holds anything).
+// `session-thread.json` ×4, `buildSessionThread`). Header: the title
+// (EXP-1316: derived, `Implement EXP-12` / `Run <action>` / the agent's
+// auto-name; nobody renames it; a lock when private) + ONE tab strip:
+// Conversation · one issue chip per linked issue (`IssueChip size="tab"`) ·
+// "+" · Guide (a dot while it holds anything). md+: while the Guide's PR is
+// open the header's trailing slot carries Merge on EVERY tab, then the `…`
+// (Guide tab only).
 // `?tab=` names the tab on show:
 //
 //   (absent)               the conversation: the root's messages and THE
 //                          session card per session, question and plan cards
 //                          answered in the card, the composer at the bottom
-//   issue&issue=<id>       that issue's detail, embedded
+//   issue&issue=<id>       that issue's body, embedded (no header bar, no
+//                          Start, no pin, no Threads row)
 //   guide[&section=&file=] the root's Guide over its pull request (its stack
-//                          rail, THE bottom Merge capsule)
+//                          rail; phones: THE bottom Merge capsule)
+//   session&session=<id>   EXP-1316: that session's RAW WORK in place (md+:
+//                          under this header + strip, its Stop pill in the
+//                          header; phones: the session's own screen). The
+//                          strip's session chips = that level
+//                          (`buildSessionThread` focus); hovering them opens
+//                          the whole tree. `/sessions/$id` redirects here.
 //
 // Phones: the strip IS the pager under the header. No right sidebar, no
 // Show work, no captions.
 
 type ThreadSearch = {
-  tab?: `issue` | `guide`
+  tab?: `issue` | `guide` | `session`
   issue?: string
+  /** The session open in place (`tab=session`). */
+  session?: string
   section?: GuideSectionKey
   file?: string
   /** Where it was opened from (`TABLESS_ORIGIN` = a Running row: no tab). */
@@ -90,11 +118,15 @@ export const Route = createFileRoute(`/t/$teamSlug/threads/$threadId`)({
   head: () => ({ meta: [{ title: pageTitle(THREADS_LIST_COPY.title) }] }),
   validateSearch: (search: Record<string, unknown>): ThreadSearch => {
     const pick = (value: unknown) => (typeof value === `string` && value ? value : undefined)
-    const tab = search.tab === `issue` || search.tab === `guide` ? search.tab : undefined
+    const tab =
+      search.tab === `issue` || search.tab === `guide` || search.tab === `session`
+        ? search.tab
+        : undefined
     const section = tab === `guide` ? parseGuideSection(search.section) : undefined
     return {
       ...(tab ? { tab } : {}),
       ...(tab === `issue` && pick(search.issue) ? { issue: pick(search.issue) } : {}),
+      ...(tab === `session` && pick(search.session) ? { session: pick(search.session) } : {}),
       ...(section !== undefined ? { section } : {}),
       ...(section !== undefined && pick(search.file) ? { file: pick(search.file) } : {}),
       ...(pick(search.from) ? { from: pick(search.from) } : {}),
@@ -114,8 +146,16 @@ export const Route = createFileRoute(`/t/$teamSlug/threads/$threadId`)({
 function ThreadPage() {
   const { teamSlug, threadId } = Route.useParams()
   const team = useTeamBySlug(teamSlug)
-  const thread = useSessionThread(threadId)
-  usePageTitle(thread.view ? pageTitle(thread.view.title, THREADS_LIST_COPY.title) : undefined)
+  const search = Route.useSearch()
+  const thread = useSessionThread(
+    threadId,
+    search.tab === `session` ? (search.session ?? null) : null
+  )
+  usePageTitle(
+    thread.view && thread.titleReady
+      ? pageTitle(thread.view.title, THREADS_LIST_COPY.title)
+      : undefined
+  )
 
   // A thread opened right after its start may land before its row: wait a
   // beat before saying it is gone.
@@ -137,8 +177,11 @@ function ThreadPage() {
     )
   }
 
-  if (!team || !thread.view || !thread.root) {
-    if (team && thread.isReady && graceOver) {
+  // EXP-1316: until the issue shapes reported ready the title could still
+  // flip from the request text to `Implement EXP-12` (and the chips pop in):
+  // hold the page on its placeholder.
+  if (!team || !thread.view || !thread.root || !thread.titleReady) {
+    if (team && thread.isReady && !thread.root && graceOver) {
       return (
         <div className="flex h-full flex-col items-center justify-center">
           <EmptyState
@@ -163,6 +206,7 @@ function ThreadPage() {
       teamSlug={teamSlug}
       view={thread.view}
       root={thread.root}
+      rows={thread.rows}
       pullRequests={thread.pullRequests}
     />
   )
@@ -173,12 +217,15 @@ function ThreadScreen({
   teamSlug,
   view,
   root,
+  rows,
   pullRequests,
 }: {
   team: Team
   teamSlug: string
   view: SessionThreadView
   root: SessionRow
+  /** Every session of the tree (the chips' marks, the tree popover). */
+  rows: SessionRow[]
   pullRequests: PullRequestRow[]
 }) {
   const navigate = useNavigate()
@@ -188,6 +235,9 @@ function ThreadScreen({
   const { users } = useTeamUsers(team.id)
   const boards = useTeamBoards(team.id)
   const { resolve } = useTeamStatusesContext()
+  // EXP-1316: the phone header band floats over the body; bodies pad by it.
+  const [headerRef, headerSize] = useMeasuredSize()
+  const topInset = isMobile ? headerSize.height : 0
 
   const issueTabs = view.tabs.filter(
     (tab): tab is Extract<SessionThreadView[`tabs`][number], { kind: `issue` }> =>
@@ -209,12 +259,16 @@ function ThreadScreen({
   const guideTab = view.tabs.find((tab) => tab.kind === `guide`)
   const guidePr = useMemo(() => threadGuidePullRequest(pullRequests), [pullRequests])
 
+  const rowsById = useMemo(() => new Map(rows.map((row) => [row.id, row])), [rows])
+  const focused = view.focusId ? (rowsById.get(view.focusId) ?? null) : null
   const tab =
     search.tab === `issue` && search.issue && issueIds.includes(search.issue)
       ? { kind: `issue` as const, issueId: search.issue }
       : search.tab === `guide`
         ? { kind: `guide` as const }
-        : { kind: `conversation` as const }
+        : search.tab === `session` && focused
+          ? { kind: `session` as const, sessionId: focused.id }
+          : { kind: `conversation` as const }
 
   const go = (next: ThreadSearch) =>
     void navigate({
@@ -222,6 +276,14 @@ function ThreadScreen({
       params: { teamSlug, threadId: root.id },
       search: next,
       replace: true,
+    })
+
+  /** A session opens IN PLACE (a pushed history entry: Back returns). */
+  const openSession = (sessionId: string) =>
+    void navigate({
+      to: `/t/$teamSlug/threads/$threadId`,
+      params: { teamSlug, threadId: root.id },
+      search: { tab: `session`, session: sessionId },
     })
 
   const menu = useThreadMenu({ rootId: root.id, issueIds, canEdit: permissions.isMember })
@@ -239,18 +301,71 @@ function ThreadScreen({
         aria-selected={active}
         identifier={entry.identifier}
         title={issue.title}
-        size={isMobile ? `sm` : `md`}
+        size={isMobile ? `pager` : `tab`}
+        active={active}
         status={{
           icon: status.icon,
           colorClass: statusColorClass(status),
           colorHex: status.builtinKey ? undefined : status.colorHex,
         }}
         testId={`thread-tab-${entry.identifier}`}
-        className={threadTabChipClass(active)}
         onClick={() => go({ tab: `issue`, issue: entry.issueId })}
       />,
     ]
   })
+
+  // EXP-1316: the session chips ×4 = the viewed level; on md+ hovering the
+  // group opens the WHOLE tree (SessionRow small + TreeGuides).
+  const treeRows = useMemo<ThreadTreeRow[]>(() => {
+    const nowIso = new Date().toISOString()
+    return treeOrder(rows.map(toTreeSession)).map((session, index) => {
+      const card = sessionCard(session, index + 1, nowIso)
+      return {
+        sessionId: session.id,
+        parentId: session.parentId,
+        name: card.name,
+        agent: rowsById.get(session.id)?.cli ?? null,
+        markState: sessionTabMarkState(session),
+        stateWord: card.kindWord,
+        stateTone: card.tone,
+      }
+    })
+  }, [rows, rowsById])
+  const sessionChips = view.tabs.flatMap((entry) =>
+    entry.kind === `session`
+      ? [
+          <ThreadSessionTab
+            key={entry.sessionId}
+            agent={rowsById.get(entry.sessionId)?.cli ?? null}
+            markState={entry.markState}
+            name={entry.name}
+            active={tab.kind === `session` && tab.sessionId === entry.sessionId}
+            bordered={isMobile}
+            // Phones push the session's own screen (Back returns here).
+            onSelect={() =>
+              isMobile ? openSession(entry.sessionId) : go({ tab: `session`, session: entry.sessionId })
+            }
+          />,
+        ]
+      : []
+  )
+  // Phones: the chips sit in the pager too (no hover tree there).
+  const sessionGroup =
+    sessionChips.length > 0 ? (
+      <ThreadSessionGroup
+        tree={
+          !isMobile && treeRows.length > 1 ? (
+            <ThreadSessionTree
+              rows={treeRows}
+              activeId={tab.kind === `session` ? tab.sessionId : null}
+              onOpen={(sessionId) => go({ tab: `session`, session: sessionId })}
+            />
+          ) : undefined
+        }
+      >
+        {sessionChips}
+      </ThreadSessionGroup>
+    ) : undefined
 
   const tabs = (
     <ThreadTabs
@@ -264,6 +379,7 @@ function ThreadScreen({
       add={
         permissions.isMember ? <ThreadTabsAddButton onClick={menu.openPicker} /> : undefined
       }
+      sessions={sessionGroup}
       guide={{
         label: THREAD_COPY.guide,
         active: tab.kind === `guide`,
@@ -275,7 +391,9 @@ function ThreadScreen({
 
   // ── The bodies ─────────────────────────────────────────────────────────────
   let body: ReactNode
-  if (tab.kind === `issue`) {
+  if (tab.kind === `session` && focused) {
+    body = <InPlaceSession row={focused} />
+  } else if (tab.kind === `issue`) {
     const issue = issuesById.get(tab.issueId)
     const board = issue ? boards.find((row) => row.id === issue.boardId) : undefined
     body =
@@ -289,7 +407,8 @@ function ThreadScreen({
             teamSlug={teamSlug}
             teamId={team.id}
             readOnly={!permissions.canMutateIssue(issue)}
-            showMobileHeader={false}
+            embedded
+            topInset={topInset}
           />
         </div>
       ) : (
@@ -300,7 +419,10 @@ function ThreadScreen({
   } else if (tab.kind === `guide`) {
     body = (
       <div className="flex min-h-0 flex-1 flex-col">
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+        <div
+          className="min-h-0 flex-1 overflow-y-auto overscroll-contain"
+          style={topInset ? { paddingTop: topInset } : undefined}
+        >
           <div className="mx-auto w-full max-w-3xl pb-8">
             <ThreadGuide
               root={root}
@@ -319,7 +441,7 @@ function ThreadScreen({
             />
           </div>
         </div>
-        {search.section === undefined && (
+        {isMobile && search.section === undefined && (
           <ThreadGuideMerge pr={guidePr} canMerge={permissions.isMember} />
         )}
       </div>
@@ -328,11 +450,12 @@ function ThreadScreen({
     body = (
       <ConversationBody
         teamId={team.id}
-        teamSlug={teamSlug}
         view={view}
         users={users as User[]}
         canReply={permissions.isMember}
         busy={root.busy}
+        onOpenSession={openSession}
+        topInset={topInset}
       />
     )
   }
@@ -343,14 +466,23 @@ function ThreadScreen({
       <ThreadGuideMenu pr={guidePr} canClose={permissions.isMember} className={className} />
     ) : null
 
+  // EXP-1316: the title is derived (`threadTitle`), never renamed.
   const title = (
-    <ThreadTitle
-      sessionId={root.id}
-      title={view.title}
-      stored={root.title}
-      isPrivate={view.private}
-      canRename={permissions.isMember}
-    />
+    <div className="flex min-w-0 items-center gap-2">
+      <h1
+        data-testid="thread-title"
+        className="min-w-0 truncate text-2xl font-semibold tracking-tight"
+      >
+        {view.title}
+      </h1>
+      {view.private && (
+        <PrivateIcon
+          aria-label="Private"
+          data-testid="thread-private"
+          className="size-4 shrink-0 text-muted-foreground"
+        />
+      )}
+    </div>
   )
 
   const issueMenus = {
@@ -375,11 +507,22 @@ function ThreadScreen({
     },
   }
 
+  if (isMobile && tab.kind === `session` && focused) {
+    // Phones push the session's own screen (its back header leads to the
+    // thread's Conversation).
+    return <SessionScreen key={focused.id} teamSlug={teamSlug} row={focused} />
+  }
+
   if (isMobile) {
     return (
       <MenuGestureHost menus={issueMenus}>
-        <div className="flex h-dvh min-h-0 flex-col" data-testid="thread-page">
+        {/* EXP-1316: THE detail chrome — the header band (blur, scrim, edge
+            fade) floats OVER the body, which scrolls under it; every body's
+            scroller pads its top by the band's measured height. */}
+        <div className={MOBILE_DETAIL_SCREEN_CLASS} data-testid="thread-page">
           <MobileDetailHeader
+            overlay
+            ref={headerRef}
             title={
               <span className="flex min-w-0 items-center gap-1.5">
                 <span className="truncate">{view.title}</span>
@@ -407,8 +550,12 @@ function ThreadScreen({
     <MenuGestureHost menus={issueMenus}>
       <div className="flex h-full min-h-0 flex-col" data-testid="thread-page">
         <div className="shrink-0 border-b border-border px-6 pt-6 pb-3 md:px-10">
-          <div className="flex items-start gap-3">
+          <div className="flex items-center gap-3">
             <div className="min-w-0 flex-1">{title}</div>
+            <ThreadGuideMerge pr={guidePr} canMerge={permissions.isMember} placement="header" />
+            {focused && focused.status !== `ended` && tab.kind === `session` && (
+              <SessionStopPill sessionId={focused.id} />
+            )}
             {guideMenu(`shrink-0 text-muted-foreground`)}
           </div>
           <div className="mt-4">{tabs}</div>
@@ -422,21 +569,24 @@ function ThreadScreen({
 
 function ConversationBody({
   teamId,
-  teamSlug,
   view,
   users,
   canReply,
   busy,
+  onOpenSession,
+  topInset = 0,
 }: {
   teamId: string
-  teamSlug: string
   view: SessionThreadView
   users: User[]
   canReply: boolean
   /** The ROOT's busy: Stop stops the root, so a busy child never shows it. */
   busy: boolean
+  /** A session card opens that session in place (EXP-1316). */
+  onOpenSession: (sessionId: string) => void
+  /** Phones: the overlay header band's height (the scroller pads by it). */
+  topInset?: number
 }) {
-  const navigate = useNavigate()
   const messages = useSessionMessages(view.rootId)
   const messagesById = useMemo(
     () => new Map(messages.map((message: MessageRow) => [message.id, message])),
@@ -444,11 +594,43 @@ function ConversationBody({
   )
   const usersById = useMemo(() => new Map(users.map((user) => [user.id, user])), [users])
   const { answer, pending } = useAnswerMessage()
+  const unqueue = useUnqueueMessage()
+  const { data: session } = useSession()
+  // EXP-1316 (1n): the session feed's scroll — opens at the newest row,
+  // follows while pinned, THE jump button once scrolled up.
+  const follow = useFollowScroll([view.rows])
+  const isMobile = useIsMobile()
+  const composer = canReply ? (
+    <SessionComposer
+      teamId={teamId}
+      sessionId={view.composer.sessionId}
+      placeholder={view.composer.placeholder}
+      users={users}
+      busy={busy}
+      canStop
+      opaque={isMobile}
+      testId="thread-composer"
+      className="mx-auto max-w-3xl"
+    />
+  ) : null
 
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-        <div className="mx-auto w-full max-w-3xl px-4 pt-8 pb-8 md:px-6">
+      <div className="relative min-h-0 flex-1">
+      <div
+        ref={follow.scrollRef}
+        onScroll={follow.onScroll}
+        data-testid="thread-scroll"
+        className="h-full overflow-y-auto overscroll-contain"
+        style={topInset ? { paddingTop: topInset } : undefined}
+      >
+        <div
+          ref={follow.contentRef}
+          className={cn(
+            `mx-auto w-full max-w-3xl px-4 pt-8 pb-8 md:px-6`,
+            isMobile && composer && FLOATING_COMPOSER_CLEARANCE
+          )}
+        >
           <ThreadConversation
             rows={view.rows}
             renderText={renderThreadText}
@@ -461,32 +643,32 @@ function ConversationBody({
               })
               return row.queued ? [caption, `queued`].filter(Boolean).join(` · `) : caption
             }}
-            onOpenSession={(sessionId) =>
-              void navigate({
-                to: `/t/$teamSlug/sessions/$sessionId`,
-                params: { teamSlug, sessionId },
-              })
-            }
-            onAnswer={canReply ? (id, value) => void answer(id, { answer: value }) : undefined}
-            onDecide={canReply ? (id, decision) => void answer(id, { decision }) : undefined}
+            onOpenSession={onOpenSession}
+            onAnswer={canReply ? (id, input) => void answer(id, input) : undefined}
+            onDecide={canReply ? (id, input) => void answer(id, input) : undefined}
             pending={pending}
+            viewerId={session?.user?.id ?? null}
+            onUnqueue={(id) => void unqueue(id)}
           />
         </div>
       </div>
-      {canReply && (
-        <div className="shrink-0 px-4 pt-2 pb-4 md:px-6">
-          <SessionComposer
-            teamId={teamId}
-            sessionId={view.composer.sessionId}
-            placeholder={view.composer.placeholder}
-            users={users}
-            busy={busy}
-            canStop
-            testId="thread-composer"
-            className="mx-auto max-w-3xl"
-          />
-        </div>
-      )}
+      <JumpToBottomButton
+        visible={!follow.atBottom && view.rows.length > 0}
+        className={cn(
+          `absolute left-1/2 z-10 -translate-x-1/2`,
+          isMobile && composer ? `bottom-[calc(5.5rem+env(safe-area-inset-bottom))]` : `bottom-3`
+        )}
+        onClick={follow.jumpToBottom}
+      />
+      </div>
+      {/* EXP-1316: phones reply through THE floating composer capsule;
+          md+ keeps the in-flow Composer box. */}
+      {composer &&
+        (isMobile ? (
+          <FloatingComposer placeholder={view.composer.placeholder}>{composer}</FloatingComposer>
+        ) : (
+          <div className="shrink-0 px-4 pt-2 pb-4 md:px-6">{composer}</div>
+        ))}
     </div>
   )
 }

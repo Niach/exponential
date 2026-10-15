@@ -165,6 +165,7 @@ import com.exponential.app.ui.components.BarCapsule
 import com.exponential.app.ui.components.BarCircle
 import com.exponential.app.ui.components.ContextRing
 import com.exponential.app.ui.components.FloatingBottomBar
+import com.exponential.app.ui.components.FloatingComposer
 import com.exponential.app.ui.components.modelLabel
 import com.exponential.app.ui.components.modelOptionsFor
 import androidx.lifecycle.Lifecycle
@@ -245,6 +246,7 @@ import com.exponential.app.domain.agentWorking
 import com.exponential.app.domain.askComplete
 import com.exponential.app.domain.BACK_TO_CURRENT_STEP_LABEL
 import com.exponential.app.domain.FREE_TEXT_ANSWER_PLACEHOLDER
+import com.exponential.app.domain.withFreeTextRow
 import com.exponential.app.domain.PLAN_FEEDBACK_PLACEHOLDER
 import com.exponential.app.domain.collectSubagents
 import com.exponential.app.domain.projectLaneRows
@@ -2208,6 +2210,18 @@ private fun ActivityFeed(
     LaunchedEffect(bottomInset) {
         if (follow) listState.scrollBy(1_000_000f)
     }
+    // EXP-1316: a follower sits on the TRUE end whatever moved it off: the
+    // newest row growing after its first layout (a card's markdown, a late
+    // option row) or the pinned band (the Tasks panel, the composer)
+    // changing height. Whenever the list could still scroll forward while
+    // following and nobody drags, it re-pins, so the newest row always
+    // clears what is pinned at the bottom.
+    val followState = rememberUpdatedState(follow)
+    LaunchedEffect(listState) {
+        snapshotFlow {
+            followState.value && !listState.isScrollInProgress && listState.canScrollForward
+        }.collect { behind -> if (behind) listState.scrollBy(1_000_000f) }
+    }
 
     // Only composed once real activity has arrived (the placeholder states are
     // siblings). EXP-1175: the `agent-feed` tag moved to the Run face body.
@@ -2488,7 +2502,8 @@ private fun AnswerCardRow(row: AgentFeedRow, cards: AnswerCards) {
     when (row) {
         is AgentFeedRow.QuestionStepper -> QuestionStepperCard(
             askId = row.askId,
-            steps = row.steps,
+            // EXP-1316: every step offers the free-text answer.
+            steps = remember(row.steps) { row.steps.map { it.withFreeTextRow() } },
             answered = cards.answered,
             activeQuestionIds = cards.activeQuestionIds,
             answerEnabled = cards.answerEnabled,
@@ -2497,7 +2512,9 @@ private fun AnswerCardRow(row: AgentFeedRow, cards: AnswerCards) {
             onAnswer = cards.onAnswer,
         )
         is AgentFeedRow.Single -> {
-            val item = row.item as? AgentFeedItem.Question ?: return
+            val raw = row.item as? AgentFeedItem.Question ?: return
+            // EXP-1316: the free-text answer on every question card.
+            val item = remember(raw) { raw.withFreeTextRow() }
             QuestionCard(
                 item = item,
                 active = item.id in cards.activeQuestionIds,
@@ -2517,7 +2534,7 @@ private fun AnswerCardRow(row: AgentFeedRow, cards: AnswerCards) {
  *  screen. */
 
 
-private fun LazyListState.isNearBottom(slackPx: Float): Boolean {
+internal fun LazyListState.isNearBottom(slackPx: Float): Boolean {
     val info = layoutInfo
     val last = info.visibleItemsInfo.lastOrNull() ?: return true
     if (last.index < info.totalItemsCount - 1) return false
@@ -3515,7 +3532,7 @@ internal fun AskCard(
 // field in place of the composer, and an answered step of an open ask
 // re-opens for a new answer ([editing]).
 @Composable
-private fun QuestionCard(
+internal fun QuestionCard(
     item: AgentFeedItem.Question,
     /** Still answerable per the feed — the session is blocked on this card. */
     active: Boolean,
@@ -4722,136 +4739,49 @@ private fun SteerComposer(
     // always allowed while the stream is down, the message just waits for it
     // to come back (EXP-621), and the placeholder says so.
     val placeholder = if (live) STEER_COMPOSER_PLACEHOLDER else "$STEER_COMPOSER_PLACEHOLDER (reconnecting…)"
-    // A draft that arrives from outside — a restored one, a `/` menu pick, an
-    // image just attached — has to be seen, so it opens the card. Keyed on the
-    // TEXT: a caret move is not a reason to re-run this.
-    LaunchedEffect(value.text, pendingImages.size) {
-        if (!expanded && (value.text.isNotBlank() || pendingImages.isNotEmpty())) {
-            onExpandedChange(true)
-        }
-    }
-    // Collapse-on-blur (IssueDetailBottomBar's rule): only once the field has
-    // HAD focus and lost it with the keyboard fully down, after a ~200ms quiet
-    // period, only with an empty draft and no queued image (never lose one),
-    // and only while resumed (the photo picker backgrounds the activity).
-    var fieldFocused by remember { mutableStateOf(false) }
-    // EXP-931: a menu opened from INSIDE this composer — the model picker —
-    // portals itself out and takes focus with it. That is not the reader
-    // leaving the composer, so neither collapse rule below may fire on it: the
-    // trigger would unmount under its own open menu. Keyed per menu (`model`),
-    // so one closing never clears another's guard.
-    var innerMenus by remember { mutableStateOf(emptySet<String>()) }
-    val innerMenuState = rememberUpdatedState(innerMenus.isNotEmpty())
-    val imeVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
-    val imeVisibleState = rememberUpdatedState(imeVisible)
-    val draftState = rememberUpdatedState(value.text)
-    val pendingState = rememberUpdatedState(pendingImages)
-    val workingState = rememberUpdatedState(working)
-    val lifecycle = LocalLifecycleOwner.current.lifecycle
-    LaunchedEffect(expanded) {
-        if (!expanded) return@LaunchedEffect
-        var hadFocus = false
-        snapshotFlow { fieldFocused to imeVisibleState.value }.collectLatest { (focused, ime) ->
-            if (focused) {
-                hadFocus = true
-                return@collectLatest
-            }
-            if (!hadFocus || ime) return@collectLatest
-            delay(200)
-            val empty = draftState.value.isBlank() && pendingState.value.isEmpty()
-            if (empty && !innerMenuState.value &&
-                lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
-            ) {
-                onExpandedChange(false)
-            }
-        }
-    }
-    // EXP-931: once the agent picks the turn up, an expanded composer with
-    // nothing in it and nobody typing in it is just a lid over the work bar —
-    // it stands down so the bar, and the circle on it, come back. A
-    // focused field, a draft, a pending image or one of this composer's own
-    // menus all keep it open; the moment the reader taps the capsule (or a
-    // draft arrives) it expands again.
-    LaunchedEffect(expanded) {
-        if (!expanded) return@LaunchedEffect
-        // The blur rule's latch, here too: "nobody typing in it" is only
-        // true of a composer somebody has REACHED. One whose auto-focus never
-        // landed (a hardware keyboard, a node not yet placed) is not snapped
-        // shut 200ms after opening.
-        var hadFocus = false
-        snapshotFlow {
-            val idle = workingState.value && !fieldFocused && !imeVisibleState.value &&
-                draftState.value.isBlank() && pendingState.value.isEmpty() &&
-                !innerMenuState.value
-            fieldFocused to idle
-        }.collectLatest { (focused, idle) ->
-            if (focused) hadFocus = true
-            if (!hadFocus || !idle) return@collectLatest
-            delay(200)
-            if (lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
-                onExpandedChange(false)
-            }
-        }
-    }
-    // EXP-523: `transitionSpec` is a plain lambda, not a composable one, so the
-    // reduce-motion flag is read here and captured.
-    val reduceMotion = LocalReduceMotion.current
-    AnimatedContent(
-        targetState = expanded,
-        transitionSpec = {
-            val spec = Motion.slow<Float>(reduceMotion)
-            (fadeIn(spec) togetherWith fadeOut(spec))
-                .using(SizeTransform(clip = false))
-        },
-        label = "steer-composer",
-        modifier = Modifier.fillMaxWidth(),
-    ) { isExpanded ->
-        if (isExpanded) {
-            ExpandedSteerComposer(
-                value = value,
-                onValueChange = onValueChange,
-                onValueRewrite = onValueRewrite,
-                fieldModifier = fieldModifier.onFocusChanged { fieldFocused = it.isFocused },
-                placeholder = placeholder,
-                pendingImages = pendingImages,
-                sending = sending,
-                live = live,
-                working = working,
-                onInterrupt = onInterrupt,
-                onPickImages = onPickImages,
-                onRemoveImage = onRemoveImage,
-                onSend = onSend,
-                planMode = planMode,
-                model = model,
-                modelPickable = modelPickable,
-                onPickModel = onPickModel,
-                contextPercent = contextPercent,
-                hasUsage = hasUsage,
-                onOpenUsage = onOpenUsage,
-                onMenuOpenChange = { id, open -> innerMenus = if (open) innerMenus + id else innerMenus - id },
-            )
+    // EXP-1316: the fold / expand / collapse-on-blur machinery is THE
+    // [FloatingComposer] the thread wears too; this keeps the steer card.
+    // EXP-893: the folded composer IS the Work screen's bar — the usage ring
+    // on the left (when there is anything behind it), the placeholder capsule
+    // that opens the card, the host's circle on the right.
+    FloatingComposer(
+        expanded = expanded,
+        onExpandedChange = onExpandedChange,
+        placeholder = placeholder,
+        hasDraft = value.text.isNotBlank() || pendingImages.isNotEmpty(),
+        working = working,
+        capsuleTestTag = "steer-composer-capsule",
+        left = if (hasUsage) {
+            { BarCircle(onClick = onOpenUsage) { ContextRing(percent = contextPercent) } }
         } else {
-            // EXP-893: the folded composer IS the Work screen's bar — the
-            // usage ring on the left (when there is anything behind it), the
-            // placeholder capsule that opens the card, the host's circle on
-            // the right. The old separate Stop circle went: interrupting is
-            // the expanded composer's stop glyph.
-            FloatingBottomBar(
-                left = if (hasUsage) {
-                    { BarCircle(onClick = onOpenUsage) { ContextRing(percent = contextPercent) } }
-                } else {
-                    null
-                },
-                right = trailing,
-                afterCentre = merge,
-            ) {
-                BarCapsule(
-                    label = placeholder,
-                    onClick = { onExpandedChange(true) },
-                    modifier = Modifier.testTag("steer-composer-capsule"),
-                )
-            }
-        }
+            null
+        },
+        right = trailing,
+        afterCentre = merge,
+    ) {
+        ExpandedSteerComposer(
+            value = value,
+            onValueChange = onValueChange,
+            onValueRewrite = onValueRewrite,
+            fieldModifier = fieldModifier.then(this.fieldModifier),
+            placeholder = placeholder,
+            pendingImages = pendingImages,
+            sending = sending,
+            live = live,
+            working = working,
+            onInterrupt = onInterrupt,
+            onPickImages = onPickImages,
+            onRemoveImage = onRemoveImage,
+            onSend = onSend,
+            planMode = planMode,
+            model = model,
+            modelPickable = modelPickable,
+            onPickModel = onPickModel,
+            contextPercent = contextPercent,
+            hasUsage = hasUsage,
+            onOpenUsage = onOpenUsage,
+            onMenuOpenChange = onMenuOpenChange,
+        )
     }
 }
 

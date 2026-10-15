@@ -1,11 +1,24 @@
-import type { ComponentProps, ReactNode } from "react"
-import type { ThreadRow } from "@exp/domain-contract/session-tree"
+import {
+  useLayoutEffect,
+  useRef,
+  type ComponentProps,
+  type ComponentType,
+  type ReactNode,
+} from "react"
+import type { SessionTabMarkState, ThreadRow } from "@exp/domain-contract/session-tree"
+import { AgentRunMark, type RunMarkState } from "./agent-brand-mark"
+import { ASK_CARD_COPY, AskCard, AskPrompt, type AskOption } from "./ask-card"
 import { Button } from "./button"
 import { cn } from "./cn"
+import { stripTabClass } from "./entity-chip"
 import { ListRow } from "./glass-rows"
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "./hover-card"
+import { SessionRow, SessionRowDevice } from "./session-row"
+import { treeGuides } from "./tree-guides"
 import { conceptIcon } from "./icons.generated"
+import { Tooltip, TooltipContent, TooltipTrigger } from "./tooltip"
 import { UserMessageBubble } from "./user-message-bubble"
-import { SessionCard } from "./work-card"
+import { SESSION_CARD_TONE, SessionCard } from "./work-card"
 
 // EXP-1293 Threads v2: the THREAD screen's presentational parts ×web (the
 // styleguide paints these same components). The model is the contract's
@@ -19,30 +32,23 @@ import { SessionCard } from "./work-card"
 //   ThreadConversation   the conversation rows: messages (a person's bubble
 //                        right, the agent's markdown, system lines muted),
 //                        THE session card per session, question and plan
-//                        cards answered IN the card, subagent / picture /
-//                        event lines
-//   ThreadsListItem      a Threads list row: lead glyph, the first issue's
-//                        identifier, the title, ONE quiet word or a lock
+//                        cards = THE session view's card (`ask-card.tsx`,
+//                        EXP-1316) answered IN the card, a person's own
+//                        queued row with its X (EXP-1317), subagent /
+//                        picture / event lines
+//   ThreadsListItem      a Threads list row: lead glyph, the title, ONE
+//                        quiet word and the lock (private)
 //   ChannelMessageRow    an agent channel's comment-style row
 
 const ConversationIcon = conceptIcon(`action-chat`)
 const GuideIcon = conceptIcon(`guide-changes`)
 const AddIcon = conceptIcon(`ui-add`)
-const QuestionIcon = conceptIcon(`coding-needs-input`)
-const PlanIcon = conceptIcon(`coding-plan`)
+const CloseIcon = conceptIcon(`ui-close`)
 const SubagentIcon = conceptIcon(`coding-subagent`)
 const PrivateIcon = conceptIcon(`ui-private`)
 
-const TAB_CLASS = `h-8 min-w-0 shrink-0 gap-1.5 rounded-md border px-2.5 text-sm font-normal`
-
-function tabClass(active: boolean): string {
-  return cn(
-    TAB_CLASS,
-    active
-      ? `border-glass-stroke-strong bg-glass-active text-foreground hover:bg-glass-active`
-      : `border-transparent text-muted-foreground hover:text-foreground`
-  )
-}
+// EXP-1316: THE strip tab box, shared with the issue chips' `tab` size.
+const tabClass = stripTabClass
 
 /** The add tab's accessible name (copy never says "thread"). */
 export const THREAD_TABS_ADD_LABEL = `Link an issue`
@@ -51,6 +57,7 @@ export function ThreadTabs({
   conversation,
   issues,
   add,
+  sessions,
   guide,
   variant = `bar`,
   className,
@@ -61,20 +68,44 @@ export function ThreadTabs({
   issues: readonly ReactNode[]
   /** The "+" (a Menu around `ThreadTabsAddButton`); absent = read-only. */
   add?: ReactNode
+  /** EXP-1316: the session chips group (`ThreadSessionGroup`) after the
+   *  "+": md+ with a divider either side; the pager without. */
+  sessions?: ReactNode
   guide: { label: string; active: boolean; dot: boolean; onSelect: () => void }
   /** `bar` = md+ under the title; `pager` = the phones' tabs. */
   variant?: `bar` | `pager`
   className?: string
 }) {
   const pager = variant === `pager`
+  // EXP-1316: ONE horizontally scrolling row; no chip ever shrinks, and the
+  // active one is scrolled into view.
+  const stripRef = useRef<HTMLDivElement | null>(null)
+  const shownRef = useRef<Element | null>(null)
+  useLayoutEffect(() => {
+    // Only when the active tab CHANGES: a reader's own scroll stays put.
+    const active = stripRef.current?.querySelector(`[aria-selected="true"]`) ?? null
+    if (active === shownRef.current) return
+    shownRef.current = active
+    if (active && typeof (active as HTMLElement).scrollIntoView === `function`) {
+      ;(active as HTMLElement).scrollIntoView({ block: `nearest`, inline: `nearest` })
+    }
+  })
   return (
     <div
+      ref={stripRef}
       data-testid="thread-tabs"
       data-variant={variant}
       role="tablist"
-      className={cn(`flex min-w-0 items-center gap-1`, className)}
+      className={cn(
+        `flex min-w-0 items-center gap-1 overflow-x-auto [scrollbar-width:none]`,
+        // Phones: nothing shrinks, the pager scrolls. md+: the issue chips
+        // shrink first (`IssueChip size="tab"`, weighted 4×), then the
+        // session chips; Conversation, +, Guide keep their natural width; the
+        // strip scrolls only past every floor.
+        pager && `[&>*]:shrink-0`,
+        className
+      )}
     >
-      <div className="flex min-w-0 items-center gap-1 overflow-x-auto [scrollbar-width:none]">
         <Button
           type="button"
           variant="ghost"
@@ -91,8 +122,13 @@ export function ThreadTabs({
           <span aria-hidden className="mx-1 h-4 w-px shrink-0 bg-border" />
         )}
         {issues}
-      </div>
       {add}
+      {sessions && (
+        <>
+          {!pager && <span aria-hidden className="mx-1 h-4 w-px shrink-0 bg-border" />}
+          {sessions}
+        </>
+      )}
       {!pager && <span aria-hidden className="mx-1 h-4 w-px shrink-0 bg-border" />}
       <Button
         type="button"
@@ -117,6 +153,169 @@ export function ThreadTabs({
   )
 }
 
+/** A session chip's mark state ×4 (`sessionTabMarkState`) in the run
+ *  marks' words (waiting = the bare mark). */
+export function sessionTabRunMark(state: SessionTabMarkState): RunMarkState | undefined {
+  if (state === `needs_you`) return `needs_input`
+  if (state === `working`) return `working`
+  if (state === `ended`) return `ended`
+  return undefined
+}
+
+/** EXP-1316: ONE session chip of the strip ×4: the agent's mark (its state)
+ *  and the name; muted at rest, the tab box when it is the open session
+ *  (phones: bordered, `bordered`). */
+export function ThreadSessionTab({
+  agent,
+  markState,
+  name,
+  active,
+  onSelect,
+  bordered = false,
+}: {
+  agent: string | null
+  markState: SessionTabMarkState
+  name: string
+  active: boolean
+  onSelect: () => void
+  /** The phones' pager chip: a bordered rect at the tab's height, like the
+   *  issue chips there. */
+  bordered?: boolean
+}) {
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      role="tab"
+      aria-selected={active}
+      data-testid="thread-tab-session"
+      className={cn(
+        stripTabClass(active, bordered),
+        // md+: after the issue chips reached their floor the session chips
+        // give way too (the name truncates, never below 6rem); the pager
+        // never shrinks anything.
+        `max-w-[11rem]`,
+        !bordered && `min-w-[6rem] shrink`
+      )}
+      onClick={onSelect}
+    >
+      <AgentRunMark
+        agent={agent}
+        state={sessionTabRunMark(markState)}
+        ringClassName="ring-background"
+        className="size-3.5"
+      />
+      <span className="min-w-0 truncate">{name}</span>
+    </Button>
+  )
+}
+
+export interface ThreadTreeRow {
+  sessionId: string
+  parentId: string | null
+  name: string
+  agent: string | null
+  markState: SessionTabMarkState
+  /** The session card's state word (`kindWord`) and its tone. */
+  stateWord?: string
+  stateTone?: string
+}
+
+/** Depth-first (children in the given order) with each row's depth. */
+export function threadTreeRows(
+  rows: readonly ThreadTreeRow[]
+): { row: ThreadTreeRow; depth: number }[] {
+  const ids = new Set(rows.map((row) => row.sessionId))
+  const children = new Map<string | null, ThreadTreeRow[]>()
+  for (const row of rows) {
+    const parent = row.parentId && ids.has(row.parentId) ? row.parentId : null
+    const list = children.get(parent) ?? []
+    list.push(row)
+    children.set(parent, list)
+  }
+  const out: { row: ThreadTreeRow; depth: number }[] = []
+  const walk = (parent: string | null, depth: number) => {
+    for (const row of children.get(parent) ?? []) {
+      out.push({ row, depth })
+      walk(row.sessionId, depth + 1)
+    }
+  }
+  walk(null, 0)
+  return out
+}
+
+/** EXP-1316: the session tree popover's body: the WHOLE tree as
+ *  `SessionRow size="small"` rows with their guides, the open one washed. */
+export function ThreadSessionTree({
+  rows,
+  activeId,
+  onOpen,
+}: {
+  rows: readonly ThreadTreeRow[]
+  activeId: string | null
+  onOpen: (sessionId: string) => void
+}) {
+  const ordered = threadTreeRows(rows)
+  const guides = treeGuides(ordered.map((entry) => entry.depth))
+  return (
+    <div data-testid="thread-session-tree" className="flex flex-col">
+      {ordered.map(({ row, depth }, index) => (
+        <SessionRow
+          key={row.sessionId}
+          size="small"
+          agent={row.agent}
+          markState={sessionTabRunMark(row.markState)}
+          title={row.name}
+          trailing={
+            row.stateWord ? (
+              <span
+                data-slot="thread-session-tree-word"
+                className={cn(
+                  `shrink-0 text-muted-foreground`,
+                  row.stateTone && SESSION_CARD_TONE[row.stateTone]
+                )}
+              >
+                {row.stateWord}
+              </span>
+            ) : undefined
+          }
+          depth={depth}
+          guide={guides[index]}
+          active={row.sessionId === activeId}
+          ringClassName="ring-popover"
+          data-testid="thread-session-tree-row"
+          onClick={() => onOpen(row.sessionId)}
+        />
+      ))}
+    </div>
+  )
+}
+
+/** The session chips as ONE group; on a pointer, hovering it opens the
+ *  tree popover (`tree`). */
+export function ThreadSessionGroup({
+  children,
+  tree,
+}: {
+  children: ReactNode
+  tree?: ReactNode
+}) {
+  const group = (
+    <div data-testid="thread-session-group" className="flex min-w-0 shrink items-center gap-1">
+      {children}
+    </div>
+  )
+  if (!tree) return group
+  return (
+    <HoverCard openDelay={250}>
+      <HoverCardTrigger asChild>{group}</HoverCardTrigger>
+      <HoverCardContent align="end" className="w-80 p-1.5">
+        {tree}
+      </HoverCardContent>
+    </HoverCard>
+  )
+}
+
 /** The strip's "+" (the host wraps it in its Menu). */
 export function ThreadTabsAddButton(props: ComponentProps<typeof Button>) {
   return (
@@ -135,11 +334,6 @@ export function ThreadTabsAddButton(props: ComponentProps<typeof Button>) {
   )
 }
 
-/** An issue chip's class in the strip: the active one wears the tab box. */
-export function threadTabChipClass(active: boolean): string {
-  return cn(`shrink-0 max-w-[11rem]`, active && `ring-1 ring-glass-stroke-strong bg-glass-active`)
-}
-
 export interface ThreadConversationProps {
   rows: readonly ThreadRow[]
   /** The app's GFM renderer (agent text, a person's bubble, a plan). */
@@ -149,14 +343,22 @@ export interface ThreadConversationProps {
   attachmentSrc: (attachmentId: string) => string
   /** A session card was tapped (its raw view). */
   onOpenSession?: (sessionId: string) => void
-  /** A question card's option (absent = read-only). */
-  onAnswer?: (rowId: string, answer: string) => void
-  /** A plan card's decision (absent = read-only). */
-  onDecide?: (rowId: string, decision: `approved` | `rejected`) => void
+  /** A question card's answer: an option or the typed free text (absent =
+   *  read-only). */
+  onAnswer?: (rowId: string, input: { answer: string }) => void
+  /** A plan card's decision + the reject's note (absent = read-only). */
+  onDecide?: (rowId: string, input: { decision: `approved` | `rejected`; feedback?: string }) => void
   /** The rows whose answer is in flight. */
   pending?: ReadonlySet<string>
+  /** The viewer: their OWN queued rows carry the Remove from queue X. */
+  viewerId?: string | null
+  /** EXP-1317: revoke a queued row (absent = no X). */
+  onUnqueue?: (rowId: string) => void
   className?: string
 }
+
+/** EXP-1317: the queued row's X (tooltip + accessible name). */
+export const THREAD_UNQUEUE_LABEL = `Remove from queue`
 
 export function ThreadConversation({
   rows,
@@ -167,6 +369,8 @@ export function ThreadConversation({
   onAnswer,
   onDecide,
   pending,
+  viewerId,
+  onUnqueue,
   className,
 }: ThreadConversationProps) {
   return (
@@ -175,12 +379,14 @@ export function ThreadConversation({
         switch (row.type) {
           case `message`:
             if (row.author === `user`) {
+              const own = row.queued && onUnqueue && viewerId && row.authorId === viewerId
               return (
                 <UserMessageBubble
                   key={row.id}
                   text={row.body}
                   renderText={renderText}
                   caption={messageCaption?.(row) ?? null}
+                  action={own ? <UnqueueButton onClick={() => onUnqueue(row.id)} /> : undefined}
                 />
               )
             }
@@ -210,21 +416,22 @@ export function ThreadConversation({
             )
           case `question`:
             return (
-              <QuestionCard
-                key={row.id}
-                row={row}
-                busy={pending?.has(row.id) ?? false}
-                onAnswer={onAnswer ? (answer) => onAnswer(row.id, answer) : undefined}
-              />
-            )
-          case `plan`:
-            return (
-              <PlanCard
+              <ThreadQuestionCard
                 key={row.id}
                 row={row}
                 renderText={renderText}
                 busy={pending?.has(row.id) ?? false}
-                onDecide={onDecide ? (decision) => onDecide(row.id, decision) : undefined}
+                onAnswer={onAnswer ? (answer) => onAnswer(row.id, { answer }) : undefined}
+              />
+            )
+          case `plan`:
+            return (
+              <ThreadPlanCard
+                key={row.id}
+                row={row}
+                renderText={renderText}
+                busy={pending?.has(row.id) ?? false}
+                onDecide={onDecide ? (input) => onDecide(row.id, input) : undefined}
               />
             )
           case `subagent`:
@@ -274,47 +481,70 @@ export function ThreadConversation({
   )
 }
 
-const CARD_CLASS = `flex flex-col gap-3 rounded-xl border border-glass-stroke-strong bg-glass-row p-4`
+/** The queued row's X: ghost icon-xs, THE tooltip (Radix drops it with the
+ *  trigger, so it never outlives the row flipping to consumed). */
+function UnqueueButton({ onClick }: { onClick: () => void }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-xs"
+          aria-label={THREAD_UNQUEUE_LABEL}
+          data-testid="thread-unqueue"
+          className="shrink-0 text-muted-foreground hover:text-foreground"
+          onClick={onClick}
+        >
+          <CloseIcon className="size-3" />
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>{THREAD_UNQUEUE_LABEL}</TooltipContent>
+    </Tooltip>
+  )
+}
 
-function QuestionCard({
+/** The free-text row's key (never an option value). */
+const FREE_TEXT_KEY = `free-text`
+
+/** EXP-1316: a question row = THE session view's card (`AskCard` +
+ *  `AskPrompt`): its options, the free-text row (`custom`), closed once
+ *  answered. */
+function ThreadQuestionCard({
   row,
+  renderText,
   busy,
   onAnswer,
 }: {
   row: Extract<ThreadRow, { type: `question` }>
+  renderText: (text: string) => ReactNode
   busy: boolean
   onAnswer?: (answer: string) => void
 }) {
-  const open = !row.answered && onAnswer !== undefined
+  const options: AskOption[] = [
+    // EXP-1322: label + description like the session view's card; the
+    // answer names the option by its label.
+    ...row.options.map((option, index) => ({
+      key: `${index}:${option.label}`,
+      label: option.label,
+      ...(option.description ? { description: option.description } : {}),
+    })),
+    ...(row.custom ? [{ key: FREE_TEXT_KEY, label: ASK_CARD_COPY.freeTextRow, freeText: true }] : []),
+  ]
   return (
-    <div data-slot="thread-question" data-answered={row.answered || undefined} className={CARD_CLASS}>
-      <div className="flex items-start gap-2">
-        <QuestionIcon className="mt-0.5 size-4 shrink-0 text-amber-400" />
-        <p className="min-w-0 text-sm text-foreground">{row.question}</p>
-      </div>
-      {row.answered ? (
-        row.answer && <p className="pl-6 text-sm text-muted-foreground">{row.answer}</p>
-      ) : (
-        <div className="flex flex-col gap-1.5 pl-6">
-          {row.options.map((option, index) => (
-            <Button
-              key={`${index}-${option}`}
-              type="button"
-              variant="outline"
-              disabled={!open || busy}
-              data-testid="thread-question-option"
-              className="h-auto justify-between gap-3 rounded-lg px-3 py-2 text-left font-normal whitespace-normal"
-              onClick={() => onAnswer?.(option)}
-            >
-              <span className="min-w-0">{option}</span>
-              <span className="flex size-5 shrink-0 items-center justify-center rounded-full border border-glass-stroke text-[0.6875rem] text-muted-foreground tabular-nums">
-                {index + 1}
-              </span>
-            </Button>
-          ))}
-        </div>
-      )}
-    </div>
+    <AskCard data-slot="thread-question" data-answered={row.answered || undefined}>
+      <div className="text-sm text-foreground/90">{renderText(row.question)}</div>
+      <AskPrompt
+        options={options}
+        answerable={!row.answered && onAnswer !== undefined}
+        locked={busy ? { labels: [] } : null}
+        resolved={row.answered ? { answer: row.answer } : null}
+        onAnswer={(_keys, labels, text) => {
+          const answer = text ?? labels[0]
+          if (answer) onAnswer?.(answer)
+        }}
+      />
+    </AskCard>
   )
 }
 
@@ -326,7 +556,9 @@ export const THREAD_PLAN_COPY = {
   rejected: `Rejected`,
 } as const
 
-function PlanCard({
+/** EXP-1316: a plan row = THE session view's plan card: the plan in full,
+ *  Approve (primary) / Reject (opens the note field), closed once decided. */
+function ThreadPlanCard({
   row,
   renderText,
   busy,
@@ -335,55 +567,55 @@ function PlanCard({
   row: Extract<ThreadRow, { type: `plan` }>
   renderText: (text: string) => ReactNode
   busy: boolean
-  onDecide?: (decision: `approved` | `rejected`) => void
+  onDecide?: (input: { decision: `approved` | `rejected`; feedback?: string }) => void
 }) {
   const decided = row.decision === `approved` || row.decision === `rejected`
   return (
-    <div data-slot="thread-plan" data-decision={row.decision ?? undefined} className={CARD_CLASS}>
-      <div className="flex items-start gap-2">
-        <PlanIcon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-        <div className="min-w-0 flex-1 text-sm">{renderText(row.plan)}</div>
-      </div>
-      {decided ? (
-        <p className="pl-6 text-xs text-muted-foreground">
-          {row.decision === `approved` ? THREAD_PLAN_COPY.approved : THREAD_PLAN_COPY.rejected}
-        </p>
-      ) : (
-        onDecide && (
-          <div className="flex gap-2 pl-6">
-            <Button
-              type="button"
-              size="sm"
-              disabled={busy}
-              data-testid="thread-plan-approve"
-              onClick={() => onDecide(`approved`)}
-            >
-              {THREAD_PLAN_COPY.approve}
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              disabled={busy}
-              data-testid="thread-plan-reject"
-              onClick={() => onDecide(`rejected`)}
-            >
-              {THREAD_PLAN_COPY.reject}
-            </Button>
-          </div>
-        )
-      )}
-    </div>
+    <AskCard
+      plan
+      label={ASK_CARD_COPY.planReady}
+      data-slot="thread-plan"
+      data-decision={row.decision ?? undefined}
+    >
+      <div className="text-sm">{renderText(row.plan)}</div>
+      <AskPrompt
+        planMode
+        variant="plan"
+        options={[
+          { key: `approved`, label: THREAD_PLAN_COPY.approve },
+          { key: `rejected`, label: THREAD_PLAN_COPY.reject },
+        ]}
+        answerable={!decided && onDecide !== undefined}
+        locked={busy ? { labels: [] } : null}
+        resolved={
+          decided
+            ? {
+                answer:
+                  row.decision === `approved`
+                    ? THREAD_PLAN_COPY.approved
+                    : THREAD_PLAN_COPY.rejected,
+              }
+            : null
+        }
+        onAnswer={(keys, _labels, text) =>
+          onDecide?.(
+            keys[0] === `rejected`
+              ? { decision: `rejected`, ...(text ? { feedback: text } : {}) }
+              : { decision: `approved` }
+          )
+        }
+      />
+    </AskCard>
   )
 }
 
 export function ThreadsListItem({
   lead,
-  identifier,
   title,
   word,
   wordIcon,
   locked = false,
+  device = null,
   active = false,
   onOpen,
   testId = `threads-row`,
@@ -391,15 +623,16 @@ export function ThreadsListItem({
 }: {
   /** The agent mark / state glyph (spinner busy, amber dot needs you). */
   lead: ReactNode
-  /** The first linked issue's identifier (null = an empty column; absent =
-   *  no column, an agent row). */
-  identifier?: string | null
+  /** The thread title (it names the issue, EXP-1316: no identifier slot). */
   title: string
   /** ONE quiet trailing word (`ready to merge`, `stack`, `merged`). */
   word?: string | null
   wordIcon?: ReactNode
-  /** A private thread: the lock instead of a word. */
+  /** A private thread: the lock after the word (EXP-1318: both). */
   locked?: boolean
+  /** EXP-1318: the ROOT's device, the trailing glyph after the word and the
+   *  lock (its name = tooltip + accessible name); null = none. */
+  device?: { icon: ComponentType<{ className?: string }>; name: string | null } | null
   active?: boolean
   onOpen?: () => void
   testId?: string
@@ -414,29 +647,24 @@ export function ThreadsListItem({
       className={cn(`h-10 gap-2 py-0 pr-3 pl-3 md:h-9`, className)}
     >
       <span className="flex size-3.5 shrink-0 items-center justify-center">{lead}</span>
-      {identifier !== undefined && (
-        <span className="min-w-[4.5rem] shrink-0 font-mono text-xs text-muted-foreground">
-          {identifier ?? ``}
+      <span className="min-w-0 flex-1 truncate text-sm">{title}</span>
+      {word && (
+        <span
+          data-slot="threads-row-word"
+          className="flex shrink-0 items-center gap-1 text-[11.5px] text-muted-foreground"
+        >
+          {wordIcon}
+          {word}
         </span>
       )}
-      <span className="min-w-0 flex-1 truncate text-sm">{title}</span>
-      {locked ? (
+      {locked && (
         <PrivateIcon
           aria-label="Private"
           data-slot="threads-row-lock"
           className="size-3.5 shrink-0 text-muted-foreground"
         />
-      ) : (
-        word && (
-          <span
-            data-slot="threads-row-word"
-            className="flex shrink-0 items-center gap-1 text-[11.5px] text-muted-foreground"
-          >
-            {wordIcon}
-            {word}
-          </span>
-        )
       )}
+      {device && <SessionRowDevice icon={device.icon} name={device.name} />}
     </ListRow>
   )
 }

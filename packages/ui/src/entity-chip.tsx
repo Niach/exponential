@@ -32,6 +32,26 @@ const UiCloseIcon = conceptIcon(`ui-close`)
  *  this class, whatever kind it draws. */
 export const CHIP_GLYPH_CLASS = `!h-[0.875em] !w-[0.875em] shrink-0`
 
+/** EXP-1316: THE strip tab box (the thread header's Conversation / Guide
+ *  tabs, `ThreadTabs`) — the tab size of a chip wears it too, so every chip
+ *  in a strip is one height. Utilities only (no `issue-chip` paint), so the
+ *  active wash wins. */
+export const STRIP_TAB_CLASS = `inline-flex h-8 min-w-0 shrink-0 items-center gap-1.5 rounded-md border px-2.5 text-sm font-normal`
+
+/** The strip tab's state: the active one = the glass wash + strong stroke;
+ *  at rest a tab has no stroke, a chip (`bordered`) keeps its hairline. */
+export function stripTabClass(active: boolean, bordered = false): string {
+  return cn(
+    STRIP_TAB_CLASS,
+    active
+      ? `border-glass-stroke-strong bg-glass-active text-foreground hover:bg-glass-active`
+      : cn(
+          bordered ? `border-glass-stroke` : `border-transparent`,
+          `text-muted-foreground hover:text-foreground`
+        )
+  )
+}
+
 /** The open affordance's box — the same whether it is a button or a link. */
 const CHIP_OPEN_CLASS = `flex min-w-0 cursor-pointer items-center gap-1 rounded-[4px] outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50`
 
@@ -100,12 +120,16 @@ export function ChipBox({
   removeLabel,
   removeDisabled,
   className,
+  box,
   testId,
   removeTestId,
   ...host
 }: {
   /** The `data-slot` a test or a stylesheet keys on. */
   slot: string
+  /** Replace the inline chip box (`issue-chip` paint + layout) — the strip
+   *  tab size (`stripTabClass`). */
+  box?: string
   body: ReactNode
   /** The open affordance's accessible name (`Open EXP-42`). */
   openLabel: string
@@ -127,7 +151,7 @@ export function ChipBox({
       data-removable={onRemove ? `true` : undefined}
       title={tooltip}
       className={cn(
-        `issue-chip inline-flex min-w-0 max-w-[18rem] items-center gap-1 align-middle text-xs`,
+        box ?? `issue-chip inline-flex min-w-0 max-w-[18rem] items-center gap-1 align-middle text-xs`,
         className
       )}
     >

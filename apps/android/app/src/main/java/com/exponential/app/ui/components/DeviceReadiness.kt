@@ -86,8 +86,8 @@ fun DeviceReadinessBlock(
                 },
             )
             OptionGroup {
-                group.rows.forEachIndexed { rowIndex, row ->
-                    if (rowIndex > 0) GroupDivider()
+                // EXP-1320: the readiness rows are a list: no dividers.
+                group.rows.forEach { row ->
                     if (row.isSwitch) {
                         SwitchRow(
                             title = row.label,

@@ -189,6 +189,7 @@ describe(`notifySessionBlocked — the run's owner gets a row and a push that ro
   it(`names the session by its title and pushes the session target`, async () => {
     selectResults.push([{ ...session, title: `Fix login` }])
     selectResults.push([]) // throttle: no recent wall
+    selectResults.push([]) // the root's issues: none, so the stored title names it (EXP-1316)
     selectResults.push([{ id: `owner` }]) // membership guard
     executeState.rows = [{ id: `n-1`, user_id: `owner` }]
     selectResults.push([]) // push prefs: not muted
@@ -213,7 +214,8 @@ describe(`notifySessionBlocked — the run's owner gets a row and a push that ro
     executeState.rows = [{ id: `n-1`, user_id: `owner` }]
     selectResults.push([])
     await notifySessionBlocked(`sess-1`, blocked)
-    expect(vi.mocked(sendToUsers).mock.calls[0]![1].title).toBe(`Login bug hit a rate limit`)
+    // EXP-1316: a thread is named after its work, `Implement <IDENT>`.
+    expect(vi.mocked(sendToUsers).mock.calls[0]![1].title).toBe(`Implement EXP-12 hit a rate limit`)
 
     vi.mocked(sendToUsers).mockClear()
     selectResults.push([{ ...session, actionName: `Triage inbox` }])
@@ -221,7 +223,7 @@ describe(`notifySessionBlocked — the run's owner gets a row and a push that ro
     selectResults.push([{ id: `owner` }])
     selectResults.push([])
     await notifySessionBlocked(`sess-2`, blocked)
-    expect(vi.mocked(sendToUsers).mock.calls[0]![1].title).toBe(`Triage inbox hit a rate limit`)
+    expect(vi.mocked(sendToUsers).mock.calls[0]![1].title).toBe(`Run Triage inbox hit a rate limit`)
   })
 
   it(`writes nothing for an owner who left the team, and never throws`, async () => {

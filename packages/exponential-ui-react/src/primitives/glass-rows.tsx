@@ -176,12 +176,12 @@ const LIST_ROW_INTERACTIVE = `cursor-pointer transition-colors duration-fast out
 // `SidebarMenuButton density="compact"`, which is exactly as tall.
 const LIST_ROW_COMPACT = `h-7 gap-2 px-2 py-0 text-sm`
 
-/** EXP-1076: THE settings ladder — the desktop `surface::list_row` twin. An
- *  entity LIST in settings is a `GlassSectionHeader` band over gapless
- *  `ListRow`s with ONE hairline between each pair and no outer box; form
- *  FIELDS are `GlassGroup`. Settings never use gapped
+/** EXP-1076 / EXP-1320: THE lists ladder — the desktop `surface::list_row`
+ *  twin. An entity LIST is a `GlassSectionHeader` band over FLAT gapless
+ *  `ListRow`s with NO dividers and no outer box; form FIELDS are
+ *  `GlassGroup` (they keep their hairlines). Lists never use gapped
  *  self-bordered `GlassRow` cards. */
-export const SETTINGS_LIST_CLASS = `flex flex-col divide-y divide-glass-stroke`
+export const SETTINGS_LIST_CLASS = `flex flex-col`
 
 /** `ListRow`'s densities: the app's `list`/`compact`, plus the catalog
  *  `Row`'s `default` (= `list`). */

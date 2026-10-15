@@ -137,6 +137,15 @@ pub(crate) fn open_home(window: &mut Window, cx: &mut App) {
     crate::navigation::navigate_to_chat(window, cx, crate::navigation::ChatSeed::default());
 }
 
+/// EXP-1316 (1b): the THREAD root a session opens inside (its tree's root
+/// when that root is a thread); `None` = its own session screen (an agent
+/// channel's session, or a row not synced yet).
+pub(crate) fn in_place_root(session_id: &str, cx: &App) -> Option<String> {
+    crate::session_data::root_of(session_id, cx)
+        .filter(|root| root.is_root() && root.is_thread())
+        .map(|root| root.id)
+}
+
 /// Build a FRESH content view for `screen` (EXP-65 undocked windows). The
 /// panel's own shared single-instance views (re-pointed on tab switch) must
 /// never be moved to another window; a fresh construction also binds the
@@ -786,16 +795,20 @@ fn thread_chip_content(root_id: &str, cx: &App) -> ChipContent {
 }
 
 /// EXP-1294 — a session chip (the tab of its thread, showing the session):
-/// the root's state mark, its first linked issue's identifier in the mono
-/// slot and the thread's title.
+/// the root's state mark and the thread's title. EXP-1316: a THREAD's
+/// session reads the plain thread title (the title names the issue
+/// already); an agent's keeps the identifier slot.
 fn session_chip_content(session_id: &str, cx: &App) -> ChipContent {
     let Some(root) = crate::session_data::root_of(session_id, cx) else {
         return loading_chip(cx);
     };
+    let identifier = (!root.is_thread())
+        .then(|| crate::session_data::first_issue_identifier(&root.id, cx))
+        .flatten()
+        .map(gpui::SharedString::from);
     ChipContent {
         lead: state_lead(&root, cx),
-        identifier: crate::session_data::first_issue_identifier(&root.id, cx)
-            .map(gpui::SharedString::from),
+        identifier,
         title: Some(screen_title(
             &Screen::Thread {
                 session_id: root.id.clone(),
@@ -1390,11 +1403,28 @@ impl ScreensPanel {
                 // ENTRY-OR-INSERT, never a re-point: each session owns its
                 // feed, so re-pointing one view at another row would hand the
                 // new session the old one's socket.
-                self.sessions.entry(session_id.clone()).or_insert_with(|| {
-                    cx.new(|cx| {
-                        crate::session_screen::SessionScreenView::new(session_id, window, cx)
+                let view = self
+                    .sessions
+                    .entry(session_id.clone())
+                    .or_insert_with(|| {
+                        cx.new(|cx| {
+                            crate::session_screen::SessionScreenView::new(session_id.clone(), window, cx)
+                        })
                     })
-                });
+                    .clone();
+                // EXP-1316 (1b): a session of a THREAD opens in place — the
+                // thread's view hosts its transcript under the thread's own
+                // header + strip (an agent channel's keeps its own screen).
+                if let Some(root_id) = in_place_root(&session_id, cx) {
+                    let thread = self
+                        .threads
+                        .entry(root_id.clone())
+                        .or_insert_with(|| {
+                            cx.new(|cx| crate::thread_screen::ThreadScreenView::new(root_id, window, cx))
+                        })
+                        .clone();
+                    thread.update(cx, |thread, cx| thread.set_focus(Some((session_id, view)), cx));
+                }
             }
             Screen::Terminal { tab } => {
                 // EXP-769: the manager's active tab follows the screen (cmd-w
@@ -1406,9 +1436,15 @@ impl ScreensPanel {
             }
             // EXP-1294: entry-or-insert like a session, kept per tree root.
             Screen::Thread { session_id } => {
-                self.threads.entry(session_id.clone()).or_insert_with(|| {
-                    cx.new(|cx| crate::thread_screen::ThreadScreenView::new(session_id, window, cx))
-                });
+                let thread = self
+                    .threads
+                    .entry(session_id.clone())
+                    .or_insert_with(|| {
+                        cx.new(|cx| crate::thread_screen::ThreadScreenView::new(session_id, window, cx))
+                    })
+                    .clone();
+                // EXP-1316 (1b): back on the thread itself.
+                thread.update(cx, |thread, cx| thread.set_focus(None, cx));
             }
             Screen::Agent { session_id } => {
                 self.agents.entry(session_id.clone()).or_insert_with(|| {
@@ -3148,11 +3184,16 @@ impl Render for ScreensPanel {
             Some(Screen::Settings) => self.settings.clone().into_any_element(),
             // EXP-746: built by `sync_tabs` on activation — the fallback only
             // shows for the frame between a navigation and that observer.
-            Some(Screen::Session { session_id }) => self
-                .sessions
-                .get(session_id)
-                .cloned()
+            // EXP-1316 (1b): a thread's session renders inside its thread.
+            Some(Screen::Session { session_id }) => in_place_root(session_id, cx)
+                .and_then(|root_id| self.threads.get(&root_id).cloned())
                 .map(gpui::IntoElement::into_any_element)
+                .or_else(|| {
+                    self.sessions
+                        .get(session_id)
+                        .cloned()
+                        .map(gpui::IntoElement::into_any_element)
+                })
                 .unwrap_or_else(|| self.render_syncing(cx)),
             // EXP-769: the terminal fills the center — its grid, exit strip
             // and Latest-changes bar are the session bar host's (the entity

@@ -40,6 +40,7 @@ import {
   whileBlocking,
 } from "@exp/ui"
 import { useAgents, useThreadsList } from "@/hooks/use-session-tree"
+import { threadWordOf, useTeamPullRequestsByRoot } from "@/components/thread/threads-list"
 import { useSession } from "@/hooks/use-session"
 import { cn } from "@/lib/utils"
 import { firstName } from "@/lib/user-display"
@@ -56,6 +57,7 @@ import { SidebarPinned } from "@/components/team/sidebar-pinned"
 import {
   SidebarRunningSection,
   threadsNavState,
+  type SidebarThreads,
 } from "@/components/team/sidebar-running"
 import { SidebarAgentsSection } from "@/components/team/sidebar-agents"
 import { mainPanelEdge } from "@/components/team/app-shell"
@@ -179,7 +181,11 @@ export function TeamSidebar({
   // EXP-1293: ONE Threads list read for the sidebar — the Threads entry's
   // dot, the Running section and the compact rail's running icons.
   const threadsList = useThreadsList(team?.id)
-  const threads = { groups: threadsList.groups, extras: threadsList.extras }
+  const teamPrs = useTeamPullRequestsByRoot(team?.id)
+  const threads: SidebarThreads = {
+    groups: threadsList.groups,
+    wordOf: (row) => threadWordOf(row, teamPrs.byRoot.get(row.sessionId) ?? [], teamPrs.all),
+  }
   const threadsNav = threadsNavState(threadsList.groups)
   const { agents } = useAgents(team?.id)
   // The guarded /t/$teamSlug layout is the only render site, so a session is
@@ -549,9 +555,9 @@ export function TeamSidebar({
                         </SidebarMenu>
                       </SidebarGroupContent>
                     </SidebarGroup>
-                    {/* EXP-923 / EXP-1293: the RUNNING group — the team's
-                        running threads, under the boards. Hidden entirely
-                        when nothing runs. */}
+                    {/* EXP-923 / EXP-1293 / EXP-1318: the ACTIVE group — the
+                        team's threads that need you, run or wait on a
+                        merge, under the boards. Hidden when empty. */}
                     <SidebarRunningSection teamSlug={teamSlug} threads={threads} />
                   </SidebarContent>
                   {/* EXP-164: dismissable "What's new" teaser for the latest

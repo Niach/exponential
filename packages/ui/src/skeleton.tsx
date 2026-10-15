@@ -20,7 +20,7 @@ const BAR_WIDTHS: readonly [number, number][] = [
 /**
  * EXP-1275 (EXP-1259 D8.3) PLACEHOLDER: skeleton rows in the real row
  * geometry (the row's height, a dot where its glyph sits, bars where its text
- * sits, hairlines between rows like `SETTINGS_LIST_CLASS`), the whole block
+ * sits, flat gapless rows like `SETTINGS_LIST_CLASS`), the whole block
  * pulsing opacity per `placeholder` (one slow ease-in-out), static under
  * reduce motion. Replaces every "Loading…" text.
  */
@@ -58,7 +58,7 @@ export function SkeletonRows({
       data-testid={FEEDBACK_STATES.testIds.skeleton}
       aria-busy="true"
       aria-label="Loading"
-      className={cn(`flex flex-col divide-y divide-glass-stroke`, className)}
+      className={cn(`flex flex-col`, className)}
       style={{ opacity: reduced ? PLACEHOLDER.reducedOpacity : low }}
     >
       {Array.from({ length: rows }, (_, index) => {

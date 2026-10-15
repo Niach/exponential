@@ -180,7 +180,7 @@ ONE entrypoint **`sessions.send`** (`lib/sessions/send.ts`; tRPC + MCP `sessions
 
 ### Desktop IDE & mobile
 
-Desktop IDE = master-only + autopull (no branch switch; changes land via PRs or Source Control's CONFIRMED commit-and-push; `trunk_sync` badge + banner). First-run wizard ×4 (`lib/auth/onboarding.ts`, server-gated): team → board → invite → devices; a joiner owning NO device gets the devices step after the accept (EXP-1169). ONE device-setup block ×4 = that step, Add device, readiness `set_up_server`. Lists ×4 = a filled group band (no count) over FLAT hairline-divided rows; `GlassGroup` = form fields. A session in a thread = ONE card; tapping it opens the session view (the raw work). Workflows/tasks/subagents = ONE Work card, code mode = the Script card, `comments_create` = the real comment ×4. Starts from elsewhere never take the IDE.
+Desktop IDE = master-only + autopull (no branch switch; changes land via PRs or Source Control's CONFIRMED commit-and-push; `trunk_sync` badge + banner). First-run wizard ×4 (`lib/auth/onboarding.ts`, server-gated): team → board → invite → devices; a joiner owning NO device gets the devices step after the accept (EXP-1169). ONE device-setup block ×4 = that step, Add device, readiness `set_up_server`. Lists ×4 = a filled group band (no count) over FLAT gapless rows, NO dividers; `GlassGroup` = form fields (keeps its hairlines). A session in a thread = ONE card; tapping it opens the session view (the raw work). Workflows/tasks/subagents = ONE Work card, code mode = the Script card, `comments_create` = the real comment ×4. Starts from elsewhere never take the IDE.
 
 ## Billing (per-seat, Creem—cloud only)
 

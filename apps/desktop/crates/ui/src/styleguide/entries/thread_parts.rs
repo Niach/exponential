@@ -6,9 +6,10 @@
 //! (Conversation · the issue chips · + · Guide with its dot), then every
 //! conversation row in order — the root's own session card, the person's
 //! bubble, the agent's prose, an event line, a child's session card, a
-//! question answered in place and the queued reply. The rows the first case
-//! has no example of (a plan, a subagent, a picture) follow from the second
-//! case, then THE session composer box with the fixture's placeholder.
+//! question answered in place (an option with its description, EXP-1322)
+//! and the queued reply. The rows the first case has no example of (a plan,
+//! a subagent, a picture) follow from the second case, then THE session
+//! composer box with the fixture's placeholder.
 //!
 //! No `sync::Store` here: authors read `Someone`, no `#IDENT` pills, and the
 //! image cache has no transport (the picture paints its placeholder box).
@@ -66,15 +67,18 @@ pub(super) fn case(index: usize) -> Case {
         .collect();
     let messages: Vec<MessageRow> = fixture_rows::rows(&input["messages"]);
     let pulls: Vec<PullRequestRow> = fixture_rows::rows(&input["pullRequests"]);
-    let view = build_session_thread(SessionThreadInput {
-        root: &root,
-        sessions: &sessions.iter().collect::<Vec<_>>(),
-        session_issues: &links.iter().collect::<Vec<_>>(),
-        issues: &issues,
-        messages: &messages.iter().collect::<Vec<_>>(),
-        pull_requests: &pulls.iter().collect::<Vec<_>>(),
-        now_ms: fixture_rows::now_ms(&input["now"]),
-    });
+    let view = build_session_thread(
+        SessionThreadInput {
+            root: &root,
+            sessions: &sessions.iter().collect::<Vec<_>>(),
+            session_issues: &links.iter().collect::<Vec<_>>(),
+            issues: &issues,
+            messages: &messages.iter().collect::<Vec<_>>(),
+            pull_requests: &pulls.iter().collect::<Vec<_>>(),
+            now_ms: fixture_rows::now_ms(&input["now"]),
+        },
+        None,
+    );
     Case { view, messages, issues }
 }
 
@@ -111,6 +115,17 @@ fn strip(case: &Case, cx: &App) -> AnyElement {
                 );
                 trailing.push(strip_divider(cx));
             }
+            // EXP-1316 (1b): the session chips (agent mark + name, muted).
+            ThreadTab::Session { session_id, name, .. } => trailing.push(
+                strip_chip(SharedString::from(format!("sg-thread-session-{session_id}")), false, cx)
+                    .child(crate::run_rows::run_mark(
+                        crate::run_rows::run_agent(None),
+                        domain::session_tree::SessionState::Waiting,
+                        cx,
+                    ))
+                    .child(SharedString::from(name.clone()))
+                    .into_any_element(),
+            ),
             ThreadTab::Guide { dot } => trailing.push(
                 strip_chip("sg-thread-guide", false, cx)
                     .child(Icon::new(registry::GUIDE_CHANGES).xsmall())
@@ -131,7 +146,13 @@ fn strip(case: &Case, cx: &App) -> AnyElement {
 }
 
 /// One conversation row, the way the thread screen paints it.
-pub(super) fn row(case: &Case, row: &SessionThreadRow, images: &Entity<ImageCache>, cx: &mut App) -> AnyElement {
+pub(super) fn row(
+    case: &Case,
+    row: &SessionThreadRow,
+    images: &Entity<ImageCache>,
+    window: &Window,
+    cx: &mut App,
+) -> AnyElement {
     if let SessionThreadRow::Message { id, author, body, queued, .. } = row {
         let markdown = message_markdown(SharedString::from(format!("sg-thread-message-{id}")), body, None, images);
         return match author.as_str() {
@@ -148,7 +169,7 @@ pub(super) fn row(case: &Case, row: &SessionThreadRow, images: &Entity<ImageCach
             _ => muted_line(registry::UI_INFO, body.clone(), cx),
         };
     }
-    card_row(row, &case.view.root_id, None, images, cx).unwrap_or_else(|| div().into_any_element())
+    card_row(row, &case.view.root_id, None, images, window, cx).unwrap_or_else(|| div().into_any_element())
 }
 
 /// The rows of the second case the first has no example of.
@@ -198,10 +219,10 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
     let second = case(1);
     let mut conversation = v_flex().w_full().gap_5();
     for item in &first.view.rows {
-        conversation = conversation.child(row(&first, item, &images, cx));
+        conversation = conversation.child(row(&first, item, &images, window, cx));
     }
     for item in extra_rows(&second.view) {
-        conversation = conversation.child(row(&second, item, &images, cx));
+        conversation = conversation.child(row(&second, item, &images, window, cx));
     }
     v_flex()
         .w(px(760.))
@@ -240,6 +261,20 @@ mod tests {
             .collect();
         assert_eq!(kinds.len(), 7, "{kinds:?}");
         assert!(matches!(first.view.rows.first(), Some(SessionThreadRow::Session { .. })));
-        assert_eq!(first.view.title, "Login fails on Safari");
+        assert_eq!(first.view.title, "Implement EXP-12 + 1");
+    }
+
+    /// EXP-1322: the demo's open question shows an option's description
+    /// under its label (the session view's card).
+    #[test]
+    fn the_open_question_carries_a_described_option() {
+        let first = case(0);
+        let described = first.view.rows.iter().any(|row| match row {
+            SessionThreadRow::Question { options, answered: false, .. } => {
+                options.iter().any(|option| option.description.is_some())
+            }
+            _ => false,
+        });
+        assert!(described, "an unanswered question with a described option");
     }
 }

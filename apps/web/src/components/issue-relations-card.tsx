@@ -602,13 +602,9 @@ function RelationBandRow({
   )
 }
 
-/** The rows under a band: flat on md+, hairline-divided on phones. */
-export function RowList({ phone, children }: { phone: boolean; children: ReactNode }) {
-  return (
-    <div className={cn(`flex flex-col`, phone && `divide-y divide-glass-stroke`)}>
-      {children}
-    </div>
-  )
+/** The rows under a band: flat and gapless, no dividers (EXP-1320). */
+export function RowList({ children }: { phone: boolean; children: ReactNode }) {
+  return <div className="flex flex-col">{children}</div>
 }
 
 /** THE foldable band ×4: chevron · icon · title · count, its rows, then

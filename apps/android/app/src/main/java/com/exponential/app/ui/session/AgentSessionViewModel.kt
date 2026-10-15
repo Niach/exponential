@@ -569,7 +569,7 @@ class AgentSessionViewModel @AssistedInject constructor(
                         rootRow,
                         linked.map(SessionTree::issue),
                         messages.map(SessionTree::message),
-                    ).title
+                    )
                     val ordered = SessionTree.treeOrder(sessions)
                     val ordinal = ordered.indexOfFirst { it.id == me.id }.let { if (it < 0) 1 else it + 1 }
                     val name = me.title?.trim()?.takeIf { it.isNotEmpty() }

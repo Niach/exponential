@@ -98,6 +98,10 @@ struct IssueFaceView: View {
     /// T-N9: the thread whose page hosts this one — its `Threads` row leaves
     /// that thread out (it IS the page you are on).
     var hostThreadId: String? = nil
+    /// EXP-1316: a thread's issue tab — the body WITHOUT the Threads row or
+    /// the Start control (the bar keeps properties + Comment); the host
+    /// draws no header of its own around it.
+    var embedded = false
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
@@ -239,7 +243,7 @@ struct IssueFaceView: View {
                 // thread holding it, each opening the thread. Nothing while
                 // it sits in none. T-N9: on a thread page, that thread is
                 // left out.
-                let threads = vm.threads.filter { $0.id != hostThreadId }
+                let threads = embedded ? [] : vm.threads.filter { $0.id != hostThreadId }
                 if !threads.isEmpty {
                     IssueThreadsStrip(threads: threads)
                 }
@@ -387,7 +391,7 @@ struct IssueFaceView: View {
                     mentionMembers: vm.mentionMembers,
                     singleMemberTeam: vm.singleMemberTeam,
                     isModerator: vm.permissions.isModerator,
-                    trailing: barTrailing,
+                    trailing: embedded ? .hidden : barTrailing,
                     onOpenProperties: { activeSheet = .properties },
                     onStartCoding: onStartCoding,
                     replyTarget: $commentReplyTarget,
