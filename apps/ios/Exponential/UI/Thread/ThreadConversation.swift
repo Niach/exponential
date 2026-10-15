@@ -13,6 +13,9 @@ import SwiftUI
 /// opens that thread; a question or plan answers IN the session view's
 /// `QuestionCard` (`sessions.answer`); a subagent is one muted row; a
 /// picture is the Guide's inline tile; an event is one muted line.
+/// EXP-1323: a child's `report` is ONE event line `Report from <name> ›`
+/// opening that session; a `suggestions` card is THE suggested tasks card
+/// (`ThreadSuggestionsCard`); the host's live tail (`tail`) closes the rows.
 /// EXP-1300: an AGENT channel (web `AgentChannel`, Android
 /// `ThreadCommentRow`) leaves its own root card out and draws EVERY message
 /// as a comment row (`ChannelMessageRow`: the agent's icon or the person's
@@ -39,6 +42,8 @@ struct ThreadConversationView: View {
     var answeringId: String?
     /// Whether this reader may answer the cards (a member of the team).
     var canAnswer = true
+    /// EXP-1323: the suggested tasks cards' actions; nil = read-only.
+    var suggestions: ThreadSuggestionActions?
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
@@ -98,7 +103,7 @@ struct ThreadConversationView: View {
     /// the thread's own part indented under the rows' lead.
     @ViewBuilder
     private func channelRowView(_ row: ThreadRow) -> some View {
-        if case let .message(id, author, authorId, body, queued) = row,
+        if case let .message(id, author, authorId, body, queued, _) = row,
            author != DomainContract.messageAuthorKindSystem {
             let fromAgent = author == DomainContract.messageAuthorKindAgent
             let user = fromAgent ? nil : rows.user(id: authorId)
@@ -145,7 +150,7 @@ struct ThreadConversationView: View {
     @ViewBuilder
     private func rowView(_ row: ThreadRow) -> some View {
         switch row {
-        case let .message(id, author, authorId, body, queued):
+        case let .message(id, author, authorId, body, queued, _):
             if author == DomainContract.messageAuthorKindSystem {
                 ThreadEventLine(text: body)
             } else if author == DomainContract.messageAuthorKindAgent {
@@ -169,6 +174,18 @@ struct ThreadConversationView: View {
                     onOpenSession(card.sessionId)
                 }
             }
+        case let .report(_, sessionId, text, _):
+            ThreadReportLine(text: text) { onOpenSession(sessionId) }
+        case let .suggestions(id, _, header, startAll, items):
+            ThreadSuggestionsCard(
+                rowId: id,
+                header: header,
+                startAll: startAll,
+                items: items,
+                actions: canAnswer ? suggestions : nil,
+                onOpenSession: onOpenSession,
+                onOpenIssue: { issueId in deps.deepLinkBus.navigateToIssue(issueId, accountId: accountId) }
+            )
         case let .question(id, question, options, custom, answer, answered):
             // THE session view's card (EXP-1316): the options AND the
             // free-text answer (`withFreeTextRow`, ×4), closed once answered
@@ -304,6 +321,218 @@ private struct ThreadEventLine: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("thread-event-line")
+    }
+}
+
+/// EXP-1323: a child's report — ONE muted event line `Report from <name> ›`
+/// opening that session; the summary is never repeated (the parent's next
+/// message relays it).
+struct ThreadReportLine: View {
+    let text: String
+    let onOpen: () -> Void
+
+    var body: some View {
+        Button(action: onOpen) {
+            HStack(spacing: 6) {
+                AppIcon(AppIcons.notificationReporterReply, size: 13)
+                Text(text)
+                    .font(.footnote)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                AppIcon(AppIcons.uiChevronRight, size: 12)
+            }
+            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("thread-report")
+    }
+}
+
+/// EXP-1323: what a suggested tasks card can do (`sessions.startSuggestion`
+/// / `startAllSuggestions` / `dismissSuggestion`; Options = the host's THE
+/// Menu sheet: Start on… · Start with… · File as issue · Dismiss).
+struct ThreadSuggestionActions {
+    /// Start the item as a child on the defaults.
+    var onStart: (_ rowId: String, _ itemId: String) -> Void
+    var onStartAll: (_ rowId: String) -> Void
+    /// Do it here: the item goes to the posting session.
+    var onHere: (_ rowId: String, _ itemId: String) -> Void
+    var onDismiss: (_ rowId: String, _ itemId: String) -> Void
+    /// Options: the host opens THE Menu's sheet for the item.
+    var onOptions: (_ rowId: String, _ item: SuggestionRow) -> Void
+    /// In-flight keys (`key(rowId, itemId)`; Start all = `key(rowId)`).
+    var pending: Set<String> = []
+
+    static func key(_ rowId: String, _ itemId: String? = nil) -> String {
+        itemId.map { "\(rowId):\($0)" } ?? "\(rowId):*"
+    }
+}
+
+/// EXP-1323: THE suggested tasks card ×4 in the Work card's shell (web
+/// `ThreadSuggestionsCard`): a header (`3 suggested tasks`, `· 2 started`,
+/// Start all while more than one is open), then hairline-divided items.
+/// Open = title, text, × · and under the text (phones stack them) Options ·
+/// Do it here · Start; started = the child's session card (its caption
+/// under the name) opening it; here = `Sent here`; filed = `Filed EXP-9`.
+struct ThreadSuggestionsCard: View {
+    let rowId: String
+    let header: String
+    let startAll: Bool
+    let items: [SuggestionRow]
+    var actions: ThreadSuggestionActions?
+    var onOpenSession: (String) -> Void = { _ in }
+    var onOpenIssue: (String) -> Void = { _ in }
+
+    private typealias Copy = SessionTree.SuggestionsCopy
+    private var muted: Color { .white.opacity(TextOpacity.tertiary) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 8) {
+                AppIcon(AppIcons.uiChecklist, size: 13)
+                    .foregroundStyle(muted)
+                Text(header)
+                    .fontWeight(.medium)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .accessibilityIdentifier("thread-suggestions-header")
+                Spacer(minLength: 8)
+                if startAll, let actions {
+                    GlassPill(
+                        Copy.startAll,
+                        mode: .action { actions.onStartAll(rowId) },
+                        primary: true,
+                        enabled: !actions.pending.contains(ThreadSuggestionActions.key(rowId))
+                    )
+                    .accessibilityIdentifier("thread-suggestions-start-all")
+                }
+            }
+            .padding(.horizontal, 12)
+            .frame(minHeight: WorkCards.Geometry.header)
+            ForEach(items) { item in
+                GlassDivider()
+                itemRow(item)
+            }
+        }
+        .font(.caption)
+        .foregroundStyle(.white)
+        .background(GlassTokens.fillRow)
+        .clipShape(RoundedRectangle(cornerRadius: GlassTokens.groupRadius))
+        .overlay(
+            RoundedRectangle(cornerRadius: GlassTokens.groupRadius)
+                .stroke(GlassTokens.strokeCard, lineWidth: GlassTokens.hairline)
+        )
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("thread-suggestions")
+    }
+
+    @ViewBuilder
+    private func itemRow(_ item: SuggestionRow) -> some View {
+        switch item.state {
+        case .started:
+            if let card = item.card {
+                // The card's own shell stands down inside this one.
+                SessionCardView(card: card, bare: true) { onOpenSession(card.sessionId) }
+                    .accessibilityIdentifier("thread-suggestion-started")
+            } else {
+                // Started, the child's row not synced yet.
+                HStack(spacing: 8) {
+                    InlineSpinner(size: 12)
+                    Text(item.title).foregroundStyle(muted).lineLimit(1).truncationMode(.tail)
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 12)
+                .frame(minHeight: WorkCards.Geometry.row)
+            }
+        case .here, .filed:
+            HStack(spacing: 8) {
+                Text(item.title).foregroundStyle(muted).lineLimit(1).truncationMode(.tail)
+                Spacer(minLength: 8)
+                if item.state == .here {
+                    Text(Copy.sentHere).foregroundStyle(muted).fixedSize()
+                } else {
+                    let label = Copy.filed.replacingOccurrences(of: "{issue}", with: item.identifier ?? "")
+                    Button {
+                        if let issueId = item.issueId { onOpenIssue(issueId) }
+                    } label: {
+                        Text(label).foregroundStyle(muted).fixedSize()
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(item.issueId == nil)
+                }
+            }
+            .padding(.horizontal, 12)
+            .frame(minHeight: WorkCards.Geometry.row)
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("thread-suggestion-\(item.state.rawValue)")
+        case .open:
+            openRow(item)
+        }
+    }
+
+    private func openRow(_ item: SuggestionRow) -> some View {
+        let busy = actions?.pending.contains(ThreadSuggestionActions.key(rowId, item.id)) ?? false
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top, spacing: 8) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(item.title)
+                        .fontWeight(.medium)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    if !item.text.isEmpty {
+                        Text(item.text)
+                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                Spacer(minLength: 0)
+                if let actions {
+                    Button {
+                        actions.onDismiss(rowId, item.id)
+                    } label: {
+                        AppIcon(AppIcons.uiClose, size: 12)
+                            .foregroundStyle(muted)
+                            .frame(width: 24, height: 24)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(busy)
+                    .accessibilityLabel(Copy.dismiss)
+                    .accessibilityIdentifier("thread-suggestion-dismiss")
+                }
+            }
+            if let actions {
+                HStack(spacing: 6) {
+                    GlassPill(
+                        Copy.options,
+                        mode: .action { actions.onOptions(rowId, item) },
+                        enabled: !busy
+                    ) {
+                        EmptyView()
+                    } trailing: {
+                        AppIcon(AppIcons.uiChevronDown, size: 10)
+                    }
+                    .accessibilityIdentifier("thread-suggestion-options")
+                    GlassPill(Copy.here, mode: .action { actions.onHere(rowId, item.id) }, enabled: !busy)
+                        .accessibilityIdentifier("thread-suggestion-here")
+                    Spacer(minLength: 0)
+                    GlassPill(
+                        Copy.start,
+                        mode: .action { actions.onStart(rowId, item.id) },
+                        primary: true,
+                        enabled: !busy
+                    )
+                    .accessibilityIdentifier("thread-suggestion-start")
+                }
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("thread-suggestion-open")
     }
 }
 

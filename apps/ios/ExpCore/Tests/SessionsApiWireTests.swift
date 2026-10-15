@@ -76,6 +76,27 @@ final class SessionsApiWireTests: XCTestCase {
         XCTAssertEqual(files.keys.sorted(), ["attachmentIds", "sessionId"])
     }
 
+    /// EXP-1323: a `/btw` aside names its parent, the question and the flag.
+    func testAnAsideSendsParentTextAndTheFlag() throws {
+        let wire = try json(SessionsSendInput.aside(parentId: "s-1", text: "what does useCart do?"))
+        XCTAssertEqual(wire.keys.sorted(), ["aside", "parentId", "text"])
+        XCTAssertEqual(wire["aside"] as? Bool, true)
+        XCTAssertEqual(wire["parentId"] as? String, "s-1")
+    }
+
+    /// EXP-1323: `sessions.startSuggestion` omits the unpicked runner fields.
+    func testStartSuggestionOmitsUnpickedFields() throws {
+        let bare = try json(StartSuggestionInput(
+            messageId: "m", itemId: "i", where: .here, deviceId: nil, account: nil, model: nil
+        ))
+        XCTAssertEqual(bare.keys.sorted(), ["itemId", "messageId", "where"])
+        XCTAssertEqual(bare["where"] as? String, "here")
+        let picked = try json(StartSuggestionInput(
+            messageId: "m", itemId: "i", where: .child, deviceId: "dev", account: nil, model: "opus"
+        ))
+        XCTAssertEqual(picked.keys.sorted(), ["deviceId", "itemId", "messageId", "model", "where"])
+    }
+
     func testAccountSwitchSendsOnlySessionIdAndAccount() throws {
         let wire = try json(SessionsSendInput.switchAccount(sessionId: "s-1", account: "work"))
         XCTAssertEqual(wire.keys.sorted(), ["account", "sessionId"])

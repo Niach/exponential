@@ -92,6 +92,10 @@ public struct TreeSession: Equatable, Sendable, Identifiable {
     /// EXP-1316: the steer device id of the machine that runs it (the
     /// thread row's device glyph); nil when unknown.
     public let deviceId: String?
+    /// EXP-1323: the live status line (nil = none).
+    public let caption: String?
+    /// EXP-1323: a `/btw` aside child.
+    public let aside: Bool
 
     public init(
         id: String,
@@ -116,9 +120,13 @@ public struct TreeSession: Equatable, Sendable, Identifiable {
         endedAt: String?,
         createdAt: String,
         updatedAt: String,
-        deviceId: String? = nil
+        deviceId: String? = nil,
+        caption: String? = nil,
+        aside: Bool = false
     ) {
         self.deviceId = deviceId
+        self.caption = caption
+        self.aside = aside
         self.id = id
         self.teamId = teamId
         self.parentId = parentId
@@ -141,6 +149,17 @@ public struct TreeSession: Equatable, Sendable, Identifiable {
         self.endedAt = endedAt
         self.createdAt = createdAt
         self.updatedAt = updatedAt
+    }
+}
+
+/// EXP-1323: one of the viewer's read marks (`session_reads`, user-scoped).
+public struct TreeSessionRead: Equatable, Sendable {
+    public let sessionId: String
+    public let readAt: String
+
+    public init(sessionId: String, readAt: String) {
+        self.sessionId = sessionId
+        self.readAt = readAt
     }
 }
 
@@ -188,6 +207,35 @@ extension TreeQuestionOption: ExpressibleByStringLiteral {
     }
 }
 
+/// EXP-1323: one raw `suggestions` card item (domain `SuggestionItem`).
+public struct TreeSuggestionItem: Equatable, Sendable {
+    public let id: String
+    public let title: String
+    public let text: String
+    public let sessionId: String?
+    public let issueId: String?
+    public let here: Bool
+    public let dismissed: Bool
+
+    public init(
+        id: String,
+        title: String,
+        text: String,
+        sessionId: String? = nil,
+        issueId: String? = nil,
+        here: Bool = false,
+        dismissed: Bool = false
+    ) {
+        self.id = id
+        self.title = title
+        self.text = text
+        self.sessionId = sessionId
+        self.issueId = issueId
+        self.here = here
+        self.dismissed = dismissed
+    }
+}
+
 /// A message's `card` jsonb (contract `messageCardKindValues`), read
 /// tolerantly: every field the rows use, nil when absent or mistyped.
 public struct TreeMessageCard: Equatable, Sendable {
@@ -213,6 +261,10 @@ public struct TreeMessageCard: Equatable, Sendable {
     public let event: String?
     public let issueId: String?
     public let pullRequestId: String?
+    /// EXP-1323 report.
+    public let summary: String?
+    /// EXP-1323 suggestions: nil = no items array (no row).
+    public let items: [TreeSuggestionItem]?
 
     public init(
         kind: String?,
@@ -230,9 +282,13 @@ public struct TreeMessageCard: Equatable, Sendable {
         caption: String? = nil,
         event: String? = nil,
         issueId: String? = nil,
-        pullRequestId: String? = nil
+        pullRequestId: String? = nil,
+        summary: String? = nil,
+        items: [TreeSuggestionItem]? = nil
     ) {
         self.kind = kind
+        self.summary = summary
+        self.items = items
         self.sessionId = sessionId
         self.question = question
         self.options = options
@@ -309,7 +365,33 @@ public struct TreeMessageCard: Equatable, Sendable {
             caption: text("caption"),
             event: loose("event"),
             issueId: text("issueId"),
-            pullRequestId: text("pullRequestId")
+            pullRequestId: text("pullRequestId"),
+            summary: text("summary"),
+            // `String(raw.x ?? '')`: a scalar reads as text, absent/null = "".
+            items: (object["items"] as? [Any]).map { raw in
+                raw.compactMap { entry -> TreeSuggestionItem? in
+                    guard let item = entry as? [String: Any], let id = item["id"] as? String else { return nil }
+                    func scalar(_ key: String) -> String {
+                        switch item[key] {
+                        case let string as String: string
+                        case let number as NSNumber:
+                            CFGetTypeID(number) == CFBooleanGetTypeID()
+                                ? (number.boolValue ? "true" : "false")
+                                : number.stringValue
+                        default: ""
+                        }
+                    }
+                    return TreeSuggestionItem(
+                        id: id,
+                        title: scalar("title"),
+                        text: scalar("text"),
+                        sessionId: item["sessionId"] as? String,
+                        issueId: item["issueId"] as? String,
+                        here: (item["here"] as? Bool) == true,
+                        dismissed: (item["dismissed"] as? Bool) == true
+                    )
+                }
+            }
         )
     }
 
@@ -331,6 +413,8 @@ public struct TreeMessage: Equatable, Sendable, Identifiable {
     public let answeredAt: String?
     public let consumedAt: String?
     public let createdAt: String
+    /// EXP-1323: the session that posted it (nil = none).
+    public let authorSessionId: String?
 
     public init(
         id: String,
@@ -341,8 +425,10 @@ public struct TreeMessage: Equatable, Sendable, Identifiable {
         card: TreeMessageCard?,
         answeredAt: String?,
         consumedAt: String?,
-        createdAt: String
+        createdAt: String,
+        authorSessionId: String? = nil
     ) {
+        self.authorSessionId = authorSessionId
         self.id = id
         self.sessionId = sessionId
         self.authorKind = authorKind
@@ -424,6 +510,9 @@ public struct SessionCard: Equatable, Sendable {
     public let tone: String
     public let elapsed: String?
     public let running: Bool
+    /// EXP-1323: the live status line under the name; an ended session's is
+    /// dropped unless it is an aside (its answer's first line stays).
+    public let caption: String?
     public let testId: String
 
     public init(
@@ -435,8 +524,10 @@ public struct SessionCard: Equatable, Sendable {
         tone: String,
         elapsed: String?,
         running: Bool,
+        caption: String? = nil,
         testId: String
     ) {
+        self.caption = caption
         self.sessionId = sessionId
         self.icon = icon
         self.name = name
@@ -468,9 +559,16 @@ public enum ThreadTab: Equatable, Sendable {
 public enum ThreadRow: Equatable, Sendable {
     /// `author` = user | agent | system; a person's row is `queued` until
     /// the device consumed it.
-    case message(id: String, author: String, authorId: String?, body: String, queued: Bool)
+    /// `authorSessionId` (EXP-1323) = the session that posted it (a child
+    /// asking its parent).
+    case message(id: String, author: String, authorId: String?, body: String, queued: Bool, authorSessionId: String?)
     /// `id` = the root's id for its own card, else the card message's id.
     case session(id: String, card: SessionCard)
+    /// EXP-1323: a child's end report — `text` = `Report from <name>`.
+    case report(id: String, sessionId: String, text: String, summary: String)
+    /// EXP-1323: ONE suggested-tasks card; `sessionId` = the posting session
+    /// (Do it here messages it).
+    case suggestions(id: String, sessionId: String, header: String, startAll: Bool, items: [SuggestionRow])
     /// `custom` = a free-text answer is offered beside the options (always,
     /// EXP-1316: THE session view's card).
     case question(id: String, question: String, options: [TreeQuestionOption], custom: Bool, answer: String?, answered: Bool)
@@ -482,8 +580,10 @@ public enum ThreadRow: Equatable, Sendable {
 
     public var id: String {
         switch self {
-        case let .message(id, _, _, _, _),
+        case let .message(id, _, _, _, _, _),
              let .session(id, _),
+             let .report(id, _, _, _),
+             let .suggestions(id, _, _, _, _),
              let .question(id, _, _, _, _, _),
              let .plan(id, _, _),
              let .subagent(id, _, _),
@@ -491,6 +591,44 @@ public enum ThreadRow: Equatable, Sendable {
              let .event(id, _, _):
             id
         }
+    }
+}
+
+/// EXP-1323: one suggested task: `open` (× · Options · Do it here · Start),
+/// `started` (the child's card once synced), `here` (sent to the posting
+/// session), `filed` (the issue it became). Dismissed items drop.
+public struct SuggestionRow: Equatable, Sendable, Identifiable {
+    public enum State: String, Equatable, Sendable {
+        case open
+        case started
+        case here
+        case filed
+    }
+
+    public let id: String
+    public let title: String
+    public let text: String
+    public let state: State
+    public let card: SessionCard?
+    public let issueId: String?
+    public let identifier: String?
+
+    public init(
+        id: String,
+        title: String,
+        text: String,
+        state: State,
+        card: SessionCard?,
+        issueId: String?,
+        identifier: String?
+    ) {
+        self.id = id
+        self.title = title
+        self.text = text
+        self.state = state
+        self.card = card
+        self.issueId = issueId
+        self.identifier = identifier
     }
 }
 
@@ -517,6 +655,9 @@ public struct SessionThreadView: Equatable, Sendable {
     public let rows: [ThreadRow]
     public let composer: ThreadComposer
     public let live: Bool
+    /// EXP-1323: the live tail (Tasks card + status line) reads this
+    /// session's relay state; nil once the root ended.
+    public let liveSessionId: String?
     public let busy: Bool
     public let needsYou: Bool
 
@@ -529,9 +670,11 @@ public struct SessionThreadView: Equatable, Sendable {
         rows: [ThreadRow],
         composer: ThreadComposer,
         live: Bool,
+        liveSessionId: String? = nil,
         busy: Bool,
         needsYou: Bool
     ) {
+        self.liveSessionId = liveSessionId
         self.rootId = rootId
         self.title = title
         self.isPrivate = isPrivate
@@ -548,6 +691,11 @@ public struct SessionThreadView: Equatable, Sendable {
 public struct ThreadsListRow: Equatable, Sendable, Identifiable {
     public let sessionId: String
     public let teamId: String
+    /// EXP-1323: 0 = the thread (opens the thread), >0 = a nested child
+    /// (opens that session); `parentId` nil on a root.
+    public let depth: Int
+    public let parentId: String?
+    public let rootId: String
     public let title: String
     public let isPrivate: Bool
     public let busy: Bool
@@ -557,20 +705,35 @@ public struct ThreadsListRow: Equatable, Sendable, Identifiable {
     /// EXP-1316: the ROOT's device (the row's trailing device glyph,
     /// resolved against the synced devices rows); nil = none.
     public let deviceId: String?
+    /// EXP-1323: bold title (a root: the tree's newest agent message is
+    /// newer than the viewer's read of the root; a child: its own).
+    public let unread: Bool
+    /// EXP-1323: the live caption (the session card rule).
+    public let caption: String?
 
     public var id: String { sessionId }
 
     public init(
         sessionId: String,
         teamId: String,
+        depth: Int = 0,
+        parentId: String? = nil,
+        rootId: String? = nil,
         title: String,
         isPrivate: Bool,
         busy: Bool,
         needsYou: Bool,
+        unread: Bool = false,
+        caption: String? = nil,
         activityAt: String,
         deviceId: String? = nil
     ) {
         self.deviceId = deviceId
+        self.depth = depth
+        self.parentId = parentId
+        self.rootId = rootId ?? sessionId
+        self.unread = unread
+        self.caption = caption
         self.sessionId = sessionId
         self.teamId = teamId
         self.title = title
@@ -720,6 +883,27 @@ public enum SessionTree {
         public static let guideMergeTestId = "thread-guide-merge"
         /// EXP-1307: the header's `…` on the Guide (`guideMenuEntries`).
         public static let guideMenuTestId = "thread-guide-menu"
+        /// EXP-1323: `copy.report`, `{session}` = the card name.
+        public static let report = "Report from {session}"
+    }
+
+    /// EXP-1323: fixtures/session-thread.json `copy.suggestions`.
+    public enum SuggestionsCopy {
+        public static let one = "1 suggested task"
+        /// `{count}`.
+        public static let many = "{count} suggested tasks"
+        public static let started = "{count} started"
+        public static let startAll = "Start all"
+        public static let start = "Start"
+        public static let here = "Do it here"
+        public static let options = "Options"
+        public static let startOn = "Start on…"
+        public static let startWith = "Start with…"
+        public static let file = "File as issue"
+        public static let dismiss = "Dismiss"
+        public static let sentHere = "Sent here"
+        /// `{issue}`.
+        public static let filed = "Filed {issue}"
     }
 
     /// fixtures/threads-list.json `copy` + `agentDefaults` + `testIds`
@@ -802,8 +986,17 @@ public enum SessionTree {
             tone: state.tone,
             elapsed: elapsed,
             running: state == .working,
+            caption: cardCaption(session),
             testId: CardCopy.testId
         )
+    }
+
+    /// EXP-1323: the card's second line — the trimmed caption; blank = nil;
+    /// an ended session's drops unless it is an aside.
+    public static func cardCaption(_ session: TreeSession) -> String? {
+        let caption = session.caption?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !caption.isEmpty, session.status != "ended" || session.aside else { return nil }
+        return caption
     }
 
     /// EXP-1316: a thread's title, never renamed by a person: an agent's
@@ -903,7 +1096,8 @@ public enum SessionTree {
                     author: author,
                     authorId: message.authorId,
                     body: message.body,
-                    queued: author == "user" && message.consumedAt == nil
+                    queued: author == "user" && message.consumedAt == nil,
+                    authorSessionId: message.authorSessionId
                 ))
                 continue
             }
@@ -936,6 +1130,21 @@ public enum SessionTree {
                     height: card.height,
                     caption: card.caption
                 ))
+            case "report":
+                guard let targetId = card.sessionId, let target = byId[targetId] else { break }
+                rows.append(.report(
+                    id: message.id,
+                    sessionId: target.id,
+                    text: ThreadCopy.report.replacingOccurrences(
+                        of: "{session}",
+                        with: sessionCard(target, ordinal: ordinals[target.id] ?? 1, now: now).name
+                    ),
+                    summary: card.summary ?? message.body
+                ))
+            case "suggestions":
+                if let row = suggestionsRow(message, card: card, byId: byId, ordinals: ordinals, issues: issueMap, now: now) {
+                    rows.append(row)
+                }
             case "event":
                 if let text = eventText(card, issues: issueMap, pullRequests: prMap) {
                     rows.append(.event(id: message.id, event: card.event ?? "", text: text))
@@ -961,8 +1170,49 @@ public enum SessionTree {
             rows: rows,
             composer: ThreadComposer(sessionId: root.id, placeholder: ThreadCopy.placeholder),
             live: !live.isEmpty,
+            liveSessionId: root.status == "ended" ? nil : root.id,
             busy: live.contains { $0.busy },
             needsYou: live.contains { $0.needsInput }
+        )
+    }
+
+    private static func suggestionsRow(
+        _ message: TreeMessage,
+        card: TreeMessageCard,
+        byId: [String: TreeSession],
+        ordinals: [String: Int],
+        issues: [String: TreeIssue],
+        now: Date
+    ) -> ThreadRow? {
+        guard let raw = card.items else { return nil }
+        let items: [SuggestionRow] = raw.filter { !$0.dismissed }.map { item in
+            let target = item.sessionId.flatMap { byId[$0] }
+            let state: SuggestionRow.State = item.sessionId != nil
+                ? .started
+                : item.here ? .here : item.issueId != nil ? .filed : .open
+            return SuggestionRow(
+                id: item.id,
+                title: item.title,
+                text: item.text,
+                state: state,
+                card: target.map { sessionCard($0, ordinal: ordinals[$0.id] ?? 1, now: now) },
+                issueId: item.issueId,
+                identifier: item.issueId.flatMap { issues[$0]?.identifier }
+            )
+        }
+        guard !items.isEmpty else { return nil }
+        let started = items.filter { $0.state == .started }.count
+        let count = items.count == 1
+            ? SuggestionsCopy.one
+            : SuggestionsCopy.many.replacingOccurrences(of: "{count}", with: String(items.count))
+        return .suggestions(
+            id: message.id,
+            sessionId: message.sessionId,
+            header: started > 0
+                ? "\(count) · \(SuggestionsCopy.started.replacingOccurrences(of: "{count}", with: String(started)))"
+                : count,
+            startAll: items.filter { $0.state == .open }.count > 1,
+            items: items
         )
     }
 
@@ -975,14 +1225,35 @@ public enum SessionTree {
         sessionIssues: [TreeSessionIssue],
         issues: [TreeIssue],
         messages: [TreeMessage],
-        teamId: String?
+        teamId: String?,
+        reads: [TreeSessionRead] = []
     ) -> [ThreadsListGroup] {
+        // EXP-1323: unread = the newest agent-authored message (a root: any
+        // session of its tree; a child: its own) is newer than the viewer's
+        // read of that session.
+        var readAt: [String: Double] = [:]
+        for read in reads { readAt[read.sessionId] = ms(read.readAt) ?? 0 }
+        var rootOf: [String: String] = [:]
+        for session in sessions { rootOf[session.id] = session.rootId }
+        var newestAgent: [String: Double] = [:]
+        var newestAgentInTree: [String: Double] = [:]
+        for message in messages where message.authorKind == "agent" {
+            let at = ms(message.createdAt) ?? 0
+            newestAgent[message.sessionId] = max(newestAgent[message.sessionId] ?? 0, at)
+            if let rootId = rootOf[message.sessionId] {
+                newestAgentInTree[rootId] = max(newestAgentInTree[rootId] ?? 0, at)
+            }
+        }
+        func unread(_ newest: Double?, _ sessionId: String) -> Bool {
+            guard let newest else { return false }
+            return newest > (readAt[sessionId] ?? -1)
+        }
         let roots = sessions.filter {
             $0.parentId == nil && $0.kind == "thread" && (teamId == nil || $0.teamId == teamId)
         }
         var byRoot: [String: [TreeSession]] = [:]
         for session in sessions { byRoot[session.rootId, default: []].append(session) }
-        var buckets: [ThreadsListGroup.Key: [ThreadsListRow]] = [:]
+        var buckets: [ThreadsListGroup.Key: [(row: ThreadsListRow, children: [ThreadsListRow])]] = [:]
         for root in roots {
             let tree = byRoot[root.id] ?? [root]
             let live = tree.filter { $0.status != "ended" }
@@ -999,23 +1270,65 @@ public enum SessionTree {
             let row = ThreadsListRow(
                 sessionId: root.id,
                 teamId: root.teamId,
+                depth: 0,
+                parentId: nil,
+                rootId: root.id,
                 title: title,
                 isPrivate: !root.shared,
                 busy: live.contains { $0.busy },
                 needsYou: needsYou,
+                unread: unread(newestAgentInTree[root.id], root.id),
+                caption: cardCaption(root),
                 activityAt: activity,
                 deviceId: root.deviceId
             )
-            buckets[needsYou ? .needsYou : running ? .running : .recent, default: []].append(row)
+            let key: ThreadsListGroup.Key = needsYou ? .needsYou : running ? .running : .recent
+            // A live tree nests its children (depth-first, creation order;
+            // asides stay in the Conversation); Recent collapses to the root.
+            var children: [ThreadsListRow] = []
+            if key != .recent {
+                let ordered = treeOrder(tree)
+                var ordinals: [String: Int] = [:]
+                for (index, session) in ordered.enumerated() { ordinals[session.id] = index + 1 }
+                func walk(_ parentId: String, _ depth: Int) {
+                    for child in ordered where child.parentId == parentId && !child.aside {
+                        let ended = child.status == "ended"
+                        children.append(ThreadsListRow(
+                            sessionId: child.id,
+                            teamId: child.teamId,
+                            depth: depth,
+                            parentId: parentId,
+                            rootId: root.id,
+                            title: sessionCard(child, ordinal: ordinals[child.id] ?? 1, now: Date()).name,
+                            isPrivate: !child.shared,
+                            busy: !ended && child.busy,
+                            needsYou: !ended && child.needsInput,
+                            unread: unread(newestAgent[child.id], child.id),
+                            caption: cardCaption(child),
+                            activityAt: child.updatedAt,
+                            deviceId: child.deviceId
+                        ))
+                        walk(child.id, depth + 1)
+                    }
+                }
+                walk(root.id, 1)
+            }
+            buckets[key, default: []].append((row, children))
         }
         return ThreadsListGroup.Key.allCases.compactMap { key in
             let rows = (buckets[key] ?? []).sorted { a, b in
-                let ma = ms(a.activityAt) ?? 0, mb = ms(b.activityAt) ?? 0
+                let ma = ms(a.row.activityAt) ?? 0, mb = ms(b.row.activityAt) ?? 0
                 if ma != mb { return ma > mb }
-                return a.sessionId < b.sessionId
+                return a.row.sessionId < b.row.sessionId
             }
+            .flatMap { [$0.row] + $0.children }
             return rows.isEmpty ? nil : ThreadsListGroup(key: key, title: key.title, rows: rows)
         }
+    }
+
+    /// EXP-1323: the Threads nav dot = any thread (depth 0) row is unread.
+    public static func threadsUnread(_ groups: [ThreadsListGroup]) -> Bool {
+        groups.contains { group in group.rows.contains { $0.depth == 0 && $0.unread } }
     }
 
     /// The Agents band: one row per agent root of the team (nil = every
