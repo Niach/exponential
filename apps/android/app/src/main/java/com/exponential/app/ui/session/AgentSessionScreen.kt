@@ -160,9 +160,8 @@ import com.exponential.app.domain.sessionResultTileCaption
 import com.exponential.app.domain.sessionResultTileHeightFitting
 import com.exponential.app.ui.work.ResultPreviewDialog
 import com.exponential.app.ui.work.ResultTile
-import com.exponential.app.domain.sessionModel
+import com.exponential.app.domain.composerModel
 import com.exponential.app.ui.components.BarCapsule
-import com.exponential.app.ui.components.BarCircle
 import com.exponential.app.ui.components.ContextRing
 import com.exponential.app.ui.components.FloatingBottomBar
 import com.exponential.app.ui.components.FloatingComposer
@@ -4334,8 +4333,6 @@ internal fun SessionComposer(
     val steerSending by viewModel.steerSending.collectAsStateWithLifecycle()
     val steerImageError by viewModel.steerImageError.collectAsStateWithLifecycle()
     val draft by viewModel.draft.collectAsStateWithLifecycle()
-    val agentUsage by viewModel.agentUsage.collectAsStateWithLifecycle()
-    val accountSwitch by viewModel.accountSwitch.collectAsStateWithLifecycle()
     val sessionConfig by viewModel.sessionConfig.collectAsStateWithLifecycle()
     val sessionUsage by viewModel.sessionUsage.collectAsStateWithLifecycle()
     val issueRefCandidates by viewModel.issueRefCandidates.collectAsStateWithLifecycle()
@@ -4370,15 +4367,11 @@ internal fun SessionComposer(
         blocked = AgentUsagePresentation.parseBlocked(session?.blocked) != null,
         compacting = activity.compacting != null,
     )
-    // EXP-746/849: the ring is reachable on this run's OWN context numbers,
-    // the machine's rate-limit windows or its logins — the latter two only
-    // where the host has the Usage sheet behind it.
-    val hasUsage = if (onOpenUsage != null) {
-        agentUsage != null || sessionUsage != null || accountSwitch.options.isNotEmpty()
-    } else {
-        sessionUsage != null
-    }
+    // The context ring ×4 (web `percent !== null`): only once the run has
+    // reported its context numbers — never an empty circle.
     val contextPercent = AgentUsagePresentation.contextPercent(sessionUsage)
+    val hasUsage = contextPercent != null
+    val hostLaunchDefaults by viewModel.hostLaunchDefaults.collectAsStateWithLifecycle()
 
     // Steer attach (EXP-511, wave D: ANY file, images included) — the system
     // document picker feeds the VM's pending list; the upload rides the
@@ -4744,7 +4737,13 @@ internal fun SessionComposer(
                 // Dispatcher roots: NO plan chip on a dispatcher (plan mode is a
                 // work pick for its children).
                 planMode = planModeBadge(sessionConfig) != null && session?.dispatch != true,
-                model = sessionModel(sessionConfig),
+                model = composerModel(
+                    config = sessionConfig,
+                    rowModel = session?.model,
+                    cli = session?.cli,
+                    dispatch = session?.dispatch == true,
+                    launchDefaults = hostLaunchDefaults,
+                ),
                 modelPickable = catalogAgent == DEFAULT_AGENT,
                 onPickModel = { alias -> viewModel.sendCommand("/model $alias") },
                 contextPercent = contextPercent,
@@ -4873,9 +4872,8 @@ private fun SteerComposer(
     val shownPlaceholder = if (live) placeholder else "$placeholder (reconnecting…)"
     // EXP-1316: the fold / expand / collapse-on-blur machinery is THE
     // [FloatingComposer] the thread wears too; this keeps the steer card.
-    // EXP-893: the folded composer IS the Work screen's bar — the usage ring
-    // on the left (when there is anything behind it), the placeholder capsule
-    // that opens the card, the host's circle on the right.
+    // EXP-893: the folded composer IS the Work screen's bar — the placeholder
+    // capsule that opens the card, the host's circle on the right.
     FloatingComposer(
         expanded = expanded,
         onExpandedChange = onExpandedChange,
@@ -4883,11 +4881,8 @@ private fun SteerComposer(
         hasDraft = value.text.isNotBlank() || pendingImages.isNotEmpty(),
         working = working,
         capsuleTestTag = capsuleTestTag,
-        left = if (hasUsage) {
-            { BarCircle(onClick = onOpenUsage) { ContextRing(percent = contextPercent) } }
-        } else {
-            null
-        },
+        // The folded bar is the capsule alone: the ring lives in the card.
+        left = null,
         right = trailing,
         afterCentre = merge,
     ) {
