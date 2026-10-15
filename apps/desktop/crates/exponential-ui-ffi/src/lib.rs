@@ -782,6 +782,21 @@ pub fn tokenize_code_json(code: String, language: String) -> String {
     })
 }
 
+/// EXP-1324: the text a CodeBlock shows and copies (`ansi`: escapes removed).
+#[uniffi::export]
+pub fn code_text(code: String, language: String) -> String {
+    shield("code_text", || code.clone(), || exponential_ui::code::code_text(&code, &language))
+}
+
+/// EXP-1324: the Text `shimmer` colours for a text colour (`#rrggbb[aa]`):
+/// `{base, highlight, mid, durationMs, angleDeg, spreadPx}`.
+#[uniffi::export]
+pub fn text_shimmer_json(color: String, dark: bool) -> String {
+    shield("text_shimmer_json", || "{}".to_string(), || {
+        serde_json::to_string(&exponential_ui::text_shimmer::text_shimmer(&color, dark)).unwrap_or_default()
+    })
+}
+
 /// `{min, max}` of a chart (`series_json` = the Chart's `series`).
 #[uniffi::export]
 pub fn chart_extent_json(kind: String, series_json: String, min: Option<f64>, max: Option<f64>) -> Result<String, UiError> {

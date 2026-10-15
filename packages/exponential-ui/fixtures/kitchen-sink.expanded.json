@@ -8732,6 +8732,494 @@
         "children": []
       },
       {
+        "id": "trace",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "trace-think",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "trace-think.line",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "trace-think.line.icon",
+                    "component": "Icon",
+                    "props": {
+                      "name": "trace-reasoning",
+                      "size": "sm"
+                    },
+                    "children": [],
+                    "style": {
+                      "width": 14,
+                      "height": 14,
+                      "flexShrink": 0
+                    },
+                    "recipe": {
+                      "macro": "TraceItem",
+                      "part": "icon",
+                      "props": {
+                        "size": "sm",
+                        "collapsible": false,
+                        "open": false
+                      }
+                    }
+                  },
+                  {
+                    "id": "trace-think.line.title",
+                    "component": "Text",
+                    "props": {
+                      "text": "Thought for 5s",
+                      "lines": 1,
+                      "shimmer": false
+                    },
+                    "children": [],
+                    "style": {
+                      "flexShrink": 1,
+                      "minWidth": 0,
+                      "fontSize": 12,
+                      "lineHeight": 18
+                    },
+                    "recipe": {
+                      "macro": "TraceItem",
+                      "part": "title",
+                      "props": {
+                        "size": "sm",
+                        "collapsible": false,
+                        "open": false
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "row",
+                  "alignItems": "center",
+                  "gap": 6,
+                  "minHeight": 18,
+                  "alignSelf": "flex-start",
+                  "maxWidth": "100%",
+                  "minWidth": 0,
+                  "borderRadius": "$radius.md"
+                },
+                "recipe": {
+                  "macro": "TraceItem",
+                  "part": "line",
+                  "props": {
+                    "size": "sm",
+                    "collapsible": false,
+                    "open": false
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "minWidth": 0
+            },
+            "recipe": {
+              "macro": "TraceItem",
+              "part": "root",
+              "props": {
+                "size": "sm",
+                "collapsible": false,
+                "open": false
+              }
+            }
+          },
+          {
+            "id": "trace-run",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "trace-run.line",
+                "component": "Box",
+                "props": {
+                  "pressable": true
+                },
+                "children": [
+                  {
+                    "id": "trace-run.line.icon",
+                    "component": "Icon",
+                    "props": {
+                      "name": "trace-terminal",
+                      "size": "sm"
+                    },
+                    "children": [],
+                    "style": {
+                      "width": 14,
+                      "height": 14,
+                      "flexShrink": 0
+                    },
+                    "recipe": {
+                      "macro": "TraceItem",
+                      "part": "icon",
+                      "props": {
+                        "status": "error",
+                        "size": "sm",
+                        "collapsible": true,
+                        "open": true
+                      }
+                    }
+                  },
+                  {
+                    "id": "trace-run.line.title",
+                    "component": "Text",
+                    "props": {
+                      "text": "Ran bun test",
+                      "lines": 1,
+                      "shimmer": false
+                    },
+                    "children": [],
+                    "style": {
+                      "flexShrink": 1,
+                      "minWidth": 0,
+                      "fontSize": 12,
+                      "lineHeight": 18
+                    },
+                    "recipe": {
+                      "macro": "TraceItem",
+                      "part": "title",
+                      "props": {
+                        "status": "error",
+                        "size": "sm",
+                        "collapsible": true,
+                        "open": true
+                      }
+                    }
+                  },
+                  {
+                    "id": "trace-run.line.chevron",
+                    "component": "Icon",
+                    "props": {
+                      "name": "trace-chevron",
+                      "size": "sm"
+                    },
+                    "children": [],
+                    "style": {
+                      "width": 14,
+                      "height": 14,
+                      "flexShrink": 0,
+                      "marginLeft": -2
+                    },
+                    "recipe": {
+                      "macro": "TraceItem",
+                      "part": "chevron",
+                      "props": {
+                        "status": "error",
+                        "size": "sm",
+                        "collapsible": true,
+                        "open": true
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "row",
+                  "alignItems": "center",
+                  "gap": 6,
+                  "minHeight": 18,
+                  "alignSelf": "flex-start",
+                  "maxWidth": "100%",
+                  "minWidth": 0,
+                  "borderRadius": "$radius.md"
+                },
+                "recipe": {
+                  "macro": "TraceItem",
+                  "part": "line",
+                  "props": {
+                    "status": "error",
+                    "size": "sm",
+                    "collapsible": true,
+                    "open": true
+                  }
+                },
+                "accessibility": {
+                  "role": "button",
+                  "expanded": true
+                }
+              },
+              {
+                "id": "trace-run.content",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "trace-out",
+                    "component": "CodeBlock",
+                    "props": {
+                      "code": "\u001b[32m(pass)\u001b[0m Store > put\n\u001b[31m(fail)\u001b[0m Store > get\n\n 1 pass\n 1 fail",
+                      "language": "ansi",
+                      "title": "Output",
+                      "size": "sm",
+                      "variant": "destructive"
+                    },
+                    "children": []
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "gap": 6,
+                  "minWidth": 0,
+                  "marginTop": 6,
+                  "marginBottom": 4,
+                  "marginLeft": 6,
+                  "borderLeftWidth": 1,
+                  "paddingLeft": 13,
+                  "paddingRight": 4
+                },
+                "recipe": {
+                  "macro": "TraceItem",
+                  "part": "content",
+                  "props": {
+                    "status": "error",
+                    "size": "sm",
+                    "collapsible": true,
+                    "open": true
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "minWidth": 0
+            },
+            "recipe": {
+              "macro": "TraceItem",
+              "part": "root",
+              "props": {
+                "status": "error",
+                "size": "sm",
+                "collapsible": true,
+                "open": true
+              }
+            }
+          },
+          {
+            "id": "trace-edit",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "trace-edit.line",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "trace-edit.line.icon",
+                    "component": "Icon",
+                    "props": {
+                      "name": "trace-edit",
+                      "size": "sm"
+                    },
+                    "children": [],
+                    "style": {
+                      "width": 14,
+                      "height": 14,
+                      "flexShrink": 0
+                    },
+                    "recipe": {
+                      "macro": "TraceItem",
+                      "part": "icon",
+                      "props": {
+                        "status": "running",
+                        "size": "sm",
+                        "collapsible": false,
+                        "open": false
+                      }
+                    }
+                  },
+                  {
+                    "id": "trace-edit.line.title",
+                    "component": "Text",
+                    "props": {
+                      "text": "Editing src/store.ts",
+                      "lines": 1,
+                      "shimmer": true
+                    },
+                    "children": [],
+                    "style": {
+                      "flexShrink": 1,
+                      "minWidth": 0,
+                      "fontSize": 12,
+                      "lineHeight": 18
+                    },
+                    "recipe": {
+                      "macro": "TraceItem",
+                      "part": "title",
+                      "props": {
+                        "status": "running",
+                        "size": "sm",
+                        "collapsible": false,
+                        "open": false
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "row",
+                  "alignItems": "center",
+                  "gap": 6,
+                  "minHeight": 18,
+                  "alignSelf": "flex-start",
+                  "maxWidth": "100%",
+                  "minWidth": 0,
+                  "borderRadius": "$radius.md"
+                },
+                "recipe": {
+                  "macro": "TraceItem",
+                  "part": "line",
+                  "props": {
+                    "status": "running",
+                    "size": "sm",
+                    "collapsible": false,
+                    "open": false
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "minWidth": 0
+            },
+            "recipe": {
+              "macro": "TraceItem",
+              "part": "root",
+              "props": {
+                "status": "running",
+                "size": "sm",
+                "collapsible": false,
+                "open": false
+              }
+            }
+          },
+          {
+            "id": "trace-next",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "trace-next.line",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "trace-next.line.icon",
+                    "component": "Icon",
+                    "props": {
+                      "name": "trace-terminal",
+                      "size": "sm"
+                    },
+                    "children": [],
+                    "style": {
+                      "width": 14,
+                      "height": 14,
+                      "flexShrink": 0
+                    },
+                    "recipe": {
+                      "macro": "TraceItem",
+                      "part": "icon",
+                      "props": {
+                        "status": "pending",
+                        "size": "sm",
+                        "collapsible": false,
+                        "open": false
+                      }
+                    }
+                  },
+                  {
+                    "id": "trace-next.line.title",
+                    "component": "Text",
+                    "props": {
+                      "text": "Run the suite again",
+                      "lines": 1,
+                      "shimmer": false
+                    },
+                    "children": [],
+                    "style": {
+                      "flexShrink": 1,
+                      "minWidth": 0,
+                      "fontSize": 12,
+                      "lineHeight": 18
+                    },
+                    "recipe": {
+                      "macro": "TraceItem",
+                      "part": "title",
+                      "props": {
+                        "status": "pending",
+                        "size": "sm",
+                        "collapsible": false,
+                        "open": false
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "row",
+                  "alignItems": "center",
+                  "gap": 6,
+                  "minHeight": 18,
+                  "alignSelf": "flex-start",
+                  "maxWidth": "100%",
+                  "minWidth": 0,
+                  "borderRadius": "$radius.md"
+                },
+                "recipe": {
+                  "macro": "TraceItem",
+                  "part": "line",
+                  "props": {
+                    "status": "pending",
+                    "size": "sm",
+                    "collapsible": false,
+                    "open": false
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "minWidth": 0
+            },
+            "recipe": {
+              "macro": "TraceItem",
+              "part": "root",
+              "props": {
+                "status": "pending",
+                "size": "sm",
+                "collapsible": false,
+                "open": false
+              }
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": 6,
+          "minWidth": 0
+        },
+        "recipe": {
+          "macro": "Trace",
+          "part": "root",
+          "props": {
+            "size": "sm"
+          }
+        }
+      },
+      {
         "id": "composer",
         "component": "Composer",
         "props": {

@@ -170,7 +170,7 @@ fn style_conditions_every_case_flattens_like_resolve_conditions() {
 fn code_tokens_every_case_tokenizes_like_the_reference() {
     let file = fixture("code-tokens.json");
     let cases = file["cases"].as_array().unwrap();
-    assert_eq!(cases.len(), 17);
+    assert_eq!(cases.len(), 23);
     let mut languages = std::collections::HashSet::new();
     for c in cases {
         let name = c["name"].as_str().unwrap();
@@ -181,6 +181,29 @@ fn code_tokens_every_case_tokenizes_like_the_reference() {
     }
     for name in exponential_ui::generated::catalog::CODE_LANGUAGE_NAMES {
         assert!(languages.contains(*name), "{name} has a case");
+    }
+}
+
+#[test]
+fn code_text_strips_ansi_escapes() {
+    use exponential_ui::code::code_text;
+    let file = fixture("code-tokens.json");
+    for c in file["cases"].as_array().unwrap() {
+        let (code, language) = (c["code"].as_str().unwrap(), c["language"].as_str().unwrap());
+        let lines: Vec<String> = tokenize_code(code, language).iter().map(|l| l.iter().map(|t| t.text.as_str()).collect()).collect();
+        assert_eq!(lines.join("\n"), code_text(code, language), "{}", c["name"]);
+    }
+    assert_eq!(code_text("\u{1b}[31mred\u{1b}[0m\r\nok", "ansi"), "red\nok");
+}
+
+#[test]
+fn text_shimmer_every_case_matches_the_reference() {
+    use exponential_ui::text_shimmer::{text_shimmer, TextShimmer};
+    let file = fixture("text-shimmer.json");
+    for c in file["cases"].as_array().unwrap() {
+        let got = text_shimmer(c["color"].as_str().unwrap(), c["dark"].as_bool().unwrap());
+        let expected: TextShimmer = serde_json::from_value(c["expected"].clone()).unwrap();
+        assert_eq!(got, expected, "{}", c["name"]);
     }
 }
 

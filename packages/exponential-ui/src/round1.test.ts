@@ -10,7 +10,7 @@ import codeFixture from "../fixtures/code-tokens.json" with { type: "json" }
 import macrosJson from "../catalog/macros.json" with { type: "json" }
 import { CORE_CATALOG_ID, coreCatalog } from "./catalog"
 import { COMPONENT_A11Y, A11Y_COMMANDS } from "./a11y"
-import { CODE_LANGUAGE_NAMES, CODE_LANGUAGES, tokenizeCode } from "./code"
+import { CODE_LANGUAGE_NAMES, CODE_LANGUAGES, codeText, tokenizeCode } from "./code"
 import { chartExtent, niceTicks, seriesColor } from "./chart"
 import { styleToCss, gradientCss } from "./css"
 import { absolutePath, bindTree, readPointer, resolveDynamic, runAction, writePointer } from "./dynamic"
@@ -247,7 +247,7 @@ describe(`CodeBlock tokenizer (§3)`, () => {
     for (const c of cases) {
       const tokens = tokenizeCode(c.code, c.language)
       expect(tokens, c.name).toEqual(c.expected)
-      expect(tokens.map((line) => line.map((t) => t.text).join(``)), c.name).toEqual(c.code.replace(/\r\n?/g, `\n`).split(`\n`))
+      expect(tokens.map((line) => line.map((t) => t.text).join(``)), c.name).toEqual(codeText(c.code, c.language).split(`\n`))
       for (const line of tokens) for (const t of line) expect(coreCatalog.enums.codeToken, `${c.name}: ${t.kind}`).toContain(t.kind)
     }
   })
@@ -257,6 +257,14 @@ describe(`CodeBlock tokenizer (§3)`, () => {
     expect(line.map((t) => t.kind)).toEqual([`keyword`, `plain`, `operator`, `plain`, `punctuation`, `function`, `punctuation`, `number`, `punctuation`, `plain`, `comment`])
     expect(tokenizeCode(`{"a": 1}`, `json`)[0][1]).toEqual({ kind: `property`, text: `"a"` })
     expect(tokenizeCode(``, `ts`)).toEqual([[]])
+  })
+
+  test(`EXP-1324 ansi: escapes never reach the text, colours become kinds`, () => {
+    expect(codeText(`\u001b[31mred\u001b[0m\r\nok`, `ansi`)).toBe(`red\nok`)
+    expect(codeText(`\u001b[31mred`, `ts`)).toBe(`\u001b[31mred`)
+    expect(tokenizeCode(`\u001b[1;32mPASS\u001b[0m x`, `ansi`)).toEqual([[{ kind: `success`, text: `PASS` }, { kind: `plain`, text: ` x` }]])
+    expect(tokenizeCode(`FAILED x\nFAIL y`, `ansi`).map((l) => l[0].kind)).toEqual([`error`, `error`])
+    expect(tokenizeCode(`test result: ok. 1 passed`, `ansi`)).toEqual([[{ kind: `success`, text: `test result: ok. 1 passed` }]])
   })
 })
 

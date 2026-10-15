@@ -6709,6 +6709,17 @@ public func clientCapabilitiesJson(extensionIds: [String]) -> String  {
 })
 }
 /**
+ * EXP-1324: the text a CodeBlock shows and copies (`ansi`: escapes removed).
+ */
+public func codeText(code: String, language: String) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_func_code_text(
+        FfiConverterString.lower(code),
+        FfiConverterString.lower(language),$0
+    )
+})
+}
+/**
  * Two stacked decisions: the stricter wins.
  */
 public func combineDecisions(a: String, b: String)throws  -> String  {
@@ -7184,6 +7195,18 @@ public func textDirection(locale: String) -> String  {
 })
 }
 /**
+ * EXP-1324: the Text `shimmer` colours for a text colour (`#rrggbb[aa]`):
+ * `{base, highlight, mid, durationMs, angleDeg, spreadPx}`.
+ */
+public func textShimmerJson(color: String, dark: Bool) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_func_text_shimmer_json(
+        FfiConverterString.lower(color),
+        FfiConverterBool.lower(dark),$0
+    )
+})
+}
+/**
  * The issues of a theme file (`[]` when it loads).
  */
 public func themeIssuesJson(themeJson: String, parentsJson: String?) -> String  {
@@ -7294,6 +7317,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_client_capabilities_json() != 21405) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_func_code_text() != 23100) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_combine_decisions() != 28171) {
@@ -7414,6 +7440,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_text_direction() != 32593) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_func_text_shimmer_json() != 7457) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_theme_issues_json() != 53537) {

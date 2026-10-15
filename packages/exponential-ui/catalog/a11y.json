@@ -89,6 +89,8 @@
     "Sidebar": { "role": "none", "notes": "navigation landmark (the sidebar slot) beside main. Layout only; its `sidebar` part is a navigation landmark, its `main` part the main landmark ($a11y).", "keys": [] },
     "AppBar": { "role": "banner", "notes": "banner (heading level 1 = the title). The title is heading level 1; the back button is labelled `back` ($a11y).", "keys": ["Enter, Space on back"] },
     "Row": { "role": "button", "notes": "button (aria-selected when selected) when pressable, a group of its texts otherwise ($a11y); the guides are decorative", "keys": ["Enter, Space: press (pressable only)"] },
+    "Trace": { "role": "none", "notes": "Layout only: a column of TraceItem lines.", "keys": [] },
+    "TraceItem": { "role": "group", "notes": "A collapsible line is a button with aria-expanded = open ($a11y); a plain line is text; the icon is decorative.", "keys": ["Enter, Space: toggle (collapsible only)"] },
     "Chip": { "role": "button", "notes": "button with aria-pressed (= selected) when pressable, text otherwise ($a11y); remove = button labelled `remove`", "keys": ["Enter, Space: press; Delete, Backspace: remove when removable"] }
   }
 }

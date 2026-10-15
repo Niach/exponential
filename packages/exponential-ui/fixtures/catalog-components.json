@@ -2000,6 +2000,30 @@
       }
     },
     {
+      "name": "Text/shimmer=true",
+      "node": {
+        "id": "text",
+        "component": "Text",
+        "props": {
+          "text": "Hello, world!",
+          "variant": "body",
+          "shimmer": true
+        }
+      }
+    },
+    {
+      "name": "Text/shimmer=false",
+      "node": {
+        "id": "text",
+        "component": "Text",
+        "props": {
+          "text": "Hello, world!",
+          "variant": "body",
+          "shimmer": false
+        }
+      }
+    },
+    {
       "name": "Text/live=off",
       "node": {
         "id": "text",
@@ -2293,6 +2317,18 @@
       }
     },
     {
+      "name": "CodeBlock/language=ansi",
+      "node": {
+        "id": "code-block",
+        "component": "CodeBlock",
+        "props": {
+          "code": "const answer = 42 // the answer",
+          "language": "ansi",
+          "lineNumbers": true
+        }
+      }
+    },
+    {
       "name": "CodeBlock/lineNumbers=true",
       "node": {
         "id": "code-block",
@@ -2365,6 +2401,58 @@
           "language": "ts",
           "lineNumbers": true,
           "copyable": false
+        }
+      }
+    },
+    {
+      "name": "CodeBlock/variant=default",
+      "node": {
+        "id": "code-block",
+        "component": "CodeBlock",
+        "props": {
+          "code": "const answer = 42 // the answer",
+          "language": "ts",
+          "lineNumbers": true,
+          "variant": "default"
+        }
+      }
+    },
+    {
+      "name": "CodeBlock/variant=destructive",
+      "node": {
+        "id": "code-block",
+        "component": "CodeBlock",
+        "props": {
+          "code": "const answer = 42 // the answer",
+          "language": "ts",
+          "lineNumbers": true,
+          "variant": "destructive"
+        }
+      }
+    },
+    {
+      "name": "CodeBlock/size=default",
+      "node": {
+        "id": "code-block",
+        "component": "CodeBlock",
+        "props": {
+          "code": "const answer = 42 // the answer",
+          "language": "ts",
+          "lineNumbers": true,
+          "size": "default"
+        }
+      }
+    },
+    {
+      "name": "CodeBlock/size=sm",
+      "node": {
+        "id": "code-block",
+        "component": "CodeBlock",
+        "props": {
+          "code": "const answer = 42 // the answer",
+          "language": "ts",
+          "lineNumbers": true,
+          "size": "sm"
         }
       }
     },
@@ -3447,6 +3535,298 @@
         "children": [
           {
             "id": "collapsible-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Trace/example",
+      "node": {
+        "id": "trace",
+        "component": "Trace",
+        "props": {
+          "size": "default"
+        },
+        "children": [
+          {
+            "id": "trace-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Trace/size=default",
+      "node": {
+        "id": "trace",
+        "component": "Trace",
+        "props": {
+          "size": "default"
+        },
+        "children": [
+          {
+            "id": "trace-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Trace/size=sm",
+      "node": {
+        "id": "trace",
+        "component": "Trace",
+        "props": {
+          "size": "sm"
+        },
+        "children": [
+          {
+            "id": "trace-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "TraceItem/example",
+      "node": {
+        "id": "trace-item",
+        "component": "TraceItem",
+        "props": {
+          "title": "Ran bun test",
+          "icon": "trace-terminal",
+          "description": "4s",
+          "collapsible": true,
+          "open": true
+        },
+        "children": [
+          {
+            "id": "trace-item-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "TraceItem/status=running",
+      "node": {
+        "id": "trace-item",
+        "component": "TraceItem",
+        "props": {
+          "title": "Ran bun test",
+          "icon": "trace-terminal",
+          "description": "4s",
+          "collapsible": true,
+          "open": true,
+          "status": "running"
+        },
+        "children": [
+          {
+            "id": "trace-item-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "TraceItem/status=error",
+      "node": {
+        "id": "trace-item",
+        "component": "TraceItem",
+        "props": {
+          "title": "Ran bun test",
+          "icon": "trace-terminal",
+          "description": "4s",
+          "collapsible": true,
+          "open": true,
+          "status": "error"
+        },
+        "children": [
+          {
+            "id": "trace-item-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "TraceItem/status=pending",
+      "node": {
+        "id": "trace-item",
+        "component": "TraceItem",
+        "props": {
+          "title": "Ran bun test",
+          "icon": "trace-terminal",
+          "description": "4s",
+          "collapsible": true,
+          "open": true,
+          "status": "pending"
+        },
+        "children": [
+          {
+            "id": "trace-item-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "TraceItem/size=default",
+      "node": {
+        "id": "trace-item",
+        "component": "TraceItem",
+        "props": {
+          "title": "Ran bun test",
+          "icon": "trace-terminal",
+          "description": "4s",
+          "collapsible": true,
+          "open": true,
+          "size": "default"
+        },
+        "children": [
+          {
+            "id": "trace-item-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "TraceItem/size=sm",
+      "node": {
+        "id": "trace-item",
+        "component": "TraceItem",
+        "props": {
+          "title": "Ran bun test",
+          "icon": "trace-terminal",
+          "description": "4s",
+          "collapsible": true,
+          "open": true,
+          "size": "sm"
+        },
+        "children": [
+          {
+            "id": "trace-item-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "TraceItem/collapsible=true",
+      "node": {
+        "id": "trace-item",
+        "component": "TraceItem",
+        "props": {
+          "title": "Ran bun test",
+          "icon": "trace-terminal",
+          "description": "4s",
+          "collapsible": true,
+          "open": true
+        },
+        "children": [
+          {
+            "id": "trace-item-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "TraceItem/collapsible=false",
+      "node": {
+        "id": "trace-item",
+        "component": "TraceItem",
+        "props": {
+          "title": "Ran bun test",
+          "icon": "trace-terminal",
+          "description": "4s",
+          "collapsible": false,
+          "open": true
+        },
+        "children": [
+          {
+            "id": "trace-item-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "TraceItem/open=true",
+      "node": {
+        "id": "trace-item",
+        "component": "TraceItem",
+        "props": {
+          "title": "Ran bun test",
+          "icon": "trace-terminal",
+          "description": "4s",
+          "collapsible": true,
+          "open": true
+        },
+        "children": [
+          {
+            "id": "trace-item-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "TraceItem/open=false",
+      "node": {
+        "id": "trace-item",
+        "component": "TraceItem",
+        "props": {
+          "title": "Ran bun test",
+          "icon": "trace-terminal",
+          "description": "4s",
+          "collapsible": true,
+          "open": false
+        },
+        "children": [
+          {
+            "id": "trace-item-child",
             "component": "Text",
             "props": {
               "text": "Child"

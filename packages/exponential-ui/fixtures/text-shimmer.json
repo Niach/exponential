@@ -1,0 +1,96 @@
+{
+  "$comment": "EXP-1324: the Text `shimmer` colours (catalog/style.json `textShimmer`). Inputs hand-written (colour, dark); `expected` = src/text-shimmer.ts textShimmer. The Rust core (`text_shimmer`) and every painter replay it.",
+  "cases": [
+    {
+      "name": "neutral dark muted-foreground",
+      "color": "#a1a1a1",
+      "dark": true,
+      "expected": {
+        "base": "#a1a1a1",
+        "highlight": "#ffffff",
+        "mid": "#cfcfcf",
+        "durationMs": 2000,
+        "angleDeg": 20,
+        "spreadPx": 60
+      }
+    },
+    {
+      "name": "neutral light muted-foreground",
+      "color": "#737373",
+      "dark": false,
+      "expected": {
+        "base": "#737373",
+        "highlight": "#73737333",
+        "mid": "#73737399",
+        "durationMs": 2000,
+        "angleDeg": 20,
+        "spreadPx": 60
+      }
+    },
+    {
+      "name": "dark foreground (lightness clamps to 1)",
+      "color": "#fafafa",
+      "dark": true,
+      "expected": {
+        "base": "#fafafa",
+        "highlight": "#ffffff",
+        "mid": "#fcfcfc",
+        "durationMs": 2000,
+        "angleDeg": 20,
+        "spreadPx": 60
+      }
+    },
+    {
+      "name": "a dark translucent colour gains alpha",
+      "color": "#ffffff80",
+      "dark": true,
+      "expected": {
+        "base": "#ffffff80",
+        "highlight": "#ffffffe6",
+        "mid": "#ffffffb3",
+        "durationMs": 2000,
+        "angleDeg": 20,
+        "spreadPx": 60
+      }
+    },
+    {
+      "name": "a dim colour lifts to the lightness floor",
+      "color": "#262626",
+      "dark": true,
+      "expected": {
+        "base": "#262626",
+        "highlight": "#bebebe",
+        "mid": "#6d6d6d",
+        "durationMs": 2000,
+        "angleDeg": 20,
+        "spreadPx": 60
+      }
+    },
+    {
+      "name": "a chromatic colour keeps its hue",
+      "color": "#ff6467",
+      "dark": true,
+      "expected": {
+        "base": "#ff6467",
+        "highlight": "#ffc7c4",
+        "mid": "#ff9594",
+        "durationMs": 2000,
+        "angleDeg": 20,
+        "spreadPx": 60
+      }
+    },
+    {
+      "name": "light destructive",
+      "color": "#e7000b",
+      "dark": false,
+      "expected": {
+        "base": "#e7000b",
+        "highlight": "#e7000b33",
+        "mid": "#e7000b99",
+        "durationMs": 2000,
+        "angleDeg": 20,
+        "spreadPx": 60
+      }
+    }
+  ]
+}

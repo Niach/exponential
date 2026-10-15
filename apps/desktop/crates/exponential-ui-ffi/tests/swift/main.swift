@@ -304,6 +304,11 @@ let codeTokens = load("code-tokens.json") as! [String: Any]
 for c in codeTokens["cases"] as! [[String: Any]] {
     equal(tokenizeCodeJson(code: c["code"] as! String, language: c["language"] as! String), c["expected"]!, "code-tokens \(c["name"]!)")
 }
+check(codeText(code: "\u{1b}[32mok\u{1b}[0m", language: "ansi") == "ok", "code-text ansi")
+let textShimmers = load("text-shimmer.json") as! [String: Any]
+for c in textShimmers["cases"] as! [[String: Any]] {
+    equal(textShimmerJson(color: c["color"] as! String, dark: c["dark"] as! Bool), c["expected"]!, "text-shimmer \(c["name"]!)")
+}
 check(weekStart(locale: "de-DE") == 1 && textDirection(locale: "ar") == "rtl", "locale")
 
 let r1 = try! Surface(surfaceId: "r1", catalogId: coreCatalogId(), themeId: nil, mode: "light")

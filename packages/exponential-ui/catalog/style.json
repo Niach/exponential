@@ -114,5 +114,15 @@
     "media": "^@media \\((min-width|max-width|min-height|max-height): (\\d+(\\.\\d+)?px|\\$breakpoint\\.[a-zA-Z0-9]+)\\)$|^@media \\(orientation: (portrait|landscape)\\)$|^@media \\(hover: (hover|none)\\)$|^@media \\(prefers-reduced-motion: (reduce|no-preference)\\)$",
     "states": [":hover", ":focus-visible", ":pressed"],
     "transform": "^((translate\\(-?\\d+(\\.\\d+)?px, -?\\d+(\\.\\d+)?px\\)|scale\\(-?\\d+(\\.\\d+)?\\)|rotate\\(-?\\d+(\\.\\d+)?deg\\))( (?=\\S)|$))+$"
+  },
+  "textShimmer": {
+    "$comment": "EXP-1324: the Text `shimmer` prop (a running TraceItem title) = packages/design-tokens motion.shimmer (shadcn's `shimmer` utility), copied here because the SDK imports nothing from the app (src/text-shimmer.test.ts keeps them equal). The glyphs are filled with a linear gradient at 90deg + `angleDeg` (CSS angle: 90deg = left → right): base = the text colour, highlight (dark mode) = the text colour in OKLCH at lightness min(1, max(`highlightLightnessMin`, L + `highlightLightnessBoost`)), same a/b, alpha min(1, alpha + `highlightAlphaBoost`); light mode = the text colour at alpha × `lightAlphaFactor`; mid = the 50% OKLab mix of the two, alpha-premultiplied. Stops: base @ 50% - spread, mid @ 50% - spread/2, highlight @ 50%, mid @ 50% + spread/2, base @ 50% + spread (spread = `spreadPx`). The gradient is 200% of the text box width + 2 × spread wide and slides linearly from CSS background-position `100% 0` (its right edge on the box's right edge) to `0 0` (its left edge on the box's left edge) over `durationMs`, forever; rtl reverses. Reduced motion = the plain text. src/text-shimmer.ts textShimmer(colour, dark) is the reference (the Rust core `text_shimmer`, FFI `text_shimmer_json`); fixtures/text-shimmer.json locks the colours.",
+    "durationMs": 2000,
+    "angleDeg": 20,
+    "spreadPx": 60,
+    "highlightLightnessMin": 0.8,
+    "highlightLightnessBoost": 0.4,
+    "highlightAlphaBoost": 0.4,
+    "lightAlphaFactor": 0.2
   }
 }

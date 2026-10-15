@@ -13,7 +13,7 @@ const pkgRoot = join(import.meta.dir, `..`)
 describe(`generated outputs (VAPP-85)`, () => {
   const files = render()
 
-  test(`renders the forty-two outputs (round 2 adds seven fixtures, round 3 the tree guides, round 4 its contract)`, () => {
+  test(`renders the forty-three outputs (round 2 adds seven fixtures, round 3 the tree guides, round 4 its contract, EXP-1324 the text shimmer)`, () => {
     expect(Object.keys(files).sort()).toEqual([
       `../../apps/desktop/crates/exponential-ui/src/generated/catalog.rs`,
       `../../apps/desktop/crates/exponential-ui/src/generated/themes.rs`,
@@ -43,6 +43,7 @@ describe(`generated outputs (VAPP-85)`, () => {
       `fixtures/style-conditions.json`,
       `fixtures/template-items.json`,
       `fixtures/text-direction.json`,
+      `fixtures/text-shimmer.json`,
       `fixtures/theme-extends.json`,
       `fixtures/theme-invalid.json`,
       `fixtures/theme-recipes.json`,

@@ -25,6 +25,9 @@ pub struct CodeToken {
 pub struct LanguageSpec {
     #[serde(default)]
     pub plain: bool,
+    /// EXP-1324: strip ANSI CSI escapes first, SGR colours → token kinds.
+    #[serde(default)]
+    pub ansi: bool,
     #[serde(default)]
     pub line_kinds: Option<IndexMap<String, String>>,
     #[serde(default)]
@@ -95,6 +98,8 @@ fn is_space(c: Option<char>) -> bool {
 struct Scanner<'a> {
     code: &'a [char],
     out: Vec<CodeToken>,
+    /// Whether index 0 starts a line (an ansi run may begin mid-line).
+    line_start: bool,
 }
 
 impl Scanner<'_> {
@@ -126,17 +131,27 @@ impl Scanner<'_> {
     }
     /// True when only spaces/tabs separate `i` from the start of its line.
     fn space_run_to_line_start(&self, i: usize) -> bool {
-        let mut k = i as isize - 1;
-        while k >= 0 && is_space(self.at(k as usize)) {
-            k -= 1;
-        }
-        k < 0 || self.at(k as usize) == Some('\n')
+        space_run_to_line_start(self.code, i, self.line_start)
+    }
+}
+
+/// True when only spaces/tabs separate `i` from the start of its line
+/// (`line_start` = whether index 0 starts a line).
+fn space_run_to_line_start(code: &[char], i: usize, line_start: bool) -> bool {
+    let mut k = i as isize - 1;
+    while k >= 0 && is_space(code.get(k as usize).copied()) {
+        k -= 1;
+    }
+    if k < 0 {
+        line_start
+    } else {
+        code[k as usize] == '\n'
     }
 }
 
 /// The source as flat tokens (text may span lines).
-fn scan(code: &[char], spec: &LanguageSpec) -> Vec<CodeToken> {
-    let mut s = Scanner { code, out: Vec::new() };
+fn scan(code: &[char], spec: &LanguageSpec, line_start: bool) -> Vec<CodeToken> {
+    let mut s = Scanner { code, out: Vec::new(), line_start };
     let n = code.len();
     let operators: Vec<char> = spec.operators.as_deref().unwrap_or(&CODE.defaults.operators).chars().collect();
     let punctuation: Vec<char> = spec.punctuation.as_deref().unwrap_or(&CODE.defaults.punctuation).chars().collect();
@@ -159,8 +174,13 @@ fn scan(code: &[char], spec: &LanguageSpec) -> Vec<CodeToken> {
         }
         // (1) line kinds
         if let Some(kinds) = &spec.line_kinds {
-            if i == 0 || code[i - 1] == '\n' || s.space_run_to_line_start(i) {
-                let prefix = kinds.keys().find(|p| s.starts_with(p, i));
+            let at_line = if i == 0 { line_start } else { code[i - 1] == '\n' || s.space_run_to_line_start(i) };
+            if at_line {
+                // EXP-1324: the LONGEST listed prefix wins (`FAILED` over `FAIL`).
+                let prefix = kinds.keys().filter(|p| s.starts_with(p, i)).fold(None::<&String>, |best, p| match best {
+                    Some(b) if b.chars().count() >= p.chars().count() => Some(b),
+                    _ => Some(p),
+                });
                 if let Some(prefix) = prefix {
                     if !is_space(Some(c)) {
                         let mut j = i;
@@ -368,6 +388,109 @@ fn scan(code: &[char], spec: &LanguageSpec) -> Vec<CodeToken> {
     s.out
 }
 
+/// EXP-1324 `ansi`: one run of the escape-free text with the SGR colour (a
+/// codeToken kind) it was printed in, or none.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AnsiRun {
+    pub kind: Option<&'static str>,
+    pub text: String,
+}
+
+/// The SGR colour after applying `params` left to right: 31/91 error,
+/// 32/92 success, 33/93 warning, 2/90 comment, 0/39/empty reset; any other
+/// parameter keeps the colour.
+fn sgr_kind(params: &str, kind: Option<&'static str>) -> Option<&'static str> {
+    let mut out = kind;
+    for raw in params.split(';') {
+        let p: Option<u32> = if raw.is_empty() { Some(0) } else { raw.parse().ok() };
+        match p {
+            Some(0) | Some(39) => out = None,
+            Some(31) | Some(91) => out = Some("error"),
+            Some(32) | Some(92) => out = Some("success"),
+            Some(33) | Some(93) => out = Some("warning"),
+            Some(2) | Some(90) => out = Some("comment"),
+            _ => {}
+        }
+    }
+    out
+}
+
+/// The source with every ANSI CSI escape removed, split into runs by SGR
+/// colour (catalog/code.json `$comment`, `ansi`); adjacent runs of one colour
+/// merge, an incomplete escape stays text. Port of `ansiRuns`.
+pub fn ansi_runs(source: &str) -> Vec<AnsiRun> {
+    let chars: Vec<char> = source.chars().collect();
+    let n = chars.len();
+    let mut runs: Vec<AnsiRun> = Vec::new();
+    let mut kind: Option<&'static str> = None;
+    let mut text = String::new();
+    let flush = |runs: &mut Vec<AnsiRun>, kind: Option<&'static str>, text: &mut String| {
+        if text.is_empty() {
+            return;
+        }
+        match runs.last_mut() {
+            Some(last) if last.kind == kind => last.text.push_str(text),
+            _ => runs.push(AnsiRun { kind, text: text.clone() }),
+        }
+        text.clear();
+    };
+    let in_range = |c: char, lo: u32, hi: u32| (lo..=hi).contains(&(c as u32));
+    let mut i = 0;
+    while i < n {
+        if chars[i] == '\u{1b}' && chars.get(i + 1) == Some(&'[') {
+            let mut j = i + 2;
+            while j < n && in_range(chars[j], 0x30, 0x3f) {
+                j += 1;
+            }
+            let params: String = chars[i + 2..j].iter().collect();
+            while j < n && in_range(chars[j], 0x20, 0x2f) {
+                j += 1;
+            }
+            if j < n && in_range(chars[j], 0x40, 0x7e) {
+                if chars[j] == 'm' {
+                    let next = sgr_kind(&params, kind);
+                    if next != kind {
+                        flush(&mut runs, kind, &mut text);
+                        kind = next;
+                    }
+                }
+                i = j + 1;
+                continue;
+            }
+        }
+        text.push(chars[i]);
+        i += 1;
+    }
+    flush(&mut runs, kind, &mut text);
+    runs
+}
+
+/// `ansi`: coloured runs verbatim, uncoloured ones through the scanner.
+fn scan_ansi(code: &str, spec: &LanguageSpec) -> Vec<CodeToken> {
+    let mut out = Vec::new();
+    let mut at_line = true;
+    for run in ansi_runs(code) {
+        let chars: Vec<char> = run.text.chars().collect();
+        match run.kind {
+            Some(kind) => out.push(CodeToken { kind: kind.to_string(), text: run.text.clone() }),
+            None => out.extend(scan(&chars, spec, at_line)),
+        }
+        at_line = space_run_to_line_start(&chars, chars.len(), at_line);
+    }
+    out
+}
+
+/// The text a CodeBlock shows and copies: CRLF → LF and, for `ansi`, every
+/// escape removed. Port of `codeText`.
+pub fn code_text(source: &str, language_name: &str) -> String {
+    let code = source.replace("\r\n", "\n").replace('\r', "\n");
+    if language(language_name).is_some_and(|l| l.ansi) {
+        ansi_runs(&code).into_iter().map(|r| r.text).collect()
+    } else {
+        code
+    }
+}
+
 /// The source tokenized per LINE: each line's tokens concatenate to exactly
 /// its text (no `\n`), adjacent tokens of one kind merged; an empty line is
 /// an empty list. An unknown language tokenizes as `plain`.
@@ -376,7 +499,8 @@ pub fn tokenize_code(source: &str, language_name: &str) -> Vec<Vec<CodeToken>> {
     let chars: Vec<char> = code.chars().collect();
     let spec = language(language_name).or_else(|| language("plain")).expect("plain language");
     let mut lines: Vec<Vec<CodeToken>> = vec![Vec::new()];
-    for token in scan(&chars, spec) {
+    let tokens = if spec.ansi { scan_ansi(&code, spec) } else { scan(&chars, spec, true) };
+    for token in tokens {
         for (index, piece) in token.text.split('\n').enumerate() {
             if index > 0 {
                 lines.push(Vec::new());

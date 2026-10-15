@@ -4206,43 +4206,101 @@
       "root": [
         {
           "style": {
-            "backgroundColor": "$color.muted",
+            "backgroundColor": "#00000000",
             "color": "$color.foreground",
-            "borderRadius": "$radius.md",
+            "borderRadius": "$radius.lg",
             "borderWidth": "$border.hairline",
-            "borderColor": "$color.border",
+            "borderColor": "$color.input",
             "fontFamily": "$type.family.mono",
+            "fontSize": "$type.size.sm",
+            "lineHeight": 22.75,
+            "paddingVertical": "$spacing.md",
+            "gap": "$spacing.sm"
+          }
+        },
+        {
+          "when": {
+            "size": "sm"
+          },
+          "style": {
             "fontSize": "$type.size.xs",
-            "lineHeight": "$type.lineHeight.sm"
+            "lineHeight": 19.5,
+            "paddingVertical": 10,
+            "gap": 6
+          }
+        },
+        {
+          "when": {
+            "variant": "destructive"
+          },
+          "style": {
+            "borderColor": "#ff646766",
+            "color": "$color.destructive",
+            "backgroundColor": "#00000000"
           }
         }
       ],
       "header": [
         {
           "style": {
+            "height": 20,
             "paddingHorizontal": "$spacing.md",
-            "paddingVertical": "$spacing.xs",
             "gap": "$spacing.sm",
-            "borderBottomWidth": "$border.hairline",
-            "borderColor": "$color.border"
+            "color": "$color.mutedForeground"
+          }
+        },
+        {
+          "when": {
+            "size": "sm"
+          },
+          "style": {
+            "height": 16,
+            "paddingHorizontal": 10
+          }
+        },
+        {
+          "when": {
+            "variant": "destructive"
+          },
+          "style": {
+            "color": "$color.destructive"
           }
         }
       ],
       "title": [
         {
           "style": {
-            "fontSize": "$type.size.xs",
-            "color": "$color.mutedForeground",
+            "fontSize": "$type.size.sm",
+            "lineHeight": "$type.lineHeight.sm",
+            "fontWeight": "$type.weight.medium",
+            "color": "$color.foreground",
             "fontFamily": "$type.family.sans"
+          }
+        },
+        {
+          "when": {
+            "size": "sm"
+          },
+          "style": {
+            "fontSize": "$type.size.xs",
+            "lineHeight": "$type.lineHeight.xs"
+          }
+        },
+        {
+          "when": {
+            "variant": "destructive"
+          },
+          "style": {
+            "color": "$color.destructive"
           }
         }
       ],
       "copy": [
         {
           "style": {
-            "width": "$control.buttonIcon",
-            "height": "$control.buttonIcon",
-            "borderRadius": "$radius.sm",
+            "width": 24,
+            "height": 24,
+            "borderRadius": "$radius.md",
             "color": "$color.mutedForeground",
             "backgroundColor": "#00000000",
             "transition": "$motion.fast"
@@ -4274,10 +4332,18 @@
         },
         {
           "when": {
+            "size": "sm"
+          },
+          "style": {
+            "paddingHorizontal": 10
+          }
+        },
+        {
+          "when": {
             "state": "selected"
           },
           "style": {
-            "backgroundColor": "$color.accent"
+            "backgroundColor": "$color.muted"
           }
         }
       ],
@@ -4373,6 +4439,40 @@
           },
           "style": {
             "color": "$color.mutedForeground"
+          }
+        },
+        {
+          "when": {
+            "kind": "success"
+          },
+          "style": {
+            "color": "$color.success"
+          }
+        },
+        {
+          "when": {
+            "kind": "warning"
+          },
+          "style": {
+            "color": "$color.warning"
+          }
+        },
+        {
+          "when": {
+            "kind": "error"
+          },
+          "style": {
+            "color": "$color.destructive"
+          }
+        },
+        {
+          "when": {
+            "variant": "destructive"
+          },
+          "style": {
+            "color": "$color.destructive",
+            "fontWeight": "$type.weight.regular",
+            "fontStyle": "normal"
           }
         }
       ]
@@ -5353,6 +5453,104 @@
     },
     "ScrollArea": {
       "root": []
+    },
+    "TraceItem": {
+      "line": [
+        {
+          "style": {
+            "transition": "$motion.fast",
+            "transitionEasing": "$ease.standard"
+          }
+        },
+        {
+          "when": {
+            "status": "pending"
+          },
+          "style": {
+            "opacity": 0.6
+          }
+        }
+      ],
+      "icon": [
+        {
+          "style": {
+            "color": "$color.mutedForeground"
+          }
+        },
+        {
+          "when": {
+            "status": "error"
+          },
+          "style": {
+            "color": "$color.destructive"
+          }
+        }
+      ],
+      "title": [
+        {
+          "style": {
+            "color": "$color.mutedForeground",
+            "fontWeight": "$type.weight.regular"
+          }
+        },
+        {
+          "when": {
+            "status": "error"
+          },
+          "style": {
+            "color": "$color.destructive"
+          }
+        }
+      ],
+      "description": [
+        {
+          "style": {
+            "color": "$color.mutedForeground",
+            "opacity": 0.7
+          }
+        },
+        {
+          "when": {
+            "status": "error"
+          },
+          "style": {
+            "color": "$color.destructive"
+          }
+        }
+      ],
+      "chevron": [
+        {
+          "style": {
+            "color": "$color.mutedForeground",
+            "transition": "$motion.standard",
+            "transitionEasing": "$ease.standard"
+          }
+        },
+        {
+          "when": {
+            "open": true
+          },
+          "style": {
+            "transform": "rotate(90deg)"
+          }
+        },
+        {
+          "when": {
+            "status": "error"
+          },
+          "style": {
+            "color": "$color.destructive"
+          }
+        }
+      ],
+      "content": [
+        {
+          "style": {
+            "borderColor": "$color.border",
+            "color": "$color.mutedForeground"
+          }
+        }
+      ]
     }
   }
 }

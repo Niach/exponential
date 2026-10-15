@@ -19,6 +19,7 @@
 //   fixtures/bind-time.json               round 1: bound macro cases × data → the BOUND tree + presses
 //   fixtures/style-conditions.json        round 1: style × surface/state context → the flattened style
 //   fixtures/code-tokens.json             round 1: source × language → CodeBlock tokens per line
+//   fixtures/text-shimmer.json            EXP-1324: text colour × mode → the Text shimmer colours
 //   fixtures/specimens.json               one surface per component + the demo (VAPP-93: the site's shots)
 //   + the theme outputs of scripts/generate-themes.ts (VAPP-92)
 //   + the round-4 fixture of scripts/generate-round4.ts (round4-contract.json)
@@ -41,6 +42,7 @@ import { coreSchema } from "../src/schema"
 import { STYLE_KEYS, STYLE_STATES, resolveConditions, type ConditionContext } from "../src/style"
 import { BIND_FUNCTION_NAMES, bindRowSlot, bindTree, hasRowSlots, isDataSchema, runAction } from "../src/dynamic"
 import { tokenizeCode, CODE_LANGUAGE_NAMES } from "../src/code"
+import { textShimmer } from "../src/text-shimmer"
 import { A11Y_ROLES, COMPONENT_A11Y } from "../src/a11y"
 import { STRING_IDS, DEFAULT_STRINGS } from "../src/strings"
 import { renderThemes } from "./generate-themes"
@@ -518,6 +520,34 @@ const SPECIMEN_CHILDREN: Record<string, NestedNode[]> = {
   ],
 }
 
+/** EXP-1324: a Trace as the transcript paints one (reasoning, a failed
+ *  command with its output, a running edit, a pending step). */
+function traceLines(size: string): NestedNode[] {
+  const item = (id: string, props: Record<string, unknown>, children?: NestedNode[]): NestedNode => ({ id, component: `TraceItem`, props: { size, ...props }, ...(children ? { children } : {}) })
+  return [
+    item(`think`, { title: `Thought for 5s`, icon: `trace-reasoning` }),
+    item(`run`, { title: `Ran bun test`, icon: `trace-terminal`, status: `error`, collapsible: true, open: true }, [
+      { id: `out`, component: `CodeBlock`, props: { code: `\u001b[32m(pass)\u001b[0m Store > put [0.2ms]\n\u001b[31m(fail)\u001b[0m Store > get [1.2ms]\n\n 1 pass\n 1 fail`, language: `ansi`, title: `Output`, size: `sm`, variant: `destructive` } },
+    ]),
+    item(`edit`, { title: `Editing src/store.ts`, icon: `trace-edit`, status: `running` }),
+    item(`subagent`, { title: `Ran the Explore agent`, icon: `trace-subagent`, description: `1m 12s`, collapsible: true }),
+    item(`next`, { title: `Run the suite again`, icon: `trace-terminal`, status: `pending` }),
+  ]
+}
+
+/** EXP-1324: components whose specimen is hand-written (TraceItem's `open`
+ *  would otherwise read as an overlay's). */
+const SPECIMEN_OVERRIDES: Record<string, { label: string; node: NestedNode }[]> = {
+  Trace: [`default`, `sm`].map((size) => ({ label: size === `sm` ? `size · sm` : `example`, node: { id: `trace`, component: `Trace`, props: { size }, children: traceLines(size) } })),
+  TraceItem: [
+    { label: `example`, node: { id: `item`, component: `TraceItem`, props: { title: `Ran bun test`, icon: `trace-terminal`, description: `4s`, collapsible: true, open: true }, children: [{ id: `out`, component: `CodeBlock`, props: { code: `\u001b[32m✓\u001b[0m 12 tests passed\nDone in 4.1s`, language: `ansi`, title: `Output`, size: `sm` } }] } },
+    { label: `status · running`, node: { id: `item`, component: `TraceItem`, props: { title: `Reading src/startup.kt`, icon: `trace-read`, status: `running` } } },
+    { label: `status · error`, node: { id: `item`, component: `TraceItem`, props: { title: `The general-purpose agent failed`, icon: `trace-subagent`, description: `9s`, status: `error` } } },
+    { label: `status · pending`, node: { id: `item`, component: `TraceItem`, props: { title: `Waiting on the web captures`, icon: `trace-background`, status: `pending` } } },
+    { label: `size · sm`, node: { id: `item`, component: `TraceItem`, props: { title: `Searched persistOnStop`, icon: `trace-search`, size: `sm`, collapsible: true } } },
+  ],
+}
+
 /** Styles a specimen case needs to show anything (a fixed box). */
 const SPECIMEN_STYLES: Record<string, Record<string, unknown>> = {
   Resizable: { height: 160 },
@@ -564,6 +594,7 @@ function prefixIds(node: NestedNode, prefix: string): NestedNode {
  *  open; anything else its example, then up to two enum props × every value,
  *  then `true` for up to two booleans, deduplicated, at most SPECIMEN_MAX_CASES. */
 function specimenCases(name: string, all: ComponentCase[]): { label: string; node: NestedNode }[] {
+  if (SPECIMEN_OVERRIDES[name]) return SPECIMEN_OVERRIDES[name]
   const own = all.filter((c) => c.node.component === name)
   const suffix = (c: ComponentCase) => c.name.slice(name.length + 1)
   const def = coreCatalog.components[name]
@@ -865,6 +896,15 @@ function codeCases(file: CodeCaseFile) {
   return { ...file, cases: file.cases.map((c) => ({ name: c.name, language: c.language, code: c.code, expected: tokenizeCode(c.code, c.language) })) }
 }
 
+interface ShimmerCaseFile {
+  $comment: string
+  cases: { name: string; color: string; dark: boolean; expected?: unknown }[]
+}
+
+function shimmerCases(file: ShimmerCaseFile) {
+  return { ...file, cases: file.cases.map((c) => ({ name: c.name, color: c.color, dark: c.dark, expected: textShimmer(c.color, c.dark) })) }
+}
+
 function promptBudget() {
   const full = catalogPrompt()
   const liteText = catalogPrompt({ lite: true })
@@ -872,7 +912,8 @@ function promptBudget() {
   return {
     $comment: `${HEADER} The size of catalogPrompt() on record: prompt.test.ts fails when the full prompt passes budgetTokens (cut descriptions before components) or when these numbers drift from the catalog without being regenerated. tokens = chars / ${4}, an estimate.`,
     // EXP-1259: SearchList joined the catalog (descriptions trimmed first).
-    budgetTokens: 6900,
+    // EXP-1324: Trace + TraceItem (descriptions trimmed first).
+    budgetTokens: 7000,
     full: { components: visible.length, chars: full.length, tokens: estimateTokens(full) },
     lite: { components: lite.length, chars: liteText.length, tokens: estimateTokens(liteText) },
     terse: { components: visible.length, chars: terse.length, tokens: estimateTokens(terse) },
@@ -941,6 +982,7 @@ function renderFiles(): Record<string, string> {
     }),
     "fixtures/style-conditions.json": json(styleConditionCases(readJson<ConditionCaseFile>(`fixtures/style-conditions.json`))),
     "fixtures/code-tokens.json": json(codeCases(readJson<CodeCaseFile>(`fixtures/code-tokens.json`))),
+    "fixtures/text-shimmer.json": json(shimmerCases(readJson<ShimmerCaseFile>(`fixtures/text-shimmer.json`))),
     "fixtures/specimens.json": json(renderSpecimens(cases, readJson<NestedNode>(`fixtures/demo-surface.json`))),
     ...themeOutputs,
     // VAPP-91: the host fixtures (inputs hand-written, expected filled).

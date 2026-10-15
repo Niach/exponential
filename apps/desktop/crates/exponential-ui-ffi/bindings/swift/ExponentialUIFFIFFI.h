@@ -1042,6 +1042,11 @@ RustBuffer uniffi_exponential_ui_ffi_fn_func_chart_extent_json(RustBuffer kind, 
 RustBuffer uniffi_exponential_ui_ffi_fn_func_client_capabilities_json(RustBuffer extension_ids, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_CODE_TEXT
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_CODE_TEXT
+RustBuffer uniffi_exponential_ui_ffi_fn_func_code_text(RustBuffer code, RustBuffer language, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_COMBINE_DECISIONS
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_COMBINE_DECISIONS
 RustBuffer uniffi_exponential_ui_ffi_fn_func_combine_decisions(RustBuffer a, RustBuffer b, RustCallStatus *_Nonnull out_status
@@ -1243,6 +1248,11 @@ RustBuffer uniffi_exponential_ui_ffi_fn_func_template_messages_json(RustBuffer p
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_TEXT_DIRECTION
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_TEXT_DIRECTION
 RustBuffer uniffi_exponential_ui_ffi_fn_func_text_direction(RustBuffer locale, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_TEXT_SHIMMER_JSON
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_TEXT_SHIMMER_JSON
+RustBuffer uniffi_exponential_ui_ffi_fn_func_text_shimmer_json(RustBuffer color, int8_t dark, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_THEME_ISSUES_JSON
@@ -1602,6 +1612,12 @@ uint16_t uniffi_exponential_ui_ffi_checksum_func_client_capabilities_json(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_CODE_TEXT
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_CODE_TEXT
+uint16_t uniffi_exponential_ui_ffi_checksum_func_code_text(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_COMBINE_DECISIONS
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_COMBINE_DECISIONS
 uint16_t uniffi_exponential_ui_ffi_checksum_func_combine_decisions(void
@@ -1839,6 +1855,12 @@ uint16_t uniffi_exponential_ui_ffi_checksum_func_template_messages_json(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_TEXT_DIRECTION
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_TEXT_DIRECTION
 uint16_t uniffi_exponential_ui_ffi_checksum_func_text_direction(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_TEXT_SHIMMER_JSON
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_TEXT_SHIMMER_JSON
+uint16_t uniffi_exponential_ui_ffi_checksum_func_text_shimmer_json(void
     
 );
 #endif

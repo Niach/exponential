@@ -43,7 +43,11 @@
     "scrollDirection": ["vertical", "horizontal", "both"],
     "collapseBelow": ["never", "sm", "md", "lg", "xl"],
     "codeLanguage": ["plain", "json", "js", "ts", "tsx", "rust", "swift", "kotlin", "python", "bash", "html", "css", "sql", "yaml", "markdown", "ansi"],
-    "codeToken": ["plain", "keyword", "string", "number", "comment", "punctuation", "operator", "type", "function", "property", "tag", "attribute", "success", "warning", "error"]
+    "codeToken": ["plain", "keyword", "string", "number", "comment", "punctuation", "operator", "type", "function", "property", "tag", "attribute", "success", "warning", "error"],
+    "codeBlockVariant": ["default", "destructive"],
+    "codeBlockSize": ["default", "sm"],
+    "traceStatus": ["running", "error", "pending"],
+    "traceSize": ["default", "sm"]
   },
   "defs": {
     "option": {
@@ -402,6 +406,7 @@
         "align": { "type": "enum", "values": ["start", "center", "end"], "description": "Horizontal alignment inside its box." },
         "lines": { "type": "number", "description": "Truncates to this many lines with an ellipsis." },
         "tone": { "type": "enum", "enum": "tone", "description": "A colour tone instead of the default foreground." },
+        "shimmer": { "type": "boolean", "default": false, "description": "Animates a highlight across the text (work in progress)." },
         "live": { "type": "enum", "enum": "live", "default": "off", "description": "Announces text changes to screen readers (`assertive` interrupts)." },
         "style": { "type": "style", "description": "Extra Box styles for the text box." }
       },
@@ -437,7 +442,9 @@
         "wrap": { "type": "boolean", "default": false, "description": "Wraps long lines instead of scrolling sideways." },
         "copyable": { "type": "boolean", "default": true, "description": "Shows the copy-to-clipboard button." },
         "highlight": { "type": "array", "items": { "type": "number" }, "description": "1-based line numbers to emphasise." },
-        "maxLines": { "type": "number", "description": "Lines shown before the block scrolls." }
+        "maxLines": { "type": "number", "description": "Lines shown before the block scrolls." },
+        "variant": { "type": "enum", "enum": "codeBlockVariant", "default": "default", "description": "destructive = failed output." },
+        "size": { "type": "enum", "enum": "codeBlockSize", "default": "default", "description": "sm = compact." }
       },
       "example": { "code": "const answer = 42 // the answer", "language": "ts", "lineNumbers": true }
     },
@@ -581,6 +588,29 @@
       },
       "events": ["change"],
       "example": { "title": "Advanced", "open": false }
+    },
+    "Trace": {
+      "kind": "macro", "group": "list", "lite": true, "children": "many",
+      "description": "A column of TraceItem lines (an agent's steps).",
+      "props": {
+        "size": { "type": "enum", "enum": "traceSize", "default": "default", "description": "Line spacing; match the items." }
+      },
+      "example": { "size": "default" }
+    },
+    "TraceItem": {
+      "kind": "macro", "group": "list", "lite": true, "children": "many",
+      "description": "One step line: icon, title, muted detail; may expand to show its children.",
+      "props": {
+        "title": { "type": "string", "required": true, "bindable": true, "description": "What happened." },
+        "icon": { "type": "icon", "description": "The lead glyph." },
+        "description": { "type": "string", "description": "A muted detail (a duration)." },
+        "status": { "type": "enum", "enum": "traceStatus", "description": "running shimmers, error tints, pending dims." },
+        "size": { "type": "enum", "enum": "traceSize", "default": "default", "description": "sm = compact." },
+        "collapsible": { "type": "boolean", "default": false, "description": "The line toggles its children." },
+        "open": { "type": "boolean", "default": false, "bindable": true, "description": "Whether the children show; bind it." }
+      },
+      "events": ["change"],
+      "example": { "title": "Ran bun test", "icon": "trace-terminal", "description": "4s", "collapsible": true, "open": true }
     },
     "Pagination": {
       "kind": "macro", "group": "navigation", "lite": false, "children": "none",

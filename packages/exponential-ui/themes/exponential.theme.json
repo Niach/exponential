@@ -673,8 +673,7 @@
       "root": [
         {
           "style": {
-            "backgroundColor": "$color.card",
-            "borderColor": "$color.border"
+            "backgroundColor": "$color.muted"
           }
         }
       ]
