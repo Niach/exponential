@@ -49,6 +49,29 @@ public enum LaunchVocabulary {
             : DomainContract.deviceAgentDefaultsThreadModel
     }
 
+    /// The model the session composer's pill shows (web `session-composer.tsx`
+    /// `fallbackModel`): the live relay model, else the row's own pick, else —
+    /// a dispatcher root — the device's `threadModel` for the row's agent, else
+    /// the device's session `model`, else the contract defaults.
+    public static func composerModel(
+        live: String?,
+        rowModel: String?,
+        cli: String?,
+        dispatch: Bool,
+        launchDefaults: DeviceLaunchDefaults?
+    ) -> String {
+        if let live, !live.isEmpty { return live }
+        if let rowModel, !rowModel.isEmpty { return rowModel }
+        let agent = cli ?? "claude"
+        let defaults = launchDefaults?.agents?[agent]
+        if dispatch {
+            if let value = defaults?.threadModel, !value.isEmpty { return value }
+            return defaultThreadModel(for: agent)
+        }
+        if let value = defaults?.model, !value.isEmpty { return value }
+        return defaultModel(for: agent)
+    }
+
     /// [value] when it is one of [agent]'s models, else [fallback] — absent,
     /// blank (a pre-2026-10-15 "CLI default"), or a model this build cannot
     /// name.
@@ -67,6 +90,11 @@ public enum LaunchVocabulary {
     /// claude alias as itself, anything else the contract default.
     public static func seedComputerUseModel(_ advertised: String?) -> String {
         seedModel(advertised, for: "claude", fallback: DomainContract.deviceComputerUseDefaultsModel)
+    }
+
+    /// EXP-1005: auto-rotating accounts is a claude-only device setting.
+    public static func supportsAccountRotation(_ agent: String) -> Bool {
+        agent == "claude"
     }
 
     /// Plan mode is claude's own (EXP-441); codex has no launch-into-plan

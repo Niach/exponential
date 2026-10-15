@@ -83,9 +83,9 @@ struct DeviceSettingsSheet: View {
         var effort: String
         var ultracode: Bool
         var planMode: Bool
-        /// EXP-1082 §6: the desktop-owned auto-rotate toggle as the row
-        /// advertises it. No control here; it only rides back on a save so
-        /// the whole-object replace never drops it (nil = absent on the row).
+        /// EXP-1005: claude's auto-rotate toggle as the row advertises it
+        /// (nil = absent = ON). Echoed verbatim on a save until edited, so
+        /// the whole-object replace never drops it.
         var autoRotateAccounts: Bool?
     }
 
@@ -638,7 +638,18 @@ struct DeviceSettingsSheet: View {
             effort: draftBinding(\.effort),
             ultracode: draftBinding(\.ultracode),
             planMode: draftBinding(\.planMode),
+            autoRotateAccounts: autoRotateBinding,
             footerNote: device.isOnline ? nil : "Applies when the device comes online."
+        )
+    }
+
+    /// EXP-1005: absent on the row = ON (web `draftSeed`); a flip stores
+    /// the explicit value.
+    private var autoRotateBinding: Binding<Bool> {
+        let optional = draftBinding(\.autoRotateAccounts)
+        return Binding(
+            get: { optional.wrappedValue ?? true },
+            set: { optional.wrappedValue = $0 }
         )
     }
 
@@ -687,7 +698,7 @@ struct DeviceSettingsSheet: View {
                 effort: draft.effort == LaunchVocabulary.cliDefault ? "" : draft.effort,
                 ultracode: agent == "claude" ? draft.ultracode : nil,
                 planMode: LaunchVocabulary.supportsPlanMode(agent) ? draft.planMode : nil,
-                // EXP-1082 §6: echoed verbatim, never invented (see the draft).
+                // EXP-1082 §6: echoed verbatim until edited (see the draft).
                 autoRotateAccounts: draft.autoRotateAccounts
             )
         }

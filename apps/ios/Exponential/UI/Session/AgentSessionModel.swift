@@ -336,6 +336,21 @@ final class AgentSessionModel {
         SlashCommands.agentId(session?.cli, acp: sessionConfig != nil)
     }
 
+    /// The composer's model pill: the live relay model, else the synced
+    /// row's pick, else (a dispatcher) the host's thread model, else the
+    /// defaults — so a thread with no live relay still names its model.
+    /// `row` overrides `session` (a thread's root row arrives first).
+    func composerModelValue(row: SessionEntity? = nil) -> String {
+        let row = row ?? session
+        return LaunchVocabulary.composerModel(
+            live: sessionConfig?.modelValue,
+            rowModel: row?.model,
+            cli: row?.cli,
+            dispatch: row?.dispatch ?? false,
+            launchDefaults: hostSteerDevice?.launchDefaults
+        )
+    }
+
     /// The catalog command the draft would SEND as, if any — what the confirm
     /// gate reads before a `/clear` goes out.
     var pendingSlashCommand: SlashCommand? {

@@ -88,6 +88,9 @@ struct LaunchOptionsSection: View {
     @Binding var effort: String
     var ultracode: Binding<Bool>? = nil
     var planMode: Binding<Bool>? = nil
+    /// EXP-1005: claude's "Auto-rotate accounts" device toggle, bound only
+    /// on a machine's launch defaults.
+    var autoRotateAccounts: Binding<Bool>? = nil
     /// A sentence under the card (the device variant's offline notice).
     var footerNote: String? = nil
     /// EXP-1196/1219: runs the not-ready row's pill (Update / Sign in on the
@@ -270,6 +273,9 @@ struct LaunchOptionsSection: View {
             }
             if let planMode, LaunchVocabulary.supportsPlanMode(agent) {
                 GlassToggleRow("Plan mode", isOn: planMode)
+            }
+            if let autoRotateAccounts, LaunchVocabulary.supportsAccountRotation(agent) {
+                GlassToggleRow("Auto-rotate accounts", isOn: autoRotateAccounts)
             }
         } footer: {
             optionsFooter

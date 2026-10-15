@@ -1584,7 +1584,7 @@ struct AgentSessionView: View {
             placeholder: model.composerPlaceholder,
             controls: SessionComposerFooter.Controls(
                 planModeActive: model.planModeActive,
-                modelValue: model.sessionConfig?.modelValue,
+                modelValue: model.composerModelValue(),
                 agent: model.catalogAgent,
                 onPickModel: { alias in sendModelSwitch(model, alias) },
                 usageFraction: usageFraction(model),

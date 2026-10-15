@@ -1090,7 +1090,7 @@ struct ThreadComposer: View {
     private func controls(_ model: AgentSessionModel) -> SessionComposerFooter.Controls {
         SessionComposerFooter.Controls(
             planModeActive: model.planModeActive,
-            modelValue: model.sessionConfig?.modelValue,
+            modelValue: model.composerModelValue(row: root),
             agent: model.catalogAgent,
             // EXP-877: a model switch is a PLAIN MESSAGE into the root.
             onPickModel: { alias in

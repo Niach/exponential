@@ -8,7 +8,7 @@ import SwiftUI
 /// (wave D: Photo | File) ·
 /// spacer · the model pill (the session's `model` config option; picking one
 /// SENDS `/model <alias>` as a plain message, EXP-877; codex gets a plain
-/// label; hidden when the engine reported no model) · the usage ring, which
+/// label; before the relay reports one it falls back to the row/device model) · the usage ring, which
 /// opens the Usage sheet (EXP-1150: the face switcher that used to sit beside
 /// it is gone — the faces are the Work screen's tab strip, which this composer
 /// never covers). Rides `GlassComposer`'s `tools:` slot, so the send button
@@ -19,7 +19,8 @@ struct SessionComposerFooter: View {
     /// the usage ring.
     struct Controls {
         let planModeActive: Bool
-        /// `AgentSessionConfig.modelValue` — nil hides the pill.
+        /// `AgentSessionModel.composerModelValue` (live, else the row, else
+        /// the device/contract defaults) — nil hides the pill.
         let modelValue: String?
         /// The run's agent — claude gets the picker, anything else a label.
         let agent: String
