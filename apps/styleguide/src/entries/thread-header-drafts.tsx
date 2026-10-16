@@ -14,6 +14,9 @@ import {
   IssueChip,
   Label,
   MenuPanel,
+  MENU_SURFACE_CLASS,
+  ThreadSessionTree,
+  type ThreadTreeRow,
   ModelPicker,
   RepositoryPicker,
   Switch,
@@ -218,21 +221,27 @@ function PhoneStrip({ variant }: { variant: Variant }) {
   )
 }
 
-function treeEntries(): MenuEntry[] {
-  const row = (id: string, label: string, depth: number, checked = false): MenuEntry => ({
-    kind: `item`,
-    id,
-    label: <span style={{ paddingLeft: `${depth * 1}rem` }}>{label}</span>,
-    icon: <AgentRunMark agent="claude" ringClassName="ring-popover" className="size-3.5" />,
-    checked,
-    onSelect: noop,
-  })
-  return [
-    row(`a`, `Threads impl`, 0),
-    row(`b`, `Web lane`, 1),
-    row(`c`, `Android lane`, 1, true),
-    row(`d`, `Emulator shots`, 2),
-  ]
+/** The subtree = THE session tree rows (SessionRow small + the tree
+ *  guides, `ThreadSessionTree`), the same rows the Threads list nests. */
+const TREE: ThreadTreeRow[] = [
+  { sessionId: `a`, parentId: null, name: `Threads impl`, agent: `claude`, markState: `needs_you`, stateWord: `Needs you`, stateTone: `amber` },
+  { sessionId: `b`, parentId: `a`, name: `Web lane`, agent: `claude`, markState: `working`, stateWord: `Working` },
+  { sessionId: `c`, parentId: `a`, name: `Android lane`, agent: `claude`, markState: `needs_you`, stateWord: `Needs you`, stateTone: `amber` },
+  { sessionId: `d`, parentId: `c`, name: `Emulator shots`, agent: `claude`, markState: `ended`, stateWord: `Ended` },
+]
+
+function Subtree({ sheet }: { sheet?: boolean }) {
+  return sheet ? (
+    <div className="flex w-full flex-col rounded-t-3xl border-t border-glass-stroke-card bg-glass-bottom px-2 pt-2 pb-4">
+      <div aria-hidden className="mx-auto mb-2 h-1 w-9 rounded-full bg-foreground/20" />
+      <div className="px-2 pb-1 text-base font-semibold">Threads impl</div>
+      <ThreadSessionTree rows={TREE} activeId="c" onOpen={noop} />
+    </div>
+  ) : (
+    <div className={cn(MENU_SURFACE_CLASS, `w-80 p-1.5`)}>
+      <ThreadSessionTree rows={TREE} activeId="c" onOpen={noop} />
+    </div>
+  )
 }
 
 function plusEntries(): MenuEntry[] {
@@ -446,11 +455,11 @@ export const entry: StyleguideEntry = {
       <AskFlow />
       <div className="flex flex-wrap items-start gap-8">
         <div className="grid gap-2">
-          <MenuPanel entries={treeEntries()} density="pointer" />
+          <Subtree />
           <Caption>the subtree open (md+ dropdown)</Caption>
         </div>
         <div className="grid w-[24rem] gap-2">
-          <MenuPanel entries={treeEntries()} look="sheet" title="Threads impl" density="touch" />
+          <Subtree sheet />
           <Caption>the same rows on a phone (bottom sheet)</Caption>
         </div>
         <div className="grid gap-2">
