@@ -7,7 +7,6 @@ import {
   pullRequestIssues,
   pullRequests,
   repositories,
-  sessionIssues,
   sessions,
   teamMembers,
   teams,
@@ -20,6 +19,7 @@ import { loadSessionForUser } from "@/lib/sessions/access"
 import { appBaseUrl, buildSessionDeepLinkPath } from "@/lib/notification-email-policy"
 import { NOT_RUN_TOPIC, PR_BODY_MAX, prBodyFromGuide } from "@/lib/pr-body"
 import { writeGuide } from "@/lib/sessions/guide"
+import { prDefaultIssueIds } from "@/lib/sessions/pr-issues"
 import {
   compareChangedPaths,
   missingPicturesMessage,
@@ -185,25 +185,6 @@ async function loadIssuesForPr(ids: string[]): Promise<IssueForPr[]> {
     .where(and(inArray(issues.id, ids), boardVisible()))
 }
 
-/** A thread's issues (link order) minus the ones a merged PR already
- *  closed: done work is never re-linked to a new PR. */
-async function threadIssueIds(rootId: string): Promise<string[]> {
-  const linked = await db
-    .select({ issueId: sessionIssues.issueId })
-    .from(sessionIssues)
-    .where(eq(sessionIssues.sessionId, rootId))
-    .orderBy(asc(sessionIssues.sortOrder), asc(sessionIssues.createdAt))
-  const ids = linked.map((row) => row.issueId)
-  if (ids.length === 0) return []
-  const done = await db
-    .select({ issueId: pullRequestIssues.issueId })
-    .from(pullRequestIssues)
-    .innerJoin(pullRequests, eq(pullRequests.id, pullRequestIssues.pullRequestId))
-    .where(and(inArray(pullRequestIssues.issueId, ids), eq(pullRequests.state, `merged`)))
-  const doneIds = new Set(done.map((row) => row.issueId))
-  return ids.filter((id) => !doneIds.has(id))
-}
-
 /** Create the PR, or adopt the one GitHub already holds open on `head`
  *  (FEED-59: GitHub's 422 only fires for the same head AND base, so the
  *  lookup runs first and ignores the base). */
@@ -274,9 +255,10 @@ async function joinGithubStack(opts: {
 
 /**
  * Open a PR (the MCP `pr_open`). The caller session (X-Exp-Session-Id)
- * gives the defaults: its repository and branch, and its thread, whose
- * issues are linked when `issueIds` is omitted. An omitted `base` = the
- * nearest live PR below `head` (native stacks), else the default branch.
+ * gives the defaults: its repository and branch, and its share of its
+ * thread's issues when `issueIds` is omitted (EXP-1334, `prDefaultIssueIds`).
+ * An omitted `base` = the nearest live PR below `head` (native stacks), else
+ * the default branch.
  * Idempotent: a live PR already on `head` is updated and gains the issues.
  */
 export async function openPullRequest(args: {
@@ -300,7 +282,10 @@ export async function openPullRequest(args: {
   const root = caller ? await loadRoot(caller.rootId) : null
 
   const explicitIds = args.issueIds ? [...new Set(args.issueIds)] : null
-  const candidates = await loadIssuesForPr(explicitIds ?? (root ? await threadIssueIds(root.id) : []))
+  const candidates = await loadIssuesForPr(
+    explicitIds ??
+      (root ? await prDefaultIssueIds(db, { rootId: root.id, sessionId: caller?.id ?? null }) : [])
+  )
   if (explicitIds && candidates.length !== explicitIds.length) fail(`NOT_FOUND`, `Issue not found`)
 
   const repositoryId =

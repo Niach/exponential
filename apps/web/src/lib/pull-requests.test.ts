@@ -103,6 +103,7 @@ vi.mock(`@/lib/pr-stacks`, () => ({
   mergeThrough: vi.fn(async () => ({ merged: true, queued: false, sha: `s`, mergedBy: null })),
 }))
 vi.mock(`@/lib/trpc/pr-update`, () => ({ patchPullDescription: vi.fn(async () => {}) }))
+vi.mock(`@/lib/sessions/pr-issues`, () => ({ prDefaultIssueIds: vi.fn(async () => []) }))
 vi.mock(`@/lib/sessions/guide`, () => ({ writeGuide: vi.fn(async () => ({ topic: `Not run`, results: [] })) }))
 vi.mock(`@/lib/pr-ui-guard`, async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/pr-ui-guard")>()),
@@ -124,6 +125,7 @@ import * as stacks from "@/lib/pr-stacks"
 import { patchPullDescription } from "@/lib/trpc/pr-update"
 import { compareChangedPaths } from "@/lib/pr-ui-guard"
 import { writeGuide } from "@/lib/sessions/guide"
+import { prDefaultIssueIds } from "@/lib/sessions/pr-issues"
 import { _clearPrActorClaims, takePrMergeClaim, takePrOpenClaim } from "@/lib/integrations/pr-actor-claims"
 import {
   closePullRequest,
@@ -203,10 +205,10 @@ beforeEach(() => {
 
 describe(`openPullRequest`, () => {
   it(`defaults repo, head and issues from the caller's thread; the body is the Guide`, async () => {
+    // EXP-1334: the session's share of the thread (pr-issues.ts).
+    vi.mocked(prDefaultIssueIds).mockResolvedValueOnce([`i-1`, `i-2`])
     h.selectQueue.push(
       [{ id: `root-1`, teamId: `team-1`, guide }], // the root
-      [{ issueId: `i-1` }, { issueId: `i-2` }], // the thread's links
-      [], // none of them closed by a merged PR
       [
         { id: `i-1`, identifier: `EXP-1`, teamId: `team-1`, boardRepositoryId: `repo-1`, boardDefaultBranch: null },
         // Another repository's issue: narrowed out of this PR, never refused.
@@ -216,6 +218,7 @@ describe(`openPullRequest`, () => {
     )
     const result = await openPullRequest({ userId: `u-1`, callerSessionId: `sess-1`, title: `Fix the nav` })
 
+    expect(prDefaultIssueIds).toHaveBeenCalledWith(expect.anything(), { rootId: `root-1`, sessionId: `sess-1` })
     expect(result).toEqual({
       pullRequestId: `pr-1`,
       url: `https://github.com/o/r/pull/7`,
@@ -249,7 +252,7 @@ describe(`openPullRequest`, () => {
   })
 
   it(`infers the base over the repo's live PRs and joins the GitHub stack`, async () => {
-    h.selectQueue.push([{ id: `root-1`, teamId: `team-1`, guide: null }], [], [{ slug: `acme` }])
+    h.selectQueue.push([{ id: `root-1`, teamId: `team-1`, guide: null }], [{ slug: `acme` }])
     vi.mocked(sync.livePullRequestsOfRepo).mockResolvedValueOnce([
       pr({ id: `pr-0`, number: 5, head: `exp/EXP-0` }),
     ] as never)
@@ -293,7 +296,7 @@ describe(`openPullRequest`, () => {
     height: 50,
   })
   const threadOf = (entries: unknown[]) =>
-    h.selectQueue.push([{ id: `root-1`, teamId: `team-1`, guide: entries }], [], [{ slug: `acme` }])
+    h.selectQueue.push([{ id: `root-1`, teamId: `team-1`, guide: entries }], [{ slug: `acme` }])
 
   it(`refuses a UI diff without a labelled picture, before any GitHub write`, async () => {
     threadOf([guide[0], picture(`web-mobile nav`)])
@@ -328,7 +331,6 @@ describe(`openPullRequest`, () => {
     const before = [guide[0], picture(`web nav`)]
     h.selectQueue.push(
       [{ id: `root-1`, teamId: `team-1`, guide: before }],
-      [],
       // The root re-read after the `Not run` write.
       [{ id: `root-1`, teamId: `team-1`, guide: [...before, notRunEntry(`android: the nav drawer`)] }],
       [{ slug: `acme` }]

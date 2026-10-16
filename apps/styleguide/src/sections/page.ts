@@ -148,6 +148,7 @@ export const ENTRY_BAND: Readonly<Record<string, ComponentKind>> = {
   [`getting-started`]: `Surfaces`,
   trace: `Lists & rows`,
   [`code-block`]: `Surfaces`,
+  [`thread-header-drafts`]: `Surfaces`,
 }
 
 /** The band an unregistered entry falls back to, so the page always draws it. */

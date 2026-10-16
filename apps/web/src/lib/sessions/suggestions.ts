@@ -161,7 +161,8 @@ export async function startSuggestion(
             issueIds: item.issueIds,
             source: `user`,
             addedBy: userId,
-            addedBySessionId: null,
+            // EXP-1334: the child's share, so its PR moves these issues.
+            addedBySessionId: started.sessionId,
           })
         }
       },

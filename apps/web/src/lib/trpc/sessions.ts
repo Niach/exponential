@@ -36,7 +36,12 @@ import {
 } from "@/lib/sessions/access"
 import { composeSessionBrief } from "@/lib/sessions/brief"
 import { answeredCard } from "@/lib/sessions/card-answer"
-import { linkIssues, unlinkIssue } from "@/lib/sessions/issues"
+import {
+  issueIdentifiers,
+  linkIssues,
+  manualLinkText,
+  unlinkIssue,
+} from "@/lib/sessions/issues"
 import {
   endSession,
   postReportToParent,
@@ -274,17 +279,29 @@ export const sessionsRouter = router({
       const userId = ctx.session.user.id
       const session = await loadSessionForUser(userId, input.sessionId)
       await assertCanSteer(userId, session)
-      return ctx.db.transaction(async (tx) => {
+      const { txid, identifiers } = await ctx.db.transaction(async (tx) => {
         const txid = await generateTxId(tx)
-        await linkIssues(tx, {
+        const { linked } = await linkIssues(tx, {
           rootId: session.rootId,
           issueIds: input.issueIds,
           source: `user`,
           addedBy: userId,
           addedBySessionId: null,
         })
-        return { txid }
+        return { txid, identifiers: await issueIdentifiers(tx, linked) }
       })
+      // EXP-1334: a manual link is the person asking for the work: `Link
+      // #A #B` on the ROOT wakes the dispatcher, which routes it (MCP and
+      // start links stay quiet). The link stands even if the message fails.
+      const text = manualLinkText(identifiers)
+      if (text) {
+        try {
+          await sendSession({ userId, input: { sessionId: session.rootId, text } })
+        } catch (err) {
+          console.warn(`[sessions.linkIssues] the link message to ${session.rootId} failed`, err)
+        }
+      }
+      return { txid }
     }),
 
   unlinkIssue: authedProcedure

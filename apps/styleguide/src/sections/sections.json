@@ -16,7 +16,7 @@
       "device-readiness", "results-guide", "mcp-app-views", "run-status-row", "session-thread", "composer-options",
       "work-card", "thread-parts", "script-card", "comment-call-card",
       "team-agents-settings", "voice-call-overlay",
-      "agent-home", "work-tabs-strip",
+      "agent-home", "work-tabs-strip", "thread-header-drafts",
       "getting-started"
     ] },
     { "id": "views", "order": 4, "title": "4 Views", "blurb": "Whole screens, photographed on every platform.", "entries": [] }
@@ -65,6 +65,7 @@
     "work-tabs-strip": "EXP-1255",
     "search-list": "SLOP-28",
     "menu-submenu": "SLOP-28",
-    "getting-started": "EXP-1270"
+    "getting-started": "EXP-1270",
+    "thread-header-drafts": "EXP-1334"
   }
 }
