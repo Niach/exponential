@@ -120,8 +120,16 @@ pub fn plan(input: PickupInput<'_>) -> Vec<PickupAction> {
         input.sessions.iter().map(|row| (row.id.as_str(), row)).collect();
     let messages: HashMap<&str, &MessageRow> =
         input.messages.iter().map(|row| (row.id.as_str(), row)).collect();
+    // EXP-1329: pending INPUT — a person's message or another session's (a
+    // child's report), the latter worded as its turn ([`input_text`]).
+    let inputs: Vec<MessageRow> = input
+        .messages
+        .iter()
+        .filter(|m| is_pending_input(m))
+        .map(|m| MessageRow { body: Some(input_text(m, input.sessions)), ..m.clone() })
+        .collect();
     let mut pending: HashMap<&str, Vec<&MessageRow>> = HashMap::new();
-    for message in input.messages.iter().filter(|m| m.is_queued()) {
+    for message in &inputs {
         pending.entry(message.session_id.as_str()).or_default().push(message);
     }
     for queue in pending.values_mut() {
@@ -282,6 +290,57 @@ pub fn write_back_card(trpc: std::sync::Arc<api::TrpcClient>, input: api::sessio
     if let Err(err) = spawned {
         log::warn!("pickup: resolve card thread: {err}");
     }
+}
+
+/// EXP-1329: a message the device feeds its session as a turn and then
+/// consumes (the server's `pendingInput`): a person's, or one another
+/// SESSION posted into this one (`author_session_id`: a child's `report`
+/// card, a child asking its parent) — never the session's own reply.
+pub fn is_pending_input(message: &MessageRow) -> bool {
+    if !message.consumed_at.as_deref().is_none_or(str::is_empty) {
+        return false;
+    }
+    message.is_from_user()
+        || message
+            .author_session_id
+            .as_deref()
+            .is_some_and(|from| !from.is_empty() && from != message.session_id)
+}
+
+/// EXP-1329: the text a pending input reaches the agent as. A person's
+/// message is its body; a child's `report` card reads `Report from <child>
+/// (session <id>, ended): <summary>` (the summary, else the body), any other
+/// session input `Message from <child> (session <id>): <body>` — the id is
+/// what `exponential_sessions_get` reads more from. `<child>` = its title
+/// off `sessions`, else `Session`.
+pub fn input_text(message: &MessageRow, sessions: &[SessionRow]) -> String {
+    let body = message.body_text().trim();
+    let Some(from) = message.author_session_id.as_deref().filter(|_| !message.is_from_user()) else {
+        return message.body.clone().unwrap_or_default();
+    };
+    let card = message.card.as_ref();
+    let from = card
+        .and_then(|card| card.get("sessionId"))
+        .and_then(serde_json::Value::as_str)
+        .filter(|id| !id.is_empty())
+        .unwrap_or(from);
+    let name = sessions
+        .iter()
+        .find(|row| row.id == from)
+        .and_then(|row| row.title.as_deref())
+        .map(str::trim)
+        .filter(|title| !title.is_empty())
+        .unwrap_or("Session");
+    if message.card_kind() == Some("report") {
+        let summary = card
+            .and_then(|card| card.get("summary"))
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .filter(|summary| !summary.is_empty())
+            .unwrap_or(body);
+        return format!("Report from {name} (session {from}, ended): {summary}");
+    }
+    format!("Message from {name} (session {from}): {body}")
 }
 
 fn message_order(a: &MessageRow, b: &MessageRow) -> std::cmp::Ordering {
@@ -908,30 +967,44 @@ pub fn launch_queued(row: &SessionRow, deps: &PickupDeps) -> Result<LaunchQueued
             return Err(reason);
         }
     };
-    // The brief names the root's issues as the server saw them at the claim;
-    // the host's shapes may not have them yet.
-    let mut issue_identifiers = brief_issue_identifiers(&brief.brief);
-    if issue_identifiers.is_empty() {
-        issue_identifiers = (deps.issue_identifiers)(row.root_id_or_self());
-    }
-    let req = SessionLaunchRequest {
-        session: row.clone(),
-        brief,
-        issue_identifiers,
-        resume: None,
-        device_label: deps.device_label.clone(),
-        options: deps.options.clone(),
+    // EXP-1330: a `/btw` aside forks its parent's run (`crate::aside`): no
+    // worktree, no brief turn — the question is the first prompt.
+    let prepared = if row.aside {
+        crate::aside::prepare(row, &brief, &deps.options, &deps.device_label, &deps.coding).map(
+            |prepared| match prepared {
+                crate::aside::AsidePrepared::Ready(prepared) => Ok(*prepared),
+                crate::aside::AsidePrepared::Refused(reason) => Err(reason),
+            },
+        )
+    } else {
+        // The brief names the root's issues as the server saw them at the
+        // claim; the host's shapes may not have them yet.
+        let mut issue_identifiers = brief_issue_identifiers(&brief.brief);
+        if issue_identifiers.is_empty() {
+            issue_identifiers = (deps.issue_identifiers)(row.root_id_or_self());
+        }
+        let req = SessionLaunchRequest {
+            session: row.clone(),
+            brief,
+            issue_identifiers,
+            resume: None,
+            device_label: deps.device_label.clone(),
+            options: deps.options.clone(),
+        };
+        crate::prepare(&PrepareRequest::Session(req), &deps.coding).map(|prepared| match prepared {
+            Prepared::Ready(prepared) => Ok(prepared),
+            Prepared::Disabled(reason) => Err(reason.message()),
+        })
     };
-    match crate::prepare(&PrepareRequest::Session(req), &deps.coding) {
-        Ok(Prepared::Ready(prepared)) => {
+    match prepared {
+        Ok(Ok(prepared)) => {
             deps.live.settle(&row.id);
             let honored = Some(crate::agent_profiles::profile_id(row.account.as_deref()));
             spawn(&row.id, row.is_agent(), prepared, claim, false, honored, deps)?;
             Ok(LaunchQueued::Launched { session_id: row.id.clone() })
         }
-        Ok(Prepared::Disabled(reason)) => {
+        Ok(Err(reason)) => {
             deps.live.settle(&row.id);
-            let reason = reason.message();
             refuse(row.is_agent(), &row.id, &reason, false, deps);
             Ok(LaunchQueued::Disabled { reason })
         }
@@ -989,7 +1062,7 @@ fn deliver(
 ) -> Result<Vec<String>, String> {
     let mut pending: Vec<&MessageRow> = rows
         .iter()
-        .filter(|m| m.session_id == session_id && m.is_queued())
+        .filter(|m| m.session_id == session_id && is_pending_input(m))
         .collect();
     pending.sort_by(|a, b| message_order(a, b));
     deps.live.settle_handed(rows);
@@ -1317,7 +1390,7 @@ pub fn switch_session(
     let handed = deps.live.handed(session_id);
     let mut pending: Vec<&MessageRow> = messages
         .iter()
-        .filter(|m| m.session_id == session_id && m.is_queued() && !handed.contains(&m.id))
+        .filter(|m| m.session_id == session_id && is_pending_input(m) && !handed.contains(&m.id))
         .collect();
     pending.sort_by(|a, b| message_order(a, b));
     // Nothing moves: the row's pick is honored (live entry AND record, so
@@ -1687,6 +1760,82 @@ mod tests {
     }
 
     // ---- plan ----
+
+    /// EXP-1329: a child's end, as the server posts it on the PARENT.
+    fn report(id: &str, parent: &str, child: &str, summary: &str) -> MessageRow {
+        MessageRow {
+            author_kind: Some("agent".to_string()),
+            author_session_id: Some(child.to_string()),
+            body: Some(summary.to_string()),
+            card: Some(serde_json::json!({"kind": "report", "sessionId": child, "summary": summary})),
+            ..message(id, parent, "2026-10-02T00:00:05Z")
+        }
+    }
+
+    #[test]
+    fn pending_input_is_a_persons_message_or_another_sessions() {
+        assert!(is_pending_input(&message("m1", "s1", "t")));
+        assert!(!is_pending_input(&consumed(message("m1", "s1", "t"))));
+        assert!(is_pending_input(&report("r1", "s1", "c1", "Done.")));
+        assert!(!is_pending_input(&consumed(report("r1", "s1", "c1", "Done."))));
+        // The session's own reply and its cards never wait.
+        let reply = MessageRow { author_kind: Some("agent".to_string()), ..message("a1", "s1", "t") };
+        assert!(!is_pending_input(&reply));
+        assert!(!is_pending_input(&card("q1", "s1", false)));
+        let own = MessageRow { author_session_id: Some("s1".to_string()), ..reply.clone() };
+        assert!(!is_pending_input(&own));
+    }
+
+    #[test]
+    fn a_report_reads_as_the_childs_summary_with_its_id() {
+        let child = SessionRow { title: Some("Fix the cart".to_string()), ..session("c1", "ended", DEV, "t") };
+        let sessions = vec![child];
+        assert_eq!(
+            input_text(&report("r1", "s1", "c1", "Opened PR #12."), &sessions),
+            "Report from Fix the cart (session c1, ended): Opened PR #12."
+        );
+        // An unsynced (or untitled) child is a Session; no summary = the body.
+        let mut bare = report("r2", "s1", "c9", "");
+        bare.body = Some("Ended without a summary.".to_string());
+        assert_eq!(
+            input_text(&bare, &sessions),
+            "Report from Session (session c9, ended): Ended without a summary."
+        );
+        let asked = MessageRow {
+            card: None,
+            body: Some("Which branch?".to_string()),
+            ..report("q2", "s1", "c1", "")
+        };
+        assert_eq!(input_text(&asked, &sessions), "Message from Fix the cart (session c1): Which branch?");
+        assert_eq!(input_text(&message("m1", "s1", "t"), &sessions), "body of m1");
+    }
+
+    #[test]
+    fn a_report_wakes_an_idle_parent_and_reaches_a_live_one_like_a_message() {
+        let parent = session("s1", "idle", DEV, "2026-10-01T00:00:00Z");
+        let child = SessionRow {
+            parent_id: Some("s1".to_string()),
+            title: Some("Fix the cart".to_string()),
+            ..session("c1", "ended", DEV, "2026-10-01T00:00:01Z")
+        };
+        let rows = vec![report("r1", "s1", "c1", "Opened PR #12.")];
+        let expected = MessageRow {
+            body: Some("Report from Fix the cart (session c1, ended): Opened PR #12.".to_string()),
+            ..rows[0].clone()
+        };
+        assert_eq!(
+            Pass::new(vec![parent.clone(), child.clone()], rows.clone()).run(),
+            vec![PickupAction::Resume { session: parent.clone(), message: expected.clone() }]
+        );
+        let running = session("s1", "running", DEV, "2026-10-01T00:00:00Z");
+        assert_eq!(
+            Pass::new(vec![running, child.clone()], rows.clone()).live("s1", LiveView::default()).run(),
+            vec![PickupAction::Deliver { session_id: "s1".to_string(), messages: vec![expected] }]
+        );
+        // Consumed = delivered: nothing more.
+        let done = vec![consumed(rows[0].clone())];
+        assert_eq!(Pass::new(vec![parent, child], done).run(), vec![]);
+    }
 
     #[test]
     fn a_queued_row_on_this_device_launches_and_nothing_else_does() {

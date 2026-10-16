@@ -595,6 +595,7 @@ struct MainNavigator: View {
                     agentsNeedInput: sessionLists.agentsNeedInput,
                     threadsRunning: sessionLists.threadsRunning,
                     threadsNeedYou: sessionLists.needsYou,
+                    threadsUnread: sessionLists.threadsUnread,
                     // The launcher capsule (chat | new issue) rides every
                     // bar-visible surface (EXP-827/EXP-973); only a team with
                     // no board leaves the New-issue arm inert.

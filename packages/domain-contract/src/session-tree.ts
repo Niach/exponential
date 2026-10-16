@@ -36,6 +36,16 @@ export interface TreeSession {
   endedAt: string | null
   createdAt: string
   updatedAt: string
+  /** EXP-1323: the live status line (absent = null). */
+  caption?: string | null
+  /** EXP-1323: a `/btw` aside child (absent = false). */
+  aside?: boolean
+}
+
+/** EXP-1323: the viewer's read marks (`session_reads`, already user-scoped). */
+export interface TreeSessionRead {
+  sessionId: string
+  readAt: string
 }
 
 export interface TreeSessionIssue {
@@ -60,6 +70,8 @@ export interface TreeMessage {
   answeredAt: string | null
   consumedAt: string | null
   createdAt: string
+  /** EXP-1323: the session that posted it (absent = null). */
+  authorSessionId?: string | null
 }
 
 export interface TreePullRequest {
@@ -127,6 +139,9 @@ export interface SessionCard {
   tone: string
   elapsed: string | null
   running: boolean
+  /** EXP-1323: the live status line under the name; an ended session's is
+   *  dropped unless it is an aside (its answer's first line stays). */
+  caption: string | null
   testId: string
 }
 
@@ -147,6 +162,7 @@ export function sessionCard(
   const elapsed =
     start !== null && end !== null && state !== `queued` ? formatElapsed(end - start) : null
   const title = session.title?.trim()
+  const caption = session.caption?.trim()
   return {
     sessionId: session.id,
     icon: SESSION_CARD_ICONS[state],
@@ -156,6 +172,7 @@ export function sessionCard(
     tone: cardFixture.tones[state],
     elapsed,
     running: state === `working`,
+    caption: caption && (state !== `ended` || session.aside === true) ? caption : null,
     testId: cardFixture.testIds.card,
   }
 }
@@ -277,8 +294,20 @@ export type ThreadRow =
       authorId: string | null
       body: string
       queued: boolean
+      /** EXP-1323: the session that posted it (a child asking its parent). */
+      authorSessionId: string | null
     }
   | { type: `session`; id: string; card: SessionCard }
+  | { type: `report`; id: string; sessionId: string; text: string; summary: string }
+  | {
+      type: `suggestions`
+      id: string
+      /** The session that posted the card (Do it here messages it). */
+      sessionId: string
+      header: string
+      startAll: boolean
+      items: SuggestionRow[]
+    }
   | {
       type: `question`
       id: string
@@ -300,6 +329,73 @@ export type ThreadRow =
     }
   | { type: `event`; id: string; event: string; text: string }
 
+/** EXP-1323: one suggested task: `open` (× · Options · Do it here ·
+ *  Start), `started` (the child's card once synced), `here` (sent to the
+ *  posting session), `filed` (the issue it became). Dismissed items drop. */
+export interface SuggestionRow {
+  id: string
+  title: string
+  text: string
+  state: `open` | `started` | `here` | `filed`
+  card: SessionCard | null
+  issueId: string | null
+  identifier: string | null
+}
+
+export const SUGGESTIONS_COPY = threadFixture.copy.suggestions
+
+function suggestionsRow(
+  message: TreeMessage,
+  card: Record<string, unknown>,
+  byId: ReadonlyMap<string, TreeSession>,
+  ordinals: ReadonlyMap<string, number>,
+  issues: ReadonlyMap<string, TreeIssue>,
+  now: string
+): ThreadRow | null {
+  if (!Array.isArray(card.items)) return null
+  const items: SuggestionRow[] = []
+  for (const raw of card.items as Record<string, unknown>[]) {
+    if (!raw || typeof raw !== `object` || typeof raw.id !== `string`) continue
+    if (raw.dismissed === true) continue
+    const sessionId = typeof raw.sessionId === `string` ? raw.sessionId : null
+    const issueId = typeof raw.issueId === `string` ? raw.issueId : null
+    const target = sessionId ? byId.get(sessionId) : undefined
+    const state: SuggestionRow[`state`] = sessionId
+      ? `started`
+      : raw.here === true
+        ? `here`
+        : issueId
+          ? `filed`
+          : `open`
+    items.push({
+      id: raw.id,
+      title: String(raw.title ?? ``),
+      text: String(raw.text ?? ``),
+      state,
+      card: target ? sessionCard(target, ordinals.get(target.id) ?? 1, now) : null,
+      issueId,
+      identifier: issueId ? issues.get(issueId)?.identifier ?? null : null,
+    })
+  }
+  if (items.length === 0) return null
+  const started = items.filter((item) => item.state === `started`).length
+  const count =
+    items.length === 1
+      ? SUGGESTIONS_COPY.one
+      : SUGGESTIONS_COPY.many.replace(`{count}`, String(items.length))
+  return {
+    type: `suggestions`,
+    id: message.id,
+    sessionId: message.sessionId,
+    header:
+      started > 0
+        ? `${count} · ${SUGGESTIONS_COPY.started.replace(`{count}`, String(started))}`
+        : count,
+    startAll: items.filter((item) => item.state === `open`).length > 1,
+    items,
+  }
+}
+
 export interface SessionThreadView {
   rootId: string
   title: string
@@ -309,6 +405,9 @@ export interface SessionThreadView {
   rows: ThreadRow[]
   composer: { sessionId: string; placeholder: string }
   live: boolean
+  /** EXP-1323: the live tail (THE Queue, task-queue.json, + the status line) reads this
+   *  session's relay state; null once the root ended. */
+  liveSessionId: string | null
   busy: boolean
   needsYou: boolean
 }
@@ -442,6 +541,7 @@ export function buildSessionThread(input: {
         authorId: message.authorId,
         body: message.body,
         queued: author === `user` && message.consumedAt === null,
+        authorSessionId: message.authorSessionId ?? null,
       })
       continue
     }
@@ -495,6 +595,26 @@ export function buildSessionThread(input: {
           caption: typeof card.caption === `string` ? card.caption : null,
         })
         break
+      case `report`: {
+        const target = typeof card.sessionId === `string` ? byId.get(card.sessionId) : undefined
+        if (!target) break
+        rows.push({
+          type: `report`,
+          id: message.id,
+          sessionId: target.id,
+          text: THREAD_COPY.report.replace(
+            `{session}`,
+            sessionCard(target, ordinals.get(target.id) ?? 1, now).name
+          ),
+          summary: typeof card.summary === `string` ? card.summary : message.body,
+        })
+        break
+      }
+      case `suggestions`: {
+        const row = suggestionsRow(message, card, byId, ordinals, issueMap, now)
+        if (row) rows.push(row)
+        break
+      }
       case `event`: {
         const text = eventText(card, issueMap, prMap)
         if (text) rows.push({ type: `event`, id: message.id, event: String(card.event), text })
@@ -528,6 +648,7 @@ export function buildSessionThread(input: {
     rows,
     composer: { sessionId: root.id, placeholder: THREAD_COPY.placeholder },
     live: live.length > 0,
+    liveSessionId: root.status === `ended` ? null : root.id,
     busy: live.some((s) => s.busy),
     needsYou: live.some((s) => s.needsInput),
   }
@@ -536,6 +657,11 @@ export function buildSessionThread(input: {
 export interface ThreadsListRow {
   sessionId: string
   teamId: string
+  /** EXP-1323: 0 = the thread (opens the thread), >0 = a nested child
+   *  (opens that session); `parentId` null on a root. */
+  depth: number
+  parentId: string | null
+  rootId: string
   title: string
   private: boolean
   /** EXP-1318: the ROOT's device (the row's trailing device icon);
@@ -543,6 +669,11 @@ export interface ThreadsListRow {
   deviceId?: string | null
   busy: boolean
   needsYou: boolean
+  /** EXP-1323: bold title (a root: the tree's newest agent message is
+   *  newer than the viewer's read of the root; a child: its own). */
+  unread: boolean
+  /** EXP-1323: the live caption (the session card rule). */
+  caption: string | null
   activityAt: string
 }
 
@@ -577,7 +708,23 @@ export function partitionThreads(input: {
   issues: readonly TreeIssue[]
   messages: readonly TreeMessage[]
   teamId: string | null
+  /** EXP-1323: the viewer's `session_reads` (absent = none read). */
+  reads?: readonly TreeSessionRead[]
 }): ThreadsListGroup[] {
+  const readAt = new Map((input.reads ?? []).map((read) => [read.sessionId, ms(read.readAt) ?? 0]))
+  const rootOf = new Map(input.sessions.map((s) => [s.id, s.rootId]))
+  const newestAgent = new Map<string, number>()
+  const newestAgentInTree = new Map<string, number>()
+  for (const message of input.messages) {
+    if (message.authorKind !== `agent`) continue
+    const at = ms(message.createdAt) ?? 0
+    newestAgent.set(message.sessionId, Math.max(newestAgent.get(message.sessionId) ?? 0, at))
+    const rootId = rootOf.get(message.sessionId)
+    if (rootId) newestAgentInTree.set(rootId, Math.max(newestAgentInTree.get(rootId) ?? 0, at))
+  }
+  const unreadAt = (newest: number | undefined, sessionId: string) =>
+    newest !== undefined && newest > (readAt.get(sessionId) ?? -1)
+  const now = ``
   const roots = input.sessions.filter(
     (s) =>
       s.parentId === null &&
@@ -590,7 +737,10 @@ export function partitionThreads(input: {
     list.push(session)
     byRoot.set(session.rootId, list)
   }
-  const buckets: Record<ThreadsListGroup[`key`], ThreadsListRow[]> = {
+  const buckets: Record<
+    ThreadsListGroup[`key`],
+    { row: ThreadsListRow; children: ThreadsListRow[] }[]
+  > = {
     needs_you: [],
     running: [],
     recent: [],
@@ -612,24 +762,67 @@ export function partitionThreads(input: {
     const row: ThreadsListRow = {
       sessionId: root.id,
       teamId: root.teamId,
+      depth: 0,
+      parentId: null,
+      rootId: root.id,
       title,
       private: !root.shared,
       deviceId: root.deviceId ?? null,
       busy: live.some((s) => s.busy),
       needsYou,
+      unread: unreadAt(newestAgentInTree.get(root.id), root.id),
+      caption: sessionCard(root, 1, now).caption,
       activityAt: activity,
     }
-    buckets[needsYou ? `needs_you` : running ? `running` : `recent`].push(row)
+    const key = needsYou ? `needs_you` : running ? `running` : `recent`
+    // A live tree nests its children (depth-first, creation order; asides
+    // stay in the Conversation); Recent collapses to the root.
+    const children: ThreadsListRow[] = []
+    if (key !== `recent`) {
+      const ordered = treeOrder(tree)
+      const ordinals = new Map(ordered.map((s, index) => [s.id, index + 1]))
+      const walk = (parentId: string, depth: number) => {
+        for (const child of ordered) {
+          if (child.parentId !== parentId || child.aside === true) continue
+          const card = sessionCard(child, ordinals.get(child.id) ?? 1, now)
+          children.push({
+            sessionId: child.id,
+            teamId: child.teamId,
+            depth,
+            parentId,
+            rootId: root.id,
+            title: card.name,
+            private: !child.shared,
+            deviceId: child.deviceId ?? null,
+            busy: child.status !== `ended` && child.busy,
+            needsYou: child.status !== `ended` && child.needsInput,
+            unread: unreadAt(newestAgent.get(child.id), child.id),
+            caption: card.caption,
+            activityAt: child.updatedAt,
+          })
+          walk(child.id, depth + 1)
+        }
+      }
+      walk(root.id, 1)
+    }
+    buckets[key].push({ row, children })
   }
-  const order = (rows: ThreadsListRow[]) =>
-    rows.sort(
-      (a, b) =>
-        (ms(b.activityAt) ?? 0) - (ms(a.activityAt) ?? 0) ||
-        (a.sessionId < b.sessionId ? -1 : 1)
-    )
+  const order = (entries: { row: ThreadsListRow; children: ThreadsListRow[] }[]) =>
+    entries
+      .sort(
+        (a, b) =>
+          (ms(b.row.activityAt) ?? 0) - (ms(a.row.activityAt) ?? 0) ||
+          (a.row.sessionId < b.row.sessionId ? -1 : 1)
+      )
+      .flatMap((entry) => [entry.row, ...entry.children])
   return (Object.keys(buckets) as ThreadsListGroup[`key`][])
     .map((key) => ({ key, title: THREADS_LIST_COPY.groups[key], rows: order(buckets[key]) }))
     .filter((group) => group.rows.length > 0)
+}
+
+/** EXP-1323: the Threads nav dot = any thread row is unread. */
+export function threadsUnread(groups: readonly ThreadsListGroup[]): boolean {
+  return groups.some((group) => group.rows.some((row) => row.depth === 0 && row.unread))
 }
 
 export interface AgentRow {

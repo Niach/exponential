@@ -434,6 +434,8 @@ impl Focusable for SessionScreenView {
 
 impl Render for SessionScreenView {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        // EXP-1323: the session on screen is read (its own agent replies).
+        crate::session_data::mark_read_if_unread(&self.session_id, false, cx);
         let header = self.render_header(cx);
         // One column — the header, then the transcript, whose own footer
         // carries the composer (and the usage readout).

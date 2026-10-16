@@ -24,6 +24,7 @@
     "./guide-viewer": "./src/guide-viewer.ts",
     "./agent-settings": "./src/agent-settings.ts",
     "./session-brief": "./src/session-brief.ts",
+    "./task-queue": "./src/task-queue.ts",
     "./fixtures/*": "./fixtures/*"
   }
 }

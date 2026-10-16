@@ -10,7 +10,8 @@ import type { StyleguideEntry } from "./types.ts"
 // EXP-1248 → EXP-1293: THE session row, the REAL `@exp/ui` SessionRow, fed
 // by the contract's `sessionCard` (the same state the session card shows).
 // The rail's Running rows: the agent mark, the issue identifier, the title.
-// No caption, no device (Threads v2 dropped both).
+// EXP-1323: a live tree nests its children (depth + TreeGuides), a bold
+// title = unread, a child's live caption is its muted second line (big).
 
 const NOW = `2026-10-13T12:00:00.000Z`
 
@@ -53,6 +54,7 @@ interface SpecimenRow {
   depth: number
   identifier: string | null
   session: TreeSession
+  unread?: boolean
 }
 
 const ROWS: readonly SpecimenRow[] = [
@@ -60,11 +62,25 @@ const ROWS: readonly SpecimenRow[] = [
     depth: 0,
     identifier: `APP-5`,
     session: session({ id: `s1`, title: `Reduce cold start below 800 ms`, needsInput: true }),
+    unread: true,
   },
   {
     depth: 1,
     identifier: null,
-    session: session({ id: `s2`, parentId: `s1`, rootId: `s1`, title: `Profile the launch path`, busy: true }),
+    session: session({
+      id: `s2`,
+      parentId: `s1`,
+      rootId: `s1`,
+      title: `Profile the launch path`,
+      busy: true,
+      caption: `Reading LaunchTracer.kt`,
+    }),
+  },
+  {
+    depth: 2,
+    identifier: null,
+    session: session({ id: `s5`, parentId: `s2`, rootId: `s1`, title: `Trace the splash screen` }),
+    unread: true,
   },
   {
     depth: 0,
@@ -93,11 +109,13 @@ function SessionRowSpecimen() {
         return (
           <SessionRow
             key={row.session.id}
-            size="small"
+            size={card.caption ? `big` : `small`}
             agent="claude"
             markState={MARK[card.state]}
             identifier={row.identifier}
             title={card.name}
+            caption={card.caption}
+            unread={row.unread}
             depth={row.depth}
             guide={guides[index]}
             active={index === 0}
@@ -115,7 +133,7 @@ export const entry: StyleguideEntry = {
   section: `special`,
   owner: `EXP-1248`,
   title: `Session row`,
-  blurb: `ONE list item for a session, nested by the session tree (a child session under its root). Anatomy ×4: [tree guides][session mark at 12 + 14·depth][mono id · title]. The mark is the agent's brand mark, its state the session card's (\`sessionCard\`: Claude's spark while it works, a badge when it needs you, dimmed once ended). EXP-1293: no caption, no device. small = one line, 32px (the rail's Running).`,
+  blurb: `ONE list item for a session, nested by the session tree (a child session under its root). Anatomy ×4: [tree guides][session mark at 12 + 14·depth][mono id · title]. The mark is the agent's brand mark, its state the session card's (\`sessionCard\`: Claude's spark while it works, a badge when it needs you, dimmed once ended). EXP-1293: no device. small = one line, 32px (the rail's Running). EXP-1323: a live tree's children nest under the root in the Threads list and the rail (depth + TreeGuides, 14px a level, the 3px corner tee; a child opens that session); a bold title = an agent reply the viewer has not read; a child's live caption (\`Reading LaunchTracer.kt\`, the session card rule) is the big row's muted second line.`,
   status: {
     web: {
       state: `ok`,

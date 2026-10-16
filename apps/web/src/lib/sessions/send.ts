@@ -29,8 +29,9 @@ import { resolveActionInputs } from "@/lib/action-inputs"
 import { actionInputLookups } from "@/lib/sessions/action-lookups"
 import { assertCanSteer, loadSessionForUser, sessionVisibleTo } from "@/lib/sessions/access"
 import { assertIssuesInTeam, linkIssues } from "@/lib/sessions/issues"
-import { postPersonMessage, postSystemCard } from "@/lib/sessions/messages"
+import { postPersonMessage, postSessionInput, postSystemCard } from "@/lib/sessions/messages"
 import type { Tx } from "@/lib/sessions/tx"
+import { asideTitle } from "@/lib/sessions/caption"
 import { buildAttachmentUrl, isAcceptedImageContentType } from "@/lib/storage/issue-attachments"
 import { getSteerRelayConfig, relayPostNudge } from "@/lib/steer"
 import { fireAndForgetSessionMessageNotify } from "@/lib/integrations/notifications"
@@ -184,17 +185,23 @@ async function claimAttachments(
   await tx.execute(sql`UPDATE messages SET body = ${body} WHERE id = ${args.messageId}`)
 }
 
-/** The person message of a send (text and/or attachments), or null. */
+/** The person message of a send (text and/or attachments), or null.
+ *  EXP-1323: `from` = the calling session (its MCP key): stamped as
+ *  `author_session_id`; `asSession` = the message is that SESSION's input
+ *  into another live one (a child asking its parent), agent-authored. */
 async function postSendMessage(
   tx: Tx,
   session: Pick<Session, `id` | `rootId` | `teamId` | `shared` | `userId`>,
   input: SessionsSendInput,
   authorId: string,
-  uploaderIds: string[]
+  uploaderIds: string[],
+  from?: { sessionId: string; asSession: boolean } | null
 ): Promise<string | null> {
   const text = input.text ?? ``
   if (!text.trim() && !input.attachmentIds?.length) return null
-  const messageId = await postPersonMessage(tx, session, authorId, text)
+  const messageId = from?.asSession
+    ? await postSessionInput(tx, session, from.sessionId, text)
+    : await postPersonMessage(tx, session, authorId, text, from?.sessionId ?? null)
   await claimAttachments(tx, {
     ids: input.attachmentIds ?? [],
     messageId,
@@ -310,6 +317,20 @@ async function insertSession(tx: Tx, values: SessionInsert & { id: string }): Pr
   return row!
 }
 
+/** EXP-1328: extra writes inside the send's own transaction (a suggestion
+ *  card stamps its item there, so a refused stamp rolls the start back). */
+export type SendWithin = (
+  tx: Tx,
+  result: { sessionId: string; messageId: string | null; rootId: string }
+) => Promise<void>
+
+/** The internal extras of a send (never on the wire). */
+export interface SendExtras {
+  /** A new child's stored title (a suggestion's title). */
+  title?: string | null
+  within?: SendWithin
+}
+
 interface SendOutcome extends SessionsSendResult {
   txid: number
   /** For the post-commit nudge + notify. */
@@ -320,6 +341,7 @@ export async function sendSession(args: {
   userId: string
   input: SessionsSendInput
   callerSessionId?: string | null
+  extras?: SendExtras
 }): Promise<SessionsSendResult & { txid: number }> {
   const caller = await loadCallerSession(args.userId, args.callerSessionId)
   const starter = effectiveStarter(args.userId, caller)
@@ -327,11 +349,12 @@ export async function sendSession(args: {
   const { input } = args
   if (!input.sessionId) assertRunnerVocabulary(input)
 
+  const extras = args.extras ?? {}
   let outcome: SendOutcome
   if (input.sessionId) {
-    outcome = await messageSession(starter, uploaderIds, input)
+    outcome = await messageSession(starter, uploaderIds, input, caller, extras)
   } else if (input.parentId) {
-    outcome = await startChild(starter, uploaderIds, input)
+    outcome = await startChild(starter, uploaderIds, input, caller, extras)
   } else {
     outcome = await startRoot(starter, uploaderIds, input, caller)
   }
@@ -374,7 +397,9 @@ export async function effectiveCli(
 async function messageSession(
   userId: string,
   uploaderIds: string[],
-  input: SessionsSendInput
+  input: SessionsSendInput,
+  caller: Session | null,
+  extras: SendExtras
 ): Promise<SendOutcome> {
   const target = await loadSessionForUser(userId, input.sessionId!)
   await assertCanSteer(userId, target)
@@ -403,7 +428,13 @@ async function messageSession(
           .set({ account: input.account, updatedAt: new Date() })
           .where(eq(sessions.id, target.id))
       }
-      const messageId = await postSendMessage(tx, target, input, userId, uploaderIds)
+      // EXP-1323: another session's message is ITS input (agent-authored,
+      // pending like a person's: the target wakes and reads it).
+      const from = caller
+        ? { sessionId: caller.id, asSession: caller.id !== target.id }
+        : null
+      const messageId = await postSendMessage(tx, target, input, userId, uploaderIds, from)
+      await extras.within?.(tx, { sessionId: target.id, messageId, rootId: target.rootId })
       return { sessionId: target.id, messageId, status: target.status, txid, queued: null }
     })
   }
@@ -444,8 +475,16 @@ async function messageSession(
       status: `queued`,
       shared: root.shared,
     })
-    const messageId = await postSendMessage(tx, child, input, userId, uploaderIds)
+    const messageId = await postSendMessage(
+      tx,
+      child,
+      input,
+      userId,
+      uploaderIds,
+      caller ? { sessionId: caller.id, asSession: false } : null
+    )
     await postSystemCard(tx, root, { kind: `session`, sessionId: child.id })
+    await extras.within?.(tx, { sessionId: child.id, messageId, rootId: root.id })
     return {
       sessionId: child.id,
       messageId,
@@ -459,14 +498,29 @@ async function messageSession(
 async function startChild(
   userId: string,
   uploaderIds: string[],
-  input: SessionsSendInput
+  input: SessionsSendInput,
+  caller: Session | null,
+  extras: SendExtras
 ): Promise<SendOutcome> {
   const parent = await loadSessionForUser(userId, input.parentId!)
   await assertCanSteer(userId, parent)
   if (input.teamId && input.teamId !== parent.teamId) {
     throw new TRPCError({ code: `BAD_REQUEST`, message: `The parent is in another team` })
   }
-  const deviceId = input.deviceId ?? parent.deviceId
+  // EXP-1330: a `/btw` aside forks its parent's claude run on the SAME
+  // device: no worktree, branch, brief or PR (the device's side), never in
+  // an agent's tree, never on codex.
+  const aside = input.aside === true
+  if (aside) {
+    if (parent.kind === `agent` || parent.aside) {
+      throw new TRPCError({ code: `BAD_REQUEST`, message: `Asides run on a thread session only` })
+    }
+    const cli = input.cli ?? (await effectiveCli(parent))
+    if (cli && cli !== `claude`) {
+      throw new TRPCError({ code: `BAD_REQUEST`, message: `Asides run on claude only` })
+    }
+  }
+  const deviceId = aside ? parent.deviceId : (input.deviceId ?? parent.deviceId)
   const device = await resolveSessionDevice(userId, parent.teamId, deviceId)
 
   return db.transaction(async (tx) => {
@@ -474,6 +528,9 @@ async function startChild(
     await assertTreeRoom(tx, parent.rootId, parent.depth + 1)
     const [root] = await tx.select().from(sessions).where(eq(sessions.id, parent.rootId)).limit(1)
     if (!root) throw new TRPCError({ code: `NOT_FOUND`, message: `Session not found` })
+    if (aside && root.kind === `agent`) {
+      throw new TRPCError({ code: `BAD_REQUEST`, message: `Asides run on a thread session only` })
+    }
     const mcpServerIds =
       (await assertMcpServersInTeam(tx, parent.teamId, input.mcpServerIds)) ?? parent.mcpServerIds
     const id = crypto.randomUUID()
@@ -488,14 +545,24 @@ async function startChild(
       hostUserId: device.hostUserId,
       deviceId,
       ...runnerFields(input, parent),
+      ...(aside ? { cli: `claude`, aside: true, title: asideTitle(input.text ?? ``) } : {}),
+      ...(!aside && extras.title?.trim() ? { title: extras.title.trim().slice(0, 255) } : {}),
       mcpServerIds,
       repositoryId: parent.repositoryId ?? root.repositoryId,
       status: `queued`,
       // One visibility per tree: a child inherits its root's.
       shared: root.shared,
     })
-    const messageId = await postSendMessage(tx, child, input, userId, uploaderIds)
+    const messageId = await postSendMessage(
+      tx,
+      child,
+      input,
+      userId,
+      uploaderIds,
+      caller ? { sessionId: caller.id, asSession: false } : null
+    )
     await postSystemCard(tx, parent, { kind: `session`, sessionId: child.id })
+    await extras.within?.(tx, { sessionId: child.id, messageId, rootId: root.id })
     return {
       sessionId: child.id,
       messageId,

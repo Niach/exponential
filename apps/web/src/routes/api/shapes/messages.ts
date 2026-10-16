@@ -15,6 +15,8 @@ export const MESSAGE_COLUMNS = [
   `team_id`,
   `author_kind`,
   `author_id`,
+  // EXP-1323: the session that posted it (a child's report or question).
+  `author_session_id`,
   `body`,
   `card`,
   `answered_at`,

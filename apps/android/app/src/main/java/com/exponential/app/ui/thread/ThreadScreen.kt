@@ -66,6 +66,9 @@ import com.exponential.app.ui.components.LocalDetailHaze
 import com.exponential.app.ui.components.LocalToaster
 import com.exponential.app.ui.components.SkeletonRows
 import com.exponential.app.ui.components.failedAction
+import com.exponential.app.ui.components.deviceIcon
+import com.exponential.app.ui.components.modelLabel
+import com.exponential.app.ui.session.SessionLiveTail
 import com.exponential.app.ui.components.TabPager
 import com.exponential.app.ui.components.userDisplayName
 import com.exponential.app.ui.icons.ExpIcons
@@ -136,7 +139,17 @@ fun ThreadScreen(
     val pullRequestIssues by viewModel.pullRequestIssues.collectAsStateWithLifecycle()
     val syncedIssues by viewModel.syncedIssues.collectAsStateWithLifecycle()
     val isMember by viewModel.isMember.collectAsStateWithLifecycle()
+    val startDevices by viewModel.startDevices.collectAsStateWithLifecycle()
+    val suggestionPending by viewModel.suggestionPending.collectAsStateWithLifecycle()
+    val liveActivity by viewModel.liveActivity.collectAsStateWithLifecycle()
     FailedActionToast(failure, onShown = viewModel::clearFailure)
+
+    // EXP-1323: opening the thread reads it; news landing while it is open
+    // is read too (the row never turns bold under the reader).
+    val newestAgentMessage = remember(messages) {
+        messages.filter { it.authorKind == DomainContract.messageAuthorKindAgent }.maxOfOrNull { it.createdAt }
+    }
+    LaunchedEffect(viewModel.rootId, newestAgentMessage) { viewModel.markRead() }
 
     var selectedKey by rememberSaveable { mutableStateOf(viewModel.initialTab ?: "conversation") }
     var menuFor by remember { mutableStateOf<ThreadMenuTarget?>(null) }
@@ -260,6 +273,19 @@ fun ThreadScreen(
                     )
                 },
                 guideMenu = { guidePr?.let { pr -> GuideMenu(pr, isMember) { closePrConfirm = pr } } },
+                onOpenSession = { id -> if (viewModel.isOtherRoot(id)) onOpenThread(id) else onOpenSession(id) },
+                suggestions = ThreadSuggestionActions(
+                    onStart = { rowId, itemId, deviceId, model -> viewModel.startSuggestion(rowId, itemId, deviceId, model) },
+                    onStartAll = viewModel::startAllSuggestions,
+                    onHere = viewModel::suggestionHere,
+                    onDismiss = viewModel::dismissSuggestion,
+                    onFile = viewModel::fileSuggestion,
+                    devices = startDevices.map { SuggestionDevice(it.deviceId, it.deviceLabel, deviceIcon(it)) },
+                    // Contract `codingModel` (fable · opus · sonnet · haiku), never a Default row.
+                    models = DomainContract.codingModelValues.map { it to modelLabel(it) },
+                    pending = suggestionPending,
+                ),
+                tail = liveActivity?.let { activity -> { SessionLiveTail(activity, root) } },
             )
         }
     }
@@ -380,6 +406,12 @@ fun ThreadContent(
     /** EXP-1307: the header `…` (Open on GitHub · Close PR) while the Guide
      *  tab is selected; the slot draws nothing when the Guide has no PR. */
     guideMenu: (@Composable () -> Unit)? = null,
+    /** EXP-1323: a report line / a started suggestion opens that session. */
+    onOpenSession: ((sessionId: String) -> Unit)? = null,
+    /** EXP-1323: the suggested tasks cards' actions (null = read-only). */
+    suggestions: ThreadSuggestionActions? = null,
+    /** EXP-1323: the live tail above the composer (Tasks card + status line). */
+    tail: (@Composable () -> Unit)? = null,
 ) {
     // An agent channel is the conversation only.
     val pages = if (agent != null || view == null) {
@@ -481,6 +513,9 @@ fun ThreadContent(
                                 bottom = bandClearance + 12.dp,
                             ),
                             jumpBottomInset = bandClearance,
+                            onOpenSession = onOpenSession,
+                            suggestions = suggestions,
+                            tail = tail,
                         )
                         FloatingBarEdge(
                             bottomInset = bottomInset,

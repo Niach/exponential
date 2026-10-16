@@ -109,6 +109,10 @@ pub struct AdapterSpec {
     /// fresh thread with no linked issue and no title (one with an issue reads
     /// its issue, an agent root its own name).
     pub name_conversation: bool,
+    /// EXP-1330: a `/btw` aside — claude forks the resumed conversation
+    /// (`--fork-session`) and runs read-only
+    /// ([`crate::aside::ASIDE_DISALLOWED_TOOLS`]). Codex never runs one.
+    pub aside: bool,
     /// Where a stdio adapter reports its child's exit (`ChildLines::forward_exit`),
     /// so the run's bye is `exit:<code>`. An adapter that owns no child of
     /// ours never records, and the run ends as `ended`.

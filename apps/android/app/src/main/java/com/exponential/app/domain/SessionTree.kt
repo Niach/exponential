@@ -5,6 +5,7 @@ import com.exponential.app.data.db.MessageEntity
 import com.exponential.app.data.db.PullRequestEntity
 import com.exponential.app.data.db.SessionEntity
 import com.exponential.app.data.db.SessionIssueEntity
+import com.exponential.app.data.db.SessionReadEntity
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
@@ -57,7 +58,14 @@ object SessionTree {
         val updatedAt: String,
         /** The steer device that runs it (`devices.device_id`); null = none. */
         val deviceId: String? = null,
+        /** EXP-1323: the live status line (absent = null). */
+        val caption: String? = null,
+        /** EXP-1323: a `/btw` aside child (absent = false). */
+        val aside: Boolean = false,
     )
+
+    /** EXP-1323: the viewer's read marks (`session_reads`, already user-scoped). */
+    data class SessionRead(val sessionId: String, val readAt: String)
 
     data class SessionIssue(val sessionId: String, val issueId: String, val sortOrder: Double)
 
@@ -74,6 +82,8 @@ object SessionTree {
         val answeredAt: String?,
         val consumedAt: String?,
         val createdAt: String,
+        /** EXP-1323: the session that posted it (absent = null). */
+        val authorSessionId: String? = null,
     )
 
     data class PullRequest(val id: String, val number: Int)
@@ -140,6 +150,25 @@ object SessionTree {
         const val TEST_ID_GUIDE_MERGE = "thread-guide-merge"
         /** EXP-1307: the header `…` on the Guide (Open on GitHub · Close PR). */
         const val TEST_ID_GUIDE_MENU = "thread-guide-menu"
+        /** EXP-1323: a child's report row. */
+        const val REPORT = "Report from {session}"
+    }
+
+    /** EXP-1323 `copy.suggestions`. */
+    object SuggestionsCopy {
+        const val ONE = "1 suggested task"
+        const val MANY = "{count} suggested tasks"
+        const val STARTED = "{count} started"
+        const val START_ALL = "Start all"
+        const val START = "Start"
+        const val HERE = "Do it here"
+        const val OPTIONS = "Options"
+        const val START_ON = "Start on…"
+        const val START_WITH = "Start with…"
+        const val FILE = "File as issue"
+        const val DISMISS = "Dismiss"
+        const val SENT_HERE = "Sent here"
+        const val FILED = "Filed {issue}"
     }
 
     object ListCopy {
@@ -223,6 +252,9 @@ object SessionTree {
         /** A spinner while true. */
         val running: Boolean,
         val testId: String,
+        /** EXP-1323: the live status line under the name; an ended session's is
+         *  dropped unless it is an aside (its answer's first line stays). */
+        val caption: String? = null,
     )
 
     /**
@@ -246,6 +278,7 @@ object SessionTree {
             null
         }
         val title = session.title?.trim()
+        val caption = session.caption?.trim()
         return SessionCard(
             sessionId = session.id,
             icon = CardCopy.ICONS.getValue(state),
@@ -256,6 +289,7 @@ object SessionTree {
             elapsed = elapsed,
             running = state == SessionState.Working,
             testId = CardCopy.TEST_ID_CARD,
+            caption = caption?.takeIf { it.isNotEmpty() && (state != SessionState.Ended || session.aside) },
         )
     }
 
@@ -336,9 +370,28 @@ object SessionTree {
             val body: String,
             /** A person's message the device has not consumed yet. */
             val queued: Boolean,
+            /** EXP-1323: the session that posted it (a child asking its parent). */
+            val authorSessionId: String? = null,
         ) : ThreadRow
 
         data class SessionRow(override val id: String, val card: SessionCard) : ThreadRow
+
+        /** EXP-1323: a child's end on its parent: `Report from <name>` + the summary. */
+        data class Report(
+            override val id: String,
+            val sessionId: String,
+            val text: String,
+            val summary: String,
+        ) : ThreadRow
+
+        /** EXP-1323: ONE suggestions card; [sessionId] = the posting session. */
+        data class Suggestions(
+            override val id: String,
+            val sessionId: String,
+            val header: String,
+            val startAll: Boolean,
+            val items: List<SuggestionRow>,
+        ) : ThreadRow
 
         data class Question(
             override val id: String,
@@ -368,6 +421,22 @@ object SessionTree {
         data class Event(override val id: String, val event: String, val text: String) : ThreadRow
     }
 
+    /** EXP-1323: one suggested task's state (dismissed items drop). */
+    enum class SuggestionState(val wire: String) { Open("open"), Started("started"), Here("here"), Filed("filed") }
+
+    /** EXP-1323: one suggested task: `open` (× · Options · Do it here · Start),
+     *  `started` (the child's card once synced), `here` (sent to the posting
+     *  session), `filed` (the issue it became). */
+    data class SuggestionRow(
+        val id: String,
+        val title: String,
+        val text: String,
+        val state: SuggestionState,
+        val card: SessionCard?,
+        val issueId: String?,
+        val identifier: String?,
+    )
+
     data class Composer(val sessionId: String, val placeholder: String)
 
     data class ThreadView(
@@ -382,6 +451,9 @@ object SessionTree {
         val live: Boolean,
         val busy: Boolean,
         val needsYou: Boolean,
+        /** EXP-1323: the live tail (Tasks card + status line) reads this
+         *  session's relay state; null once the root ended. */
+        val liveSessionId: String? = null,
     )
 
     private fun JsonObject.str(key: String): String? =
@@ -414,6 +486,58 @@ object SessionTree {
             return template.replaceFirst("{pr}", "#${pr.number}")
         }
         return template
+    }
+
+    private fun suggestionsRow(
+        message: Message,
+        card: JsonObject,
+        byId: Map<String, Session>,
+        ordinals: Map<String, Int>,
+        issues: Map<String, Issue>,
+        now: String,
+    ): ThreadRow? {
+        val raws = card["items"] as? JsonArray ?: return null
+        val items = mutableListOf<SuggestionRow>()
+        for (element in raws) {
+            val raw = element as? JsonObject ?: continue
+            val id = raw.str("id") ?: continue
+            if ((raw["dismissed"] as? JsonPrimitive)?.takeIf { !it.isString }?.content == "true") continue
+            val sessionId = raw.str("sessionId")
+            val issueId = raw.str("issueId")
+            val target = sessionId?.let { byId[it] }
+            val here = (raw["here"] as? JsonPrimitive)?.takeIf { !it.isString }?.content == "true"
+            val state = when {
+                sessionId != null -> SuggestionState.Started
+                here -> SuggestionState.Here
+                issueId != null -> SuggestionState.Filed
+                else -> SuggestionState.Open
+            }
+            items.add(
+                SuggestionRow(
+                    id = id,
+                    title = raw.text("title"),
+                    text = raw.text("text"),
+                    state = state,
+                    card = target?.let { sessionCard(it, ordinals[it.id] ?: 1, now) },
+                    issueId = issueId,
+                    identifier = issueId?.let { issues[it]?.identifier },
+                ),
+            )
+        }
+        if (items.isEmpty()) return null
+        val started = items.count { it.state == SuggestionState.Started }
+        val count = if (items.size == 1) {
+            SuggestionsCopy.ONE
+        } else {
+            SuggestionsCopy.MANY.replace("{count}", items.size.toString())
+        }
+        return ThreadRow.Suggestions(
+            id = message.id,
+            sessionId = message.sessionId,
+            header = if (started > 0) "$count · ${SuggestionsCopy.STARTED.replace("{count}", started.toString())}" else count,
+            startAll = items.count { it.state == SuggestionState.Open } > 1,
+            items = items,
+        )
     }
 
     private val messageOrder = compareBy<Message>({ ms(it.createdAt) ?: 0L }, { it.id })
@@ -473,6 +597,7 @@ object SessionTree {
                         authorId = message.authorId,
                         body = message.body,
                         queued = author == DomainContract.messageAuthorKindUser && message.consumedAt == null,
+                        authorSessionId = message.authorSessionId,
                     ),
                 )
                 continue
@@ -519,6 +644,23 @@ object SessionTree {
                         ),
                     )
                 }
+                DomainContract.messageCardKindReport -> {
+                    val target = card.str("sessionId")?.let { byId[it] } ?: continue
+                    rows.add(
+                        ThreadRow.Report(
+                            id = message.id,
+                            sessionId = target.id,
+                            text = ThreadCopy.REPORT.replace(
+                                "{session}",
+                                sessionCard(target, ordinals[target.id] ?: 1, now).name,
+                            ),
+                            summary = card.str("summary") ?: message.body,
+                        ),
+                    )
+                }
+                DomainContract.messageCardKindSuggestions -> {
+                    suggestionsRow(message, card, byId, ordinals, issueMap, now)?.let(rows::add)
+                }
                 DomainContract.messageCardKindEvent -> {
                     val text = eventText(card, issueMap, prMap)
                     if (text != null) rows.add(ThreadRow.Event(message.id, card.text("event"), text))
@@ -548,6 +690,7 @@ object SessionTree {
             live = live.isNotEmpty(),
             busy = live.any { it.busy },
             needsYou = live.any { it.needsInput },
+            liveSessionId = if (root.status == DomainContract.sessionStatusEnded) null else root.id,
         )
     }
 
@@ -569,6 +712,16 @@ object SessionTree {
         val activityAt: String,
         /** The ROOT's device (the row's trailing device icon); null = none. */
         val deviceId: String? = null,
+        /** EXP-1323: 0 = the thread (opens the thread), >0 = a nested child
+         *  (opens that session); [parentId] null on a root. */
+        val depth: Int = 0,
+        val parentId: String? = null,
+        val rootId: String = sessionId,
+        /** EXP-1323: bold title (a root: the tree's newest agent message is
+         *  newer than the viewer's read of the root; a child: its own). */
+        val unread: Boolean = false,
+        /** EXP-1323: the live caption (the session card rule). */
+        val caption: String? = null,
     )
 
     data class ThreadsListGroup(val key: ThreadsGroupKey, val title: String, val rows: List<ThreadsListRow>)
@@ -585,14 +738,29 @@ object SessionTree {
         issues: List<Issue>,
         messages: List<Message>,
         teamId: String?,
+        /** EXP-1323: the viewer's `session_reads` (empty = none read). */
+        reads: List<SessionRead> = emptyList(),
     ): List<ThreadsListGroup> {
+        val readAt = reads.associate { it.sessionId to (ms(it.readAt) ?: 0L) }
+        val rootOf = sessions.associate { it.id to it.rootId }
+        val newestAgent = HashMap<String, Long>()
+        val newestAgentInTree = HashMap<String, Long>()
+        for (message in messages) {
+            if (message.authorKind != DomainContract.messageAuthorKindAgent) continue
+            val at = ms(message.createdAt) ?: 0L
+            newestAgent[message.sessionId] = maxOf(newestAgent[message.sessionId] ?: 0L, at)
+            val rootId = rootOf[message.sessionId] ?: continue
+            newestAgentInTree[rootId] = maxOf(newestAgentInTree[rootId] ?: 0L, at)
+        }
+        fun unreadAt(newest: Long?, sessionId: String) = newest != null && newest > (readAt[sessionId] ?: -1L)
+        val now = ""
         val roots = sessions.filter {
             it.parentId == null && it.kind == DomainContract.sessionKindThread &&
                 (teamId == null || it.teamId == teamId)
         }
         val byRoot = LinkedHashMap<String, MutableList<Session>>()
         for (session in sessions) byRoot.getOrPut(session.rootId) { mutableListOf() }.add(session)
-        val buckets = linkedMapOf<ThreadsGroupKey, MutableList<ThreadsListRow>>(
+        val buckets = linkedMapOf<ThreadsGroupKey, MutableList<Pair<ThreadsListRow, List<ThreadsListRow>>>>(
             ThreadsGroupKey.NeedsYou to mutableListOf(),
             ThreadsGroupKey.Running to mutableListOf(),
             ThreadsGroupKey.Recent to mutableListOf(),
@@ -617,19 +785,68 @@ object SessionTree {
                 needsYou = needsYou,
                 activityAt = activity,
                 deviceId = root.deviceId,
+                depth = 0,
+                parentId = null,
+                rootId = root.id,
+                unread = unreadAt(newestAgentInTree[root.id], root.id),
+                caption = sessionCard(root, 1, now).caption,
             )
             val key = when {
                 needsYou -> ThreadsGroupKey.NeedsYou
                 running -> ThreadsGroupKey.Running
                 else -> ThreadsGroupKey.Recent
             }
-            buckets.getValue(key).add(row)
+            // A live tree nests its children (depth-first, creation order;
+            // asides stay in the Conversation); Recent collapses to the root.
+            val children = mutableListOf<ThreadsListRow>()
+            if (key != ThreadsGroupKey.Recent) {
+                val ordered = treeOrder(tree)
+                val ordinals = ordered.mapIndexed { index, s -> s.id to index + 1 }.toMap()
+                fun walk(parentId: String, depth: Int) {
+                    for (child in ordered) {
+                        if (child.parentId != parentId || child.aside) continue
+                        val card = sessionCard(child, ordinals[child.id] ?: 1, now)
+                        val ended = child.status == DomainContract.sessionStatusEnded
+                        children.add(
+                            ThreadsListRow(
+                                sessionId = child.id,
+                                teamId = child.teamId,
+                                title = card.name,
+                                private = !child.shared,
+                                busy = !ended && child.busy,
+                                needsYou = !ended && child.needsInput,
+                                activityAt = child.updatedAt,
+                                deviceId = child.deviceId,
+                                depth = depth,
+                                parentId = parentId,
+                                rootId = root.id,
+                                unread = unreadAt(newestAgent[child.id], child.id),
+                                caption = card.caption,
+                            ),
+                        )
+                        walk(child.id, depth + 1)
+                    }
+                }
+                walk(root.id, 1)
+            }
+            buckets.getValue(key).add(row to children)
         }
-        val order = compareByDescending<ThreadsListRow> { ms(it.activityAt) ?: 0L }.thenBy { it.sessionId }
+        val order = compareByDescending<Pair<ThreadsListRow, List<ThreadsListRow>>> { ms(it.first.activityAt) ?: 0L }
+            .thenBy { it.first.sessionId }
         return buckets.entries
-            .map { (key, rows) -> ThreadsListGroup(key, ListCopy.GROUPS.getValue(key), rows.sortedWith(order)) }
+            .map { (key, entries) ->
+                ThreadsListGroup(
+                    key,
+                    ListCopy.GROUPS.getValue(key),
+                    entries.sortedWith(order).flatMap { (row, children) -> listOf(row) + children },
+                )
+            }
             .filter { it.rows.isNotEmpty() }
     }
+
+    /** EXP-1323: the Threads nav dot = any thread row is unread (`unreadCases`). */
+    fun threadsUnread(groups: List<ThreadsListGroup>): Boolean =
+        groups.any { group -> group.rows.any { it.depth == 0 && it.unread } }
 
     data class AgentRow(
         val sessionId: String,
@@ -824,6 +1041,8 @@ object SessionTree {
         createdAt = row.createdAt,
         updatedAt = row.updatedAt,
         deviceId = row.deviceId.ifBlank { null },
+        caption = row.caption,
+        aside = row.aside,
     )
 
     fun sessionIssue(row: SessionIssueEntity): SessionIssue =
@@ -841,7 +1060,10 @@ object SessionTree {
         answeredAt = row.answeredAt,
         consumedAt = row.consumedAt,
         createdAt = row.createdAt,
+        authorSessionId = row.authorSessionId,
     )
+
+    fun sessionRead(row: SessionReadEntity): SessionRead = SessionRead(sessionId = row.sessionId, readAt = row.readAt)
 
     fun pullRequest(row: PullRequestEntity): PullRequest? =
         row.number?.let { PullRequest(id = row.id, number = it) }

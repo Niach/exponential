@@ -991,6 +991,58 @@ export function AgentSessionView({
   )
 }
 
+/** EXP-1323 (#EXP-1333): a THREAD's live tail ×4 — while the root's session
+ *  is live the Conversation ends on the raw view's OWN transcript bottom
+ *  (`BackgroundStrip`, THE Queue once EXP-1324 lands: one task UI) and ONE
+ *  status line. Same relay store as the raw view (one connection per
+ *  session, shared); nothing while there is neither. */
+export function SessionLiveTail({ session }: { session: SessionRow }) {
+  const store = useMemo(() => acquireSteerSession(session.id), [session.id])
+  const {
+    phase,
+    feed,
+    compacting,
+    turnState,
+    turnStartedAt,
+    turnTokens,
+    taskList,
+    backgroundTasks,
+    runningWorkflow,
+  } = useSyncExternalStore(store.subscribe, store.getSnapshot)
+  useEffect(() => store.connect(), [store])
+  useEffect(() => store.noteSessionStatus(session.status), [store, session.status])
+  const live = phase.kind === `live`
+  const questionIds = useMemo(() => activeQuestionIds(feed), [feed])
+  const working = sessionIsWorking({
+    live,
+    sessionEnded: session.status === `ended`,
+    turnState,
+    awaitingInput: live && questionIds.size > 0,
+    needsInput: session.needsInput,
+    blocked: session.blocked != null,
+    compacting: compacting !== null,
+  })
+  const lines = useMemo(
+    () => backgroundStripLines({ backgroundTasks, feed }),
+    [backgroundTasks, feed]
+  )
+  const summary = useMemo(() => taskListSummary(taskList), [taskList])
+  if (summary === null && lines.length === 0 && !working) return null
+  return (
+    <div data-testid="thread-live-tail" className="flex flex-col gap-2">
+      <BackgroundStrip lines={lines} taskList={taskList} />
+      {working && (
+        <WorkingIndicatorRow
+          agent={session.cli}
+          startedAt={turnStartedAt}
+          tokens={turnTokens}
+          workflow={runningWorkflow}
+        />
+      )}
+    </div>
+  )
+}
+
 // ── Pieces ───────────────────────────────────────────────────────────────────
 
 // Vertically centres the feed's placeholder (an `EmptyState`, or the

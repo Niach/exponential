@@ -55,6 +55,7 @@ import { Route as ApiShapesTeamsRouteImport } from './routes/api/shapes/teams'
 import { Route as ApiShapesTeamMembersRouteImport } from './routes/api/shapes/team-members'
 import { Route as ApiShapesTeamInvitesRouteImport } from './routes/api/shapes/team-invites'
 import { Route as ApiShapesSessionsRouteImport } from './routes/api/shapes/sessions'
+import { Route as ApiShapesSessionReadsRouteImport } from './routes/api/shapes/session-reads'
 import { Route as ApiShapesSessionIssuesRouteImport } from './routes/api/shapes/session-issues'
 import { Route as ApiShapesPullRequestsRouteImport } from './routes/api/shapes/pull-requests'
 import { Route as ApiShapesPullRequestIssuesRouteImport } from './routes/api/shapes/pull-request-issues'
@@ -361,6 +362,11 @@ const ApiShapesTeamInvitesRoute = ApiShapesTeamInvitesRouteImport.update({
 const ApiShapesSessionsRoute = ApiShapesSessionsRouteImport.update({
   id: '/api/shapes/sessions',
   path: '/api/shapes/sessions',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiShapesSessionReadsRoute = ApiShapesSessionReadsRouteImport.update({
+  id: '/api/shapes/session-reads',
+  path: '/api/shapes/session-reads',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiShapesSessionIssuesRoute = ApiShapesSessionIssuesRouteImport.update({
@@ -821,6 +827,7 @@ export interface FileRoutesByFullPath {
   '/api/shapes/pull-request-issues': typeof ApiShapesPullRequestIssuesRoute
   '/api/shapes/pull-requests': typeof ApiShapesPullRequestsRoute
   '/api/shapes/session-issues': typeof ApiShapesSessionIssuesRoute
+  '/api/shapes/session-reads': typeof ApiShapesSessionReadsRoute
   '/api/shapes/sessions': typeof ApiShapesSessionsRoute
   '/api/shapes/team-invites': typeof ApiShapesTeamInvitesRoute
   '/api/shapes/team-members': typeof ApiShapesTeamMembersRoute
@@ -937,6 +944,7 @@ export interface FileRoutesByTo {
   '/api/shapes/pull-request-issues': typeof ApiShapesPullRequestIssuesRoute
   '/api/shapes/pull-requests': typeof ApiShapesPullRequestsRoute
   '/api/shapes/session-issues': typeof ApiShapesSessionIssuesRoute
+  '/api/shapes/session-reads': typeof ApiShapesSessionReadsRoute
   '/api/shapes/sessions': typeof ApiShapesSessionsRoute
   '/api/shapes/team-invites': typeof ApiShapesTeamInvitesRoute
   '/api/shapes/team-members': typeof ApiShapesTeamMembersRoute
@@ -1058,6 +1066,7 @@ export interface FileRoutesById {
   '/api/shapes/pull-request-issues': typeof ApiShapesPullRequestIssuesRoute
   '/api/shapes/pull-requests': typeof ApiShapesPullRequestsRoute
   '/api/shapes/session-issues': typeof ApiShapesSessionIssuesRoute
+  '/api/shapes/session-reads': typeof ApiShapesSessionReadsRoute
   '/api/shapes/sessions': typeof ApiShapesSessionsRoute
   '/api/shapes/team-invites': typeof ApiShapesTeamInvitesRoute
   '/api/shapes/team-members': typeof ApiShapesTeamMembersRoute
@@ -1179,6 +1188,7 @@ export interface FileRouteTypes {
     | '/api/shapes/pull-request-issues'
     | '/api/shapes/pull-requests'
     | '/api/shapes/session-issues'
+    | '/api/shapes/session-reads'
     | '/api/shapes/sessions'
     | '/api/shapes/team-invites'
     | '/api/shapes/team-members'
@@ -1295,6 +1305,7 @@ export interface FileRouteTypes {
     | '/api/shapes/pull-request-issues'
     | '/api/shapes/pull-requests'
     | '/api/shapes/session-issues'
+    | '/api/shapes/session-reads'
     | '/api/shapes/sessions'
     | '/api/shapes/team-invites'
     | '/api/shapes/team-members'
@@ -1415,6 +1426,7 @@ export interface FileRouteTypes {
     | '/api/shapes/pull-request-issues'
     | '/api/shapes/pull-requests'
     | '/api/shapes/session-issues'
+    | '/api/shapes/session-reads'
     | '/api/shapes/sessions'
     | '/api/shapes/team-invites'
     | '/api/shapes/team-members'
@@ -1526,6 +1538,7 @@ export interface RootRouteChildren {
   ApiShapesPullRequestIssuesRoute: typeof ApiShapesPullRequestIssuesRoute
   ApiShapesPullRequestsRoute: typeof ApiShapesPullRequestsRoute
   ApiShapesSessionIssuesRoute: typeof ApiShapesSessionIssuesRoute
+  ApiShapesSessionReadsRoute: typeof ApiShapesSessionReadsRoute
   ApiShapesSessionsRoute: typeof ApiShapesSessionsRoute
   ApiShapesTeamInvitesRoute: typeof ApiShapesTeamInvitesRoute
   ApiShapesTeamMembersRoute: typeof ApiShapesTeamMembersRoute
@@ -1868,6 +1881,13 @@ declare module '@tanstack/react-router' {
       path: '/api/shapes/sessions'
       fullPath: '/api/shapes/sessions'
       preLoaderRoute: typeof ApiShapesSessionsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/shapes/session-reads': {
+      id: '/api/shapes/session-reads'
+      path: '/api/shapes/session-reads'
+      fullPath: '/api/shapes/session-reads'
+      preLoaderRoute: typeof ApiShapesSessionReadsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/shapes/session-issues': {
@@ -2577,6 +2597,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiShapesPullRequestIssuesRoute: ApiShapesPullRequestIssuesRoute,
   ApiShapesPullRequestsRoute: ApiShapesPullRequestsRoute,
   ApiShapesSessionIssuesRoute: ApiShapesSessionIssuesRoute,
+  ApiShapesSessionReadsRoute: ApiShapesSessionReadsRoute,
   ApiShapesSessionsRoute: ApiShapesSessionsRoute,
   ApiShapesTeamInvitesRoute: ApiShapesTeamInvitesRoute,
   ApiShapesTeamMembersRoute: ApiShapesTeamMembersRoute,

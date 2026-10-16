@@ -1,4 +1,5 @@
-//! EXP-746 — the session rows; EXP-1248 — ONE row; EXP-1294 — no captions.
+//! EXP-746 — the session rows; EXP-1248 — ONE row; EXP-1294 — no captions;
+//! EXP-1323 — nested children (tree guides) and a bold unread title.
 //!
 //! The rail's Running section draws a live thread through [`run_row`] (web
 //! `@exp/ui` SessionRow, fixture `list-item.json` small): the agent's mark,
@@ -91,6 +92,11 @@ pub(crate) struct RunRowSpec {
     pub(crate) on_open: RunRowAction,
     /// EXP-1318: after the title (a thread row's device icon).
     pub(crate) trailing: Option<gpui::AnyElement>,
+    /// EXP-1323: a nested child session's indent + connector (TreeGuides,
+    /// 14px/level, the 3px corner tee); default = a root.
+    pub(crate) guides: domain::tree_guides::Guides,
+    /// EXP-1323: news the viewer has not read — a semibold title.
+    pub(crate) unread: bool,
 }
 
 /// EXP-1248/EXP-1294 — THE session row, small (web `@exp/ui` SessionRow):
@@ -107,7 +113,10 @@ pub(crate) fn run_row(spec: RunRowSpec, cx: &App) -> gpui::AnyElement {
         active,
         on_open,
         trailing,
+        guides,
+        unread,
     } = spec;
+    let depth = guides.depth();
     let theme = cx.theme();
     let muted = theme.muted_foreground;
     let row_hover = theme::tokens::glass::FILL_ROW.to_hsla();
@@ -133,10 +142,12 @@ pub(crate) fn run_row(spec: RunRowSpec, cx: &App) -> gpui::AnyElement {
                 .min_w_0()
                 .truncate()
                 .text_color(theme.foreground)
+                .when(unread, |this| this.font_weight(gpui::FontWeight::SEMIBOLD))
                 .child(title),
         );
     crate::surface::flat_row()
         .id((SharedString::from(format!("{id_prefix}-row")), index))
+        .relative()
         .flex()
         .flex_row()
         .w_full()
@@ -146,7 +157,8 @@ pub(crate) fn run_row(spec: RunRowSpec, cx: &App) -> gpui::AnyElement {
         .gap(gpui::px(domain::list_item::GAP))
         .h(gpui::px(domain::list_item::SMALL))
         .pr_3()
-        .pl(gpui::px(domain::list_item::lead_x(0)))
+        .pl(gpui::px(domain::list_item::lead_x(depth)))
+        .children(crate::tree_guides::guide_layer(&guides, domain::list_item::BASE, 0.))
         .when(active, |this| this.bg(row_active))
         .cursor_pointer()
         .hover(move |style| style.bg(if active { row_active } else { row_hover }))

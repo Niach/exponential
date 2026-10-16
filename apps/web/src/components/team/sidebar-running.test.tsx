@@ -11,7 +11,9 @@ import type { ThreadsListGroup } from "@/lib/session-tree"
 // off the work-tab strip.
 
 const navigate = vi.hoisted(() => vi.fn())
-const location = vi.hoisted(() => ({ pathname: `/t/acme/inbox` }))
+const location = vi.hoisted(
+  () => ({ pathname: `/t/acme/inbox`, search: {} }) as { pathname: string; search: Record<string, unknown> }
+)
 
 vi.mock(`@tanstack/react-router`, () => ({
   useNavigate: () => navigate,
@@ -42,16 +44,30 @@ const T0 = `2026-10-13T10:00:00.000Z`
 function row(
   sessionId: string,
   title: string,
-  over: { busy?: boolean; needsYou?: boolean; deviceId?: string | null } = {}
+  over: {
+    busy?: boolean
+    needsYou?: boolean
+    deviceId?: string | null
+    depth?: number
+    parentId?: string | null
+    rootId?: string
+    unread?: boolean
+    caption?: string | null
+  } = {}
 ) {
   return {
     sessionId,
     teamId: `team-1`,
+    depth: over.depth ?? 0,
+    parentId: over.parentId ?? null,
+    rootId: over.rootId ?? sessionId,
     title,
     private: false,
     deviceId: over.deviceId ?? null,
     busy: over.busy ?? false,
     needsYou: over.needsYou ?? false,
+    unread: over.unread ?? false,
+    caption: over.caption ?? null,
     activityAt: T0,
   }
 }
@@ -84,6 +100,7 @@ function renderSection(list: ThreadsListGroup[] = groups) {
 beforeEach(() => {
   navigate.mockReset()
   location.pathname = `/t/acme/inbox`
+  location.search = {}
 })
 
 describe(`SidebarRunningSection`, () => {
@@ -132,6 +149,67 @@ describe(`SidebarRunningSection`, () => {
   })
 })
 
+// EXP-1323: a live tree nests its children (TreeGuides), a child opens its
+// session in the thread, bold = unread, the caption under the title.
+describe(`SidebarRunningSection — nested children`, () => {
+  const nested: ThreadsListGroup[] = [
+    {
+      key: `running`,
+      title: `Running`,
+      rows: [
+        row(`t-run`, `Speed up the shop`, { busy: true, unread: true }),
+        row(`s-child`, `Cart thumbnails`, {
+          busy: true,
+          depth: 1,
+          parentId: `t-run`,
+          rootId: `t-run`,
+          caption: `Reading CartLineItem.tsx`,
+        }),
+      ],
+    },
+  ]
+
+  it(`nests the child under its root with its caption; bold marks unread`, () => {
+    renderSection(nested)
+    const root = screen.getByTestId(`sidebar-running-t-run`)
+    const child = screen.getByTestId(`sidebar-running-s-child`)
+    expect(root.querySelector(`[data-unread]`)).toBeTruthy()
+    expect(child.querySelector(`[data-unread]`)).toBeNull()
+    expect(child.textContent).toContain(`Reading CartLineItem.tsx`)
+    expect(child.style.paddingLeft).toBe(`22px`)
+    expect(child.querySelector(`svg`)).toBeTruthy()
+  })
+
+  it(`a child opens its session in the thread, washed while shown`, () => {
+    location.pathname = `/t/acme/threads/t-run`
+    location.search = { tab: `session`, session: `s-child` }
+    renderSection(nested)
+    expect(screen.getByTestId(`sidebar-running-s-child`).getAttribute(`data-active`)).toBe(`true`)
+    expect(screen.getByTestId(`sidebar-running-t-run`).getAttribute(`data-active`)).toBe(`false`)
+    fireEvent.click(screen.getByTestId(`sidebar-running-s-child`))
+    expect(navigate).toHaveBeenCalledWith({
+      to: `/t/$teamSlug/threads/$threadId`,
+      params: { teamSlug: `acme`, threadId: `t-run` },
+      search: { tab: `session`, session: `s-child`, from: `running` },
+    })
+  })
+
+  it(`the compact rail lists the threads only`, () => {
+    const items: { key: string }[] = []
+    render(
+      <SidebarRunningIcons
+        teamSlug="acme"
+        threads={{ groups: nested, wordOf: () => null }}
+        renderItem={(item) => {
+          items.push(item)
+          return null
+        }}
+      />
+    )
+    expect(items.map((item) => item.key)).toEqual([`t-run`])
+  })
+})
+
 describe(`SidebarRunningIcons`, () => {
   it(`hands the rail one item per Active thread`, () => {
     const items: { key: string; label: string }[] = []
@@ -155,9 +233,22 @@ describe(`SidebarRunningIcons`, () => {
 
 describe(`the nav state`, () => {
   it(`is green while anything runs, amber while something needs you`, () => {
-    expect(threadsNavState([])).toEqual({ live: false, needsYou: false })
-    expect(threadsNavState([groups[1], groups[2]])).toEqual({ live: true, needsYou: false })
-    expect(threadsNavState(groups)).toEqual({ live: true, needsYou: true })
+    expect(threadsNavState([])).toEqual({ live: false, needsYou: false, unread: false })
+    expect(threadsNavState([groups[1], groups[2]])).toEqual({
+      live: true,
+      needsYou: false,
+      unread: false,
+    })
+    expect(threadsNavState(groups)).toEqual({ live: true, needsYou: true, unread: false })
+  })
+
+  it(`EXP-1323: carries the unread dot off a thread row`, () => {
+    const recent: ThreadsListGroup = {
+      key: `recent`,
+      title: `Recent`,
+      rows: [row(`t-new`, `Fix flaky scroll`, { unread: true })],
+    }
+    expect(threadsNavState([recent])).toEqual({ live: false, needsYou: false, unread: true })
   })
 
   it(`maps a row onto the run mark`, () => {

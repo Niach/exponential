@@ -47,7 +47,7 @@ export function mcpServerInstructions(gates: {
   }
   if (gates.inSession && !gates.agent && gates.unattended) {
     paragraphs.push(
-      `This session is unattended (another session started it). Finish with exponential_sessions_end LAST, worktree clean: its summary (finished, stopped for a human, or changed nothing) is your final message. Never wait for replies; a question only your starter can answer goes to your parent session with exponential_sessions_send, then stop.`
+      `This session is unattended (another session started it). Finish with exponential_sessions_end LAST, worktree clean: its summary (finished, stopped for a human, or changed nothing) is your final message and your parent's report. Never wait for replies; a question only your starter can answer goes to your parent session with exponential_sessions_send, then stop.`
     )
   }
   if (gates.inSession && !gates.agent && !gates.unattended) {

@@ -12,7 +12,8 @@ import { THREADS_LIST_COPY } from "@/lib/session-tree"
 // Recent): the ACTIVE team's threads in three bands, Needs you · Running ·
 // Recent (`partitionThreads`, fixture `threads-list.json` ×4). Rows open the
 // thread; phones put the team's Agents band on top (rows open the agent's
-// channel).
+// channel). EXP-1323: a live tree's nested child opens that session in its
+// thread (`?tab=session`, phones push the session's own screen).
 
 export const Route = createFileRoute(`/t/$teamSlug/threads/`)({
   head: () => ({ meta: [{ title: pageTitle(THREADS_LIST_COPY.title) }] }),
@@ -36,10 +37,8 @@ function ThreadsPage() {
   const { rows } = useTeamSessions(team?.id)
   const { agents } = useAgents(isMobile ? team?.id : undefined)
   const prs = useTeamPullRequestsByRoot(team?.id)
-  const cliByRoot = useMemo(
-    () => new Map(rows.filter((row) => row.parentId === null).map((row) => [row.id, row.cli])),
-    [rows]
-  )
+  // EXP-1323: every session's mark (live trees nest their children).
+  const cliByRoot = useMemo(() => new Map(rows.map((row) => [row.id, row.cli])), [rows])
 
   return (
     // EXP-771: the SCROLLER is full width, the reading column lives inside it.
@@ -59,6 +58,13 @@ function ThreadsPage() {
               void navigate({
                 to: `/t/$teamSlug/threads/$threadId`,
                 params: { teamSlug, threadId },
+              })
+            }
+            onOpenSession={(threadId, sessionId) =>
+              void navigate({
+                to: `/t/$teamSlug/threads/$threadId`,
+                params: { teamSlug, threadId },
+                search: { tab: `session`, session: sessionId },
               })
             }
             onOpenAgent={(agentId) =>

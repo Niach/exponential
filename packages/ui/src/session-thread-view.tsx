@@ -1,4 +1,5 @@
 import {
+  Children,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -6,7 +7,12 @@ import {
   type ComponentType,
   type ReactNode,
 } from "react"
-import type { SessionTabMarkState, ThreadRow } from "@exp/domain-contract/session-tree"
+import {
+  SUGGESTIONS_COPY,
+  type SessionTabMarkState,
+  type SuggestionRow,
+  type ThreadRow,
+} from "@exp/domain-contract/session-tree"
 import { AgentRunMark, type RunMarkState } from "./agent-brand-mark"
 import { ASK_CARD_COPY, AskCard, AskPrompt, type AskOption } from "./ask-card"
 import { Button } from "./button"
@@ -14,11 +20,13 @@ import { cn } from "./cn"
 import { stripTabClass } from "./entity-chip"
 import { ListRow } from "./glass-rows"
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "./hover-card"
+import { Menu, type MenuEntry, type MenuIcon } from "./menu"
 import { SessionRow, SessionRowDevice } from "./session-row"
 import { treeGuides } from "./tree-guides"
 import { conceptIcon } from "./icons.generated"
 import { Tooltip, TooltipContent, TooltipTrigger } from "./tooltip"
 import { UserMessageBubble } from "./user-message-bubble"
+import { Spinner } from "./feedback"
 import { SESSION_CARD_TONE, SessionCard } from "./work-card"
 
 // EXP-1293 Threads v2: the THREAD screen's presentational parts ×web (the
@@ -36,9 +44,13 @@ import { SESSION_CARD_TONE, SessionCard } from "./work-card"
 //                        cards = THE session view's card (`ask-card.tsx`,
 //                        EXP-1316) answered IN the card, a person's own
 //                        queued row with its X (EXP-1317), subagent /
-//                        picture / event lines
-//   ThreadsListItem      a Threads list row: lead glyph, the title, ONE
-//                        quiet word and the lock (private)
+//                        picture / event lines; EXP-1323: a child's
+//                        `report` line (opens it) and THE suggested tasks
+//                        card (`ThreadSuggestionsCard`), then the host's
+//                        live tail (Tasks card + status line)
+//   ThreadsListItem      a Threads list row: lead glyph, the title (bold
+//                        while unread), ONE quiet word and the lock
+//                        (private), the live caption under it
 //   ChannelMessageRow    an agent channel's comment-style row
 
 const ConversationIcon = conceptIcon(`action-chat`)
@@ -47,6 +59,10 @@ const AddIcon = conceptIcon(`ui-add`)
 const CloseIcon = conceptIcon(`ui-close`)
 const SubagentIcon = conceptIcon(`coding-subagent`)
 const PrivateIcon = conceptIcon(`ui-private`)
+const ReportIcon = conceptIcon(`notification-reporter-reply`)
+const ChevronRightIcon = conceptIcon(`ui-chevron-right`)
+const ChevronDownIcon = conceptIcon(`ui-chevron-down`)
+const SuggestionsIcon = conceptIcon(`ui-checklist`)
 
 // EXP-1316: THE strip tab box, shared with the issue chips' `tab` size.
 const tabClass = stripTabClass
@@ -313,8 +329,15 @@ export function ThreadSessionGroup({
   children: ReactNode
   tree?: ReactNode
 }) {
+  // The group shrinks with its chips but never below their 6rem floors
+  // (`ThreadSessionTab`), else the chips overflow onto Guide.
+  const count = Children.count(children)
   const group = (
-    <div data-testid="thread-session-group" className="flex min-w-0 shrink items-center gap-1">
+    <div
+      data-testid="thread-session-group"
+      className="flex min-w-0 shrink items-center gap-1"
+      style={{ minWidth: `calc(${count} * 6rem + ${Math.max(0, count - 1)} * 0.25rem)` }}
+    >
       {children}
     </div>
   )
@@ -367,6 +390,13 @@ export interface ThreadConversationProps {
   viewerId?: string | null
   /** EXP-1317: revoke a queued row (absent = no X). */
   onUnqueue?: (rowId: string) => void
+  /** EXP-1323: the suggested tasks cards' actions (absent = read-only). */
+  suggestions?: ThreadSuggestionActions
+  /** EXP-1323: a filed suggestion's issue (absent = its identifier). */
+  renderIssueRef?: (issueId: string, identifier: string | null) => ReactNode
+  /** EXP-1323: the live tail after the last row (Tasks card + status
+   *  line), the host's. */
+  tail?: ReactNode
   className?: string
 }
 
@@ -384,6 +414,9 @@ export function ThreadConversation({
   pending,
   viewerId,
   onUnqueue,
+  suggestions,
+  renderIssueRef,
+  tail,
   className,
 }: ThreadConversationProps) {
   return (
@@ -486,10 +519,321 @@ export function ThreadConversation({
                 {row.text}
               </div>
             )
+          case `report`:
+            return (
+              <ThreadReportLine
+                key={row.id}
+                text={row.text}
+                onOpen={onOpenSession ? () => onOpenSession(row.sessionId) : undefined}
+              />
+            )
+          case `suggestions`:
+            return (
+              <ThreadSuggestionsCard
+                key={row.id}
+                row={row}
+                actions={suggestions}
+                onOpenSession={onOpenSession}
+                renderIssueRef={renderIssueRef}
+              />
+            )
           default:
             return null
         }
       })}
+      {tail}
+    </div>
+  )
+}
+
+/** EXP-1323: a child's report = ONE event line `Report from <session> ›`
+ *  opening that session; its summary is never repeated (the parent's next
+ *  message relays it). */
+export function ThreadReportLine({ text, onOpen }: { text: string; onOpen?: () => void }) {
+  const content = (
+    <>
+      <ReportIcon className="size-3.5 shrink-0" />
+      <span className="min-w-0 truncate">{text}</span>
+      {onOpen && <ChevronRightIcon className="size-3.5 shrink-0" />}
+    </>
+  )
+  const className = `flex min-w-0 max-w-full items-center gap-1.5 self-start text-xs text-muted-foreground`
+  if (!onOpen) {
+    return (
+      <div data-slot="thread-report" className={className}>
+        {content}
+      </div>
+    )
+  }
+  return (
+    <button
+      type="button"
+      data-slot="thread-report"
+      className={cn(className, `text-left hover:text-foreground`)}
+      onClick={onOpen}
+    >
+      {content}
+    </button>
+  )
+}
+
+/** EXP-1323: what a suggested tasks card can do (`sessions.startSuggestion`
+ *  / `startAllSuggestions` / `dismissSuggestion` / `fileSuggestion`). */
+export interface ThreadSuggestionActions {
+  /** Start the item as a child (Options: on a device, with a model). */
+  onStart: (rowId: string, itemId: string, options?: { deviceId?: string; model?: string }) => void
+  onStartAll: (rowId: string) => void
+  /** Do it here: the item goes to the posting session. */
+  onHere: (rowId: string, itemId: string) => void
+  onDismiss: (rowId: string, itemId: string) => void
+  onFile: (rowId: string, itemId: string) => void
+  /** Start on… rows (the runnable devices). */
+  devices?: readonly { id: string; name: string; icon?: MenuIcon }[]
+  /** Start with… rows (contract `codingModel`, never a default row). */
+  models?: readonly { value: string; label: string }[]
+  /** In-flight keys (`suggestionKey`; Start all = `suggestionKey(row)`). */
+  pending?: ReadonlySet<string>
+}
+
+/** The pending key of one item (or, without an item, the card's Start all). */
+export function suggestionKey(rowId: string, itemId?: string): string {
+  return itemId ? `${rowId}:${itemId}` : `${rowId}:*`
+}
+
+/** EXP-1323: THE suggested tasks card ×4 = the Work card's shell: a header
+ *  (`3 suggested tasks`, `· 2 started`, Start all while more than one is
+ *  open), then hairline-divided items. Open = title, text, × · Options ·
+ *  Do it here · Start (phones stack the buttons under the text); started =
+ *  the child's session card (its caption under the name) opening it; here =
+ *  `Sent here`; filed = `Filed EXP-9`. */
+export function ThreadSuggestionsCard({
+  row,
+  actions,
+  onOpenSession,
+  renderIssueRef,
+}: {
+  row: Extract<ThreadRow, { type: `suggestions` }>
+  actions?: ThreadSuggestionActions
+  onOpenSession?: (sessionId: string) => void
+  renderIssueRef?: (issueId: string, identifier: string | null) => ReactNode
+}) {
+  const pending = actions?.pending
+  return (
+    <div
+      data-slot="thread-suggestions"
+      className="min-w-0 overflow-clip rounded-lg border border-glass-stroke-card bg-glass-row text-xs"
+    >
+      <div className="flex min-h-9 min-w-0 items-center gap-2 px-3 py-1.5">
+        <SuggestionsIcon className="size-3.5 shrink-0 text-muted-foreground" />
+        <span data-slot="thread-suggestions-header" className="min-w-0 truncate font-medium">
+          {row.header}
+        </span>
+        {row.startAll && actions && (
+          <Button
+            type="button"
+            size="xs"
+            className="ml-auto shrink-0"
+            data-testid="thread-suggestions-start-all"
+            pending={pending?.has(suggestionKey(row.id)) ?? false}
+            onClick={() => actions.onStartAll(row.id)}
+          >
+            {SUGGESTIONS_COPY.startAll}
+          </Button>
+        )}
+      </div>
+      <div className="divide-y divide-glass-stroke border-t border-glass-stroke">
+        {row.items.map((item) => (
+          <SuggestionItemRow
+            key={item.id}
+            rowId={row.id}
+            item={item}
+            actions={actions}
+            onOpenSession={onOpenSession}
+            renderIssueRef={renderIssueRef}
+          />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function SuggestionItemRow({
+  rowId,
+  item,
+  actions,
+  onOpenSession,
+  renderIssueRef,
+}: {
+  rowId: string
+  item: SuggestionRow
+  actions?: ThreadSuggestionActions
+  onOpenSession?: (sessionId: string) => void
+  renderIssueRef?: (issueId: string, identifier: string | null) => ReactNode
+}) {
+  if (item.state === `started`) {
+    if (item.card) {
+      const card = item.card
+      return (
+        <div data-slot="thread-suggestion" data-state={item.state}>
+          <SessionCard
+            card={card}
+            onOpen={onOpenSession ? () => onOpenSession(card.sessionId) : undefined}
+            className="rounded-none border-0 bg-transparent"
+          />
+        </div>
+      )
+    }
+    // Started, the child's row not synced yet.
+    return (
+      <div
+        data-slot="thread-suggestion"
+        data-state={item.state}
+        className="flex min-h-9 min-w-0 items-center gap-2 px-3 text-muted-foreground"
+      >
+        <Spinner size={12} label="Starting" />
+        <span className="min-w-0 truncate">{item.title}</span>
+      </div>
+    )
+  }
+  if (item.state === `here` || item.state === `filed`) {
+    const filed =
+      item.state === `filed` && item.issueId
+        ? (renderIssueRef?.(item.issueId, item.identifier) ?? item.identifier)
+        : null
+    const [before, after] = SUGGESTIONS_COPY.filed.split(`{issue}`)
+    return (
+      <div
+        data-slot="thread-suggestion"
+        data-state={item.state}
+        className="flex min-h-9 min-w-0 items-center gap-2 px-3 py-1.5"
+      >
+        <span className="min-w-0 flex-1 truncate text-muted-foreground">{item.title}</span>
+        <span className="flex shrink-0 items-center gap-1 text-muted-foreground">
+          {item.state === `here` ? (
+            SUGGESTIONS_COPY.sentHere
+          ) : (
+            <>
+              {before}
+              {filed}
+              {after}
+            </>
+          )}
+        </span>
+      </div>
+    )
+  }
+  const key = suggestionKey(rowId, item.id)
+  const busy = actions?.pending?.has(key) ?? false
+  const entries: MenuEntry[] = actions
+    ? [
+        {
+          kind: `submenu`,
+          label: SUGGESTIONS_COPY.startOn,
+          disabled: (actions.devices?.length ?? 0) === 0,
+          entries: (actions.devices ?? []).map((device) => ({
+            kind: `item` as const,
+            id: device.id,
+            label: device.name,
+            icon: device.icon,
+            onSelect: () => actions.onStart(rowId, item.id, { deviceId: device.id }),
+          })),
+        },
+        {
+          kind: `submenu`,
+          label: SUGGESTIONS_COPY.startWith,
+          disabled: (actions.models?.length ?? 0) === 0,
+          entries: (actions.models ?? []).map((model) => ({
+            kind: `item` as const,
+            id: model.value,
+            label: model.label,
+            onSelect: () => actions.onStart(rowId, item.id, { model: model.value }),
+          })),
+        },
+        { kind: `separator` },
+        {
+          kind: `item`,
+          label: SUGGESTIONS_COPY.file,
+          onSelect: () => actions.onFile(rowId, item.id),
+        },
+        {
+          kind: `item`,
+          label: SUGGESTIONS_COPY.dismiss,
+          onSelect: () => actions.onDismiss(rowId, item.id),
+        },
+      ]
+    : []
+  return (
+    <div
+      data-slot="thread-suggestion"
+      data-state={item.state}
+      className="flex min-w-0 flex-col gap-2 px-3 py-2.5 md:flex-row md:items-start md:gap-3"
+    >
+      <div className="flex min-w-0 flex-1 items-start gap-2">
+        <div className="min-w-0 flex-1">
+          <div className="truncate font-medium text-foreground">{item.title}</div>
+          {item.text && <div className="mt-0.5 text-muted-foreground">{item.text}</div>}
+        </div>
+        {actions && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-xs"
+            aria-label={SUGGESTIONS_COPY.dismiss}
+            title={SUGGESTIONS_COPY.dismiss}
+            data-testid="thread-suggestion-dismiss"
+            className="shrink-0 text-muted-foreground hover:text-foreground"
+            disabled={busy}
+            onClick={() => actions.onDismiss(rowId, item.id)}
+          >
+            <CloseIcon className="size-3" />
+          </Button>
+        )}
+      </div>
+      {actions && (
+        <div
+          data-slot="thread-suggestion-actions"
+          className="flex shrink-0 flex-col gap-1.5 md:flex-row md:items-center"
+        >
+          <Menu
+            entries={entries}
+            align="end"
+            title={item.title}
+            aria-label={SUGGESTIONS_COPY.options}
+            contentClassName="w-56"
+            trigger={
+              <Button
+                type="button"
+                variant="outline"
+                size="xs"
+                data-testid="thread-suggestion-options"
+                disabled={busy}
+              >
+                {SUGGESTIONS_COPY.options}
+                <ChevronDownIcon />
+              </Button>
+            }
+          />
+          <Button
+            type="button"
+            variant="outline"
+            size="xs"
+            data-testid="thread-suggestion-here"
+            disabled={busy}
+            onClick={() => actions.onHere(rowId, item.id)}
+          >
+            {SUGGESTIONS_COPY.here}
+          </Button>
+          <Button
+            type="button"
+            size="xs"
+            data-testid="thread-suggestion-start"
+            pending={busy}
+            onClick={() => actions.onStart(rowId, item.id)}
+          >
+            {SUGGESTIONS_COPY.start}
+          </Button>
+        </div>
+      )}
     </div>
   )
 }
@@ -636,6 +980,8 @@ export function ThreadsListItem({
   wordIcon,
   locked = false,
   device = null,
+  unread = false,
+  caption = null,
   active = false,
   onOpen,
   testId = `threads-row`,
@@ -645,6 +991,10 @@ export function ThreadsListItem({
   lead: ReactNode
   /** The thread title (it names the issue, EXP-1316: no identifier slot). */
   title: string
+  /** EXP-1323: the tree has an agent reply the viewer has not read. */
+  unread?: boolean
+  /** EXP-1323: the live caption, the muted line under the title. */
+  caption?: string | null
   /** ONE quiet trailing word (`ready to merge`, `stack`, `merged`). */
   word?: string | null
   wordIcon?: ReactNode
@@ -664,10 +1014,26 @@ export function ThreadsListItem({
       active={active}
       onClick={onOpen}
       data-testid={testId}
-      className={cn(`h-10 gap-2 py-0 pr-3 pl-3 md:h-9`, className)}
+      className={cn(
+        `gap-2 py-0 pr-3 pl-3`,
+        caption ? `h-[52px]` : `h-10 md:h-9`,
+        className
+      )}
     >
       <span className="flex size-3.5 shrink-0 items-center justify-center">{lead}</span>
-      <span className="min-w-0 flex-1 truncate text-sm">{title}</span>
+      <span className="flex min-w-0 flex-1 flex-col">
+        <span
+          data-unread={unread || undefined}
+          className={cn(`truncate text-sm`, unread && `font-semibold text-foreground`)}
+        >
+          {title}
+        </span>
+        {caption && (
+          <span data-slot="threads-row-caption" className="truncate text-xs text-muted-foreground">
+            {caption}
+          </span>
+        )}
+      </span>
       {word && (
         <span
           data-slot="threads-row-word"

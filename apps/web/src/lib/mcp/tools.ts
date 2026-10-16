@@ -16,6 +16,8 @@ import {
   SESSIONS_SEND_TEXT_MAX,
   sessionKindValues,
   sessionsSendInputSchema,
+  SUGGESTIONS_MAX,
+  suggestionInputSchema,
   UUID_RE,
 } from "@exp/db-schema/domain"
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
@@ -125,6 +127,7 @@ import { getSessionTree, listSessions } from "@/lib/sessions/tree"
 import { endSession, stopSession } from "@/lib/sessions/lifecycle"
 import { linkIssues, unlinkIssue } from "@/lib/sessions/issues"
 import { writeGuide } from "@/lib/sessions/guide"
+import { postSuggestions } from "@/lib/sessions/suggestions"
 import {
   closePullRequestTx,
   mergePullRequest,
@@ -2333,6 +2336,49 @@ export function registerExponentialTools(
               reason,
               keep,
             })
+          )
+        } catch (e) {
+          return err(e)
+        }
+      }
+    )
+  }
+
+  // EXP-1328: follow-ups for a person to start, as ONE suggestions card on
+  // the caller's own session (1:1 with the card; it wakes nothing).
+  if (gates.inSession) {
+    server.registerTool(
+      `exponential_sessions_suggest`,
+      {
+        description: `Propose follow-up tasks as one card in your conversation; a person starts, files or dismisses each. title = a short name, text = the request a started session gets, issueIds = issues it is about.`,
+        inputSchema: strictInput({
+          tasks: z
+            .array(
+              z.strictObject({
+                ...suggestionInputSchema.shape,
+                issueIds: z.array(z.string().min(1)).max(10).optional(),
+              })
+            )
+            .min(1)
+            .max(SUGGESTIONS_MAX),
+        }),
+      },
+      async ({ tasks }) => {
+        try {
+          const own = await loadCallerSession()
+          if (!own) throw new Error(noSessionMessage(`exponential_sessions_suggest`))
+          if (!access.full) assertTeamFullyGranted(access, own.teamId)
+          const resolved = await Promise.all(
+            tasks.map(async (task) => ({
+              title: task.title,
+              text: task.text,
+              ...(task.issueIds?.length
+                ? { issueIds: await resolveTeamIssues(task.issueIds, own.teamId) }
+                : {}),
+            }))
+          )
+          return ok(
+            await postSuggestions({ userId: user.id, callerSessionId: own.id, tasks: resolved })
           )
         } catch (e) {
           return err(e)

@@ -27,10 +27,10 @@ describe(`steerCommandsFor`, () => {
   it(`filters the catalog by agent, in catalog order`, () => {
     const claude = steerCommandsFor(`claude`).map((c) => c.name)
     const codex = steerCommandsFor(`codex`).map((c) => c.name)
-    expect(claude).toEqual([`compact`, `clear`])
-    // Every agent sees the same two rows — the desktop maps `/clear` per
-    // agent.
-    expect(codex).toEqual(claude)
+    expect(claude).toEqual([`compact`, `clear`, `btw`])
+    // Both agents see compact + clear (the desktop maps `/clear` per agent);
+    // EXP-1330 `/btw` forks a claude run only.
+    expect(codex).toEqual([`compact`, `clear`])
     // EXP-849: a retired agent (historical rows still carry `pi`) gets the
     // empty catalog, like any unknown id.
     expect(steerCommandsFor(`pi`)).toEqual([])
@@ -259,6 +259,7 @@ describe(`mergeAgentCommands`, () => {
     expect(merged.map((command) => command.name)).toEqual([
       `compact`,
       `clear`,
+      `btw`,
       `review`,
     ])
     // The `/` menu offers it...

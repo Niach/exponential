@@ -322,6 +322,9 @@ export const DEMO_FEED_QUESTION = `Cold start is at 740ms (target <800ms). Lazy-
 export const DEMO_THREAD_ID = `5d7a2c90-3e41-4b8f-9c16-8a2e4f0b7d13`
 export const DEMO_SESSION_ID = `7c1f0a52-6f3c-4e19-9a2b-2d5d0f7c8e41`
 export const DEMO_AGENT_ID = `6530c2d7-ed10-46b0-ac66-c78020fd73d9`
+/** EXP-1323: the cold-start thread's ENDED child (started from its suggested
+ *  tasks card, its end = the `Report from …` line). */
+export const DEMO_REPORT_SESSION_ID = `2b8e6f1c-4d7a-4e3b-9c5f-1a6d8e2f7b40`
 
 /**
  * The session the relay stub publishes its scripted feed for (the `steering`

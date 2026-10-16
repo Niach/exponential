@@ -761,6 +761,14 @@ pub struct SessionRow {
     pub triggers: Option<serde_json::Value>,
     #[serde(default, deserialize_with = "tolerant_opt_f64")]
     pub sort_order: Option<f64>,
+    /// EXP-1323: the live status line (device-written, <=80 chars,
+    /// cleared at turn end); read through the session card's caption rule.
+    #[serde(default)]
+    pub caption: Option<String>,
+    /// EXP-1323: a `/btw` aside child (its card stays in the parent's
+    /// Conversation, never a nested list row).
+    #[serde(default, deserialize_with = "tolerant_bool_or_false")]
+    pub aside: bool,
     #[serde(default)]
     pub created_at: Option<String>,
     #[serde(default)]
@@ -882,6 +890,27 @@ pub struct MessageRow {
     pub answered_at: Option<String>,
     #[serde(default)]
     pub consumed_at: Option<String>,
+    /// EXP-1323: the session that posted it (a child asking its parent,
+    /// a report, a suggestions card); `None` = a person or the root itself.
+    #[serde(default)]
+    pub author_session_id: Option<String>,
+    #[serde(default)]
+    pub created_at: Option<String>,
+    #[serde(default)]
+    pub updated_at: Option<String>,
+}
+
+/// EXP-1323 `session_reads` shape row (per user, static): the viewer read
+/// `session_id` up to `read_at` (`sessions.markRead`). Drives the bold
+/// unread titles + the Threads nav dot.
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+pub struct SessionReadRow {
+    pub id: String,
+    #[serde(default)]
+    pub user_id: Option<String>,
+    pub session_id: String,
+    #[serde(default)]
+    pub read_at: Option<String>,
     #[serde(default)]
     pub created_at: Option<String>,
     #[serde(default)]

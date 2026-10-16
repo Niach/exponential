@@ -18,7 +18,9 @@ use std::rc::Rc;
 
 use domain::contract::{SESSION_STATUS_QUEUED, SESSION_STATUS_RUNNING};
 use domain::pr_stack::PrSet;
-use domain::rows::{Issue, MessageRow, PullRequestIssueRow, PullRequestRow, SessionIssueRow, SessionRow};
+use domain::rows::{
+    Issue, MessageRow, PullRequestIssueRow, PullRequestRow, SessionIssueRow, SessionReadRow, SessionRow,
+};
 use domain::session_tree::{
     build_session_thread, list_agents, partition_threads, session_card, thread_title, tree_order,
     AgentRow, SessionCard, SessionThreadInput, SessionThreadView, ThreadsListGroup, ThreadsListInput,
@@ -432,6 +434,17 @@ pub(crate) fn session_thread_view(
                 .get("issueId")?
                 .as_str()
         }))
+        // EXP-1323: a filed suggestion reads `Filed EXP-9`.
+        .chain(messages.iter().flat_map(|message| {
+            message
+                .card
+                .as_ref()
+                .and_then(|card| card.get("items"))
+                .and_then(serde_json::Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(|item| item.get("issueId")?.as_str())
+        }))
         .filter(|id| seen.insert(id))
         .filter_map(|id| all_issues.get(id))
         .map(TreeIssue::from_issue)
@@ -477,7 +490,7 @@ pub(crate) fn agents_in_team(team_id: &str, cx: &App) -> Vec<AgentRow> {
 #[derive(Clone, PartialEq, Eq)]
 struct ListsKey {
     team_id: String,
-    revisions: [u64; 4],
+    revisions: [u64; 5],
 }
 
 #[derive(Default)]
@@ -500,6 +513,7 @@ pub(crate) fn thread_lists(team_id: &str, cx: &mut App) -> Rc<Vec<ThreadsListGro
             collections.session_issues.read(cx).revision(),
             collections.messages.read(cx).revision(),
             collections.issues.read(cx).revision(),
+            collections.session_reads.read(cx).revision(),
         ],
     };
     if let Some((cached, lists)) = &cx.default_global::<ListsMemo>().0 {
@@ -539,12 +553,22 @@ fn derive_thread_lists(team_id: &str, cx: &App) -> Vec<ThreadsListGroup> {
         .filter_map(|link| all_issues.get(&link.issue_id))
         .map(TreeIssue::from_issue)
         .collect();
-    // Only a root's own messages can title it.
+    // A root's own messages title it; EXP-1323: the tree's agent messages
+    // decide its unread bold (and each child's own).
+    let in_team: HashSet<&str> = rows.iter().map(|session| session.id.as_str()).collect();
     let messages: Vec<&MessageRow> = collections
         .messages
         .read(cx)
         .iter()
-        .filter(|message| roots.contains(message.session_id.as_str()))
+        .filter(|message| {
+            roots.contains(message.session_id.as_str())
+                || (in_team.contains(message.session_id.as_str()) && !message.is_from_user())
+        })
+        .collect();
+    let session_reads = collections.session_reads.read(cx);
+    let reads: Vec<&SessionReadRow> = session_reads
+        .iter()
+        .filter(|read| in_team.contains(read.session_id.as_str()))
         .collect();
     partition_threads(ThreadsListInput {
         sessions: &rows,
@@ -552,7 +576,84 @@ fn derive_thread_lists(team_id: &str, cx: &App) -> Vec<ThreadsListGroup> {
         issues: &issues,
         messages: &messages,
         team_id: Some(team_id),
+        reads: &reads,
     })
+}
+
+/// EXP-1323: the Threads entry's unread dot — any thread of `team_id` has
+/// an agent reply the viewer has not read (`threads_unread`).
+pub(crate) fn rail_threads_unread(team_id: &str, cx: &mut App) -> bool {
+    domain::session_tree::threads_unread(&thread_lists(team_id, cx))
+}
+
+// ---------------------------------------------------------------------------
+// Read marks (EXP-1323)
+// ---------------------------------------------------------------------------
+
+/// The newest agent-authored message of `session_id` (`whole_tree` = of
+/// every session under that root) when it is newer than the viewer's
+/// synced read of `session_id` — what a `sessions.markRead` would clear;
+/// `None` = already read (or nothing to read).
+pub(crate) fn unread_marker(session_id: &str, whole_tree: bool, cx: &App) -> Option<i64> {
+    let store = Store::try_global(cx)?;
+    let collections = store.collections();
+    let sessions = collections.sessions.read(cx);
+    let in_scope = |message: &MessageRow| {
+        message.session_id == session_id
+            || (whole_tree
+                && sessions
+                    .get(&message.session_id)
+                    .is_some_and(|session| session.root_id_or_self() == session_id))
+    };
+    let newest = collections
+        .messages
+        .read(cx)
+        .iter()
+        .filter(|message| message.author_kind.as_deref() == Some(domain::contract::MESSAGE_AUTHOR_KIND_AGENT))
+        .filter(|message| in_scope(message))
+        .map(|message| message.created_at.as_deref().and_then(domain::session_tree::iso_ms).unwrap_or(0))
+        .max()?;
+    let read = collections
+        .session_reads
+        .read(cx)
+        .iter()
+        .filter(|read| read.session_id == session_id)
+        .filter_map(|read| read.read_at.as_deref().and_then(domain::session_tree::iso_ms))
+        .max()
+        .unwrap_or(-1);
+    (newest > read).then_some(newest)
+}
+
+/// The marks already sent this run (session id → the newest message they
+/// cleared), so a render loop never re-sends one before it syncs back.
+#[derive(Default)]
+struct SentReads(HashMap<String, i64>);
+
+impl gpui::Global for SentReads {}
+
+/// EXP-1323: `sessions.markRead` once `session_id` shows news the viewer
+/// has not read ([`unread_marker`]): the thread (`whole_tree`, a root) or a
+/// session view. A background write: a failure only logs (never a toast).
+pub(crate) fn mark_read_if_unread(session_id: &str, whole_tree: bool, cx: &mut App) {
+    let Some(newest) = unread_marker(session_id, whole_tree, cx) else {
+        return;
+    };
+    let sent = cx.default_global::<SentReads>();
+    if sent.0.get(session_id).is_some_and(|marked| *marked >= newest) {
+        return;
+    }
+    sent.0.insert(session_id.to_string(), newest);
+    let Some(trpc) = crate::queries::trpc_client(cx) else {
+        return;
+    };
+    let session_id = session_id.to_string();
+    cx.background_executor()
+        .spawn(async move {
+            if let Err(err) = api::sessions::mark_read(&trpc, &session_id) {
+                log::warn!("[threads] mark {session_id} read failed: {err}");
+            }
+        })
+        .detach();
 }
 
 /// The rail Threads entry's dot: `(needs_you, running)` — some thread of
@@ -638,17 +739,24 @@ pub(crate) fn own_live_roots_by_team(cx: &App) -> BTreeMap<String, TeamLiveRuns>
 
 /// One row of the rail's Active band (EXP-1318): a thread the shapes make
 /// visible that needs you, runs, or still asks for a merge — the mark and
-/// the title, no identifier, no caption.
+/// the title, no identifier, no caption. EXP-1323: a live tree's children
+/// follow their root as nested rows (`depth` > 0, `session_id` = the child).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct LiveRootRow {
     pub(crate) root_id: String,
+    /// The row's own session (= `root_id` on the thread row).
+    pub(crate) session_id: String,
+    pub(crate) depth: usize,
+    /// EXP-1323: a bold title.
+    pub(crate) unread: bool,
     pub(crate) team_id: String,
     pub(crate) title: String,
     pub(crate) busy: bool,
     pub(crate) needs_you: bool,
     /// EXP-1318: the root session's device (the trailing device icon).
     pub(crate) device_id: Option<String>,
-    /// Every session of the tree — the row stays lit while one is on screen.
+    /// Every session of the tree — the row stays lit while one is on screen
+    /// (a child row: itself only).
     pub(crate) session_ids: Vec<String>,
 }
 
@@ -665,14 +773,22 @@ pub(crate) fn live_roots_from(
     })
     .into_iter()
     .map(|row| {
-        let tree: Vec<&SessionRow> = sessions
-            .iter()
-            .copied()
-            .filter(|session| session.id == row.session_id || session.root_id_or_self() == row.session_id)
-            .collect();
+        let session_ids = if row.depth > 0 {
+            vec![row.session_id.clone()]
+        } else {
+            let tree: Vec<&SessionRow> = sessions
+                .iter()
+                .copied()
+                .filter(|session| session.id == row.session_id || session.root_id_or_self() == row.session_id)
+                .collect();
+            tree_order(&tree).iter().map(|session| session.id.clone()).collect()
+        };
         LiveRootRow {
-            session_ids: tree_order(&tree).iter().map(|session| session.id.clone()).collect(),
-            root_id: row.session_id,
+            session_ids,
+            root_id: if row.root_id.is_empty() { row.session_id.clone() } else { row.root_id },
+            session_id: row.session_id,
+            depth: row.depth,
+            unread: row.unread,
             team_id: row.team_id,
             title: row.title,
             busy: row.busy,
@@ -808,11 +924,16 @@ mod tests {
                 .map(|id| domain::session_tree::ThreadsListRow {
                     session_id: id.to_string(),
                     team_id: "t1".into(),
+                    depth: 0,
+                    parent_id: None,
+                    root_id: id.to_string(),
                     title: id.to_string(),
                     private: false,
                     device_id: None,
                     busy: false,
                     needs_you: false,
+                    unread: false,
+                    caption: None,
                     activity_at: String::new(),
                 })
                 .collect(),
@@ -843,11 +964,16 @@ mod tests {
             rows: vec![domain::session_tree::ThreadsListRow {
                 session_id: "r".into(),
                 team_id: "t".into(),
+                depth: 0,
+                parent_id: None,
+                root_id: "r".into(),
                 title: "x".into(),
                 private: false,
                 device_id: None,
                 busy: false,
                 needs_you: false,
+                unread: false,
+                caption: None,
                 activity_at: String::new(),
             }],
         };

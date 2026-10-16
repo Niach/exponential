@@ -32,6 +32,7 @@ import com.exponential.app.data.db.PullRequestEntity
 import com.exponential.app.data.db.PullRequestIssueEntity
 import com.exponential.app.data.db.SessionEntity
 import com.exponential.app.data.db.SessionIssueEntity
+import com.exponential.app.data.db.SessionReadEntity
 import com.exponential.app.data.db.BoardEntity
 import com.exponential.app.data.db.UserEntity
 import com.exponential.app.data.db.TeamEntity
@@ -420,6 +421,7 @@ class SyncManager @Inject constructor(
         val messageDao = db.messageDao()
         val pullRequestDao = db.pullRequestDao()
         val pullRequestIssueDao = db.pullRequestIssueDao()
+        val sessionReadDao = db.sessionReadDao()
 
         val shapes = listOf(
             launchShape(
@@ -656,6 +658,16 @@ class SyncManager @Inject constructor(
                 onInsert = { pullRequestIssueDao.upsert(it) },
                 onDelete = { pullRequestIssueDao.deleteById(it.id) },
                 onRefetch = { pullRequestIssueDao.clear() },
+            ),
+            // EXP-1323: the viewer's read marks — static per user like pins.
+            launchShape(
+                shape = "session_reads", path = "/api/shapes/session-reads", tableName = "session_reads",
+                serializer = SessionReadEntity.serializer(),
+                offsetDao = offsetDao, db = db, baseUrl = baseUrl, token = token,
+                reporter = reporter("session_reads"),
+                onInsert = { sessionReadDao.upsert(it) },
+                onDelete = { sessionReadDao.deleteById(it.id) },
+                onRefetch = { sessionReadDao.clear() },
             ),
         )
         return Pipeline(jobs = shapes.map { it.first }, clients = shapes.map { it.second })

@@ -9,6 +9,9 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SessionRowDevice,
+  TreeGuides,
+  TREE_INDENT,
+  treeGuides,
   type RunMarkState,
 } from "@exp/ui"
 import { sessionCollection } from "@/lib/collections"
@@ -16,12 +19,15 @@ import {
   THREADS_LIST_COPY,
   railThreads,
   threadRowMarkState,
+  threadsUnread,
   type ThreadRowWord,
   type ThreadsListGroup,
   type ThreadsListRow,
 } from "@/lib/session-tree"
 import { TABLESS_ORIGIN } from "@/lib/work-tabs"
 import { useDeviceGlyphs } from "@/hooks/use-device-glyphs"
+import { cn } from "@/lib/utils"
+import { useEnteringRows } from "@/hooks/use-entering-rows"
 
 // EXP-923 / EXP-1293 / EXP-1318: the ACTIVE band lives in the SIDEBAR,
 // under the boards — `railThreads` over the Threads list of the ACTIVE team
@@ -31,7 +37,10 @@ import { useDeviceGlyphs } from "@/hooks/use-device-glyphs"
 // empty. A row = the agent mark (the working spark, the amber badge while it
 // needs you) + the title (it names the issue), NO captions. A click opens
 // the thread with the `running` origin, which creates NO work tab
-// (`lib/work-tabs.ts` `TABLESS_ORIGIN`).
+// (`lib/work-tabs.ts` `TABLESS_ORIGIN`). EXP-1323: a live tree nests its
+// children under the root (TreeGuides, 14px a level; a child opens that
+// session in its thread), a bold title = unread, the live caption the muted
+// second line; a row that changes band enters on the motion tokens.
 
 /** The words a row shows while its title is held (EXP-1316: an
  *  issue-linked row waits for the issue shapes). */
@@ -39,8 +48,37 @@ export const SIDEBAR_RUNNING_LOADING_LABEL = `Loading`
 
 /** A held row's title line: a skeleton bar in the text's place, never an
  *  empty row beside a glyph. */
-function SidebarRunningTitle({ title }: { title: string }) {
-  if (title) return <span className="min-w-0 flex-1 truncate">{title}</span>
+function SidebarRunningTitle({
+  title,
+  unread = false,
+  caption = null,
+}: {
+  title: string
+  unread?: boolean
+  caption?: string | null
+}) {
+  if (title) {
+    const line = (
+      <span
+        data-unread={unread || undefined}
+        className={cn(`min-w-0 truncate`, !caption && `flex-1`, unread && `font-semibold`)}
+      >
+        {title}
+      </span>
+    )
+    if (!caption) return line
+    return (
+      <span className="flex min-w-0 flex-1 flex-col">
+        {line}
+        <span
+          data-slot="sidebar-running-caption"
+          className="truncate text-xs text-muted-foreground"
+        >
+          {caption}
+        </span>
+      </span>
+    )
+  }
   return (
     <span className="flex min-w-0 flex-1 items-center" aria-label={SIDEBAR_RUNNING_LOADING_LABEL}>
       <span
@@ -60,15 +98,20 @@ export interface SidebarThreads {
 }
 
 /** The nav's live state for the Threads entry: green while anything runs,
- *  amber while something needs you. */
+ *  amber while something needs you; EXP-1323: else the unread dot while a
+ *  thread holds a reply the viewer has not read (`threadsUnread`). */
 export function threadsNavState(groups: readonly ThreadsListGroup[]): {
   live: boolean
   needsYou: boolean
+  unread: boolean
 } {
   const needsYou = groups.some((group) => group.key === `needs_you` && group.rows.length > 0)
   const running = groups.some((group) => group.key === `running` && group.rows.length > 0)
-  return { live: needsYou || running, needsYou }
+  return { live: needsYou || running, needsYou, unread: threadsUnread(groups) }
 }
+
+/** The sidebar row's left padding = `SidebarMenuButton`'s own 8px. */
+const SIDEBAR_TREE_BASE = 8
 
 /** A thread row's mark state — the ×4 rule (`threadRowMarkState`, EXP-1312)
  *  in the run marks' words (waiting = the bare mark). */
@@ -106,6 +149,18 @@ export function ThreadRunMark({
   )
 }
 
+/** Which session a thread page shows in place (`?tab=session&session=`). */
+function useShownSessionId(): string | null {
+  return useRouterState({
+    select: (s) => {
+      const search = (s.location.search ?? {}) as Record<string, unknown>
+      return search.tab === `session` && typeof search.session === `string`
+        ? search.session
+        : null
+    },
+  })
+}
+
 /** Which thread the app is SHOWING: its page, or one of its sessions'. */
 function useShownThreadId(): string | null {
   const pathname = useRouterState({ select: (s) => s.location.pathname })
@@ -117,13 +172,17 @@ function useShownThreadId(): string | null {
   return row ? (row.rootId ?? row.id) : null
 }
 
-function useOpenThread(teamSlug: string): (threadId: string) => void {
+function useOpenThread(
+  teamSlug: string
+): (threadId: string, sessionId?: string) => void {
   const navigate = useNavigate()
-  return (threadId) => {
+  return (threadId, sessionId) => {
     void navigate({
       to: `/t/$teamSlug/threads/$threadId`,
       params: { teamSlug, threadId },
-      search: { from: TABLESS_ORIGIN },
+      search: sessionId
+        ? { tab: `session`, session: sessionId, from: TABLESS_ORIGIN }
+        : { from: TABLESS_ORIGIN },
     })
   }
 }
@@ -138,8 +197,11 @@ export function SidebarRunningSection({
 }) {
   const rows = railThreads(threads.groups, threads.wordOf)
   const shown = useShownThreadId()
+  const shownSession = useShownSessionId()
   const openThread = useOpenThread(teamSlug)
   const deviceGlyph = useDeviceGlyphs()
+  const entering = useEnteringRows(rows.map((row) => row.sessionId))
+  const guides = treeGuides(rows.map((row) => row.depth))
   if (rows.length === 0) return null
   return (
     <SidebarGroup data-testid="sidebar-running">
@@ -148,18 +210,36 @@ export function SidebarRunningSection({
       <SidebarGroupLabel>{THREADS_LIST_COPY.rail}</SidebarGroupLabel>
       <SidebarGroupContent>
         <SidebarMenu>
-          {rows.map((row) => {
+          {rows.map((row, index) => {
             const device = deviceGlyph(row.deviceId)
+            const child = row.depth > 0
             return (
-              <SidebarMenuItem key={row.sessionId}>
+              <SidebarMenuItem key={row.sessionId} className={entering(row.sessionId)}>
                 <SidebarMenuButton
                   density="compact"
-                  isActive={shown === row.sessionId}
-                  onClick={() => openThread(row.sessionId)}
+                  isActive={
+                    child
+                      ? shownSession === row.sessionId
+                      : shown === row.sessionId && shownSession === null
+                  }
+                  onClick={() =>
+                    child ? openThread(row.rootId, row.sessionId) : openThread(row.sessionId)
+                  }
                   data-testid={`sidebar-running-${row.sessionId}`}
+                  className={cn(child && `relative`, row.caption && `h-auto py-1`)}
+                  style={
+                    child
+                      ? { paddingLeft: SIDEBAR_TREE_BASE + row.depth * TREE_INDENT }
+                      : undefined
+                  }
                 >
+                  {child && <TreeGuides guide={guides[index]} base={SIDEBAR_TREE_BASE} />}
                   <ThreadRunMark row={row} />
-                  <SidebarRunningTitle title={row.title} />
+                  <SidebarRunningTitle
+                    title={row.title}
+                    unread={row.unread}
+                    caption={row.caption}
+                  />
                   {/* EXP-1318: the root's device, trailing. */}
                   {device && <SessionRowDevice icon={device.icon} name={device.name} />}
                 </SidebarMenuButton>
@@ -192,7 +272,8 @@ export function SidebarRunningIcons({
   }) => React.ReactNode
   separator?: React.ReactNode
 }) {
-  const rows = railThreads(threads.groups, threads.wordOf)
+  // The compact rail lists THREADS only: nested children stay in the list.
+  const rows = railThreads(threads.groups, threads.wordOf).filter((row) => row.depth === 0)
   const shown = useShownThreadId()
   const openThread = useOpenThread(teamSlug)
   if (rows.length === 0) return null

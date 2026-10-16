@@ -49,10 +49,14 @@ final class SlashCommandsTests: XCTestCase {
 
     func testCatalogIsFilteredByAgentInContractOrder() {
         // The same two rows for every CONTRACT agent — the desktop maps
-        // `/clear` per agent. An id outside the contract (EXP-849: a row whose
-        // agent was retired, an external ACP binary) gets no curated rows.
+        // `/clear` per agent — plus claude's `/btw` (EXP-1323). An id outside
+        // the contract (EXP-849: a row whose agent was retired, an external
+        // ACP binary) gets no curated rows.
         for agent in DomainContract.codingAgentValues {
-            XCTAssertEqual(SlashCommands.catalog(for: agent).map(\.name), ["compact", "clear"])
+            XCTAssertEqual(
+                SlashCommands.catalog(for: agent).map(\.name),
+                agent == "claude" ? ["compact", "clear", "btw"] : ["compact", "clear"]
+            )
         }
         XCTAssertTrue(SlashCommands.catalog(for: "zed").isEmpty)
     }
@@ -105,7 +109,7 @@ final class SlashCommandsTests: XCTestCase {
     func testABareSlashListsEverythingTheAgentCanRun() {
         XCTAssertEqual(
             SlashCommands.matches(draft: "/", agent: "claude").map(\.name),
-            ["compact", "clear"]
+            ["compact", "clear", "btw"]
         )
     }
 
@@ -199,13 +203,13 @@ final class SlashCommandsTests: XCTestCase {
                 AgentConfigCommand(name: "cost", description: "Show the spend"),
             ]
         )
-        XCTAssertEqual(merged.map(\.name), ["compact", "clear", "review", "cost"])
+        XCTAssertEqual(merged.map(\.name), ["compact", "clear", "btw", "review", "cost"])
         // An agent row keeps its hint (so accepting it leaves the caret at the
         // argument) and never claims a confirm dialog.
-        XCTAssertEqual(merged[2].argHint, "<path>")
-        XCTAssertEqual(merged[2].insertion, "/review ")
-        XCTAssertFalse(merged[2].confirm)
-        XCTAssertEqual(merged[3].insertion, "/cost")
+        XCTAssertEqual(merged[3].argHint, "<path>")
+        XCTAssertEqual(merged[3].insertion, "/review ")
+        XCTAssertFalse(merged[3].confirm)
+        XCTAssertEqual(merged[4].insertion, "/cost")
     }
 
     func testAnAgentCommandThatShadowsAContractNameIsDropped() {
@@ -219,7 +223,7 @@ final class SlashCommandsTests: XCTestCase {
                 AgentConfigCommand(name: "  ", description: "nameless"),
             ]
         )
-        XCTAssertEqual(merged.map(\.name), ["compact", "clear", "review"])
+        XCTAssertEqual(merged.map(\.name), ["compact", "clear", "btw", "review"])
         XCTAssertEqual(merged[0].description, DomainContract.steerCommandDescriptions[0])
     }
 
@@ -232,7 +236,7 @@ final class SlashCommandsTests: XCTestCase {
         let extra = [AgentConfigCommand(name: "review", description: "Review the diff")]
         XCTAssertEqual(
             SlashCommands.matches(draft: "/", agent: "claude", extra: extra).map(\.name),
-            ["compact", "clear", "review"]
+            ["compact", "clear", "btw", "review"]
         )
         XCTAssertEqual(
             SlashCommands.matches(draft: "/re", agent: "claude", extra: extra).map(\.name),

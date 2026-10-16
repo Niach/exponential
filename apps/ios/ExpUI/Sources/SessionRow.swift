@@ -5,7 +5,8 @@ import SwiftUI
 /// desktop `run_rows::run_row`, Android `SessionRow.kt`; geometry =
 /// `list-item.json`, the row facts = `threads-list.json`). ONE line:
 /// [tree guides][lead at 12 + 14·depth][mono id · title][state]. The state
-/// is label-free (no captions, threads-list.json): a lock while the thread
+/// is label-free (EXP-1323: the live caption alone may ride a muted second
+/// line, the bold title marks unread): a lock while the thread
 /// is private, the inline spinner while it works, the amber dot while it
 /// needs you. EXP-1309: the Threads list instead ends on ONE quiet `word`
 /// (web `ThreadsListItem`: `stack`, `merged`, `question`…) beside the lock
@@ -24,6 +25,8 @@ public struct SessionRow<Lead: View>: View {
     private let busy: Bool
     private let needsYou: Bool
     private let active: Bool
+    private let unread: Bool
+    private let caption: String?
     private let word: String?
     private let wordIcon: String?
     private let deviceIcon: String?
@@ -42,6 +45,9 @@ public struct SessionRow<Lead: View>: View {
     ///   - deviceIcon: EXP-1316: the root's device glyph
     ///     (`DeviceIconDisplay`), last on the row; nil = none.
     ///   - deviceName: the device glyph's accessibility label.
+    ///   - unread: EXP-1323: news the viewer has not read — a bold title.
+    ///   - caption: EXP-1323: the live caption, a muted second line (the
+    ///     two-line row height).
     public init(
         identifier: String? = nil,
         title: String,
@@ -50,12 +56,16 @@ public struct SessionRow<Lead: View>: View {
         busy: Bool = false,
         needsYou: Bool = false,
         active: Bool = false,
+        unread: Bool = false,
+        caption: String? = nil,
         word: String? = nil,
         wordIcon: String? = nil,
         deviceIcon: String? = nil,
         deviceName: String? = nil,
         @ViewBuilder lead: () -> Lead
     ) {
+        self.unread = unread
+        self.caption = caption
         self.identifier = identifier
         self.title = title
         self.guide = guide
@@ -75,19 +85,29 @@ public struct SessionRow<Lead: View>: View {
             lead
                 .frame(width: ListItem.mark, height: ListItem.mark)
                 .accessibilityHidden(true)
-            HStack(spacing: 6) {
-                if let identifier, !identifier.isEmpty {
-                    Text(identifier)
-                        .font(.caption.monospaced())
+            VStack(alignment: .leading, spacing: 1) {
+                HStack(spacing: 6) {
+                    if let identifier, !identifier.isEmpty {
+                        Text(identifier)
+                            .font(.caption.monospaced())
+                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                            .lineLimit(1)
+                            .fixedSize()
+                    }
+                    Text(title)
+                        .font(unread ? .subheadline.weight(.semibold) : .subheadline)
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+                if let caption, !caption.isEmpty {
+                    Text(caption)
+                        .font(.caption)
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                         .lineLimit(1)
-                        .fixedSize()
+                        .truncationMode(.tail)
+                        .accessibilityIdentifier("session-row-caption")
                 }
-                Text(title)
-                    .font(.subheadline)
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
             }
             Spacer(minLength: 0)
             if let word, !word.isEmpty {
@@ -126,7 +146,7 @@ public struct SessionRow<Lead: View>: View {
         }
         .padding(.leading, ListItem.leadX(depth: guide.depth))
         .padding(.trailing, ListItem.base)
-        .frame(height: ListItem.small)
+        .frame(height: (caption?.isEmpty ?? true) ? ListItem.small : ListItem.big)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(TreeGuidesOverlay(guide: guide, base: ListItem.base))
         .contentShape(Rectangle())

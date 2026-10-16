@@ -16,7 +16,8 @@
 //!   agent's rows, in contract order, so an empty query lists them all;
 //! * **what accepting leaves behind** — `/name ` for a command that takes an
 //!   argument, bare `/name` for one that does not. Accepting never sends;
-//! * **the confirm copy** for the context-discarding row (`/clear`).
+//! * **the confirm copy** for the context-discarding row (`/clear`);
+//! * EXP-1323: **`/btw <question>`** = an aside child ([`btw_question`]).
 //!   The publisher executes whatever it receives, so asking first is entirely
 //!   the client's job — on all four of them, in the same words.
 
@@ -131,6 +132,18 @@ pub(crate) fn menu_matches_with(
     rows
 }
 
+/// EXP-1323: the contract's `/btw` row (claude only): a side question.
+pub(crate) const BTW: &str = "btw";
+
+/// EXP-1323: the question of a `/btw <question>` draft for `agent` — sent
+/// as an ASIDE child (`sessions.send({parentId, text, aside: true})`), never
+/// as a message to the session; `None` for any other draft, a bare `/btw`,
+/// or an agent whose catalog has no `btw` (codex). Mirrored ×4.
+pub(crate) fn btw_question(draft: &str, agent: SessionAgent) -> Option<String> {
+    let parsed = steer::commands::parse_command(draft, agent)?;
+    (parsed.command.name == BTW && !parsed.args.trim().is_empty()).then(|| parsed.args.trim().to_string())
+}
+
 /// What accepting `command` puts in the composer — with the trailing space
 /// when there is an argument to type, without when there is not.
 pub(crate) fn insertion(command: &MenuCommand) -> String {
@@ -206,10 +219,27 @@ mod tests {
 
     #[test]
     fn an_empty_query_lists_the_agents_whole_catalog_in_contract_order() {
-        let all = names("/", SessionAgent::Claude);
-        assert_eq!(all, vec!["compact", "clear"]);
-        // Every agent sees the same two rows.
-        assert_eq!(names("/", SessionAgent::Codex), all);
+        assert_eq!(names("/", SessionAgent::Claude), vec!["compact", "clear", "btw"]);
+        // EXP-1323: `/btw` is claude's alone.
+        assert_eq!(names("/", SessionAgent::Codex), vec!["compact", "clear"]);
+    }
+
+    /// EXP-1323: `/btw <question>` is an aside (claude only); a bare one,
+    /// another command or prose is not.
+    #[test]
+    fn btw_carries_its_question() {
+        assert_eq!(
+            btw_question("/btw  what does useCart return? ", SessionAgent::Claude).as_deref(),
+            Some("what does useCart return?")
+        );
+        assert_eq!(btw_question("/BTW why", SessionAgent::Claude).as_deref(), Some("why"));
+        assert_eq!(btw_question("/btw", SessionAgent::Claude), None);
+        assert_eq!(btw_question("/btw why", SessionAgent::Codex), None);
+        assert_eq!(btw_question("/compact why", SessionAgent::Claude), None);
+        assert_eq!(btw_question("btw why", SessionAgent::Claude), None);
+        let btw = menu_matches_with("/bt", SessionAgent::Claude, &[]).remove(0);
+        assert_eq!(insertion(&btw), "/btw ");
+        assert!(!btw.confirm);
     }
 
     #[test]
@@ -251,7 +281,7 @@ mod tests {
                 SessionAgent::Claude,
                 &[agent_command("agents", None), agent_command("review", None)]
             ),
-            vec!["compact", "clear", "agents", "review"]
+            vec!["compact", "clear", "btw", "agents", "review"]
         );
         // The prefix filter applies to the whole union, not just the contract
         // half.
@@ -273,7 +303,7 @@ mod tests {
         );
         assert_eq!(
             rows.iter().map(|row| row.name.as_str()).collect::<Vec<_>>(),
-            vec!["compact", "clear"]
+            vec!["compact", "clear", "btw"]
         );
         // …and the CONTRACT row survives whole: its hint and its confirm are
         // what the publisher acts on.

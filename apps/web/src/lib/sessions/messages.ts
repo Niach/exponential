@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm"
+import { eq, isNotNull, or, type SQL } from "drizzle-orm"
 import type { MessageAuthorKind, MessageCard } from "@exp/db-schema/domain"
 import { messages, sessions, type Session } from "@/db/schema"
 import type { Tx } from "@/lib/sessions/tx"
@@ -34,8 +34,12 @@ export async function insertMessage(
   message: {
     authorKind: MessageAuthorKind
     authorId?: string | null
+    /** EXP-1323: the session that posted it (a child's report/question). */
+    authorSessionId?: string | null
     body?: string
     card?: MessageCard | null
+    /** Pre-consumed: an agent's row that must never wake anything. */
+    consumedAt?: Date | null
   }
 ): Promise<string> {
   const mirror = await sessionMirror(tx, session)
@@ -49,8 +53,10 @@ export async function insertMessage(
       ownerId: mirror.userId,
       authorKind: message.authorKind,
       authorId: message.authorId ?? null,
+      authorSessionId: message.authorSessionId ?? null,
       body: message.body ?? ``,
       card: message.card ?? null,
+      consumedAt: message.consumedAt ?? null,
     })
     .returning({ id: messages.id })
   return row!.id
@@ -75,12 +81,39 @@ export function postAgentMessage(
   return insertMessage(tx, sessionId, { authorKind: `agent`, body, card: card ?? null })
 }
 
-/** A person's message: the bus (consumed_at NULL until the device delivers it). */
+/** A person's message: the bus (consumed_at NULL until the device delivers it).
+ *  `authorSessionId` = the session whose MCP key sent it on the person's behalf. */
 export function postPersonMessage(
   tx: Tx,
   sessionId: string | SessionMirror,
   authorId: string,
-  body: string
+  body: string,
+  authorSessionId?: string | null
 ): Promise<string> {
-  return insertMessage(tx, sessionId, { authorKind: `user`, authorId, body })
+  return insertMessage(tx, sessionId, { authorKind: `user`, authorId, body, authorSessionId })
+}
+
+/** EXP-1323: another SESSION's input into this one (a child asking its
+ *  parent, a child's report): agent-authored, yet pending like a person's
+ *  message (`consumed_at` NULL) so an idle session resumes and reads it. */
+export function postSessionInput(
+  tx: Tx,
+  sessionId: string | SessionMirror,
+  fromSessionId: string,
+  body: string,
+  card?: MessageCard | null
+): Promise<string> {
+  return insertMessage(tx, sessionId, {
+    authorKind: `agent`,
+    authorSessionId: fromSessionId,
+    body,
+    card: card ?? null,
+  })
+}
+
+/** EXP-1323: THE pending-input predicate (the device feeds these, `consume`
+ *  stamps them): a person's message, or another session's input. An
+ *  agent's own turn reply carries no `author_session_id` and never waits. */
+export function pendingInput(): SQL {
+  return or(eq(messages.authorKind, `user`), isNotNull(messages.authorSessionId))!
 }

@@ -17,6 +17,7 @@ import {
   threadInStack,
   threadRowMarkState,
   threadRowWord,
+  threadsUnread,
 } from "./session-tree"
 
 describe(`session-tree fixtures (EXP-1291)`, () => {
@@ -70,6 +71,11 @@ describe(`session-tree fixtures (EXP-1291)`, () => {
   for (const entry of list.stackCases) {
     test(`in stack: ${entry.name}`, () => {
       expect(threadInStack(entry.input.pullRequests, entry.input.teamPrs)).toBe(entry.expected)
+    })
+  }
+  for (const entry of list.unreadCases) {
+    test(`nav dot: ${entry.name}`, () => {
+      expect(threadsUnread(entry.groups as never)).toBe(entry.expected)
     })
   }
   for (const entry of list.railCases) {

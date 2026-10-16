@@ -427,6 +427,23 @@ interface MessageDao {
     suspend fun clear()
 }
 
+// EXP-1323: the viewer's read marks (the per-account DB only holds the
+// signed-in user's rows, like pins).
+@Dao
+interface SessionReadDao {
+    @Query("SELECT * FROM session_reads")
+    fun observeAll(): Flow<List<SessionReadEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(item: SessionReadEntity)
+
+    @Query("DELETE FROM session_reads WHERE id = :id")
+    suspend fun deleteById(id: String)
+
+    @Query("DELETE FROM session_reads")
+    suspend fun clear()
+}
+
 // EXP-1291: pull requests (all PR + branch state).
 @Dao
 interface PullRequestDao {

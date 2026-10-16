@@ -24,6 +24,9 @@ import {
   type ThreadTreeRow,
 } from "@exp/ui"
 import type { Issue, User } from "@/db/schema"
+import { SessionLiveTail } from "@/components/agent-session"
+import { IssueChip as IssueRefChip } from "@/components/issue-chip"
+import { useIssueRefs } from "@/components/issue-ref-provider"
 import { IssueDetailView } from "@/components/issue-detail-view"
 import { statusColorClass } from "@/components/issue-properties/status-dropdown"
 import { SessionComposer } from "@/components/session-composer"
@@ -44,6 +47,8 @@ import { renderThreadText } from "@/components/thread/thread-markdown"
 import { useThreadMenu } from "@/components/thread/thread-menu"
 import { InPlaceSession, SessionScreen, SessionStopPill } from "@/components/thread/session-body"
 import { useMeasuredSize } from "@/hooks/use-detail-chrome"
+import { useMarkRead, useNewestAgentMessageAt } from "@/hooks/use-mark-read"
+import { useSuggestionActions } from "@/hooks/use-suggestion-actions"
 import { useFollowScroll } from "@/hooks/use-follow-scroll"
 import { useSession } from "@/hooks/use-session"
 import { useSessionMessages, useSessionThread } from "@/hooks/use-session-tree"
@@ -79,7 +84,9 @@ import {
 //
 //   (absent)               the conversation: the root's messages and THE
 //                          session card per session, question and plan cards
-//                          answered in the card, the composer at the bottom
+//                          answered in the card, EXP-1323: the suggested
+//                          tasks card, report lines and the live tail (Tasks
+//                          card + status line), the composer at the bottom
 //   issue&issue=<id>       that issue's body, embedded (no header bar, no
 //                          Start, no pin, no Threads row)
 //   guide[&section=&file=] the root's Guide over its pull request (its stack
@@ -264,6 +271,11 @@ function ThreadScreen({
 
   const rowsById = useMemo(() => new Map(rows.map((row) => [row.id, row])), [rows])
   const focused = view.focusId ? (rowsById.get(view.focusId) ?? null) : null
+  // EXP-1323: opening the thread marks its root read (again whenever a newer
+  // agent reply lands anywhere in the tree while it is open); an opened
+  // session marks itself (`session-body.tsx`).
+  const treeIds = useMemo(() => rows.map((row) => row.id), [rows])
+  useMarkRead(root.id, useNewestAgentMessageAt(treeIds))
   const tab =
     search.tab === `issue` && search.issue && issueIds.includes(search.issue)
       ? { kind: `issue` as const, issueId: search.issue }
@@ -454,6 +466,7 @@ function ThreadScreen({
       <ConversationBody
         teamId={team.id}
         view={view}
+        root={root}
         users={users as User[]}
         canReply={permissions.isMember}
         busy={root.busy}
@@ -576,6 +589,7 @@ function ThreadScreen({
 function ConversationBody({
   teamId,
   view,
+  root,
   users,
   canReply,
   busy,
@@ -584,6 +598,8 @@ function ConversationBody({
 }: {
   teamId: string
   view: SessionThreadView
+  /** The root's row (the live tail reads its relay state). */
+  root: SessionRow
   users: User[]
   canReply: boolean
   /** The ROOT's busy: Stop stops the root, so a busy child never shows it. */
@@ -610,6 +626,7 @@ function ConversationBody({
   const lastRowId = view.rows.at(-1)?.id ?? null
   const follow = useFollowScroll([view.rows.length, lastRowId])
   const isMobile = useIsMobile()
+  const suggestions = useSuggestionActions({ teamId, enabled: canReply })
   const composer = canReply ? (
     <SessionComposer
       teamId={teamId}
@@ -659,6 +676,13 @@ function ConversationBody({
             pending={pending}
             viewerId={session?.user?.id ?? null}
             onUnqueue={(id) => void unqueue(id)}
+            suggestions={suggestions}
+            renderIssueRef={(_issueId, identifier) =>
+              identifier ? <FiledIssueRef identifier={identifier} /> : null
+            }
+            tail={
+              view.liveSessionId === root.id ? <SessionLiveTail session={root} /> : undefined
+            }
           />
         </div>
       </div>
@@ -681,4 +705,13 @@ function ConversationBody({
         ))}
     </div>
   )
+}
+
+/** EXP-1323: a filed suggestion's issue = THE issue chip once it resolves
+ *  (same team, synced), else its identifier. */
+function FiledIssueRef({ identifier }: { identifier: string }) {
+  const issueRefs = useIssueRefs()
+  const resolved = issueRefs?.resolve(identifier) ?? null
+  if (!resolved) return <>{identifier}</>
+  return <IssueRefChip issue={resolved} onClick={() => issueRefs?.open(resolved.identifier)} />
 }

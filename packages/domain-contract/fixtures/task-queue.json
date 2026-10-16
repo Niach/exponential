@@ -1,0 +1,281 @@
+{
+  "$comment": "EXP-1321/1324: THE Queue x4 (web components/agent-session, desktop steer_viewer, iOS AgentSessionView, Android AgentSessionScreen): ONE block at the bottom of the transcript, in the transcript's reading column, directly above the queued-messages strip, replacing the background-task/`Waiting on` lines AND the Work card's `tasks` variant. Paint = a `Trace` (fixtures/trace.json, size `sm`) of two `TraceCollapsible`s: `todo` (its icon + title, OPEN by default; the reader's toggle sticks for the session) whose content lists its items as Trace lines (item icon + label + description; state `running` = the title shimmers, `pending` = the line at pendingOpacity), then `completed` (collapsed by default) whose items are lines at pendingOpacity. A running background item's description (elapsed) ticks once a second. Model = pure `taskQueue(input)` (src/task-queue.ts); mirrors compare the WHOLE expected object.",
+  "copy": {
+    "todo": "{count} to do",
+    "completed": "{count} completed",
+    "waiting": "Waiting on {subject}"
+  },
+  "icons": {
+    "todo": "trace-todo",
+    "completed": "trace-completed",
+    "running": "trace-task-running",
+    "pending": "trace-task-pending",
+    "done": "trace-task-done",
+    "background": "trace-background"
+  },
+  "testIds": {
+    "queue": "session-task-queue",
+    "todo": "session-task-queue-todo",
+    "completed": "session-task-queue-completed"
+  },
+  "cases": [
+    {
+      "name": "nothing at all",
+      "input": {
+        "tasks": [],
+        "backgroundTasks": [],
+        "waits": [],
+        "now": 0
+      },
+      "expected": null
+    },
+    {
+      "name": "an all-completed list hides",
+      "input": {
+        "tasks": [
+          {
+            "content": "Ship it",
+            "status": "completed"
+          }
+        ],
+        "backgroundTasks": [],
+        "waits": [],
+        "now": 0
+      },
+      "expected": null
+    },
+    {
+      "name": "the draft: a running task, a pending one, a background capture, two done",
+      "input": {
+        "tasks": [
+          {
+            "content": "Profile the launch path",
+            "status": "completed"
+          },
+          {
+            "content": "Persist the snapshot cache on ON_STOP",
+            "status": "completed"
+          },
+          {
+            "content": "Measuring on the Galaxy A54",
+            "status": "in_progress"
+          },
+          {
+            "content": "Open the PR with the numbers",
+            "status": "pending"
+          }
+        ],
+        "backgroundTasks": [
+          {
+            "id": "b1",
+            "kind": "shell",
+            "description": "Rerun the web and web-phone captures",
+            "startedAt": 1792000000000
+          }
+        ],
+        "waits": [],
+        "now": 1792000130000
+      },
+      "expected": {
+        "todo": {
+          "title": "3 to do",
+          "icon": "trace-todo",
+          "items": [
+            {
+              "key": "task:2",
+              "kind": "task",
+              "state": "running",
+              "icon": "trace-task-running",
+              "label": "Measuring on the Galaxy A54",
+              "description": null
+            },
+            {
+              "key": "background:b1",
+              "kind": "background",
+              "state": "running",
+              "icon": "trace-background",
+              "label": "Rerun the web and web-phone captures",
+              "description": "2m 10s"
+            },
+            {
+              "key": "task:3",
+              "kind": "task",
+              "state": "pending",
+              "icon": "trace-task-pending",
+              "label": "Open the PR with the numbers",
+              "description": null
+            }
+          ]
+        },
+        "completed": {
+          "title": "2 completed",
+          "icon": "trace-completed",
+          "items": [
+            {
+              "key": "task:0",
+              "kind": "task",
+              "state": "done",
+              "icon": "trace-task-done",
+              "label": "Profile the launch path",
+              "description": null
+            },
+            {
+              "key": "task:1",
+              "kind": "task",
+              "state": "done",
+              "icon": "trace-task-done",
+              "label": "Persist the snapshot cache on ON_STOP",
+              "description": null
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "agents never show, waits do, a background task without a start has no time",
+      "input": {
+        "tasks": [],
+        "backgroundTasks": [
+          {
+            "id": "a1",
+            "kind": "agent",
+            "description": "Explore the cache"
+          },
+          {
+            "id": "w1",
+            "kind": "workflow",
+            "description": "  review\n  sweep "
+          }
+        ],
+        "waits": [
+          {
+            "id": "17",
+            "subject": "the web captures"
+          },
+          {
+            "id": "18",
+            "subject": " "
+          }
+        ],
+        "now": 5
+      },
+      "expected": {
+        "todo": {
+          "title": "2 to do",
+          "icon": "trace-todo",
+          "items": [
+            {
+              "key": "background:w1",
+              "kind": "background",
+              "state": "running",
+              "icon": "trace-background",
+              "label": "review sweep",
+              "description": null
+            },
+            {
+              "key": "wait:17",
+              "kind": "wait",
+              "state": "running",
+              "icon": "trace-background",
+              "label": "Waiting on the web captures",
+              "description": null
+            }
+          ]
+        },
+        "completed": null
+      }
+    },
+    {
+      "name": "blank task text drops, unknown status is pending, running before pending",
+      "input": {
+        "tasks": [
+          {
+            "content": "Write the fixture",
+            "status": "pending"
+          },
+          {
+            "content": "",
+            "status": "in_progress"
+          },
+          {
+            "content": "Port the primitive",
+            "status": "blocked"
+          },
+          {
+            "content": "Read the drafts",
+            "status": "in_progress"
+          }
+        ],
+        "backgroundTasks": [],
+        "waits": [],
+        "now": 0
+      },
+      "expected": {
+        "todo": {
+          "title": "3 to do",
+          "icon": "trace-todo",
+          "items": [
+            {
+              "key": "task:3",
+              "kind": "task",
+              "state": "running",
+              "icon": "trace-task-running",
+              "label": "Read the drafts",
+              "description": null
+            },
+            {
+              "key": "task:0",
+              "kind": "task",
+              "state": "pending",
+              "icon": "trace-task-pending",
+              "label": "Write the fixture",
+              "description": null
+            },
+            {
+              "key": "task:2",
+              "kind": "task",
+              "state": "pending",
+              "icon": "trace-task-pending",
+              "label": "Port the primitive",
+              "description": null
+            }
+          ]
+        },
+        "completed": null
+      }
+    },
+    {
+      "name": "a clock behind the start reads zero",
+      "input": {
+        "tasks": [],
+        "backgroundTasks": [
+          {
+            "id": "b2",
+            "kind": "other",
+            "description": "Watch the logs",
+            "startedAt": 2000
+          }
+        ],
+        "waits": [],
+        "now": 1000
+      },
+      "expected": {
+        "todo": {
+          "title": "1 to do",
+          "icon": "trace-todo",
+          "items": [
+            {
+              "key": "background:b2",
+              "kind": "background",
+              "state": "running",
+              "icon": "trace-background",
+              "label": "Watch the logs",
+              "description": "0s"
+            }
+          ]
+        },
+        "completed": null
+      }
+    }
+  ]
+}

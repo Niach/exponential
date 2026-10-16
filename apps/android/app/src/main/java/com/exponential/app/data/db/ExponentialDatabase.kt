@@ -31,6 +31,7 @@ import androidx.room.TypeConverters
         MessageEntity::class,
         PullRequestEntity::class,
         PullRequestIssueEntity::class,
+        SessionReadEntity::class,
         ElectricOffsetEntity::class,
     ],
     // v2: added attachments.width / attachments.height (parity with iOS).
@@ -413,8 +414,12 @@ import androidx.room.TypeConverters
     // v88 (dispatcher roots): sessions.dispatch. Explicit [MIGRATION_87_88]
     //      adds the column (existing rows false) and refetches only the
     //      sessions shape.
+    // v89 (EXP-1323): sessions.caption + aside, messages.author_session_id
+    //      and the `session_reads` table (a new per-user shape). Explicit
+    //      [MIGRATION_88_89] adds the columns, creates the table empty and
+    //      refetches only the sessions + messages shapes.
     // Older versions still fall back to destructive + resync (DatabaseHolder).
-    version = 88,
+    version = 89,
     exportSchema = false,
 )
 @TypeConverters(StringListConverters::class)
@@ -444,5 +449,6 @@ abstract class ExponentialDatabase : RoomDatabase() {
     abstract fun messageDao(): MessageDao
     abstract fun pullRequestDao(): PullRequestDao
     abstract fun pullRequestIssueDao(): PullRequestIssueDao
+    abstract fun sessionReadDao(): SessionReadDao
     abstract fun electricOffsetDao(): ElectricOffsetDao
 }

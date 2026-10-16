@@ -1031,6 +1031,16 @@ pub(crate) struct SessionCtx {
     /// carries it). Moved by [`SessionCtx::deliver`] off the `workflow`
     /// events the mapper emits, and cleared at every turn end.
     pub(crate) caption_signal: Arc<steer::CaptionSignal>,
+    /// EXP-1331: the latest tool edge's caption
+    /// ([`crate::live_caption::tool_caption`]), cleared at every turn end —
+    /// with the workflow caption above, the synced `sessions.caption` input.
+    pub(crate) tool_caption: steer::CaptionSignal,
+    /// EXP-1331: the synced caption's writer, shared by the ticker and the
+    /// end sequence's last write.
+    pub(crate) caption_forwarder: Mutex<crate::live_caption::CaptionForwarder>,
+    /// EXP-1330: `Some` for a `/btw` aside run (one-shot: its first answer
+    /// ends it).
+    pub(crate) aside: Option<crate::aside::AsideState>,
     /// EXP-905: the agent's own conversation name (claude's transcript
     /// `ai-title`, codex's thread name), normalised — the synced
     /// `agent_title` column's one input. Moved by [`SessionCtx::deliver`] off
@@ -1433,6 +1443,10 @@ impl SessionCtx {
         if let Ok(mut ids) = self.message_ids.lock() {
             ids.insert(message_id.to_string());
         }
+        // EXP-1330: a person answered the aside back — it carries on.
+        if let Some(aside) = &self.aside {
+            aside.person_spoke();
+        }
     }
 
     /// EXP-1292: these queue ids reached the agent (or left its queue for
@@ -1486,7 +1500,17 @@ impl SessionCtx {
                     outbox.resolve_question(id);
                 }
             }
+            // EXP-1330: an aside's answer is its turn's final text reply.
+            if let Some(aside) = &self.aside {
+                if let Some(reply) = out.replies.iter().rev().find(|reply| reply.card.is_none()) {
+                    aside.note_reply(&reply.body);
+                }
+            }
             outbox.post(std::mem::take(&mut out.replies));
+        }
+        // EXP-1331: the live caption's tool half — the newest tool edge.
+        if let Some(caption) = out.wire.iter().rev().find_map(crate::live_caption::tool_caption) {
+            self.tool_caption.set(Some(caption));
         }
         // EXP-850 §8: the caption's one input. Read BEFORE the wire vec is
         // consumed by the sink.
@@ -1555,6 +1579,11 @@ impl SessionCtx {
         }
         if let Some(idle) = out.idle {
             self.turn_signal.set_idle(idle);
+            // EXP-1331: a turn's tool caption ends with it.
+            if idle {
+                self.tool_caption.set(None);
+            }
+            self.aside_turn_edge(idle);
             // EXP-850 §8: a turn that ended runs no workflow — the caption
             // goes with it, on the same edge the busy flag does.
             // FEED-44: while backgrounded subagents still run the run is
@@ -1585,6 +1614,38 @@ impl SessionCtx {
             fold_workflow_caption(&mut workflows, cards)
         };
         self.caption_signal.set(caption);
+    }
+
+    /// EXP-1330: an aside's turn edge — its first answer ends the run (the
+    /// reply posts first: the end sequence flushes the outbox).
+    fn aside_turn_edge(&self, idle: bool) {
+        let Some(aside) = &self.aside else { return };
+        if !idle {
+            aside.turn_started();
+            return;
+        }
+        if let crate::aside::AsideEnd::End(_) = aside.turn_ended() {
+            if let Some(commands) = self.queue_commands.get() {
+                let _ = commands.send(EngineCommand::Shutdown { outcome: "ended" });
+            }
+        }
+    }
+
+    /// EXP-1331: the synced caption right now — the running workflow's,
+    /// else the latest tool edge's, `None` between turns; an aside's pinned
+    /// answer once it has one.
+    pub(crate) fn live_caption(&self) -> Option<String> {
+        if let Some(pin) = self.aside.as_ref().and_then(crate::aside::AsideState::pin) {
+            return Some(pin);
+        }
+        if self.turn_signal.is_idle() {
+            return None;
+        }
+        self.caption_signal
+            .get()
+            .filter(|caption| caption != steer::RESUMED_IDLE_CAPTION)
+            .and_then(|caption| crate::live_caption::normalize_caption(&caption))
+            .or_else(|| self.tool_caption.get())
     }
 
     /// EXP-848 / FEED-44: is the agent working right now — a prompt in
