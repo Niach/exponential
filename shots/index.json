@@ -3466,8 +3466,8 @@
         "file": "shots/session/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 79660,
-        "sha256": "a03556471c3d8adfbb8734220f2c4f0e2fe93de683ab3f17cbd07624928516e7"
+        "bytes": 79506,
+        "sha256": "7a48783d3ddb58fa852a59192108931fdc4aa9e7e9f672c506c74f97cae2abda"
       },
       "ios": {
         "file": "shots/session/ios.webp",
