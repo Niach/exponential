@@ -9,6 +9,7 @@ import {
   guideMenuEntries,
   guidePullRequest,
   listAgents,
+  partitionThreadStrip,
   partitionThreads,
   questionOption,
   questionOptions,
@@ -40,6 +41,11 @@ describe(`session-tree fixtures (EXP-1291)`, () => {
   for (const entry of thread.guideMenuCases) {
     test(`guide menu: ${entry.name}`, () => {
       expect(guideMenuEntries(entry.input)).toEqual(entry.expected)
+    })
+  }
+  for (const entry of thread.stripCases) {
+    test(`strip (EXP-1334): ${entry.name}`, () => {
+      expect(partitionThreadStrip(entry.input)).toEqual(entry.expected as never)
     })
   }
   for (const entry of thread.composerCases) {
