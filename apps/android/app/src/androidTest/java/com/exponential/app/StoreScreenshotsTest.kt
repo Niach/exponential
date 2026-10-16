@@ -11,6 +11,8 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipeDown
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.swipeUp
 import androidx.test.espresso.Espresso
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -182,9 +184,23 @@ class StoreScreenshotsTest {
         // lands.
         composeRule.onAllNodes(hasTestTag("issue-thread-chip")).onFirst().performScrollTo()
         composeRule.onAllNodes(hasTestTag("issue-thread-chip")).onFirst().performClick()
-        flow.waitFor(hasTestTag(SessionTree.CardCopy.TEST_ID_CARD), SYNC_TIMEOUT)
-        flow.waitFor(hasText(STEERED_SESSION_TITLE), SYNC_TIMEOUT)
-        composeRule.onAllNodes(hasText(STEERED_SESSION_TITLE)).onFirst().performClick()
+        flow.waitFor(hasTestTag(SessionTree.ThreadCopy.TEST_ID_CONVERSATION), SYNC_TIMEOUT)
+        // EXP-1323: the conversation opens at its live tail, so the child's
+        // card sits above the fold and the lazy list never composes it; drag
+        // back up to it like the styleguide suite and iOS (a real drag, a
+        // programmatic scroll is re-pinned to the tail).
+        val steeredCard = hasTestTag(SessionTree.CardCopy.TEST_ID_CARD) and
+            hasText(STEERED_SESSION_TITLE, substring = true)
+        repeat(6) {
+            val shown = runCatching { composeRule.onAllNodes(steeredCard).onFirst().assertIsDisplayed() }.isSuccess
+            if (!shown) {
+                composeRule.onNode(hasTestTag(SessionTree.ThreadCopy.TEST_ID_CONVERSATION))
+                    .performTouchInput { swipeDown(startY = centerY, endY = bottom - 200f) }
+                flow.settle()
+            }
+        }
+        flow.waitFor(steeredCard, SYNC_TIMEOUT)
+        composeRule.onAllNodes(steeredCard).onFirst().performClick()
         flow.waitFor(hasTestTag("agent-feed"), NETWORK_TIMEOUT)
         // An EMPTY feed still renders the container (a relay the emulator can't
         // reach leaves the view "Reconnecting…" with nothing in it), so the tag

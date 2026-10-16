@@ -83,7 +83,7 @@ class ComponentSnapshotImagesTest {
          * image of exactly these components is skipped (never recorded on a
          * dev machine). Empty this set once the workflow committed them.
          */
-        val PENDING_IMAGES = setOf("Trace", "TraceItem") // EXP-1324
+        val PENDING_IMAGES = emptySet<String>() // EXP-1324: Trace + TraceItem images recorded 2026-10-16
     }
 
     private fun model(id: String, theme: String, overlays: OverlayPresentation = OverlayPresentation.Native): SurfaceModel {

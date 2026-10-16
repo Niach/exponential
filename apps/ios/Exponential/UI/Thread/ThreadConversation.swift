@@ -548,27 +548,45 @@ struct ThreadSuggestionsCard: View {
                 // Phones STACK the buttons (web `flex-col`, Android
                 // full-width pills): Options · Do it here · Start, each a
                 // full-width pill.
+                // The pill's capsule hugs its label (the SDK `PillView`), so a
+                // bare `.frame(maxWidth:)` only centres a short pill in the
+                // row: spacers in the leading/trailing slots make the capsule
+                // itself span the row with the label centred, like web's
+                // full-width buttons.
                 VStack(alignment: .leading, spacing: 6) {
                     GlassPill(
                         Copy.options,
                         mode: .action { actions.onOptions(rowId, item) },
                         enabled: !busy
                     ) {
-                        EmptyView()
+                        // Both slots nest the same way so the HStack splits
+                        // the slack evenly and "Options ˅" sits centred.
+                        HStack(spacing: 0) { Spacer(minLength: 0) }
                     } trailing: {
-                        AppIcon(AppIcons.uiChevronDown, size: 10)
+                        HStack(spacing: 4) {
+                            AppIcon(AppIcons.uiChevronDown, size: 10)
+                            Spacer(minLength: 0)
+                        }
                     }
                     .frame(maxWidth: .infinity)
                     .accessibilityIdentifier("thread-suggestion-options")
-                    GlassPill(Copy.here, mode: .action { actions.onHere(rowId, item.id) }, enabled: !busy)
-                        .frame(maxWidth: .infinity)
-                        .accessibilityIdentifier("thread-suggestion-here")
+                    GlassPill(Copy.here, mode: .action { actions.onHere(rowId, item.id) }, enabled: !busy) {
+                        Spacer(minLength: 0)
+                    } trailing: {
+                        Spacer(minLength: 0)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .accessibilityIdentifier("thread-suggestion-here")
                     GlassPill(
                         Copy.start,
                         mode: .action { actions.onStart(rowId, item.id) },
                         primary: true,
                         enabled: !busy
-                    )
+                    ) {
+                        Spacer(minLength: 0)
+                    } trailing: {
+                        Spacer(minLength: 0)
+                    }
                     .frame(maxWidth: .infinity)
                     .accessibilityIdentifier("thread-suggestion-start")
                 }

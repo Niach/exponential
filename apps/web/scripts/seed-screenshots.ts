@@ -847,13 +847,11 @@ async function seedSessionTree(ctx: {
         card: {
           kind: `question`,
           question: DEMO_FEED_QUESTION,
-          options: [
-            {
-              label: `Also lazy-load the markdown editor`,
-              description: `~90ms more, touches the editor entry point`,
-            },
-            { label: `Open the PR with what we have`, description: `Target is met; keep the diff small` },
-          ],
+          // EXP-1322 / #1080: labels in `options`, descriptions in the
+          // parallel sidecar (object options are no longer read by any
+          // client from 0.14.61/0.14.63/0.14.71 on).
+          options: [`Also lazy-load the markdown editor`, `Open the PR with what we have`],
+          optionDescriptions: [`~90ms more, touches the editor entry point`, `Target is met; keep the diff small`],
           answer: null,
         },
         at: minutesAgo(2),
