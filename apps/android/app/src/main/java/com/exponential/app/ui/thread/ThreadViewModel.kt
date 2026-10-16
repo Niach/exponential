@@ -151,6 +151,10 @@ class ThreadViewModel @Inject constructor(
         sessionId != rootId && allSessions.value.firstOrNull { it.id == sessionId }?.isRoot == true
     private val allIssues = dbFlow.scopedQuery(emptyList()) { it.issueDao().observeAll() }
 
+    /** EXP-1334: the `parent` relations a linked sub-issue folds by. */
+    private val issueParents = dbFlow.scopedQuery(emptyList()) { it.issueRelationDao().observeAll() }
+        .map(SessionTree::issueParents)
+
     /** EXP-1306: every PR ↔ issue link — the Guide stack rail names a PR by
      *  its representative issue. */
     val pullRequestIssues: StateFlow<List<PullRequestIssueEntity>> =
@@ -164,7 +168,7 @@ class ThreadViewModel @Inject constructor(
     /** THE thread view (tabs, rows, composer target); null until the root syncs. */
     val view: StateFlow<SessionTree.ThreadView?> = combine(
         combine(root, allSessions) { r, t -> r to t },
-        combine(linksFlow, allIssues) { l, i -> l to i },
+        combine(linksFlow, allIssues, issueParents) { l, i, p -> l to i.map { SessionTree.issue(it, p[it.id]) } },
         messages,
         pullRequests,
         clock,
@@ -174,7 +178,7 @@ class ThreadViewModel @Inject constructor(
             root = SessionTree.session(r),
             sessions = treeRows.map(SessionTree::session),
             sessionIssues = links.map(SessionTree::sessionIssue),
-            issues = issueRows.map(SessionTree::issue),
+            issues = issueRows,
             messages = messageRows.map(SessionTree::message),
             pullRequests = prs.mapNotNull(SessionTree::pullRequest),
             now = SessionTree.nowIso(now),

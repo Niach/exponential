@@ -90,6 +90,7 @@ class SessionTreeTest {
         id = json.str("id")!!,
         identifier = json.str("identifier")!!,
         title = json.str("title")!!,
+        parentId = json.str("parentId"),
     )
 
     private fun message(json: JsonObject) = SessionTree.Message(
@@ -138,6 +139,18 @@ class SessionTreeTest {
             put("kind", "issue")
             put("issueId", tab.issueId)
             put("identifier", tab.identifier)
+            put(
+                "nested",
+                JsonArray(
+                    tab.nested.map {
+                        buildJsonObject {
+                            put("issueId", it.issueId)
+                            put("identifier", it.identifier)
+                            put("depth", it.depth)
+                        }
+                    },
+                ),
+            )
         }
         SessionTree.ThreadTab.Add -> buildJsonObject { put("kind", "add") }
         is SessionTree.ThreadTab.SessionTab -> buildJsonObject {
@@ -145,6 +158,19 @@ class SessionTreeTest {
             put("sessionId", tab.sessionId)
             put("name", tab.name)
             put("markState", tab.markState.wire)
+            put(
+                "nested",
+                JsonArray(
+                    tab.nested.map {
+                        buildJsonObject {
+                            put("sessionId", it.sessionId)
+                            put("name", it.name)
+                            put("markState", it.markState.wire)
+                            put("depth", it.depth)
+                        }
+                    },
+                ),
+            )
         }
         is SessionTree.ThreadTab.Guide -> buildJsonObject {
             put("kind", "guide")
@@ -200,6 +226,7 @@ class SessionTreeTest {
         is SessionTree.ThreadRow.Question -> buildJsonObject {
             put("type", "question")
             put("id", row.id)
+            put("sessionId", row.sessionId)
             put("question", row.question)
             put(
                 "options",
@@ -219,6 +246,7 @@ class SessionTreeTest {
         is SessionTree.ThreadRow.Plan -> buildJsonObject {
             put("type", "plan")
             put("id", row.id)
+            put("sessionId", row.sessionId)
             put("plan", row.plan)
             put("decision", nullable(row.decision))
         }
@@ -424,6 +452,32 @@ class SessionTreeTest {
                 )
             }
             assertEquals(case.str("name"), case.str("expected"), SessionTree.guidePullRequest(pulls)?.id)
+        }
+    }
+
+    @Test
+    fun `every strip case matches the fixture`() {
+        val cases = threadFixture.list("stripCases")
+        assertTrue(cases.isNotEmpty())
+        fun JsonObject.f(key: String) = getValue(key).jsonPrimitive.double.toFloat()
+        fun JsonObject.index(key: String) = (this[key] as? JsonPrimitive)?.takeIf { it !is JsonNull }?.int
+        for (case in cases) {
+            val input = case.getValue("input").jsonObject
+            val layout = SessionTree.partitionThreadStrip(
+                issues = input.list("issues").map { SessionTree.StripIssueWidth(it.f("full"), it.f("short")) },
+                sessions = input.getValue("sessions").jsonArray.map { it.jsonPrimitive.double.toFloat() },
+                available = input.f("available"),
+                gap = input.f("gap"),
+                overflowW = input.f("overflowW"),
+                activeIssue = input.index("activeIssue"),
+                activeSession = input.index("activeSession"),
+            )
+            val actual = buildJsonObject {
+                put("tier", layout.tier.wire)
+                put("issues", JsonArray(layout.issues.map(::JsonPrimitive)))
+                put("sessions", JsonArray(layout.sessions.map(::JsonPrimitive)))
+            }
+            assertEquals(case.str("name"), case.getValue("expected"), actual)
         }
     }
 
