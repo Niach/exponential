@@ -231,6 +231,11 @@ const EFFORTS: Record<string, readonly string[]> = {
   codex: contract.codexEffort.values,
 }
 
+/** EXP-1334: whether `model` is one of `cli`'s models (NULL = claude). */
+export function isRunnerModel(cli: string | null | undefined, model: string): boolean {
+  return MODELS[cli ?? `claude`]?.includes(model) ?? false
+}
+
 /** Refuses a runner pick outside the contract vocabulary. */
 export function assertRunnerVocabulary(
   input: Pick<SessionsSendInput, `cli` | `model` | `effort` | `ultracode`>

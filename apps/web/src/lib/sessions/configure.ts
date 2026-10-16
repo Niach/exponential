@@ -11,8 +11,8 @@ import { getSteerRelayConfig, relayPostNudge } from "@/lib/steer"
 // EXP-1334 — `sessions.configure`: a live session's launch options change
 // MID-SESSION (plan mode, effort, ultracode, computer use, MCP picks). The
 // DB is the bus again: the row moves, the host device sees it on the
-// sessions shape and applies it — claude's plan mode at once (control
-// protocol), the rest between turns by resuming the SAME run with the new
+// sessions shape and applies it — plan mode and the model at once (live
+// switches), the rest between turns by resuming the SAME run with the new
 // flags (`coding::pickup` Switch). The MCP pick stays SERVER-ONLY: the
 // device reads it back through `sessions.mcpPicks` at the next turn.
 
@@ -32,11 +32,17 @@ export async function configureSession(
   // The agent the session runs: its own `cli`, else its device's default
   // (unknowable = validated as claude, the device masks what it cannot do).
   const cli = (await effectiveCli(target)) ?? undefined
-  assertRunnerVocabulary({ cli, effort: effort ?? undefined, ultracode: input.ultracode })
+  assertRunnerVocabulary({
+    cli,
+    model: input.model,
+    effort: effort ?? undefined,
+    ultracode: input.ultracode,
+  })
   const mcpServerIds =
     input.mcpServerIds === undefined ? undefined : await assertMcpServers(target.teamId, input.mcpServerIds)
 
   const picks = {
+    ...(input.model !== undefined ? { model: input.model } : {}),
     ...(input.planMode !== undefined ? { planMode: input.planMode } : {}),
     ...(effort !== undefined ? { effort } : {}),
     ...(input.ultracode !== undefined ? { ultracode: input.ultracode } : {}),

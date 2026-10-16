@@ -159,6 +159,11 @@ pub struct SessionReport {
     /// once a plan is approved): the row's `plan_mode` follows the run.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub plan_mode: Option<bool>,
+    /// EXP-1334: the agent's model as the run is on it (a `/model` switch
+    /// mid-session), so a resume launches on it. The server ignores one
+    /// outside the agent's vocabulary.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -507,6 +512,7 @@ mod tests {
             account: Some("0a1b2c3d".to_string()),
             caption: Some(Some("Editing cart.rs".to_string())),
             plan_mode: Some(false),
+            model: Some("opus".to_string()),
         };
         let input = ReportInput {
             session_id: "s1",
@@ -514,7 +520,7 @@ mod tests {
         };
         assert_eq!(
             serde_json::to_string(&input).unwrap(),
-            r#"{"sessionId":"s1","status":"running","needsInput":true,"blocked":{"kind":"rate_limit","agent":"claude","window":"session","resetsAt":"2026-10-13T12:00:00Z","since":"2026-10-13T10:00:00Z","handled":true},"branch":"exp/EXP-1","title":"Fix the login","account":"0a1b2c3d","caption":"Editing cart.rs","planMode":false}"#
+            r#"{"sessionId":"s1","status":"running","needsInput":true,"blocked":{"kind":"rate_limit","agent":"claude","window":"session","resetsAt":"2026-10-13T12:00:00Z","since":"2026-10-13T10:00:00Z","handled":true},"branch":"exp/EXP-1","title":"Fix the login","account":"0a1b2c3d","caption":"Editing cart.rs","planMode":false,"model":"opus"}"#
         );
 
         // Some(None) = an explicit null (the wall cleared); a no-reset wall

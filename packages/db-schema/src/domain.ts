@@ -1325,13 +1325,16 @@ export type SessionsSendInput = z.infer<typeof sessionsSendInputSchema>
  * EXP-1334 `sessions.configure`: change a LIVE session's launch options
  * mid-session (same steer rule as messaging it; an ended session refuses).
  * Omitted = unchanged; `effort: null`/`""` = the agent's default. The host
- * device applies them: claude plan mode at once, everything else at the
- * next turn (a between-turn restart resuming the SAME run). On a
+ * device applies them: plan mode and the model at once, everything else at
+ * the next turn (a between-turn restart resuming the SAME run). On a
  * dispatcher root the picks are its WORK picks (its children's).
  */
 export const sessionsConfigureInputSchema = z
   .object({
     sessionId: sendUuid,
+    // The agent's model (contract codingModel / codexModel): the live run
+    // switches at once (`/model`), a resume launches on it.
+    model: z.string().min(1).max(64).optional(),
     planMode: z.boolean().optional(),
     effort: z.string().max(32).nullable().optional(),
     ultracode: z.boolean().optional(),
@@ -1340,6 +1343,7 @@ export const sessionsConfigureInputSchema = z
   })
   .refine(
     (input) =>
+      input.model !== undefined ||
       input.planMode !== undefined ||
       input.effort !== undefined ||
       input.ultracode !== undefined ||

@@ -75,3 +75,10 @@ describe(`sessionsConfigureInputSchema (EXP-1334)`, () => {
     ).toBe(false)
   })
 })
+
+describe(`sessionsConfigureInputSchema model (EXP-1334)`, () => {
+  it(`takes a model alone, never a blank one`, () => {
+    expect(sessionsConfigureInputSchema.safeParse({ sessionId: SESSION, model: `opus` }).success).toBe(true)
+    expect(sessionsConfigureInputSchema.safeParse({ sessionId: SESSION, model: `` }).success).toBe(false)
+  })
+})

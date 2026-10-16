@@ -53,6 +53,9 @@ pub struct LiveView {
     /// EXP-1334: whether the engine is in plan mode right now
     /// ([`LiveEngine::plan_mode`]); `None` = unknown.
     pub agent_plan_mode: Option<bool>,
+    /// EXP-1334: the model the engine runs right now
+    /// ([`LiveEngine::model`]); `None` = unknown.
+    pub agent_model: Option<String>,
 }
 
 /// EXP-1334: a live run's launch options, in the row's terms (the row's
@@ -80,6 +83,17 @@ pub struct LaunchedOptions {
     /// plan-mode move: that row's (old) `plan_mode` is stale, never a
     /// person's change. Any newer row speaks for itself.
     pub plan_stale_at: Option<String>,
+    /// The row's model (trimmed; `None` = the device's default), switched
+    /// LIVE when the row moves (`/model`), written back when the agent's
+    /// own moves (a person's `/model` in a terminal or the IDE).
+    pub model: Option<String>,
+    /// [`Self::plan_switching`] for the model.
+    pub model_switching: bool,
+    /// [`Self::plan_stale_at`] for the model.
+    pub model_stale_at: Option<String>,
+    /// The agent's model vocabulary (`CodingAgent::model_values`): only a
+    /// model in it is written back. Empty = unknown, any.
+    pub models: &'static [&'static str],
 }
 
 impl LaunchedOptions {
@@ -95,8 +109,25 @@ impl LaunchedOptions {
             mcp_checked_at: row.updated_at.clone(),
             plan_switching: false,
             plan_stale_at: None,
+            model: row_model(row),
+            model_switching: false,
+            model_stale_at: None,
+            models: &[],
         }
     }
+
+    /// The vocabulary of the agent the run is.
+    pub fn for_agent(self, agent: crate::agent::CodingAgent) -> Self {
+        Self { models: agent.model_values(), ..self }
+    }
+
+    fn knows_model(&self, model: &str) -> bool {
+        self.models.is_empty() || self.models.contains(&model)
+    }
+}
+
+fn row_model(row: &SessionRow) -> Option<String> {
+    row.model.as_deref().map(str::trim).filter(|model| !model.is_empty()).map(str::to_string)
 }
 
 fn row_effort(row: &SessionRow) -> Option<String> {
@@ -104,11 +135,15 @@ fn row_effort(row: &SessionRow) -> Option<String> {
 }
 
 /// EXP-1334: what a row's options ask of its live engine.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct OptionsDelta {
     /// Plan mode moved: switched LIVE (claude `set_permission_mode`, codex
     /// its collaboration setting) — at once, even mid-turn.
     pub plan_mode: Option<bool>,
+    /// The model moved (`sessions.configure{model}`): switched LIVE (the
+    /// `model` config option, `/model`) at once. A cleared row model never
+    /// moves it.
+    pub model: Option<String>,
     /// Effort, ultracode or computer use moved: launch flags, applied by a
     /// between-turn restart that resumes the SAME run.
     pub restart: bool,
@@ -120,8 +155,10 @@ pub struct OptionsDelta {
 /// EXP-1334: the row's options against the ones its engine honors.
 pub fn options_delta(row: &SessionRow, launched: &LaunchedOptions) -> OptionsDelta {
     let stale = launched.plan_stale_at.is_some() && row.updated_at == launched.plan_stale_at;
+    let model_stale = launched.model_stale_at.is_some() && row.updated_at == launched.model_stale_at;
     OptionsDelta {
         plan_mode: (row.plan_mode != launched.plan_mode && !stale).then_some(row.plan_mode),
+        model: row_model(row).filter(|model| !model_stale && Some(model) != launched.model.as_ref()),
         restart: row_effort(row) != launched.effort
             || row.ultracode != launched.ultracode
             || row.computer_use != launched.computer_use,
@@ -138,14 +175,15 @@ fn reconfigure_due(row: &SessionRow, view: &LiveView, has_messages: bool) -> boo
     let Some(launched) = &view.options else { return false };
     let delta = options_delta(row, launched);
     delta.plan_mode.is_some()
-        || (!row.dispatch && agent_plan_move(view).is_some())
+        || delta.model.is_some()
+        || (!row.dispatch && (agent_plan_move(view).is_some() || agent_model_move(view).is_some()))
         || (has_messages && (delta.restart || (delta.mcp_due && !row.busy)))
 }
 
 /// EXP-1334: the plan mode the agent moved to ON ITS OWN (claude leaving
 /// plan mode once a plan is approved, or entering it) — the engine's mode
 /// past the honored one, a live switch of this device's not pending. The
-/// device writes it back to the row ([`sync_agent_plan_mode`]).
+/// device writes it back to the row ([`sync_agent_state`]).
 fn agent_plan_move(view: &LiveView) -> Option<bool> {
     let launched = view.options.as_ref()?;
     if launched.plan_switching {
@@ -154,32 +192,59 @@ fn agent_plan_move(view: &LiveView) -> Option<bool> {
     view.agent_plan_mode.filter(|mode| *mode != launched.plan_mode)
 }
 
-/// EXP-1334: report the agent's own plan-mode move (`sessions.report
-/// {planMode}`) and honor it, the pre-report row marked stale so its old
-/// `plan_mode` never reads as a person's change. Best-effort: an unlanded
+/// EXP-1334: the model the agent moved to ON ITS OWN (a person's `/model`
+/// typed into the run) — one in its vocabulary past the honored one, a live
+/// switch of this device's not pending.
+fn agent_model_move(view: &LiveView) -> Option<String> {
+    let launched = view.options.as_ref()?;
+    if launched.model_switching {
+        return None;
+    }
+    view.agent_model
+        .clone()
+        .filter(|model| launched.knows_model(model) && Some(model) != launched.model.as_ref())
+}
+
+/// EXP-1334: report the agent's own plan-mode and model moves in ONE
+/// `sessions.report{planMode, model}` and honor them, the pre-report row
+/// marked stale so its old values never read as a person's change (a
+/// resume then launches on the row's model). Best-effort: an unlanded
 /// report is retried at the next pass.
-fn sync_agent_plan_mode(row: &SessionRow, engine: &dyn LiveEngine, deps: &PickupDeps) {
+fn sync_agent_state(row: &SessionRow, engine: &dyn LiveEngine, deps: &PickupDeps) {
     let session_id = row.id.as_str();
     if row.dispatch {
         return;
     }
     let Some(launched) = deps.live.options(session_id) else { return };
-    let Some(mode) = engine.plan_mode().filter(|mode| *mode != launched.plan_mode) else { return };
-    if launched.plan_switching {
+    let view = LiveView {
+        options: Some(launched),
+        agent_plan_mode: engine.plan_mode(),
+        agent_model: engine.model(),
+        ..LiveView::default()
+    };
+    let (mode, model) = (agent_plan_move(&view), agent_model_move(&view));
+    if mode.is_none() && model.is_none() {
         return;
     }
     let report = session_device::SessionReport {
-        plan_mode: Some(mode),
+        plan_mode: mode,
+        model: model.clone(),
         ..session_device::SessionReport::default()
     };
     if let Err(err) = session_device::report(&deps.coding.trpc, session_id, &report) {
-        log::warn!("pickup: session {session_id}'s plan mode {mode} not reported: {err}");
+        log::warn!("pickup: session {session_id}'s own plan mode/model not reported: {err}");
         return;
     }
-    log::info!("pickup: session {session_id} plan mode -> {mode} (the agent's own)");
+    log::info!("pickup: session {session_id} plan mode {mode:?} / model {model:?} (the agent's own)");
     deps.live.update_options(session_id, |options| {
-        options.plan_mode = mode;
-        options.plan_stale_at = row.updated_at.clone();
+        if let Some(mode) = mode {
+            options.plan_mode = mode;
+            options.plan_stale_at = row.updated_at.clone();
+        }
+        if let Some(model) = model {
+            options.model = Some(model);
+            options.model_stale_at = row.updated_at.clone();
+        }
     });
 }
 
@@ -589,6 +654,14 @@ pub trait LiveEngine: Send + Sync {
     fn plan_mode(&self) -> Option<bool> {
         None
     }
+    /// EXP-1334: switch the model LIVE (the `model` config option, what
+    /// `/model <alias>` does) — a person's `sessions.configure{model}`.
+    fn set_model(&self, _model: &str) {}
+    /// EXP-1334: the model the run is on right now (its `config_state`
+    /// `model` value); `None` = unknown.
+    fn model(&self) -> Option<String> {
+        None
+    }
     /// Wait up to `timeout` for the run to end; `true` = it did.
     fn wait_done(&self, timeout: std::time::Duration) -> bool {
         let deadline = std::time::Instant::now() + timeout;
@@ -736,10 +809,14 @@ impl LiveRegistry {
             .filter(|(_, entry)| !entry.engine.is_done())
             .map(|(id, entry)| {
                 let agent_plan_mode = entry.engine.plan_mode();
+                let agent_model = entry.engine.model();
                 // EXP-1334: a live switch is through once the engine says it.
                 if let Some(options) = entry.options.as_mut() {
                     if agent_plan_mode == Some(options.plan_mode) {
                         options.plan_switching = false;
+                    }
+                    if agent_model.is_some() && agent_model == options.model {
+                        options.model_switching = false;
                     }
                 }
                 let mut open_cards = entry.engine.open_cards();
@@ -753,6 +830,7 @@ impl LiveRegistry {
                         running_account: entry.running_account.clone(),
                         options: entry.options.clone(),
                         agent_plan_mode,
+                        agent_model,
                     },
                 )
             })
@@ -1605,7 +1683,7 @@ pub fn switch_session(
     // EXP-1334: the row's options past the ones the engine honors. Plan mode
     // switches live at once (even mid-turn); the rest needs a restart, which
     // only a turn may carry (a pending message or the caller's prompt).
-    sync_agent_plan_mode(row, &*engine, deps);
+    sync_agent_state(row, &*engine, deps);
     let delta = deps.live.options(session_id).map(|launched| options_delta(row, &launched));
     let delta = delta.unwrap_or_default();
     if let Some(on) = delta.plan_mode {
@@ -1615,6 +1693,15 @@ pub fn switch_session(
             options.plan_mode = on;
             options.plan_switching = true;
             options.plan_stale_at = None;
+        });
+    }
+    if let Some(model) = delta.model.clone() {
+        log::info!("pickup: session {session_id} model -> {model} (live)");
+        engine.set_model(&model);
+        deps.live.update_options(session_id, |options| {
+            options.model = Some(model);
+            options.model_switching = true;
+            options.model_stale_at = None;
         });
     }
     let has_turn = prompt.is_some() || !pending.is_empty();
@@ -1872,7 +1959,8 @@ fn spawn(
 ) -> Result<std::sync::Arc<dyn LiveEngine>, String> {
     // EXP-1334: the row's options this engine honors from now on (unknown
     // for a wake with no row at hand).
-    let options = launched_for.map(|row| LaunchedOptions::of(row, prepared.mcp_pick.clone()));
+    let options = launched_for
+        .map(|row| LaunchedOptions::of(row, prepared.mcp_pick.clone()).for_agent(prepared.agent));
     match (deps.launch)(prepared) {
         Ok(engine) => {
             // EXP-849: the login the run landed on (the prepare recorded it).
@@ -2350,6 +2438,7 @@ mod tests {
                 running_account: None,
                 options: None,
                 agent_plan_mode: None,
+                agent_model: None,
             },
         )
         .live("l2", LiveView::default())
@@ -2412,6 +2501,10 @@ mod tests {
         plan_switches: Mutex<Vec<bool>>,
         /// EXP-1334: the run's current plan mode (`None` = unknown).
         mode: Mutex<Option<bool>>,
+        /// EXP-1334: live model switches, in order.
+        model_switches: Mutex<Vec<String>>,
+        /// EXP-1334: the run's current model (`None` = unknown).
+        model: Mutex<Option<String>>,
     }
 
     impl FakeEngine {
@@ -2453,6 +2546,13 @@ mod tests {
         fn plan_mode(&self) -> Option<bool> {
             *self.mode.lock().unwrap()
         }
+        fn set_model(&self, model: &str) {
+            self.model_switches.lock().unwrap().push(model.to_string());
+            *self.model.lock().unwrap() = Some(model.to_string());
+        }
+        fn model(&self) -> Option<String> {
+            self.model.lock().unwrap().clone()
+        }
     }
 
     #[test]
@@ -2480,6 +2580,7 @@ mod tests {
             running_account: None,
             options: None,
             agent_plan_mode: None,
+            agent_model: None,
         });
         assert!(registry.contains_live("s1"));
         assert!(!registry.contains_live("s2"));
@@ -3721,5 +3822,64 @@ mod tests {
         *host.engine.mode.lock().unwrap() = Some(false);
         assert!(pass(&picked).is_empty(), "the engine has not echoed the switch yet");
         assert_eq!(procedures(&requests).len(), 1);
+    }
+
+    /// The model follows either path: a person's `sessions.configure
+    /// {model}` switches the live run at once (no restart), and the agent's
+    /// own `/model` is written back onto the row (so a resume launches on
+    /// it) — the stale pre-report row moving nothing, a model outside the
+    /// agent's vocabulary never written.
+    #[test]
+    fn the_model_follows_the_row_and_the_agent() {
+        let dir = temp_dir("pickup-model");
+        let (base, requests) = canned_server_recording(vec![(200, REPORT_OK.to_string())]);
+        let host = host(&base, &dir.0, |_| {});
+        crate::run_registry::record(&dir.0, record(&dir.0, "sess-1"));
+        let launched = SessionRow {
+            model: Some("opus".to_string()),
+            updated_at: Some("u1".to_string()),
+            ..session("sess-1", "idle", DEV, "t")
+        };
+        host.deps.live.insert_for("sess-1", host.engine.clone(), None, Some(String::new()));
+        host.deps.live.set_options(
+            "sess-1",
+            Some(LaunchedOptions::of(&launched, Some(Vec::new())).for_agent(CodingAgent::Claude)),
+        );
+        *host.engine.model.lock().unwrap() = Some("opus".to_string());
+        let pass = |row: &SessionRow| {
+            plan(PickupInput {
+                device_id: DEV,
+                sessions: std::slice::from_ref(row),
+                messages: &[],
+                live: &host.deps.live.live_views(),
+                in_flight: &HashSet::new(),
+            })
+        };
+        assert!(pass(&launched).is_empty());
+
+        // A person picks sonnet: switched live, no restart, no request.
+        let picked = SessionRow { model: Some("sonnet".to_string()), updated_at: Some("u2".to_string()), ..launched.clone() };
+        assert!(matches!(pass(&picked).as_slice(), [PickupAction::Switch { account, .. }] if account.is_empty()));
+        assert_eq!(switch_session(&picked, "", None, &[], &host.deps), Ok(Switched::AlreadyOn));
+        assert_eq!(*host.engine.model_switches.lock().unwrap(), vec!["sonnet".to_string()]);
+        assert!(host.spawned.lock().unwrap().is_empty());
+        assert!(procedures(&requests).is_empty());
+        assert!(pass(&picked).is_empty());
+
+        // The agent's own `/model haiku`: written back, honored.
+        *host.engine.model.lock().unwrap() = Some("haiku".to_string());
+        assert!(matches!(pass(&picked).as_slice(), [PickupAction::Switch { .. }]));
+        assert_eq!(switch_session(&picked, "", None, &[], &host.deps), Ok(Switched::AlreadyOn));
+        assert_eq!(procedures(&requests), vec!["sessions.report"]);
+        let report = requests.lock().unwrap()[0].clone();
+        assert!(report.ends_with(r#"{"sessionId":"sess-1","model":"haiku"}"#), "{report}");
+        assert_eq!(host.engine.model_switches.lock().unwrap().len(), 1, "never switched back");
+        assert!(pass(&picked).is_empty(), "the stale row moves nothing");
+        let echoed = SessionRow { model: Some("haiku".to_string()), updated_at: Some("u3".to_string()), ..picked };
+        assert!(pass(&echoed).is_empty());
+
+        // A model id outside the vocabulary is never written back.
+        *host.engine.model.lock().unwrap() = Some("claude-opus-4-1-20250805".to_string());
+        assert!(pass(&echoed).is_empty());
     }
 }

@@ -686,6 +686,16 @@ impl coding::pickup::LiveEngine for EngineSession {
         self.0.ctx.with_mapper(|mapper| mapper.current_mode().map(|mode| mode == PLAN_MODE_ID))
     }
 
+    /// EXP-1334: a person's `sessions.configure{model}` — the live `model`
+    /// option both adapters take (`/model <alias>`).
+    fn set_model(&self, model: &str) {
+        self.set_config("model", ConfigValue::ValueId(model.to_string()));
+    }
+
+    fn model(&self) -> Option<String> {
+        self.0.ctx.with_mapper(|mapper| mapper.current_model().map(str::to_string))
+    }
+
     fn wait_done(&self, timeout: std::time::Duration) -> bool {
         self.wait_timeout(timeout).is_some()
     }

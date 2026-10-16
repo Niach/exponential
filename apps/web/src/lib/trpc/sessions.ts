@@ -62,6 +62,8 @@ import {
 import { issuesRouter } from "@/lib/trpc/issues"
 import {
   assertRunnerVocabulary,
+  effectiveCli,
+  isRunnerModel,
   resolveSessionDevice,
   sendSession,
   withTriggerIds,
@@ -522,14 +524,15 @@ export const sessionsRouter = router({
       return composeSessionBrief(session.id)
     }),
 
-  /** EXP-1334: the session's server-only MCP pick (sorted ids) — the device
-   *  compares it with what its run launched with between turns and resumes
-   *  the run on a changed pick. */
+  /** EXP-1334: the session's server-only MCP pick (sorted ids) — for
+   *  whoever may steer it (the composer's MCP submenu; the host device
+   *  compares it with what its run launched with between turns). The ids
+   *  stay off the synced shape. */
   mcpPicks: authedProcedure
     .input(z.object({ sessionId: uuid }))
     .query(async ({ ctx, input }): Promise<{ mcpServerIds: string[] }> => {
       const session = await loadSessionForUser(ctx.session.user.id, input.sessionId)
-      assertDeviceHost(ctx.session.user.id, session)
+      await assertCanSteer(ctx.session.user.id, session)
       return { mcpServerIds: mcpPicks(session) }
     }),
 
@@ -593,6 +596,10 @@ export const sessionsRouter = router({
         // run, so every client's toggle says the mode it is really in. A
         // dispatcher never plans: ignored there.
         planMode: z.boolean().optional(),
+        // EXP-1334: the agent's model as the run reports it (a `/model`
+        // switch mid-session), so a resume launches on it. Outside the
+        // agent's vocabulary (a full model id) = ignored, never refused.
+        model: z.string().min(1).max(64).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -609,6 +616,12 @@ export const sessionsRouter = router({
       const now = new Date()
       const blocked = input.blocked as CodingSessionBlocked | null | undefined
       const newlyBlocked = !!blocked && !session.blocked
+      const model =
+        input.model !== undefined &&
+        !session.dispatch &&
+        isRunnerModel(session.cli ?? (await effectiveCli(session)), input.model)
+          ? input.model
+          : undefined
       const turnEnded =
         (input.busy === false && session.busy) || status === `idle` || ending
       const txid = await ctx.db.transaction(async (tx) => {
@@ -629,6 +642,7 @@ export const sessionsRouter = router({
             ...(input.branch ? { branch: input.branch } : {}),
             ...(input.account ? { account: input.account } : {}),
             ...(input.planMode !== undefined && !session.dispatch ? { planMode: input.planMode } : {}),
+            ...(model ? { model } : {}),
             // The CLI's auto-name only fills a blank title (a person's or
             // the agent's own title wins).
             ...(input.title?.trim() && !session.title ? { title: input.title.trim() } : {}),

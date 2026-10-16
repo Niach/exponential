@@ -1470,6 +1470,18 @@ impl Mapper {
         self.config_state.current_mode.as_deref()
     }
 
+    /// EXP-1334: the model the run is on (the `model` option's value, EXP-877),
+    /// `None` before the agent announced one or when it is blank.
+    pub fn current_model(&self) -> Option<&str> {
+        self.config_state
+            .options
+            .iter()
+            .find(|option| option.id == "model")
+            .and_then(|option| option.value.as_deref())
+            .map(str::trim)
+            .filter(|model| !model.is_empty())
+    }
+
     pub fn set_current_mode(&mut self, mode_id: &str, out: &mut MapOut) {
         self.config_state.current_mode = Some(steer::truncate(mode_id, ID_MAX));
         self.emit_config_state(out);
