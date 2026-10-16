@@ -146,6 +146,8 @@ export const ENTRY_BAND: Readonly<Record<string, ComponentKind>> = {
   [`search-list`]: `Inputs & pickers`,
   [`menu-submenu`]: `Inputs & pickers`,
   [`getting-started`]: `Surfaces`,
+  trace: `Lists & rows`,
+  [`code-block`]: `Surfaces`,
 }
 
 /** The band an unregistered entry falls back to, so the page always draws it. */
