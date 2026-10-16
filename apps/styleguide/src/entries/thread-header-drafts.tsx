@@ -1,6 +1,9 @@
 import { contract } from "@exp/domain-contract"
 import {
   AccountPicker,
+  AskCard,
+  AskPrompt,
+  UserMessageBubble,
   AgentRunMark,
   Button,
   Composer,
@@ -350,6 +353,81 @@ function VariantBlock({ variant, title }: { variant: Variant; title: string }) {
   )
 }
 
+const HelpLine = ({ children }: { children: ReactNode }) => (
+  <p className="text-xs text-muted-foreground">{children}</p>
+)
+
+/** Draft 3: ONE inter-session language. A child asks its PARENT; a parent
+ *  answers or forwards; at the dispatcher the card waits for a person
+ *  (Needs you) and the answer goes straight back to the asker. */
+function AskFlow() {
+  const from = (who: string, via?: string) => (
+    <span className="text-xs font-normal text-muted-foreground">
+      from <span className="text-foreground">{who}</span>
+      {via && (
+        <>
+          {` `}· via {via}
+        </>
+      )}
+    </span>
+  )
+  return (
+    <div className="grid gap-6" data-testid="draft-ask-flow">
+      <p className="text-sm font-semibold">3 · Sessions talk through ONE verb: sessions_send(text, ask?)</p>
+      <div className="flex flex-wrap items-start gap-8">
+        <div className="grid w-[40rem] max-w-full gap-4">
+          <HelpLine>The Conversation (the dispatcher) — what a person sees</HelpLine>
+          <UserMessageBubble text="Link #EXP-1340" caption="Danny · 16:19" />
+          <p className="text-sm">Sent #EXP-1340 to Threads impl.</p>
+          <AskCard label="Question" meta={from(`Android lane`, `Threads impl`)}>
+            <p className="text-sm">The emulator image has no Play services. Use the Google APIs image (slower boot) or skip the push test?</p>
+            <AskPrompt
+              answerable
+              hotkeys
+              options={[
+                { key: `apis`, label: `Google APIs image`, description: `Boots ~40 s slower, push test runs` },
+                { key: `skip`, label: `Skip the push test` },
+                { key: `free`, label: `Type something.`, freeText: true },
+              ]}
+              onAnswer={noop}
+            />
+          </AskCard>
+          <AskCard plan label="Plan ready" meta={from(`Web lane`)}>
+            <p className="text-sm">1. Lift partitionTabs into @exp/ui · 2. ThreadTabs pins + and Guide · 3. Subtree menu on the session chips</p>
+            <AskPrompt
+              answerable
+              planMode
+              variant="plan"
+              options={[
+                { key: `approve`, label: `Approve` },
+                { key: `reject`, label: `Reject` },
+              ]}
+              onAnswer={noop}
+            />
+          </AskCard>
+          <AskCard label="Question" meta={from(`Native shots`)} data-answered>
+            <p className="text-sm">Re-shoot iPad too?</p>
+            <AskPrompt answerable={false} resolved={{ answer: `Yes, iPad too` }} options={[]} onAnswer={noop} />
+            <HelpLine>Answered here, delivered to Native shots (it resumes).</HelpLine>
+          </AskCard>
+        </div>
+        <div className="grid w-[30rem] max-w-full gap-3 text-sm">
+          <HelpLine>How it travels</HelpLine>
+          <ol className="grid list-decimal gap-2 pl-5">
+            <li><span className="font-mono text-xs">sessions_send({`{sessionId: parent, text, ask: "question", options}`})</span>: the asker waits (needs_input).</li>
+            <li>The card lands on its PARENT as pending input. The parent answers itself (<span className="font-mono text-xs">answerTo</span>) or forwards it up unchanged.</li>
+            <li>At the dispatcher the card shows in the Conversation; the thread is in Needs you, the session chip carries the needs-you dot.</li>
+            <li>A person answers IN the card: the answer goes straight to the ASKER (not the forwarders), who resumes; the parents see one muted line.</li>
+            <li><span className="font-mono text-xs">ask: "plan"</span> = the same path with Approve / Reject.</li>
+            <li>A person's own message (a manual link, a reply) always lands on the dispatcher, which routes it to the right child or starts one.</li>
+          </ol>
+          <HelpLine>No ask = a plain message (status, a handoff, a report) — today's sessions_send. A child knows its parent from the brief's Parent section.</HelpLine>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export const entry: StyleguideEntry = {
   id: `thread-header-drafts`,
   section: `special`,
@@ -364,9 +442,8 @@ export const entry: StyleguideEntry = {
   },
   island: () => (
     <div className="grid gap-10">
-      <VariantBlock variant="split" title="A · Split chip: the body opens the session, the ⌄ segment its subtree" />
-      <VariantBlock variant="dropdown" title="B · Whole-chip dropdown: the chip opens the subtree (row 1 = the session itself)" />
-      <VariantBlock variant="badge" title="C · Count badge: the nested count opens the subtree, no chevron" />
+      <VariantBlock variant="dropdown" title="B (picked) · Whole-chip dropdown: the chip opens the subtree (row 1 = the session itself)" />
+      <AskFlow />
       <div className="flex flex-wrap items-start gap-8">
         <div className="grid gap-2">
           <MenuPanel entries={treeEntries()} density="pointer" />
@@ -384,11 +461,11 @@ export const entry: StyleguideEntry = {
       <div className="flex flex-wrap items-start gap-8">
         <div className="grid gap-2">
           <Caption>Start (Home / New session): options under the card</Caption>
-          <OneComposer placeholder="Ask anything, # an issue, / for commands" phase="start" />
+          <OneComposer placeholder="Type / for commands" phase="start" />
           <Caption>Running session: model · Plan switch live mid-run · usage ring</Caption>
           <OneComposer placeholder="Type / for commands" phase="running" />
-          <Caption>Idle thread (the dispatcher)</Caption>
-          <OneComposer placeholder="Reply…" phase="idle" />
+          <Caption>The thread = its dispatcher session: the SAME composer, nothing thread-specific</Caption>
+          <OneComposer placeholder="Type / for commands" phase="idle" />
         </div>
         <div className="grid gap-2">
           <MenuPanel entries={optionsEntries()} density="pointer" />
