@@ -12,7 +12,7 @@ import SwiftUI
 struct ThreadCardsScreen: View {
     let kind: String
 
-    static let kinds: Set<String> = ["work-card", "script-card", "comment-call-card", "trace", "code-block"]
+    static let kinds: Set<String> = ["work-card", "script-card", "comment-call-card", "trace", "code-block", "thread-strip"]
 
     var body: some View {
         ZStack {
@@ -24,6 +24,7 @@ struct ThreadCardsScreen: View {
                     case "comment-call-card": commentCards
                     case "trace": traceSpecimens
                     case "code-block": codeBlockSpecimens
+                    case "thread-strip": ThreadStripSpecimens()
                     default: workCards
                     }
                 }
@@ -248,5 +249,80 @@ struct ThreadCardsScreen: View {
             }
             .foregroundStyle(.white)
         }
+    }
+}
+
+/// EXP-1334: the thread header's never-scrolling strip (`sg_thread-strip`):
+/// everything fitting, then folded (issue chips identifier-only with a
+/// sub-issue chevron and `› APP-16` open, the session chips with a folded
+/// subtree, each zone's "+N"), the subtree sheet's rows, and THE thread
+/// composer's options line + "+" rows.
+private struct ThreadStripSpecimens: View {
+    private static let fits: [ThreadTab] = [
+        .add, .conversation,
+        .issue(issueId: "i14", identifier: "APP-14", nested: []),
+        .session(sessionId: "s1", name: "Web lane", markState: .working, nested: []),
+        .guide(dot: true),
+    ]
+
+    private static let folded: [ThreadTab] = [
+        .add, .conversation,
+        .issue(issueId: "i14", identifier: "APP-14", nested: [
+            ThreadTabNestedIssue(issueId: "i16", identifier: "APP-16", depth: 1),
+        ]),
+        .issue(issueId: "i21", identifier: "APP-21", nested: []),
+        .issue(issueId: "i22", identifier: "APP-22", nested: []),
+        .issue(issueId: "i23", identifier: "APP-23", nested: []),
+        .session(sessionId: "s1", name: "Threads impl", markState: .needsYou, nested: [
+            ThreadTabNestedSession(sessionId: "s2", name: "Web lane", markState: .working, depth: 1),
+            ThreadTabNestedSession(sessionId: "s3", name: "Android lane", markState: .needsYou, depth: 1),
+            ThreadTabNestedSession(sessionId: "s4", name: "Emulator shots", markState: .ended, depth: 2),
+        ]),
+        .session(sessionId: "s5", name: "Docs", markState: .waiting, nested: []),
+        .session(sessionId: "s6", name: "Review", markState: .ended, nested: []),
+        .guide(dot: false),
+    ]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            caption("Everything fits")
+            strip(Self.fits, selection: .conversation)
+            caption("Folded: identifiers only, each zone's +N")
+            strip(Self.folded, selection: .conversation)
+            caption("A sub-issue open: <chip> › <open one>")
+            strip(Self.folded, selection: .issue("i16"))
+            caption("A folded chip's tap: THE tree rows")
+            ThreadFoldSheet(fold: ThreadStripFold.subtree(Self.folded[6])!) { _ in }
+                .background(GlassTokens.fillCard, in: RoundedRectangle(cornerRadius: 16))
+            caption("THE composer: options under the card, the \"+\" rows")
+            SessionComposerOptionsLine(
+                controls: SessionComposerFooter.Controls(
+                    planModeActive: false, modelValue: "opus", agent: "claude", onPickModel: { _ in },
+                    usageFraction: 0.42, usageSeverity: .normal, onUsage: {}
+                ),
+                plan: .constant(true)
+            )
+            ThreadComposerPlusMenu(
+                conditions: ComposerMenu.Conditions(subagentModel: false, ultracode: true, mcp: true, computerUse: true),
+                agent: "claude",
+                effortValue: "High",
+                mcpValue: "2",
+                ultracode: .constant(false),
+                computerUse: .constant(true)
+            ) { _ in }
+                .background(GlassTokens.fillCard, in: RoundedRectangle(cornerRadius: 16))
+        }
+        .accessibilityIdentifier("thread-strip-specimens")
+    }
+
+    private func caption(_ text: String) -> some View {
+        Text(text)
+            .font(.caption)
+            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+    }
+
+    private func strip(_ tabs: [ThreadTab], selection: ThreadPage) -> some View {
+        ThreadStripTabs(tabs: tabs, selection: selection, onSelect: { _ in }, onAdd: {}, onOpenSession: { _ in })
+            .background(GlassTokens.fillCard.opacity(0.4), in: RoundedRectangle(cornerRadius: 12))
     }
 }

@@ -603,6 +603,18 @@ fn record_wants_name(record: &coding::run_registry::RunRecord) -> bool {
             .is_none_or(|title| title.trim().is_empty())
 }
 
+/// EXP-1334: the ACP mode ids both adapters steer (`available_modes`).
+const PLAN_MODE_ID: &str = "plan";
+const BUILD_MODE_ID: &str = "bypassPermissions";
+
+fn plan_mode_id(on: bool) -> &'static str {
+    if on {
+        PLAN_MODE_ID
+    } else {
+        BUILD_MODE_ID
+    }
+}
+
 /// EXP-1292: the session pickup drives a live engine through this — the
 /// database is the bus, so a person's message, an unqueue, an answered card
 /// and an ended row all arrive off the synced shapes instead of the relay.
@@ -661,6 +673,27 @@ impl coding::pickup::LiveEngine for EngineSession {
     /// EXP-1292: the account switch's stop — the row idles, never ends.
     fn suspend(&self) {
         EngineSession::kill(self, crate::lifecycle::SUSPEND_OUTCOME);
+    }
+
+    /// EXP-1334: a person's `sessions.configure` moved plan mode — the ONE
+    /// steerable mode on both adapters (claude `set_permission_mode`, codex
+    /// its collaboration setting); off = build (`bypassPermissions`).
+    fn set_plan_mode(&self, on: bool) {
+        self.set_mode(plan_mode_id(on));
+    }
+
+    fn plan_mode(&self) -> Option<bool> {
+        self.0.ctx.with_mapper(|mapper| mapper.current_mode().map(|mode| mode == PLAN_MODE_ID))
+    }
+
+    /// EXP-1334: a person's `sessions.configure{model}` — the live `model`
+    /// option both adapters take (`/model <alias>`).
+    fn set_model(&self, model: &str) {
+        self.set_config("model", ConfigValue::ValueId(model.to_string()));
+    }
+
+    fn model(&self) -> Option<String> {
+        self.0.ctx.with_mapper(|mapper| mapper.current_model().map(str::to_string))
     }
 
     fn wait_done(&self, timeout: std::time::Duration) -> bool {

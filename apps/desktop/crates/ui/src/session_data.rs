@@ -414,12 +414,45 @@ pub(crate) fn session_thread_view(
         .collect();
     // One order everywhere (title, tabs, the list row's identifier).
     sort_links(&mut links);
+    // EXP-1334: the root's own messages plus its children's question / plan
+    // cards (they surface in the Conversation, answered in place).
+    let tree_ids: HashSet<&str> = team_sessions
+        .iter()
+        .filter(|session| session.root_id_or_self() == root_id)
+        .map(|session| session.id.as_str())
+        .collect();
     let messages: Vec<&MessageRow> = collections
         .messages
         .read(cx)
         .iter()
-        .filter(|message| message.session_id == root_id)
+        .filter(|message| {
+            message.session_id == root_id
+                || (tree_ids.contains(message.session_id.as_str())
+                    && message.card.as_ref().is_some_and(|card| {
+                        matches!(
+                            card.get("kind").and_then(serde_json::Value::as_str),
+                            Some(domain::contract::MESSAGE_CARD_KIND_QUESTION)
+                                | Some(domain::contract::MESSAGE_CARD_KIND_PLAN)
+                        )
+                    }))
+        })
         .collect();
+    // EXP-1334: each issue's parent (`issue_relations` kind parent, the
+    // lowest parent id when several) so linked sub-issues fold under their
+    // nearest LINKED ancestor; the unlinked ancestors ride along so the
+    // walk can pass them.
+    let relations = collections.issue_relations.read(cx);
+    let mut parent_of: HashMap<&str, &str> = HashMap::new();
+    for relation in relations.iter().filter(|relation| relation.kind.as_deref() == Some("parent")) {
+        let (parent, child) = (relation.issue_id.as_str(), relation.related_issue_id.as_str());
+        if parent == child {
+            continue;
+        }
+        let slot = parent_of.entry(child).or_insert(parent);
+        if parent < *slot {
+            *slot = parent;
+        }
+    }
     // The linked issues plus every issue an event card names: an unlinked
     // issue still reads "Unlinked EXP-12" (the event lines look it up).
     let all_issues = collections.issues.read(cx);
@@ -447,8 +480,23 @@ pub(crate) fn session_thread_view(
         }))
         .filter(|id| seen.insert(id))
         .filter_map(|id| all_issues.get(id))
-        .map(TreeIssue::from_issue)
+        .map(|issue| {
+            TreeIssue::from_issue(issue).with_parent(parent_of.get(issue.id.as_str()).map(|id| id.to_string()))
+        })
         .collect();
+    let mut issues = issues;
+    let mut cursor: Vec<String> = issues.iter().filter_map(|issue| issue.parent_id.clone()).collect();
+    while let Some(id) = cursor.pop() {
+        let Some(issue) = all_issues.get(&id) else {
+            continue;
+        };
+        if !seen.insert(issue.id.as_str()) {
+            continue;
+        }
+        let parent = parent_of.get(issue.id.as_str()).map(|id| id.to_string());
+        cursor.extend(parent.clone());
+        issues.push(TreeIssue::from_issue(issue).with_parent(parent));
+    }
     let pulls: Vec<&PullRequestRow> = collections
         .pull_requests
         .read(cx)

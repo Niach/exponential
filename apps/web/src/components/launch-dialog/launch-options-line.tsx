@@ -1,5 +1,6 @@
 import {
   AccountPicker,
+  ComposerOptionsRow,
   DevicePicker,
   FieldError,
   Label,
@@ -86,12 +87,10 @@ export function LaunchOptionsLine({ model }: { model: LaunchComposerModel }) {
 
   return (
     <div className="flex flex-col gap-1 px-1 text-xs text-muted-foreground">
-      <div
-        // EXP-1316: phones keep the options on ONE horizontally scrolling
-        // row (iOS/Android); md+ wraps.
-        className="flex flex-wrap items-center gap-x-3 gap-y-1 max-md:flex-nowrap max-md:overflow-x-auto max-md:whitespace-nowrap max-md:[scrollbar-width:none] max-md:[&>*]:shrink-0"
-        data-testid="agent-options-row"
-      >
+      {/* EXP-1316: phones keep the options on ONE horizontally scrolling
+          row (iOS/Android); md+ wraps. EXP-1334: THE options row the
+          session composers draw too. */}
+      <ComposerOptionsRow className="px-0" data-testid="agent-options-row">
         {/* One machine is not a choice: the inline word collapses to
             plain text on its own (the primitive's `inline` variant). */}
         <DevicePicker
@@ -157,7 +156,7 @@ export function LaunchOptionsLine({ model }: { model: LaunchComposerModel }) {
         {model.deviceRequestNote && (
           <span className="text-amber-500">{model.deviceRequestNote}</span>
         )}
-      </div>
+      </ComposerOptionsRow>
       {/* EXP-1196: the picked device's failing doctor row (Git, else the
           agent's own) with its one action, instead of a sentence. */}
       {device && deviceReadinessBlocker(device.doctor, agent) && (

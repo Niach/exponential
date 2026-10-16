@@ -64,6 +64,24 @@ pub fn brief(trpc: &TrpcClient, session_id: &str) -> Result<SessionBrief, ApiErr
     trpc.query_with_input("sessions.brief", &SessionIdInput { session_id })
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct McpPicksOutput {
+    #[serde(default)]
+    mcp_server_ids: Vec<String>,
+}
+
+/// EXP-1334: `sessions.mcpPicks` — query, the session's server-only team MCP
+/// pick (sorted ids, empty = none). The device compares it, between turns,
+/// with the pick its run launched with (`sessions.configure` may move it).
+pub fn mcp_picks(trpc: &TrpcClient, session_id: &str) -> Result<Vec<String>, ApiError> {
+    let output: McpPicksOutput = trpc.query_with_input("sessions.mcpPicks", &SessionIdInput { session_id })?;
+    let mut ids = output.mcp_server_ids;
+    ids.sort_unstable();
+    ids.dedup();
+    Ok(ids)
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ClaimInput<'a> {
@@ -137,6 +155,15 @@ pub struct SessionReport {
     /// and session end).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub caption: Option<Option<String>>,
+    /// EXP-1334: the agent's OWN plan-mode move (claude leaving plan mode
+    /// once a plan is approved): the row's `plan_mode` follows the run.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub plan_mode: Option<bool>,
+    /// EXP-1334: the agent's model as the run is on it (a `/model` switch
+    /// mid-session), so a resume launches on it. The server ignores one
+    /// outside the agent's vocabulary.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -484,6 +511,8 @@ mod tests {
             title: Some("Fix the login".to_string()),
             account: Some("0a1b2c3d".to_string()),
             caption: Some(Some("Editing cart.rs".to_string())),
+            plan_mode: Some(false),
+            model: Some("opus".to_string()),
         };
         let input = ReportInput {
             session_id: "s1",
@@ -491,7 +520,7 @@ mod tests {
         };
         assert_eq!(
             serde_json::to_string(&input).unwrap(),
-            r#"{"sessionId":"s1","status":"running","needsInput":true,"blocked":{"kind":"rate_limit","agent":"claude","window":"session","resetsAt":"2026-10-13T12:00:00Z","since":"2026-10-13T10:00:00Z","handled":true},"branch":"exp/EXP-1","title":"Fix the login","account":"0a1b2c3d","caption":"Editing cart.rs"}"#
+            r#"{"sessionId":"s1","status":"running","needsInput":true,"blocked":{"kind":"rate_limit","agent":"claude","window":"session","resetsAt":"2026-10-13T12:00:00Z","since":"2026-10-13T10:00:00Z","handled":true},"branch":"exp/EXP-1","title":"Fix the login","account":"0a1b2c3d","caption":"Editing cart.rs","planMode":false,"model":"opus"}"#
         );
 
         // Some(None) = an explicit null (the wall cleared); a no-reset wall

@@ -1,23 +1,15 @@
 import fixture from "@exp/domain-contract/fixtures/session-thread.json"
 import { buildSessionThread } from "@exp/domain-contract/session-tree"
-import { contract } from "@exp/domain-contract"
-import {
-  Composer,
-  ComposerSubmit,
-  ComposerTool,
-  ContextRing,
-  ModelPicker,
-  ThreadConversation,
-  TooltipProvider,
-  conceptIcon,
-  userMessageCaption,
-} from "@exp/ui"
+import { ThreadConversation, TooltipProvider, userMessageCaption } from "@exp/ui"
 
+import { ComposerSpecimen } from "./composer-specimen.tsx"
 import type { StyleguideEntry } from "./types.ts"
 
 // EXP-1293 Threads v2: a thread's CONVERSATION, the REAL `ThreadConversation`
 // over `buildSessionThread()` run on the contract's own cases
-// (`session-thread.json`, ×4): the root's session card first, a person's
+// (`session-thread.json`, ×4). EXP-1334: the conversation IS the
+// dispatcher — no root card; a CHILD's own question / plan card surfaces
+// here, THE same card, answered in place. A person's
 // bubble right-aligned (`queued` until the device consumed it), the agent's
 // text, a child's session card, an event line, a question card answered in
 // the card (THE session view's card, `ask-card.tsx`, EXP-1316; case 0's
@@ -30,60 +22,7 @@ import type { StyleguideEntry } from "./types.ts"
 
 type Input = Parameters<typeof buildSessionThread>[0]
 
-const UiAddIcon = conceptIcon(`ui-add`)
 const noop = (): void => {}
-
-/** THE model choices (contract `codingModel`, all four, no Default row). */
-const MODELS = contract.codingModel.values.map((value) => ({
-  value,
-  label: value.charAt(0).toUpperCase() + value.slice(1),
-}))
-
-/** THE session composer (the app's `SessionComposer`): "+" · the model pin
- *  · (a plan-mode child's read-out) … the context ring · Send ⇄ Stop. */
-function SessionComposerSpecimen({
-  model,
-  percent,
-  tone,
-  plan = false,
-  busy = false,
-}: {
-  model: string
-  percent: number
-  tone: `normal` | `warning` | `danger`
-  plan?: boolean
-  busy?: boolean
-}) {
-  return (
-    <Composer
-      tools={
-        <>
-          <ComposerTool aria-label="Add file">
-            <UiAddIcon className="size-4" />
-          </ComposerTool>
-          <span className="ml-1 flex items-center text-xs text-muted-foreground">
-            <ModelPicker
-              value={model}
-              models={MODELS}
-              onChange={noop}
-            />
-          </span>
-          {plan && <span className="ml-2 text-xs text-sky-400">Plan</span>}
-        </>
-      }
-      submit={
-        <>
-          <ContextRing percent={percent} tone={tone} />
-          <ComposerSubmit stop={busy} />
-        </>
-      }
-    >
-      <div className="min-h-20 px-3 pt-3 text-sm text-muted-foreground">
-        {fixture.copy.placeholder}
-      </div>
-    </Composer>
-  )
-}
 
 const SHOT = `data:image/svg+xml,${encodeURIComponent(
   `<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="900"><rect width="1440" height="900" fill="#3f3f46"/></svg>`
@@ -143,7 +82,7 @@ export const entry: StyleguideEntry = {
   section: `special`,
   owner: `EXP-1293`,
   title: `Conversation`,
-  blurb: `A thread's Conversation tab (a thread IS a root session): the root's own session card first, then the ROOT's messages oldest first. A person's message is the right-aligned bubble (\`<name> · <time>\` under it, \`queued\` until the device consumed it; the viewer's OWN queued row carries the \`Remove from queue\` X with its tooltip, EXP-1317); the agent's reply is markdown at the reading width; a system line is muted. A \`session\` / \`thread_started\` card is THE session card (the Work card's header row) opening that session; a question or plan card is THE session view's card (EXP-1316, \`AskCard\` + \`AskPrompt\`): a question offers its options (label, and its description under it when the option carries one, EXP-1322) and a free-text row (\`Type something.\` opens the inline field), a plan Approve / Reject (Reject opens a note field); an answered card renders closed (the answer, options gone); a subagent is a muted row, a picture the image, an event one muted line (\`Linked EXP-12\`, \`Opened PR #45\`). Children's own messages never inline. EXP-1323: THE suggested tasks card = the Work card's shell: the header (\`3 suggested tasks\`, \`· 2 started\`; \`Start all\` while more than one is open), then per item the title and text with ×, \`Options ▾\` (THE Menu: Start on… a device, Start with… a model, File as issue, Dismiss), \`Do it here\` and \`Start\` (phones stack the buttons); a started item IS the child's session card with its live caption under the name, then \`Sent here\` / \`Filed EXP-9\`. A child's end = ONE line \`Report from <session> ›\` opening it (the parent's next message relays the summary). A /btw aside is a plain session card whose caption is its answer's first line. While the root is live the Conversation ends on the raw view's transcript bottom (THE Queue) + status line. No captions, no Show work, no right sidebar. Below it THE session composer, the same box on the thread (targeting the root), an opened session and an agent's channel: the "+", the model pin (THE model picker inline, all four models, no Default; a pick sends \`/model <alias>\`), the plan read-out only on a plan-mode session that is not a dispatcher, then the context ring (its usage popover on click) and Send ⇄ Stop; \`/\` opens the command menu; placeholder \`Reply…\`. Phones: the floating capsule expands into the same card. Model = \`buildSessionThread()\` (fixture \`session-thread.json\` ×4).`,
+  blurb: `A thread's Conversation tab (a thread IS a root session, and the Conversation IS that dispatcher: EXP-1334, no card of its own): the ROOT's messages oldest first, with every CHILD's own question / plan card in createdAt order (THE same card, answered in place, straight back to that child). A person's message is the right-aligned bubble (\`<name> · <time>\` under it, \`queued\` until the device consumed it; the viewer's OWN queued row carries the \`Remove from queue\` X with its tooltip, EXP-1317); the agent's reply is markdown at the reading width; a system line is muted. A \`session\` / \`thread_started\` card is THE session card (the Work card's header row) opening that session; a question or plan card is THE session view's card (EXP-1316, \`AskCard\` + \`AskPrompt\`): a question offers its options (label, and its description under it when the option carries one, EXP-1322) and a free-text row (\`Type something.\` opens the inline field), a plan Approve / Reject (Reject opens a note field); an answered card renders closed (the answer, options gone); a subagent is a muted row, a picture the image, an event one muted line (\`Linked EXP-12\`, \`Opened PR #45\`). Children's other messages never inline. EXP-1323: THE suggested tasks card = the Work card's shell: the header (\`3 suggested tasks\`, \`· 2 started\`; \`Start all\` while more than one is open), then per item the title and text with ×, \`Options ▾\` (THE Menu: Start on… a device, Start with… a model, File as issue, Dismiss), \`Do it here\` and \`Start\` (phones stack the buttons); a started item IS the child's session card with its live caption under the name, then \`Sent here\` / \`Filed EXP-9\`. A child's end = ONE line \`Report from <session> ›\` opening it (the parent's next message relays the summary). A /btw aside is a plain session card whose caption is its answer's first line. While the root is live the Conversation ends on the raw view's transcript bottom (THE Queue) + status line. No captions, no Show work, no right sidebar. Below it THE composer (EXP-1334: one component for a start, a thread, an opened session and an agent's channel): the card with the "+" (the options: Effort, Ultracode, MCP servers, Computer use, changeable mid-session) and the inline tools (image, file, #, emoji), Send ⇄ Stop; UNDER the card the model pin (a pick sends \`/model <alias>\`), the Plan switch and the context ring (its usage popover on click); \`/\` opens the command menu; placeholder \`Type / for commands\`. Phones: the floating capsule expands into the same card. Model = \`buildSessionThread()\` (fixture \`session-thread.json\` ×4).`,
   status: {
     web: {
       state: `ok`,
@@ -172,19 +111,19 @@ export const entry: StyleguideEntry = {
   },
   island: () => (
     <div className="flex max-w-2xl flex-col gap-10">
+      <Case index={caseIndex(`EXP-1334: the dispatcher`)} />
       <Case index={0} />
       <Case index={1} />
       <div className="grid gap-2">
         <p className="text-xs text-muted-foreground">
-          The thread's composer: a dispatcher root on its thread model, no plan read-out.
+          The thread's composer = THE session composer (EXP-1334): the card with "+" (the options) and
+          the inline tools, model · Plan · the context ring under it.
         </p>
-        <SessionComposerSpecimen model="haiku" percent={32} tone="normal" />
+        <ComposerSpecimen phase="idle" placeholder={fixture.copy.placeholder} />
       </div>
       <div className="grid gap-2">
-        <p className="text-xs text-muted-foreground">
-          The session view of a plan-mode child while it works.
-        </p>
-        <SessionComposerSpecimen model="opus" percent={78} tone="warning" plan busy />
+        <p className="text-xs text-muted-foreground">The same composer in a session while it works.</p>
+        <ComposerSpecimen phase="running" placeholder={fixture.copy.placeholder} />
       </div>
       <Case index={caseIndex(`EXP-1323: an ended`)} />
       <Case index={caseIndex(`EXP-1323: a live`)} />

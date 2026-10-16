@@ -14,6 +14,7 @@ import {
   QUESTION_CARD_OPTIONS_MAX,
   questionCardOptionDescriptionsSchema,
   questionCardOptionSchema,
+  sessionsConfigureInputSchema,
   sessionsSendInputSchema,
   sessionStatusSchema,
   type CodingSessionBlocked,
@@ -35,8 +36,14 @@ import {
   loadSessionForUser,
 } from "@/lib/sessions/access"
 import { composeSessionBrief } from "@/lib/sessions/brief"
+import { configureSession, mcpPicks } from "@/lib/sessions/configure"
 import { answeredCard } from "@/lib/sessions/card-answer"
-import { linkIssues, unlinkIssue } from "@/lib/sessions/issues"
+import {
+  issueIdentifiers,
+  linkIssues,
+  manualLinkText,
+  unlinkIssue,
+} from "@/lib/sessions/issues"
 import {
   endSession,
   postReportToParent,
@@ -55,6 +62,8 @@ import {
 import { issuesRouter } from "@/lib/trpc/issues"
 import {
   assertRunnerVocabulary,
+  effectiveCli,
+  isRunnerModel,
   resolveSessionDevice,
   sendSession,
   withTriggerIds,
@@ -226,6 +235,14 @@ export const sessionsRouter = router({
       })
     ),
 
+  /** EXP-1334: change a live session's launch options mid-session (plan
+   *  mode, effort, ultracode, computer use, MCP picks). Same rule as
+   *  messaging it; an ended session refuses. The host device applies them:
+   *  claude's plan mode at once, the rest at the next turn. */
+  configure: authedProcedure
+    .input(sessionsConfigureInputSchema)
+    .mutation(({ ctx, input }) => configureSession(ctx.session.user.id, input)),
+
   /** Interrupt the session's current turn (it stays live, goes idle). Every
    *  member may Stop a SHARED session; a private one only its starter. */
   stop: authedProcedure
@@ -274,17 +291,29 @@ export const sessionsRouter = router({
       const userId = ctx.session.user.id
       const session = await loadSessionForUser(userId, input.sessionId)
       await assertCanSteer(userId, session)
-      return ctx.db.transaction(async (tx) => {
+      const { txid, identifiers } = await ctx.db.transaction(async (tx) => {
         const txid = await generateTxId(tx)
-        await linkIssues(tx, {
+        const { linked } = await linkIssues(tx, {
           rootId: session.rootId,
           issueIds: input.issueIds,
           source: `user`,
           addedBy: userId,
           addedBySessionId: null,
         })
-        return { txid }
+        return { txid, identifiers: await issueIdentifiers(tx, linked) }
       })
+      // EXP-1334: a manual link is the person asking for the work: `Link
+      // #A #B` on the ROOT wakes the dispatcher, which routes it (MCP and
+      // start links stay quiet). The link stands even if the message fails.
+      const text = manualLinkText(identifiers)
+      if (text) {
+        try {
+          await sendSession({ userId, input: { sessionId: session.rootId, text } })
+        } catch (err) {
+          console.warn(`[sessions.linkIssues] the link message to ${session.rootId} failed`, err)
+        }
+      }
+      return { txid }
     }),
 
   unlinkIssue: authedProcedure
@@ -495,6 +524,18 @@ export const sessionsRouter = router({
       return composeSessionBrief(session.id)
     }),
 
+  /** EXP-1334: the session's server-only MCP pick (sorted ids) — for
+   *  whoever may steer it (the composer's MCP submenu; the host device
+   *  compares it with what its run launched with between turns). The ids
+   *  stay off the synced shape. */
+  mcpPicks: authedProcedure
+    .input(z.object({ sessionId: uuid }))
+    .query(async ({ ctx, input }): Promise<{ mcpServerIds: string[] }> => {
+      const session = await loadSessionForUser(ctx.session.user.id, input.sessionId)
+      await assertCanSteer(ctx.session.user.id, session)
+      return { mcpServerIds: mcpPicks(session) }
+    }),
+
   /** queued → running: the device took it (idempotent for its own device). */
   claim: authedProcedure
     .input(z.object({ sessionId: uuid, branch: z.string().max(255).optional() }))
@@ -550,6 +591,15 @@ export const sessionsRouter = router({
         // EXP-1331: the live status line (throttled by the device; null
         // clears it). Trimmed and capped at 80 here.
         caption: z.string().max(1000).nullable().optional(),
+        // EXP-1334: the agent's OWN plan-mode move (claude leaving plan mode
+        // once a plan is approved, or entering it): the row follows the
+        // run, so every client's toggle says the mode it is really in. A
+        // dispatcher never plans: ignored there.
+        planMode: z.boolean().optional(),
+        // EXP-1334: the agent's model as the run reports it (a `/model`
+        // switch mid-session), so a resume launches on it. Outside the
+        // agent's vocabulary (a full model id) = ignored, never refused.
+        model: z.string().min(1).max(64).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -566,6 +616,12 @@ export const sessionsRouter = router({
       const now = new Date()
       const blocked = input.blocked as CodingSessionBlocked | null | undefined
       const newlyBlocked = !!blocked && !session.blocked
+      const model =
+        input.model !== undefined &&
+        !session.dispatch &&
+        isRunnerModel(session.cli ?? (await effectiveCli(session)), input.model)
+          ? input.model
+          : undefined
       const turnEnded =
         (input.busy === false && session.busy) || status === `idle` || ending
       const txid = await ctx.db.transaction(async (tx) => {
@@ -585,6 +641,8 @@ export const sessionsRouter = router({
             ...(input.blocked !== undefined ? { blocked: blocked ?? null } : {}),
             ...(input.branch ? { branch: input.branch } : {}),
             ...(input.account ? { account: input.account } : {}),
+            ...(input.planMode !== undefined && !session.dispatch ? { planMode: input.planMode } : {}),
+            ...(model ? { model } : {}),
             // The CLI's auto-name only fills a blank title (a person's or
             // the agent's own title wins).
             ...(input.title?.trim() && !session.title ? { title: input.title.trim() } : {}),

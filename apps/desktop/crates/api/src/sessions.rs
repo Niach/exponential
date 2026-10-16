@@ -184,6 +184,32 @@ pub fn end(trpc: &TrpcClient, session_id: &str) -> Result<TxOutput, ApiError> {
     trpc.mutation("sessions.end", &SessionIdInput { session_id })
 }
 
+/// EXP-1334: `sessions.configure` — a live session's launch options,
+/// changed mid-session. `None` leaves a field unchanged; `effort:
+/// Some(None)` clears it (the agent's default); `mcp_server_ids:
+/// Some(vec![])` picks none. The host device applies them: claude's plan
+/// mode at once, the rest at the next turn.
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConfigureInput {
+    pub session_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub plan_mode: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub effort: Option<Option<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ultracode: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub computer_use: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mcp_server_ids: Option<Vec<String>>,
+}
+
+/// `sessions.configure` — mutation.
+pub fn configure(trpc: &TrpcClient, input: &ConfigureInput) -> Result<TxOutput, ApiError> {
+    trpc.mutation("sessions.configure", input)
+}
+
 /// Link issues to a root (1..=30).
 pub fn link_issues(trpc: &TrpcClient, session_id: &str, issue_ids: &[String]) -> Result<TxOutput, ApiError> {
     #[derive(Serialize)]

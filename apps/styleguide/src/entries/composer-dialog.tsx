@@ -1,111 +1,24 @@
 import { contract } from "@exp/domain-contract"
-import composerMenu from "@exp/domain-contract/fixtures/composer-menu.json"
-import type { IconConcept } from "@exp/icons"
-import {
-  AccountPicker,
-  Composer,
-  ComposerSubmit,
-  ComposerTool,
-  DevicePicker,
-  Label,
-  MenuPanel,
-  ModelPicker,
-  Pill,
-  Switch,
-  conceptIcon,
-  type MenuEntry,
-} from "@exp/ui"
+import { MenuPanel, Pill, conceptIcon } from "@exp/ui"
 
+import { ComposerSpecimen, composerMenuEntries } from "./composer-specimen.tsx"
 import type { StyleguideEntry } from "./types.ts"
 
-// EXP-1019 — the START-CODING DIALOG; EXP-1249 — its ONE "+" menu.
+// EXP-1019 — the START-CODING DIALOG; EXP-1249 — its ONE "+" menu; EXP-1334
+// — the ONE composer (the start, the thread and the session view alike).
 //
-// Drawn from the REAL parts: `Composer` / `ComposerTool` / `ComposerSubmit`
-// are the card the app's `LaunchComposer` renders, the options line is the
-// typed pickers in their inline variant, and the open "+" is `MenuPanel` (the
-// app's `Menu` renderer at rest) fed the rows of `composer-menu.json`, the
-// fixture the four clients replay. The words are the contract's
-// (`contract.composerUi`, ×4) so the demo cannot drift from what the clients
-// print. The app component itself lives in apps/web and cannot be imported
-// here.
+// Drawn from the REAL parts (`composer-specimen.tsx`): `ComposerFrame` /
+// `Composer` / `ComposerEditTools` / `ComposerOptionsRow` are the halves the
+// app's `LaunchComposer` and `SessionComposer` compose, and the open "+" is
+// `MenuPanel` (the app's `Menu` renderer at rest) fed the rows of
+// `composer-menu.json`, the fixture the four clients replay. The words are
+// the contract's (`contract.composerUi`, ×4) so the demo cannot drift from
+// what the clients print. The app components live in apps/web and cannot be
+// imported here.
 
 const { composerUi } = contract
-const noop = (): void => {}
 
-const UiAddIcon = conceptIcon(`ui-add`)
 const ActionIcon = conceptIcon(`pr-merged`)
-
-const DEVICES = [{ id: `mint`, name: `mint — This device`, kind: `desktop` }]
-const ACCOUNTS = [{ key: `claude:1`, agent: `claude`, email: `danny@example.dev` }]
-/** THE model choices (contract `codingModel`, no Default row). */
-const MODELS = contract.codingModel.values.map((value) => ({
-  value,
-  label: value.charAt(0).toUpperCase() + value.slice(1),
-}))
-
-/** The value a row shows in the specimen (the app reads the model). */
-const SAMPLE_VALUES: Record<string, string> = {
-  effort: `High`,
-  "mcp-servers": `2`,
-}
-const SAMPLE_CHECKED: Record<string, boolean> = {
-  ultracode: false,
-  "computer-use": true,
-}
-
-/** The "+" rows straight from the fixture, every condition met (EXP-1293:
- *  minus Subagents, which `sessions.send` does not carry). */
-function composerMenuEntries(): MenuEntry[] {
-  return composerMenu.rows.filter((row) => row.id !== `subagents`).map((row): MenuEntry => {
-    if (row.kind === `separator`) return { kind: `separator` }
-    const base = {
-      id: row.id,
-      label: row.label ?? ``,
-      icon: conceptIcon(row.icon as IconConcept),
-    }
-    if (row.kind === `toggle`) {
-      return {
-        ...base,
-        kind: `toggle`,
-        checked: SAMPLE_CHECKED[row.id ?? ``] ?? false,
-        onChange: noop,
-      }
-    }
-    if (row.kind === `submenu`) {
-      return { ...base, kind: `submenu`, value: SAMPLE_VALUES[row.id ?? ``], entries: [] }
-    }
-    return { ...base, kind: `item`, onSelect: noop }
-  })
-}
-
-function OptionsLine() {
-  return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-1 text-xs text-muted-foreground">
-      <DevicePicker triggerVariant="inline" devices={DEVICES} value="mint" onChange={noop} width="sm" />
-      <AccountPicker variant="inline" value="claude:1" options={ACCOUNTS} onChange={noop} />
-      <ModelPicker models={MODELS} value="fable" onChange={noop} />
-      <Label className="gap-1.5 font-normal">
-        <span>Plan</span>
-        <Switch size="sm" checked={false} aria-label="Plan mode" />
-      </Label>
-    </div>
-  )
-}
-
-function Card({ placeholder }: { placeholder: string }) {
-  return (
-    <Composer
-      tools={
-        <ComposerTool aria-label={composerMenu.plusLabel} title={composerMenu.plusLabel}>
-          <UiAddIcon />
-        </ComposerTool>
-      }
-      submit={<ComposerSubmit aria-label="Start" title="Start" />}
-    >
-      <div className="min-h-20 px-3 pt-3 text-sm text-muted-foreground">{placeholder}</div>
-    </Composer>
-  )
-}
 
 function Caption({ children }: { children: string }) {
   return <p className="text-xs text-muted-foreground">{children}</p>
@@ -116,13 +29,13 @@ export const entry: StyleguideEntry = {
   section: `special`,
   owner: `EXP-1019`,
   title: `Composer dialog`,
-  blurb: `THE launcher, opened over wherever the play button was pressed instead of navigating away from it. The SUBJECT leads: the contract's verb (Run for an action, Implement for issues, ×4) followed by the removable subject chips, set as the biggest thing in the dialog. The field under it is the SECONDARY half and says so ("Additional instructions (optional)…", or an action's own promptPlaceholder). The card's ONE tool is the "+" (EXP-1249): Implement issue › and Run action › (SLOP-28: both THE search list, see Search list and Menu submenu), Add file or image, then the session's options (Effort ›, Ultracode) and tools (MCP servers ›, Computer use for this session) — a dropdown at the "+" from md up, the bottom sheet of the same rows on a phone. Under the card the muted options line: device, account, model, Plan (the repository when a subjectless session has several), no overflow. Send = ONE sessions.send; the dialog shuts and the new thread opens. The Agent page around the card is the home column (see Agent home).`,
+  blurb: `THE launcher, opened over wherever the play button was pressed instead of navigating away from it, and (EXP-1334) THE composer of a thread and a session view: one card everywhere. The SUBJECT leads a start: the contract's verb (Run for an action, Implement for issues, ×4) followed by the removable subject chips; the field under it is the SECONDARY half ("Additional instructions (optional)…", or an action's own promptPlaceholder). In the card: the "+" = the options menu (EXP-1249: Implement issue › and Run action › before a start only, Add file or image, Effort ›, Ultracode, MCP servers ›, Computer use; in a session the same rows change the live session through sessions.configure), then the inline edit tools (Add image, Attach files, #, emoji), Send ⇄ Stop on the right. Under the card the muted options line (see Composer options). A start = ONE sessions.send; the dialog shuts and the new thread opens.`,
   status: {
     web: {
       state: `ok`,
-      symbol: `LaunchDialogHost / LaunchComposer / ComposerPlusMenu`,
+      symbol: `LaunchDialogHost / LaunchComposer / SessionComposer / ComposerOptionsMenu`,
       file: `apps/web/src/components/launch-dialog/launch-dialog.tsx`,
-      note: `the card is launch-composer.tsx, its "+" launch-dialog/composer-plus-menu.tsx (rows: composer-menu.ts over fixtures/composer-menu.json)`,
+      note: `the start card is launch-composer.tsx, the thread/session card session-composer.tsx; both = @exp/ui ComposerFrame + composer-inline-tools.tsx, the "+" = launch-dialog/composer-plus-menu.tsx (rows: composer-menu.ts over fixtures/composer-menu.json)`,
     },
     desktop: {
       state: `ok`,
@@ -144,27 +57,39 @@ export const entry: StyleguideEntry = {
     },
   },
   island: () => (
-    <div className="flex flex-wrap items-start gap-8">
-      <div className="grid w-[34rem] max-w-full gap-2">
-        <Caption>An action: one chip, and the send is the only thing left to do.</Caption>
-        <div className="flex flex-wrap items-center gap-2 px-1">
-          <span className="text-lg font-semibold">{composerUi.runHeadline}</span>
-          <Pill size="sm" mode="readonly">
-            <ActionIcon aria-hidden />
-            Triage new issues
-          </Pill>
+    <div className="grid gap-10">
+      <div className="flex flex-wrap items-start gap-8">
+        <div className="grid w-[36rem] max-w-full gap-2">
+          <Caption>An action: one chip, and the send is the only thing left to do.</Caption>
+          <div className="flex flex-wrap items-center gap-2 px-1">
+            <span className="text-lg font-semibold">{composerUi.runHeadline}</span>
+            <Pill size="sm" mode="readonly">
+              <ActionIcon aria-hidden />
+              Triage new issues
+            </Pill>
+          </div>
+          <ComposerSpecimen phase="start" placeholder={composerUi.instructionsPlaceholder} submitLabel="Run action" />
         </div>
-        <Card placeholder={composerUi.instructionsPlaceholder} />
-        <OptionsLine />
+        <div className="grid gap-2">
+          <MenuPanel entries={composerMenuEntries(`start`)} density="pointer" />
+          <Caption>the "+" before a start: composer-menu.json, every condition met</Caption>
+        </div>
       </div>
-      <div className="grid gap-2">
-        <MenuPanel entries={composerMenuEntries()} density="pointer" />
-        <Caption>the "+" open: composer-menu.json, every condition met</Caption>
+      <div className="flex flex-wrap items-start gap-8">
+        <div className="grid w-[36rem] max-w-full gap-2">
+          <Caption>A running session: Stop, model · Plan … the context ring under the card.</Caption>
+          <ComposerSpecimen phase="running" placeholder="Type / for commands" />
+          <Caption>An idle thread: the same composer (it messages the dispatcher).</Caption>
+          <ComposerSpecimen phase="idle" placeholder="Type / for commands" />
+        </div>
+        <div className="grid gap-2">
+          <MenuPanel entries={composerMenuEntries(`running`)} density="pointer" />
+          <Caption>the "+" in a session: no subject rows, the options change the live session</Caption>
+        </div>
       </div>
-      <div className="grid w-[34rem] max-w-full gap-2">
+      <div className="grid w-[36rem] max-w-full gap-2">
         <Caption>A chat in the dialog: no subject, the contract's placeholder.</Caption>
-        <Card placeholder={composerUi.chatPlaceholder} />
-        <OptionsLine />
+        <ComposerSpecimen phase="start" placeholder={composerUi.chatPlaceholder} />
       </div>
     </div>
   ),

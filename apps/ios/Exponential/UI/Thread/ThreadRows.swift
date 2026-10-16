@@ -3,7 +3,8 @@ import Foundation
 import GRDB
 
 /// EXP-1295: a thread screen's page — the strip's tabs as the phone's
-/// pager (Conversation · one per linked issue · Guide; the "+" is a button).
+/// pager (Conversation · one per linked issue, EXP-1334: the folded
+/// sub-issues too · Guide; the "+" is a button).
 enum ThreadPage: Hashable {
     case conversation
     case issue(String)
@@ -30,6 +31,13 @@ struct ThreadRows: Sendable {
     /// The team's pull requests: the stack pool of the Guide's Merge
     /// (`PullRequestStack`, a stack may reach PRs outside this thread).
     var teamPullRequests: [PullRequestEntity] = []
+    /// EXP-1334: each issue's parent (`issue_relations` kind parent) for the
+    /// linked issues AND their ancestors — a sub-issue folds under its
+    /// nearest LINKED ancestor, walking past unlinked ones.
+    var issueParents: [String: String] = [:]
+    /// EXP-1334: the root's device row (the composer's Computer use row
+    /// shows only when it advertises the per-run cap).
+    var rootDevice: DeviceEntity?
 
     var isAgent: Bool { root.isAgent }
 
@@ -59,11 +67,42 @@ struct ThreadRows: Sendable {
             root: TreeSession(sessionRow: root),
             sessions: sessions.map { TreeSession(sessionRow: $0) },
             sessionIssues: sessionIssues.map { TreeSessionIssue(sessionIssueRow: $0) },
-            issues: issues.map { TreeIssue(issueRow: $0) },
+            issues: issues.map { row in
+                TreeIssue(id: row.id, identifier: row.identifier ?? "", title: row.title, parentId: issueParents[row.id])
+            } + ancestorIssues,
             messages: messages.map { TreeMessage(messageRow: $0) },
             pullRequests: pullRequests.map { TreePullRequest(pullRequestRow: $0) },
             now: now
         )
+    }
+
+    /// The unlinked ancestors the fold walks past (id + parent only).
+    private var ancestorIssues: [TreeIssue] {
+        let linked = Set(issues.map(\.id))
+        return Set(issueParents.values).subtracting(linked).sorted().map { id in
+            TreeIssue(id: id, identifier: "", title: "", parentId: issueParents[id])
+        }
+    }
+
+    /// EXP-1334: the parent links above `issueIds`, walked up to a fixed
+    /// depth (a cycle stops at the first repeat).
+    static func issueParents(db: Database, issueIds: [String]) throws -> [String: String] {
+        var parents: [String: String] = [:]
+        var seen = Set(issueIds)
+        var frontier = issueIds
+        for _ in 0..<8 where !frontier.isEmpty {
+            let relations = try IssueRelationEntity
+                .filter(Column("type") == IssueRelationType.parent.rawValue)
+                .filter(frontier.contains(Column("related_issue_id")))
+                .order(Column("created_at").asc, Column("id").asc)
+                .fetchAll(db)
+            frontier = []
+            for relation in relations where parents[relation.relatedIssueId] == nil {
+                parents[relation.relatedIssueId] = relation.issueId
+                if seen.insert(relation.issueId).inserted { frontier.append(relation.issueId) }
+            }
+        }
+        return parents
     }
 
     /// The composer's placeholder: `Message <name>` on an agent channel
@@ -164,16 +203,19 @@ struct ThreadRows: Sendable {
                 stackIssues = try IssueEntity.filter(ids.contains(Column("id"))).fetchAll(db)
             }
         }
+        let issues = try SessionQueries.issues(db: db, rootId: root.id)
         return ThreadRows(
             root: root,
             sessions: sessions,
             sessionIssues: try SessionQueries.sessionIssues(db: db, rootId: root.id),
-            issues: try SessionQueries.issues(db: db, rootId: root.id),
+            issues: issues,
             messages: messages,
             pullRequests: pullRequests,
             pullRequestIssueIds: pullRequestIssueIds,
             users: users,
             teamPullRequests: teamPullRequests,
+            issueParents: try issueParents(db: db, issueIds: issues.map(\.id)),
+            rootDevice: try DeviceEntity.filter(Column("device_id") == root.deviceId).fetchOne(db),
             stackIssueIds: stackIssueIds,
             stackIssues: stackIssues
         )

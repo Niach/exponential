@@ -5,16 +5,18 @@ import {
   AttachmentFileTile,
   AttachmentThumb,
   Composer,
+  ComposerFrame,
+  ComposerOptionsRow,
   ComposerSubmit,
-  ComposerTool,
   ContextRing,
+  Label,
   MobilePopover,
   MobilePopoverContent,
   MobilePopoverTrigger,
   ModelPicker,
   Prompt,
   Spinner,
-  conceptIcon,
+  Switch,
   toast,
   type ValueChoice,
 } from "@exp/ui"
@@ -25,6 +27,12 @@ import {
 } from "@/components/mention-textarea"
 import { ContextWindowBlock } from "@/components/context-window-block"
 import {
+  ComposerInlineTools,
+  type ComposerInlineToolsHandle,
+} from "@/components/composer-inline-tools"
+import { ComposerOptionsMenu } from "@/components/launch-dialog/composer-plus-menu"
+import { useSessionComposerOptions } from "@/components/session-composer-options"
+import {
   SlashCommandMenu,
   useSlashCommandMenu,
 } from "@/components/steer-command-menu"
@@ -34,7 +42,7 @@ import {
 } from "@/components/launch-dialog/launch-options-pane"
 import { useSessionRow } from "@/hooks/use-session-tree"
 import { useSteerCommand } from "@/hooks/use-steer-command"
-import { planModeChipLabel, sessionModel } from "@/lib/agent-feed"
+import { planModeToggle, sessionModel } from "@/lib/agent-feed"
 import { contextPercent, severity } from "@/lib/agent-usage"
 import {
   defaultModelFor,
@@ -56,22 +64,27 @@ import type { SessionRow } from "@/lib/session-tree"
 import { trpc } from "@/lib/trpc-client"
 import { cn } from "@/lib/utils"
 
-const AddIcon = conceptIcon(`ui-add`)
-
 // EXP-1293 Threads v2: THE reply box ×4 = the home's composer box (the
 // Composer primitive), never a new box. It posts ONE message to a session
 // (`sessions.send({sessionId})`): a thread root (an ended thread continues
 // server-side in a new child), an agent's channel, or an opened session.
 // Stop = `sessions.stop` while the session works.
 //
-// Dispatch (owner 2026-10-15, session-thread.json DISPATCH): the SAME
-// controls on every host, one component: the bottom row = "+" · the model
-// pin (THE ModelPicker over the session's agent models; a pick sends
-// `/model <alias>` through `sessions.send`) · the plan read-out (a plan-mode
-// run that is NOT a dispatcher) … the context ring (its usage popover on
-// click) · Send ⇄ Stop; the field offers the `/` menu (steerCommands ∪ the
-// agent's own). The live reads (model in force, usage, commands) are the
-// session's relay state (`acquireSteerSession`), the synced row the fallback.
+// EXP-1334 (owner: ONE composer, the old session layout): the start, the
+// thread and the session view render the SAME frame (`ComposerFrame`): the
+// card = the field (the `/` menu over it), the "+" = THE options menu
+// (composer-menu.json rows minus the subject rows: Effort ›, Ultracode,
+// MCP servers ›, Computer use — changed mid-session through
+// `sessions.configure`), the inline edit tools (image · files · # · emoji)
+// and Send ⇄ Stop; UNDER it the options line: the model pin (THE
+// ModelPicker; a pick sends `/model <alias>` through `sessions.send`, shown
+// at once until the relay's `config_state` confirms) · the Plan switch …
+// the context ring (its usage popover on click). The live reads (model in
+// force, usage, commands) are the session's relay state
+// (`acquireSteerSession`), the synced row the fallback.
+
+/** How long a model pick reads as picked without the relay confirming. */
+const MODEL_PICK_CONFIRM_MS = 20_000
 
 /** The model a session runs on before its relay says: the row's own pick,
  *  else (a dispatcher) the device's thread model, else the defaults. */
@@ -159,10 +172,11 @@ export function SessionComposer({
   const [confirming, setConfirming] = useState<SteerCommand | null>(null)
   const [usageOpen, setUsageOpen] = useState(false)
   const fieldRef = useRef<MentionTextareaHandle>(null)
-  const fileInputRef = useRef<HTMLInputElement>(null)
+  const toolsRef = useRef<ComposerInlineToolsHandle>(null)
 
   const { row, config, usage, contextLayout, fallback } = useComposerSession(sessionId)
   const agent = row?.cli ?? `claude`
+  const options = useSessionComposerOptions({ teamId, sessionId, row, agent })
   // The `/` menu: the contract catalog for this agent, then the agent's own
   // advertised commands (`config_state.commands`).
   const catalogAgent = steerAgentId(row?.cli, config !== null)
@@ -179,21 +193,38 @@ export function SessionComposer({
   // EXP-1323: `/btw <question>` is an ASIDE child of this session
   // (`sessions.send({parentId, text, aside})`), never a message to it.
   const dispatch = useSteerCommand({ teamId, sessionId, agent: catalogAgent })
+
   // The model pin: the model in force (the relay's `config_state`), else the
-  // row's / device's. THE model choices, no Default row; a model this build
-  // has no value for still reads as itself.
-  const model = sessionModel(config) ?? fallback
+  // row's / device's. A pick reads as picked AT ONCE (the CLI only confirms
+  // once it ran the `/model` prompt — an idle session resumes first) until
+  // the relay says so, a failure, or the confirm window runs out.
+  const liveModel = sessionModel(config)
+  const [pickedModel, setPickedModel] = useState<string | null>(null)
+  useEffect(() => {
+    if (pickedModel === null) return
+    if (liveModel === pickedModel) {
+      setPickedModel(null)
+      return
+    }
+    const timer = setTimeout(() => setPickedModel(null), MODEL_PICK_CONFIRM_MS)
+    return () => clearTimeout(timer)
+  }, [pickedModel, liveModel])
+  const model = pickedModel ?? liveModel ?? fallback
+  // THE model choices, no Default row; a model this build has no value for
+  // still reads as itself.
   const modelOptions = useMemo<ValueChoice[]>(() => {
-    const options = modelChoices(agent)
-    return options.some((option) => option.value === model)
-      ? options
-      : [{ value: model, label: modelLabel(model) }, ...options]
+    const choices = modelChoices(agent)
+    return choices.some((option) => option.value === model)
+      ? choices
+      : [{ value: model, label: modelLabel(model) }, ...choices]
   }, [agent, model])
-  // The plan read-out: a plan-mode run, never a dispatcher (plan mode is a
-  // WORK pick its children get).
-  const planLabel = row?.dispatch
-    ? null
-    : (planModeChipLabel(config) ?? (config === null && row?.planMode ? `Plan` : null))
+  // The Plan switch: a pick leads, then the run's live mode (never a
+  // dispatcher's: its plan mode is a WORK pick its children get), then the
+  // synced row.
+  const livePlan = row?.dispatch ? null : planModeToggle(config)
+  const planOn = options.planPending
+    ? options.planMode
+    : (livePlan?.active ?? options.planMode)
   const percent = contextPercent(usage)
 
   const addFiles = (picked: File[]) => {
@@ -275,13 +306,15 @@ export function SessionComposer({
   }
 
   const pickModel = async (value: string) => {
-    if (value === model || row?.status === `ended`) return
+    if (value === model || options.ended) return
+    setPickedModel(value)
     try {
       await trpc.sessions.send.mutate(
         { teamId, sessionId, text: `/model ${value}` },
         SKIP_ERROR_TOAST
       )
     } catch (error) {
+      setPickedModel(null)
       failedAction(`switch`, `the model`, error)
     }
   }
@@ -290,92 +323,102 @@ export function SessionComposer({
   const confirmCopy = steerCommandConfirmCopy(confirming?.name ?? ``)
 
   return (
-    <Composer
-      opaque={opaque}
+    <ComposerFrame
       data-testid={testId}
       className={cn(`w-full`, className)}
-      strip={
-        files.length > 0 ? (
-          <div className="flex flex-wrap gap-2 px-3 pt-3">
-            {files.map((entry) =>
-              entry.previewUrl ? (
-                <AttachmentThumb
-                  key={entry.key}
-                  src={entry.previewUrl}
-                  alt={entry.file.name}
-                  onRemove={() => removeFile(entry.key)}
-                />
-              ) : (
-                <AttachmentFileTile
-                  key={entry.key}
-                  name={entry.file.name}
-                  onRemove={() => removeFile(entry.key)}
-                />
-              )
-            )}
-          </div>
-        ) : undefined
-      }
-      tools={
-        <>
-          <input
-            ref={fileInputRef}
-            type="file"
-            multiple
-            hidden
-            onChange={(event) => {
-              addFiles(Array.from(event.target.files ?? []))
-              event.target.value = ``
-            }}
-          />
-          <ComposerTool aria-label="Add file" onClick={() => fileInputRef.current?.click()}>
-            <AddIcon className="size-4" />
-          </ComposerTool>
-          {row && (
-            <span className="ml-1 flex items-center text-xs text-muted-foreground">
+      options={
+        row && (
+          <ComposerOptionsRow data-testid="session-composer-options">
+            <span data-testid="session-composer-model" data-model={model}>
               <ModelPicker
                 value={model}
                 models={modelOptions}
                 onChange={(value) => void pickModel(value)}
                 // Codex has no mid-run model prompt: its pin is a label ×4.
-                disabled={row.status === `ended` || agent !== `claude`}
-                data-testid="session-composer-model"
+                disabled={options.ended || agent !== `claude`}
               />
             </span>
-          )}
-          {planLabel && (
-            <span
-              className="ml-2 text-xs text-sky-400"
-              data-testid="session-composer-plan"
-            >
-              {planLabel}
-            </span>
-          )}
-        </>
-      }
-      submit={
-        <>
-          {percent !== null && (
-            <MobilePopover open={usageOpen} onOpenChange={setUsageOpen}>
-              <MobilePopoverTrigger asChild>
-                <ContextRing percent={percent} tone={severity(percent)} />
-              </MobilePopoverTrigger>
-              <MobilePopoverContent
-                align="end"
-                collisionPadding={8}
-                className="w-80 p-0"
-                aria-label="Usage"
-                mobileTitle="Usage"
-                data-testid="session-usage-popover"
-              >
-                <ContextWindowBlock
-                  sessionUsage={usage}
-                  contextLayout={contextLayout}
-                  teamId={teamId}
+            {options.planSupported && (
+              <Label className="cursor-pointer gap-1.5 font-normal">
+                <span>Plan</span>
+                <Switch
+                  size="sm"
+                  checked={planOn}
+                  onCheckedChange={options.setPlanMode}
+                  disabled={options.ended}
+                  aria-label="Plan mode"
+                  data-testid="session-composer-plan"
                 />
-              </MobilePopoverContent>
-            </MobilePopover>
-          )}
+              </Label>
+            )}
+            {percent !== null && (
+              <span className="ml-auto flex items-center">
+                <MobilePopover open={usageOpen} onOpenChange={setUsageOpen}>
+                  <MobilePopoverTrigger asChild>
+                    <ContextRing percent={percent} tone={severity(percent)} />
+                  </MobilePopoverTrigger>
+                  <MobilePopoverContent
+                    align="end"
+                    collisionPadding={8}
+                    className="w-80 p-0"
+                    aria-label="Usage"
+                    mobileTitle="Usage"
+                    data-testid="session-usage-popover"
+                  >
+                    <ContextWindowBlock
+                      sessionUsage={usage}
+                      contextLayout={contextLayout}
+                      teamId={teamId}
+                    />
+                  </MobilePopoverContent>
+                </MobilePopover>
+              </span>
+            )}
+          </ComposerOptionsRow>
+        )
+      }
+    >
+      <Composer
+        opaque={opaque}
+        strip={
+          files.length > 0 ? (
+            <div className="flex flex-wrap gap-2 px-3 pt-3">
+              {files.map((entry) =>
+                entry.previewUrl ? (
+                  <AttachmentThumb
+                    key={entry.key}
+                    src={entry.previewUrl}
+                    alt={entry.file.name}
+                    onRemove={() => removeFile(entry.key)}
+                  />
+                ) : (
+                  <AttachmentFileTile
+                    key={entry.key}
+                    name={entry.file.name}
+                    onRemove={() => removeFile(entry.key)}
+                  />
+                )
+              )}
+            </div>
+          ) : undefined
+        }
+        tools={
+          <>
+            <ComposerOptionsMenu
+              options={options.binding}
+              onAttach={() => toolsRef.current?.attach()}
+              rowsDisabled={options.ended}
+              highlighted={files.length > 0}
+            />
+            <ComposerInlineTools
+              ref={toolsRef}
+              fieldRef={fieldRef}
+              onFiles={addFiles}
+              disabled={sending}
+            />
+          </>
+        }
+        submit={
           <ComposerSubmit
             stop={showStop}
             aria-label={showStop ? `Stop` : `Send`}
@@ -384,42 +427,50 @@ export function SessionComposer({
           >
             {sending ? <Spinner size={16} label="Sending" /> : undefined}
           </ComposerSubmit>
-        </>
-      }
-    >
-      <div className="relative">
-      <MentionTextarea
-        ref={fieldRef}
-        value={text}
-        onValueChange={setText}
-        users={users as User[]}
-        onKeyDown={(event) => {
-          if (event.nativeEvent.isComposing) return
-          // The `/` menu gets first refusal: Enter/Tab accept a command and
-          // never send the half-typed draft.
-          if (menu.handleKeyDown(event)) return
-          if (event.key !== `Enter` || event.shiftKey) return
+        }
+        onDrop={(event) => {
+          if (event.dataTransfer.files.length === 0) return
           event.preventDefault()
-          void send()
+          addFiles(Array.from(event.dataTransfer.files))
         }}
-        onPaste={(event) => {
-          if (event.clipboardData.files.length === 0) return
-          event.preventDefault()
-          addFiles(Array.from(event.clipboardData.files))
+        onDragOver={(event) => {
+          if (event.dataTransfer.types.includes(`Files`)) event.preventDefault()
         }}
-        placeholder={placeholder}
-        className="min-h-20 resize-none border-0 bg-transparent px-3 pt-3 shadow-none focus-visible:ring-0"
-        maxLength={SESSIONS_SEND_TEXT_MAX}
-      />
-      {menu.open && (
-        <SlashCommandMenu
-          commands={menu.candidates}
-          active={menu.active}
-          onSelect={menu.accept}
-          onHover={menu.setActive}
-        />
-      )}
-      </div>
+      >
+        <div className="relative">
+          <MentionTextarea
+            ref={fieldRef}
+            value={text}
+            onValueChange={setText}
+            users={users as User[]}
+            onKeyDown={(event) => {
+              if (event.nativeEvent.isComposing) return
+              // The `/` menu gets first refusal: Enter/Tab accept a command
+              // and never send the half-typed draft.
+              if (menu.handleKeyDown(event)) return
+              if (event.key !== `Enter` || event.shiftKey) return
+              event.preventDefault()
+              void send()
+            }}
+            onPaste={(event) => {
+              if (event.clipboardData.files.length === 0) return
+              event.preventDefault()
+              addFiles(Array.from(event.clipboardData.files))
+            }}
+            placeholder={placeholder}
+            className="min-h-20 resize-none border-0 bg-transparent px-3 pt-3 shadow-none focus-visible:ring-0"
+            maxLength={SESSIONS_SEND_TEXT_MAX}
+          />
+          {menu.open && (
+            <SlashCommandMenu
+              commands={menu.candidates}
+              active={menu.active}
+              onSelect={menu.accept}
+              onHover={menu.setActive}
+            />
+          )}
+        </div>
+      </Composer>
       <Prompt
         open={confirming !== null}
         onOpenChange={(next) => {
@@ -439,6 +490,6 @@ export function SessionComposer({
           },
         ]}
       />
-    </Composer>
+    </ComposerFrame>
   )
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { sessionsSendInputSchema } from "@exp/db-schema/domain"
+import { sessionsConfigureInputSchema, sessionsSendInputSchema } from "@exp/db-schema/domain"
 
 // EXP-849: `account` on a message (`sessionId`) is an account SWITCH and may
 // ride alone; every other message still needs text or attachments.
@@ -51,5 +51,34 @@ describe(`sessionsSendInputSchema — an aside`, () => {
         `an aside needs a parentId and a question`
       )
     }
+  })
+})
+
+describe(`sessionsConfigureInputSchema (EXP-1334)`, () => {
+  it(`takes any one option, a null effort included`, () => {
+    for (const option of [
+      { planMode: true },
+      { effort: null },
+      { effort: `high` },
+      { ultracode: false },
+      { computerUse: true },
+      { mcpServerIds: [] },
+    ]) {
+      expect(sessionsConfigureInputSchema.safeParse({ sessionId: SESSION, ...option }).success).toBe(true)
+    }
+  })
+
+  it(`refuses nothing to configure and a non-uuid MCP pick`, () => {
+    expect(sessionsConfigureInputSchema.safeParse({ sessionId: SESSION }).success).toBe(false)
+    expect(
+      sessionsConfigureInputSchema.safeParse({ sessionId: SESSION, mcpServerIds: [`linear`] }).success
+    ).toBe(false)
+  })
+})
+
+describe(`sessionsConfigureInputSchema model (EXP-1334)`, () => {
+  it(`takes a model alone, never a blank one`, () => {
+    expect(sessionsConfigureInputSchema.safeParse({ sessionId: SESSION, model: `opus` }).success).toBe(true)
+    expect(sessionsConfigureInputSchema.safeParse({ sessionId: SESSION, model: `` }).success).toBe(false)
   })
 })

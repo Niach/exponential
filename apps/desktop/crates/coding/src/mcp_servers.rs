@@ -75,6 +75,11 @@ pub struct ResolvedMcp {
     /// FEED-73: an ACTION run's per-server member roster (who shared, who
     /// did not); empty for every other run. Feeds [`delegation_note`].
     pub members: Vec<McpMember>,
+    /// EXP-1334: the team MCP pick this resolution answered for — every id
+    /// the server resolved or skipped, sorted and deduped (the row's
+    /// `mcp_server_ids`, read back as `sessions.mcpPicks`). `None` = not
+    /// resolved (the call failed): a live run never compares it.
+    pub pick: Option<Vec<String>>,
 }
 
 impl ResolvedMcp {
@@ -262,8 +267,18 @@ pub fn resolve(trpc: &TrpcClient, ids: Option<&[String]>, session_id: &str) -> R
 /// `actor` carried onto its wire, `skipped` + `warnings` folded into
 /// [`ResolvedMcp::warnings`], `members` copied.
 pub fn resolve_with(resolution: &McpLaunchResolution, ids: Option<&[String]>) -> ResolvedMcp {
+    let mut pick: Vec<String> = resolution
+        .servers
+        .iter()
+        .map(|server| server.id.clone())
+        .chain(resolution.skipped.iter().map(|skipped| skipped.id.clone()))
+        .filter(|id| !id.is_empty())
+        .collect();
+    pick.sort_unstable();
+    pick.dedup();
     let mut resolved = ResolvedMcp {
         members: resolution.members.clone(),
+        pick: Some(pick),
         ..ResolvedMcp::default()
     };
     let mut servers: Vec<&McpLaunchServer> = resolution.servers.iter().collect();
@@ -551,6 +566,29 @@ mod tests {
         let resolved = resolve_with(&resolution, Some(&["s1".to_string()]));
         assert!(resolved.servers.is_empty());
         assert!(resolved.warnings[0].contains("reserved"));
+    }
+
+    /// EXP-1334: the pick a resolution answered for = every resolved and
+    /// skipped id (a reserved name included), sorted and deduped — the
+    /// baseline a live run compares `sessions.mcpPicks` against.
+    #[test]
+    fn a_resolution_records_the_pick_it_answered_for() {
+        let resolution = McpLaunchResolution {
+            servers: vec![
+                http("s-b", "Linear", Vec::new()),
+                http("s-b", "Linear-as-ada", Vec::new()),
+                http("s-c", "Codemode", Vec::new()),
+            ],
+            skipped: vec![McpSkippedServer {
+                id: "s-a".to_string(),
+                name: "Sentry".to_string(),
+                reason: "not connected".to_string(),
+            }],
+            ..McpLaunchResolution::default()
+        };
+        let resolved = resolve_with(&resolution, None);
+        assert_eq!(resolved.pick, Some(vec!["s-a".to_string(), "s-b".to_string(), "s-c".to_string()]));
+        assert_eq!(resolve_with(&McpLaunchResolution::default(), None).pick, Some(Vec::new()));
     }
 
     /// EXP-1236: the host's own client gets the VALUES the agents' `${VAR}`

@@ -12,9 +12,10 @@ import {
   Menu,
   MenuGestureHost,
   menuProps,
+  StripChip,
+  StripOverflowButton,
   type MenuSessionProps,
 } from "@exp/ui"
-import { cn } from "@/lib/utils"
 import {
   closeTabs,
   isNewRunPath,
@@ -56,7 +57,9 @@ import { AgentIcon } from "@/components/team/sidebar-agents"
 //   * every chip closes — its ×, a middle click, and Close / Close others /
 //     Close all all reach it;
 //   * chips that do not fit collapse into a trailing "+N" menu
-//     (`partitionTabs`, measured against the real chips);
+//     (`partitionTabs`, the contract's, measured against the real chips);
+//   * EXP-1334: every chip is THE strip chip (`StripChip`), the thread
+//     header's chip box — one tab component for both strips;
 //   * EXP-1255: a chip's × shows only while the tab is hovered (or the × has
 //     keyboard focus); a ghost "+" after the last tab opens the New session
 //     tab — the home composer (`openNewRunPage`, Alt/Option+T too).
@@ -381,70 +384,52 @@ export function WorkTabsStrip({
     // it, exactly like its ×. The mousedown is swallowed too, or Chrome opens
     // its autoscroll cursor (and a middle click on the label's anchor role
     // would try a new tab) before the auxclick ever lands.
+    // EXP-1334: THE strip chip (`@exp/ui` `StripChip`), the thread header's
+    // chip box: lead · mono identifier · title, the × as its trailing part.
     const body = (
-      <div
+      <StripChip
         key={chip.key}
-        data-testid={interactive ? `work-tab-${chip.key}` : undefined}
-        // A right-click (or long-press) opens the tab menu through the
-        // strip's gesture host, the way issue rows open theirs.
-        {...(interactive ? menuProps(TAB_MENU_KIND, chip.key) : {})}
-        data-active={active || undefined}
-        onMouseDown={
-          interactive
+        active={active}
+        lead={chip.lead}
+        identifier={chip.identifier}
+        label={<ChipTitle title={chip.title} />}
+        tabIndex={interactive ? undefined : -1}
+        aria-current={active ? `page` : undefined}
+        onClick={interactive ? () => open(chip.tab) : undefined}
+        boxClassName="group/tab shrink-0"
+        boxProps={{
+          "data-testid": interactive ? `work-tab-${chip.key}` : undefined,
+          // A right-click (or long-press) opens the tab menu through the
+          // strip's gesture host, the way issue rows open theirs.
+          ...(interactive ? menuProps(TAB_MENU_KIND, chip.key) : {}),
+          onMouseDown: interactive
             ? (event) => {
                 if (event.button === 1) event.preventDefault()
               }
-            : undefined
-        }
-        onAuxClick={
-          interactive
+            : undefined,
+          onAuxClick: interactive
             ? (event) => {
                 if (event.button !== 1) return
                 event.preventDefault()
                 event.stopPropagation()
                 close([chip.key])
               }
-            : undefined
+            : undefined,
+        }}
+        trailing={
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            tabIndex={interactive ? undefined : -1}
+            // EXP-1255: hover-only, every tab; keyboard focus shows it too.
+            className="mr-1 shrink-0 opacity-0 group-hover/tab:opacity-100 focus-visible:opacity-100"
+            aria-label="Close tab"
+            onClick={interactive ? () => close([chip.key]) : undefined}
+          >
+            <UiCloseIcon />
+          </Button>
         }
-        className={cn(
-          `group/tab flex h-8 max-w-[15rem] shrink-0 items-center rounded-md border border-transparent`,
-          active
-            ? `border-glass-stroke-card bg-glass-active text-foreground`
-            : `text-muted-foreground hover:bg-glass-active hover:text-foreground`
-        )}
-      >
-        <Button
-          variant="ghost"
-          size="sm"
-          tabIndex={interactive ? undefined : -1}
-          className="h-8 min-w-0 flex-1 justify-start gap-1.5 bg-transparent! pr-1 pl-2 font-normal transition-none"
-          onClick={interactive ? () => open(chip.tab) : undefined}
-          aria-current={active ? `page` : undefined}
-        >
-          <span className="flex size-3.5 shrink-0 items-center justify-center">
-            {chip.lead}
-          </span>
-          {chip.identifier && (
-            <span className="shrink-0 font-mono text-xs text-muted-foreground">
-              {chip.identifier}
-            </span>
-          )}
-          <span className="min-w-0 truncate text-sm">
-            <ChipTitle title={chip.title} />
-          </span>
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          tabIndex={interactive ? undefined : -1}
-          // EXP-1255: hover-only, every tab; keyboard focus shows it too.
-          className="mr-1 shrink-0 opacity-0 group-hover/tab:opacity-100 focus-visible:opacity-100"
-          aria-label="Close tab"
-          onClick={interactive ? () => close([chip.key]) : undefined}
-        >
-          <UiCloseIcon />
-        </Button>
-      </div>
+      />
     )
     return body
   }
@@ -491,16 +476,13 @@ export function WorkTabsStrip({
         >
           {chips.map((chip) => renderChip(chip, false))}
         </div>
-        <Button
+        <StripOverflowButton
           ref={overflowMeasureRef}
           aria-hidden
           tabIndex={-1}
-          variant="ghost"
-          size="sm"
-          className="pointer-events-none invisible absolute top-0 left-0 px-2"
-        >
-          +{Math.max(chips.length, 1)}
-        </Button>
+          count={Math.max(chips.length, 1)}
+          className="pointer-events-none invisible absolute top-0 left-0"
+        />
 
         <div ref={containerRef} className="flex min-w-0 flex-1 items-center gap-1">
           {chips.map((chip, index) =>
@@ -533,14 +515,10 @@ export function WorkTabsStrip({
                 onSelect: () => open(chip.tab),
               }))}
               trigger={
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="shrink-0 px-2 text-muted-foreground"
+                <StripOverflowButton
+                  count={hidden.length}
                   aria-label={`${hidden.length} more tabs`}
-                >
-                  +{hidden.length}
-                </Button>
+                />
               }
             />
           )}

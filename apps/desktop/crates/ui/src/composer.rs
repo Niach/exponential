@@ -19,10 +19,10 @@
 //! EXP-790: the submit slot is one round button that is either Send or
 //! Stop ([`SubmitKind`]): same ring, the glyph swaps.
 //!
-//! EXP-877: the steer composer's model and context controls ride the card's
-//! OWN bottom row, as on web ([`SessionComposerControls`]): the "+", the
-//! model pin and the plan read on the left, the context ring just before the
-//! round button on the right (EXP-1294; nothing sits under the card).
+//! EXP-1334: the card's bottom row holds the inline TOOLS (the "+" options
+//! menu, attach, `#`, emoji) and the round button; the run's controls
+//! ([`SessionComposerControls`]: the model pin, the Plan switch, the usage
+//! ring) sit UNDER the card, like Home's options line.
 //!
 //! Every slot is optional except the field; the caller owns all state and
 //! handlers, this only lays the card out.
@@ -54,7 +54,6 @@ pub(crate) struct GlassComposer {
     leading: Option<AnyElement>,
     strip: Option<AnyElement>,
     tools: Vec<AnyElement>,
-    trailing: Vec<AnyElement>,
     submit: Option<AnyElement>,
 }
 
@@ -83,7 +82,6 @@ impl GlassComposer {
             leading: None,
             strip: None,
             tools: Vec::new(),
-            trailing: Vec::new(),
             submit: None,
         }
     }
@@ -109,13 +107,6 @@ impl GlassComposer {
         self
     }
 
-    /// One element of the bottom row's RIGHT cluster, just before the
-    /// submit (the session composer's context ring; web's submit slot).
-    pub(crate) fn trailing(mut self, trailing: impl Into<AnyElement>) -> Self {
-        self.trailing.push(trailing.into());
-        self
-    }
-
     /// The trailing round ghost submit ([`composer_submit`]).
     pub(crate) fn submit(mut self, submit: impl Into<AnyElement>) -> Self {
         self.submit = Some(submit.into());
@@ -132,7 +123,6 @@ pub(crate) fn glass_composer(composer: GlassComposer) -> Div {
         leading,
         strip,
         tools,
-        trailing,
         submit,
     } = composer;
     let card = v_flex()
@@ -161,7 +151,6 @@ pub(crate) fn glass_composer(composer: GlassComposer) -> Div {
             .items_center()
             .children(tools)
             .child(div().flex_1())
-            .children(trailing)
             .children(submit),
     )
 }
@@ -410,25 +399,21 @@ pub(crate) fn session_composer_box(props: SessionComposerBox, cx: &App) -> AnyEl
         plan,
         context_ring,
     } = controls;
-    // Web `ml-1` on the pin and `ml-2` on the plan read, over the row's own
-    // gap (web 2px, here 4px).
-    if let Some(pin) = model_pin {
-        composer = composer.tool(div().flex_shrink_0().ml(px(2.)).child(pin).into_any_element());
-    }
-    if let Some(plan) = plan {
-        composer = composer.tool(
-            div()
-                .flex_shrink_0()
-                .ml(px(4.))
-                .text_xs()
-                .text_color(t::BLUE.to_hsla())
-                .child(plan)
-                .into_any_element(),
-        );
-    }
-    if let Some(ring) = context_ring {
-        composer = composer.trailing(ring);
-    }
+    // EXP-1334: the options line UNDER the card (Home's): model · Plan, the
+    // usage ring right-aligned.
+    let options = (model_pin.is_some() || plan.is_some() || context_ring.is_some()).then(|| {
+        h_flex()
+            .w_full()
+            .min_w_0()
+            .px_1()
+            .pt_1p5()
+            .gap_2()
+            .items_center()
+            .children(model_pin)
+            .children(plan)
+            .child(div().flex_1())
+            .children(context_ring)
+    });
     let SessionComposerSubmit {
         id,
         kind,
@@ -459,7 +444,8 @@ pub(crate) fn session_composer_box(props: SessionComposerBox, cx: &App) -> AnyEl
                 .min_w_0()
                 .max_w(px(crate::work_header::WORK_COLUMN_W))
                 .px(px(crate::work_header::WORK_GUTTER))
-                .child(card),
+                .child(card)
+                .children(options),
         )
         .into_any_element()
 }
@@ -474,15 +460,15 @@ pub(crate) fn session_composer_box(props: SessionComposerBox, cx: &App) -> AnyEl
 
 /// EXP-877 — the run's controls in THE session composer's bottom row
 /// (web `session-composer.tsx`): [`session_model_pin`] and the plan read
-/// (`plan`, never on a dispatcher root) right after the "+",
-/// [`session_context_ring`] right-aligned just before Send. Everything here
-/// is ABOUT the run rather than part of the message.
+/// (`plan`) and [`session_context_ring`] right-aligned, on the options line
+/// UNDER the card (EXP-1334). Everything here is ABOUT the run rather than
+/// part of the message.
 #[derive(Default)]
 pub(crate) struct SessionComposerControls {
     pub(crate) model_pin: Option<AnyElement>,
-    /// The read-only plan read (`config_state.currentMode`'s label, web
-    /// `planModeChipLabel`, else "Plan" off the row before the run reports).
-    pub(crate) plan: Option<SharedString>,
+    /// EXP-1334: the Plan switch (`sessions.configure({planMode})`, live
+    /// mid-session), or a read-only label where the run cannot change it.
+    pub(crate) plan: Option<AnyElement>,
     pub(crate) context_ring: Option<AnyElement>,
 }
 

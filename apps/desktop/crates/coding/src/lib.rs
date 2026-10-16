@@ -145,7 +145,7 @@ pub use launcher::{
     prepare_agent_shell, record_last_used, session_branch, session_label, session_launch_options,
     AcpLaunch, ACP_TRANSPORT, AgentShellLaunch, AgentShellRequest, CodingDeps, CodingError,
     DisabledReason, GitWorktrees, LaunchOutcome, Prepared, PreparedAgentShell, PrepareRequest,
-    PreparedLaunch, ResumeRun, ResumeSeed, SessionEndObserver, SessionLaunchRequest,
+    PreparedLaunch, ResumeReconfigure, ResumeRun, ResumeSeed, SessionEndObserver, SessionLaunchRequest,
     WorktreeProvider, SESSION_BRANCH_PREFIX,
 };
 pub use run_cleanup::{remove_if_clean, CleanupOutcome, RunCleanup};

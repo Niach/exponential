@@ -1,6 +1,7 @@
 package com.exponential.app.domain
 
 import com.exponential.app.data.db.IssueEntity
+import com.exponential.app.data.db.IssueRelationEntity
 import com.exponential.app.data.db.MessageEntity
 import com.exponential.app.data.db.PullRequestEntity
 import com.exponential.app.data.db.SessionEntity
@@ -69,7 +70,9 @@ object SessionTree {
 
     data class SessionIssue(val sessionId: String, val issueId: String, val sortOrder: Double)
 
-    data class Issue(val id: String, val identifier: String, val title: String)
+    /** [parentId] (EXP-1334) = the issue's `parent` relation (null = none):
+     *  a linked sub-issue folds under its nearest LINKED ancestor. */
+    data class Issue(val id: String, val identifier: String, val title: String, val parentId: String? = null)
 
     data class Message(
         val id: String,
@@ -123,7 +126,7 @@ object SessionTree {
 
     object ThreadCopy {
         const val UNTITLED = "Untitled"
-        const val PLACEHOLDER = "Reply…"
+        const val PLACEHOLDER = "Type / for commands"
         const val CONVERSATION = "Conversation"
         const val GUIDE = "Guide"
         /** Event card templates by contract `messageEventKind`. */
@@ -350,12 +353,28 @@ object SessionTree {
 
     // ── the thread screen ───────────────────────────────────────────────────
 
+    /** EXP-1334: one row of a folded chip's subtree; [depth] relative to the chip. */
+    data class NestedIssue(val issueId: String, val identifier: String, val depth: Int)
+
+    data class NestedSession(val sessionId: String, val name: String, val markState: SessionState, val depth: Int)
+
     sealed interface ThreadTab {
-        data object Conversation : ThreadTab
-        data class IssueTab(val issueId: String, val identifier: String) : ThreadTab
         data object Add : ThreadTab
-        /** EXP-1316: a session chip of the viewed level; [markState] = its lead. */
-        data class SessionTab(val sessionId: String, val name: String, val markState: SessionState) : ThreadTab
+        data object Conversation : ThreadTab
+        /** EXP-1334: a TOP-LEVEL linked issue; [nested] = the linked sub-issues folded under it. */
+        data class IssueTab(
+            val issueId: String,
+            val identifier: String,
+            val nested: List<NestedIssue> = emptyList(),
+        ) : ThreadTab
+        /** EXP-1334: a DIRECT child of the dispatcher; [markState] = its lead,
+         *  [nested] = every deeper session folded under it. */
+        data class SessionTab(
+            val sessionId: String,
+            val name: String,
+            val markState: SessionState,
+            val nested: List<NestedSession> = emptyList(),
+        ) : ThreadTab
         data class Guide(val dot: Boolean) : ThreadTab
     }
 
@@ -395,6 +414,8 @@ object SessionTree {
 
         data class Question(
             override val id: String,
+            /** EXP-1334: the session whose card it is (the root, or a child). */
+            val sessionId: String,
             val question: String,
             val options: List<QuestionChoice>,
             /** A free-text "Other" answer is offered (always, EXP-1316). */
@@ -406,7 +427,7 @@ object SessionTree {
         /** One choice of a question card: the answer is the [label] (EXP-1322). */
         data class QuestionChoice(val label: String, val description: String?)
 
-        data class Plan(override val id: String, val plan: String, val decision: String?) : ThreadRow
+        data class Plan(override val id: String, val sessionId: String, val plan: String, val decision: String?) : ThreadRow
 
         data class Subagent(override val id: String, val title: String, val status: String) : ThreadRow
 
@@ -542,12 +563,55 @@ object SessionTree {
 
     private val messageOrder = compareBy<Message>({ ms(it.createdAt) ?: 0L }, { it.id })
 
+    /** Depth-first walk of a forest given each node's FOLD parent (null = a
+     *  top-level node), children in the given order. */
+    private fun <T> foldForest(
+        items: List<T>,
+        id: (T) -> String,
+        foldParent: (T) -> String?,
+    ): List<Pair<T, List<Pair<T, Int>>>> {
+        val children = LinkedHashMap<String?, MutableList<T>>()
+        for (item in items) children.getOrPut(foldParent(item)) { mutableListOf() }.add(item)
+        val seen = mutableSetOf<String>()
+        fun fold(top: T): Pair<T, List<Pair<T, Int>>> {
+            val nested = mutableListOf<Pair<T, Int>>()
+            seen.add(id(top))
+            fun walk(parentId: String, depth: Int) {
+                for (child in children[parentId].orEmpty()) {
+                    if (!seen.add(id(child))) continue
+                    nested.add(child to depth)
+                    walk(id(child), depth + 1)
+                }
+            }
+            walk(id(top), 1)
+            return top to nested.toList()
+        }
+        val out = children[null].orEmpty().map(::fold).toMutableList()
+        // A fold-parent cycle (a ↔ b) reaches no top: its first unreached
+        // item (input order) becomes a top-level chip, the rest fold under it.
+        for (item in items) if (id(item) !in seen) out.add(fold(item))
+        return out
+    }
+
+    /** EXP-1334: a linked issue's fold parent = its nearest LINKED ancestor
+     *  (an unlinked parent is skipped; a cycle or none = top-level). */
+    private fun issueFoldParent(issue: Issue, linked: Set<String>, all: Map<String, Issue>): String? {
+        val seen = mutableSetOf(issue.id)
+        var parent = issue.parentId
+        while (parent != null && parent !in seen) {
+            if (parent in linked) return parent
+            seen.add(parent)
+            parent = all[parent]?.parentId
+        }
+        return null
+    }
+
     /**
-     * The thread screen: the header tabs (Conversation · one chip per issue ·
-     * + · session chips · Guide; the session chips = the viewed level: the
-     * root's own run + its direct children, or with [focus] that session +
-     * ITS direct children), the root's conversation as rows (the root's own session
-     * card first, then its messages oldest first; a `session` /
+     * The thread screen (EXP-1334: the conversation IS the dispatcher): the
+     * header tabs (+ · Conversation · top-level issue chips (sub-issues
+     * folded) · the dispatcher's direct children (deeper sessions folded) ·
+     * Guide), the root's conversation as rows (its messages oldest first plus
+     * the children's own question / plan cards; a `session` /
      * `thread_started` card becomes that session's card) and the composer
      * target (the root: a message to an ended thread continues it).
      */
@@ -572,17 +636,45 @@ object SessionTree {
         val own = messages.filter { it.sessionId == root.id }.sortedWith(messageOrder)
         val title = threadTitle(root, linked, own)
         val focused = focus?.let { id -> tree.firstOrNull { it.id == id } }
-        val level = focused ?: root
-        val sessionTabs = (listOf(level) + tree.filter { it.parentId == level.id && it.id != level.id }).map {
+        // EXP-1334: the conversation IS the dispatcher (no chip of its own);
+        // the chips = its DIRECT children, every deeper session folded under
+        // its top-level ancestor (the chip's dropdown).
+        fun nameOf(s: Session) = sessionCard(s, ordinals[s.id] ?: 1, now).name
+        val treeIds = tree.map { it.id }.toSet()
+        val sessionTabs = foldForest(
+            tree.filter { it.id != root.id },
+            { it.id },
+            { s -> if (s.parentId == root.id || s.parentId == null || s.parentId !in treeIds) null else s.parentId },
+        ).map { (top, nested) ->
             ThreadTab.SessionTab(
-                sessionId = it.id,
-                name = sessionCard(it, ordinals[it.id] ?: 1, now).name,
-                markState = sessionTabMarkState(it),
+                sessionId = top.id,
+                name = nameOf(top),
+                markState = sessionTabMarkState(top),
+                nested = nested.map { (item, depth) ->
+                    NestedSession(item.id, nameOf(item), sessionTabMarkState(item), depth)
+                },
+            )
+        }
+        val linkedIds = linked.map { it.id }.toSet()
+        val issueTabs = foldForest(linked, { it.id }, { issueFoldParent(it, linkedIds, issueMap) }).map { (top, nested) ->
+            ThreadTab.IssueTab(
+                issueId = top.id,
+                identifier = top.identifier,
+                nested = nested.map { (item, depth) -> NestedIssue(item.id, item.identifier, depth) },
             )
         }
 
-        val rows = mutableListOf<ThreadRow>(ThreadRow.SessionRow(root.id, sessionCard(root, 1, now)))
-        for (message in own) {
+        // EXP-1334: no root card; a CHILD's own question / plan card surfaces
+        // in the Conversation (answered here, straight back to that child).
+        val asks = messages.filter { m ->
+            m.sessionId != root.id && m.sessionId in treeIds &&
+                m.card?.str("kind").let {
+                    it == DomainContract.messageCardKindQuestion || it == DomainContract.messageCardKindPlan
+                }
+        }
+        val conversation = (own + asks).sortedWith(messageOrder)
+        val rows = mutableListOf<ThreadRow>()
+        for (message in conversation) {
             val card = message.card
             if (card == null) {
                 val author = when (message.authorKind) {
@@ -610,6 +702,7 @@ object SessionTree {
                 DomainContract.messageCardKindQuestion -> rows.add(
                     ThreadRow.Question(
                         id = message.id,
+                        sessionId = message.sessionId,
                         question = card.text("question"),
                         // EXP-1322: `options` = plain labels, descriptions ride the parallel
                         // `optionDescriptions` sidecar (null / "" = none), zipped by ORIGINAL
@@ -627,7 +720,7 @@ object SessionTree {
                     ),
                 )
                 DomainContract.messageCardKindPlan -> rows.add(
-                    ThreadRow.Plan(id = message.id, plan = card.text("plan"), decision = card.str("decision")),
+                    ThreadRow.Plan(id = message.id, sessionId = message.sessionId, plan = card.text("plan"), decision = card.str("decision")),
                 )
                 DomainContract.messageCardKindSubagent -> rows.add(
                     ThreadRow.Subagent(id = message.id, title = card.text("title"), status = card.text("status")),
@@ -679,9 +772,9 @@ object SessionTree {
             private = !root.shared,
             focusId = focused?.id,
             tabs = buildList {
-                add(ThreadTab.Conversation)
-                linked.forEach { add(ThreadTab.IssueTab(it.id, it.identifier)) }
                 add(ThreadTab.Add)
+                add(ThreadTab.Conversation)
+                addAll(issueTabs)
                 addAll(sessionTabs)
                 add(ThreadTab.Guide(guideDot))
             },
@@ -909,6 +1002,97 @@ object SessionTree {
      *  session composer's place (`composerCases`). */
     fun composerYieldsToCard(live: Boolean, pendingAsk: Boolean): Boolean = live && pendingAsk
 
+    // ── EXP-1334: the thread strip never scrolls ────────────────────────────
+
+    /**
+     * Which chips get drawn, in order; the rest collapse into one "+N" (the
+     * desktop's `partition_tabs`): chips pack in order until the next would
+     * not fit; the overflow chip's width is reserved only once something
+     * overflows; the ACTIVE chip is always visible; one chip always survives.
+     */
+    fun partitionTabs(
+        widths: List<Float>,
+        available: Float,
+        gap: Float,
+        overflowW: Float,
+        activeIndex: Int?,
+    ): List<Int> {
+        val count = widths.size
+        val room = maxOf(available, 0f)
+        val total = widths.sum() + gap * maxOf(count - 1, 0)
+        if (total <= room) return widths.indices.toList()
+        val budget = maxOf(room - overflowW - gap, 0f)
+        val visible = mutableListOf<Int>()
+        var used = if (activeIndex == null) 0f else widths[activeIndex]
+        var chips = if (activeIndex == null) 0 else 1
+        for (index in 0 until count) {
+            if (index == activeIndex) {
+                visible.add(index)
+                continue
+            }
+            val next = used + widths[index] + (if (chips > 0) gap else 0f)
+            if (next > budget && chips > 0) break
+            visible.add(index)
+            used = next
+            chips += 1
+        }
+        if (activeIndex != null && activeIndex !in visible) visible.add(activeIndex)
+        if (visible.isEmpty() && count > 0) visible.add(0)
+        return visible
+    }
+
+    enum class StripTier(val wire: String) { Full("full"), Short("short"), Fold("fold") }
+
+    /** One issue chip's two measured widths: identifier + title, identifier alone. */
+    data class StripIssueWidth(val full: Float, val short: Float)
+
+    /** [issues] / [sessions] = the indexes of the chips drawn (strip order). */
+    data class ThreadStripLayout(val tier: StripTier, val issues: List<Int>, val sessions: List<Int>)
+
+    /**
+     * EXP-1334: the strip between Conversation and Guide (both pinned, never
+     * scrolled): issues then sessions, one [gap] between the zones. Tiers:
+     * everything full → every issue short → fold: the sessions keep their OWN
+     * room (what the short issues leave, at least half), each zone packs with
+     * [partitionTabs] and its own "+N" ([overflowW]). Replays `stripCases`.
+     */
+    fun partitionThreadStrip(
+        issues: List<StripIssueWidth>,
+        sessions: List<Float>,
+        available: Float,
+        gap: Float,
+        overflowW: Float,
+        activeIssue: Int?,
+        activeSession: Int?,
+    ): ThreadStripLayout {
+        val room = maxOf(available, 0f)
+        fun span(widths: List<Float>) = if (widths.isEmpty()) 0f else widths.sum() + gap * (widths.size - 1)
+        val sep = if (issues.isNotEmpty() && sessions.isNotEmpty()) gap else 0f
+        val sessionSpan = span(sessions)
+        val full = issues.map { it.full }
+        val short = issues.map { it.short }
+        if (span(full) + sep + sessionSpan <= room) {
+            return ThreadStripLayout(StripTier.Full, issues.indices.toList(), sessions.indices.toList())
+        }
+        if (span(short) + sep + sessionSpan <= room) {
+            return ThreadStripLayout(StripTier.Short, issues.indices.toList(), sessions.indices.toList())
+        }
+        fun zone(widths: List<Float>, budget: Float, active: Int?): Pair<List<Int>, Float> {
+            val shown = partitionTabs(widths, budget, gap, overflowW, active)
+            val used = span(shown.map { widths[it] }) + if (shown.size < widths.size) gap + overflowW else 0f
+            return shown to used
+        }
+        val sessionBudget = if (issues.isEmpty()) {
+            room
+        } else {
+            minOf(sessionSpan, maxOf(room / 2, room - span(short) - sep))
+        }
+        val (shownSessions, usedSessions) = zone(sessions, sessionBudget, activeSession)
+        val issueBudget = room - if (sessions.isNotEmpty()) usedSessions + sep else 0f
+        val (shownIssues, _) = zone(short, issueBudget, activeIssue)
+        return ThreadStripLayout(StripTier.Fold, shownIssues, shownSessions)
+    }
+
     /** EXP-1309/1318 (`threads-list.json` `copy.words`): a Threads row's ONE
      *  quiet word ([wire] = the fixture key); the lock rides beside it. */
     enum class ThreadRowWord(val wire: String, val text: String) {
@@ -1048,7 +1232,20 @@ object SessionTree {
     fun sessionIssue(row: SessionIssueEntity): SessionIssue =
         SessionIssue(sessionId = row.sessionId, issueId = row.issueId, sortOrder = row.sortOrder)
 
-    fun issue(row: IssueEntity): Issue = Issue(id = row.id, identifier = row.identifier, title = row.title)
+    fun issue(row: IssueEntity, parentId: String? = null): Issue =
+        Issue(id = row.id, identifier = row.identifier, title = row.title, parentId = parentId)
+
+    /** EXP-1334: child → parent off the synced `parent` relations
+     *  (`issue_id` = the parent); several parents = the lowest id wins. */
+    fun issueParents(relations: List<IssueRelationEntity>): Map<String, String> {
+        val parents = HashMap<String, String>()
+        for (relation in relations) {
+            if (relation.type != DomainContract.issueRelationTypeParent || relation.issueId == relation.relatedIssueId) continue
+            val current = parents[relation.relatedIssueId]
+            if (current == null || relation.issueId < current) parents[relation.relatedIssueId] = relation.issueId
+        }
+        return parents
+    }
 
     fun message(row: MessageEntity): Message = Message(
         id = row.id,

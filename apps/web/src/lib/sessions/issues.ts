@@ -3,6 +3,7 @@ import { and, eq, inArray, sql } from "drizzle-orm"
 import type { SessionIssueSource } from "@exp/db-schema/domain"
 import { boards, issues, sessionIssues, sessions } from "@/db/schema"
 import { boardVisible } from "@/lib/board-visibility"
+import { applyIssuesStartedInTx } from "@/lib/integrations/pr-sync"
 import { postSystemCard } from "@/lib/sessions/messages"
 import type { Tx } from "@/lib/sessions/tx"
 
@@ -10,7 +11,9 @@ import type { Tx } from "@/lib/sessions/tx"
 // a child's link lands on its root, so the thread header lists one set. Each
 // NEW link posts an `event` card on the root (`issue_linked`, or
 // `issue_filed` when the agent created the issue for the thread); a re-link
-// is a no-op. Board + visibility mirrors are trigger-written.
+// is a no-op. Board + visibility mirrors are trigger-written. EXP-1334: every
+// NEW link (start facets, filed issues, MCP and manual links alike) starts a
+// not-yet-started issue (pr-sync's `started` automation).
 
 async function resolveRoot(tx: Tx, sessionId: string) {
   const [row] = await tx
@@ -90,6 +93,14 @@ export async function linkIssues(
     .onConflictDoNothing({ target: [sessionIssues.sessionId, sessionIssues.issueId] })
     .returning({ issueId: sessionIssues.issueId })
   const linked = inserted.map((row) => row.issueId)
+  await applyIssuesStartedInTx(tx, {
+    issueIds: linked,
+    teamId: root.teamId,
+    actorUserId: args.addedBy,
+    ...(args.source === `agent`
+      ? { origin: { viaMcp: true, sessionId: args.addedBySessionId } }
+      : {}),
+  })
   if (!args.quiet) {
     for (const issueId of linked) {
       await postSystemCard(tx, root.rootId, {
@@ -101,6 +112,23 @@ export async function linkIssues(
     }
   }
   return { linked }
+}
+
+/** EXP-1334: the person's message a MANUAL link posts on the root (one for
+ *  all newly linked issues), so the dispatcher wakes and routes the work. */
+export function manualLinkText(identifiers: string[]): string | null {
+  return identifiers.length ? `Link ${identifiers.map((ident) => `#${ident}`).join(` `)}` : null
+}
+
+/** The identifiers of `issueIds`, in input order. */
+export async function issueIdentifiers(tx: Tx, issueIds: string[]): Promise<string[]> {
+  if (issueIds.length === 0) return []
+  const rows = await tx
+    .select({ id: issues.id, identifier: issues.identifier })
+    .from(issues)
+    .where(inArray(issues.id, issueIds))
+  const byId = new Map(rows.map((row) => [row.id, row.identifier]))
+  return issueIds.map((id) => byId.get(id)).filter((ident): ident is string => !!ident)
 }
 
 export async function unlinkIssue(

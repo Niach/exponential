@@ -4,8 +4,8 @@ import SwiftUI
 
 /// EXP-1295: the strip's menu on a phone — THE Menu in its SHEET
 /// presentation (never an inline popover): the "+" opens it untitled with
-/// Link an issue · New issue; an issue tab's long press titles it with the
-/// identifier and ends in `Unlink <IDENT>` (destructive). A pick hands the
+/// Link an issue · New issue; an issue chip's long press titles it with the
+/// identifier, the same two rows, then `Unlink <IDENT>` (destructive). A pick hands the
 /// action back; the host runs it once the sheet has dismissed (a push or a
 /// second sheet from under a dismissing one is dropped). EXP-1307: the
 /// Guide header's `…` opens it untitled with `guideMenuEntries` — Open on
@@ -41,11 +41,17 @@ struct ThreadMenuSheet: View {
                             row(.closePr, ClosePrCopy.menuItem, icon: AppIcons.prClosed, destructive: true)
                         }
                     }
-                } else if let identifier {
-                    row(.unlink, Self.unlinkLabel(identifier), icon: AppIcons.uiClose, destructive: true)
                 } else {
+                    // EXP-1334: THE thread menu's rows ×4 (desktop
+                    // `thread_menu_rows`): Link an issue · New issue, and on
+                    // an issue chip a separator + Unlink.
                     row(.linkIssue, Self.linkIssueLabel, icon: AppIcons.navSearch)
                     row(.newIssue, Self.newIssueLabel, icon: AppIcons.uiAdd)
+                    if let identifier {
+                        GlassDivider()
+                            .padding(.vertical, 4)
+                        row(.unlink, Self.unlinkLabel(identifier), icon: AppIcons.uiClose, destructive: true)
+                    }
                 }
             }
             .padding(.horizontal, GlassSheetTokens.headerHPadding - GlassMenuTokens.itemHPadding)
@@ -76,5 +82,167 @@ struct ThreadMenuSheet: View {
         case .openGithub: "open-github"
         case .closePr: "close-pr"
         }
+    }
+}
+
+/// EXP-1334: a folded chip's subtree, or a zone's "+N" — THE Menu's sheet:
+/// THE tree rows (`SessionRow` small + `TreeGuides`, the rows the Threads
+/// list nests with). A subtree starts with the chip itself. The shown issue
+/// page is the active row. A pick hands the row back; the host acts once
+/// the sheet has dismissed.
+struct ThreadFoldSheet: View {
+    let fold: ThreadStripFold
+    /// The synced issue behind an issue row (its status glyph and title).
+    var issue: (String) -> IssueEntity? = { _ in nil }
+    /// The issue page on screen (its row is the active one).
+    var shownIssueId: String?
+    let onPick: (ThreadStripFold.Row) -> Void
+
+    var body: some View {
+        GlassSheetChrome(title: fold.title) {
+            let guides = TreeGuides.compute(depths: fold.rows.map(\.depth))
+            VStack(spacing: 0) {
+                ForEach(Array(fold.rows.enumerated()), id: \.element.id) { index, row in
+                    Button {
+                        onPick(row)
+                    } label: {
+                        label(row, guide: guides[index])
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("thread-fold-row-\(row.id)")
+                }
+            }
+            .padding(.horizontal, GlassSheetTokens.headerHPadding - GlassMenuTokens.itemHPadding)
+            .padding(.top, fold.title == nil ? GlassSheetTokens.headerTopPadding : 0)
+            .padding(.bottom, 16)
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("thread-fold-sheet")
+        }
+    }
+
+    @ViewBuilder
+    private func label(_ row: ThreadStripFold.Row, guide: TreeGuide) -> some View {
+        switch row {
+        case let .issue(issueId, identifier, _):
+            let status = IssueStatus.from(issue(issueId)?.status)
+            SessionRow(
+                identifier: identifier,
+                title: issue(issueId)?.title ?? "",
+                guide: guide,
+                active: shownIssueId == issueId
+            ) {
+                AppIcon(status.iconName, size: AppIcon.Size.small)
+                    .foregroundStyle(status.color)
+            }
+        case let .session(_, name, markState, _):
+            SessionRow(title: name, guide: guide, word: markState.word) {
+                ThreadSessionChipMark(state: markState)
+            }
+        }
+    }
+}
+
+/// EXP-1334: THE thread composer's "+" on a phone — composer-menu.json's
+/// rows (`ComposerMenu.composerMenuLayout`, fixture-locked ×4) in THE Menu's
+/// sheet, the same rows before and DURING a session: Implement issue (links
+/// it into this thread, waking the dispatcher) · Add file or image | Effort ›
+/// · Ultracode | MCP servers › · Computer use. Run action has no target in a
+/// running thread (an action STARTS one), so it stays off. Toggles flip in
+/// place (the host sends `sessions.configure`); a hand-off row closes the
+/// sheet and the host opens its picker once it has dismissed.
+struct ThreadComposerPlusMenu: View {
+    let conditions: ComposerMenu.Conditions
+    /// The session's agent (codex words Effort as Reasoning).
+    let agent: String
+    /// The Effort row's value, the MCP row's value.
+    let effortValue: String?
+    let mcpValue: String?
+    @Binding var ultracode: Bool
+    @Binding var computerUse: Bool
+    var addFileEnabled = true
+    let onPick: (ComposerMenu.RowId) -> Void
+
+    private var entries: [ComposerMenu.Entry] {
+        var out: [ComposerMenu.Entry] = []
+        for entry in ComposerMenu.composerMenuLayout(conditions) {
+            if case let .row(row) = entry, row.id == .runAction { continue }
+            if entry == .separator, out.last == nil || out.last == .separator { continue }
+            out.append(entry)
+        }
+        while out.last == .separator { out.removeLast() }
+        return out
+    }
+
+    var body: some View {
+        GlassSheetChrome(title: nil) {
+            VStack(spacing: 0) {
+                ForEach(Array(entries.enumerated()), id: \.offset) { _, entry in
+                    switch entry {
+                    case .separator:
+                        GlassDivider()
+                            .padding(.vertical, 4)
+                    case let .row(row):
+                        menuRow(row)
+                    }
+                }
+            }
+            .padding(.horizontal, GlassSheetTokens.headerHPadding)
+            .padding(.top, GlassSheetTokens.headerTopPadding)
+            .padding(.bottom, 16)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier(ComposerMenu.menuTestId)
+    }
+
+    @ViewBuilder
+    private func menuRow(_ row: ComposerMenu.Row) -> some View {
+        let label = row.label(codex: agent == "codex")
+        switch row.kind {
+        case .toggle:
+            GlassToggleRow(label, isOn: row.id == .ultracode ? $ultracode : $computerUse) {
+                rowIcon(row)
+            }
+            .font(.body)
+            .padding(.horizontal, 12)
+            .frame(minHeight: 48)
+            .accessibilityIdentifier(ComposerMenu.rowTestId(row.id))
+        case .submenu, .item:
+            let disabled = row.id == .effort && agent == "claude" && ultracode
+                || row.id == .addFile && !addFileEnabled
+            Button {
+                onPick(row.id)
+            } label: {
+                HStack(spacing: 12) {
+                    rowIcon(row)
+                    Text(label)
+                        .font(.body)
+                        .foregroundStyle(.white)
+                    Spacer(minLength: 8)
+                    if let value = row.id == .effort ? effortValue : row.id == .mcpServers ? mcpValue : nil {
+                        Text(value)
+                            .font(.subheadline)
+                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                            .lineLimit(1)
+                    }
+                    if row.kind == .submenu {
+                        AppIcon(AppIcons.uiChevronRight, size: 12)
+                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                    }
+                }
+                .padding(.horizontal, 12)
+                .frame(minHeight: 48)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(disabled)
+            .opacity(disabled ? 0.45 : 1)
+            .accessibilityIdentifier(ComposerMenu.rowTestId(row.id))
+        }
+    }
+
+    private func rowIcon(_ row: ComposerMenu.Row) -> some View {
+        AppIcon(ComposerPlusMenu.icon(row.icon), size: 18, weight: .medium)
+            .foregroundStyle(.white.opacity(TextOpacity.secondary))
+            .frame(width: 22)
     }
 }

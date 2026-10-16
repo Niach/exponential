@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import {
   parseIssueIdentifierFromBranch,
   planPrAutomationTransition,
+  subIssueReached,
 } from "@/lib/integrations/pr-sync"
 
 describe(`parseIssueIdentifierFromBranch`, () => {
@@ -172,5 +173,50 @@ describe(`planPrAutomationTransition`, () => {
         target: null,
       })
     ).toEqual({ status: `done` })
+  })
+})
+
+// EXP-1334: a thread link starts its issues; parents wait for sub-issues.
+describe(`the started automation + the issue tree`, () => {
+  const builtinInProgress = { id: `s-in-progress`, builtinKey: `in_progress`, category: `started` as const }
+
+  it(`starts only a not-yet-started issue (backlog + unstarted customs anchor to backlog)`, () => {
+    const plan = (status: string, statusId: string | null = null) =>
+      planPrAutomationTransition({
+        event: `started`,
+        automationEnabled: true,
+        current: { status, statusId },
+        target: builtinInProgress,
+      })
+    expect(plan(`backlog`)).toEqual({ status: `in_progress`, statusId: `s-in-progress` })
+    expect(plan(`in_progress`, `s-custom`)).toBeNull()
+    expect(plan(`in_review`)).toBeNull()
+    expect(plan(`done`)).toBeNull()
+    expect(plan(`cancelled`)).toBeNull()
+  })
+
+  it(`falls back to the bare in_progress anchor without a builtin row`, () => {
+    expect(
+      planPrAutomationTransition({
+        event: `started`,
+        automationEnabled: true,
+        current: { status: `backlog`, statusId: null },
+        target: null,
+      })
+    ).toEqual({ status: `in_progress` })
+  })
+
+  it(`a sub-issue holds its parent back until it reaches the event's stage`, () => {
+    const at = (status: string, statusId: string | null = null) => ({ status, statusId })
+    expect(subIssueReached(`opened`, at(`in_progress`), `s-review`)).toBe(false)
+    expect(subIssueReached(`opened`, at(`in_review`), `s-review`)).toBe(true)
+    expect(subIssueReached(`opened`, at(`done`), null)).toBe(true)
+    // A custom PR-open target anchors to in_progress: the exact row counts.
+    expect(subIssueReached(`opened`, at(`in_progress`, `s-review`), `s-review`)).toBe(true)
+    expect(subIssueReached(`merged`, at(`in_review`), `s-done`)).toBe(false)
+    expect(subIssueReached(`merged`, at(`done`), `s-done`)).toBe(true)
+    // A resolution never blocks.
+    expect(subIssueReached(`merged`, at(`cancelled`), null)).toBe(true)
+    expect(subIssueReached(`merged`, at(`duplicate`), null)).toBe(true)
   })
 })

@@ -7,9 +7,15 @@ import type { SessionRow } from "@/lib/session-tree"
 // message into the session — exactly as the IDE, iOS and Android do; every
 // other draft is the ordinary `sessions.send({sessionId})`. The relay store,
 // the synced row and tRPC are stubbed: this pins the SEND path.
+//
+// EXP-1334: the ONE composer — the "+" is the options menu (never the file
+// chooser), mid-session options ride `sessions.configure`, and the options
+// line under the card carries the model pin (a pick = `/model <alias>`,
+// shown at once) and the Plan switch.
 
 const mocks = vi.hoisted(() => ({
   send: vi.fn(),
+  configure: vi.fn(),
   toastActionError: vi.fn(),
   toastError: vi.fn(),
   row: null as unknown,
@@ -19,6 +25,8 @@ vi.mock(`@/lib/trpc-client`, () => ({
   trpc: {
     sessions: {
       send: { mutate: mocks.send },
+      configure: { mutate: mocks.configure },
+      mcpPicks: { query: () => Promise.resolve({ mcpServerIds: [] }) },
       stop: { mutate: vi.fn() },
     },
   },
@@ -30,6 +38,13 @@ vi.mock(`@tanstack/react-db`, async (importOriginal) => {
 vi.mock(`@/lib/collections`, () => ({
   deviceCollection: {},
   messageCollection: { utils: { awaitTxId: () => Promise.resolve() } },
+  sessionCollection: { utils: { awaitTxId: () => Promise.resolve() } },
+}))
+vi.mock(`@/hooks/use-mcp-servers`, () => ({
+  useMcpServers: () => ({ servers: [] }),
+}))
+vi.mock(`@/hooks/use-team-data`, () => ({
+  useTeamById: () => ({ slug: `acme` }),
 }))
 vi.mock(`@/hooks/use-session-tree`, () => ({
   useSessionRow: () => ({ row: mocks.row, isReady: true }),
@@ -110,6 +125,7 @@ function pressEnter(field: HTMLTextAreaElement) {
 
 beforeEach(() => {
   mocks.send.mockReset()
+  mocks.configure.mockReset()
   mocks.toastActionError.mockReset()
   mocks.toastError.mockReset()
   mocks.row = sessionRow()
@@ -171,5 +187,102 @@ describe(`SessionComposer /btw`, () => {
     await waitFor(() => expect(mocks.send).toHaveBeenCalledTimes(1))
     expect(mocks.send.mock.calls[0]![0]).toMatchObject({ sessionId: `s1`, text: `Ship it` })
     expect(mocks.send.mock.calls[0]![0]).not.toHaveProperty(`aside`)
+  })
+})
+
+// Radix opens a dropdown on the trigger's pointer DOWN.
+function pointerOpen(element: HTMLElement) {
+  act(() => {
+    fireEvent.pointerDown(element, { button: 0, ctrlKey: false, pointerType: `mouse` })
+  })
+}
+
+describe(`SessionComposer, the one composer (EXP-1334)`, () => {
+  it(`the "+" opens the options menu, never the file chooser, and no subject rows`, () => {
+    const click = vi.spyOn(HTMLInputElement.prototype, `click`)
+    renderComposer()
+    pointerOpen(screen.getByTestId(`agent-composer-plus-button`))
+    expect(click).not.toHaveBeenCalled()
+    const menu = screen.getByTestId(`agent-composer-menu`)
+    expect(menu.querySelector(`[data-testid="agent-composer-menu-effort"]`)).toBeTruthy()
+    expect(menu.querySelector(`[data-testid="agent-composer-menu-ultracode"]`)).toBeTruthy()
+    expect(menu.querySelector(`[data-testid="agent-composer-menu-implement-issue"]`)).toBeNull()
+    expect(menu.querySelector(`[data-testid="agent-composer-menu-run-action"]`)).toBeNull()
+    click.mockRestore()
+  })
+
+  it(`carries the inline edit tools in the card`, () => {
+    renderComposer()
+    for (const name of [`Add image`, `Attach files`, `Insert issue reference`, `Insert emoji`]) {
+      expect(screen.getByRole(`button`, { name })).toBeTruthy()
+    }
+  })
+
+  it(`a model pick sends /model and reads as picked at once`, async () => {
+    mocks.send.mockResolvedValue({ txid: 1 })
+    renderComposer()
+    const pin = screen.getByTestId(`session-composer-model`)
+    expect(pin.textContent).toContain(`Opus`)
+    act(() => {
+      fireEvent.click(pin.querySelector(`button`)!)
+    })
+    act(() => {
+      fireEvent.click(document.querySelector(`[data-value="sonnet"]`)!)
+    })
+    await waitFor(() => expect(mocks.send).toHaveBeenCalledTimes(1))
+    expect(mocks.send.mock.calls[0]![0]).toEqual({
+      teamId: `t1`,
+      sessionId: `s1`,
+      text: `/model sonnet`,
+    })
+    expect(screen.getByTestId(`session-composer-model`).dataset.model).toBe(`sonnet`)
+  })
+
+  it(`a refused model pick toasts Couldn't switch the model and reverts`, async () => {
+    mocks.send.mockRejectedValue(new Error(`Device offline`))
+    renderComposer()
+    act(() => {
+      fireEvent.click(screen.getByTestId(`session-composer-model`).querySelector(`button`)!)
+    })
+    act(() => {
+      fireEvent.click(document.querySelector(`[data-value="haiku"]`)!)
+    })
+    await waitFor(() => expect(mocks.toastActionError).toHaveBeenCalledTimes(1))
+    expect(mocks.toastActionError.mock.calls[0]![0]).toBe(`Couldn't switch the model`)
+    expect(screen.getByTestId(`session-composer-model`).dataset.model).toBe(`opus`)
+  })
+
+  it(`the Plan switch changes the live session through sessions.configure`, async () => {
+    mocks.configure.mockResolvedValue({ txid: 7 })
+    renderComposer()
+    const plan = screen.getByTestId(`session-composer-plan`)
+    expect(plan.getAttribute(`aria-checked`)).toBe(`false`)
+    act(() => {
+      fireEvent.click(plan)
+    })
+    await waitFor(() => expect(mocks.configure).toHaveBeenCalledTimes(1))
+    expect(mocks.configure.mock.calls[0]![0]).toEqual({ sessionId: `s1`, planMode: true })
+  })
+
+  it(`a failed configure toasts and drops the optimistic pick`, async () => {
+    mocks.configure.mockRejectedValue(new Error(`nope`))
+    renderComposer()
+    const plan = screen.getByTestId(`session-composer-plan`)
+    act(() => {
+      fireEvent.click(plan)
+    })
+    await waitFor(() => expect(mocks.toastActionError).toHaveBeenCalledTimes(1))
+    expect(mocks.toastActionError.mock.calls[0]![0]).toBe(`Couldn't change the session options`)
+    expect(screen.getByTestId(`session-composer-plan`).getAttribute(`aria-checked`)).toBe(`false`)
+  })
+
+  it(`an ended session cannot change its model or plan`, () => {
+    mocks.row = sessionRow({ status: `ended` })
+    renderComposer()
+    expect(
+      (screen.getByTestId(`session-composer-model`).querySelector(`button`) as HTMLButtonElement)
+        .disabled
+    ).toBe(true)
+    expect((screen.getByTestId(`session-composer-plan`) as HTMLButtonElement).disabled).toBe(true)
   })
 })

@@ -1,54 +1,30 @@
-import {
-  AccountPicker,
-  DevicePicker,
-  Label,
-  ModelPicker,
-  RepositoryPicker,
-  Switch,
-} from "@exp/ui"
-
+import { ComposerOptionsSpecimen, ComposerSpecimen } from "./composer-specimen.tsx"
 import type { StyleguideEntry } from "./types.ts"
 
 // UI cleanup batch — the composer's options line, drawn by the REAL words it
-// is made of (apps/web/src/components/launch-dialog/launch-options-line.tsx):
-// every word is a typed picker in its `inline` variant — Device, Account,
-// Model, Repository — then the Plan switch. Effort and Ultracode
-// live in the composer's "+" menu (EXP-1249, the `menu` entry).
+// is made of (apps/web/src/components/launch-dialog/launch-options-line.tsx,
+// session-composer.tsx): every word is a typed picker in its `inline`
+// variant. EXP-1334: ONE composer — before a start the line is Device ·
+// Account · Model · Plan · Repository; in a session (the thread = its
+// dispatcher session) Model · Plan … the context ring. Effort, Ultracode,
+// MCP servers and Computer use live in the composer's "+" menu.
 
-const noop = (): void => {}
-
-const DEVICES = [
-  { id: `mint`, name: `mint — This device`, kind: `desktop` },
-  { id: `buildbox`, name: `buildbox`, kind: `server` },
-]
-const ACCOUNTS = [
-  { key: `claude:1`, agent: `claude`, email: `danny@example.dev` },
-  { key: `codex:1`, agent: `codex`, email: `danny@example.dev` },
-]
-/** THE model choices (contract `codingModel`, all four, no Default row). */
-const MODELS = [
-  { value: `fable`, label: `Fable` },
-  { value: `opus`, label: `Opus` },
-  { value: `sonnet`, label: `Sonnet` },
-  { value: `haiku`, label: `Haiku` },
-]
-const REPOS = [
-  { id: `exp`, fullName: `Niach/exponential` },
-  { id: `site`, fullName: `Niach/website` },
-]
+function Caption({ children }: { children: string }) {
+  return <p className="text-xs text-muted-foreground">{children}</p>
+}
 
 export const entry: StyleguideEntry = {
   id: `composer-options`,
   section: `special`,
   owner: `EXP-1249`,
   title: `Composer options`,
-  blurb: `The muted line under the composer card, as the real components it is made of: every word is a TYPED picker in its inline variant (DevicePicker, AccountPicker, ModelPicker, RepositoryPicker — the repository only while a chat has several to choose from), each collapsing to plain text once there is one thing it could say; then the Plan switch, and nothing else: Effort and Ultracode are rows of the composer's "+" menu (composer-menu.json ×4). A pick opens the picker's popover (a bottom sheet on a phone) with the one selection language.`,
+  blurb: `The muted line UNDER the one composer card (EXP-1334: the start, the thread and the session view render the same composer), as the real components it is made of. Before a start: DevicePicker, AccountPicker, ModelPicker, the Plan switch, RepositoryPicker (only while a chat has several to choose from), each collapsing to plain text once there is one thing it could say. In a session: the model pin (a pick sends /model <alias>, shown at once until the run confirms), the Plan switch (live mid-session through sessions.configure) and the context ring pushed right (its usage popover on click). Effort, Ultracode, MCP servers and Computer use are rows of the composer's "+" menu (composer-menu.json ×4).`,
   status: {
     web: {
       state: `ok`,
-      symbol: `LaunchOptionsLine`,
+      symbol: `LaunchOptionsLine / SessionComposer`,
       file: `apps/web/src/components/launch-dialog/launch-options-line.tsx`,
-      note: `the words are @exp/ui typed pickers (packages/ui/src/picker/model-picker.tsx, repository-picker.tsx, device-picker.tsx)`,
+      note: `the row = @exp/ui ComposerOptionsRow (packages/ui/src/composer-frame.tsx); the session line is session-composer.tsx`,
     },
     desktop: {
       state: `ok`,
@@ -70,32 +46,15 @@ export const entry: StyleguideEntry = {
     },
   },
   island: () => (
-    <div className="grid max-w-[40rem] gap-6">
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-1 text-xs text-muted-foreground">
-        <DevicePicker
-          triggerVariant="inline"
-          devices={DEVICES}
-          value="mint"
-          onChange={noop}
-          width="sm"
-        />
-        <AccountPicker variant="inline" value="claude:1" options={ACCOUNTS} onChange={noop} />
-        <ModelPicker models={MODELS} value="opus" onChange={noop} />
-        <Label className="gap-1.5 font-normal">
-          <span>Plan</span>
-          <Switch size="sm" checked={false} aria-label="Plan mode" />
-        </Label>
-        <RepositoryPicker
-          triggerVariant="inline"
-          width="sm"
-          repositories={REPOS}
-          value="exp"
-          onChange={noop}
-        />
-      </div>
-      <p className="text-xs text-muted-foreground">
-        The line (one machine would read as plain text).
-      </p>
+    <div className="grid max-w-[40rem] gap-3">
+      <Caption>Before a start (Home / New session): device · account · model · Plan · repository</Caption>
+      <ComposerOptionsSpecimen phase="start" />
+      <Caption>A running session: model · Plan (live mid-run) … the context ring</Caption>
+      <ComposerOptionsSpecimen phase="running" />
+      <Caption>An idle thread = its dispatcher session: the same line</Caption>
+      <ComposerOptionsSpecimen phase="idle" />
+      <Caption>Under the card, in the one composer</Caption>
+      <ComposerSpecimen phase="running" placeholder="Type / for commands" />
     </div>
   ),
 }

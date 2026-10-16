@@ -2,6 +2,7 @@ import { useMemo } from "react"
 import { eq, inArray, useLiveQuery } from "@tanstack/react-db"
 import {
   issueCollection,
+  issueRelationCollection,
   messageCollection,
   pullRequestCollection,
   pullRequestIssueCollection,
@@ -323,6 +324,53 @@ export function useIssuePullRequests(issueId: string | null | undefined): PullRe
   )
 }
 
+interface ParentRelation {
+  type: string
+  /** The PARENT (EXP-736 canonical direction). */
+  issueId: string
+  /** The CHILD. */
+  relatedIssueId: string
+}
+
+/** EXP-1334: each linked issue's `parentId` = its nearest LINKED ancestor
+ *  over the team's `parent` relations (walking past unlinked ones; none
+ *  = null; a linked cycle is handed on, the contract folds it). Several
+ *  parents: the first by id, deterministic. */
+export function linkedIssueParents(
+  issues: readonly TreeIssue[],
+  relations: readonly ParentRelation[]
+): TreeIssue[] {
+  const parentOf = new Map<string, string>()
+  for (const relation of [...relations].sort((a, b) =>
+    a.issueId < b.issueId ? -1 : a.issueId > b.issueId ? 1 : 0
+  )) {
+    if (relation.type !== `parent` || relation.issueId === relation.relatedIssueId) continue
+    if (!parentOf.has(relation.relatedIssueId)) {
+      parentOf.set(relation.relatedIssueId, relation.issueId)
+    }
+  }
+  const linked = new Set(issues.map((issue) => issue.id))
+  const linkedParent = new Map<string, string>()
+  for (const issue of issues) {
+    const seen = new Set([issue.id])
+    let cursor = parentOf.get(issue.id)
+    while (cursor && !seen.has(cursor)) {
+      if (linked.has(cursor)) {
+        linkedParent.set(issue.id, cursor)
+        break
+      }
+      seen.add(cursor)
+      cursor = parentOf.get(cursor)
+    }
+  }
+  return issues.map((issue) => ({
+    ...issue,
+    // A linked-parent cycle is the contract's (`foldForest` promotes its
+    // first unreached issue to a chip).
+    parentId: linkedParent.get(issue.id) ?? null,
+  }))
+}
+
 /** The thread screen's whole model (`buildSessionThread`, fixture-locked). */
 export function useSessionThread(
   rootId: string | null | undefined,
@@ -364,14 +412,28 @@ export function useSessionThread(
         : undefined,
     [issueKey]
   )
+  // EXP-1334: the WHOLE tree's messages (`root_id`): the root's own rows
+  // plus its children's question / plan cards, which surface in the
+  // Conversation (`buildSessionThread` picks them).
   const { data: messages, isReady: messagesReady } = useLiveQuery(
     (query) =>
       rootId
         ? query
             .from({ messages: messageCollection })
-            .where(({ messages }) => eq(messages.sessionId, rootId))
+            .where(({ messages }) => eq(messages.rootId, rootId))
         : undefined,
     [rootId]
+  )
+  // EXP-1334: the issue tree (`issue_relations` kind parent): a linked
+  // sub-issue folds under its nearest LINKED ancestor.
+  const { data: parentRelations } = useLiveQuery(
+    (query) =>
+      issueIds.length > 0
+        ? query
+            .from({ relations: issueRelationCollection })
+            .where(({ relations }) => eq(relations.type, `parent`))
+        : undefined,
+    [issueIds.length > 0]
   )
   const titleReady = titleShapesReady({
     linksReady: Boolean(rootId) && linksReady,
@@ -387,12 +449,15 @@ export function useSessionThread(
       root: toTreeSession(root),
       sessions: tree,
       sessionIssues: ((links ?? []) as SessionIssueRow[]).map(toTreeSessionIssue),
-      issues: ((issues ?? []) as TreeIssue[]).map(toTreeIssue),
+      issues: linkedIssueParents(
+        ((issues ?? []) as TreeIssue[]).map(toTreeIssue),
+        (parentRelations ?? []) as ParentRelation[]
+      ),
       messages: ((messages ?? []) as MessageRow[]).map(toTreeMessage),
       pullRequests: pullRequests.map(toTreePullRequest),
       now: now.toISOString(),
     }, { focus })
-  }, [root, tree, links, issues, messages, pullRequests, now, focus])
+  }, [root, tree, links, issues, parentRelations, messages, pullRequests, now, focus])
   return { view, root, rows, pullRequests, isReady, titleReady }
 }
 

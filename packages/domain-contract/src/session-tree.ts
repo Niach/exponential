@@ -58,6 +58,9 @@ export interface TreeIssue {
   id: string
   identifier: string
   title: string
+  /** EXP-1334: the issue's parent (`issue_relations` kind parent; absent =
+   *  null): a linked sub-issue folds under its nearest LINKED ancestor. */
+  parentId?: string | null
 }
 
 export interface TreeMessage {
@@ -244,11 +247,32 @@ export function sessionTabMarkState(
   return threadRowMarkState({ needsYou: session.needsInput, busy: session.busy })
 }
 
+/** EXP-1334: one row of a folded chip's subtree (the chip's dropdown =
+ *  the chip itself, then these, THE tree rows with their guides). `depth`
+ *  is relative to the chip (its children = 1). */
+export interface ThreadTabNestedIssue {
+  issueId: string
+  identifier: string
+  depth: number
+}
+export interface ThreadTabNestedSession {
+  sessionId: string
+  name: string
+  markState: SessionTabMarkState
+  depth: number
+}
+
 export type ThreadTab =
-  | { kind: `conversation` }
-  | { kind: `issue`; issueId: string; identifier: string }
   | { kind: `add` }
-  | { kind: `session`; sessionId: string; name: string; markState: SessionTabMarkState }
+  | { kind: `conversation` }
+  | { kind: `issue`; issueId: string; identifier: string; nested: ThreadTabNestedIssue[] }
+  | {
+      kind: `session`
+      sessionId: string
+      name: string
+      markState: SessionTabMarkState
+      nested: ThreadTabNestedSession[]
+    }
   | { kind: `guide`; dot: boolean }
 
 /** EXP-1322: a question row's option, label + description like the session
@@ -311,13 +335,16 @@ export type ThreadRow =
   | {
       type: `question`
       id: string
+      /** EXP-1334: the session whose card it is (the root, or a child whose
+       *  own question surfaces in the Conversation). */
+      sessionId: string
       question: string
       options: ThreadQuestionOption[]
       custom: boolean
       answer: string | null
       answered: boolean
     }
-  | { type: `plan`; id: string; plan: string; decision: string | null }
+  | { type: `plan`; id: string; sessionId: string; plan: string; decision: string | null }
   | { type: `subagent`; id: string; title: string; status: string }
   | {
       type: `picture`
@@ -476,6 +503,59 @@ export function composerYieldsToCard(input: { live: boolean; pendingAsk: boolean
   return input.live && input.pendingAsk
 }
 
+/** Depth-first walk of a forest given each node's FOLD parent (null = a
+ *  top-level node), children in the given order. */
+function foldForest<T>(
+  items: readonly T[],
+  id: (item: T) => string,
+  foldParent: (item: T) => string | null
+): { top: T; nested: { item: T; depth: number }[] }[] {
+  const children = new Map<string | null, T[]>()
+  for (const item of items) {
+    const parent = foldParent(item)
+    const list = children.get(parent) ?? []
+    list.push(item)
+    children.set(parent, list)
+  }
+  const seen = new Set<string>()
+  const fold = (top: T) => {
+    const nested: { item: T; depth: number }[] = []
+    seen.add(id(top))
+    const walk = (parentId: string, depth: number) => {
+      for (const child of children.get(parentId) ?? []) {
+        if (seen.has(id(child))) continue
+        seen.add(id(child))
+        nested.push({ item: child, depth })
+        walk(id(child), depth + 1)
+      }
+    }
+    walk(id(top), 1)
+    return { top, nested }
+  }
+  const out = (children.get(null) ?? []).map(fold)
+  // A fold-parent cycle (a ↔ b) reaches no top: its first unreached item
+  // (input order) becomes a top-level chip, the rest fold under it.
+  for (const item of items) if (!seen.has(id(item))) out.push(fold(item))
+  return out
+}
+
+/** EXP-1334: a linked issue's fold parent = its nearest LINKED ancestor
+ *  (an unlinked parent is skipped; a cycle or none = top-level). */
+function issueFoldParent(
+  issue: TreeIssue,
+  linked: ReadonlySet<string>,
+  all: ReadonlyMap<string, TreeIssue>
+): string | null {
+  const seen = new Set([issue.id])
+  let parent = issue.parentId ?? null
+  while (parent && !seen.has(parent)) {
+    if (linked.has(parent)) return parent
+    seen.add(parent)
+    parent = all.get(parent)?.parentId ?? null
+  }
+  return null
+}
+
 /**
  * The thread screen: the header tabs (Conversation · one chip per issue ·
  * + · session chips · Guide; the session chips = the viewed level: the
@@ -512,21 +592,58 @@ export function buildSessionThread(input: {
     )
   const title = threadTitle(root, issues, own)
   const focus = options.focus ? tree.find((s) => s.id === options.focus) ?? null : null
-  const level = focus ?? root
-  const sessionTabs: ThreadTab[] = [
-    level,
-    ...tree.filter((s) => s.parentId === level.id && s.id !== level.id),
-  ].map((s) => ({
+  // EXP-1334: the conversation IS the dispatcher (no chip of its own); the
+  // chips = its DIRECT children, every deeper session folded under its
+  // top-level ancestor (the chip's dropdown).
+  const nameOf = (s: TreeSession) => sessionCard(s, ordinals.get(s.id) ?? 1, now).name
+  const treeIds = new Set(tree.map((s) => s.id))
+  const sessionTabs: ThreadTab[] = foldForest(
+    tree.filter((s) => s.id !== root.id),
+    (s) => s.id,
+    (s) => (s.parentId === root.id || !s.parentId || !treeIds.has(s.parentId) ? null : s.parentId)
+  ).map(({ top, nested }) => ({
     kind: `session` as const,
-    sessionId: s.id,
-    name: sessionCard(s, ordinals.get(s.id) ?? 1, now).name,
-    markState: sessionTabMarkState(s),
+    sessionId: top.id,
+    name: nameOf(top),
+    markState: sessionTabMarkState(top),
+    nested: nested.map(({ item, depth }) => ({
+      sessionId: item.id,
+      name: nameOf(item),
+      markState: sessionTabMarkState(item),
+      depth,
+    })),
+  }))
+  const linkedIds = new Set(issues.map((issue) => issue.id))
+  const issueTabs: ThreadTab[] = foldForest(
+    issues,
+    (issue) => issue.id,
+    (issue) => issueFoldParent(issue, linkedIds, issueMap)
+  ).map(({ top, nested }) => ({
+    kind: `issue` as const,
+    issueId: top.id,
+    identifier: top.identifier,
+    nested: nested.map(({ item, depth }) => ({
+      issueId: item.id,
+      identifier: item.identifier,
+      depth,
+    })),
   }))
 
-  const rows: ThreadRow[] = [
-    { type: `session`, id: root.id, card: sessionCard(root, 1, now) },
-  ]
-  for (const message of own) {
+  // EXP-1334: no root card; a CHILD's own question / plan card surfaces in
+  // the Conversation (answered here, straight back to that child).
+  const asks = input.messages.filter(
+    (m) =>
+      m.sessionId !== root.id &&
+      treeIds.has(m.sessionId) &&
+      (m.card?.kind === `question` || m.card?.kind === `plan`)
+  )
+  const conversation = [...own, ...asks].sort(
+    (a, b) =>
+      (ms(a.createdAt) ?? 0) - (ms(b.createdAt) ?? 0) ||
+      (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+  )
+  const rows: ThreadRow[] = []
+  for (const message of conversation) {
     const card = message.card
     if (!card) {
       const author =
@@ -561,6 +678,7 @@ export function buildSessionThread(input: {
         rows.push({
           type: `question`,
           id: message.id,
+          sessionId: message.sessionId,
           question: String(card.question ?? ``),
           options: questionOptions(card),
           custom: true,
@@ -572,6 +690,7 @@ export function buildSessionThread(input: {
         rows.push({
           type: `plan`,
           id: message.id,
+          sessionId: message.sessionId,
           plan: String(card.plan ?? ``),
           decision: typeof card.decision === `string` ? card.decision : null,
         })
@@ -635,13 +754,9 @@ export function buildSessionThread(input: {
     private: !root.shared,
     focusId: focus?.id ?? null,
     tabs: [
-      { kind: `conversation` },
-      ...issues.map((issue) => ({
-        kind: `issue` as const,
-        issueId: issue.id,
-        identifier: issue.identifier,
-      })),
       { kind: `add` },
+      { kind: `conversation` },
+      ...issueTabs,
       ...sessionTabs,
       { kind: `guide`, dot: guideDot },
     ],
@@ -931,4 +1046,104 @@ export function railThreads(
         })
       : group.rows
   )
+}
+
+// ── EXP-1334: the thread strip never scrolls ─────────────────────────────────
+
+/**
+ * Which chips get drawn, in order; the rest collapse into one "+N". A port
+ * of the desktop's `partition_tabs` (EXP-288/326/343), same vectors: chips
+ * pack in order until the next would not fit; the overflow chip's width is
+ * reserved only once something overflows; the ACTIVE chip's width is
+ * committed first so it is always visible; one chip always survives.
+ */
+export function partitionTabs(
+  widths: readonly number[],
+  available: number,
+  gap: number,
+  overflowW: number,
+  activeIndex: number | null
+): number[] {
+  const count = widths.length
+  const room = Math.max(available, 0)
+  const total = widths.reduce((sum, width) => sum + width, 0) + gap * Math.max(count - 1, 0)
+  if (total <= room) return widths.map((_, index) => index)
+
+  const budget = Math.max(room - overflowW - gap, 0)
+  const visible: number[] = []
+  let used = activeIndex === null ? 0 : widths[activeIndex]
+  let chips = activeIndex === null ? 0 : 1
+  for (let index = 0; index < count; index++) {
+    if (index === activeIndex) {
+      visible.push(index)
+      continue
+    }
+    const next = used + widths[index] + (chips > 0 ? gap : 0)
+    if (next > budget && chips > 0) break
+    visible.push(index)
+    used = next
+    chips += 1
+  }
+  if (activeIndex !== null && !visible.includes(activeIndex)) visible.push(activeIndex)
+  if (visible.length === 0 && count > 0) visible.push(0)
+  return visible
+}
+
+export interface ThreadStripLayout {
+  /** `full` = identifier + title; `short` = the identifier alone; `fold` =
+   *  short and some chips behind a "+N". */
+  tier: `full` | `short` | `fold`
+  /** Indexes of the issue chips drawn (strip order). */
+  issues: number[]
+  /** Indexes of the session chips drawn. */
+  sessions: number[]
+}
+
+/**
+ * EXP-1334: the strip between Conversation and Guide (both pinned, never
+ * scrolled) holds two zones, issues then sessions, one `gap` between them.
+ * Every issue chip has a `full` and a `short` width (the caller measures).
+ * Tiers: everything full → every issue short → fold: the sessions keep
+ * their OWN space (what the short issues leave, at least half the room),
+ * each zone packs with `partitionTabs` and its own "+N" (`overflowW`).
+ */
+export function partitionThreadStrip(input: {
+  issues: readonly { full: number; short: number }[]
+  sessions: readonly number[]
+  available: number
+  gap: number
+  overflowW: number
+  activeIssue: number | null
+  activeSession: number | null
+}): ThreadStripLayout {
+  const { issues, sessions, gap, overflowW } = input
+  const room = Math.max(input.available, 0)
+  const span = (widths: readonly number[]) =>
+    widths.length === 0 ? 0 : widths.reduce((sum, w) => sum + w, 0) + gap * (widths.length - 1)
+  const sep = issues.length > 0 && sessions.length > 0 ? gap : 0
+  const all = (n: number) => Array.from({ length: n }, (_, index) => index)
+  const sessionSpan = span(sessions)
+  const full = issues.map((issue) => issue.full)
+  const short = issues.map((issue) => issue.short)
+  if (span(full) + sep + sessionSpan <= room) {
+    return { tier: `full`, issues: all(issues.length), sessions: all(sessions.length) }
+  }
+  if (span(short) + sep + sessionSpan <= room) {
+    return { tier: `short`, issues: all(issues.length), sessions: all(sessions.length) }
+  }
+  const zone = (widths: readonly number[], budget: number, active: number | null) => {
+    const shown = partitionTabs(widths, budget, gap, overflowW, active)
+    const used =
+      span(shown.map((index) => widths[index])) +
+      (shown.length < widths.length ? gap + overflowW : 0)
+    return { shown, used }
+  }
+  const sessionBudget =
+    issues.length === 0
+      ? room
+      : Math.min(sessionSpan, Math.max(room / 2, room - span(short) - sep))
+  const placed = zone(sessions, sessionBudget, input.activeSession)
+  const issueBudget = room - (sessions.length > 0 ? placed.used + sep : 0)
+  const issueZone = zone(short, issueBudget, input.activeIssue)
+  return { tier: `fold`, issues: issueZone.shown, sessions: placed.shown }
 }

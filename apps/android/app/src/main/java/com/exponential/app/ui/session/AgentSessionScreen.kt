@@ -243,6 +243,28 @@ import com.exponential.app.domain.imageMarker
 import com.exponential.app.domain.parseSteerMessage
 import com.exponential.app.domain.escapeSteerFileName
 import com.exponential.app.ui.agent.ComposerPick
+import com.exponential.app.ui.agent.ComposerPlusMenuSheet
+import com.exponential.app.ui.agent.AgentIssuePickerPage
+import com.exponential.app.ui.agent.IssueOption
+import com.exponential.app.domain.ComposerMenuConditions
+import com.exponential.app.domain.ComposerMenuEntry
+import com.exponential.app.domain.ComposerMenuRowId
+import com.exponential.app.domain.McpServerOption
+import com.exponential.app.domain.mcpPickValue
+import com.exponential.app.domain.preselectMcpServerIds
+import com.exponential.app.domain.MAX_STEER_FILES
+import com.exponential.app.domain.MAX_STEER_IMAGES
+import com.exponential.app.ui.components.GlassSwitch
+import com.exponential.app.ui.components.GlassSwitchSize
+import com.exponential.app.ui.components.effortLabel
+import com.exponential.app.ui.components.effortValuesFor
+import com.exponential.app.ui.components.supportsPlanMode
+import com.exponential.app.ui.components.picker.ActionPicker
+import com.exponential.app.ui.components.picker.ActionPickerAction
+import com.exponential.app.ui.components.picker.McpServerPicker
+import com.exponential.app.ui.components.picker.Picker
+import com.exponential.app.ui.components.picker.PickerItem
+import com.exponential.app.ui.components.picker.PickerMode
 import com.exponential.app.ui.agent.readComposerPick
 import com.exponential.app.domain.steerMessageSegments
 import com.exponential.app.domain.renumberImageMarkers
@@ -4383,6 +4405,48 @@ internal fun SessionComposer(
     val hasUsage = contextPercent != null
     val hostLaunchDefaults by viewModel.hostLaunchDefaults.collectAsStateWithLifecycle()
 
+    // EXP-1334: THE session composer's "+" = composer-menu.json's rows; in a
+    // running session Plan / Effort / Ultracode / Computer use / MCP servers
+    // change live (`sessions.configure`).
+    val picks by viewModel.configurePicks.collectAsStateWithLifecycle()
+    val mcpServers by viewModel.mcpServers.collectAsStateWithLifecycle()
+    val menuActions by viewModel.menuActions.collectAsStateWithLifecycle()
+    val canComputerUse by viewModel.hostCanToggleComputerUse.collectAsStateWithLifecycle()
+    val configureError by viewModel.configureError.collectAsStateWithLifecycle()
+    com.exponential.app.ui.components.FailedActionToast(
+        configureError?.let { com.exponential.app.ui.components.FailedAction("change", "the session", it.ifBlank { null }) },
+        onShown = viewModel::clearConfigureError,
+    )
+    LaunchedEffect(session?.teamId) { viewModel.loadMcpServers() }
+    val composerAgent = session?.cli?.takeIf { it.isNotBlank() } ?: DEFAULT_AGENT
+    val plusMenu = SessionComposerMenu(
+        agent = composerAgent,
+        effort = picks.effort ?: session?.effort.orEmpty(),
+        ultracode = picks.ultracode ?: (session?.ultracode == true),
+        computerUse = picks.computerUse ?: (session?.computerUse == true),
+        canComputerUse = canComputerUse,
+        mcpServers = mcpServers,
+        mcpServerIds = picks.mcpServerIds ?: preselectMcpServerIds(mcpServers, saved = null),
+        issues = issueRefCandidates.map {
+            IssueOption(
+                id = it.issueId,
+                identifier = it.identifier,
+                title = it.title,
+                repositoryId = null,
+                status = null,
+                priority = null,
+                description = it.description,
+                createdAt = it.createdAt,
+                updatedAt = it.updatedAt,
+            )
+        },
+        actions = menuActions?.map { ActionPickerAction(id = it.id, name = it.name, icon = it.icon) },
+        planMode = picks.planMode
+            ?: (planModeBadge(sessionConfig) != null || (sessionConfig == null && session?.planMode == true)),
+        onConfigure = viewModel::configure,
+        onImplement = viewModel::implementIssues,
+    )
+
     // Steer attach (EXP-511, wave D: ANY file, images included) — the system
     // document picker feeds the VM's pending list; the upload rides the
     // SESSION route (EXP-698), so every kind of run accepts one.
@@ -4736,6 +4800,7 @@ internal fun SessionComposer(
                 expanded = expanded,
                 onExpandedChange = onExpandedChange,
                 onPickImages = { filePicker.launch(arrayOf("*/*")) },
+                menu = plusMenu,
                 onRemoveImage = viewModel::removePendingImage,
                 // EXP-724: a command that discards the conversation is
                 // confirmed first; everything else sends straight out. A
@@ -4745,12 +4810,10 @@ internal fun SessionComposer(
                     val command = viewModel.pendingSlashCommand()
                     if (command?.confirm == true && pendingImages.isEmpty()) slashConfirm = command else viewModel.sendDraft()
                 },
-                // EXP-893: the footer's Plan chip, model picker and ring.
-                // Before the relay's first `config_state` the synced row's
-                // `planMode` stands in (web parity). Dispatcher roots: NO plan
-                // chip on a dispatcher (plan mode is a work pick for its children).
-                planMode = (planModeBadge(sessionConfig) != null || (sessionConfig == null && session?.planMode == true)) &&
-                    session?.dispatch != true,
+                // EXP-1334: the Plan switch under the card (a dispatcher's =
+                // the work pick its children inherit). Before the relay's first
+                // `config_state` the synced row's `planMode` stands in.
+                planMode = plusMenu.planMode,
                 model = composerModel(
                     config = sessionConfig,
                     rowModel = session?.model,
@@ -4858,6 +4921,8 @@ private fun SteerComposer(
     expanded: Boolean,
     onExpandedChange: (Boolean) -> Unit,
     onPickImages: () -> Unit,
+    /** EXP-1334: the "+" menu's rows and the live picks. */
+    menu: SessionComposerMenu,
     onRemoveImage: (Int) -> Unit,
     onSend: () -> Unit,
     /** EXP-893: the footer — `Plan mode` while on, the run's model (a picker
@@ -4912,6 +4977,7 @@ private fun SteerComposer(
             working = working,
             onInterrupt = onInterrupt,
             onPickImages = onPickImages,
+            menu = menu,
             onRemoveImage = onRemoveImage,
             onSend = onSend,
             planMode = planMode,
@@ -4928,6 +4994,39 @@ private fun SteerComposer(
 
 /** EXP-931: the expanded composer's own menus, as the keys of its open set. */
 private const val COMPOSER_MENU_MODEL = "model"
+private const val COMPOSER_MENU_PLUS = "plus"
+private const val COMPOSER_MENU_EFFORT = "effort"
+private const val COMPOSER_MENU_MCP = "mcp"
+
+/** The options line's Plan switch label (composer-menu.json options line). */
+private const val PLAN_LABEL = "Plan"
+
+/** Run action › in a running session: the message names the action. */
+internal fun runActionText(draft: String, action: String): String {
+    val line = "Run the \"$action\" action."
+    return if (draft.isBlank()) line else "${draft.trimEnd()}\n$line"
+}
+
+/**
+ * EXP-1334: what THE session composer's "+" offers in a running session —
+ * composer-menu.json's rows, the live picks (the synced row, overridden by
+ * the person's changes until they land) and the `sessions.configure` call.
+ */
+internal class SessionComposerMenu(
+    val agent: String,
+    val effort: String,
+    val ultracode: Boolean,
+    val computerUse: Boolean,
+    val canComputerUse: Boolean,
+    val mcpServers: List<McpServerOption>,
+    val mcpServerIds: List<String>,
+    val issues: List<IssueOption>,
+    /** null = still loading. */
+    val actions: List<ActionPickerAction>?,
+    val planMode: Boolean,
+    val onConfigure: (AgentSessionViewModel.ConfigurePicks) -> Unit,
+    val onImplement: (List<String>) -> Unit,
+)
 
 @Composable
 private fun ExpandedSteerComposer(
@@ -4942,6 +5041,7 @@ private fun ExpandedSteerComposer(
     working: Boolean,
     onInterrupt: () -> Unit,
     onPickImages: () -> Unit,
+    menu: SessionComposerMenu,
     onRemoveImage: (Int) -> Unit,
     onSend: () -> Unit,
     planMode: Boolean,
@@ -4995,10 +5095,14 @@ private fun ExpandedSteerComposer(
         val options = modelOptionsFor(DEFAULT_AGENT)
         if (model != null && model.isNotEmpty() && model !in options) listOf(model) + options else options
     }
+    var plusOpen by remember { mutableStateOf(false) }
+    var effortOpen by remember { mutableStateOf(false) }
+    var mcpOpen by remember { mutableStateOf(false) }
+    Column(modifier = Modifier.fillMaxWidth()) {
     GlassComposer(
         // The composer floats over the scrolling activity feed.
         opaque = true,
-        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+        modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 8.dp),
         strip = {
             PendingAttachmentStrip(
                 items = pendingImages,
@@ -5020,74 +5124,21 @@ private fun ExpandedSteerComposer(
                 },
             )
         },
-        // EXP-893: web's footer order ×4 — `+` attach · the model pin (plain
-        // muted text + chevron, no pill) · `Plan mode` (blue, non-dispatcher
-        // plan-mode runs only) · spacer · ring (only with data) · send.
+        // EXP-1334: the card's footer = the "+" (composer-menu.json's rows)
+        // · spacer · send; the model, the Plan switch and the ring sit UNDER
+        // the card (the options line).
         footer = {
-            // EXP-850 (S13): the steer composers attach with the `ui-add`
-            // plus ×4 — a steered message can carry more than a picture,
-            // and `editor-image` stays the comment/description editors'.
             ComposerToolButton(
                 ExpIcons.uiAdd,
-                contentDescription = "Add file or image",
-                onClick = onPickImages,
+                contentDescription = com.exponential.app.domain.ComposerMenu.PLUS_LABEL,
+                onClick = {
+                    plusOpen = true
+                    onMenuOpenChange(COMPOSER_MENU_PLUS, true)
+                },
                 enabled = !sending,
+                modifier = Modifier.testTag(com.exponential.app.domain.ComposerMenu.PLUS_TEST_ID),
             )
-            if (model != null) {
-                Box {
-                    // codex: the model is what it is — the same read-out,
-                    // disabled (desktop keeps the chevron, dimmed).
-                    ComposerModelPin(
-                        label = modelLabel(model),
-                        enabled = modelPickable,
-                        onClick = {
-                            modelMenuOpen = true
-                            // EXP-931: an open menu is not a blur.
-                            onMenuOpenChange(COMPOSER_MENU_MODEL, true)
-                        },
-                    )
-                    if (modelPickable) {
-                        GlassDropdownMenu(
-                            expanded = modelMenuOpen,
-                            onDismissRequest = {
-                                modelMenuOpen = false
-                                onMenuOpenChange(COMPOSER_MENU_MODEL, false)
-                            },
-                        ) {
-                            modelChoices.forEach { alias ->
-                                GlassMenuItem(
-                                    text = { Text(modelLabel(alias)) },
-                                    leadingIcon = if (alias == model) {
-                                        { Icon(ExpIcons.uiCheck, contentDescription = null) }
-                                    } else {
-                                        null
-                                    },
-                                    onClick = {
-                                        modelMenuOpen = false
-                                        onMenuOpenChange(COMPOSER_MENU_MODEL, false)
-                                        if (live && alias != model) onPickModel(alias)
-                                    },
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-            if (planMode) {
-                Text(
-                    PLAN_MODE_LABEL,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = DesignTokens.Semantic.Blue,
-                    maxLines = 1,
-                    modifier = Modifier.padding(horizontal = 4.dp).testTag("steer-plan-mode"),
-                )
-            }
             Spacer(Modifier.weight(1f))
-            if (hasUsage) {
-                IconButton(onClick = onOpenUsage) {
-                    ContextRing(percent = contextPercent, size = 20.dp)
-                }
-            }
             ComposerSubmitButton(
                 if (stop) ExpIcons.uiStop else ExpIcons.uiSubmit,
                 contentDescription = if (stop) "Stop" else "Send",
@@ -5116,6 +5167,198 @@ private fun ExpandedSteerComposer(
             maxLines = 4,
             // The composer card owns the chrome; the field is just its text.
             bordered = false,
+        )
+    }
+    // The options line under the card: model ▾ · Plan switch · ring.
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 16.dp, end = 16.dp, bottom = 4.dp)
+            .testTag("steer-options-line"),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        if (model != null) {
+            Box {
+                // codex: the model is what it is — the same read-out,
+                // disabled (desktop keeps the chevron, dimmed).
+                ComposerModelPin(
+                    label = modelLabel(model),
+                    enabled = modelPickable,
+                    onClick = {
+                        modelMenuOpen = true
+                        // EXP-931: an open menu is not a blur.
+                        onMenuOpenChange(COMPOSER_MENU_MODEL, true)
+                    },
+                )
+                if (modelPickable) {
+                    GlassDropdownMenu(
+                        expanded = modelMenuOpen,
+                        onDismissRequest = {
+                            modelMenuOpen = false
+                            onMenuOpenChange(COMPOSER_MENU_MODEL, false)
+                        },
+                    ) {
+                        modelChoices.forEach { alias ->
+                            GlassMenuItem(
+                                text = { Text(modelLabel(alias)) },
+                                leadingIcon = if (alias == model) {
+                                    { Icon(ExpIcons.uiCheck, contentDescription = null) }
+                                } else {
+                                    null
+                                },
+                                onClick = {
+                                    modelMenuOpen = false
+                                    onMenuOpenChange(COMPOSER_MENU_MODEL, false)
+                                    if (live && alias != model) onPickModel(alias)
+                                },
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        if (supportsPlanMode(menu.agent)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier
+                    .clip(RoundedCornerShape(6.dp))
+                    .clickable(role = Role.Switch) { menu.onConfigure(AgentSessionViewModel.ConfigurePicks(planMode = !planMode)) }
+                    .padding(horizontal = 4.dp, vertical = 6.dp)
+                    .testTag("steer-plan-mode"),
+            ) {
+                Text(
+                    PLAN_LABEL,
+                    style = MaterialTheme.typography.labelLarge,
+                    color = Color.White.copy(alpha = TextEmphasis.Secondary),
+                    maxLines = 1,
+                )
+                GlassSwitch(checked = planMode, onCheckedChange = null, size = GlassSwitchSize.Pill)
+            }
+        }
+        Spacer(Modifier.weight(1f))
+        if (hasUsage) {
+            IconButton(onClick = onOpenUsage) {
+                ContextRing(percent = contextPercent, size = 20.dp)
+            }
+        }
+    }
+    }
+
+    if (plusOpen) {
+        val claude = menu.agent == DEFAULT_AGENT
+        val closePlus = {
+            plusOpen = false
+            onMenuOpenChange(COMPOSER_MENU_PLUS, false)
+        }
+        var implementPicks by remember { mutableStateOf<Set<String>>(emptySet()) }
+        ComposerPlusMenuSheet(
+            layout = com.exponential.app.domain.ComposerMenu.composerMenuLayout(
+                ComposerMenuConditions(
+                    // The subagent model is a launch pick: not live-changeable.
+                    subagentModel = false,
+                    ultracode = claude,
+                    mcp = menu.mcpServers.isNotEmpty(),
+                    computerUse = menu.canComputerUse,
+                ),
+            ),
+            codex = menu.agent == "codex",
+            effortValue = menu.effort.takeIf { it.isNotEmpty() }?.let(::effortLabel),
+            effortEnabled = !(claude && menu.ultracode),
+            subagentsValue = null,
+            ultracode = menu.ultracode,
+            mcpValue = mcpPickValue(menu.mcpServerIds.size),
+            computerUse = menu.computerUse,
+            canAttach = pendingImages.count { it.isImage } < MAX_STEER_IMAGES ||
+                pendingImages.count { !it.isImage } < MAX_STEER_FILES,
+            onRow = { row ->
+                closePlus()
+                when (row) {
+                    ComposerMenuRowId.AddFile -> onPickImages()
+                    ComposerMenuRowId.Effort -> {
+                        effortOpen = true
+                        onMenuOpenChange(COMPOSER_MENU_EFFORT, true)
+                    }
+                    ComposerMenuRowId.McpServers -> {
+                        mcpOpen = true
+                        onMenuOpenChange(COMPOSER_MENU_MCP, true)
+                    }
+                    else -> Unit
+                }
+            },
+            onUltracodeChange = { menu.onConfigure(AgentSessionViewModel.ConfigurePicks(ultracode = it)) },
+            onComputerUseChange = { menu.onConfigure(AgentSessionViewModel.ConfigurePicks(computerUse = it)) },
+            onDismiss = closePlus,
+            // Implement issue › in a running session = link the picks to
+            // the thread (a manual link wakes the dispatcher).
+            issuePage = { close ->
+                AgentIssuePickerPage(
+                    issues = menu.issues,
+                    checkedIds = implementPicks,
+                    onToggle = { id -> implementPicks = if (id in implementPicks) implementPicks - id else implementPicks + id },
+                    onDone = {
+                        menu.onImplement(implementPicks.toList())
+                        implementPicks = emptySet()
+                        close()
+                    },
+                )
+            },
+            // Run action › names the action in the message (the agent reads
+            // it with `actions_get`).
+            actionPage = { close ->
+                ActionPicker(
+                    actions = menu.actions.orEmpty(),
+                    value = null,
+                    onChange = { id ->
+                        val name = menu.actions?.firstOrNull { it.id == id }?.name
+                        if (name != null) {
+                            val text = runActionText(value.text, name)
+                            onValueRewrite(TextFieldValue(text, TextRange(text.length)))
+                        }
+                        close()
+                    },
+                    emptyText = "No matching actions",
+                    loading = menu.actions == null,
+                    inline = true,
+                    modifier = Modifier.testTag("agent-composer-actions-picker"),
+                )
+            },
+        )
+    }
+    if (effortOpen) {
+        Picker(
+            items = effortValuesFor(menu.agent).map { PickerItem(it, effortLabel(it)) },
+            mode = PickerMode.Single,
+            value = setOf(menu.effort),
+            onChange = { picked ->
+                picked.firstOrNull()?.let { menu.onConfigure(AgentSessionViewModel.ConfigurePicks(effort = it)) }
+            },
+            title = if (menu.agent == "codex") "Reasoning" else "Effort",
+            open = true,
+            onOpenChange = { open ->
+                if (!open) {
+                    effortOpen = false
+                    onMenuOpenChange(COMPOSER_MENU_EFFORT, false)
+                }
+            },
+        )
+    }
+    if (mcpOpen) {
+        McpServerPicker(
+            servers = menu.mcpServers,
+            value = menu.mcpServerIds,
+            onToggle = { id ->
+                val next = if (id in menu.mcpServerIds) menu.mcpServerIds - id else menu.mcpServerIds + id
+                menu.onConfigure(AgentSessionViewModel.ConfigurePicks(mcpServerIds = next))
+            },
+            open = true,
+            onOpenChange = { open ->
+                if (!open) {
+                    mcpOpen = false
+                    onMenuOpenChange(COMPOSER_MENU_MCP, false)
+                }
+            },
         )
     }
 }

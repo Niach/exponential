@@ -1,0 +1,66 @@
+import { describe, expect, it } from "vitest"
+import { pickPrIssues, subtreeOf } from "@/lib/sessions/pr-issues"
+
+// EXP-1334: a PR closes its SESSION's share of the thread, not every issue
+// on the root.
+
+const node = (id: string, parentId: string | null, over: { dispatch?: boolean; aside?: boolean } = {}) => ({
+  id,
+  parentId,
+  dispatch: over.dispatch ?? false,
+  aside: over.aside ?? false,
+})
+const link = (issueId: string, identifier: string, addedBySessionId: string | null = null) => ({
+  issueId,
+  identifier,
+  addedBySessionId,
+})
+
+// root (dispatcher) → a (work) → a1 (follow-up); root → b (work)
+const tree = [node(`root`, null, { dispatch: true }), node(`a`, `root`), node(`a1`, `a`), node(`b`, `root`)]
+const links = [link(`i-1`, `EXP-1`), link(`i-2`, `EXP-2`, `a1`), link(`i-3`, `EXP-3`, `b`), link(`i-4`, `EXP-4`)]
+
+describe(`pickPrIssues`, () => {
+  it(`the root's own PR (or no session) takes the whole thread`, () => {
+    for (const sessionId of [`root`, null]) {
+      expect(pickPrIssues({ rootId: `root`, sessionId, links, tree, startText: null })).toEqual([
+        `i-1`,
+        `i-2`,
+        `i-3`,
+        `i-4`,
+      ])
+    }
+  })
+
+  it(`a child takes its subtree's links plus the issues its start message names`, () => {
+    expect(
+      pickPrIssues({ rootId: `root`, sessionId: `a`, links, tree, startText: `Fix #exp-1 (see EXP-4)` })
+    ).toEqual([`i-1`, `i-2`])
+    expect(pickPrIssues({ rootId: `root`, sessionId: `b`, links, tree, startText: `go` })).toEqual([`i-3`])
+  })
+
+  it(`an empty share stays empty while other sessions do work`, () => {
+    expect(pickPrIssues({ rootId: `root`, sessionId: `a1`, links: [link(`i-1`, `EXP-1`)], tree, startText: `` })).toEqual(
+      []
+    )
+  })
+
+  it(`the tree's ONLY work session takes the whole thread when its share is empty`, () => {
+    const solo = [
+      node(`root`, null, { dispatch: true }),
+      node(`cont`, `root`, { dispatch: true }),
+      node(`w`, `cont`),
+      node(`btw`, `w`, { aside: true }),
+    ]
+    expect(
+      pickPrIssues({ rootId: `root`, sessionId: `w`, links: [link(`i-1`, `EXP-1`)], tree: solo, startText: `do it` })
+    ).toEqual([`i-1`])
+  })
+})
+
+describe(`subtreeOf`, () => {
+  it(`collects the session and every descendant`, () => {
+    expect([...subtreeOf(tree, `a`)].sort()).toEqual([`a`, `a1`])
+    expect([...subtreeOf(tree, `root`)].sort()).toEqual([`a`, `a1`, `b`, `root`])
+  })
+})

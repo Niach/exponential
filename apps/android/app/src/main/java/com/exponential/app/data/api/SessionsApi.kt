@@ -212,6 +212,22 @@ data class AnswerInput(
     val feedback: String? = null,
 )
 
+/** EXP-1334 `sessions.configure`: a running session's launch picks changed
+ *  live from THE session composer; a null field is omitted (unchanged). */
+@Serializable
+data class SessionConfigureInput(
+    val sessionId: String,
+    val planMode: Boolean? = null,
+    val effort: String? = null,
+    val ultracode: Boolean? = null,
+    val computerUse: Boolean? = null,
+    val mcpServerIds: List<String>? = null,
+)
+
+/** EXP-1334 `sessions.mcpPicks`: the session's server-only MCP picks. */
+@Serializable
+data class SessionMcpPicks(val mcpServerIds: List<String> = emptyList())
+
 /** `sessions.getAgent`: the agent's server-only facets. */
 @Serializable
 data class AgentDetails(
@@ -306,6 +322,27 @@ class SessionsApi @Inject constructor(private val trpc: TrpcClient) {
             path = "sessions.answer",
             input = input,
             inputSerializer = AnswerInput.serializer(),
+        )
+    }
+
+    /** EXP-1334: the session's MCP picks (anyone who may steer it). */
+    suspend fun mcpPicks(accountId: String, sessionId: String): SessionMcpPicks =
+        trpc.query(
+            accountId,
+            path = "sessions.mcpPicks",
+            input = SessionIdInput(sessionId),
+            inputSerializer = SessionIdInput.serializer(),
+            outputSerializer = SessionMcpPicks.serializer(),
+        )
+
+    /** EXP-1334: change a running session's Plan / Effort / Ultracode /
+     *  Computer use / MCP servers. */
+    suspend fun configure(accountId: String, input: SessionConfigureInput) {
+        trpc.mutationUnit(
+            accountId,
+            path = "sessions.configure",
+            input = input,
+            inputSerializer = SessionConfigureInput.serializer(),
         )
     }
 

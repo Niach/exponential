@@ -169,6 +169,7 @@ fun ThreadScreen(
         issues.associate { it.id to IssueStatusResolver.resolve(it, statuses) }
     }
     val messagesById = remember(messages) { messages.associateBy { it.id } }
+    val issueTitles = remember(syncedIssues) { syncedIssues.associate { it.id to it.title } }
     val metaFor: (SessionTree.ThreadRow.MessageRow) -> ThreadRowMeta? = { row ->
         val user = row.authorId?.let { users[it] }
         ThreadRowMeta(
@@ -226,7 +227,8 @@ fun ThreadScreen(
                 },
                 onAnswer = { id, answer, settled -> viewModel.answer(id, answer, settled) },
                 onDecidePlan = { id, approved, feedback, settled -> viewModel.decidePlan(id, approved, feedback, settled) },
-                onOpenSessionTab = { tab -> onOpenSession(tab.sessionId) },
+                onOpenSessionTab = { id -> onOpenSession(id) },
+                issueTitle = { id -> issueTitles[id] },
                 canUnqueue = { row -> row.authorId != null && row.authorId == me },
                 onUnqueue = viewModel::unqueue,
                 onBack = onBack,
@@ -393,8 +395,8 @@ fun ThreadContent(
     canUnqueue: (SessionTree.ThreadRow.MessageRow) -> Boolean,
     onUnqueue: (messageId: String) -> Unit,
     onBack: (() -> Unit)?,
-    /** A session chip of the strip (phones push that session's view). */
-    onOpenSessionTab: (SessionTree.ThreadTab.SessionTab) -> Unit,
+    /** A session chip (or a folded row) of the strip: phones push that session's view. */
+    onOpenSessionTab: (sessionId: String) -> Unit,
     onAdd: (() -> Unit)?,
     onIssueMenu: ((SessionTree.ThreadTab.IssueTab) -> Unit)?,
     onAgentSettings: (() -> Unit)?,
@@ -412,12 +414,22 @@ fun ThreadContent(
     suggestions: ThreadSuggestionActions? = null,
     /** EXP-1323: the live tail above the composer (Tasks card + status line). */
     tail: (@Composable () -> Unit)? = null,
+    /** EXP-1334: an issue's title (the strip's full tier). */
+    issueTitle: (String) -> String? = { null },
 ) {
-    // An agent channel is the conversation only.
+    // An agent channel is the conversation only. EXP-1334: a folded
+    // sub-issue is a page too (right after its chip's).
     val pages = if (agent != null || view == null) {
         listOf<SessionTree.ThreadTab>(SessionTree.ThreadTab.Conversation)
     } else {
-        view.tabs.filter { it != SessionTree.ThreadTab.Add && it !is SessionTree.ThreadTab.SessionTab }
+        view.tabs.flatMap { tab ->
+            when (tab) {
+                SessionTree.ThreadTab.Add, is SessionTree.ThreadTab.SessionTab -> emptyList()
+                is SessionTree.ThreadTab.IssueTab ->
+                    listOf(tab) + tab.nested.map { SessionTree.ThreadTab.IssueTab(it.issueId, it.identifier) }
+                else -> listOf(tab)
+            }
+        }
     }
     // A tab that left the strip (an issue unlinked elsewhere) falls back to
     // the conversation.
@@ -453,9 +465,10 @@ fun ThreadContent(
                             ThreadTabStrip(
                                 tabs = view.tabs,
                                 selectedKey = threadTabKey(selected),
-                                onSelect = { onSelectKey(threadTabKey(it)) },
+                                onSelect = onSelectKey,
                                 onAdd = onAdd,
                                 issueStatus = issueStatus,
+                                issueTitle = issueTitle,
                                 onIssueMenu = onIssueMenu,
                                 onOpenSession = onOpenSessionTab,
                             )

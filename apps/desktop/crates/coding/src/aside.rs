@@ -127,7 +127,7 @@ pub fn prepare(
         // must not send the brief as a turn.
         brief: SessionBrief { brief: String::new(), ..brief.clone() },
         issue_identifiers: parent.issues.clone(),
-        resume: Some(ResumeRun { record, prompt: question, message_id: None }),
+        resume: Some(ResumeRun { record, prompt: question, message_id: None, reconfigure: None }),
         device_label: device_label.to_string(),
         // The parent's recorded login: no switch.
         options: LaunchOptions { account: None, ..options.clone() },

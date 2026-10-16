@@ -932,6 +932,13 @@ final class StyleguideScreenshots: XCTestCase {
             within: Wait.sync,
             "The cold-start thread drew no pending question card"
         )
+        // EXP-1334: the strip never scrolls — the "+" and Conversation pinned
+        // left, Guide pinned right, the chips folded between them.
+        for id in ["thread-strip-add", "thread-tab-conversation", "thread-tab-guide"] {
+            let pinned = anyElement(app, identified: id)
+            expect(pinned, within: Wait.sync, "The thread strip drew no \(id)")
+            XCTAssertTrue(pinned.isHittable, "\(id) is off screen — the strip must never scroll")
+        }
         snapshot("sg_thread", settle: 2)
 
         // ── sg_session: that card's raw view (DEMO_SESSION_ID) ─────────────

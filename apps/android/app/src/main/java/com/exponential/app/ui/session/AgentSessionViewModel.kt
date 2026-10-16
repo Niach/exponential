@@ -138,6 +138,7 @@ class AgentSessionViewModel @AssistedInject constructor(
     private val issuesApi: IssuesApi,
     private val sessionsApi: SessionsApi,
     private val devicesApi: DevicesApi,
+    private val mcpServersApi: com.exponential.app.data.api.McpServersApi,
     private val issueImagesApi: IssueImagesApi,
     private val store: SteerConnectionStore,
     stats: SyncStats,
@@ -246,6 +247,13 @@ class AgentSessionViewModel @AssistedInject constructor(
     ) { device, now, userId ->
         device?.toSteerDevice(now, userId)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /** EXP-1334: the host machine reads the per-run `computerUse` flag (the
+     *  "+" menu's Computer use row). */
+    val hostCanToggleComputerUse: StateFlow<Boolean> = hostSteerDevice
+        .map { it?.canToggleComputerUse == true }
+        .distinctUntilChanged()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
     /** The host device's synced launch defaults — the composer's model pin
      *  falls back to them before the relay names the model in force. */
@@ -672,6 +680,120 @@ class AgentSessionViewModel @AssistedInject constructor(
         SlashCommands.agentId(session.value?.cli, sessionConfig.value != null),
         sessionConfig.value?.commands.orEmpty(),
     )
+
+    // ── EXP-1334: THE session composer's "+" changes a RUNNING session ──────
+
+    /** The person's live picks, ahead of the synced row (null = the row's). */
+    data class ConfigurePicks(
+        val planMode: Boolean? = null,
+        val effort: String? = null,
+        val ultracode: Boolean? = null,
+        val computerUse: Boolean? = null,
+        val mcpServerIds: List<String>? = null,
+    )
+
+    private val _configurePicks = MutableStateFlow(ConfigurePicks())
+    val configurePicks: StateFlow<ConfigurePicks> = _configurePicks
+
+    private val _configureError = MutableStateFlow<String?>(null)
+    /** A refused `sessions.configure` — `Couldn't change the session`. */
+    val configureError: StateFlow<String?> = _configureError
+
+    fun clearConfigureError() {
+        _configureError.value = null
+    }
+
+    private val _mcpServers = MutableStateFlow<List<com.exponential.app.domain.McpServerOption>>(emptyList())
+    /** The team's MCP servers (`mcpServers.list`, fetched once per team). */
+    val mcpServers: StateFlow<List<com.exponential.app.domain.McpServerOption>> = _mcpServers
+    private var mcpTeam: String? = null
+
+    /** Fetch the session's team MCP servers once (the "+" menu's row). */
+    fun loadMcpServers() {
+        val team = session.value?.teamId?.takeIf { it.isNotEmpty() } ?: return
+        if (mcpTeam == team) return
+        mcpTeam = team
+        viewModelScope.launch {
+            val accountId = auth.activeAccountId.value ?: return@launch
+            val servers = runCatching { mcpServersApi.list(accountId, team) }
+                .onFailure { if (it is CancellationException) throw it }
+                .getOrNull() ?: return@launch
+            _mcpServers.value = servers
+            // The MCP row starts from the session's OWN picks; a failure
+            // falls back silently to the team defaults.
+            val picks = runCatching { sessionsApi.mcpPicks(accountId, codingSessionId) }
+                .onFailure { if (it is CancellationException) throw it }
+                .getOrNull() ?: return@launch
+            if (_configurePicks.value.mcpServerIds == null) {
+                _configurePicks.value = _configurePicks.value.copy(mcpServerIds = picks.mcpServerIds)
+            }
+        }
+    }
+
+    /** The "+"'s Run action › rows: the session team's saved actions. */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val menuActions: StateFlow<List<com.exponential.app.data.db.ActionEntity>?> = session
+        .map { it?.teamId }
+        .distinctUntilChanged()
+        .flatMapLatest { teamId ->
+            if (teamId.isNullOrEmpty()) {
+                flowOf(emptyList())
+            } else {
+                dbFlow.scopedQuery(emptyList<com.exponential.app.data.db.ActionEntity>()) {
+                    it.actionDao().observeByTeam(teamId)
+                }
+            }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /** The "+"'s Implement issue ›: link the picks to the session's ROOT
+     *  (`sessions.linkIssues`; a manual link wakes the dispatcher). */
+    fun implementIssues(issueIds: List<String>) {
+        if (issueIds.isEmpty()) return
+        val rootId = session.value?.rootId?.takeIf { it.isNotEmpty() } ?: codingSessionId
+        viewModelScope.launch {
+            try {
+                val accountId = auth.activeAccountId.value ?: throw IllegalStateException("No active account")
+                sessionsApi.linkIssues(accountId, rootId, issueIds)
+            } catch (t: Throwable) {
+                if (t is CancellationException) throw t
+                _configureError.value = trpcErrorMessage(t, "")
+            }
+        }
+    }
+
+    /** `sessions.configure` with the changed fields; the pick shows at once
+     *  and rolls back on a refusal. */
+    fun configure(change: ConfigurePicks) {
+        val before = _configurePicks.value
+        _configurePicks.value = ConfigurePicks(
+            planMode = change.planMode ?: before.planMode,
+            effort = change.effort ?: before.effort,
+            ultracode = change.ultracode ?: before.ultracode,
+            computerUse = change.computerUse ?: before.computerUse,
+            mcpServerIds = change.mcpServerIds ?: before.mcpServerIds,
+        )
+        viewModelScope.launch {
+            try {
+                val accountId = auth.activeAccountId.value ?: throw IllegalStateException("No active account")
+                sessionsApi.configure(
+                    accountId,
+                    com.exponential.app.data.api.SessionConfigureInput(
+                        sessionId = codingSessionId,
+                        planMode = change.planMode,
+                        effort = change.effort,
+                        ultracode = change.ultracode,
+                        computerUse = change.computerUse,
+                        mcpServerIds = change.mcpServerIds,
+                    ),
+                )
+            } catch (t: Throwable) {
+                if (t is CancellationException) throw t
+                _configurePicks.value = before
+                _configureError.value = trpcErrorMessage(t, "")
+            }
+        }
+    }
 
     /** A failed [stopSession] call's message — FEED-79: raised as the error
      *  toast once, then [clearKillError]ed. */

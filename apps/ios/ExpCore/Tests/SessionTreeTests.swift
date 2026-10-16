@@ -116,7 +116,8 @@ final class SessionTreeTests: XCTestCase {
             TreeIssue(
                 id: try XCTUnwrap(string($0["id"])),
                 identifier: try XCTUnwrap(string($0["identifier"])),
-                title: try XCTUnwrap(string($0["title"]))
+                title: try XCTUnwrap(string($0["title"])),
+                parentId: string($0["parentId"])
             )
         }
     }
@@ -170,10 +171,19 @@ final class SessionTreeTests: XCTestCase {
     private func json(_ tab: ThreadTab) -> [String: Any] {
         switch tab {
         case .conversation: ["kind": "conversation"]
-        case let .issue(issueId, identifier): ["kind": "issue", "issueId": issueId, "identifier": identifier]
+        case let .issue(issueId, identifier, nested):
+            [
+                "kind": "issue", "issueId": issueId, "identifier": identifier,
+                "nested": nested.map { ["issueId": $0.issueId, "identifier": $0.identifier, "depth": $0.depth] as [String: Any] },
+            ]
         case .add: ["kind": "add"]
-        case let .session(sessionId, name, markState):
-            ["kind": "session", "sessionId": sessionId, "name": name, "markState": markState.rawValue]
+        case let .session(sessionId, name, markState, nested):
+            [
+                "kind": "session", "sessionId": sessionId, "name": name, "markState": markState.rawValue,
+                "nested": nested.map {
+                    ["sessionId": $0.sessionId, "name": $0.name, "markState": $0.markState.rawValue, "depth": $0.depth] as [String: Any]
+                },
+            ]
         case let .guide(dot): ["kind": "guide", "dot": dot]
         }
     }
@@ -197,10 +207,10 @@ final class SessionTreeTests: XCTestCase {
                     ]
                 },
             ]
-        case let .question(id, question, options, custom, answer, answered):
-            ["type": "question", "id": id, "question": question, "options": options.map { ["label": $0.label, "description": json($0.description)] as [String: Any] }, "custom": custom, "answer": json(answer), "answered": answered]
-        case let .plan(id, plan, decision):
-            ["type": "plan", "id": id, "plan": plan, "decision": json(decision)]
+        case let .question(id, sessionId, question, options, custom, answer, answered):
+            ["type": "question", "id": id, "sessionId": sessionId, "question": question, "options": options.map { ["label": $0.label, "description": json($0.description)] as [String: Any] }, "custom": custom, "answer": json(answer), "answered": answered]
+        case let .plan(id, sessionId, plan, decision):
+            ["type": "plan", "id": id, "sessionId": sessionId, "plan": plan, "decision": json(decision)]
         case let .subagent(id, title, status):
             ["type": "subagent", "id": id, "title": title, "status": status]
         case let .picture(id, attachmentId, width, height, caption):
@@ -383,6 +393,31 @@ final class SessionTreeTests: XCTestCase {
                     pendingAsk: try XCTUnwrap(input["pendingAsk"] as? Bool)
                 ),
                 try XCTUnwrap(testCase["expected"] as? Bool),
+                name
+            )
+        }
+    }
+
+    /// EXP-1334: `stripCases` — the never-scrolling strip's partition.
+    func testPartitionThreadStripReplaysEveryCase() throws {
+        for testCase in try cases(try fixture("session-thread.json"), "stripCases") {
+            let name = try XCTUnwrap(testCase["name"] as? String)
+            let input = try XCTUnwrap(testCase["input"] as? [String: Any])
+            let issues = try XCTUnwrap(input["issues"] as? [[String: Any]]).map { issue in
+                (full: try XCTUnwrap(issue["full"] as? Double), short: try XCTUnwrap(issue["short"] as? Double))
+            }
+            let layout = SessionTree.partitionThreadStrip(
+                issues: issues,
+                sessions: try XCTUnwrap(input["sessions"] as? [Double]),
+                available: try XCTUnwrap(input["available"] as? Double),
+                gap: try XCTUnwrap(input["gap"] as? Double),
+                overflowW: try XCTUnwrap(input["overflowW"] as? Double),
+                activeIssue: input["activeIssue"] as? Int,
+                activeSession: input["activeSession"] as? Int
+            )
+            assertJSON(
+                ["tier": layout.tier.rawValue, "issues": layout.issues, "sessions": layout.sessions] as [String: Any],
+                testCase["expected"],
                 name
             )
         }

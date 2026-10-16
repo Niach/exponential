@@ -3,11 +3,13 @@ import { db } from "@/db/connection"
 import {
   boards,
   issueEvents,
+  issueRelations,
   issues,
   issueStatuses,
   pullRequestIssues,
   pullRequests,
   repositories,
+  sessionIssues,
   teams,
 } from "@/db/schema"
 import {
@@ -121,16 +123,31 @@ export async function findIssueIdByBranch(
 // Coding-flow status transitions (EXP-120): an opened PR parks its issue in
 // the team's PR-open target (default: the builtin In Review); a merged PR
 // moves it to the PR-merge target (default: the builtin Done). Targets are
-// per-team configurable, including "do nothing" (EXP-319). Explicit human
+// per-team configurable, including "do nothing" (EXP-319). EXP-1334: linking
+// an issue to a thread STARTS it (`started`: a not-yet-started issue moves to
+// the builtin In Progress; no team toggle exists for it). Explicit human
 // resolutions (cancelled/duplicate) and already-reached targets are never
 // overridden, so every writer stays idempotent.
+const STARTED_FROM_STATUSES = new Set([`backlog`])
 const OPENED_FROM_STATUSES = new Set([`backlog`, `in_progress`])
 const MERGED_FROM_STATUSES = new Set([`backlog`, `in_progress`, `in_review`])
 
 export type PrAutomationEvent = `opened` | `merged`
+/** EXP-1334: the PR events plus a thread link's `started`. */
+export type IssueAutomationEvent = PrAutomationEvent | `started`
+
+const ELIGIBLE_FROM: Record<IssueAutomationEvent, Set<string>> = {
+  started: STARTED_FROM_STATUSES,
+  opened: OPENED_FROM_STATUSES,
+  merged: MERGED_FROM_STATUSES,
+}
 
 // The builtin fallback target per event.
-export const PR_AUTOMATION_DEFAULT_KEY: Record<PrAutomationEvent, `in_review` | `done`> = {
+export const PR_AUTOMATION_DEFAULT_KEY: Record<
+  IssueAutomationEvent,
+  `in_progress` | `in_review` | `done`
+> = {
+  started: `in_progress`,
   opened: `in_review`,
   merged: `done`,
 }
@@ -140,14 +157,13 @@ export const PR_AUTOMATION_DEFAULT_KEY: Record<PrAutomationEvent, `in_review` | 
 // when even the builtin row is missing (the write then degrades to the bare
 // anchor and the populate_issue_status_id trigger resolves status_id).
 export function planPrAutomationTransition(opts: {
-  event: PrAutomationEvent
+  event: IssueAutomationEvent
   automationEnabled: boolean
   current: { status: string; statusId: string | null }
   target: { id: string; builtinKey: string | null; category: IssueStatusCategory } | null
 }): { status: IssueStatus; statusId?: string } | null {
   if (!opts.automationEnabled) return null
-  const eligibleFrom = opts.event === `merged` ? MERGED_FROM_STATUSES : OPENED_FROM_STATUSES
-  if (!eligibleFrom.has(opts.current.status)) return null
+  if (!ELIGIBLE_FROM[opts.event].has(opts.current.status)) return null
   // Already parked in the exact target row (a custom target whose anchor
   // sits inside the from-set): repeated deliveries must not re-fire events.
   if (opts.target && opts.current.statusId === opts.target.id) return null
@@ -160,10 +176,77 @@ export function planPrAutomationTransition(opts: {
   }
 }
 
-// In-transaction status writer for the PR lifecycle: the team's configured
+type AutomationTarget = {
+  id: string
+  name: string
+  builtinKey: string | null
+  category: IssueStatusCategory
+}
+
+/** The team's switch + target row for an event (EXP-319; `started` has no
+ *  team setting: always on, the builtin In Progress). */
+async function resolveAutomationTarget(
+  tx: Tx,
+  teamId: string,
+  event: IssueAutomationEvent
+): Promise<{ enabled: boolean; target: AutomationTarget | null }> {
+  let enabled = true
+  let configuredStatusId: string | null = null
+  if (event !== `started`) {
+    const [teamConfig] = await tx
+      .select({
+        prOpenedStatusId: teams.prOpenedStatusId,
+        prOpenedAutomation: teams.prOpenedAutomation,
+        prMergedStatusId: teams.prMergedStatusId,
+        prMergedAutomation: teams.prMergedAutomation,
+      })
+      .from(teams)
+      .where(eq(teams.id, teamId))
+      .limit(1)
+    enabled =
+      (event === `opened` ? teamConfig?.prOpenedAutomation : teamConfig?.prMergedAutomation) ??
+      true
+    configuredStatusId =
+      (event === `opened` ? teamConfig?.prOpenedStatusId : teamConfig?.prMergedStatusId) ?? null
+  }
+  if (!enabled) return { enabled, target: null }
+  const targetColumns = {
+    id: issueStatuses.id,
+    name: issueStatuses.name,
+    builtinKey: issueStatuses.builtinKey,
+    category: issueStatuses.category,
+  }
+  let target = configuredStatusId
+    ? ((
+        await tx
+          .select(targetColumns)
+          .from(issueStatuses)
+          .where(and(eq(issueStatuses.id, configuredStatusId), eq(issueStatuses.teamId, teamId)))
+          .limit(1)
+      )[0] ?? null)
+    : null
+  if (!target) {
+    target =
+      (
+        await tx
+          .select(targetColumns)
+          .from(issueStatuses)
+          .where(
+            and(
+              eq(issueStatuses.teamId, teamId),
+              eq(issueStatuses.builtinKey, PR_AUTOMATION_DEFAULT_KEY[event])
+            )
+          )
+          .limit(1)
+      )[0] ?? null
+  }
+  return { enabled, target }
+}
+
+// In-transaction status writer for the issue lifecycle: the team's configured
 // target for the event (EXP-319, "do nothing" = automation false), the
 // shared completedAt/duplicate derivations, and the status_changed event
-// marked `automation` (FEED-87).
+// marked `automation` (FEED-87). Returns whether the issue moved.
 export async function applyPrLifecycleStatusInTx(
   tx: Tx,
   opts: {
@@ -171,23 +254,16 @@ export async function applyPrLifecycleStatusInTx(
     teamId: string
     actorUserId: string | null
     currentStatus: string
-    event: PrAutomationEvent
+    event: IssueAutomationEvent
+    origin?: IssueEventOrigin
   }
-): Promise<void> {
-  const [teamConfig] = await tx
-    .select({
-      prOpenedStatusId: teams.prOpenedStatusId,
-      prOpenedAutomation: teams.prOpenedAutomation,
-      prMergedStatusId: teams.prMergedStatusId,
-      prMergedAutomation: teams.prMergedAutomation,
-    })
-    .from(teams)
-    .where(eq(teams.id, opts.teamId))
-    .limit(1)
-  const automationEnabled =
-    (opts.event === `opened` ? teamConfig?.prOpenedAutomation : teamConfig?.prMergedAutomation) ??
-    true
-  if (!automationEnabled) return
+): Promise<boolean> {
+  const { enabled: automationEnabled, target } = await resolveAutomationTarget(
+    tx,
+    opts.teamId,
+    opts.event
+  )
+  if (!automationEnabled) return false
 
   const [fromRow] = await tx
     .select({
@@ -200,46 +276,13 @@ export async function applyPrLifecycleStatusInTx(
     .where(eq(issues.id, opts.issueId))
     .limit(1)
 
-  const configuredStatusId =
-    opts.event === `opened` ? teamConfig?.prOpenedStatusId : teamConfig?.prMergedStatusId
-  const targetColumns = {
-    id: issueStatuses.id,
-    name: issueStatuses.name,
-    builtinKey: issueStatuses.builtinKey,
-    category: issueStatuses.category,
-  }
-  let target = configuredStatusId
-    ? ((
-        await tx
-          .select(targetColumns)
-          .from(issueStatuses)
-          .where(and(eq(issueStatuses.id, configuredStatusId), eq(issueStatuses.teamId, opts.teamId)))
-          .limit(1)
-      )[0] ?? null)
-    : null
-  if (!target) {
-    target =
-      (
-        await tx
-          .select(targetColumns)
-          .from(issueStatuses)
-          .where(
-            and(
-              eq(issueStatuses.teamId, opts.teamId),
-              eq(issueStatuses.builtinKey, PR_AUTOMATION_DEFAULT_KEY[opts.event])
-            )
-          )
-          .limit(1)
-      )[0] ?? null
-  }
-
   const plan = planPrAutomationTransition({
     event: opts.event,
     automationEnabled,
     current: { status: opts.currentStatus, statusId: fromRow?.statusId ?? null },
     target,
   })
-  if (!plan) return
+  if (!plan) return false
 
   const setValues: Record<string, unknown> = { ...plan }
   const previousDuplicateOfId = fromRow?.duplicateOfId ?? null
@@ -262,6 +305,7 @@ export async function applyPrLifecycleStatusInTx(
     issueId: opts.issueId,
     teamId: opts.teamId,
     actorUserId: opts.actorUserId,
+    ...(opts.origin ? { origin: opts.origin } : {}),
     type: `status_changed`,
     payload: {
       fromStatusId: fromRow?.statusId ?? null,
@@ -271,6 +315,244 @@ export async function applyPrLifecycleStatusInTx(
       automation: true,
     },
   })
+  return true
+}
+
+/** EXP-1334: a thread link STARTS its issues (backlog/unstarted → the
+ *  builtin In Progress); anything already started or resolved stays. */
+export async function applyIssuesStartedInTx(
+  tx: Tx,
+  opts: {
+    issueIds: string[]
+    teamId: string
+    actorUserId: string | null
+    origin?: IssueEventOrigin
+  }
+): Promise<string[]> {
+  if (opts.issueIds.length === 0) return []
+  const rows = await tx
+    .select({ id: issues.id, status: issues.status })
+    .from(issues)
+    .where(and(inArray(issues.id, opts.issueIds), eq(issues.teamId, opts.teamId)))
+  const moved: string[] = []
+  for (const row of rows) {
+    const applied = await applyPrLifecycleStatusInTx(tx, {
+      issueId: row.id,
+      teamId: opts.teamId,
+      actorUserId: opts.actorUserId,
+      currentStatus: row.status,
+      event: `started`,
+      ...(opts.origin ? { origin: opts.origin } : {}),
+    })
+    if (applied) moved.push(row.id)
+  }
+  return moved
+}
+
+// ── the issue tree + the PR tree (EXP-1334) ─────────────────────────────────
+
+// How far an anchor is along the PR lifecycle; a resolution
+// (cancelled/duplicate) never holds a parent back.
+const STAGE_RANK: Record<string, number> = {
+  backlog: 0,
+  in_progress: 1,
+  in_review: 2,
+  done: 3,
+  cancelled: 3,
+  duplicate: 3,
+}
+const EVENT_RANK: Record<PrAutomationEvent, number> = { opened: 2, merged: 3 }
+const MAX_TREE_WALK = 10
+
+/** Pure: a sub-issue is at least at the event's stage (its anchor, or it
+ *  sits in the team's exact target row: a custom target anchors lower). */
+export function subIssueReached(
+  event: PrAutomationEvent,
+  child: { status: string; statusId: string | null },
+  targetId: string | null
+): boolean {
+  if (targetId && child.statusId === targetId) return true
+  return (STAGE_RANK[child.status] ?? 0) >= EVENT_RANK[event]
+}
+
+type PrChainRow = Pick<PullRequestRow, `id` | `state` | `basePullRequestId`>
+
+/** A merged PR is IN the default branch when its base is no PR (the
+ *  default or a branch nobody stacks on), or the PR it was stacked on is
+ *  merged and in it (a stack landing bottom-up). */
+async function prLandedInTx(tx: Tx, pr: PrChainRow): Promise<boolean> {
+  let current: PrChainRow | undefined = pr
+  for (let depth = 0; current && depth <= MAX_TREE_WALK; depth++) {
+    if (current.state !== `merged`) return false
+    if (!current.basePullRequestId) return true
+    ;[current] = await tx
+      .select({
+        id: pullRequests.id,
+        state: pullRequests.state,
+        basePullRequestId: pullRequests.basePullRequestId,
+      })
+      .from(pullRequests)
+      .where(eq(pullRequests.id, current.basePullRequestId))
+      .limit(1)
+    // The PR below is gone: nothing holds this one back.
+    if (!current) return true
+  }
+  return false
+}
+
+/** The merged PRs stacked (transitively) on `pullRequestId` that were held
+ *  back until it landed. A live PR in between ends the walk. */
+async function heldMergedAboveInTx(tx: Tx, pullRequestId: string): Promise<PullRequestRow[]> {
+  const found: PullRequestRow[] = []
+  let frontier = [pullRequestId]
+  for (let depth = 0; frontier.length > 0 && depth < MAX_TREE_WALK; depth++) {
+    const rows = await tx
+      .select()
+      .from(pullRequests)
+      .where(and(inArray(pullRequests.basePullRequestId, frontier), eq(pullRequests.state, `merged`)))
+    found.push(...rows)
+    frontier = rows.map((row) => row.id)
+  }
+  return found
+}
+
+/** The issues a parent's sub-issues must share to hold it back: linked to
+ *  the same PRs, or to those PRs' threads. `prIds` = the parent's PRs that
+ *  carry the event (live/merged for `opened`, landed for `merged`). */
+async function parentScopeInTx(tx: Tx, parentId: string, event: PrAutomationEvent) {
+  const prs = await tx
+    .select({
+      id: pullRequests.id,
+      state: pullRequests.state,
+      basePullRequestId: pullRequests.basePullRequestId,
+      rootSessionId: pullRequests.rootSessionId,
+    })
+    .from(pullRequestIssues)
+    .innerJoin(pullRequests, eq(pullRequests.id, pullRequestIssues.pullRequestId))
+    .where(eq(pullRequestIssues.issueId, parentId))
+  const carrying: typeof prs = []
+  for (const pr of prs) {
+    if (event === `opened` ? pr.state !== `closed` : await prLandedInTx(tx, pr)) carrying.push(pr)
+  }
+  if (carrying.length === 0) return null
+  const prIds = carrying.map((pr) => pr.id)
+  const roots = [...new Set(carrying.map((pr) => pr.rootSessionId).filter((id): id is string => !!id))]
+  const viaPr = await tx
+    .select({ issueId: pullRequestIssues.issueId })
+    .from(pullRequestIssues)
+    .where(inArray(pullRequestIssues.pullRequestId, prIds))
+  const viaThread = roots.length
+    ? await tx
+        .select({ issueId: sessionIssues.issueId })
+        .from(sessionIssues)
+        .where(inArray(sessionIssues.sessionId, roots))
+    : []
+  return new Set([...viaPr, ...viaThread].map((row) => row.issueId))
+}
+
+/** Sub-issues (canonical `parent` rows read parent → child) per parent. */
+async function subIssuesOfInTx(tx: Tx, parentIds: string[]): Promise<Map<string, string[]>> {
+  const map = new Map<string, string[]>()
+  if (parentIds.length === 0) return map
+  const rows = await tx
+    .select({ parent: issueRelations.issueId, child: issueRelations.relatedIssueId })
+    .from(issueRelations)
+    .where(and(eq(issueRelations.type, `parent`), inArray(issueRelations.issueId, parentIds)))
+  for (const row of rows) map.set(row.parent, [...(map.get(row.parent) ?? []), row.child])
+  return map
+}
+
+/**
+ * EXP-1334: move a PR event's issues, respecting the issue tree. A plain
+ * issue moves at once; a PARENT moves only once every sub-issue linked to the
+ * same PR or thread has reached the stage (its sub-issues are never moved for
+ * it). Each move then re-checks the mover's own parents (linked to a PR that
+ * carries the event), so a parent held back follows its last sub-issue.
+ */
+export async function applyPrEventToIssuesInTx(
+  tx: Tx,
+  opts: {
+    teamId: string
+    issueIds: string[]
+    event: PrAutomationEvent
+    actorUserId: string | null
+    origin?: IssueEventOrigin
+  }
+): Promise<string[]> {
+  if (opts.issueIds.length === 0) return []
+  const { target } = await resolveAutomationTarget(tx, opts.teamId, opts.event)
+  const moved: string[] = []
+  const tried = new Set<string>()
+
+  const statusOf = async (ids: string[]) =>
+    ids.length === 0
+      ? []
+      : tx
+          .select({ id: issues.id, status: issues.status, statusId: issues.statusId })
+          .from(issues)
+          .where(and(inArray(issues.id, ids), eq(issues.teamId, opts.teamId)))
+
+  const move = async (issue: { id: string; status: string }) => {
+    tried.add(issue.id)
+    const applied = await applyPrLifecycleStatusInTx(tx, {
+      issueId: issue.id,
+      teamId: opts.teamId,
+      actorUserId: opts.actorUserId,
+      currentStatus: issue.status,
+      event: opts.event,
+      ...(opts.origin ? { origin: opts.origin } : {}),
+    })
+    if (applied) moved.push(issue.id)
+    return applied
+  }
+
+  /** A parent is ready when no in-scope sub-issue lags behind. */
+  const ready = async (parentId: string, children: string[]): Promise<boolean | null> => {
+    const scope = await parentScopeInTx(tx, parentId, opts.event)
+    if (!scope) return null
+    const gating = children.filter((child) => scope.has(child))
+    const rows = await statusOf(gating)
+    return rows.every((row) => subIssueReached(opts.event, row, target?.id ?? null))
+  }
+
+  // 1. The event's own issues: plain ones first, then parents bottom-up.
+  const own = await statusOf([...new Set(opts.issueIds)])
+  const childrenOf = await subIssuesOfInTx(
+    tx,
+    own.map((row) => row.id)
+  )
+  const pending = own.filter((row) => childrenOf.has(row.id))
+  for (const row of own) if (!childrenOf.has(row.id)) await move(row)
+  for (let pass = 0; pending.length > 0 && pass <= MAX_TREE_WALK; pass++) {
+    let progressed = false
+    for (const row of [...pending]) {
+      if (!(await ready(row.id, childrenOf.get(row.id)!))) continue
+      const [fresh] = await statusOf([row.id])
+      if (fresh) await move(fresh)
+      pending.splice(pending.indexOf(row), 1)
+      progressed = true
+    }
+    if (!progressed) break
+  }
+
+  // 2. Up the tree: the parents of what moved follow when they are ready.
+  let frontier = [...moved]
+  for (let depth = 0; frontier.length > 0 && depth < MAX_TREE_WALK; depth++) {
+    const parentRows = await tx
+      .select({ parent: issueRelations.issueId })
+      .from(issueRelations)
+      .where(and(eq(issueRelations.type, `parent`), inArray(issueRelations.relatedIssueId, frontier)))
+    const parents = [...new Set(parentRows.map((row) => row.parent))].filter((id) => !tried.has(id))
+    const kids = await subIssuesOfInTx(tx, parents)
+    const next: string[] = []
+    for (const parentId of parents) {
+      if (!(await ready(parentId, kids.get(parentId) ?? []))) continue
+      const [fresh] = await statusOf([parentId])
+      if (fresh && (await move(fresh))) next.push(parentId)
+    }
+    frontier = next
+  }
+  return moved
 }
 
 // ── reads ───────────────────────────────────────────────────────────────────
@@ -424,13 +706,15 @@ type IssueLinkRow = { id: string; teamId: string; status: string }
 
 /**
  * Link issues to a PR (`pull_request_issues`, insert-only): every NEWLY
- * linked one records `pr_opened` and takes the team's PR-open automation
- * (a merged PR's newly linked issue takes the merge automation instead).
- * Issues of another team are skipped. Returns the newly linked ids.
+ * linked one records `pr_opened` and takes the team's PR-open automation (a
+ * merged PR's newly linked issue takes the merge automation instead, once
+ * that PR is in the default branch). EXP-1334: parents wait for their
+ * sub-issues (`applyPrEventToIssuesInTx`). Issues of another team are
+ * skipped. Returns the newly linked ids.
  */
 export async function linkPullRequestIssuesInTx(
   tx: Tx,
-  pr: Pick<PullRequestRow, `id` | `teamId` | `url` | `number` | `head` | `state`>,
+  pr: Pick<PullRequestRow, `id` | `teamId` | `url` | `number` | `head` | `state` | `basePullRequestId`>,
   issueIds: string[],
   actor: { userId: string | null; origin?: IssueEventOrigin }
 ): Promise<string[]> {
@@ -458,12 +742,17 @@ export async function linkPullRequestIssuesInTx(
       type: `pr_opened`,
       payload: { prUrl: pr.url, prNumber: pr.number, branch: pr.head },
     })
-    await applyPrLifecycleStatusInTx(tx, {
-      issueId: row.id,
+  }
+  const merged = pr.state === `merged`
+  // A merged PR still stacked on an unmerged one is not in the default
+  // branch yet: its issues wait for the stack's bottom to land.
+  if (!merged || (await prLandedInTx(tx, pr))) {
+    await applyPrEventToIssuesInTx(tx, {
       teamId: pr.teamId,
+      issueIds: linked,
+      event: merged ? `merged` : `opened`,
       actorUserId: actor.userId,
-      currentStatus: row.status,
-      event: pr.state === `merged` ? `merged` : `opened`,
+      ...(actor.origin ? { origin: actor.origin } : {}),
     })
   }
   return linked
@@ -592,7 +881,9 @@ function invalidateOpenPullsLazy(teamId: string): void {
  * `state <> 'merged'` UPDATE is the claim (REV-48): only its winner records
  * `pr_merged` on every linked issue, applies the team's merge automation,
  * posts the thread's card, notifies and retargets the PRs stacked on it.
- * Never ends a session.
+ * EXP-1334: a PR merged into ANOTHER PR's branch (stacked) leaves its issues
+ * alone; once the stack's bottom lands in the default branch, every merged
+ * PR stacked on it takes the merge automation too. Never ends a session.
  */
 export async function applyPullRequestMerged(opts: {
   pullRequestId: string
@@ -610,7 +901,7 @@ export async function applyPullRequestMerged(opts: {
       .returning()
     if (!claimed) return { applied: false as const, issueIds: [] as string[], txid: null, pr: null }
     const linked = await tx
-      .select({ id: issues.id, status: issues.status })
+      .select({ id: issues.id })
       .from(pullRequestIssues)
       .innerJoin(issues, eq(issues.id, pullRequestIssues.issueId))
       .where(eq(pullRequestIssues.pullRequestId, claimed.id))
@@ -622,12 +913,20 @@ export async function applyPullRequestMerged(opts: {
         type: `pr_merged`,
         payload: { prUrl: claimed.url },
       })
-      await applyPrLifecycleStatusInTx(tx, {
-        issueId: issue.id,
+    }
+    if (await prLandedInTx(tx, claimed)) {
+      const held = await heldMergedAboveInTx(tx, claimed.id)
+      const heldIssues = held.length
+        ? await tx
+            .select({ id: pullRequestIssues.issueId })
+            .from(pullRequestIssues)
+            .where(inArray(pullRequestIssues.pullRequestId, held.map((pr) => pr.id)))
+        : []
+      await applyPrEventToIssuesInTx(tx, {
         teamId: claimed.teamId,
-        actorUserId: opts.actorUserId ?? null,
-        currentStatus: issue.status,
+        issueIds: [...linked, ...heldIssues].map((issue) => issue.id),
         event: `merged`,
+        actorUserId: opts.actorUserId ?? null,
       })
     }
     if (claimed.rootSessionId) {

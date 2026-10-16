@@ -8,6 +8,7 @@ import {
   boards,
   devices,
   issues,
+  mcpServers,
   messages,
   sessionIssues,
   sessions,
@@ -733,6 +734,147 @@ describe.skipIf(!ready.ok)(`the sessions router: device procedures and answers`,
     })
     await caller(w.owner).deleteAgent({ sessionId: agent.sessionId })
     expect(await db.select().from(sessions).where(eq(sessions.id, agent.sessionId))).toEqual([])
+  })
+
+  it(`EXP-1334: configure changes a live session's options mid-session`, async () => {
+    const w = await world()
+    const [server] = await db
+      .insert(mcpServers)
+      .values({ teamId: w.teamId, name: `linear`, url: `https://mcp.linear.app/mcp` })
+      .returning({ id: mcpServers.id })
+    const root = await sendSession({
+      userId: w.owner,
+      input: { teamId: w.teamId, deviceId: w.deviceId, cli: `claude`, text: `root` },
+    })
+    const child = await sendSession({ userId: w.owner, input: { parentId: root.sessionId, text: `work` } })
+    const owner = caller(w.owner)
+
+    // The row's synced pickers move; the MCP pick stays server-only and
+    // reads back through the device's `mcpPicks`.
+    const out = await owner.configure({
+      sessionId: child.sessionId,
+      model: `sonnet`,
+      planMode: true,
+      effort: `high`,
+      ultracode: true,
+      computerUse: true,
+      mcpServerIds: [server!.id, server!.id],
+    })
+    expect(out.txid).toBeTypeOf(`number`)
+    expect(await row(child.sessionId)).toMatchObject({
+      model: `sonnet`,
+      planMode: true,
+      effort: `high`,
+      ultracode: true,
+      computerUse: true,
+      mcpServerIds: [server!.id],
+    })
+    expect(await owner.mcpPicks({ sessionId: child.sessionId })).toEqual({ mcpServerIds: [server!.id] })
+    // Omitted = unchanged; a null effort = the agent's default; [] = none.
+    await owner.configure({ sessionId: child.sessionId, effort: null, mcpServerIds: [] })
+    expect(await row(child.sessionId)).toMatchObject({ planMode: true, effort: null, mcpServerIds: null })
+    expect(await owner.mcpPicks({ sessionId: child.sessionId })).toEqual({ mcpServerIds: [] })
+
+    // Validation: the agent's own effort set, ultracode on claude only, the
+    // team's own MCP servers.
+    await expect(owner.configure({ sessionId: child.sessionId, effort: `ludicrous` })).rejects.toMatchObject({
+      code: `BAD_REQUEST`,
+    })
+    await expect(owner.configure({ sessionId: child.sessionId, model: `gpt-5.6-sol` })).rejects.toMatchObject({
+      code: `BAD_REQUEST`,
+    })
+    await expect(
+      owner.configure({ sessionId: child.sessionId, mcpServerIds: [crypto.randomUUID()] })
+    ).rejects.toMatchObject({ code: `BAD_REQUEST` })
+    const codex = await sendSession({
+      userId: w.owner,
+      input: { parentId: root.sessionId, cli: `codex`, text: `codex work` },
+    })
+    await expect(owner.configure({ sessionId: codex.sessionId, ultracode: true })).rejects.toMatchObject({
+      code: `BAD_REQUEST`,
+    })
+    await owner.configure({ sessionId: codex.sessionId, model: `gpt-5.6-luna` })
+    expect((await row(codex.sessionId)).model).toBe(`gpt-5.6-luna`)
+
+    // A dispatcher root keeps its own runner: the picks are its WORK picks.
+    await owner.configure({ sessionId: root.sessionId, model: `opus`, planMode: true, effort: `low` })
+    const dispatcher = await row(root.sessionId)
+    expect(dispatcher).toMatchObject({ dispatch: true, model: null, planMode: false, effort: null })
+    expect(dispatcher.workLaunch).toMatchObject({ model: `opus`, planMode: true, effort: `low` })
+
+    // The steer rule: a private session refuses a teammate; the device-only
+    // read refuses anyone but the host.
+    await expect(caller(w.mate).configure({ sessionId: child.sessionId, planMode: false })).rejects.toMatchObject({
+      code: `NOT_FOUND`,
+    })
+    // An ended session refuses.
+    await endSession({ userId: w.owner, sessionId: child.sessionId, summary: `Done.` })
+    await expect(owner.configure({ sessionId: child.sessionId, planMode: false })).rejects.toMatchObject({
+      code: `BAD_REQUEST`,
+    })
+  })
+
+  it(`EXP-1334: the device reports the agent's own plan-mode move onto the row`, async () => {
+    const w = await world()
+    const root = await sendSession({
+      userId: w.owner,
+      input: { teamId: w.teamId, deviceId: w.deviceId, cli: `claude`, text: `root` },
+    })
+    const child = await sendSession({
+      userId: w.owner,
+      input: { parentId: root.sessionId, planMode: true, text: `plan first` },
+    })
+    const host = caller(w.owner)
+    expect((await row(child.sessionId)).planMode).toBe(true)
+    // The plan was approved: claude left plan mode, the row follows.
+    await host.report({ sessionId: child.sessionId, planMode: false })
+    expect((await row(child.sessionId)).planMode).toBe(false)
+    // Omitted = unchanged; a dispatcher never plans, whatever is reported.
+    await host.report({ sessionId: child.sessionId, busy: true })
+    expect((await row(child.sessionId)).planMode).toBe(false)
+    await host.report({ sessionId: root.sessionId, planMode: true })
+    expect((await row(root.sessionId)).planMode).toBe(false)
+
+    // The model the run reports (a `/model` switch) follows onto the row; a
+    // value outside the agent's vocabulary is ignored, never refused.
+    await host.report({ sessionId: child.sessionId, model: `haiku` })
+    expect((await row(child.sessionId)).model).toBe(`haiku`)
+    await host.report({ sessionId: child.sessionId, model: `claude-opus-4-1-20250805`, busy: false })
+    expect(await row(child.sessionId)).toMatchObject({ model: `haiku`, busy: false })
+    await host.report({ sessionId: root.sessionId, model: `opus` })
+    expect((await row(root.sessionId)).model).toBeNull()
+  })
+
+  it(`EXP-1334: mcpPicks is readable by whoever may steer the session`, async () => {
+    const shared = await world({ shared: true })
+    const [a, b] = await db
+      .insert(mcpServers)
+      .values([
+        { teamId: shared.teamId, name: `sentry`, url: `https://mcp.sentry.dev/mcp` },
+        { teamId: shared.teamId, name: `linear`, url: `https://mcp.linear.app/mcp` },
+      ])
+      .returning({ id: mcpServers.id })
+    const sent = await sendSession({
+      userId: shared.mate,
+      input: { teamId: shared.teamId, deviceId: shared.deviceId, text: `start` },
+    })
+    // A shared session: every member steers it, so every member reads the
+    // pick (the composer's MCP submenu); the hosting device too.
+    await caller(shared.mate).configure({ sessionId: sent.sessionId, mcpServerIds: [b!.id, a!.id] })
+    const sorted = [a!.id, b!.id].sort()
+    expect(await caller(shared.mate).mcpPicks({ sessionId: sent.sessionId })).toEqual({ mcpServerIds: sorted })
+    expect(await caller(shared.owner).mcpPicks({ sessionId: sent.sessionId })).toEqual({ mcpServerIds: sorted })
+
+    // A private one: only its starter.
+    const priv = await world()
+    const mine = await sendSession({
+      userId: priv.owner,
+      input: { teamId: priv.teamId, deviceId: priv.deviceId, text: `mine` },
+    })
+    expect(await caller(priv.owner).mcpPicks({ sessionId: mine.sessionId })).toEqual({ mcpServerIds: [] })
+    await expect(caller(priv.mate).mcpPicks({ sessionId: mine.sessionId })).rejects.toMatchObject({
+      code: `NOT_FOUND`,
+    })
   })
 })
 

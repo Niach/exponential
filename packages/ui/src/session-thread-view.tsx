@@ -1,17 +1,24 @@
 import {
-  Children,
+  Fragment,
+  useCallback,
+  useEffect,
   useLayoutEffect,
   useMemo,
   useRef,
+  useState,
   type ComponentProps,
   type ComponentType,
+  type ReactElement,
   type ReactNode,
+  type Ref,
 } from "react"
 import {
+  partitionThreadStrip,
   SUGGESTIONS_COPY,
   type SessionTabMarkState,
   type SuggestionRow,
   type ThreadRow,
+  type ThreadStripLayout,
 } from "@exp/domain-contract/session-tree"
 import { AgentRunMark, type RunMarkState } from "./agent-brand-mark"
 import { ASK_CARD_COPY, AskCard, AskPrompt, type AskOption } from "./ask-card"
@@ -19,10 +26,12 @@ import { Button } from "./button"
 import { cn } from "./cn"
 import { stripTabClass } from "./entity-chip"
 import { ListRow } from "./glass-rows"
-import { HoverCard, HoverCardContent, HoverCardTrigger } from "./hover-card"
-import { Menu, type MenuEntry, type MenuIcon } from "./menu"
+import { Menu, MenuRow, type MenuEntry, type MenuIcon } from "./menu"
 import { SessionRow, SessionRowDevice } from "./session-row"
-import { treeGuides } from "./tree-guides"
+import { StatusGlyph, type StatusGlyphProps } from "./status-glyph"
+import { StripChip, StripOverflowButton } from "./strip-chip"
+import { TREE_BASE, TREE_INDENT, treeGuides } from "./tree-guides"
+import { TreeGuides } from "./tree-guides-view"
 import { conceptIcon } from "./icons.generated"
 import { Tooltip, TooltipContent, TooltipTrigger } from "./tooltip"
 import { UserMessageBubble } from "./user-message-bubble"
@@ -35,9 +44,13 @@ import { SESSION_CARD_TONE, SessionCard } from "./work-card"
 // + `threads-list.json`, ×4); nothing here queries: every glyph, chip,
 // renderer and handler is handed in.
 //
-//   ThreadTabs           the header's ONE strip: Conversation · one chip per
-//                        linked issue · "+" · Guide (a dot while it holds
-//                        anything); `pager` = the phones' tabs
+//   ThreadTabs           the header's ONE strip, nothing scrolls (EXP-1334):
+//                        "+" · Conversation | issue chips … +X | session
+//                        chips … +Y | Guide (a dot while it holds anything);
+//                        `pager` = the phones' tabs (Conversation and Guide
+//                        icon-only there). Chips = THE strip chip
+//                        (`strip-chip.tsx`); a folded chip opens its subtree
+//                        (`ThreadChipSubtree`) on a click
 //   ThreadConversation   the conversation rows: messages (a person's bubble
 //                        right, the agent's markdown, system lines muted),
 //                        THE session card per session, question and plan
@@ -67,104 +80,299 @@ const SuggestionsIcon = conceptIcon(`ui-checklist`)
 // EXP-1316: THE strip tab box, shared with the issue chips' `tab` size.
 const tabClass = stripTabClass
 
-/** The add tab's accessible name (copy never says "thread"). */
-export const THREAD_TABS_ADD_LABEL = `Link an issue`
+/** The add tab's accessible name (copy never says "thread"): THE Menu with
+ *  Link an issue › and New issue (EXP-1334). */
+export const THREAD_TABS_ADD_LABEL = `Add an issue`
 
+/** EXP-1334: one chip of a strip zone (issues or sessions). The strip
+ *  measures every chip off-screen, `partitionThreadStrip` picks the tier and
+ *  which chips draw; the rest fold into the zone's "+N" (THE Menu, one
+ *  `entry` per hidden chip). */
+export interface ThreadStripItem {
+  key: string
+  /** The chip itself: `short` = the identifier alone (issues only; a
+   *  session chip ignores it); `measure` = the hidden measuring copy (no
+   *  handlers, no menus). */
+  render: (options: { short: boolean; measure: boolean }) => ReactNode
+  /** Its row in the zone's "+N" menu. */
+  entry: MenuEntry
+  /** The open chip (or one of its nested items): it never folds away. */
+  active: boolean
+}
+
+/** The "+N" buttons' accessible names. */
+export const THREAD_STRIP_MORE_COPY = {
+  issues: (count: number) => `${count} more ${count === 1 ? `issue` : `issues`}`,
+  sessions: (count: number) => `${count} more ${count === 1 ? `session` : `sessions`}`,
+} as const
+
+interface StripMeasure {
+  available: number
+  gap: number
+  overflowW: number
+  dividerW: number
+  issueFull: number[]
+  issueShort: number[]
+  sessions: number[]
+}
+
+function sameMeasure(a: StripMeasure | null, b: StripMeasure): boolean {
+  if (!a) return false
+  const eq = (x: number[], y: number[]) => x.length === y.length && x.every((v, i) => v === y[i])
+  return (
+    a.available === b.available &&
+    a.gap === b.gap &&
+    a.overflowW === b.overflowW &&
+    a.dividerW === b.dividerW &&
+    eq(a.issueFull, b.issueFull) &&
+    eq(a.issueShort, b.issueShort) &&
+    eq(a.sessions, b.sessions)
+  )
+}
+
+/**
+ * EXP-1334: the thread header's ONE strip ×4 — NOTHING scrolls. Pinned left:
+ * the "+" (THE Menu: Link an issue ›, New issue) and Conversation; pinned
+ * right: Guide (a dot while it holds anything). Between them two zones,
+ * issues then sessions: everything full → the issues identifier-only → fold,
+ * each zone with its own "+N" (`partitionThreadStrip`, the contract's
+ * `stripCases`), the open chip always drawn. `pager` = the phones' header
+ * band: Conversation and Guide ICON-ONLY (the strip chip box, the label as
+ * aria-label/title, the Guide dot on the icon's corner).
+ */
 export function ThreadTabs({
   conversation,
   issues,
   add,
-  sessions,
+  sessions = [],
   guide,
   variant = `bar`,
+  layout: forced,
   className,
 }: {
   conversation: { label: string; active: boolean; onSelect: () => void }
-  /** One chip per linked issue, already rendered (the host resolves status,
-   *  the active ring and the context menu). */
-  issues: readonly ReactNode[]
+  /** The issue chips, strip order (top-level linked issues). */
+  issues: readonly ThreadStripItem[]
   /** The "+" (a Menu around `ThreadTabsAddButton`); absent = read-only. */
   add?: ReactNode
-  /** EXP-1316: the session chips group (`ThreadSessionGroup`) after the
-   *  "+": md+ with a divider either side; the pager without. */
-  sessions?: ReactNode
+  /** The session chips (the dispatcher's direct children). */
+  sessions?: readonly ThreadStripItem[]
   guide: { label: string; active: boolean; dot: boolean; onSelect: () => void }
   /** `bar` = md+ under the title; `pager` = the phones' tabs. */
   variant?: `bar` | `pager`
+  /** A fixed layout instead of the measured one (a static render — the
+   *  styleguide's islands run no effects). */
+  layout?: ThreadStripLayout
   className?: string
 }) {
   const pager = variant === `pager`
-  // EXP-1316: ONE horizontally scrolling row; no chip ever shrinks, and the
-  // active one is scrolled into view.
-  const stripRef = useRef<HTMLDivElement | null>(null)
-  const shownRef = useRef<Element | null>(null)
-  useLayoutEffect(() => {
-    // Only when the active tab CHANGES: a reader's own scroll stays put.
-    const active = stripRef.current?.querySelector(`[aria-selected="true"]`) ?? null
-    if (active === shownRef.current) return
-    shownRef.current = active
-    if (active && typeof (active as HTMLElement).scrollIntoView === `function`) {
-      ;(active as HTMLElement).scrollIntoView({ block: `nearest`, inline: `nearest` })
+  const middleRef = useRef<HTMLDivElement | null>(null)
+  const measureRef = useRef<HTMLDivElement | null>(null)
+  const [measure, setMeasure] = useState<StripMeasure | null>(null)
+
+  const read = useCallback(() => {
+    const middle = middleRef.current
+    const ruler = measureRef.current
+    if (!middle || !ruler) return
+    const widths = (slot: string) =>
+      Array.from(ruler.querySelectorAll<HTMLElement>(`[data-measure="${slot}"]`)).map(
+        (node) => node.getBoundingClientRect().width
+      )
+    const columnGap = Number.parseFloat(getComputedStyle(middle).columnGap)
+    const next: StripMeasure = {
+      available: middle.getBoundingClientRect().width,
+      gap: Number.isFinite(columnGap) ? columnGap : 4,
+      overflowW: widths(`overflow`)[0] ?? 32,
+      dividerW: widths(`divider`)[0] ?? 1,
+      issueFull: widths(`issue-full`),
+      issueShort: widths(`issue-short`),
+      sessions: widths(`session`),
     }
-  })
+    setMeasure((current) => (sameMeasure(current, next) ? current : next))
+  }, [])
+
+  // Before paint on every render (a chip's title or state may have changed:
+  // cheap reads, a no-op when nothing moved) …
+  useLayoutEffect(read)
+  // … and whenever the strip resizes (the window, the sidebar).
+  useEffect(() => {
+    const middle = middleRef.current
+    if (!middle || typeof ResizeObserver === `undefined`) return
+    const observer = new ResizeObserver(read)
+    observer.observe(middle)
+    return () => observer.disconnect()
+  }, [read])
+
+  const both = issues.length > 0 && sessions.length > 0
+  const activeIssue = issues.findIndex((item) => item.active)
+  const activeSession = sessions.findIndex((item) => item.active)
+  const layout: ThreadStripLayout = forced
+    ? forced
+    : measure &&
+    measure.issueFull.length === issues.length &&
+    measure.issueShort.length === issues.length &&
+    measure.sessions.length === sessions.length &&
+    measure.available > 0
+      ? partitionThreadStrip({
+          issues: issues.map((_, index) => ({
+            full: measure.issueFull[index],
+            short: measure.issueShort[index],
+          })),
+          sessions: measure.sessions,
+          // The divider between the zones (and its second gap) is not a chip.
+          available: measure.available - (both ? measure.dividerW + measure.gap : 0),
+          gap: measure.gap,
+          overflowW: measure.overflowW,
+          activeIssue: activeIssue < 0 ? null : activeIssue,
+          activeSession: activeSession < 0 ? null : activeSession,
+        })
+      : {
+          tier: `full`,
+          issues: issues.map((_, index) => index),
+          sessions: sessions.map((_, index) => index),
+        }
+  const short = layout.tier !== `full`
+  const shownIssues = new Set(layout.issues)
+  const shownSessions = new Set(layout.sessions)
+  const hiddenIssues = issues.filter((_, index) => !shownIssues.has(index))
+  const hiddenSessions = sessions.filter((_, index) => !shownSessions.has(index))
+
+  const divider = <span aria-hidden className="mx-1 h-4 w-px shrink-0 bg-border" />
+  const more = (hidden: readonly ThreadStripItem[], label: string, testId: string) =>
+    hidden.length > 0 ? (
+      <Menu
+        align="end"
+        aria-label={label}
+        title={label}
+        contentClassName="w-72"
+        entries={hidden.map((item) => item.entry)}
+        trigger={
+          <StripOverflowButton
+            count={hidden.length}
+            aria-label={label}
+            data-testid={testId}
+          />
+        }
+      />
+    ) : null
+
   return (
     <div
-      ref={stripRef}
       data-testid="thread-tabs"
       data-variant={variant}
+      data-tier={layout.tier}
       role="tablist"
-      className={cn(
-        `flex min-w-0 items-center gap-1 overflow-x-auto [scrollbar-width:none]`,
-        // Phones: nothing shrinks, the pager scrolls. md+: the issue chips
-        // shrink first (`IssueChip size="tab"`, weighted 4×), then the
-        // session chips; Conversation, +, Guide keep their natural width; the
-        // strip scrolls only past every floor.
-        pager && `[&>*]:shrink-0`,
-        className
-      )}
+      className={cn(`relative flex min-w-0 items-center gap-1`, className)}
     >
-        <Button
-          type="button"
-          variant="ghost"
-          role="tab"
-          aria-selected={conversation.active}
-          data-testid="thread-tab-conversation"
-          className={tabClass(conversation.active)}
-          onClick={conversation.onSelect}
-        >
-          {!pager && <ConversationIcon className="size-3.5 shrink-0" />}
-          {conversation.label}
-        </Button>
-        {issues.length > 0 && !pager && (
-          <span aria-hidden className="mx-1 h-4 w-px shrink-0 bg-border" />
+      {/* The ruler: every chip at its natural width (full AND short), the
+          "+N" and the zone divider — invisible, inert, out of the a11y tree. */}
+      <div
+        ref={measureRef}
+        aria-hidden
+        inert
+        className="pointer-events-none invisible absolute top-0 left-0 flex w-max gap-1"
+      >
+        {issues.map((item) => (
+          <div key={`f-${item.key}`} data-measure="issue-full" className="flex shrink-0">
+            {item.render({ short: pager, measure: true })}
+          </div>
+        ))}
+        {issues.map((item) => (
+          <div key={`s-${item.key}`} data-measure="issue-short" className="flex shrink-0">
+            {item.render({ short: true, measure: true })}
+          </div>
+        ))}
+        {sessions.map((item) => (
+          <div key={`x-${item.key}`} data-measure="session" className="flex shrink-0">
+            {item.render({ short: false, measure: true })}
+          </div>
+        ))}
+        <div data-measure="overflow" className="flex shrink-0">
+          <StripOverflowButton count={99} tabIndex={-1} />
+        </div>
+        <span data-measure="divider" className="h-4 w-px shrink-0" />
+      </div>
+      {add && <span className="flex shrink-0 items-center">{add}</span>}
+      <Button
+        type="button"
+        variant="ghost"
+        role="tab"
+        aria-selected={conversation.active}
+        data-testid="thread-tab-conversation"
+        // EXP-1334: phones = an ICON-ONLY tab in the strip chip box (the
+        // middle zones keep their room); the label names it.
+        aria-label={pager ? conversation.label : undefined}
+        title={pager ? conversation.label : undefined}
+        className={cn(tabClass(conversation.active, pager), pager && `px-2`)}
+        onClick={conversation.onSelect}
+      >
+        <ConversationIcon className="size-3.5 shrink-0" />
+        {!pager && conversation.label}
+      </Button>
+      {(issues.length > 0 || sessions.length > 0) && !pager && divider}
+      <div
+        ref={middleRef}
+        data-testid="thread-tabs-zones"
+        className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden"
+      >
+        {issues.map((item, index) =>
+          shownIssues.has(index) ? (
+            <Fragment key={item.key}>
+              {item.render({ short: pager || short, measure: false })}
+            </Fragment>
+          ) : null
         )}
-        {issues}
-      {add}
-      {sessions && (
-        <>
-          {!pager && <span aria-hidden className="mx-1 h-4 w-px shrink-0 bg-border" />}
-          {sessions}
-        </>
-      )}
-      {!pager && <span aria-hidden className="mx-1 h-4 w-px shrink-0 bg-border" />}
+        {more(hiddenIssues, THREAD_STRIP_MORE_COPY.issues(hiddenIssues.length), `thread-tabs-more-issues`)}
+        {both && <span aria-hidden className="h-4 w-px shrink-0 bg-border" />}
+        {sessions.map((item, index) =>
+          shownSessions.has(index) ? (
+            <Fragment key={item.key}>{item.render({ short: false, measure: false })}</Fragment>
+          ) : null
+        )}
+        {more(
+          hiddenSessions,
+          THREAD_STRIP_MORE_COPY.sessions(hiddenSessions.length),
+          `thread-tabs-more-sessions`
+        )}
+      </div>
+      {!pager && divider}
       <Button
         type="button"
         variant="ghost"
         role="tab"
         aria-selected={guide.active}
         data-testid="thread-tab-guide"
-        className={tabClass(guide.active)}
+        aria-label={pager ? guide.label : undefined}
+        title={pager ? guide.label : undefined}
+        className={cn(tabClass(guide.active, pager), pager && `px-2`)}
         onClick={guide.onSelect}
       >
-        {!pager && <GuideIcon className="size-3.5 shrink-0" />}
-        {guide.label}
-        {guide.dot && (
-          <span
-            data-testid="thread-guide-dot"
-            className="size-1.5 shrink-0 rounded-full bg-emerald-400"
-          >
-            <span className="sr-only">The Guide has content</span>
+        {pager ? (
+          // Phones: the icon alone, the dot on its corner.
+          <span className="relative flex shrink-0">
+            <GuideIcon className="size-3.5 shrink-0" />
+            {guide.dot && (
+              <span
+                data-testid="thread-guide-dot"
+                className="absolute -top-0.5 -right-0.5 size-1.5 rounded-full bg-emerald-400"
+              >
+                <span className="sr-only">The Guide has content</span>
+              </span>
+            )}
           </span>
+        ) : (
+          <>
+            <GuideIcon className="size-3.5 shrink-0" />
+            {guide.label}
+            {guide.dot && (
+              <span
+                data-testid="thread-guide-dot"
+                className="size-1.5 shrink-0 rounded-full bg-emerald-400"
+              >
+                <span className="sr-only">The Guide has content</span>
+              </span>
+            )}
+          </>
         )}
       </Button>
     </div>
@@ -180,51 +388,132 @@ export function sessionTabRunMark(state: SessionTabMarkState): RunMarkState | un
   return undefined
 }
 
-/** EXP-1316: ONE session chip of the strip ×4: the agent's mark (its state)
- *  and the name; muted at rest, the tab box when it is the open session
- *  (phones: bordered, `bordered`). */
+/** EXP-1316/1334: ONE session chip of the strip ×4 = THE strip chip: the
+ *  agent's mark (its state) and the name; `path` = the open nested session
+ *  (`<chip> › <open one>`); `chevron` = it opens its subtree (a click). */
 export function ThreadSessionTab({
   agent,
   markState,
   name,
   active,
+  path,
+  chevron = false,
   onSelect,
-  bordered = false,
+  ref,
+  ...button
 }: {
   agent: string | null
   markState: SessionTabMarkState
   name: string
   active: boolean
-  onSelect: () => void
-  /** The phones' pager chip: a bordered rect at the tab's height, like the
-   *  issue chips there. */
-  bordered?: boolean
-}) {
+  path?: string | null
+  chevron?: boolean
+  onSelect?: () => void
+  ref?: Ref<HTMLButtonElement>
+} & Omit<ComponentProps<`button`>, `ref` | `children` | `onSelect`>) {
   return (
-    <Button
-      type="button"
-      variant="ghost"
+    <StripChip
+      ref={ref}
       role="tab"
       aria-selected={active}
       data-testid="thread-tab-session"
-      className={cn(
-        stripTabClass(active, bordered),
-        // md+: after the issue chips reached their floor the session chips
-        // give way too (the name truncates, never below 6rem); the pager
-        // never shrinks anything.
-        `max-w-[11rem]`,
-        !bordered && `min-w-[6rem] shrink`
-      )}
+      active={active}
+      lead={
+        <AgentRunMark
+          agent={agent}
+          state={sessionTabRunMark(markState)}
+          ringClassName="ring-background"
+          className="size-3.5"
+        />
+      }
+      label={name}
+      path={path}
+      chevron={chevron}
+      tooltip={path ? `${name} › ${path}` : name}
       onClick={onSelect}
-    >
-      <AgentRunMark
-        agent={agent}
-        state={sessionTabRunMark(markState)}
-        ringClassName="ring-background"
-        className="size-3.5"
-      />
-      <span className="min-w-0 truncate">{name}</span>
-    </Button>
+      {...button}
+    />
+  )
+}
+
+/** EXP-1334: ONE issue chip of the strip = THE strip chip: status glyph ·
+ *  mono identifier · title (`short` = the identifier alone). */
+export function ThreadIssueTab({
+  identifier,
+  title,
+  status,
+  active,
+  short = false,
+  path,
+  chevron = false,
+  onSelect,
+  boxProps,
+  ref,
+  ...button
+}: {
+  identifier: string
+  title: string
+  status: StatusGlyphProps
+  active: boolean
+  short?: boolean
+  /** The open nested issue's identifier (`EXP-1 › EXP-4`). */
+  path?: string | null
+  chevron?: boolean
+  onSelect?: () => void
+  /** The box's props (THE issue context menu's `menuProps`). */
+  boxProps?: ComponentProps<typeof StripChip>[`boxProps`]
+  ref?: Ref<HTMLButtonElement>
+} & Omit<ComponentProps<`button`>, `ref` | `children` | `onSelect` | `title`>) {
+  return (
+    <StripChip
+      ref={ref}
+      role="tab"
+      aria-selected={active}
+      aria-label={`${identifier} ${title}`}
+      active={active}
+      lead={<StatusGlyph {...status} className={cn(`size-3.5 shrink-0`, status.className)} />}
+      identifier={identifier}
+      label={short ? null : title}
+      path={path}
+      chevron={chevron}
+      tooltip={`${identifier} · ${title}`}
+      boxProps={boxProps}
+      onClick={onSelect}
+      {...button}
+    />
+  )
+}
+
+/** EXP-1334: a folded chip's dropdown (a CLICK, every platform; phones:
+ *  the bottom sheet): THE Menu around the chip, its body the subtree rows
+ *  (`ThreadSessionTree` / `ThreadIssueTree`), row 1 = the chip itself. A
+ *  pick closes it. */
+export function ThreadChipSubtree({
+  trigger,
+  title,
+  testId,
+  children,
+}: {
+  /** The chip (ONE element, its ref forwarded to the button). */
+  trigger: ReactElement
+  /** The sheet's headline / the menu's accessible name. */
+  title: string
+  testId?: string
+  children: (close: () => void) => ReactNode
+}) {
+  const [open, setOpen] = useState(false)
+  return (
+    <Menu
+      open={open}
+      onOpenChange={setOpen}
+      align="start"
+      title={title}
+      aria-label={title}
+      data-testid={testId}
+      contentClassName="w-80 p-1"
+      trigger={trigger}
+      body={children(() => setOpen(false))}
+    />
   )
 }
 
@@ -273,86 +562,144 @@ export function threadTreeRows(
   return out
 }
 
-/** EXP-1316: the session tree popover's body: the WHOLE tree as
- *  `SessionRow size="small"` rows with their guides, the open one washed. */
+/** A tree row inside THE Menu: the menu's own item (keyboard, highlight,
+ *  close on pick) around the row, which keeps its geometry. */
+function TreeMenuRow({
+  menu,
+  onSelect,
+  testId,
+  children,
+}: {
+  menu: boolean
+  onSelect: () => void
+  testId: string
+  children: ReactElement
+}) {
+  if (!menu) return children
+  return (
+    <MenuRow
+      onSelect={onSelect}
+      data-testid={testId}
+      className="h-auto p-0 [&>*]:w-full [&>*]:bg-transparent"
+    >
+      {children}
+    </MenuRow>
+  )
+}
+
+/** EXP-1316/1334: a session subtree as THE session rows (`SessionRow
+ *  size="small"` + the tree guides, the Threads list's nesting), the open
+ *  one washed. `menu` = inside THE Menu (a folded chip's dropdown). */
 export function ThreadSessionTree({
   rows,
   activeId,
   onOpen,
+  menu = false,
 }: {
   rows: readonly ThreadTreeRow[]
   activeId: string | null
   onOpen: (sessionId: string) => void
+  menu?: boolean
 }) {
   const ordered = threadTreeRows(rows)
   const guides = treeGuides(ordered.map((entry) => entry.depth))
   return (
     <div data-testid="thread-session-tree" className="flex flex-col">
       {ordered.map(({ row, depth }, index) => (
-        <SessionRow
+        <TreeMenuRow
           key={row.sessionId}
-          size="small"
-          agent={row.agent}
-          markState={sessionTabRunMark(row.markState)}
-          title={row.name}
-          trailing={
-            row.stateWord ? (
-              <span
-                data-slot="thread-session-tree-word"
-                className={cn(
-                  `shrink-0 text-muted-foreground`,
-                  row.stateTone && SESSION_CARD_TONE[row.stateTone]
-                )}
-              >
-                {row.stateWord}
-              </span>
-            ) : undefined
-          }
-          depth={depth}
-          guide={guides[index]}
-          active={row.sessionId === activeId}
-          ringClassName="ring-popover"
-          data-testid="thread-session-tree-row"
-          onClick={() => onOpen(row.sessionId)}
-        />
+          menu={menu}
+          testId="thread-session-tree-item"
+          onSelect={() => onOpen(row.sessionId)}
+        >
+          <SessionRow
+            size="small"
+            agent={row.agent}
+            markState={sessionTabRunMark(row.markState)}
+            title={row.name}
+            trailing={
+              row.stateWord ? (
+                <span
+                  data-slot="thread-session-tree-word"
+                  className={cn(
+                    `shrink-0 text-muted-foreground`,
+                    row.stateTone && SESSION_CARD_TONE[row.stateTone]
+                  )}
+                >
+                  {row.stateWord}
+                </span>
+              ) : undefined
+            }
+            depth={depth}
+            guide={guides[index]}
+            active={row.sessionId === activeId}
+            ringClassName="ring-popover"
+            data-testid="thread-session-tree-row"
+            onClick={menu ? undefined : () => onOpen(row.sessionId)}
+          />
+        </TreeMenuRow>
       ))}
     </div>
   )
 }
 
-/** The session chips as ONE group; on a pointer, hovering it opens the
- *  tree popover (`tree`). */
-export function ThreadSessionGroup({
-  children,
-  tree,
+export interface ThreadIssueTreeRow {
+  issueId: string
+  identifier: string
+  title: string
+  status: StatusGlyphProps
+  /** 0 = the chip's own issue. */
+  depth: number
+}
+
+/** EXP-1334: an issue chip's subtree = the issue rows (status glyph, mono
+ *  identifier, title) with THE tree guides, the open one washed. */
+export function ThreadIssueTree({
+  rows,
+  activeId,
+  onOpen,
+  menu = false,
 }: {
-  children: ReactNode
-  tree?: ReactNode
+  rows: readonly ThreadIssueTreeRow[]
+  activeId: string | null
+  onOpen: (issueId: string) => void
+  menu?: boolean
 }) {
-  // The group shrinks with its chips but never below their 6rem floors
-  // (`ThreadSessionTab`), else the chips overflow onto Guide.
-  const count = Children.count(children)
-  const group = (
-    <div
-      data-testid="thread-session-group"
-      className="flex min-w-0 shrink items-center gap-1"
-      style={{ minWidth: `calc(${count} * 6rem + ${Math.max(0, count - 1)} * 0.25rem)` }}
-    >
-      {children}
-    </div>
-  )
-  if (!tree) return group
+  const guides = treeGuides(rows.map((row) => row.depth))
   return (
-    <HoverCard openDelay={250}>
-      <HoverCardTrigger asChild>{group}</HoverCardTrigger>
-      <HoverCardContent align="end" className="w-80 p-1.5">
-        {tree}
-      </HoverCardContent>
-    </HoverCard>
+    <div data-testid="thread-issue-tree" className="flex flex-col">
+      {rows.map((row, index) => (
+        <TreeMenuRow
+          key={row.issueId}
+          menu={menu}
+          testId="thread-issue-tree-item"
+          onSelect={() => onOpen(row.issueId)}
+        >
+          <ListRow
+            interactive
+            active={row.issueId === activeId}
+            data-testid="thread-issue-tree-row"
+            onClick={menu ? undefined : () => onOpen(row.issueId)}
+            className="relative h-8 gap-2 py-0 pr-3"
+            style={{ paddingLeft: `${TREE_BASE + row.depth * TREE_INDENT}px` }}
+          >
+            <TreeGuides guide={guides[index]} />
+            <StatusGlyph
+              {...row.status}
+              className={cn(`size-3.5 shrink-0`, row.status.className)}
+            />
+            <span className="shrink-0 font-mono text-xs text-muted-foreground">
+              {row.identifier}
+            </span>
+            <span className="min-w-0 truncate text-sm">{row.title}</span>
+          </ListRow>
+        </TreeMenuRow>
+      ))}
+    </div>
   )
 }
 
-/** The strip's "+" (the host wraps it in its Menu). */
+/** The strip's "+" (the host wraps it in THE Menu). */
 export function ThreadTabsAddButton(props: ComponentProps<typeof Button>) {
   return (
     <Button

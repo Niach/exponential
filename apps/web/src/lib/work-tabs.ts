@@ -343,45 +343,11 @@ export function tabHref(
 
 /**
  * Which tabs get a chip, in strip order — the rest collapse into the "+N"
- * dropdown. A port of the desktop's `partition_tabs` (EXP-288/326/343), same
- * vectors: chips pack in order until the next would not fit; the overflow
- * button's width is reserved only once something overflows; the ACTIVE chip's
- * width is committed first so it is always visible; one chip always survives.
+ * dropdown. EXP-1334: ONE rule, the contract's (`partitionTabs`, the
+ * desktop's `partition_tabs` vectors), shared with the thread header's
+ * strip (`partitionThreadStrip`).
  */
-export function partitionTabs(
-  widths: readonly number[],
-  available: number,
-  gap: number,
-  overflowW: number,
-  activeIndex: number | null
-): number[] {
-  const count = widths.length
-  const room = Math.max(available, 0)
-  const total =
-    widths.reduce((sum, width) => sum + width, 0) + gap * Math.max(count - 1, 0)
-  if (total <= room) return widths.map((_, index) => index)
-
-  const budget = Math.max(room - overflowW - gap, 0)
-  const visible: number[] = []
-  let used = activeIndex === null ? 0 : widths[activeIndex]
-  let chips = activeIndex === null ? 0 : 1
-  for (let index = 0; index < count; index++) {
-    if (index === activeIndex) {
-      visible.push(index)
-      continue
-    }
-    const next = used + widths[index] + (chips > 0 ? gap : 0)
-    if (next > budget && chips > 0) break
-    visible.push(index)
-    used = next
-    chips += 1
-  }
-  if (activeIndex !== null && !visible.includes(activeIndex)) {
-    visible.push(activeIndex)
-  }
-  if (visible.length === 0 && count > 0) visible.push(0)
-  return visible
-}
+export { partitionTabs } from "@exp/domain-contract/session-tree"
 
 // ── Persistence ──────────────────────────────────────────────────────────────
 

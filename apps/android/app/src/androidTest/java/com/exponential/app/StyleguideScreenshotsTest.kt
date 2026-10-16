@@ -740,13 +740,20 @@ class StyleguideScreenshotsTest {
 
         // --- sg_thread: the cold-start thread (APP-5): the strip, the
         // Conversation with its session cards, the agent's reply and the
-        // pending question card, the reply box.
+        // pending question card, the reply box. EXP-1334: the strip never
+        // scrolls — + and Conversation pinned left, Guide pinned right, the
+        // issue + session chips between them partitioned (titles → identifiers
+        // → a "+N" per zone), so the gate is the laid-out strip with its pins.
         val coldStartRow = hasTestTag(SessionTree.ListCopy.TEST_ID_ROW) and
             hasText(COLD_START_THREAD_TITLE, substring = true)
         composeRule.onAllNodes(coldStartRow).onFirst().performClick()
         flow.waitFor(hasTestTag(SessionTree.ThreadCopy.TEST_ID_CONVERSATION), NAV_TIMEOUT)
         flow.waitFor(hasText(COLD_START_REPLY_FRAGMENT, substring = true), SYNC_TIMEOUT)
         flow.waitFor(hasTestTag("thread-question-card"), SYNC_TIMEOUT)
+        flow.waitFor(hasTestTag("thread-strip-chips"), SYNC_TIMEOUT)
+        flow.waitFor(hasTestTag("thread-tab-add"), SYNC_TIMEOUT)
+        flow.waitFor(hasTestTag("thread-tab-guide"), SYNC_TIMEOUT)
+        flow.waitFor(hasTestTag("thread-tab-session"), SYNC_TIMEOUT)
         flow.settle()
         flow.screenshot("sg_thread")
 

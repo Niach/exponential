@@ -46,6 +46,21 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-10-17-thread-header-one-composer",
+    date: "2026-10-17",
+    title: "Threads: a header that never scrolls, one composer, and options mid-session",
+    summary: "The thread header folds sub-issues and deeper sessions behind a click, a sub-session's questions and plans show up in the thread, the thread and every session share one composer, and plan mode, effort, computer use and MCP servers change while a session runs.",
+    body: r#"- **Thread header**: nothing scrolls any more. "+" and Conversation sit on the left, Guide on the right, and issues then sessions fill the middle, shortening to identifiers and folding into "+N" when space runs out. Sub-issues fold under their parent issue and deeper sessions under their top-level session; click a chip's arrow to open its tree.
+- **Link an issue**: the "+" left of Conversation offers Link an issue and New issue on every device; linking posts "Link #IDENT" so the thread hands it to the right session.
+- **The thread is its dispatcher**: no extra session chip or card for it, and a sub-session's question or plan appears in the thread's conversation, answered right there.
+- **One composer**: the thread, a session and a new start share one composer, "Type / for commands", with image, file, # and emoji in the box and the model, Plan and usage under it.
+- **Options mid-session**: plan mode switches at once; effort, ultracode, computer use and MCP servers apply from the next message, in the same session.
+- **Issue status**: linking an issue moves it to In progress; a pull request moves only its own session's issues to In review and, once merged into the default branch, to Done; a parent issue waits for its linked sub-issues."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_53: ChangelogEntry = ChangelogEntry {
     id: "2026-10-16-release-train-trace-queue",
     date: "2026-10-16",
     title: "Release 2026-10-16: the transcript as trace lines, the Queue, and the review fixes",
