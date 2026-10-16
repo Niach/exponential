@@ -12,7 +12,7 @@ TanStack Start (React 19, TanStack Router/React DB) · PostgreSQL 17 via Drizzle
 apps/
 ├── web/ # TanStack Start app
 ├── push-relay/ # Hono/Bun
-├── steer-relay/# remote-start + steer WS hub (Bun)
+├── steer-relay/# steer WS hub (Bun)
 ├── marketing/ # Vite + React; Remotion hero
 ├── ios/ # SwiftUI (Tuist + GRDB; ExpCore/ExpUI)
 ├── android/ # Jetpack Compose

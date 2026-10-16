@@ -36,22 +36,6 @@ public struct AuthConfig: Codable, Sendable {
         self.emailOtpEnabled = emailOtpEnabled
         self.passkeyEnabled = passkeyEnabled
     }
-
-    // The login screen is the FIRST thing to touch an arbitrary instance URL,
-    // so the optional flags decode permissively and default to false: a
-    // missing flag hides the affordance rather than offering a link the
-    // server would dead-end, and never bricks the screen outright.
-    public init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        passwordEnabled = try c.decode(Bool.self, forKey: .passwordEnabled)
-        signupEnabled = try c.decodeIfPresent(Bool.self, forKey: .signupEnabled) ?? false
-        passwordResetEnabled = try c.decodeIfPresent(Bool.self, forKey: .passwordResetEnabled) ?? false
-        oidcProviders = try c.decode([OidcProvider].self, forKey: .oidcProviders)
-        googleLoginEnabled = try c.decode(Bool.self, forKey: .googleLoginEnabled)
-        appleLoginEnabled = try c.decodeIfPresent(Bool.self, forKey: .appleLoginEnabled) ?? false
-        emailOtpEnabled = try c.decodeIfPresent(Bool.self, forKey: .emailOtpEnabled) ?? false
-        passkeyEnabled = try c.decodeIfPresent(Bool.self, forKey: .passkeyEnabled) ?? false
-    }
 }
 
 public struct OidcProvider: Codable, Sendable, Identifiable {

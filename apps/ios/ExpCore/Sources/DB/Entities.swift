@@ -329,7 +329,7 @@ extension IssueEntity: Codable {
         // EXP-630: an integer off the wire as Postgres text, a scalar from
         // tRPC; absent on a pre-rotation snapshot.
         estimate = try container.decodeWireInt(forKey: .estimate)
-        // EXP-1231: absent on a pre-rotation snapshot / an older server.
+        // EXP-1231: absent on a pre-rotation snapshot.
         draftId = try container.decodeIfPresent(String.self, forKey: .draftId)
         createdAt = try container.decode(String.self, forKey: .createdAt)
         updatedAt = try container.decode(String.self, forKey: .updatedAt)
@@ -1771,7 +1771,7 @@ extension AttachmentEntity: Codable {
         // EXP-824: both nullable and absent on pre-rotation snapshots.
         durationMs = try c.decodeWireInt(forKey: .durationMs)
         posterStorageKey = try c.decodeIfPresent(String.self, forKey: .posterStorageKey)
-        // EXP-1247: absent on pre-rotation snapshots and older servers.
+        // EXP-1247: absent on pre-rotation snapshots.
         asFile = c.decodeWireBool(forKey: .asFile, default: false)
         createdAt = try c.decode(String.self, forKey: .createdAt)
         updatedAt = try c.decode(String.self, forKey: .updatedAt)
@@ -2166,7 +2166,7 @@ extension DeviceEntity: Codable {
         agentAccounts = c.decodeWireJsonString(forKey: .agentAccounts)
         agentUsage = c.decodeWireJsonString(forKey: .agentUsage)
         agentUsageAt = try c.decodeIfPresent(String.self, forKey: .agentUsageAt)
-        // EXP-1196: jsonb like agent_accounts; absent on an older server.
+        // EXP-1196: jsonb like agent_accounts; nullable.
         doctor = c.decodeWireJsonString(forKey: .doctor)
         // SE-0230 flattens the try?-of-optional; unparseable text degrades to
         // 0 rather than dropping the row (activeSessions only gates a badge).

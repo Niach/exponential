@@ -111,7 +111,6 @@ describe(`probeSteerRelay`, () => {
             counters: {
               connectionsAccepted: 10,
               activityFramesFanned: 500,
-              startsRouted: 3,
               slowConsumerEvictions: 0,
               rateLimitedRejections: 1,
             },
@@ -126,28 +125,16 @@ describe(`probeSteerRelay`, () => {
       devices: 2,
       rooms: 1,
       startedAt: 123,
-      counters: { startsRouted: 3, rateLimitedRejections: 1 },
+      counters: { connectionsAccepted: 10, rateLimitedRejections: 1 },
     })
   })
 
-  it(`falls back to /healthz gauges against an old relay`, async () => {
+  it(`reports ok:false when /stats fails`, async () => {
     const probe = await probeSteerRelay(
       steerConfig,
-      fetchStub({
-        "/stats": { status: 404 },
-        "/healthz": {
-          status: 200,
-          json: { ok: true, connections: 7, devices: 1, rooms: 2 },
-        },
-      })
+      fetchStub({ "/stats": { status: 404 } })
     )
-    expect(probe).toMatchObject({
-      configured: true,
-      ok: true,
-      connections: 7,
-      counters: null,
-      startedAt: null,
-    })
+    expect(probe).toMatchObject({ configured: true, ok: false })
   })
 
   it(`reports ok:false on network failure`, async () => {
@@ -195,19 +182,11 @@ describe(`probePushRelay`, () => {
     })
   })
 
-  it(`degrades to a stats-less ok against an old relay`, async () => {
+  it(`reports ok:false when /stats fails`, async () => {
     const probe = await probePushRelay(
       { PUSH_RELAY_URL: `https://push.example.com` },
-      fetchStub({
-        "/stats": { status: 404 },
-        "/healthz": { status: 200, json: { ok: true } },
-      })
+      fetchStub({ "/stats": { status: 404 } })
     )
-    expect(probe).toMatchObject({
-      configured: true,
-      ok: true,
-      stats: null,
-      firebaseConfigured: null,
-    })
+    expect(probe).toMatchObject({ configured: true, ok: false })
   })
 })

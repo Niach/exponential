@@ -54,8 +54,7 @@ export const MAX_BLIND_ATTEMPTS = 3
  * caller's own machines (a teammate's server takes no commands from here),
  * signed in (a signed-out login can only report nothing) and monitored (an
  * `unmonitored` one is one the machine deliberately collects nothing for).
- * Online-ness and the device's `agent-usage-refresh` cap are the caller's to
- * add. */
+ * Online-ness is the caller's to add. */
 export function usageRefreshEligible(
   row: Pick<AgentProfileUsageRow, `mine` | `signedIn` | `unmonitored`>
 ): boolean {
@@ -150,8 +149,7 @@ export function pageIsVisible(): boolean {
 
 export function useAgentUsageRefresh(
   rows: readonly AgentProfileUsageRow[],
-  /** Which rows may run one at all: online, and the device advertising the
-   * `agent-usage-refresh` cap. Ownership, sign-in and monitoring are checked
+  /** Which rows may run one at all: online. Ownership, sign-in and monitoring are checked
    * here (`usageRefreshEligible`) for every caller. */
   canRefresh: (row: AgentProfileUsageRow) => boolean,
   /** The caller's ticking clock — the loop runs on its beat (`useNow` itself

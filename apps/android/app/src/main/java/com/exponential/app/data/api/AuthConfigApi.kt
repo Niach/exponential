@@ -14,24 +14,19 @@ data class OidcProvider(val id: String, val name: String)
 
 @Serializable
 data class AuthConfig(
-    val passwordEnabled: Boolean = true,
+    val passwordEnabled: Boolean,
     // Password sign-up is open on this instance — gates the "Create account"
     // hand-off (server: buildAuthConfig).
-    val signupEnabled: Boolean = false,
+    val signupEnabled: Boolean,
     // The instance can send mail — gates the "Forgot password?" hand-off.
-    // Both default to false: a server that doesn't publish the flag must hide
-    // the affordance, never offer a link the server would dead-end.
-    val passwordResetEnabled: Boolean = false,
-    val oidcProviders: List<OidcProvider> = emptyList(),
-    val googleLoginEnabled: Boolean = false,
-    // Absent from pre-SIWA servers — the default keeps decoding tolerant.
-    val appleLoginEnabled: Boolean = false,
-    // EXP-857. One-time code login is offered (the instance can send mail) and
-    // passkey login is offered. Both absent from pre-EXP-857 servers, so both
-    // default to false: an instance that doesn't publish the flag must not be
-    // shown an affordance it would dead-end.
-    val emailOtpEnabled: Boolean = false,
-    val passkeyEnabled: Boolean = false,
+    val passwordResetEnabled: Boolean,
+    val oidcProviders: List<OidcProvider>,
+    val googleLoginEnabled: Boolean,
+    val appleLoginEnabled: Boolean,
+    // EXP-857: one-time code login is offered (the instance can send mail),
+    // and passkey login is offered.
+    val emailOtpEnabled: Boolean,
+    val passkeyEnabled: Boolean,
 )
 
 /**

@@ -91,9 +91,6 @@ data class SessionAccountSwitchState(
     val mine: Boolean = false,
     val sessionEnded: Boolean = false,
     val deviceOnline: Boolean = false,
-    val canResume: Boolean = false,
-    /** EXP-849: the machine honours `account` on a LIVE run's resume. */
-    val canSwitchAccount: Boolean = false,
     val deviceLabel: String = "",
     /** EXP-909: the run's own `agent_account`, when the row carries one. */
     val currentAccount: String? = null,
@@ -110,8 +107,6 @@ data class SessionAccountSwitchState(
             mine = mine,
             sessionEnded = sessionEnded,
             deviceOnline = deviceOnline,
-            canResume = canResume,
-            canSwitchAccount = canSwitchAccount,
             turnState = turnState,
             currentAccount = currentAccount,
         )
@@ -241,8 +236,7 @@ class AgentSessionViewModel @AssistedInject constructor(
 
     /**
      * …and that row as the composed [SteerDevice] every capability question is
-     * asked of (online-ness, `resume-run`, `account-switch`,
-     * `agent-usage-refresh`). Recomputed on the device ticker, since presence
+     * asked of (online-ness, `resume-run`). Recomputed on the device ticker, since presence
      * ages out on its own clock with no write to re-emit on.
      */
     private val hostSteerDevice: StateFlow<SteerDevice?> = combine(
@@ -334,8 +328,6 @@ class AgentSessionViewModel @AssistedInject constructor(
             mine = userId != null && row.userId == userId,
             sessionEnded = row.isEnded,
             deviceOnline = steerDevice?.online == true,
-            canResume = steerDevice?.canResumeRun == true,
-            canSwitchAccount = steerDevice?.canSwitchAccount == true,
             deviceLabel = steerDevice?.deviceLabel?.takeIf { it.isNotBlank() }
                 ?: row.deviceId,
             currentAccount = row.account,
@@ -396,7 +388,6 @@ class AgentSessionViewModel @AssistedInject constructor(
         }
         viewModelScope.launch {
             val accountId = auth.activeAccountId.value ?: return@launch
-            if (!hostDeviceCanRefreshUsage()) return@launch
             runCatching {
                 devicesApi.createCommand(
                     accountId,
@@ -405,10 +396,6 @@ class AgentSessionViewModel @AssistedInject constructor(
             }
         }
     }
-
-    /** The machine advertises `agent-usage-refresh` (EXP-817's cap). */
-    private fun hostDeviceCanRefreshUsage(): Boolean =
-        hostSteerDevice.value?.caps?.contains(AgentAccountsRows.REFRESH_CAP) == true
 
     /**
      * EXP-760 — the run's team issues, newest-first: what resolves the

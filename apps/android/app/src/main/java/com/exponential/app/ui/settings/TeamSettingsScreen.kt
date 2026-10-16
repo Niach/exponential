@@ -426,7 +426,7 @@ private fun RepositoriesSection(
     var showAddRepo by remember { mutableStateOf(false) }
 
     // Resume-refresh fallback (EXP-365): if the exponential://github-connected
-    // deep link never arrives (older server, swallowed handoff, user closed the
+    // deep link never arrives (swallowed handoff, user closed the
     // Custom Tab), returning to this screen still re-detects. First composition
     // is covered by the ViewModel's initial load — skip it.
     var hasResumed by remember { mutableStateOf(false) }

@@ -187,11 +187,8 @@ impl serde::Serialize for ReplyCard {
                 options,
                 question_id,
             } => {
-                // COMPAT (EXP-1322 sidecar): old iOS 0.14.59 / Android 0.14.61 /
-                // desktop 0.14.69 only read string options. The device may post
-                // {label, description} objects again once CLIENT_MIN_VERSION_IOS
-                // >= 0.14.60 AND _ANDROID >= 0.14.62 AND _DESKTOP >= 0.14.70 (or
-                // keep the sidecar as the permanent form).
+                // EXP-1322: options post as label strings; descriptions ride
+                // the `optionDescriptions` sidecar, never inside `options`.
                 let labels: Vec<&str> = options.iter().map(ReplyOption::label).collect();
                 let descriptions = option_descriptions(options);
                 let mut map =
@@ -236,16 +233,8 @@ impl serde::Serialize for ReplyCard {
 ///
 /// On the wire the card posts `options` as plain label strings and the
 /// descriptions in the parallel `optionDescriptions` sidecar
-/// ([`option_descriptions`]); this enum's own (untagged) serde form —
-/// a string or `{label, description}` — is what a READER tolerates, since
-/// cards posted before the sidecar carry objects inside `options`.
-///
-/// COMPAT (EXP-1322 sidecar): old iOS 0.14.59 / Android 0.14.61 / desktop
-/// 0.14.69 only read string options. The device may post {label, description}
-/// objects again once CLIENT_MIN_VERSION_IOS >= 0.14.60 AND _ANDROID >=
-/// 0.14.62 AND _DESKTOP >= 0.14.70 (or keep the sidecar as the permanent form).
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(untagged)]
+/// ([`option_descriptions`]); the enum itself never goes on the wire.
+#[derive(Clone, Debug, PartialEq)]
 pub enum ReplyOption {
     Label(String),
     Described { label: String, description: String },
@@ -279,11 +268,6 @@ impl ReplyOption {
 /// The EXP-1322 `optionDescriptions` sidecar of a question card: parallel to
 /// `options` (same length), `None` = that option has no description; `None`
 /// altogether (the key is omitted) when no option carries one.
-///
-/// COMPAT (EXP-1322 sidecar): old iOS 0.14.59 / Android 0.14.61 / desktop
-/// 0.14.69 only read string options. The device may post {label, description}
-/// objects again once CLIENT_MIN_VERSION_IOS >= 0.14.60 AND _ANDROID >=
-/// 0.14.62 AND _DESKTOP >= 0.14.70 (or keep the sidecar as the permanent form).
 pub fn option_descriptions(options: &[ReplyOption]) -> Option<Vec<Option<&str>>> {
     let descriptions: Vec<Option<&str>> = options.iter().map(ReplyOption::description).collect();
     descriptions.iter().any(Option::is_some).then_some(descriptions)
@@ -574,8 +558,7 @@ mod tests {
         let json = |card: &ReplyCard| serde_json::to_string(card).unwrap();
         // EXP-1322 sidecar: options post as labels; descriptions ride the
         // parallel `optionDescriptions` (null = none), omitted when no option
-        // carries one. COMPAT: old iOS 0.14.59 / Android 0.14.61 / desktop
-        // 0.14.69 only read string options.
+        // carries one.
         assert_eq!(
             json(&ReplyCard::Question {
                 question: "Ship?".to_string(),
@@ -608,12 +591,6 @@ mod tests {
         assert_eq!(ReplyOption::new("Now", Some("x")).description(), Some("x"));
         assert_eq!(ReplyOption::new("Now", None).description(), None);
         assert_eq!(option_descriptions(&["A".into(), "B".into()]), None);
-        // A reader keeps tolerating both element forms (cards posted before
-        // the sidecar carry objects inside `options`).
-        assert_eq!(
-            serde_json::from_str::<Vec<ReplyOption>>(r#"["A",{"label":"B","description":"b"}]"#).unwrap(),
-            vec![ReplyOption::Label("A".into()), ReplyOption::new("B", Some("b"))]
-        );
         assert_eq!(
             json(&ReplyCard::Plan {
                 plan: "1. Do it".to_string(),

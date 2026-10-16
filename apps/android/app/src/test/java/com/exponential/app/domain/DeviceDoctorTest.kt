@@ -159,15 +159,11 @@ class DeviceDoctorTest {
                 .orEmpty()
             fun pills(rows: List<DoctorRow>) =
                 rows.mapNotNull { row -> row.importEmail?.let { row.key to it } }.toMap()
-            // On the device itself, and on another device declaring `agent-import`.
+            // On the device itself, and on another device.
             val local = DeviceReadiness.groups(doctorOf(case), remote = false).flatMap { it.rows }
             assertEquals(name, expected, pills(local))
-            val capable = DeviceReadiness.groups(doctorOf(case), remote = true, canImport = true)
-                .flatMap { it.rows }
-            assertEquals(name, expected, pills(capable))
-            // Another device without the cap: no import pill, the action stays.
-            val old = DeviceReadiness.groups(doctorOf(case), remote = true).flatMap { it.rows }
-            assertEquals(name, emptyMap<String, String>(), pills(old))
+            val remote = DeviceReadiness.groups(doctorOf(case), remote = true).flatMap { it.rows }
+            assertEquals(name, expected, pills(remote))
             // The import never takes the primary pill: it is always plain.
             assertEquals(
                 name,
@@ -177,10 +173,9 @@ class DeviceDoctorTest {
         }
         // The composer's single row carries it too.
         val imported = cases.first { it["importPills"] != null }
-        val row = DeviceReadiness.failingRow(doctorOf(imported), "claude", canImport = true)!!
+        val row = DeviceReadiness.failingRow(doctorOf(imported), "claude")!!
         assertEquals("dev@acme.test", row.importEmail)
         assertEquals("sign_in", row.action)
-        assertNull(DeviceReadiness.failingRow(doctorOf(imported), "claude")!!.importEmail)
     }
 
     @Test

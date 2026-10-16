@@ -497,7 +497,7 @@ final class AgentComposerModel {
     var notReadyRow: DeviceReadiness.Row? {
         guard agentNotReady, let device, let doctor = device.doctor else { return nil }
         return DeviceReadiness.failingRow(
-            doctor, agent: launch.agent, remote: true, canImport: device.canImportAgent
+            doctor, agent: launch.agent, remote: true
         )
     }
 

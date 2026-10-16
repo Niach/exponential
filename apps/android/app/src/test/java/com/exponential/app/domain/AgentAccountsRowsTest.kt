@@ -174,13 +174,10 @@ class AgentAccountsRowsTest {
     // ── EXP-817: the auto-refresh gate ───────────────────────────────────────
 
     @Test
-    fun `refresh needs my own online machine with the cap`() {
-        val capable = listOf("agent-login", "agent-usage-refresh")
-        assertTrue(AgentAccountsRows.canRefresh(row(deviceId = "a", agent = "claude"), capable))
-        assertFalse(AgentAccountsRows.canRefresh(row(deviceId = "a", agent = "claude", mine = false), capable))
-        assertFalse(AgentAccountsRows.canRefresh(row(deviceId = "a", agent = "claude", online = false), capable))
-        assertFalse(AgentAccountsRows.canRefresh(row(deviceId = "a", agent = "claude"), listOf("agent-login")))
-        assertFalse(AgentAccountsRows.canRefresh(row(deviceId = "a", agent = "claude"), null))
+    fun `refresh needs my own online machine`() {
+        assertTrue(AgentAccountsRows.canRefresh(row(deviceId = "a", agent = "claude")))
+        assertFalse(AgentAccountsRows.canRefresh(row(deviceId = "a", agent = "claude", mine = false)))
+        assertFalse(AgentAccountsRows.canRefresh(row(deviceId = "a", agent = "claude", online = false)))
     }
 
     @Test
@@ -306,87 +303,46 @@ class AgentAccountsRowsTest {
         val signedOut = chip(signedIn = false, active = true, health = AgentHealth.SignedOut)
         assertEquals(
             listOf("Sign in", "Remove account"),
-            AgentAccountsRows.chipActions(
-                signedOut,
-                canRemoveAccount = true,
-                canAgentLogin = true,
-            ),
+            AgentAccountsRows.chipActions(signedOut),
         )
         val expired = chip(signedIn = true, active = false, health = AgentHealth.NeedsRelogin)
         assertEquals(
-            listOf("Sign in", "Remove account"),
-            AgentAccountsRows.chipActions(
-                expired,
-                canRemoveAccount = true,
-                canAgentLogin = true,
-            ),
+            listOf("Sign in", "Sign out", "Remove account"),
+            AgentAccountsRows.chipActions(expired),
         )
         // EXP-1158: healthy, last used or not, the menu is the same — there
         // is no "make it the default" entry any more.
         listOf(true, false).forEach { active ->
             assertEquals(
-                listOf("Remove account"),
+                listOf("Sign out", "Remove account"),
                 AgentAccountsRows.chipActions(
                     chip(signedIn = true, active = active, health = AgentHealth.Ok),
-                    canRemoveAccount = true,
-                    canAgentLogin = true,
                 ),
             )
         }
     }
 
     @Test
-    fun `the caps gate their own entries`() {
-        fun chip(profileId: String, active: Boolean) = row(
+    fun `the last used login offers the sign-out and the removal`() {
+        val other = row(
             deviceId = "studio",
             agent = "claude",
-            profileId = profileId,
+            profileId = "work",
             health = AgentHealth.Ok,
-            active = active,
-        )
-        val other = chip("work", active = false)
-        // `agent_profile_remove` shipped in EXP-862; the server refuses it
-        // without its cap, so an older machine simply does not offer it.
-        assertEquals(
-            listOf("Remove account"),
-            AgentAccountsRows.chipActions(
-                other,
-                canRemoveAccount = true,
-                canAgentLogin = true,
-            ),
-        )
-        assertTrue(
-            AgentAccountsRows.chipActions(
-                other,
-                canRemoveAccount = false,
-                canAgentLogin = true,
-            ).isEmpty(),
+            active = false,
         )
         // The last used login is removable like any other: every row is a
         // profile dir Exponential created.
         assertEquals(
-            listOf("Remove account"),
-            AgentAccountsRows.chipActions(
-                chip("p-a", active = true),
-                canRemoveAccount = true,
-                canAgentLogin = true,
-            ),
-        )
-        // `agent_profile_remove` ALSO needs `agent-login` server-side: a
-        // machine advertising `account-remove` without it offers no removal.
-        assertTrue(
-            AgentAccountsRows.chipActions(
-                other,
-                canRemoveAccount = true,
-                canAgentLogin = false,
-            ).isEmpty(),
+            listOf("Sign out", "Remove account"),
+            AgentAccountsRows.chipActions(other),
         )
     }
 
-    // EXP-1137: a build with the sign-out body offers "Sign out" on every
-    // signed-in login; the fixed order ×4 is sign in, sign out, remove.
+    // EXP-1137: "Sign out" on every signed-in login; the fixed order ×4 is
+    // sign in, sign out, remove.
     @Test
-    fun `a build that signs out offers it`() {
+    fun `a signed-in login offers the sign-out`() {
         fun chip(
             signedIn: Boolean,
             active: Boolean,
@@ -399,12 +355,7 @@ class AgentAccountsRowsTest {
             active = active,
         )
         val all = { row: AgentProfileUsageRow ->
-            AgentAccountsRows.chipActions(
-                row,
-                canRemoveAccount = true,
-                canAgentLogin = true,
-                canSignOutAccount = true,
-            )
+            AgentAccountsRows.chipActions(row)
         }
         // A named login, healthy: every entry but the sign-in.
         assertEquals(
@@ -421,25 +372,6 @@ class AgentAccountsRowsTest {
             listOf("Sign in", "Remove account"),
             all(chip(signedIn = false, active = false, health = AgentHealth.SignedOut)),
         )
-        // The sign-out cap alone never removes a profile, and `agent-login`
-        // is required for everything.
-        assertEquals(
-            listOf("Sign out"),
-            AgentAccountsRows.chipActions(
-                chip(signedIn = true, active = false, health = AgentHealth.Ok),
-                canRemoveAccount = false,
-                canAgentLogin = true,
-                canSignOutAccount = true,
-            ),
-        )
-        assertTrue(
-            AgentAccountsRows.chipActions(
-                chip(signedIn = true, active = true, health = AgentHealth.Ok),
-                canRemoveAccount = true,
-                canAgentLogin = false,
-                canSignOutAccount = true,
-            ).isEmpty(),
-        )
     }
 
     @Test
@@ -448,10 +380,6 @@ class AgentAccountsRowsTest {
             "Sign me@example.com out on mint? The login stays listed so it can sign in " +
                 "again; the account itself is untouched.",
             AgentAccountsRows.signOutConfirm("me@example.com", "mint"),
-        )
-        assertEquals(
-            "That machine runs an older Exponential app that cannot sign agent accounts out. Update it first.",
-            AgentAccountsRows.SIGN_OUT_OLD_APP,
         )
     }
 
@@ -506,7 +434,7 @@ class AgentAccountsRowsTest {
         online: Boolean = true,
         agents: List<String>? = listOf("claude"),
         unauthedAgents: List<String> = emptyList(),
-        caps: List<String>? = listOf("agent-login"),
+        caps: List<String>? = null,
         agentAccounts: Map<String, AgentAccount>? = null,
     ) = SteerDevice(
         deviceId = deviceId,

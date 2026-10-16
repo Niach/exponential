@@ -2,21 +2,14 @@
 // version actually exists (or an update is already in flight) — not for
 // every online server.
 import { describe, expect, it } from "vitest"
-import { contract } from "@exp/domain-contract"
 
 import {
   deviceAcpAgentIds,
-  deviceCanToggleComputerUse,
   deviceComputerUseDefault,
   deviceAgentLaunchDefaults,
   deviceAgentNotReady,
-  deviceCanRemoveAccount,
-  deviceCanSignOutAccount,
-  deviceCanSwitchAccount,
-  deviceCanUpdateNow,
   deviceDefaultAgent,
   deviceIsMine,
-  deviceSupportsAcp,
   deviceProfileUsage,
   deviceUpdateAvailable,
   deviceUsageWallAt,
@@ -212,15 +205,6 @@ describe(`device launch defaults`, () => {
   })
 })
 
-// EXP-746: the engine capability.
-describe(`ACP hosting (EXP-746)`, () => {
-  it(`gates ACP hosting on the advertised cap`, () => {
-    expect(deviceSupportsAcp({ caps: [`worktrees`, `acp`] })).toBe(true)
-    expect(deviceSupportsAcp({ caps: [`worktrees`] })).toBe(false)
-    expect(deviceSupportsAcp({})).toBe(false)
-  })
-})
-
 // EXP-432: teammates' shared rows carry `owner`; own rows never do.
 describe(`deviceIsMine`, () => {
   it(`is true for own rows (owner absent) and false for shared rows`, () => {
@@ -242,7 +226,6 @@ import {
   composeDeviceList,
   defaultDeviceId,
   deviceAgentIds,
-  deviceCanAgentLogin,
   deviceHasRunnableAgent,
   deviceRowIsOnline,
   deviceUnauthedAgentIds,
@@ -564,46 +547,6 @@ describe(`resumeWorktree`, () => {
   })
 })
 
-// EXP-849: the mid-run account switch is its own capability — an older build
-// resumes on the RECORDED account and drops the field, so requesters must be
-// able to tell the two apart before offering the switch.
-describe(`deviceCanSwitchAccount`, () => {
-  it(`is true only when the machine advertises account-switch`, () => {
-    expect(deviceCanSwitchAccount({ caps: [`account-switch`] })).toBe(true)
-    expect(
-      deviceCanSwitchAccount({ caps: [`resume-run`, `agent-login`] })
-    ).toBe(false)
-    expect(deviceCanSwitchAccount({ caps: [] })).toBe(false)
-    expect(deviceCanSwitchAccount({ caps: undefined as never })).toBe(false)
-  })
-})
-
-// EXP-862: removing a login is its own capability again — an older build
-// would leave the queued row pending forever, so the menu entry hides.
-describe(`deviceCanRemoveAccount`, () => {
-  it(`is true only when the machine advertises account-remove`, () => {
-    expect(deviceCanRemoveAccount({ caps: [`account-remove`] })).toBe(true)
-    expect(
-      deviceCanRemoveAccount({ caps: [`account-switch`, `agent-login`] })
-    ).toBe(false)
-    expect(deviceCanRemoveAccount({ caps: [] })).toBe(false)
-    expect(deviceCanRemoveAccount({ caps: undefined as never })).toBe(false)
-  })
-})
-
-// EXP-1137: signing a login out (and removing the machine's own ambient one)
-// is its own capability — same reasoning, same hiding.
-describe(`deviceCanSignOutAccount`, () => {
-  it(`is true only when the machine advertises account-sign-out`, () => {
-    expect(deviceCanSignOutAccount({ caps: [`account-sign-out`] })).toBe(true)
-    expect(
-      deviceCanSignOutAccount({ caps: [`account-remove`, `agent-login`] })
-    ).toBe(false)
-    expect(deviceCanSignOutAccount({ caps: [] })).toBe(false)
-    expect(deviceCanSignOutAccount({ caps: undefined as never })).toBe(false)
-  })
-})
-
 // EXP-639: the registered row is the ONE advertisement — an absent `agents`
 // list is a row that advertises nothing, never the old claude-only fallback.
 describe(`deviceAgentIds`, () => {
@@ -704,19 +647,10 @@ describe(`agent status mapping (EXP-484)`, () => {
     expect(mapped.agentUsage).toBeUndefined()
     expect(mapped.agentUsageAt).toBeNull()
   })
-
-  it(`gates remote sign-in on the advertised cap`, () => {
-    expect(deviceCanAgentLogin({ caps: [`worktrees`, `agent-login`] })).toBe(
-      true
-    )
-    expect(deviceCanAgentLogin({ caps: [`worktrees`] })).toBe(false)
-    expect(deviceCanAgentLogin({})).toBe(false)
-  })
 })
 
 // EXP-749: a machine reports WHICH of its runnable agents its ACP engine can
-// drive. NULL is an older build that never reported — assume every runnable
-// agent is ACP-ready (the old behaviour). EXP-773 deleted the PTY fallback, so
+// drive. NULL = never reported — assume every runnable agent is ACP-ready. EXP-773 deleted the PTY fallback, so
 // an agent outside a REPORTED set cannot start on that machine at all.
 describe(`acp agents (EXP-749)`, () => {
   it(`a row that never reported reads unknown, and blocks nothing`, () => {
@@ -935,22 +869,14 @@ describe(`deviceProfileUsage`, () => {
   })
 })
 
-// FEED-36 / EXP-1075: the blocker line is one fixed sentence, and "Update
-// now" is offered only to daemons that run `update_now`.
+// FEED-36 / EXP-1075: the blocker line is one fixed sentence.
 describe(`update blockers (FEED-36)`, () => {
   it(`says the update waits on every session, with no count and no names`, () => {
     expect(UPDATE_QUEUED_LINE).toBe(`Update queued until all sessions are closed.`)
   })
-
-  it(`offers Update now only behind the update-now cap`, () => {
-    expect(deviceCanUpdateNow(server({ caps: [`update-now`] }))).toBe(true)
-    expect(deviceCanUpdateNow(server({ caps: [`agent-login`] }))).toBe(false)
-    expect(deviceCanUpdateNow(server())).toBe(false)
-  })
 })
 
 import {
-  deviceCanImportAgentLogin,
   isUnpinnedAccount,
   resolveStartAccount,
 } from "./steer-devices"
@@ -970,7 +896,7 @@ describe(`resolveStartAccount (EXP-1138 gate split)`, () => {
         `claude`
       )
     ).toEqual({ kind: `last_used` })
-    // An older build without profiles keeps its own resolution.
+    // A report without profiles keeps its own resolution.
     expect(
       resolveStartAccount(
         { agentAccounts: { claude: { signedIn: true } } as never },
@@ -1031,31 +957,17 @@ describe(`resolveStartAccount (EXP-1138 gate split)`, () => {
   })
 })
 
-describe(`unpinned accounts and the import cap`, () => {
+describe(`unpinned accounts`, () => {
   it(`reads absent, blank and the retired system id as unpinned`, () => {
     for (const account of [undefined, null, ``, `  `, `system`]) {
       expect(isUnpinnedAccount(account)).toBe(true)
     }
     expect(isUnpinnedAccount(`a1b2c3d4`)).toBe(false)
   })
-
-  it(`offers a remote import only behind the agent-import cap`, () => {
-    expect(deviceCanImportAgentLogin({ caps: [`agent-login`, `agent-import`] })).toBe(true)
-    expect(deviceCanImportAgentLogin({ caps: [`agent-login`] })).toBe(false)
-    expect(deviceCanImportAgentLogin({})).toBe(false)
-  })
 })
 
 // EXP-1249: the composer's per-run Computer use toggle.
 describe(`computer use per run`, () => {
-  it(`is offered only by a device advertising the contract cap`, () => {
-    expect(
-      deviceCanToggleComputerUse({ caps: [contract.codingSession.computerUseCap] })
-    ).toBe(true)
-    expect(deviceCanToggleComputerUse({ caps: [`resume-run`] })).toBe(false)
-    expect(deviceCanToggleComputerUse(undefined)).toBe(false)
-  })
-
   it(`seeds from the device's own switch, absent = off`, () => {
     expect(deviceComputerUseDefault({ launchDefaults: { computerUse: true } })).toBe(true)
     expect(deviceComputerUseDefault({ launchDefaults: { computerUse: null } })).toBe(false)

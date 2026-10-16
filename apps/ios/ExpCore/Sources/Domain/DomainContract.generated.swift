@@ -100,7 +100,6 @@ public enum DomainContract {
     public static let codingSessionStaleMs: Int = 7200000
     public static let codingSessionLaunchKeys: [String] = ["agent", "model", "effort", "subagentModel", "ultracode", "planMode", "mcpServerIds", "account", "computerUse"]
     public static let codingSessionComputerUseCap: String = "computer-use-run"
-    public static let codingSessionSteerFilesCap: String = "steer-files"
     public static let deviceOnlineWindowMs: Int = 90000
     public static let sessionsSendTextMax: Int = 16384
     public static let sessionsSendMaxAttachments: Int = 10
@@ -167,7 +166,6 @@ public enum DomainContract {
     public static let composerUiFixConflictsSubmit: String = "Fix conflicts"
     public static let composerUiPrPlaceholder: String = "Select a pull request…"
     public static let composerUiConflictNote: String = "Merge refused: the branch has conflicts."
-    public static let composerUiFilesNeedNewerDevice: String = "Attaching files needs the device on 0.14.66 or newer; images still work"
 
     public static let issueStatusCategoryBacklog: String = "backlog"
     public static let issueStatusCategoryUnstarted: String = "unstarted"

@@ -2,7 +2,7 @@
 // since EXP-201). EXP-437 removed the localStorage last-used persistence:
 // the dialog seeds from the SELECTED DEVICE's advertised per-agent defaults
 // (`SteerDevice.launchDefaults`), falling back to static contract defaults
-// when the device advertises nothing (older desktop build).
+// when the device advertises nothing.
 //
 // Seed values are validated against the domain contract, so a device
 // advertisement from an older/newer build can never seed the dialog with a
@@ -174,7 +174,7 @@ export const DEFAULT_LAUNCH_AGENT: string = contract.codingAgent.values[0]
  * defaults for that agent, contract-validated and capability-clamped, with
  * static defaults for anything absent/invalid. `agentSeed(agent, null)` is
  * the static fallback (first model / CLI-default effort / toggles off) used
- * when the selected device advertises nothing (older desktop build).
+ * when the selected device advertises nothing.
  */
 export function agentSeed(
   agent: string,

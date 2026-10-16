@@ -72,8 +72,7 @@ pub struct Action {
     pub inputs: Vec<ActionInput>,
     /// EXP-825: the composer's field hint while this action is picked
     /// (`promptPlaceholder`, ≤[`MAX_PROMPT_PLACEHOLDER_CHARS`]); `None` =
-    /// the generic "Additional instructions" hint. Absent on rows from a
-    /// pre-EXP-825 server.
+    /// the generic "Additional instructions" hint.
     #[serde(default)]
     pub prompt_placeholder: Option<String>,
     #[serde(default)]

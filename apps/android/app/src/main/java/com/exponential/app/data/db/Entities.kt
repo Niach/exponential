@@ -26,11 +26,11 @@ data class TeamEntity(
     // IS an issue, and the reporter conversation is its comments.)
     // EXP-1105: yolo mode — the team's agents merge their own PRs, so the
     // Reviews tab hides unless an open PR (= a failed auto-merge) is waiting.
-    // Toggled on web + desktop only; an older server without the column = off.
+    // Toggled on web + desktop only; an absent column = off.
     @ColumnInfo(name = "yolo_mode") @SerialName("yolo_mode") @JsonNames("yoloMode") val yoloMode: PgBool = false,
     // EXP-630: the team's estimate scale (contract `issueEstimation`:
     // none | exponential | fibonacci | linear | tshirt). `none` (and a row
-    // from an older server that lacks the column) = estimates OFF, so the
+    // without the column) = estimates OFF, so the
     // chip and the properties row hide; issues keep their point values.
     @ColumnInfo(name = "estimation_type") @SerialName("estimation_type") @JsonNames("estimationType") val estimationType: String? = null,
     @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String,
@@ -466,7 +466,7 @@ data class DeviceEntity(
     val platform: String? = null,
     // EXP-924: the owner-picked display icon (contract `deviceIcon`, the
     // registry's `devicePickable` set). NULL — which is what every machine
-    // registers with, and what a row synced from an older server carries — is
+    // registers with — is
     // the KIND default the clients derive (`deviceIconName`), never a hole.
     val icon: String? = null,
     val version: String? = null,

@@ -7087,8 +7087,7 @@ pub(crate) fn run_account(session_id: &str, cx: &App) -> Option<String> {
 /// A run hosted here reads it in-process ([`crate::device_sync::
 /// refresh_agent_usage_here`], the polite read); one hosted on another of MY
 /// machines gets the `agent_usage_refresh` command — but only while that
-/// machine is online, advertises the cap and its last fetch is past the
-/// shared floor, which is the same gate the Devices page applies. A
+/// machine is online and its last fetch is past the shared floor, which is the same gate the Devices page applies. A
 /// teammate's machine is never asked: it is not mine to poll.
 pub(crate) fn refresh_run_usage(
     session_id: &str,
@@ -7129,12 +7128,6 @@ pub(crate) fn refresh_run_usage(
     if !row.mine
         || !row.online
         || crate::usage_bar::refresh_allowed_at(row.usage.as_ref(), now_epoch).is_some()
-    {
-        return;
-    }
-    if !crate::queries::device_caps(cx, &device_id)
-        .iter()
-        .any(|cap| cap == crate::usage_bar::USAGE_REFRESH_CAP)
     {
         return;
     }

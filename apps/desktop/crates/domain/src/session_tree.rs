@@ -567,24 +567,18 @@ pub fn session_tab_mark_state(session: &SessionRow) -> SessionTabMarkState {
 
 /// EXP-1322: one option of a thread question card. The synced card carries
 /// `options` as bare labels with the parallel `optionDescriptions` sidecar
-/// (null / "" = none; the key omitted when no option has one), or — on cards
-/// posted before the sidecar — `{label, description?}` objects inside
-/// `options`; all normalise here ([`question_options`]). The answer IS the
-/// label; the description renders under it.
-///
-/// COMPAT (EXP-1322 sidecar): old iOS 0.14.59 / Android 0.14.61 / desktop
-/// 0.14.69 only read string options. The device may post {label, description}
-/// objects again once CLIENT_MIN_VERSION_IOS >= 0.14.60 AND _ANDROID >=
-/// 0.14.62 AND _DESKTOP >= 0.14.70 (or keep the sidecar as the permanent form).
+/// (null / "" = none; the key omitted when no option has one); they zip here
+/// ([`question_options`]). The answer IS the label; the description renders
+/// under it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct QuestionOption {
     pub label: String,
     pub description: Option<String>,
 }
 
-/// The card's `options` zipped with its `optionDescriptions` sidecar (by
-/// index, before any filtering): an object option's own description wins,
-/// else the sidecar slot when it is a non-empty string. No array = no options.
+/// The card's `options` zipped with its `optionDescriptions` sidecar by
+/// index, BEFORE dropping non-string options (a description is the sidecar
+/// slot when it is a non-empty string). No array = no options.
 fn question_options(options: Option<&Value>, descriptions: Option<&Value>) -> Vec<QuestionOption> {
     let Some(Value::Array(options)) = options else {
         return Vec::new();
@@ -593,35 +587,18 @@ fn question_options(options: Option<&Value>, descriptions: Option<&Value>) -> Ve
     options
         .iter()
         .enumerate()
-        .map(|(index, option)| {
-            let mut normalised = question_option(option);
-            if normalised.description.is_none() {
-                normalised.description = descriptions
+        .filter_map(|(index, option)| {
+            let label = option.as_str()?;
+            Some(QuestionOption {
+                label: label.to_string(),
+                description: descriptions
                     .and_then(|list| list.get(index))
                     .and_then(Value::as_str)
                     .filter(|text| !text.is_empty())
-                    .map(str::to_string);
-            }
-            normalised
+                    .map(str::to_string),
+            })
         })
         .collect()
-}
-
-fn question_option(option: &Value) -> QuestionOption {
-    match option {
-        Value::Object(entry) => QuestionOption {
-            label: js_string(entry.get("label")),
-            description: entry
-                .get("description")
-                .and_then(Value::as_str)
-                .filter(|text| !text.is_empty())
-                .map(str::to_string),
-        },
-        other => QuestionOption {
-            label: js_string(Some(other)),
-            description: None,
-        },
-    }
 }
 
 /// One row of the thread's Conversation (the TS `ThreadRow`).
@@ -1289,35 +1266,11 @@ mod tests {
     use serde::de::DeserializeOwned;
     use serde_json::{json, Map};
 
-    /// EXP-1322: a bare label and `{label, description?}` both normalise;
-    /// an empty description reads as none.
-    #[test]
-    fn question_options_normalise_bare_labels_and_objects() {
-        let options = [
-            json!("Yes"),
-            json!({ "label": "No", "description": "Wait for the next release" }),
-            json!({ "label": "Later", "description": "" }),
-            json!({ "label": "Never" }),
-        ];
-        let normalised: Vec<QuestionOption> = options.iter().map(question_option).collect();
-        let pairs: Vec<(&str, Option<&str>)> =
-            normalised.iter().map(|option| (option.label.as_str(), option.description.as_deref())).collect();
-        assert_eq!(
-            pairs,
-            [
-                ("Yes", None),
-                ("No", Some("Wait for the next release")),
-                ("Later", None),
-                ("Never", None),
-            ]
-        );
-    }
-
     /// EXP-1322 sidecar: `optionDescriptions` zips with `options` by index
     /// (null / "" / a missing slot = none; a non-array sidecar is ignored);
-    /// an object option's own description wins over its sidecar slot.
+    /// a non-string option drops after the zip.
     #[test]
-    fn question_options_read_the_sidecar_and_keep_object_tolerance() {
+    fn question_options_read_the_sidecar() {
         let pairs = |options: Value, descriptions: Option<Value>| -> Vec<(String, Option<String>)> {
             question_options(Some(&options), descriptions.as_ref())
                 .into_iter()
@@ -1327,15 +1280,14 @@ mod tests {
         let some = |text: &str| Some(text.to_string());
         assert_eq!(
             pairs(
-                json!(["Yes", "No", "Later", "Never", { "label": "Own", "description": "Mine" }]),
-                Some(json!(["Ship it", null, "", "Not now"]))
+                json!(["Yes", "No", "Later", { "label": "Own" }, "Never"]),
+                Some(json!(["Ship it", null, "", "Mine", "Not now"]))
             ),
             [
                 ("Yes".to_string(), some("Ship it")),
                 ("No".to_string(), None),
                 ("Later".to_string(), None),
                 ("Never".to_string(), some("Not now")),
-                ("Own".to_string(), some("Mine")),
             ]
         );
         assert_eq!(

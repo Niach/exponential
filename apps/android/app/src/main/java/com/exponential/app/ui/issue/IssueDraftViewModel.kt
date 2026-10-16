@@ -35,7 +35,6 @@ import com.exponential.app.domain.PreparedMedia
 import com.exponential.app.domain.ResolvedIssueStatus
 import com.exponential.app.domain.TeamPermissions
 import com.exponential.app.domain.canonicalContentType
-import com.exponential.app.domain.isFileAttachment
 import com.exponential.app.domain.sanitizeFilename
 import com.exponential.app.ui.components.FailedAction
 import com.exponential.app.ui.markdown.IssueRefTarget
@@ -467,8 +466,8 @@ class IssueDraftViewModel @Inject constructor(
     // Draft attachments are not in the attachments shape (it is issue-scoped),
     // so they come over tRPC; inline images and clips already render from the
     // description. EXP-1247: the server lists Files rows only (an `as_file`
-    // upload or a type that never inlines); the same row rule runs here for an
-    // older server. Only a SUCCESSFUL list makes them known.
+    // upload or a type that never inlines). Only a SUCCESSFUL list makes them
+    // known.
     private suspend fun loadAttachments() {
         val accountId = auth.activeAccountId.value ?: return
         val files = try {
@@ -478,7 +477,7 @@ class IssueDraftViewModel @Inject constructor(
         } catch (error: Throwable) {
             android.util.Log.w("IssueDraftViewModel", "Draft attachments load failed", error)
             return
-        }.filter { isFileAttachment(it.contentType, it.asFile) }
+        }
         _state.update { s ->
             s.copy(attachments = files + s.attachments.filterNot { a -> files.any { it.id == a.id } }, attachmentsKnown = true)
         }

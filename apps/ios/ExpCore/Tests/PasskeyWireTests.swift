@@ -178,8 +178,7 @@ final class PasskeyWireTests: XCTestCase {
     }
 }
 
-// The login screen is the first thing to touch an arbitrary instance URL, so a
-// server that predates EXP-857 must decode — with both new affordances off.
+// EXP-857: the code + passkey flags gate their two buttons.
 final class AuthConfigDecodeTests: XCTestCase {
     private func decode(_ json: String) throws -> AuthConfig {
         try JSONDecoder().decode(AuthConfig.self, from: Data(json.utf8))
@@ -194,19 +193,10 @@ final class AuthConfigDecodeTests: XCTestCase {
         XCTAssertTrue(config.passkeyEnabled)
     }
 
-    func testOlderServersDecodeWithBothAffordancesOff() throws {
-        let config = try decode("""
-        {"passwordEnabled":true,"oidcProviders":[],"googleLoginEnabled":false}
-        """)
-        XCTAssertFalse(config.emailOtpEnabled)
-        XCTAssertFalse(config.passkeyEnabled)
-        XCTAssertTrue(config.passwordEnabled)
-        XCTAssertFalse(config.appleLoginEnabled)
-    }
-
     func testFlagsCanBeIndividuallyOff() throws {
         let config = try decode("""
-        {"passwordEnabled":false,"oidcProviders":[],"googleLoginEnabled":false,"emailOtpEnabled":true}
+        {"passwordEnabled":false,"signupEnabled":false,"passwordResetEnabled":false,"oidcProviders":[],
+         "googleLoginEnabled":false,"appleLoginEnabled":false,"emailOtpEnabled":true,"passkeyEnabled":false}
         """)
         XCTAssertTrue(config.emailOtpEnabled)
         XCTAssertFalse(config.passkeyEnabled)

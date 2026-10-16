@@ -6,10 +6,9 @@ import XCTest
 // devices shape) and bare relay-presence rows decode into ONE `SteerDevice`,
 // mirroring apps/web/src/lib/steer-devices.ts. The registry
 // fields are all optional, so a presence row — which carries none — must read
-// as ONLINE: treating an absent `online` as offline would hide every start
-// affordance the moment an older server answers. EXP-432 adds the two sharing
-// fields on the same terms — both optional, both absent from an older server,
-// as does EXP-437's `launchDefaults` (the machine's own coding defaults).
+// as ONLINE: an absent `online` is not offline. EXP-432's two sharing fields
+// and EXP-437's `launchDefaults` (the machine's own coding defaults) are
+// optional on the same terms.
 
 /// The rows always arrive wrapped in a `{ devices }` object, so the fixtures
 /// decode through one here.
@@ -187,14 +186,14 @@ final class SteerDeviceDecodingTests: XCTestCase {
         {"devices":[
         {"deviceId":"d20","deviceLabel":"macbook","agents":["claude"],
         "caps":["actions","agent-login"],"online":true},
-        {"deviceId":"d22","deviceLabel":"ancient","agents":["claude"],
+        {"deviceId":"d22","deviceLabel":"bare","agents":["claude"],
         "caps":[],"online":true}]}
         """)
         let modern = try XCTUnwrap(result.devices.first)
         XCTAssertTrue(modern.canAgentLogin)
 
-        let ancient = result.devices[1]
-        XCTAssertFalse(ancient.canAgentLogin)
+        let bare = result.devices[1]
+        XCTAssertFalse(bare.canAgentLogin)
     }
 
     /// EXP-437: a machine advertises its own per-agent coding defaults so a
@@ -228,33 +227,24 @@ final class SteerDeviceDecodingTests: XCTestCase {
         XCTAssertNil(device.agentDefaults(for: "zed"))
     }
 
-    /// The ACP cap rides `caps` like every other capability, so an older
-    /// machine simply reads as not-ACP, never as a decode failure.
-    ///
-    /// EXP-773 deleted the "Start in terminal" preference. An old server still
-    /// stamps `startInTerminal` onto `launchDefaults`, and the decoder must
+    /// EXP-773 deleted the "Start in terminal" preference. A stored
+    /// `launchDefaults` may still carry `startInTerminal`, and the decoder must
     /// keep ignoring it — the whole payload would otherwise fail to parse and
     /// the machine would vanish from every picker.
-    func testDecodesTheAcpCapAndIgnoresTheRetiredTerminalDefault() throws {
+    func testIgnoresTheRetiredTerminalDefault() throws {
         let result = try decode("""
         {"devices":[
         {"deviceId":"d10","deviceLabel":"macbook","agents":["claude"],
         "caps":["actions","acp","resume-run"],"online":true,
         "launchDefaults":{"defaultAgent":"claude","startInTerminal":true}},
-        {"deviceId":"d11","deviceLabel":"old-box","agents":["claude"],
+        {"deviceId":"d11","deviceLabel":"idle-box","agents":["claude"],
         "caps":["actions"],"online":true,"launchDefaults":{"defaultAgent":"claude"}}]}
         """)
         let acp = try XCTUnwrap(result.devices.first)
-        XCTAssertTrue(acp.supportsAcp)
-        XCTAssertTrue(acp.canResumeRun)
-        // EXP-849: honouring `account` on a LIVE run is its own cap — a
-        // machine that only resumes must not be offered a mid-run switch.
-        XCTAssertFalse(acp.canSwitchAccount)
         XCTAssertEqual(acp.launchDefaults?.defaultAgent, "claude")
 
-        let old = try XCTUnwrap(result.devices.dropFirst().first)
-        XCTAssertFalse(old.supportsAcp)
-        XCTAssertEqual(old.launchDefaults?.defaultAgent, "claude")
+        let idle = try XCTUnwrap(result.devices.dropFirst().first)
+        XCTAssertEqual(idle.launchDefaults?.defaultAgent, "claude")
     }
 
     /// EXP-749: `acpAgents` names which runnable agents the machine's ACP

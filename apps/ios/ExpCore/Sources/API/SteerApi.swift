@@ -97,12 +97,10 @@ public struct AgentLaunchDefaults: Decodable, Equatable, Sendable {
 /// EXP-437: the coding defaults a machine advertises, so a remote Start-coding
 /// sheet opens on THAT machine's settings instead of whatever the phone last
 /// sent. `agents` covers the RUNNABLE agents only (contract `codingAgent`
-/// ids). Absent entirely on an older desktop — every reader falls back to the
-/// static contract defaults.
+/// ids). Nullable — every reader falls back to the static contract defaults.
 ///
 /// EXP-773 dropped `startInTerminal`: the PTY coding path is gone. Decoding
-/// ignores unknown keys, so a row an older server still stamps it onto keeps
-/// parsing.
+/// ignores unknown keys, so a stored row still carrying it keeps parsing.
 public struct DeviceLaunchDefaults: Decodable, Equatable, Sendable {
     /// EXP-1158: the machine's LAST USED agent — the agent a person last
     /// started or switched a run on there. Only the DEVICE writes it; clients
@@ -457,13 +455,13 @@ public struct SteerDevice: Decodable, Sendable, Identifiable {
     /// EXP-484: when the server last stored `agentUsage`.
     public let agentUsageAt: String?
     /// EXP-437: this machine's own per-agent coding defaults, so picking it in
-    /// a remote Start-coding sheet pre-fills its settings. Absent on an older
-    /// desktop (and on a machine with nothing runnable) — read it through
+    /// a remote Start-coding sheet pre-fills its settings. Absent on a machine
+    /// with nothing runnable — read it through
     /// `defaultLaunchAgent` / `agentDefaults(for:)`, never raw.
     public let launchDefaults: DeviceLaunchDefaults?
     /// EXP-1196: the machine's readiness report (the synced `doctor` column),
-    /// rendered through `DeviceReadiness`. Nil = an older build reporting
-    /// none (no readiness block), and on tRPC/relay rows.
+    /// rendered through `DeviceReadiness`. Nil = no report yet (no readiness
+    /// block), and on tRPC/relay rows.
     public let doctor: DeviceDoctor?
     /// EXP-481: the synced devices ROW id — joins `device_worktrees` for the
     /// resume probe. Set only when the value came off the devices shape
@@ -626,8 +624,8 @@ public struct SteerDevice: Decodable, Sendable, Identifiable {
     /// the machine's ACP set and the PTY fallback is gone.
     ///
     /// EXP-1196: a device that reports its readiness is judged by it (Git ok
-    /// and the agent's own row ok), like the web composer; an older build
-    /// keeps the ACP rule.
+    /// and the agent's own row ok), like the web composer; a row without a
+    /// report keeps the ACP rule.
     public func agentNotReady(_ agent: String) -> Bool {
         if let doctor {
             return !DeviceReadiness.runnableAgents(doctor).contains(agent)
@@ -646,14 +644,9 @@ public struct SteerDevice: Decodable, Sendable, Identifiable {
         isOnline && !hasRunnableAgent && !unauthedAgentIds.isEmpty
     }
 
-    /// EXP-746: whether this machine can run a session through the in-process
-    /// ACP engine (the session screen) at all. A machine without the cap is an
-    /// older build.
-    public var supportsAcp: Bool { caps?.contains("acp") == true }
-
     /// EXP-484: whether this machine can run an agent sign-in REMOTELY (the
-    /// `agent_login` device command). Strictly cap-gated like the other remote
-    /// affordances — an old build would never pick the command up.
+    /// `agent_login` device command). The server refuses the command without
+    /// the cap.
     public var canAgentLogin: Bool { caps?.contains("agent-login") == true }
 
     /// EXP-437/EXP-1158: the machine's LAST USED agent, clamped to what it can
@@ -685,45 +678,16 @@ public struct SteerDevice: Decodable, Sendable, Identifiable {
     // real reason was that no machine was online. What remains here mirrors a
     // gate the server still applies.
 
-    /// EXP-637: whether this machine can RESUME an ended run (relaunch the
-    /// agent in the run's own worktree, continuing its transcript). Strictly
-    /// cap-gated like actions — the server refuses `resumeSessionId` without
-    /// it, so a Resume affordance renders only when the machine advertises it.
-    public var canResumeRun: Bool { caps?.contains("resume-run") == true }
-
-    /// EXP-849: whether this machine honours `account` on the resume of a LIVE
-    /// run (the mid-session account switch). Its own cap, not `resume-run`: an
-    /// older machine resumes fine but IGNORES the account and relaunches under
-    /// the same login, so the switch would silently do nothing.
-    public var canSwitchAccount: Bool { caps?.contains("account-switch") == true }
-
     /// EXP-1249: whether this machine reads the per-run `computerUse` flag
-    /// (contract `codingSessionComputerUseCap`); an older build would ignore
-    /// it, so the toggle hides and the key never rides out.
+    /// (contract `codingSessionComputerUseCap`, a RUN cap: advertised only
+    /// while an agent there is runnable); without it the toggle hides and the
+    /// key never rides out.
     public var canToggleComputerUse: Bool {
         caps?.contains(DomainContract.codingSessionComputerUseCap) == true
     }
 
     /// The per-run toggle's seed: the machine's `launch_defaults.computerUse`.
     public var computerUseDefault: Bool { launchDefaults?.computerUse ?? false }
-
-    /// EXP-862: whether this machine runs `agent_profile_remove` — deleting
-    /// its own copy of a login (the profile's config dir plus its index row;
-    /// the ACCOUNT itself is never touched). Its own cap beside `agent-login`:
-    /// an older build would leave the queued command pending forever, so the
-    /// chip menu hides the entry instead.
-    public var canRemoveAccount: Bool { caps?.contains("account-remove") == true }
-
-    /// EXP-1137: whether this machine runs `agent_profile_sign_out` (sign one
-    /// login out, keep its row). Same reasoning as the removal: an older
-    /// build would leave the command pending forever, so the chip menu hides
-    /// the entry instead.
-    public var canSignOutAccount: Bool { caps?.contains("account-sign-out") == true }
-
-    /// Whether this machine takes `agent_login {agent, import: true}` (MOVE
-    /// its ambient login into a profile). The readiness block offers the
-    /// remote Import pill only then; the server refuses it without the cap.
-    public var canImportAgent: Bool { caps?.contains(AgentAccountsRows.importCap) == true }
 
     /// EXP-420: whether this device's reported version compares below the
     /// given latest. Unknown or unparsable on either side = false — the

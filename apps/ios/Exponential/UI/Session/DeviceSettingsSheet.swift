@@ -517,8 +517,7 @@ struct DeviceSettingsSheet: View {
         Section {
             DeviceReadinessView(
                 groups: DeviceReadiness.groups(
-                    doctor, remote: true, computerUseOn: computerUse,
-                    canImport: device.canImportAgent
+                    doctor, remote: true, computerUseOn: computerUse
                 ),
                 computerUse: Binding(
                     get: { computerUse },

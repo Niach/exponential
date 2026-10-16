@@ -25,7 +25,7 @@ use crate::error::ApiError;
 use crate::trpc::TrpcClient;
 
 /// `mcp_servers` row (contract `mcpTransport` / `mcpAuth` vocabularies).
-/// Every list field defaults so an older server's thinner row still parses.
+/// Every list field defaults so a row with an omitted list still parses.
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct McpServerConfig {

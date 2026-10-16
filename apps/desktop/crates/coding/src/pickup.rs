@@ -1212,7 +1212,7 @@ fn honor_row_account(deps: &PickupDeps, session_id: &str, record: &mut RunRecord
 /// not the one the row named (`honored`): a start pick or a rotation moved
 /// it. The row then says it, so a person's later pick of the old login is
 /// a real move; reading the report back moves nothing ([`switch_target`],
-/// [`wake_account`]). Best-effort; an older server drops the key.
+/// [`wake_account`]). Best-effort.
 fn report_running_account(deps: &PickupDeps, session_id: &str, honored: Option<&str>, running: Option<&str>) {
     let (Some(honored), Some(running)) = (honored, running) else { return };
     if honored.is_empty() || running.is_empty() || honored == running {

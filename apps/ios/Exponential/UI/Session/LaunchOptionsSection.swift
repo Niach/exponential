@@ -305,7 +305,7 @@ struct LaunchOptionsSection: View {
         guard let device = resolvedDevice, !agent.isEmpty, device.agentNotReady(agent),
               let doctor = device.doctor else { return nil }
         return DeviceReadiness.failingRow(
-            doctor, agent: agent, remote: true, canImport: device.canImportAgent
+            doctor, agent: agent, remote: true
         )
     }
 

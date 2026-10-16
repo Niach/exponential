@@ -1,4 +1,4 @@
-// Steer relay — the outbound remote-start + live-terminal-steer hub
+// Steer relay — the live-terminal-steer hub
 // (masterplan §3). Modeled on apps/push-relay (Hono HTTP, per-IP rate
 // limiting, /healthz) with one structural difference: this is a stateful
 // Bun-native WebSocket hub, so the default export carries a `websocket`
@@ -13,16 +13,10 @@
 
 import { timingSafeEqual } from "node:crypto"
 import { Hono } from "hono"
-import { contract } from "@exp/domain-contract"
 import type { ServerWebSocket } from "bun"
 import { verifySteerTicket, type SteerTicketClaims } from "@exp/steer-ticket"
-import { Hub, type RelaySocket, type StartSubject } from "./hub"
-import {
-  CLOSE_UNAUTHORIZED,
-  type StartInput,
-  type StartRepoGroup,
-  type StartSessionOptions,
-} from "./protocol"
+import { Hub, type RelaySocket } from "./hub"
+import { CLOSE_UNAUTHORIZED } from "./protocol"
 
 const RELAY_SECRET = process.env.STEER_RELAY_SECRET
 if (!RELAY_SECRET) {
@@ -123,7 +117,7 @@ app.use(`*`, async (c, next) => {
     // Only failed-auth attempts are throttled (REV2-65), sharing the upgrade
     // path's brute-force bucket. Secret-bearing traffic is trusted and never
     // throttled: every admin call arrives from the web server's single egress
-    // IP, so a per-IP budget on it would drop legitimate remote starts.
+    // IP, so a per-IP budget on it would drop legitimate admin calls.
     if (
       !rateLimitHit(
         `failed:${clientIp(c.req.raw.headers)}`,
@@ -140,8 +134,7 @@ app.use(`*`, async (c, next) => {
 
 // EXP-553: gauges + monotonic counters for the web app's admin performance
 // page. Secret-gated by the middleware above (unlike the public /healthz,
-// which deliberately stays gauges-only); an old web app simply never calls
-// this, and an old relay 404s — the caller falls back to /healthz.
+// which deliberately stays gauges-only).
 app.get(`/stats`, (c) =>
   c.json({
     ok: true,
@@ -154,344 +147,17 @@ app.get(`/stats`, (c) =>
 // Liveness for a session room (the "is the desktop still publishing?" check).
 app.get(`/sessions/:id`, (c) => c.json(hub.sessionInfo(c.req.param(`id`))))
 
-// Remote "Start on my desktop": route to the device's control socket. The
-// subject is a single issueId (wire-unchanged), a batch group (issueIds +
-// teamId + repo), or an action run (actionId + actionName + teamId +
-// optional repo — EXP-253); all resolved server-side — the desktop syncs
-// no repositories. Launch-option VALUES (EXP-149) and the subject fields pass
-// through untouched — the web server already validated them, the relay stays a
-// dumb pipe — but their TYPES/SHAPES are pinned here: a mistyped field would
-// fail the desktop's serde parse and silently drop the whole frame after
-// /start already answered ok.
-app.post(`/start`, async (c) => {
-  const body = (await c.req.json().catch(() => null)) as Record<
-    string,
-    unknown
-  > | null
-  const userId = asString(body?.userId)
-  const deviceId = asString(body?.deviceId)
-  if (!userId || !deviceId) {
-    return c.json({ error: `Bad request` }, 400)
-  }
-
-  // Explicit exactly-one on key presence: single issueId, the batch trio, or
-  // the action subject — never more than one, never none.
-  // EXP-637 resume: the ONLY subject that may carry issueId/actionId
-  // alongside itself (they are display hints, not the subject), so it is
-  // checked before the exactly-one count.
-  const hasResume = body ? `resumeSessionId` in body : false
-  const hasIssueId = body ? `issueId` in body : false
-  const hasIssueIds = body ? `issueIds` in body : false
-  const hasActionId = body ? `actionId` in body : false
-  const subjectCount = [hasIssueId, hasIssueIds, hasActionId].filter(
-    Boolean
-  ).length
-  let subject: StartSubject
-  if (hasResume) {
-    const resumeSessionId = asString(body?.resumeSessionId)
-    const teamId = asString(body?.teamId)
-    if (
-      !resumeSessionId ||
-      resumeSessionId.length > 128 ||
-      !teamId ||
-      teamId.length > 128 ||
-      hasIssueIds
-    ) {
-      return c.json({ error: `Bad request` }, 400)
-    }
-    // Same stance as repo/inputs: the hint keys are OPTIONAL, but a PRESENT
-    // key must parse — a mistyped field would drop the whole frame desktop
-    // side after /start already answered ok.
-    let issueId: string | undefined
-    if (body && `issueId` in body) {
-      issueId = asString(body.issueId)
-      if (!issueId || issueId.length > 128) {
-        return c.json({ error: `Bad request` }, 400)
-      }
-    }
-    let actionId: string | undefined
-    if (body && `actionId` in body) {
-      actionId = asString(body.actionId)
-      if (!actionId || actionId.length > 128) {
-        return c.json({ error: `Bad request` }, 400)
-      }
-    }
-    let actionName: string | undefined
-    if (body && `actionName` in body) {
-      actionName = asString(body.actionName)
-      if (!actionName || actionName.length > 255) {
-        return c.json({ error: `Bad request` }, 400)
-      }
-    }
-    let branch: string | undefined
-    if (body && `branch` in body) {
-      branch = asString(body.branch)
-      if (!branch || branch.length > 255) {
-        return c.json({ error: `Bad request` }, 400)
-      }
-    }
-    subject = {
-      resumeSessionId,
-      teamId,
-      ...(issueId ? { issueId } : {}),
-      ...(actionId ? { actionId } : {}),
-      ...(actionName ? { actionName } : {}),
-      ...(branch ? { branch } : {}),
-    }
-  } else if (subjectCount !== 1) {
-    return c.json({ error: `Bad request` }, 400)
-  } else if (hasIssueId) {
-    const issueId = asString(body?.issueId)
-    if (!issueId) return c.json({ error: `Bad request` }, 400)
-    subject = { issueId }
-  } else if (hasActionId) {
-    const actionId = asString(body?.actionId)
-    const actionName = asString(body?.actionName)
-    const teamId = asString(body?.teamId)
-    if (
-      !actionId ||
-      actionId.length > 128 ||
-      !actionName ||
-      actionName.length > 255 ||
-      !teamId ||
-      teamId.length > 128
-    ) {
-      return c.json({ error: `Bad request` }, 400)
-    }
-    // repo is OPTIONAL (repo-less actions) — but a PRESENT repo key must
-    // parse, else 400 (a malformed repo would drop the frame desktop-side).
-    let repo: StartRepoGroup | undefined
-    if (body && `repo` in body) {
-      repo = asStartRepo(body.repo)
-      if (!repo) return c.json({ error: `Bad request` }, 400)
-    }
-    // inputs are OPTIONAL (EXP-257) — same stance: a present key must parse.
-    let inputs: StartInput[] | undefined
-    if (body && `inputs` in body) {
-      inputs = asStartInputs(body.inputs)
-      if (!inputs) return c.json({ error: `Bad request` }, 400)
-    }
-    subject = {
-      actionId,
-      actionName,
-      teamId,
-      ...(repo ? { repo } : {}),
-      ...(inputs ? { inputs } : {}),
-    }
-  } else {
-    const issueIds = asStringArray(body?.issueIds)
-    const teamId = asString(body?.teamId)
-    const repo = asStartRepo(body?.repo)
-    if (!issueIds || !teamId || !repo) {
-      return c.json({ error: `Bad request` }, 400)
-    }
-    subject = { issueIds, teamId, repo }
-  }
-
-  // startedBy is OPTIONAL (EXP-432: requester attribution on a shared-device
-  // start) — but a PRESENT key must be a sane string, else 400 (same stance
-  // as repo/inputs: a mistyped field would drop the frame desktop-side after
-  // /start already answered ok).
-  let startedBy: string | undefined
-  if (body && `startedBy` in body) {
-    startedBy = asString(body.startedBy)
-    if (!startedBy || startedBy.length > 128) {
-      return c.json({ error: `Bad request` }, 400)
-    }
-  }
-
-  // startedReason is OPTIONAL (EXP-679: this start was asked for by another
-  // coding session) — a PRESENT key must be exactly `agent`, the one value
-  // the wire carries; anything else is a 400, same stance as startedBy.
-  let startedReason: `agent` | undefined
-  if (body && `startedReason` in body) {
-    if (body.startedReason !== `agent`) {
-      return c.json({ error: `Bad request` }, 400)
-    }
-    startedReason = `agent`
-  }
-
-  // EXP-792: mcpServerIds / account are OPTIONAL pass-throughs, but a
-  // PRESENT key must be well-formed (≤16 ids / ≤64 chars), else 400 — the
-  // startedBy stance: a mistyped field would drop the frame desktop-side
-  // after /start already answered ok.
-  let mcpServerIds: string[] | undefined
-  if (body && `mcpServerIds` in body) {
-    mcpServerIds = asIdList(body.mcpServerIds, 16)
-    if (!mcpServerIds) return c.json({ error: `Bad request` }, 400)
-  }
-  let account: string | undefined
-  if (body && `account` in body) {
-    account = asString(body.account)
-    if (!account || account.length > 64) {
-      return c.json({ error: `Bad request` }, 400)
-    }
-  }
-  // EXP-825: prompt is an OPTIONAL pass-through on the three subject forms
-  // (never on a resume, which keeps its recorded first turn) — a PRESENT key
-  // must be a non-empty string within the contract cap, else 400.
-  let prompt: string | undefined
-  if (body && `prompt` in body) {
-    prompt = asString(body.prompt)
-    if (
-      hasResume ||
-      !prompt ||
-      prompt.length > contract.startPrompt.maxLength
-    ) {
-      return c.json({ error: `Bad request` }, 400)
-    }
-  }
-
-  // FEED-63: startId is an OPTIONAL pass-through on every subject (resume
-  // included) naming this start request, so the device can report a failed
-  // start back to the web server; a PRESENT key must be a non-empty string
-  // ≤128 chars, else 400 (the startedBy stance).
-  let startId: string | undefined
-  if (body && `startId` in body) {
-    startId = asString(body.startId)
-    if (!startId || startId.length > 128) {
-      return c.json({ error: `Bad request` }, 400)
-    }
-  }
-
-  // EXP-1284: threadId is an OPTIONAL pass-through on the three subject
-  // forms (never on a resume) — a PRESENT key must be a non-empty string
-  // ≤64 chars, else 400 (the startedBy stance).
-  let threadId: string | undefined
-  if (body && `threadId` in body) {
-    threadId = asString(body.threadId)
-    if (hasResume || !threadId || threadId.length > 64) {
-      return c.json({ error: `Bad request` }, 400)
-    }
-  }
-
-  const options: StartSessionOptions = {
-    ...(startedBy ? { startedBy } : {}),
-    ...(startedReason ? { startedReason } : {}),
-    agent: asString(body?.agent),
-    model: asString(body?.model),
-    effort: asString(body?.effort),
-    subagentModel: asString(body?.subagentModel),
-    ultracode: asBoolean(body?.ultracode),
-    planMode: asBoolean(body?.planMode),
-    resume: asBoolean(body?.resume),
-    ...(mcpServerIds ? { mcpServerIds } : {}),
-    // EXP-1249: per-run computer use; absent = the device's own default.
-    computerUse: asBoolean(body?.computerUse),
-    ...(account ? { account } : {}),
-    ...(prompt ? { prompt } : {}),
-    ...(startId ? { startId } : {}),
-    ...(threadId ? { threadId } : {}),
-  }
-  const result = hub.startSession(userId, deviceId, subject, options)
-  if (!result.ok) return c.json({ error: result.reason }, 404)
-  return c.json({ ok: true })
-})
-
 // EXP-481: fire-and-forget check-in nudge — the web server persisted new
 // work for the device (a queued command, edited launch defaults); an online
 // device heartbeats immediately instead of waiting its cadence. Secret-gated
 // by the middleware above like every relay endpoint; not rate-limited (single
-// trusted web-server egress, same stance as /start).
+// trusted web-server egress).
 app.post(`/devices/:userId/:deviceId/nudge`, (c) =>
   c.json({
     ok: true,
     delivered: hub.nudge(c.req.param(`userId`), c.req.param(`deviceId`)),
   })
 )
-
-function asString(value: unknown): string | undefined {
-  return typeof value === `string` ? value : undefined
-}
-
-function asBoolean(value: unknown): boolean | undefined {
-  return typeof value === `boolean` ? value : undefined
-}
-
-// EXP-792: an id list that may be EMPTY (0..max members, each a non-empty
-// string ≤128 chars). Any deviation ⇒ undefined (⇒ 400 upstream).
-function asIdList(value: unknown, max: number): string[] | undefined {
-  if (!Array.isArray(value) || value.length > max) return undefined
-  const out: string[] = []
-  for (const entry of value) {
-    if (typeof entry !== `string` || entry.length < 1 || entry.length > 128) {
-      return undefined
-    }
-    out.push(entry)
-  }
-  return out
-}
-
-// A batch issue-id array: 1..30 members, each a non-empty string ≤128 chars.
-// Any deviation ⇒ undefined (⇒ 400 upstream).
-function asStringArray(value: unknown): string[] | undefined {
-  if (!Array.isArray(value) || value.length < 1 || value.length > 30) {
-    return undefined
-  }
-  const out: string[] = []
-  for (const entry of value) {
-    if (typeof entry !== `string` || entry.length < 1 || entry.length > 128) {
-      return undefined
-    }
-    out.push(entry)
-  }
-  return out
-}
-
-// The server-resolved batch repo group. REBUILDS the object so unknown keys
-// (an installationId must never ride the frame) can't leak through.
-function asStartRepo(value: unknown): StartRepoGroup | undefined {
-  if (typeof value !== `object` || value === null) return undefined
-  const obj = value as Record<string, unknown>
-  const repositoryId = asString(obj.repositoryId)
-  const fullName = asString(obj.fullName)
-  const defaultBranch = asString(obj.defaultBranch)
-  if (
-    !repositoryId ||
-    repositoryId.length > 128 ||
-    !fullName ||
-    fullName.length > 255 ||
-    !defaultBranch ||
-    defaultBranch.length > 255
-  ) {
-    return undefined
-  }
-  return { repositoryId, fullName, defaultBranch }
-}
-
-// The resolved action-input values (EXP-257). REBUILDS each entry so unknown
-// keys can't leak through. Bounds: ≤10 entries; key ≤64, label ≤255, type
-// ≤16, value/display ≤16KB (a 4096-char text value is ≤16KB in UTF-8). Any
-// deviation ⇒ undefined (⇒ 400 upstream).
-function asStartInputs(value: unknown): StartInput[] | undefined {
-  if (!Array.isArray(value) || value.length > 10) return undefined
-  const out: StartInput[] = []
-  for (const entry of value) {
-    if (typeof entry !== `object` || entry === null) return undefined
-    const obj = entry as Record<string, unknown>
-    const key = asString(obj.key)
-    const label = asString(obj.label)
-    const type = asString(obj.type)
-    const val = asString(obj.value)
-    const display = asString(obj.display)
-    if (
-      !key ||
-      key.length > 64 ||
-      !label ||
-      label.length > 255 ||
-      !type ||
-      type.length > 16 ||
-      val === undefined ||
-      val.length > 16 * 1024 ||
-      display === undefined ||
-      display.length > 16 * 1024
-    ) {
-      return undefined
-    }
-    out.push({ key, label, type, value: val, display })
-  }
-  return out
-}
 
 // Server-side kill-switch fallback (steer.killSession also flips the DB row).
 app.post(`/sessions/:id/kill`, (c) => {

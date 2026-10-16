@@ -353,7 +353,7 @@ fun DeviceSettingsSheet(
                 // ── Readiness (EXP-1196/1218/1219) ──────────────────────
                 // THE device readiness block, off the synced doctor — a phone
                 // is always ANOTHER device, so only `update` and `sign_in`
-                // carry a pill (plus `import` on a build with `agent-import`). The Computer use switch is the block's own
+                // carry a pill (plus `import`). The Computer use switch is the block's own
                 // row and rides the same whole-object defaults save. An older
                 // build (doctor = null) renders no block, just the switch.
                 val doctor = device.doctor
@@ -371,7 +371,6 @@ fun DeviceSettingsSheet(
                             doctor,
                             remote = true,
                             computerUseOn = computerUse,
-                            canImport = device.canImportAccount,
                         ),
                         onImport = { row -> importTarget = row },
                         onAction = { row ->

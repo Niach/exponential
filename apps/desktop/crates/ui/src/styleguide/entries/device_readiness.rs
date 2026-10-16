@@ -46,8 +46,7 @@ fn specimen(
     cx: &App,
 ) -> Div {
     let muted = cx.theme().muted_foreground;
-    // Inert, but the Import pill shows where a case carries one (as on a
-    // device with `agent-import`).
+    // Inert, but the Import pill shows where a case carries one.
     let props = BlockProps {
         id: SharedString::from(format!("sg-device-readiness-{index}-{local}")),
         offer_import: true,

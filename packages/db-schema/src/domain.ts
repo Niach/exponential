@@ -1090,23 +1090,13 @@ export const messageEventKindValues = [
 ] as const
 export type MessageEventKind = (typeof messageEventKindValues)[number]
 
-/** EXP-1322: one option of a question card: a plain label (THE wire form:
- *  `options` is always `string[]`), or — tolerated on read, since cards posted
- *  before the sidecar carry them — the label with its description as an
- *  object. An answer names the option by its label. The description of
- *  option i rides the parallel `optionDescriptions` sidecar
- *  (`questionCardOptionDescriptionsSchema`) instead.
- *
- *  COMPAT (EXP-1322 sidecar): old iOS 0.14.59 / Android 0.14.61 / desktop
- *  0.14.69 only read string options. The device may post {label, description}
- *  objects again once CLIENT_MIN_VERSION_IOS >= 0.14.60 AND _ANDROID >= 0.14.62
- *  AND _DESKTOP >= 0.14.70 (or keep the sidecar as the permanent form). */
-export type QuestionCardOption = string | { label: string; description?: string | null }
+/** EXP-1322: one option of a question card = its label (`options` is
+ *  always `string[]`). An answer names the option by its label. The
+ *  description of option i rides the parallel `optionDescriptions` sidecar
+ *  (`questionCardOptionDescriptionsSchema`). */
+export type QuestionCardOption = string
 
-export const questionCardOptionSchema = z.union([
-  z.string().max(500),
-  z.object({ label: z.string().max(500), description: z.string().max(2000).nullish() }).passthrough(),
-])
+export const questionCardOptionSchema = z.string().max(500)
 
 /** Cap on a question card's options (and so on its sidecar). */
 export const QUESTION_CARD_OPTIONS_MAX = 50
