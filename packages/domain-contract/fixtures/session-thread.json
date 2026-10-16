@@ -2611,6 +2611,437 @@
         "busy": true,
         "needsYou": true
       }
+    },
+    {
+      "name": "EXP-1334: two linked issues naming each other as parent: the first becomes the chip, the other folds under it",
+      "input": {
+        "root": {
+          "teamId": "t-team-1",
+          "parentId": null,
+          "kind": "thread",
+          "userId": "u-dana",
+          "status": "running",
+          "busy": true,
+          "needsInput": false,
+          "blocked": null,
+          "shared": true,
+          "title": null,
+          "guide": [
+            {
+              "topic": "Summary",
+              "label": null,
+              "attachmentId": null,
+              "width": null,
+              "height": null,
+              "text": "Fixed it."
+            }
+          ],
+          "actionName": null,
+          "name": null,
+          "icon": null,
+          "color": null,
+          "sortOrder": 0,
+          "startedAt": "2026-10-13T10:00:00.000Z",
+          "endedAt": null,
+          "createdAt": "2026-10-13T10:00:00.000Z",
+          "updatedAt": "2026-10-13T10:00:00.000Z",
+          "rootId": "r9",
+          "id": "r9"
+        },
+        "sessions": [
+          {
+            "teamId": "t-team-1",
+            "parentId": null,
+            "kind": "thread",
+            "userId": "u-dana",
+            "status": "running",
+            "busy": true,
+            "needsInput": false,
+            "blocked": null,
+            "shared": true,
+            "title": null,
+            "guide": [
+              {
+                "topic": "Summary",
+                "label": null,
+                "attachmentId": null,
+                "width": null,
+                "height": null,
+                "text": "Fixed it."
+              }
+            ],
+            "actionName": null,
+            "name": null,
+            "icon": null,
+            "color": null,
+            "sortOrder": 0,
+            "startedAt": "2026-10-13T10:00:00.000Z",
+            "endedAt": null,
+            "createdAt": "2026-10-13T10:00:00.000Z",
+            "updatedAt": "2026-10-13T10:00:00.000Z",
+            "rootId": "r9",
+            "id": "r9"
+          },
+          {
+            "teamId": "t-team-1",
+            "parentId": "r9",
+            "kind": "thread",
+            "userId": "u-dana",
+            "status": "running",
+            "busy": false,
+            "needsInput": false,
+            "blocked": null,
+            "shared": true,
+            "title": "Threads impl",
+            "guide": null,
+            "actionName": null,
+            "name": null,
+            "icon": null,
+            "color": null,
+            "sortOrder": 0,
+            "startedAt": "2026-10-13T10:05:00.000Z",
+            "endedAt": null,
+            "createdAt": "2026-10-13T10:01:00.000Z",
+            "updatedAt": "2026-10-13T10:00:00.000Z",
+            "rootId": "r9",
+            "id": "c1"
+          },
+          {
+            "teamId": "t-team-1",
+            "parentId": "c1",
+            "kind": "thread",
+            "userId": "u-dana",
+            "status": "running",
+            "busy": true,
+            "needsInput": false,
+            "blocked": null,
+            "shared": true,
+            "title": "Web lane",
+            "guide": null,
+            "actionName": null,
+            "name": null,
+            "icon": null,
+            "color": null,
+            "sortOrder": 0,
+            "startedAt": "2026-10-13T10:05:00.000Z",
+            "endedAt": null,
+            "createdAt": "2026-10-13T10:02:00.000Z",
+            "updatedAt": "2026-10-13T10:00:00.000Z",
+            "rootId": "r9",
+            "id": "g1"
+          },
+          {
+            "teamId": "t-team-1",
+            "parentId": "c1",
+            "kind": "thread",
+            "userId": "u-dana",
+            "status": "running",
+            "busy": false,
+            "needsInput": true,
+            "blocked": null,
+            "shared": true,
+            "title": "Android lane",
+            "guide": null,
+            "actionName": null,
+            "name": null,
+            "icon": null,
+            "color": null,
+            "sortOrder": 0,
+            "startedAt": "2026-10-13T10:05:00.000Z",
+            "endedAt": null,
+            "createdAt": "2026-10-13T10:03:00.000Z",
+            "updatedAt": "2026-10-13T10:00:00.000Z",
+            "rootId": "r9",
+            "id": "g2"
+          },
+          {
+            "teamId": "t-team-1",
+            "parentId": "g2",
+            "kind": "thread",
+            "userId": "u-dana",
+            "status": "ended",
+            "busy": false,
+            "needsInput": false,
+            "blocked": null,
+            "shared": true,
+            "title": "Emulator shots",
+            "guide": null,
+            "actionName": null,
+            "name": null,
+            "icon": null,
+            "color": null,
+            "sortOrder": 0,
+            "startedAt": "2026-10-13T10:05:00.000Z",
+            "endedAt": "2026-10-13T10:09:00.000Z",
+            "createdAt": "2026-10-13T10:04:00.000Z",
+            "updatedAt": "2026-10-13T10:00:00.000Z",
+            "rootId": "r9",
+            "id": "gg1"
+          },
+          {
+            "teamId": "t-team-1",
+            "parentId": "r9",
+            "kind": "thread",
+            "userId": "u-dana",
+            "status": "running",
+            "busy": false,
+            "needsInput": false,
+            "blocked": null,
+            "shared": true,
+            "title": null,
+            "guide": null,
+            "actionName": null,
+            "name": null,
+            "icon": null,
+            "color": null,
+            "sortOrder": 0,
+            "startedAt": "2026-10-13T10:05:00.000Z",
+            "endedAt": null,
+            "createdAt": "2026-10-13T10:05:00.000Z",
+            "updatedAt": "2026-10-13T10:00:00.000Z",
+            "rootId": "r9",
+            "id": "c2"
+          }
+        ],
+        "sessionIssues": [
+          {
+            "sessionId": "r9",
+            "issueId": "i-1",
+            "sortOrder": 1
+          },
+          {
+            "sessionId": "r9",
+            "issueId": "i-2",
+            "sortOrder": 2
+          }
+        ],
+        "issues": [
+          {
+            "id": "i-1",
+            "identifier": "EXP-21",
+            "title": "A",
+            "parentId": "i-2"
+          },
+          {
+            "id": "i-2",
+            "identifier": "EXP-22",
+            "title": "B",
+            "parentId": "i-1"
+          }
+        ],
+        "pullRequests": [],
+        "now": "2026-10-13T10:12:00.000Z",
+        "messages": [
+          {
+            "authorKind": "user",
+            "authorId": "u-dana",
+            "body": "Ship the header",
+            "card": null,
+            "answeredAt": null,
+            "consumedAt": "2026-10-13T10:00:00.000Z",
+            "id": "m1",
+            "sessionId": "r9",
+            "createdAt": "2026-10-13T10:00:00.000Z"
+          },
+          {
+            "authorKind": "system",
+            "authorId": null,
+            "body": "",
+            "card": {
+              "kind": "session",
+              "sessionId": "c1"
+            },
+            "answeredAt": null,
+            "consumedAt": null,
+            "id": "m2",
+            "sessionId": "r9",
+            "createdAt": "2026-10-13T10:01:00.000Z"
+          },
+          {
+            "authorKind": "agent",
+            "authorId": null,
+            "body": "",
+            "card": {
+              "kind": "question",
+              "question": "Google APIs image or skip the push test?",
+              "options": [
+                "Google APIs image",
+                "Skip it"
+              ]
+            },
+            "answeredAt": null,
+            "consumedAt": null,
+            "id": "q1",
+            "sessionId": "g2",
+            "createdAt": "2026-10-13T10:06:00.000Z"
+          },
+          {
+            "authorKind": "agent",
+            "authorId": null,
+            "body": "",
+            "card": {
+              "kind": "plan",
+              "plan": "1. Lift the partition",
+              "decision": "approved"
+            },
+            "answeredAt": "2026-10-13T10:08:00.000Z",
+            "consumedAt": null,
+            "id": "p1",
+            "sessionId": "c2",
+            "createdAt": "2026-10-13T10:07:00.000Z"
+          },
+          {
+            "authorKind": "agent",
+            "authorId": null,
+            "body": "A child's plain message stays in its session",
+            "card": null,
+            "answeredAt": null,
+            "consumedAt": null,
+            "id": "x1",
+            "sessionId": "c1",
+            "createdAt": "2026-10-13T10:08:00.000Z"
+          },
+          {
+            "authorKind": "agent",
+            "authorId": null,
+            "body": "",
+            "card": {
+              "kind": "question",
+              "question": "Elsewhere",
+              "options": []
+            },
+            "answeredAt": null,
+            "consumedAt": null,
+            "id": "x2",
+            "sessionId": "other-root-child",
+            "createdAt": "2026-10-13T10:09:00.000Z"
+          }
+        ]
+      },
+      "expected": {
+        "rootId": "r9",
+        "title": "Implement EXP-21 + 1",
+        "private": false,
+        "focusId": null,
+        "tabs": [
+          {
+            "kind": "add"
+          },
+          {
+            "kind": "conversation"
+          },
+          {
+            "kind": "issue",
+            "issueId": "i-1",
+            "identifier": "EXP-21",
+            "nested": [
+              {
+                "issueId": "i-2",
+                "identifier": "EXP-22",
+                "depth": 1
+              }
+            ]
+          },
+          {
+            "kind": "session",
+            "sessionId": "c1",
+            "name": "Threads impl",
+            "markState": "waiting",
+            "nested": [
+              {
+                "sessionId": "g1",
+                "name": "Web lane",
+                "markState": "working",
+                "depth": 1
+              },
+              {
+                "sessionId": "g2",
+                "name": "Android lane",
+                "markState": "needs_you",
+                "depth": 1
+              },
+              {
+                "sessionId": "gg1",
+                "name": "Emulator shots",
+                "markState": "ended",
+                "depth": 2
+              }
+            ]
+          },
+          {
+            "kind": "session",
+            "sessionId": "c2",
+            "name": "Session 6",
+            "markState": "waiting",
+            "nested": []
+          },
+          {
+            "kind": "guide",
+            "dot": true
+          }
+        ],
+        "rows": [
+          {
+            "type": "message",
+            "id": "m1",
+            "author": "user",
+            "authorId": "u-dana",
+            "body": "Ship the header",
+            "queued": false,
+            "authorSessionId": null
+          },
+          {
+            "type": "session",
+            "id": "m2",
+            "card": {
+              "sessionId": "c1",
+              "icon": "coding-assistant",
+              "name": "Threads impl",
+              "kindWord": "Waiting",
+              "state": "waiting",
+              "tone": "muted",
+              "elapsed": "7m 00s",
+              "running": false,
+              "caption": null,
+              "testId": "session-card"
+            }
+          },
+          {
+            "type": "question",
+            "id": "q1",
+            "sessionId": "g2",
+            "question": "Google APIs image or skip the push test?",
+            "options": [
+              {
+                "label": "Google APIs image",
+                "description": null
+              },
+              {
+                "label": "Skip it",
+                "description": null
+              }
+            ],
+            "custom": true,
+            "answer": null,
+            "answered": false
+          },
+          {
+            "type": "plan",
+            "id": "p1",
+            "sessionId": "c2",
+            "plan": "1. Lift the partition",
+            "decision": "approved"
+          }
+        ],
+        "composer": {
+          "sessionId": "r9",
+          "placeholder": "Type / for commands"
+        },
+        "live": true,
+        "liveSessionId": "r9",
+        "busy": true,
+        "needsYou": true
+      }
     }
   ],
   "guidePullRequestCases": [

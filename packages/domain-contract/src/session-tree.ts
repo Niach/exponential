@@ -517,9 +517,10 @@ function foldForest<T>(
     list.push(item)
     children.set(parent, list)
   }
-  return (children.get(null) ?? []).map((top) => {
+  const seen = new Set<string>()
+  const fold = (top: T) => {
     const nested: { item: T; depth: number }[] = []
-    const seen = new Set([id(top)])
+    seen.add(id(top))
     const walk = (parentId: string, depth: number) => {
       for (const child of children.get(parentId) ?? []) {
         if (seen.has(id(child))) continue
@@ -530,7 +531,12 @@ function foldForest<T>(
     }
     walk(id(top), 1)
     return { top, nested }
-  })
+  }
+  const out = (children.get(null) ?? []).map(fold)
+  // A fold-parent cycle (a ↔ b) reaches no top: its first unreached item
+  // (input order) becomes a top-level chip, the rest fold under it.
+  for (const item of items) if (!seen.has(id(item))) out.push(fold(item))
+  return out
 }
 
 /** EXP-1334: a linked issue's fold parent = its nearest LINKED ancestor

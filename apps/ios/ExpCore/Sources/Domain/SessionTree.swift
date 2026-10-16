@@ -1271,9 +1271,10 @@ public enum SessionTree {
                 tops.append(item)
             }
         }
-        return tops.map { top in
+        var seen: Set<String> = []
+        func fold(_ top: T) -> (top: T, nested: [(item: T, depth: Int)]) {
             var nested: [(item: T, depth: Int)] = []
-            var seen: Set<String> = [id(top)]
+            seen.insert(id(top))
             func walk(_ parentId: String, _ depth: Int) {
                 for child in children[parentId] ?? [] {
                     let childId = id(child)
@@ -1286,6 +1287,11 @@ public enum SessionTree {
             walk(id(top), 1)
             return (top, nested)
         }
+        var out = tops.map(fold)
+        // A fold-parent cycle (a <-> b) reaches no top: its first unreached
+        // item (input order) becomes a top-level chip.
+        for item in items where !seen.contains(id(item)) { out.append(fold(item)) }
+        return out
     }
 
     /// EXP-1334: a linked issue's fold parent = its nearest LINKED ancestor
