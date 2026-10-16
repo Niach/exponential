@@ -2536,7 +2536,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_pr_open`,
     {
-      description: `Open a GitHub PR (via the GitHub App, never 'gh') from head (default your session's branch) into base (default: the open PR below head, else the default branch; an open PR's branch joins its stack). issueIds (UUIDs or identifiers) = the issues it closes; repositoryId when there are none. Body = your thread's Guide once written. A diff touching UI needs a Guide picture per platform (label starts web, web-mobile, ios, android or desktop) or notRun naming the screen you could not run. Linked issues take the team's PR-open status.`,
+      description: `Open a GitHub PR (via the GitHub App, never 'gh') from head (default your session's branch) into base (default: the open PR below head, else the default branch; an open PR's branch joins its stack). issueIds (UUIDs or identifiers) = the issues it closes. Omitted = your session's SHARE of the thread, not the root's whole list: the issues your session or its children linked plus the root issues your start message names as #IDENT (the root's own PR, or the tree's only work session with no share, takes them all; issues a merged PR closed are left out). repositoryId when there are none. Body = your thread's Guide once written. A diff touching UI needs a Guide picture per platform (label starts web, web-mobile, ios, android or desktop) or notRun naming the screen you could not run. Linked issues take the team's PR-open status.`,
       _meta: ALWAYS_LOAD_META,
       inputSchema: strictInput({
         title: z.string().min(1).max(255),
