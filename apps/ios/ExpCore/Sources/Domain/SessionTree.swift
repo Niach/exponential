@@ -180,11 +180,15 @@ public struct TreeIssue: Equatable, Sendable, Identifiable {
     public let id: String
     public let identifier: String
     public let title: String
+    /// EXP-1334: the issue's parent (`issue_relations` kind parent): a linked
+    /// sub-issue folds under its nearest LINKED ancestor.
+    public let parentId: String?
 
-    public init(id: String, identifier: String, title: String) {
+    public init(id: String, identifier: String, title: String, parentId: String? = nil) {
         self.id = id
         self.identifier = identifier
         self.title = title
+        self.parentId = parentId
     }
 }
 
@@ -524,17 +528,63 @@ public struct SessionCard: Equatable, Sendable {
     }
 }
 
-/// The thread header's tab strip (phones: the pager).
+/// EXP-1334: `SessionTree.partitionThreadStrip`'s answer: `full` =
+/// identifier + title; `short` = identifiers alone; `fold` = short and some
+/// chips behind a "+N". Indexes = the chips drawn, strip order.
+public struct ThreadStripLayout: Equatable, Sendable {
+    public enum Tier: String, Sendable { case full, short, fold }
+    public let tier: Tier
+    public let issues: [Int]
+    public let sessions: [Int]
+
+    public init(tier: Tier, issues: [Int], sessions: [Int]) {
+        self.tier = tier
+        self.issues = issues
+        self.sessions = sessions
+    }
+}
+
+/// EXP-1334: one row of a folded issue chip's subtree; `depth` is relative
+/// to the chip (its children = 1).
+public struct ThreadTabNestedIssue: Equatable, Sendable {
+    public let issueId: String
+    public let identifier: String
+    public let depth: Int
+
+    public init(issueId: String, identifier: String, depth: Int) {
+        self.issueId = issueId
+        self.identifier = identifier
+        self.depth = depth
+    }
+}
+
+/// EXP-1334: one row of a folded session chip's subtree (THE tree rows).
+public struct ThreadTabNestedSession: Equatable, Sendable {
+    public let sessionId: String
+    public let name: String
+    public let markState: SessionState
+    public let depth: Int
+
+    public init(sessionId: String, name: String, markState: SessionState, depth: Int) {
+        self.sessionId = sessionId
+        self.name = name
+        self.markState = markState
+        self.depth = depth
+    }
+}
+
+/// The thread header's tab strip (EXP-1334: + · Conversation · issue chips ·
+/// session chips · Guide; nothing scrolls).
 public enum ThreadTab: Equatable, Sendable {
-    case conversation
-    case issue(issueId: String, identifier: String)
-    /// The "+" (link/file an issue).
+    /// The "+" (link/file an issue), LEFT of Conversation.
     case add
-    /// EXP-1316: one chip per session at the VIEWED level (the root's run +
-    /// its direct children, or the focused session + ITS direct children).
-    /// `markState` = `threadRowMarkState` of that session, `.ended` once it
-    /// ended.
-    case session(sessionId: String, name: String, markState: SessionState)
+    case conversation
+    /// A TOP-LEVEL linked issue; sub-issues fold into `nested`.
+    case issue(issueId: String, identifier: String, nested: [ThreadTabNestedIssue])
+    /// EXP-1334: one chip per DIRECT child of the dispatcher (the root has
+    /// no chip); every deeper session folds into `nested`. `markState` =
+    /// `threadRowMarkState` of that session, `.ended` once it ended.
+    case session(sessionId: String, name: String, markState: SessionState, nested: [ThreadTabNestedSession])
     /// `dot` while the root's guide holds any text or picture.
     case guide(dot: Bool)
 }
@@ -555,8 +605,10 @@ public enum ThreadRow: Equatable, Sendable {
     case suggestions(id: String, sessionId: String, header: String, startAll: Bool, items: [SuggestionRow])
     /// `custom` = a free-text answer is offered beside the options (always,
     /// EXP-1316: THE session view's card).
-    case question(id: String, question: String, options: [TreeQuestionOption], custom: Bool, answer: String?, answered: Bool)
-    case plan(id: String, plan: String, decision: String?)
+    /// `sessionId` (EXP-1334) = the session whose card it is (the root, or
+    /// a child whose own ask surfaces in the Conversation).
+    case question(id: String, sessionId: String, question: String, options: [TreeQuestionOption], custom: Bool, answer: String?, answered: Bool)
+    case plan(id: String, sessionId: String, plan: String, decision: String?)
     case subagent(id: String, title: String, status: String)
     case picture(id: String, attachmentId: String, width: Double?, height: Double?, caption: String?)
     /// One muted line.
@@ -568,8 +620,8 @@ public enum ThreadRow: Equatable, Sendable {
              let .session(id, _),
              let .report(id, _, _, _),
              let .suggestions(id, _, _, _, _),
-             let .question(id, _, _, _, _, _),
-             let .plan(id, _, _),
+             let .question(id, _, _, _, _, _, _),
+             let .plan(id, _, _, _),
              let .subagent(id, _, _),
              let .picture(id, _, _, _, _),
              let .event(id, _, _):
@@ -840,7 +892,7 @@ public enum SessionTree {
     /// fixtures/session-thread.json `copy` + `titleMax` + `testIds`.
     public enum ThreadCopy {
         public static let untitled = "Untitled"
-        public static let placeholder = "Reply…"
+        public static let placeholder = "Type / for commands"
         public static let conversation = "Conversation"
         public static let guide = "Guide"
         /// `{issue}` = the identifier, `{pr}` = `#<number>`.
@@ -1024,9 +1076,9 @@ public enum SessionTree {
     }
 
     /// The thread screen: the header tabs, the root's conversation as rows
-    /// (its own session card first, then its messages oldest first) and the
-    /// composer target (the root). `focus` = a session of the tree whose
-    /// level the session chips show (itself + its direct children).
+    /// (its messages + its children's question/plan cards, oldest first; no
+    /// root card, EXP-1334) and the composer target (the root). `focus` = the
+    /// open session (echoed as `focusId`; it no longer changes the chips).
     public static func buildSessionThread(
         root: TreeSession,
         sessions: [TreeSession],
@@ -1058,18 +1110,62 @@ public enum SessionTree {
             }
         let title = threadTitle(root: root, issues: linked, messages: own)
         let focused = focus.flatMap { id in tree.first { $0.id == id } }
-        let level = focused ?? root
-        let sessionTabs: [ThreadTab] = ([level] + tree.filter { $0.parentId == level.id && $0.id != level.id })
-            .map { session in
-                .session(
-                    sessionId: session.id,
-                    name: sessionCard(session, ordinal: ordinals[session.id] ?? 1, now: now).name,
-                    markState: sessionTabMarkState(session)
-                )
+        // EXP-1334: the conversation IS the dispatcher (no chip of its own);
+        // the chips = its DIRECT children, every deeper session folded under
+        // its top-level ancestor (the chip's dropdown).
+        func nameOf(_ session: TreeSession) -> String {
+            sessionCard(session, ordinal: ordinals[session.id] ?? 1, now: now).name
+        }
+        let treeIds = Set(tree.map(\.id))
+        let sessionTabs: [ThreadTab] = foldForest(
+            tree.filter { $0.id != root.id },
+            id: \.id,
+            foldParent: { session in
+                guard let parent = session.parentId, parent != root.id, treeIds.contains(parent) else { return nil }
+                return parent
             }
+        ).map { top, nested in
+            .session(
+                sessionId: top.id,
+                name: nameOf(top),
+                markState: sessionTabMarkState(top),
+                nested: nested.map {
+                    ThreadTabNestedSession(
+                        sessionId: $0.item.id, name: nameOf($0.item),
+                        markState: sessionTabMarkState($0.item), depth: $0.depth
+                    )
+                }
+            )
+        }
+        let linkedIds = Set(linked.map(\.id))
+        let issueTabs: [ThreadTab] = foldForest(
+            linked,
+            id: \.id,
+            foldParent: { issueFoldParent($0, linked: linkedIds, all: issueMap) }
+        ).map { top, nested in
+            .issue(
+                issueId: top.id,
+                identifier: top.identifier,
+                nested: nested.map {
+                    ThreadTabNestedIssue(issueId: $0.item.id, identifier: $0.item.identifier, depth: $0.depth)
+                }
+            )
+        }
 
-        var rows: [ThreadRow] = [.session(id: root.id, card: sessionCard(root, ordinal: 1, now: now))]
-        for message in own {
+        // EXP-1334: no root card; a CHILD's own question / plan card surfaces
+        // in the Conversation (answered here, straight back to that child).
+        let asks = messages.filter { message in
+            guard message.sessionId != root.id, treeIds.contains(message.sessionId),
+                  let kind = message.card?.kind else { return false }
+            return kind == "question" || kind == "plan"
+        }
+        let conversation = (own + asks).sorted { a, b in
+            let ma = ms(a.createdAt) ?? 0, mb = ms(b.createdAt) ?? 0
+            if ma != mb { return ma < mb }
+            return a.id < b.id
+        }
+        var rows: [ThreadRow] = []
+        for message in conversation {
             guard let card = message.card else {
                 let author = message.authorKind == "user" || message.authorKind == "agent"
                     ? message.authorKind
@@ -1095,6 +1191,7 @@ public enum SessionTree {
             case "question":
                 rows.append(.question(
                     id: message.id,
+                    sessionId: message.sessionId,
                     question: card.question ?? "",
                     options: card.options,
                     custom: true,
@@ -1102,7 +1199,7 @@ public enum SessionTree {
                     answered: message.answeredAt != nil
                 ))
             case "plan":
-                rows.append(.plan(id: message.id, plan: card.plan ?? "", decision: card.decision))
+                rows.append(.plan(id: message.id, sessionId: message.sessionId, plan: card.plan ?? "", decision: card.decision))
             case "subagent":
                 rows.append(.subagent(id: message.id, title: card.title ?? "", status: card.status ?? ""))
             case "picture":
@@ -1148,9 +1245,7 @@ public enum SessionTree {
             title: title,
             isPrivate: !root.shared,
             focusId: focused?.id,
-            tabs: [.conversation]
-                + linked.map { .issue(issueId: $0.id, identifier: $0.identifier) }
-                + [.add] + sessionTabs + [.guide(dot: guideDot)],
+            tabs: [.add, .conversation] + issueTabs + sessionTabs + [.guide(dot: guideDot)],
             rows: rows,
             composer: ThreadComposer(sessionId: root.id, placeholder: ThreadCopy.placeholder),
             live: !live.isEmpty,
@@ -1158,6 +1253,135 @@ public enum SessionTree {
             busy: live.contains { $0.busy },
             needsYou: live.contains { $0.needsInput }
         )
+    }
+
+    /// Depth-first walk of a forest given each node's FOLD parent (nil = a
+    /// top-level node), children in the given order.
+    static func foldForest<T>(
+        _ items: [T],
+        id: (T) -> String,
+        foldParent: (T) -> String?
+    ) -> [(top: T, nested: [(item: T, depth: Int)])] {
+        var children: [String: [T]] = [:]
+        var tops: [T] = []
+        for item in items {
+            if let parent = foldParent(item) {
+                children[parent, default: []].append(item)
+            } else {
+                tops.append(item)
+            }
+        }
+        return tops.map { top in
+            var nested: [(item: T, depth: Int)] = []
+            var seen: Set<String> = [id(top)]
+            func walk(_ parentId: String, _ depth: Int) {
+                for child in children[parentId] ?? [] {
+                    let childId = id(child)
+                    if seen.contains(childId) { continue }
+                    seen.insert(childId)
+                    nested.append((child, depth))
+                    walk(childId, depth + 1)
+                }
+            }
+            walk(id(top), 1)
+            return (top, nested)
+        }
+    }
+
+    /// EXP-1334: a linked issue's fold parent = its nearest LINKED ancestor
+    /// (an unlinked parent is skipped; a cycle or none = top-level).
+    static func issueFoldParent(
+        _ issue: TreeIssue,
+        linked: Set<String>,
+        all: [String: TreeIssue]
+    ) -> String? {
+        var seen: Set<String> = [issue.id]
+        var parent = issue.parentId
+        while let current = parent, !seen.contains(current) {
+            if linked.contains(current) { return current }
+            seen.insert(current)
+            parent = all[current]?.parentId
+        }
+        return nil
+    }
+
+    // MARK: - EXP-1334: the thread strip never scrolls
+
+    /// Which chips get drawn, in order; the rest collapse into one "+N" (a
+    /// port of the desktop's `partition_tabs`): chips pack in order until the
+    /// next would not fit; the overflow chip's width is reserved only once
+    /// something overflows; the ACTIVE chip is always visible; one chip
+    /// always survives.
+    public static func partitionTabs(
+        _ widths: [Double],
+        available: Double,
+        gap: Double,
+        overflowW: Double,
+        activeIndex: Int?
+    ) -> [Int] {
+        let count = widths.count
+        let room = max(available, 0)
+        let total = widths.reduce(0, +) + gap * Double(max(count - 1, 0))
+        if total <= room { return Array(0..<count) }
+        let budget = max(room - overflowW - gap, 0)
+        var visible: [Int] = []
+        var used = activeIndex.map { widths[$0] } ?? 0
+        var chips = activeIndex == nil ? 0 : 1
+        for index in 0..<count {
+            if index == activeIndex {
+                visible.append(index)
+                continue
+            }
+            let next = used + widths[index] + (chips > 0 ? gap : 0)
+            if next > budget && chips > 0 { break }
+            visible.append(index)
+            used = next
+            chips += 1
+        }
+        if let activeIndex, !visible.contains(activeIndex) { visible.append(activeIndex) }
+        if visible.isEmpty && count > 0 { visible.append(0) }
+        return visible
+    }
+
+    /// EXP-1334: the strip between Conversation and Guide: issues then
+    /// sessions. Tiers: everything full → every issue short → fold (the
+    /// sessions keep their OWN room, at least half; each zone packs with
+    /// `partitionTabs` and its own "+N").
+    public static func partitionThreadStrip(
+        issues: [(full: Double, short: Double)],
+        sessions: [Double],
+        available: Double,
+        gap: Double,
+        overflowW: Double,
+        activeIssue: Int?,
+        activeSession: Int?
+    ) -> ThreadStripLayout {
+        let room = max(available, 0)
+        func span(_ widths: [Double]) -> Double {
+            widths.isEmpty ? 0 : widths.reduce(0, +) + gap * Double(widths.count - 1)
+        }
+        let sep = !issues.isEmpty && !sessions.isEmpty ? gap : 0
+        let sessionSpan = span(sessions)
+        let full = issues.map(\.full)
+        let short = issues.map(\.short)
+        if span(full) + sep + sessionSpan <= room {
+            return ThreadStripLayout(tier: .full, issues: Array(0..<issues.count), sessions: Array(0..<sessions.count))
+        }
+        if span(short) + sep + sessionSpan <= room {
+            return ThreadStripLayout(tier: .short, issues: Array(0..<issues.count), sessions: Array(0..<sessions.count))
+        }
+        func zone(_ widths: [Double], _ budget: Double, _ active: Int?) -> (shown: [Int], used: Double) {
+            let shown = partitionTabs(widths, available: budget, gap: gap, overflowW: overflowW, activeIndex: active)
+            let used = span(shown.map { widths[$0] }) + (shown.count < widths.count ? gap + overflowW : 0)
+            return (shown, used)
+        }
+        let sessionBudget = issues.isEmpty
+            ? room
+            : min(sessionSpan, max(room / 2, room - span(short) - sep))
+        let placed = zone(sessions, sessionBudget, activeSession)
+        let issueBudget = room - (sessions.isEmpty ? 0 : placed.used + sep)
+        let issueZone = zone(short, issueBudget, activeIssue)
+        return ThreadStripLayout(tier: .fold, issues: issueZone.shown, sessions: placed.shown)
     }
 
     private static func suggestionsRow(

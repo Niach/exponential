@@ -303,6 +303,33 @@ private struct UnlinkIssueInput: Encodable {
     let issueId: String
 }
 
+/// EXP-1334: a live session's mid-run picks (`sessions.configure`); nil
+/// fields stay off the wire.
+public struct SessionConfigureInput: Encodable, Sendable, Equatable {
+    public let sessionId: String
+    public var planMode: Bool?
+    public var effort: String?
+    public var ultracode: Bool?
+    public var computerUse: Bool?
+    public var mcpServerIds: [String]?
+
+    public init(
+        sessionId: String,
+        planMode: Bool? = nil,
+        effort: String? = nil,
+        ultracode: Bool? = nil,
+        computerUse: Bool? = nil,
+        mcpServerIds: [String]? = nil
+    ) {
+        self.sessionId = sessionId
+        self.planMode = planMode
+        self.effort = effort
+        self.ultracode = ultracode
+        self.computerUse = computerUse
+        self.mcpServerIds = mcpServerIds
+    }
+}
+
 private struct MessageIdInput: Encodable {
     let messageId: String
 }
@@ -381,6 +408,12 @@ public final class SessionsApi: Sendable {
             path: "sessions.linkIssues",
             input: LinkIssuesInput(sessionId: sessionId, issueIds: issueIds)
         )
+    }
+
+    /// EXP-1334: change a running session's Plan / Effort / Ultracode /
+    /// Computer use / MCP servers (the composer's "+" and options line).
+    public func configure(accountId: String, _ input: SessionConfigureInput) async throws {
+        try await trpc.mutationVoid(accountId: accountId, path: "sessions.configure", input: input)
     }
 
     public func unlinkIssue(accountId: String, sessionId: String, issueId: String) async throws {

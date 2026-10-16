@@ -36,8 +36,9 @@ struct ThreadLiveTail: View {
 }
 
 /// EXP-1295: a root's CONVERSATION (fixture `session-thread.json` `rows`) —
-/// a thread's, or a team agent's channel: the root's own session card
-/// first, then its messages oldest first, in the session view's own parts:
+/// a thread's, or a team agent's channel: its messages oldest first (EXP-1334:
+/// the conversation IS the dispatcher, no root card; a child's own question
+/// or plan card surfaces here by time), in the session view's own parts:
 /// a person's message is THE message bubble (`UserMessageBubble`, captioned
 /// with the name and time, or `queued` until the device took it), the
 /// agent's reply bare prose under its mark (`NarrationBubble`); a `session`
@@ -226,8 +227,10 @@ struct ThreadConversationView: View {
                 onOpenSession: onOpenSession,
                 onOpenIssue: { issueId in deps.deepLinkBus.navigateToIssue(issueId, accountId: accountId) }
             )
-        case let .question(id, question, options, custom, answer, answered):
-            // THE session view's card (EXP-1316): the options AND the
+        case let .question(id, _, question, options, custom, answer, answered):
+            // THE session view's card (EXP-1316; EXP-1334: a CHILD's own ask
+            // lands here too, answered by message id straight back to it):
+            // the options AND the
             // free-text answer (`withFreeTextRow`, ×4), closed once answered
             // whichever path did it. The typed text IS the answer.
             let base = AgentQuestion(
@@ -262,7 +265,7 @@ struct ThreadConversationView: View {
                 markdownContext: markdownContext
             )
             .accessibilityIdentifier("thread-question-card")
-        case let .plan(id, plan, decision):
+        case let .plan(id, _, plan, decision):
             QuestionCard(
                 question: AgentQuestion(
                     id: 0,

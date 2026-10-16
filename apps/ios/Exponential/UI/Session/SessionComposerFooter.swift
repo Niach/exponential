@@ -57,6 +57,9 @@ struct SessionComposerFooter: View {
     /// Owned by the host so an open menu (its cover resigns the field's
     /// focus) never reads as an idle composer and folds it away.
     @Binding var attachMenuOpen: Bool
+    /// EXP-1334: the `+` opens the host's composer-menu.json sheet instead
+    /// of the bare Photo | File choice (the thread composer).
+    var onPlus: (() -> Void)?
 
     @State private var attachAnchor: CGRect = .zero
 
@@ -68,9 +71,13 @@ struct SessionComposerFooter: View {
             // concept ×4; `editor-image` stays the comment/description glyph.
             GlassComposerToolButton(
                 AppIcons.uiAdd,
-                accessibilityLabel: "Add file or image",
-                enabled: attachEnabled
+                accessibilityLabel: onPlus == nil ? "Add file or image" : ComposerMenu.plusLabel,
+                enabled: onPlus != nil || attachEnabled
             ) {
+                if let onPlus {
+                    onPlus()
+                    return
+                }
                 var transaction = Transaction()
                 transaction.disablesAnimations = true
                 withTransaction(transaction) { attachMenuOpen = true }
@@ -86,7 +93,7 @@ struct SessionComposerFooter: View {
             )
 
             if let controls {
-                modelPill(controls)
+                SessionModelPill(controls: controls)
 
                 if controls.showsPlanLabel {
                     Text(AgentFeed.planModeFooterLabel)
@@ -116,9 +123,13 @@ struct SessionComposerFooter: View {
         }
         .layoutPriority(1)
     }
+}
 
-    @ViewBuilder
-    private func modelPill(_ controls: Controls) -> some View {
+/// The model pill (`/model <alias>` on claude; a plain label otherwise).
+struct SessionModelPill: View {
+    let controls: SessionComposerFooter.Controls
+
+    var body: some View {
         let agent = controls.agent
         if let modelValue = controls.modelValue {
             if controls.canPickModel {
@@ -139,6 +150,49 @@ struct SessionComposerFooter: View {
                     .accessibilityIdentifier("session-model-pill")
             }
         }
+    }
+}
+
+/// EXP-1334: the thread composer's options line UNDER the card — the model
+/// pill, the Plan switch (live mid-run through `sessions.configure`; nil =
+/// none) and, trailing, the usage ring (hidden until context data lands).
+struct SessionComposerOptionsLine: View {
+    let controls: SessionComposerFooter.Controls
+    var plan: Binding<Bool>?
+
+    var body: some View {
+        HStack(spacing: 12) {
+            SessionModelPill(controls: controls)
+            if let plan {
+                HStack(spacing: 6) {
+                    Text("Plan")
+                        .font(.subheadline)
+                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    Toggle("Plan", isOn: plan)
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                        .controlSize(.mini)
+                        .tint(DesignTokens.Semantic.blue)
+                        .disabled(controls.ended)
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier("session-plan-toggle")
+            }
+            Spacer(minLength: 0)
+            if controls.usageFraction != nil {
+                Button(action: controls.onUsage) {
+                    ContextRing(fraction: controls.usageFraction, severity: controls.usageSeverity)
+                        .frame(width: GlassComposerTokens.toolHitSize, height: GlassComposerTokens.toolHitSize)
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Usage")
+                .accessibilityIdentifier("session-context-ring")
+            }
+        }
+        .padding(.horizontal, 12)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("thread-composer-options")
     }
 }
 

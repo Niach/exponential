@@ -25,9 +25,11 @@ import SwiftUI
 ///   sits in a linear open stack, a `Stack` band + THE `StackRail` lead it
 ///   (a row opens that PR's thread, a hold offers Merge through here).
 ///
-/// The "+" opens THE Menu's sheet: Link an issue (THE search list →
-/// `sessions.linkIssues`) · New issue (the New issue page filing into this
-/// root); an issue tab's long press offers Unlink (`sessions.unlinkIssue`).
+/// The "+" (left of Conversation, EXP-1334) opens THE Menu's sheet: Link an
+/// issue (THE search list → `sessions.linkIssues`) · New issue (the New
+/// issue page filing into this root); an issue chip's long press adds
+/// Unlink (`sessions.unlinkIssue`). The strip never scrolls (EXP-1334): a
+/// folded chip or a "+N" opens `ThreadFoldSheet`.
 /// Failed actions toast (`Couldn't link the issue`, feedback-states).
 ///
 /// EXP-1323: a suggested tasks card acts through `sessions.startSuggestion`
@@ -63,6 +65,10 @@ struct ThreadScreen: View {
     /// The sheet's pick, run once the sheet has dismissed.
     @State private var pendingMenuAction: (action: ThreadMenuSheet.Action, issueId: String?)?
     @State private var linkSheetOpen = false
+    /// EXP-1334: a folded chip's subtree or a "+N" (THE Menu's sheet), and
+    /// its pick, run once the sheet has dismissed.
+    @State private var foldTarget: ThreadStripFold?
+    @State private var pendingFoldPick: ThreadStripFold.Row?
     /// The question / plan answer in flight.
     @State private var answeringId: String?
     /// The Conversation follows its newest row (EXP-1316 1n).
@@ -119,12 +125,13 @@ struct ThreadScreen: View {
     /// Conversation alone).
     private func pages(_ rows: ThreadRows, _ view: SessionThreadView) -> [ThreadPage] {
         guard !rows.isAgent else { return [.conversation] }
-        return view.tabs.compactMap { tab in
+        // EXP-1334: a folded sub-issue is a page too (its chip's subtree).
+        return view.tabs.flatMap { tab -> [ThreadPage] in
             switch tab {
-            case .conversation: .conversation
-            case let .issue(issueId, _): .issue(issueId)
-            case .guide: .guide
-            case .add, .session: nil
+            case .conversation: [.conversation]
+            case let .issue(issueId, _, nested): [.issue(issueId)] + nested.map { .issue($0.issueId) }
+            case .guide: [.guide]
+            case .add, .session: []
             }
         }
     }
@@ -233,6 +240,16 @@ struct ThreadScreen: View {
                     )
                 }
         }
+        .sheet(item: $foldTarget, onDismiss: runPendingFoldPick) { fold in
+            ThreadFoldSheet(
+                fold: fold,
+                issue: { rows?.issue(id: $0) },
+                shownIssueId: { if case let .issue(id) = page { id } else { nil } }()
+            ) { row in
+                pendingFoldPick = row
+                foldTarget = nil
+            }
+        }
         .sheet(item: $suggestionOptions, onDismiss: runPendingSuggestionAction) { target in
             SuggestionOptionsSheet(title: target.title, devices: suggestionDevices) { action in
                 pendingSuggestionAction = (target, action)
@@ -303,8 +320,26 @@ struct ThreadScreen: View {
                 // Phones push the session screen (its own back header).
                 onOpenSession: { sessionId in
                     pushRoute(.agentSession(accountId: accountId, sessionId: sessionId))
+                },
+                onOpenFold: { fold in
+                    UIApplication.endEditing()
+                    foldTarget = fold
                 }
             )
+        }
+    }
+
+    /// EXP-1334: a fold sheet's pick — an issue shows its page, a session
+    /// pushes its screen.
+    private func runPendingFoldPick() {
+        guard let pick = pendingFoldPick else { return }
+        pendingFoldPick = nil
+        switch pick {
+        case let .issue(issueId, _, _):
+            pendingPage = nil
+            selectPage(.issue(issueId))
+        case let .session(sessionId, _, _, _):
+            pushRoute(.agentSession(accountId: accountId, sessionId: sessionId))
         }
     }
 
@@ -423,6 +458,7 @@ struct ThreadScreen: View {
                         ThreadComposer(
                             sessionId: view.composer.sessionId,
                             root: rows.root,
+                            device: rows.rootDevice,
                             placeholder: rows.composerPlaceholder(view),
                             busySessionIds: rows.sessions
                                 .filter { $0.busy && $0.status != DomainContract.sessionStatusEnded }
@@ -1122,6 +1158,8 @@ struct ThreadComposer: View {
     /// The root's synced row: the live model attaches to it, and its
     /// `dispatch` hides the plan chip.
     var root: SessionEntity?
+    /// EXP-1334: the root's device (the Computer use row needs its cap).
+    var device: DeviceEntity?
     let placeholder: String
     /// The tree's live sessions working a turn — Stop interrupts them.
     var busySessionIds: [String] = []
@@ -1148,6 +1186,16 @@ struct ThreadComposer: View {
     @State private var slashHighlight = 0
     /// A confirm-gated command waiting on its dialog (`/clear`).
     @State private var slashConfirm: SlashCommand?
+    // EXP-1334: the "+" (composer-menu.json) and its pickers.
+    @State private var showPlusMenu = false
+    @State private var plusPick: ComposerMenu.RowId?
+    @State private var showEffortPicker = false
+    @State private var showMcpPicker = false
+    @State private var linkSheetOpen = false
+    @State private var mcpServers: [McpServerRow] = []
+    /// The picks sent mid-run, shown until the synced row agrees (the MCP
+    /// list is server-only: what this composer last sent).
+    @State private var picks = ThreadComposerPicks()
 
     var body: some View {
         Group {
@@ -1170,10 +1218,13 @@ struct ThreadComposer: View {
                         collapsedIdentifier: "thread-composer-collapsed",
                         onExpand: expand
                     ) {
+                        VStack(spacing: 6) {
                         SessionComposerCard(
                             draft: draft,
                             placeholder: placeholder,
-                            controls: steerModel.map(controls),
+                            // EXP-1334: the model / Plan / usage ride UNDER
+                            // the card (`SessionComposerOptionsLine`).
+                            controls: nil,
                             attach: $attach,
                             sendEnabled: !draft.steerSending,
                             showsStop: !busySessionIds.isEmpty && !draft.hasContent,
@@ -1191,8 +1242,13 @@ struct ThreadComposer: View {
                                 slashDismissedFor = draft.draftText
                                 return true
                             },
-                            fieldIdentifier: "thread-composer-field"
+                            fieldIdentifier: "thread-composer-field",
+                            onPlus: openPlusMenu
                         )
+                        if let steerModel {
+                            SessionComposerOptionsLine(controls: controls(steerModel), plan: planBinding)
+                        }
+                        }
                     }
                 }
                 .animation(motion.standard, value: open)
@@ -1206,7 +1262,7 @@ struct ThreadComposer: View {
                 .onChange(of: draft.draftEditor.isEditing) { _, editing in
                     if editing { focusPending = false }
                     guard expanded, !editing, !focusPending else { return }
-                    guard !attach.busy, !draft.hasContent, slashConfirm == nil else { return }
+                    guard !attach.busy, !draft.hasContent, slashConfirm == nil, !plusBusy else { return }
                     withAnimation(motion.standard) { expanded = false }
                 }
             } else {
@@ -1231,6 +1287,31 @@ struct ThreadComposer: View {
                 )
             }
         }
+        .sheet(isPresented: $showPlusMenu, onDismiss: promotePlusPick) {
+            ThreadComposerPlusMenu(
+                conditions: plusConditions,
+                agent: agent,
+                effortValue: effortValue,
+                mcpValue: McpServers.pickedValue(picks.mcpServerIds ?? []),
+                ultracode: Binding(get: { ultracodeOn }, set: { configure(.init(sessionId: sessionId, ultracode: $0)) }),
+                computerUse: Binding(get: { computerUseOn }, set: { configure(.init(sessionId: sessionId, computerUse: $0)) }),
+                addFileEnabled: draft.map { !$0.attachFull && !$0.steerSending } ?? false
+            ) { row in
+                plusPick = row
+                showPlusMenu = false
+            }
+        }
+        .sheet(isPresented: $linkSheetOpen) {
+            if let root {
+                ThreadLinkIssueSheet(teamId: root.teamId, excluded: []) { issueId in
+                    linkSheetOpen = false
+                    link(issueId)
+                }
+            }
+        }
+        .background { effortPicker }
+        .background { mcpPicker }
+        .task(id: root?.teamId) { await loadMcpServers() }
         .onAppear { claimRootModel() }
         .onChange(of: root?.id) { _, _ in claimRootModel() }
         .onDisappear { releaseRootModel() }
@@ -1288,6 +1369,142 @@ struct ThreadComposer: View {
             ended: row?.status == DomainContract.sessionStatusEnded,
             planModeFallback: model.sessionConfig == nil && row?.planMode == true
         )
+    }
+
+    // MARK: - EXP-1334: the "+" and the mid-run picks (`sessions.configure`)
+
+    private var agent: String { steerModel?.catalogAgent ?? root?.cli ?? "claude" }
+
+    /// A sheet or picker of the "+" is up: the blur fold stands down.
+    private var plusBusy: Bool {
+        showPlusMenu || plusPick != nil || showEffortPicker || showMcpPicker || linkSheetOpen
+    }
+
+    private var plusConditions: ComposerMenu.Conditions {
+        ComposerMenu.Conditions(
+            subagentModel: false,
+            ultracode: agent == "claude",
+            mcp: !mcpServers.isEmpty,
+            computerUse: Self.advertises(device, cap: ComposerMenu.computerUseRunCap)
+        )
+    }
+
+    static func advertises(_ device: DeviceEntity?, cap: String) -> Bool {
+        guard let data = device?.caps?.data(using: .utf8),
+              let caps = try? JSONSerialization.jsonObject(with: data) as? [String]
+        else { return false }
+        return caps.contains(cap)
+    }
+
+    private var planOn: Bool { picks.planMode ?? steerModel?.planModeActive ?? root?.planMode ?? false }
+    private var ultracodeOn: Bool { picks.ultracode ?? root?.ultracode ?? false }
+    private var computerUseOn: Bool { picks.computerUse ?? root?.computerUse ?? false }
+    private var effort: String { picks.effort ?? root?.effort ?? LaunchVocabulary.cliDefault }
+
+    private var effortValue: String {
+        effort == LaunchVocabulary.cliDefault ? "CLI default" : LaunchVocabulary.effortLabel(effort)
+    }
+
+    private var planBinding: Binding<Bool>? {
+        guard root?.status != DomainContract.sessionStatusEnded else { return nil }
+        return Binding(get: { planOn }, set: { configure(.init(sessionId: sessionId, planMode: $0)) })
+    }
+
+    private func openPlusMenu() {
+        UIApplication.endEditing()
+        showPlusMenu = true
+    }
+
+    /// The row the "+" closed on opens its picker now the sheet is gone.
+    private func promotePlusPick() {
+        guard let pick = plusPick else { return }
+        plusPick = nil
+        switch pick {
+        case .implementIssue: linkSheetOpen = true
+        case .addFile:
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) { attach.menu = true }
+        case .effort: showEffortPicker = true
+        case .mcpServers: showMcpPicker = true
+        case .runAction, .subagents, .ultracode, .computerUse: break
+        }
+    }
+
+    /// Send one mid-run pick; it shows at once and rolls back on a refusal.
+    private func configure(_ input: SessionConfigureInput) {
+        let before = picks
+        picks.apply(input)
+        let api = deps.sessionsApi
+        let accountId = accountId
+        Task {
+            do {
+                try await api.configure(accountId: accountId, input)
+            } catch {
+                picks = before
+                toaster.error(
+                    FeedbackStates.Errors.title(verb: "change", thing: "the session"),
+                    description: error.userFacingMessage
+                )
+            }
+        }
+    }
+
+    private var effortPicker: some View {
+        let values = [LaunchVocabulary.cliDefault] + LaunchVocabulary.effortValues(for: agent)
+        return GlassPicker(
+            items: values.map { value in
+                PickerItem(
+                    value: value,
+                    label: value == LaunchVocabulary.cliDefault ? "CLI default" : LaunchVocabulary.effortLabel(value)
+                )
+            },
+            mode: .single,
+            value: [effort],
+            onChange: { picked in
+                if let value = picked.first { configure(.init(sessionId: sessionId, effort: value)) }
+            },
+            title: LaunchVocabulary.effortTitle(for: agent),
+            open: $showEffortPicker,
+            hideTrigger: true,
+            sheetIdentifier: "thread-effort-picker",
+            trigger: { EmptyView() }
+        )
+    }
+
+    private var mcpPicker: some View {
+        McpServerPicker(
+            servers: mcpServers,
+            value: picks.mcpServerIds ?? [],
+            onChange: { configure(.init(sessionId: sessionId, mcpServerIds: $0)) },
+            open: $showMcpPicker,
+            hideTrigger: true,
+            trigger: { EmptyView() }
+        )
+    }
+
+    private func loadMcpServers() async {
+        guard let teamId = root?.teamId else { return }
+        let rows = (try? await McpServersApi(trpc: deps.trpc).list(accountId: accountId, teamId: teamId)) ?? []
+        mcpServers = rows
+        if picks.mcpServerIds == nil { picks.mcpServerIds = McpServers.preselect(rows, saved: nil) }
+    }
+
+    /// Implement issue = link it into this thread (the dispatcher wakes).
+    private func link(_ issueId: String) {
+        guard let rootId = root?.id else { return }
+        let api = deps.sessionsApi
+        let accountId = accountId
+        Task {
+            do {
+                try await api.linkIssues(accountId: accountId, sessionId: rootId, issueIds: [issueId])
+            } catch {
+                toaster.error(
+                    FeedbackStates.Errors.title(verb: "link", thing: "the issue"),
+                    description: error.userFacingMessage
+                )
+            }
+        }
     }
 
     /// ONE claim on the root's model (`attachSteerModel` / `detach` pair).
@@ -1407,6 +1624,24 @@ struct ThreadComposer: View {
                 toaster.error(FeedbackStates.Errors.title(verb: "stop", thing: "the session"), description: error.userFacingMessage)
             }
         }
+    }
+}
+
+/// EXP-1334: the mid-run picks this composer sent (`sessions.configure`),
+/// nil = the synced row's own value stands.
+struct ThreadComposerPicks: Equatable {
+    var planMode: Bool?
+    var effort: String?
+    var ultracode: Bool?
+    var computerUse: Bool?
+    var mcpServerIds: [String]?
+
+    mutating func apply(_ input: SessionConfigureInput) {
+        if let value = input.planMode { planMode = value }
+        if let value = input.effort { effort = value }
+        if let value = input.ultracode { ultracode = value }
+        if let value = input.computerUse { computerUse = value }
+        if let value = input.mcpServerIds { mcpServerIds = value }
     }
 }
 

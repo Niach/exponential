@@ -240,6 +240,8 @@ struct SessionComposerCard<Draft: SessionComposerDraft>: View {
     var onArrow: ((Int) -> Bool)?
     var onEscape: (() -> Bool)?
     var fieldIdentifier: String?
+    /// EXP-1334: the `+` opens the host's composer-menu.json sheet.
+    var onPlus: (() -> Void)?
 
     var body: some View {
         GlassComposer(isOpaque: true) {
@@ -290,7 +292,8 @@ struct SessionComposerCard<Draft: SessionComposerDraft>: View {
                 attachEnabled: !draft.attachFull && !draft.steerSending,
                 onPhoto: { attach.photoPicker = true },
                 onFile: { attach.fileImporter = true },
-                attachMenuOpen: $attach.menu
+                attachMenuOpen: $attach.menu,
+                onPlus: onPlus
             )
         } submit: {
             GlassComposerSubmitButton(
