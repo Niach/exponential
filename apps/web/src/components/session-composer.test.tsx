@@ -26,6 +26,7 @@ vi.mock(`@/lib/trpc-client`, () => ({
     sessions: {
       send: { mutate: mocks.send },
       configure: { mutate: mocks.configure },
+      mcpPicks: { query: () => Promise.resolve({ mcpServerIds: [] }) },
       stop: { mutate: vi.fn() },
     },
   },
