@@ -1,65 +1,11 @@
-import {
-  CodeBlock,
-  CodeBlockActions,
-  CodeBlockContent,
-  CodeBlockCopyButton,
-  CodeBlockHeader,
-  CodeBlockTitle,
-} from "@exp/ui"
+import { CodeBlockSpecimen } from "@exp/ui"
 
 import type { StyleguideEntry } from "./types.ts"
 
 // EXP-1324: THE CodeBlock, shadcn's code-block (radix-nova) on our Button,
-// coloured by the catalog's ONE tokenizer (`tokenizeCode`): the default
-// block, the sm block a tool's Output is, the destructive one a failed call
-// gets, and `ansi` command output (the Terminal pattern).
-
-const TS = `export function coldStart(board: Board): Promise<void> {
-  // Paint the cached snapshot first, subscribe after the first frame.
-  const cached = snapshots.read(board.id)
-  return render(cached ?? [], { deferSubscribe: true })
-}`
-
-const ANSI = [
-  `$ ./gradlew :app:startupProfile`,
-  `> Task :app:startupProfile`,
-  `\u001b[33mwarning:\u001b[0m baseline profile is 3 days old`,
-  `Pixel 6a     p50 740 ms   p90 812 ms`,
-  `\u001b[32mBUILD SUCCESSFUL\u001b[0m in 41s`,
-].join(`\n`)
-
-const FAILED = [
-  `StartupBenchmark > coldStart FAILED`,
-  `    java.lang.AssertionError: p90 812 ms > 800 ms`,
-  ``,
-  `12 tests completed, 1 failed`,
-].join(`\n`)
-
-function Block({
-  title,
-  code,
-  language,
-  size = `default`,
-  variant = `default`,
-}: {
-  title: string
-  code: string
-  language: string
-  size?: `default` | `sm`
-  variant?: `default` | `destructive`
-}) {
-  return (
-    <CodeBlock size={size} variant={variant}>
-      <CodeBlockHeader>
-        <CodeBlockTitle>{title}</CodeBlockTitle>
-        <CodeBlockActions>
-          <CodeBlockCopyButton value={code} />
-        </CodeBlockActions>
-      </CodeBlockHeader>
-      <CodeBlockContent language={language}>{code}</CodeBlockContent>
-    </CodeBlock>
-  )
-}
+// coloured by the catalog's ONE tokenizer (`tokenizeCode`), drawn by
+// `@exp/ui` `CodeBlockSpecimen` (identical ×4; the same blocks the web
+// app's `code-block` capture photographs).
 
 export const entry: StyleguideEntry = {
   id: `code-block`,
@@ -93,11 +39,5 @@ export const entry: StyleguideEntry = {
       note: `TraceSpec.CodeBlock; Compose paints it (shot sg_code-block)`,
     },
   },
-  island: () => (
-    <div className="flex max-w-2xl flex-col gap-4">
-      <Block title="startup.ts" code={TS} language="ts" />
-      <Block title="Output" code={ANSI} language="ansi" size="sm" />
-      <Block title="Output" code={FAILED} language="ansi" size="sm" variant="destructive" />
-    </div>
-  ),
+  island: () => <CodeBlockSpecimen />,
 }

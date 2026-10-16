@@ -125,6 +125,9 @@ export * from "./textarea"
 export * from "./toast"
 export * from "./tooltip"
 export * from "./trace"
+// EXP-1324: the Trace + CodeBlock specimens (the styleguide entries + the
+// web app's dev-only `trace` / `code-block` captures).
+export * from "./trace-specimen"
 export * from "./tree-guides"
 export * from "./tree-guides-view"
 export * from "./truncate"

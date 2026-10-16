@@ -4646,13 +4646,12 @@
       "blurb": "THE Trace ×4 (EXP-1324, trace.json): a session transcript's tool calls, tool groups, reasoning, subagents and failed test runs as one-line Trace lines at size sm (icon, title, muted description; running shimmers, error is rose, pending dims), a collapsible line opening onto its railed content; the Queue (task-queue.json) at the bottom: “n to do” open, “n completed” folded.",
       "order": 21,
       "web": {
-        "route": "/t/$teamSlug/sessions/$sessionId",
-        "settleMs": 1500,
+        "route": "/t/$teamSlug/agent?dev=trace",
         "anchor": {
-          "testId": "session-thought-line",
-          "timeoutMs": 30000
+          "testId": "trace-specimen",
+          "timeoutMs": 20000
         },
-        "recipe": "openTraceOutput"
+        "settleMs": 800
       },
       "webMobile": "inherit",
       "ios": {
@@ -4671,11 +4670,11 @@
         "anchorDelayMs": 1500
       },
       "notes": {
-        "web": "The raw session view (`session`) over the relay-fed demo feed: `openTraceOutput` opens the `./gradlew :app:startupProfile` line onto its Output and centres the Trace tail (“Thought for 5s”, “Ran the Explore agent” with its 1m 12s badge, “Failed: 1 of 12 tests in StartupBenchmark”), the Queue below. The styleguide island `trace` (apps/styleguide/src/entries/trace.tsx) draws every state on the real primitive. Needs `bun run screenshots:desktop`, like `steering`.",
-        "web-mobile": "Inherits web: the phone transcript draws the same lines at full width.",
-        "ios": "The ExpUI Trace specimen (the same lines and Queue as the web island), shot sg_trace.",
+        "web": "The DEV-ONLY `?dev=trace` on the Agent route (never parsed in a production build, like `feedback-states`): `@exp/ui` `TraceSpecimen`, the styleguide entry's board inside the app chrome, line for line the natives' specimen (iOS/Android `sg_trace`, the IDE's `styleguide:trace`). The `session` view shows the same lines in a live transcript.",
+        "web-mobile": "Inherits web: the phone frame draws the same specimen at full width.",
+        "ios": "The ExpUI Trace specimen (ThreadCardsScreen, the web island line for line), shot sg_trace.",
         "android": "See ios: the same specimen in StyleguideScreenshotsTest.",
-        "desktop": "The DEV-ONLY `EXP_DEV_SCREEN=styleguide:trace`: the IDE styleguide entry `trace.rs` drawn full-window on the real `crate::trace` primitive (the draft's transcript tail, then THE Queue); the `session` view's transcript draws the same lines."
+        "desktop": "The DEV-ONLY `EXP_DEV_SCREEN=styleguide:trace`: the IDE styleguide entry `trace.rs` drawn full-window on the real `crate::trace` primitive, the web island line for line."
       }
     },
     {
@@ -4685,13 +4684,12 @@
       "blurb": "THE CodeBlock ×4 (EXP-1324, trace.json geometry.codeBlock): a tool's Output inside a Trace line at size sm, the title and the copy action over the mono code, coloured by the catalog's one tokenizer (`ansi` for command output); a failed call's block is destructive.",
       "order": 22,
       "web": {
-        "route": "/t/$teamSlug/sessions/$sessionId",
-        "settleMs": 1500,
+        "route": "/t/$teamSlug/agent?dev=code-block",
         "anchor": {
-          "testId": "session-tool-output",
-          "timeoutMs": 30000
+          "testId": "code-block-specimen",
+          "timeoutMs": 20000
         },
-        "recipe": "openTraceOutput"
+        "settleMs": 800
       },
       "webMobile": "inherit",
       "ios": {
@@ -4710,11 +4708,11 @@
         "anchorDelayMs": 1500
       },
       "notes": {
-        "web": "The raw session view (`session`): `openTraceOutput` opens the `./gradlew :app:startupProfile` line and centres its Output block (`ansi`: the `> Task` line muted, BUILD SUCCESSFUL green). The styleguide island `code-block` (apps/styleguide/src/entries/code-block.tsx) draws default, sm, destructive and ansi. Needs `bun run screenshots:desktop`, like `steering`.",
-        "web-mobile": "Inherits web: the phone transcript draws the same block at full width.",
-        "ios": "The ExpUI CodeBlock specimen (default, sm, destructive, ansi), shot sg_code-block.",
+        "web": "The DEV-ONLY `?dev=code-block` on the Agent route (never parsed in a production build, like `feedback-states`): `@exp/ui` `CodeBlockSpecimen`, the styleguide entry's three sm blocks (a titled plain block, an `ansi` Output, the destructive Output), identical to the natives' specimen.",
+        "web-mobile": "Inherits web: the phone frame draws the same blocks at full width.",
+        "ios": "The ExpUI CodeBlock specimen (ThreadCardsScreen: the web island's three sm blocks), shot sg_code-block.",
         "android": "See ios: the same specimen in StyleguideScreenshotsTest.",
-        "desktop": "The DEV-ONLY `EXP_DEV_SCREEN=styleguide:code-block`: the IDE styleguide entry `code_block.rs` drawn full-window on the real `crate::code_block` primitive (ansi Output, destructive, plain code)."
+        "desktop": "The DEV-ONLY `EXP_DEV_SCREEN=styleguide:code-block`: the IDE styleguide entry `code_block.rs` drawn full-window on the real `crate::code_block` primitive, the web island's three blocks."
       }
     },
     {

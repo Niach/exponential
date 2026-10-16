@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react"
 import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router"
 import {
+  CodeBlockSpecimen,
   ExponentialLogo,
   FeedbackStatesSpecimen,
   SkeletonRows,
+  TraceSpecimen,
   useKeyboardInset,
 } from "@exp/ui"
 import { HOME_GEOMETRY, HOME_TEST_IDS } from "@exp/domain-contract/home-greeting"
@@ -56,10 +58,15 @@ const str = (value: unknown): string | undefined =>
 
 // EXP-1259 (DEV-ONLY): `?dev=feedback-states` swaps the page for the six
 // feedback kinds side by side, for the view catalog's `feedback-states`
-// capture. Never parsed in a production build (`isProductionBuild`).
-type DevView = `feedback-states`
+// capture; EXP-1324: `?dev=trace` / `?dev=code-block` the Trace and
+// CodeBlock specimens (identical ×4) for theirs. Never parsed in a
+// production build (`isProductionBuild`).
+const DEV_VIEWS = [`feedback-states`, `trace`, `code-block`] as const
+type DevView = (typeof DEV_VIEWS)[number]
 const devView = (value: unknown): DevView | undefined =>
-  !isProductionBuild && value === `feedback-states` ? value : undefined
+  !isProductionBuild && DEV_VIEWS.includes(value as DevView)
+    ? (value as DevView)
+    : undefined
 
 export const Route = createFileRoute(`/t/$teamSlug/agent`)({
   head: () => ({ meta: [{ title: pageTitle(`Agent`) }] }),
@@ -89,10 +96,16 @@ export const Route = createFileRoute(`/t/$teamSlug/agent`)({
 
 function AgentRoute() {
   const { dev } = Route.useSearch()
-  if (dev === `feedback-states`) {
+  if (dev) {
     return (
       <div className={`h-full min-h-0 overflow-y-auto p-6 ${TAB_BAR_CLEARANCE}`}>
-        <FeedbackStatesSpecimen />
+        {dev === `trace` ? (
+          <TraceSpecimen />
+        ) : dev === `code-block` ? (
+          <CodeBlockSpecimen />
+        ) : (
+          <FeedbackStatesSpecimen />
+        )}
       </div>
     )
   }

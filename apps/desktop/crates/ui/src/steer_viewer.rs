@@ -4962,8 +4962,9 @@ impl SteerSessionView {
                 }
             }
         };
-        // EXP-1324: a settled test run with failures names them on a line of
-        // its own, opening onto the same output.
+        // EXP-1324: a settled test run with failures IS its failed-tests
+        // line (trace.json), opening onto the same output — it replaces the
+        // call's own "Ran …" line, as on web, iOS and Android.
         let tests = (kind == "execute" && *settled)
             .then_some(printed)
             .flatten()
@@ -4981,6 +4982,7 @@ impl SteerSessionView {
                     cx,
                 ))
             });
+        let row = tests.unwrap_or(row);
         if mode == ToolRowMode::Nested {
             return row;
         }
@@ -4993,11 +4995,11 @@ impl SteerSessionView {
             .as_deref()
             .filter(|diff| !diff.is_empty())
             .map(|_| self.render_edits_card(id, &[item], cx));
-        if tests.is_none() && card.is_none() {
+        if card.is_none() {
             return row;
         }
         trace_stack(
-            std::iter::once(row).chain(tests).chain(card).collect(),
+            std::iter::once(row).chain(card).collect(),
             TraceSize::Sm,
         )
         .into_any_element()
@@ -5468,7 +5470,7 @@ impl SteerSessionView {
         let line = TraceLine::from_model(("steer-subagent", id as usize), &model).badge(true);
         let element = match items.iter().find_map(|item| item.subagent_id().map(str::to_string)) {
             Some(subagent_id) => trace_link(
-                line,
+                line.chevron(true),
                 cx.listener(move |this, _: &ClickEvent, window, cx| {
                     this.open_lane(subagent_id.clone(), window, cx)
                 }),

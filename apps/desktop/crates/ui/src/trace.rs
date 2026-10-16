@@ -57,6 +57,9 @@ pub(crate) struct TraceLine {
     pub description: Option<SharedString>,
     /// Paint the description as the outline Badge (a subagent's duration).
     pub badge: bool,
+    /// Append a static right chevron (a line that opens elsewhere: a
+    /// subagent's tab), web's trailing `TraceIcon`.
+    pub chevron: bool,
     pub status: Option<TraceStatus>,
     pub size: TraceSize,
 }
@@ -69,6 +72,7 @@ impl TraceLine {
             title: title.into(),
             description: None,
             badge: false,
+            chevron: false,
             status: None,
             size: TraceSize::Sm,
         }
@@ -90,6 +94,11 @@ impl TraceLine {
 
     pub(crate) fn badge(mut self, badge: bool) -> Self {
         self.badge = badge;
+        self
+    }
+
+    pub(crate) fn chevron(mut self, chevron: bool) -> Self {
+        self.chevron = chevron;
         self
     }
 
@@ -165,6 +174,17 @@ fn line_row(line: &TraceLine, interactive: bool, window: &Window, cx: &App) -> g
                 .into_any_element()
         });
     }
+    if line.chevron {
+        row = row.child(
+            div()
+                .flex_shrink_0()
+                .size(px(g.icon))
+                .flex()
+                .items_center()
+                .justify_center()
+                .child(Icon::new(registry::TRACE_CHEVRON).size(px(g.icon)).text_color(color)),
+        );
+    }
     row
 }
 
@@ -172,19 +192,21 @@ fn line_row(line: &TraceLine, interactive: bool, window: &Window, cx: &App) -> g
 /// The outline Badge a subagent line's duration paints as (shadcn `Badge
 /// variant=outline`, at the line's scale).
 fn badge(text: SharedString, size: TraceSize, cx: &App) -> AnyElement {
-    let font = size.geometry().font_size - 1.;
+    // Web: rounded-full border px-1.5 text-[10px] leading-4, the
+    // description's muted ink (12 px at the default size, as on iOS).
+    let font = size.geometry().font_size - 2.;
     div()
         .flex_shrink_0()
         .px(px(6.))
-        .h(px(font + 6.))
+        .h(px(18.))
         .flex()
         .items_center()
-        .rounded(px(6.))
+        .rounded_full()
         .border_1()
         .border_color(cx.theme().border)
         .text_size(px(font))
-        .line_height(px(font + 4.))
-        .text_color(cx.theme().muted_foreground)
+        .line_height(px(16.))
+        .text_color(cx.theme().muted_foreground.opacity(geometry::DESCRIPTION_ALPHA))
         .child(text)
         .into_any_element()
 }

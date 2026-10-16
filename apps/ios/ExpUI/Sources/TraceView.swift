@@ -254,7 +254,8 @@ public extension TraceLine where Accessory == EmptyView {
     }
 }
 
-/// The subagent line's duration: shadcn's outline Badge at the line's scale.
+/// The subagent line's duration: shadcn's outline Badge at the line's scale
+/// (web: rounded-full, border, 10px, the description's muted ink).
 public struct TraceBadge: View {
     let text: String
     let size: TraceSize
@@ -269,8 +270,8 @@ public struct TraceBadge: View {
     public var body: some View {
         let small = size == .sm
         Text(verbatim: text)
-            .font(.system(size: (small ? 10 : 12) * scale, weight: .medium).monospacedDigit())
-            .foregroundStyle(DesignTokens.Palette.foreground)
+            .font(.system(size: (small ? 10 : 12) * scale).monospacedDigit())
+            .foregroundStyle(DesignTokens.Palette.mutedForeground.opacity(Trace.Geometry.descriptionAlpha))
             .lineLimit(1)
             .fixedSize()
             .padding(.horizontal, (small ? 6 : 8) * scale)
