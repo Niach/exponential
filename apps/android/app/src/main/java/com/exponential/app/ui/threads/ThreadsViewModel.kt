@@ -96,7 +96,8 @@ class ThreadsViewModel @Inject constructor(
     ) { g, prs ->
         val byRoot = prs.filter { it.rootSessionId != null }.groupBy { it.rootSessionId }
         val byTeam = prs.groupBy { it.teamId }
-        g.flatMap { it.rows }.mapNotNull { row ->
+        // EXP-1323: a nested child row carries no word (web + IDE).
+        g.flatMap { it.rows }.filter { it.depth == 0 }.mapNotNull { row ->
             SessionTree.threadRowWord(
                 busy = row.busy,
                 needsYou = row.needsYou,

@@ -329,7 +329,7 @@ export function ThreadSessionGroup({
   tree?: ReactNode
 }) {
   const group = (
-    <div data-testid="thread-session-group" className="flex min-w-0 shrink items-center gap-1">
+    <div data-testid="thread-session-group" className="flex min-w-min shrink items-center gap-1">
       {children}
     </div>
   )

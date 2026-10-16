@@ -220,7 +220,8 @@ final class SessionListsModel {
             $0.rootSessionId ?? ""
         }
         var words: [String: ThreadRowWord] = [:]
-        for row in groups.flatMap(\.rows) {
+        // EXP-1323: a nested child row carries no word (web + IDE).
+        for row in groups.flatMap(\.rows) where row.depth == 0 {
             words[row.sessionId] = SessionTree.threadRowWord(
                 busy: row.busy,
                 needsYou: row.needsYou,

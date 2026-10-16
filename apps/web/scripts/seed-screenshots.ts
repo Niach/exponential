@@ -976,13 +976,14 @@ async function seedSessionTree(ctx: {
       },
     }),
   ])
-  // EXP-1323: the demo user's read marks: every thread read now but the
-  // cold-start one (read before its child's report: bold).
+  // EXP-1323: the demo user's read marks: every thread read now but FB-9
+  // (read before the agent's request landed: a bold row). FB-9 because no
+  // capture opens it; opening a thread marks it read.
   await db.insert(sessionReads).values(
     [...Object.values(ids), DEMO_SESSION_ID, DEMO_REPORT_SESSION_ID].map((sessionId) => ({
       userId: demoId,
       sessionId,
-      readAt: sessionId === ids.coldStart ? minutesAgo(25) : new Date(now),
+      readAt: sessionId === ids.sortReports ? minutesAgo(10) : new Date(now),
     }))
   )
 
