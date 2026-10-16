@@ -856,7 +856,7 @@
           "bindable": false,
           "responsive": false,
           "default": false,
-          "description": "Animates a highlight across the text (work in progress)."
+          "description": "Animates a highlight across the text while work runs."
         },
         {
           "name": "live",

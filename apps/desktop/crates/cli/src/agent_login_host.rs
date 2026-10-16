@@ -437,8 +437,7 @@ mod tests {
 
     /// An unknown agent never reaches a PTY, with the sentence the clients
     /// show verbatim. The same parse reads the target: Add account, an
-    /// intended profile, or an import (a legacy `newProfileLabel` is read
-    /// past).
+    /// intended profile, or an import.
     #[test]
     fn only_claude_and_codex_are_runnable_agents() {
         use coding::agent_login::parse_login_payload;
@@ -458,11 +457,6 @@ mod tests {
         .unwrap();
         assert_eq!(codex.agent, CodingAgent::Codex);
         assert_eq!(codex.target, LoginTarget::Profile("0badf00d".to_string()));
-        let legacy = parse_login_payload(&serde_json::json!({
-            "agent": "claude", "switch": "false", "newProfileLabel": "Work"
-        }))
-        .unwrap();
-        assert_eq!(legacy.target, LoginTarget::Add);
         let import = parse_login_payload(&serde_json::json!({"agent": "claude", "import": "true"}))
             .unwrap();
         assert_eq!(import.target, LoginTarget::Import);

@@ -124,16 +124,18 @@ mod tests {
         assert!(catalog_for(SessionAgent::Claude)
             .iter()
             .any(|c| c.name == "compact"));
-        // `/clear` is every agent's and confirms.
-        for agent in [SessionAgent::Claude, SessionAgent::Codex] {
+        // `/clear` is every agent's and confirms; EXP-1330: `/btw` (the
+        // aside) is claude's alone.
+        for (agent, names) in [
+            (SessionAgent::Claude, vec!["compact", "clear", "btw"]),
+            (SessionAgent::Codex, vec!["compact", "clear"]),
+        ] {
             let rows = catalog_for(agent);
-            assert_eq!(
-                rows.iter().map(|c| c.name).collect::<Vec<_>>(),
-                vec!["compact", "clear"]
-            );
+            assert_eq!(rows.iter().map(|c| c.name).collect::<Vec<_>>(), names);
             assert!(rows.iter().any(|c| c.name == "clear" && c.confirm));
             assert!(rows.iter().any(|c| c.name == "compact" && !c.confirm));
         }
+        assert!(catalog_for(SessionAgent::Claude).iter().any(|c| c.name == "btw" && !c.confirm));
         // EXP-746: an external ACP agent matches no contract row, so its
         // catalog is empty and `/compact` is prose to it — the agent's own
         // advertised commands are the whole `/` menu there.

@@ -135,7 +135,12 @@ data class TestResults(
 
 object Trace {
 
-    private val WHITESPACE = Regex("\\s+")
+    /** The TS reference's `\s` (Unicode: NBSP, figure/narrow spaces, line and
+     *  paragraph separators, ideographic space, BOM) — Java's `\s` is ASCII-only
+     *  and ICU rejects the inline Unicode-classes flag, so the class is spelled
+     *  out (the `SteerImageMessageTest` guard). */
+    private val WHITESPACE =
+        Regex("[\\s\\u00A0\\u1680\\u2000-\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000\\uFEFF]+")
     private val PLACEHOLDER = Regex("\\{(\\w+)\\}")
 
     internal fun clean(value: String?): String = (value ?: "").replace(WHITESPACE, " ").trim()

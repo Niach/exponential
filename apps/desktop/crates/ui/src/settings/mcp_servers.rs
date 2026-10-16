@@ -1055,7 +1055,7 @@ impl McpServersPane {
                     let (target, pane) = (target.clone(), pane.clone());
                     menu = menu.item(
                         crate::controls::pointer_label_item("Replace key", false)
-                            .icon(Icon::new(registry::UI_EDIT))
+                            .icon(Icon::new(registry::UI_PRIVATE))
                             .on_click(move |_, window, cx| {
                                 let target = target.clone();
                                 pane.update(cx, |this, cx| {

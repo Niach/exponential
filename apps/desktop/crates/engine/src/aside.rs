@@ -1,10 +1,11 @@
 //! EXP-1330 — a `/btw` aside run: a forked claude run of its PARENT's
 //! conversation (`--resume <parent> --fork-session`, read-only tools, the
 //! parent's worktree), launched by `coding::aside`. The engine half: the
-//! fork + tool posture on the adapter ([`ASIDE_DISALLOWED_TOOLS`]) and the
-//! one-shot end — after its FIRST reply the aside pins that reply's first
-//! line as its caption and ends (the reply itself posts like any turn's),
-//! unless a person spoke in it meanwhile: then it is an ordinary session.
+//! fork + tool posture on the adapter ([`ASIDE_DISALLOWED_TOOLS`] and NO MCP
+//! servers, [`ASIDE_MCP_CONFIG`]) and the one-shot end — after its FIRST
+//! reply the aside pins that reply's first line as its caption and ends (the
+//! reply itself posts like any turn's), unless a person spoke in it
+//! meanwhile: then it is an ordinary session.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
@@ -13,6 +14,14 @@ use std::sync::Mutex;
 /// subagents (which would carry those tools back in).
 pub const ASIDE_DISALLOWED_TOOLS: &[&str] =
     &["Edit", "MultiEdit", "Write", "NotebookEdit", "Bash", "Task", "Agent"];
+
+/// The aside's WHOLE claude `--mcp-config` (strict): no servers. The
+/// read-only tool list above would be no posture with `exponential` still
+/// wired — `issues_update`, `comments_create`, `pr_merge` run under the
+/// person's key — nor with code mode's `exec` or the team's servers, so a
+/// side question gets none of them (the launcher skips resolving them,
+/// `coding::launcher`; this document keeps the user's own config out too).
+pub const ASIDE_MCP_CONFIG: &str = r#"{"mcpServers":{}}"#;
 
 /// The aside's one-shot state on its [`crate::host::SessionCtx`].
 #[derive(Debug, Default)]
@@ -100,6 +109,13 @@ mod tests {
         );
         assert_eq!(aside.pin().as_deref(), Some("The cart total is computed in `cart.rs`."));
         assert_eq!(aside.turn_ended(), AsideEnd::Nothing, "settled once");
+    }
+
+    #[test]
+    fn the_aside_mcp_config_names_no_server() {
+        let parsed: serde_json::Value = serde_json::from_str(ASIDE_MCP_CONFIG).expect("JSON");
+        assert_eq!(parsed, serde_json::json!({ "mcpServers": {} }));
+        assert!(!ASIDE_MCP_CONFIG.contains("exponential"));
     }
 
     #[test]

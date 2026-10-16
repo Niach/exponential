@@ -674,8 +674,10 @@ private fun RunFaceContent(
     // leaving the screen on a spinner nothing could clear. Foreground and
     // network revivals are the store's job, not this screen's.
     LaunchedEffect(Unit) { viewModel.ensureConnected() }
-    // EXP-1323: opening a session view reads it (bold rows + the nav dot).
-    LaunchedEffect(viewModel.codingSessionId) { viewModel.markRead() }
+    // EXP-1323: opening a session view reads it (bold rows + the nav dot);
+    // news landing while it is open is read too, like the thread screen.
+    val newestAgentMessage by viewModel.newestAgentMessageAt.collectAsStateWithLifecycle()
+    LaunchedEffect(viewModel.codingSessionId, newestAgentMessage) { viewModel.markRead() }
     // EXP-888: a sweep end is not an end — the composer stays live.
     val sessionEnded = session?.isEnded == true
     // A trailing question/plan means the session is blocked on a human — the
@@ -1915,7 +1917,7 @@ private fun ActivityFeed(
                         TranscriptRow(
                             transcriptGap(laneRows.getOrNull(index - 1)?.rowClass, laneRow.rowClass),
                         ) {
-                            LaneRow(laneRow, liveItemId = liveRowId)
+                            LaneRow(laneRow, liveItemId = liveRowId, live = live)
                         }
                     }
                 }
@@ -2380,8 +2382,13 @@ private fun SessionTaskQueue(
     completedOpen: Boolean,
     onCompletedOpenChange: (Boolean) -> Unit,
 ) {
-    // First sight per background id, for a publisher that sends no start.
+    // First sight per background id, for a publisher that sends no start:
+    // stamped off the wall clock as the list arrives (the ticking `now` may
+    // stand still between ticks), and never inside a remember calculation.
     val firstSeen = remember { mutableMapOf<String, Long>() }
+    for (task in backgroundTasks) {
+        if (task.startedAt == null && task.id !in firstSeen) firstSeen[task.id] = System.currentTimeMillis()
+    }
     val ticking = backgroundTasks.any { it.kind != BACKGROUND_TASK_KIND_AGENT }
     val now = rememberTickingNow(ticking)
     val waits = remember(feed) { openWaits(feed) }
@@ -2394,7 +2401,7 @@ private fun SessionTaskQueue(
                         id = it.id,
                         kind = it.kind,
                         description = it.description,
-                        startedAt = it.startedAt ?: firstSeen.getOrPut(it.id) { now },
+                        startedAt = it.startedAt ?: firstSeen[it.id] ?: now,
                     )
                 },
                 waits = waits,
@@ -3757,26 +3764,27 @@ private fun PermissionRow(tool: String, detail: String?, showHint: Boolean) {
  * never reach here.
  */
 @Composable
-private fun LaneRow(row: AgentFeedRow, liveItemId: Long?, nested: Boolean = false) {
+private fun LaneRow(row: AgentFeedRow, liveItemId: Long?, live: Boolean, nested: Boolean = false) {
     when (row) {
         is AgentFeedRow.Edits -> EditedFilesCard(items = row.items, liveItemId = liveItemId)
         is AgentFeedRow.ExpRun -> ExpToolGroupRow(items = row.items, nested = nested)
-        is AgentFeedRow.Single -> SubagentItemRow(row.item, nested = nested)
+        is AgentFeedRow.Single -> SubagentItemRow(row.item, live = live, nested = nested)
         else -> Unit
     }
 }
 
 // EXP-773: one row of a subagent's conversation — its prose, a turn addressed
 // to it, or one of its tool calls. Anything else a group somehow collected
-// renders nothing rather than breaking the feed.
+// renders nothing rather than breaking the feed. `live` = the RUN still
+// lives: an ended session's open reasoning never shimmers (main-site rule).
 @Composable
-private fun SubagentItemRow(item: AgentFeedItem, nested: Boolean = false) {
+private fun SubagentItemRow(item: AgentFeedItem, live: Boolean, nested: Boolean = false) {
     when (item) {
         is AgentFeedItem.Tool -> ToolRow(item, nested = nested)
         is AgentFeedItem.Narration -> NarrationBubble(item.text, nested = nested)
         is AgentFeedItem.ApiError -> ApiErrorRow(item.message, item.errorType)
         is AgentFeedItem.UserMessage -> UserMessageBubble(item.text, nested = nested)
-        is AgentFeedItem.Thought -> ThoughtRow(item, running = !item.ended)
+        is AgentFeedItem.Thought -> ThoughtRow(item, running = live && !item.ended)
         else -> Unit
     }
 }
@@ -4335,6 +4343,15 @@ internal fun SessionComposer(
         sendError?.let { com.exponential.app.ui.components.FailedAction("send", "the message", it.ifBlank { null }) },
         onShown = viewModel::clearSendError,
     )
+    // A send the composer refused outright (a slash command with attachments)
+    // is its own plain toast, the web composer's copy.
+    val sendRefusal by viewModel.sendRefusal.collectAsStateWithLifecycle()
+    val refusalToaster = LocalToaster.current
+    LaunchedEffect(sendRefusal) {
+        val refusal = sendRefusal ?: return@LaunchedEffect
+        refusalToaster.error(refusal)
+        viewModel.clearSendRefusal()
+    }
     // The `#` typeahead's handler (the composer sits OUTSIDE the feed's
     // provider: what the user types stays the stored `#IDENTIFIER`).
     val composerRefHandler = remember(issueRefCandidates) {
@@ -4721,15 +4738,19 @@ internal fun SessionComposer(
                 onPickImages = { filePicker.launch(arrayOf("*/*")) },
                 onRemoveImage = viewModel::removePendingImage,
                 // EXP-724: a command that discards the conversation is
-                // confirmed first; everything else sends straight out.
+                // confirmed first; everything else sends straight out. A
+                // command with attachments never reaches the confirm: the
+                // send refuses it (`Remove the attachments to send a command`).
                 onSend = {
                     val command = viewModel.pendingSlashCommand()
-                    if (command?.confirm == true) slashConfirm = command else viewModel.sendDraft()
+                    if (command?.confirm == true && pendingImages.isEmpty()) slashConfirm = command else viewModel.sendDraft()
                 },
                 // EXP-893: the footer's Plan chip, model picker and ring.
-                // Dispatcher roots: NO plan chip on a dispatcher (plan mode is a
-                // work pick for its children).
-                planMode = planModeBadge(sessionConfig) != null && session?.dispatch != true,
+                // Before the relay's first `config_state` the synced row's
+                // `planMode` stands in (web parity). Dispatcher roots: NO plan
+                // chip on a dispatcher (plan mode is a work pick for its children).
+                planMode = (planModeBadge(sessionConfig) != null || (sessionConfig == null && session?.planMode == true)) &&
+                    session?.dispatch != true,
                 model = composerModel(
                     config = sessionConfig,
                     rowModel = session?.model,
@@ -4968,7 +4989,12 @@ private fun ExpandedSteerComposer(
     // plain message and the re-emitted `config_state` is the confirmation,
     // so nothing here waits or locks.
     var modelMenuOpen by remember { mutableStateOf(false) }
-    val modelChoices = modelOptionsFor(DEFAULT_AGENT)
+    // The model in force leads the list when this build has no row for it (a
+    // legacy alias still renders checked), as on web.
+    val modelChoices = remember(model) {
+        val options = modelOptionsFor(DEFAULT_AGENT)
+        if (model != null && model.isNotEmpty() && model !in options) listOf(model) + options else options
+    }
     GlassComposer(
         // The composer floats over the scrolling activity feed.
         opaque = true,

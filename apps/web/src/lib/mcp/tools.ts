@@ -2197,6 +2197,9 @@ export function registerExponentialTools(
           userId: user.id,
           input,
           callerSessionId: own?.id ?? null,
+          // An agent's own key: its message into another session is THAT
+          // session's agent-authored input (never over tRPC).
+          viaMcp: true,
         })
         return ok(result)
       } catch (e) {

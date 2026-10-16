@@ -1,5 +1,6 @@
-- Hilos: un hilo es una sola pantalla en cada dispositivo, con sus issues, sesiones y Guide en una franja, y Home pone el editor abajo sobre el amanecer
-- Títulos: un hilo se llama como su trabajo, por ejemplo Implement EXP-12 o Run Triage, así cada lista se lee igual en móvil, web y escritorio
-- Preguntas: las opciones de un agente pueden llevar una breve descripción, y cada pregunta tiene una fila para escribir tu propia respuesta
-- Guide: una imagen se abre junto a sus notas, con flechas a la siguiente, y quienes se añaden al equipo sin invitación aparecen como Not invited
-- Cuentas: una sesión que alcanza su límite de uso puede cambiar a otra cuenta con sesión iniciada y seguir adelante
+- Hilos: un hilo ejecuta un pequeño distribuidor que responde él mismo a las preguntas rápidas e inicia una sesión para el trabajo real, y el cuadro de respuesta del hilo es el mismo que el de una sesión, con el cambio de modelo
+- Informes: cuando una subsesión termina, su resumen llega como informe a la conversación de su sesión padre, y un agente puede proponer tareas de seguimiento que inicias con un toque
+- Lista de hilos: una sesión en marcha muestra su paso actual bajo su nombre, las subsesiones se anidan bajo su hilo y un hilo con mensajes de agente sin leer muestra su título en negrita
+- Transcripción: el trabajo de una sesión se lee como líneas de traza con bloques de código, y los mensajes en cola esperan en un solo lugar hasta que el agente los recoge
+- Modelos: cada selector de modelo muestra Fable, Opus, Sonnet y Haiku, sin entrada Default
+- /btw: hazle una pregunta aparte a una sesión de Claude en marcha y obtén la respuesta sin interrumpir su trabajo

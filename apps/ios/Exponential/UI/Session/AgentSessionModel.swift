@@ -175,16 +175,19 @@ final class AgentSessionModel {
     /// latest-wins slot (an empty list closes the strip above the composer).
     private(set) var backgroundTasks: [AgentBackgroundTask] = [] {
         didSet {
-            rebuildStripLines()
             // EXP-1324: a task the wire gave no `startedAt` counts from the
-            // first time this client saw its id.
+            // first time this client saw its id; a task that left the list
+            // leaves the table (the list IS the current set).
             let now = Int64(Date().timeIntervalSince1970 * 1000)
-            for task in backgroundTasks where backgroundFirstSeen[task.id] == nil {
-                backgroundFirstSeen[task.id] = now
+            var seen: [String: Int64] = [:]
+            for task in backgroundTasks {
+                seen[task.id] = backgroundFirstSeen[task.id] ?? now
             }
+            backgroundFirstSeen = seen
         }
     }
-    /// EXP-1324: each subagent's start/end stamps (epoch ms, the edges' `at`).
+    /// EXP-1324: each subagent's start/end stamps (epoch ms, the edges' `at`);
+    /// pruned to the subagents the feed still holds on every subagent edge.
     @ObservationIgnored private var subagentSpans: [String: (start: Int64?, end: Int64?)] = [:]
 
     /// EXP-1324: a subagent's duration for its Trace badge — end − start once
@@ -205,15 +208,23 @@ final class AgentSessionModel {
     /// EXP-927 §2c: the agent's own task list — a latest-wins slot (the FULL
     /// list in order; an empty one hides the block above the strip).
     private(set) var taskList: [AgentTaskListEntry] = []
+    /// A settled `execute` call's output parsed as a test run, by CALL id —
+    /// filled once when its `tool_update` lands, never re-parsed per render
+    /// (the parser is seven regexes over the whole output). Keyed by the
+    /// wire call id so a page renumbering the rows leaves it standing; pruned
+    /// with the feed.
+    private(set) var testResults: [String: TestResults] = [:]
     /// EXP-861: the messages the device is holding until the current turn or
     /// compaction ends — a latest-wins slot (the FULL queue, oldest first; an
     /// empty list closes the strip above the composer). Lives on the device,
     /// so a reconnecting or second viewer gets it from the join replay.
     private(set) var queued: [QueuedMessage] = []
-    /// EXP-850 §1/§2: the strip above the composer, derived ONCE per change
-    /// (EXP-582: an O(feed) projection read from a view body is what pinned
-    /// the main thread during a replay).
-    private(set) var stripLines: [AgentStripLine] = []
+    /// EXP-1321: the Queue's open waits — one per UNSETTLED `wait` call by
+    /// call id (web/desktop count every open wait; two on one subject are
+    /// two), derived ONCE per feed change in `reproject` (EXP-582: an O(feed)
+    /// projection read from a view body is what pinned the main thread during
+    /// a replay — and the Queue's `build` ticks every second).
+    private(set) var openWaits: [TaskQueueInput.Wait] = []
     /// EXP-850 §3: the run's workflow cards, latest-wins per id in
     /// first-appearance order. Each one patches onto the `tool` row with the
     /// same id; it is never a feed row of its own.
@@ -628,8 +639,14 @@ final class AgentSessionModel {
         // The runs list keeps the workflow agents — the card looks its own
         // agents' duplicate warnings up here, and (EXP-1225) they are tabs.
         subagents = AgentFeed.subagents(feed, from: start)
-        // §1/§2: an open `wait` row is a feed row, so the strip follows it.
-        rebuildStripLines()
+        openWaits = feed.compactMap { item in
+            guard case let .tool(id, name, detail, _, callId, kind, settled, _, _, _, _, _, _) = item,
+                  kind == AgentFeed.toolKindWait, !settled else { return nil }
+            return TaskQueueInput.Wait(
+                id: callId ?? "\(id)",
+                subject: (detail?.isEmpty == false) ? detail! : name
+            )
+        }
         let active = AgentFeed.activeQuestionIds(feed)
         activeQuestionIds = active
         activeCards = feed.compactMap { item in
@@ -697,26 +714,11 @@ final class AgentSessionModel {
         return subagents.first { $0.subagentId == agentId }
     }
 
-    /// §1/§2: what the strip above the composer actually draws — nothing at
-    /// all once the run is over.
-    var visibleStripLines: [AgentStripLine] { isOver ? [] : stripLines }
-
-    /// EXP-927 §2c: the strip's FIRST block — the agent's own task list, gone
-    /// once the run is over, exactly like the lines below it.
-    var visibleTaskList: [AgentTaskListEntry] { isOver ? [] : taskList }
-
     /// EXP-1321/1324: THE Queue at `now` (`fixtures/task-queue.json`): the
     /// task list, the background tasks and the open waits; nil = no block.
     /// Gone once the run is over, like the strip it replaced.
     func taskQueue(now: Date) -> TaskQueue? {
         guard !isOver else { return nil }
-        let waits: [TaskQueueInput.Wait] = stripLines.compactMap { line in
-            guard line.kind == .wait else { return nil }
-            return TaskQueueInput.Wait(
-                id: String(line.id.dropFirst("wait:".count)),
-                subject: String(line.text.dropFirst(AgentFeed.waitingOnPrefix.count))
-            )
-        }
         return TaskQueue.build(TaskQueueInput(
             tasks: taskList.map { WorkCardTask(content: $0.content, status: $0.status.rawValue) },
             backgroundTasks: backgroundTasks.map {
@@ -725,13 +727,22 @@ final class AgentSessionModel {
                     startedAt: $0.startedAt ?? backgroundFirstSeen[$0.id]
                 )
             },
-            waits: waits,
+            waits: openWaits,
             now: Int64(now.timeIntervalSince1970 * 1000)
         ))
     }
 
-    private func rebuildStripLines() {
-        stripLines = AgentFeed.stripLines(backgroundTasks: backgroundTasks, feed: feed)
+    /// EXP-1323: the newest agent prose in the MAIN lane (its wire message
+    /// id, else the row id) — the session view re-marks the session read
+    /// whenever this moves while it is open (Android `ThreadScreen` keys its
+    /// read mark the same way).
+    var newestAgentMessageKey: String? {
+        for item in feed.reversed() {
+            if case let .narration(id, _, messageId, subagentId) = item, subagentId == nil {
+                return messageId ?? "\(id)"
+            }
+        }
+        return nil
     }
 
     /// §5: the trailing working row's caption at `now` — the turn's verb (or
@@ -1164,6 +1175,8 @@ final class AgentSessionModel {
         // EXP-1323: `/btw <question>` is an ASIDE — a child asked on the
         // side (`sessions.send({parentId, text, aside})`), never a message
         // into this conversation; it lands as a session card on the parent.
+        // (A command never carries attachments: the composer refuses the send
+        // first, `SlashCommands.attachmentsRefusal`.)
         if attachmentIds?.isEmpty ?? true, let question = Self.asideQuestion(text, agent: catalogAgent) {
             do {
                 try await sessionsApi.send(accountId: accountId, .aside(parentId: sessionId, text: question))
@@ -1977,6 +1990,7 @@ final class AgentSessionModel {
         feed = []
         feedBytes = 0
         seqById = [:]
+        testResults = [:]
         // The window anchor survives the swap on purpose (EXP-795, web/Android
         // parity): the replayed prefix keeps its ids, so a reader scrolled up
         // stays where they were instead of being yanked to the newest rows on
@@ -2147,6 +2161,12 @@ final class AgentSessionModel {
             if let seq = seqById[item.id] { map[item.id] = seq }
         }
         let retainedNextId = retained.last.map { $0.id + 1 }
+        let retainedTests = testResults.filter { entry in
+            retained.contains { item in
+                if case let .tool(_, _, _, _, callId, _, _, _, _, _, _, _, _) = item { return callId == entry.key }
+                return false
+            }
+        }
         resetFeed()
         if let anchorId { nextEventId = anchorId }
         // The retained prefix keeps its rows AND its ids; the replay continues
@@ -2155,6 +2175,7 @@ final class AgentSessionModel {
             feed = retained
             feedBytes = retained.reduce(0) { $0 + AgentFeed.itemBytes($1) }
             seqById = retainedSeqs
+            testResults = retainedTests
             if let retainedNextId { nextEventId = retainedNextId }
         }
         for staging in staged {
@@ -2290,6 +2311,19 @@ final class AgentSessionModel {
             guard let next = AgentFeed.applyToolUpdate(feed: feed, update: update) else { return }
             feed = next
             recountFeedBytes()
+            // A settled `execute`'s output parses as a test run ONCE, here.
+            if let at = feed.lastIndex(where: { item in
+                   if case let .tool(_, _, _, _, callId, _, _, _, _, _, _, _, _) = item { return callId == update.id }
+                   return false
+               }),
+               case let .tool(_, _, _, _, _, kind, settled, _, _, _, output, _, _) = feed[at],
+               settled, kind == "execute", let output, !output.isEmpty {
+                if let results = Trace.parseTestResults(output) {
+                    testResults[update.id] = results
+                } else {
+                    testResults.removeValue(forKey: update.id)
+                }
+            }
         case let .diff(diff):
             // Diffs never enter the feed — the latest replaces the previous
             // one behind the pinned "Latest changes" chip.
@@ -2346,6 +2380,13 @@ final class AgentSessionModel {
                     span.start = min(span.start ?? at, at)
                 }
                 subagentSpans[subagentId] = span
+                // Prune to the subagents the feed still holds (plus this one,
+                // whose row lands below): rare edges, one feed pass.
+                var held: Set<String> = [subagentId]
+                for item in feed {
+                    if case let .subagent(_, id, _, _, _, _, _, _) = item { held.insert(id) }
+                }
+                subagentSpans = subagentSpans.filter { held.contains($0.key) }
             }
             append(.subagent(
                 id: takeEventId(),
@@ -2393,6 +2434,11 @@ final class AgentSessionModel {
             // token count.
             guard !prependingPage else { return }
             turn = AgentFeed.applyTurn(turn, edge: edge)
+            // EXP-1324: a turn that ended settles every thought still open (a
+            // `started` whose `ended` never came reads settled, no duration).
+            if turn.state == .ended, let settled = AgentFeed.settleThoughts(feed) {
+                feed = settled
+            }
         case let .backgroundTasks(tasks):
             // EXP-850 §2: the FULL current list, latest-wins — an empty array
             // closes the strip above the composer.
@@ -2400,12 +2446,13 @@ final class AgentSessionModel {
             backgroundTasks = tasks
         case let .thought(thoughtId, started, durationMs, subagentId):
             // EXP-1324: the Reasoning line. `ended` patches its `started` row
-            // (same wire id) in place; anything unmatched appends.
+            // (same wire id) in place; an unmatched `started` appends, an
+            // orphan `ended` (evicted, below the window) is dropped (web).
             if let next = AgentFeed.applyThought(
                 feed, thoughtId: thoughtId, started: started, durationMs: durationMs
             ) {
                 feed = next
-            } else {
+            } else if started {
                 append(.thought(
                     id: takeEventId(), thoughtId: thoughtId, running: started,
                     durationMs: durationMs, subagentId: subagentId
@@ -2484,6 +2531,9 @@ final class AgentSessionModel {
         guard trimmed.feed.count != before else { return }
         for dropped in feed.prefix(before - trimmed.feed.count) {
             seqById.removeValue(forKey: dropped.id)
+            if case let .tool(_, _, _, _, callId?, _, _, _, _, _, _, _, _) = dropped {
+                testResults.removeValue(forKey: callId)
+            }
         }
         feed = trimmed.feed
         feedBytes = trimmed.bytes

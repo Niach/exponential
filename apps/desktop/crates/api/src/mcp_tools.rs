@@ -288,9 +288,9 @@ pub struct RemoteSession {
     #[serde(default)]
     pub model: Option<String>,
     /// A dispatcher root (threads + team agents): runs on the thread model
-    /// and hands work to child sessions. `None` = an older server.
+    /// and hands work to child sessions. Absent on the wire = `false`.
     #[serde(default)]
-    pub dispatch: Option<bool>,
+    pub dispatch: bool,
     /// `queued` / `running` / `idle` / `ended` (contract `sessionStatus`).
     #[serde(default)]
     pub status: String,

@@ -1077,7 +1077,7 @@ export type DeviceAgentUsageMap = Record<string, DeviceAgentUsage>
 // see exactly the pre-profile payload), `profiles` lists every profile the
 // device holds (≤`MAX_AGENT_PROFILES`, exactly its profile dirs; a login is
 // named by its email, never a label). No new column: an unknown devices
-// column bricks older native sync. A legacy `label` key is stripped.
+// column bricks older native sync.
 export const deviceAgentProfileSchema = z.object({
   id: z.string().max(64),
   signedIn: z.boolean().nullish(),
@@ -1931,6 +1931,10 @@ export const messages = pgTable(
     index(`idx_messages_session_created`).on(table.sessionId, table.createdAt),
     index(`idx_messages_root`).on(table.rootId),
     index(`idx_messages_team`).on(table.teamId),
+    // The device's pickup of a PERSON's queued messages. EXP-1323 widened
+    // the pending set (`pendingInput()`: `author_kind = 'user' OR
+    // author_session_id IS NOT NULL`); another session's input rides
+    // `idx_messages_author_session` instead, so this predicate stays as is.
     index(`idx_messages_pending`)
       .on(table.sessionId)
       .where(sql`author_kind = 'user' AND consumed_at IS NULL`),

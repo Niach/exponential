@@ -245,7 +245,7 @@ class ThreadViewModel @Inject constructor(
 
     /** Start (a child of the posting session; Options: a device / a model). */
     fun startSuggestion(messageId: String, itemId: String, deviceId: String? = null, model: String? = null) =
-        suggestionCall(suggestionKey(messageId, itemId), "start", "the session") { accountId ->
+        suggestionCall(suggestionKey(messageId, itemId), "start", "the task") { accountId ->
             sessionsApi.startSuggestion(
                 accountId,
                 StartSuggestionInput(messageId = messageId, itemId = itemId, where = "child", deviceId = deviceId, model = model),
@@ -259,7 +259,7 @@ class ThreadViewModel @Inject constructor(
         }
 
     fun startAllSuggestions(messageId: String) =
-        suggestionCall(suggestionKey(messageId), "start", "the sessions") { accountId ->
+        suggestionCall(suggestionKey(messageId), "start", "the tasks") { accountId ->
             sessionsApi.startAllSuggestions(accountId, messageId)
         }
 
@@ -280,9 +280,14 @@ class ThreadViewModel @Inject constructor(
 
     private fun teamIdFlow(): Flow<String?> = root.map { it?.teamId?.takeIf { id -> id.isNotEmpty() } }.distinctUntilChanged()
 
-    /** The relay connection behind the live tail, acquired once the root is
-     *  live (released in [onCleared]). */
+    /** The relay connection behind the live tail, acquired while the root is
+     *  live and released when it ends (and in [onCleared]). */
     private var tailConnection: SteerConnection? = null
+
+    private fun releaseTail() {
+        tailConnection?.let { steerStore.release(it.codingSessionId) }
+        tailConnection = null
+    }
 
     /**
      * EXP-1323: the live tail's relay state ([SessionTree.ThreadView.liveSessionId]
@@ -294,9 +299,18 @@ class ThreadViewModel @Inject constructor(
         .distinctUntilChanged()
         .flatMapLatest { id ->
             if (id == null) {
+                // The root ended (or went away): the tail's connection goes
+                // back to the store, never held until the screen closes.
+                releaseTail()
                 flowOf(null)
             } else {
-                val connection = tailConnection ?: steerStore.acquire(id).also { tailConnection = it }
+                val held = tailConnection?.takeIf { it.codingSessionId == id }
+                val connection = if (held != null) {
+                    held
+                } else {
+                    releaseTail()
+                    steerStore.acquire(id).also { tailConnection = it }
+                }
                 connection.kick("thread-tail")
                 connection.activity
             }
@@ -304,8 +318,7 @@ class ThreadViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     override fun onCleared() {
-        tailConnection?.let { steerStore.release(it.codingSessionId) }
-        tailConnection = null
+        releaseTail()
         super.onCleared()
     }
 

@@ -355,7 +355,15 @@ struct ThreadScreen: View {
                             viewerId: deps.auth.userId,
                             answeringId: answeringId,
                             canAnswer: canEdit,
-                            suggestions: suggestionActions
+                            suggestions: suggestionActions,
+                            // EXP-1323/1324: THE Queue + the status line off
+                            // the live root, as the Conversation's last row.
+                            liveTail: liveModel.map { live in
+                                ThreadLiveTail(
+                                    model: live,
+                                    agent: view.liveSessionId.flatMap { rows.session(id: $0)?.cli }
+                                )
+                            }
                         )
                         .padding(.vertical, 12)
                         .transcriptColumn()
@@ -412,18 +420,6 @@ struct ThreadScreen: View {
                 }
                 .safeAreaInset(edge: .bottom) {
                     VStack(spacing: 0) {
-                        // EXP-1323/1324: the live tail — THE Queue of the
-                        // session view's transcript bottom, off the live
-                        // root's relay state, right on the composer.
-                        if let liveModel, view.liveSessionId != nil, !liveModel.isOver {
-                            TaskQueueView(
-                                todoOpen: Bindable(liveModel).queueTodoOpen,
-                                completedOpen: Bindable(liveModel).queueCompletedOpen,
-                                build: { liveModel.taskQueue(now: $0) }
-                            )
-                            .transcriptColumn()
-                            .accessibilityIdentifier("thread-live-tail")
-                        }
                         ThreadComposer(
                             sessionId: view.composer.sessionId,
                             root: rows.root,
@@ -1274,19 +1270,23 @@ struct ThreadComposer: View {
     // MARK: - The root's controls
 
     private func controls(_ model: AgentSessionModel) -> SessionComposerFooter.Controls {
-        SessionComposerFooter.Controls(
+        let row = root ?? model.session
+        return SessionComposerFooter.Controls(
             planModeActive: model.planModeActive,
             modelValue: model.composerModelValue(row: root),
             agent: model.catalogAgent,
-            // EXP-877: a model switch is a PLAIN MESSAGE into the root.
+            // EXP-877: a model switch is a PLAIN MESSAGE into the root — never
+            // into an ENDED one (the pin is a label then, `ended`).
             onPickModel: { alias in
-                guard let draft else { return }
+                guard let draft, row?.status != DomainContract.sessionStatusEnded else { return }
                 Task { await draft.sendMessage("/model \(alias)", attachmentIds: nil) }
             },
             usageFraction: model.sessionUsage?.percent.map { Double($0) / 100 },
             usageSeverity: AgentUsagePresentation.severity(model.sessionUsage?.percent.map(Double.init)),
             onUsage: { showUsageSheet = true },
-            showsPlan: (root?.dispatch ?? model.session?.dispatch) != true
+            showsPlan: row?.dispatch != true,
+            ended: row?.status == DomainContract.sessionStatusEnded,
+            planModeFallback: model.sessionConfig == nil && row?.planMode == true
         )
     }
 
@@ -1349,12 +1349,22 @@ struct ThreadComposer: View {
         send(draft)
     }
 
-    /// `/clear` asks first; everything else goes out as typed.
+    /// A slash command is the WHOLE message: no attachments around it (the
+    /// toast refuses, web parity), and `/clear` asks first; everything else
+    /// goes out as typed.
     private func send(_ draft: ThreadComposerDraft) {
         guard !draft.steerSending else { return }
-        if let command = SlashCommands.command(for: draft.draftText, agent: catalogAgent), command.confirm {
-            slashConfirm = command
-            return
+        if let command = SlashCommands.command(
+            for: draft.draftText, agent: catalogAgent, extra: steerModel?.sessionConfig?.commands ?? []
+        ) {
+            if draft.hasPendingAttachments {
+                toaster.error(SlashCommands.attachmentsRefusal)
+                return
+            }
+            if command.confirm {
+                slashConfirm = command
+                return
+            }
         }
         Task { await draft.sendDraft() }
     }

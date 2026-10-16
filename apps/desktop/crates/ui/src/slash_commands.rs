@@ -139,6 +139,10 @@ pub(crate) const BTW: &str = "btw";
 /// as an ASIDE child (`sessions.send({parentId, text, aside: true})`), never
 /// as a message to the session; `None` for any other draft, a bare `/btw`,
 /// or an agent whose catalog has no `btw` (codex). Mirrored ×4.
+/// The refusal when a slash command is sent with attachments staged — a
+/// command is the WHOLE message (web `session-composer`'s toast, same words).
+pub(crate) const ATTACHMENTS_BLOCK_COMMAND: &str = "Remove the attachments to send a command";
+
 pub(crate) fn btw_question(draft: &str, agent: SessionAgent) -> Option<String> {
     let parsed = steer::commands::parse_command(draft, agent)?;
     (parsed.command.name == BTW && !parsed.args.trim().is_empty()).then(|| parsed.args.trim().to_string())

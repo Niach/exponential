@@ -1,5 +1,6 @@
-- Tråder: en tråd er én skjerm på alle enheter, med oppgaver, økter og Guide i én stripe, og Home har skrivefeltet nederst på morgengryet
-- Titler: en tråd er oppkalt etter arbeidet sitt, som Implement EXP-12 eller Run Triage, så alle lister ser like ut på telefon, web og desktop
-- Spørsmål: en agents valg kan ha en kort beskrivelse, og hvert spørsmål har en rad der du kan skrive ditt eget svar
-- Guide: et bilde åpnes ved siden av notatene sine, med piler til det neste, og personer lagt til i teamet uten invitasjon vises som Not invited
-- Kontoer: en økt som når bruksgrensen sin, kan bytte til en annen innlogget konto og fortsette
+- Tråder: en tråd kjører en liten dispatcher som svarer på raske spørsmål selv og starter en økt for ordentlig arbeid, og trådens svarfelt er det samme som en økts, med modellbytte
+- Rapporter: når en underøkt avsluttes, havner sammendraget som en rapport i samtalen til forelderen, og en agent kan foreslå oppfølgingsoppgaver du starter med ett trykk
+- Trådliste: en kjørende økt viser gjeldende steg under navnet sitt, underøkter ligger under tråden sin, og en tråd med uleste agentmeldinger viser tittelen i fet skrift
+- Forløp: arbeidet i en økt leses som sporlinjer med kodeblokker, og meldinger i kø venter på ett sted til agenten tar dem
+- Modeller: alle modellvelgere viser Fable, Opus, Sonnet og Haiku, uten et Default-valg
+- /btw: still en kjørende Claude-økt et sidespørsmål og få svaret uten å avbryte arbeidet

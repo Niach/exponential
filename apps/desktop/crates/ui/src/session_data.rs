@@ -631,10 +631,33 @@ struct SentReads(HashMap<String, i64>);
 
 impl gpui::Global for SentReads {}
 
+/// The collection revisions each session's [`unread_marker`] scan last ran
+/// at (`messages`, `session_reads`, and `sessions` for a whole tree): the
+/// screens call [`mark_read_if_unread`] every frame, and the scan walks every
+/// synced message — so a frame in which nothing synced skips it.
+#[derive(Default)]
+struct ReadScans(HashMap<String, (u64, u64, u64)>);
+
+impl gpui::Global for ReadScans {}
+
 /// EXP-1323: `sessions.markRead` once `session_id` shows news the viewer
 /// has not read ([`unread_marker`]): the thread (`whole_tree`, a root) or a
 /// session view. A background write: a failure only logs (never a toast).
 pub(crate) fn mark_read_if_unread(session_id: &str, whole_tree: bool, cx: &mut App) {
+    let Some(store) = Store::try_global(cx) else {
+        return;
+    };
+    let collections = store.collections();
+    let revisions = (
+        collections.messages.read(cx).revision(),
+        collections.session_reads.read(cx).revision(),
+        if whole_tree { collections.sessions.read(cx).revision() } else { 0 },
+    );
+    let scans = cx.default_global::<ReadScans>();
+    if scans.0.get(session_id) == Some(&revisions) {
+        return;
+    }
+    scans.0.insert(session_id.to_string(), revisions);
     let Some(newest) = unread_marker(session_id, whole_tree, cx) else {
         return;
     };

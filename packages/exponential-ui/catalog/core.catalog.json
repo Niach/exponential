@@ -406,7 +406,7 @@
         "align": { "type": "enum", "values": ["start", "center", "end"], "description": "Horizontal alignment inside its box." },
         "lines": { "type": "number", "description": "Truncates to this many lines with an ellipsis." },
         "tone": { "type": "enum", "enum": "tone", "description": "A colour tone instead of the default foreground." },
-        "shimmer": { "type": "boolean", "default": false, "description": "Animates a highlight across the text (work in progress)." },
+        "shimmer": { "type": "boolean", "default": false, "description": "Animates a highlight across the text while work runs." },
         "live": { "type": "enum", "enum": "live", "default": "off", "description": "Announces text changes to screen readers (`assertive` interrupts)." },
         "style": { "type": "style", "description": "Extra Box styles for the text box." }
       },

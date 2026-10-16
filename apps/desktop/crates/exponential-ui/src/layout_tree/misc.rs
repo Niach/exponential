@@ -59,9 +59,9 @@ impl Builder<'_, '_> {
         if !wrap {
             body_style["overflowX"] = json!("auto");
         }
+        let line_height = if str_prop(&owner.props, "size") == Some("sm") { CODE_LINE_HEIGHT_SM } else { CODE_LINE_HEIGHT };
         if let Some(max) = owner.props.get("maxLines").and_then(Value::as_f64) {
-            let line = if str_prop(&owner.props, "size") == Some("sm") { CODE_LINE_HEIGHT_SM } else { CODE_LINE_HEIGHT };
-            body_style["maxHeight"] = json!(max as f32 * line);
+            body_style["maxHeight"] = json!(max as f32 * line_height);
             body_style["overflowY"] = json!("auto");
         }
         let body = self.part(&owner, "body", "Box", NodeKind::Container, body_style, json!({}));
@@ -72,8 +72,12 @@ impl Builder<'_, '_> {
             let suffix = format!(".{i}");
             let text: String = tokens.iter().map(|t| t.text.as_str()).collect();
             // A line spans the body (its highlight too); a long unwrapped
-            // line overflows it (the body scrolls).
-            let row_style = if wrap { json!({"display": "flex", "flexDirection": "row", "alignSelf": "stretch"}) } else { json!({"display": "flex", "flexDirection": "row", "flexShrink": 0, "alignSelf": "stretch"}) };
+            // line overflows it (the body scrolls). Every line is at least
+            // one line box tall (the web's `min-h-lh`): an EMPTY line (no
+            // tokens, its Text measures 0×0) keeps its height, and its code
+            // leaf stretches to it so a painter still places it.
+            let mut row_style = if wrap { json!({"display": "flex", "flexDirection": "row", "alignSelf": "stretch"}) } else { json!({"display": "flex", "flexDirection": "row", "flexShrink": 0, "alignSelf": "stretch"}) };
+            row_style["minHeight"] = json!(line_height);
             let row = self.part_in(body, &owner, "line", "Box", NodeKind::Container, row_style, json!({"line": i + 1}), &suffix);
             if highlight.contains(&((i + 1) as u64)) {
                 self.add_state(row, "selected");

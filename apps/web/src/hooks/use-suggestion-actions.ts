@@ -16,8 +16,12 @@ export function useSuggestionActions(input: {
   teamId: string
   /** Members only; absent = the card is read-only. */
   enabled: boolean
+  /** The agent CLI of a session of the tree (the card's posting session):
+   *  Start with… offers THAT agent's models (a codex thread's children run
+   *  codex). Unknown = claude. */
+  agentFor?: (sessionId: string) => string | null | undefined
 }): ThreadSuggestionActions | undefined {
-  const { teamId, enabled } = input
+  const { teamId, enabled, agentFor } = input
   const { data: session } = useSession()
   const { devices } = useSteerDevices({
     enabled,
@@ -55,10 +59,15 @@ export function useSuggestionActions(input: {
         })),
     [devices]
   )
-  // The ONE model vocabulary (contract `codingModel`), never a default row.
-  const models = useMemo(
-    () => agentModelValues(`claude`).map((value) => ({ value, label: modelLabel(value) })),
-    []
+  // The ONE model vocabulary (contract `codingModel`) of the POSTING
+  // session's agent, never a default row.
+  const models = useCallback(
+    (sessionId: string) =>
+      agentModelValues(agentFor?.(sessionId) || `claude`).map((value) => ({
+        value,
+        label: modelLabel(value),
+      })),
+    [agentFor]
   )
 
   return useMemo(() => {

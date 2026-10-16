@@ -8,12 +8,18 @@ import { trpc } from "@/lib/trpc-client"
 // rides the ordinary message as text; `/btw <question>` instead starts an
 // ASIDE child of the session (`sessions.send({parentId, text, aside: true})`):
 // a forked read-only run the parent never sees, shown in the Conversation as
-// a plain session card titled with the question.
-//
-// TODO(EXP-1323): the composer owner wires this into the send path (and THE
-// `/` menu): `if (await dispatch(text)) clear the draft, else send as today`.
+// a plain session card titled with the question. `SessionComposer.send` runs
+// `dispatch` before its own `sessions.send({sessionId})` (×4: IDE
+// `steer_viewer::send_confirmed`, iOS `AgentSessionModel.sendMessage`,
+// Android `AgentSessionViewModel.sendDraft`); the `/` menu lists it off the
+// contract (`steerCommandsFor`, claude only).
 
 export const BTW_COMMAND = `btw`
+
+/** What `dispatch` did with a draft: `null` = not a command handled here
+ *  (send it as a message), `sent` = the aside is in (clear the draft),
+ *  `failed` = toasted `Couldn't ask the side question` (keep the draft). */
+export type SteerDispatch = `sent` | `failed` | null
 
 /** The question of a `/btw <question>` draft for `agent`'s session, or null
  *  (another command, prose, no question, an agent without `/btw`). */
@@ -23,28 +29,30 @@ export function btwQuestion(text: string, agent: string | null | undefined): str
   return parsed.args || null
 }
 
-/** `dispatch(text)` → true when the draft was a command handled here (the
- *  composer clears it), false when it should go out as a message. */
+/** `dispatch(text)` → truthy when the draft was a command handled here
+ *  (`sent`: the composer clears it; `failed`: it toasted, the draft stays),
+ *  null when it should go out as a message. */
 export function useSteerCommand(input: {
   teamId: string
   sessionId: string
   /** The session's agent CLI (`/btw` is claude-only). */
   agent: string | null | undefined
-}): (text: string) => Promise<boolean> {
+}): (text: string) => Promise<SteerDispatch> {
   const { teamId, sessionId, agent } = input
   return useCallback(
     async (text: string) => {
       const question = btwQuestion(text, agent)
-      if (question === null) return false
+      if (question === null) return null
       try {
         await trpc.sessions.send.mutate(
           { teamId, parentId: sessionId, text: question, aside: true },
           SKIP_ERROR_TOAST
         )
+        return `sent`
       } catch (error) {
         failedAction(`ask`, `the side question`, error)
+        return `failed`
       }
-      return true
     },
     [teamId, sessionId, agent]
   )

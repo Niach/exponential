@@ -385,11 +385,13 @@ struct AgentSessionView: View {
                 claimed = true
                 model = deps.attachSteerModel(accountId: accountId, session: session)
                 // EXP-1323: opening a session view reads it (the Threads
-                // list's bold child row); a background failure stays silent.
-                let api = deps.sessionsApi
-                let accountId = accountId
-                let sessionId = session.id
-                Task { try? await api.markRead(accountId: accountId, sessionId: sessionId) }
+                // list's bold child row).
+                markRead()
+            }
+            // A newer agent message read here is read: re-stamp the session
+            // (the Android/Thread rule — keyed on the newest agent message).
+            .onChange(of: model?.newestAgentMessageKey) { _, newest in
+                if newest != nil { markRead() }
             }
             .onDisappear {
                 // EXP-802: the DRAFT outlives this screen, its focus must not —
@@ -646,7 +648,8 @@ struct AgentSessionView: View {
                                 detail: focused.detail,
                                 durationMs: model.subagentDurationMs(
                                     focused.subagentId, done: focused.done
-                                )
+                                ),
+                                live: model.agentWorking
                             )
                             if focused.items.isEmpty {
                                 EmptyState(.transcript)
@@ -661,7 +664,8 @@ struct AgentSessionView: View {
                                     Array(laneRows.enumerated()), id: \.element.id
                                 ) { index, row in
                                     SubagentLaneRow(
-                                        row: row, context: markdownContext, nested: false
+                                        row: row, context: markdownContext, nested: false,
+                                        live: model.agentWorking, testResults: model.testResults
                                     )
                                     .padding(.top, Self.gapPoints(AgentFeed.transcriptGap(
                                         // The SubagentRow header above the
@@ -853,7 +857,8 @@ struct AgentSessionView: View {
                 liveTail: isLast && model?.phase == .live,
                 // EXP-846: an Exponential call's issue preview resolves and
                 // navigates against the run's team.
-                refs: markdownContext.issueRefs
+                refs: markdownContext.issueRefs,
+                testResults: model?.testResults ?? [:]
             )
         case let .edits(items):
             // EXP-916: a run of edit calls is ONE card — the same file cards
@@ -915,8 +920,11 @@ struct AgentSessionView: View {
             case let .question(question):
                 questionCard(question)
             case let .subagent(_, _, agentType, status, detail, _, title, _):
+                // A `started` whose `completed` never came reads settled
+                // once the turn is over (the Reasoning line's rule).
                 SubagentRow(
-                    agentType: agentType, title: title, status: status, detail: detail
+                    agentType: agentType, title: title, status: status, detail: detail,
+                    live: model?.agentWorking == true
                 )
             case let .permission(_, tool, detail):
                 PermissionRow(tool: tool, detail: detail)
@@ -994,7 +1002,8 @@ struct AgentSessionView: View {
                 name: name, detail: detail, failed: failed,
                 settled: settled, preview: preview,
                 refs: markdownContext.issueRefs, output: output, live: live,
-                kind: kind
+                kind: kind,
+                testResults: callId.flatMap { model?.testResults[$0] }
             )
         }
     }
@@ -1577,6 +1586,14 @@ struct AgentSessionView: View {
         return .none
     }
 
+    /// `sessions.markRead` on this session; a background failure stays silent.
+    private func markRead() {
+        let api = deps.sessionsApi
+        let accountId = accountId
+        let sessionId = session.id
+        Task { try? await api.markRead(accountId: accountId, sessionId: sessionId) }
+    }
+
     // MARK: - Slash commands (EXP-724)
 
     /// The menu is up while the field has focus, the draft matches something,
@@ -1633,7 +1650,10 @@ struct AgentSessionView: View {
                 usageFraction: usageFraction(model),
                 usageSeverity: usageSeverity(model),
                 onUsage: { showUsageSheet = true },
-                showsPlan: model.session?.dispatch != true
+                showsPlan: model.session?.dispatch != true,
+                // An ended row takes no `/model`: the pin is a label.
+                ended: model.session?.isLive == false,
+                planModeFallback: model.sessionConfig == nil && model.session?.planMode == true
             ),
             attach: $attach,
             // EXP-1295: a message is a `messages` row, so sending never waits
@@ -1666,6 +1686,7 @@ struct AgentSessionView: View {
     /// EXP-877: a model switch is a PLAIN MESSAGE — `/model <alias>` — the
     /// agent answers with the next `config_state`, which repaints the pill.
     private func sendModelSwitch(_ model: AgentSessionModel, _ alias: String) {
+        guard model.session?.isLive != false else { return }
         Task { await model.sendMessage("/model \(alias)") }
     }
 
@@ -1693,11 +1714,21 @@ struct AgentSessionView: View {
     }
 
     private func sendMessage(_ model: AgentSessionModel) {
-        // EXP-724: `/clear` discards the whole conversation — ask
-        // first, then send exactly what was typed.
-        if let command = model.pendingSlashCommand, command.confirm {
-            slashConfirm = command
-            return
+        // A slash command is the WHOLE message: no attachments around it
+        // (the toast refuses, web parity; `/btw` included), and EXP-724:
+        // `/clear` discards the whole conversation — ask first, then send
+        // exactly what was typed.
+        if let command = SlashCommands.command(
+            for: model.draftText, agent: model.catalogAgent, extra: model.sessionConfig?.commands ?? []
+        ) {
+            if model.hasPendingAttachments {
+                toaster.error(SlashCommands.attachmentsRefusal)
+                return
+            }
+            if command.confirm {
+                slashConfirm = command
+                return
+            }
         }
         Task { await model.sendDraft() }
     }
@@ -2815,6 +2846,9 @@ private struct ToolRow: View {
     var live: Bool = false
     /// The contract `toolKind` (nil = `other`).
     var kind: String? = nil
+    /// A settled `execute`'s output parsed as a test run — ONCE, when its
+    /// settle landed (`AgentSessionModel.testResults`), never per render.
+    var testResults: TestResults? = nil
 
     var body: some View {
         // EXP-846: one of OUR OWN MCP tools keeps its own sentence + mark (as
@@ -2847,8 +2881,8 @@ private struct ToolRow: View {
     }
 
     private var failedTests: TraceLineModel? {
-        guard settled, kind == "execute", let shownOutput else { return nil }
-        return Trace.failedTests(Trace.parseTestResults(shownOutput))
+        guard settled, kind == "execute", shownOutput != nil else { return nil }
+        return Trace.failedTests(testResults)
     }
 
     @ViewBuilder
@@ -3097,6 +3131,8 @@ private struct ToolGroupRow: View {
     /// EXP-846: what an Exponential call's issue preview resolves against (the
     /// run's team) and where a tap on it goes. Nil keeps the preview textual.
     var refs: AgentIssueRefContext? = nil
+    /// The model's parsed test runs by call id (`AgentSessionModel.testResults`).
+    var testResults: [String: TestResults] = [:]
 
     @State private var expanded = false
 
@@ -3130,7 +3166,7 @@ private struct ToolGroupRow: View {
             } content: {
                 ForEach(items) { item in
                     if case let .tool(
-                        id, name, detail, _, _, kind, settled, failed, _, preview, output, _, _
+                        id, name, detail, _, callId, kind, settled, failed, _, preview, output, _, _
                     ) = item {
                         // EXP-1206: inside the group too, the RUNNING call
                         // is its line alone.
@@ -3139,7 +3175,8 @@ private struct ToolGroupRow: View {
                             nested: true,
                             settled: settled, preview: preview, refs: refs,
                             output: output, live: liveTail && id == items.last?.id,
-                            kind: kind
+                            kind: kind,
+                            testResults: callId.flatMap { testResults[$0] }
                         )
                     }
                 }
@@ -3147,11 +3184,12 @@ private struct ToolGroupRow: View {
             // The live tail: while the run is the trailing row of a live
             // session, the latest call shows under the collapsed caption.
             if !expanded, liveTail, let last = items.last,
-               case let .tool(_, name, detail, _, _, kind, settled, failed, _, preview, output, _, _) = last {
+               case let .tool(_, name, detail, _, callId, kind, settled, failed, _, preview, output, _, _) = last {
                 ToolRow(
                     name: name, detail: detail, failed: failed, nested: true,
                     settled: settled, preview: preview, refs: refs,
-                    output: output, live: true, kind: kind
+                    output: output, live: true, kind: kind,
+                    testResults: callId.flatMap { testResults[$0] }
                 )
                 .padding(.leading, Trace.Geometry.sm.contentInset)
                 .padding(.top, Trace.Geometry.sm.contentTop)
@@ -3242,6 +3280,11 @@ struct SubagentLaneRow: View {
     /// compact rhythm; the focused-subagent list spaces its rows with the
     /// transcript's gap ladder instead.
     var nested: Bool = true
+    /// The run is working a turn: a Reasoning line shimmers only then (a
+    /// `started` whose `ended` never came reads settled once the turn ends).
+    var live: Bool = true
+    /// The model's parsed test runs by call id (`AgentSessionModel.testResults`).
+    var testResults: [String: TestResults] = [:]
 
     var body: some View {
         switch row {
@@ -3255,7 +3298,9 @@ struct SubagentLaneRow: View {
             ExpToolGroupRow(items: items, refs: context.issueRefs)
                 .padding(.vertical, nested ? 2 : 0)
         case let .single(item):
-            SubagentItemRow(item: item, context: context, nested: nested)
+            SubagentItemRow(
+                item: item, context: context, nested: nested, live: live, testResults: testResults
+            )
         default:
             EmptyView()
         }
@@ -3272,6 +3317,9 @@ struct SubagentItemRow: View {
     /// compact rhythm; the focused-subagent list spaces its rows with the
     /// transcript's gap ladder instead.
     var nested: Bool = true
+    /// The run is working a turn (see `SubagentLaneRow.live`).
+    var live: Bool = true
+    var testResults: [String: TestResults] = [:]
 
     var body: some View {
         content.padding(.vertical, nested ? 2 : 0)
@@ -3284,17 +3332,19 @@ struct SubagentItemRow: View {
             where ScriptCards.isScriptCall(name: name, toolKind: kind):
             // EXP-1279: a lane's code-mode call is its Script card too.
             ScriptCallRow(settled: settled, failed: failed, script: script)
-        case let .tool(_, name, detail, _, _, kind, settled, failed, _, preview, output, _, _):
+        case let .tool(_, name, detail, _, callId, kind, settled, failed, _, preview, output, _, _):
             // A subagent's rows are a digest inside the main transcript — its
             // own tab is where its work is read — so none of them is the live
             // row here; the reader's tap still opens one.
             ToolRow(
                 name: name, detail: detail, failed: failed,
                 settled: settled, preview: preview, refs: context.issueRefs,
-                output: output, kind: kind
+                output: output, kind: kind,
+                testResults: callId.flatMap { testResults[$0] }
             )
         case let .thought(_, _, running, durationMs, _):
-            TraceLine(Trace.reasoning(running: running, durationMs: durationMs), size: .sm)
+            // The main lane's rule: shimmer only while the run works.
+            TraceLine(Trace.reasoning(running: running && live, durationMs: durationMs), size: .sm)
         case let .narration(_, text, _, _):
             NarrationBubble(text: text, context: context)
         case let .apiError(_, message, errorType, _):
@@ -3317,11 +3367,13 @@ private struct SubagentRow: View {
     let status: AgentSubagentStatus
     let detail: String?
     var durationMs: Int? = nil
+    /// The run is working a turn: an unfinished subagent shimmers only then.
+    var live: Bool = true
 
     var body: some View {
         SubagentTraceLine(
             label: SubagentTraceLine.label(agentType),
-            running: status != .completed, durationMs: durationMs
+            running: status != .completed && live, durationMs: durationMs
         )
     }
 }

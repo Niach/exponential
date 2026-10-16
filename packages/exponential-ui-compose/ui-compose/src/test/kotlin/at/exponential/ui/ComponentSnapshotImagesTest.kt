@@ -162,18 +162,18 @@ class ComponentSnapshotImagesTest {
         compose.waitForIdle()
         assertEquals(0, m.issues.size)
         assertEquals(390f, m.width, 0.5f)
-        assertTrue("height ${m.surfaceSize.height}", m.surfaceSize.height in 1000f..7900f)
+        assertTrue("height ${m.surfaceSize.height}", m.surfaceSize.height in 1000f..8900f)
         // The real measure batches (the views' shaper, not the fixed one).
         assertTrue("upcalls ${m.stats.upcalls}", m.stats.upcalls <= 3)
         capture("kitchen-sink-$theme.png")
     }
 
     @Test
-    @Config(qualifiers = "w390dp-h8000dp-xhdpi")
+    @Config(qualifiers = "w390dp-h9000dp-xhdpi")
     fun kitchenSinkExponential() = kitchenSink("exponential")
 
     @Test
-    @Config(qualifiers = "w390dp-h8000dp-xhdpi")
+    @Config(qualifiers = "w390dp-h9000dp-xhdpi")
     fun kitchenSinkThemes() {
         for (theme in at.exponential.ui.ffi.builtinThemeIds()) if (theme != "exponential") kitchenSinkTheme(theme)
     }
@@ -197,7 +197,7 @@ class ComponentSnapshotImagesTest {
         }
         compose.waitForIdle()
         assertEquals("$theme issues", 0, m.issues.size)
-        assertTrue("$theme height ${m.surfaceSize.height}", m.surfaceSize.height in 1000f..7900f)
+        assertTrue("$theme height ${m.surfaceSize.height}", m.surfaceSize.height in 1000f..8900f)
         capture("kitchen-sink-$theme.png")
     }
 

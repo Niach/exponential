@@ -97,19 +97,19 @@ export async function composeSessionBrief(sessionId: string): Promise<{
         inputs: resolved.ok
           ? resolved.inputs.map((entry) => ({ label: entry.label, display: entry.display }))
           : (action.inputs ?? [])
-              .filter((def) => session.actionInputs?.[def.key])
-              .map((def) => ({ label: def.label, display: session.actionInputs![def.key]! })),
+              .filter((def) => actionSource.actionInputs?.[def.key])
+              .map((def) => ({ label: def.label, display: actionSource.actionInputs![def.key]! })),
       }
     }
   }
 
   input.issues = await rootIssues(root.id)
   // A thread's dispatcher started on work by construction hands it off at
-  // once instead of judging it: plan mode, linked issues or an action.
+  // once instead of judging it: plan mode, linked issues or an action. An
+  // ended dispatcher's continuation (a child row that dispatches on) too.
   input.handOff =
     session.dispatch &&
     session.kind === `thread` &&
-    session.parentId === null &&
     Boolean(session.workLaunch?.planMode || input.issues.length > 0 || input.action)
 
   let parentBranch: string | null = null

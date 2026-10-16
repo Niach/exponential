@@ -80,8 +80,8 @@ export const STEER_TICKET_TTL_SECONDS = 60
 // EXP-312: there is no view/steer perm distinction anymore — a live session
 // is visible and steerable ONLY by its owner (the account that started it),
 // enforced at mint time in the tRPC router. A ticket in hand IS full access
-// to its session; the old `perm` claim is gone from the wire (clean cut —
-// bump CLIENT_MIN_VERSION_* past pre-EXP-312 builds when deploying).
+// to its session; the old `perm` claim is gone from the wire (every client
+// floor is past the pre-EXP-312 builds).
 // EXP-710: a control seed is the account and nothing else — the `deviceLabel`
 // claim went with the presence metadata the relay stopped reading (EXP-672).
 export type SteerTicketSeed =

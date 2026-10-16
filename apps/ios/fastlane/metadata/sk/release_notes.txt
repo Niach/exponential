@@ -1,5 +1,6 @@
-- Vlákna: vlákno je na každom zariadení jedna obrazovka, s úlohami, reláciami a Guide v jednom páse, a Home má editor dole na pozadí úsvitu
-- Názvy: vlákno sa volá podľa svojej práce, napríklad Implement EXP-12 alebo Run Triage, takže každý zoznam vyzerá rovnako na telefóne, webe aj desktope
-- Otázky: možnosti agenta môžu mať krátky popis a každá otázka má riadok, kam napíšete vlastnú odpoveď
-- Guide: obrázok sa otvorí vedľa svojich poznámok so šípkami k ďalšiemu a ľudia pridaní do tímu bez pozvánky sa zobrazia ako Not invited
-- Účty: relácia, ktorá narazí na limit využitia, sa môže prepnúť na iný prihlásený účet a pokračovať
+- Vlákna: vlákno spúšťa malého dispečera, ktorý rýchle otázky zodpovie sám a na skutočnú prácu spustí reláciu, a pole na odpoveď vo vlákne je rovnaké ako v relácii, s prepínačom modelu
+- Správy: keď podrelácia skončí, jej zhrnutie príde ako správa do konverzácie nadradenej relácie a agent môže navrhnúť nadväzujúce úlohy, ktoré spustíte jedným ťuknutím
+- Zoznam vlákien: bežiaca relácia ukazuje pod svojím názvom aktuálny krok, podrelácie sú vnorené pod svojím vláknom a vlákno s neprečítanými správami agenta má tučný názov
+- Prepis: práca relácie sa číta ako riadky trasovania s blokmi kódu a správy v rade čakajú na jednom mieste, kým si ich agent nevezme
+- Modely: každý výber modelu ponúka Fable, Opus, Sonnet a Haiku, bez položky Default
+- /btw: položte bežiacej relácii Claude vedľajšiu otázku a dostaňte odpoveď bez prerušenia jej práce

@@ -236,7 +236,11 @@ export async function threadBoardId(rootId: string): Promise<string | null> {
 
 /** File as issue: `issues.create` on the thread's board, linked to the root
  *  (its `sessionId`), then the item's `issueId`. `createIssue` = the issues
- *  router as the caller (its access + link rules). */
+ *  router as the caller (its access + link rules). The create runs in its
+ *  own transaction, so the item is LOCKED (FOR UPDATE) and re-checked open
+ *  first and stamped under that same lock after: a concurrent Start/Dismiss
+ *  waits on the lock and then sees the item filed (CONFLICT) instead of
+ *  leaving an orphan issue behind a lost stamp. */
 export async function fileSuggestion(
   userId: string,
   input: { messageId: string; itemId: string },
@@ -256,14 +260,22 @@ export async function fileSuggestion(
       message: `This thread has no board: link an issue first`,
     })
   }
-  const { issueId } = await createIssue({
-    boardId,
-    title: item.title.slice(0, 500),
-    description: item.text,
-    sessionId: session.id,
-  })
   return db.transaction(async (tx) => {
     const txid = await generateTxId(tx)
+    const [locked] = await tx
+      .select({ card: messages.card })
+      .from(messages)
+      .where(eq(messages.id, message.id))
+      .for(`update`)
+    // The same open-state check the stamp makes, before anything is created.
+    const open = patchSuggestion((locked?.card ?? null) as MessageCard | null, item.id, {})
+    if (!open.ok) throw new TRPCError({ code: open.code, message: open.message })
+    const { issueId } = await createIssue({
+      boardId,
+      title: item.title.slice(0, 500),
+      description: item.text,
+      sessionId: session.id,
+    })
     await stampItem(tx, message.id, item.id, { issueId })
     return { issueId, txid }
   })

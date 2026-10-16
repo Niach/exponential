@@ -1,5 +1,6 @@
-- Threads: ein Thread ist auf jedem Gerät ein Bildschirm, mit Issues, Sessions und Guide in einer Leiste, und Home zeigt das Eingabefeld unten auf dem Morgenrot
-- Titel: ein Thread heißt nach seiner Arbeit, etwa Implement EXP-12 oder Run Triage, sodass jede Liste auf Telefon, Web und Desktop gleich aussieht
-- Fragen: die Optionen eines Agenten können eine kurze Beschreibung haben, und jede Frage hat eine Zeile für deine eigene Antwort
-- Guide: ein Bild öffnet sich neben seinen Notizen, mit Pfeilen zum nächsten, und ohne Einladung zum Team hinzugefügte Personen erscheinen als Not invited
-- Konten: eine Session, die ihr Nutzungslimit erreicht, kann zu einem anderen angemeldeten Konto wechseln und weiterlaufen
+- Threads: ein Thread startet einen kleinen Dispatcher, der kurze Fragen selbst beantwortet und für echte Arbeit eine Session startet, und das Antwortfeld des Threads ist dasselbe wie das einer Session, mit Modellwechsel
+- Berichte: wenn eine Unter-Session endet, landet ihre Zusammenfassung als Bericht in der Unterhaltung ihres Elternteils, und ein Agent kann Folgeaufgaben vorschlagen, die du mit einem Tippen startest
+- Thread-Liste: eine laufende Session zeigt ihren aktuellen Schritt unter ihrem Namen, Unter-Sessions stehen eingerückt unter ihrem Thread, und ein Thread mit ungelesenen Agent-Nachrichten zeigt seinen Titel fett
+- Verlauf: die Arbeit einer Session liest sich als Trace-Zeilen mit Codeblöcken, und Nachrichten in der Warteschlange warten an einer Stelle, bis der Agent sie aufnimmt
+- Modelle: jede Modellauswahl listet Fable, Opus, Sonnet und Haiku, ohne Default-Eintrag
+- /btw: stelle einer laufenden Claude-Session eine Nebenfrage und erhalte die Antwort, ohne ihre Arbeit zu unterbrechen

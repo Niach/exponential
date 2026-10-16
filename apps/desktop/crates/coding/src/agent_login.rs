@@ -206,9 +206,8 @@ pub const MALFORMED_PAYLOAD: &str = "Malformed command payload.";
 /// Parse an `agent_login` payload: `{agent, switch?: "true"|"false",
 /// profileId?, import?: "true"}`. `switch` is still validated but means
 /// nothing any more (a login runs in a fresh dir, so there is nothing to sign
-/// out of first); a legacy `newProfileLabel` is ignored; `profileId` blank or
-/// the retired `system` reads as absent. `Err` carries the refusal sentence
-/// the command completes with.
+/// out of first); `profileId` blank or the retired `system` reads as absent.
+/// `Err` carries the refusal sentence the command completes with.
 pub fn parse_login_payload(payload: &serde_json::Value) -> Result<LoginRequest, String> {
     let raw_agent = payload["agent"].as_str().unwrap_or_default();
     let agent = match CodingAgent::parse(raw_agent) {
@@ -768,9 +767,9 @@ mod tests {
     }
 
     /// The payload's shapes, and the refusals: a blank/`system` `profileId`
-    /// reads as absent (Add account), a legacy `newProfileLabel` is ignored,
-    /// `switch` is validated and otherwise meaningless, `import` is its own
-    /// target and never combines with a profile.
+    /// reads as absent (Add account), `switch` is validated and otherwise
+    /// meaningless, `import` is its own target and never combines with a
+    /// profile.
     #[test]
     fn login_payload_parses_add_profile_or_import() {
         let add = parse_login_payload(&serde_json::json!({"agent": "claude", "switch": "true"}))
@@ -783,11 +782,6 @@ mod tests {
         assert_eq!(existing.agent, CodingAgent::Codex);
         assert_eq!(existing.target, LoginTarget::Profile("0badf00d".to_string()));
         assert_eq!(existing.target.intended(), Some("0badf00d"));
-        let legacy = parse_login_payload(&serde_json::json!({
-            "agent": "claude", "newProfileLabel": "  Work  "
-        }))
-        .unwrap();
-        assert_eq!(legacy.target, LoginTarget::Add, "a legacy label is ignored");
         for blank in ["", "  ", "system"] {
             let parsed = parse_login_payload(&serde_json::json!({
                 "agent": "claude", "profileId": blank

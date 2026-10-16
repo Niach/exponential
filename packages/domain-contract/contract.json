@@ -485,7 +485,7 @@
       },
       {
         "name": "btw",
-        "description": "Ask a quick side question without adding to the session",
+        "description": "Ask a quick side question, answered read-only without adding to the session",
         "argHint": "question",
         "agents": ["claude"],
         "confirm": false

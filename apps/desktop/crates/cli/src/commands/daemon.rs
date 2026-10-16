@@ -2771,11 +2771,7 @@ impl DaemonHost {
     /// own Resume; a row another process on this machine holds (a foreground
     /// `code`) is skipped by its claim lock.
     fn reconcile_rows(&self, rows: &[SessionRow], messages: &[MessageRow]) {
-        let pending: HashSet<&str> = messages
-            .iter()
-            .filter(|message| message.is_queued())
-            .map(|message| message.session_id.as_str())
-            .collect();
+        let pending = pending_session_ids(messages);
         let stale: Vec<String> = rows
             .iter()
             .filter(|row| {
@@ -2973,13 +2969,20 @@ fn busy_agent_ids(
             .filter(|row| row.is_agent() && row.busy)
             .map(|row| row.id.clone()),
     );
-    busy.extend(
-        messages
-            .iter()
-            .filter(|message| message.is_queued())
-            .map(|message| message.session_id.clone()),
-    );
+    busy.extend(pending_session_ids(messages).into_iter().map(str::to_string));
     busy
+}
+
+/// The sessions with an input waiting for them — a person's message or one
+/// another session posted (a child's `report`, a child asking its parent):
+/// [`coding::pickup::is_pending_input`], the pickup's own predicate, so the
+/// reconcile's Resume and an agent's firing hold read the same rows.
+fn pending_session_ids(messages: &[MessageRow]) -> HashSet<&str> {
+    messages
+        .iter()
+        .filter(|message| coding::pickup::is_pending_input(message))
+        .map(|message| message.session_id.as_str())
+        .collect()
 }
 
 /// The names a firing's event lines render: the matched issues point-read
@@ -3771,6 +3774,37 @@ mod tests {
         .expect("message row decodes")
     }
 
+    /// An agent-authored row on `session_id`: `from` = the session that
+    /// posted it (a child's `report`), `None` = the session's own reply.
+    fn agent_message(id: &str, session_id: &str, from: Option<&str>) -> MessageRow {
+        serde_json::from_value(serde_json::json!({
+            "id": id,
+            "session_id": session_id,
+            "author_kind": "agent",
+            "author_session_id": from,
+            "body": "done",
+            "consumed_at": null,
+        }))
+        .expect("message row decodes")
+    }
+
+    /// EXP-1329: a child's pending `report` is an input like a person's
+    /// message — it holds the agent's next firing and marks the row for the
+    /// reconcile's Resume; the session's own reply never does.
+    #[test]
+    fn pending_inputs_count_child_reports_never_own_replies() {
+        let messages = vec![
+            message("m-person", "s-person", false),
+            message("m-read", "s-read", true),
+            agent_message("m-report", "s-reported", Some("child-1")),
+            agent_message("m-own", "s-own-reply", None),
+            agent_message("m-self", "s-self", Some("s-self")),
+        ];
+        let mut pending: Vec<&str> = pending_session_ids(&messages).into_iter().collect();
+        pending.sort_unstable();
+        assert_eq!(pending, vec!["s-person", "s-reported"]);
+    }
+
     /// An agent gets no second firing while it works, while a person message
     /// (an earlier firing included) waits in its channel, or while a firing
     /// this daemon posted has not synced back yet; the posted memory lets go
@@ -3783,6 +3817,9 @@ mod tests {
             session("agent-queued", serde_json::json!({"kind": "agent"})),
             session("agent-posted", serde_json::json!({"kind": "agent"})),
             session("agent-synced", serde_json::json!({"kind": "agent"})),
+            // EXP-1329: a child's pending report is an input too.
+            session("agent-reported", serde_json::json!({"kind": "agent"})),
+            session("agent-replied", serde_json::json!({"kind": "agent"})),
             // A busy THREAD is no agent to defer.
             session("thread", serde_json::json!({"kind": "thread", "busy": "true"})),
         ];
@@ -3790,6 +3827,9 @@ mod tests {
             message("m-pending", "agent-queued", false),
             message("m-consumed", "agent-idle", true),
             message("m-synced", "agent-synced", true),
+            agent_message("m-report", "agent-reported", Some("child-1")),
+            // The agent's own reply waits on nobody.
+            agent_message("m-reply", "agent-replied", None),
         ];
         let now = Instant::now();
         let mut posted = HashMap::from([
@@ -3803,7 +3843,7 @@ mod tests {
         let busy = busy_agent_ids(&rows, &messages, &mut posted, now);
         let mut busy: Vec<&str> = busy.iter().map(String::as_str).collect();
         busy.sort_unstable();
-        assert_eq!(busy, vec!["agent-busy", "agent-posted", "agent-queued"]);
+        assert_eq!(busy, vec!["agent-busy", "agent-posted", "agent-queued", "agent-reported"]);
         assert_eq!(posted.keys().collect::<Vec<_>>(), vec!["agent-posted"]);
     }
 

@@ -154,6 +154,10 @@ object SlashCommands {
     /** EXP-1323: the contract's aside command (`/btw <question>`). */
     const val ASIDE_COMMAND: String = "btw"
 
+    /** A slash command is the WHOLE message: with attachments around it the
+     *  send refuses with this toast — byte-identical ×4 (web `session-composer`). */
+    const val COMMAND_WITH_ATTACHMENTS: String = "Remove the attachments to send a command"
+
     /**
      * EXP-1323: the question of a `/btw <question>` draft when [agent] offers
      * the command (contract `steerCommands` `btw`), else null. It never

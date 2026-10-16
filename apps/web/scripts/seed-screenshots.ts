@@ -1953,7 +1953,7 @@ async function main() {
     platform: `linux`,
     version: DEMO_SERVER_VERSION,
     agents: [`claude`, `codex`],
-    caps: [`actions`, `action-inputs`, `fix-conflicts`, `chat`],
+    caps: [`agent-login`, `acp`, `agent-import`, `agent-usage-refresh`, `update-now`],
     // EXP-1306: the logins it last reported, so the agents' Account rows read
     // the login (brand mark + email) like every phone specimen does.
     agentAccounts: demoAgentReport(hoursAgo(5)).agentAccounts,

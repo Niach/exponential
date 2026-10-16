@@ -41,4 +41,19 @@ final class AnsiCodeTests: XCTestCase {
             )
         }
     }
+
+    /// The prefix match is on UTF-16 units like TS `startsWith`: an
+    /// emoji-presentation check/cross (`U+2714 U+FE0F`, `U+2717 U+FE0F`)
+    /// still starts with the bare glyph (Swift's grapheme-aware `hasPrefix`
+    /// would say it does not).
+    func testEmojiPresentationPrefixes() {
+        XCTAssertEqual(
+            AnsiCode.tokenize("\u{2714}\u{FE0F} done\n  \u{2717}\u{FE0F} failed\nplain \u{2714}\u{FE0F}"),
+            [
+                [CodeToken(kind: "success", text: "\u{2714}\u{FE0F} done")],
+                [CodeToken(kind: "plain", text: "  "), CodeToken(kind: "error", text: "\u{2717}\u{FE0F} failed")],
+                [CodeToken(kind: "plain", text: "plain \u{2714}\u{FE0F}")],
+            ]
+        )
+    }
 }

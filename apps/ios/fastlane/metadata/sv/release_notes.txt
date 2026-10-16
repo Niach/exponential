@@ -1,5 +1,6 @@
-- Trådar: en tråd är en skärm på varje enhet, med ärenden, sessioner och Guide i en remsa, och Home lägger skrivfältet längst ned på gryningen
-- Titlar: en tråd heter efter sitt arbete, som Implement EXP-12 eller Run Triage, så att varje lista ser likadan ut i mobil, webb och dator
-- Frågor: en agents alternativ kan ha en kort beskrivning, och varje fråga har en rad där du skriver ditt eget svar
-- Guide: en bild öppnas bredvid sina anteckningar, med pilar till nästa, och personer som lagts till i teamet utan inbjudan visas som Not invited
-- Konton: en session som når sin användningsgräns kan byta till ett annat inloggat konto och fortsätta
+- Trådar: en tråd kör en liten dispatcher som själv svarar på snabba frågor och startar en session för riktigt arbete, och trådens svarsfält är detsamma som en sessions, med modellväxlaren
+- Rapporter: när en undersession avslutas hamnar dess sammanfattning som en rapport i förälderns konversation, och en agent kan föreslå uppföljningsuppgifter som du startar med ett tryck
+- Trådlista: en pågående session visar sitt aktuella steg under namnet, undersessioner ligger under sin tråd, och en tråd med olästa agentmeddelanden visar sin titel i fetstil
+- Logg: en sessions arbete läses som spårrader med kodblock, och köade meddelanden väntar på ett ställe tills agenten tar dem
+- Modeller: varje modellväljare listar Fable, Opus, Sonnet och Haiku, utan något Default-val
+- /btw: ställ en sidofråga till en pågående Claude-session och få svaret utan att avbryta dess arbete

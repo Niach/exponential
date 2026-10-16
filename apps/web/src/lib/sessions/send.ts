@@ -219,7 +219,9 @@ function effectiveStarter(userId: string, caller: Session | null): string {
 }
 
 // The composer's value sets (EXP-149/201): an agent CLI from the contract,
-// and a model/effort from THAT agent's lists (blank = the CLI default).
+// and a model/effort from THAT agent's lists. Models are always explicit
+// (contract `codingModel`, no blank); a stale client's `""` (its old "CLI
+// default") is tolerated and stored as NULL, never as a value.
 const MODELS: Record<string, readonly string[]> = {
   claude: contract.codingModel.values,
   codex: contract.codexModel.values,
@@ -251,14 +253,15 @@ export function assertRunnerVocabulary(
 
 /** The runner pickers of a new session, the input's or inherited ones. A
  *  dispatcher's children inherit its WORK picks, never its own thread-model
- *  run. */
+ *  run. A blank model/effort (`""`, an old client's "CLI default") is NULL:
+ *  it is neither stored nor inherited. */
 function runnerFields(input: SessionsSendInput, from?: Session | null) {
   const work = from?.dispatch ? (from.workLaunch ?? {}) : from
   return {
     cli: input.cli ?? from?.cli ?? null,
     account: input.account ?? from?.account ?? null,
-    model: input.model ?? work?.model ?? null,
-    effort: input.effort ?? work?.effort ?? null,
+    model: (input.model || work?.model) || null,
+    effort: (input.effort || work?.effort) || null,
     planMode: input.planMode ?? work?.planMode ?? false,
     computerUse: input.computerUse ?? work?.computerUse ?? false,
     ultracode: input.ultracode ?? work?.ultracode ?? false,
@@ -341,6 +344,10 @@ export async function sendSession(args: {
   userId: string
   input: SessionsSendInput
   callerSessionId?: string | null
+  /** The call came in over MCP (an agent's own key): only then may a message
+   *  into ANOTHER session be that session's agent-authored input. Over tRPC
+   *  the caller session merely stamps `author_session_id` on a person row. */
+  viaMcp?: boolean
   extras?: SendExtras
 }): Promise<SessionsSendResult & { txid: number }> {
   const caller = await loadCallerSession(args.userId, args.callerSessionId)
@@ -352,7 +359,7 @@ export async function sendSession(args: {
   const extras = args.extras ?? {}
   let outcome: SendOutcome
   if (input.sessionId) {
-    outcome = await messageSession(starter, uploaderIds, input, caller, extras)
+    outcome = await messageSession(starter, uploaderIds, input, caller, extras, args.viaMcp === true)
   } else if (input.parentId) {
     outcome = await startChild(starter, uploaderIds, input, caller, extras)
   } else {
@@ -399,7 +406,8 @@ async function messageSession(
   uploaderIds: string[],
   input: SessionsSendInput,
   caller: Session | null,
-  extras: SendExtras
+  extras: SendExtras,
+  viaMcp: boolean
 ): Promise<SendOutcome> {
   const target = await loadSessionForUser(userId, input.sessionId!)
   await assertCanSteer(userId, target)
@@ -428,10 +436,12 @@ async function messageSession(
           .set({ account: input.account, updatedAt: new Date() })
           .where(eq(sessions.id, target.id))
       }
-      // EXP-1323: another session's message is ITS input (agent-authored,
-      // pending like a person's: the target wakes and reads it).
+      // EXP-1323: another session's message over its MCP key is ITS input
+      // (agent-authored, pending like a person's: the target wakes and reads
+      // it). Over tRPC the header never speaks for a session: a person's
+      // text stays a person row, the caller id only stamps it.
       const from = caller
-        ? { sessionId: caller.id, asSession: caller.id !== target.id }
+        ? { sessionId: caller.id, asSession: viaMcp && caller.id !== target.id }
         : null
       const messageId = await postSendMessage(tx, target, input, userId, uploaderIds, from)
       await extras.within?.(tx, { sessionId: target.id, messageId, rootId: target.rootId })
@@ -466,9 +476,16 @@ async function messageSession(
       hostUserId: device.hostUserId,
       deviceId: target.deviceId,
       // A switch sent with the message carries into the continuation; a
-      // dispatcher's continuation dispatches on.
+      // dispatcher's continuation dispatches on, carrying the root's Action
+      // too: the brief resolves a work child's action from its DIRECT
+      // dispatcher parent, so the grandchildren keep their `## Action`.
       ...(target.dispatch
-        ? dispatcherFields({ account: input.account }, target)
+        ? {
+            ...dispatcherFields({ account: input.account }, target),
+            actionId: root.actionId,
+            actionName: root.actionName,
+            actionInputs: root.actionInputs,
+          }
         : runnerFields({ account: input.account }, target)),
       mcpServerIds: target.mcpServerIds,
       repositoryId: target.repositoryId ?? root.repositoryId,
@@ -514,6 +531,11 @@ async function startChild(
   if (aside) {
     if (parent.kind === `agent` || parent.aside) {
       throw new TRPCError({ code: `BAD_REQUEST`, message: `Asides run on a thread session only` })
+    }
+    // A fork needs a run to fork: an ended parent has none, a queued one not
+    // yet.
+    if (parent.status === `ended` || parent.status === `queued`) {
+      throw new TRPCError({ code: `BAD_REQUEST`, message: `Asides need a running session` })
     }
     const cli = input.cli ?? (await effectiveCli(parent))
     if (cli && cli !== `claude`) {
