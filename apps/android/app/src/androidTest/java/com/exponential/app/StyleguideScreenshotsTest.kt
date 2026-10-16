@@ -6,6 +6,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasSetTextAction
@@ -20,6 +21,7 @@ import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipeDown
 import androidx.compose.ui.test.swipeUp
 import androidx.test.espresso.Espresso
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -751,6 +753,18 @@ class StyleguideScreenshotsTest {
         // (EXP-1306), so the question card is the gate.
         val childCard = hasTestTag(SessionTree.CardCopy.TEST_ID_CARD) and
             hasText(CHILD_SESSION_TITLE, substring = true)
+        // EXP-1323: the suggestions card pushes the card above the fold once
+        // the conversation opens at its tail; drag back up to it like iOS (a
+        // real drag: a programmatic scroll is re-pinned to the tail, and the
+        // node's top edge sits under the floating header).
+        repeat(6) {
+            val shown = runCatching { composeRule.onAllNodes(childCard).onFirst().assertIsDisplayed() }.isSuccess
+            if (!shown) {
+                composeRule.onNode(hasTestTag(SessionTree.ThreadCopy.TEST_ID_CONVERSATION))
+                    .performTouchInput { swipeDown(startY = centerY, endY = bottom - 200f) }
+                flow.settle()
+            }
+        }
         flow.waitFor(childCard, SYNC_TIMEOUT)
         composeRule.onAllNodes(childCard).onFirst().performClick()
         flow.waitFor(hasTestTag("agent-feed-question"), NETWORK_TIMEOUT)
