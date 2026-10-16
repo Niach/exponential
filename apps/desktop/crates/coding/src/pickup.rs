@@ -309,7 +309,7 @@ pub fn is_pending_input(message: &MessageRow) -> bool {
 
 /// EXP-1329: the text a pending input reaches the agent as. A person's
 /// message is its body; a child's `report` card reads `Report from <child>
-/// (session <id>): <summary>` (the summary, else the body), any other
+/// (session <id>, ended): <summary>` (the summary, else the body), any other
 /// session input `Message from <child> (session <id>): <body>` — the id is
 /// what `exponential_sessions_get` reads more from. `<child>` = its title
 /// off `sessions`, else `Session`.
@@ -338,7 +338,7 @@ pub fn input_text(message: &MessageRow, sessions: &[SessionRow]) -> String {
             .map(str::trim)
             .filter(|summary| !summary.is_empty())
             .unwrap_or(body);
-        return format!("Report from {name} (session {from}): {summary}");
+        return format!("Report from {name} (session {from}, ended): {summary}");
     }
     format!("Message from {name} (session {from}): {body}")
 }
@@ -1792,14 +1792,14 @@ mod tests {
         let sessions = vec![child];
         assert_eq!(
             input_text(&report("r1", "s1", "c1", "Opened PR #12."), &sessions),
-            "Report from Fix the cart (session c1): Opened PR #12."
+            "Report from Fix the cart (session c1, ended): Opened PR #12."
         );
         // An unsynced (or untitled) child is a Session; no summary = the body.
         let mut bare = report("r2", "s1", "c9", "");
         bare.body = Some("Ended without a summary.".to_string());
         assert_eq!(
             input_text(&bare, &sessions),
-            "Report from Session (session c9): Ended without a summary."
+            "Report from Session (session c9, ended): Ended without a summary."
         );
         let asked = MessageRow {
             card: None,
@@ -1820,7 +1820,7 @@ mod tests {
         };
         let rows = vec![report("r1", "s1", "c1", "Opened PR #12.")];
         let expected = MessageRow {
-            body: Some("Report from Fix the cart (session c1): Opened PR #12.".to_string()),
+            body: Some("Report from Fix the cart (session c1, ended): Opened PR #12.".to_string()),
             ..rows[0].clone()
         };
         assert_eq!(
