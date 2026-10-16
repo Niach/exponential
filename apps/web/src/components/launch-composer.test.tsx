@@ -627,8 +627,11 @@ describe(`LaunchComposer + menu`, () => {
         users={[]}
       />
     )
-    const input = container.querySelector(`input[type="file"]`)!
+    // The "+" row and the paperclip share the any-file chooser; the image
+    // button's chooser filters to images.
+    const input = screen.getByTestId(`composer-file-input`)
     expect(input.hasAttribute(`accept`)).toBe(false)
+    expect(screen.getByTestId(`composer-image-input`).getAttribute(`accept`)).toContain(`image/`)
     expect(screen.getByRole(`button`, { name: `Remove notes.pdf` })).toBeTruthy()
     expect(
       container.querySelector(`[data-slot="attachment-file-tile"]`)!.textContent
@@ -641,6 +644,17 @@ describe(`LaunchComposer + menu`, () => {
     openPlus()
     fireEvent.click(screen.getByTestId(`agent-composer-menu-add-file`))
     expect(click).toHaveBeenCalled()
+    expect(click.mock.contexts[0]).toBe(screen.getByTestId(`composer-file-input`))
     click.mockRestore()
+  })
+
+  it(`carries the inline edit tools after the "+" (EXP-1334: the one composer)`, () => {
+    render(<LaunchComposer model={fakeModel()} users={[]} />)
+    for (const name of [`Add image`, `Attach files`, `Insert issue reference`, `Insert emoji`]) {
+      expect(screen.getByRole(`button`, { name })).toBeTruthy()
+    }
+    // The options line sits UNDER the card, inside the one frame.
+    const frame = screen.getByTestId(`agent-composer`).closest(`[data-slot="composer-frame"]`)!
+    expect(frame.contains(screen.getByTestId(`agent-options-row`))).toBe(true)
   })
 })

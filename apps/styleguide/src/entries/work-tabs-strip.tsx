@@ -1,12 +1,13 @@
 import type { ReactNode } from "react"
-import { Button, StatusGlyph, conceptIcon } from "@exp/ui"
+import { Button, StatusGlyph, StripChip, StripOverflowButton, conceptIcon } from "@exp/ui"
 
 import type { StyleguideEntry } from "./types.ts"
 
 // EXP-1255 (EXP-1259 D3): the work tab strip (web md+, desktop). The strip
 // itself lives in apps/web (`components/team/work-tabs-strip.tsx`) over the
 // pure `lib/work-tabs.ts`, so the specimen draws its chips from the same
-// `@exp/ui` Button + concept glyphs at rest: the × at rest is hidden on every
+// `@exp/ui` strip chip (`StripChip`, EXP-1334: ONE tab component with the
+// thread header's strip) + concept glyphs at rest: the × at rest is hidden on every
 // chip and shows on the HOVERED one (here the second, the active one keeps
 // no exception), the "+N" overflow, then the ghost "+" that opens the New
 // session tab, drawn last as an open New session chip.
@@ -16,6 +17,8 @@ const UiAddIcon = conceptIcon(`ui-add`)
 const NewRunIcon = conceptIcon(`action-chat`)
 const noop = (): void => {}
 
+/** THE strip chip (EXP-1334: the thread header's chip box too), the ×
+ *  as its trailing part, hidden unless the tab is hovered. */
 function Chip({
   lead,
   identifier,
@@ -30,26 +33,24 @@ function Chip({
   hovered?: boolean
 }) {
   return (
-    <div
-      className={`flex h-8 max-w-[15rem] shrink-0 items-center rounded-md border ${
-        active ? `border-border bg-muted/50` : `border-transparent`
-      } ${hovered ? `bg-muted/30` : ``}`}
-    >
-      <Button variant="ghost" size="sm" className="h-8 min-w-0 flex-1 justify-start gap-1.5 bg-transparent! pr-1 pl-2 font-normal">
-        {lead}
-        {identifier && <span className="font-mono text-xs text-muted-foreground">{identifier}</span>}
-        <span className="truncate">{title}</span>
-      </Button>
-      <Button
-        variant="ghost"
-        size="icon-xs"
-        aria-label="Close tab"
-        className={`mr-1 shrink-0 ${hovered ? `` : `opacity-0`}`}
-        onClick={noop}
-      >
-        <UiCloseIcon />
-      </Button>
-    </div>
+    <StripChip
+      active={active}
+      lead={lead}
+      identifier={identifier}
+      label={title}
+      boxClassName={hovered ? `bg-glass-active text-foreground` : undefined}
+      trailing={
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          aria-label="Close tab"
+          className={`mr-1 shrink-0 ${hovered ? `` : `opacity-0`}`}
+          onClick={noop}
+        >
+          <UiCloseIcon />
+        </Button>
+      }
+    />
   )
 }
 
@@ -58,7 +59,7 @@ export const entry: StyleguideEntry = {
   section: `special`,
   owner: `EXP-1255`,
   title: `Work tab strip`,
-  blurb: `The tabs over the content card (web md+ and the IDE; phones have none). Route-driven (EXP-1293): an issue, a thread, an agent's channel or a raw session the URL opened is a tab; a thread chip leads with its agent mark. The × shows only while a tab is hovered, every tab alike including the active one (keyboard focus shows it too; the close chord is unchanged). Chips that do not fit fold into "+N". A ghost "+" after the last tab opens ONE New session tab hosting the home composer (IDE Cmd/Ctrl+T; web Alt/Option+T, since browsers keep Cmd/Ctrl+T); the navigation that leaves it (its start opening the thread) lands in that tab. Threads opened from the sidebar's Running stay tabless. Switching tabs never animates.`,
+  blurb: `The tabs over the content card (web md+ and the IDE; phones have none). Route-driven (EXP-1293): an issue, a thread, an agent's channel or a raw session the URL opened is a tab; a thread chip leads with its agent mark. The × shows only while a tab is hovered, every tab alike including the active one (keyboard focus shows it too; the close chord is unchanged). Every chip is THE strip chip (EXP-1334: the same box as the thread header's chips, \`StripChip\`); chips that do not fit fold into "+N" (the contract's \`partitionTabs\`). A ghost "+" after the last tab opens ONE New session tab hosting the home composer (IDE Cmd/Ctrl+T; web Alt/Option+T, since browsers keep Cmd/Ctrl+T); the navigation that leaves it (its start opening the thread) lands in that tab. Threads opened from the sidebar's Running stay tabless. Switching tabs never animates.`,
   status: {
     web: {
       state: `ok`,
@@ -79,9 +80,7 @@ export const entry: StyleguideEntry = {
       <Chip lead={<StatusGlyph icon="progress-2-4" colorClass="text-amber-500 size-3.5" />} identifier="EXP-1223" title="ExponentialOS" active />
       <Chip lead={<StatusGlyph icon="circle-dashed" colorClass="text-muted-foreground size-3.5" />} identifier="EXP-563" title="google keywords" hovered />
       <Chip lead={<NewRunIcon className="size-3.5 text-muted-foreground" />} title="New session" />
-      <Button variant="ghost" size="sm" className="h-8 px-2 text-muted-foreground">
-        +2
-      </Button>
+      <StripOverflowButton count={2} aria-label="2 more tabs" />
       <Button variant="ghost" size="icon-xs" aria-label="New session" className="text-muted-foreground">
         <UiAddIcon />
       </Button>

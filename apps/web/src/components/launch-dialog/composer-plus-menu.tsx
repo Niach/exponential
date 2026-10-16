@@ -4,13 +4,13 @@ import {
   Button,
   ComposerTool,
   Menu,
-  ModelMenuRows,
   PickerMenuRows,
   conceptIcon,
   type MenuEntry,
   type ValueChoice,
 } from "@exp/ui"
 import type { LaunchComposerModel } from "@/hooks/use-launch-composer"
+import type { McpServerList } from "@/lib/mcp-servers"
 import {
   agentEffortValues,
   agentSupportsUltracode,
@@ -20,7 +20,6 @@ import { ComposerIssuePicker } from "@/components/launch-dialog/issue-picker"
 import {
   CLI_DEFAULT_EFFORT,
   effortLabel,
-  subagentModelChoices,
 } from "@/components/launch-dialog/launch-options-pane"
 import { McpServerMenuRows } from "@/components/launch-dialog/mcp-server-picker"
 import {
@@ -51,25 +50,66 @@ const CLI_DEFAULT_LABEL = `CLI default`
  *  close back (`Menu`'s submenu body); on a phone they push as pages. */
 const SUBMENU_LIST_CLASS = `w-[26rem] p-0`
 
-export function ComposerPlusMenu({
-  model,
+/** What the "+" options rows read and write: a launch's picks before a
+ *  start (`LaunchOptions`), a live session's synced options inside one
+ *  (`session-composer-options.tsx`). */
+export interface ComposerOptionsBinding {
+  agent: string
+  effortValue: string
+  setEffortValue: (value: string) => void
+  ultracode: boolean
+  setUltracode: (value: boolean) => void
+  computerUse: boolean
+  setComputerUse: (value: boolean) => void
+  computerUseAvailable: boolean
+  mcpServers: McpServerList
+  mcpServerIds: string[]
+  toggleMcpServer: (id: string) => void
+  mcpConnectHref: (serverId: string) => string | null
+  /** Hide MCP servers (an action owning its MCP list, FEED-73). */
+  hideMcp?: boolean
+}
+
+/** The launch-only half: the subject rows (Implement issue ›, Run action ›)
+ *  exist only BEFORE a start, never inside a session. */
+export interface ComposerSubjectRows {
+  teamId: string
+  eligibleIssues: LaunchComposerModel[`eligibleIssues`]
+  checkedIssues: LaunchComposerModel[`checkedIssues`]
+  /** The picked issue ids' count (the subject's, ahead of the rows). */
+  checkedCount: number
+  toggleIssue: (issueId: string) => void
+  actions: LaunchComposerModel[`actions`]
+  selectedActionId: string | null
+  pickAction: (actionId: string) => void
+}
+
+/** THE "+" = the composer's options menu (EXP-1334: the same rows before a
+ *  start and during a session, minus the subject rows in a session). */
+export function ComposerOptionsMenu({
+  options,
+  subject,
   onAttach,
   disabled,
+  rowsDisabled,
+  highlighted,
 }: {
-  model: LaunchComposerModel
+  options: ComposerOptionsBinding
+  /** Before a start only. */
+  subject?: ComposerSubjectRows
   /** Opens the file chooser (the composer owns the hidden input). */
   onAttach: () => void
   disabled?: boolean
+  /** The options rows read but cannot change (an ended session). */
+  rowsDisabled?: boolean
+  /** The "+" reads as active (a subject or a pending file is up). */
+  highlighted?: boolean
 }) {
   const [open, setOpen] = useState(false)
-  const { launch, subject } = model
-  const { agent } = launch
-  const ultracodeOn = launch.ultracode && agentSupportsUltracode(agent)
-  const checkedCount = subject?.kind === `issues` ? subject.ids.length : 0
-  const selectedActionId = subject?.kind === `action` ? subject.id : null
-  const mcpServers = model.mcpServers ?? []
-  // FEED-73: an action brings its own MCP list (the server sets it).
-  const showMcp = mcpServers.length > 0 && subject?.kind !== `action`
+  const { agent } = options
+  const ultracodeOn = options.ultracode && agentSupportsUltracode(agent)
+  const checkedCount = subject?.checkedCount ?? 0
+  const showMcp = options.mcpServers.length > 0 && !options.hideMcp
 
   const effortOptions: ValueChoice[] = [
     { value: CLI_DEFAULT_EFFORT, label: CLI_DEFAULT_LABEL },
@@ -79,22 +119,24 @@ export function ComposerPlusMenu({
     })),
   ]
   const effortValue =
-    launch.effortValue === `` ? CLI_DEFAULT_EFFORT : launch.effortValue
-  // Every model is explicit: THE model choices, no Default row.
-  const subagentOptions: ValueChoice[] = subagentModelChoices()
-  const subagentValue = launch.subagentModel
-  const labelOf = (options: ValueChoice[], value: string) =>
-    options.find((option) => option.value === value)?.label
+    options.effortValue === `` ? CLI_DEFAULT_EFFORT : options.effortValue
+  const labelOf = (choices: ValueChoice[], value: string) =>
+    choices.find((choice) => choice.value === value)?.label
 
   const layout = composerMenuLayout({
     // EXP-1293: `sessions.send` carries no subagent model; the row hides.
     subagentModel: false,
     ultracode: agentSupportsUltracode(agent),
     mcp: showMcp,
-    computerUse: launch.computerUseAvailable,
-  })
+    computerUse: options.computerUseAvailable,
+  }).filter(
+    (row) =>
+      subject !== undefined ||
+      row.kind === `separator` ||
+      (row.id !== `implement-issue` && row.id !== `run-action`)
+  )
 
-  const entryFor = (row: ComposerMenuRow): MenuEntry => {
+  const entryFor = (row: ComposerMenuRow): MenuEntry | null => {
     const base = {
       id: row.id,
       label: agent === `codex` && row.codexLabel ? row.codexLabel : row.label,
@@ -103,6 +145,7 @@ export function ComposerPlusMenu({
     }
     switch (row.id) {
       case `implement-issue`:
+        if (!subject) return null
         return {
           ...base,
           kind: `submenu`,
@@ -110,10 +153,10 @@ export function ComposerPlusMenu({
           contentClassName: SUBMENU_LIST_CLASS,
           body: (
             <ComposerIssuePicker
-              teamId={model.teamId}
-              eligible={model.eligibleIssues}
-              checked={model.checkedIssues}
-              onToggle={model.toggleIssue}
+              teamId={subject.teamId}
+              eligible={subject.eligibleIssues}
+              checked={subject.checkedIssues}
+              onToggle={subject.toggleIssue}
               footer={
                 checkedCount > 0 ? (
                   <div className="flex justify-end p-2">
@@ -134,6 +177,7 @@ export function ComposerPlusMenu({
           ),
         }
       case `run-action`:
+        if (!subject) return null
         return {
           ...base,
           kind: `submenu`,
@@ -144,10 +188,10 @@ export function ComposerPlusMenu({
               className="flex max-h-[min(24rem,var(--radix-dropdown-menu-content-available-height,24rem))] min-h-0 flex-col"
             >
               <ActionPickerList
-                actions={model.actions}
-                selectedActionId={selectedActionId}
+                actions={subject.actions}
+                selectedActionId={subject.selectedActionId}
                 onSelect={(actionId) => {
-                  model.pickAction(actionId)
+                  subject.pickAction(actionId)
                   setOpen(false)
                 }}
               />
@@ -162,51 +206,42 @@ export function ComposerPlusMenu({
           kind: `submenu`,
           value: labelOf(effortOptions, effortValue),
           // Ultracode runs at the agent's top effort: nothing to pick.
-          disabled: ultracodeOn,
+          disabled: ultracodeOn || rowsDisabled,
           body: (
             <PickerMenuRows
               mode="single"
               items={effortOptions}
               value={effortValue}
-              onChange={launch.setEffortValue}
+              onChange={options.setEffortValue}
             />
           ),
         }
       case `subagents`:
-        return {
-          ...base,
-          kind: `submenu`,
-          value: labelOf(subagentOptions, subagentValue),
-          body: (
-            <ModelMenuRows
-              models={subagentOptions}
-              value={subagentValue || null}
-              onChange={launch.setSubagentModel}
-            />
-          ),
-        }
+        return null
       case `ultracode`:
         return {
           ...base,
           kind: `toggle`,
-          checked: launch.ultracode,
-          onChange: launch.setUltracode,
+          checked: options.ultracode,
+          disabled: rowsDisabled,
+          onChange: options.setUltracode,
         }
       case `mcp-servers`:
         return {
           ...base,
           kind: `submenu`,
           value:
-            launch.mcpServerIds.length > 0
-              ? String(launch.mcpServerIds.length)
+            options.mcpServerIds.length > 0
+              ? String(options.mcpServerIds.length)
               : undefined,
+          disabled: rowsDisabled,
           contentClassName: `w-[18rem]`,
           body: (
             <McpServerMenuRows
-              servers={mcpServers}
-              selectedIds={launch.mcpServerIds}
-              onToggle={launch.toggleMcpServer}
-              connectHref={model.mcpConnectHref}
+              servers={options.mcpServers}
+              selectedIds={options.mcpServerIds}
+              onToggle={options.toggleMcpServer}
+              connectHref={options.mcpConnectHref}
             />
           ),
         }
@@ -214,15 +249,22 @@ export function ComposerPlusMenu({
         return {
           ...base,
           kind: `toggle`,
-          checked: launch.computerUse,
-          onChange: launch.setComputerUse,
+          checked: options.computerUse,
+          disabled: rowsDisabled,
+          onChange: options.setComputerUse,
         }
     }
   }
 
-  const entries: MenuEntry[] = layout.map((entry) =>
-    entry.kind === `separator` ? { kind: `separator` } : entryFor(entry)
-  )
+  const entries: MenuEntry[] = []
+  for (const entry of layout) {
+    if (entry.kind === `separator`) {
+      entries.push({ kind: `separator` })
+      continue
+    }
+    const bound = entryFor(entry)
+    if (bound) entries.push(bound)
+  }
 
   return (
     <Menu
@@ -239,15 +281,59 @@ export function ComposerPlusMenu({
           title={COMPOSER_PLUS_LABEL}
           data-testid={COMPOSER_MENU_TEST_IDS.plus}
           disabled={disabled}
-          className={
-            subject !== null || model.images.length > 0
-              ? `text-foreground`
-              : undefined
-          }
+          className={highlighted ? `text-foreground` : undefined}
         >
           <UiAddIcon />
         </ComposerTool>
       }
+    />
+  )
+}
+
+/** The launch composer's "+": the options bound to the launch picks, plus
+ *  the subject rows. */
+export function ComposerPlusMenu({
+  model,
+  onAttach,
+  disabled,
+}: {
+  model: LaunchComposerModel
+  /** Opens the file chooser (the composer owns the hidden input). */
+  onAttach: () => void
+  disabled?: boolean
+}) {
+  const { launch, subject } = model
+  return (
+    <ComposerOptionsMenu
+      options={{
+        agent: launch.agent,
+        effortValue: launch.effortValue,
+        setEffortValue: launch.setEffortValue,
+        ultracode: launch.ultracode,
+        setUltracode: launch.setUltracode,
+        computerUse: launch.computerUse,
+        setComputerUse: launch.setComputerUse,
+        computerUseAvailable: launch.computerUseAvailable,
+        mcpServers: model.mcpServers ?? [],
+        mcpServerIds: launch.mcpServerIds,
+        toggleMcpServer: launch.toggleMcpServer,
+        mcpConnectHref: model.mcpConnectHref,
+        // FEED-73: an action brings its own MCP list (the server sets it).
+        hideMcp: subject?.kind === `action`,
+      }}
+      subject={{
+        teamId: model.teamId,
+        eligibleIssues: model.eligibleIssues,
+        checkedIssues: model.checkedIssues,
+        checkedCount: subject?.kind === `issues` ? subject.ids.length : 0,
+        toggleIssue: model.toggleIssue,
+        actions: model.actions,
+        selectedActionId: subject?.kind === `action` ? subject.id : null,
+        pickAction: model.pickAction,
+      }}
+      onAttach={onAttach}
+      disabled={disabled}
+      highlighted={subject !== null || model.images.length > 0}
     />
   )
 }

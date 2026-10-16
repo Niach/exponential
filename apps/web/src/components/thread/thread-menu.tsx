@@ -1,26 +1,37 @@
-import { useCallback, useState, type ReactNode } from "react"
-import { conceptIcon, type MenuEntry } from "@exp/ui"
-import { IssuePickerDialog } from "@/components/issue-picker-dialog"
+import { useCallback, useMemo, useState, type ReactNode } from "react"
+import { useNavigate } from "@tanstack/react-router"
+import { conceptIcon, Menu, ThreadTabsAddButton, type MenuEntry } from "@exp/ui"
+import { IssuePickerBody } from "@/components/issue-picker-host"
+import { useIssueRefs, type ResolvedIssueRef } from "@/components/issue-ref-provider"
 import { sessionIssueCollection } from "@/lib/collections"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
+import { newDraftNavigation } from "@/lib/issue-draft-page"
 import { trpc } from "@/lib/trpc-client"
 
-// EXP-1284 / EXP-1293: the header strip's ONE menu (THE Menu), behind the
-// "+" and every issue chip's context menu:
+// EXP-1284 / EXP-1293 / EXP-1334: the header strip's ONE menu (THE Menu),
+// behind the "+" (LEFT of Conversation) and every issue chip's context menu
+// — the desktop IDE's `thread_menu` rows ×4:
 //
-//   Link an issue      THE search list → `sessions.linkIssues` (the root)
+//   Link an issue ›    THE search list (the linked issues checked) →
+//                      `sessions.linkIssues` (the root; the server posts the
+//                      person's `Link #IDENT` message, which wakes the
+//                      dispatcher); a pick closes the menu
+//   New issue          the New issue page filing INTO this thread
+//                      (`?thread=`, EXP-1284: created = linked)
 //   Unlink <IDENT>     issue chips only → `sessions.unlinkIssue`
 //
 // Failed writes toast `Couldn't link the issue` / `Couldn't unlink the
 // issue` (feedback-states); the menu never offers what the viewer cannot do.
 
 const LinkIcon = conceptIcon(`nav-search`)
+const NewIcon = conceptIcon(`ui-add`)
 const UnlinkIcon = conceptIcon(`ui-close`)
 
 export const THREAD_MENU_COPY = {
   link: `Link an issue`,
+  newIssue: `New issue`,
   unlink: (identifier: string) => `Unlink ${identifier}`,
-  pickerTitle: `Link an issue`,
+  add: `Add an issue`,
 } as const
 
 export interface ThreadMenuIssue {
@@ -28,23 +39,72 @@ export interface ThreadMenuIssue {
   identifier: string
 }
 
+const NO_ROWS: ResolvedIssueRef[] = []
+
+/** THE search list for "Link an issue ›": the team's issues, the linked
+ *  ones checked (a checked row stays; only a new pick links). */
+function LinkIssueList({
+  linkedIds,
+  onLink,
+}: {
+  linkedIds: readonly string[]
+  onLink: (issueId: string) => void
+}) {
+  const issueRefs = useIssueRefs()
+  const [query, setQuery] = useState(``)
+  const rows = issueRefs?.rows ?? NO_ROWS
+  const linked = useMemo(() => new Set(linkedIds), [linkedIds])
+  const checked = useMemo(() => rows.filter((row) => linked.has(row.id)), [rows, linked])
+  return (
+    <div
+      data-testid="thread-menu-link-list"
+      className="flex max-h-[min(24rem,var(--radix-dropdown-menu-content-available-height,24rem))] min-h-0 flex-col"
+    >
+      <IssuePickerBody
+        mode="multi"
+        teamId={issueRefs?.teamId}
+        rows={rows}
+        checked={checked}
+        onToggle={(id) => {
+          if (!linked.has(id)) onLink(id)
+        }}
+        query={query}
+        onQueryChange={setQuery}
+        resolveHit={(hit) => issueRefs?.fromHit(hit) ?? null}
+        limit={30}
+        searchPlaceholder="Search issues"
+        autoFocus
+        emptyText={(text) =>
+          text.trim() ? `No issues match "${text}"` : `No issues to pick from`
+        }
+      />
+    </div>
+  )
+}
+
 export function useThreadMenu({
   rootId,
+  teamSlug,
   issueIds,
+  newIssueBoardId,
   canEdit,
 }: {
   /** The thread's root session. */
   rootId: string
-  /** The linked issues (the picker hides them). */
+  teamSlug: string
+  /** The linked issues (the search list checks them). */
   issueIds: readonly string[]
+  /** New issue files onto this board (the thread's first issue's). */
+  newIssueBoardId?: string
   /** May link/unlink issues (a member). */
   canEdit: boolean
 }): {
-  entries: (issue?: ThreadMenuIssue) => MenuEntry[]
-  openPicker: () => void
-  dialogs: ReactNode
+  entries: (issue?: ThreadMenuIssue, close?: () => void) => MenuEntry[]
+  /** The "+" with its menu (absent = read-only). */
+  addMenu: ReactNode
 } {
-  const [pickerOpen, setPickerOpen] = useState(false)
+  const navigate = useNavigate()
+  const [addOpen, setAddOpen] = useState(false)
 
   const link = useCallback(
     async (issueId: string) => {
@@ -75,16 +135,36 @@ export function useThreadMenu({
     [rootId]
   )
 
-  const entries = (issue?: ThreadMenuIssue): MenuEntry[] => {
+  const entries = (issue?: ThreadMenuIssue, close?: () => void): MenuEntry[] => {
     if (!canEdit) return []
     const rows: MenuEntry[] = [
       {
-        kind: `item`,
+        kind: `submenu`,
         id: `link`,
         label: THREAD_MENU_COPY.link,
         icon: LinkIcon,
-        onSelect: () => setPickerOpen(true),
+        contentClassName: `w-[26rem] p-0`,
         "data-testid": `thread-menu-link`,
+        body: (
+          <LinkIssueList
+            linkedIds={issueIds}
+            onLink={(issueId) => {
+              close?.()
+              void link(issueId)
+            }}
+          />
+        ),
+      },
+      {
+        kind: `item`,
+        id: `new`,
+        label: THREAD_MENU_COPY.newIssue,
+        icon: NewIcon,
+        "data-testid": `thread-menu-new-issue`,
+        onSelect: () =>
+          void navigate(
+            newDraftNavigation({ teamSlug, boardId: newIssueBoardId, threadId: rootId })
+          ),
       },
     ]
     if (issue) {
@@ -94,6 +174,7 @@ export function useThreadMenu({
         id: `unlink`,
         label: THREAD_MENU_COPY.unlink(issue.identifier),
         icon: UnlinkIcon,
+        destructive: true,
         onSelect: () => void unlink(issue.id),
         "data-testid": `thread-menu-unlink`,
       })
@@ -101,15 +182,19 @@ export function useThreadMenu({
     return rows
   }
 
-  const dialogs = (
-    <IssuePickerDialog
-      open={pickerOpen}
-      onOpenChange={setPickerOpen}
-      title={THREAD_MENU_COPY.pickerTitle}
-      excludeIssueIds={[...issueIds]}
-      onPick={(issue) => void link(issue.id)}
+  const addMenu = canEdit ? (
+    <Menu
+      open={addOpen}
+      onOpenChange={setAddOpen}
+      align="start"
+      aria-label={THREAD_MENU_COPY.add}
+      title={THREAD_MENU_COPY.add}
+      data-testid="thread-add-menu"
+      contentClassName="w-60"
+      entries={entries(undefined, () => setAddOpen(false))}
+      trigger={<ThreadTabsAddButton />}
     />
-  )
+  ) : null
 
-  return { entries, openPicker: () => setPickerOpen(true), dialogs }
+  return { entries, addMenu }
 }

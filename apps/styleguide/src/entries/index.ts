@@ -73,7 +73,6 @@ export const ENTRIES: readonly StyleguideEntry[] = [
   feedbackStates,
   trace,
   codeBlock,
-  threadHeaderDrafts,
   composerDialog,
   issueContextMenu,
   sessionRow,
@@ -97,6 +96,7 @@ export const ENTRIES: readonly StyleguideEntry[] = [
   voiceCallOverlay,
   agentHome,
   workTabsStrip,
+  threadHeaderDrafts,
   gettingStarted,
 ]
 

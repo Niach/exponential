@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react"
+import { useRef, useState } from "react"
 import { SESSIONS_SEND_TEXT_MAX } from "@exp/db-schema/domain"
 import type { User } from "@/db/schema"
 import {
@@ -10,10 +10,15 @@ import { ComposerPlusMenu } from "@/components/launch-dialog/composer-plus-menu"
 import { LaunchHeadline } from "@/components/launch-dialog/launch-headline"
 import { LaunchOptionsLine } from "@/components/launch-dialog/launch-options-line"
 import {
+  ComposerInlineTools,
+  type ComposerInlineToolsHandle,
+} from "@/components/composer-inline-tools"
+import {
   AttachmentFileTile,
   AttachmentThumb,
   conceptIcon,
   Composer,
+  ComposerFrame,
   ComposerSubmit,
   FEEDBACK_WORDS,
   Spinner,
@@ -94,19 +99,7 @@ export function LaunchComposer({
   const pending = busy
   const pendingShown = useDelayedFlag(pending)
   const fieldRef = useRef<MentionTextareaHandle>(null)
-  const fileInputRef = useRef<HTMLInputElement>(null)
-  // A file chooser steals focus without moving it anywhere in the document —
-  // latched on the click that opens one, released when it resolves either
-  // way (the comment composer's pattern).
-  const filePickerOpenRef = useRef(false)
-  useEffect(() => {
-    const release = () => {
-      filePickerOpenRef.current = false
-    }
-    window.addEventListener(`focus`, release)
-    return () => window.removeEventListener(`focus`, release)
-  }, [])
-
+  const toolsRef = useRef<ComposerInlineToolsHandle>(null)
   const addFiles = (files: File[]) => {
     if (files.length === 0) return
     // EXP-698: an attached image also drops its POSITIONAL reference at the
@@ -150,7 +143,10 @@ export function LaunchComposer({
   const submitLabel = pendingShown ? FEEDBACK_WORDS.pending.start : model.submitLabel
 
   return (
-    <div className={cn(`flex flex-col gap-2`, className)}>
+    <ComposerFrame
+      className={cn(`gap-2`, className)}
+      options={<LaunchOptionsLine model={model} />}
+    >
       {/* EXP-1019: the SUBJECT leads — "Run <action>" / "Implement <issues>"
           — and the field under it is the optional half. The chips are the
           ones the card used to carry in its leading row, ✕ and all. */}
@@ -201,24 +197,16 @@ export function LaunchComposer({
         }
         tools={
           <>
-            <input
-              ref={fileInputRef}
-              type="file"
-              multiple
-              className="hidden"
-              onChange={(e) => {
-                filePickerOpenRef.current = false
-                if (e.target.files) addFiles(Array.from(e.target.files))
-                e.target.value = ``
-              }}
-            />
             <ComposerPlusMenu
               model={model}
               disabled={busy}
-              onAttach={() => {
-                filePickerOpenRef.current = true
-                fileInputRef.current?.click()
-              }}
+              onAttach={() => toolsRef.current?.attach()}
+            />
+            <ComposerInlineTools
+              ref={toolsRef}
+              fieldRef={fieldRef}
+              onFiles={addFiles}
+              disabled={busy}
             />
           </>
         }
@@ -315,8 +303,7 @@ export function LaunchComposer({
           maxLength={SESSIONS_SEND_TEXT_MAX}
         />
       </Composer>
-      <LaunchOptionsLine model={model} />
-    </div>
+    </ComposerFrame>
   )
 }
 
