@@ -1,4 +1,5 @@
 import {
+  Children,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -328,8 +329,15 @@ export function ThreadSessionGroup({
   children: ReactNode
   tree?: ReactNode
 }) {
+  // The group shrinks with its chips but never below their 6rem floors
+  // (`ThreadSessionTab`), else the chips overflow onto Guide.
+  const count = Children.count(children)
   const group = (
-    <div data-testid="thread-session-group" className="flex min-w-min shrink items-center gap-1">
+    <div
+      data-testid="thread-session-group"
+      className="flex min-w-0 shrink items-center gap-1"
+      style={{ minWidth: `calc(${count} * 6rem + ${Math.max(0, count - 1)} * 0.25rem)` }}
+    >
       {children}
     </div>
   )
