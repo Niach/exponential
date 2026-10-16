@@ -306,7 +306,9 @@ export function SessionComposer({
   }
 
   const pickModel = async (value: string) => {
-    if (value === model || options.ended) return
+    // One `/model` turn at a time: a pick in flight (until the relay
+    // confirms it, a failure or the confirm window) latches the next.
+    if (value === model || options.ended || pickedModel !== null) return
     setPickedModel(value)
     try {
       await trpc.sessions.send.mutate(

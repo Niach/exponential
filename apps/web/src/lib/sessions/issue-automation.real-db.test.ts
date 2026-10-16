@@ -44,7 +44,9 @@ if (!ready.ok) console.info(`[issue-automation.real-db] skipped: ${ready.reason}
 const { sendSession } = await import(`@/lib/sessions/send`)
 const { linkIssues, manualLinkText } = await import(`@/lib/sessions/issues`)
 const { prDefaultIssueIds } = await import(`@/lib/sessions/pr-issues`)
-const { applyPullRequestMerged, recordPullRequestOpened } = await import(`@/lib/integrations/pr-sync`)
+const { applyPullRequestBase, applyPullRequestMerged, loadPullRequest, recordPullRequestOpened } = await import(
+  `@/lib/integrations/pr-sync`
+)
 
 const id8 = () => crypto.randomUUID().slice(0, 8)
 const made = { teams: [] as string[], users: [] as string[] }
@@ -195,6 +197,62 @@ describe.skipIf(!ready.ok)(`EXP-1334 status automation`, () => {
     await applyPullRequestMerged({ pullRequestId: bottom.id, actorUserId: w.owner })
     expect(await w.status(bottomIssue.id)).toMatchObject({ status: `done`, builtinKey: `done` })
     expect(await w.status(topIssue.id)).toMatchObject({ status: `done`, builtinKey: `done` })
+  })
+
+  it(`a merge delivered with its base lands a PR retargeted onto the default branch`, async () => {
+    // The `edited` (base change) delivery never arrived: the stored base
+    // still names the live bottom PR, but the merge carries `main`.
+    const w = await world()
+    const bottomIssue = await w.issue(`Bottom`)
+    const topIssue = await w.issue(`Top`)
+    const rootId = await w.thread([bottomIssue.id, topIssue.id])
+    const bottom = await w.openPr({ rootId, head: `exp/bottom`, issueIds: [bottomIssue.id] })
+    const top = await w.openPr({ rootId, head: `exp/top`, base: `exp/bottom`, issueIds: [topIssue.id] })
+    expect(top.basePullRequestId).toBe(bottom.id)
+
+    await applyPullRequestMerged({ pullRequestId: top.id, base: `main`, actorUserId: w.owner })
+    expect(await loadPullRequest(top.id)).toMatchObject({ state: `merged`, base: `main`, basePullRequestId: null })
+    expect(await w.status(topIssue.id)).toMatchObject({ status: `done`, builtinKey: `done` })
+    // The bottom PR is still open: its issue stays in review.
+    expect(await w.status(bottomIssue.id)).toMatchObject({ status: `in_review` })
+  })
+
+  it(`a base corrected after the merge releases the held issues, its own and those above`, async () => {
+    // `edited` after `closed`: bottom → mid → top, top merged (held by mid),
+    // mid merged off its stale base (held by bottom), then mid's base turns
+    // out to be `main`: mid and top land, bottom is still open.
+    const w = await world()
+    const bottomIssue = await w.issue(`Bottom`)
+    const midIssue = await w.issue(`Mid`)
+    const topIssue = await w.issue(`Top`)
+    const rootId = await w.thread([bottomIssue.id, midIssue.id, topIssue.id])
+    const bottom = await w.openPr({ rootId, head: `exp/bottom`, issueIds: [bottomIssue.id] })
+    const mid = await w.openPr({ rootId, head: `exp/mid`, base: `exp/bottom`, issueIds: [midIssue.id] })
+    const top = await w.openPr({ rootId, head: `exp/top`, base: `exp/mid`, issueIds: [topIssue.id] })
+    expect(mid.basePullRequestId).toBe(bottom.id)
+    expect(top.basePullRequestId).toBe(mid.id)
+
+    await applyPullRequestMerged({ pullRequestId: top.id, actorUserId: w.owner })
+    await applyPullRequestMerged({ pullRequestId: mid.id, actorUserId: w.owner })
+    expect(await w.status(midIssue.id)).toMatchObject({ status: `in_review` })
+    expect(await w.status(topIssue.id)).toMatchObject({ status: `in_review` })
+
+    // A base the row already stores is a no-op; the corrected one lands it.
+    await applyPullRequestBase({ pullRequestId: mid.id, base: `exp/bottom` })
+    expect(await w.status(midIssue.id)).toMatchObject({ status: `in_review` })
+    await applyPullRequestBase({ pullRequestId: mid.id, base: `main` })
+    expect(await loadPullRequest(mid.id)).toMatchObject({ base: `main`, basePullRequestId: null })
+    expect(await w.status(midIssue.id)).toMatchObject({ status: `done`, builtinKey: `done` })
+    expect(await w.status(topIssue.id)).toMatchObject({ status: `done`, builtinKey: `done` })
+    expect(await w.status(bottomIssue.id)).toMatchObject({ status: `in_review` })
+    // Idempotent: a repeat of the correction re-fires nothing.
+    await applyPullRequestBase({ pullRequestId: mid.id, base: `main` })
+    const moves = await db
+      .select({ id: issueEvents.id })
+      .from(issueEvents)
+      .where(and(eq(issueEvents.issueId, midIssue.id), eq(issueEvents.type, `status_changed`)))
+    // started (the thread link), opened (its PR), merged (the correction).
+    expect(moves).toHaveLength(3)
   })
 
   it(`a parent waits for its linked sub-issues and follows the last one`, async () => {

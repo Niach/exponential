@@ -1,6 +1,6 @@
-- Tråder: en tråd kjører en liten dispatcher som svarer på raske spørsmål selv og starter en økt for ordentlig arbeid, og trådens svarfelt er det samme som en økts, med modellbytte
-- Rapporter: når en underøkt avsluttes, havner sammendraget som en rapport i samtalen til forelderen, og en agent kan foreslå oppfølgingsoppgaver du starter med ett trykk
-- Trådliste: en kjørende økt viser gjeldende steg under navnet sitt, underøkter ligger under tråden sin, og en tråd med uleste agentmeldinger viser tittelen i fet skrift
-- Forløp: arbeidet i en økt leses som sporlinjer med kodeblokker, og meldinger i kø venter på ett sted til agenten tar dem
-- Modeller: alle modellvelgere viser Fable, Opus, Sonnet og Haiku, uten et Default-valg
-- /btw: still en kjørende Claude-økt et sidespørsmål og få svaret uten å avbryte arbeidet
+- Trådhode: ingenting ruller lenger, issues og sessions foldes sammen til "+N" når plassen tar slutt, og under-issues og dypere sessions åpnes med et trykk
+- Koble til et issue: "+" ved siden av Conversation tilbyr Link an issue og New issue
+- Under-sessions: spørsmål og planer fra en under-session vises i trådens samtale og besvares rett der
+- Ett skrivefelt: tråden, en session og en ny start deler ett felt, "Type / for commands", med bilde, fil, # og emoji i feltet
+- Valg midt i en session: Plan-modus bytter med en gang, og innsats, computer use og MCP-servere gjelder fra neste melding
+- Issue-status: et tilkoblet issue flyttes til In progress, og en pull request flytter det til In review og, når den er merget, til Done

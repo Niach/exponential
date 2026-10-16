@@ -24,6 +24,7 @@ pub(crate) mod search_list;
 pub(crate) mod menu_submenu;
 pub(crate) mod toast;
 pub(crate) mod jump_to_bottom;
+pub(crate) mod strip_chip;
 pub(crate) mod composer_dialog;
 pub(crate) mod issue_context_menu;
 pub(crate) mod session_row;
@@ -97,6 +98,7 @@ pub(crate) const ENTRIES: &[Entry] = &[
     Entry { id: menu_submenu::ID, owner: menu_submenu::OWNER, render: menu_submenu::render },
     Entry { id: toast::ID, owner: toast::OWNER, render: toast::render },
     Entry { id: jump_to_bottom::ID, owner: jump_to_bottom::OWNER, render: jump_to_bottom::render },
+    Entry { id: strip_chip::ID, owner: strip_chip::OWNER, render: strip_chip::render },
     Entry { id: feedback_states::ID, owner: feedback_states::OWNER, render: feedback_states::render },
     Entry { id: trace::ID, owner: trace::OWNER, render: trace::render },
     Entry { id: code_block::ID, owner: code_block::OWNER, render: code_block::render },

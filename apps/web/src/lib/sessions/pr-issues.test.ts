@@ -39,10 +39,42 @@ describe(`pickPrIssues`, () => {
     expect(pickPrIssues({ rootId: `root`, sessionId: `b`, links, tree, startText: `go` })).toEqual([`i-3`])
   })
 
-  it(`an empty share stays empty while other sessions do work`, () => {
-    expect(pickPrIssues({ rootId: `root`, sessionId: `a1`, links: [link(`i-1`, `EXP-1`)], tree, startText: `` })).toEqual(
-      []
-    )
+  it(`an empty share stays empty when other work sessions own every link`, () => {
+    expect(
+      pickPrIssues({
+        rootId: `root`,
+        sessionId: `a1`,
+        links: [link(`i-3`, `EXP-3`, `b`), link(`i-2`, `EXP-2`, `a`)],
+        tree,
+        startText: ``,
+      })
+    ).toEqual([])
+  })
+
+  it(`two workers, empty share: a worker takes the root links no other worker's subtree added`, () => {
+    // root (dispatcher) → w (the work) and, later, r (a review child): the
+    // start issue and the dispatcher's own link stay w's; r's link is r's.
+    const two = [
+      node(`root`, null, { dispatch: true }),
+      node(`w`, `root`),
+      node(`wa`, `w`, { aside: true }),
+      node(`r`, `root`),
+      node(`r1`, `r`, { aside: true }),
+    ]
+    const twoLinks = [
+      link(`i-1`, `EXP-1`),
+      link(`i-2`, `EXP-2`, `root`),
+      link(`i-3`, `EXP-3`, `r1`),
+      link(`i-4`, `EXP-4`, `r`),
+    ]
+    expect(pickPrIssues({ rootId: `root`, sessionId: `w`, links: twoLinks, tree: two, startText: `go` })).toEqual([
+      `i-1`,
+      `i-2`,
+    ])
+    // A dispatch continuation or an aside never falls back to them.
+    const cont = [...two, node(`c`, `root`, { dispatch: true })]
+    expect(pickPrIssues({ rootId: `root`, sessionId: `c`, links: twoLinks, tree: cont, startText: `go` })).toEqual([])
+    expect(pickPrIssues({ rootId: `root`, sessionId: `wa`, links: twoLinks, tree: two, startText: `go` })).toEqual([])
   })
 
   it(`the tree's ONLY work session takes the whole thread when its share is empty`, () => {

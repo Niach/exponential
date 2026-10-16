@@ -18,6 +18,7 @@ import { entry as pickerRepository } from "./picker-repository.tsx"
 import { entry as scopePicker } from "./scope-picker.tsx"
 import { entry as toast } from "./toast.tsx"
 import { entry as jumpToBottom } from "./jump-to-bottom.tsx"
+import { entry as stripChip } from "./strip-chip.tsx"
 import { entry as composerDialog } from "./composer-dialog.tsx"
 import { entry as issueContextMenu } from "./issue-context-menu.tsx"
 import { entry as sessionRow } from "./session-row.tsx"
@@ -69,6 +70,7 @@ export const ENTRIES: readonly StyleguideEntry[] = [
   menuSubmenu,
   toast,
   jumpToBottom,
+  stripChip,
   feedbackStates,
   trace,
   codeBlock,

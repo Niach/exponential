@@ -66,6 +66,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -251,11 +252,11 @@ import com.exponential.app.domain.ComposerMenuEntry
 import com.exponential.app.domain.ComposerMenuRowId
 import com.exponential.app.domain.McpServerOption
 import com.exponential.app.domain.mcpPickValue
-import com.exponential.app.domain.preselectMcpServerIds
 import com.exponential.app.domain.MAX_STEER_FILES
 import com.exponential.app.domain.MAX_STEER_IMAGES
 import com.exponential.app.ui.components.GlassSwitch
 import com.exponential.app.ui.components.GlassSwitchSize
+import com.exponential.app.ui.components.CLI_DEFAULT_EFFORT
 import com.exponential.app.ui.components.effortLabel
 import com.exponential.app.ui.components.effortValuesFor
 import com.exponential.app.ui.components.supportsPlanMode
@@ -4414,7 +4415,7 @@ internal fun SessionComposer(
     val canComputerUse by viewModel.hostCanToggleComputerUse.collectAsStateWithLifecycle()
     val configureError by viewModel.configureError.collectAsStateWithLifecycle()
     com.exponential.app.ui.components.FailedActionToast(
-        configureError?.let { com.exponential.app.ui.components.FailedAction("change", "the session", it.ifBlank { null }) },
+        configureError?.let { com.exponential.app.ui.components.FailedAction("change", "the session options", it.ifBlank { null }) },
         onShown = viewModel::clearConfigureError,
     )
     LaunchedEffect(session?.teamId) { viewModel.loadMcpServers() }
@@ -4426,7 +4427,9 @@ internal fun SessionComposer(
         computerUse = picks.computerUse ?: (session?.computerUse == true),
         canComputerUse = canComputerUse,
         mcpServers = mcpServers,
-        mcpServerIds = picks.mcpServerIds ?: preselectMcpServerIds(mcpServers, saved = null),
+        // Until `sessions.mcpPicks` lands the row reads empty (web parity),
+        // never the team defaults.
+        mcpServerIds = picks.mcpServerIds ?: emptyList(),
         issues = issueRefCandidates.map {
             IssueOption(
                 id = it.issueId,
@@ -4443,6 +4446,9 @@ internal fun SessionComposer(
         actions = menuActions?.map { ActionPickerAction(id = it.id, name = it.name, icon = it.icon) },
         planMode = picks.planMode
             ?: (planModeBadge(sessionConfig) != null || (sessionConfig == null && session?.planMode == true)),
+        // An ENDED session takes no configure: the rows and the Plan switch
+        // read-only (the server refuses `This session has ended`).
+        readOnly = sessionEnded,
         onConfigure = viewModel::configure,
         onImplement = viewModel::implementIssues,
     )
@@ -5011,8 +5017,10 @@ internal fun runActionText(draft: String, action: String): String {
  * EXP-1334: what THE session composer's "+" offers in a running session —
  * composer-menu.json's rows, the live picks (the synced row, overridden by
  * the person's changes until they land) and the `sessions.configure` call.
+ * Immutable and value-equal, so the composer skips the feed's ticks.
  */
-internal class SessionComposerMenu(
+@Immutable
+internal data class SessionComposerMenu(
     val agent: String,
     val effort: String,
     val ultracode: Boolean,
@@ -5024,6 +5032,8 @@ internal class SessionComposerMenu(
     /** null = still loading. */
     val actions: List<ActionPickerAction>?,
     val planMode: Boolean,
+    /** An ended session: the option rows and the Plan switch are read-only. */
+    val readOnly: Boolean,
     val onConfigure: (AgentSessionViewModel.ConfigurePicks) -> Unit,
     val onImplement: (List<String>) -> Unit,
 )
@@ -5224,14 +5234,17 @@ private fun ExpandedSteerComposer(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 modifier = Modifier
                     .clip(RoundedCornerShape(6.dp))
-                    .clickable(role = Role.Switch) { menu.onConfigure(AgentSessionViewModel.ConfigurePicks(planMode = !planMode)) }
+                    // An ended session's switch is a read-out (web `disabled`).
+                    .clickable(enabled = !menu.readOnly, role = Role.Switch) {
+                        menu.onConfigure(AgentSessionViewModel.ConfigurePicks(planMode = !planMode))
+                    }
                     .padding(horizontal = 4.dp, vertical = 6.dp)
                     .testTag("steer-plan-mode"),
             ) {
                 Text(
                     PLAN_LABEL,
                     style = MaterialTheme.typography.labelLarge,
-                    color = Color.White.copy(alpha = TextEmphasis.Secondary),
+                    color = Color.White.copy(alpha = if (menu.readOnly) TextEmphasis.Quaternary else TextEmphasis.Secondary),
                     maxLines = 1,
                 )
                 GlassSwitch(checked = planMode, onCheckedChange = null, size = GlassSwitchSize.Pill)
@@ -5266,6 +5279,9 @@ private fun ExpandedSteerComposer(
             codex = menu.agent == "codex",
             effortValue = menu.effort.takeIf { it.isNotEmpty() }?.let(::effortLabel),
             effortEnabled = !(claude && menu.ultracode),
+            // An ended session: the option rows read, never change (web
+            // `rowsDisabled`); Implement issue, Run action and Add file stay.
+            rowsReadOnly = menu.readOnly,
             subagentsValue = null,
             ultracode = menu.ultracode,
             mcpValue = mcpPickValue(menu.mcpServerIds.size),
@@ -5328,7 +5344,9 @@ private fun ExpandedSteerComposer(
     }
     if (effortOpen) {
         Picker(
-            items = effortValuesFor(menu.agent).map { PickerItem(it, effortLabel(it)) },
+            // `CLI default` first, as the launch pickers: the VM sends `""`,
+            // which the server trims to a null effort (web parity).
+            items = (listOf(CLI_DEFAULT_EFFORT) + effortValuesFor(menu.agent)).map { PickerItem(it, effortLabel(it)) },
             mode = PickerMode.Single,
             value = setOf(menu.effort),
             onChange = { picked ->

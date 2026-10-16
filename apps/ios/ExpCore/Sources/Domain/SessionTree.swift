@@ -911,6 +911,12 @@ public enum SessionTree {
         public static let titleIssue = "Implement {issue}"
         public static let titleIssues = "Implement {issue} + {more}"
         public static let tabsTestId = "thread-tabs"
+        /// EXP-1334: a zone's "+N" chip reads out as web's
+        /// `THREAD_STRIP_MORE_COPY` (`2 more issues`, `1 more session`).
+        public static func more(_ count: Int, zone: String) -> String {
+            let noun = zone == "issues" ? "issue" : "session"
+            return "\(count) more \(noun)\(count == 1 ? "" : "s")"
+        }
         public static let conversationTestId = "thread-conversation"
         public static let composerTestId = "thread-composer"
         /// EXP-1306: the Guide's stack band.

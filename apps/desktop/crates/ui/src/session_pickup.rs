@@ -184,6 +184,7 @@ fn run_pass(cx: &mut App) {
         log::debug!("[pickup] session {session_id}'s engine is gone");
     }
     live.settle_handed(&messages);
+    live.settle_options(&sessions);
     let fingerprints: HashMap<&str, String> = sessions
         .iter()
         .map(|row| (row.id.as_str(), fingerprint(row, &messages)))
@@ -265,9 +266,11 @@ fn run_pass(cx: &mut App) {
             PickupAction::Deliver { messages, .. } => {
                 woke(&session_id, pickup::deliver_messages(&session_id, messages, &deps))
             }
-            PickupAction::Switch { session, account, messages } => {
-                switched(&session_id, pickup::switch_session(session, account, None, messages, &deps))
-            }
+            PickupAction::Switch { session, account, messages } => switched(
+                &session_id,
+                account,
+                pickup::switch_session(session, account, None, messages, &deps),
+            ),
             other => match pickup::execute(other, &deps) {
                 Ok(()) => StepOutcome::Progressed,
                 Err(err) => {
@@ -311,7 +314,7 @@ pub(crate) fn switch_locally(
     let at = fingerprint(&row, &[]);
     let id = session_id.to_string();
     spawn_step(id.clone(), at, cx, move || {
-        switched(&id, pickup::switch_session(&row, &target, Some(&prompt), &[], &deps))
+        switched(&id, &target, pickup::switch_session(&row, &target, Some(&prompt), &[], &deps))
     });
     true
 }
@@ -338,18 +341,21 @@ fn woke(session_id: &str, result: Result<Vec<String>, String>) -> StepOutcome {
 
 /// How a switch ended: a busy engine waits for its turn to end (the row's
 /// `busy` edge moves its fingerprint), a failure for the retry timer.
+/// `account` empty = a reconfigure (EXP-1334), named so in the log.
 fn switched(
     session_id: &str,
+    account: &str,
     result: Result<pickup::Switched, pickup::SwitchError>,
 ) -> StepOutcome {
+    let kind = if account.is_empty() { "reconfigure" } else { "account switch" };
     match result {
         Ok(outcome) => {
-            log::info!("[pickup] account switch of {session_id}: {outcome:?}");
+            log::info!("[pickup] {kind} of {session_id}: {outcome:?}");
             StepOutcome::Progressed
         }
         Err(pickup::SwitchError::Busy) => StepOutcome::Stalled,
         Err(err) => {
-            log::warn!("[pickup] account switch of {session_id} failed: {err}");
+            log::warn!("[pickup] {kind} of {session_id} failed: {err}");
             StepOutcome::Failed
         }
     }

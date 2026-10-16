@@ -73,11 +73,16 @@ export function useSessionComposerOptions({
           { sessionId, ...patch },
           SKIP_ERROR_TOAST
         )
-        await sessionCollection.utils
+        const synced = await sessionCollection.utils
           .awaitTxId(txid, CONFIGURE_SYNC_WAIT_MS)
-          .catch(() => undefined)
-        // The synced row now says it (a dispatcher's never will).
-        if (!dispatch) setOver((current) => dropSettled(current, picks))
+          .then(
+            () => true,
+            () => false
+          )
+        // The synced row now says it (a dispatcher's never will). A slow
+        // sync keeps the pick in place: the row effect below drops it once
+        // the row lands, so the switch never flips back and forward.
+        if (!dispatch && synced) setOver((current) => dropSettled(current, picks))
       } catch (error) {
         setOver((current) => dropSettled(current, picks))
         if (nextMcp) setMcpServerIds(previousMcp)
@@ -86,6 +91,28 @@ export function useSessionComposerOptions({
     },
     [sessionId, dispatch, mcpServerIds]
   )
+
+  // A sync past the wait still settles its pick: whenever the row reads what
+  // an override says, the override goes (a dispatcher's row never reflects
+  // its work picks, so its overrides stay the read).
+  const rowPlanMode = row?.planMode
+  const rowEffort = row?.effort
+  const rowUltracode = row?.ultracode
+  const rowComputerUse = row?.computerUse
+  useEffect(() => {
+    if (dispatch || !row) return
+    setOver((current) =>
+      dropSettled(current, {
+        planMode: rowPlanMode ?? false,
+        effort: rowEffort ?? null,
+        ultracode: rowUltracode ?? false,
+        computerUse: rowComputerUse ?? false,
+      })
+    )
+    // The row's four option fields are the deps (the row object moves on
+    // every sync).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dispatch, row === null, rowPlanMode, rowEffort, rowUltracode, rowComputerUse])
 
   const effort = over.effort !== undefined ? over.effort : (row?.effort ?? null)
   const ultracode = over.ultracode ?? row?.ultracode ?? false
@@ -131,8 +158,13 @@ export function useSessionComposerOptions({
 /** Drops the overrides `picks` set, unless a later pick replaced them. */
 function dropSettled(current: Overrides, picks: Overrides): Overrides {
   const next = { ...current }
+  let dropped = false
   for (const key of Object.keys(picks) as (keyof Overrides)[]) {
-    if (next[key] === picks[key]) delete next[key]
+    if (key in next && next[key] === picks[key]) {
+      delete next[key]
+      dropped = true
+    }
   }
-  return next
+  // The same object when nothing settled (no re-render from the row effect).
+  return dropped ? next : current
 }

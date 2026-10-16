@@ -1,6 +1,6 @@
-- Threads: een thread draait een kleine dispatcher die snelle vragen zelf beantwoordt en voor echt werk een sessie start, en het antwoordveld van de thread is hetzelfde als dat van een sessie, met de modelkeuze
-- Rapporten: als een subsessie eindigt, komt haar samenvatting als rapport in het gesprek van de bovenliggende sessie, en een agent kan vervolgtaken voorstellen die je met één tik start
-- Threadlijst: een lopende sessie toont haar huidige stap onder haar naam, subsessies staan genest onder hun thread, en een thread met ongelezen agentberichten toont zijn titel vetgedrukt
-- Transcript: het werk van een sessie leest als traceregels met codeblokken, en berichten in de wachtrij wachten op één plek tot de agent ze oppakt
-- Modellen: elke modelkiezer toont Fable, Opus, Sonnet en Haiku, zonder Default-optie
-- /btw: stel een lopende Claude-sessie een zijvraag en krijg het antwoord zonder haar werk te onderbreken
+- Threadkop: niets scrolt meer, issues en sessies klappen samen tot "+N" als de ruimte op is, en sub-issues en diepere sessies openen met een tik
+- Issue koppelen: de "+" naast Conversation biedt Link an issue en New issue
+- Subsessies: vragen en plannen van een subsessie verschijnen in het gesprek van de thread en worden daar beantwoord
+- Eén invoerveld: de thread, een sessie en een nieuwe start delen één veld, "Type / for commands", met afbeelding, bestand, # en emoji in het veld
+- Opties tijdens een sessie: de Plan-modus wisselt meteen, en inspanning, computer use en MCP-servers gelden vanaf het volgende bericht
+- Issuestatus: een gekoppeld issue gaat naar In progress, en een pull request zet het op In review en, na de merge, op Done

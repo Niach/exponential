@@ -19,6 +19,7 @@ import {
   threadRowMarkState,
   threadRowWord,
   threadsUnread,
+  type ThreadStripLayout,
 } from "./session-tree"
 
 describe(`session-tree fixtures (EXP-1291)`, () => {
@@ -45,7 +46,8 @@ describe(`session-tree fixtures (EXP-1291)`, () => {
   }
   for (const entry of thread.stripCases) {
     test(`strip (EXP-1334): ${entry.name}`, () => {
-      expect(partitionThreadStrip(entry.input)).toEqual(entry.expected as never)
+      // The REAL layout type: a shape drift in the fixture fails typecheck.
+      expect(partitionThreadStrip(entry.input)).toEqual(entry.expected as ThreadStripLayout)
     })
   }
   for (const entry of thread.composerCases) {

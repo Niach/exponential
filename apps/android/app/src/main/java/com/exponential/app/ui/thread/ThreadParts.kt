@@ -64,6 +64,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -301,10 +303,11 @@ fun AgentGlyph(icon: String?, color: String?, size: androidx.compose.ui.unit.Dp,
 /** The strip's hidden-chip zones (each with its own "+N"). */
 private enum class StripZone { Issues, Sessions }
 
-/** The open sheet: a chip's subtree, or a zone's hidden chips. */
+/** The open sheet: a chip's subtree, or a zone's hidden chips (THE chips
+ *  the measure pass folded behind its "+N", iOS/web parity). */
 private sealed interface StripSheet {
     data class Subtree(val tab: SessionTree.ThreadTab) : StripSheet
-    data class Hidden(val zone: StripZone) : StripSheet
+    data class Hidden(val zone: StripZone, val tabs: List<SessionTree.ThreadTab>) : StripSheet
 }
 
 /** The page key of an issue (a top-level chip or a folded sub-issue). */
@@ -385,7 +388,7 @@ fun ThreadTabStrip(
             issueTitle = issueTitle,
             onActivate = activate,
             onIssueMenu = onIssueMenu,
-            onMore = { zone -> sheet = StripSheet.Hidden(zone) },
+            onMore = { zone, hidden -> sheet = StripSheet.Hidden(zone, hidden) },
             modifier = Modifier.weight(1f),
         )
         if (guide != null) {
@@ -431,10 +434,9 @@ fun ThreadTabStrip(
             onDismiss = { sheet = null },
         )
         is StripSheet.Hidden -> {
-            // The "+N": the chips the strip had no room for, THE same chips.
-            val hidden = remember(open.zone, issueTabs, sessionTabs) {
-                if (open.zone == StripZone.Issues) issueTabs else sessionTabs
-            }
+            // The "+N": ONLY the chips the strip had no room for (the measure
+            // pass names them), never the zone's shown ones.
+            val hidden = open.tabs
             GlassSheet(title = null, onDismiss = { sheet = null }, modifier = Modifier.testTag("thread-strip-more-sheet")) {
                 hidden.forEach { tab ->
                     when (tab) {
@@ -488,7 +490,7 @@ private fun ThreadStripChips(
     issueTitle: (String) -> String?,
     onActivate: (SessionTree.ThreadTab) -> Unit,
     onIssueMenu: ((SessionTree.ThreadTab.IssueTab) -> Unit)?,
-    onMore: (StripZone) -> Unit,
+    onMore: (zone: StripZone, hidden: List<SessionTree.ThreadTab>) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     // The open folded issue names its chip: `<chip> › <open one>`.
@@ -520,7 +522,10 @@ private fun ThreadStripChips(
         val sessions = sessionTabs.mapIndexed { index, tab ->
             subcompose("session-$index") { SessionStripChip(tab, onClick = { onActivate(tab) }) }.first().measure(loose)
         }
-        val overflowW = subcompose("overflow-probe") { MoreChip(9, onClick = {}) }.first().measure(loose).width
+        // The "+N" probe at the widest count a zone can fold (10+ chips
+        // would otherwise clip the real chip).
+        val overflowW = subcompose("overflow-probe") { MoreChip(maxOf(issueTabs.size, sessionTabs.size), onClick = {}) }
+            .first().measure(loose).width
         val layout = SessionTree.partitionThreadStrip(
             issues = full.indices.map { SessionTree.StripIssueWidth(full[it].width.toFloat(), short[it].width.toFloat()) },
             sessions = sessions.map { it.width.toFloat() },
@@ -580,18 +585,18 @@ private fun ThreadStripChips(
                 },
             )
         }
-        val hiddenIssues = issueTabs.size - shownIssues.size
-        if (issueTabs.isNotEmpty() && hiddenIssues > 0) {
+        val hiddenIssues = issueTabs.filterIndexed { index, _ -> index !in shownIssues }
+        if (hiddenIssues.isNotEmpty()) {
             placed.add(
-                subcompose("issue-more") { MoreChip(hiddenIssues, onClick = { onMore(StripZone.Issues) }) }
+                subcompose("issue-more") { MoreChip(hiddenIssues.size, onClick = { onMore(StripZone.Issues, hiddenIssues) }) }
                     .first().measure(loose),
             )
         }
         shownSessions.forEach { placed.add(sessions[it]) }
-        val hiddenSessions = sessionTabs.size - shownSessions.size
-        if (sessionTabs.isNotEmpty() && hiddenSessions > 0) {
+        val hiddenSessions = sessionTabs.filterIndexed { index, _ -> index !in shownSessions }
+        if (hiddenSessions.isNotEmpty()) {
             placed.add(
-                subcompose("session-more") { MoreChip(hiddenSessions, onClick = { onMore(StripZone.Sessions) }) }
+                subcompose("session-more") { MoreChip(hiddenSessions.size, onClick = { onMore(StripZone.Sessions, hiddenSessions) }) }
                     .first().measure(loose),
             )
         }
@@ -672,15 +677,18 @@ private fun IssueStripChip(
 }
 
 /** A session chip: its run mark, its NAME (truncating at the chip's cap) and
- *  a chevron-down when it folds deeper sessions. */
+ *  a chevron-down when it folds deeper sessions. Its accessible name is
+ *  `name, state word` (iOS parity: the mark's word is read, not drawn). */
 @Composable
 private fun SessionStripChip(tab: SessionTree.ThreadTab.SessionTab, onClick: () -> Unit) {
+    val stateWord = SessionTree.CardCopy.STATES.getValue(tab.markState)
     ThreadTab(
         selected = false,
         onClick = onClick,
         onLongClick = null,
         testTag = "thread-tab-session",
         chip = true,
+        modifier = Modifier.semantics { contentDescription = "${tab.name}, $stateWord" },
     ) {
         SessionTabMark(tab.markState, size = 13.dp)
         Spacer(Modifier.width(5.dp))
@@ -707,7 +715,8 @@ private fun FoldChevron() {
     )
 }
 
-/** A zone's "+N": the hidden chips' sheet. Never truncates. */
+/** A zone's "+N": the hidden chips' sheet. Never truncates; reads
+ *  `N more` (iOS parity). */
 @Composable
 private fun MoreChip(count: Int, onClick: () -> Unit) {
     ThreadTab(
@@ -716,6 +725,7 @@ private fun MoreChip(count: Int, onClick: () -> Unit) {
         onLongClick = null,
         testTag = "thread-strip-more",
         chip = true,
+        modifier = Modifier.semantics { contentDescription = "$count more" },
     ) {
         Text("+$count", style = MaterialTheme.typography.labelMedium, color = Secondary, maxLines = 1, softWrap = false)
     }
@@ -838,11 +848,13 @@ private fun ThreadTab(
     onLongClick: (() -> Unit)?,
     testTag: String,
     chip: Boolean = false,
+    /** The tab's own semantics (an accessible name over its content). */
+    modifier: Modifier = Modifier,
     content: @Composable RowScope.() -> Unit,
 ) {
     val shape = RoundedCornerShape(10.dp)
     Row(
-        modifier = Modifier
+        modifier = modifier
             .clip(shape)
             .then(
                 when {

@@ -12,6 +12,20 @@ public enum LaunchVocabulary {
     /// Models have no such row: every model is explicit (2026-10-15).
     public static let cliDefault = "cli-default"
 
+    /// The effort a picker's choice puts on the wire: the "CLI default" row
+    /// sends a BLANK (the server folds `""` to NULL = omit --effort); the
+    /// sentinel itself is not a contract value and the server refuses it.
+    public static func wireEffort(_ choice: String) -> String {
+        choice == cliDefault ? "" : choice
+    }
+
+    /// The picker row a stored/sent effort reads as: NULL or blank = the
+    /// "CLI default" row, else the value itself.
+    public static func effortChoice(_ stored: String?) -> String {
+        guard let stored, !stored.isEmpty else { return cliDefault }
+        return stored
+    }
+
     // MARK: - Option lists
 
     /// THE model list of an agent, for EVERY model pick (session model,

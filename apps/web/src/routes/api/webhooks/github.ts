@@ -221,6 +221,9 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
       await applyPullRequestMerged({
         pullRequestId: merged.id,
         mergedAt: pr.merged_at ? new Date(pr.merged_at) : new Date(),
+        // The base GitHub merged it into: a retarget whose `edited` delivery
+        // is late or lost must not leave the PR held by a stale stack parent.
+        ...(pr.base?.ref ? { base: pr.base.ref } : {}),
         githubActorUserId,
         ...(claim
           ? { actorUserId: claim.userId, actorViaAgent: claim.viaAgent }

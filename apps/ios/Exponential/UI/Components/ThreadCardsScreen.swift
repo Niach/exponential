@@ -291,9 +291,11 @@ private struct ThreadStripSpecimens: View {
             strip(Self.folded, selection: .conversation)
             caption("A sub-issue open: <chip> › <open one>")
             strip(Self.folded, selection: .issue("i16"))
-            caption("A folded chip's tap: THE tree rows")
-            ThreadFoldSheet(fold: ThreadStripFold.subtree(Self.folded[6])!) { _ in }
-                .background(GlassTokens.fillCard, in: RoundedRectangle(cornerRadius: 16))
+            if let fold = ThreadStripFold.subtree(Self.folded[6]) {
+                caption("A folded chip's tap: THE tree rows")
+                ThreadFoldSheet(fold: fold) { _ in }
+                    .background(GlassTokens.fillCard, in: RoundedRectangle(cornerRadius: 16))
+            }
             caption("THE composer: options under the card, the \"+\" rows")
             SessionComposerOptionsLine(
                 controls: SessionComposerFooter.Controls(

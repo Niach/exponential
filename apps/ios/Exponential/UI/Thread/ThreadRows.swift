@@ -85,7 +85,9 @@ struct ThreadRows: Sendable {
     }
 
     /// EXP-1334: the parent links above `issueIds`, walked up to a fixed
-    /// depth (a cycle stops at the first repeat).
+    /// depth (a cycle stops at the first repeat). Several parents: the
+    /// LOWEST parent issue id wins and a self-relation is skipped, as web
+    /// `linkedIssueParents` and Android `SessionTree.issueParents` do.
     static func issueParents(db: Database, issueIds: [String]) throws -> [String: String] {
         var parents: [String: String] = [:]
         var seen = Set(issueIds)
@@ -94,10 +96,12 @@ struct ThreadRows: Sendable {
             let relations = try IssueRelationEntity
                 .filter(Column("type") == IssueRelationType.parent.rawValue)
                 .filter(frontier.contains(Column("related_issue_id")))
-                .order(Column("created_at").asc, Column("id").asc)
+                .filter(Column("issue_id") != Column("related_issue_id"))
+                .order(Column("issue_id").asc, Column("id").asc)
                 .fetchAll(db)
             frontier = []
-            for relation in relations where parents[relation.relatedIssueId] == nil {
+            for relation in relations
+            where relation.issueId != relation.relatedIssueId && parents[relation.relatedIssueId] == nil {
                 parents[relation.relatedIssueId] = relation.issueId
                 if seen.insert(relation.issueId).inserted { frontier.append(relation.issueId) }
             }

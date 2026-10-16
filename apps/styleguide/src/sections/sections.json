@@ -7,6 +7,7 @@
       "search-list", "menu-submenu",
       "toast",
       "jump-to-bottom",
+      "strip-chip",
       "feedback-states",
       "trace", "code-block"
     ] },
@@ -38,6 +39,7 @@
     "issue-context-menu": "EXP-1074",
     "toast": "EXP-1031",
     "jump-to-bottom": "EXP-1191",
+    "strip-chip": "EXP-1334",
     "trace": "EXP-1324",
     "code-block": "EXP-1324",
     "composer-dialog": "EXP-1019",

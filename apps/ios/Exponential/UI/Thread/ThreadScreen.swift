@@ -1295,7 +1295,8 @@ struct ThreadComposer: View {
                 mcpValue: McpServers.pickedValue(picks.mcpServerIds ?? []),
                 ultracode: Binding(get: { ultracodeOn }, set: { configure(.init(sessionId: sessionId, ultracode: $0)) }),
                 computerUse: Binding(get: { computerUseOn }, set: { configure(.init(sessionId: sessionId, computerUse: $0)) }),
-                addFileEnabled: draft.map { !$0.attachFull && !$0.steerSending } ?? false
+                addFileEnabled: draft.map { !$0.attachFull && !$0.steerSending } ?? false,
+                rowsDisabled: ended
             ) { row in
                 plusPick = row
                 showPlusMenu = false
@@ -1312,6 +1313,11 @@ struct ThreadComposer: View {
         .background { effortPicker }
         .background { mcpPicker }
         .task(id: root?.teamId) { await loadMcpServers() }
+        // A sync past the configure settles its pick: whenever the row reads
+        // what a pick says, the pick goes (web `dropSettled`).
+        .onChange(of: settledRow) { _, row in
+            if let row { picks.settle(row) }
+        }
         .onAppear { claimRootModel() }
         .onChange(of: root?.id) { _, _ in claimRootModel() }
         .onDisappear { releaseRootModel() }
@@ -1380,12 +1386,28 @@ struct ThreadComposer: View {
         showPlusMenu || plusPick != nil || showEffortPicker || showMcpPicker || linkSheetOpen
     }
 
+    /// An ENDED root takes no `sessions.configure` (the server refuses it):
+    /// every option row stands down, like web's.
+    private var ended: Bool { root?.status == DomainContract.sessionStatusEnded }
+
     private var plusConditions: ComposerMenu.Conditions {
         ComposerMenu.Conditions(
             subagentModel: false,
-            ultracode: agent == "claude",
-            mcp: !mcpServers.isEmpty,
-            computerUse: Self.advertises(device, cap: ComposerMenu.computerUseRunCap)
+            ultracode: agent == "claude" && !ended,
+            mcp: !mcpServers.isEmpty && !ended,
+            computerUse: Self.advertises(device, cap: ComposerMenu.computerUseRunCap) && !ended
+        )
+    }
+
+    /// The synced row's option fields a pick settles against; nil for a
+    /// dispatcher root (its picks are work picks the row never echoes).
+    private var settledRow: ThreadComposerPicks.Row? {
+        guard let root, !root.dispatch else { return nil }
+        return ThreadComposerPicks.Row(
+            planMode: steerModel?.planModeActive ?? root.planMode,
+            effort: root.effort,
+            ultracode: root.ultracode,
+            computerUse: root.computerUse
         )
     }
 
@@ -1399,14 +1421,14 @@ struct ThreadComposer: View {
     private var planOn: Bool { picks.planMode ?? steerModel?.planModeActive ?? root?.planMode ?? false }
     private var ultracodeOn: Bool { picks.ultracode ?? root?.ultracode ?? false }
     private var computerUseOn: Bool { picks.computerUse ?? root?.computerUse ?? false }
-    private var effort: String { picks.effort ?? root?.effort ?? LaunchVocabulary.cliDefault }
+    private var effort: String { LaunchVocabulary.effortChoice(picks.effort ?? root?.effort) }
 
     private var effortValue: String {
         effort == LaunchVocabulary.cliDefault ? "CLI default" : LaunchVocabulary.effortLabel(effort)
     }
 
     private var planBinding: Binding<Bool>? {
-        guard root?.status != DomainContract.sessionStatusEnded else { return nil }
+        guard LaunchVocabulary.supportsPlanMode(agent), !ended else { return nil }
         return Binding(get: { planOn }, set: { configure(.init(sessionId: sessionId, planMode: $0)) })
     }
 
@@ -1440,6 +1462,7 @@ struct ThreadComposer: View {
         Task {
             do {
                 try await api.configure(accountId: accountId, input)
+                if let row = settledRow { picks.settle(row) }
             } catch {
                 picks = before
                 toaster.error(
@@ -1462,7 +1485,9 @@ struct ThreadComposer: View {
             mode: .single,
             value: [effort],
             onChange: { picked in
-                if let value = picked.first { configure(.init(sessionId: sessionId, effort: value)) }
+                if let value = picked.first {
+                    configure(.init(sessionId: sessionId, effort: LaunchVocabulary.wireEffort(value)))
+                }
             },
             title: LaunchVocabulary.effortTitle(for: agent),
             open: $showEffortPicker,
@@ -1484,17 +1509,16 @@ struct ThreadComposer: View {
     }
 
     private func loadMcpServers() async {
-        guard let teamId = root?.teamId else { return }
+        guard let teamId = root?.teamId, !ended else { return }
         let rows = (try? await McpServersApi(trpc: deps.trpc).list(accountId: accountId, teamId: teamId)) ?? []
         mcpServers = rows
         guard picks.mcpServerIds == nil else { return }
-        // The session's own pick; a dispatcher's work picks never read back.
-        if root?.dispatch != true,
-           let saved = try? await deps.sessionsApi.mcpPicks(accountId: accountId, sessionId: sessionId) {
-            picks.mcpServerIds = saved
-        } else {
-            picks.mcpServerIds = McpServers.preselect(rows, saved: nil)
-        }
+        // The session's own pick (server-only); a dispatcher's work picks
+        // never read back, so its row seeds EMPTY like web's (no preselect:
+        // the row shows what the server has, nothing it never got).
+        picks.mcpServerIds = root?.dispatch == true
+            ? []
+            : ((try? await deps.sessionsApi.mcpPicks(accountId: accountId, sessionId: sessionId)) ?? [])
     }
 
     /// Implement issue = link it into this thread (the dispatcher wakes).
@@ -1631,24 +1655,6 @@ struct ThreadComposer: View {
                 toaster.error(FeedbackStates.Errors.title(verb: "stop", thing: "the session"), description: error.userFacingMessage)
             }
         }
-    }
-}
-
-/// EXP-1334: the mid-run picks this composer sent (`sessions.configure`),
-/// nil = the synced row's own value stands.
-struct ThreadComposerPicks: Equatable {
-    var planMode: Bool?
-    var effort: String?
-    var ultracode: Bool?
-    var computerUse: Bool?
-    var mcpServerIds: [String]?
-
-    mutating func apply(_ input: SessionConfigureInput) {
-        if let value = input.planMode { planMode = value }
-        if let value = input.effort { effort = value }
-        if let value = input.ultracode { ultracode = value }
-        if let value = input.computerUse { computerUse = value }
-        if let value = input.mcpServerIds { mcpServerIds = value }
     }
 }
 

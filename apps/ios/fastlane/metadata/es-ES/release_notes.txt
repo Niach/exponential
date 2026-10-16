@@ -1,6 +1,6 @@
-- Hilos: un hilo ejecuta un pequeño distribuidor que responde él mismo a las preguntas rápidas e inicia una sesión para el trabajo real, y el cuadro de respuesta del hilo es el mismo que el de una sesión, con el cambio de modelo
-- Informes: cuando una subsesión termina, su resumen llega como informe a la conversación de su sesión padre, y un agente puede proponer tareas de seguimiento que inicias con un toque
-- Lista de hilos: una sesión en marcha muestra su paso actual bajo su nombre, las subsesiones se anidan bajo su hilo y un hilo con mensajes de agente sin leer muestra su título en negrita
-- Transcripción: el trabajo de una sesión se lee como líneas de traza con bloques de código, y los mensajes en cola esperan en un solo lugar hasta que el agente los recoge
-- Modelos: cada selector de modelo muestra Fable, Opus, Sonnet y Haiku, sin entrada Default
-- /btw: hazle una pregunta aparte a una sesión de Claude en marcha y obtén la respuesta sin interrumpir su trabajo
+- Cabecera del hilo: ya no se desplaza nada, los issues y las sesiones se pliegan en "+N" cuando falta espacio, y los sub-issues y las sesiones más profundas se abren con un toque
+- Vincular un issue: el "+" junto a Conversation ofrece Link an issue y New issue
+- Sub-sesiones: las preguntas y los planes de una sub-sesión aparecen en la conversación del hilo y se responden ahí mismo
+- Un solo editor: el hilo, una sesión y un nuevo inicio comparten un editor, "Type / for commands", con imagen, archivo, # y emoji en el cuadro
+- Opciones a mitad de sesión: el modo Plan cambia al instante, y el esfuerzo, computer use y los servidores MCP se aplican desde el siguiente mensaje
+- Estado del issue: vincular un issue lo pasa a In progress, y un pull request lo pasa a In review y, una vez fusionado, a Done

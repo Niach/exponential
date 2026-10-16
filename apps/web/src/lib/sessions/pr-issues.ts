@@ -7,9 +7,11 @@ import { extractIssueRefs } from "@/lib/issue-refs"
 // issues sit on its ROOT, but the PR belongs to ONE session of the tree, so
 // it closes only that session's share: the links its subtree added
 // (`added_by_session_id`) plus the root issues its start message names as
-// `#IDENT`. The root's own PR, and the tree's ONLY work session finding no
-// share, take the whole thread. Done work (an issue a merged PR closed) is
-// never re-linked.
+// `#IDENT`. The root's own PR takes the whole thread; a work session finding
+// no share takes the root issues no OTHER work session's subtree linked (the
+// thread's start issues, the dispatcher's own links), so the one session
+// doing the work keeps them when a review or fix-up child sits beside it.
+// Done work (an issue a merged PR closed) is never re-linked.
 
 type Reader = Pick<typeof db, `select`>
 
@@ -52,12 +54,22 @@ export function pickPrIssues(opts: {
     )
     .map((link) => link.issueId)
   if (share.length > 0) return share
-  // A dispatcher (and its continuations) only routes; the one session doing
-  // the work owns the whole thread.
+  // A dispatcher (and its continuations) only routes, an aside never owns
+  // work: only a work session falls back. It takes the root links no OTHER
+  // work session's subtree added; the tree's only work session thus takes
+  // the whole thread, and a link another worker added stays that worker's.
   const workers = opts.tree.filter(
     (node) => node.id !== opts.rootId && !node.dispatch && !node.aside
   )
-  return workers.length === 1 && workers[0]!.id === opts.sessionId ? all : []
+  if (!workers.some((node) => node.id === opts.sessionId)) return []
+  const owned = new Set<string>()
+  for (const worker of workers) {
+    if (subtree.has(worker.id)) continue
+    for (const id of subtreeOf(opts.tree, worker.id)) owned.add(id)
+  }
+  return opts.links
+    .filter((link) => !link.addedBySessionId || !owned.has(link.addedBySessionId))
+    .map((link) => link.issueId)
 }
 
 /** The default issue set of a PR opened by `sessionId` in thread `rootId`. */

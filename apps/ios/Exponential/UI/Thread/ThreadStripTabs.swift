@@ -346,7 +346,7 @@ struct ThreadStripTabs: View {
             onOpenFold(ThreadStripFold(id: "more:\(zone)", title: nil, rows: hidden.flatMap(ThreadStripFold.rows)))
         }
         .accessibilityAddTraits(.isButton)
-        .accessibilityLabel("\(hidden.count) more")
+        .accessibilityLabel(SessionTree.ThreadCopy.more(hidden.count, zone: zone))
         .accessibilityIdentifier("thread-strip-more-\(zone)")
     }
 

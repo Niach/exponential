@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => ({
   configure: vi.fn(),
   toastActionError: vi.fn(),
   toastError: vi.fn(),
+  awaitTxId: vi.fn(),
   row: null as unknown,
 }))
 
@@ -38,7 +39,9 @@ vi.mock(`@tanstack/react-db`, async (importOriginal) => {
 vi.mock(`@/lib/collections`, () => ({
   deviceCollection: {},
   messageCollection: { utils: { awaitTxId: () => Promise.resolve() } },
-  sessionCollection: { utils: { awaitTxId: () => Promise.resolve() } },
+  sessionCollection: {
+    utils: { awaitTxId: (...args: unknown[]) => mocks.awaitTxId(...args) as Promise<void> },
+  },
 }))
 vi.mock(`@/hooks/use-mcp-servers`, () => ({
   useMcpServers: () => ({ servers: [] }),
@@ -126,6 +129,8 @@ function pressEnter(field: HTMLTextAreaElement) {
 beforeEach(() => {
   mocks.send.mockReset()
   mocks.configure.mockReset()
+  mocks.awaitTxId.mockReset()
+  mocks.awaitTxId.mockResolvedValue(undefined)
   mocks.toastActionError.mockReset()
   mocks.toastError.mockReset()
   mocks.row = sessionRow()
@@ -262,6 +267,45 @@ describe(`SessionComposer, the one composer (EXP-1334)`, () => {
     })
     await waitFor(() => expect(mocks.configure).toHaveBeenCalledTimes(1))
     expect(mocks.configure.mock.calls[0]![0]).toEqual({ sessionId: `s1`, planMode: true })
+  })
+
+  it(`a Plan pick outlives a slow sync and settles once the row lands`, async () => {
+    // The row never syncs inside the wait: the pick stays (no flip back to
+    // the stale row), then the synced row says the same and the pick goes.
+    mocks.configure.mockResolvedValue({ txid: 7 })
+    mocks.awaitTxId.mockRejectedValue(new Error(`timeout`))
+    const { rerender } = render(<SessionComposer teamId="t1" sessionId="s1" placeholder="Reply…" />)
+    act(() => {
+      fireEvent.click(screen.getByTestId(`session-composer-plan`))
+    })
+    await waitFor(() => expect(mocks.awaitTxId).toHaveBeenCalledTimes(1))
+    // Drain the configure chain (the rejected wait and whatever follows).
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+    expect(screen.getByTestId(`session-composer-plan`).getAttribute(`aria-checked`)).toBe(`true`)
+    mocks.row = sessionRow({ planMode: true })
+    rerender(<SessionComposer teamId="t1" sessionId="s1" placeholder="Reply…" />)
+    expect(screen.getByTestId(`session-composer-plan`).getAttribute(`aria-checked`)).toBe(`true`)
+    expect(mocks.toastActionError).not.toHaveBeenCalled()
+  })
+
+  it(`a second model pick while one is in flight sends nothing`, async () => {
+    mocks.send.mockResolvedValue({ txid: 1 })
+    renderComposer()
+    const pick = (alias: string) => {
+      act(() => {
+        fireEvent.click(screen.getByTestId(`session-composer-model`).querySelector(`button`)!)
+      })
+      act(() => {
+        fireEvent.click(document.querySelector(`[data-value="${alias}"]`)!)
+      })
+    }
+    pick(`sonnet`)
+    pick(`haiku`)
+    await waitFor(() => expect(mocks.send).toHaveBeenCalledTimes(1))
+    expect(mocks.send.mock.calls[0]![0]).toEqual({ teamId: `t1`, sessionId: `s1`, text: `/model sonnet` })
+    expect(screen.getByTestId(`session-composer-model`).dataset.model).toBe(`sonnet`)
   })
 
   it(`a failed configure toasts and drops the optimistic pick`, async () => {

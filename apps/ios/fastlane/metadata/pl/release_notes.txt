@@ -1,6 +1,6 @@
-- Wątki: wątek uruchamia małego dyspozytora, który sam odpowiada na szybkie pytania i uruchamia sesję do prawdziwej pracy, a pole odpowiedzi wątku jest takie samo jak w sesji, z przełącznikiem modelu
-- Raporty: gdy podsesja się kończy, jej podsumowanie trafia jako raport do rozmowy sesji nadrzędnej, a agent może zaproponować kolejne zadania, które uruchomisz jednym dotknięciem
-- Lista wątków: działająca sesja pokazuje pod nazwą bieżący krok, podsesje są zagnieżdżone pod swoim wątkiem, a wątek z nieprzeczytanymi wiadomościami agenta ma pogrubiony tytuł
-- Zapis: praca sesji czyta się jak linie śladu z blokami kodu, a wiadomości w kolejce czekają w jednym miejscu, aż agent je odbierze
-- Modele: każdy wybór modelu pokazuje Fable, Opus, Sonnet i Haiku, bez pozycji Default
-- /btw: zadaj działającej sesji Claude pytanie na boku i otrzymaj odpowiedź bez przerywania jej pracy
+- Nagłówek wątku: nic już się nie przewija, issues i sesje zwijają się do "+N", gdy brakuje miejsca, a pod-issues i głębsze sesje otwierasz dotknięciem
+- Łączenie issue: "+" obok Conversation oferuje Link an issue i New issue
+- Pod-sesje: pytania i plany pod-sesji pojawiają się w rozmowie wątku i odpowiadasz na nie od razu tam
+- Jedno pole: wątek, sesja i nowy start dzielą jedno pole, "Type / for commands", z obrazem, plikiem, # i emoji w polu
+- Opcje w trakcie sesji: tryb Plan przełącza się od razu, a nakład, computer use i serwery MCP działają od następnej wiadomości
+- Status issue: połączone issue przechodzi do In progress, a pull request przenosi je do In review i, po scaleniu, do Done

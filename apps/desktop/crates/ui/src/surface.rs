@@ -251,13 +251,73 @@ pub(crate) struct RichTab {
     pub(crate) closable: bool,
 }
 
-/// EXP-905 — a [`rich_tab`]'s `(left, right)` padding in px: `pl 8 / pr 4`
+/// EXP-905 — a [`rich_tab`]'s `(left, right)` padding in px: `pl 10 / pr 4`
 /// when the 24px ghost × trails the label (its own box supplies the air),
-/// `pl 8 / pr 8` when nothing does. Byte-identical with the web `DockTab`
-/// (`pl-2 pr-1` / `pl-2 pr-2`); the strip's width measurer reads the same
-/// pair, so a live chip is measured exactly as wide as it paints.
+/// `pl 10 / pr 10` when nothing does. Byte-identical with the web
+/// `StripChip` (`px-2.5`, `pr-1` beside a trailing control, the ×'s `mr-1`);
+/// the strip's width measurer reads the same pair, so a live chip is
+/// measured exactly as wide as it paints.
 pub(crate) fn rich_tab_padding(closable: bool) -> (f32, f32) {
-    if closable { (8., 4.) } else { (8., 8.) }
+    if closable {
+        (STRIP_CHIP_PX, 4.)
+    } else {
+        (STRIP_CHIP_PX, STRIP_CHIP_PX)
+    }
+}
+
+/// EXP-1334 — THE strip chip box (web `stripTabClass`, ONE for every strip
+/// of chips: the thread header's issue + session chips, the work tabs strip
+/// above the content card, the "+N" of a folded zone): 32px tall, 6px
+/// radius, 10px sides, `gap 6`, `text_sm`. Three states and no more: at
+/// rest a `bordered` chip keeps its hairline (a tab has no stroke) and reads
+/// muted; the pointer only turns the text foreground (no wash); active =
+/// the strong glass stroke over the glass active fill, foreground.
+pub(crate) const STRIP_CHIP_H: f32 = 32.;
+pub(crate) const STRIP_CHIP_PX: f32 = 10.;
+/// The "+N" overflow button's sides (web `StripOverflowButton`, `px-2`).
+pub(crate) const STRIP_OVERFLOW_PX: f32 = 8.;
+/// The chrome [`strip_overflow_button`] adds around its label: the sides
+/// and the 1px hairline, what a strip's width measurer reserves.
+pub(crate) const STRIP_OVERFLOW_CHROME: f32 = 2. * STRIP_OVERFLOW_PX + 2.;
+
+pub(crate) fn strip_chip_frame(id: impl Into<ElementId>, active: bool, bordered: bool, cx: &App) -> Stateful<Div> {
+    let theme = cx.theme();
+    let foreground = theme.foreground;
+    let chip = div()
+        .id(id)
+        .h(px(STRIP_CHIP_H))
+        .min_w_0()
+        .flex()
+        .flex_shrink_0()
+        .items_center()
+        .gap(px(6.))
+        .px(px(STRIP_CHIP_PX))
+        .rounded(px(6.))
+        .border_1()
+        .text_sm()
+        .font_weight(gpui::FontWeight::NORMAL)
+        .cursor_pointer();
+    if active {
+        chip.border_color(t::glass::STROKE_STRONG.to_hsla())
+            .bg(t::glass::FILL_ACTIVE.to_hsla())
+            .text_color(foreground)
+    } else {
+        chip.border_color(if bordered {
+            t::glass::STROKE_ROW.to_hsla()
+        } else {
+            gpui::transparent_black()
+        })
+        .text_color(theme.muted_foreground)
+        .hover(move |style| style.text_color(foreground))
+    }
+}
+
+/// The "+N" of a folded zone (THE Menu's trigger, web
+/// `StripOverflowButton`): the strip chip box at rest, the count alone.
+pub(crate) fn strip_overflow_button(id: impl Into<ElementId>, count: usize, cx: &App) -> Stateful<Div> {
+    strip_chip_frame(id, false, true, cx)
+        .px(px(STRIP_OVERFLOW_PX))
+        .child(SharedString::from(format!("+{count}")))
 }
 
 impl RichTab {
@@ -275,20 +335,21 @@ impl RichTab {
     }
 }
 
-/// EXP-698/EXP-877 — the ONE RICH tab, now byte-identical with the web chip:
-/// 32px tall, 6px radius, capped at [`RICH_TAB_MAX_W`], `pl 8 / pr 4` (the
-/// short right side is the 24px ghost × the caller appends; `pr 8` on a chip
-/// with no ×, EXP-905 [`rich_tab_padding`]), `gap 6`, a 14px
-/// lead box holding a 14px glyph or an 8px dot, the mono `text_xs` identifier
-/// and the `text_sm` truncating title.
+/// EXP-698/EXP-877 — the ONE RICH tab, byte-identical with the web chip
+/// (EXP-1334: THE strip chip box, [`strip_chip_frame`], the same box the
+/// thread header's chips wear): 32px tall, 6px radius, capped at
+/// [`RICH_TAB_MAX_W`], `pl 10 / pr 4` (the short right side is the 24px
+/// ghost × the caller appends; `pr 10` on a chip with no ×, EXP-905
+/// [`rich_tab_padding`]), `gap 6`, a 14px lead box holding a 14px glyph or
+/// an 8px dot, the mono `text_xs` muted identifier and the `text_sm`
+/// truncating title.
 ///
-/// Three states and no more: idle = transparent chrome + muted text, hover =
-/// the glass ACTIVE fill + foreground, active = the same active fill inside a
-/// card hairline + foreground (the panel fill read as "not selected" against
-/// the bare ground). EXP-877 retired the ` · machine` caption (a tab is
-/// chrome, and the machine is on the run's own header), the paused dimming
-/// (a chip that dims reads as disabled) and the working spinner (the steady
-/// liveness dot carries it; the spinner is the LIST's, EXP-848).
+/// Three states and no more (the frame's): rest = the hairline + muted
+/// text, hover = foreground text, active = the strong stroke over the glass
+/// active fill + foreground. EXP-877 retired the ` · machine` caption (a
+/// tab is chrome, and the machine is on the run's own header), the paused
+/// dimming (a chip that dims reads as disabled) and the working spinner
+/// (the steady liveness dot carries it; the spinner is the LIST's, EXP-848).
 ///
 /// gpui's rem is 14px ([`theme::FONT_SIZE_PX`]), so every one of these is a
 /// `px()` literal — the spacing helpers would resolve 8px as `px_2` only by
@@ -296,31 +357,10 @@ impl RichTab {
 pub(crate) fn rich_tab(tab: RichTab, cx: &App) -> Stateful<Div> {
     let theme = cx.theme();
     let (pad_left, pad_right) = rich_tab_padding(tab.closable);
-    let chip = div()
-        .id(tab.id)
-        .h(px(32.))
+    let chip = strip_chip_frame(tab.id, tab.selected, true, cx)
         .max_w(px(RICH_TAB_MAX_W))
         .pl(px(pad_left))
-        .pr(px(pad_right))
-        .flex()
-        .flex_none()
-        .items_center()
-        .gap(px(6.))
-        .rounded(px(6.))
-        .border_1()
-        .border_color(gpui::transparent_black())
-        .cursor_pointer();
-    let chip = if tab.selected {
-        chip.border_color(t::glass::STROKE_CARD.to_hsla())
-            .bg(t::glass::FILL_ACTIVE.to_hsla())
-            .text_color(theme.foreground)
-    } else {
-        chip.text_color(theme.muted_foreground).hover(|style| {
-            style
-                .bg(t::glass::FILL_ACTIVE.to_hsla())
-                .text_color(theme.foreground)
-        })
-    };
+        .pr(px(pad_right));
     // ONE 14px lead box, so a dot chip and a glyph chip line their titles up
     // (the strip's `lead_reserve_px` measures this box, not its content).
     chip.map(|chip| match tab.status {
@@ -349,6 +389,7 @@ pub(crate) fn rich_tab(tab: RichTab, cx: &App) -> Stateful<Div> {
             .flex_shrink_0()
             .text_xs()
             .font_family(theme::terminal::FONT_FAMILY)
+            .text_color(theme.muted_foreground)
             .whitespace_nowrap()
             .child(identifier)
     }))
@@ -431,8 +472,12 @@ mod tests {
     /// `pl-2 pr-2` / `pl-2 pr-1`.
     #[test]
     fn a_chip_without_a_close_button_pads_both_sides_equally() {
-        assert_eq!(rich_tab_padding(false), (8., 8.));
-        assert_eq!(rich_tab_padding(true), (8., 4.));
+        assert_eq!(rich_tab_padding(false), (10., 10.));
+        assert_eq!(rich_tab_padding(true), (10., 4.));
+        // EXP-1334: the web `StripChip` box — `px-2.5`, the "+N" `px-2`.
+        assert_eq!(STRIP_CHIP_PX, 10.);
+        assert_eq!(STRIP_CHIP_H, 32.);
+        assert_eq!(STRIP_OVERFLOW_CHROME, 18.);
     }
 
     /// EXP-698: a Button pill and a `Div` pill must paint the SAME surface.

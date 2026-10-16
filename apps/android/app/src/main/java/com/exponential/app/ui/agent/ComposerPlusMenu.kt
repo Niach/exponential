@@ -65,6 +65,9 @@ internal fun ComposerPlusMenuSheet(
     mcpValue: String?,
     computerUse: Boolean,
     canAttach: Boolean,
+    /** EXP-1334: an ended session's option rows (Effort, Ultracode, MCP
+     *  servers, Computer use) read, never change (web `rowsDisabled`). */
+    rowsReadOnly: Boolean = false,
     onRow: (ComposerMenuRowId) -> Unit,
     onUltracodeChange: (Boolean) -> Unit,
     onComputerUseChange: (Boolean) -> Unit,
@@ -125,6 +128,7 @@ internal fun ComposerPlusMenuSheet(
                                 ) {
                                     GlassSheetRow(
                                         label = label,
+                                        enabled = !rowsReadOnly,
                                         onClick = { onChange(!checked) },
                                         leading = { RowGlyph(composerMenuGlyph(entry.id)) },
                                         trailing = {
@@ -141,7 +145,8 @@ internal fun ComposerPlusMenuSheet(
                                     else -> null
                                 }
                                 val enabled = when (entry.id) {
-                                    ComposerMenuRowId.Effort -> effortEnabled
+                                    ComposerMenuRowId.Effort -> effortEnabled && !rowsReadOnly
+                                    ComposerMenuRowId.Subagents, ComposerMenuRowId.McpServers -> !rowsReadOnly
                                     ComposerMenuRowId.AddFile -> canAttach
                                     else -> true
                                 }

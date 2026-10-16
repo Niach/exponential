@@ -425,7 +425,12 @@ export function useSessionThread(
     [rootId]
   )
   // EXP-1334: the issue tree (`issue_relations` kind parent): a linked
-  // sub-issue folds under its nearest LINKED ancestor.
+  // sub-issue folds under its nearest LINKED ancestor. The walk passes
+  // UNLINKED ancestors (`linkedIssueParents`), so the subscription is the
+  // team's whole `parent` set (a filter on the linked ids would cut the
+  // chain); what the view keys on is the FOLD below, which keeps its
+  // identity while no linked issue's parent moved, so a relation elsewhere
+  // in the team never rebuilds the thread.
   const { data: parentRelations } = useLiveQuery(
     (query) =>
       issueIds.length > 0
@@ -434,6 +439,10 @@ export function useSessionThread(
             .where(({ relations }) => eq(relations.type, `parent`))
         : undefined,
     [issueIds.length > 0]
+  )
+  const foldedIssues = useFoldedIssues(
+    (issues ?? []) as TreeIssue[],
+    (parentRelations ?? []) as ParentRelation[]
   )
   const titleReady = titleShapesReady({
     linksReady: Boolean(rootId) && linksReady,
@@ -449,16 +458,32 @@ export function useSessionThread(
       root: toTreeSession(root),
       sessions: tree,
       sessionIssues: ((links ?? []) as SessionIssueRow[]).map(toTreeSessionIssue),
-      issues: linkedIssueParents(
-        ((issues ?? []) as TreeIssue[]).map(toTreeIssue),
-        (parentRelations ?? []) as ParentRelation[]
-      ),
+      issues: foldedIssues,
       messages: ((messages ?? []) as MessageRow[]).map(toTreeMessage),
       pullRequests: pullRequests.map(toTreePullRequest),
       now: now.toISOString(),
     }, { focus })
-  }, [root, tree, links, issues, parentRelations, messages, pullRequests, now, focus])
+  }, [root, tree, links, foldedIssues, messages, pullRequests, now, focus])
   return { view, root, rows, pullRequests, isReady, titleReady }
+}
+
+/** The linked issues with their fold parents (`linkedIssueParents`), the
+ *  SAME array while nothing a chip reads changed (id, identifier, title,
+ *  parent): the relations shape moves on any relation of the team. */
+function useFoldedIssues(
+  issues: readonly TreeIssue[],
+  relations: readonly ParentRelation[]
+): TreeIssue[] {
+  const folded = useMemo(
+    () => linkedIssueParents(issues.map(toTreeIssue), relations),
+    [issues, relations]
+  )
+  const key = folded
+    .map((issue) => [issue.id, issue.identifier, issue.title, issue.parentId ?? ``].join(`\u0001`))
+    .join(`\u0002`)
+  // Keyed on the fold's content, not its identity.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  return useMemo(() => folded, [key])
 }
 
 /** The messages of ONE session (an agent's channel, an opened child). */

@@ -203,6 +203,10 @@ pub struct ConfigureInput {
     pub computer_use: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mcp_server_ids: Option<Vec<String>>,
+    /// The model (a runner model id, `sessionsConfigureInputSchema.model`);
+    /// the host switches the live run at once.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
 }
 
 /// `sessions.configure` — mutation.

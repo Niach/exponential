@@ -1,6 +1,6 @@
-- Fils : un fil lance un petit répartiteur qui répond lui-même aux questions rapides et démarre une session pour le vrai travail, et la zone de réponse du fil est la même que celle d'une session, avec le choix du modèle
-- Rapports : quand une sous-session se termine, son résumé arrive sous forme de rapport dans la conversation de son parent, et un agent peut proposer des tâches de suivi que vous lancez d'un geste
-- Liste des fils : une session en cours affiche son étape actuelle sous son nom, les sous-sessions s'imbriquent sous leur fil, et un fil avec des messages d'agent non lus affiche son titre en gras
-- Transcription : le travail d'une session se lit en lignes de trace avec des blocs de code, et les messages en attente patientent au même endroit jusqu'à ce que l'agent les prenne
-- Modèles : chaque sélecteur de modèle propose Fable, Opus, Sonnet et Haiku, sans entrée Default
-- /btw : posez une question annexe à une session Claude en cours et obtenez la réponse sans interrompre son travail
+- En-tête du fil : plus rien ne défile, les issues et les sessions se replient en "+N" quand la place manque, et les sous-issues et sessions plus profondes s'ouvrent d'un toucher
+- Lier un issue : le "+" à côté de Conversation propose Link an issue et New issue
+- Sous-sessions : les questions et les plans d'une sous-session apparaissent dans la conversation du fil et se règlent sur place
+- Un seul champ de saisie : le fil, une session et un nouveau départ partagent un champ, "Type / for commands", avec image, fichier, # et emoji dans le champ
+- Options en cours de session : le mode Plan bascule aussitôt, et l'effort, computer use et les serveurs MCP s'appliquent dès le message suivant
+- Statut de l'issue : lier un issue le passe en In progress, et une pull request le passe en In review puis, une fois fusionnée, en Done

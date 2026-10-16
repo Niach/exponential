@@ -1,6 +1,6 @@
-- Threads: ein Thread startet einen kleinen Dispatcher, der kurze Fragen selbst beantwortet und für echte Arbeit eine Session startet, und das Antwortfeld des Threads ist dasselbe wie das einer Session, mit Modellwechsel
-- Berichte: wenn eine Unter-Session endet, landet ihre Zusammenfassung als Bericht in der Unterhaltung ihres Elternteils, und ein Agent kann Folgeaufgaben vorschlagen, die du mit einem Tippen startest
-- Thread-Liste: eine laufende Session zeigt ihren aktuellen Schritt unter ihrem Namen, Unter-Sessions stehen eingerückt unter ihrem Thread, und ein Thread mit ungelesenen Agent-Nachrichten zeigt seinen Titel fett
-- Verlauf: die Arbeit einer Session liest sich als Trace-Zeilen mit Codeblöcken, und Nachrichten in der Warteschlange warten an einer Stelle, bis der Agent sie aufnimmt
-- Modelle: jede Modellauswahl listet Fable, Opus, Sonnet und Haiku, ohne Default-Eintrag
-- /btw: stelle einer laufenden Claude-Session eine Nebenfrage und erhalte die Antwort, ohne ihre Arbeit zu unterbrechen
+- Thread-Kopf: nichts scrollt mehr, Issues und Sessions klappen bei Platzmangel zu "+N" zusammen, und Unter-Issues und tiefere Sessions öffnen sich mit einem Tippen
+- Issue verknüpfen: das "+" neben Conversation bietet Link an issue und New issue
+- Unter-Sessions: Fragen und Pläne einer Unter-Session erscheinen in der Unterhaltung des Threads und werden direkt dort beantwortet
+- Ein Eingabefeld: der Thread, eine Session und ein neuer Start teilen sich ein Eingabefeld, "Type / for commands", mit Bild, Datei, # und Emoji im Feld
+- Optionen während der Session: der Plan-Modus wechselt sofort, und Aufwand, Computer Use und MCP-Server gelten ab der nächsten Nachricht
+- Issue-Status: ein verknüpftes Issue wechselt zu In progress, und ein Pull Request setzt es auf In review und nach dem Merge auf Done

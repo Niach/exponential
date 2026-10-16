@@ -1,6 +1,6 @@
-- Vlákna: vlákno spouští malého dispečera, který rychlé otázky zodpoví sám a na skutečnou práci spustí relaci, a pole pro odpověď ve vlákně je stejné jako v relaci, s přepínačem modelu
-- Zprávy: když podrelace skončí, její shrnutí přistane jako zpráva v konverzaci nadřazené relace a agent může navrhnout navazující úkoly, které spustíte jedním klepnutím
-- Seznam vláken: běžící relace ukazuje pod svým názvem aktuální krok, podrelace jsou vnořené pod svým vláknem a vlákno s nepřečtenými zprávami agenta má tučný název
-- Přepis: práce relace se čte jako řádky trasování s bloky kódu a zprávy ve frontě čekají na jednom místě, dokud si je agent nevezme
-- Modely: každý výběr modelu nabízí Fable, Opus, Sonnet a Haiku, bez položky Default
-- /btw: položte běžící relaci Claude vedlejší otázku a dostaňte odpověď, aniž byste přerušili její práci
+- Záhlaví vlákna: už nic neroluje, issues a sessions se při nedostatku místa složí do "+N" a pod-issues a hlubší sessions otevřete klepnutím
+- Propojení issue: "+" vedle Conversation nabízí Link an issue a New issue
+- Pod-sessions: otázky a plány pod-session se zobrazí v konverzaci vlákna a odpovíte na ně přímo tam
+- Jedno pole pro psaní: vlákno, session i nový start sdílejí jedno pole, "Type / for commands", s obrázkem, souborem, # a emoji přímo v poli
+- Možnosti během session: režim Plan se přepne okamžitě a úsilí, computer use a MCP servery platí od další zprávy
+- Stav issue: propojené issue přejde do In progress a pull request ho posune do In review a po sloučení do Done

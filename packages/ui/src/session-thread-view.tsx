@@ -191,9 +191,24 @@ export function ThreadTabs({
     setMeasure((current) => (sameMeasure(current, next) ? current : next))
   }, [])
 
-  // Before paint on every render (a chip's title or state may have changed:
-  // cheap reads, a no-op when nothing moved) …
-  useLayoutEffect(read)
+  // Before paint whenever the CHIPS changed (a chip came or went, its state
+  // flipped, its text moved: the ruler's text is the chips' text, the keys
+  // and active flags the rest) and never otherwise: the host re-renders
+  // every second (its clock), and a layout read a second is what this
+  // skips …
+  const chipKey = [
+    pager ? `pager` : `bar`,
+    ...issues.map((item) => `${item.key}\u0001${item.active ? 1 : 0}`),
+    `|`,
+    ...sessions.map((item) => `${item.key}\u0001${item.active ? 1 : 0}`),
+  ].join(`\u0002`)
+  const measuredRef = useRef<string | null>(null)
+  useLayoutEffect(() => {
+    const signature = `${chipKey}\u0003${measureRef.current?.textContent ?? ``}`
+    if (measuredRef.current === signature) return
+    measuredRef.current = signature
+    read()
+  })
   // … and whenever the strip resizes (the window, the sidebar).
   useEffect(() => {
     const middle = middleRef.current
@@ -261,7 +276,6 @@ export function ThreadTabs({
       data-testid="thread-tabs"
       data-variant={variant}
       data-tier={layout.tier}
-      role="tablist"
       className={cn(`relative flex min-w-0 items-center gap-1`, className)}
     >
       {/* The ruler: every chip at its natural width (full AND short), the
@@ -292,7 +306,9 @@ export function ThreadTabs({
         </div>
         <span data-measure="divider" className="h-4 w-px shrink-0" />
       </div>
+      {/* The "+" is a MENU trigger, not a tab: it sits beside the tablist. */}
       {add && <span className="flex shrink-0 items-center">{add}</span>}
+      <div role="tablist" className="flex min-w-0 flex-1 items-center gap-1">
       <Button
         type="button"
         variant="ghost"
@@ -375,6 +391,7 @@ export function ThreadTabs({
           </>
         )}
       </Button>
+      </div>
     </div>
   )
 }
@@ -414,8 +431,10 @@ export function ThreadSessionTab({
   return (
     <StripChip
       ref={ref}
-      role="tab"
-      aria-selected={active}
+      // A folded chip opens a MENU (its subtree): a plain button, its state
+      // on `data-active`; only a chip that opens itself is a tab.
+      role={chevron ? undefined : `tab`}
+      aria-selected={chevron ? undefined : active}
       data-testid="thread-tab-session"
       active={active}
       lead={
@@ -467,9 +486,11 @@ export function ThreadIssueTab({
   return (
     <StripChip
       ref={ref}
-      role="tab"
-      aria-selected={active}
-      aria-label={`${identifier} ${title}`}
+      // A folded chip opens a MENU (its subtree): a plain button, its state
+      // on `data-active`; only a chip that opens itself is a tab.
+      role={chevron ? undefined : `tab`}
+      aria-selected={chevron ? undefined : active}
+      aria-label={path ? `${identifier} ${title} › ${path}` : `${identifier} ${title}`}
       active={active}
       lead={<StatusGlyph {...status} className={cn(`size-3.5 shrink-0`, status.className)} />}
       identifier={identifier}
