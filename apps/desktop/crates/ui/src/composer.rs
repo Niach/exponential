@@ -19,9 +19,10 @@
 //! EXP-790: the submit slot is one round button that is either Send or
 //! Stop ([`SubmitKind`]): same ring, the glyph swaps.
 //!
-//! EXP-877: the steer composer's model and context controls sit in a footer
-//! UNDER the card ([`session_composer_footer`]); its attach "+" is back in
-//! the card's tool row (EXP-1294).
+//! EXP-877: the steer composer's model and context controls ride the card's
+//! OWN bottom row, as on web ([`SessionComposerControls`]): the "+", the
+//! model pin and the plan read on the left, the context ring just before the
+//! round button on the right (EXP-1294; nothing sits under the card).
 //!
 //! Every slot is optional except the field; the caller owns all state and
 //! handlers, this only lays the card out.
@@ -32,9 +33,9 @@
 //! thread screen and the agent channel no longer build a reply of their
 //! own — they host the ROOT session's composer (`session_screen::
 //! root_composer_view`), so all three paint ONE composer: the box, the `/`
-//! menu ([`session_slash_menu`]), the footer ([`session_composer_footer`]:
-//! [`session_model_pin`] + [`session_context_ring`]), Send⇄Stop and the
-//! queue strip.
+//! menu ([`session_slash_menu`]), the run controls ([`SessionComposerControls`]:
+//! [`session_model_pin`], the plan read, [`session_context_ring`]),
+//! Send⇄Stop and the queue strip.
 
 use gpui::{
     div, px, AnyElement, App, AppContext as _, ClickEvent, Div, ElementId, Entity,
@@ -53,6 +54,7 @@ pub(crate) struct GlassComposer {
     leading: Option<AnyElement>,
     strip: Option<AnyElement>,
     tools: Vec<AnyElement>,
+    trailing: Vec<AnyElement>,
     submit: Option<AnyElement>,
 }
 
@@ -81,6 +83,7 @@ impl GlassComposer {
             leading: None,
             strip: None,
             tools: Vec::new(),
+            trailing: Vec::new(),
             submit: None,
         }
     }
@@ -106,6 +109,13 @@ impl GlassComposer {
         self
     }
 
+    /// One element of the bottom row's RIGHT cluster, just before the
+    /// submit (the session composer's context ring; web's submit slot).
+    pub(crate) fn trailing(mut self, trailing: impl Into<AnyElement>) -> Self {
+        self.trailing.push(trailing.into());
+        self
+    }
+
     /// The trailing round ghost submit ([`composer_submit`]).
     pub(crate) fn submit(mut self, submit: impl Into<AnyElement>) -> Self {
         self.submit = Some(submit.into());
@@ -122,6 +132,7 @@ pub(crate) fn glass_composer(composer: GlassComposer) -> Div {
         leading,
         strip,
         tools,
+        trailing,
         submit,
     } = composer;
     let card = v_flex()
@@ -150,6 +161,7 @@ pub(crate) fn glass_composer(composer: GlassComposer) -> Div {
             .items_center()
             .children(tools)
             .child(div().flex_1())
+            .children(trailing)
             .children(submit),
     )
 }
@@ -276,8 +288,9 @@ pub(crate) struct SessionComposerBox {
     /// The card's bottom-left tools (the "+" attach, [`composer_tool`]).
     pub(crate) tools: Vec<AnyElement>,
     pub(crate) submit: SessionComposerSubmit,
-    /// The row UNDER the card (attach, model pin, context ring).
-    pub(crate) footer: Option<AnyElement>,
+    /// The run's controls in the card's bottom row (model pin, plan read,
+    /// context ring).
+    pub(crate) controls: SessionComposerControls,
     /// Applied to the card (the paste capture).
     pub(crate) card_hook: Option<DivHook>,
 }
@@ -294,7 +307,7 @@ impl SessionComposerBox {
             strip: None,
             tools: Vec::new(),
             submit,
-            footer: None,
+            controls: SessionComposerControls::default(),
             card_hook: None,
         }
     }
@@ -320,8 +333,8 @@ impl SessionComposerBox {
         self
     }
 
-    pub(crate) fn footer(mut self, footer: Option<AnyElement>) -> Self {
-        self.footer = footer;
+    pub(crate) fn controls(mut self, controls: SessionComposerControls) -> Self {
+        self.controls = controls;
         self
     }
 
@@ -360,8 +373,9 @@ pub(crate) fn session_composer_field(
 
 /// EXP-1294 — THE session composer box = Home's launcher card
 /// (`chat_screen::render_launcher`): the field over a tool row with the "+"
-/// bottom-left and the ONE round button bottom-right, the optional footer
-/// under the card, both on the centred work column (EXP-1191:
+/// bottom-left and the ONE round button bottom-right (the run controls in
+/// that same row, web's layout: the model pin and plan read after the "+",
+/// the context ring before the button), on the centred work column (EXP-1191:
 /// `WORK_COLUMN_W` with the `WORK_GUTTER` padding) like the transcript.
 pub(crate) fn session_composer_box(props: SessionComposerBox, cx: &App) -> AnyElement {
     let SessionComposerBox {
@@ -371,7 +385,7 @@ pub(crate) fn session_composer_box(props: SessionComposerBox, cx: &App) -> AnyEl
         strip,
         tools,
         submit,
-        footer,
+        controls,
         card_hook,
     } = props;
     let field_wrap = div().w_full().min_w_0();
@@ -390,6 +404,30 @@ pub(crate) fn session_composer_box(props: SessionComposerBox, cx: &App) -> AnyEl
     .strip(strip);
     for tool in tools {
         composer = composer.tool(tool);
+    }
+    let SessionComposerControls {
+        model_pin,
+        plan,
+        context_ring,
+    } = controls;
+    // Web `ml-1` on the pin and `ml-2` on the plan read, over the row's own
+    // gap (web 2px, here 4px).
+    if let Some(pin) = model_pin {
+        composer = composer.tool(div().flex_shrink_0().ml(px(2.)).child(pin).into_any_element());
+    }
+    if let Some(plan) = plan {
+        composer = composer.tool(
+            div()
+                .flex_shrink_0()
+                .ml(px(4.))
+                .text_xs()
+                .text_color(t::BLUE.to_hsla())
+                .child(plan)
+                .into_any_element(),
+        );
+    }
+    if let Some(ring) = context_ring {
+        composer = composer.trailing(ring);
     }
     let SessionComposerSubmit {
         id,
@@ -421,8 +459,7 @@ pub(crate) fn session_composer_box(props: SessionComposerBox, cx: &App) -> AnyEl
                 .min_w_0()
                 .max_w(px(crate::work_header::WORK_COLUMN_W))
                 .px(px(crate::work_header::WORK_GUTTER))
-                .child(card)
-                .children(footer),
+                .child(card),
         )
         .into_any_element()
 }
@@ -435,54 +472,34 @@ pub(crate) fn session_composer_box(props: SessionComposerBox, cx: &App) -> AnyEl
 // render_session_composer`), and the styleguide's thread parts.
 // ---------------------------------------------------------------------------
 
-/// EXP-847: the footer's read-only plan read (`config_state.currentMode`).
-pub(crate) const PLAN_MODE_FOOTER: &str = "Plan mode";
-
-/// EXP-877 — the row UNDER the composer card. Left: the plan-mode read
-/// (`plan`, never on a dispatcher root). Right: which model the run is on
-/// ([`session_model_pin`]) and how full its context window is
-/// ([`session_context_ring`]). Everything here is ABOUT the run rather than
-/// part of the message (EXP-1294: the attach "+" sits inside the card).
-pub(crate) fn session_composer_footer(
-    plan: bool,
-    model_pin: Option<AnyElement>,
-    context_ring: Option<AnyElement>,
-    cx: &App,
-) -> AnyElement {
-    use gpui::prelude::FluentBuilder as _;
-    let muted = cx.theme().muted_foreground;
-    h_flex()
-        .w_full()
-        .min_w_0()
-        .items_center()
-        .gap_1()
-        .pt_1()
-        .px_1()
-        .when(plan, |row| {
-            row.child(
-                div()
-                    .flex_shrink_0()
-                    .text_xs()
-                    .text_color(t::BLUE.to_hsla())
-                    .child(SharedString::from(PLAN_MODE_FOOTER)),
-            )
-        })
-        .child(div().flex_1().min_w_0())
-        .children(model_pin)
-        .children(context_ring)
-        .text_color(muted)
-        .into_any_element()
+/// EXP-877 — the run's controls in THE session composer's bottom row
+/// (web `session-composer.tsx`): [`session_model_pin`] and the plan read
+/// (`plan`, never on a dispatcher root) right after the "+",
+/// [`session_context_ring`] right-aligned just before Send. Everything here
+/// is ABOUT the run rather than part of the message.
+#[derive(Default)]
+pub(crate) struct SessionComposerControls {
+    pub(crate) model_pin: Option<AnyElement>,
+    /// The read-only plan read (`config_state.currentMode`'s label, web
+    /// `planModeChipLabel`, else "Plan" off the row before the run reports).
+    pub(crate) plan: Option<SharedString>,
+    pub(crate) context_ring: Option<AnyElement>,
 }
+
+/// The plan read before the run publishes a `config_state`: web's `Plan`
+/// fallback off the row's `plan_mode`.
+pub(crate) const PLAN_MODE_FALLBACK: &str = "Plan";
 
 /// EXP-877 — THE model pin: the model the run is on (`value`, off
 /// `config_state.options[model]`). `picker` (claude) makes it a menu over THE
 /// model list ([`crate::coding_selects::MODEL_CHOICES`], all four, no
 /// default row); picking calls `on_pick` with the alias (the session view
-/// sends `/model <alias>`). Codex has no such prompt, so its model is a
-/// plain label. `None` for a blank value: a footer reports what the run IS
-/// on, and a blank names no model.
+/// sends `/model <alias>`). Codex has no such prompt, so its pin is the same
+/// word + chevron, disabled (web's disabled `ModelPicker`). `None` for a
+/// blank value: the pin reports what the run IS on, and a blank names no
+/// model.
 pub(crate) fn session_model_pin<V: gpui::Render>(
-    id: impl Into<ElementId>,
+    id: impl Into<SharedString>,
     value: &str,
     picker: bool,
     enabled: bool,
@@ -492,24 +509,14 @@ pub(crate) fn session_model_pin<V: gpui::Render>(
     if value.trim().is_empty() {
         return None;
     }
-    let label = SharedString::from(crate::steer_viewer::model_label(value));
+    let label = crate::steer_viewer::model_label(value).to_string();
+    // Web's `inline` picker trigger: the muted word + a 12px chevron, no
+    // chrome (the IDE twin = the composer options line's pin).
+    let trigger = crate::launch_options::inline_pin_trigger(id.into(), label, cx).px_0();
     if !picker {
-        return Some(
-            div()
-                .flex_shrink_0()
-                .px_1()
-                .text_xs()
-                .text_color(cx.theme().muted_foreground)
-                .child(label)
-                .into_any_element(),
-        );
+        return Some(trigger.disabled(true).into_any_element());
     }
-    let trigger = Button::new(id)
-        .ghost()
-        .cursor_pointer()
-        .xsmall()
-        .label(label)
-        .disabled(!enabled);
+    let trigger = trigger.disabled(!enabled);
     Some(
         crate::launch_options::choice_pin(
             trigger,

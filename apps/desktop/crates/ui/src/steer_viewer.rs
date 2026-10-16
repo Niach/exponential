@@ -6750,7 +6750,7 @@ impl SteerSessionView {
                         })),
                 )
                 .card_hook(move |card| card.capture_action(paste))
-                .footer(Some(self.render_composer_footer(cx))),
+                .controls(self.render_composer_controls(cx)),
             cx,
         )
     }
@@ -6823,15 +6823,27 @@ impl SteerSessionView {
             .update(cx, |input, cx| input.set_placeholder(placeholder, window, cx));
     }
 
-    /// EXP-877 — the row UNDER the composer card ([`crate::composer::
-    /// session_composer_footer`]): the plan read (never on a DISPATCHER root,
-    /// which hands the work to children), the model pin, the context ring.
-    fn render_composer_footer(&self, cx: &mut gpui::Context<Self>) -> AnyElement {
+    /// EXP-877 — the run's controls in the composer card's bottom row
+    /// ([`crate::composer::SessionComposerControls`]): the model pin, the
+    /// plan read (never on a DISPATCHER root, which hands the work to
+    /// children; web `planLabel`), the context ring.
+    fn render_composer_controls(&self, cx: &mut gpui::Context<Self>) -> crate::composer::SessionComposerControls {
         let dispatcher = self.row.as_ref().is_some_and(|row| row.dispatch);
-        let plan = !dispatcher && self.plan_mode_label().is_some();
-        let model = self.render_model_pin(cx);
-        let ring = self.render_context_ring(cx);
-        crate::composer::session_composer_footer(plan, model, ring, cx)
+        let plan = if dispatcher {
+            None
+        } else if self.feed.config().is_some() {
+            self.plan_mode_label()
+        } else {
+            self.row
+                .as_ref()
+                .is_some_and(|row| row.plan_mode)
+                .then(|| SharedString::from(crate::composer::PLAN_MODE_FALLBACK))
+        };
+        crate::composer::SessionComposerControls {
+            model_pin: self.render_model_pin(cx),
+            plan,
+            context_ring: self.render_context_ring(cx),
+        }
     }
 
     /// EXP-877 — the model the run is on, off `config_state.options[model]`

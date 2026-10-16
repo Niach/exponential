@@ -10,9 +10,10 @@
 //! and the queued reply. The rows the first case has no example of (a plan,
 //! a subagent, a picture) follow from the second case, then THE session
 //! composer the thread hosts for its DISPATCHER root: the session view's own
-//! box and footer (`crate::composer::session_composer_footer`: the model pin
-//! on the dispatcher's thread model and the context ring, no plan read), with
-//! the fixture's placeholder.
+//! box with its run controls in the card's bottom row
+//! (`crate::composer::SessionComposerControls`: the model pin on the
+//! dispatcher's thread model after the "+", the context ring before Send, no
+//! plan read), with the fixture's placeholder.
 //!
 //! No `sync::Store` here: authors read `Someone`, no `#IDENT` pills, and the
 //! image cache has no transport (the picture paints its placeholder box).
@@ -238,14 +239,17 @@ impl Render for ComposerDemo {
             },
             cx,
         );
-        let footer = crate::composer::session_composer_footer(false, model, ring, cx);
         crate::composer::session_composer_box(
             crate::composer::SessionComposerBox::new(self.mention.clone(), submit)
                 .tool(
                     crate::composer::composer_tool("sg-thread-attach", crate::icons::registry::UI_ADD, cx)
                         .tooltip("Add file or image"),
                 )
-                .footer(Some(footer)),
+                .controls(crate::composer::SessionComposerControls {
+                    model_pin: model,
+                    plan: None,
+                    context_ring: ring,
+                }),
             cx,
         )
     }

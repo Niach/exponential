@@ -55,7 +55,7 @@ use gpui_component::{
     h_flex,
     input::{InputEvent, InputState},
     select::Select,
-    v_flex, ActiveTheme as _, Disableable as _, Icon,
+    v_flex, ActiveTheme as _, Disableable as _, ElementExt as _, Icon,
 };
 use sync::Store;
 
@@ -74,10 +74,10 @@ use crate::native_dialog::{self, AlertSpec, DialogContent, DialogSpec};
 use crate::queries;
 use crate::surface;
 
-/// EXP-862: what the dialog's form actually needs — Name, Default device,
-/// Sharing and the agent defaults. It is a CAP, not a floor: a short screen
-/// still gets the old 85% and the stack scrolls inside it. 640 = the form
-/// WHOLE (Remove device included) since the Thread model row joined it.
+/// EXP-862: the dialog's height CAP, never a fixed height: the window FITS
+/// its form (Name, Default device, Sharing, the agent defaults, Remove
+/// device) up to this, or 85% of the opener on a short screen, and the stack
+/// scrolls inside beyond it ([`DeviceSettingsView::fit_window`]).
 const CONTENT_H: f32 = 640.;
 
 /// Queued-command poll cadence while the dialog is open (offline machines
@@ -139,11 +139,18 @@ pub fn open(window: &mut Window, cx: &mut App, device_row_id: String) {
     //
     // EXP-1020: ONE column since the worktrees left, so the landscape width
     // the second one needed (EXP-762's 820) narrows to the form's own.
+    //
+    // The window opens at the cap and then FITS its form (the trigger
+    // dialog's P66 fit): no empty band under Remove device.
     let height = (window.viewport_size().height * 0.85).min(px(CONTENT_H));
     let spec = DialogSpec::new("Device settings", size(px(560.), height))
         .resizable(size(px(440.), px(360.)));
     native_dialog::open_dialog_window(window, cx, spec, move |window, cx| {
-        let view = cx.new(|cx| DeviceSettingsView::new(device_row_id, window, cx));
+        let view = cx.new(|cx| {
+            let mut view = DeviceSettingsView::new(device_row_id, window, cx);
+            view.max_height = height;
+            view
+        });
         DialogContent::new(view).self_scrolling()
     });
 }
@@ -427,6 +434,14 @@ pub struct DeviceSettingsView {
     /// The stack's scroll position (view state, so a re-render — every
     /// autosave, every heartbeat resync — keeps it).
     settings_scroll: ScrollHandle,
+    /// The fit cap ([`CONTENT_H`] or 85% of the opener).
+    max_height: gpui::Pixels,
+    /// The form's measured height and the scroll pane's, for
+    /// [`Self::fit_window`].
+    content_h: Rc<std::cell::Cell<gpui::Pixels>>,
+    body_h: Rc<std::cell::Cell<gpui::Pixels>>,
+    /// The content height the window was last fitted to.
+    fitted: Option<gpui::Pixels>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -597,6 +612,10 @@ impl DeviceSettingsView {
             remove_busy: false,
             removed: false,
             settings_scroll: ScrollHandle::new(),
+            max_height: px(CONTENT_H),
+            content_h: Rc::default(),
+            body_h: Rc::default(),
+            fitted: None,
             _subscriptions: subscriptions,
         }
     }
@@ -1898,8 +1917,37 @@ fn section_failure(key: &str) -> (&'static str, String) {
     }
 }
 
+impl DeviceSettingsView {
+    /// Size the WINDOW to the form (the trigger dialog's fit): its measured
+    /// content plus the chrome around the scroll pane, capped at
+    /// [`Self::max_height`]. Refits only when the content height moved (a
+    /// section growing or shrinking), so a manual drag holds otherwise; never
+    /// touches a maximized or fullscreen window.
+    fn fit_window(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let content = self.content_h.get();
+        let body = self.body_h.get();
+        if content <= px(0.) || body <= px(0.) || self.fitted == Some(content) {
+            return;
+        }
+        if window.is_maximized() || window.is_fullscreen() {
+            return;
+        }
+        self.fitted = Some(content);
+        let current = window.viewport_size();
+        let chrome = (current.height - body).max(px(0.));
+        let target = (content + chrome).min(self.max_height.max(px(360.)));
+        if (target - current.height).abs() <= px(1.) {
+            return;
+        }
+        native_dialog::resize_dialog_keeping_top(window, cx, size(current.width, target));
+    }
+}
+
 impl Render for DeviceSettingsView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        self.fit_window(window, cx);
+        let view_id = cx.entity_id();
+        let (content_slot, body_slot) = (self.content_h.clone(), self.body_h.clone());
         let row = self.row(cx);
         let online = self.online(cx);
         // EXP-909: Remove lives in this dialog now — once it lands, the row
@@ -2019,7 +2067,12 @@ impl Render for DeviceSettingsView {
         // EXP-1020: ONE column. The second one (EXP-762/798) existed to park
         // the worktrees beside the settings, and a machine's worktrees are a
         // LOCAL surface now — Settings → Worktrees.
-        let body = div().w_full().child(body.pr_2().pb_2());
+        let body = div().w_full().child(body.pr_2().pb_2()).on_prepaint(move |bounds, _, cx| {
+            if content_slot.get() != bounds.size.height {
+                content_slot.set(bounds.size.height);
+                cx.notify(view_id);
+            }
+        });
 
         // EXP-762: ONE scroll pane (EXP-1020 dropped the second column). The
         // dialog is `self_scrolling` (see [`open`]) so this root gets a
@@ -2034,11 +2087,15 @@ impl Render for DeviceSettingsView {
             .size_full()
             .min_w_0()
             .min_h_0()
-            .child(crate::scroll_pane::v_scroll_pane(
-                "device-settings-settings",
-                &self.settings_scroll,
-                body,
-            ))
+            .child(
+                crate::scroll_pane::v_scroll_pane("device-settings-settings", &self.settings_scroll, body)
+                    .on_prepaint(move |bounds, _, cx| {
+                        if body_slot.get() != bounds.size.height {
+                            body_slot.set(bounds.size.height);
+                            cx.notify(view_id);
+                        }
+                    }),
+            )
     }
 }
 
