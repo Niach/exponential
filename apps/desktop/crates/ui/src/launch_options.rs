@@ -723,10 +723,6 @@ pub(crate) struct RemoteDefaults {
     /// preview draws its bars off it (the active login's numbers ride here
     /// when its profile row carries none).
     pub(crate) usage: coding::agent_usage::AgentUsageMap,
-    /// EXP-1249: the machine advertises `computer-use-run` — it reads a
-    /// start's per-run `computerUse`. Without it the "+" menu offers no
-    /// Computer use row (the run would silently take the machine's switch).
-    pub(crate) computer_use_run: bool,
 }
 
 /// The launch cluster's own state: which agent runs, its
@@ -1058,16 +1054,9 @@ impl LaunchOptionsSection {
             // and the account against its profile dirs.
             mcp_server_ids: self.mcp_selected.clone(),
             account: self.account.clone(),
-            // EXP-1249: only a pick the target can read rides the launch.
-            computer_use: computer_use_pick(self.computer_use, self.computer_use_offered()),
+            // EXP-1249: the per-run pick; none = the machine's switch decides.
+            computer_use: self.computer_use,
         }
-    }
-
-    /// EXP-1249: whether the "+" menu offers Computer use for this target —
-    /// always on this machine (this build reads its own pick), on a remote
-    /// one only with the `computer-use-run` cap.
-    pub(crate) fn computer_use_offered(&self) -> bool {
-        self.remote.as_ref().is_none_or(|remote| remote.computer_use_run)
     }
 
     /// EXP-1249: the target machine's own Computer use switch — what a run
@@ -1176,11 +1165,7 @@ impl LaunchOptionsSection {
             ultracode: self.agent.supports_ultracode().then_some(self.ultracode),
             mcp_servers,
             mcp_selected,
-            computer_use: computer_use_shown(
-                self.computer_use,
-                self.computer_use_offered(),
-                self.computer_use_default(cx),
-            ),
+            computer_use: Some(computer_use_shown(self.computer_use, self.computer_use_default(cx))),
         }
     }
 
@@ -1275,20 +1260,10 @@ impl ComposerMenu {
     }
 }
 
-/// EXP-1249: the per-run pick a launch carries — only for a target that
-/// reads it (`offered`), else `None` (its own switch decides).
-pub(crate) fn computer_use_pick(explicit: Option<bool>, offered: bool) -> Option<bool> {
-    explicit.filter(|_| offered)
-}
-
 /// EXP-1249: the toggle's state — the run's pick, else the machine's
-/// switch; `None` (no row) for a target that cannot read a pick.
-pub(crate) fn computer_use_shown(
-    explicit: Option<bool>,
-    offered: bool,
-    device_default: bool,
-) -> Option<bool> {
-    offered.then(|| explicit.unwrap_or(device_default))
+/// switch.
+pub(crate) fn computer_use_shown(explicit: Option<bool>, device_default: bool) -> bool {
+    explicit.unwrap_or(device_default)
 }
 
 /// Write `value` into a model/effort select.
@@ -1317,18 +1292,12 @@ mod tests {
     /// launch merely starts without it), and the glyph inputs travel.
     #[test]
     fn the_computer_use_toggle_follows_the_device_until_picked() {
-        // A target that cannot read a pick shows no row and sends nothing.
-        assert_eq!(computer_use_shown(Some(true), false, true), None);
-        assert_eq!(computer_use_pick(Some(true), false), None);
-        // No pick: the row mirrors the machine's switch, the launch sends
-        // nothing (the machine decides).
-        assert_eq!(computer_use_shown(None, true, true), Some(true));
-        assert_eq!(computer_use_shown(None, true, false), Some(false));
-        assert_eq!(computer_use_pick(None, true), None);
-        // A pick wins, both ways, and rides the launch.
-        assert_eq!(computer_use_shown(Some(false), true, true), Some(false));
-        assert_eq!(computer_use_pick(Some(false), true), Some(false));
-        assert_eq!(computer_use_pick(Some(true), true), Some(true));
+        // No pick: the row mirrors the machine's switch.
+        assert!(computer_use_shown(None, true));
+        assert!(!computer_use_shown(None, false));
+        // A pick wins, both ways.
+        assert!(!computer_use_shown(Some(false), true));
+        assert!(computer_use_shown(Some(true), false));
     }
 
     #[test]

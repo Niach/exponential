@@ -59,6 +59,30 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 
 /// An earlier head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]
+const PREVIOUS_51: ChangelogEntry = ChangelogEntry {
+    id: "2026-10-15-thread-dispatcher",
+    date: "2026-10-15",
+    title: "Threads hand work to their own sessions",
+    summary: "A thread now runs a small dispatcher on the thread model (Haiku by default): it answers quick questions itself and starts a session for real work, with the same reply box and model switch as a session. Every model pick is explicit.",
+    body: r#"- **Threads**: starting a thread or chatting with an agent runs a dispatcher on the thread model. Quick questions get answered in the thread, real work starts its own session with your model, effort and plan mode, and the dispatcher reports back in a line or two.
+- **Reply box**: the thread and agent channel use the session's reply box on every device, with the model switch, the context ring, slash commands and Stop.
+- **Thread model**: device settings gain a Thread model under Model for each agent, Haiku for Claude by default.
+- **Models**: every model picker lists Fable, Opus, Sonnet and Haiku (Codex its three models) with no Default entry. Saved CLI defaults become Fable for the model and Opus for subagents."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_50: ChangelogEntry = ChangelogEntry {
+    id: "2026-10-15-compat-cleanup",
+    date: "2026-10-15",
+    title: "Older apps and older servers retired",
+    summary: "This release drops the compatibility paths for app builds below the current store and desktop versions, and every app now expects a server from the same release.",
+    body: r#"- **Update your apps**: iPhone below 0.14.60, Android below 0.14.62 and the desktop app or CLI below 0.14.70 show the update screen.
+- **Self-hosting**: set `CLIENT_MIN_VERSION_IOS=0.14.60`, `CLIENT_MIN_VERSION_ANDROID=0.14.62`, `CLIENT_MIN_VERSION_DESKTOP=0.14.70` and `CLIENT_MIN_VERSION_CLI=0.14.70` before upgrading (see `selfhost/.env.example`), and upgrade the server before the apps: new apps no longer work against an older server."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
 const PREVIOUS_49: ChangelogEntry = ChangelogEntry {
     id: "2026-10-15-release-train-described-options",
     date: "2026-10-15",

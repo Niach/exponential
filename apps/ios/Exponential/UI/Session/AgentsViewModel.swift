@@ -91,10 +91,6 @@ final class AgentsViewModel {
     /// when it was queued.
     private var refreshMarks: [String: (fetchedAt: String?, at: Date)] = [:]
     private var autoRefreshAttempts: [String: Date] = [:]
-    /// EXP-909: the caps of the machines behind `accountRows`, captured in the
-    /// same pass — `canRefresh` is asked per LOGIN now, and a row carries its
-    /// device id but not its caps.
-    private var refreshCaps: [String: [String]] = [:]
 
     // EXP-481: raw synced rows behind `devices` (users resolve shared-row
     // owner names — a sharing owner is always inside the users shape).
@@ -200,26 +196,19 @@ final class AgentsViewModel {
             (userId != nil && row.userId == userId)
                 || (row.kind == "server" && row.sharedTeamIds.contains(where: teamIds.contains))
         }
-        let capsByDevice: [String: [String]] = Dictionary(
-            (devices ?? []).map { ($0.deviceId, $0.caps ?? []) },
-            uniquingKeysWith: { a, _ in a }
-        )
         accountRows = AgentAccountsRows.profileRows(
             devices: scoped,
             currentUserId: userId,
             isOnline: { DeviceLiveness.isOnline(lastSeenAt: $0, now: now) }
         )
-        refreshCaps = capsByDevice
         pruneRefreshing(accountRows, now: now)
         autoRefreshLogins(accountRows, now: now)
     }
 
     /// EXP-909: whether a refresh may be QUEUED on this login's machine —
-    /// mine, online, and advertising the cap (the server refuses the command
-    /// below it). Web `deviceCanRefreshUsage`, the same three gates.
+    /// mine and online. Web `deviceCanRefreshUsage`.
     func canRefresh(_ row: AgentProfileUsageRow) -> Bool {
         row.mine && row.online
-            && (refreshCaps[row.deviceId] ?? []).contains(AgentAccountsRows.refreshCap)
     }
 
     /// An in-flight mark clears when the account's stamp moved (the machine
@@ -310,10 +299,7 @@ final class AgentsViewModel {
     /// What goes is the agent CLI's config dir for that profile (credentials
     /// included) and its index row. The ACCOUNT is untouched: the machine never
     /// runs `codex logout`, which would revoke it server-wide, and nothing
-    /// about it leaves the machine. Gated on the machine's `account-remove` cap
-    /// (`AgentAccountsRows.canRemoveAccount`) — without it the menu hides the
-    /// entry, because the server refuses the command and an older build would
-    /// leave the row pending forever.
+    /// about it leaves the machine.
     func removeAccount(_ row: AgentProfileUsageRow) {
         queueAccountCommand(row, kind: Self.removeAccountCommandKind)
     }
@@ -326,7 +312,7 @@ final class AgentsViewModel {
     /// chip menu's other destructive entry, confirmed before it gets here.
     /// claude's own `auth logout` inside that profile's config dir, codex's
     /// credential file deleted (never `codex logout`); the account itself is
-    /// untouched. Gated on the machine's `account-sign-out` cap
+    /// untouched. Offered on a signed-in login
     /// (`AgentAccountsRows.chipSignsOut`).
     func signOutAccount(_ row: AgentProfileUsageRow) {
         queueAccountCommand(row, kind: Self.signOutAccountCommandKind)

@@ -76,7 +76,7 @@ pub(super) struct RepoRow {
     #[serde(default)]
     pub default_branch: String,
     /// GitHub's own default branch, for the picker's "(default)" entry —
-    /// picking it clears the pin server-side. Absent on older servers.
+    /// picking it clears the pin server-side. `None` = unknown.
     #[serde(default)]
     pub github_default_branch: Option<String>,
     #[serde(default)]
@@ -92,7 +92,7 @@ pub(super) struct RepoRow {
     pub inaccessible_at: Option<String>,
     /// The member who shared (connected) this repo with the team (EXP-557).
     /// Drives the "Shared by" line and the sharer-or-owner row gating.
-    /// `None` on pre-sharing rows and older servers — owner-managed only.
+    /// `None` on pre-sharing rows — owner-managed only.
     #[serde(default)]
     pub shared_by: Option<RepoSharedBy>,
     #[serde(default)]

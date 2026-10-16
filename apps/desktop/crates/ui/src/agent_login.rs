@@ -641,8 +641,7 @@ fn notify(toast: Toast, cx: &mut App) {
 
 /// One machine a sign-in can be queued on right now (the device the Add
 /// account row was pressed on, EXP-909):
-/// one of MINE, online, on a build that runs `agent_login`, with at least one
-/// agent installed there.
+/// one of MINE, online, with at least one agent installed there.
 #[derive(Clone)]
 pub(crate) struct LoginDevice {
     pub device_id: String,
@@ -655,7 +654,7 @@ pub(crate) struct LoginDevice {
 }
 
 /// The machines a sign-in can be queued on, newest rules first: MINE, online,
-/// advertising `agent-login`, running `agent` when one is named, and not among
+/// running `agent` when one is named, and not among
 /// `exclude` (the machines already holding the account — the per-account "+").
 pub(crate) fn add_account_devices(
     agent: Option<CodingAgent>,
@@ -681,9 +680,6 @@ pub(crate) fn add_account_devices(
             continue;
         }
         if !crate::device_settings::row_is_online(row.last_seen_at.as_deref(), now_ms) {
-            continue;
-        }
-        if !row.cap_ids().iter().any(|cap| cap == "agent-login") {
             continue;
         }
         let installed = row.agent_ids();

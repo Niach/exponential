@@ -19,7 +19,6 @@ import {
   deviceAgentIds,
   deviceAgentLaunchDefaults,
   deviceAgentNotReady,
-  deviceCanToggleComputerUse,
   deviceComputerUseDefault,
   deviceDefaultAgent,
   type SteerDevice,
@@ -87,8 +86,8 @@ export interface LaunchOptions {
   mcpServerIds: string[]
   setMcpServerIds: (ids: string[]) => void
   toggleMcpServer: (id: string) => void
-  /** EXP-1249: the settled device reads a per-run `computerUse` (its cap),
-   * so the composer's "+" offers the toggle. */
+  /** EXP-1249: a device is settled, so the composer's "+" offers the
+   * per-run `computerUse` toggle. */
   computerUseAvailable: boolean
   /** EXP-1249: computer use for this run — the device's own (live)
    * `launch_defaults.computerUse` until the person flips it; a device change
@@ -314,7 +313,7 @@ export function useLaunchOptions({
   // EXP-201: only agents the chosen device advertised are offerable; a
   // device change re-clamps a now-unavailable selection.
   const availableAgents = deviceAgentIds(device)
-  const computerUseAvailable = deviceCanToggleComputerUse(device)
+  const computerUseAvailable = device !== undefined
   const computerUse = computerUsePick ?? deviceComputerUseDefault(device)
   const availableAgentsKey = availableAgents.join(`,`)
 
@@ -377,20 +376,19 @@ export function useLaunchOptions({
     agent,
     model,
     effort: effortValue === CLI_DEFAULT_EFFORT ? `` : effortValue,
-    // EXP-981: claude only, and omitted for the CLI's own default — an
-    // absent key keeps the start frame byte-identical for older devices.
+    // EXP-981: claude only, and omitted for the CLI's own default.
     ...(subagentModel && agentSupportsSubagentModel(agent)
       ? { subagentModel }
       : {}),
     ultracode: ultracode && agentSupportsUltracode(agent),
     planMode: planMode && agentSupportsPlanMode(agent),
     // EXP-792: omitted when nothing is picked — the server treats an absent
-    // list and an empty one alike, and older relays never see the key.
+    // list and an empty one alike.
     // FEED-73: a real action's runs use the ACTION's list (server-set).
     ...(mcpServerIds.length > 0 && !omitMcp
       ? { mcpServerIds: [...mcpServerIds] }
       : {}),
-    // EXP-1249: only a device that reads the per-run flag gets it, and only
+    // EXP-1249: only a picked device gets it, and only
     // once the person flipped it (or it differs from the device's CURRENT
     // default); otherwise the key is omitted so the machine's own setting
     // applies, never a stale seed.

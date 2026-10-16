@@ -81,7 +81,6 @@ class DeviceRowsTest {
         assertTrue(device.registered)
         assertEquals(listOf("claude", "codex"), device.agents)
         assertEquals(listOf("codex"), device.unauthedAgents)
-        assertTrue(device.canResumeRun)
         assertEquals("codex", device.launchDefaults?.defaultAgent)
         // updateRequested + activeSessions > 0 = blocked ("Update queued").
         assertTrue(device.updateRequested)
@@ -220,45 +219,6 @@ class DeviceRowsTest {
         assertNull(resumeWorktreeFor(listOf(worktree()), "row-1", null, "claude"))
         val foreign = worktree { copy(issueIdentifier = null) }
         assertNull(resumeWorktreeFor(listOf(foreign), "row-1", "EXP-42", "claude"))
-    }
-
-    @Test
-    fun `the acp cap says the machine runs sessions on the engine`() {
-        // EXP-746: read-only on mobile — nothing here picks a transport, the
-        // cap only lets a picker say which experience a start will get.
-        assertTrue(
-            entity { copy(caps = """["resume-run","acp"]""") }
-                .toSteerDevice(nowMs, "me").supportsAcp,
-        )
-        assertFalse(entity().toSteerDevice(nowMs, "me").supportsAcp)
-        // An older machine advertises no caps at all.
-        assertFalse(entity { copy(caps = null) }.toSteerDevice(nowMs, "me").supportsAcp)
-    }
-
-    @Test
-    fun `the agent-login cap is read off the machine's caps`() {
-        // EXP-484: a machine that advertises none offers no remote sign-in.
-        val loginOnly = entity { copy(caps = """["agent-login"]""") }
-            .toSteerDevice(nowMs, "me")
-        assertTrue(loginOnly.canAgentLogin)
-
-        assertFalse(entity().toSteerDevice(nowMs, "me").canAgentLogin)
-        assertFalse(entity { copy(caps = null) }.toSteerDevice(nowMs, "me").canAgentLogin)
-    }
-
-    @Test
-    fun `the account-switch cap is read off the machine's caps`() {
-        // EXP-849: a mid-run switch needs the machine to honour `account` on a
-        // live run's resume; an older build silently keeps the recorded login.
-        val switcher = entity { copy(caps = """["resume-run","account-switch"]""") }
-            .toSteerDevice(nowMs, "me")
-        assertTrue(switcher.canSwitchAccount)
-
-        assertFalse(
-            entity { copy(caps = """["resume-run"]""") }
-                .toSteerDevice(nowMs, "me").canSwitchAccount,
-        )
-        assertFalse(entity { copy(caps = null) }.toSteerDevice(nowMs, "me").canSwitchAccount)
     }
 
     @Test

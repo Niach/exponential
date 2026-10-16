@@ -6,7 +6,7 @@
 //
 // The same command the Devices page queues, under the same floors: only on one
 // of the caller's OWN machines and only for the caller's OWN run, only while
-// the machine is online and advertises `agent-usage-refresh`, only for a login
+// the machine is online, only for a login
 // that could answer at all (`usageRefreshEligible`), and never inside the
 // device's own rate-limit floor (`refreshAllowedAt`) — a glance must not be
 // able to out-poll what the machine allows itself.
@@ -30,7 +30,7 @@ import type { SessionRow } from "@/lib/session-tree"
 import { deviceCollection } from "@/lib/collections"
 import { trpc } from "@/lib/trpc-client"
 import { refreshAllowedAt, type AgentProfileUsageRow } from "@/lib/agent-usage"
-import { deviceCanRefreshUsage, deviceRowIsOnline } from "@/lib/steer-devices"
+import { deviceRowIsOnline } from "@/lib/steer-devices"
 import {
   pageIsVisible,
   usageRefreshEligible,
@@ -99,7 +99,6 @@ export function useSessionUsageRefreshOnOpen(
     if (!device) return
     const now = new Date()
     if (!deviceRowIsOnline(device.lastSeenAt, now)) return
-    if (!deviceCanRefreshUsage({ caps: device.caps ?? [] })) return
     if (refreshAllowedAt(usage, now) !== null) return
     if (!claimFirstOpen(`${sessionId}:${profileId}`, now.getTime())) return
     void trpc.devices.createCommand

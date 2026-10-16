@@ -22,11 +22,10 @@ export type AuthConfig = {
   // Connecting GitHub for repositories never needs this: the link runs from
   // Settings → Repositories and the guided page on any account.
   githubLoginEnabled: boolean
-  // RFC 8628 device-code login is available (EXP-403) — the CLI feature-detects
-  // this and falls back to password login against older self-hosted instances.
+  // RFC 8628 device-code login is available (EXP-403).
   deviceFlowEnabled: boolean
   // EXP-857: passwordless "Continue with email" (a 6-digit one-time code sent
-  // by mail) — needs a mail transport. Natives decode absent as false.
+  // by mail) — needs a mail transport.
   emailOtpEnabled: boolean
   // EXP-857: "Login with passkey" (WebAuthn). Needs a secure context, so it is
   // off on plain-http self-hosts (localhost excepted).

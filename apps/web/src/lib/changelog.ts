@@ -46,6 +46,14 @@ export const CHANGELOG: ChangelogEntry[] = [
 - **Models**: every model picker lists Fable, Opus, Sonnet and Haiku (Codex its three models) with no Default entry. Saved CLI defaults become Fable for the model and Opus for subagents.`,
   },
   {
+    id: `2026-10-15-compat-cleanup`,
+    date: `2026-10-15`,
+    title: `Older apps and older servers retired`,
+    summary: `This release drops the compatibility paths for app builds below the current store and desktop versions, and every app now expects a server from the same release.`,
+    body: `- **Update your apps**: iPhone below 0.14.60, Android below 0.14.62 and the desktop app or CLI below 0.14.70 show the update screen.
+- **Self-hosting**: set \`CLIENT_MIN_VERSION_IOS=0.14.60\`, \`CLIENT_MIN_VERSION_ANDROID=0.14.62\`, \`CLIENT_MIN_VERSION_DESKTOP=0.14.70\` and \`CLIENT_MIN_VERSION_CLI=0.14.70\` before upgrading (see \`selfhost/.env.example\`), and upgrade the server before the apps: new apps no longer work against an older server.`,
+  },
+  {
     id: `2026-10-15-release-train-described-options`,
     date: `2026-10-15`,
     title: `Release 2026-10-15: described options everywhere, the phone dawn, and the review fixes`,

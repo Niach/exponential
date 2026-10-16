@@ -60,8 +60,6 @@ import {
   agentSupportsUltracode,
 } from "@/lib/coding-launch-prefs"
 import {
-  deviceCanImportAgentLogin,
-  deviceCanUpdateNow,
   deviceRowIsOnline,
   deviceUpdateAvailable,
   showDeviceUpdateButton,
@@ -844,15 +842,15 @@ export function DeviceSettingsDialog({
             {/* ── Readiness (EXP-1196/1218): THE block, device-doctor.json.
                 The computer-use switch lives in its Computer use group and
                 rides the same debounced launch-defaults save; Update queues
-                `agent_update`, Sign in opens the shared remote login. An
-                older build (no doctor) keeps the bare switch. */}
+                `agent_update`, Sign in opens the shared remote login. No
+                doctor report yet = the bare switch. */}
             {row?.doctor ? (
               <DeviceReadiness
                 doctor={row.doctor}
                 remote
                 busy={tracked.some((command) => isAgentUpdateKey(command.key))}
                 computerUse={{ checked: computerUse, onCheckedChange: toggleComputerUse }}
-                canImport={device ? deviceCanImportAgentLogin(device) : false}
+                canImport={device !== null}
                 onAction={(itemKey, action) => {
                   if (action === `import` && device) {
                     const email = row.doctor?.items.find(
@@ -990,7 +988,7 @@ export function DeviceSettingsDialog({
                             )}
                           </Button>
                         )}
-                        {updateQueued && device && deviceCanUpdateNow(device) && (
+                        {updateQueued && device && (
                           <Pill
                             mode="action"
                             onClick={() => setUpdateNowOpen(true)}

@@ -12,8 +12,7 @@ public struct CreateLabelInput: Encodable, Sendable {
     }
 }
 
-/// `labels.update` takes `{teamId, labelId, ...}` since EXP-254 — the older
-/// `{id}` shape 400s. Nil fields are omitted (encodeIfPresent), matching the
+/// `labels.update` takes `{teamId, labelId, ...}` (EXP-254). Nil fields are omitted (encodeIfPresent), matching the
 /// server's optional `name`/`color`.
 public struct UpdateLabelInput: Encodable, Sendable {
     public let teamId: String

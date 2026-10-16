@@ -5,9 +5,8 @@
 //! the headless `exponential` daemon registers as kind `server` and then
 //! [`heartbeat`]s to keep `last_seen_at` fresh — `ok: false` from a
 //! heartbeat means the row was removed in the UI and the caller should
-//! re-register. Registration is best-effort everywhere: an older server
-//! without the router must never break control-channel start (callers
-//! ignore the error).
+//! re-register. Registration is best-effort everywhere: a failed register
+//! must never break control-channel start (callers ignore the error).
 //!
 //! There is no read side here any more (EXP-485): the "My devices" rows
 //! stream over the synced `devices` shape, and [`latest_versions`] is the
@@ -79,8 +78,8 @@ struct OkResult {
 
 /// `devices.register` output (EXP-481): the CURRENT server copy of the
 /// launch defaults (post-seed) so the device converges immediately instead
-/// of waiting a heartbeat. Every field defaulted — older servers answer
-/// `{ok}` only.
+/// of waiting a heartbeat. Every field defaulted: an unset column is
+/// omitted.
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RegisterResult {
@@ -106,7 +105,7 @@ struct DeviceIdInput<'a> {
 
 /// `devices.heartbeat` input (EXP-411): the live-session count rides every
 /// beat so a pending update request can read "queued behind sessions"
-/// instead of spinning forever. Older servers' zod strips the extra keys.
+/// instead of spinning forever.
 /// EXP-481: `defaults_synced_at` is the launch-defaults stamp this device
 /// last converged to (`null` = never) — the server answers the current copy
 /// only when it differs, keeping the steady-state beat tiny.
@@ -277,7 +276,7 @@ pub struct DeviceEntry {
     #[serde(default)]
     pub active_sessions: u32,
     /// EXP-481: the launch defaults — live advertisement when online, the
-    /// persisted server copy when offline (older servers omit).
+    /// persisted server copy when offline (`None` = never set).
     #[serde(default)]
     pub launch_defaults: Option<serde_json::Value>,
     /// FEED-33: every team this device is shared with (empty = private).
@@ -831,8 +830,8 @@ mod tests {
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.starts_with("GET /api/trpc/devices.latestVersions HTTP/1.1"));
 
-        // Unset server-side (and an older server answering a narrower shape):
-        // every field must read as "unknown", never as a decode failure.
+        // Unset server-side: every field reads as "unknown", never as a
+        // decode failure.
         let (base, _captured) =
             one_shot_server(200, r#"{"result":{"data":{"desktop":null}}}"#);
         let latest = latest_versions(&client(&base)).unwrap();
@@ -857,7 +856,7 @@ mod tests {
         .unwrap();
         assert!(result.ok);
         assert!(!result.update_requested);
-        assert!(result.commands.is_empty(), "older server: no commands field");
+        assert!(result.commands.is_empty(), "no commands field = none queued");
         assert!(result.launch_defaults.is_none());
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.starts_with("POST /api/trpc/devices.heartbeat HTTP/1.1"));

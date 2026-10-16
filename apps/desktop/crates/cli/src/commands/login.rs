@@ -20,7 +20,7 @@ use crate::term;
 
 const DEFAULT_INSTANCE: &str = "https://app.exponential.at";
 
-/// How to sign in, given the environment and the server's capabilities.
+/// How to sign in, given the environment.
 #[derive(Debug, PartialEq, Eq)]
 enum LoginMode {
     /// EXP-1111: a one-time `expi_…` token from the web "Add device" dialog
@@ -30,18 +30,12 @@ enum LoginMode {
     Token(String),
     /// The default: RFC 8628 device code.
     Device,
-    /// No token, and the server offers no device flow — nothing we can do.
-    Unsupported,
 }
 
 /// Pure precedence decision, unit-tested below: a non-blank install token
 /// wins (it is the one credential minted FOR this install), then a non-blank
-/// `EXP_TOKEN`; otherwise the device flow, when the server offers it.
-fn login_mode(
-    install_token: Option<&str>,
-    env_token: Option<&str>,
-    device_flow_enabled: bool,
-) -> LoginMode {
+/// `EXP_TOKEN`; otherwise the device flow.
+fn login_mode(install_token: Option<&str>, env_token: Option<&str>) -> LoginMode {
     if let Some(token) = install_token.map(str::trim).filter(|token| !token.is_empty()) {
         return LoginMode::InstallToken(token.to_string());
     }
@@ -51,11 +45,7 @@ fn login_mode(
             return LoginMode::Token(token.to_string());
         }
     }
-    if device_flow_enabled {
-        LoginMode::Device
-    } else {
-        LoginMode::Unsupported
-    }
+    LoginMode::Device
 }
 
 pub fn run(args: &[String]) -> CommandResult {
@@ -100,11 +90,7 @@ pub fn run(args: &[String]) -> CommandResult {
     // The value is an API key (`expu_…`, minted under Settings → Security)
     // or a raw session token — the server resolves both to a session, and
     // everything downstream rides the same Bearer path.
-    match login_mode(
-        install_token.as_deref(),
-        std::env::var("EXP_TOKEN").ok().as_deref(),
-        true,
-    ) {
+    match login_mode(install_token.as_deref(), std::env::var("EXP_TOKEN").ok().as_deref()) {
         LoginMode::InstallToken(token) => {
             let session = auth_client
                 .redeem_install_token(&instance, &token)
@@ -113,24 +99,16 @@ pub fn run(args: &[String]) -> CommandResult {
             return finish(&auth_client, &instance, session);
         }
         LoginMode::Token(token) => return finish(&auth_client, &instance, token),
-        LoginMode::Device | LoginMode::Unsupported => {}
+        LoginMode::Device => {}
     }
 
-    // Also the reachability check — a wrong instance URL fails here, not
-    // three steps deep into the device flow.
-    let config = auth_client
+    // The reachability check — a wrong instance URL fails here, not three
+    // steps deep into the device flow.
+    auth_client
         .fetch_auth_config(&instance)
         .with_context(|| format!("reach {instance} — is the instance URL right?"))?;
 
-    match login_mode(None, None, config.device_flow_enabled) {
-        LoginMode::Token(_) | LoginMode::InstallToken(_) => unreachable!("no token in this branch"),
-        LoginMode::Device => device_login(&auth_client, &instance, no_browser),
-        LoginMode::Unsupported => bail!(
-            "This server offers no device-code login. Update the server, or set EXP_TOKEN \
-             to a personal API key (Settings → Security in the web app) and rerun \
-             `exponential login`."
-        ),
-    }
+    device_login(&auth_client, &instance, no_browser)
 }
 
 fn device_login(auth_client: &AuthClient, instance: &str, no_browser: bool) -> CommandResult {
@@ -237,30 +215,25 @@ mod tests {
     #[test]
     fn token_wins_over_everything() {
         assert_eq!(
-            login_mode(None, Some("expu_abc"), false),
+            login_mode(None, Some("expu_abc")),
             LoginMode::Token("expu_abc".to_string())
         );
         assert_eq!(
-            login_mode(None, Some("  session-token  "), true),
+            login_mode(None, Some("  session-token  ")),
             LoginMode::Token("session-token".to_string())
         );
     }
 
     #[test]
     fn blank_token_is_ignored() {
-        assert_eq!(login_mode(None, Some("   "), true), LoginMode::Device);
-        assert_eq!(login_mode(None, Some(""), false), LoginMode::Unsupported);
-        assert_eq!(login_mode(Some("  "), None, true), LoginMode::Device);
+        assert_eq!(login_mode(None, Some("   ")), LoginMode::Device);
+        assert_eq!(login_mode(None, Some("")), LoginMode::Device);
+        assert_eq!(login_mode(Some("  "), None), LoginMode::Device);
     }
 
     #[test]
     fn device_is_the_default() {
-        assert_eq!(login_mode(None, None, true), LoginMode::Device);
-    }
-
-    #[test]
-    fn no_device_flow_and_no_token_is_unsupported() {
-        assert_eq!(login_mode(None, None, false), LoginMode::Unsupported);
+        assert_eq!(login_mode(None, None), LoginMode::Device);
     }
 
     /// EXP-1111: the install token is minted FOR this install — it beats a
@@ -268,7 +241,7 @@ mod tests {
     #[test]
     fn install_token_wins_over_everything() {
         assert_eq!(
-            login_mode(Some(" expi_abc "), Some("expu_old"), false),
+            login_mode(Some(" expi_abc "), Some("expu_old")),
             LoginMode::InstallToken("expi_abc".to_string())
         );
     }

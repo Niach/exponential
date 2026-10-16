@@ -271,12 +271,11 @@ describe(`useLaunchOptions MCP pick`, () => {
 })
 
 // EXP-1249: per-run computer use — the "+" menu toggle. It seeds from the
-// device's own switch, rides out only to a device that reads it (the cap),
-// and every key the payload can carry is a contract launch key.
+// device's own switch, rides out only to a picked device, and every key the
+// payload can carry is a contract launch key.
 describe(`useLaunchOptions computer use`, () => {
   const capable: SteerDevice = {
     ...device,
-    caps: [contract.codingSession.computerUseCap],
     launchDefaults: { ...device.launchDefaults, computerUse: true },
   }
 
@@ -325,11 +324,11 @@ describe(`useLaunchOptions computer use`, () => {
     expect(`computerUse` in result.current.buildOptions()).toBe(false)
   })
 
-  it(`never sends it to a device without the cap`, () => {
+  it(`never sends it without a device`, () => {
     const { result } = renderHook(() =>
       useLaunchOptions({
         open: true,
-        devices: [{ ...capable, caps: [] }],
+        devices: [],
       })
     )
     expect(result.current.computerUseAvailable).toBe(false)

@@ -369,8 +369,8 @@ pub(crate) struct BlockProps {
     /// Element-id prefix (two blocks may share a window).
     pub id: SharedString,
     pub on_action: Option<ActionHandler>,
-    /// Whether rows carrying an `import` show the Import pill: always on the
-    /// device itself, on another only when it advertises `agent-import`.
+    /// Whether rows carrying an `import` show the Import pill (off only in the
+    /// inert styleguide specimens that leave it unset).
     pub offer_import: bool,
     pub on_import: Option<ImportHandler>,
     pub on_toggle: Option<ToggleHandler>,
@@ -787,20 +787,7 @@ pub(crate) fn run_local_import(key: &str, email: &str, window: &mut Window, cx: 
     });
 }
 
-/// Whether the synced row of `device_id` advertises `cap`.
-pub(crate) fn device_has_cap(device_id: &str, cap: &str, cx: &App) -> bool {
-    sync::Store::try_global(cx).is_some_and(|store| {
-        store
-            .collections()
-            .devices
-            .read(cx)
-            .iter()
-            .find(|row| row.device_id.as_deref() == Some(device_id))
-            .is_some_and(|row| row.cap_ids().iter().any(|known| known == cap))
-    })
-}
-
-/// The Import pill for ANOTHER device (only offered with `agent-import`):
+/// The Import pill for ANOTHER device:
 /// confirm, queue `agent_login {agent, import: true}`, and say how it went
 /// once the machine answers — `Imported {email}.`, or the already-added
 /// warning, or its failure sentence.
@@ -902,24 +889,22 @@ pub(crate) fn local_props(id: impl Into<SharedString>, cx: &App) -> BlockProps {
     }
 }
 
-/// A remote block's wiring for `device_id` (remote actions only, the Import
-/// pill only when the device advertises `agent-import`; the switch is the
-/// host's, it owns the launch-defaults write).
+/// A remote block's wiring for `device_id` (remote actions and the Import
+/// pill; the switch is the host's, it owns the launch-defaults write).
 pub(crate) fn remote_props(
     id: impl Into<SharedString>,
     device_id: String,
     device_label: SharedString,
-    cx: &App,
+    _cx: &App,
 ) -> BlockProps {
-    let offer_import = device_has_cap(&device_id, coding::doctor::AGENT_IMPORT_CAP, cx);
     let on_import = remote_import_handler(device_id.clone(), device_label.clone());
     BlockProps {
         id: id.into(),
         on_action: Some(Rc::new(move |key, action, window, cx| {
             run_remote_action(device_id.clone(), device_label.clone(), key, action, window, cx)
         })),
-        offer_import,
-        on_import: offer_import.then_some(on_import),
+        offer_import: true,
+        on_import: Some(on_import),
         ..BlockProps::default()
     }
 }
@@ -1036,7 +1021,7 @@ mod tests {
                     };
                     assert_eq!(row.pill.map(|pill| pill.action), expected, "{name}: {}", row.key);
                     // The Import offer rides the item, local and remote alike
-                    // (the host gates the pill on `agent-import`).
+                    // (the host decides whether the pill shows).
                     assert_eq!(
                         row.import.as_deref(),
                         case["importPills"].get(row.key.as_str()).and_then(Value::as_str),

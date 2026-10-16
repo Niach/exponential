@@ -83,8 +83,8 @@ class CommentThreadsTest {
         assertFalse(row("a").isToReporter)
     }
 
-    // A reporter's row decodes with its NULL author and its audience; an
-    // older server's row without `audience` reads as a team comment.
+    // A reporter's row decodes with its NULL author and its audience; a row
+    // without `audience` reads as a team comment.
     @Test
     fun decodesReporterRowAndDefaultsAudience() {
         val json = kotlinx.serialization.json.Json { ignoreUnknownKeys = true; explicitNulls = false }

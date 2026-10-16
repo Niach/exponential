@@ -192,9 +192,8 @@ pub fn start_control_channel(account: &api::Account, cx: &mut App) {
         let caps = device_caps(&advertisement);
         // EXP-403: record this machine in the per-user devices registry so the
         // agents UI can show it with an offline "last seen" state (relay
-        // presence alone empties on every relay restart). Best-effort — an
-        // older server without the devices router must never break
-        // control-channel start — and registered even with no agents so the
+        // presence alone empties on every relay restart). Best-effort — a failed
+        // register must never break control-channel start — and registered even with no agents so the
         // UI can explain WHY the machine is not startable. EXP-485: this row
         // is now the ONLY path the agent lists and launch defaults take to the
         // server; the online frame carries neither.
@@ -380,9 +379,8 @@ fn device_caps(advertisement: &coding::AgentAdvertisement) -> Vec<String> {
 
 /// Best-effort `devices.register` on the background executor (EXP-403) — the
 /// machine's row in the per-user registry, and since EXP-485 the ONLY path the
-/// agent lists and launch defaults take to the server. An older server without
-/// the devices router must never break control-channel start, so failures are
-/// swallowed.
+/// agent lists and launch defaults take to the server. A failed register must
+/// never break control-channel start, so failures are swallowed.
 fn register_device(
     trpc: Arc<api::TrpcClient>,
     device_id: String,

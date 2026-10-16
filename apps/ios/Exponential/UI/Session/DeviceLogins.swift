@@ -167,25 +167,9 @@ struct DeviceLogins: View {
     /// Actionable only on one of MY machines that is listening and advertises
     /// the `agent-login` capability: every action rides the owner→device queue
     /// the server gates on that cap, and an offline machine would hold the
-    /// command until it wakes, which reads as a dead tap. A row whose state
-    /// leaves no entry at all (a healthy login on a build with neither
-    /// `account-sign-out` nor `account-remove`) carries no menu rather than an
-    /// empty one.
+    /// command until it wakes, which reads as a dead tap.
     private func isActionable(_ row: AgentProfileUsageRow) -> Bool {
-        guard !readOnly, row.mine, device.isOnline, device.canAgentLogin else { return false }
-        if AgentAccountsRows.chipSignsIn(row) { return true }
-        if AgentAccountsRows.chipSignsOut(
-            row,
-            canAgentLogin: device.canAgentLogin,
-            canSignOutAccount: device.canSignOutAccount
-        ) {
-            return true
-        }
-        return AgentAccountsRows.canRemoveAccount(
-            row,
-            canAgentLogin: device.canAgentLogin,
-            canRemoveAccount: device.canRemoveAccount
-        )
+        !readOnly && row.mine && device.isOnline && device.canAgentLogin
     }
 
     @ViewBuilder
@@ -195,35 +179,19 @@ struct DeviceLogins: View {
         // (EXP-1137), Remove account. EXP-944: a signed-out
         // or refused login keeps Sign in as its first, repairing entry — but
         // no longer ENDS there: a dead profile can be removed too.
-        // EXP-1137: a signed-in login can be signed out on a build with the
-        // sign-out body.
+        // EXP-1137: a signed-in login can be signed out.
         if AgentAccountsRows.chipSignsIn(row) {
             GlassMenuItem("Sign in", icon: AppIcons.uiSignIn) {
                 onSignIn(row)
             }
         }
-        // EXP-1137: gated on the machine's `account-sign-out` cap, like the
-        // removal on its own — the server refuses the command below it.
-        if AgentAccountsRows.chipSignsOut(
-            row,
-            canAgentLogin: device.canAgentLogin,
-            canSignOutAccount: device.canSignOutAccount
-        ) {
+        if AgentAccountsRows.chipSignsOut(row) {
             GlassMenuItem("Sign out", icon: AppIcons.uiSignOut, destructive: true) {
                 onSignOut(row)
             }
         }
-        // EXP-862: gated on the machine's `account-remove` cap — the server
-        // refuses the command below it, and an older build would leave the
-        // queued row pending forever.
-        if AgentAccountsRows.canRemoveAccount(
-            row,
-            canAgentLogin: device.canAgentLogin,
-            canRemoveAccount: device.canRemoveAccount
-        ) {
-            GlassMenuItem("Remove account", icon: AppIcons.uiDelete, destructive: true) {
-                onRemove(row)
-            }
+        GlassMenuItem("Remove account", icon: AppIcons.uiDelete, destructive: true) {
+            onRemove(row)
         }
     }
 

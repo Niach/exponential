@@ -88,19 +88,14 @@ describe(`session-tree fixtures (EXP-1291)`, () => {
 })
 
 describe(`questionOption (EXP-1322)`, () => {
-  test(`a label or {label, description} normalises; anything else drops`, () => {
+  test(`a label normalises; anything else drops`, () => {
     expect(questionOption(`Yes`)).toEqual({ label: `Yes`, description: null })
-    expect(questionOption({ label: `Yes`, description: `Ship it` })).toEqual({ label: `Yes`, description: `Ship it` })
-    expect(questionOption({ label: `Yes`, description: `` })).toEqual({ label: `Yes`, description: null })
-    expect(questionOption({ label: `Yes` })).toEqual({ label: `Yes`, description: null })
-    expect(questionOption({ description: `x` })).toBeNull()
+    expect(questionOption({ label: `Yes`, description: `Ship it` })).toBeNull()
     expect(questionOption(3)).toBeNull()
   })
 
-  // COMPAT (EXP-1322 sidecar): old iOS 0.14.59 / Android 0.14.61 / desktop
-  // 0.14.69 only read string options, so the wire is `options: string[]` +
-  // the parallel `optionDescriptions`; object options stay readable.
-  test(`questionOptions zips the optionDescriptions sidecar by index and keeps object tolerance`, () => {
+  // The wire is `options: string[]` + the parallel `optionDescriptions`.
+  test(`questionOptions zips the optionDescriptions sidecar by index`, () => {
     expect(
       questionOptions({ options: [`Yes`, `No`, `Later`, `Never`], optionDescriptions: [`Ship it`, null, ``, `Not now`] }),
     ).toEqual([
@@ -119,15 +114,14 @@ describe(`questionOption (EXP-1322)`, () => {
       { label: `B`, description: null },
     ])
     expect(questionOptions({ options: [`A`], optionDescriptions: `a` })).toEqual([{ label: `A`, description: null }])
-    // Objects posted before the sidecar: their own description wins; the
-    // sidecar index follows the ORIGINAL position even past a dropped option.
+    // The sidecar index follows the ORIGINAL position even past a dropped option.
     expect(
       questionOptions({
-        options: [{ label: `Own`, description: `Mine` }, 3, { label: `Plain` }, `Z`],
+        options: [`Own`, 3, `Plain`, `Z`],
         optionDescriptions: [`sidecar`, `dropped`, `filled`, null],
       }),
     ).toEqual([
-      { label: `Own`, description: `Mine` },
+      { label: `Own`, description: `sidecar` },
       { label: `Plain`, description: `filled` },
       { label: `Z`, description: null },
     ])

@@ -33,7 +33,7 @@ export function AddAccountDialog({
   open: boolean
   onOpenChange: (open: boolean) => void
   /** The machine the sign-in runs on — the caller already checked it can take
-   *  one (own, online, cap `agent-login`, an agent installed). */
+   *  one (own, online, an agent installed). */
   device: SteerDevice
 }) {
   const agents = useMemo(() => addableAgents(device), [device])

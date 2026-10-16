@@ -19,8 +19,7 @@ public struct UploadedAttachment: Decodable, Sendable {
     public let sizeBytes: Int
     // EXP-824: media rows answer with their probed length, the poster URL
     // (`/api/attachments/{id}?poster=1`, nil without a poster) and the codec
-    // pair the server sniffed. All nullable and tolerated absent — an older
-    // server simply omits them.
+    // pair the server sniffed. All nullable.
     public let durationMs: Int?
     public let posterUrl: String?
     public let videoCodec: String?

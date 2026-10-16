@@ -49,8 +49,6 @@ class SessionAccountSwitchTest {
         mine: Boolean = true,
         sessionEnded: Boolean = false,
         deviceOnline: Boolean = true,
-        canResume: Boolean = true,
-        canSwitchAccount: Boolean = true,
         turnState: String = TURN_STATE_ENDED,
         currentAccount: String? = null,
     ) = SessionAccountSwitch.refusal(
@@ -59,8 +57,6 @@ class SessionAccountSwitchTest {
         mine = mine,
         sessionEnded = sessionEnded,
         deviceOnline = deviceOnline,
-        canResume = canResume,
-        canSwitchAccount = canSwitchAccount,
         turnState = turnState,
         currentAccount = currentAccount,
     )
@@ -107,11 +103,6 @@ class SessionAccountSwitchTest {
     fun `a switch waits for the turn and for the machine`() {
         assertEquals(SessionAccountSwitch.REASON_BUSY, refusal("work", turnState = TURN_STATE_STARTED))
         assertEquals(SessionAccountSwitch.REASON_OFFLINE, refusal("work", deviceOnline = false))
-        assertEquals(SessionAccountSwitch.REASON_NO_CAP, refusal("work", canResume = false))
-        // EXP-849: `resume-run` alone is not enough — a machine that does not
-        // advertise `account-switch` resumes on the RECORDED account and drops
-        // the field, which the server refuses too.
-        assertEquals(SessionAccountSwitch.REASON_NO_CAP, refusal("work", canSwitchAccount = false))
         assertEquals(SessionAccountSwitch.REASON_ENDED, refusal("work", sessionEnded = true))
         assertEquals(SessionAccountSwitch.REASON_NOT_MINE, refusal("work", mine = false))
     }

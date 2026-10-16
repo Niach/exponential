@@ -329,30 +329,14 @@ public struct TreeMessageCard: Equatable, Sendable {
             question: loose("question"),
             // EXP-1322: `options` = plain labels, descriptions ride the
             // parallel `optionDescriptions` sidecar (null / "" = none), zipped
-            // by ORIGINAL index before invalid options drop; a pre-sidecar
-            // `{label, description}` object's own description wins.
-            // COMPAT (EXP-1322 sidecar): old iOS 0.14.59 / Android 0.14.61 /
-            // desktop 0.14.69 only read string options. The device may post
-            // {label, description} objects again once CLIENT_MIN_VERSION_IOS
-            // >= 0.14.60 AND _ANDROID >= 0.14.62 AND _DESKTOP >= 0.14.70 (or
-            // keep the sidecar as the permanent form).
+            // by ORIGINAL index before non-string options drop.
             options: (object["options"] as? [Any])?.enumerated().compactMap { index, option -> TreeQuestionOption? in
-                let parsed: TreeQuestionOption? = switch option {
-                case let string as String: TreeQuestionOption(label: string)
-                case let entry as [String: Any]:
-                    (entry["label"] as? String).map {
-                        let description = entry["description"] as? String
-                        return TreeQuestionOption(label: $0, description: description?.isEmpty == false ? description : nil)
-                    }
-                default: nil
-                }
-                guard let parsed else { return nil }
-                guard parsed.description == nil else { return parsed }
+                guard let label = option as? String else { return nil }
                 let sidecar = object["optionDescriptions"] as? [Any]
                 guard let sidecar, index < sidecar.count,
                       let description = sidecar[index] as? String, !description.isEmpty
-                else { return parsed }
-                return TreeQuestionOption(label: parsed.label, description: description)
+                else { return TreeQuestionOption(label: label) }
+                return TreeQuestionOption(label: label, description: description)
             } ?? [],
             answer: text("answer"),
             plan: loose("plan"),

@@ -35,7 +35,6 @@ import {
 } from "@/lib/pending-images"
 import {
   deviceAgentLaunchDefaults,
-  deviceCanAgentLogin,
   deviceHasRunnableAgent,
   deviceIsMine,
   deviceIsOnline,
@@ -151,8 +150,7 @@ export function buildSendInput(args: {
 
 /** The failure toast, `Couldn't start the session` (FEED-79), with a
  *  "Sign in" action when the refusal is one a remote sign-in can fix (a
- *  PRECONDITION on one of the caller's OWN devices that can run
- *  `agent_login`); everything else offers Retry. */
+ *  PRECONDITION on one of the caller's OWN devices); everything else offers Retry. */
 function startFailureToast(
   error: unknown,
   device: SteerDevice,
@@ -161,8 +159,7 @@ function startFailureToast(
 ): void {
   const canSignIn =
     trpcErrorCode(error) === `PRECONDITION_FAILED` &&
-    deviceIsMine(device) &&
-    deviceCanAgentLogin(device)
+    deviceIsMine(device)
   if (!canSignIn) {
     failedAction(`start`, `the session`, error, { retry })
     return

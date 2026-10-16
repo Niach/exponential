@@ -8,8 +8,8 @@
 //!   (`parentId`) or a message to an existing session (`sessionId`; to an
 //!   idle session it resumes it, to an ended thread it continues it).
 //! - `stop` interrupts a turn, `end` ends a session (a root: its tree).
-//! - `setTitle` (`null` clears), `linkIssues` / `unlinkIssue`, `answer`
-//!   (a question/plan card), `unqueue` (a queued person message).
+//! - `linkIssues` / `unlinkIssue`, `answer` (a question/plan card),
+//!   `unqueue` (a queued person message).
 //! - Agents: `getAgent` (the server-only instructions), `updateAgent`,
 //!   `deleteAgent`.
 //! - `pullRequests.merge` / `close` / `files`.

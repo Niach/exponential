@@ -99,20 +99,10 @@ pub struct AuthConfig {
     pub apple_login_enabled: bool,
     #[serde(default)]
     pub github_enabled: bool,
-    /// RFC 8628 device-code login (EXP-403). Defaults FALSE: an older
-    /// self-hosted instance without the field lacks the endpoints — the CLI
-    /// then falls back to password login.
-    #[serde(default)]
-    pub device_flow_enabled: bool,
     /// EXP-857: passwordless email one-time-code login (Better Auth
     /// `email-otp`) is offered — i.e. the instance has a mail transport.
-    /// Defaults FALSE: an older server without the field has no
-    /// `/api/auth/email-otp/*` routes.
-    #[serde(default)]
     pub email_otp_enabled: bool,
-    /// EXP-857: passkey (WebAuthn) login is offered. Defaults FALSE for the
-    /// same reason.
-    #[serde(default)]
+    /// EXP-857: passkey (WebAuthn) login is offered.
     pub passkey_enabled: bool,
 }
 
@@ -1548,14 +1538,18 @@ mod tests {
         assert!(full.email_otp_enabled);
         assert!(full.passkey_enabled);
 
-        // Tolerant: unknown/missing fields degrade to defaults.
-        let sparse: AuthConfig = serde_json::from_str(r#"{"futureField":1}"#).unwrap();
+        // Tolerant: unknown fields are ignored, the optional ones default.
+        let sparse: AuthConfig = serde_json::from_str(
+            r#"{"futureField":1,"emailOtpEnabled":false,"passkeyEnabled":false}"#,
+        )
+        .unwrap();
         assert!(sparse.password_enabled); // defaults true like iOS
         assert!(!sparse.apple_login_enabled);
         assert!(sparse.oidc_providers.is_empty());
-        // EXP-857: an older server without the fields offers neither method.
         assert!(!sparse.email_otp_enabled);
         assert!(!sparse.passkey_enabled);
+        // EXP-857: the two method flags are required.
+        assert!(serde_json::from_str::<AuthConfig>(r#"{"futureField":1}"#).is_err());
     }
     /// EXP-1111: the redeem posts the pinned body and returns the session
     /// token; `invalid_token` reads as the actionable sentence.

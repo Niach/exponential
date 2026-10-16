@@ -3654,22 +3654,22 @@
         "file": "shots/settings-mcp-servers/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 66366,
-        "sha256": "dca9a24c6bad1f5e310c7af7f1f796271805e2c2c4b5d14aba3b640be9f05e91"
+        "bytes": 66182,
+        "sha256": "23c8d5d26b6b5a500ee8c31489827e0f5cff84a44a6be162259e013d7aa58055"
       },
       "web": {
         "file": "shots/settings-mcp-servers/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 74564,
-        "sha256": "b4c785180d9ae4b8c5a4cedab5eb080e20df449d51c11578717cd615aff3c024"
+        "bytes": 73970,
+        "sha256": "0c1ede3abe94bb117dd9662ee8f154a2861525321f35c0624bee46792a435081"
       },
       "web-mobile": {
         "file": "shots/settings-mcp-servers/web-mobile.webp",
         "width": 832,
         "height": 1800,
-        "bytes": 70348,
-        "sha256": "c71a25db3ceba1c3561cb8bc064fccf794e6a94923d71b18f56e454030c78a48"
+        "bytes": 70132,
+        "sha256": "54f2daa979f95c1a42a223137b97f62ee112ff89c25daf4b0edf91f0505925ea"
       }
     },
     "settings-members": {
