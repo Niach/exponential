@@ -11,7 +11,9 @@
 //! order — the glass rows, the readiness block (EXP-1236: its Computer use
 //! band with the switch on and the Computer use model picker under it, off
 //! the contract fixture's "computer use on" case), `AgentDefaultsGroup` with
-//! real selects, then Update and the Remove row. The dialog view
+//! real selects (Model, then Thread model, then claude's Subagent model —
+//! every model row the ONE `coding_selects::model_select` over all the
+//! agent's models, no default row), then Update and the Remove row. The dialog view
 //! itself is bound to a synced device row and the store, so the entry owns a
 //! small demo view holding the same entities instead; nothing it draws is a
 //! copy of a recipe.
@@ -33,10 +35,7 @@ use gpui_component::{
 use coding::device_doctor::{DeviceDoctor, DoctorState, KEY_COMPUTER_USE};
 use coding::CodingAgent;
 
-use crate::coding_selects::{
-    agent_icon, choice_select, effort_choices_for, model_choices_for, ChoiceSelect,
-    COMPUTER_USE_MODEL_CHOICES, SUBAGENT_MODEL_CHOICES,
-};
+use crate::coding_selects::{agent_icon, choice_select, effort_choices_for, model_select, ChoiceSelect};
 use crate::controls::{glass_input, WebControl as _};
 use crate::device_readiness;
 use crate::icons::registry;
@@ -81,6 +80,8 @@ struct DeviceSettingsDemo {
     effort: ChoiceSelect,
     codex_model: ChoiceSelect,
     codex_effort: ChoiceSelect,
+    thread_model: ChoiceSelect,
+    codex_thread_model: ChoiceSelect,
     subagent_model: ChoiceSelect,
     ultracode: bool,
     plan_mode: bool,
@@ -103,21 +104,18 @@ impl DeviceSettingsDemo {
             name_input,
             is_default: true,
             agent_tab: settings.default_agent,
-            model: choice_select(
-                model_choices_for(CodingAgent::Claude),
-                &settings.claude_model,
-                window,
-                cx,
-            ),
+            model: model_select(CodingAgent::Claude, &settings.claude_model, window, cx),
+            thread_model: model_select(CodingAgent::Claude, &settings.claude_thread_model, window, cx),
             effort: choice_select(
                 effort_choices_for(CodingAgent::Claude),
                 &settings.claude_effort,
                 window,
                 cx,
             ),
-            codex_model: choice_select(
-                model_choices_for(CodingAgent::Codex),
-                &settings.codex_model,
+            codex_model: model_select(CodingAgent::Codex, &settings.codex_model, window, cx),
+            codex_thread_model: model_select(
+                CodingAgent::Codex,
+                &settings.codex_thread_model,
                 window,
                 cx,
             ),
@@ -127,8 +125,8 @@ impl DeviceSettingsDemo {
                 window,
                 cx,
             ),
-            subagent_model: choice_select(
-                &SUBAGENT_MODEL_CHOICES,
+            subagent_model: model_select(
+                CodingAgent::Claude,
                 &settings.claude_subagent_model,
                 window,
                 cx,
@@ -137,8 +135,8 @@ impl DeviceSettingsDemo {
             plan_mode: settings.claude_plan_mode,
             doctor: computer_use_on_doctor(),
             computer_use: true,
-            computer_use_model: choice_select(
-                &COMPUTER_USE_MODEL_CHOICES,
+            computer_use_model: model_select(
+                CodingAgent::Claude,
                 &settings.computer_use_model,
                 window,
                 cx,
@@ -191,9 +189,13 @@ impl DeviceSettingsDemo {
                 note: None,
             })
             .collect();
-        let (model, effort) = match self.agent_tab {
-            CodingAgent::Claude => (self.model.clone(), self.effort.clone()),
-            CodingAgent::Codex => (self.codex_model.clone(), self.codex_effort.clone()),
+        let (model, effort, thread) = match self.agent_tab {
+            CodingAgent::Claude => (self.model.clone(), self.effort.clone(), self.thread_model.clone()),
+            CodingAgent::Codex => (
+                self.codex_model.clone(),
+                self.codex_effort.clone(),
+                self.codex_thread_model.clone(),
+            ),
         };
         let mut group = AgentDefaultsGroup::new(
             "sg-device-defaults",
@@ -209,7 +211,8 @@ impl DeviceSettingsDemo {
             model,
             effort,
         )
-        .effort_disabled(self.agent_tab == CodingAgent::Claude && self.ultracode);
+        .effort_disabled(self.agent_tab == CodingAgent::Claude && self.ultracode)
+        .thread(thread);
         if self.agent_tab.supports_subagent_model() {
             group = group.subagent(self.subagent_model.clone());
         }

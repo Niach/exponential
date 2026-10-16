@@ -27,7 +27,7 @@ use crate::agent::CodingAgent;
 /// not this snapshot.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ContextLayers {
-    /// The run playbook ([`crate::skill::RUN_SKILL`]) in bytes.
+    /// The run playbook ([`crate::skill::playbook`]) in bytes.
     pub playbook_bytes: usize,
     /// EXP-1025 team prompt bytes plus (EXP-1292) a team agent's
     /// instructions, when the brief carries either.
@@ -97,21 +97,28 @@ pub fn team_bytes(system_append: &str) -> Option<usize> {
 /// owners' prompt). The longest candidate that is a prefix wins.
 pub fn playbook_bytes(system_append: &str) -> usize {
     let mut candidates: Vec<String> = Vec::new();
-    for code_mode in [true, false] {
-        for model in crate::settings::COMPUTER_USE_MODELS {
+    for dispatch in [true, false] {
+        for code_mode in [true, false] {
+            for model in crate::settings::MODEL_ALIASES {
+                candidates.push(crate::skill::fixed_append(&crate::skill::Extras {
+                    computer_use: Some(model.to_string()),
+                    code_mode,
+                    dispatch,
+                }));
+            }
             candidates.push(crate::skill::fixed_append(&crate::skill::Extras {
-                computer_use: Some(model.to_string()),
+                computer_use: None,
                 code_mode,
+                dispatch,
             }));
         }
-        candidates.push(crate::skill::fixed_append(&crate::skill::Extras { computer_use: None, code_mode }));
     }
     candidates.sort_by_key(|text| std::cmp::Reverse(text.len()));
     candidates
         .iter()
         .find(|fixed| system_append.starts_with(fixed.trim_end()))
         .map(|fixed| fixed.len().min(system_append.len()))
-        .unwrap_or_else(|| crate::skill::RUN_SKILL.len().min(system_append.len()))
+        .unwrap_or_else(|| crate::skill::playbook(false).len().min(system_append.len()))
 }
 
 /// The memory files `agent` will load for a run whose cwd is `cwd`, in LOAD
@@ -274,11 +281,13 @@ mod tests {
         use crate::skill::Extras;
         let prompt = "## Rules";
         let without = crate::skill::system_append_with(Some(prompt), &Extras::NONE);
-        assert_eq!(playbook_bytes(&without), crate::skill::RUN_SKILL.len());
+        assert_eq!(playbook_bytes(&without), crate::skill::playbook(false).len());
         for extras in [
-            Extras { computer_use: Some("haiku".into()), code_mode: false },
-            Extras { computer_use: Some("opus".into()), code_mode: true },
-            Extras { computer_use: None, code_mode: true },
+            Extras { computer_use: Some("haiku".into()), ..Extras::NONE },
+            Extras { computer_use: Some("opus".into()), code_mode: true, dispatch: false },
+            Extras { code_mode: true, ..Extras::NONE },
+            Extras { dispatch: true, ..Extras::NONE },
+            Extras { code_mode: true, dispatch: true, ..Extras::NONE },
         ] {
             let alone = crate::skill::system_append_with(None, &extras);
             assert_eq!(team_bytes(&alone), None);
@@ -295,10 +304,10 @@ mod tests {
     fn agent_instructions_count_as_team() {
         use crate::skill::{system_append_layers, Extras};
         let both = system_append_layers(Some("Rules"), Some("Watch the inbox."), &Extras::NONE);
-        assert_eq!(playbook_bytes(&both), crate::skill::RUN_SKILL.len());
+        assert_eq!(playbook_bytes(&both), crate::skill::playbook(false).len());
         assert_eq!(
             team_bytes(&both),
-            Some(both.len() - crate::skill::RUN_SKILL.trim_end().len())
+            Some(both.len() - crate::skill::playbook(false).trim_end().len())
         );
         let team_only = system_append_layers(Some("Rules"), None, &Extras::NONE);
         assert!(team_bytes(&both) > team_bytes(&team_only));
@@ -313,7 +322,7 @@ mod tests {
         let prompt = "## Rules\n\n- Always run `bun test`.";
         let append = crate::skill::system_append(Some(prompt));
         let bytes = team_bytes(&append).expect("a team layer");
-        assert_eq!(bytes, append.len() - crate::skill::RUN_SKILL.trim_end().len());
+        assert_eq!(bytes, append.len() - crate::skill::playbook(false).trim_end().len());
         // The block is the prompt plus the framing the launcher adds.
         assert!(bytes > prompt.len());
         assert!(append.ends_with(&format!("{prompt}\n")));

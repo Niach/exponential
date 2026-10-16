@@ -8,8 +8,8 @@ import { createShapeRouteHandler } from "@/lib/shape-route"
 // EXP-1291 — the session tree (threads, agents and their sub-sessions). ONE
 // visibility rule: `shared OR user_id = me` inside the member's teams. A
 // device picks up its `queued` rows from this shape (the DB is the bus).
-// SERVER-ONLY, behind the allowlist: `host_user_id`, `mcp_server_ids` and
-// an agent's `instructions` (tRPC `sessions.getAgent`).
+// SERVER-ONLY, behind the allowlist: `host_user_id`, `mcp_server_ids`,
+// `work_launch` and an agent's `instructions` (tRPC `sessions.getAgent`).
 export const SESSION_COLUMNS = [
   `id`,
   `team_id`,
@@ -26,6 +26,7 @@ export const SESSION_COLUMNS = [
   `plan_mode`,
   `computer_use`,
   `ultracode`,
+  `dispatch`,
   `repository_id`,
   `branch`,
   `status`,

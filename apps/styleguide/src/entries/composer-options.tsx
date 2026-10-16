@@ -25,10 +25,12 @@ const ACCOUNTS = [
   { key: `claude:1`, agent: `claude`, email: `danny@example.dev` },
   { key: `codex:1`, agent: `codex`, email: `danny@example.dev` },
 ]
+/** THE model choices (contract `codingModel`, all four, no Default row). */
 const MODELS = [
-  { value: `default`, label: `CLI default` },
+  { value: `fable`, label: `Fable` },
   { value: `opus`, label: `Opus` },
   { value: `sonnet`, label: `Sonnet` },
+  { value: `haiku`, label: `Haiku` },
 ]
 const REPOS = [
   { id: `exp`, fullName: `Niach/exponential` },

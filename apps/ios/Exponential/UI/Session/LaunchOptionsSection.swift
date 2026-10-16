@@ -17,9 +17,8 @@ import SwiftUI
 // takes the machine's own). EXP-995: its first row is THE account picker
 // (EXP-1021's shared `AccountPicker`: brand mark + email + limit bars over the
 // bound machine's logins, the agent riding the pick) where the launch variant
-// draws the agent capsule — the caller hands it `accountOptions`. Model/Effort speak the
-// launch "CLI default" sentinel on both — blank is what stores NULL on the
-// row and lets the machine decide.
+// draws the agent capsule — the caller hands it `accountOptions`. Effort
+// speaks the "CLI default" sentinel; every model is explicit.
 //
 // `Variant.device` (EXP-694) is a MACHINE's stored launch defaults — the
 // device-settings sheet used to hand-roll the same rows. It has no device
@@ -29,6 +28,31 @@ import SwiftUI
 // EXP-694 (S3/S4): everything below the device picker is ONE grouped card —
 // the agent strip is its first row (embedded, no capsule of its own), then
 // Model + Effort, then the toggles the caller bound.
+/// THE model picker row (2026-10-15): every model pick — a session's model,
+/// the thread model, subagents, computer use — lists the agent's whole
+/// contract list (`LaunchVocabulary.modelValues`), no default entry.
+struct ModelPickerRow: View {
+    let title: String
+    @Binding var selection: String
+    /// Whose list: claude = contract `codingModel`, codex = `codexModel`.
+    var agent: String = "claude"
+
+    init(_ title: String = "Model", selection: Binding<String>, agent: String = "claude") {
+        self.title = title
+        self._selection = selection
+        self.agent = agent
+    }
+
+    var body: some View {
+        GlassPickerRow(
+            title,
+            selection: $selection,
+            options: LaunchVocabulary.modelValues(for: agent),
+            label: { LaunchVocabulary.modelLabel($0) }
+        )
+    }
+}
+
 struct LaunchOptionsSection: View {
     enum Variant {
         case launch
@@ -58,9 +82,15 @@ struct LaunchOptionsSection: View {
     /// EXP-981: claude's SUBAGENT model, bound only where it is editable (a
     /// machine's launch defaults); a trigger has no such field.
     var subagentModel: Binding<String>? = nil
+    /// The dispatcher root's model (threads + team agents), per agent; bound
+    /// only on a machine's launch defaults.
+    var threadModel: Binding<String>? = nil
     @Binding var effort: String
     var ultracode: Binding<Bool>? = nil
     var planMode: Binding<Bool>? = nil
+    /// EXP-1005: claude's "Auto-rotate accounts" device toggle, bound only
+    /// on a machine's launch defaults.
+    var autoRotateAccounts: Binding<Bool>? = nil
     /// A sentence under the card (the device variant's offline notice).
     var footerNote: String? = nil
     /// EXP-1196/1219: runs the not-ready row's pill (Update / Sign in on the
@@ -132,16 +162,6 @@ struct LaunchOptionsSection: View {
     /// (the machine's default) — the row always says something.
     private var currentAccount: AccountOption? {
         selectedAccount ?? accountOptions?.first
-    }
-
-    /// A binding offers "CLI default" for EVERY agent — a blank pin stores
-    /// NULL on the row — where a run only offers it where the CLI has one
-    /// (claude's model is explicit-always).
-    private var modelOptions: [String] {
-        variant == .trigger
-            ? [LaunchVocabulary.cliDefault]
-                + LaunchVocabulary.triggerModelValues(for: agent)
-            : LaunchVocabulary.modelValues(for: agent)
     }
 
     private var effortOptions: [String] {
@@ -229,21 +249,14 @@ struct LaunchOptionsSection: View {
                 // not at the first segment's label.
                 .alignmentGuide(.listRowSeparatorLeading) { d in d[.leading] + 12 }
             }
-            GlassPickerRow(
-                "Model",
-                selection: $model,
-                options: modelOptions,
-                label: { LaunchVocabulary.modelLabel($0) }
-            )
-            // EXP-981: claude-only, like Ultracode below — `""` (the "Default"
-            // row) is a real stored choice here: the CLI picks its own.
+            ModelPickerRow("Model", selection: $model, agent: agent)
+            if let threadModel {
+                ModelPickerRow("Thread model", selection: threadModel, agent: agent)
+                    .accessibilityIdentifier("device-thread-model")
+            }
+            // EXP-981: claude-only, like Ultracode below.
             if let subagentModel, LaunchVocabulary.supportsSubagentModel(agent) {
-                GlassPickerRow(
-                    "Subagent model",
-                    selection: subagentModel,
-                    options: LaunchVocabulary.subagentModelValues(),
-                    label: { LaunchVocabulary.subagentModelLabel($0) }
-                )
+                ModelPickerRow("Subagent model", selection: subagentModel, agent: agent)
             }
             GlassPickerRow(
                 effortTitle,
@@ -260,6 +273,9 @@ struct LaunchOptionsSection: View {
             }
             if let planMode, LaunchVocabulary.supportsPlanMode(agent) {
                 GlassToggleRow("Plan mode", isOn: planMode)
+            }
+            if let autoRotateAccounts, LaunchVocabulary.supportsAccountRotation(agent) {
+                GlassToggleRow("Auto-rotate accounts", isOn: autoRotateAccounts)
             }
         } footer: {
             optionsFooter

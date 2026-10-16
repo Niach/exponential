@@ -95,14 +95,17 @@ final class LaunchOptionsStateTests: XCTestCase {
         XCTAssertEqual(state.buildOptions().model, "fable")
     }
 
-    func testCodexBlankStaysTheCliDefault() {
+    func testCodexSeedsItsExplicitContractDefault() {
         let state = LaunchOptionsState()
         // No login reported: the per-agent fallback rows, codex last used.
         let box = device(id: "box", agents: ["claude", "codex"], claudeEmail: nil, defaultAgent: "codex")
         state.seed(from: box)
         XCTAssertEqual(state.agent, "codex")
-        XCTAssertEqual(state.model, LaunchVocabulary.cliDefault)
-        XCTAssertEqual(state.buildOptions().model, "")
+        XCTAssertEqual(state.model, DomainContract.deviceAgentDefaultsCodexModel)
+        XCTAssertEqual(state.buildOptions().model, "gpt-5.6-sol")
+        // A blank (a pre-explicit "CLI default") never rides the wire.
+        state.model = ""
+        XCTAssertEqual(state.buildOptions().model, "gpt-5.6-sol")
     }
 
     func testReconcileSeedsOnlyOnAnotherMachine() {

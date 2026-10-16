@@ -37,7 +37,7 @@ class DatabaseHolder @Inject constructor(
                 // (one added column), EXP-1284's 84 → 85 (two new tables) and EXP-1291's
                 // 86 → 87 (the session tree).
                 // Any OLDER schema still wipes and lets Electric resync.
-                .addMigrations(MIGRATION_78_79, MIGRATION_79_80, MIGRATION_80_81, MIGRATION_81_82, MIGRATION_82_83, MIGRATION_83_84, MIGRATION_84_85, MIGRATION_85_86, MIGRATION_86_87)
+                .addMigrations(MIGRATION_78_79, MIGRATION_79_80, MIGRATION_80_81, MIGRATION_81_82, MIGRATION_82_83, MIGRATION_83_84, MIGRATION_84_85, MIGRATION_85_86, MIGRATION_86_87, MIGRATION_87_88)
                 .fallbackToDestructiveMigration(dropAllTables = true)
                 .build()
             instances[accountId] = db

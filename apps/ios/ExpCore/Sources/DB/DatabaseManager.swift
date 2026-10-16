@@ -2477,6 +2477,27 @@ public final class DatabaseManager: @unchecked Sendable {
             try createSessionTreeTables(db)
         }
 
+        // v69 (dispatcher roots): `sessions.dispatch` — every new root (a
+        // thread or a team agent) dispatches its work to children, so its
+        // composer hides the plan chip. The v64 pattern: a guarded additive
+        // ALTER, and the sessions offset resets only when the column was
+        // added, so already-synced rows re-arrive carrying it.
+        migrator.registerMigration("v69_session_dispatch") { db in
+            guard try db.tableExists("sessions") else { return }
+            let existing = Set(try db.columns(in: "sessions").map(\.name))
+            guard !existing.contains("dispatch") else { return }
+            try db.alter(table: "sessions") { t in
+                t.add(column: "dispatch", .boolean).notNull().defaults(to: false)
+            }
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: """
+                    UPDATE "electric_offsets"
+                    SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                    WHERE "shape" = 'sessions'
+                    """)
+            }
+        }
+
         return migrator
     }
 

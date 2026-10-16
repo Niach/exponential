@@ -417,8 +417,9 @@ fn toml_key(key: &str) -> String {
 pub struct LaunchOptions {
     /// Which agent CLI to spawn (EXP-201).
     pub agent: CodingAgent,
-    /// Model choice within the agent's closed set. Blank = omit the model
-    /// flag (valid for codex only; claude is explicit-always).
+    /// Model choice within the agent's closed set. Every launch passes it
+    /// explicitly; a blank is a caller bug the argv degrades to the agent's
+    /// [`CodingAgent::default_model`].
     pub model: String,
     /// Effort/reasoning/thinking level; blank = omit the flag. Ignored while
     /// ultracode is on (ultracode IS the effort level — `--effort ultracode`).
@@ -430,9 +431,9 @@ pub struct LaunchOptions {
     /// Never codex.
     pub plan_mode: bool,
     /// EXP-981: the model claude's SUBAGENTS run on
-    /// (`CLAUDE_CODE_SUBAGENT_MODEL`, exported at every spawn when non-blank
-    /// — [`crate::launcher::apply_subagent_model_env`]). One of the claude
-    /// model aliases; blank = the CLI's own default. Claude-only.
+    /// (`CLAUDE_CODE_SUBAGENT_MODEL`, exported at every claude spawn —
+    /// [`crate::launcher::apply_subagent_model_env`]). One of the claude
+    /// model aliases. Claude-only (blank on codex).
     pub subagent_model: String,
     /// EXP-792: the team MCP servers (`mcp_servers` row ids) this run
     /// connects to beside `exponential`. Empty = none. EXP-1292: a session's
@@ -517,22 +518,11 @@ impl LaunchOptions {
         let agent = agent
             .and_then(CodingAgent::parse)
             .unwrap_or(CodingAgent::Claude);
-        let model_fallback = if agent == settings.default_agent {
-            settings.model_for(agent)
-        } else if agent.allows_blank_model() {
-            ""
-        } else {
-            crate::settings::DEFAULT_CLAUDE_MODEL
-        };
+        // Every model is explicit: absent, blank or unknown = this
+        // machine's default for the agent.
+        let model_fallback = settings.model_for(agent);
         let model = match model {
-            Some(model) => {
-                let normalized = normalize_choice(model, agent.model_values(), "");
-                if normalized.is_empty() && !agent.allows_blank_model() {
-                    model_fallback.to_string()
-                } else {
-                    normalized
-                }
-            }
+            Some(model) => normalize_choice(model, agent.model_values(), model_fallback),
             None => model_fallback.to_string(),
         };
         let effort = match effort {
@@ -549,13 +539,8 @@ impl LaunchOptions {
             plan_mode: plan_mode.unwrap_or(false) && agent.supports_plan_mode(),
             // EXP-981: ABSENT on the frame = this machine's own default; the
             // caller layers an explicit pick on with
-            // [`Self::with_subagent_model`], where BLANK means "the CLI's
-            // default" and must not fall back to the settings value.
-            subagent_model: if agent == settings.default_agent {
-                settings.subagent_model_for(agent).to_string()
-            } else {
-                String::new()
-            },
+            // [`Self::with_subagent_model`].
+            subagent_model: settings.subagent_model_for(agent).to_string(),
             mcp_server_ids: Vec::new(),
             account: None,
             computer_use: None,
@@ -591,15 +576,19 @@ impl LaunchOptions {
     }
 
     /// EXP-981: layer a remote start's explicit `subagentModel` on.
-    /// `None` = the frame carried none (keep the machine's default);
-    /// `Some("")` = the CLI's own default, deliberately; anything outside
-    /// the agent's model set (or any agent but claude) normalizes to blank.
+    /// `None` = the frame carried none (keep the machine's default); a
+    /// blank or unknown value keeps it too (every model is explicit); any
+    /// agent but claude carries none.
     pub fn with_subagent_model(mut self, subagent_model: Option<&str>) -> Self {
         let Some(value) = subagent_model else {
             return self;
         };
         self.subagent_model = if self.agent.supports_subagent_model() {
-            crate::settings::normalize_choice(value, self.agent.model_values(), "")
+            let fallback = Some(self.subagent_model.as_str())
+                .filter(|current| self.agent.model_values().contains(current))
+                .unwrap_or(crate::settings::DEFAULT_CLAUDE_SUBAGENT_MODEL)
+                .to_string();
+            crate::settings::normalize_choice(value, self.agent.model_values(), &fallback)
         } else {
             String::new()
         };
@@ -679,10 +668,13 @@ pub fn shell_args(opts: &LaunchOptions, mcp: &AgentMcp, system_append: &str) -> 
             // config/interactive runs keep their update checks.
             args.push("-c".into());
             args.push("check_for_update_on_startup=false".into());
-            if !trimmed_model.is_empty() {
-                args.push("-m".into());
-                args.push(trimmed_model.to_string());
-            }
+            // Explicit-always like claude: a blank is a caller bug.
+            args.push("-m".into());
+            args.push(if trimmed_model.is_empty() {
+                crate::settings::DEFAULT_CODEX_MODEL.to_string()
+            } else {
+                trimmed_model.to_string()
+            });
             if !trimmed_effort.is_empty() {
                 args.push("-c".into());
                 args.push(format!("model_reasoning_effort=\"{trimmed_effort}\""));
@@ -1138,7 +1130,8 @@ mod tests {
         assert_eq!(opts.account.as_deref(), Some("system"));
         assert_eq!(LaunchOptions::remote(&settings, None, None, None, None, None, Some(" ")).account, None);
 
-        // A claude model on a codex start is bogus → blank (codex default).
+        // A claude model on a codex start is bogus → this machine's codex
+        // model (every model is explicit).
         let opts = LaunchOptions::remote(
             &settings,
             Some("codex"),
@@ -1148,7 +1141,7 @@ mod tests {
             None,
             None,
         );
-        assert_eq!(opts.model, "");
+        assert_eq!(opts.model, "gpt-5.6-sol");
 
         // F7: an option-less claude start must never park an unattended
         // desktop at the plan gate.
@@ -1169,16 +1162,16 @@ mod tests {
         assert_eq!(opts.model, "sonnet");
     }
 
-    /// A non-default remote agent with NO model/effort sent uses ITS blank
-    /// CLI defaults — never the default agent's persisted pair.
+    /// A non-default remote agent with NO model/effort sent uses ITS OWN
+    /// model and a blank effort, never the default agent's persisted pair.
     #[test]
-    fn remote_non_default_agent_falls_to_blank_not_foreign_settings() {
+    fn remote_non_default_agent_falls_to_its_own_model_not_foreign_settings() {
         let mut settings = Settings::default();
         settings.claude_model = "opus".to_string();
         settings.claude_effort = "high".to_string();
         let opts = LaunchOptions::remote(&settings, Some("codex"), None, None, None, None, None);
         assert_eq!(opts.agent, CodingAgent::Codex);
-        assert_eq!(opts.model, "", "claude's opus must not leak onto codex");
+        assert_eq!(opts.model, "gpt-5.6-sol", "claude's opus must not leak onto codex");
         assert_eq!(opts.effort, "");
 
         // And when codex IS the default agent, its persisted pair applies.

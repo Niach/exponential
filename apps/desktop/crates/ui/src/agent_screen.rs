@@ -5,19 +5,16 @@
 //! `HH:MM` · markdown), every `thread_started` / `session` card THE session
 //! card (a started thread opens as the thread, a session as the session
 //! view), question and plan cards answered in place; under it THE session
-//! composer box, `Message <name>`, sending `sessions.send({sessionId:
-//! agent})`.
+//! composer of the session view targeting the agent root
+//! (`session_screen::root_composer_view`: model pin, context ring, `/` menu,
+//! Send⇄Stop over the tree, the queue strip), `Message <name>`.
 
 use gpui::{
     div, px, AnyElement, App, AppContext as _, Entity, FocusHandle,
     Focusable, FontWeight, InteractiveElement as _, IntoElement, ParentElement, Render,
     ScrollHandle, SharedString, Styled, Subscription, Window,
 };
-use gpui_component::{
-    h_flex,
-    input::{InputEvent, TextareaState},
-    v_flex, ActiveTheme as _, Sizable as _,
-};
+use gpui_component::{h_flex, v_flex, ActiveTheme as _, Sizable as _};
 use sync::Store;
 
 use domain::rows::{MessageRow, SessionRow};
@@ -60,15 +57,10 @@ pub struct AgentScreenView {
     rows: Vec<SessionThreadRow>,
     messages: std::collections::HashMap<String, MessageRow>,
     images: Entity<ImageCache>,
-    input: Entity<TextareaState>,
-    mention: Entity<crate::mention_input::MentionInput>,
-    mention_team: Option<String>,
+    /// THE session composer, targeting the agent root.
+    composer: Entity<crate::steer_viewer::SteerSessionView>,
     /// The name the placeholder was built for.
     placeholder_name: Option<String>,
-    /// The composer's staged images and their notice.
-    pending: crate::composer_images::PendingImages,
-    notice: Option<SharedString>,
-    sending: bool,
     scroll: ScrollHandle,
     /// EXP-1316 (1n): the channel follows its tail like the session feed.
     follow: crate::controls::TailFollow,
@@ -76,34 +68,22 @@ pub struct AgentScreenView {
     _subscriptions: Vec<Subscription>,
 }
 
-impl crate::composer::SessionReply for AgentScreenView {
-    fn reply(&mut self) -> crate::composer::ReplyParts<'_> {
-        crate::composer::ReplyParts {
-            input: &self.input,
-            images: &mut self.pending,
-            notice: &mut self.notice,
-            sending: &mut self.sending,
-        }
-    }
-}
-
 impl AgentScreenView {
     pub fn new(agent_id: String, window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
         let name = crate::session_data::session(&agent_id, cx).map(|agent| agent_name(&agent));
-        let (input, mention) = crate::composer::session_composer_field(
+        let composer = crate::session_screen::root_composer_view(
+            &agent_id,
             message_placeholder(name.as_deref().unwrap_or_default()),
+            crate::steer_viewer::ComposerIds::new(
+                "agent-send",
+                "agent-attach",
+                "agent-model",
+                "agent-context",
+            ),
             window,
             cx,
         );
-        let mut subscriptions = vec![cx.subscribe_in(
-            &input,
-            window,
-            |this, _, event: &InputEvent, window, cx| match event {
-                InputEvent::PressEnter { shift: false, .. } => this.send(window, cx),
-                InputEvent::Change => cx.notify(),
-                _ => {}
-            },
-        )];
+        let mut subscriptions = vec![cx.observe(&composer, |_, _, cx| cx.notify())];
         if let Some(store) = Store::try_global(cx) {
             let collections = store.collections().clone();
             subscriptions.push(cx.observe_in(&collections.sessions, window, |this, _, window, cx| {
@@ -124,13 +104,8 @@ impl AgentScreenView {
             rows: Vec::new(),
             messages: std::collections::HashMap::new(),
             images,
-            input,
-            mention,
-            mention_team: None,
+            composer,
             placeholder_name: name,
-            pending: Default::default(),
-            notice: None,
-            sending: false,
             scroll: ScrollHandle::new(),
             follow: crate::controls::TailFollow::default(),
             focus_handle: cx.focus_handle(),
@@ -159,28 +134,15 @@ impl AgentScreenView {
             .map(|message| (message.id.clone(), message))
             .collect();
         if let Some(agent) = self.agent.clone() {
-            let team = agent.team_id.clone();
-            if team != self.mention_team {
-                self.mention_team = team.clone();
-                self.mention.update(cx, |mention, _| {
-                    mention.set_source(team.map(crate::markdown::store_completion_source));
-                });
-            }
             let name = agent_name(&agent);
             if self.placeholder_name.as_deref() != Some(name.as_str()) {
-                self.input.update(cx, |input, cx| {
-                    input.set_placeholder(message_placeholder(&name), window, cx);
+                self.composer.update(cx, |composer, cx| {
+                    composer.set_placeholder(message_placeholder(&name), window, cx);
                 });
                 self.placeholder_name = Some(name);
             }
         }
         cx.notify();
-    }
-
-    /// `sessions.send({sessionId: agent, text})`.
-    fn send(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        let agent_id = self.agent_id.clone();
-        crate::composer::send_session_reply(self, &agent_id, window, cx);
     }
 
     /// The agent's mark in the 24px gutter disc.
@@ -324,21 +286,10 @@ impl Render for AgentScreenView {
             .pb_8()
             .gap_4()
             .children(rows);
-        let empty = !crate::composer::reply_has_content(self, cx);
-        let this = cx.entity().downgrade();
-        let submit = crate::composer::SessionComposerSubmit::send("agent-send", empty, move |_, window, cx| {
-            let _ = this.update(cx, |this, cx| this.send(window, cx));
-        })
-        .loading(self.sending);
-        let paste = cx.listener(crate::composer::on_reply_paste::<Self>);
-        let composer = crate::composer::session_composer_box(
-            crate::composer::SessionComposerBox::new(self.mention.clone(), submit)
-                .strip(crate::composer::reply_strip(self, "agent-pending-remove", cx))
-                .tool(crate::composer::reply_attach_tool("agent-attach", self.sending, cx))
-                .footer(crate::composer::reply_notice(self, cx))
-                .card_hook(move |card| card.capture_action(paste)),
-            cx,
-        );
+        // THE session composer of the session view, targeting the agent.
+        let composer = self
+            .composer
+            .update(cx, |composer, cx| composer.render_session_composer(window, cx));
         v_flex()
             .track_focus(&self.focus_handle)
             .size_full()
@@ -352,7 +303,7 @@ impl Render for AgentScreenView {
                 cx.entity_id(),
                 cx,
             ))
-            .child(div().w_full().pb_2().child(composer))
+            .children(composer.map(|composer| div().w_full().pb_2().child(composer)))
     }
 }
 

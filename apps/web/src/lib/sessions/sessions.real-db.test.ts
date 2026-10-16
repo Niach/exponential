@@ -232,6 +232,73 @@ describe.skipIf(!ready.ok)(`sessions.send — a new root`, () => {
   })
 })
 
+// Dispatch (owner 2026-10-15): every new root is a DISPATCHER on the device's
+// thread model; the composer's picks ride `work_launch` to its children.
+describe.skipIf(!ready.ok)(`sessions.send — dispatcher roots`, () => {
+  it(`a new root dispatches on no model of its own and hands its picks to children`, async () => {
+    const w = await world()
+    const root = await sendSession({
+      userId: w.owner,
+      input: {
+        teamId: w.teamId,
+        deviceId: w.deviceId,
+        cli: `claude`,
+        model: `opus`,
+        effort: `high`,
+        planMode: true,
+        ultracode: true,
+        computerUse: true,
+        text: `build it`,
+      },
+    })
+    expect(await row(root.sessionId)).toMatchObject({
+      dispatch: true,
+      cli: `claude`,
+      model: null,
+      effort: null,
+      planMode: false,
+      ultracode: false,
+      computerUse: false,
+      workLaunch: {
+        model: `opus`,
+        effort: `high`,
+        planMode: true,
+        ultracode: true,
+        computerUse: true,
+      },
+    })
+
+    // A child inherits the WORK picks, never the dispatcher's own run, and
+    // is no dispatcher itself.
+    const child = await sendSession({ userId: w.owner, input: { parentId: root.sessionId, text: `part 1` } })
+    expect(await row(child.sessionId)).toMatchObject({
+      dispatch: false,
+      cli: `claude`,
+      model: `opus`,
+      effort: `high`,
+      planMode: true,
+      ultracode: true,
+      computerUse: true,
+    })
+    // The child's own picks win over the inherited ones.
+    const picked = await sendSession({
+      userId: w.owner,
+      input: { parentId: root.sessionId, text: `part 2`, model: `haiku`, planMode: false },
+    })
+    expect(await row(picked.sessionId)).toMatchObject({ model: `haiku`, planMode: false, effort: `high` })
+
+    // An ended dispatcher's continuation dispatches on.
+    await endSession({ userId: w.owner, sessionId: root.sessionId, summary: `Done.` })
+    const cont = await sendSession({ userId: w.owner, input: { sessionId: root.sessionId, text: `again` } })
+    expect(await row(cont.sessionId)).toMatchObject({
+      parentId: root.sessionId,
+      dispatch: true,
+      model: null,
+      workLaunch: { model: `opus`, effort: `high`, planMode: true },
+    })
+  })
+})
+
 describe.skipIf(!ready.ok)(`sessions.send — children, messages, continuation`, () => {
   it(`starts a child under the parent with a session card, inheriting visibility`, async () => {
     const w = await world({ shared: true })

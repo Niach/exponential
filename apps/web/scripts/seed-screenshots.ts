@@ -583,6 +583,9 @@ async function seedSessionTree(ctx: {
     cli: `claude`,
     repositoryId: repoId,
     shared: true,
+    // Every root dispatches (threads and team agents alike): it runs on the
+    // device's thread model and hands real work to child sessions.
+    dispatch: true,
     ...extra,
   })
 
@@ -732,6 +735,7 @@ async function seedSessionTree(ctx: {
     parentId: ids.coldStart,
     rootId: ids.coldStart,
     depth: 1,
+    dispatch: false,
     title: `Profile the launch path`,
     branch: `exp/APP-5`,
   })

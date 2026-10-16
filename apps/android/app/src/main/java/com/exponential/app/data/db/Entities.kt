@@ -668,6 +668,9 @@ data class SessionEntity(
     @ColumnInfo(name = "plan_mode") @SerialName("plan_mode") @JsonNames("planMode") val planMode: PgBool = false,
     @ColumnInfo(name = "computer_use") @SerialName("computer_use") @JsonNames("computerUse") val computerUse: PgBool = false,
     val ultracode: PgBool = false,
+    // A DISPATCHER root (threads + team agents since 2026-10-15): runs on the
+    // device's thread model, never plans, hands real work to child sessions.
+    @ColumnInfo(name = "dispatch", defaultValue = "0") val dispatch: PgBool = false,
     @ColumnInfo(name = "repository_id") @SerialName("repository_id") @JsonNames("repositoryId") val repositoryId: String? = null,
     // The session's working branch (device-written at claim).
     val branch: String? = null,

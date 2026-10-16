@@ -15,13 +15,22 @@ import type { SessionKind } from "@exp/db-schema/domain"
 
 // EXP-1291: the session tree as one read (MCP `sessions_get`) and the thread
 // / agent lists (MCP `sessions_list`). Same visibility rule as the shapes;
-// the server-only facets (`host_user_id`, `mcp_server_ids`, an agent's
-// `instructions`) never leave here.
+// the server-only facets (`host_user_id`, `mcp_server_ids`, a dispatcher's
+// `work_launch`, an agent's `instructions`) never leave here.
 
-export type PublicSession = Omit<Session, `hostUserId` | `mcpServerIds` | `instructions`>
+export type PublicSession = Omit<
+  Session,
+  `hostUserId` | `mcpServerIds` | `workLaunch` | `instructions`
+>
 
 export function publicSession(session: Session): PublicSession {
-  const { hostUserId: _host, mcpServerIds: _mcp, instructions: _instructions, ...rest } = session
+  const {
+    hostUserId: _host,
+    mcpServerIds: _mcp,
+    workLaunch: _work,
+    instructions: _instructions,
+    ...rest
+  } = session
   return rest
 }
 

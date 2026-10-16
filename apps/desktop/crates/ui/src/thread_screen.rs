@@ -41,7 +41,7 @@ use gpui::{
 use gpui_component::{
     button::ButtonVariants as _,
     h_flex,
-    input::{InputEvent, InputState, TextareaState},
+    input::{InputEvent, InputState},
     v_flex, ActiveTheme as _, Icon, Sizable as _,
 };
 use sync::Store;
@@ -1546,13 +1546,10 @@ pub(crate) struct ThreadScreenView {
     issue_view: Option<Entity<crate::issue_detail::IssueDetailView>>,
     guide: GuideState,
     images: Entity<ImageCache>,
-    reply: Entity<TextareaState>,
-    mention: Entity<crate::mention_input::MentionInput>,
-    mention_team: Option<String>,
-    /// The reply's staged images and their notice.
-    pending: crate::composer_images::PendingImages,
-    notice: Option<SharedString>,
-    sending: bool,
+    /// THE session composer, targeting the ROOT: the session view over the
+    /// root's live source (`session_screen::root_composer_view`), whose
+    /// composer stack this screen paints under the conversation.
+    composer: Entity<crate::steer_viewer::SteerSessionView>,
     /// When each issue link was FIRST rendered, and whether it was new then
     /// (linked inside [`NEW_CHILD_WINDOW`]) — the fade-in ring.
     first_seen: HashMap<String, (Instant, bool)>,
@@ -1573,30 +1570,23 @@ pub(crate) struct ThreadScreenView {
     _subscriptions: Vec<Subscription>,
 }
 
-impl crate::composer::SessionReply for ThreadScreenView {
-    fn reply(&mut self) -> crate::composer::ReplyParts<'_> {
-        crate::composer::ReplyParts {
-            input: &self.reply,
-            images: &mut self.pending,
-            notice: &mut self.notice,
-            sending: &mut self.sending,
-        }
-    }
-}
-
 impl ThreadScreenView {
     pub(crate) fn new(root_id: String, window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
-        let (reply, mention) =
-            crate::composer::session_composer_field(THREAD.copy.placeholder.clone(), window, cx);
-        let mut subscriptions = vec![cx.subscribe_in(
-            &reply,
+        let composer = crate::session_screen::root_composer_view(
+            &root_id,
+            THREAD.copy.placeholder.clone(),
+            crate::steer_viewer::ComposerIds::new(
+                THREAD.test_ids.composer.clone(),
+                "thread-attach",
+                "thread-model",
+                "thread-context",
+            ),
             window,
-            |this, _, event: &InputEvent, window, cx| match event {
-                InputEvent::PressEnter { shift: false, .. } => this.send_reply(window, cx),
-                InputEvent::Change => cx.notify(),
-                _ => {}
-            },
-        )];
+            cx,
+        );
+        // The composer repaints with its root's feed (the model pin, the
+        // ring, Send⇄Stop, the queue strip).
+        let mut subscriptions = vec![cx.observe(&composer, |_, _, cx| cx.notify())];
         if let Some(store) = Store::try_global(cx) {
             let collections = store.collections().clone();
             subscriptions.push(cx.observe(&collections.sessions, |this, _, cx| this.refresh(cx)));
@@ -1627,12 +1617,7 @@ impl ThreadScreenView {
             issue_view: None,
             guide: GuideState::default(),
             images,
-            reply,
-            mention,
-            mention_team: None,
-            pending: Default::default(),
-            notice: None,
-            sending: false,
+            composer,
             first_seen: HashMap::new(),
             opened_at: Instant::now(),
             scroll: ScrollHandle::new(),
@@ -1659,13 +1644,6 @@ impl ThreadScreenView {
         let model = thread_model(&self.root_id, focus.as_deref(), cx);
         if let Some(model) = &model {
             self.note_seen(&model.links, cx);
-            let team = model.root.team_id.clone();
-            if team != self.mention_team {
-                self.mention_team = team.clone();
-                self.mention.update(cx, |mention, _| {
-                    mention.set_source(team.map(crate::markdown::store_completion_source));
-                });
-            }
             // An unlinked issue's child closes.
             if let ThreadChildSel::Issue(issue_id) = &self.child {
                 if !model.linked_ids().contains(issue_id) {
@@ -1848,16 +1826,6 @@ impl ThreadScreenView {
             .right_0()
             .child(gpui::deferred(panel).with_priority(1))
             .into_any_element()
-    }
-
-    // ── the reply ────────────────────────────────────────────────────────
-
-    /// THE reply: `sessions.send({sessionId: root, text})` — the server
-    /// routes it (a live root takes it, an idle one resumes, an ended one
-    /// continues in a new child).
-    fn send_reply(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        let root_id = self.root_id.clone();
-        crate::composer::send_session_reply(self, &root_id, window, cx);
     }
 
     // ── the Guide ────────────────────────────────────────────────────────
@@ -2165,25 +2133,10 @@ impl ThreadScreenView {
             .pb_8()
             .gap_5()
             .children(rows);
-        let empty = !crate::composer::reply_has_content(self, cx);
-        let this = cx.entity().downgrade();
-        let submit = crate::composer::SessionComposerSubmit::send(
-            SharedString::from(THREAD.test_ids.composer.clone()),
-            empty,
-            move |_, window, cx| {
-                let _ = this.update(cx, |this, cx| this.send_reply(window, cx));
-            },
-        )
-        .loading(self.sending);
-        let paste = cx.listener(crate::composer::on_reply_paste::<Self>);
-        let composer = crate::composer::session_composer_box(
-            crate::composer::SessionComposerBox::new(self.mention.clone(), submit)
-                .strip(crate::composer::reply_strip(self, "thread-pending-remove", cx))
-                .tool(crate::composer::reply_attach_tool("thread-attach", self.sending, cx))
-                .footer(crate::composer::reply_notice(self, cx))
-                .card_hook(move |card| card.capture_action(paste)),
-            cx,
-        );
+        // THE session composer of the session view, targeting the root.
+        let composer = self
+            .composer
+            .update(cx, |composer, cx| composer.render_session_composer(window, cx));
         v_flex()
             .flex_1()
             .min_h_0()
@@ -2195,7 +2148,7 @@ impl ThreadScreenView {
                 cx.entity_id(),
                 cx,
             ))
-            .child(div().w_full().pb_2().child(composer))
+            .children(composer.map(|composer| div().w_full().pb_2().child(composer)))
             .into_any_element()
     }
 

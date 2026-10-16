@@ -380,6 +380,7 @@ struct ThreadScreen: View {
                 .safeAreaInset(edge: .bottom) {
                     ThreadComposer(
                         sessionId: view.composer.sessionId,
+                        root: rows.root,
                         placeholder: rows.composerPlaceholder(view),
                         busySessionIds: rows.sessions
                             .filter { $0.busy && $0.status != DomainContract.sessionStatusEnded }
@@ -864,8 +865,8 @@ struct ThreadMenuTarget: Identifiable {
 }
 
 /// EXP-1295: a Conversation's draft for THE session composer box
-/// (`SessionComposerCard`, mounted bare: no plan chip, model pill or usage
-/// ring) — `sessions.send({sessionId, text, attachmentIds})` into the root:
+/// (`SessionComposerCard`, its controls fed by the root's live session model)
+/// — `sessions.send({sessionId, text, attachmentIds})` into the root:
 /// an idle session resumes, an ended thread continues server-side. Picks
 /// upload to that session first, each once.
 @MainActor
@@ -928,8 +929,17 @@ final class ThreadComposerDraft: SessionComposerDraft {
 /// content, a tap expands it into THE session composer box (text, `+`
 /// images/files, send, Stop while the tree works), blur folds it back when
 /// nothing would be lost (the session view's rule).
+///
+/// The open card carries the session view's Controls for the ROOT (fed by
+/// its live `AgentSessionModel`, the same relay source the session view
+/// reads): the model pill (`/model <alias>`), the usage ring, the `/` keys
+/// with THE `SlashCommandMenu`, Stop while busy — and no plan chip on a
+/// dispatcher root. The collapsed capsule is unchanged.
 struct ThreadComposer: View {
     let sessionId: String
+    /// The root's synced row: the live model attaches to it, and its
+    /// `dispatch` hides the plan chip.
+    var root: SessionEntity?
     let placeholder: String
     /// The tree's live sessions working a turn — Stop interrupts them.
     var busySessionIds: [String] = []
@@ -946,30 +956,67 @@ struct ThreadComposer: View {
     /// Set by `expand`, cleared once the editor takes focus (or the retry
     /// window passes): the blur fold stands down meanwhile.
     @State private var focusPending = false
+    /// The root's live session model (EXP-621's ref-counted store): the
+    /// config/usage the Controls read. `claimedId` = the one claim held.
+    @State private var steerModel: AgentSessionModel?
+    @State private var claimedId: String?
+    @State private var showUsageSheet = false
+    /// EXP-724: the draft the `/` menu was dismissed at; the keyboard row.
+    @State private var slashDismissedFor: String?
+    @State private var slashHighlight = 0
+    /// A confirm-gated command waiting on its dialog (`/clear`).
+    @State private var slashConfirm: SlashCommand?
 
     var body: some View {
         Group {
             if let draft, draft.sessionId == sessionId {
                 let open = composerOpen
-                FloatingComposer(
-                    placeholder: placeholder,
-                    open: open,
-                    collapsedLabel: placeholder,
-                    collapsedIdentifier: "thread-composer-collapsed",
-                    onExpand: expand
-                ) {
-                    SessionComposerCard(
-                        draft: draft,
+                VStack(spacing: 8) {
+                    if open, slashMenuVisible(draft) {
+                        SlashCommandMenu(
+                            commands: slashMatches(draft),
+                            highlighted: slashHighlight
+                        ) { command in
+                            applySlashCommand(command, draft)
+                        }
+                        .padding(.horizontal, 16)
+                    }
+                    FloatingComposer(
                         placeholder: placeholder,
-                        attach: $attach,
-                        sendEnabled: !draft.steerSending,
-                        showsStop: !busySessionIds.isEmpty && !draft.hasContent,
-                        canStop: !busySessionIds.isEmpty,
-                        onStop: stop,
-                        fieldIdentifier: "thread-composer-field"
-                    )
+                        open: open,
+                        collapsedLabel: placeholder,
+                        collapsedIdentifier: "thread-composer-collapsed",
+                        onExpand: expand
+                    ) {
+                        SessionComposerCard(
+                            draft: draft,
+                            placeholder: placeholder,
+                            controls: steerModel.map(controls),
+                            attach: $attach,
+                            sendEnabled: !draft.steerSending,
+                            showsStop: !busySessionIds.isEmpty && !draft.hasContent,
+                            canStop: !busySessionIds.isEmpty,
+                            onStop: stop,
+                            onReturn: { handleReturn(draft) },
+                            onSend: { send(draft) },
+                            onArrow: { delta in
+                                guard slashMenuVisible(draft) else { return false }
+                                moveSlashHighlight(delta, draft)
+                                return true
+                            },
+                            onEscape: {
+                                guard slashMenuVisible(draft) else { return false }
+                                slashDismissedFor = draft.draftText
+                                return true
+                            },
+                            fieldIdentifier: "thread-composer-field"
+                        )
+                    }
                 }
                 .animation(motion.standard, value: open)
+                .onChange(of: draft.draftText) { _, _ in
+                    slashHighlight = 0
+                }
                 .onChange(of: draft.sendError) { _, message in
                     guard let message else { return }
                     toaster.error(FeedbackStates.Errors.title(verb: "send", thing: "the message"), description: message)
@@ -977,7 +1024,7 @@ struct ThreadComposer: View {
                 .onChange(of: draft.draftEditor.isEditing) { _, editing in
                     if editing { focusPending = false }
                     guard expanded, !editing, !focusPending else { return }
-                    guard !attach.busy, !draft.hasContent else { return }
+                    guard !attach.busy, !draft.hasContent, slashConfirm == nil else { return }
                     withAnimation(motion.standard) { expanded = false }
                 }
             } else {
@@ -1002,7 +1049,131 @@ struct ThreadComposer: View {
                 )
             }
         }
+        .onAppear { claimRootModel() }
+        .onChange(of: root?.id) { _, _ in claimRootModel() }
+        .onDisappear { releaseRootModel() }
+        .sheet(isPresented: $showUsageSheet) {
+            if let model = steerModel {
+                AgentUsageSheet(
+                    agent: model.session?.cli,
+                    runAccount: model.runAccount,
+                    account: model.agentAccount,
+                    usage: model.runUsage,
+                    sessionUsage: model.sessionUsage,
+                    contextLayout: model.sessionContextLayout,
+                    onOpen: { model.requestUsageRefresh() }
+                )
+            }
+        }
+        // EXP-724: `/clear` confirms before it goes out (copy ×4).
+        .background {
+            Color.clear
+                .frame(width: 0, height: 0)
+                .allowsHitTesting(false)
+                .glassAlert(item: $slashConfirm) { command in
+                    GlassAlert(
+                        title: SlashCommands.confirmTitle(command),
+                        message: SlashCommands.confirmBody,
+                        actions: [
+                            GlassAlertAction("Cancel", role: .outline, isDefault: true, isCancel: true, id: "cancel") {},
+                            GlassAlertAction(SlashCommands.confirmButton(command), role: .destructive, id: "confirm") {
+                                if let draft { Task { await draft.sendDraft() } }
+                            },
+                        ]
+                    )
+                }
+        }
     }
+
+    // MARK: - The root's controls
+
+    private func controls(_ model: AgentSessionModel) -> SessionComposerFooter.Controls {
+        SessionComposerFooter.Controls(
+            planModeActive: model.planModeActive,
+            modelValue: model.composerModelValue(row: root),
+            agent: model.catalogAgent,
+            // EXP-877: a model switch is a PLAIN MESSAGE into the root.
+            onPickModel: { alias in
+                guard let draft else { return }
+                Task { await draft.sendMessage("/model \(alias)", attachmentIds: nil) }
+            },
+            usageFraction: model.sessionUsage?.percent.map { Double($0) / 100 },
+            usageSeverity: AgentUsagePresentation.severity(model.sessionUsage?.percent.map(Double.init)),
+            onUsage: { showUsageSheet = true },
+            showsPlan: (root?.dispatch ?? model.session?.dispatch) != true
+        )
+    }
+
+    /// ONE claim on the root's model (`attachSteerModel` / `detach` pair).
+    private func claimRootModel() {
+        guard let root, claimedId != root.id else { return }
+        releaseRootModel()
+        steerModel = deps.attachSteerModel(accountId: accountId, session: root)
+        claimedId = root.id
+    }
+
+    private func releaseRootModel() {
+        guard let claimedId else { return }
+        deps.steerSessions.detach(accountId: accountId, sessionId: claimedId)
+        self.claimedId = nil
+        steerModel = nil
+    }
+
+    // MARK: - Slash commands (EXP-724)
+
+    private var catalogAgent: String? {
+        steerModel?.catalogAgent ?? root?.cli
+    }
+
+    private func slashMatches(_ draft: ThreadComposerDraft) -> [SlashCommand] {
+        SlashCommands.matches(
+            draft: draft.draftText,
+            agent: catalogAgent,
+            extra: steerModel?.sessionConfig?.commands ?? []
+        )
+    }
+
+    private func slashMenuVisible(_ draft: ThreadComposerDraft) -> Bool {
+        draft.draftEditor.isEditing && !slashMatches(draft).isEmpty
+            && slashDismissedFor != draft.draftText
+    }
+
+    /// Accepting a row REWRITES the draft and never sends.
+    private func applySlashCommand(_ command: SlashCommand, _ draft: ThreadComposerDraft) {
+        draft.draftText = command.insertion
+        slashDismissedFor = command.insertion
+        slashHighlight = 0
+        focus()
+    }
+
+    private func moveSlashHighlight(_ delta: Int, _ draft: ThreadComposerDraft) {
+        let count = slashMatches(draft).count
+        guard count > 0 else { return }
+        slashHighlight = ((slashHighlight + delta) % count + count) % count
+    }
+
+    /// Return accepts the highlighted `/` row while the menu is up, else sends.
+    private func handleReturn(_ draft: ThreadComposerDraft) {
+        if slashMenuVisible(draft) {
+            let matches = slashMatches(draft)
+            let command = matches.indices.contains(slashHighlight) ? matches[slashHighlight] : matches.first
+            if let command { applySlashCommand(command, draft) }
+            return
+        }
+        send(draft)
+    }
+
+    /// `/clear` asks first; everything else goes out as typed.
+    private func send(_ draft: ThreadComposerDraft) {
+        guard !draft.steerSending else { return }
+        if let command = SlashCommands.command(for: draft.draftText, agent: catalogAgent), command.confirm {
+            slashConfirm = command
+            return
+        }
+        Task { await draft.sendDraft() }
+    }
+
+    // MARK: - Open / fold
 
     /// The card shows: tapped open, or a draft / pick / open picker keeps it.
     private var composerOpen: Bool {

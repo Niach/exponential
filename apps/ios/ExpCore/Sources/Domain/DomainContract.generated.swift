@@ -43,11 +43,10 @@ public enum DomainContract {
     public static let messageCardKindValues: [String] = ["question", "plan", "subagent", "session", "picture", "event", "thread_started"]
     public static let messageEventKindValues: [String] = ["issue_linked", "issue_filed", "issue_unlinked", "pr_opened", "pr_merged", "pr_closed", "session_ended"]
     public static let codingAgentValues: [String] = ["claude", "codex"]
-    public static let codingModelValues: [String] = ["fable", "opus", "sonnet"]
+    public static let codingModelValues: [String] = ["fable", "opus", "sonnet", "haiku"]
     public static let codingEffortValues: [String] = ["low", "medium", "high", "xhigh", "max"]
     public static let codexModelValues: [String] = ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"]
     public static let codexEffortValues: [String] = ["minimal", "low", "medium", "high", "xhigh"]
-    public static let computerUseModelValues: [String] = ["haiku", "sonnet", "opus", "fable"]
     public static let actionInputTypeValues: [String] = ["repo", "board", "pr", "issue"]
     public static let mcpTransportValues: [String] = ["http", "stdio"]
     public static let mcpAuthValues: [String] = ["none", "oauth", "secret"]
@@ -112,7 +111,10 @@ public enum DomainContract {
     public static let sessionsSendTreeMaxDepth: Int = 3
     public static let sessionsSendTreeMaxSessions: Int = 10
     public static let deviceAgentDefaultsModel: String = "fable"
-    public static let deviceAgentDefaultsSubagentModel: String = ""
+    public static let deviceAgentDefaultsSubagentModel: String = "opus"
+    public static let deviceAgentDefaultsThreadModel: String = "haiku"
+    public static let deviceAgentDefaultsCodexModel: String = "gpt-5.6-sol"
+    public static let deviceAgentDefaultsCodexThreadModel: String = "gpt-5.6-luna"
     public static let deviceComputerUseDefaultsModel: String = "haiku"
     public static let actionInputsMax: Int = 10
     public static let actionInputTextMax: Int = 4096

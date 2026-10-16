@@ -1,8 +1,5 @@
 package com.exponential.app.ui.thread
 
-import android.net.Uri
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -32,17 +29,18 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.exponential.app.ui.session.AgentSessionViewModel
+import com.exponential.app.ui.session.SessionComposer
+import com.exponential.app.ui.session.SessionUsageSheet
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.PullRequestEntity
@@ -59,8 +57,6 @@ import com.exponential.app.domain.ToastAction
 import com.exponential.app.domain.WireTimestamps
 import com.exponential.app.domain.guideSectionPage
 import com.exponential.app.domain.parseSessionResultGroups
-import com.exponential.app.ui.agent.ComposerPick
-import com.exponential.app.ui.agent.readComposerPick
 import com.exponential.app.ui.components.FailedActionToast
 import com.exponential.app.ui.components.GlassAlert
 import com.exponential.app.ui.components.GlassAlertAction
@@ -95,7 +91,6 @@ import dev.chrisbanes.haze.rememberHazeState
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
-import kotlinx.coroutines.launch
 
 /**
  * EXP-1296 Threads v2 (Model v3): THE conversation screen for a thread root
@@ -132,10 +127,7 @@ fun ThreadScreen(
     val me by viewModel.currentUserId.collectAsStateWithLifecycle()
     val statuses by viewModel.statuses.collectAsStateWithLifecycle()
     val issues by viewModel.issues.collectAsStateWithLifecycle()
-    val sending by viewModel.sending.collectAsStateWithLifecycle()
     val failure by viewModel.failure.collectAsStateWithLifecycle()
-    val images by viewModel.images.collectAsStateWithLifecycle()
-    val imageError by viewModel.imageError.collectAsStateWithLifecycle()
     val linkCandidates by viewModel.linkCandidates.collectAsStateWithLifecycle()
     val newIssueBoardId by viewModel.newIssueBoardId.collectAsStateWithLifecycle()
     val pullRequests by viewModel.pullRequests.collectAsStateWithLifecycle()
@@ -147,24 +139,18 @@ fun ThreadScreen(
     FailedActionToast(failure, onShown = viewModel::clearFailure)
 
     var selectedKey by rememberSaveable { mutableStateOf(viewModel.initialTab ?: "conversation") }
-    var draft by rememberSaveable { mutableStateOf("") }
     var menuFor by remember { mutableStateOf<ThreadMenuTarget?>(null) }
     var linkPickerOpen by remember { mutableStateOf(false) }
     var closePrConfirm by remember { mutableStateOf<PullRequestEntity?>(null) }
 
-    // The composer's "+": the system document picker (any type), one pick at
-    // a time through the VM so the steer caps apply (the Agent page's rule).
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris: List<Uri> ->
-        if (uris.isEmpty()) return@rememberLauncherForActivityResult
-        scope.launch {
-            for (uri in uris) when (val picked = readComposerPick(context, uri)) {
-                is ComposerPick.Read -> viewModel.addImage(picked.uri, picked.bytes, picked.filename, picked.mime)
-                is ComposerPick.Refused -> viewModel.refuseAttachment(picked.message)
-            }
-        }
-    }
+    // THE session composer's state = the ROOT session's view model (the same
+    // live relay state the session view reads: config, usage, queue, turn).
+    val rootSession = hiltViewModel<AgentSessionViewModel, AgentSessionViewModel.Factory>(
+        key = "session:${viewModel.rootId}",
+    ) { factory -> factory.create(viewModel.rootId) }
+    LaunchedEffect(rootSession) { rootSession.ensureConnected() }
+    // The ring opens THE session view's Usage sheet (account switch included).
+    var usageSheetOpen by remember { mutableStateOf(false) }
 
     val statusById = remember(issues, statuses) {
         issues.associate { it.id to IssueStatusResolver.resolve(it, statuses) }
@@ -234,20 +220,19 @@ fun ThreadScreen(
                 onAdd = { menuFor = ThreadMenuTarget(null) },
                 onIssueMenu = { menuFor = ThreadMenuTarget(it) },
                 onAgentSettings = { onOpenAgentSettings(viewModel.rootId) },
+                // THE session composer (dispatcher roots): the session view's
+                // box targeting the ROOT, fed by the root's live state.
                 composer = { expanded, onExpandedChange ->
-                    ThreadReplyBox(
-                        value = draft,
-                        onValueChange = { draft = it },
-                        placeholder = placeholder,
-                        pendingImages = images,
-                        imageError = imageError,
-                        sending = sending,
-                        working = view?.busy == true,
+                    SessionComposer(
+                        viewModel = rootSession,
                         expanded = expanded,
                         onExpandedChange = onExpandedChange,
-                        onAdd = { filePicker.launch(arrayOf("*/*")) },
-                        onRemoveImage = viewModel::removeImage,
-                        onSend = { viewModel.sendDraft(draft) { draft = "" } },
+                        placeholder = placeholder,
+                        capsuleTestTag = "thread-composer-capsule",
+                        // Queued rows already sit in the Conversation (EXP-1317).
+                        showQueue = false,
+                        onOpenUsage = { usageSheetOpen = true },
+                        modifier = Modifier.testTag(SessionTree.ThreadCopy.TEST_ID_COMPOSER),
                     )
                 },
                 issuePage = { issueId, padding ->
@@ -279,6 +264,11 @@ fun ThreadScreen(
         }
     }
 
+    SessionUsageSheet(
+        viewModel = rootSession,
+        open = usageSheetOpen,
+        onDismiss = { usageSheetOpen = false },
+    )
     menuFor?.let { target ->
         ThreadMenuSheet(
             issue = target.issue,

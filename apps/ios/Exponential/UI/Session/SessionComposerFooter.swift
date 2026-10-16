@@ -2,24 +2,23 @@ import ExpCore
 import ExpUI
 import SwiftUI
 
-/// EXP-893: the expanded steer composer's footer row — desktop
-/// `steer-composer.tsx` in concept: `Plan mode` (blue while the run is in
-/// plan mode, read-only: EXP-790 keeps plan mode launch-time) · `+` attach
-/// (wave D: Photo | File) ·
-/// spacer · the model pill (the session's `model` config option; picking one
-/// SENDS `/model <alias>` as a plain message, EXP-877; codex gets a plain
-/// label; hidden when the engine reported no model) · the usage ring, which
-/// opens the Usage sheet (EXP-1150: the face switcher that used to sit beside
-/// it is gone — the faces are the Work screen's tab strip, which this composer
-/// never covers). Rides `GlassComposer`'s `tools:` slot, so the send button
-/// stays the card's own. EXP-1295: a thread's box (`SessionComposerCard`
-/// with no `controls`) keeps only the `+`.
+/// EXP-893: the expanded steer composer's footer row, web's order: `+`
+/// attach (wave D: Photo | File) · the model pill (the session's `model`
+/// config option; picking one SENDS `/model <alias>` as a plain message,
+/// EXP-877; codex gets a plain label; before the relay reports one it falls
+/// back to the row/device model) · `Plan mode` (blue while the run is in plan
+/// mode, read-only: EXP-790 keeps plan mode launch-time) · spacer · the usage
+/// ring (hidden until context data lands; opens the Usage sheet, EXP-1150).
+/// Rides `GlassComposer`'s `tools:` slot, so the send button stays the card's
+/// own. A thread's box carries the same controls for its ROOT session, minus
+/// the plan chip on a dispatcher root.
 struct SessionComposerFooter: View {
     /// The session view's own controls: the plan chip, the model pill and
     /// the usage ring.
     struct Controls {
         let planModeActive: Bool
-        /// `AgentSessionConfig.modelValue` — nil hides the pill.
+        /// `AgentSessionModel.composerModelValue` (live, else the row, else
+        /// the device/contract defaults) — nil hides the pill.
         let modelValue: String?
         /// The run's agent — claude gets the picker, anything else a label.
         let agent: String
@@ -27,6 +26,9 @@ struct SessionComposerFooter: View {
         let usageFraction: Double?
         let usageSeverity: AgentUsageSeverity
         let onUsage: () -> Void
+        /// A dispatcher root (`sessions.dispatch`) has no plan mode of its
+        /// own: its children take the launch's picks, so no plan chip.
+        var showsPlan: Bool = true
     }
 
     /// nil = the bare box (the `+` alone).
@@ -43,55 +45,64 @@ struct SessionComposerFooter: View {
     @State private var attachAnchor: CGRect = .zero
 
     var body: some View {
-        if let controls {
-            Text(AgentFeed.planModeFooterLabel)
-                .font(.caption.weight(.medium))
-                .foregroundStyle(
-                    controls.planModeActive ? DesignTokens.Semantic.blue : .white.opacity(TextOpacity.tertiary)
-                )
-                .lineLimit(1)
-                .padding(.trailing, 4)
-                .accessibilityIdentifier("session-plan-mode")
-        }
-
-        // EXP-850 §13: the steer composers attach with the `ui-add` (plus)
-        // concept ×4; `editor-image` stays the comment/description glyph.
-        GlassComposerToolButton(
-            AppIcons.uiAdd,
-            accessibilityLabel: "Add file or image",
-            enabled: attachEnabled
-        ) {
-            var transaction = Transaction()
-            transaction.disablesAnimations = true
-            withTransaction(transaction) { attachMenuOpen = true }
-        }
-        .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) { frame in
-            attachAnchor = frame
-        }
-        .steerAttachChoiceMenu(
-            isPresented: $attachMenuOpen,
-            anchor: attachAnchor,
-            onPhoto: onPhoto,
-            onFile: onFile
-        )
-
-        Spacer(minLength: 0)
-
-        if let controls {
-            modelPill(controls)
-
-            Button(action: controls.onUsage) {
-                ContextRing(fraction: controls.usageFraction, severity: controls.usageSeverity)
-                    .frame(
-                        width: GlassComposerTokens.toolHitSize,
-                        height: GlassComposerTokens.toolHitSize
-                    )
-                    .contentShape(Circle())
+        // ONE row that claims the tools slot's width (`layoutPriority`), so
+        // `GlassComposer`'s own spacer collapses and the ring sits beside Send.
+        HStack(spacing: GlassComposerTokens.toolSpacing) {
+            // EXP-850 §13: the steer composers attach with the `ui-add` (plus)
+            // concept ×4; `editor-image` stays the comment/description glyph.
+            GlassComposerToolButton(
+                AppIcons.uiAdd,
+                accessibilityLabel: "Add file or image",
+                enabled: attachEnabled
+            ) {
+                var transaction = Transaction()
+                transaction.disablesAnimations = true
+                withTransaction(transaction) { attachMenuOpen = true }
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Usage")
-            .accessibilityIdentifier("session-context-ring")
+            .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) { frame in
+                attachAnchor = frame
+            }
+            .steerAttachChoiceMenu(
+                isPresented: $attachMenuOpen,
+                anchor: attachAnchor,
+                onPhoto: onPhoto,
+                onFile: onFile
+            )
+
+            if let controls {
+                modelPill(controls)
+
+                if controls.showsPlan {
+                    Text(AgentFeed.planModeFooterLabel)
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(
+                            controls.planModeActive
+                                ? DesignTokens.Semantic.blue
+                                : .white.opacity(TextOpacity.tertiary)
+                        )
+                        .lineLimit(1)
+                        .accessibilityIdentifier("session-plan-mode")
+                }
+            }
+
+            Spacer(minLength: 0)
+
+            // No context data yet = no ring (web/Android draw nothing then).
+            if let controls, controls.usageFraction != nil {
+                Button(action: controls.onUsage) {
+                    ContextRing(fraction: controls.usageFraction, severity: controls.usageSeverity)
+                        .frame(
+                            width: GlassComposerTokens.toolHitSize,
+                            height: GlassComposerTokens.toolHitSize
+                        )
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Usage")
+                .accessibilityIdentifier("session-context-ring")
+            }
         }
+        .layoutPriority(1)
     }
 
     @ViewBuilder
@@ -106,15 +117,38 @@ struct SessionComposerFooter: View {
                         }
                     }
                 } label: {
-                    OptionPillLabel(text: LaunchVocabulary.modelLabel(modelValue))
+                    ModelLabel(text: LaunchVocabulary.modelLabel(modelValue), chevron: true)
                 }
                 .accessibilityLabel("Model")
                 .accessibilityIdentifier("session-model-pill")
             } else {
-                OptionPillLabel(text: LaunchVocabulary.modelLabel(modelValue), chevron: false)
+                ModelLabel(text: LaunchVocabulary.modelLabel(modelValue), chevron: false)
                     .accessibilityLabel("Model")
                     .accessibilityIdentifier("session-model-pill")
             }
         }
+    }
+}
+
+/// The model read-out: plain muted text + chevron, no capsule (web/desktop
+/// draw no pill background in the composer row).
+private struct ModelLabel: View {
+    let text: String
+    let chevron: Bool
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Text(text)
+                .font(.subheadline)
+                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                .lineLimit(1)
+            if chevron {
+                AppIcon(AppIcons.uiChevronDown, size: 10)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+            }
+        }
+        .frame(minHeight: GlassComposerTokens.toolHitSize)
+        .padding(.horizontal, 4)
+        .contentShape(Rectangle())
     }
 }

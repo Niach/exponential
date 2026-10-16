@@ -157,16 +157,11 @@ public final class LaunchOptionsState {
         }
     }
 
-    /// An advertised model, validated against the agent's contract list.
-    /// Blank is the desktop's "CLI default", which for codex IS the static
-    /// default and for claude (explicit-always) means its first model.
+    /// An advertised model, validated against the agent's contract list;
+    /// absent, blank or unknown = the agent's contract default (every model
+    /// is explicit).
     public static func seedModel(_ value: String?, for agent: String) -> String {
-        guard let value, !value.isEmpty,
-              LaunchVocabulary.modelValues(for: agent).contains(value)
-        else {
-            return LaunchVocabulary.defaultModel(for: agent)
-        }
-        return value
+        LaunchVocabulary.seedModel(value, for: agent, fallback: LaunchVocabulary.defaultModel(for: agent))
     }
 
     /// An advertised effort/reasoning/thinking value; blank or unknown = the
@@ -239,8 +234,7 @@ public final class LaunchOptionsState {
             // = unnamed = the machine's last used login.
             account: AccountOptions.wireAccount(account),
             // EXP-1277: clamped once more on the way out — the server takes
-            // contract values only, and claude has no blank (`seedModel`
-            // turns one into the default); codex's blank IS "CLI default".
+            // contract values only (`seedModel` turns a blank into the default).
             model: wireModel,
             effort: effort == LaunchVocabulary.cliDefault ? "" : effort,
             // The toggles only exist for the agents that support them — never
@@ -256,11 +250,10 @@ public final class LaunchOptionsState {
         )
     }
 
-    /// The model as the wire carries it: a contract value for the agent, or
-    /// `""` where that agent's CLI picks its own (codex only).
+    /// The model as the wire carries it: always a contract value for the
+    /// agent (no blank, ever).
     public var wireModel: String {
-        let clamped = Self.seedModel(model, for: agent)
-        return clamped == LaunchVocabulary.cliDefault ? "" : clamped
+        Self.seedModel(model, for: agent)
     }
 
     // MARK: - EXP-1249: the composer "+" menu's per-run picks

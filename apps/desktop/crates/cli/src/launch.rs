@@ -531,6 +531,11 @@ pub fn session_row_from_remote(remote: &RemoteSession, input: &SessionsSendInput
         plan_mode: input.plan_mode.unwrap_or(false),
         computer_use: input.computer_use.unwrap_or(false),
         ultracode: input.ultracode.unwrap_or(false),
+        // The projection's own flag; an older server's answer leaves it out
+        // and every NEW root the server queues is a dispatcher.
+        dispatch: remote
+            .dispatch
+            .unwrap_or(input.session_id.is_none() && input.parent_id.is_none()),
         repository_id: remote.repository_id.clone(),
         branch: remote.branch.clone(),
         status: Some(if remote.status.is_empty() {

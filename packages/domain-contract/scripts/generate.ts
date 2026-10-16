@@ -111,7 +111,6 @@ interface Contract {
   codingEffort: Section
   codexModel: Section
   codexEffort: Section
-  computerUseModel: Section
   deviceComputerUseDefaults: { model: string }
   actionInputType: Section
   mcpTransport: Section
@@ -120,6 +119,9 @@ interface Contract {
   deviceAgentDefaults: {
     model: string
     subagentModel: string
+    threadModel: string
+    codexModel: string
+    codexThreadModel: string
   }
   actionInputs: { max: number; maxTextLength: number }
   startPrompt: { maxLength: number; maxImages: number }
@@ -504,7 +506,6 @@ ${swiftStringArray("codingModelValues", contract.codingModel.values)}
 ${swiftStringArray("codingEffortValues", contract.codingEffort.values)}
 ${swiftStringArray("codexModelValues", contract.codexModel.values)}
 ${swiftStringArray("codexEffortValues", contract.codexEffort.values)}
-${swiftStringArray("computerUseModelValues", contract.computerUseModel.values)}
 ${swiftStringArray("actionInputTypeValues", contract.actionInputType.values)}
 ${swiftStringArray("mcpTransportValues", contract.mcpTransport.values)}
 ${swiftStringArray("mcpAuthValues", contract.mcpAuth.values)}
@@ -570,6 +571,9 @@ ${swiftStringArray("codingSessionLaunchKeys", contract.codingSession.launchKeys)
     public static let sessionsSendTreeMaxSessions: Int = ${contract.sessionsSend.treeMaxSessions}
     public static let deviceAgentDefaultsModel: String = "${contract.deviceAgentDefaults.model}"
     public static let deviceAgentDefaultsSubagentModel: String = "${contract.deviceAgentDefaults.subagentModel}"
+    public static let deviceAgentDefaultsThreadModel: String = "${contract.deviceAgentDefaults.threadModel}"
+    public static let deviceAgentDefaultsCodexModel: String = "${contract.deviceAgentDefaults.codexModel}"
+    public static let deviceAgentDefaultsCodexThreadModel: String = "${contract.deviceAgentDefaults.codexThreadModel}"
     public static let deviceComputerUseDefaultsModel: String = "${contract.deviceComputerUseDefaults.model}"
     public static let actionInputsMax: Int = ${contract.actionInputs.max}
     public static let actionInputTextMax: Int = ${contract.actionInputs.maxTextLength}
@@ -662,7 +666,6 @@ ${kotlinStringArray("codingModelValues", contract.codingModel.values)}
 ${kotlinStringArray("codingEffortValues", contract.codingEffort.values)}
 ${kotlinStringArray("codexModelValues", contract.codexModel.values)}
 ${kotlinStringArray("codexEffortValues", contract.codexEffort.values)}
-${kotlinStringArray("computerUseModelValues", contract.computerUseModel.values)}
 ${kotlinStringArray("actionInputTypeValues", contract.actionInputType.values)}
 ${kotlinStringArray("mcpTransportValues", contract.mcpTransport.values)}
 ${kotlinStringArray("mcpAuthValues", contract.mcpAuth.values)}
@@ -728,6 +731,9 @@ ${kotlinStringArray("codingSessionLaunchKeys", contract.codingSession.launchKeys
     const val sessionsSendTreeMaxSessions: Int = ${contract.sessionsSend.treeMaxSessions}
     const val deviceAgentDefaultsModel: String = "${contract.deviceAgentDefaults.model}"
     const val deviceAgentDefaultsSubagentModel: String = "${contract.deviceAgentDefaults.subagentModel}"
+    const val deviceAgentDefaultsThreadModel: String = "${contract.deviceAgentDefaults.threadModel}"
+    const val deviceAgentDefaultsCodexModel: String = "${contract.deviceAgentDefaults.codexModel}"
+    const val deviceAgentDefaultsCodexThreadModel: String = "${contract.deviceAgentDefaults.codexThreadModel}"
     const val deviceComputerUseDefaultsModel: String = "${contract.deviceComputerUseDefaults.model}"
     const val actionInputsMax: Int = ${contract.actionInputs.max}
     const val actionInputTextMax: Int = ${contract.actionInputs.maxTextLength}
@@ -822,7 +828,6 @@ ${rustStrSlice("codingModelValues", contract.codingModel.values)}
 ${rustStrSlice("codingEffortValues", contract.codingEffort.values)}
 ${rustStrSlice("codexModelValues", contract.codexModel.values)}
 ${rustStrSlice("codexEffortValues", contract.codexEffort.values)}
-${rustStrSlice("computerUseModelValues", contract.computerUseModel.values)}
 ${rustStrSlice("actionInputTypeValues", contract.actionInputType.values)}
 ${rustStrSlice("mcpTransportValues", contract.mcpTransport.values)}
 ${rustStrSlice("mcpAuthValues", contract.mcpAuth.values)}
@@ -891,6 +896,9 @@ pub const SESSIONS_SEND_TREE_MAX_SESSIONS: usize = ${contract.sessionsSend.treeM
 pub const TEAM_AGENT_PROMPT_MAX_BYTES: usize = ${contract.team.agentPromptMaxBytes};
 pub const DEVICE_AGENT_DEFAULTS_MODEL: &str = "${contract.deviceAgentDefaults.model}";
 pub const DEVICE_AGENT_DEFAULTS_SUBAGENT_MODEL: &str = "${contract.deviceAgentDefaults.subagentModel}";
+pub const DEVICE_AGENT_DEFAULTS_THREAD_MODEL: &str = "${contract.deviceAgentDefaults.threadModel}";
+pub const DEVICE_AGENT_DEFAULTS_CODEX_MODEL: &str = "${contract.deviceAgentDefaults.codexModel}";
+pub const DEVICE_AGENT_DEFAULTS_CODEX_THREAD_MODEL: &str = "${contract.deviceAgentDefaults.codexThreadModel}";
 pub const DEVICE_COMPUTER_USE_DEFAULTS_MODEL: &str = "${contract.deviceComputerUseDefaults.model}";
 pub const ACTION_INPUTS_MAX: usize = ${contract.actionInputs.max};
 pub const ACTION_INPUT_TEXT_MAX: usize = ${contract.actionInputs.maxTextLength};

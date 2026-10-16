@@ -1014,15 +1014,27 @@ export function formatDateForMutation(date: Date | null | undefined) {
 export interface DeviceAgentDefaults {
   model: string
   subagentModel: string
+  threadModel: string
 }
 
 /** Contract `deviceAgentDefaults`, hand-mirrored (drift-tested): what a
  *  device that never set anything is read as — the desktop's own fresh-
  *  install defaults (`coding::settings`, wired to the SAME contract
- *  constants): `fable` and a BLANK subagent model (= the CLI's own default). */
+ *  constants). Every model is explicit: no blank = "CLI default". */
 export const DEVICE_AGENT_DEFAULTS: DeviceAgentDefaults = {
   model: `fable`,
-  subagentModel: ``,
+  subagentModel: `opus`,
+  threadModel: `haiku`,
+}
+
+/** A dispatcher root's WORK picks (`sessions.work_launch`, server-only): what
+ *  its children run with. The dispatcher itself runs on the thread model. */
+export interface SessionWorkLaunch {
+  model?: string | null
+  effort?: string | null
+  planMode?: boolean
+  ultracode?: boolean
+  computerUse?: boolean
 }
 
 

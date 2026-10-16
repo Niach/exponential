@@ -1584,12 +1584,13 @@ struct AgentSessionView: View {
             placeholder: model.composerPlaceholder,
             controls: SessionComposerFooter.Controls(
                 planModeActive: model.planModeActive,
-                modelValue: model.sessionConfig?.modelValue,
+                modelValue: model.composerModelValue(),
                 agent: model.catalogAgent,
                 onPickModel: { alias in sendModelSwitch(model, alias) },
                 usageFraction: usageFraction(model),
                 usageSeverity: usageSeverity(model),
-                onUsage: { showUsageSheet = true }
+                onUsage: { showUsageSheet = true },
+                showsPlan: model.session?.dispatch != true
             ),
             attach: $attach,
             // EXP-1295: a message is a `messages` row, so sending never waits

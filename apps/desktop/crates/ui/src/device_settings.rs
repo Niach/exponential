@@ -55,7 +55,7 @@ use gpui_component::{
     h_flex,
     input::{InputEvent, InputState},
     select::Select,
-    v_flex, ActiveTheme as _, Disableable as _, Icon,
+    v_flex, ActiveTheme as _, Disableable as _, ElementExt as _, Icon,
 };
 use sync::Store;
 
@@ -66,7 +66,7 @@ use crate::coding_flow::CodingHub;
 use crate::controls::{glass_input, WebControl as _};
 use crate::device_readiness;
 use crate::coding_selects::{
-    agent_icon, choice_select, effort_choices_for, model_choices_for, selected, ChoiceSelect,
+    agent_icon, choice_select, effort_choices_for, selected, ChoiceSelect,
 };
 use crate::icons::registry;
 use crate::launch_options::{AgentDefaultsGroup, AgentPill, DefaultsToggle};
@@ -74,10 +74,11 @@ use crate::native_dialog::{self, AlertSpec, DialogContent, DialogSpec};
 use crate::queries;
 use crate::surface;
 
-/// EXP-862: what the dialog's form actually needs — Name, Default device,
-/// Sharing and the agent defaults. It is a CAP, not a floor: a short screen
-/// still gets the old 85% and the stack scrolls inside it.
-const CONTENT_H: f32 = 560.;
+/// EXP-862: the dialog's height CAP, never a fixed height: the window FITS
+/// its form (Name, Default device, Sharing, the agent defaults, Remove
+/// device) up to this, or 85% of the opener on a short screen, and the stack
+/// scrolls inside beyond it ([`DeviceSettingsView::fit_window`]).
+const CONTENT_H: f32 = 640.;
 
 /// Queued-command poll cadence while the dialog is open (offline machines
 /// keep their commands queued server-side — poll slowly).
@@ -138,11 +139,18 @@ pub fn open(window: &mut Window, cx: &mut App, device_row_id: String) {
     //
     // EXP-1020: ONE column since the worktrees left, so the landscape width
     // the second one needed (EXP-762's 820) narrows to the form's own.
+    //
+    // The window opens at the cap and then FITS its form (the trigger
+    // dialog's P66 fit): no empty band under Remove device.
     let height = (window.viewport_size().height * 0.85).min(px(CONTENT_H));
     let spec = DialogSpec::new("Device settings", size(px(560.), height))
         .resizable(size(px(440.), px(360.)));
     native_dialog::open_dialog_window(window, cx, spec, move |window, cx| {
-        let view = cx.new(|cx| DeviceSettingsView::new(device_row_id, window, cx));
+        let view = cx.new(|cx| {
+            let mut view = DeviceSettingsView::new(device_row_id, window, cx);
+            view.max_height = height;
+            view
+        });
         DialogContent::new(view).self_scrolling()
     });
 }
@@ -315,6 +323,24 @@ pub(crate) fn parse_agent_map<T: serde::de::DeserializeOwned>(
     out
 }
 
+/// A REMOTE row's defaults baseline: its `launch_defaults` clamped onto a
+/// default Settings (remote_admin's apply, the same clamp the device itself
+/// runs). Plan mode reads OFF until the row says otherwise (web `agentSeed`:
+/// `planMode ?? false`, ×4): the local Settings default (ON) is THIS
+/// machine's, never a seed for another one's.
+fn remote_baseline(launch_defaults: Option<&serde_json::Value>) -> coding::Settings {
+    let mut seeded = coding::Settings {
+        claude_plan_mode: false,
+        ..coding::Settings::default()
+    };
+    if let Some(value) = launch_defaults {
+        if let Ok(patch) = serde_json::from_value::<coding::DefaultsPatch>(value.clone()) {
+            coding::apply_defaults_patch(&mut seeded, &patch);
+        }
+    }
+    seeded
+}
+
 pub struct DeviceSettingsView {
     device_row_id: String,
     /// The steer device id (the tRPC target) — snapshotted at seed.
@@ -331,6 +357,10 @@ pub struct DeviceSettingsView {
     effort_select: ChoiceSelect,
     codex_model_select: ChoiceSelect,
     codex_effort_select: ChoiceSelect,
+    /// The model a DISPATCHER root (every new thread or team agent) runs on,
+    /// per agent: `Settings.claude_thread_model` / `codex_thread_model`.
+    thread_model_select: ChoiceSelect,
+    codex_thread_model_select: ChoiceSelect,
     /// EXP-981/EXP-1020: the model claude's SUBAGENTS run on — the row web
     /// had and the IDE did not.
     subagent_model_select: ChoiceSelect,
@@ -404,6 +434,14 @@ pub struct DeviceSettingsView {
     /// The stack's scroll position (view state, so a re-render — every
     /// autosave, every heartbeat resync — keeps it).
     settings_scroll: ScrollHandle,
+    /// The fit cap ([`CONTENT_H`] or 85% of the opener).
+    max_height: gpui::Pixels,
+    /// The form's measured height and the scroll pane's, for
+    /// [`Self::fit_window`].
+    content_h: Rc<std::cell::Cell<gpui::Pixels>>,
+    body_h: Rc<std::cell::Cell<gpui::Pixels>>,
+    /// The content height the window was last fitted to.
+    fitted: Option<gpui::Pixels>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -453,42 +491,30 @@ impl DeviceSettingsView {
             state.set_value(row.label.clone().unwrap_or_default(), window, cx);
             state
         });
-        let model_select = choice_select(
-            model_choices_for(CodingAgent::Claude),
-            &seeded.claude_model,
-            window,
-            cx,
-        );
+        // ONE model select component for every model row (all four
+        // models, no default row).
+        let model_select = crate::coding_selects::model_select(CodingAgent::Claude, &seeded.claude_model, window, cx);
+        let thread_model_select =
+            crate::coding_selects::model_select(CodingAgent::Claude, &seeded.claude_thread_model, window, cx);
         let effort_select = choice_select(
             effort_choices_for(CodingAgent::Claude),
             &seeded.claude_effort,
             window,
             cx,
         );
-        let codex_model_select = choice_select(
-            model_choices_for(CodingAgent::Codex),
-            &seeded.codex_model,
-            window,
-            cx,
-        );
+        let codex_model_select = crate::coding_selects::model_select(CodingAgent::Codex, &seeded.codex_model, window, cx);
+        let codex_thread_model_select =
+            crate::coding_selects::model_select(CodingAgent::Codex, &seeded.codex_thread_model, window, cx);
         let codex_effort_select = choice_select(
             effort_choices_for(CodingAgent::Codex),
             &seeded.codex_effort,
             window,
             cx,
         );
-        let subagent_model_select = choice_select(
-            &crate::coding_selects::SUBAGENT_MODEL_CHOICES,
-            &seeded.claude_subagent_model,
-            window,
-            cx,
-        );
-        let computer_use_model_select = choice_select(
-            &crate::coding_selects::COMPUTER_USE_MODEL_CHOICES,
-            &seeded.computer_use_model,
-            window,
-            cx,
-        );
+        let subagent_model_select =
+            crate::coding_selects::model_select(CodingAgent::Claude, &seeded.claude_subagent_model, window, cx);
+        let computer_use_model_select =
+            crate::coding_selects::model_select(CodingAgent::Claude, &seeded.computer_use_model, window, cx);
 
         let mut subscriptions = vec![
             // EXP-490: a devices delta re-renders AND mirrors the new
@@ -517,6 +543,8 @@ impl DeviceSettingsView {
             &effort_select,
             &codex_model_select,
             &codex_effort_select,
+            &thread_model_select,
+            &codex_thread_model_select,
             &subagent_model_select,
             &computer_use_model_select,
         ] {
@@ -556,6 +584,8 @@ impl DeviceSettingsView {
             effort_select,
             codex_model_select,
             codex_effort_select,
+            thread_model_select,
+            codex_thread_model_select,
             subagent_model_select,
             claude_ultracode: seeded.claude_ultracode,
             claude_plan_mode: seeded.claude_plan_mode,
@@ -582,6 +612,10 @@ impl DeviceSettingsView {
             remove_busy: false,
             removed: false,
             settings_scroll: ScrollHandle::new(),
+            max_height: px(CONTENT_H),
+            content_h: Rc::default(),
+            body_h: Rc::default(),
+            fitted: None,
             _subscriptions: subscriptions,
         }
     }
@@ -620,15 +654,7 @@ impl DeviceSettingsView {
         let mut seeded = if own {
             CodingHub::global(cx).read(cx).settings.clone()
         } else {
-            let mut seeded = coding::Settings::default();
-            if let Some(value) = row.launch_defaults.as_ref() {
-                if let Ok(patch) =
-                    serde_json::from_value::<coding::DefaultsPatch>(value.clone())
-                {
-                    coding::apply_defaults_patch(&mut seeded, &patch);
-                }
-            }
-            seeded
+            remote_baseline(row.launch_defaults.as_ref())
         };
         let configured: Vec<String> = row
             .launch_defaults
@@ -712,6 +738,11 @@ impl DeviceSettingsView {
             (&self.effort_select, baseline.claude_effort.clone()),
             (&self.codex_model_select, baseline.codex_model.clone()),
             (&self.codex_effort_select, baseline.codex_effort.clone()),
+            (&self.thread_model_select, baseline.claude_thread_model.clone()),
+            (
+                &self.codex_thread_model_select,
+                baseline.codex_thread_model.clone(),
+            ),
             (
                 &self.subagent_model_select,
                 baseline.claude_subagent_model.clone(),
@@ -746,6 +777,8 @@ impl DeviceSettingsView {
         drafted.claude_effort = selected(&self.effort_select, cx);
         drafted.codex_model = selected(&self.codex_model_select, cx);
         drafted.codex_effort = selected(&self.codex_effort_select, cx);
+        drafted.claude_thread_model = selected(&self.thread_model_select, cx);
+        drafted.codex_thread_model = selected(&self.codex_thread_model_select, cx);
         drafted.claude_subagent_model = selected(&self.subagent_model_select, cx);
         drafted.claude_ultracode = self.claude_ultracode;
         drafted.claude_plan_mode = self.claude_plan_mode;
@@ -1453,11 +1486,16 @@ impl DeviceSettingsView {
                 note: None,
             })
             .collect();
-        let (model, effort) = match agent_tab {
-            CodingAgent::Claude => (self.model_select.clone(), self.effort_select.clone()),
+        let (model, effort, thread) = match agent_tab {
+            CodingAgent::Claude => (
+                self.model_select.clone(),
+                self.effort_select.clone(),
+                self.thread_model_select.clone(),
+            ),
             CodingAgent::Codex => (
                 self.codex_model_select.clone(),
                 self.codex_effort_select.clone(),
+                self.codex_thread_model_select.clone(),
             ),
         };
         let mut group = AgentDefaultsGroup::new(
@@ -1474,7 +1512,9 @@ impl DeviceSettingsView {
             model,
             effort,
         )
-        .effort_disabled(agent_tab == CodingAgent::Claude && self.claude_ultracode);
+        .effort_disabled(agent_tab == CodingAgent::Claude && self.claude_ultracode)
+        // The dispatcher's model, right under Model, for every agent.
+        .thread(thread);
         // EXP-981/EXP-1020: claude's subagent model, the row the IDE was
         // missing while web had it.
         if agent_tab.supports_subagent_model() {
@@ -1873,8 +1913,37 @@ fn section_failure(key: &str) -> (&'static str, String) {
     }
 }
 
+impl DeviceSettingsView {
+    /// Size the WINDOW to the form (the trigger dialog's fit): its measured
+    /// content plus the chrome around the scroll pane, capped at
+    /// [`Self::max_height`]. Refits only when the content height moved (a
+    /// section growing or shrinking), so a manual drag holds otherwise; never
+    /// touches a maximized or fullscreen window.
+    fn fit_window(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let content = self.content_h.get();
+        let body = self.body_h.get();
+        if content <= px(0.) || body <= px(0.) || self.fitted == Some(content) {
+            return;
+        }
+        if window.is_maximized() || window.is_fullscreen() {
+            return;
+        }
+        self.fitted = Some(content);
+        let current = window.viewport_size();
+        let chrome = (current.height - body).max(px(0.));
+        let target = (content + chrome).min(self.max_height.max(px(360.)));
+        if (target - current.height).abs() <= px(1.) {
+            return;
+        }
+        native_dialog::resize_dialog_keeping_top(window, cx, size(current.width, target));
+    }
+}
+
 impl Render for DeviceSettingsView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        self.fit_window(window, cx);
+        let view_id = cx.entity_id();
+        let (content_slot, body_slot) = (self.content_h.clone(), self.body_h.clone());
         let row = self.row(cx);
         let online = self.online(cx);
         // EXP-909: Remove lives in this dialog now — once it lands, the row
@@ -1994,7 +2063,12 @@ impl Render for DeviceSettingsView {
         // EXP-1020: ONE column. The second one (EXP-762/798) existed to park
         // the worktrees beside the settings, and a machine's worktrees are a
         // LOCAL surface now — Settings → Worktrees.
-        let body = div().w_full().child(body.pr_2().pb_2());
+        let body = div().w_full().child(body.pr_2().pb_2()).on_prepaint(move |bounds, _, cx| {
+            if content_slot.get() != bounds.size.height {
+                content_slot.set(bounds.size.height);
+                cx.notify(view_id);
+            }
+        });
 
         // EXP-762: ONE scroll pane (EXP-1020 dropped the second column). The
         // dialog is `self_scrolling` (see [`open`]) so this root gets a
@@ -2009,11 +2083,15 @@ impl Render for DeviceSettingsView {
             .size_full()
             .min_w_0()
             .min_h_0()
-            .child(crate::scroll_pane::v_scroll_pane(
-                "device-settings-settings",
-                &self.settings_scroll,
-                body,
-            ))
+            .child(
+                crate::scroll_pane::v_scroll_pane("device-settings-settings", &self.settings_scroll, body)
+                    .on_prepaint(move |bounds, _, cx| {
+                        if body_slot.get() != bounds.size.height {
+                            body_slot.set(bounds.size.height);
+                            cx.notify(view_id);
+                        }
+                    }),
+            )
     }
 }
 
@@ -2045,6 +2123,16 @@ mod tests {
 
     /// EXP-765: the code field is offered for a REMOTE machine only — the own
     /// machine's login tab is right there to type into.
+    /// A remote device with NO saved launch defaults reads Plan mode OFF
+    /// (web/iOS/Android `planMode ?? false`); a saved pick still wins.
+    #[test]
+    fn remote_baseline_seeds_plan_mode_off() {
+        assert!(!super::remote_baseline(None).claude_plan_mode);
+        assert!(!super::remote_baseline(Some(&serde_json::json!({}))).claude_plan_mode);
+        let saved = serde_json::json!({ "agents": { "claude": { "planMode": true } } });
+        assert!(super::remote_baseline(Some(&saved)).claude_plan_mode);
+    }
+
     #[test]
     fn parse_agent_map_tolerates_garbage() {
         let value = serde_json::json!({

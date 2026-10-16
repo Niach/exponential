@@ -438,7 +438,10 @@ val SwitchThumb: @Composable () -> Unit = {
 /** Sentinel-free UI state: an empty effort means "CLI default" (omit --effort). */
 internal const val CLI_DEFAULT_EFFORT = ""
 
-/** Same convention for codex models: an empty model means "CLI default". */
+/**
+ * The retired "CLI default" model sentinel. Every model is explicit now (no
+ * picker offers it); it only survives as the label a stray blank reads as.
+ */
 internal const val CLI_DEFAULT_MODEL = ""
 
 internal const val DEFAULT_AGENT = "claude"
@@ -453,14 +456,28 @@ internal fun effortValuesFor(agent: String): List<String> = when (agent) {
     else -> DomainContract.codingEffortValues
 }
 
-/** The Start-coding sheet's model vocabulary: claude has no CLI-default entry. */
-internal fun modelOptionsFor(agent: String): List<String> =
-    if (agent == DEFAULT_AGENT) DomainContract.codingModelValues
-    else listOf(CLI_DEFAULT_MODEL) + modelValuesFor(agent)
+/**
+ * THE model vocabulary of every model pick (launch, thread, subagent,
+ * computer use, the session's `/model`): the agent's own models, contract
+ * order. No "Default" / "CLI default" entry: every model is explicit.
+ */
+internal fun modelOptionsFor(agent: String): List<String> = modelValuesFor(agent)
 
-/** claude has no CLI-default model entry; codex defaults to the blank one. */
-internal fun defaultModelFor(agent: String): String =
-    if (agent == DEFAULT_AGENT) DomainContract.codingModelValues.first() else CLI_DEFAULT_MODEL
+/** The contract work-model default (`deviceAgentDefaults.model` / `codexModel`). */
+internal fun defaultModelFor(agent: String): String = when (agent) {
+    "codex" -> DomainContract.deviceAgentDefaultsCodexModel
+    else -> DomainContract.deviceAgentDefaultsModel
+}
+
+/** The dispatcher root's default model (`deviceAgentDefaults.threadModel` / `codexThreadModel`). */
+internal fun defaultThreadModelFor(agent: String): String = when (agent) {
+    "codex" -> DomainContract.deviceAgentDefaultsCodexThreadModel
+    else -> DomainContract.deviceAgentDefaultsThreadModel
+}
+
+/** A stored model clamped to [agent]'s vocabulary, else [fallback]. */
+internal fun seedModel(stored: String?, agent: String, fallback: String): String =
+    stored?.takeIf { it in modelValuesFor(agent) } ?: fallback
 
 /**
  * Plan mode is claude (native) only since EXP-849 dropped pi; codex has no
@@ -474,30 +491,23 @@ internal fun supportsPlanMode(agent: String): Boolean = agent == DEFAULT_AGENT
  */
 internal fun supportsSubagentModel(agent: String): Boolean = agent == DEFAULT_AGENT
 
-/**
- * The Subagent-model vocabulary (EXP-981): claude's own models, plus the
- * blank "Default" entry that means "let the CLI decide" — the one place
- * claude DOES offer a CLI-default entry, because the flag is optional.
- */
-internal fun subagentModelOptions(): List<String> =
-    listOf(CLI_DEFAULT_MODEL) + DomainContract.codingModelValues
+/** The Subagent-model vocabulary (EXP-981): claude's models, no Default entry. */
+internal fun subagentModelOptions(): List<String> = modelOptionsFor(DEFAULT_AGENT)
 
-/** "" reads as Default here, not as "CLI default": it IS claude's own. */
-internal fun subagentModelLabel(value: String): String =
-    if (value == CLI_DEFAULT_MODEL) SUBAGENT_MODEL_DEFAULT_LABEL else modelLabel(value)
+internal fun subagentModelLabel(value: String): String = modelLabel(value)
 
 internal const val SUBAGENT_MODEL_LABEL = "Subagent model"
-private const val SUBAGENT_MODEL_DEFAULT_LABEL = "Default"
+
+/** The dispatcher root's model row (threads + team agents), per agent. */
+internal const val THREAD_MODEL_LABEL = "Thread model"
 
 /**
- * EXP-1236: the Computer use model vocabulary — the aliases a run's
- * screen-driving subagents may run on, contract order, the default (Haiku)
- * first. A DEVICE-level pick beside the Computer use switch: no blank entry,
- * the setting always holds a value.
+ * EXP-1236: the Computer use model vocabulary = THE claude model list. A
+ * DEVICE-level pick beside the Computer use switch: the setting always holds
+ * a value.
  */
-internal fun computerUseModelOptions(): List<String> = DomainContract.computerUseModelValues
+internal fun computerUseModelOptions(): List<String> = modelOptionsFor(DEFAULT_AGENT)
 
-/** The Model picker's own alias labels (Haiku, Sonnet, Opus, Fable). */
 internal fun computerUseModelLabel(value: String): String = modelLabel(value)
 
 internal const val COMPUTER_USE_MODEL_LABEL = "Computer use model"
@@ -508,8 +518,31 @@ internal const val COMPUTER_USE_MODEL_LABEL = "Computer use model"
  * model this build cannot name) the contract default.
  */
 internal fun seedComputerUseModel(stored: String?): String =
-    stored?.takeIf { it in DomainContract.computerUseModelValues }
-        ?: DomainContract.deviceComputerUseDefaultsModel
+    seedModel(stored, DEFAULT_AGENT, DomainContract.deviceComputerUseDefaultsModel)
+
+/**
+ * THE model picker row: [agent]'s whole model list (all four claude models /
+ * the codex models), no default entry. Every settings-sheet model row (Model,
+ * Thread model, Subagent model, Computer use model) is this one composable.
+ */
+@Composable
+internal fun ModelPickerRow(
+    label: String,
+    agent: String,
+    value: String,
+    onSelect: (String) -> Unit,
+    enabled: Boolean = true,
+) {
+    PickerRow(
+        label = label,
+        value = modelLabel(value),
+        options = modelOptionsFor(agent),
+        selected = value,
+        optionLabel = ::modelLabel,
+        onSelect = onSelect,
+        enabled = enabled,
+    )
+}
 
 internal fun agentLabel(value: String): String = when (value) {
     "claude" -> "Claude Code"

@@ -1,6 +1,5 @@
 package com.exponential.app.ui.thread
 
-import android.net.Uri
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -23,16 +22,9 @@ import com.exponential.app.data.db.SessionEntity
 import com.exponential.app.data.db.UserEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
-import com.exponential.app.domain.AgentComposerPrompt
 import com.exponential.app.domain.IssueStatusResolver
-import com.exponential.app.domain.PendingAttachment
 import com.exponential.app.domain.ResolvedIssueStatus
 import com.exponential.app.domain.SessionTree
-import com.exponential.app.domain.canonicalContentType
-import com.exponential.app.domain.isInlineImage
-import com.exponential.app.domain.steerAttachmentRefusal
-import com.exponential.app.domain.uploadedImageIds
-import com.exponential.app.domain.uploadedSteerFiles
 import com.exponential.app.ui.components.FailedAction
 import com.exponential.app.ui.markdown.IssueRefTarget
 import com.exponential.app.ui.markdown.issueRefTarget
@@ -314,86 +306,6 @@ class ThreadViewModel @Inject constructor(
             throw e
         } catch (_: Exception) {
             emptyList()
-        }
-    }
-
-    // ── the composer's attachments ──────────────────────────────────────────
-
-    private val _images = MutableStateFlow<List<PendingAttachment>>(emptyList())
-    /** Picked files waiting for the next [sendDraft] (the steer caps apply). */
-    val images: StateFlow<List<PendingAttachment>> = _images
-
-    private val _imageError = MutableStateFlow<String?>(null)
-    /** A refused pick: invalid input, under the field. */
-    val imageError: StateFlow<String?> = _imageError
-
-    fun addImage(uri: Uri, bytes: ByteArray, filename: String, contentType: String) {
-        _imageError.value = null
-        val canonical = canonicalContentType(contentType)
-        val isImage = isInlineImage(canonical)
-        val current = _images.value
-        val refusal = steerAttachmentRefusal(
-            imageCount = current.count { it.isImage },
-            fileCount = current.count { !it.isImage },
-            isImage = isImage,
-            sizeBytes = bytes.size.toLong(),
-        )
-        if (refusal != null) {
-            _imageError.value = refusal
-            return
-        }
-        _images.value = current + PendingAttachment(
-            uri = uri,
-            bytes = bytes,
-            filename = filename,
-            contentType = canonical,
-            isImage = isImage,
-        )
-    }
-
-    fun refuseAttachment(message: String) {
-        _imageError.value = message
-    }
-
-    fun removeImage(index: Int) {
-        _images.value = _images.value.filterIndexed { i, _ -> i != index }
-    }
-
-    /**
-     * The composer's send WITH its pending files: upload what has not landed
-     * (each id stamped as it lands, so a retry uploads only the rest), embed
-     * them in the text, then ONE [send]. [onSent] clears the draft; a refusal
-     * keeps text + files for the retry.
-     */
-    fun sendDraft(text: String, onSent: () -> Unit = {}) {
-        if (_sending.value) return
-        val pending = _images.value
-        if (text.isBlank() && pending.isEmpty()) return
-        if (pending.isEmpty()) {
-            send(text.trim(), emptyList(), onSent)
-            return
-        }
-        val team = root.value?.teamId?.takeIf { it.isNotEmpty() } ?: return
-        run("upload", "the attachment", { _sending.value = it }) { accountId ->
-            var current = _images.value
-            for ((index, image) in current.withIndex()) {
-                if (image.uploadedId != null) continue
-                val uploaded = imagesApi.uploadTeamSessionImage(accountId, team, image.bytes, image.filename, image.contentType)
-                current = current.mapIndexed { i, entry ->
-                    if (i == index) entry.copy(uploadedId = uploaded.id, uploadedName = uploaded.filename) else entry
-                }
-                _images.value = current
-            }
-            val body = AgentComposerPrompt.build(text, current.uploadedImageIds(), current.uploadedSteerFiles()).orEmpty()
-            try {
-                sender.send(SessionsSendInput.message(rootId, body, current.mapNotNull { it.uploadedId }))
-            } catch (t: Throwable) {
-                if (t is CancellationException) throw t
-                _failure.value = FailedAction("send", "the message", trpcErrorMessage(t, ""))
-                return@run
-            }
-            _images.value = emptyList()
-            onSent()
         }
     }
 

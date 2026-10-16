@@ -6,6 +6,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.api.AgentAccount
 import com.exponential.app.data.api.AgentUsage
+import com.exponential.app.data.api.DeviceLaunchDefaults
 import com.exponential.app.data.api.DevicesApi
 import com.exponential.app.data.api.IssueImagesApi
 import com.exponential.app.data.api.IssuesApi
@@ -50,6 +51,7 @@ import com.exponential.app.domain.SessionUsageState
 import com.exponential.app.domain.SlashCommand
 import com.exponential.app.domain.SlashCommands
 import com.exponential.app.domain.toSteerDevice
+import com.exponential.app.domain.parseLaunchDefaults
 import com.exponential.app.domain.resolveSessionDevice
 import com.exponential.app.ui.markdown.AttachmentDims
 import com.exponential.app.ui.markdown.IssueRefTarget
@@ -244,6 +246,13 @@ class AgentSessionViewModel @AssistedInject constructor(
     ) { device, now, userId ->
         device?.toSteerDevice(now, userId)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /** The host device's synced launch defaults — the composer's model pin
+     *  falls back to them before the relay names the model in force. */
+    val hostLaunchDefaults: StateFlow<DeviceLaunchDefaults?> = hostDeviceRow
+        .map { parseLaunchDefaults(it?.launchDefaults) }
+        .distinctUntilChanged()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /**
      * EXP-1291: the issues the session's THREAD links (`session_issues` on its

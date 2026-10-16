@@ -242,16 +242,43 @@ export function assertRunnerVocabulary(
   }
 }
 
-/** The runner pickers of a new session, the input's or inherited ones. */
+/** The runner pickers of a new session, the input's or inherited ones. A
+ *  dispatcher's children inherit its WORK picks, never its own thread-model
+ *  run. */
 function runnerFields(input: SessionsSendInput, from?: Session | null) {
+  const work = from?.dispatch ? (from.workLaunch ?? {}) : from
   return {
     cli: input.cli ?? from?.cli ?? null,
     account: input.account ?? from?.account ?? null,
-    model: input.model ?? from?.model ?? null,
-    effort: input.effort ?? from?.effort ?? null,
-    planMode: input.planMode ?? from?.planMode ?? false,
-    computerUse: input.computerUse ?? from?.computerUse ?? false,
-    ultracode: input.ultracode ?? from?.ultracode ?? false,
+    model: input.model ?? work?.model ?? null,
+    effort: input.effort ?? work?.effort ?? null,
+    planMode: input.planMode ?? work?.planMode ?? false,
+    computerUse: input.computerUse ?? work?.computerUse ?? false,
+    ultracode: input.ultracode ?? work?.ultracode ?? false,
+  }
+}
+
+/** A dispatcher root's own runner: the picked agent + account on the
+ *  device's thread model (resolved by the device), no plan, no ultracode,
+ *  no computer use. The composer's other picks become its `workLaunch`. */
+function dispatcherFields(input: SessionsSendInput, from?: Session | null) {
+  const work = runnerFields(input, from)
+  return {
+    cli: work.cli,
+    account: work.account,
+    model: null,
+    effort: null,
+    planMode: false,
+    computerUse: false,
+    ultracode: false,
+    dispatch: true,
+    workLaunch: {
+      model: work.model,
+      effort: work.effort,
+      planMode: work.planMode,
+      ultracode: work.ultracode,
+      computerUse: work.computerUse,
+    },
   }
 }
 
@@ -407,8 +434,11 @@ async function messageSession(
       userId,
       hostUserId: device.hostUserId,
       deviceId: target.deviceId,
-      // A switch sent with the message carries into the continuation.
-      ...runnerFields({ account: input.account }, target),
+      // A switch sent with the message carries into the continuation; a
+      // dispatcher's continuation dispatches on.
+      ...(target.dispatch
+        ? dispatcherFields({ account: input.account }, target)
+        : runnerFields({ account: input.account }, target)),
       mcpServerIds: target.mcpServerIds,
       repositoryId: target.repositoryId ?? root.repositoryId,
       status: `queued`,
@@ -584,7 +614,8 @@ async function startRoot(
       userId,
       hostUserId: device.hostUserId,
       deviceId,
-      ...runnerFields(input),
+      // Every new root dispatches (threads and team agents alike).
+      ...dispatcherFields(input),
       mcpServerIds,
       repositoryId,
       status: `queued`,

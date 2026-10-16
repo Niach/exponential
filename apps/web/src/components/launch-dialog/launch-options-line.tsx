@@ -9,19 +9,12 @@ import {
   deviceReadinessBlocker,
 } from "@exp/ui"
 import { DeviceReadinessNotice } from "@/components/device-readiness-notice"
-import {
-  CLI_DEFAULT_MODEL,
-  modelLabel,
-} from "@/components/launch-dialog/launch-options-pane"
+import { modelChoices } from "@/components/launch-dialog/launch-options-pane"
 import {
   MAX_ISSUES_PER_RUN,
   type LaunchComposerModel,
 } from "@/hooks/use-launch-composer"
-import {
-  agentAllowsBlankModel,
-  agentModelValues,
-  agentSupportsPlanMode,
-} from "@/lib/coding-launch-prefs"
+import { agentSupportsPlanMode } from "@/lib/coding-launch-prefs"
 import { healthBadgeLabel } from "@/lib/agent-usage"
 import { accountOptionKey } from "@/lib/accounts/account-option"
 
@@ -48,7 +41,7 @@ import { accountOptionKey } from "@/lib/accounts/account-option"
 // most one thing it could say, so the line has no picker component of its
 // own. None of these four ever reaches ZERO options: the whole line
 // returns early without a device, Repository and Account render behind a
-// count guard, and the model list is contract values plus the blank default.
+// count guard, and the model list is the contract values (no Default row).
 //
 // EXP-1249: the `⋯` overflow is gone — Effort, Subagents, Ultracode, MCP
 // servers and the new per-run Computer use live in the composer's ONE "+"
@@ -68,17 +61,9 @@ export function LaunchOptionsLine({ model }: { model: LaunchComposerModel }) {
     )
   }
 
-  // An empty string is no usable option identity; the blank "CLI default"
-  // model/effort rides the pane's sentinels inside the pickers only.
-  const modelOptions = [
-    ...(agentAllowsBlankModel(agent)
-      ? [{ value: CLI_DEFAULT_MODEL, label: `CLI default` }]
-      : []),
-    ...agentModelValues(agent).map((value) => ({
-      value,
-      label: modelLabel(value),
-    })),
-  ]
+  // Every model is explicit (owner 2026-10-15): THE contract list, no
+  // Default row; these are the WORK picks a dispatcher root hands down.
+  const modelOptions = modelChoices(agent)
   const accountOptions = launch.accountOptions.map((option) => ({
     key: accountOptionKey(option),
     agent: option.agent,
@@ -127,11 +112,9 @@ export function LaunchOptionsLine({ model }: { model: LaunchComposerModel }) {
           data-testid="agent-composer-account"
         />
         <ModelPicker
-          value={launch.model === `` ? CLI_DEFAULT_MODEL : launch.model}
+          value={launch.model || null}
           models={modelOptions}
-          onChange={(value) =>
-            launch.setModel(value === CLI_DEFAULT_MODEL ? `` : value)
-          }
+          onChange={launch.setModel}
         />
         {agentSupportsPlanMode(agent) && (
           <Label className="cursor-pointer gap-1.5 font-normal">

@@ -16,6 +16,10 @@ export interface BriefInput {
   issues?: { identifier: string; title: string }[]
   /** A CHILD session's parent. */
   parent?: { title: string; depth: number; branch: string | null } | null
+  /** A dispatcher root whose start is work by construction (plan mode, issues
+   *  or an action): its brief orders the hand-off instead of leaving it to
+   *  the model's judgement. */
+  handOff?: boolean
 }
 
 function cutToBytes(text: string, maxBytes: number): string {
@@ -65,6 +69,7 @@ export function composeBrief(input: BriefInput): string {
         .replaceAll(`{branch}`, input.parent.branch ?? ``)
     )
   }
+  if (input.handOff) section(fixture.headings.dispatch, fixture.handOff)
   if (sections.length === 0) return fixture.empty
   return cutToBytes(sections.join(`\n\n`), contractJson.sessionsSend.briefMaxBytes)
 }

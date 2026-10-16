@@ -15,8 +15,8 @@ use serde::{Deserialize, Serialize};
 use crate::settings::{EFFORT_LEVELS, MODEL_ALIASES};
 
 /// Codex `-m` slugs (mid-2026: the GPT-5.6 tiers — there is NO
-/// `gpt-5.6-codex` variant). Blank ("CLI default", omit `-m`) is a valid
-/// extra value everywhere these are consumed.
+/// `gpt-5.6-codex` variant). Every model is explicit: no blank "CLI
+/// default".
 pub const CODEX_MODELS: [&str; 3] = ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"];
 
 /// Codex `model_reasoning_effort` levels (no `max`); blank = omit.
@@ -92,11 +92,11 @@ impl CodingAgent {
         matches!(self, CodingAgent::Claude)
     }
 
-    /// The closed model set for this agent (blank "CLI default" is an extra
-    /// valid value for Codex; Claude's `--model` is explicit-always).
+    /// The closed model set for this agent. Every launch passes one of
+    /// these explicitly (no blank "CLI default" for either agent).
     pub fn model_values(self) -> &'static [&'static str] {
         match self {
-            CodingAgent::Claude => &MODEL_ALIASES,
+            CodingAgent::Claude => MODEL_ALIASES,
             CodingAgent::Codex => &CODEX_MODELS,
         }
     }
@@ -109,10 +109,13 @@ impl CodingAgent {
         }
     }
 
-    /// Whether a blank model (= omit the model flag, CLI default) is valid.
-    /// Claude stays explicit-always (§7.7, locked 2026-07-03).
-    pub fn allows_blank_model(self) -> bool {
-        !matches!(self, CodingAgent::Claude)
+    /// The model a launch of this agent falls back to when nothing valid
+    /// was picked (contract `deviceAgentDefaults`).
+    pub fn default_model(self) -> &'static str {
+        match self {
+            CodingAgent::Claude => crate::settings::DEFAULT_CLAUDE_MODEL,
+            CodingAgent::Codex => crate::settings::DEFAULT_CODEX_MODEL,
+        }
     }
 
     /// The effort concept's UI label.
@@ -195,10 +198,12 @@ mod tests {
         // EXP-981: only claude pins a subagent model.
         assert!(CodingAgent::Claude.supports_subagent_model());
         assert!(!CodingAgent::Codex.supports_subagent_model());
-        assert!(!CodingAgent::Claude.allows_blank_model());
         for agent in [CodingAgent::Codex] {
             assert!(!agent.supports_ultracode(), "{agent}");
-            assert!(agent.allows_blank_model(), "{agent}");
+        }
+        // Every model is explicit: each agent's fallback is in its own set.
+        for agent in CodingAgent::ALL {
+            assert!(agent.model_values().contains(&agent.default_model()), "{agent}");
         }
         assert!(!CodingAgent::Codex.supports_plan_mode());
     }
@@ -217,17 +222,19 @@ mod tests {
             ("fable", "fable"),
             ("opus", "opus"),
             (" Sonnet ", "sonnet"),
+            ("haiku", "haiku"),
+            ("claude-haiku-4-5", "haiku"),
         ] {
             assert_eq!(claude_model_alias(reported), Some(alias), "{reported}");
         }
-        for unknown in ["", "claude-3-5-haiku", "gpt-5.6-sol", "haiku", "claude-"] {
+        for unknown in ["", "claude-3-5-haiku", "gpt-5.6-sol", "claude-"] {
             assert_eq!(claude_model_alias(unknown), None, "{unknown}");
         }
     }
 
     #[test]
     fn value_sets_are_wired_per_agent() {
-        assert_eq!(CodingAgent::Claude.model_values(), &MODEL_ALIASES);
+        assert_eq!(CodingAgent::Claude.model_values(), MODEL_ALIASES);
         assert_eq!(CodingAgent::Claude.effort_values(), &EFFORT_LEVELS);
         assert_eq!(CodingAgent::Codex.model_values(), &CODEX_MODELS);
         assert_eq!(CodingAgent::Codex.effort_values(), &CODEX_EFFORTS);

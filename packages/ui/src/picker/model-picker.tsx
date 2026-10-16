@@ -1,13 +1,15 @@
 import type { ReactNode } from "react"
 
 import { Picker, type PickerItem, type PickerSurfaceProps } from "./picker"
+import { PickerMenuRows } from "./picker-menu-rows"
 import type { PickerTriggerVariant } from "./picker-trigger"
 
 // UI cleanup batch — the model and effort pickers: a short fixed list of
-// `{ value, label }` choices (contract `codingModel` / the agent's effort
-// values, plus the blank "CLI default" a host maps to its own sentinel). The
-// composer's options line picks a model as one WORD of its sentence
-// (`inline`); the forms and the composer's menu pick them as a row.
+// `{ value, label }` choices. Models = THE contract vocabulary (`codingModel`
+// / `codexModel`), always explicit: no blank "CLI default" row (owner
+// 2026-10-15); efforts keep the blank a host maps to its own sentinel. The
+// composer's options line and the session composer pick a model as one WORD
+// (`inline`); the forms pick it as a row, a menu as `ModelMenuRows`.
 
 export interface ValueChoice {
   value: string
@@ -58,6 +60,27 @@ export function ModelPicker({
       triggerVariant={triggerVariant}
       width={width}
       {...props}
+    />
+  )
+}
+
+/** THE model choice inside a menu's submenu (the "+" menu's Subagents ›):
+ *  the same choices, as the menu's own rows. */
+export function ModelMenuRows({
+  models,
+  value,
+  onChange,
+}: {
+  models: readonly ValueChoice[]
+  value: string | null
+  onChange: (value: string) => void
+}) {
+  return (
+    <PickerMenuRows
+      mode="single"
+      items={choicePickerItems(models)}
+      value={value}
+      onChange={onChange}
     />
   )
 }

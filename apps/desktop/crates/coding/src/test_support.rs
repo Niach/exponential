@@ -133,6 +133,18 @@ impl WorktreeProvider for FakeWorktrees {
         let _ = fs::create_dir_all(&self.worktree);
         Ok(self.worktree.clone())
     }
+
+    /// Recorded like [`Self::prepare`] with a BLANK branch (= detached).
+    fn prepare_detached(
+        &self,
+        repos_root: &Path,
+        full_name: &str,
+        default_branch: &str,
+        url: &TokenUrl,
+        expires_at: Option<&str>,
+    ) -> Result<PathBuf, GitError> {
+        self.prepare(repos_root, full_name, default_branch, "", url, expires_at)
+    }
 }
 
 /// Deps with: doctor guaranteed green (claude_path = `git` — a real binary

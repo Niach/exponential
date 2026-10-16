@@ -7,7 +7,6 @@ import {
   type ValueChoice,
 } from "@exp/ui"
 import {
-  agentAllowsBlankModel,
   agentEffortValues,
   agentModelValues,
   agentSupportsAccountRotation,
@@ -43,9 +42,9 @@ import { contract } from "@exp/domain-contract"
 
 
 // An empty string is no usable option identity; the blank "CLI default"
-// model/effort rides this sentinel inside the dialog only.
+// effort rides this sentinel inside the dialog only. Models have NO blank
+// (owner 2026-10-15: every model is explicit, codex included).
 export const CLI_DEFAULT_EFFORT = `cli-default`
-export const CLI_DEFAULT_MODEL = `cli-default`
 
 // Display labels derive from the contract values (same rule as the iOS and
 // Android sheets), so a new contract value can never render unlabeled; the
@@ -59,6 +58,24 @@ const MODEL_LABELS: Record<string, string> = {
 
 export function modelLabel(value: string): string {
   return MODEL_LABELS[value] ?? value.charAt(0).toUpperCase() + value.slice(1)
+}
+
+/** THE model choices of `agent` for every model pick (the options line, the
+ *  device defaults, the session composer's pin): the contract vocabulary in
+ *  its order, no Default row. */
+export function modelChoices(agent: string): ValueChoice[] {
+  return agentModelValues(agent).map((value) => ({
+    value,
+    label: modelLabel(value),
+  }))
+}
+
+/** The subagent model choices (claude's vocabulary whatever the agent). */
+export function subagentModelChoices(): ValueChoice[] {
+  return contract.codingModel.values.map((value) => ({
+    value,
+    label: modelLabel(value),
+  }))
 }
 
 export function effortLabel(value: string): string {
@@ -87,10 +104,14 @@ type AgentOptionsFieldsProps = {
   onAgentChange: (agent: string) => void
   model: string
   onModelChange: (model: string) => void
-  /** EXP-981: claude's subagent model, `""` = the CLI's own default. Omit the
-   * pair entirely on a surface that does not edit it (a trigger). */
+  /** EXP-981: claude's subagent model (explicit). Omit the pair entirely on
+   * a surface that does not edit it (a trigger). */
   subagentModel?: string
   onSubagentModelChange?: (model: string) => void
+  /** The dispatcher root's model (threads + team agents); the device
+   * settings edit it, right under Model. */
+  threadModel?: string
+  onThreadModelChange?: (model: string) => void
   effortValue: string
   onEffortChange: (effort: string) => void
   /**
@@ -118,6 +139,8 @@ export function AgentOptionsFields(props: AgentOptionsFieldsProps) {
     onModelChange,
     subagentModel,
     onSubagentModelChange,
+    threadModel,
+    onThreadModelChange,
     effortValue,
     onEffortChange,
     device,
@@ -128,20 +151,9 @@ export function AgentOptionsFields(props: AgentOptionsFieldsProps) {
   // validates the pair). A trigger's strip seeds to the bound device's
   // default agent, so `` only happens while no device is bound yet.
   const pinned = !trigger || agent !== ``
-  const modelSentinel = CLI_DEFAULT_MODEL
   const effortSentinel = CLI_DEFAULT_EFFORT
   const sentinelLabel = `CLI default`
-  const modelOptions: ValueChoice[] = [
-    ...(trigger || agentAllowsBlankModel(agent)
-      ? [{ value: modelSentinel, label: sentinelLabel }]
-      : []),
-    ...(pinned
-      ? agentModelValues(agent).map((value) => ({
-          value,
-          label: modelLabel(value),
-        }))
-      : []),
-  ]
+  const modelOptions: ValueChoice[] = pinned ? modelChoices(agent) : []
   const effortOptions: ValueChoice[] = [
     { value: effortSentinel, label: sentinelLabel },
     ...(pinned
@@ -180,35 +192,34 @@ export function AgentOptionsFields(props: AgentOptionsFieldsProps) {
       <ModelPicker
         triggerVariant="row"
         width="md"
-        value={model === `` ? modelSentinel : model}
-        onChange={(value) =>
-          onModelChange(value === modelSentinel ? `` : value)
-        }
+        value={model === `` ? null : model}
+        onChange={onModelChange}
         models={modelOptions}
         disabled={!pinned}
       />
+      {onThreadModelChange && pinned && (
+        /* Owner 2026-10-15: the model a thread's or team agent's DISPATCHER
+           root runs on, right under Model, the same row component. */
+        <ModelPicker
+          triggerVariant="row"
+          width="md"
+          mobileTitle="Thread model"
+          value={threadModel || null}
+          onChange={onThreadModelChange}
+          models={modelOptions}
+          data-testid={`${idPrefix}-thread-model`}
+        />
+      )}
       {onSubagentModelChange && agentSupportsSubagentModel(agent) && (
-        /* EXP-981: claude only — the model its SUBAGENTS run on. Blank is the
-           CLI's own default, which is what most machines want. */
+        /* EXP-981: claude only — the model its SUBAGENTS run on (explicit,
+           contract default Opus). */
         <ModelPicker
           triggerVariant="row"
           width="md"
           mobileTitle="Subagent model"
-          value={
-            subagentModel === undefined || subagentModel === ``
-              ? modelSentinel
-              : subagentModel
-          }
-          onChange={(value) =>
-            onSubagentModelChange(value === modelSentinel ? `` : value)
-          }
-          models={[
-            { value: modelSentinel, label: `Default` },
-            ...contract.codingModel.values.map((value) => ({
-              value,
-              label: modelLabel(value),
-            })),
-          ]}
+          value={subagentModel || null}
+          onChange={onSubagentModelChange}
+          models={subagentModelChoices()}
         />
       )}
       <EffortPicker

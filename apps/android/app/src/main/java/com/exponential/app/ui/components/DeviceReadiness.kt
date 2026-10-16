@@ -112,12 +112,10 @@ fun DeviceReadinessBlock(
                     computerUseModel != null && onComputerUseModelChange != null
                 ) {
                     GroupDivider()
-                    PickerRow(
+                    ModelPickerRow(
                         label = COMPUTER_USE_MODEL_LABEL,
-                        value = computerUseModelLabel(computerUseModel),
-                        options = computerUseModelOptions(),
-                        selected = computerUseModel,
-                        optionLabel = ::computerUseModelLabel,
+                        agent = DEFAULT_AGENT,
+                        value = computerUseModel,
                         onSelect = onComputerUseModelChange,
                     )
                 }

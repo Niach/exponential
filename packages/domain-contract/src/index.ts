@@ -53,6 +53,10 @@ export interface DomainContract {
   deviceAgentDefaults: {
     model: string
     subagentModel: string
+    /** The dispatcher root's model (threads + team agents). */
+    threadModel: string
+    codexModel: string
+    codexThreadModel: string
   }
   /** EXP-1291: the session tree — roots are threads or team agents. */
   sessionKind: { values: readonly string[] }
@@ -232,15 +236,13 @@ export interface DomainContract {
   messageEventKind: { values: readonly string[] }
   /** Coding agent CLIs a desktop device may run (EXP-201; first = default). */
   codingAgent: { values: readonly string[] }
-  /** Claude model aliases for coding-session launches (first = default). */
+  /** THE Claude model vocabulary for every model pick (session, subagents, thread, computer use); no blank. */
   codingModel: { values: readonly string[] }
-  /** EXP-1236: model aliases a run's screen-driving subagents may run on (`launch_defaults.computerUseModel`). */
-  computerUseModel: { values: readonly string[] }
   /** EXP-1236: a device's computer-use defaults (the subagent model, `haiku`). */
   deviceComputerUseDefaults: { model: string }
   /** Claude effort levels; blank ("CLI default") is a per-client extra row, not a contract value. */
   codingEffort: { values: readonly string[] }
-  /** Codex model slugs; blank ("CLI default") is a per-client extra row, not a contract value. */
+  /** Codex model slugs; always explicit (no blank row). */
   codexModel: { values: readonly string[] }
   /** Codex reasoning-effort levels (`model_reasoning_effort`); blank is per-client. */
   codexEffort: { values: readonly string[] }

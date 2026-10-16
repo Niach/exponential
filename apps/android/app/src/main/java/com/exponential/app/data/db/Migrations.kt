@@ -208,6 +208,21 @@ val MIGRATION_86_87: Migration = object : Migration(86, 87) {
     }
 }
 
+/**
+ * v88 (dispatcher roots): `sessions.dispatch`, true on every new root (thread
+ * or team agent). The column lands false, so the sessions shape refetches (its
+ * offset resets) and already-synced rows re-arrive carrying it.
+ */
+val MIGRATION_87_88: Migration = object : Migration(87, 88) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `sessions` ADD COLUMN `dispatch` INTEGER NOT NULL DEFAULT 0")
+        db.execSQL(
+            "UPDATE `electric_offsets` SET `handle` = '', `offset` = '-1', `is_live` = 0, " +
+                "`needs_refetch` = 1 WHERE `shape` = 'sessions'",
+        )
+    }
+}
+
 private fun rebuild(
     db: SupportSQLiteDatabase,
     table: String,

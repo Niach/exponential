@@ -60,9 +60,12 @@ public struct DeviceOwner: Decodable, Sendable {
 /// (EXP-490: the iOS device-settings sheet re-seeds off `onChange`).
 public struct AgentLaunchDefaults: Decodable, Equatable, Sendable {
     public let model: String?
-    /// EXP-981: claude only — the model its subagents run on. `""` = the CLI's
-    /// own default, absent on a machine that predates the option.
+    /// EXP-981: claude only — the model its subagents run on; absent = the
+    /// contract default.
     public let subagentModel: String?
+    /// The dispatcher root's model (threads + team agents) on this agent;
+    /// absent = the contract default (`deviceAgentDefaults*ThreadModel`).
+    public let threadModel: String?
     public let effort: String?
     public let ultracode: Bool?
     public let planMode: Bool?
@@ -75,6 +78,7 @@ public struct AgentLaunchDefaults: Decodable, Equatable, Sendable {
     public init(
         model: String? = nil,
         subagentModel: String? = nil,
+        threadModel: String? = nil,
         effort: String? = nil,
         ultracode: Bool? = nil,
         planMode: Bool? = nil,
@@ -82,6 +86,7 @@ public struct AgentLaunchDefaults: Decodable, Equatable, Sendable {
     ) {
         self.model = model
         self.subagentModel = subagentModel
+        self.threadModel = threadModel
         self.effort = effort
         self.ultracode = ultracode
         self.planMode = planMode

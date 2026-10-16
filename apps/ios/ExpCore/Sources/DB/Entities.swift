@@ -374,6 +374,9 @@ public struct SessionEntity: FetchableRecord, PersistableRecord, Identifiable, S
     public let planMode: Bool
     public let computerUse: Bool
     public let ultracode: Bool
+    /// A dispatcher root (every new thread / team agent): it hands its work
+    /// to children, so it has no plan mode of its own.
+    public let dispatch: Bool
     public let repositoryId: String?
     /// The working branch, device-written at claim.
     public let branch: String?
@@ -430,6 +433,7 @@ public struct SessionEntity: FetchableRecord, PersistableRecord, Identifiable, S
         planMode: Bool = false,
         computerUse: Bool = false,
         ultracode: Bool = false,
+        dispatch: Bool = false,
         repositoryId: String? = nil,
         branch: String? = nil,
         status: String = DomainContract.sessionStatusQueued,
@@ -469,6 +473,7 @@ public struct SessionEntity: FetchableRecord, PersistableRecord, Identifiable, S
         self.planMode = planMode
         self.computerUse = computerUse
         self.ultracode = ultracode
+        self.dispatch = dispatch
         self.repositoryId = repositoryId
         self.branch = branch
         self.status = status
@@ -501,7 +506,7 @@ public struct SessionEntity: FetchableRecord, PersistableRecord, Identifiable, S
 
     enum CodingKeys: String, CodingKey {
         case id, depth, kind, cli, account, model, effort, ultracode, branch, status
-        case busy, blocked, shared, title, guide, name, icon, color, triggers
+        case busy, blocked, shared, title, guide, name, icon, color, triggers, dispatch
         case teamId = "team_id"
         case parentId = "parent_id"
         case rootId = "root_id"
@@ -547,6 +552,7 @@ extension SessionEntity: Codable {
         planMode = c.decodeWireBool(forKey: .planMode, default: false)
         computerUse = c.decodeWireBool(forKey: .computerUse, default: false)
         ultracode = c.decodeWireBool(forKey: .ultracode, default: false)
+        dispatch = c.decodeWireBool(forKey: .dispatch, default: false)
         repositoryId = try c.decodeIfPresent(String.self, forKey: .repositoryId)
         branch = try c.decodeIfPresent(String.self, forKey: .branch)
         status = try c.decodeIfPresent(String.self, forKey: .status) ?? DomainContract.sessionStatusQueued

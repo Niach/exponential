@@ -1580,6 +1580,7 @@ fn row_from_record(record: &RunRecord, device_id: &str) -> SessionRow {
         model: some(&record.model),
         effort: some(&record.effort),
         ultracode: record.ultracode,
+        dispatch: record.is_dispatch(),
         repository_id: record.repository_id.clone(),
         branch: record.branch.clone(),
         status: Some(SESSION_STATUS_IDLE.to_string()),

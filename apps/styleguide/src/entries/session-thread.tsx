@@ -1,6 +1,17 @@
 import fixture from "@exp/domain-contract/fixtures/session-thread.json"
 import { buildSessionThread } from "@exp/domain-contract/session-tree"
-import { ThreadConversation, TooltipProvider, userMessageCaption } from "@exp/ui"
+import { contract } from "@exp/domain-contract"
+import {
+  Composer,
+  ComposerSubmit,
+  ComposerTool,
+  ContextRing,
+  ModelPicker,
+  ThreadConversation,
+  TooltipProvider,
+  conceptIcon,
+  userMessageCaption,
+} from "@exp/ui"
 
 import type { StyleguideEntry } from "./types.ts"
 
@@ -14,6 +25,61 @@ import type { StyleguideEntry } from "./types.ts"
 // viewer's own queued row with its X (EXP-1317).
 
 type Input = Parameters<typeof buildSessionThread>[0]
+
+const UiAddIcon = conceptIcon(`ui-add`)
+const noop = (): void => {}
+
+/** THE model choices (contract `codingModel`, all four, no Default row). */
+const MODELS = contract.codingModel.values.map((value) => ({
+  value,
+  label: value.charAt(0).toUpperCase() + value.slice(1),
+}))
+
+/** THE session composer (the app's `SessionComposer`): "+" · the model pin
+ *  · (a plan-mode child's read-out) … the context ring · Send ⇄ Stop. */
+function SessionComposerSpecimen({
+  model,
+  percent,
+  tone,
+  plan = false,
+  busy = false,
+}: {
+  model: string
+  percent: number
+  tone: `normal` | `warning` | `danger`
+  plan?: boolean
+  busy?: boolean
+}) {
+  return (
+    <Composer
+      tools={
+        <>
+          <ComposerTool aria-label="Add file">
+            <UiAddIcon className="size-4" />
+          </ComposerTool>
+          <span className="ml-1 flex items-center text-xs text-muted-foreground">
+            <ModelPicker
+              value={model}
+              models={MODELS}
+              onChange={noop}
+            />
+          </span>
+          {plan && <span className="ml-2 text-xs text-sky-400">Plan</span>}
+        </>
+      }
+      submit={
+        <>
+          <ContextRing percent={percent} tone={tone} />
+          <ComposerSubmit stop={busy} />
+        </>
+      }
+    >
+      <div className="min-h-20 px-3 pt-3 text-sm text-muted-foreground">
+        {fixture.copy.placeholder}
+      </div>
+    </Composer>
+  )
+}
 
 const SHOT = `data:image/svg+xml,${encodeURIComponent(
   `<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="900"><rect width="1440" height="900" fill="#3f3f46"/></svg>`
@@ -54,7 +120,7 @@ export const entry: StyleguideEntry = {
   section: `special`,
   owner: `EXP-1293`,
   title: `Conversation`,
-  blurb: `A thread's Conversation tab (a thread IS a root session): the root's own session card first, then the ROOT's messages oldest first. A person's message is the right-aligned bubble (\`<name> · <time>\` under it, \`queued\` until the device consumed it; the viewer's OWN queued row carries the \`Remove from queue\` X with its tooltip, EXP-1317); the agent's reply is markdown at the reading width; a system line is muted. A \`session\` / \`thread_started\` card is THE session card (the Work card's header row) opening that session; a question or plan card is THE session view's card (EXP-1316, \`AskCard\` + \`AskPrompt\`): a question offers its options (label, and its description under it when the option carries one, EXP-1322) and a free-text row (\`Type something.\` opens the inline field), a plan Approve / Reject (Reject opens a note field); an answered card renders closed (the answer, options gone); a subagent is a muted row, a picture the image, an event one muted line (\`Linked EXP-12\`, \`Opened PR #45\`). Children's own messages never inline. No captions, no Show work, no right sidebar. Model = \`buildSessionThread()\` (fixture \`session-thread.json\` ×4).`,
+  blurb: `A thread's Conversation tab (a thread IS a root session): the root's own session card first, then the ROOT's messages oldest first. A person's message is the right-aligned bubble (\`<name> · <time>\` under it, \`queued\` until the device consumed it; the viewer's OWN queued row carries the \`Remove from queue\` X with its tooltip, EXP-1317); the agent's reply is markdown at the reading width; a system line is muted. A \`session\` / \`thread_started\` card is THE session card (the Work card's header row) opening that session; a question or plan card is THE session view's card (EXP-1316, \`AskCard\` + \`AskPrompt\`): a question offers its options (label, and its description under it when the option carries one, EXP-1322) and a free-text row (\`Type something.\` opens the inline field), a plan Approve / Reject (Reject opens a note field); an answered card renders closed (the answer, options gone); a subagent is a muted row, a picture the image, an event one muted line (\`Linked EXP-12\`, \`Opened PR #45\`). Children's own messages never inline. No captions, no Show work, no right sidebar. Below it THE session composer, the same box on the thread (targeting the root), an opened session and an agent's channel: the "+", the model pin (THE model picker inline, all four models, no Default; a pick sends \`/model <alias>\`), the plan read-out only on a plan-mode session that is not a dispatcher, then the context ring (its usage popover on click) and Send ⇄ Stop; \`/\` opens the command menu; placeholder \`Reply…\`. Phones: the floating capsule expands into the same card. Model = \`buildSessionThread()\` (fixture \`session-thread.json\` ×4).`,
   status: {
     web: {
       state: `ok`,
@@ -85,6 +151,18 @@ export const entry: StyleguideEntry = {
     <div className="flex max-w-2xl flex-col gap-10">
       <Case index={0} />
       <Case index={1} />
+      <div className="grid gap-2">
+        <p className="text-xs text-muted-foreground">
+          The thread's composer: a dispatcher root on its thread model, no plan read-out.
+        </p>
+        <SessionComposerSpecimen model="haiku" percent={32} tone="normal" />
+      </div>
+      <div className="grid gap-2">
+        <p className="text-xs text-muted-foreground">
+          The session view of a plan-mode child while it works.
+        </p>
+        <SessionComposerSpecimen model="opus" percent={78} tone="warning" plan busy />
+      </div>
     </div>
   ),
 }

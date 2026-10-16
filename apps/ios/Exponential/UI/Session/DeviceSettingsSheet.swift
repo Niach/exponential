@@ -76,15 +76,16 @@ struct DeviceSettingsSheet: View {
     /// picker sentinels resolved).
     private struct AgentDraft: Equatable {
         var model: String
-        /// EXP-981: claude's subagent model; "" (the "Default" row) is a real
-        /// stored choice — the CLI picks its own.
+        /// The dispatcher root's model (threads + team agents).
+        var threadModel: String
+        /// EXP-981: claude's subagent model (claude only; ignored for codex).
         var subagentModel: String
         var effort: String
         var ultracode: Bool
         var planMode: Bool
-        /// EXP-1082 §6: the desktop-owned auto-rotate toggle as the row
-        /// advertises it. No control here; it only rides back on a save so
-        /// the whole-object replace never drops it (nil = absent on the row).
+        /// EXP-1005: claude's auto-rotate toggle as the row advertises it
+        /// (nil = absent = ON). Echoed verbatim on a save until edited, so
+        /// the whole-object replace never drops it.
         var autoRotateAccounts: Bool?
     }
 
@@ -273,15 +274,14 @@ struct DeviceSettingsSheet: View {
     /// The advertised per-agent defaults as a draft, contract-validated with
     /// static fallbacks (the Agent page composer's seeding semantics).
     private static func draft(from advertised: AgentLaunchDefaults?, agent: String) -> AgentDraft {
-        let models = LaunchVocabulary.modelValues(for: agent)
-        let model: String
-        if let value = advertised?.model, !value.isEmpty, models.contains(value) {
-            model = value
-        } else if let value = advertised?.model, value.isEmpty, agent != "claude" {
-            model = LaunchVocabulary.cliDefault
-        } else {
-            model = LaunchVocabulary.defaultModel(for: agent)
-        }
+        // Every model is explicit: absent, blank or unknown = the contract
+        // default for that agent.
+        let model = LaunchVocabulary.seedModel(
+            advertised?.model, for: agent, fallback: LaunchVocabulary.defaultModel(for: agent)
+        )
+        let threadModel = LaunchVocabulary.seedModel(
+            advertised?.threadModel, for: agent, fallback: LaunchVocabulary.defaultThreadModel(for: agent)
+        )
         let effort: String
         if let value = advertised?.effort, LaunchVocabulary.effortValues(for: agent).contains(value) {
             effort = value
@@ -290,24 +290,16 @@ struct DeviceSettingsSheet: View {
         }
         return AgentDraft(
             model: model,
-            subagentModel: seedSubagentModel(advertised?.subagentModel, for: agent),
+            threadModel: threadModel,
+            subagentModel: LaunchVocabulary.seedModel(
+                advertised?.subagentModel, for: "claude",
+                fallback: DomainContract.deviceAgentDefaultsSubagentModel
+            ),
             effort: effort,
             ultracode: agent == "claude" && (advertised?.ultracode ?? false),
             planMode: LaunchVocabulary.supportsPlanMode(agent) && (advertised?.planMode ?? false),
             autoRotateAccounts: advertised?.autoRotateAccounts
         )
-    }
-
-    /// EXP-981: an advertised subagent model; blank, unknown or an agent
-    /// without the field = the "CLI default" row.
-    private static func seedSubagentModel(_ value: String?, for agent: String) -> String {
-        guard LaunchVocabulary.supportsSubagentModel(agent),
-              let value, !value.isEmpty,
-              DomainContract.codingModelValues.contains(value)
-        else {
-            return LaunchVocabulary.cliDefault
-        }
-        return value
     }
 
     // MARK: - Name
@@ -578,12 +570,7 @@ struct DeviceSettingsSheet: View {
             )
             .accessibilityIdentifier("device-computer-use")
             if computerUse {
-                GlassPickerRow(
-                    "Computer use model",
-                    selection: computerUseModelBinding,
-                    options: LaunchVocabulary.computerUseModelValues(),
-                    label: { LaunchVocabulary.computerUseModelLabel($0) }
-                )
+                ModelPickerRow("Computer use model", selection: computerUseModelBinding)
                 .accessibilityIdentifier("device-computer-use-model")
             }
         }
@@ -646,10 +633,22 @@ struct DeviceSettingsSheet: View {
             onAgentChange: { selectedAgent = $0 },
             model: draftBinding(\.model),
             subagentModel: draftBinding(\.subagentModel),
+            threadModel: draftBinding(\.threadModel),
             effort: draftBinding(\.effort),
             ultracode: draftBinding(\.ultracode),
             planMode: draftBinding(\.planMode),
+            autoRotateAccounts: autoRotateBinding,
             footerNote: device.isOnline ? nil : "Applies when the device comes online."
+        )
+    }
+
+    /// EXP-1005: absent on the row = ON (web `draftSeed`); a flip stores
+    /// the explicit value.
+    private var autoRotateBinding: Binding<Bool> {
+        let optional = draftBinding(\.autoRotateAccounts)
+        return Binding(
+            get: { optional.wrappedValue ?? true },
+            set: { optional.wrappedValue = $0 }
         )
     }
 
@@ -677,8 +676,8 @@ struct DeviceSettingsSheet: View {
         }
     }
 
-    /// Whole-object replace: every drafted agent rides, sentinels resolved to
-    /// the wire's blank-string "CLI default" form. The server clamps
+    /// Whole-object replace: every drafted agent rides, every model explicit
+    /// and the effort sentinel resolved to the wire's blank "CLI default". The server clamps
     /// vocabulary field-wise, so version skew degrades a field, never the save.
     private func saveDefaultsNow() {
         defaultsSaveTask?.cancel()
@@ -690,17 +689,15 @@ struct DeviceSettingsSheet: View {
         var agents: [String: AgentLaunchDefaultsInput] = [:]
         for (agent, draft) in drafts {
             agents[agent] = AgentLaunchDefaultsInput(
-                model: draft.model == LaunchVocabulary.cliDefault ? "" : draft.model,
-                // EXP-981: claude-only, and the blank IS the stored "the CLI
-                // decides" value (unlike a start, which omits the field).
+                model: draft.model,
+                // EXP-981: claude-only. Every model is explicit.
                 subagentModel: LaunchVocabulary.supportsSubagentModel(agent)
-                    ? (draft.subagentModel == LaunchVocabulary.cliDefault
-                        ? "" : draft.subagentModel)
-                    : nil,
+                    ? draft.subagentModel : nil,
+                threadModel: draft.threadModel,
                 effort: draft.effort == LaunchVocabulary.cliDefault ? "" : draft.effort,
                 ultracode: agent == "claude" ? draft.ultracode : nil,
                 planMode: LaunchVocabulary.supportsPlanMode(agent) ? draft.planMode : nil,
-                // EXP-1082 §6: echoed verbatim, never invented (see the draft).
+                // EXP-1082 §6: echoed verbatim until edited (see the draft).
                 autoRotateAccounts: draft.autoRotateAccounts
             )
         }

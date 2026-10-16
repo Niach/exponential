@@ -60,16 +60,12 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.unit.Dp
-import com.exponential.app.ui.components.FloatingComposer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.net.toUri
 import com.exponential.app.data.db.UserEntity
 import com.exponential.app.domain.DomainContract
-import com.exponential.app.domain.PendingAttachment
 import com.exponential.app.domain.AgentFeedItem
 import com.exponential.app.domain.AnswerState
 import com.exponential.app.domain.QuestionOption
@@ -80,15 +76,10 @@ import com.exponential.app.domain.WorkCardInput
 import com.exponential.app.domain.WorkCardSpec
 import com.exponential.app.domain.WorkCards
 import com.exponential.app.ui.components.CircleIconButton
-import com.exponential.app.ui.components.ComposerSubmitButton
-import com.exponential.app.ui.components.ComposerToolButton
-import com.exponential.app.ui.components.FieldError
 import com.exponential.app.ui.components.GlassComposer
 import com.exponential.app.ui.components.GlassDropdownMenu
 import com.exponential.app.ui.components.GlassMenuItem
-import com.exponential.app.ui.components.GlassTextField
 import com.exponential.app.ui.components.InlineSpinner
-import com.exponential.app.ui.components.PendingAttachmentStrip
 import com.exponential.app.ui.components.StatusIcon
 import com.exponential.app.ui.components.TopBarBackButton
 import com.exponential.app.ui.components.UserAvatar
@@ -871,85 +862,3 @@ fun ThreadEventLine(text: String) {
     )
 }
 
-// ── The composer ────────────────────────────────────────────────────────────
-
-/**
- * EXP-1316 (1e): the thread's reply box = THE [FloatingComposer]: folded, the
- * floating bar's capsule with the placeholder; tapped, THE composer card
- * ([GlassComposer]: the pending files, the field, the "+" and the send
- * glyph), folding again on blur / idle with nothing drafted.
- */
-@Composable
-fun ThreadReplyBox(
-    value: String,
-    onValueChange: (String) -> Unit,
-    placeholder: String,
-    pendingImages: List<PendingAttachment>,
-    imageError: String?,
-    sending: Boolean,
-    working: Boolean,
-    expanded: Boolean,
-    onExpandedChange: (Boolean) -> Unit,
-    onAdd: (() -> Unit)?,
-    onRemoveImage: (Int) -> Unit,
-    onSend: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    FloatingComposer(
-        expanded = expanded,
-        onExpandedChange = onExpandedChange,
-        placeholder = placeholder,
-        hasDraft = value.isNotBlank() || pendingImages.isNotEmpty(),
-        working = working,
-        capsuleTestTag = "thread-composer-capsule",
-        modifier = modifier.testTag(SessionTree.ThreadCopy.TEST_ID_COMPOSER),
-    ) {
-        val canSend = (value.isNotBlank() || pendingImages.isNotEmpty()) && !sending
-        val focusRequester = remember { FocusRequester() }
-        LaunchedEffect(Unit) { runCatching { focusRequester.requestFocus() } }
-        GlassComposer(
-            opaque = true,
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-            strip = {
-                PendingAttachmentStrip(items = pendingImages, enabled = !sending, onRemove = onRemoveImage)
-                FieldError(imageError, modifier = Modifier.padding(bottom = 4.dp))
-            },
-            tools = {
-                if (onAdd != null) {
-                    ComposerToolButton(
-                        ExpIcons.uiAdd,
-                        contentDescription = ThreadUiCopy.ADD,
-                        onClick = onAdd,
-                        enabled = !sending,
-                        modifier = Modifier.testTag("thread-composer-add"),
-                    )
-                }
-            },
-            submit = {
-                ComposerSubmitButton(
-                    ExpIcons.uiSubmit,
-                    contentDescription = ThreadUiCopy.SEND,
-                    onClick = onSend,
-                    enabled = canSend,
-                    sending = sending,
-                    modifier = Modifier.testTag("thread-composer-send"),
-                )
-            },
-        ) {
-            GlassTextField(
-                value = value,
-                onValueChange = onValueChange,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .focusRequester(focusRequester)
-                    .then(fieldModifier)
-                    .testTag("thread-composer-field"),
-                placeholder = placeholder,
-                minLines = 2,
-                maxLines = 8,
-                bordered = false,
-                containerColor = Color.Transparent,
-            )
-        }
-    }
-}

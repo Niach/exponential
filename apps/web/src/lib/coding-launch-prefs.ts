@@ -15,9 +15,12 @@ export interface CodingLaunchPrefs {
   agent: string
   model: string
   /** EXP-981: claude only — the model the run's SUBAGENTS get (the device
-   * sets it as the CLI's env at launch). `""` = the CLI's own default;
-   * omitted from the payload entirely then. */
+   * sets it as the CLI's env at launch). Always explicit (contract
+   * `deviceAgentDefaults.subagentModel` when the device names none). */
   subagentModel?: string
+  /** The dispatcher root's model (threads + team agents), per agent; a
+   * device setting, never a launch-payload field. */
+  threadModel?: string
   /** `""` = "CLI default" (omit the effort flag) — a valid value. */
   effort: string
   ultracode: boolean
@@ -83,13 +86,16 @@ export function saveMcpServerPick(teamId: string, ids: string[]): void {
   }
 }
 
-/** EXP-437: one agent's launch defaults as a device advertises them. Blank
- * `model`/`effort` = "CLI default / omit the flag"; absent booleans = false
+/** EXP-437: one agent's launch defaults as a device advertises them. Every
+ * model is explicit (an absent or blank one reads as the contract default);
+ * a blank `effort` = "CLI default / omit the flag"; absent booleans = false
  * (the desktop skip-serializes false). */
 export interface AgentLaunchDefaults {
   model?: string
-  /** EXP-981: claude only; `""` = the CLI default. */
+  /** EXP-981: claude only. */
   subagentModel?: string
+  /** The dispatcher root's model (threads + team agents). */
+  threadModel?: string
   effort?: string
   ultracode?: boolean
   planMode?: boolean
@@ -97,8 +103,8 @@ export interface AgentLaunchDefaults {
   autoRotateAccounts?: boolean
 }
 
-/** The model values pickable for `agent` (EXP-201). Blank ("CLI default") is
- * an extra valid choice for codex; claude is explicit-always. */
+/** The model values pickable for `agent` (EXP-201). Every model is explicit:
+ * no blank "CLI default" choice, codex included. */
 export function agentModelValues(agent: string): readonly string[] {
   switch (agent) {
     case `codex`:
@@ -116,11 +122,6 @@ export function agentEffortValues(agent: string): readonly string[] {
     default:
       return contract.codingEffort.values
   }
-}
-
-/** Whether a blank model (omit the flag) is valid for `agent`. */
-export function agentAllowsBlankModel(agent: string): boolean {
-  return agent !== `claude`
 }
 
 /** Ultracode and plan mode are Claude-only (EXP-849 dropped pi). EXP-690
@@ -146,11 +147,24 @@ export function agentSupportsSubagentModel(agent: string): boolean {
   return agent === `claude`
 }
 
-/** The default model choice for `agent` — first contract value for claude
- * (explicit-always), blank "CLI default" for codex. */
+/** The default model for `agent` — contract `deviceAgentDefaults` (claude
+ * `fable`, codex `gpt-5.6-sol`). */
 export function defaultModelFor(agent: string): string {
-  return agentAllowsBlankModel(agent) ? `` : contract.codingModel.values[0]
+  return agent === `codex`
+    ? contract.deviceAgentDefaults.codexModel
+    : contract.deviceAgentDefaults.model
 }
+
+/** The default dispatcher (thread) model for `agent` — contract
+ * `deviceAgentDefaults` (claude `haiku`, codex `gpt-5.6-luna`). */
+export function defaultThreadModelFor(agent: string): string {
+  return agent === `codex`
+    ? contract.deviceAgentDefaults.codexThreadModel
+    : contract.deviceAgentDefaults.threadModel
+}
+
+/** The default subagent model (claude only): contract `opus`. */
+export const DEFAULT_SUBAGENT_MODEL: string = contract.deviceAgentDefaults.subagentModel
 
 /** The static default agent when no device advertises one. */
 export const DEFAULT_LAUNCH_AGENT: string = contract.codingAgent.values[0]
@@ -169,28 +183,30 @@ export function agentSeed(
   const models = agentModelValues(agent)
   const efforts = agentEffortValues(agent)
   const model =
-    typeof defaults?.model === `string` &&
-    (models.includes(defaults.model) ||
-      (defaults.model === `` && agentAllowsBlankModel(agent)))
+    typeof defaults?.model === `string` && models.includes(defaults.model)
       ? defaults.model
       : defaultModelFor(agent)
+  const threadModel =
+    typeof defaults?.threadModel === `string` && models.includes(defaults.threadModel)
+      ? defaults.threadModel
+      : defaultThreadModelFor(agent)
   const effort =
     typeof defaults?.effort === `string` &&
     (defaults.effort === `` || efforts.includes(defaults.effort))
       ? defaults.effort
       : ``
   // EXP-981: claude's subagent model is always one of ITS models (never the
-  // picked agent's), and blank means "let the CLI decide".
-  const subagentModel =
-    agentSupportsSubagentModel(agent) &&
-    typeof defaults?.subagentModel === `string` &&
-    (defaults.subagentModel === `` ||
-      contract.codingModel.values.includes(defaults.subagentModel))
+  // picked agent's), explicit (contract default `opus`); other agents none.
+  const subagentModel = !agentSupportsSubagentModel(agent)
+    ? ``
+    : typeof defaults?.subagentModel === `string` &&
+        contract.codingModel.values.includes(defaults.subagentModel)
       ? defaults.subagentModel
-      : ``
+      : DEFAULT_SUBAGENT_MODEL
   return {
     model,
     subagentModel,
+    threadModel,
     effort,
     ultracode: (defaults?.ultracode ?? false) && agentSupportsUltracode(agent),
     planMode: (defaults?.planMode ?? false) && agentSupportsPlanMode(agent),

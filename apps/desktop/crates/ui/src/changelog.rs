@@ -46,6 +46,19 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-10-15-thread-dispatcher",
+    date: "2026-10-15",
+    title: "Threads hand work to their own sessions",
+    summary: "A thread now runs a small dispatcher on the thread model (Haiku by default): it answers quick questions itself and starts a session for real work, with the same reply box and model switch as a session. Every model pick is explicit.",
+    body: r#"- **Threads**: starting a thread or chatting with an agent runs a dispatcher on the thread model. Quick questions get answered in the thread, real work starts its own session with your model, effort and plan mode, and the dispatcher reports back in a line or two.
+- **Reply box**: the thread and agent channel use the session's reply box on every device, with the model switch, the context ring, slash commands and Stop.
+- **Thread model**: device settings gain a Thread model under Model for each agent, Haiku for Claude by default.
+- **Models**: every model picker lists Fable, Opus, Sonnet and Haiku (Codex its three models) with no Default entry. Saved CLI defaults become Fable for the model and Opus for subagents."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_50: ChangelogEntry = ChangelogEntry {
     id: "2026-10-15-compat-cleanup",
     date: "2026-10-15",
     title: "Older apps and older servers retired",

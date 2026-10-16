@@ -6,7 +6,10 @@ import com.exponential.app.data.api.DeviceLaunchDefaults
 import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.data.api.setLaunchDefaultsInput
 import com.exponential.app.domain.DomainContract
+import com.exponential.app.ui.components.computerUseModelOptions
+import com.exponential.app.ui.components.modelOptionsFor
 import com.exponential.app.ui.components.seedComputerUseModel
+import com.exponential.app.ui.components.subagentModelOptions
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonPrimitive
@@ -95,9 +98,11 @@ class DeviceSettingsDefaultsTest {
             ),
         )
         val draft = agentDraft(device(defaults = stored), "codex")
-        // Invalid model falls back to codex's CLI default; ultracode never
+        // Every model is explicit: an invalid model falls back to codex's
+        // contract default (never a blank "CLI default"); ultracode never
         // survives off claude.
-        assertEquals("", draft.model)
+        assertEquals(DomainContract.deviceAgentDefaultsCodexModel, draft.model)
+        assertEquals(DomainContract.deviceAgentDefaultsCodexThreadModel, draft.threadModel)
         assertEquals("high", draft.effort)
         assertFalse(draft.ultracode)
     }
@@ -139,11 +144,19 @@ class DeviceSettingsDefaultsTest {
             "claude" to AgentDraft(
                 model = DomainContract.codingModelValues.last(),
                 effort = DomainContract.codingEffortValues.first(),
+                subagentModel = "sonnet",
+                threadModel = "opus",
                 ultracode = true,
                 planMode = true,
             ),
-            // CLI defaults ("") must survive the round trip as themselves.
-            "codex" to AgentDraft("", "", ultracode = false, planMode = false),
+            // The effort keeps its CLI default ("") through the round trip.
+            "codex" to AgentDraft(
+                model = DomainContract.codexModelValues[1],
+                effort = "",
+                threadModel = DomainContract.codexModelValues[0],
+                ultracode = false,
+                planMode = false,
+            ),
         )
         val echoed = device(
             agents = agents,
@@ -331,7 +344,8 @@ class DeviceSettingsDefaultsTest {
 
         // The seed: a contract alias as itself, anything else the default.
         assertEquals("haiku", DomainContract.deviceComputerUseDefaultsModel)
-        assertEquals(listOf("haiku", "sonnet", "opus", "fable"), DomainContract.computerUseModelValues)
+        // THE claude model list is the computer use vocabulary too.
+        assertEquals(listOf("fable", "opus", "sonnet", "haiku"), computerUseModelOptions())
         assertEquals(DomainContract.deviceComputerUseDefaultsModel, seedComputerUseModel(null))
         assertEquals("fable", seedComputerUseModel("fable"))
         assertEquals(DomainContract.deviceComputerUseDefaultsModel, seedComputerUseModel("gpt-5.6-sol"))
@@ -350,5 +364,61 @@ class DeviceSettingsDefaultsTest {
             """{"defaultAgent":"claude","startInTerminal":true,"agents":{}}""",
         )
         assertEquals("claude", defaults.defaultAgent)
+    }
+
+    /**
+     * Dispatcher roots: every model is explicit. No picker offers a
+     * "Default" / "CLI default" row, a device that never set anything seeds
+     * the contract defaults (work model, thread model, subagent model), and
+     * the per-agent thread model rides the save beside the model.
+     */
+    @Test
+    fun `model pickers list every model and no default entry`() {
+        assertEquals(listOf("fable", "opus", "sonnet", "haiku"), modelOptionsFor("claude"))
+        assertEquals(DomainContract.codexModelValues, modelOptionsFor("codex"))
+        assertEquals(DomainContract.codingModelValues, subagentModelOptions())
+        assertFalse("" in modelOptionsFor("codex"))
+
+        val claude = agentDraft(device(), "claude")
+        assertEquals(DomainContract.deviceAgentDefaultsModel, claude.model)
+        assertEquals("haiku", claude.threadModel)
+        assertEquals("opus", claude.subagentModel)
+        val codex = agentDraft(device(), "codex")
+        assertEquals(DomainContract.deviceAgentDefaultsCodexModel, codex.model)
+        assertEquals(DomainContract.deviceAgentDefaultsCodexThreadModel, codex.threadModel)
+
+        // A stored blank (the retired CLI default) reads as the contract default.
+        val blank = agentDraft(
+            device(
+                defaults = DeviceLaunchDefaults(
+                    agents = mapOf(
+                        "claude" to AgentLaunchDefaults(model = "", subagentModel = "", threadModel = ""),
+                    ),
+                ),
+            ),
+            "claude",
+        )
+        assertEquals("fable", blank.model)
+        assertEquals("opus", blank.subagentModel)
+        assertEquals("haiku", blank.threadModel)
+
+        val sent = setLaunchDefaultsInput(
+            deviceId = "dev-1",
+            defaults = buildDefaults(
+                agents = listOf("claude", "codex"),
+                drafts = mapOf("claude" to claude.copy(threadModel = "sonnet")),
+            ),
+        ).getValue("launchDefaults").jsonObject.getValue("agents").jsonObject
+        assertEquals(JsonPrimitive("sonnet"), sent.getValue("claude").jsonObject["threadModel"])
+        // A codex draft never stored rides codex's own thread default, and a
+        // cross-agent value is clamped to it.
+        assertEquals(
+            JsonPrimitive(DomainContract.deviceAgentDefaultsCodexThreadModel),
+            sent.getValue("codex").jsonObject["threadModel"],
+        )
+        assertEquals(
+            DomainContract.deviceAgentDefaultsCodexThreadModel,
+            threadModelOf(codex.copy(threadModel = "haiku"), "codex"),
+        )
     }
 }

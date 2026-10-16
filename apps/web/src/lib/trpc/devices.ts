@@ -59,7 +59,6 @@ import { assertTeamMember, getTeamMember } from "@/lib/team-membership"
 import { versionPayload } from "@/lib/client-version"
 import { endForeignHostedSessions, pauseDeviceAgents } from "@/lib/sessions/lifecycle"
 import {
-  agentAllowsBlankModel,
   agentEffortValues,
   agentModelValues,
   agentSupportsPlanMode,
@@ -115,9 +114,7 @@ function clampLaunchDefaults(
   // vocabulary; an unknown alias (version skew) is dropped, never an error.
   if (
     typeof input.computerUseModel === `string` &&
-    (contract.computerUseModel.values as readonly string[]).includes(
-      input.computerUseModel
-    )
+    (contract.codingModel.values as readonly string[]).includes(input.computerUseModel)
   ) {
     out.computerUseModel = input.computerUseModel
   }
@@ -126,11 +123,9 @@ function clampLaunchDefaults(
     for (const [agent, d] of Object.entries(input.agents)) {
       if (!agentIds.includes(agent) || !d) continue
       const entry: DeviceAgentLaunchDefaults = {}
-      if (
-        typeof d.model === `string` &&
-        (agentModelValues(agent).includes(d.model) ||
-          (d.model === `` && agentAllowsBlankModel(agent)))
-      ) {
+      // Every model is explicit: a blank ("CLI default") is dropped and
+      // reads as the contract default.
+      if (typeof d.model === `string` && agentModelValues(agent).includes(d.model)) {
         entry.model = d.model
       }
       if (
@@ -143,10 +138,13 @@ function clampLaunchDefaults(
       if (
         typeof d.subagentModel === `string` &&
         agent === `claude` &&
-        (d.subagentModel === `` ||
-          agentModelValues(agent).includes(d.subagentModel))
+        agentModelValues(agent).includes(d.subagentModel)
       ) {
         entry.subagentModel = d.subagentModel
+      }
+      // The dispatcher root's model (threads + team agents), per agent.
+      if (typeof d.threadModel === `string` && agentModelValues(agent).includes(d.threadModel)) {
+        entry.threadModel = d.threadModel
       }
       // `typeof === boolean`, not `!== undefined`: the nullish schema lets
       // explicit-null toggles through (EXP-495) and stored jsonb must stay

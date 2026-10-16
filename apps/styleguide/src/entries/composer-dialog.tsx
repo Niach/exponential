@@ -37,10 +37,11 @@ const ActionIcon = conceptIcon(`pr-merged`)
 
 const DEVICES = [{ id: `mint`, name: `mint — This device`, kind: `desktop` }]
 const ACCOUNTS = [{ key: `claude:1`, agent: `claude`, email: `danny@example.dev` }]
-const MODELS = [
-  { value: `default`, label: `CLI default` },
-  { value: `fable`, label: `Fable` },
-]
+/** THE model choices (contract `codingModel`, no Default row). */
+const MODELS = contract.codingModel.values.map((value) => ({
+  value,
+  label: value.charAt(0).toUpperCase() + value.slice(1),
+}))
 
 /** The value a row shows in the specimen (the app reads the model). */
 const SAMPLE_VALUES: Record<string, string> = {

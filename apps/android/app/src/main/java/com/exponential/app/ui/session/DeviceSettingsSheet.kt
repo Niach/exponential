@@ -39,7 +39,6 @@ import com.exponential.app.domain.DoctorRow
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.ui.components.ClaimedFailedActionToast
 import com.exponential.app.ui.components.CLI_DEFAULT_EFFORT
-import com.exponential.app.ui.components.CLI_DEFAULT_MODEL
 import com.exponential.app.ui.components.COMPUTER_USE_MODEL_LABEL
 import com.exponential.app.ui.components.DEFAULT_AGENT
 import com.exponential.app.ui.components.DeviceReadinessBlock
@@ -52,17 +51,16 @@ import com.exponential.app.ui.components.IconPicker
 import com.exponential.app.ui.components.LaunchOptionsSection
 import com.exponential.app.ui.components.LaunchOptionsVariant
 import com.exponential.app.ui.components.OptionGroup
-import com.exponential.app.ui.components.PickerRow
 import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.components.SheetHeight
 import com.exponential.app.ui.components.SwitchRow
-import com.exponential.app.ui.components.computerUseModelLabel
-import com.exponential.app.ui.components.computerUseModelOptions
 import com.exponential.app.ui.components.defaultModelFor
+import com.exponential.app.ui.components.defaultThreadModelFor
+import com.exponential.app.ui.components.ModelPickerRow
+import com.exponential.app.ui.components.seedModel
 import com.exponential.app.ui.components.deviceIconName
 import com.exponential.app.ui.components.effortValuesFor
-import com.exponential.app.ui.components.modelValuesFor
 import com.exponential.app.ui.components.seedComputerUseModel
 import com.exponential.app.ui.components.supportsPlanMode
 import com.exponential.app.ui.components.supportsSubagentModel
@@ -408,12 +406,10 @@ fun DeviceSettingsSheet(
                         // while it is on.
                         if (computerUse == true) {
                             GroupDivider()
-                            PickerRow(
+                            ModelPickerRow(
                                 label = COMPUTER_USE_MODEL_LABEL,
-                                value = computerUseModelLabel(computerUseModel),
-                                options = computerUseModelOptions(),
-                                selected = computerUseModel,
-                                optionLabel = ::computerUseModelLabel,
+                                agent = DEFAULT_AGENT,
+                                value = computerUseModel,
                                 onSelect = { next ->
                                     computerUseModel = next
                                     queueDefaults(nextComputerUseModel = next)
@@ -451,6 +447,10 @@ fun DeviceSettingsSheet(
                     onModelChange = { next -> editDraft(agentTab) { it.copy(model = next) } },
                     effort = draft.effort,
                     onEffortChange = { next -> editDraft(agentTab) { it.copy(effort = next) } },
+                    threadModel = threadModelOf(draft, agentTab),
+                    onThreadModelChange = { next ->
+                        editDraft(agentTab) { it.copy(threadModel = next) }
+                    },
                     subagentModel = draft.subagentModel,
                     onSubagentModelChange = { next ->
                         editDraft(agentTab) { it.copy(subagentModel = next) }
@@ -628,8 +628,11 @@ internal fun CommandCaption(state: DeviceCommandUiState?) {
 data class AgentDraft(
     val model: String,
     val effort: String,
-    /** EXP-981: claude only — "" is the CLI's own default for subagents. */
-    val subagentModel: String = CLI_DEFAULT_MODEL,
+    /** EXP-981: claude only (always explicit). */
+    val subagentModel: String = DomainContract.deviceAgentDefaultsSubagentModel,
+    /** The dispatcher root's model (threads + team agents). Blank = the
+     *  agent's contract thread default (see [threadModelOf]). */
+    val threadModel: String = "",
     val ultracode: Boolean,
     val planMode: Boolean,
     /**
@@ -677,24 +680,25 @@ internal fun agentDraft(device: SteerDevice, agent: String): AgentDraft {
     val defaults = device.launchDefaults?.agents?.get(agent)
         ?: return AgentDraft(
             model = defaultModelFor(agent),
+            threadModel = defaultThreadModelFor(agent),
             effort = CLI_DEFAULT_EFFORT,
             ultracode = false,
             planMode = false,
         )
-    val models = modelValuesFor(agent)
     return AgentDraft(
-        model = defaults.model
-            ?.takeIf {
-                if (agent == DEFAULT_AGENT) it in models else it == CLI_DEFAULT_MODEL || it in models
-            }
-            ?: defaultModelFor(agent),
+        // Every model is explicit: a blank or unknown stored value reads as
+        // the contract default.
+        model = seedModel(defaults.model, agent, defaultModelFor(agent)),
+        threadModel = seedModel(defaults.threadModel, agent, defaultThreadModelFor(agent)),
         effort = defaults.effort
             ?.takeIf { it == CLI_DEFAULT_EFFORT || it in effortValuesFor(agent) }
             ?: CLI_DEFAULT_EFFORT,
         // EXP-981: claude only; a stored value on any other agent is dropped.
-        subagentModel = defaults.subagentModel
-            ?.takeIf { supportsSubagentModel(agent) && (it == CLI_DEFAULT_MODEL || it in models) }
-            ?: CLI_DEFAULT_MODEL,
+        subagentModel = seedModel(
+            defaults.subagentModel?.takeIf { supportsSubagentModel(agent) },
+            DEFAULT_AGENT,
+            DomainContract.deviceAgentDefaultsSubagentModel,
+        ),
         ultracode = defaults.ultracode && agent == DEFAULT_AGENT,
         planMode = defaults.planMode && supportsPlanMode(agent),
         // EXP-1005: echoed as stored, never clamped or defaulted here.
@@ -723,6 +727,7 @@ internal fun buildDefaults(
         val draft = drafts[agent]
             ?: AgentDraft(
                 model = defaultModelFor(agent),
+                threadModel = defaultThreadModelFor(agent),
                 effort = CLI_DEFAULT_EFFORT,
                 ultracode = false,
                 planMode = false,
@@ -731,6 +736,7 @@ internal fun buildDefaults(
             model = draft.model,
             effort = draft.effort,
             subagentModel = draft.subagentModel.takeIf { supportsSubagentModel(agent) },
+            threadModel = threadModelOf(draft, agent),
             ultracode = draft.ultracode && agent == DEFAULT_AGENT,
             planMode = draft.planMode && supportsPlanMode(agent),
             // EXP-1005: the synced value rides back unchanged; absent stays
@@ -739,3 +745,8 @@ internal fun buildDefaults(
         )
     },
 )
+
+/** A draft's thread model, clamped to [agent]'s vocabulary (a blank or a
+ *  cross-agent value reads as the agent's contract thread default). */
+internal fun threadModelOf(draft: AgentDraft, agent: String): String =
+    seedModel(draft.threadModel, agent, defaultThreadModelFor(agent))

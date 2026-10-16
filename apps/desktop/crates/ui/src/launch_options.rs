@@ -38,18 +38,17 @@ use gpui_component::{h_flex, select::Select, ActiveTheme as _, Icon};
 use coding::{CodingAgent, LaunchOptions};
 
 use crate::coding_selects::{
-    choice_select, effort_choices_for, model_choices_for, selected, ChoiceSelect,
-    SUBAGENT_MODEL_CHOICES,
+    choice_select, effort_choices_for, model_choices_for, selected, ChoiceSelect, MODEL_CHOICES,
 };
 use crate::icons::ExpIcon;
 use crate::surface;
 
+/// The defaults row naming the model a dispatcher root runs on.
+pub(crate) const THREAD_MODEL_LABEL: &str = "Thread model";
+
 /// The label the model/effort pickers show while nothing is pinned — the
 /// run then follows the agent CLI's own defaults, same wording as launch.
 pub(crate) const CLI_DEFAULT_LABEL: &str = "CLI default";
-
-/// The unset SUBAGENT model's label ×4 (web `CLI_DEFAULT_MODEL`).
-pub(crate) const SUBAGENT_DEFAULT_LABEL: &str = "Default";
 
 // ---------------------------------------------------------------------------
 // EXP-792 — the MCP servers multiselect
@@ -544,8 +543,10 @@ impl<V: Render> DefaultsToggle<V> {
 /// row a surface splices in:
 ///
 /// - [`Self::leading`] — between the tabs and Model (the CLI-path row).
-/// - [`Self::subagent`] — EXP-1020, right under Model: claude's subagent
-///   model, the row the device settings had on web and nowhere else.
+/// - [`Self::thread`] — right under Model: the model a DISPATCHER root
+///   (every new thread or team agent) runs on, per agent.
+/// - [`Self::subagent`] — EXP-1020, under that: claude's subagent model, the
+///   row the device settings had on web and nowhere else.
 ///
 /// EXP-862 dropped the trailing account + usage rows with the device-settings
 /// dialog's account block; the composer's own options row is the only launch
@@ -562,6 +563,7 @@ pub(crate) struct AgentDefaultsGroup<V: Render> {
     effort_disabled: bool,
     toggles: Vec<DefaultsToggle<V>>,
     leading: Vec<Div>,
+    thread: Option<ChoiceSelect>,
     subagent: Option<ChoiceSelect>,
 }
 
@@ -586,6 +588,7 @@ impl<V: Render> AgentDefaultsGroup<V> {
             effort_disabled: false,
             toggles: Vec::new(),
             leading: Vec::new(),
+            thread: None,
             subagent: None,
         }
     }
@@ -607,8 +610,15 @@ impl<V: Render> AgentDefaultsGroup<V> {
         self
     }
 
-    /// EXP-981/EXP-1020: the model claude's SUBAGENTS run on, directly under
-    /// Model as on web. Callers pass it only where the agent supports one.
+    /// The model a dispatcher root runs on (`Settings.*_thread_model`),
+    /// directly under Model — the same select component over the same list.
+    pub(crate) fn thread(mut self, select: ChoiceSelect) -> Self {
+        self.thread = Some(select);
+        self
+    }
+
+    /// EXP-981/EXP-1020: the model claude's SUBAGENTS run on, under Model
+    /// (and Thread model) as on web. Callers pass it only where the agent supports one.
     pub(crate) fn subagent(mut self, select: ChoiceSelect) -> Self {
         self.subagent = Some(select);
         self
@@ -626,6 +636,7 @@ impl<V: Render> AgentDefaultsGroup<V> {
             effort_disabled,
             toggles,
             leading,
+            thread,
             subagent,
         } = self;
         let mut rows: Vec<Div> = vec![agent_tabs_row(prefix, pills, active, on_select, cx)];
@@ -636,6 +647,14 @@ impl<V: Render> AgentDefaultsGroup<V> {
             surface::glass_picker_select(Select::new(&model), cx).into_any_element(),
             cx,
         ));
+        if let Some(thread) = thread {
+            rows.push(surface::glass_picker_row(
+                THREAD_MODEL_LABEL,
+                None,
+                surface::glass_picker_select(Select::new(&thread), cx).into_any_element(),
+                cx,
+            ));
+        }
         if let Some(subagent) = subagent {
             rows.push(surface::glass_picker_row(
                 "Subagent model",
@@ -716,9 +735,8 @@ pub(crate) struct LaunchOptionsSection {
     model: ChoiceSelect,
     effort: ChoiceSelect,
     /// EXP-981: the model claude's SUBAGENTS run on
-    /// (`CLAUDE_CODE_SUBAGENT_MODEL`). Claude-only, blank = the CLI's own
-    /// default, so its picker offers the model list with a "CLI default"
-    /// entry in front.
+    /// (`CLAUDE_CODE_SUBAGENT_MODEL`). Claude-only, explicit like every
+    /// model pick ([`MODEL_CHOICES`]).
     subagent_model: ChoiceSelect,
     /// Dynamic workflows (`--effort ultracode`) — Claude-only, any model.
     pub(crate) ultracode: bool,
@@ -767,7 +785,7 @@ impl LaunchOptionsSection {
                 cx,
             ),
             subagent_model: choice_select(
-                &SUBAGENT_MODEL_CHOICES,
+                &MODEL_CHOICES,
                 settings.subagent_model_for(agent),
                 window,
                 cx,
@@ -952,7 +970,7 @@ impl LaunchOptionsSection {
             cx,
         );
         self.subagent_model = choice_select(
-            &SUBAGENT_MODEL_CHOICES,
+            &MODEL_CHOICES,
             settings.subagent_model_for(agent),
             window,
             cx,
@@ -1224,13 +1242,13 @@ impl ComposerMenu {
 
     /// The Subagents row's trailing value (`None` = no row).
     pub(crate) fn subagent_value(&self) -> Option<String> {
+        // Models are explicit: an unset pick reads as the contract default
+        // it resolves to, never "Default".
         self.subagent_picked.as_deref().map(|picked| {
-            Some(picked)
+            let picked = Some(picked)
                 .filter(|value| !value.is_empty())
-                .map_or_else(
-                    || SUBAGENT_DEFAULT_LABEL.to_string(),
-                    |picked| pin_label(&SUBAGENT_MODEL_CHOICES, Some(picked)),
-                )
+                .unwrap_or(domain::contract::DEVICE_AGENT_DEFAULTS_SUBAGENT_MODEL);
+            pin_label(&MODEL_CHOICES, Some(picked))
         })
     }
 
@@ -1296,7 +1314,7 @@ mod tests {
             computer_use: Some(true),
         };
         assert_eq!(menu.effort_value(), "High");
-        assert_eq!(menu.subagent_value().as_deref(), Some(SUBAGENT_DEFAULT_LABEL));
+        assert_eq!(menu.subagent_value().as_deref(), Some("Opus"), "unset = the contract default");
         assert_eq!(menu.mcp_value().as_deref(), Some("1"));
         let locked = ComposerMenu { effort_locked: true, ..menu.clone() };
         assert_eq!(locked.effort_value(), "Ultracode");

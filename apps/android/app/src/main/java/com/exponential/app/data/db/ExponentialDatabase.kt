@@ -410,8 +410,11 @@ import androidx.room.TypeConverters
     //      issues table loses its pr_* / branch columns and actions their
     //      triggers / repository_id (both rebuilt in place, rows kept).
     //      Explicit [MIGRATION_86_87].
+    // v88 (dispatcher roots): sessions.dispatch. Explicit [MIGRATION_87_88]
+    //      adds the column (existing rows false) and refetches only the
+    //      sessions shape.
     // Older versions still fall back to destructive + resync (DatabaseHolder).
-    version = 87,
+    version = 88,
     exportSchema = false,
 )
 @TypeConverters(StringListConverters::class)

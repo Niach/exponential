@@ -2,7 +2,7 @@ import {
   GlassGroup,
   GlassSectionHeader,
   GlassToggleRow,
-  Picker,
+  ModelPicker,
   SubShellHost,
   conceptIcon,
 } from "@exp/ui"
@@ -15,6 +15,14 @@ import type { StyleguideEntry } from "./types.ts"
 // ORDER and the wording the four clients agreed on, not the plumbing.
 
 const noop = () => {}
+
+/** THE model choices (contract `codingModel`, no Default row). */
+const MODELS = [
+  { value: `fable`, label: `Fable` },
+  { value: `opus`, label: `Opus` },
+  { value: `sonnet`, label: `Sonnet` },
+  { value: `haiku`, label: `Haiku` },
+]
 const RemoveIcon = conceptIcon(`ui-delete`)
 
 export const entry: StyleguideEntry = {
@@ -22,7 +30,7 @@ export const entry: StyleguideEntry = {
   section: `special`,
   owner: `EXP-1020`,
   title: `Device settings`,
-  blurb: `One layout on all four clients (EXP-1020). Top to bottom: the identity row, the default-device toggle, sharing (server machines), then the computer-use card (the switch and, while it is on, the model the session's screen-driving subagents use, EXP-1236), then the agent-defaults card — agent tabs, model, subagent model (claude only), effort, ultracode, plan mode — and nothing after it. Update comes last but one; "Remove device" is a plain row, not a section of its own. No worktrees: a machine's worktrees are the IDE's local Settings → Worktrees. A headline only appears where something else shares the page, which is why the agent card has none.`,
+  blurb: `One layout on all four clients (EXP-1020). Top to bottom: the identity row, the default-device toggle, sharing (server machines), then the computer-use card (the switch and, while it is on, the model the session's screen-driving subagents use, EXP-1236), then the agent-defaults card — agent tabs, model, thread model (the model a thread's or team agent's dispatcher root runs on: Haiku for Claude, the codex models for Codex), subagent model (claude only), effort, ultracode, plan mode — and nothing after it. Every model row is THE model picker over the contract list, no Default row. Update comes last but one; "Remove device" is a plain row, not a section of its own. No worktrees: a machine's worktrees are the IDE's local Settings → Worktrees. A headline only appears where something else shares the page, which is why the agent card has none.`,
   status: {
     web: {
       state: `ok`,
@@ -65,7 +73,7 @@ export const entry: StyleguideEntry = {
         />
       </GlassGroup>
       {/* EXP-1236: the model row shows only while the switch is on; the
-          aliases are contract `computerUseModel`, Haiku the default. */}
+          aliases are contract `codingModel`, Haiku the default. */}
       <GlassGroup>
         <GlassToggleRow
           id="demo-device-settings-computer-use"
@@ -73,36 +81,38 @@ export const entry: StyleguideEntry = {
           checked
           onCheckedChange={noop}
         />
-        <Picker
-          mode="single"
+        <ModelPicker
           triggerVariant="row"
+          width="md"
           mobileTitle="Computer use model"
           value="haiku"
           onChange={noop}
-          items={[
-            { value: `haiku`, label: `Haiku` },
-            { value: `sonnet`, label: `Sonnet` },
-            { value: `opus`, label: `Opus` },
-            { value: `fable`, label: `Fable` },
-          ]}
+          models={MODELS}
         />
       </GlassGroup>
       <GlassGroup>
-        <Picker
-          mode="single"
+        <ModelPicker
           triggerVariant="row"
-          mobileTitle="Model"
-          value="opus"
+          width="md"
+          value="fable"
           onChange={noop}
-          items={[{ value: `opus`, label: `Opus` }]}
+          models={MODELS}
         />
-        <Picker
-          mode="single"
+        <ModelPicker
           triggerVariant="row"
+          width="md"
+          mobileTitle="Thread model"
+          value="haiku"
+          onChange={noop}
+          models={MODELS}
+        />
+        <ModelPicker
+          triggerVariant="row"
+          width="md"
           mobileTitle="Subagent model"
           value="opus"
           onChange={noop}
-          items={[{ value: `opus`, label: `Opus` }]}
+          models={MODELS}
         />
         <GlassToggleRow
           id="demo-device-settings-ultracode"
