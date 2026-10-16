@@ -2788,7 +2788,7 @@ struct QuestionCard: View {
 /// whose content is the Output CodeBlock (`ansi` for a command, destructive
 /// when the call failed); the RUNNING call is its line alone (EXP-1206: the
 /// transcript never jumps while a command prints). A settled command whose
-/// output parses as a test run with a failure adds the failed-tests line.
+/// output parses as a test run with a failure IS the failed-tests line.
 private struct ToolRow: View {
     let name: String
     let detail: String?
@@ -2848,7 +2848,16 @@ private struct ToolRow: View {
     @ViewBuilder
     private var genericRow: some View {
         TraceStack(size: .sm) {
-            if let shownOutput {
+            // A settled test run with failures IS its failed-tests line
+            // (trace.json), opening onto the same output — it replaces the
+            // call's own "Ran …" line, as on web, desktop and Android.
+            if let failedTests, let shownOutput {
+                TraceCollapsible(size: .sm, accessibilityId: "agent-tool-row") {
+                    TraceLine(failedTests, size: .sm)
+                } content: {
+                    CodeBlockView(shownOutput, language: .ansi, destructive: true)
+                }
+            } else if let shownOutput {
                 TraceCollapsible(size: .sm, accessibilityId: "agent-tool-row") {
                     TraceLine(line, size: .sm)
                 } content: {
@@ -2861,13 +2870,6 @@ private struct ToolRow: View {
             } else {
                 TraceLine(line, size: .sm)
                     .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            if let failedTests, let shownOutput {
-                TraceCollapsible(size: .sm) {
-                    TraceLine(failedTests, size: .sm)
-                } content: {
-                    CodeBlockView(shownOutput, language: .ansi, destructive: true)
-                }
             }
         }
     }
