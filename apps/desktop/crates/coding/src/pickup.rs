@@ -44,6 +44,87 @@ pub struct LiveView {
     /// reports it (`sessions.report{account}`), and a row that comes back
     /// naming it moves nothing. `None` = unknown.
     pub running_account: Option<String>,
+    /// EXP-1334: the row's launch options this engine honors (launched
+    /// with, or applied live since). A row whose options move past them is
+    /// a person's `sessions.configure` ([`options_delta`]); `None` = unknown
+    /// (a wake rebuilt from the run record, a foreground run), never
+    /// reconfigured.
+    pub options: Option<LaunchedOptions>,
+}
+
+/// EXP-1334: a live run's launch options, in the row's terms (the row's
+/// pickers as they were when the engine launched — or since applied live —
+/// not what the launcher layered over them), so a change is detected ONCE.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct LaunchedOptions {
+    pub plan_mode: bool,
+    /// Trimmed; `None` = the agent's default.
+    pub effort: Option<String>,
+    pub ultracode: bool,
+    pub computer_use: bool,
+    /// The team MCP pick the launch resolved (sorted ids,
+    /// `PreparedLaunch::mcp_pick`); `None` = unknown, never compared. The
+    /// pick is SERVER-ONLY (no synced column), so it is re-read between
+    /// turns (`sessions.mcpPicks`) whenever the row moved.
+    pub mcp: Option<Vec<String>>,
+    /// The row's `updated_at` the MCP pick was last verified at (the
+    /// launch's row, then every between-turn check).
+    pub mcp_checked_at: Option<String>,
+}
+
+impl LaunchedOptions {
+    /// The options a run launched for `row` honors (`mcp` = the pick the
+    /// launch resolved).
+    pub fn of(row: &SessionRow, mcp: Option<Vec<String>>) -> Self {
+        Self {
+            plan_mode: row.plan_mode,
+            effort: row_effort(row),
+            ultracode: row.ultracode,
+            computer_use: row.computer_use,
+            mcp,
+            mcp_checked_at: row.updated_at.clone(),
+        }
+    }
+}
+
+fn row_effort(row: &SessionRow) -> Option<String> {
+    row.effort.as_deref().map(str::trim).filter(|effort| !effort.is_empty()).map(str::to_string)
+}
+
+/// EXP-1334: what a row's options ask of its live engine.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct OptionsDelta {
+    /// Plan mode moved: switched LIVE (claude `set_permission_mode`, codex
+    /// its collaboration setting) — at once, even mid-turn.
+    pub plan_mode: Option<bool>,
+    /// Effort, ultracode or computer use moved: launch flags, applied by a
+    /// between-turn restart that resumes the SAME run.
+    pub restart: bool,
+    /// The row moved since the MCP pick was last verified: re-read it
+    /// between turns (a changed pick restarts too).
+    pub mcp_due: bool,
+}
+
+/// EXP-1334: the row's options against the ones its engine honors.
+pub fn options_delta(row: &SessionRow, launched: &LaunchedOptions) -> OptionsDelta {
+    OptionsDelta {
+        plan_mode: (row.plan_mode != launched.plan_mode).then_some(row.plan_mode),
+        restart: row_effort(row) != launched.effort
+            || row.ultracode != launched.ultracode
+            || row.computer_use != launched.computer_use,
+        mcp_due: launched.mcp.is_some() && row.updated_at != launched.mcp_checked_at,
+    }
+}
+
+/// EXP-1334: whether a live session's row asks for a reconfigure NOW (a
+/// [`PickupAction::Switch`] with an empty `account`): a plan-mode move at
+/// once; a restart, or an MCP re-check of an idle row, only with a turn to
+/// carry it (`has_messages`) — options apply at the NEXT turn, never
+/// interrupting one.
+fn reconfigure_due(row: &SessionRow, view: &LiveView, has_messages: bool) -> bool {
+    let Some(launched) = &view.options else { return false };
+    let delta = options_delta(row, launched);
+    delta.plan_mode.is_some() || (has_messages && (delta.restart || (delta.mcp_due && !row.busy)))
 }
 
 /// One pass's input.
@@ -92,6 +173,10 @@ pub enum PickupAction {
     /// account}`): [`switch_session`] suspends it between turns and resumes
     /// the SAME row on `account`, the oldest pending message (if any) as
     /// the seed turn. Its deliveries wait for the switch.
+    ///
+    /// EXP-1334: an EMPTY `account` = a RECONFIGURE (the row's options moved
+    /// past its engine's, [`options_delta`]): the login stays, plan mode
+    /// switches live, the rest restarts the run between turns.
     Switch { session: SessionRow, account: String, messages: Vec<MessageRow> },
 }
 
@@ -204,6 +289,12 @@ pub fn plan(input: PickupInput<'_>) -> Vec<PickupAction> {
             .unwrap_or_default();
         let switch = rows.get(session_id).and_then(|row| {
             switch_target(row, view, !fresh.is_empty()).map(|account| (*row, account))
+        });
+        // EXP-1334: else the row's options moved past the engine's.
+        let switch = switch.or_else(|| {
+            rows.get(session_id)
+                .filter(|row| reconfigure_due(row, view, !fresh.is_empty()))
+                .map(|row| (*row, String::new()))
         });
         if let Some((row, account)) = switch {
             switches.push(PickupAction::Switch {
@@ -434,6 +525,14 @@ pub trait LiveEngine: Send + Sync {
     /// run's workspace — a scratch dir included — is kept) for an immediate
     /// re-spawn of the same row on another account.
     fn suspend(&self);
+    /// EXP-1334: switch plan mode LIVE (a person's `sessions.configure`):
+    /// claude's `set_permission_mode`, codex's collaboration setting.
+    fn set_plan_mode(&self, _on: bool) {}
+    /// EXP-1334: whether the run is in plan mode right now (its last
+    /// `config_state` mode); `None` = unknown.
+    fn plan_mode(&self) -> Option<bool> {
+        None
+    }
     /// Wait up to `timeout` for the run to end; `true` = it did.
     fn wait_done(&self, timeout: std::time::Duration) -> bool {
         let deadline = std::time::Instant::now() + timeout;
@@ -490,6 +589,8 @@ struct LiveEntry {
     row_account: Option<String>,
     /// [`LiveView::running_account`].
     running_account: Option<String>,
+    /// [`LiveView::options`].
+    options: Option<LaunchedOptions>,
 }
 
 impl LiveRegistry {
@@ -526,6 +627,7 @@ impl LiveRegistry {
                 answered: HashSet::new(),
                 row_account,
                 running_account: None,
+                options: None,
             },
         );
         self.refused
@@ -586,6 +688,7 @@ impl LiveRegistry {
                         open_cards,
                         row_account: entry.row_account.clone(),
                         running_account: entry.running_account.clone(),
+                        options: entry.options.clone(),
                     },
                 )
             })
@@ -597,6 +700,32 @@ impl LiveRegistry {
     pub fn set_row_account(&self, session_id: &str, row_account: Option<String>) {
         if let Some(entry) = self.lock().get_mut(session_id) {
             entry.row_account = row_account;
+        }
+    }
+
+    /// EXP-1334: the options the session's engine honors
+    /// ([`LiveView::options`]).
+    pub fn set_options(&self, session_id: &str, options: Option<LaunchedOptions>) {
+        if let Some(entry) = self.lock().get_mut(session_id) {
+            entry.options = options;
+        }
+    }
+
+    /// [`LiveView::row_account`] of a session's engine.
+    fn row_account(&self, session_id: &str) -> Option<String> {
+        self.lock().get(session_id).and_then(|entry| entry.row_account.clone())
+    }
+
+    /// EXP-1334: [`LiveView::options`] of a session's engine.
+    pub fn options(&self, session_id: &str) -> Option<LaunchedOptions> {
+        self.lock().get(session_id).and_then(|entry| entry.options.clone())
+    }
+
+    /// EXP-1334: edit the honored options in place (a live plan switch, a
+    /// verified MCP pick); nothing when unknown.
+    fn update_options(&self, session_id: &str, edit: impl FnOnce(&mut LaunchedOptions)) {
+        if let Some(options) = self.lock().get_mut(session_id).and_then(|entry| entry.options.as_mut()) {
+            edit(options);
         }
     }
 
@@ -1000,7 +1129,7 @@ pub fn launch_queued(row: &SessionRow, deps: &PickupDeps) -> Result<LaunchQueued
         Ok(Ok(prepared)) => {
             deps.live.settle(&row.id);
             let honored = Some(crate::agent_profiles::profile_id(row.account.as_deref()));
-            spawn(&row.id, row.is_agent(), prepared, claim, false, honored, deps)?;
+            spawn(&row.id, row.is_agent(), prepared, claim, false, honored, Some(row), deps)?;
             Ok(LaunchQueued::Launched { session_id: row.id.clone() })
         }
         Ok(Err(reason)) => {
@@ -1099,6 +1228,8 @@ fn deliver(
     // EXP-849: only a row AT HAND can ask for a switch (one rebuilt from the
     // record names the record's own login).
     let row_account = row.map(|row| row.account.clone());
+    // EXP-1334: likewise only a row at hand names the options a run honors.
+    let at_hand = row.is_some();
     let row = match (row, &record) {
         (Some(row), _) => row.clone(),
         (None, Some(record)) => row_from_record(record, &deps.device_id),
@@ -1123,6 +1254,7 @@ fn deliver(
         record,
         prompt: first.body.clone().unwrap_or_default(),
         message_id: Some(first.id.clone()),
+        reconfigure: None,
     });
     let seeded = resume.is_some();
     let mut options = deps.options.clone();
@@ -1164,8 +1296,9 @@ fn deliver(
     };
     match crate::prepare(&PrepareRequest::Session(req), &deps.coding) {
         Ok(Prepared::Ready(prepared)) => {
-            let engine = spawn(session_id, is_agent, prepared, claim, true, honored, deps)
-                .inspect_err(|_| deps.live.note_refused(session_id, &pending))?;
+            let engine =
+                spawn(session_id, is_agent, prepared, claim, true, honored, at_hand.then_some(&row), deps)
+                    .inspect_err(|_| deps.live.note_refused(session_id, &pending))?;
             let mut delivered = covered;
             let mut rest = pending.clone();
             if seeded {
@@ -1393,31 +1526,76 @@ pub fn switch_session(
         .filter(|m| m.session_id == session_id && is_pending_input(m) && !handed.contains(&m.id))
         .collect();
     pending.sort_by(|a, b| message_order(a, b));
+    // EXP-1334: an empty target is a RECONFIGURE — the login stays, and the
+    // row's account pick (if it moved) waits for its own switch.
+    let reconfiguring = target.is_empty();
     // Nothing moves: the row's pick is honored (live entry AND record, so
     // the two agree) and its messages go to the engine as they are.
     let stay = |record: &mut RunRecord, pending: &[&MessageRow]| {
-        deps.live.set_row_account(session_id, honored.clone());
-        honor_row_account(deps, session_id, record, row.account.as_deref());
+        if !reconfiguring {
+            deps.live.set_row_account(session_id, honored.clone());
+            honor_row_account(deps, session_id, record, row.account.as_deref());
+        }
         hand(&*engine, session_id, pending, deps);
     };
-    if target.is_empty() || record.account().as_deref() == Some(target.as_str()) {
+    // EXP-1334: the row's options past the ones the engine honors. Plan mode
+    // switches live at once (even mid-turn); the rest needs a restart, which
+    // only a turn may carry (a pending message or the caller's prompt).
+    let delta = deps.live.options(session_id).map(|launched| options_delta(row, &launched));
+    let delta = delta.unwrap_or_default();
+    if let Some(on) = delta.plan_mode {
+        log::info!("pickup: session {session_id} plan mode -> {on} (live)");
+        engine.set_plan_mode(on);
+        deps.live.update_options(session_id, |options| options.plan_mode = on);
+    }
+    let has_turn = prompt.is_some() || !pending.is_empty();
+    let mut restart = has_turn && delta.restart;
+    if has_turn && !restart && delta.mcp_due && engine.is_idle() {
+        restart = mcp_pick_moved(row, deps);
+    }
+    let mut account_moves = !reconfiguring && record.account().as_deref() != Some(target.as_str());
+    if !account_moves && !restart {
         stay(&mut record, &pending);
         return Ok(Switched::AlreadyOn);
     }
-    if let Some(reason) = switch_refusal(&record, &target, deps) {
-        log::info!("pickup: account switch of {session_id} refused: {reason}");
-        if let Err(err) = session_device::reply(&deps.coding.trpc, session_id, &reason, None) {
-            log::warn!("pickup: switch refusal of {session_id} not replied: {err}");
+    if account_moves {
+        if let Some(reason) = switch_refusal(&record, &target, deps) {
+            log::info!("pickup: account switch of {session_id} refused: {reason}");
+            if let Err(err) = session_device::reply(&deps.coding.trpc, session_id, &reason, None) {
+                log::warn!("pickup: switch refusal of {session_id} not replied: {err}");
+            }
+            // The row says the login the run keeps.
+            report_running_account(deps, session_id, Some(target.as_str()), record.account().as_deref());
+            if !restart {
+                stay(&mut record, &pending);
+                return Ok(Switched::Refused(reason));
+            }
+            // The options still move, on the login the run keeps.
+            deps.live.set_row_account(session_id, honored.clone());
+            honor_row_account(deps, session_id, &mut record, row.account.as_deref());
+            account_moves = false;
         }
-        stay(&mut record, &pending);
-        // The row says the login the run keeps.
-        report_running_account(deps, session_id, Some(target.as_str()), record.account().as_deref());
-        return Ok(Switched::Refused(reason));
     }
     if !engine.is_idle() {
         return Err(SwitchError::Busy);
     }
-    log::info!("pickup: account switch of {session_id} -> {target}: suspending the run");
+    // EXP-1334: a restart carries the plan mode the run is in right now
+    // (else the row's pick), the row's pickers authoritative.
+    let reconfigure = (restart || delta.plan_mode.is_some()).then(|| crate::launcher::ResumeReconfigure {
+        plan_mode: delta.plan_mode.or_else(|| engine.plan_mode()).unwrap_or(row.plan_mode),
+    });
+    // The account the new engine honors: the row's on an account move, else
+    // what the old one honored (a reconfigure never honors an unmoved pick).
+    let row_account = if account_moves || !reconfiguring {
+        honored.clone()
+    } else {
+        deps.live.row_account(session_id)
+    };
+    if account_moves {
+        log::info!("pickup: account switch of {session_id} -> {target}: suspending the run");
+    } else {
+        log::info!("pickup: reconfiguring session {session_id}: suspending the run");
+    }
     engine.suspend();
     if !engine.wait_done(SWITCH_STOP_TIMEOUT) {
         return Err(failed(format!(
@@ -1462,15 +1640,18 @@ pub fn switch_session(
     if identifiers.is_empty() {
         identifiers = record.issues.clone();
     }
+    let agent = record.agent;
     let seed = if prompt.is_some() { None } else { pending.first().copied() };
     let resume = ResumeRun {
         record,
         prompt: prompt.map(str::to_string).or_else(|| seed.and_then(|m| m.body.clone())).unwrap_or_default(),
         message_id: seed.map(|m| m.id.clone()),
+        reconfigure,
     };
     let mut options = deps.options.clone();
-    // EXP-849: a named account on a resume IS the switch.
-    options.account = Some(target);
+    // EXP-849: a named account on a resume IS the switch; `None` keeps the
+    // recorded login.
+    options.account = account_moves.then_some(target);
     let req = SessionLaunchRequest {
         session: row.clone(),
         brief,
@@ -1482,9 +1663,14 @@ pub fn switch_session(
     let is_agent = row.is_agent();
     match crate::prepare(&PrepareRequest::Session(req), &deps.coding) {
         Ok(Prepared::Ready(prepared)) => {
-            let engine = spawn(session_id, is_agent, prepared, claim, true, honored, deps)
+            let engine = spawn(session_id, is_agent, prepared, claim, true, row_account, Some(row), deps)
                 .inspect_err(|_| deps.live.note_refused(session_id, &pending))
                 .map_err(failed)?;
+            // EXP-1334: codex has no launch flag for plan mode — the fresh run
+            // re-enters it live.
+            if reconfigure.is_some_and(|r| r.plan_mode) && !agent.supports_plan_mode() {
+                engine.set_plan_mode(true);
+            }
             deps.live.mark_handed(session_id, &handed.into_iter().collect::<Vec<_>>());
             let mut rest = pending;
             if let Some(seed) = seed {
@@ -1510,6 +1696,30 @@ pub fn switch_session(
             let reason = format!("Couldn't resume this session: {err}");
             refused(&reason);
             Err(failed(reason))
+        }
+    }
+}
+
+/// EXP-1334: re-read the session's server-only MCP pick between turns and
+/// compare it with the one its run launched with. Verified (or unreadable:
+/// a blip never restarts a run) = stamped at the row's `updated_at`, so the
+/// same row is not re-read; `true` = the pick moved (restart).
+fn mcp_pick_moved(row: &SessionRow, deps: &PickupDeps) -> bool {
+    let session_id = row.id.as_str();
+    let launched = deps.live.options(session_id).and_then(|options| options.mcp);
+    match session_device::mcp_picks(&deps.coding.trpc, session_id) {
+        Ok(pick) if launched.as_ref() != Some(&pick) => {
+            log::info!("pickup: session {session_id}'s MCP pick moved: restarting between turns");
+            true
+        }
+        result => {
+            if let Err(err) = result {
+                log::warn!("pickup: session {session_id}'s MCP pick not read: {err}");
+            }
+            deps.live.update_options(session_id, |options| {
+                options.mcp_checked_at = row.updated_at.clone();
+            });
+            false
         }
     }
 }
@@ -1588,8 +1798,12 @@ fn spawn(
     claim: ClaimLock,
     waking: bool,
     row_account: Option<String>,
+    launched_for: Option<&SessionRow>,
     deps: &PickupDeps,
 ) -> Result<std::sync::Arc<dyn LiveEngine>, String> {
+    // EXP-1334: the row's options this engine honors from now on (unknown
+    // for a wake with no row at hand).
+    let options = launched_for.map(|row| LaunchedOptions::of(row, prepared.mcp_pick.clone()));
     match (deps.launch)(prepared) {
         Ok(engine) => {
             // EXP-849: the login the run landed on (the prepare recorded it).
@@ -1602,6 +1816,7 @@ fn spawn(
                 row_account.clone(),
             );
             deps.live.set_running_account(session_id, running.clone());
+            deps.live.set_options(session_id, options);
             report_running_account(deps, session_id, row_account.as_deref(), running.as_deref());
             Ok(engine)
         }
@@ -2064,6 +2279,7 @@ mod tests {
                 open_cards: HashMap::from([("c1".to_string(), "q-1".to_string())]),
                 row_account: None,
                 running_account: None,
+                options: None,
             },
         )
         .live("l2", LiveView::default())
@@ -2122,6 +2338,10 @@ mod tests {
         done: AtomicBool,
         /// A turn in flight (`is_idle` = false).
         working: AtomicBool,
+        /// EXP-1334: live plan-mode switches, in order.
+        plan_switches: Mutex<Vec<bool>>,
+        /// EXP-1334: the run's current plan mode (`None` = unknown).
+        mode: Mutex<Option<bool>>,
     }
 
     impl FakeEngine {
@@ -2156,6 +2376,13 @@ mod tests {
         fn suspend(&self) {
             self.kill("suspended");
         }
+        fn set_plan_mode(&self, on: bool) {
+            self.plan_switches.lock().unwrap().push(on);
+            *self.mode.lock().unwrap() = Some(on);
+        }
+        fn plan_mode(&self) -> Option<bool> {
+            *self.mode.lock().unwrap()
+        }
     }
 
     #[test]
@@ -2181,6 +2408,7 @@ mod tests {
             open_cards: HashMap::from([("c2".to_string(), "q-2".to_string())]),
             row_account: None,
             running_account: None,
+            options: None,
         });
         assert!(registry.contains_live("s1"));
         assert!(!registry.contains_live("s2"));
@@ -2208,6 +2436,8 @@ mod tests {
         deps: PickupDeps,
         engine: Arc<FakeEngine>,
         spawned: Arc<Mutex<Vec<Spawned>>>,
+        /// EXP-1334: the launch options each spawn ran with.
+        launched: Arc<Mutex<Vec<crate::LaunchOptions>>>,
     }
 
     fn host(base: &str, data_dir: &Path, tweak: impl FnOnce(&mut crate::CodingDeps)) -> Host {
@@ -2223,7 +2453,10 @@ mod tests {
         let engine = Arc::new(FakeEngine::default());
         let spawned = Arc::new(Mutex::new(Vec::new()));
         let (launch_engine, launch_seen) = (Arc::clone(&engine), Arc::clone(&spawned));
+        let launched = Arc::new(Mutex::new(Vec::new()));
+        let launched_seen = Arc::clone(&launched);
         let launch: LaunchFn = Arc::new(move |prepared: crate::PreparedLaunch| {
+            launched_seen.lock().unwrap().push(prepared.acp.options.clone());
             launch_seen.lock().unwrap().push(Spawned {
                 session_id: prepared.session_id.clone(),
                 prompt: prepared.acp.prompt.clone(),
@@ -2243,6 +2476,7 @@ mod tests {
             },
             engine,
             spawned,
+            launched,
         }
     }
 
@@ -3149,5 +3383,210 @@ mod tests {
         assert_eq!(brief_issue_identifiers("## Issues\n\n- APP-7 First"), vec!["APP-7".to_string()]);
         assert!(brief_issue_identifiers("## Request\n\nFix it.").is_empty());
         assert!(brief_issue_identifiers("## Issues\n\n- not-an-id x").is_empty());
+    }
+
+    // ---- EXP-1334: options change mid-session ----
+
+    fn launched_for(row: &SessionRow, mcp: Option<Vec<String>>) -> LiveView {
+        LiveView { options: Some(LaunchedOptions::of(row, mcp)), ..LiveView::default() }
+    }
+
+    /// A live row whose options moved past its engine's plans a RECONFIGURE
+    /// (a Switch with no account): plan mode at once (even mid-turn, no
+    /// message needed), effort/ultracode/computer use only with a turn to
+    /// carry them, the MCP re-check only for an idle row that moved; an
+    /// engine with unknown options never.
+    #[test]
+    fn a_row_whose_options_moved_plans_a_reconfigure() {
+        let base = session("s1", "idle", DEV, "t");
+        let view = launched_for(&base, Some(Vec::new()));
+        let pending = message("m1", "s1", "2026-10-02T00:00:00Z");
+        let run = |row: &SessionRow, messages: &[MessageRow], view: &LiveView| {
+            Pass::new(vec![row.clone()], messages.to_vec()).live("s1", view.clone()).run()
+        };
+        let reconfigure = |row: &SessionRow, messages: &[MessageRow]| PickupAction::Switch {
+            session: row.clone(),
+            account: String::new(),
+            messages: messages.to_vec(),
+        };
+        let deliver = PickupAction::Deliver { session_id: "s1".to_string(), messages: vec![pending.clone()] };
+        assert_eq!(run(&base, &[pending.clone()], &view), vec![deliver.clone()]);
+        assert!(run(&base, &[], &view).is_empty());
+
+        let planned = SessionRow { plan_mode: true, busy: true, ..base.clone() };
+        assert_eq!(run(&planned, &[], &view), vec![reconfigure(&planned, &[])]);
+
+        for moved in [
+            SessionRow { effort: Some("high".to_string()), ..base.clone() },
+            SessionRow { ultracode: true, ..base.clone() },
+            SessionRow { computer_use: true, ..base.clone() },
+        ] {
+            assert!(run(&moved, &[], &view).is_empty(), "waits for a turn: {moved:?}");
+            assert_eq!(run(&moved, &[pending.clone()], &view), vec![reconfigure(&moved, &[pending.clone()])]);
+            assert_eq!(run(&moved, &[pending.clone()], &LiveView::default()), vec![deliver.clone()]);
+        }
+        // A blank effort is the default, like none.
+        let blank = SessionRow { effort: Some("  ".to_string()), ..base.clone() };
+        assert_eq!(run(&blank, &[pending.clone()], &view), vec![deliver.clone()]);
+
+        // The MCP pick is server-only: a row that moved is re-checked at the
+        // next idle turn; never mid-turn, never with an unknown pick.
+        let touched = SessionRow { updated_at: Some("2026-10-02T00:00:09Z".to_string()), ..base.clone() };
+        assert_eq!(run(&touched, &[pending.clone()], &view), vec![reconfigure(&touched, &[pending.clone()])]);
+        assert!(run(&touched, &[], &view).is_empty());
+        let busy = SessionRow { busy: true, ..touched.clone() };
+        assert_eq!(run(&busy, &[pending.clone()], &view), vec![deliver.clone()]);
+        assert_eq!(run(&touched, &[pending.clone()], &launched_for(&base, None)), vec![deliver]);
+    }
+
+    /// Plan mode switches LIVE: no restart, no request, the messages go to
+    /// the engine as they are, and the row's unmoved account pick is not
+    /// honored behind a person's back.
+    #[test]
+    fn a_plan_mode_change_switches_the_live_engine() {
+        let dir = temp_dir("pickup-plan-live");
+        let (base, requests) = canned_server_recording(vec![]);
+        let host = host(&base, &dir.0, |_| {});
+        crate::run_registry::record(&dir.0, record(&dir.0, "sess-1"));
+        let launched = session("sess-1", "idle", DEV, "t");
+        host.deps.live.insert_for("sess-1", host.engine.clone(), None, Some("aaaa".to_string()));
+        host.deps.live.set_options("sess-1", Some(LaunchedOptions::of(&launched, Some(Vec::new()))));
+        let row = SessionRow { plan_mode: true, ..on_account(launched.clone(), "bbbb") };
+        let pending = vec![message("m1", "sess-1", "2026-10-02T00:00:01Z")];
+
+        assert_eq!(switch_session(&row, "", None, &pending, &host.deps), Ok(Switched::AlreadyOn));
+        assert_eq!(*host.engine.plan_switches.lock().unwrap(), vec![true]);
+        assert_eq!(host.engine.delivered_ids(), vec!["m1"]);
+        assert_eq!(*host.engine.killed.lock().unwrap(), None);
+        assert!(procedures(&requests).is_empty());
+        let view = &host.deps.live.live_views()["sess-1"];
+        assert_eq!(view.row_account.as_deref(), Some("aaaa"));
+        // Honored: the next pass plans nothing more for it.
+        assert!(options_delta(&row, view.options.as_ref().unwrap()).plan_mode.is_none());
+    }
+
+    /// Effort / ultracode / computer use: the idle engine is suspended and
+    /// the SAME run resumed with the row's new pickers (the plan mode the
+    /// run is in carried over), the pending message its seed turn. A busy
+    /// engine is never touched.
+    #[test]
+    fn a_launch_option_change_restarts_the_run_between_turns() {
+        let dir = temp_dir("pickup-reconfigure");
+        let (base, requests) = canned_server_recording(vec![
+            (200, BRIEF_OK.to_string()),
+            (200, RESOLVE_NONE.to_string()),
+            (200, REPORT_OK.to_string()),
+        ]);
+        let host = host(&base, &dir.0, |_| {});
+        let mut low = record(&dir.0, "sess-1");
+        low.effort = "low".to_string();
+        crate::run_registry::record(&dir.0, low);
+        let launched = SessionRow { effort: Some("low".to_string()), ..session("sess-1", "idle", DEV, "t") };
+        let old = Arc::new(FakeEngine::default());
+        *old.mode.lock().unwrap() = Some(true);
+        host.deps.live.insert_for("sess-1", old.clone(), None, Some(String::new()));
+        host.deps.live.set_options("sess-1", Some(LaunchedOptions::of(&launched, Some(Vec::new()))));
+        let row = SessionRow {
+            effort: Some("high".to_string()),
+            ultracode: true,
+            computer_use: true,
+            ..launched.clone()
+        };
+        let pending = vec![message("m1", "sess-1", "2026-10-02T00:00:01Z")];
+
+        old.working.store(true, Ordering::SeqCst);
+        assert_eq!(switch_session(&row, "", None, &pending, &host.deps), Err(SwitchError::Busy));
+        assert_eq!(*old.killed.lock().unwrap(), None, "a turn in flight is never interrupted");
+        old.working.store(false, Ordering::SeqCst);
+
+        assert_eq!(switch_session(&row, "", None, &pending, &host.deps), Ok(Switched::Moved));
+        assert_eq!(*old.killed.lock().unwrap(), Some("suspended"));
+        assert_eq!(
+            procedures(&requests),
+            vec!["sessions.brief", "mcpServers.resolveForLaunch", "sessions.report"]
+        );
+        let spawned = host.spawned.lock().unwrap().clone();
+        assert_eq!(spawned.len(), 1);
+        assert_eq!(spawned[0].session_id, "sess-1", "the SAME row");
+        assert_eq!(spawned[0].seed_message_id.as_deref(), Some("m1"));
+        let options = host.launched.lock().unwrap()[0].clone();
+        assert_eq!(options.effort, "high");
+        assert!(options.ultracode && options.plan_mode);
+        assert_eq!(options.computer_use, Some(true));
+        let record = crate::run_registry::get(&dir.0, "sess-1").expect("record");
+        assert_eq!(record.effort, "high");
+        assert!(record.ultracode);
+        // The new engine honors the row: nothing more to do.
+        let honored = host.deps.live.options("sess-1").expect("options");
+        assert_eq!(options_delta(&row, &honored), OptionsDelta::default());
+    }
+
+    /// A cleared effort restarts on this machine's default, never on the
+    /// effort the record last ran.
+    #[test]
+    fn a_cleared_effort_restarts_on_the_default() {
+        let dir = temp_dir("pickup-reconfigure-default");
+        let base = canned_server(vec![
+            (200, BRIEF_OK.to_string()),
+            (200, RESOLVE_NONE.to_string()),
+            (200, REPORT_OK.to_string()),
+        ]);
+        let host = host(&base, &dir.0, |_| {});
+        let mut high = record(&dir.0, "sess-1");
+        high.effort = "max".to_string();
+        crate::run_registry::record(&dir.0, high);
+        let launched = SessionRow { effort: Some("max".to_string()), ..session("sess-1", "idle", DEV, "t") };
+        host.deps.live.insert_for("sess-1", Arc::new(FakeEngine::default()), None, Some(String::new()));
+        host.deps.live.set_options("sess-1", Some(LaunchedOptions::of(&launched, Some(Vec::new()))));
+        let row = SessionRow { effort: None, ..launched };
+        let pending = vec![message("m1", "sess-1", "2026-10-02T00:00:01Z")];
+        assert_eq!(switch_session(&row, "", None, &pending, &host.deps), Ok(Switched::Moved));
+        assert_eq!(host.launched.lock().unwrap()[0].effort, host.deps.options.effort);
+    }
+
+    /// The MCP pick is re-read between turns once the row moved: the same
+    /// pick is stamped verified and the message delivered; a moved pick
+    /// restarts the run (the resume resolves the new pick).
+    #[test]
+    fn a_moved_mcp_pick_restarts_the_run_between_turns() {
+        let dir = temp_dir("pickup-reconfigure-mcp");
+        let picks = |ids: &str| format!(r#"{{"result":{{"data":{{"mcpServerIds":[{ids}]}}}}}}"#);
+        let (base, requests) = canned_server_recording(vec![
+            (200, picks(r#""srv-a""#)),
+            (200, picks(r#""srv-b","srv-a""#)),
+            (200, BRIEF_OK.to_string()),
+            (200, RESOLVE_NONE.to_string()),
+            (200, REPORT_OK.to_string()),
+        ]);
+        let host = host(&base, &dir.0, |_| {});
+        crate::run_registry::record(&dir.0, record(&dir.0, "sess-1"));
+        let launched = session("sess-1", "idle", DEV, "t");
+        let old = Arc::new(FakeEngine::default());
+        host.deps.live.insert_for("sess-1", old.clone(), None, Some(String::new()));
+        host.deps.live.set_options("sess-1", Some(LaunchedOptions::of(&launched, Some(vec!["srv-a".to_string()]))));
+
+        let touched = SessionRow { updated_at: Some("u1".to_string()), ..launched.clone() };
+        let first = vec![message("m1", "sess-1", "2026-10-02T00:00:01Z")];
+        assert_eq!(switch_session(&touched, "", None, &first, &host.deps), Ok(Switched::AlreadyOn));
+        assert_eq!(old.delivered_ids(), vec!["m1"]);
+        let verified = host.deps.live.options("sess-1").expect("options");
+        assert_eq!(verified.mcp_checked_at.as_deref(), Some("u1"));
+        assert!(!options_delta(&touched, &verified).mcp_due);
+
+        let moved = SessionRow { updated_at: Some("u2".to_string()), ..launched };
+        let second = vec![message("m2", "sess-1", "2026-10-02T00:00:02Z")];
+        assert_eq!(switch_session(&moved, "", None, &second, &host.deps), Ok(Switched::Moved));
+        assert_eq!(*old.killed.lock().unwrap(), Some("suspended"));
+        assert_eq!(
+            procedures(&requests),
+            vec![
+                "sessions.mcpPicks",
+                "sessions.mcpPicks",
+                "sessions.brief",
+                "mcpServers.resolveForLaunch",
+                "sessions.report",
+            ]
+        );
+        assert_eq!(host.spawned.lock().unwrap()[0].seed_message_id.as_deref(), Some("m2"));
     }
 }

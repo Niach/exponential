@@ -64,6 +64,24 @@ pub fn brief(trpc: &TrpcClient, session_id: &str) -> Result<SessionBrief, ApiErr
     trpc.query_with_input("sessions.brief", &SessionIdInput { session_id })
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct McpPicksOutput {
+    #[serde(default)]
+    mcp_server_ids: Vec<String>,
+}
+
+/// EXP-1334: `sessions.mcpPicks` — query, the session's server-only team MCP
+/// pick (sorted ids, empty = none). The device compares it, between turns,
+/// with the pick its run launched with (`sessions.configure` may move it).
+pub fn mcp_picks(trpc: &TrpcClient, session_id: &str) -> Result<Vec<String>, ApiError> {
+    let output: McpPicksOutput = trpc.query_with_input("sessions.mcpPicks", &SessionIdInput { session_id })?;
+    let mut ids = output.mcp_server_ids;
+    ids.sort_unstable();
+    ids.dedup();
+    Ok(ids)
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ClaimInput<'a> {

@@ -420,7 +420,10 @@ fn foreground_pass(
             // switch go to this engine meanwhile.
             PickupAction::Switch { session, account, messages } => {
                 if session.id == session_id {
-                    if note_foreground_switch(refused_switch, account) {
+                    // EXP-1334: an empty account is a reconfigure, which a
+                    // foreground run (no recorded options) is never planned;
+                    // nothing to refuse, its messages go to this engine.
+                    if !account.is_empty() && note_foreground_switch(refused_switch, account) {
                         log::info!(
                             "foreground pickup: session {session_id} keeps its login — a foreground run cannot switch to {account}"
                         );

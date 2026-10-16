@@ -412,6 +412,19 @@ pub struct ResumeRun {
     /// seed turn is sent. `None` = nothing to consume (a resume the device
     /// started itself, e.g. an account hop).
     pub message_id: Option<String>,
+    /// EXP-1334: `Some` = a RECONFIGURE (a person's `sessions.configure`
+    /// moved the row's options past the run's): the row's pickers are
+    /// authoritative — its effort (blank = this machine's default, never the
+    /// record's), ultracode and computer use — and the run re-enters the plan
+    /// mode it was in. `None` = an ordinary wake (never enters plan mode).
+    pub reconfigure: Option<ResumeReconfigure>,
+}
+
+/// EXP-1334: what a reconfigure resume carries beyond the row.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ResumeReconfigure {
+    /// Re-enter plan mode (the live run's mode, else the row's pick).
+    pub plan_mode: bool,
 }
 
 /// The launch shapes ONE [`prepare`] serves. EXP-1292: ONE — the issue,
@@ -821,6 +834,10 @@ pub struct PreparedLaunch {
     /// account its options named (`None` = it runs on that account). The
     /// seed prompt carries the note; hosts log it.
     pub account_pick: Option<crate::account_rotation::StartPick>,
+    /// EXP-1334: the team MCP pick this launch resolved
+    /// ([`ResolvedMcp::pick`]): the baseline a live run's between-turn check
+    /// compares `sessions.mcpPicks` against. `None` = unknown.
+    pub mcp_pick: Option<Vec<String>>,
 }
 
 /// [`prepare`]'s outcome: ready to spawn, or disabled-with-reason.
@@ -1840,6 +1857,7 @@ fn prepare_session(
         codex_originator,
         codex_resume_id: None,
         launch_hold,
+        mcp_pick: team_mcp.pick.clone(),
     }))
 }
 
@@ -1904,7 +1922,8 @@ fn session_spawn(
 /// the SHORT one: doctor → workspace still there (a reclaimed worktree is
 /// re-created, a purged scratch dir re-made) → repo-backed re-auth and
 /// idempotent worktree → native transcript probe → MCP wiring → re-record.
-/// A resume never enters plan mode (whatever plan there was already ran).
+/// A resume never enters plan mode (whatever plan there was already ran) —
+/// except a reconfigure ([`ResumeRun::reconfigure`], EXP-1334).
 ///
 /// `req.options.account` names a SWITCH (EXP-849: the EXP-1005 rotation hop,
 /// a person's account change); `None` keeps the recorded login.
@@ -1947,6 +1966,17 @@ fn prepare_resume(
             .map(str::to_string)
     };
     let dispatch = row.dispatch || record.is_dispatch();
+    // EXP-1334: a reconfigure takes the row's pickers as they are now — a
+    // cleared effort is this machine's default for the agent, never the one
+    // the record last ran on.
+    let reconfigure = resume.reconfigure;
+    let default_effort = || {
+        if req.options.agent == agent {
+            req.options.effort.clone()
+        } else {
+            LaunchOptions::defaults_for(&deps.settings, agent).effort
+        }
+    };
     let options = LaunchOptions {
         agent,
         // The row's pick wins (a person may change the model on a live
@@ -1961,10 +1991,19 @@ fn prepare_resume(
                 explicit_model(agent, &model, &deps.settings)
             }
         },
-        effort: picked(&row.effort).unwrap_or_else(|| record.effort.clone()),
-        ultracode: record.ultracode && !dispatch,
-        // The plan already happened in the run being continued.
-        plan_mode: false,
+        effort: match reconfigure {
+            Some(_) => picked(&row.effort).unwrap_or_else(default_effort),
+            None => picked(&row.effort).unwrap_or_else(|| record.effort.clone()),
+        },
+        ultracode: match reconfigure {
+            Some(_) => row.ultracode && agent.supports_ultracode(),
+            None => record.ultracode,
+        } && !dispatch,
+        // The plan already happened in the run being continued — unless a
+        // reconfigure carries the plan mode the run was in (EXP-1334).
+        plan_mode: reconfigure.is_some_and(|reconfigure| reconfigure.plan_mode)
+            && agent.supports_plan_mode()
+            && !dispatch,
         // EXP-981: the run registry keeps no subagent pin, so a resume runs
         // claude's subagents on this machine's subagent model.
         subagent_model: deps.settings.subagent_model_for(agent).to_string(),
@@ -2329,6 +2368,8 @@ fn prepare_resume(
         codex_originator: codex_originator.clone(),
         model: options.model.clone(),
         effort: options.effort.clone(),
+        // EXP-1334: a reconfigure may have moved it.
+        ultracode: options.ultracode,
         transport: Some(ACP_TRANSPORT.to_string()),
         acp_child_pid: None,
         host_pid: None,
@@ -2401,13 +2442,14 @@ fn prepare_resume(
             mcp_secrets: McpSecrets::new(team_mcp.secret_values()),
         },
         seed_message_id: resume.message_id.clone(),
-        bypass_permissions: true,
-        plan_mode: false,
+        bypass_permissions: !options.plan_mode,
+        plan_mode: options.plan_mode,
         agent,
         claude_session_id: None,
         codex_originator,
         codex_resume_id,
         launch_hold,
+        mcp_pick: team_mcp.pick.clone(),
     }))
 }
 
@@ -4168,6 +4210,7 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
             record: resume_record(&dir.0, "sess-old"),
             prompt: "go on".to_string(),
             message_id: None,
+            reconfigure: None,
         });
         assert_eq!(last_used_stamp(&PrepareRequest::Session(resumed), &options(None)), None);
     }
@@ -4304,6 +4347,7 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
             ],
             warnings: Vec::new(),
             members: Vec::new(),
+            pick: None,
         }
     }
 
@@ -4391,6 +4435,7 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
             record,
             prompt: MESSAGE.to_string(),
             message_id: Some("msg-1".to_string()),
+            reconfigure: None,
         });
         req
     }

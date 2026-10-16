@@ -14,6 +14,7 @@ import {
   QUESTION_CARD_OPTIONS_MAX,
   questionCardOptionDescriptionsSchema,
   questionCardOptionSchema,
+  sessionsConfigureInputSchema,
   sessionsSendInputSchema,
   sessionStatusSchema,
   type CodingSessionBlocked,
@@ -35,6 +36,7 @@ import {
   loadSessionForUser,
 } from "@/lib/sessions/access"
 import { composeSessionBrief } from "@/lib/sessions/brief"
+import { configureSession, mcpPicks } from "@/lib/sessions/configure"
 import { answeredCard } from "@/lib/sessions/card-answer"
 import {
   issueIdentifiers,
@@ -230,6 +232,14 @@ export const sessionsRouter = router({
         return { issueId: issue.id }
       })
     ),
+
+  /** EXP-1334: change a live session's launch options mid-session (plan
+   *  mode, effort, ultracode, computer use, MCP picks). Same rule as
+   *  messaging it; an ended session refuses. The host device applies them:
+   *  claude's plan mode at once, the rest at the next turn. */
+  configure: authedProcedure
+    .input(sessionsConfigureInputSchema)
+    .mutation(({ ctx, input }) => configureSession(ctx.session.user.id, input)),
 
   /** Interrupt the session's current turn (it stays live, goes idle). Every
    *  member may Stop a SHARED session; a private one only its starter. */
@@ -510,6 +520,17 @@ export const sessionsRouter = router({
       const session = await loadSessionForUser(ctx.session.user.id, input.sessionId)
       assertDeviceHost(ctx.session.user.id, session)
       return composeSessionBrief(session.id)
+    }),
+
+  /** EXP-1334: the session's server-only MCP pick (sorted ids) — the device
+   *  compares it with what its run launched with between turns and resumes
+   *  the run on a changed pick. */
+  mcpPicks: authedProcedure
+    .input(z.object({ sessionId: uuid }))
+    .query(async ({ ctx, input }): Promise<{ mcpServerIds: string[] }> => {
+      const session = await loadSessionForUser(ctx.session.user.id, input.sessionId)
+      assertDeviceHost(ctx.session.user.id, session)
+      return { mcpServerIds: mcpPicks(session) }
     }),
 
   /** queued → running: the device took it (idempotent for its own device). */

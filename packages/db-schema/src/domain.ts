@@ -1320,6 +1320,34 @@ export const sessionsSendInputSchema = z
       issue(`a new session needs text, issues or an action`)
   })
 export type SessionsSendInput = z.infer<typeof sessionsSendInputSchema>
+
+/**
+ * EXP-1334 `sessions.configure`: change a LIVE session's launch options
+ * mid-session (same steer rule as messaging it; an ended session refuses).
+ * Omitted = unchanged; `effort: null`/`""` = the agent's default. The host
+ * device applies them: claude plan mode at once, everything else at the
+ * next turn (a between-turn restart resuming the SAME run). On a
+ * dispatcher root the picks are its WORK picks (its children's).
+ */
+export const sessionsConfigureInputSchema = z
+  .object({
+    sessionId: sendUuid,
+    planMode: z.boolean().optional(),
+    effort: z.string().max(32).nullable().optional(),
+    ultracode: z.boolean().optional(),
+    computerUse: z.boolean().optional(),
+    mcpServerIds: z.array(sendUuid).max(20).optional(),
+  })
+  .refine(
+    (input) =>
+      input.planMode !== undefined ||
+      input.effort !== undefined ||
+      input.ultracode !== undefined ||
+      input.computerUse !== undefined ||
+      input.mcpServerIds !== undefined,
+    `nothing to configure`
+  )
+export type SessionsConfigureInput = z.infer<typeof sessionsConfigureInputSchema>
 export interface SessionsSendResult {
   sessionId: string
   /** The `messages` row the text became; null for a start without text. */

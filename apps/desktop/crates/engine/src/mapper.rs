@@ -1464,6 +1464,12 @@ impl Mapper {
     /// confirmation the wire has (D4). An agent that also pushes
     /// `CurrentModeUpdate` then re-emits an identical snapshot, which is
     /// latest-wins and therefore free.
+    /// EXP-1334: the mode the run is in (its last `config_state`), `None`
+    /// before the agent announced one.
+    pub fn current_mode(&self) -> Option<&str> {
+        self.config_state.current_mode.as_deref()
+    }
+
     pub fn set_current_mode(&mut self, mode_id: &str, out: &mut MapOut) {
         self.config_state.current_mode = Some(steer::truncate(mode_id, ID_MAX));
         self.emit_config_state(out);
