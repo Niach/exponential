@@ -131,7 +131,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.Constraints
-import at.exponential.ui.primitives.DisclosureHeader
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -174,6 +173,26 @@ import com.exponential.app.data.db.SessionEntity
 import com.exponential.app.domain.SessionTree
 import com.exponential.app.ui.components.AgentRunMark
 import com.exponential.app.domain.AgentFeedItem
+import com.exponential.app.domain.BACKGROUND_TASK_KIND_AGENT
+import com.exponential.app.domain.TaskQueueBackgroundInput
+import com.exponential.app.domain.TaskQueueInput
+import com.exponential.app.domain.TaskQueueTaskInput
+import com.exponential.app.domain.TaskQueues
+import com.exponential.app.domain.Trace as TraceModels
+import com.exponential.app.domain.TraceStatus
+import com.exponential.app.domain.TraceSpec
+import com.exponential.app.domain.SUBAGENT_FALLBACK_TYPE
+import com.exponential.app.domain.durationMs
+import com.exponential.app.domain.openWaits
+import com.exponential.app.ui.components.CodeBlock
+import com.exponential.app.ui.components.CodeBlockLanguage
+import com.exponential.app.ui.components.TaskQueueView
+import com.exponential.app.ui.components.Trace
+import com.exponential.app.ui.components.TraceCollapsible
+import com.exponential.app.ui.components.TraceLine
+import com.exponential.app.ui.components.TraceSize
+import com.exponential.app.ui.components.rememberTickingNow
+import com.exponential.app.ui.components.traceTitleWithSubject
 import com.exponential.app.domain.AgentFeedRow
 import com.exponential.app.domain.AgentHealthRules
 import com.exponential.app.domain.AgentPhase
@@ -195,20 +214,14 @@ import com.exponential.app.domain.QueuedMessage
 import com.exponential.app.domain.TaskListEntry
 import com.exponential.app.domain.WorkflowAgent
 import com.exponential.app.domain.WorkflowState
-import com.exponential.app.domain.backgroundTaskLabel
 import com.exponential.app.domain.caption
-import com.exponential.app.domain.openWaitLabels
 import com.exponential.app.domain.runningWorkflow
-import com.exponential.app.domain.stripBackgroundTasks
-import com.exponential.app.domain.taskListSummary
 import com.exponential.app.domain.ScriptCards
 import com.exponential.app.domain.foldedPhases
 import com.exponential.app.domain.isScriptCall
 import com.exponential.app.domain.laneAgent
 import com.exponential.app.domain.scriptCardInput
-import com.exponential.app.domain.taskListWorkCard
 import com.exponential.app.domain.workCard
-import com.exponential.app.domain.waitingLabel
 import com.exponential.app.domain.workflowDuplicates
 import com.exponential.app.domain.splitWorkflowToolRows
 import com.exponential.app.domain.WORKFLOW_STATUS_COMPLETED
@@ -723,14 +736,11 @@ private fun RunFaceContent(
     // task the machine is running, plus one per still-open `wait` tool row.
     // EXP-927: a task of kind `agent` is a subagent, and a subagent is a
     // conversation TAB — the strip never lists it.
-    val openWaits = remember(feed) { openWaitLabels(feed) }
-    val stripTasks = remember(activity.backgroundTasks) {
-        stripBackgroundTasks(activity.backgroundTasks)
-    }
-    // EXP-927: the agent's own task list, the strip's FIRST block — hidden
-    // while it is empty or every entry is done. The collapsed line is all
-    // [taskListSummary] needs; expanding is view state, never persisted.
-    val taskList = remember(activity.taskList) { taskListSummary(activity.taskList) }
+    // EXP-1321/1324: all three — the agent's own task list, the background
+    // tasks and the open waits — are THE Queue now (`TaskQueues.of`, fixture
+    // task-queue.json ×4); its folds stick for the session.
+    var queueTodoOpen by rememberSaveable { mutableStateOf(true) }
+    var queueCompletedOpen by rememberSaveable { mutableStateOf(false) }
     // EXP-790: the composer folds to the bar's capsule while it is unfocused
     // and empty (the issue's comment bar rule); a restored draft opens it.
     var composerExpanded by rememberSaveable {
@@ -1220,31 +1230,20 @@ private fun RunFaceContent(
                     Spacer(Modifier.height(8.dp))
                 }
 
-            },
-            beforeMenus = {
-                // EXP-850 (S1/S2): what the machine is doing BESIDE the turn —
-                // one line per background task it is running, plus one per open
-                // `wait` call the agent is parked on. Absent when there is
-                // neither, and never while the run is over.
-                if (phase == AgentPhase.Live && !sessionEnded &&
-                    (stripTasks.isNotEmpty() || openWaits.isNotEmpty())
-                ) {
-                    ReadingColumn { BackgroundWorkStrip(tasks = stripTasks, waits = openWaits) }
-                    Spacer(Modifier.height(8.dp))
-                }
-
-            },
-            beforeComposer = {
-                // EXP-927/EXP-1191: the agent's own plan — ALWAYS the last block,
-                // directly on the composer, under the queued steer messages and
-                // the background lines (a menu opens above it). One collapsed
-                // line until somebody opens it. Same live gate as the blocks
-                // above: a finished run has no plan left to work.
-                if (phase == AgentPhase.Live && !sessionEnded && taskList != null) {
-                    ReadingColumn {
-                        TaskListWorkCard(entries = activity.taskList)
-                    }
-                    Spacer(Modifier.height(4.dp))
+                // EXP-1321/1324: THE Queue — the agent's tasks, its background
+                // work and its open waits as two Trace folds, the last block
+                // before the queued messages. Same live gate the strips had: a
+                // finished run has nothing left to do.
+                if (phase == AgentPhase.Live && !sessionEnded) {
+                    SessionTaskQueue(
+                        feed = feed,
+                        taskList = activity.taskList,
+                        backgroundTasks = activity.backgroundTasks,
+                        todoOpen = queueTodoOpen,
+                        onTodoOpenChange = { queueTodoOpen = it },
+                        completedOpen = queueCompletedOpen,
+                        onCompletedOpenChange = { queueCompletedOpen = it },
+                    )
                 }
             },
         )
@@ -1959,10 +1958,12 @@ private fun ActivityFeed(
                         // MCP tools is ONE captioned row ("Read 3 issues") —
                         // our tools never hide inside "N other tools".
                         is AgentFeedRow.ExpRun -> ExpToolGroupRow(items = row.items)
-                        // EXP-1240: a subagent is THE Work card; its rows are
-                        // its own tab's, which the card opens.
-                        is AgentFeedRow.SubagentRun -> SubagentWorkCard(
+                        // EXP-1324: a subagent is its Trace line (the duration
+                        // as the outline badge); its rows are its own tab's,
+                        // which the line opens.
+                        is AgentFeedRow.SubagentRun -> SubagentLineRow(
                             run = row,
+                            live = live,
                             onOpen = {
                                 onAgentTabChange(row.subagentId)
                                 onFollowChange(true)
@@ -2013,6 +2014,9 @@ private fun ActivityFeed(
                                 }
                             }
                             is AgentFeedItem.Compaction -> CompactionMarkerRow()
+                            // EXP-1324: the reasoning line; open only while
+                            // the run lives.
+                            is AgentFeedItem.Thought -> ThoughtRow(item, running = live && !item.ended)
                             is AgentFeedItem.Permission -> PermissionRow(
                                 tool = item.tool,
                                 detail = item.detail,
@@ -2023,7 +2027,8 @@ private fun ActivityFeed(
                             // Unreachable in practice — groupFeedRows folds every
                             // subagent marker into a SubagentRun — kept for `when`
                             // exhaustiveness.
-                            is AgentFeedItem.Subagent -> SubagentWorkCard(
+                            is AgentFeedItem.Subagent -> SubagentLineRow(
+                                live = live,
                                 run = AgentFeedRow.SubagentRun(
                                     id = item.id,
                                     subagentId = item.subagentId,
@@ -2033,7 +2038,7 @@ private fun ActivityFeed(
                                     title = item.title,
                                     items = emptyList(),
                                 ),
-                                onOpen = null,
+                                onOpen = {},
                             )
                             is AgentFeedItem.Question -> AnswerCardRow(row, cards)
                         }
@@ -2356,46 +2361,55 @@ private const val WORKING_CLOCK_TICK_MS = 1_000L
 private const val WORKING_PULSE_MS = 1_400
 
 /**
- * EXP-927 (wire doc §2c): the agent's OWN task list — EXP-1191: the LAST
- * block above the composer. EXP-1240: as THE Work card (`Tasks · 3 / 7`, a
- * segment per task, the task in progress); opaque, since the band floats
- * over the transcript.
+ * EXP-1321/1324: THE Queue at the bottom of the transcript — the agent's own
+ * task list, the machine's background tasks (their elapsed time ticking each
+ * second; the wire's `startedAt`, else the first time this client saw the
+ * id) and the open `wait` calls, as ONE [TaskQueueView]. Absent when nothing
+ * is left to do.
  */
 @Composable
-private fun TaskListWorkCard(entries: List<TaskListEntry>) {
-    val card = remember(entries) { taskListWorkCard(entries) }
-    WorkCardView(
-        card = card,
-        modifier = Modifier
-            .background(DesignTokens.Palette.Card, RoundedCornerShape(DesignTokens.Radius.Lg))
-            .testTag("task-list-block"),
-    )
-}
-
-/**
- * EXP-850 (S1/S2): the compact strip above the composer — what the machine is
- * doing that is NOT this turn. One line per background task (`↻ {description}`)
- * and one per still-open `wait` call (`Waiting on {detail}`); the wait rows
- * stay ordinary tool rows in the transcript as well, because that is where
- * they happened.
- */
-@Composable
-private fun BackgroundWorkStrip(tasks: List<BackgroundTask>, waits: List<String>) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .glassRow()
-            .padding(horizontal = 12.dp, vertical = 8.dp)
-            .testTag("background-work-strip"),
-        verticalArrangement = Arrangement.spacedBy(3.dp),
-    ) {
-        tasks.forEach { task ->
-            StripLine(icon = ExpIcons.uiRepeat, text = backgroundTaskLabel(task.description))
-        }
-        waits.forEach { detail ->
-            StripLine(icon = ExpIcons.uiClock, text = waitingLabel(detail))
-        }
+private fun SessionTaskQueue(
+    feed: List<AgentFeedItem>,
+    taskList: List<TaskListEntry>,
+    backgroundTasks: List<BackgroundTask>,
+    todoOpen: Boolean,
+    onTodoOpenChange: (Boolean) -> Unit,
+    completedOpen: Boolean,
+    onCompletedOpenChange: (Boolean) -> Unit,
+) {
+    // First sight per background id, for a publisher that sends no start.
+    val firstSeen = remember { mutableMapOf<String, Long>() }
+    val ticking = backgroundTasks.any { it.kind != BACKGROUND_TASK_KIND_AGENT }
+    val now = rememberTickingNow(ticking)
+    val waits = remember(feed) { openWaits(feed) }
+    val queue = remember(taskList, backgroundTasks, waits, now) {
+        TaskQueues.of(
+            TaskQueueInput(
+                tasks = taskList.map { TaskQueueTaskInput(it.content, it.status) },
+                backgroundTasks = backgroundTasks.map {
+                    TaskQueueBackgroundInput(
+                        id = it.id,
+                        kind = it.kind,
+                        description = it.description,
+                        startedAt = it.startedAt ?: firstSeen.getOrPut(it.id) { now },
+                    )
+                },
+                waits = waits,
+                now = now,
+            ),
+        )
+    } ?: return
+    ReadingColumn {
+        TaskQueueView(
+            queue = queue,
+            todoOpen = todoOpen,
+            onTodoOpenChange = onTodoOpenChange,
+            completedOpen = completedOpen,
+            onCompletedOpenChange = onCompletedOpenChange,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 6.dp),
+        )
     }
+    Spacer(Modifier.height(8.dp))
 }
 
 /**
@@ -2461,26 +2475,6 @@ private fun QueueStrip(messages: List<QueuedMessage>, onRemove: (String) -> Unit
 /** EXP-861: a queued message renders on one line — newlines and runs of
  *  whitespace collapse to a single space before the ellipsis. */
 private val QUEUE_LINE_WHITESPACE = Regex("\\s+")
-
-/** One strip line: the concept glyph every client draws (repeat for a background task, clock for a wait) and the bare text. */
-@Composable
-private fun StripLine(icon: ImageVector, text: String) {
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            modifier = Modifier.size(12.dp),
-            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-        )
-        Text(
-            text,
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-    }
-}
 
 /**
  * EXP-856: a SECOND copy of an agent that is still running — messaging a live
@@ -3735,6 +3729,7 @@ private fun SubagentItemRow(item: AgentFeedItem, nested: Boolean = false) {
         is AgentFeedItem.Narration -> NarrationBubble(item.text, nested = nested)
         is AgentFeedItem.ApiError -> ApiErrorRow(item.message, item.errorType)
         is AgentFeedItem.UserMessage -> UserMessageBubble(item.text, nested = nested)
+        is AgentFeedItem.Thought -> ThoughtRow(item, running = !item.ended)
         else -> Unit
     }
 }
@@ -3776,133 +3771,111 @@ private fun ToolRow(
         ExpToolDisplay.forName(item.name, item.settled)
     }
     if (exp != null) {
-        ExpToolCallRow(item = item, display = exp, nested = nested)
+        ExpToolCallRow(item = item, display = exp, nested = nested, live = live)
         return
     }
-    ToolRow(
-        name = item.name,
-        detail = item.detail,
-        nested = nested,
-        failed = item.failed,
-        output = item.output,
-        live = live,
-    )
+    TraceToolRow(item = item, live = live)
 }
 
-// Tool-call headline — compact single line, consecutive rows visually tight.
+/**
+ * EXP-1324: one tool call as its Trace line (`Trace.tool`): the kind's icon,
+ * "Running ./gradlew …" (shimmering) → "Ran ./gradlew …", rose when it
+ * failed. A settled call that printed is COLLAPSIBLE and opens onto its
+ * output in THE CodeBlock (`execute` = the `ansi` Terminal pattern, a failed
+ * call the destructive block). A settled `execute` whose output parses as a
+ * test run with failures IS the failed-tests line instead ("Failed: 1 of 12
+ * tests in StartupBenchmark"), its content the output.
+ *
+ * EXP-1206: [live] — the ONE call still running ([liveToolRowId]) — is the
+ * line ALONE: nothing streams under it, so the transcript never jumps; a
+ * settled row's output stays folded until the reader's tap. A call that
+ * never settled and is not live reads settled.
+ */
 @Composable
-private fun ToolRow(
-    name: String,
-    detail: String?,
-    /** Inside an expanded group or a subagent conversation, where the rows
-     *  keep their own tight rhythm; a top-level row is spaced by the ladder
-     *  instead (EXP-787). */
-    nested: Boolean = false,
-    /** EXP-785: the call errored — the row tints rose, like the web. */
-    failed: Boolean = false,
-    /** EXP-895: what an `execute` call PRINTED, as its settle published it —
-     *  redacted and tail-cut by the publisher. Folded away until tapped.
-     *  EXP-916: a PATCH never lands here — an edit call is a member of the
-     *  edited-files card ([EditedFilesCard]), which owns its own disclosure. */
-    output: String? = null,
-    /** EXP-895: the ONE running call. EXP-1206: its headline ALONE — nothing
-     *  streams under it, so the transcript never jumps while a command prints. */
-    live: Boolean = false,
-) {
-    // ONE disclosure for one row, and only a SETTLED `execute` has one: it
-    // opens on the reader's tap alone.
-    val hasDetail = output != null && !live
-    var detailOpen by remember { mutableStateOf(false) }
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .then(if (nested) Modifier.padding(vertical = 2.dp) else Modifier),
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .then(
-                    if (hasDetail) {
-                        Modifier.clickable { detailOpen = !detailOpen }
-                    } else {
-                        Modifier
-                    },
-                ),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Icon(
-                ExpIcons.codingTool,
-                contentDescription = null,
-                modifier = Modifier.size(12.dp),
-                // EXP-895: a FAILED call is a status, not a deleted diff
-                // line — the semantic red, never the diff palette's rose.
-                tint = if (failed) DesignTokens.Semantic.Red else {
-                    MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
+private fun TraceToolRow(item: AgentFeedItem.Tool, live: Boolean) {
+    var open by remember { mutableStateOf(false) }
+    val model = remember(item.toolKind, item.settled, item.output, item.name, item.detail, item.failed, live) {
+        val tests = if (item.toolKind == "execute" && item.settled && item.output != null) {
+            TraceModels.failedTests(TraceModels.parseTestResults(item.output))
+        } else {
+            null
+        }
+        tests ?: TraceModels.tool(
+            toolKind = item.toolKind ?: "other",
+            name = item.name,
+            detail = item.detail,
+            settled = item.settled || !live,
+            failed = item.failed,
+        )
+    }
+    val output = item.output
+    Trace(size = TraceSize.Sm, modifier = Modifier.testTag("session-tool-line")) {
+        if (output == null || live) {
+            TraceLine(model)
+        } else {
+            TraceCollapsible(
+                open = open,
+                onOpenChange = { open = it },
+                trigger = { isOpen, toggle ->
+                    TraceLine(
+                        model,
+                        open = isOpen,
+                        onClick = toggle,
+                        onClickLabel = if (isOpen) "Hide the output" else "Show the output",
+                    )
                 },
-            )
-            Text(
-                name,
-                style = transcriptToolStyle(),
-                color = if (failed) DesignTokens.Semantic.Red else MaterialTheme.colorScheme.onSurface,
-            )
-            if (!detail.isNullOrBlank()) {
-                Text(
-                    remember(detail) { middleTruncate(detail) },
-                    style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
-            } else if (hasDetail) {
-                Spacer(Modifier.weight(1f))
-            }
-            // The only affordance folded evidence has — the group row's
-            // chevron, trailing here because the leading slot is the tool glyph.
-            if (hasDetail) {
-                Icon(
-                    if (detailOpen) ExpIcons.uiChevronDown else ExpIcons.uiChevronRight,
-                    contentDescription = if (detailOpen) "Hide output" else "Show output",
-                    modifier = Modifier.size(12.dp),
-                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+            ) {
+                CodeBlock(
+                    code = output,
+                    language = if (item.toolKind == "execute") CodeBlockLanguage.Ansi else CodeBlockLanguage.Plain,
+                    destructive = item.failed || model.icon == TraceSpec.ICON_FAILED,
+                    scrollToEnd = true,
+                    modifier = Modifier.testTag("session-tool-output"),
                 )
             }
         }
-        if (hasDetail && detailOpen && output != null) ToolOutput(output)
     }
 }
 
 /**
- * EXP-895 — what one `execute` call printed, as its settle put it on the wire:
- * already redacted and tail-cut by the publisher, so this only has to be a
- * readable box. A cut log OPENS with the `\ N more lines truncated` marker (the
- * dropped lines were at the front, unlike a patch's trailing note), which reads
- * as its first line and needs no parsing.
- *
- * Scrolled to the BOTTOM: the verdict is the last line, and it is why the output
- * is on the wire at all.
+ * EXP-1324: the reasoning line — "Thinking" (shimmering) while the thought
+ * is open, "Thought for 5s" once its `ended` landed (`Trace.reasoning`).
+ * Never collapsible: no text rides the wire.
  */
 @Composable
-private fun ToolOutput(output: String) {
-    val scroll = rememberScrollState()
-    LaunchedEffect(output) { scroll.scrollTo(scroll.maxValue) }
-    Text(
-        output,
-        style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
-        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-        modifier = Modifier
-            .fillMaxWidth()
-            // Aligned under the row's text, past the tool glyph and its gap.
-            .padding(start = 20.dp, top = 4.dp)
-            .clip(RoundedCornerShape(8.dp))
-            .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.03f))
-            // Bounded FIRST so the box is capped and the log scrolls inside it
-            // rather than growing the transcript row.
-            .heightIn(max = ToolDiffMaxHeight)
-            .verticalScroll(scroll)
-            .padding(8.dp),
+private fun ThoughtRow(item: AgentFeedItem.Thought, running: Boolean) {
+    Trace(size = TraceSize.Sm, modifier = Modifier.testTag("session-thought-line")) {
+        TraceLine(TraceModels.reasoning(running, item.durationMs))
+    }
+}
+
+/**
+ * EXP-1324: a subagent as its Trace line — "Running the Explore agent"
+ * (shimmering) → "Ran the Explore agent" with the duration as the outline
+ * badge (`Trace.subagent`, ticking while it runs); the line opens the
+ * subagent's own tab, where its rows live. The label is the agent's TYPE.
+ */
+@Composable
+private fun SubagentLineRow(run: AgentFeedRow.SubagentRun, live: Boolean, onOpen: () -> Unit) {
+    val running = live && !run.completed
+    val now = rememberTickingNow(running)
+    val type = run.agentType.trim()
+    val model = TraceModels.subagent(
+        label = if (type == SUBAGENT_FALLBACK_TYPE) "" else type,
+        running = running,
+        failed = false,
+        durationMs = if (run.completed || running) run.durationMs(now) else null,
     )
+    Trace(size = TraceSize.Sm) {
+        TraceLine(
+            model,
+            badge = true,
+            chevron = true,
+            onClick = onOpen,
+            onClickLabel = run.label,
+            modifier = Modifier.testTag("session-subagent-line"),
+        )
+    }
 }
 
 /**
@@ -3921,41 +3894,30 @@ private fun ExpToolCallRow(
     item: AgentFeedItem.Tool,
     display: ExpToolRow,
     nested: Boolean,
+    live: Boolean = false,
 ) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .then(if (nested) Modifier.padding(vertical = 2.dp) else Modifier),
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            ExponentialMark(size = 12.dp)
-            Text(
-                display.caption,
-                style = transcriptToolStyle(),
-                color = if (item.failed) DesignTokens.Semantic.Red else MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f, fill = false),
+        // EXP-1324: our call is a Trace line too — the mark, the sentence,
+        // the SUBJECT (the input field the contract's `subjectKey` names,
+        // published as the call's `detail`) muted after it; rose when it
+        // failed, shimmering while it runs.
+        val subject = item.detail?.takeIf { it.isNotBlank() && display.subjectKey.isNotEmpty() }
+        Trace(size = TraceSize.Sm, modifier = Modifier.testTag("session-exp-tool-line")) {
+            TraceLine(
+                title = remember(display.caption, subject) {
+                    traceTitleWithSubject(display.caption, subject?.let { middleTruncate(it, EXP_TOOL_SUBJECT_MAX) })
+                },
+                leading = { ExponentialMark(size = 14.dp) },
+                status = when {
+                    item.failed -> TraceStatus.Error
+                    live && !item.settled -> TraceStatus.Running
+                    else -> null
+                },
             )
-            // The SUBJECT of the call — the input field the contract's
-            // `subjectKey` names (a title, a name, an identifier), published as
-            // the call's `detail` like every other tool's. A call with no
-            // subject (a plain list) simply has none.
-            val subject = item.detail?.takeIf { it.isNotBlank() && display.subjectKey.isNotEmpty() }
-            if (subject != null) {
-                Text(
-                    remember(subject) { middleTruncate(subject, EXP_TOOL_SUBJECT_MAX) },
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
-            }
         }
         if (item.settled && !item.failed) {
             if (display.result == ExpToolDisplay.RESULT_RESULTS) {
@@ -4185,62 +4147,35 @@ private fun ToolGroupRow(items: List<AgentFeedItem.Tool>, liveTail: Boolean) {
             items.map { ToolCallSummary(it.toolKind ?: "other", it.detail, it.failed) },
         )
     }
-    Column(modifier = Modifier.fillMaxWidth()) {
-        // SLOP-18 / VAPP-89: the fold row is the SDK's `DisclosureHeader`.
-        ToolFoldHeader(caption, expanded, onToggle = { expanded = !expanded }, maxLines = Int.MAX_VALUE) {
-            Icon(
-                ExpIcons.codingTool,
-                contentDescription = null,
-                modifier = Modifier.size(12.dp),
-                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-            )
-        }
-        when {
-            expanded -> Column(modifier = Modifier.padding(start = 22.dp)) {
-                // EXP-1206: inside the group too, the RUNNING call is its
-                // headline alone — the same rule the top-level rows follow.
+    // EXP-1324: the fold is a TraceCollapsible over the members' own lines;
+    // while it is the live tail the caption shimmers and the latest call's
+    // LINE stays under it while folded (EXP-1206: never its output).
+    Trace(size = TraceSize.Sm, modifier = Modifier.testTag("session-tool-group")) {
+        TraceCollapsible(
+            open = expanded,
+            onOpenChange = { expanded = it },
+            trigger = { isOpen, toggle ->
+                TraceLine(
+                    title = caption,
+                    icon = ExpIcons.traceTool,
+                    status = if (liveTail) TraceStatus.Running else null,
+                    open = isOpen,
+                    onClick = toggle,
+                )
+            },
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(TraceSize.Sm.geometry.lineGap.dp)) {
                 items.forEach {
                     ToolRow(it, nested = true, live = liveTail && it.id == items.last().id)
                 }
             }
-            liveTail -> Column(modifier = Modifier.padding(start = 22.dp)) {
-                val latest = items.last()
-                ToolRow(latest, nested = true, live = true)
+        }
+        if (!expanded && liveTail) {
+            Box(modifier = Modifier.padding(start = TraceSize.Sm.geometry.contentInset.dp)) {
+                ToolRow(items.last(), nested = true, live = true)
             }
         }
     }
-}
-
-/**
- * The tool-group fold row (VAPP-89): the SDK's `DisclosureHeader` with the
- * app's 14dp right chevron (turned to point down when open), the group's
- * [mark] and the transcript tool caption; hugs its content.
- */
-@Composable
-private fun ToolFoldHeader(
-    caption: String,
-    expanded: Boolean,
-    onToggle: () -> Unit,
-    maxLines: Int,
-    mark: @Composable () -> Unit,
-) {
-    val tertiary = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
-    DisclosureHeader(
-        title = caption,
-        expanded = expanded,
-        onToggle = onToggle,
-        titleStyle = transcriptToolStyle(),
-        titleColor = MaterialTheme.colorScheme.onSurface,
-        maxLines = maxLines,
-        chevronSize = 14.dp,
-        chevronColor = tertiary,
-        spacing = 8.dp,
-        height = Dp.Unspecified,
-        chevron = {
-            Icon(ExpIcons.uiChevronRight, contentDescription = null, modifier = Modifier.size(14.dp), tint = tertiary)
-        },
-        leading = mark,
-    )
 }
 
 /**
@@ -4255,19 +4190,30 @@ private fun ToolFoldHeader(
 private fun ExpToolGroupRow(items: List<AgentFeedItem.Tool>, nested: Boolean = false) {
     var expanded by remember { mutableStateOf(false) }
     val caption = remember(items) { ExpToolGroup.expToolGroupCaption(items) }
-    Column(
+    Trace(
+        size = TraceSize.Sm,
         modifier = Modifier
             .fillMaxWidth()
-            .then(if (nested) Modifier.padding(vertical = 2.dp) else Modifier),
+            .then(if (nested) Modifier.padding(vertical = 2.dp) else Modifier)
+            .testTag("session-exp-tool-group"),
     ) {
-        ToolFoldHeader(caption, expanded, onToggle = { expanded = !expanded }, maxLines = 1) {
-            ExponentialMark(size = 12.dp)
-        }
-        if (expanded) {
-            Column(modifier = Modifier.padding(start = 22.dp)) {
+        TraceCollapsible(
+            open = expanded,
+            onOpenChange = { expanded = it },
+            trigger = { isOpen, toggle ->
+                TraceLine(
+                    title = caption,
+                    leading = { ExponentialMark(size = 14.dp) },
+                    open = isOpen,
+                    onClick = toggle,
+                )
+            },
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(TraceSize.Sm.geometry.lineGap.dp)) {
                 items.forEach { ToolRow(it, nested = true) }
             }
-        } else {
+        }
+        if (!expanded) {
             // EXP-1172: a picture never hides in a fold — a folded run of
             // `exponential_sessions_show` calls draws its calls' tiles in call
             // order under the caption (expanded, each row draws its own).
