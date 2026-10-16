@@ -5001,17 +5001,10 @@ private fun ExpandedSteerComposer(
                 },
             )
         },
-        // EXP-893: desktop `steer-composer.tsx`'s footer — `Plan mode` (blue
-        // while on) · `+` attach · spacer · model · ring · send.
+        // EXP-893: web's footer order ×4 — `+` attach · the model pin (plain
+        // muted text + chevron, no pill) · `Plan mode` (blue, non-dispatcher
+        // plan-mode runs only) · spacer · ring (only with data) · send.
         footer = {
-            if (planMode) {
-                Text(
-                    PLAN_MODE_LABEL,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = DesignTokens.Semantic.Blue,
-                    modifier = Modifier.padding(start = 8.dp, end = 4.dp).testTag("steer-plan-mode"),
-                )
-            }
             // EXP-850 (S13): the steer composers attach with the `ui-add`
             // plus ×4 — a steered message can carry more than a picture,
             // and `editor-image` stays the comment/description editors'.
@@ -5021,20 +5014,20 @@ private fun ExpandedSteerComposer(
                 onClick = onPickImages,
                 enabled = !sending,
             )
-            Spacer(Modifier.weight(1f))
             if (model != null) {
-                if (modelPickable) {
-                    Box {
-                        GlassPill(
-                            modelLabel(model),
-                            size = PillSize.Sm,
-                            onClick = {
-                                modelMenuOpen = true
-                                // EXP-931: an open menu is not a blur.
-                                onMenuOpenChange(COMPOSER_MENU_MODEL, true)
-                            },
-                            modifier = Modifier.testTag("steer-model"),
-                        )
+                Box {
+                    // codex: the model is what it is — the same read-out,
+                    // disabled (desktop keeps the chevron, dimmed).
+                    ComposerModelPin(
+                        label = modelLabel(model),
+                        enabled = modelPickable,
+                        onClick = {
+                            modelMenuOpen = true
+                            // EXP-931: an open menu is not a blur.
+                            onMenuOpenChange(COMPOSER_MENU_MODEL, true)
+                        },
+                    )
+                    if (modelPickable) {
                         GlassDropdownMenu(
                             expanded = modelMenuOpen,
                             onDismissRequest = {
@@ -5059,17 +5052,18 @@ private fun ExpandedSteerComposer(
                             }
                         }
                     }
-                } else {
-                    // codex: the model is what it is — a label, no menu.
-                    Text(
-                        modelLabel(model),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                        modifier = Modifier.padding(horizontal = 4.dp).testTag("steer-model"),
-                    )
                 }
-                Spacer(Modifier.width(6.dp))
             }
+            if (planMode) {
+                Text(
+                    PLAN_MODE_LABEL,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = DesignTokens.Semantic.Blue,
+                    maxLines = 1,
+                    modifier = Modifier.padding(horizontal = 4.dp).testTag("steer-plan-mode"),
+                )
+            }
+            Spacer(Modifier.weight(1f))
             if (hasUsage) {
                 IconButton(onClick = onOpenUsage) {
                     ContextRing(percent = contextPercent, size = 20.dp)
@@ -5103,6 +5097,41 @@ private fun ExpandedSteerComposer(
             maxLines = 4,
             // The composer card owns the chrome; the field is just its text.
             bordered = false,
+        )
+    }
+}
+
+/**
+ * The composer row's model read-out ×4: plain muted text + a down chevron, no
+ * pill background (web/iOS/desktop). Disabled (codex) dims both and takes no
+ * tap.
+ */
+@Composable
+private fun ComposerModelPin(label: String, enabled: Boolean, onClick: () -> Unit) {
+    val textAlpha = if (enabled) TextEmphasis.Secondary else TextEmphasis.Tertiary
+    val chevronAlpha = if (enabled) TextEmphasis.Tertiary else TextEmphasis.Quaternary
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        modifier = Modifier
+            .heightIn(min = 40.dp)
+            .clip(RoundedCornerShape(6.dp))
+            .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
+            .padding(horizontal = 4.dp)
+            .semantics { contentDescription = "Model $label" }
+            .testTag("steer-model"),
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.labelLarge,
+            color = Color.White.copy(alpha = textAlpha),
+            maxLines = 1,
+        )
+        Icon(
+            ExpIcons.uiChevronDown,
+            contentDescription = null,
+            modifier = Modifier.size(10.dp),
+            tint = Color.White.copy(alpha = chevronAlpha),
         )
     }
 }
