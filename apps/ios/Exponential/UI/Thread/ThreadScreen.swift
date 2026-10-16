@@ -29,6 +29,12 @@ import SwiftUI
 /// `sessions.linkIssues`) · New issue (the New issue page filing into this
 /// root); an issue tab's long press offers Unlink (`sessions.unlinkIssue`).
 /// Failed actions toast (`Couldn't link the issue`, feedback-states).
+///
+/// EXP-1323: a suggested tasks card acts through `sessions.startSuggestion`
+/// & co. (its Options = THE Menu's sheet, `SuggestionOptionsSheet`); the
+/// live root's relay state draws THE bottom strip (Tasks + status lines,
+/// the session view's own) above the composer; opening the screen stamps
+/// the viewer's read of the root (`sessions.markRead`).
 struct ThreadScreen: View {
     let rootId: String
     let initialPage: ThreadPage
@@ -81,6 +87,19 @@ struct ThreadScreen: View {
     @State private var prChanges: ChangesViewModel?
     /// EXP-1307: the Guide PR awaiting the Close PR confirm.
     @State private var closePrTarget: PullRequestEntity?
+    // EXP-1323: suggested tasks
+    /// In-flight suggestion actions (`ThreadSuggestionActions.key`).
+    @State private var suggestionPending: Set<String> = []
+    /// The item whose Options sheet is up.
+    @State private var suggestionOptions: SuggestionOptionsTarget?
+    /// The Options sheet's Start on… rows (loaded as it opens).
+    @State private var suggestionDevices: [SuggestionOptionsSheet.Device]?
+    /// The sheet's pick, run once the sheet has dismissed.
+    @State private var pendingSuggestionAction: (target: SuggestionOptionsTarget, action: SuggestionOptionsSheet.Action)?
+    /// EXP-1323: the live tail's claim on the root's socket owner
+    /// (`attachSteerModel`, paired with `steerSessions.detach`).
+    @State private var liveModel: AgentSessionModel?
+    @State private var liveClaimId: String?
 
     init(rootId: String, initialPage: ThreadPage = .conversation) {
         self.rootId = rootId
@@ -214,6 +233,13 @@ struct ThreadScreen: View {
                     )
                 }
         }
+        .sheet(item: $suggestionOptions, onDismiss: runPendingSuggestionAction) { target in
+            SuggestionOptionsSheet(title: target.title, devices: suggestionDevices) { action in
+                pendingSuggestionAction = (target, action)
+                suggestionOptions = nil
+            }
+            .task { await loadSuggestionDevices(teamId: rows?.root.teamId) }
+        }
         .sheet(isPresented: $linkSheetOpen) {
             if let rows {
                 ThreadLinkIssueSheet(
@@ -248,6 +274,12 @@ struct ThreadScreen: View {
             land(on: request.page)
         }
         .onChange(of: rows?.guidePullRequest?.id, initial: true) { _, _ in syncPrChanges() }
+        // EXP-1323: the live tail follows the root while it is not ended.
+        .onChange(of: model?.view?.liveSessionId, initial: true) { _, _ in syncLiveTail() }
+        // A newer agent message read here is read: re-stamp the root.
+        .onChange(of: newestAgentMessageAt) { _, newest in
+            if newest != nil { markRead() }
+        }
     }
 
     // MARK: - Header
@@ -322,7 +354,8 @@ struct ThreadScreen: View {
                             onUnqueue: unqueue,
                             viewerId: deps.auth.userId,
                             answeringId: answeringId,
-                            canAnswer: canEdit
+                            canAnswer: canEdit,
+                            suggestions: suggestionActions
                         )
                         .padding(.vertical, 12)
                         .transcriptColumn()
@@ -378,18 +411,32 @@ struct ThreadScreen: View {
                     withAnimation(motion.standard) { scroller.scrollTo(Self.bottomId, anchor: .bottom) }
                 }
                 .safeAreaInset(edge: .bottom) {
-                    ThreadComposer(
-                        sessionId: view.composer.sessionId,
-                        root: rows.root,
-                        placeholder: rows.composerPlaceholder(view),
-                        busySessionIds: rows.sessions
-                            .filter { $0.busy && $0.status != DomainContract.sessionStatusEnded }
-                            .map(\.id),
-                        onExpand: {
-                            // Remember the pin BEFORE the inset moves it.
-                            pinOnInset = atBottom
+                    VStack(spacing: 0) {
+                        // EXP-1323/1324: the live tail — THE Queue of the
+                        // session view's transcript bottom, off the live
+                        // root's relay state, right on the composer.
+                        if let liveModel, view.liveSessionId != nil, !liveModel.isOver {
+                            TaskQueueView(
+                                todoOpen: Bindable(liveModel).queueTodoOpen,
+                                completedOpen: Bindable(liveModel).queueCompletedOpen,
+                                build: { liveModel.taskQueue(now: $0) }
+                            )
+                            .transcriptColumn()
+                            .accessibilityIdentifier("thread-live-tail")
                         }
-                    )
+                        ThreadComposer(
+                            sessionId: view.composer.sessionId,
+                            root: rows.root,
+                            placeholder: rows.composerPlaceholder(view),
+                            busySessionIds: rows.sessions
+                                .filter { $0.busy && $0.status != DomainContract.sessionStatusEnded }
+                                .map(\.id),
+                            onExpand: {
+                                // Remember the pin BEFORE the inset moves it.
+                                pinOnInset = atBottom
+                            }
+                        )
+                    }
                     // EXP-1316 (Android 247c806b33): the floating composer's
                     // MEASURED height (capsule or open card, + its edge) is
                     // the conversation's bottom inset; a pinned conversation
@@ -659,6 +706,134 @@ struct ThreadScreen: View {
         }
     }
 
+    // MARK: - Suggested tasks (EXP-1323)
+
+    private var suggestionActions: ThreadSuggestionActions {
+        ThreadSuggestionActions(
+            onStart: { rowId, itemId in startSuggestion(rowId, itemId, where: .child) },
+            onStartAll: { rowId in
+                runSuggestion(ThreadSuggestionActions.key(rowId), verb: "start", thing: "the tasks") { api, accountId in
+                    try await api.startAllSuggestions(accountId: accountId, messageId: rowId)
+                }
+            },
+            onHere: { rowId, itemId in startSuggestion(rowId, itemId, where: .here) },
+            onDismiss: { rowId, itemId in dismissSuggestion(rowId, itemId) },
+            onOptions: { rowId, item in
+                UIApplication.endEditing()
+                suggestionOptions = SuggestionOptionsTarget(rowId: rowId, itemId: item.id, title: item.title)
+            },
+            pending: suggestionPending
+        )
+    }
+
+    private func startSuggestion(
+        _ rowId: String, _ itemId: String, where target: SuggestionStartWhere,
+        deviceId: String? = nil, model: String? = nil
+    ) {
+        runSuggestion(ThreadSuggestionActions.key(rowId, itemId), verb: "start", thing: "the task") { api, accountId in
+            try await api.startSuggestion(
+                accountId: accountId, messageId: rowId, itemId: itemId, where: target,
+                deviceId: deviceId, model: model
+            )
+        }
+    }
+
+    private func dismissSuggestion(_ rowId: String, _ itemId: String) {
+        runSuggestion(ThreadSuggestionActions.key(rowId, itemId), verb: "dismiss", thing: "the task") { api, accountId in
+            try await api.dismissSuggestion(accountId: accountId, messageId: rowId, itemId: itemId)
+        }
+    }
+
+    /// One suggestion call: its key waits while it is out (the Electric echo
+    /// moves the item), a refusal toasts `Couldn't <verb> <thing>`.
+    private func runSuggestion(
+        _ key: String, verb: String, thing: String,
+        _ call: @escaping @Sendable (SessionsApi, String) async throws -> Void
+    ) {
+        guard !suggestionPending.contains(key) else { return }
+        suggestionPending.insert(key)
+        let api = deps.sessionsApi
+        let accountId = accountId
+        Task {
+            do {
+                try await call(api, accountId)
+            } catch {
+                toaster.error(
+                    FeedbackStates.Errors.title(verb: verb, thing: thing),
+                    description: error.userFacingMessage
+                )
+            }
+            suggestionPending.remove(key)
+        }
+    }
+
+    private func runPendingSuggestionAction() {
+        guard let pending = pendingSuggestionAction else { return }
+        pendingSuggestionAction = nil
+        let target = pending.target
+        switch pending.action {
+        case let .startOn(deviceId):
+            startSuggestion(target.rowId, target.itemId, where: .child, deviceId: deviceId)
+        case let .startWith(model):
+            startSuggestion(target.rowId, target.itemId, where: .child, model: model)
+        case .file:
+            runSuggestion(ThreadSuggestionActions.key(target.rowId, target.itemId), verb: "file", thing: "the issue") { api, accountId in
+                try await api.fileSuggestion(accountId: accountId, messageId: target.rowId, itemId: target.itemId)
+            }
+        case .dismiss:
+            dismissSuggestion(target.rowId, target.itemId)
+        }
+    }
+
+    /// Start on…'s rows: the machines a start can reach right now with an
+    /// agent to run (the composer's pool).
+    private func loadSuggestionDevices(teamId: String?) async {
+        let devices = await DeviceQueries.onlineStartTargets(
+            db: deps.db, accountId: accountId, teamId: teamId, userId: deps.auth.userId
+        )
+        suggestionDevices = devices.filter(\.hasRunnableAgent).map {
+            SuggestionOptionsSheet.Device(
+                id: $0.deviceId, name: $0.deviceLabel, icon: DeviceIconDisplay.iconName(for: $0)
+            )
+        }
+    }
+
+    // MARK: - Live tail + read marks (EXP-1323)
+
+    /// Claim the live root's socket owner while it is not ended; release it
+    /// once it ends or the screen goes.
+    private func syncLiveTail() {
+        let wanted = model?.view?.liveSessionId
+        guard wanted != liveClaimId else { return }
+        releaseLiveTail()
+        guard let wanted, let root = rows?.session(id: wanted) else { return }
+        liveClaimId = wanted
+        liveModel = deps.attachSteerModel(accountId: accountId, session: root)
+    }
+
+    private func releaseLiveTail() {
+        guard let claimed = liveClaimId else { return }
+        liveClaimId = nil
+        liveModel = nil
+        deps.steerSessions.detach(accountId: accountId, sessionId: claimed)
+    }
+
+    /// The tree's newest agent-authored message (the unread rule's input).
+    private var newestAgentMessageAt: String? {
+        rows?.messages
+            .filter { $0.authorKind == DomainContract.messageAuthorKindAgent }
+            .map(\.createdAt)
+            .max()
+    }
+
+    /// `sessions.markRead` on the ROOT; a background failure stays silent.
+    private func markRead() {
+        let api = deps.sessionsApi
+        let accountId = accountId
+        let rootId = rows?.root.id ?? rootId
+        Task { try? await api.markRead(accountId: accountId, sessionId: rootId) }
+    }
+
     // MARK: - THE Menu
 
     private func openMenu(issueId: String?) {
@@ -774,6 +949,8 @@ struct ThreadScreen: View {
         model?.start()
         prChanges?.startObserving()
         syncIssueModels()
+        syncLiveTail()
+        markRead()
     }
 
     private func disappear() {
@@ -781,6 +958,7 @@ struct ThreadScreen: View {
         model?.stop()
         prChanges?.stopObserving()
         stopIssueModel()
+        releaseLiveTail()
     }
 
     /// EXP-1288: ONE issue model observes at a time — the shown issue tab's,
@@ -854,6 +1032,14 @@ struct ThreadScreen: View {
         page = next
         syncIssueModels()
     }
+}
+
+/// EXP-1323: the suggested task whose Options sheet is up.
+struct SuggestionOptionsTarget: Identifiable {
+    let rowId: String
+    let itemId: String
+    let title: String
+    var id: String { ThreadSuggestionActions.key(rowId, itemId) }
 }
 
 /// What the strip's menu sheet is open for — an issue tab (`issueId`), the

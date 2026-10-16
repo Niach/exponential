@@ -392,32 +392,57 @@ public struct WorkCardHeaderRow: View {
 public struct SessionCardView: View {
     let card: SessionCard
     let onOpen: (() -> Void)?
+    /// EXP-1323: drawn as a row INSIDE another card (a started suggestion):
+    /// no shell of its own.
+    let bare: Bool
 
-    public init(card: SessionCard, onOpen: (() -> Void)?) {
+    public init(card: SessionCard, bare: Bool = false, onOpen: (() -> Void)?) {
         self.card = card
+        self.bare = bare
         self.onOpen = onOpen
     }
 
     public var body: some View {
         Group {
             if let onOpen {
-                Button(action: onOpen) { row.contentShape(Rectangle()) }
+                Button(action: onOpen) { content.contentShape(Rectangle()) }
                     .buttonStyle(PressableRowStyle())
             } else {
-                row
+                content
             }
         }
         .font(.caption)
         .foregroundStyle(.white)
-        .background(GlassTokens.fillRow)
-        .clipShape(RoundedRectangle(cornerRadius: GlassTokens.groupRadius))
+        .background(bare ? Color.clear : GlassTokens.fillRow)
+        .clipShape(RoundedRectangle(cornerRadius: bare ? 0 : GlassTokens.groupRadius))
         .overlay(
             RoundedRectangle(cornerRadius: GlassTokens.groupRadius)
-                .stroke(GlassTokens.strokeCard, lineWidth: GlassTokens.hairline)
+                .stroke(bare ? Color.clear : GlassTokens.strokeCard, lineWidth: GlassTokens.hairline)
         )
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(card.name), \(card.kindWord)")
         .accessibilityIdentifier(card.testId)
+    }
+
+    /// The header row, then EXP-1323's live caption as the muted second
+    /// line, aligned with the name (12pt padding + the 13pt icon + its 8pt
+    /// gap).
+    private var content: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            row
+            if let caption = card.caption {
+                Text(caption)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .padding(.leading, 33)
+                    .padding(.trailing, 12)
+                    .padding(.top, -6)
+                    .padding(.bottom, 8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityIdentifier("session-card-caption")
+            }
+        }
     }
 
     private var row: some View {

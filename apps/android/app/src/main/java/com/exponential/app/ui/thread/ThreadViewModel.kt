@@ -9,6 +9,12 @@ import com.exponential.app.data.api.IssuesApi
 import com.exponential.app.data.api.PullRequestsApi
 import com.exponential.app.data.api.SessionsApi
 import com.exponential.app.data.api.SessionsSendInput
+import com.exponential.app.data.api.StartSuggestionInput
+import com.exponential.app.data.api.SteerDevice
+import com.exponential.app.data.steer.SteerConnection
+import com.exponential.app.data.steer.SteerConnectionStore
+import com.exponential.app.domain.ActivityFeedState
+import com.exponential.app.ui.steer.steerDeviceFlow
 import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.BoardEntity
@@ -65,6 +71,7 @@ class ThreadViewModel @Inject constructor(
     private val issuesApi: IssuesApi,
     private val imagesApi: IssueImagesApi,
     private val pullRequestsApi: PullRequestsApi,
+    private val steerStore: SteerConnectionStore,
 ) : ViewModel() {
 
     /** The ROOT session id (`thread/{sessionId}`). */
@@ -209,6 +216,98 @@ class ThreadViewModel @Inject constructor(
         run("answer", "the question", settled = settled) { accountId ->
             sessionsApi.answer(accountId, AnswerInput(messageId = messageId, answer = answer))
         }
+
+    // ── EXP-1323: read marks, suggested tasks, the live tail ────────────────
+
+    /** Stamp the viewer's read of the thread (its root); background, so a
+     *  failure stays silent (feedback-states: background never toasts). */
+    fun markRead() {
+        viewModelScope.launch {
+            val accountId = auth.activeAccountId.value ?: return@launch
+            try {
+                sessionsApi.markRead(accountId, rootId)
+            } catch (t: Throwable) {
+                if (t is CancellationException) throw t
+            }
+        }
+    }
+
+    private val _suggestionPending = MutableStateFlow<Set<String>>(emptySet())
+    /** In-flight suggestion keys (`suggestionKey`): their buttons spin. */
+    val suggestionPending: StateFlow<Set<String>> = _suggestionPending
+
+    private fun suggestionCall(key: String, verb: String, thing: String, call: suspend (accountId: String) -> Unit) {
+        if (key in _suggestionPending.value) return
+        run(verb, thing, busy = { on ->
+            _suggestionPending.value = if (on) _suggestionPending.value + key else _suggestionPending.value - key
+        }, call = call)
+    }
+
+    /** Start (a child of the posting session; Options: a device / a model). */
+    fun startSuggestion(messageId: String, itemId: String, deviceId: String? = null, model: String? = null) =
+        suggestionCall(suggestionKey(messageId, itemId), "start", "the session") { accountId ->
+            sessionsApi.startSuggestion(
+                accountId,
+                StartSuggestionInput(messageId = messageId, itemId = itemId, where = "child", deviceId = deviceId, model = model),
+            )
+        }
+
+    /** Do it here: the item goes to the posting session as a message. */
+    fun suggestionHere(messageId: String, itemId: String) =
+        suggestionCall(suggestionKey(messageId, itemId), "send", "the task") { accountId ->
+            sessionsApi.startSuggestion(accountId, StartSuggestionInput(messageId = messageId, itemId = itemId, where = "here"))
+        }
+
+    fun startAllSuggestions(messageId: String) =
+        suggestionCall(suggestionKey(messageId), "start", "the sessions") { accountId ->
+            sessionsApi.startAllSuggestions(accountId, messageId)
+        }
+
+    fun dismissSuggestion(messageId: String, itemId: String) =
+        suggestionCall(suggestionKey(messageId, itemId), "dismiss", "the task") { accountId ->
+            sessionsApi.dismissSuggestion(accountId, messageId, itemId)
+        }
+
+    fun fileSuggestion(messageId: String, itemId: String) =
+        suggestionCall(suggestionKey(messageId, itemId), "file", "the issue") { accountId ->
+            sessionsApi.fileSuggestion(accountId, messageId, itemId)
+        }
+
+    /** Start on…: the team's ONLINE machines (the synced devices shape). */
+    val startDevices: StateFlow<List<SteerDevice>> = steerDeviceFlow(dbFlow, teamIdFlow(), auth.userId)
+        .map { devices -> devices.orEmpty().filter { it.online } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    private fun teamIdFlow(): Flow<String?> = root.map { it?.teamId?.takeIf { id -> id.isNotEmpty() } }.distinctUntilChanged()
+
+    /** The relay connection behind the live tail, acquired once the root is
+     *  live (released in [onCleared]). */
+    private var tailConnection: SteerConnection? = null
+
+    /**
+     * EXP-1323: the live tail's relay state ([SessionTree.ThreadView.liveSessionId]
+     * = the root while it is not ended): the Tasks card + the status line the
+     * session view draws. Null = no tail.
+     */
+    val liveActivity: StateFlow<ActivityFeedState?> = view
+        .map { it?.liveSessionId }
+        .distinctUntilChanged()
+        .flatMapLatest { id ->
+            if (id == null) {
+                flowOf(null)
+            } else {
+                val connection = tailConnection ?: steerStore.acquire(id).also { tailConnection = it }
+                connection.kick("thread-tail")
+                connection.activity
+            }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    override fun onCleared() {
+        tailConnection?.let { steerStore.release(it.codingSessionId) }
+        tailConnection = null
+        super.onCleared()
+    }
 
     /** Decide a `plan` card: [approved], with optional [feedback]. */
     fun decidePlan(messageId: String, approved: Boolean, feedback: String? = null, settled: (Boolean) -> Unit = {}) =

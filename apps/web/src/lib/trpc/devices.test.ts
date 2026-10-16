@@ -316,8 +316,8 @@ describe(`devices.register`, () => {
   })
 
   it(`resets acpAgents to NULL when a build that omits it re-registers`, async () => {
-    // An older build knows nothing about ACP: its register must return the
-    // row to "unknown" rather than leave a newer build's stale list behind.
+    // A register without the list returns the row to "unknown" rather than
+    // leave a stale list behind.
     await caller.register({
       doctor: DOCTOR,
       deviceId: `dev-1`,
@@ -362,7 +362,7 @@ describe(`devices.requestUpdate + heartbeat`, () => {
   // FEED-36: "Update now" = the flag PLUS an `update_now` command the daemon
   // runs by ending every live session and restarting on the new version.
   it(`endSessions: true flags the row and enqueues update_now`, async () => {
-    h.state.selectQueue = [[{ id: `row-1`, caps: [`update-now`] }], []]
+    h.state.selectQueue = [[{ id: `row-1` }], []]
     h.state.insertReturning = [[{ id: `cmd-up` }]]
     expect(
       await caller.requestUpdate({ deviceId: `dev-1`, endSessions: true })
@@ -381,24 +381,12 @@ describe(`devices.requestUpdate + heartbeat`, () => {
 
   it(`endSessions: true reuses a pending update_now instead of conflicting`, async () => {
     h.state.selectQueue = [
-      [{ id: `row-1`, caps: [`update-now`] }],
+      [{ id: `row-1` }],
       [{ id: `cmd-pending` }],
     ]
     expect(
       await caller.requestUpdate({ deviceId: `dev-1`, endSessions: true })
     ).toEqual({ ok: true })
-    expect(h.state.inserted).toHaveLength(0)
-  })
-
-  it(`endSessions: true refuses a daemon without the update-now cap, before flagging`, async () => {
-    h.state.selectQueue = [[{ id: `row-1`, caps: [`agent-login`] }]]
-    await expect(
-      caller.requestUpdate({ deviceId: `dev-1`, endSessions: true })
-    ).rejects.toMatchObject({
-      code: `PRECONDITION_FAILED`,
-      message: `This machine's daemon doesn't support Update now yet`,
-    })
-    expect(h.state.updates).toHaveLength(0)
     expect(h.state.inserted).toHaveLength(0)
   })
 
@@ -1355,9 +1343,9 @@ describe(`devices.createCommand / completeCommand / getCommand`, () => {
     expect(h.state.inserted).toHaveLength(0)
   })
 
-  // FEED-36: `update_now` rides the same queue, gated on the daemon cap.
-  it(`queues update_now with an empty payload on a capable daemon`, async () => {
-    h.state.selectQueue = [[{ id: `row-1`, caps: [`update-now`] }], []]
+  // FEED-36: `update_now` rides the same queue.
+  it(`queues update_now with an empty payload`, async () => {
+    h.state.selectQueue = [[{ id: `row-1` }], []]
     h.state.insertReturning = [[{ id: `cmd-up` }]]
     const result = await caller.createCommand({
       deviceId: `dev-1`,
@@ -1370,17 +1358,6 @@ describe(`devices.createCommand / completeCommand / getCommand`, () => {
       payload: {},
     })
     expect(h.relayPostNudge).toHaveBeenCalled()
-  })
-
-  it(`update_now refuses a daemon that does not advertise the cap`, async () => {
-    h.state.selectQueue = deviceProbe()
-    await expect(
-      caller.createCommand({ deviceId: `dev-1`, kind: `update_now` })
-    ).rejects.toMatchObject({
-      code: `PRECONDITION_FAILED`,
-      message: `This machine's daemon doesn't support Update now yet`,
-    })
-    expect(h.state.inserted).toHaveLength(0)
   })
 
   // `agent_update`: the agent CLI's own self-updater, run on the machine —
@@ -1988,16 +1965,17 @@ describe(`devices.createCommand — agent_login`, () => {
     ).rejects.toMatchObject({ code: `BAD_REQUEST` })
   })
 
-  it(`refuses a machine that does not advertise the cap`, async () => {
-    h.state.selectQueue = [[{ id: `row-1`, caps: [`worktrees`] }]]
+  // No build cap gates it: every daemon at the client floor runs it.
+  it(`queues on a machine whatever caps it advertises`, async () => {
+    h.state.selectQueue = [[{ id: `row-1`, caps: [`worktrees`] }], []]
+    h.state.insertReturning = [[{ id: `cmd-1` }]]
     await expect(
       caller.createCommand({
         deviceId: `dev-1`,
         kind: `agent_login`,
         agent: `claude`,
       })
-    ).rejects.toMatchObject({ code: `PRECONDITION_FAILED` })
-    expect(h.state.inserted).toHaveLength(0)
+    ).resolves.toEqual({ id: `cmd-1` })
   })
 
   it(`dedupes a second identical login while one is pending`, async () => {
@@ -2047,9 +2025,9 @@ describe(`devices.createCommand — agent_login`, () => {
     })
   })
 
-  it(`queues an import on a machine with the agent-import cap`, async () => {
+  it(`queues an import`, async () => {
     h.state.selectQueue = [
-      [{ id: `row-1`, caps: [`agent-login`, `agent-import`] }],
+      [{ id: `row-1`, caps: [`agent-login`] }],
       [],
     ]
     h.state.insertReturning = [[{ id: `cmd-1` }]]
@@ -2064,17 +2042,8 @@ describe(`devices.createCommand — agent_login`, () => {
     })
   })
 
-  it(`refuses an import without the cap, or beside a profileId`, async () => {
-    h.state.selectQueue = capableProbe()
-    await expect(
-      caller.createCommand({
-        deviceId: `dev-1`,
-        kind: `agent_login`,
-        agent: `claude`,
-        import: true,
-      })
-    ).rejects.toMatchObject({ code: `PRECONDITION_FAILED` })
-    h.state.selectQueue = [[{ id: `row-1`, caps: [`agent-login`, `agent-import`] }]]
+  it(`refuses an import beside a profileId`, async () => {
+    h.state.selectQueue = [[{ id: `row-1`, caps: [`agent-login`] }]]
     await expect(
       caller.createCommand({
         deviceId: `dev-1`,
@@ -2234,7 +2203,7 @@ describe(`devices.createCommand — agent_usage_refresh (EXP-747 C4)`, () => {
     [
       {
         id: `row-1`,
-        caps: [`agent-login`, `agent-usage-refresh`, `account-switch`],
+        caps: [`agent-login`],
       },
     ],
   ]
@@ -2254,35 +2223,22 @@ describe(`devices.createCommand — agent_usage_refresh (EXP-747 C4)`, () => {
     [
       {
         id: `row-1`,
-        caps: [
-          `agent-login`,
-          `agent-usage-refresh`,
-          `account-switch`,
-          `account-remove`,
-        ],
+        caps: [`agent-login`],
         agentAccounts: reportedAccounts(),
       },
     ],
   ]
-  // EXP-1137: a build that also signs logins out.
   const signOutProbe = (
     agentAccounts: Record<string, unknown> = reportedAccounts()
   ) => [
     [
       {
         id: `row-1`,
-        caps: [
-          `agent-login`,
-          `agent-usage-refresh`,
-          `account-switch`,
-          `account-remove`,
-          `account-sign-out`,
-        ],
+        caps: [`agent-login`],
         agentAccounts,
       },
     ],
   ]
-  const SIGN_OUT_OLD_APP = `That machine runs an older Exponential app that cannot sign agent accounts out. Update it first.`
 
   it(`queues the agent and the profile id`, async () => {
     h.state.selectQueue = [...capableProbe(), []]
@@ -2321,22 +2277,8 @@ describe(`devices.createCommand — agent_usage_refresh (EXP-747 C4)`, () => {
     ).rejects.toMatchObject({ code: `BAD_REQUEST` })
   })
 
-  it(`refuses a machine without the agent-usage-refresh cap`, async () => {
-    h.state.selectQueue = [[{ id: `row-1`, caps: [`agent-login`] }]]
-    await expect(
-      caller.createCommand({
-        deviceId: `dev-1`,
-        kind: `agent_usage_refresh`,
-        agent: `claude`,
-        profileId: `home`,
-      })
-    ).rejects.toMatchObject({ code: `PRECONDITION_FAILED` })
-    expect(h.state.inserted).toHaveLength(0)
-  })
-
   // EXP-862: "Remove account" — the machine deletes its own copy of a login.
-  // Same payload again, gated on `agent-login` + `account-remove`, refused for
-  // a profile the machine never reported.
+  // Same payload again, refused for a profile the machine never reported.
   it(`queues agent_profile_remove for a login the machine reported`, async () => {
     h.state.selectQueue = [...removeProbe(), []]
     h.state.insertReturning = [[{ id: `cmd-11` }]]
@@ -2371,25 +2313,18 @@ describe(`devices.createCommand — agent_usage_refresh (EXP-747 C4)`, () => {
     expect(h.state.inserted).toHaveLength(0)
   })
 
-  it(`refuses a build that cannot run it, naming the update`, async () => {
-    // Either cap missing: an older app would leave the row pending forever.
-    for (const caps of [[], [`agent-login`], [`account-remove`]]) {
-      h.state.selectQueue = [
-        [{ id: `row-1`, caps, agentAccounts: reportedAccounts() }],
-      ]
-      await expect(
-        caller.createCommand({
-          deviceId: `dev-1`,
-          kind: `agent_profile_remove`,
-          agent: `claude`,
-          profileId: `work`,
-        })
-      ).rejects.toMatchObject({
-        code: `PRECONDITION_FAILED`,
-        message: `That machine runs an older Exponential app that cannot remove agent accounts. Update it first.`,
+  // No build cap gates it: every daemon at the client floor runs it.
+  it(`queues agent_profile_remove whatever caps the machine declares`, async () => {
+    h.state.selectQueue = [[{ id: `row-1`, agentAccounts: reportedAccounts() }], []]
+    h.state.insertReturning = [[{ id: `cmd-14` }]]
+    await expect(
+      caller.createCommand({
+        deviceId: `dev-1`,
+        kind: `agent_profile_remove`,
+        agent: `claude`,
+        profileId: `work`,
       })
-    }
-    expect(h.state.inserted).toHaveLength(0)
+    ).resolves.toEqual({ id: `cmd-14` })
   })
 
   it(`refuses a profile the device never reported`, async () => {
@@ -2431,7 +2366,7 @@ describe(`devices.createCommand — agent_usage_refresh (EXP-747 C4)`, () => {
   // state — the pending row is reused instead of failing the mutation with
   // "That command is already queued".
   // EXP-1137: "Sign out" — one login signed out on the machine, its row
-  // kept. Gates: both caps, a reported login.
+  // kept. Gate: a reported login.
   it(`queues agent_profile_sign_out for a reported login`, async () => {
     for (const profileId of [`work`, `home`]) {
       h.state.inserted.length = 0
@@ -2465,29 +2400,18 @@ describe(`devices.createCommand — agent_usage_refresh (EXP-747 C4)`, () => {
     ).rejects.toMatchObject({ code: `NOT_FOUND` })
   })
 
-  it(`refuses a sign-out on a build without both caps, naming the update`, async () => {
-    for (const caps of [
-      [],
-      [`agent-login`],
-      [`account-sign-out`],
-      [`agent-login`, `account-remove`],
-    ]) {
-      h.state.selectQueue = [
-        [{ id: `row-1`, caps, agentAccounts: reportedAccounts() }],
-      ]
-      await expect(
-        caller.createCommand({
-          deviceId: `dev-1`,
-          kind: `agent_profile_sign_out`,
-          agent: `claude`,
-          profileId: `work`,
-        })
-      ).rejects.toMatchObject({
-        code: `PRECONDITION_FAILED`,
-        message: SIGN_OUT_OLD_APP,
+  // No build cap gates it: every daemon at the client floor runs it.
+  it(`queues agent_profile_sign_out whatever caps the machine declares`, async () => {
+    h.state.selectQueue = [[{ id: `row-1`, agentAccounts: reportedAccounts() }], []]
+    h.state.insertReturning = [[{ id: `cmd-14` }]]
+    await expect(
+      caller.createCommand({
+        deviceId: `dev-1`,
+        kind: `agent_profile_sign_out`,
+        agent: `claude`,
+        profileId: `work`,
       })
-    }
-    expect(h.state.inserted).toHaveLength(0)
+    ).resolves.toEqual({ id: `cmd-14` })
   })
 
   it(`sign-out needs an agent and a profile id`, async () => {

@@ -109,6 +109,9 @@ public enum SessionsSendInput: Sendable, Equatable {
     /// A message into an existing session (resumes it when idle; an ended
     /// thread continues in a new child server-side). Needs text or files.
     case message(sessionId: String, text: String? = nil, attachmentIds: [String]? = nil)
+    /// EXP-1323: a `/btw` aside — a child of `parentId` asked `text` (the
+    /// question) on the parent's own device, outside its conversation.
+    case aside(parentId: String, text: String)
     /// EXP-849: the mid-session account SWITCH — `{sessionId, account}`, no
     /// text. The server moves the synced `sessions.account`; the host device
     /// resumes the SAME row on that login between turns.
@@ -121,7 +124,7 @@ extension SessionsSendInput: Encodable {
     private enum Keys: String, CodingKey {
         case teamId, sessionId, parentId, deviceId
         case cli, account, model, effort, planMode, computerUse, ultracode, mcpServerIds
-        case text, attachmentIds, issueIds, actionId, inputs, repositoryId, agent
+        case text, attachmentIds, issueIds, actionId, inputs, repositoryId, agent, aside
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -164,6 +167,10 @@ extension SessionsSendInput: Encodable {
         case let .switchAccount(sessionId, account):
             try c.encode(sessionId, forKey: .sessionId)
             try c.encode(account, forKey: .account)
+        case let .aside(parentId, text):
+            try c.encode(parentId, forKey: .parentId)
+            try c.encode(text, forKey: .text)
+            try c.encode(true, forKey: .aside)
         }
     }
 }
@@ -300,6 +307,41 @@ private struct MessageIdInput: Encodable {
     let messageId: String
 }
 
+/// EXP-1323: where a suggested task starts — a new child, or `here` (sent
+/// to the session that posted the card).
+public enum SuggestionStartWhere: String, Encodable, Sendable {
+    case child, here
+}
+
+/// Internal (not private) so the wire test can pin the omitted fields.
+struct StartSuggestionInput: Encodable {
+    let messageId: String
+    let itemId: String
+    let `where`: SuggestionStartWhere
+    let deviceId: String?
+    let account: String?
+    let model: String?
+
+    enum CodingKeys: String, CodingKey {
+        case messageId, itemId, `where`, deviceId, account, model
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(messageId, forKey: .messageId)
+        try c.encode(itemId, forKey: .itemId)
+        try c.encode(`where`, forKey: .where)
+        try c.encodeIfPresent(deviceId, forKey: .deviceId)
+        try c.encodeIfPresent(account, forKey: .account)
+        try c.encodeIfPresent(model, forKey: .model)
+    }
+}
+
+private struct SuggestionItemInput: Encodable {
+    let messageId: String
+    let itemId: String
+}
+
 // MARK: - API
 
 public final class SessionsApi: Sendable {
@@ -371,6 +413,60 @@ public final class SessionsApi: Sendable {
     public func unqueue(accountId: String, messageId: String) async throws {
         try await trpc.mutationVoid(
             accountId: accountId, path: "sessions.unqueue", input: MessageIdInput(messageId: messageId)
+        )
+    }
+
+    /// EXP-1323: stamp the viewer's read of a session (a thread root on
+    /// open, a session view on open) — the Threads list's bold + dot.
+    public func markRead(accountId: String, sessionId: String) async throws {
+        try await trpc.mutationVoid(
+            accountId: accountId, path: "sessions.markRead", input: SessionIdInput(sessionId: sessionId)
+        )
+    }
+
+    /// EXP-1323: start one suggested task — a child (on `deviceId` / with
+    /// `model` when picked under Options) or `here` (Do it here).
+    public func startSuggestion(
+        accountId: String,
+        messageId: String,
+        itemId: String,
+        where target: SuggestionStartWhere,
+        deviceId: String? = nil,
+        account: String? = nil,
+        model: String? = nil
+    ) async throws {
+        try await trpc.mutationVoid(
+            accountId: accountId,
+            path: "sessions.startSuggestion",
+            input: StartSuggestionInput(
+                messageId: messageId, itemId: itemId, where: target,
+                deviceId: deviceId, account: account, model: model
+            )
+        )
+    }
+
+    /// EXP-1323: Start all — every open item of the card as a child.
+    public func startAllSuggestions(accountId: String, messageId: String) async throws {
+        try await trpc.mutationVoid(
+            accountId: accountId, path: "sessions.startAllSuggestions", input: MessageIdInput(messageId: messageId)
+        )
+    }
+
+    public func dismissSuggestion(accountId: String, messageId: String, itemId: String) async throws {
+        try await trpc.mutationVoid(
+            accountId: accountId,
+            path: "sessions.dismissSuggestion",
+            input: SuggestionItemInput(messageId: messageId, itemId: itemId)
+        )
+    }
+
+    /// EXP-1323: File as issue — the item becomes an issue linked to the
+    /// thread.
+    public func fileSuggestion(accountId: String, messageId: String, itemId: String) async throws {
+        try await trpc.mutationVoid(
+            accountId: accountId,
+            path: "sessions.fileSuggestion",
+            input: SuggestionItemInput(messageId: messageId, itemId: itemId)
         )
     }
 

@@ -182,14 +182,13 @@ class AgentsViewModel @Inject constructor(
      * calls this on every login emission and on a 30s tick (web `useNow`).
      * First the in-flight marks the synced rows have answered (the stamp
      * moved) or that waited past [REFRESH_PENDING_MS] are dropped; then every
-     * ELIGIBLE login (mine + online + the cap) whose report is past the floor
+     * ELIGIBLE login (mine + online) whose report is past the floor
      * gets ONE refresh queued — never while one is in flight, never twice
      * inside [AUTO_REFRESH_RETRY_MS]. The floor is the device's own 429
      * budget, so this can never out-poll what the machine allows itself.
      */
     fun autoRefreshAccounts() {
         val byDevice = deviceLogins.value ?: return
-        val caps = devices.value.orEmpty().associate { it.deviceId to it.caps }
         val rows = byDevice.values.flatten()
         val nowMs = System.currentTimeMillis()
         _refreshingAccounts.value = _refreshingAccounts.value.filter { (key, mark) ->
@@ -197,7 +196,7 @@ class AgentsViewModel @Inject constructor(
             row.usage?.fetchedAt == mark.fetchedAt && nowMs - mark.at <= REFRESH_PENDING_MS
         }
         for (row in rows) {
-            if (!AgentAccountsRows.canRefresh(row, caps[row.deviceId])) continue
+            if (!AgentAccountsRows.canRefresh(row)) continue
             if (row.key in _refreshingAccounts.value) continue
             if (AgentAccountsRows.refreshAllowedAt(row.usage, nowMs) != null) continue
             val last = autoAttempts[row.key] ?: Long.MIN_VALUE

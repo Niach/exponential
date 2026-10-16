@@ -11,22 +11,21 @@ data class CreateCommentInput(
     val body: String,
     // EXP-554: the attachments to link to the new comment. The shared Json has
     // `explicitNulls = false`, so null is OMITTED from the wire body rather
-    // than sent as `null` — older servers keep parsing the input.
+    // than sent as `null`.
     @SerialName("attachmentIds") val attachmentIds: List<String>? = null,
     // EXP-741: the top-level comment this one replies to. Omitted when null,
     // exactly like attachmentIds.
     @SerialName("parentId") val parentId: String? = null,
     // SLOP-4: `reporter` = the server emails the comment to the widget
     // reporter (accepted only top-level, on an issue whose submission has a
-    // reporter email). Omitted when null — a plain team comment, which older
-    // servers without the field parse unchanged.
+    // reporter email). Omitted when null — a plain team comment.
     @SerialName("audience") val audience: String? = null,
 )
 
 /**
  * SLOP-4: what `comments.create` answers beyond the row. [reporterEmailed] =
- * true (mailed), false (saved, no transport / failed), null (a team comment,
- * or an older server without the field — nothing to toast).
+ * true (mailed), false (saved, no transport / failed), null (a team comment
+ * — nothing to toast).
  */
 @Serializable
 data class CreateCommentResult(

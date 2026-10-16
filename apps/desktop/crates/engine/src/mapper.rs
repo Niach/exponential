@@ -3522,11 +3522,6 @@ const FREE_TEXT_KEY: &str = "text";
 /// card shows it like the session view's card). `ReplyCard`'s serializer
 /// splits them into the wire pair: `options` (labels) + the
 /// `optionDescriptions` sidecar.
-///
-/// COMPAT (EXP-1322 sidecar): old iOS 0.14.59 / Android 0.14.61 / desktop
-/// 0.14.69 only read string options. The device may post {label, description}
-/// objects again once CLIENT_MIN_VERSION_IOS >= 0.14.60 AND _ANDROID >=
-/// 0.14.62 AND _DESKTOP >= 0.14.70 (or keep the sidecar as the permanent form).
 fn card_options(options: &[QuestionOption]) -> Vec<api::session_device::ReplyOption> {
     options
         .iter()

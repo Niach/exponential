@@ -245,8 +245,7 @@
   "codingSession": {
     "staleHours": 2,
     "launchKeys": ["agent", "model", "effort", "subagentModel", "ultracode", "planMode", "mcpServerIds", "account", "computerUse"],
-    "computerUseCap": "computer-use-run",
-    "steerFilesCap": "steer-files"
+    "computerUseCap": "computer-use-run"
   },
   "sessionsSend": {
     "textMax": 16384,
@@ -319,8 +318,7 @@
     "fixConflictsHeadline": "Fix merge conflicts",
     "fixConflictsSubmit": "Fix conflicts",
     "prPlaceholder": "Select a pull request…",
-    "conflictNote": "Merge refused: the branch has conflicts.",
-    "filesNeedNewerDevice": "Attaching files needs the device on 0.14.66 or newer; images still work"
+    "conflictNote": "Merge refused: the branch has conflicts."
   },
   "toolKind": {
     "values": [
@@ -388,7 +386,7 @@
     "values": ["user", "agent", "system"]
   },
   "messageCardKind": {
-    "values": ["question", "plan", "subagent", "session", "picture", "event", "thread_started"]
+    "values": ["question", "plan", "subagent", "session", "picture", "event", "thread_started", "report", "suggestions"]
   },
   "messageEventKind": {
     "values": ["issue_linked", "issue_filed", "issue_unlinked", "pr_opened", "pr_merged", "pr_closed", "session_ended"]
@@ -484,6 +482,13 @@
         "argHint": "",
         "agents": ["claude", "codex"],
         "confirm": true
+      },
+      {
+        "name": "btw",
+        "description": "Ask a quick side question without adding to the session",
+        "argHint": "question",
+        "agents": ["claude"],
+        "confirm": false
       }
     ]
   },
@@ -1229,6 +1234,17 @@
         "result": "none"
       },
       {
+        "name": "sessions_suggest",
+        "title": "Suggest tasks",
+        "blurb": "Proposes follow-up tasks as one card a person starts, files or dismisses.",
+        "progressive": "Suggesting tasks",
+        "done": "Suggested tasks",
+        "progressiveMany": "Suggesting {n} task lists",
+        "doneMany": "Suggested {n} task lists",
+        "subjectKey": "tasks",
+        "result": "none"
+      },
+      {
         "name": "sessions_unlink",
         "title": "Unlink issue from thread",
         "blurb": "Detaches an issue from a thread.",
@@ -1453,6 +1469,7 @@
       { "name": "sessions_list", "refs": "list:session@" },
       { "name": "sessions_send", "refs": "session@" },
       { "name": "sessions_stop", "refs": "session@$id" },
+      { "name": "sessions_suggest", "refs": "" },
       { "name": "sessions_unlink", "refs": "session@ issue@$issueId" },
       { "name": "statuses_create", "refs": "status@" },
       { "name": "statuses_delete", "refs": "" },

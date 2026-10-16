@@ -8,8 +8,7 @@ import org.junit.Test
 /**
  * Wire-decode vectors for the issues shape row. EXP-897 added
  * `pr_base_branch` (the stack edge) to the allowlist: a row that carries it
- * must land it, and a row from an older server that does not must still
- * decode — a required field missing on the wire drops the row forever.
+ * must land it, and a row without it must still decode — a required field missing on the wire drops the row forever.
  */
 class IssueEntityDecodeTest {
 
@@ -40,7 +39,7 @@ class IssueEntityDecodeTest {
     """.trimIndent()
 
     // EXP-630: `estimate` joined the issues shape allowlist — a point number
-    // on the wire lands, and a row without it (older server) or with an
+    // on the wire lands, and a row without it or with an
     // explicit null still decodes as "not estimated".
 
     @Test
@@ -59,7 +58,7 @@ class IssueEntityDecodeTest {
 
     // EXP-1231: `draft_id` joined the issues shape allowlist — the draft an
     // issue was created from. A row carrying it lands it; a row without it
-    // (older server, an issue never drafted) decodes as null.
+    // (an issue never drafted) decodes as null.
 
     @Test
     fun `a row carrying draft_id lands the draft`() {

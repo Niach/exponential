@@ -68,6 +68,35 @@ final class SessionTreeTests: XCTestCase {
             endedAt: string(row["endedAt"]),
             createdAt: try XCTUnwrap(string(row["createdAt"])),
             updatedAt: try XCTUnwrap(string(row["updatedAt"])),
+            deviceId: string(row["deviceId"]),
+            caption: string(row["caption"]),
+            aside: (row["aside"] as? Bool) ?? false
+        )
+    }
+
+    private func reads(_ value: Any?) throws -> [TreeSessionRead] {
+        try ((value as? [[String: Any]]) ?? []).map {
+            TreeSessionRead(
+                sessionId: try XCTUnwrap(string($0["sessionId"])),
+                readAt: try XCTUnwrap(string($0["readAt"]))
+            )
+        }
+    }
+
+    private func listRow(_ row: [String: Any]) throws -> ThreadsListRow {
+        ThreadsListRow(
+            sessionId: try XCTUnwrap(string(row["sessionId"])),
+            teamId: try XCTUnwrap(string(row["teamId"])),
+            depth: (row["depth"] as? Int) ?? 0,
+            parentId: string(row["parentId"]),
+            rootId: string(row["rootId"]),
+            title: try XCTUnwrap(string(row["title"])),
+            isPrivate: try XCTUnwrap(row["private"] as? Bool),
+            busy: try XCTUnwrap(row["busy"] as? Bool),
+            needsYou: try XCTUnwrap(row["needsYou"] as? Bool),
+            unread: (row["unread"] as? Bool) ?? false,
+            caption: string(row["caption"]),
+            activityAt: try XCTUnwrap(string(row["activityAt"])),
             deviceId: string(row["deviceId"])
         )
     }
@@ -103,7 +132,8 @@ final class SessionTreeTests: XCTestCase {
                 card: ($0["card"] as? [String: Any]).map(TreeMessageCard.init(object:)),
                 answeredAt: string($0["answeredAt"]),
                 consumedAt: string($0["consumedAt"]),
-                createdAt: try XCTUnwrap(string($0["createdAt"]))
+                createdAt: try XCTUnwrap(string($0["createdAt"])),
+                authorSessionId: string($0["authorSessionId"])
             )
         }
     }
@@ -132,6 +162,7 @@ final class SessionTreeTests: XCTestCase {
             "tone": card.tone,
             "elapsed": json(card.elapsed),
             "running": card.running,
+            "caption": json(card.caption),
             "testId": card.testId,
         ]
     }
@@ -149,10 +180,23 @@ final class SessionTreeTests: XCTestCase {
 
     private func json(_ row: ThreadRow) -> [String: Any] {
         switch row {
-        case let .message(id, author, authorId, body, queued):
-            ["type": "message", "id": id, "author": author, "authorId": json(authorId), "body": body, "queued": queued]
+        case let .message(id, author, authorId, body, queued, authorSessionId):
+            ["type": "message", "id": id, "author": author, "authorId": json(authorId), "body": body, "queued": queued, "authorSessionId": json(authorSessionId)]
         case let .session(id, card):
             ["type": "session", "id": id, "card": json(card)]
+        case let .report(id, sessionId, text, summary):
+            ["type": "report", "id": id, "sessionId": sessionId, "text": text, "summary": summary]
+        case let .suggestions(id, sessionId, header, startAll, items):
+            [
+                "type": "suggestions", "id": id, "sessionId": sessionId, "header": header, "startAll": startAll,
+                "items": items.map { item -> [String: Any] in
+                    [
+                        "id": item.id, "title": item.title, "text": item.text, "state": item.state.rawValue,
+                        "card": item.card.map(json) ?? NSNull(), "issueId": json(item.issueId),
+                        "identifier": json(item.identifier),
+                    ]
+                },
+            ]
         case let .question(id, question, options, custom, answer, answered):
             ["type": "question", "id": id, "question": question, "options": options.map { ["label": $0.label, "description": json($0.description)] as [String: Any] }, "custom": custom, "answer": json(answer), "answered": answered]
         case let .plan(id, plan, decision):
@@ -176,6 +220,7 @@ final class SessionTreeTests: XCTestCase {
             "rows": view.rows.map(json),
             "composer": ["sessionId": view.composer.sessionId, "placeholder": view.composer.placeholder],
             "live": view.live,
+            "liveSessionId": json(view.liveSessionId),
             "busy": view.busy,
             "needsYou": view.needsYou,
         ]
@@ -189,10 +234,15 @@ final class SessionTreeTests: XCTestCase {
                 [
                     "sessionId": row.sessionId,
                     "teamId": row.teamId,
+                    "depth": row.depth,
+                    "parentId": json(row.parentId),
+                    "rootId": row.rootId,
                     "title": row.title,
                     "private": row.isPrivate,
                     "busy": row.busy,
                     "needsYou": row.needsYou,
+                    "unread": row.unread,
+                    "caption": json(row.caption),
                     "activityAt": row.activityAt,
                     "deviceId": json(row.deviceId),
                 ]
@@ -280,6 +330,14 @@ final class SessionTreeTests: XCTestCase {
         XCTAssertEqual(testIds["guideStack"], SessionTree.ThreadCopy.guideStackTestId)
         XCTAssertEqual(testIds["guideMerge"], SessionTree.ThreadCopy.guideMergeTestId)
         XCTAssertEqual(testIds["guideMenu"], SessionTree.ThreadCopy.guideMenuTestId)
+        XCTAssertEqual(copy["report"] as? String, SessionTree.ThreadCopy.report)
+        typealias S = SessionTree.SuggestionsCopy
+        XCTAssertEqual(copy["suggestions"] as? [String: String], [
+            "one": S.one, "many": S.many, "started": S.started, "startAll": S.startAll,
+            "start": S.start, "here": S.here, "options": S.options, "startOn": S.startOn,
+            "startWith": S.startWith, "file": S.file, "dismiss": S.dismiss,
+            "sentHere": S.sentHere, "filed": S.filed,
+        ])
     }
 
     /// EXP-1306: `guidePullRequestCases` — the expected PR id, or none.
@@ -385,9 +443,25 @@ final class SessionTreeTests: XCTestCase {
                 sessionIssues: try sessionIssues(input["sessionIssues"]),
                 issues: try issues(input["issues"]),
                 messages: try messages(input["messages"]),
-                teamId: string(input["teamId"])
+                teamId: string(input["teamId"]),
+                reads: try reads(input["reads"])
             )
             assertJSON(groups.map(json), testCase["expected"], name)
+        }
+    }
+
+    /// EXP-1323: `unreadCases` — the Threads nav dot.
+    func testThreadsUnreadReplaysEveryCase() throws {
+        for testCase in try cases(try fixture("threads-list.json"), "unreadCases") {
+            let name = try XCTUnwrap(testCase["name"] as? String)
+            let groups = try XCTUnwrap(testCase["groups"] as? [[String: Any]]).map { group in
+                ThreadsListGroup(
+                    key: try XCTUnwrap(ThreadsListGroup.Key(rawValue: try XCTUnwrap(string(group["key"])))),
+                    title: try XCTUnwrap(string(group["title"])),
+                    rows: try XCTUnwrap(group["rows"] as? [[String: Any]]).map(listRow)
+                )
+            }
+            XCTAssertEqual(SessionTree.threadsUnread(groups), try XCTUnwrap(testCase["expected"] as? Bool), name)
         }
     }
 
@@ -466,18 +540,7 @@ final class SessionTreeTests: XCTestCase {
                 ThreadsListGroup(
                     key: try XCTUnwrap(ThreadsListGroup.Key(rawValue: try XCTUnwrap(string(group["key"])))),
                     title: try XCTUnwrap(string(group["title"])),
-                    rows: try XCTUnwrap(group["rows"] as? [[String: Any]]).map { row in
-                        ThreadsListRow(
-                            sessionId: try XCTUnwrap(string(row["sessionId"])),
-                            teamId: try XCTUnwrap(string(row["teamId"])),
-                            title: try XCTUnwrap(string(row["title"])),
-                            isPrivate: try XCTUnwrap(row["private"] as? Bool),
-                            busy: try XCTUnwrap(row["busy"] as? Bool),
-                            needsYou: try XCTUnwrap(row["needsYou"] as? Bool),
-                            activityAt: try XCTUnwrap(string(row["activityAt"])),
-                            deviceId: string(row["deviceId"])
-                        )
-                    }
+                    rows: try XCTUnwrap(group["rows"] as? [[String: Any]]).map(listRow)
                 )
             }
             let words = try XCTUnwrap(input["words"] as? [String: Any])
@@ -534,10 +597,11 @@ final class SessionTreeTests: XCTestCase {
             TreeMessageCard.parse(#"{"kind":"question","question":"Ship?","options":["Yes","No"]}"#),
             TreeMessageCard(kind: "question", question: "Ship?", options: ["Yes", "No"])
         )
-        // EXP-1322: `{label, description?}` options normalise beside plain labels.
+        // EXP-1322: descriptions ride the `optionDescriptions` sidecar by
+        // ORIGINAL index; non-string options drop.
         XCTAssertEqual(
-            TreeMessageCard.parse(#"{"kind":"question","options":["Yes",{"label":"No","description":"Later"},{"label":"Maybe","description":""},{"description":"x"},3]}"#)?.options,
-            [TreeQuestionOption(label: "Yes"), TreeQuestionOption(label: "No", description: "Later"), TreeQuestionOption(label: "Maybe")]
+            TreeMessageCard.parse(#"{"kind":"question","options":["Yes",{"label":"No"},"Maybe",3,"Later"],"optionDescriptions":["","x","Soon",null]}"#)?.options,
+            [TreeQuestionOption(label: "Yes"), TreeQuestionOption(label: "Maybe", description: "Soon"), TreeQuestionOption(label: "Later")]
         )
     }
 

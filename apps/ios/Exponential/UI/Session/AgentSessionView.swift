@@ -384,6 +384,12 @@ struct AgentSessionView: View {
                 guard !claimed else { return }
                 claimed = true
                 model = deps.attachSteerModel(accountId: accountId, session: session)
+                // EXP-1323: opening a session view reads it (the Threads
+                // list's bold child row); a background failure stays silent.
+                let api = deps.sessionsApi
+                let accountId = accountId
+                let sessionId = session.id
+                Task { try? await api.markRead(accountId: accountId, sessionId: sessionId) }
             }
             .onDisappear {
                 // EXP-802: the DRAFT outlives this screen, its focus must not —

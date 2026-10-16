@@ -430,7 +430,7 @@ final class SyncApplyTests: XCTestCase {
 
     // EXP-1231: `draft_id` rides the issues shape: a row off the wire must
     // round-trip into the v63 column (a draft page watches for it), and a
-    // snapshot that omits the key (an older server) decodes as nil.
+    // snapshot that omits the key decodes as nil.
     func testIssueInsertPersistsDraftId() async throws {
         let json = """
             {"id":"i-drafted","board_id":"p1","number":"11","identifier":"EXP-11",

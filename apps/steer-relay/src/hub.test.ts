@@ -5,7 +5,6 @@ import {
   HISTORY_ROOM_LINGER_MS,
   Hub,
   type RelaySocket,
-  type StartSubject,
 } from "./hub"
 import {
   CLOSE_PUBLISHER_IDLE,
@@ -152,186 +151,20 @@ function room(hub: Hub, sessionId = `sess-1`): RoomInternals {
   ).rooms.get(sessionId)!
 }
 
-describe(`device presence + remote start`, () => {
-  test(`online registers, startSession routes, close evicts`, () => {
+describe(`device presence`, () => {
+  test(`online registers, nudge routes, close evicts`, () => {
     const hub = new Hub()
     const desktop = new FakeSocket()
     hub.onOpen(desktop, claims({ role: `control`, sub: `owner` }))
-    hub.onMessage(
-      desktop,
-      JSON.stringify({ t: `online`, deviceId: `dev-1`, deviceLabel: `MacBook` })
-    )
+    hub.onMessage(desktop, JSON.stringify({ t: `online`, deviceId: `dev-1` }))
 
     expect(hub.stats().devices).toBe(1)
-
-    const routed = hub.startSession(`owner`, `dev-1`, { issueId: `issue-9` })
-    expect(routed).toEqual({ ok: true })
-    // Option-less start stays byte-identical to the pre-options frame.
-    expect(desktop.lastFrame(`start_session`)).toEqual({
-      t: `start_session`,
-      issueId: `issue-9`,
-    })
-
-    expect(
-      hub.startSession(`owner`, `dev-404`, { issueId: `issue-9` })
-    ).toEqual({
-      ok: false,
-      reason: `device_offline`,
-    })
+    expect(hub.nudge(`owner`, `dev-1`)).toBe(true)
+    expect(hub.nudge(`owner`, `dev-404`)).toBe(false)
 
     hub.onClose(desktop)
     expect(hub.stats().devices).toBe(0)
-    expect(
-      hub.startSession(`owner`, `dev-1`, { issueId: `issue-9` })
-    ).toEqual({ ok: false, reason: `device_offline` })
-  })
-
-  test(`startSession carries startId verbatim on every subject, absent stays absent (FEED-63)`, () => {
-    const hub = new Hub()
-    const desktop = new FakeSocket()
-    hub.onOpen(desktop, claims({ role: `control`, sub: `owner` }))
-    hub.onMessage(desktop, JSON.stringify({ t: `online`, deviceId: `dev-1` }))
-    const repo = { repositoryId: `r-1`, fullName: `o/r`, defaultBranch: `master` }
-    const subjects: StartSubject[] = [
-      { issueId: `issue-9` },
-      { issueIds: [`issue-1`, `issue-2`], teamId: `t-1`, repo },
-      { actionId: `act-1`, actionName: `Act`, teamId: `t-1` },
-      { resumeSessionId: `sess-1`, teamId: `t-1` },
-    ]
-    for (const subject of subjects) {
-      hub.startSession(`owner`, `dev-1`, subject, { startId: `start-1` })
-      expect(desktop.lastFrame(`start_session`)).toEqual({
-        t: `start_session`,
-        ...subject,
-        startId: `start-1`,
-      })
-      hub.startSession(`owner`, `dev-1`, subject, {})
-      const plain = desktop.lastFrame(`start_session`)
-      expect(plain).toEqual({ t: `start_session`, ...subject })
-      expect(plain).not.toHaveProperty(`startId`)
-    }
-  })
-
-  test(`a repeated startId is forwarded every time: the device dedupes, never the relay (EXP-1259)`, () => {
-    const hub = new Hub()
-    const desktop = new FakeSocket()
-    hub.onOpen(desktop, claims({ role: `control`, sub: `owner` }))
-    hub.onMessage(desktop, JSON.stringify({ t: `online`, deviceId: `dev-1` }))
-    const startId = `5b0c6f1e-8a43-4d6b-9a8e-2f4f0c1d7e21`
-    for (let attempt = 0; attempt < 2; attempt++) {
-      expect(
-        hub.startSession(`owner`, `dev-1`, { issueId: `issue-9` }, { startId })
-      ).toEqual({ ok: true })
-    }
-    const frames = desktop.framesOf(`start_session`)
-    expect(frames).toHaveLength(2)
-    for (const frame of frames) {
-      expect(frame).toEqual({ t: `start_session`, issueId: `issue-9`, startId })
-    }
-  })
-
-  test(`startSession passes resume through to the frame (EXP-481)`, () => {
-    const hub = new Hub()
-    const desktop = new FakeSocket()
-    hub.onOpen(desktop, claims({ role: `control`, sub: `owner` }))
-    hub.onMessage(desktop, JSON.stringify({ t: `online`, deviceId: `dev-1` }))
-
-    hub.startSession(
-      `owner`,
-      `dev-1`,
-      { issueId: `issue-9` },
-      { resume: true }
-    )
-    expect(desktop.lastFrame(`start_session`)).toEqual({
-      t: `start_session`,
-      issueId: `issue-9`,
-      resume: true,
-    })
-
-    // Absent resume: the frame stays byte-identical to the legacy wire.
-    hub.startSession(`owner`, `dev-1`, { issueId: `issue-10` })
-    expect(desktop.lastFrame(`start_session`)).toEqual({
-      t: `start_session`,
-      issueId: `issue-10`,
-    })
-  })
-
-  test(`startSession passes prompt through on issue, batch and action frames (EXP-825)`, () => {
-    const hub = new Hub()
-    const desktop = new FakeSocket()
-    hub.onOpen(desktop, claims({ role: `control`, sub: `owner` }))
-    hub.onMessage(desktop, JSON.stringify({ t: `online`, deviceId: `dev-1` }))
-
-    hub.startSession(`owner`, `dev-1`, { issueId: `issue-9` }, { prompt: `Go.` })
-    expect(desktop.lastFrame(`start_session`)).toEqual({
-      t: `start_session`,
-      issueId: `issue-9`,
-      prompt: `Go.`,
-    })
-    hub.startSession(
-      `owner`,
-      `dev-1`,
-      { actionId: `builtin:chat`, actionName: `Chat`, teamId: `t-1` },
-      { prompt: `hello`, agent: `codex` }
-    )
-    expect(desktop.lastFrame(`start_session`)).toEqual({
-      t: `start_session`,
-      actionId: `builtin:chat`,
-      actionName: `Chat`,
-      teamId: `t-1`,
-      prompt: `hello`,
-      agent: `codex`,
-    })
-  })
-
-  test(`startSession routes a resume subject and drops launch options (EXP-637)`, () => {
-    const hub = new Hub()
-    const desktop = new FakeSocket()
-    hub.onOpen(desktop, claims({ role: `control`, sub: `owner` }))
-    hub.onMessage(desktop, JSON.stringify({ t: `online`, deviceId: `dev-1` }))
-
-    hub.startSession(
-      `owner`,
-      `dev-1`,
-      {
-        resumeSessionId: `sess-1`,
-        teamId: `team-1`,
-        actionId: `act-1`,
-        actionName: `Refresh screenshots`,
-        branch: `exp/refresh-screenshots-1a2b3c4d`,
-      },
-      // A resumed run keeps the options it was started with — the device
-      // reads them off its own run registry, so anything passed here must
-      // NOT reach the frame and contradict it. Only attribution survives.
-      { agent: `codex`, model: `gpt-5.4`, startedBy: `mate` }
-    )
-    expect(desktop.lastFrame(`start_session`)).toEqual({
-      t: `start_session`,
-      resumeSessionId: `sess-1`,
-      teamId: `team-1`,
-      actionId: `act-1`,
-      actionName: `Refresh screenshots`,
-      branch: `exp/refresh-screenshots-1a2b3c4d`,
-      startedBy: `mate`,
-    })
-
-    // Hints are optional: a bare resume names only the run and its team.
-    hub.startSession(`owner`, `dev-1`, {
-      resumeSessionId: `sess-2`,
-      teamId: `team-1`,
-    })
-    expect(desktop.lastFrame(`start_session`)).toEqual({
-      t: `start_session`,
-      resumeSessionId: `sess-2`,
-      teamId: `team-1`,
-    })
-
-    // Every other subject stays byte-identical.
-    hub.startSession(`owner`, `dev-1`, { issueId: `issue-9` })
-    expect(desktop.lastFrame(`start_session`)).toEqual({
-      t: `start_session`,
-      issueId: `issue-9`,
-    })
+    expect(hub.nudge(`owner`, `dev-1`)).toBe(false)
   })
 
   test(`nudge delivers a check_in frame to the control socket (EXP-481)`, () => {
@@ -352,318 +185,20 @@ describe(`device presence + remote start`, () => {
     expect(hub.nudge(`owner`, `dev-1`)).toBe(false)
   })
 
-  test(`startSession passes startedBy through to the frame (EXP-432)`, () => {
+  // The schema stays non-strict: a `.strict()` object would fail the parse
+  // on an unknown key, the frame would be dropped, and the device would be
+  // unreachable.
+  test(`an online frame with unknown keys still registers`, () => {
     const hub = new Hub()
     const desktop = new FakeSocket()
     hub.onOpen(desktop, claims({ role: `control`, sub: `owner` }))
-    hub.onMessage(desktop, JSON.stringify({ t: `online`, deviceId: `dev-1` }))
-
-    // A shared-device start rides the requester's userId as an option —
-    // dumb pass-through, the daemon threads it into codingSessions.start.
-    const routed = hub.startSession(
-      `owner`,
-      `dev-1`,
-      { issueId: `issue-9` },
-      { startedBy: `requester-1` }
-    )
-    expect(routed).toEqual({ ok: true })
-    expect(desktop.lastFrame(`start_session`)).toEqual({
-      t: `start_session`,
-      issueId: `issue-9`,
-      startedBy: `requester-1`,
-    })
-
-    // Absent startedBy: the frame stays byte-identical to the legacy wire.
-    hub.startSession(`owner`, `dev-1`, { issueId: `issue-10` })
-    expect(desktop.lastFrame(`start_session`)).toEqual({
-      t: `start_session`,
-      issueId: `issue-10`,
-    })
-  })
-
-  // EXP-679: a start asked for by another coding session. Pure pass-through
-  // like startedBy — the device writes it as coding_sessions.started_reason,
-  // so the run is unattended and its own close-out ends it. It rides EVERY
-  // subject, the resume arm (which drops launch options) included.
-  test(`startSession passes startedReason through to the frame (EXP-679)`, () => {
-    const hub = new Hub()
-    const desktop = new FakeSocket()
-    hub.onOpen(desktop, claims({ role: `control`, sub: `owner` }))
-    hub.onMessage(desktop, JSON.stringify({ t: `online`, deviceId: `dev-1` }))
-
-    hub.startSession(
-      `owner`,
-      `dev-1`,
-      { issueId: `issue-9` },
-      { startedReason: `agent` }
-    )
-    expect(desktop.lastFrame(`start_session`)).toEqual({
-      t: `start_session`,
-      issueId: `issue-9`,
-      startedReason: `agent`,
-    })
-
-    hub.startSession(
-      `owner`,
-      `dev-1`,
-      { resumeSessionId: `sess-1`, teamId: `team-1` },
-      // Launch options still die on a resume; the marker survives with the
-      // attribution.
-      { agent: `codex`, startedBy: `mate`, startedReason: `agent` }
-    )
-    expect(desktop.lastFrame(`start_session`)).toEqual({
-      t: `start_session`,
-      resumeSessionId: `sess-1`,
-      teamId: `team-1`,
-      startedBy: `mate`,
-      startedReason: `agent`,
-    })
-
-    // Absent: the frame stays byte-identical to the human-start wire.
-    hub.startSession(`owner`, `dev-1`, { issueId: `issue-10` })
-    expect(desktop.lastFrame(`start_session`)).toEqual({
-      t: `start_session`,
-      issueId: `issue-10`,
-    })
-  })
-
-  test(`startSession passes launch options through to the frame`, () => {
-    const hub = new Hub()
-    const desktop = new FakeSocket()
-    hub.onOpen(desktop, claims({ role: `control`, sub: `owner` }))
-    hub.onMessage(desktop, JSON.stringify({ t: `online`, deviceId: `dev-1` }))
-
-    const routed = hub.startSession(`owner`, `dev-1`, { issueId: `issue-9` }, {
-      model: `opus`,
-      effort: ``,
-      ultracode: true,
-      planMode: false,
-    })
-    expect(routed).toEqual({ ok: true })
-    expect(desktop.lastFrame(`start_session`)).toEqual({
-      t: `start_session`,
-      issueId: `issue-9`,
-      model: `opus`,
-      effort: ``,
-      ultracode: true,
-      planMode: false,
-    })
-
-    // Partial options: undefined fields never reach the wire.
-    hub.startSession(`owner`, `dev-1`, { issueId: `issue-10` }, {
-      model: `sonnet`,
-    })
-    expect(desktop.lastFrame(`start_session`)).toEqual({
-      t: `start_session`,
-      issueId: `issue-10`,
-      model: `sonnet`,
-    })
-
-    // EXP-201: the agent rides the frame like any option.
-    hub.startSession(`owner`, `dev-1`, { issueId: `issue-11` }, {
-      agent: `codex`,
-      planMode: true,
-    })
-    expect(desktop.lastFrame(`start_session`)).toEqual({
-      t: `start_session`,
-      issueId: `issue-11`,
-      agent: `codex`,
-      planMode: true,
-    })
-  })
-
-  test(`startSession passes mcpServerIds + account through (EXP-792)`, () => {
-    const hub = new Hub()
-    const desktop = new FakeSocket()
-    hub.onOpen(desktop, claims({ role: `control`, sub: `owner` }))
-    hub.onMessage(desktop, JSON.stringify({ t: `online`, deviceId: `dev-1` }))
-
-    hub.startSession(`owner`, `dev-1`, { issueId: `issue-12` }, {
-      agent: `claude`,
-      mcpServerIds: [`srv-1`, `srv-2`],
-      account: `work`,
-    })
-    expect(desktop.lastFrame(`start_session`)).toEqual({
-      t: `start_session`,
-      issueId: `issue-12`,
-      agent: `claude`,
-      mcpServerIds: [`srv-1`, `srv-2`],
-      account: `work`,
-    })
-
-    // A resume drops the servers (the run registry pinned them at launch)
-    // but KEEPS the account: EXP-849's mid-run switch is a resume naming
-    // another profile, and EXP-906 found the relay eating it.
-    hub.startSession(
-      `owner`,
-      `dev-1`,
-      { resumeSessionId: `run-1`, teamId: `team-1` },
-      { mcpServerIds: [`srv-1`], account: `work` }
-    )
-    expect(desktop.lastFrame(`start_session`)).toEqual({
-      t: `start_session`,
-      resumeSessionId: `run-1`,
-      teamId: `team-1`,
-      account: `work`,
-    })
-
-    // Absent stays absent — a plain resume is byte-identical to before.
-    hub.startSession(
-      `owner`,
-      `dev-1`,
-      { resumeSessionId: `run-2`, teamId: `team-1` },
-      { mcpServerIds: [`srv-1`] }
-    )
-    expect(desktop.lastFrame(`start_session`)).toEqual({
-      t: `start_session`,
-      resumeSessionId: `run-2`,
-      teamId: `team-1`,
-    })
-  })
-
-  test(`startSession routes a batch subject as a fat start_session frame`, () => {
-    const hub = new Hub()
-    const desktop = new FakeSocket()
-    hub.onOpen(desktop, claims({ role: `control`, sub: `owner` }))
-    hub.onMessage(desktop, JSON.stringify({ t: `online`, deviceId: `dev-1` }))
-
-    const repo = {
-      repositoryId: `repo-1`,
-      fullName: `acme/api`,
-      defaultBranch: `main`,
-    }
-    const routed = hub.startSession(
-      `owner`,
-      `dev-1`,
-      { issueIds: [`issue-1`, `issue-2`], teamId: `team-1`, repo },
-      { ultracode: true }
-    )
-    expect(routed).toEqual({ ok: true })
-    expect(desktop.lastFrame(`start_session`)).toEqual({
-      t: `start_session`,
-      issueIds: [`issue-1`, `issue-2`],
-      teamId: `team-1`,
-      repo,
-      ultracode: true,
-    })
-
-    // Undefined options never reach the batch frame either.
-    hub.startSession(`owner`, `dev-1`, {
-      issueIds: [`issue-3`],
-      teamId: `team-1`,
-      repo,
-    })
-    expect(desktop.lastFrame(`start_session`)).toEqual({
-      t: `start_session`,
-      issueIds: [`issue-3`],
-      teamId: `team-1`,
-      repo,
-    })
-  })
-
-  test(`batch start to an offline device reports device_offline`, () => {
-    const hub = new Hub()
-    expect(
-      hub.startSession(`owner`, `dev-gone`, {
-        issueIds: [`issue-1`, `issue-2`],
-        teamId: `team-1`,
-        repo: {
-          repositoryId: `repo-1`,
-          fullName: `acme/api`,
-          defaultBranch: `main`,
-        },
-      })
-    ).toEqual({ ok: false, reason: `device_offline` })
-  })
-
-  // EXP-672 removed the outbound presence listing, but desktops and daemons
-  // in the wild (0.14.28 and older) still put `deviceLabel` and the EXP-253
-  // `caps` array in their `online` frame. The schema must keep TOLERATING
-  // them: a `.strict()` object would fail the parse, the frame would be
-  // dropped, and the device would be unreachable for `/start` and `/nudge`.
-  test(`an old-style online frame (deviceLabel + caps) still registers`, () => {
-    const hub = new Hub()
-    const legacy = new FakeSocket()
-    hub.onOpen(legacy, claims({ role: `control`, sub: `owner` }))
     hub.onMessage(
-      legacy,
-      JSON.stringify({
-        t: `online`,
-        deviceId: `dev-1`,
-        deviceLabel: `MacBook`,
-        caps: [`actions`],
-      })
+      desktop,
+      JSON.stringify({ t: `online`, deviceId: `dev-1`, someday: true })
     )
 
     expect(hub.stats().devices).toBe(1)
-    expect(hub.startSession(`owner`, `dev-1`, { issueId: `issue-9` })).toEqual({
-      ok: true,
-    })
-    expect(legacy.lastFrame(`start_session`)).toEqual({
-      t: `start_session`,
-      issueId: `issue-9`,
-    })
     expect(hub.nudge(`owner`, `dev-1`)).toBe(true)
-  })
-
-  test(`startSession routes an action subject as a fat start_session frame (EXP-253)`, () => {
-    const hub = new Hub()
-    const desktop = new FakeSocket()
-    hub.onOpen(desktop, claims({ role: `control`, sub: `owner` }))
-    hub.onMessage(desktop, JSON.stringify({ t: `online`, deviceId: `dev-1` }))
-
-    const repo = {
-      repositoryId: `repo-1`,
-      fullName: `acme/api`,
-      defaultBranch: `main`,
-    }
-    // Repo-backed action with launch options.
-    const routed = hub.startSession(
-      `owner`,
-      `dev-1`,
-      {
-        actionId: `action-1`,
-        actionName: `Code review`,
-        teamId: `team-1`,
-        repo,
-      },
-      { model: `opus`, effort: `high` }
-    )
-    expect(routed).toEqual({ ok: true })
-    expect(desktop.lastFrame(`start_session`)).toEqual({
-      t: `start_session`,
-      actionId: `action-1`,
-      actionName: `Code review`,
-      teamId: `team-1`,
-      repo,
-      model: `opus`,
-      effort: `high`,
-    })
-
-    // Repo-less action: the repo key never reaches the wire, nor do
-    // undefined options.
-    hub.startSession(`owner`, `dev-1`, {
-      actionId: `action-2`,
-      actionName: `Groom backlog`,
-      teamId: `team-1`,
-    })
-    expect(desktop.lastFrame(`start_session`)).toEqual({
-      t: `start_session`,
-      actionId: `action-2`,
-      actionName: `Groom backlog`,
-      teamId: `team-1`,
-    })
-  })
-
-  test(`action start to an offline device reports device_offline`, () => {
-    const hub = new Hub()
-    expect(
-      hub.startSession(`owner`, `dev-gone`, {
-        actionId: `action-1`,
-        actionName: `Code review`,
-        teamId: `team-1`,
-      })
-    ).toEqual({ ok: false, reason: `device_offline` })
   })
 
   test(`re-announcing a new deviceId on one socket evicts the previous entry (REV-11)`, () => {
@@ -678,14 +213,9 @@ describe(`device presence + remote start`, () => {
         JSON.stringify({ t: `online`, deviceId: `dev-${i}` })
       )
     }
-    expect(
-      hub.startSession(`owner`, `dev-999`, { issueId: `issue-9` })
-    ).toEqual({ ok: true })
+    expect(hub.nudge(`owner`, `dev-999`)).toBe(true)
     // The abandoned ids are gone, not ghosts routing into this socket.
-    expect(hub.startSession(`owner`, `dev-0`, { issueId: `issue-9` })).toEqual({
-      ok: false,
-      reason: `device_offline`,
-    })
+    expect(hub.nudge(`owner`, `dev-0`)).toBe(false)
     expect(hub.stats().devices).toBe(1)
 
     hub.onClose(desktop)
@@ -706,12 +236,8 @@ describe(`device presence + remote start`, () => {
 
     // dev-1 still belongs to the second socket — the eviction only removes
     // entries the re-announcing conn itself owns.
-    expect(hub.startSession(`owner`, `dev-1`, { issueId: `issue-9` })).toEqual({
-      ok: true,
-    })
-    expect(second.lastFrame(`start_session`)).toMatchObject({
-      issueId: `issue-9`,
-    })
+    expect(hub.nudge(`owner`, `dev-1`)).toBe(true)
+    expect(second.lastFrame(`check_in`)).toEqual({ t: `check_in` })
     hub.onClose(first)
     hub.onClose(second)
     expect(hub.stats().devices).toBe(0)
@@ -2469,7 +1995,7 @@ describe(`activity event kinds`, () => {
       text: `oversized key`,
       options: [{ label: `A`, key: `x`.repeat(129) }],
     })
-    // EXP-730: id is required — an id-less card (pre-0.14.31 publisher)
+    // EXP-730: id is required — an id-less card
     // is not answerable and never reaches a viewer.
     activity(hub, pub, {
       kind: `question`,
@@ -3117,12 +2643,11 @@ describe(`idle publisher detection (REV2-X)`, () => {
 })
 
 describe(`stats counters (EXP-553)`, () => {
-  test(`counters start at zero and track opens, starts, fanned frames`, () => {
+  test(`counters start at zero and track opens and fanned frames`, () => {
     const hub = new Hub()
     expect(hub.counters()).toEqual({
       connectionsAccepted: 0,
       activityFramesFanned: 0,
-      startsRouted: 0,
       slowConsumerEvictions: 0,
       viewerJoins: 0,
       publisherIdleCloses: 0,
@@ -3140,13 +2665,7 @@ describe(`stats counters (EXP-553)`, () => {
 
     const desktop = new FakeSocket()
     hub.onOpen(desktop, claims({ role: `control`, sub: `owner` }))
-    hub.onMessage(
-      desktop,
-      JSON.stringify({ t: `online`, deviceId: `dev-1`, deviceLabel: `Mac` })
-    )
-    hub.startSession(`owner`, `dev-1`, { issueId: `issue-1` })
-    // Offline device: routing fails, counter must not move.
-    hub.startSession(`owner`, `dev-404`, { issueId: `issue-1` })
+    hub.onMessage(desktop, JSON.stringify({ t: `online`, deviceId: `dev-1` }))
 
     const pub = connectPublisher(hub)
     const member = connectMember(hub)
@@ -3154,7 +2673,6 @@ describe(`stats counters (EXP-553)`, () => {
 
     const counters = hub.counters()
     expect(counters.connectionsAccepted).toBe(3)
-    expect(counters.startsRouted).toBe(1)
     expect(counters.activityFramesFanned).toBeGreaterThanOrEqual(1)
     expect(counters.slowConsumerEvictions).toBe(0)
 
@@ -3182,7 +2700,7 @@ describe(`viewer keepalive (EXP-648)`, () => {
     hub.onOpen(desktop, claims({ role: `control`, sub: `owner` }))
     hub.onMessage(
       desktop,
-      JSON.stringify({ t: `online`, deviceId: `dev-1`, deviceLabel: `Mac` })
+      JSON.stringify({ t: `online`, deviceId: `dev-1` })
     )
     const pub = connectPublisher(hub)
     const member = connectMember(hub)

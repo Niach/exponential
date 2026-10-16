@@ -126,18 +126,21 @@ export function InboxUnreadBadge({ placement }: { placement: BadgePlacement }) {
 }
 
 /** EXP-1293: the Threads entry's dot — green while a thread of the team
- *  runs, amber while one needs you (`threadsNavState`). */
+ *  runs, amber while one needs you (`threadsNavState`); EXP-1323: else the
+ *  unread dot (the Inbox's) while a thread holds an unread reply. */
 export function ThreadsLiveBadge({
   state,
   placement,
 }: {
-  state: { live: boolean; needsYou: boolean }
+  state: { live: boolean; needsYou: boolean; unread?: boolean }
   placement: BadgePlacement
 }) {
-  if (!state.live) return null
+  if (!state.live && !state.unread) return null
   return (
     <NavDot
-      className={state.needsYou ? `bg-yellow-400` : `bg-green-500`}
+      className={
+        state.needsYou ? `bg-yellow-400` : state.live ? `bg-green-500` : `bg-primary`
+      }
       placement={placement}
     />
   )
@@ -258,7 +261,7 @@ export function TeamSidebarRail({
   agents: readonly AgentRow[]
   /** The Threads list (`useThreadsList`), read once by the sidebar. */
   threads: SidebarThreads
-  threadsNav: { live: boolean; needsYou: boolean }
+  threadsNav: { live: boolean; needsYou: boolean; unread?: boolean }
   onWhatsNew: () => void
 }) {
   const params = { teamSlug }

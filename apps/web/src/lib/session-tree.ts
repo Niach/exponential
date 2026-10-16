@@ -67,6 +67,8 @@ export function toTreeSession(row: SessionRow): TreeSession {
     endedAt: iso(row.endedAt),
     createdAt: iso(row.createdAt) ?? new Date(0).toISOString(),
     updatedAt: iso(row.updatedAt) ?? new Date(0).toISOString(),
+    caption: row.caption ?? null,
+    aside: row.aside ?? false,
   }
 }
 
@@ -89,6 +91,7 @@ export function toTreeMessage(row: MessageRow): TreeMessage {
     answeredAt: iso(row.answeredAt),
     consumedAt: iso(row.consumedAt),
     createdAt: iso(row.createdAt) ?? new Date(0).toISOString(),
+    authorSessionId: row.authorSessionId ?? null,
   }
 }
 

@@ -42,7 +42,7 @@ const DEVICE_COLUMNS = [
   `agent_accounts`,
   `agent_usage`,
   `agent_usage_at`,
-  // EXP-1196: the device's readiness report (NULL = an older build).
+  // EXP-1196: the device's readiness report (NULL = not reported yet).
   `doctor`,
   `active_sessions`,
   `last_seen_at`,

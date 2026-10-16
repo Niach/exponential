@@ -14,33 +14,7 @@ import {
   type ClientFrame,
   type CompactRefusal,
   type ServerFrame,
-  type StartInput,
-  type StartRepoGroup,
-  type StartSessionOptions,
 } from "./protocol"
-
-// A remote start's subject: a single issue (wire-unchanged), a batch group,
-// or an action run (EXP-253 — repo absent for repo-less actions; `inputs`
-// carries the EXP-257 resolved input values).
-export type StartSubject =
-  | { issueId: string }
-  | { issueIds: string[]; teamId: string; repo: StartRepoGroup }
-  | {
-      actionId: string
-      actionName: string
-      teamId: string
-      repo?: StartRepoGroup
-      inputs?: StartInput[]
-    }
-  // EXP-637: resume an ended run — see the ServerFrame arm in protocol.ts.
-  | {
-      resumeSessionId: string
-      teamId: string
-      issueId?: string
-      actionId?: string
-      actionName?: string
-      branch?: string
-    }
 
 // Abstracted so the hub is unit-testable with fake sockets; the Bun layer
 // adapts ServerWebSocket to this. Text-only since EXP-249 removed the binary
@@ -359,7 +333,6 @@ export class Hub {
   // because /healthz is public).
   private connectionsAccepted = 0
   private activityFramesFanned = 0
-  private startsRouted = 0
   private slowConsumerEvictions = 0
   // EXP-656: churn diagnostics — a viewer that redials every ~30s shows up as
   // a join rate, a desktop the idle detector keeps detaching as idle closes.
@@ -533,7 +506,7 @@ export class Hub {
         // entry it registered before — onClose only reclaims the LAST
         // announced id, so without this every extra `online` frame leaked a
         // DeviceEntry forever (unbounded heap for a hostile control client,
-        // and ghost devices whose startSession sends into a dead socket).
+        // and ghost devices whose nudge sends into a dead socket).
         // One control socket owns at most one presence entry.
         if (conn.deviceId && conn.deviceId !== msg.deviceId) {
           if (byDevice?.get(conn.deviceId) === conn) {
@@ -891,71 +864,6 @@ export class Hub {
     }
   }
 
-  /** Route a remote "Start on my desktop" to the device's control socket.
-   * `subject` is a single issue (wire-unchanged), a batch group (issueIds +
-   * teamId + repo), or an action run (actionId + actionName + teamId +
-   * optional repo — EXP-253). `options` fields are optional launch options
-   * (EXP-149); undefineds are dropped by JSON.stringify, so an option-less
-   * single-issue start stays byte-identical to the pre-options frame. */
-  startSession(
-    userId: string,
-    deviceId: string,
-    subject: StartSubject,
-    options: StartSessionOptions = {}
-  ): { ok: true } | { ok: false; reason: `device_offline` } {
-    const control = this.devices.get(userId)?.get(deviceId)
-    if (!control) return { ok: false, reason: `device_offline` }
-    // Build each variant explicitly — a raw union spread won't narrow for the
-    // ServerFrame `frame()` call. Single-issue key order (t, issueId, options)
-    // stays byte-for-byte with the pre-batch frame.
-    const payload: ServerFrame =
-      `resumeSessionId` in subject
-        ? {
-            t: `start_session`,
-            resumeSessionId: subject.resumeSessionId,
-            teamId: subject.teamId,
-            ...(subject.issueId ? { issueId: subject.issueId } : {}),
-            ...(subject.actionId ? { actionId: subject.actionId } : {}),
-            ...(subject.actionName ? { actionName: subject.actionName } : {}),
-            ...(subject.branch ? { branch: subject.branch } : {}),
-            // A resume carries no launch options — only the attribution,
-            // (EXP-679) the agent-started marker and (EXP-849/EXP-906) the
-            // account: a resume naming another profile IS the mid-run
-            // account switch, and dropping it here made every remote switch
-            // a silent same-account resume.
-            ...(options.startedBy ? { startedBy: options.startedBy } : {}),
-            ...(options.startedReason
-              ? { startedReason: options.startedReason }
-              : {}),
-            ...(options.account ? { account: options.account } : {}),
-            // FEED-63: the start id rides a resume too (a failed resume is
-            // reported under it like any other start).
-            ...(options.startId ? { startId: options.startId } : {}),
-          }
-        : `issueId` in subject
-          ? { t: `start_session`, issueId: subject.issueId, ...options }
-          : `actionId` in subject
-            ? {
-                t: `start_session`,
-                actionId: subject.actionId,
-                actionName: subject.actionName,
-                teamId: subject.teamId,
-                ...(subject.repo ? { repo: subject.repo } : {}),
-                ...(subject.inputs ? { inputs: subject.inputs } : {}),
-                ...options,
-              }
-            : {
-                t: `start_session`,
-                issueIds: subject.issueIds,
-                teamId: subject.teamId,
-                repo: subject.repo,
-                ...options,
-              }
-    control.sock.send(frame(payload))
-    this.startsRouted += 1
-    return { ok: true }
-  }
-
   /** EXP-481: fire-and-forget `check_in` nudge to a device's control socket —
    * "the server persisted new work for you, heartbeat now". Returns whether a
    * live socket received it; the heartbeat pickup is the durable path either
@@ -1058,7 +966,6 @@ export class Hub {
     return {
       connectionsAccepted: this.connectionsAccepted,
       activityFramesFanned: this.activityFramesFanned,
-      startsRouted: this.startsRouted,
       slowConsumerEvictions: this.slowConsumerEvictions,
       viewerJoins: this.viewerJoins,
       publisherIdleCloses: this.publisherIdleCloses,
@@ -1229,8 +1136,8 @@ export class Hub {
   private requestHistory(conn: Conn, sessionId: string): Room | undefined {
     const deviceId = conn.claims.deviceId
     if (!deviceId) {
-      // No device claim (an older web build, or a session that never named
-      // one): nothing can serve the transcript — the pre-EXP-773 answer.
+      // No device claim (a session that never named one): nothing can
+      // serve the transcript.
       conn.sock.send(frame({ t: `error`, code: `no_such_session` }))
       conn.sock.close(CLOSE_SESSION_ENDED, `no_such_session`)
       return undefined

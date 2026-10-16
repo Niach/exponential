@@ -32,11 +32,6 @@ function chip(patch: Partial<AccountChipRow> = {}): AccountChipRow {
   }
 }
 
-// The EXP-862 build: remove, no sign-out body yet.
-const ALL_CAPS = [`agent-login`, `account-switch`, `account-remove`]
-// EXP-1137: a build that also signs logins out.
-const SIGN_OUT_CAPS = [...ALL_CAPS, `account-sign-out`]
-
 /** `deviceIsMine` reads the absence of an owner, so a teammate's device is
  *  one that names one. */
 function device(patch: Partial<SteerDevice> = {}): SteerDevice {
@@ -48,93 +43,47 @@ function device(patch: Partial<SteerDevice> = {}): SteerDevice {
     registered: true,
     online: true,
     lastSeenAt: new Date().toISOString(),
-    caps: ALL_CAPS,
     ...patch,
   }
 }
 
 describe(`accountChipActions`, () => {
+  // The order is fixed ×4: sign in, sign out, remove.
   it(`offers the repairs that state allows`, () => {
     // Signed out or expired: the sign-in leads, and (EXP-944) the removal
-    // rides along — a dead profile is exactly what people want gone.
+    // rides along — a dead profile is exactly what people want gone. A
+    // signed-out login has nothing to sign out of.
     expect(
       accountChipActions(
-        device(),
         chip({ signedIn: false, active: true, health: `signed_out` })
       )
     ).toEqual([ACTION_SIGN_IN, ACTION_REMOVE])
+    // A revoked credential still signs out (EXP-1137): that is how it leaves.
     expect(
-      accountChipActions(device(), chip({ health: `needs_relogin` }))
-    ).toEqual([ACTION_SIGN_IN, ACTION_REMOVE])
-    // Healthy: only the removal, last used or not (EXP-1158: nothing picks
+      accountChipActions(chip({ health: `needs_relogin` }))
+    ).toEqual([ACTION_SIGN_IN, ACTION_SIGN_OUT, ACTION_REMOVE])
+    // Healthy: sign out + remove, last used or not (EXP-1158: nothing picks
     // the login the machine starts on).
-    expect(accountChipActions(device(), chip())).toEqual([ACTION_REMOVE])
-    expect(accountChipActions(device(), chip({ active: true }))).toEqual([
-      ACTION_REMOVE,
-    ])
-  })
-
-  it(`gates each entry on its own cap`, () => {
-    expect(
-      accountChipActions(
-        device({ caps: [`agent-login`, `account-remove`] }),
-        chip()
-      )
-    ).toEqual([ACTION_REMOVE])
-    expect(
-      accountChipActions(
-        device({ caps: [`agent-login`, `account-switch`] }),
-        chip()
-      )
-    ).toEqual([])
-  })
-
-  // EXP-1137: a build with the sign-out body offers "Sign out" on every
-  // signed-in login. The order is fixed ×4: sign in, sign out, remove.
-  it(`offers a sign-out on a build that signs out`, () => {
-    const machine = device({ caps: SIGN_OUT_CAPS })
-    expect(accountChipActions(machine, chip())).toEqual([
+    expect(accountChipActions(chip())).toEqual([
       ACTION_SIGN_OUT,
       ACTION_REMOVE,
     ])
-    // A revoked credential still signs out: that is how it leaves.
-    expect(
-      accountChipActions(machine, chip({ health: `needs_relogin` }))
-    ).toEqual([ACTION_SIGN_IN, ACTION_SIGN_OUT, ACTION_REMOVE])
-    // A signed-out login has nothing to sign out of.
-    expect(
-      accountChipActions(
-        machine,
-        chip({ signedIn: false, health: `signed_out` })
-      )
-    ).toEqual([ACTION_SIGN_IN, ACTION_REMOVE])
-    // The sign-out cap alone (no `account-remove`) removes nothing.
-    expect(
-      accountChipActions(
-        device({ caps: [`agent-login`, `account-sign-out`] }),
-        chip()
-      )
-    ).toEqual([ACTION_SIGN_OUT])
+    expect(accountChipActions(chip({ active: true }))).toEqual([
+      ACTION_SIGN_OUT,
+      ACTION_REMOVE,
+    ])
   })
 })
 
 describe(`accountChipActionable`, () => {
-  it(`is a control only on my own online device that takes the commands`, () => {
-    expect(accountChipActionable(device(), chip())).toBe(true)
+  it(`is a control only on my own online device`, () => {
+    expect(accountChipActionable(device())).toBe(true)
     expect(
-      accountChipActionable(
-        device({ owner: { id: `u2`, name: `Lukas` } }),
-        chip()
-      )
+      accountChipActionable(device({ owner: { id: `u2`, name: `Lukas` } }))
     ).toBe(false)
-    expect(accountChipActionable(device({ online: false }), chip())).toBe(false)
-    expect(
-      accountChipActionable(device({ caps: [`account-remove`] }), chip())
-    ).toBe(false)
-    // Nothing to offer = a statement, not a control.
-    expect(
-      accountChipActionable(device({ caps: [`agent-login`] }), chip())
-    ).toBe(false)
+    expect(accountChipActionable(device({ online: false }))).toBe(false)
+    // No build cap gates it any more (every daemon at the floor runs them).
+    expect(accountChipActionable(device({ caps: [] }))).toBe(true)
   })
 })
 

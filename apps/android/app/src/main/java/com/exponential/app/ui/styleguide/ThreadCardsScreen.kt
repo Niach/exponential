@@ -15,11 +15,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.IssueStatus
 import com.exponential.app.domain.IssueStatusResolver
 import com.exponential.app.domain.ScriptCall
 import com.exponential.app.domain.ScriptCardInput
 import com.exponential.app.domain.ScriptCards
+import com.exponential.app.domain.SessionTree
 import com.exponential.app.domain.WorkCardInput
 import com.exponential.app.domain.WorkCardPhaseInput
 import com.exponential.app.domain.WorkCardTask
@@ -27,9 +29,14 @@ import com.exponential.app.domain.WorkCardWorkflowAgent
 import com.exponential.app.domain.WorkCards
 import com.exponential.app.ui.components.AgentRunMark
 import com.exponential.app.ui.components.IssueChip
+import com.exponential.app.ui.components.modelLabel
 import com.exponential.app.ui.session.CommentCallCard
 import com.exponential.app.ui.session.ScriptCardView
 import com.exponential.app.ui.session.WorkCardView
+import com.exponential.app.ui.thread.SessionCard
+import com.exponential.app.ui.thread.ThreadReportLine
+import com.exponential.app.ui.thread.ThreadSuggestionActions
+import com.exponential.app.ui.thread.ThreadSuggestionsCard
 import com.exponential.app.ui.theme.AppBackground
 import com.exponential.app.ui.theme.TextEmphasis
 
@@ -38,6 +45,9 @@ enum class ThreadCardsKind(val testId: String) {
     Work("work-card-screen"),
     Script("script-card-screen"),
     Comment("comment-call-card-screen"),
+    /** EXP-1323: the suggested tasks card in every state, a report line and
+     *  a session card with its live caption. */
+    Suggestions("thread-suggestions-screen"),
 }
 
 /**
@@ -64,6 +74,7 @@ fun ThreadCardsScreen(kind: ThreadCardsKind) {
                     ThreadCardsKind.Work -> WorkCardSpecimens()
                     ThreadCardsKind.Script -> ScriptCardSpecimens()
                     ThreadCardsKind.Comment -> CommentCardSpecimens()
+                    ThreadCardsKind.Suggestions -> SuggestionsSpecimens()
                 }
             }
         }
@@ -168,4 +179,85 @@ private fun CommentCardSpecimens() {
         body = null,
         running = true,
     )
+}
+
+private fun specimenCard(id: String, name: String, state: SessionTree.SessionState, elapsed: String?, caption: String?) =
+    SessionTree.SessionCard(
+        sessionId = id,
+        icon = SessionTree.CardCopy.ICONS.getValue(state),
+        name = name,
+        kindWord = SessionTree.CardCopy.STATES.getValue(state),
+        state = state,
+        tone = SessionTree.CardCopy.TONES.getValue(state),
+        elapsed = elapsed,
+        running = state == SessionTree.SessionState.Working,
+        testId = SessionTree.CardCopy.TEST_ID_CARD,
+        caption = caption,
+    )
+
+/** EXP-1323: the `session-thread.json` live dispatcher case, drawn by the
+ *  real thread composables (read-only actions: nothing is sent). */
+@Composable
+private fun SuggestionsSpecimens() {
+    val actions = ThreadSuggestionActions(
+        onStart = { _, _, _, _ -> },
+        onStartAll = {},
+        onHere = { _, _ -> },
+        onDismiss = { _, _ -> },
+        onFile = { _, _ -> },
+        models = DomainContract.codingModelValues.map { it to modelLabel(it) },
+    )
+    Caption("Session")
+    SessionCard(
+        card = specimenCard("r", "Speed up the shop", SessionTree.SessionState.Working, "9m 00s", "Dispatching"),
+        onClick = {},
+    )
+    Caption("Suggested tasks")
+    ThreadSuggestionsCard(
+        row = SessionTree.ThreadRow.Suggestions(
+            id = "m2",
+            sessionId = "r",
+            header = "5 suggested tasks · 2 started",
+            startAll = false,
+            items = listOf(
+                SessionTree.SuggestionRow(
+                    id = "s1",
+                    title = "Add width and height to cart thumbnails",
+                    text = "Avoid layout shift in the cart.",
+                    state = SessionTree.SuggestionState.Started,
+                    card = specimenCard(
+                        "c1", "Add width and height to cart thumbnails", SessionTree.SessionState.Working,
+                        "6m 00s", "Reading CartLineItem.tsx",
+                    ),
+                    issueId = null,
+                    identifier = null,
+                ),
+                SessionTree.SuggestionRow(
+                    id = "s2",
+                    title = "Lazy-load product images",
+                    text = "Below-the-fold images load late.",
+                    state = SessionTree.SuggestionState.Started,
+                    card = specimenCard("c2", "Lazy-load product images", SessionTree.SessionState.Ended, "3m 00s", null),
+                    issueId = null,
+                    identifier = null,
+                ),
+                SessionTree.SuggestionRow(
+                    "s3", "Cache headers", "Long-cache the static assets.",
+                    SessionTree.SuggestionState.Filed, null, "i-9", "EXP-9",
+                ),
+                SessionTree.SuggestionRow(
+                    "s4", "Measure LCP", "Run Lighthouse here.",
+                    SessionTree.SuggestionState.Here, null, null, null,
+                ),
+                SessionTree.SuggestionRow(
+                    "s6", "Preload the hero font", "Saves a round trip.",
+                    SessionTree.SuggestionState.Open, null, null, null,
+                ),
+            ),
+        ),
+        actions = actions,
+        onOpenSession = {},
+    )
+    Caption("Report")
+    ThreadReportLine(text = "Report from Lazy-load product images", onOpen = {})
 }

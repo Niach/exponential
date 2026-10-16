@@ -389,21 +389,7 @@ editors keep `editor-image`. Ask/plan option rows use the row radius
 (design token `radius.md` = 10 px) ×4, never a capsule; the number-key chip
 uses `radius.sm`.
 
-## 14. `start_session.startId` is the client's, and starts are idempotent (EXP-1259)
-
-`startId` (FEED-63, optional on every `start_session` subject incl. a resume,
-a non-empty string ≤128 chars, absent stays absent) is now minted by the
-CLIENT: every Start press mints a uuid, `steer.startSession({startId})` forwards
-it verbatim (the server mints one only when the client sent none), and the
-composer's timeout Retry REUSES it (`feedback-states.json` `starting`). The
-relay never dedupes: it forwards every frame as is. The DEVICE does: both
-hosts (the desktop IDE and the headless `exponential` daemon) read starts
-through `crates/steer` `control_channel`, which ignores a `start_session`
-whose `startId` it already started (in-memory, the last 256 ids within 30 min;
-a restart forgets them). A start that failed (`steer.reportStartFailure`)
-gives its id back, so its Retry may run.
-
-## 15. `thought` rows (EXP-1324)
+## 14. `thought` rows (EXP-1324)
 
 ```
 { kind: "thought", id, state: "started" | "ended", durationMs?, subagentId?, at }

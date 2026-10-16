@@ -23,7 +23,8 @@ final class SessionListsModel {
     private(set) var running: [ThreadsListRow] = []
     /// A thread's first linked issue identifier (the row's mono id).
     private(set) var identifiers: [String: String] = [:]
-    /// A root's agent CLI (the row's run mark), by root id.
+    /// A session's agent CLI (the row's run mark), by session id (EXP-1323:
+    /// nested child rows too).
     private(set) var clis: [String: String] = [:]
     /// EXP-1309: a Threads row's quiet word off its pull requests, by root id
     /// (`SessionTree.threadRowWord`).
@@ -44,6 +45,12 @@ final class SessionListsModel {
     /// The Threads tab's green dot: a thread runs.
     var threadsRunning: Bool {
         groups.contains { $0.key == .running }
+    }
+
+    /// EXP-1323: a thread row is unread (`threadsUnread`) — the Threads
+    /// tab's dot when nothing runs or waits.
+    var threadsUnread: Bool {
+        SessionTree.threadsUnread(groups)
     }
 
     /// The Threads tab's amber dot: a thread or an agent waits on a person.
@@ -101,6 +108,7 @@ final class SessionListsModel {
         var sessionIssues: [TreeSessionIssue]
         var issues: [TreeIssue]
         var messages: [TreeMessage]
+        var reads: [TreeSessionRead]
         var clis: [String: String]
         var pullRequests: [PullRequestEntity]
         var deviceRows: [DeviceEntity]
@@ -144,13 +152,34 @@ final class SessionListsModel {
             .filter(Column("author_kind") == DomainContract.messageAuthorKindUser)
             .order(Column("created_at"))
             .fetchAll(db)
+        // EXP-1323: unread only reads each session's NEWEST agent message, so
+        // one aggregate row per session stands in for the transcript.
+        let newestAgent = try Row.fetchAll(db, sql: """
+            SELECT "session_id", MAX("created_at") AS "at" FROM "messages"
+            WHERE "author_kind" = ? GROUP BY "session_id"
+            """, arguments: [DomainContract.messageAuthorKindAgent])
+            .compactMap { row -> TreeMessage? in
+                guard let sessionId: String = row["session_id"], let at: String = row["at"] else { return nil }
+                return TreeMessage(
+                    id: "newest-agent-\(sessionId)",
+                    sessionId: sessionId,
+                    authorKind: DomainContract.messageAuthorKindAgent,
+                    authorId: nil,
+                    body: "",
+                    card: nil,
+                    answeredAt: nil,
+                    consumedAt: at,
+                    createdAt: at
+                )
+            }
         return Rows(
             sessions: sessions.map { TreeSession(sessionRow: $0) },
             sessionIssues: links.map { TreeSessionIssue(sessionIssueRow: $0) },
             issues: issues.map { TreeIssue(issueRow: $0) },
-            messages: messages.map { TreeMessage(messageRow: $0) },
+            messages: messages.map { TreeMessage(messageRow: $0) } + newestAgent,
+            reads: try SessionReadEntity.fetchAll(db).map { TreeSessionRead(sessionReadRow: $0) },
             clis: Dictionary(
-                sessions.filter(\.isRoot).map { ($0.id, $0.cli ?? "") },
+                sessions.map { ($0.id, $0.cli ?? "") },
                 uniquingKeysWith: { a, _ in a }
             ),
             pullRequests: try PullRequestEntity.fetchAll(db),
@@ -164,7 +193,8 @@ final class SessionListsModel {
             sessionIssues: rows.sessionIssues,
             issues: rows.issues,
             messages: rows.messages,
-            teamId: nil
+            teamId: nil,
+            reads: rows.reads
         )
         // Roots holding a live session of mine (any depth of the tree).
         let mine = Set(rows.sessions.filter {
@@ -173,7 +203,7 @@ final class SessionListsModel {
         let running = groups
             .filter { $0.key != .recent }
             .flatMap(\.rows)
-            .filter { mine.contains($0.sessionId) }
+            .filter { $0.depth == 0 && mine.contains($0.sessionId) }
         let identifierById = Dictionary(
             rows.issues.map { ($0.id, $0.identifier) }, uniquingKeysWith: { a, _ in a }
         )
@@ -190,7 +220,8 @@ final class SessionListsModel {
             $0.rootSessionId ?? ""
         }
         var words: [String: ThreadRowWord] = [:]
-        for row in groups.flatMap(\.rows) {
+        // EXP-1323: a nested child row carries no word (web + IDE).
+        for row in groups.flatMap(\.rows) where row.depth == 0 {
             words[row.sessionId] = SessionTree.threadRowWord(
                 busy: row.busy,
                 needsYou: row.needsYou,

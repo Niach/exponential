@@ -148,8 +148,8 @@ pub fn connect_account(account: &api::Account, cx: &mut App) -> bool {
 /// first time one is seen (`onlyIfUnset` — an explicit pick in settings, or
 /// on the web, always wins). The daily digest's send hour is read in it, so
 /// an account that never sets one would fall back to UTC. Fire-and-forget on
-/// the background executor: failures (offline, an older server without the
-/// route) only mean the next sign-in tries again.
+/// the background executor: failures (offline, a transport error) only
+/// mean the next sign-in tries again.
 fn claim_timezone(account: &api::Account, cx: &mut App) {
     let timezone = match iana_time_zone::get_timezone() {
         Ok(timezone) => timezone,

@@ -1226,7 +1226,434 @@ pub(crate) fn card_row(
             caption,
         } => picture_row(id, attachment_id, *width, *height, caption.as_deref(), images, cx),
         SessionThreadRow::Event { text, .. } => muted_line(registry::EVENT_STATUS_CHANGED, text.clone(), cx),
+        SessionThreadRow::Report { id, session_id, text, .. } => report_line(id, session_id, text, root_id, cx),
+        SessionThreadRow::Suggestions {
+            id,
+            header,
+            start_all,
+            items,
+            ..
+        } => suggestions_card(id, header, *start_all, items, root_id, team_id, cx),
     })
+}
+
+// ---------------------------------------------------------------------------
+// EXP-1323: a child's report line + THE suggested tasks card
+// ---------------------------------------------------------------------------
+
+/// A child's end report = ONE event line `↩ Report from <session> ›`
+/// opening that session; its summary is never repeated (the parent's next
+/// message relays it).
+pub(crate) fn report_line(id: &str, session_id: &str, text: &str, root_id: &str, cx: &App) -> AnyElement {
+    let muted = cx.theme().muted_foreground;
+    let hover = cx.theme().foreground;
+    let session_id = session_id.to_string();
+    let root_id = root_id.to_string();
+    h_flex()
+        .id(SharedString::from(format!("{}-{id}", THREAD.test_ids.report)))
+        .max_w_full()
+        .min_w_0()
+        .gap_1p5()
+        .items_center()
+        .text_xs()
+        .text_color(muted)
+        .cursor_pointer()
+        .hover(move |style| style.text_color(hover))
+        .child(Icon::new(registry::NOTIFICATION_REPORTER_REPLY).xsmall().flex_shrink_0())
+        .child(div().min_w_0().truncate().child(SharedString::from(text.to_string())))
+        .child(Icon::new(registry::UI_CHEVRON_RIGHT).xsmall().flex_shrink_0())
+        .on_click(move |_, window, cx| open_session_card(&session_id, &root_id, window, cx))
+        .into_any_element()
+}
+
+/// The suggestion writes in flight: `<message>:<item>` (Start all =
+/// `<message>:*`) — the item's buttons lock until the write lands.
+#[derive(Default)]
+struct PendingSuggestions(HashSet<String>);
+
+impl gpui::Global for PendingSuggestions {}
+
+/// The pending key of one item (or, without one, the card's Start all) —
+/// web `suggestionKey`.
+pub(crate) fn suggestion_key(message_id: &str, item_id: Option<&str>) -> String {
+    format!("{message_id}:{}", item_id.unwrap_or("*"))
+}
+
+fn suggestion_pending(key: &str, cx: &App) -> bool {
+    cx.try_global::<PendingSuggestions>().is_some_and(|pending| pending.0.contains(key))
+}
+
+/// One suggestion write (`sessions.startSuggestion` / `startAllSuggestions`
+/// / `dismissSuggestion` / `fileSuggestion`): once per key while in flight;
+/// a failure is the `Couldn't <verb> <thing>` toast.
+fn suggestion_write(
+    key: String,
+    verb: &'static str,
+    thing: &'static str,
+    cx: &mut App,
+    call: impl FnOnce(&api::TrpcClient) -> Result<serde::de::IgnoredAny, api::ApiError> + Send + 'static,
+) {
+    if !cx.default_global::<PendingSuggestions>().0.insert(key.clone()) {
+        return;
+    }
+    cx.refresh_windows();
+    let Some(trpc) = crate::queries::trpc_client(cx) else {
+        cx.default_global::<PendingSuggestions>().0.remove(&key);
+        crate::action_error::failed_action(verb, thing, None, cx);
+        return;
+    };
+    cx.spawn(async move |cx| {
+        let result = cx.background_executor().spawn(async move { call(&trpc) }).await;
+        cx.update(|cx| {
+            cx.default_global::<PendingSuggestions>().0.remove(&key);
+            cx.refresh_windows();
+            if let Err(err) = result {
+                log::warn!("[thread] {verb} {thing} failed: {err}");
+                crate::action_error::failed_action_err(verb, thing, &err, cx);
+            }
+        });
+    })
+    .detach();
+}
+
+/// Start one item: a child (`device_id` / `model` from the Options menu)
+/// or, with `here`, a message to the posting session (Do it here).
+pub(crate) fn start_suggestion(
+    message_id: &str,
+    item_id: &str,
+    here: bool,
+    device_id: Option<String>,
+    model: Option<String>,
+    cx: &mut App,
+) {
+    let where_ = if here {
+        api::sessions::SuggestionWhere::Here
+    } else {
+        api::sessions::SuggestionWhere::Child
+    };
+    let input = api::sessions::StartSuggestionInput {
+        device_id,
+        model,
+        ..api::sessions::StartSuggestionInput::new(message_id, item_id, where_)
+    };
+    suggestion_write(suggestion_key(message_id, Some(item_id)), "start", "the task", cx, move |trpc| {
+        api::sessions::start_suggestion(trpc, &input)
+    });
+}
+
+fn start_all_suggestions(message_id: String, cx: &mut App) {
+    suggestion_write(suggestion_key(&message_id, None), "start", "the tasks", cx, move |trpc| {
+        api::sessions::start_all_suggestions(trpc, &message_id)
+    });
+}
+
+fn dismiss_suggestion(message_id: String, item_id: String, cx: &mut App) {
+    suggestion_write(suggestion_key(&message_id, Some(&item_id)), "dismiss", "the task", cx, move |trpc| {
+        api::sessions::dismiss_suggestion(trpc, &message_id, &item_id)
+    });
+}
+
+fn file_suggestion(message_id: String, item_id: String, cx: &mut App) {
+    suggestion_write(suggestion_key(&message_id, Some(&item_id)), "file", "the issue", cx, move |trpc| {
+        api::sessions::file_suggestion(trpc, &message_id, &item_id)
+    });
+}
+
+/// THE suggested tasks card ×4 = the Work card's shell: a header
+/// (`3 suggested tasks`, `· 2 started`, Start all while more than one is
+/// open), then hairline-divided items — open = title, text, × · Options ·
+/// Do it here · Start; started = the child's session card (its caption
+/// under the name) opening it; here = `Sent here`; filed = `Filed EXP-9`.
+pub(crate) fn suggestions_card(
+    message_id: &str,
+    header: &str,
+    start_all: bool,
+    items: &[domain::session_tree::SuggestionRow],
+    root_id: &str,
+    team_id: Option<&str>,
+    cx: &App,
+) -> AnyElement {
+    use gpui_component::button::Button;
+    let copy = &THREAD.copy.suggestions;
+    let muted = cx.theme().muted_foreground;
+    let all_key = suggestion_key(message_id, None);
+    let head = h_flex()
+        .w_full()
+        .min_w_0()
+        .min_h(px(36.))
+        .px_3()
+        .py_1p5()
+        .gap_2()
+        .items_center()
+        .child(Icon::new(registry::UI_CHECKLIST).xsmall().flex_shrink_0().text_color(muted))
+        .child(
+            div()
+                .min_w_0()
+                .truncate()
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(cx.theme().foreground)
+                .child(SharedString::from(header.to_string())),
+        )
+        .child(div().flex_1())
+        .when(start_all, |this| {
+            let message_id = message_id.to_string();
+            this.child(
+                Button::new(SharedString::from(format!("{}-start-all-{message_id}", THREAD.test_ids.suggestions)))
+                    .primary()
+                    .web_xs()
+                    .label(copy.start_all.clone())
+                    .loading(suggestion_pending(&all_key, cx))
+                    .on_click(move |_, _, cx| {
+                        cx.stop_propagation();
+                        start_all_suggestions(message_id.clone(), cx);
+                    }),
+            )
+        });
+    let rows = items
+        .iter()
+        .map(|item| suggestion_item_row(message_id, item, root_id, team_id, cx));
+    v_flex()
+        .id(SharedString::from(format!("{}-{message_id}", THREAD.test_ids.suggestions)))
+        .w_full()
+        .min_w_0()
+        .overflow_hidden()
+        .rounded(px(theme::tokens::radius::LG))
+        .border_1()
+        .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
+        .bg(theme::tokens::glass::FILL_CARD.to_hsla())
+        .text_xs()
+        .child(head)
+        .children(rows.map(|row| {
+            div()
+                .w_full()
+                .min_w_0()
+                .border_t_1()
+                .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
+                .child(row)
+        }))
+        .into_any_element()
+}
+
+fn suggestion_item_row(
+    message_id: &str,
+    item: &domain::session_tree::SuggestionRow,
+    root_id: &str,
+    team_id: Option<&str>,
+    cx: &App,
+) -> AnyElement {
+    use domain::session_tree::SuggestionState;
+    use gpui_component::{button::Button, Disableable as _};
+    let copy = &THREAD.copy.suggestions;
+    let muted = cx.theme().muted_foreground;
+    let line = || h_flex().w_full().min_w_0().min_h(px(36.)).px_3().py_1p5().gap_2().items_center();
+    match item.state {
+        SuggestionState::Started => match &item.card {
+            Some(card) => {
+                let session_id = card.session_id.clone();
+                let root_id = root_id.to_string();
+                crate::work_card::session_card_bare(
+                    card,
+                    move |window, cx| open_session_card(&session_id, &root_id, window, cx),
+                    cx,
+                )
+            }
+            // Started, the child's row not synced yet.
+            None => line()
+                .text_color(muted)
+                .child(gpui_component::spinner::Spinner::new().xsmall())
+                .child(div().min_w_0().truncate().child(SharedString::from(item.title.clone())))
+                .into_any_element(),
+        },
+        SuggestionState::Here | SuggestionState::Filed => {
+            let state_line: AnyElement = if item.state == SuggestionState::Here {
+                div().child(SharedString::from(copy.sent_here.clone())).into_any_element()
+            } else {
+                let (before, after) = copy.filed.split_once("{issue}").unwrap_or((copy.filed.as_str(), ""));
+                let identifier = item.identifier.clone().unwrap_or_default();
+                let issue_id = item.issue_id.clone();
+                let hover = cx.theme().foreground;
+                h_flex()
+                    .items_center()
+                    .child(SharedString::from(before.to_string()))
+                    .child(
+                        div()
+                            .id(SharedString::from(format!("thread-suggestion-filed-{message_id}-{}", item.id)))
+                            .font_family(theme::terminal::FONT_FAMILY)
+                            .cursor_pointer()
+                            .hover(move |style| style.text_color(hover))
+                            .child(SharedString::from(identifier))
+                            .on_click(move |_, window, cx| {
+                                if let Some(issue_id) = issue_id.clone() {
+                                    crate::navigation::navigate(window, cx, Screen::IssueDetail { issue_id });
+                                }
+                            }),
+                    )
+                    .child(SharedString::from(after.to_string()))
+                    .into_any_element()
+            };
+            line()
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .truncate()
+                        .text_color(muted)
+                        .child(SharedString::from(item.title.clone())),
+                )
+                .child(div().flex_shrink_0().text_color(muted).child(state_line))
+                .into_any_element()
+        }
+        SuggestionState::Open => {
+            let key = suggestion_key(message_id, Some(&item.id));
+            let busy = suggestion_pending(&key, cx);
+            let id = |part: &str| SharedString::from(format!("thread-suggestion-{part}-{message_id}-{}", item.id));
+            let (dismiss_message, dismiss_item) = (message_id.to_string(), item.id.clone());
+            let (here_message, here_item) = (message_id.to_string(), item.id.clone());
+            let (start_message, start_item) = (message_id.to_string(), item.id.clone());
+            let options = Button::new(id("options"))
+                .outline()
+                .web_xs()
+                .label(copy.options.clone())
+                .dropdown_caret(true)
+                .disabled(busy);
+            let menu_message = message_id.to_string();
+            let menu_item = item.id.clone();
+            let menu_team = team_id.map(str::to_string);
+            let text = item.text.trim();
+            h_flex()
+                .w_full()
+                .min_w_0()
+                .px_3()
+                .py(px(10.))
+                .gap_3()
+                .items_start()
+                .child(
+                    h_flex()
+                        .flex_1()
+                        .min_w_0()
+                        .gap_2()
+                        .items_start()
+                        .child(
+                            v_flex()
+                                .flex_1()
+                                .min_w_0()
+                                .child(
+                                    div()
+                                        .min_w_0()
+                                        .truncate()
+                                        .font_weight(FontWeight::MEDIUM)
+                                        .text_color(cx.theme().foreground)
+                                        .child(SharedString::from(item.title.clone())),
+                                )
+                                .when(!text.is_empty(), |this| {
+                                    this.child(
+                                        div().mt_0p5().text_color(muted).child(SharedString::from(text.to_string())),
+                                    )
+                                }),
+                        )
+                        .child(
+                            Button::new(id("dismiss"))
+                                .ghost()
+                                .web_icon_xs()
+                                .icon(Icon::new(registry::UI_CLOSE))
+                                .tooltip(copy.dismiss.clone())
+                                .disabled(busy)
+                                .on_click(move |_, _, cx| {
+                                    cx.stop_propagation();
+                                    dismiss_suggestion(dismiss_message.clone(), dismiss_item.clone(), cx);
+                                }),
+                        ),
+                )
+                .child(
+                    h_flex()
+                        .flex_shrink_0()
+                        .gap_1p5()
+                        .items_center()
+                        .child(crate::controls::PointerMenu::for_button(options, move |menu, window, cx| {
+                            suggestion_menu(menu, &menu_message, &menu_item, menu_team.as_deref(), window, cx)
+                        }))
+                        .child(
+                            Button::new(id("here"))
+                                .outline()
+                                .web_xs()
+                                .label(copy.here.clone())
+                                .disabled(busy)
+                                .on_click(move |_, _, cx| {
+                                    cx.stop_propagation();
+                                    start_suggestion(&here_message, &here_item, true, None, None, cx);
+                                }),
+                        )
+                        .child(
+                            Button::new(id("start"))
+                                .primary()
+                                .web_xs()
+                                .label(copy.start.clone())
+                                .loading(busy)
+                                .on_click(move |_, _, cx| {
+                                    cx.stop_propagation();
+                                    start_suggestion(&start_message, &start_item, false, None, None, cx);
+                                }),
+                        ),
+                )
+                .into_any_element()
+        }
+    }
+}
+
+/// An open item's Options = THE Menu: Start on… (the team's runnable
+/// devices) · Start with… (the contract models, never a default row) ·
+/// File as issue · Dismiss.
+fn suggestion_menu(
+    menu: gpui_component::menu::PopupMenu,
+    message_id: &str,
+    item_id: &str,
+    team_id: Option<&str>,
+    window: &mut Window,
+    cx: &mut gpui::Context<gpui_component::menu::PopupMenu>,
+) -> gpui_component::menu::PopupMenu {
+    use crate::controls::{danger_menu_item, pointer_menu_item};
+    let copy = &THREAD.copy.suggestions;
+    let devices = team_id
+        .map(|team_id| crate::settings::agent_detail::agent_devices(team_id, cx))
+        .unwrap_or_default();
+    let (device_message, device_item) = (message_id.to_string(), item_id.to_string());
+    let (model_message, model_item) = (message_id.to_string(), item_id.to_string());
+    let (file_message, file_item) = (message_id.to_string(), item_id.to_string());
+    let (dismiss_message, dismiss_item) = (message_id.to_string(), item_id.to_string());
+    menu.min_w(px(224.))
+        .submenu(copy.start_on.clone(), window, cx, move |mut sub, _, _| {
+            for device in &devices {
+                let (message_id, item_id) = (device_message.clone(), device_item.clone());
+                let device_id = device.device_id.clone();
+                sub = sub.item(pointer_menu_item(
+                    Some(crate::icons::device_icon(device.icon.as_deref(), device.server)),
+                    device.label.clone(),
+                    |_| None,
+                    move |_, cx| start_suggestion(&message_id, &item_id, false, Some(device_id.clone()), None, cx),
+                ));
+            }
+            sub
+        })
+        .submenu(copy.start_with.clone(), window, cx, move |mut sub, _, _| {
+            for model in domain::contract::CODING_MODEL_VALUES {
+                let (message_id, item_id) = (model_message.clone(), model_item.clone());
+                let label = crate::steer_viewer::model_label(model);
+                let model = model.to_string();
+                sub = sub.item(pointer_menu_item(None, label, |_| None, move |_, cx| {
+                    start_suggestion(&message_id, &item_id, false, None, Some(model.clone()), cx)
+                }));
+            }
+            sub
+        })
+        .separator()
+        .item(pointer_menu_item(Some(registry::UI_ADD), copy.file.clone(), |_| None, move |_, cx| {
+            file_suggestion(file_message.clone(), file_item.clone(), cx)
+        }))
+        .item(
+            danger_menu_item(copy.dismiss.clone(), Icon::new(registry::UI_CLOSE), cx).on_click(move |_, _, cx| {
+                dismiss_suggestion(dismiss_message.clone(), dismiss_item.clone(), cx)
+            }),
+        )
 }
 
 // ---------------------------------------------------------------------------
@@ -1564,6 +1991,10 @@ pub(crate) struct ThreadScreenView {
     /// tree): its id and the screen view whose transcript the body hosts.
     focus: Option<(String, Entity<crate::session_screen::SessionScreenView>)>,
     _focus_sub: Option<Subscription>,
+    /// EXP-1323: the live tail's relay viewer of `view.live_session_id`
+    /// (the Conversation's Tasks card + status line), while it shows.
+    tail: Option<(String, Entity<crate::session_screen::SessionScreenView>)>,
+    _tail_sub: Option<Subscription>,
     tree: TreeHover,
     _tree_close: Option<Task<()>>,
     _missing_tick: Task<()>,
@@ -1626,6 +2057,8 @@ impl ThreadScreenView {
             _ring_tick: None,
             focus: None,
             _focus_sub: None,
+            tail: None,
+            _tail_sub: None,
             tree: TreeHover::default(),
             _tree_close: None,
             _missing_tick: missing_tick,
@@ -1689,8 +2122,12 @@ impl ThreadScreenView {
             .is_some_and(|(at, fresh)| *fresh && at.elapsed() < NEW_CHILD_WINDOW)
     }
 
-    /// The tab closed: an open issue child flushes its edit.
+    /// The tab closed: an open issue child flushes its edit (EXP-1323: and
+    /// the live tail's viewer lets go of its relay socket).
     pub(crate) fn shutdown(&mut self, cx: &mut App) {
+        if let Some((_, view)) = self.tail.take() {
+            view.update(cx, |view, cx| view.shutdown(cx));
+        }
         if let (ThreadChildSel::Issue(_), Some(view)) = (&self.child, &self.issue_view) {
             view.update(cx, |detail, cx| {
                 detail.flush_title(cx);
@@ -2093,6 +2530,7 @@ impl ThreadScreenView {
             author_id,
             body,
             queued,
+            ..
         } = row
         {
             let markdown = message_markdown(
@@ -2116,6 +2554,32 @@ impl ThreadScreenView {
         card_row(row, &self.root_id, team_id, &self.images, window, cx).unwrap_or_else(|| div().into_any_element())
     }
 
+    /// EXP-1323: keep ONE relay viewer on `live` (the view's
+    /// `live_session_id`) while the Conversation shows; `None` drops it. A
+    /// REMOTE viewer always — it never takes a local engine's handle.
+    fn sync_tail(&mut self, live: Option<&str>, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        if self.tail.as_ref().map(|(id, _)| id.as_str()) == live {
+            return;
+        }
+        if let Some((_, view)) = self.tail.take() {
+            view.update(cx, |view, cx| view.shutdown(cx));
+        }
+        self._tail_sub = None;
+        if let Some(live) = live {
+            let id = live.to_string();
+            let view = cx.new(|cx| crate::session_screen::SessionScreenView::remote(id.clone(), window, cx));
+            self._tail_sub = Some(cx.observe(&view, |_, _, cx| cx.notify()));
+            self.tail = Some((id, view));
+        }
+    }
+
+    /// EXP-1323: the live tail after the last row ([`sync_tail`]'s viewer).
+    fn render_tail(&self, window: &Window, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
+        let (_, view) = self.tail.as_ref()?;
+        let inner = view.read(cx).inner().clone();
+        inner.update(cx, |inner, cx| inner.live_tail(window, cx))
+    }
+
     fn render_conversation(&mut self, model: &ThreadModel, window: &Window, cx: &mut gpui::Context<Self>) -> AnyElement {
         let rows: Vec<AnyElement> = model
             .view
@@ -2123,6 +2587,7 @@ impl ThreadScreenView {
             .iter()
             .map(|row| self.render_row(row, model, window, cx))
             .collect();
+        let tail = self.render_tail(window, cx);
         let column = v_flex()
             .id(SharedString::from(THREAD.test_ids.conversation.clone()))
             .w_full()
@@ -2132,7 +2597,8 @@ impl ThreadScreenView {
             .pt_8()
             .pb_8()
             .gap_5()
-            .children(rows);
+            .children(rows)
+            .children(tail);
         // THE session composer of the session view, targeting the root.
         let composer = self
             .composer
@@ -2350,6 +2816,17 @@ impl Render for ThreadScreenView {
             self.set_child(ThreadChildSel::Issue(issue_id), window, cx);
         }
         let header = self.render_header(&model, cx);
+        // EXP-1323: the live tail's viewer rides the Conversation only.
+        let live = (self.focus.is_none() && self.child == ThreadChildSel::Conversation)
+            .then(|| model.view.live_session_id.clone())
+            .flatten();
+        self.sync_tail(live.as_deref(), window, cx);
+        // EXP-1323: what is on screen is read — the thread (the whole tree's
+        // agent replies) or the session open in place (its own).
+        match self.focus_id().map(str::to_string) {
+            Some(focus) => crate::session_data::mark_read_if_unread(&focus, false, cx),
+            None => crate::session_data::mark_read_if_unread(&self.root_id, true, cx),
+        }
         // EXP-1316 (1b): a session open in place = its raw work under the
         // thread's own header + strip (no session header of its own).
         if let Some((_, view)) = self.focus.clone() {

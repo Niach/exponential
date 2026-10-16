@@ -2,17 +2,13 @@
 // web surface shows ANOTHER device (web has no local machine), so actions are
 // the remote ones: `update` queues `agent_update`, `sign_in` opens the shared
 // remote login dialog (`requestAgentLogin`, EXP-862), and a confirmed `import`
-// queues `agent_login {import: true}` (cap `agent-import`), which MOVES the
+// queues `agent_login {import: true}` which MOVES the
 // agent CLI's ambient login into one of the machine's profiles.
 import { useCallback } from "react"
 import { DeviceReadiness, deviceReadinessBlocker, toast } from "@exp/ui"
 import { requestAgentLogin } from "@/components/agent-login-dialog"
 import { alreadyAddedCopy } from "@/components/device-agent-account"
-import {
-  deviceCanImportAgentLogin,
-  deviceIsOnline,
-  type SteerDevice,
-} from "@/lib/steer-devices"
+import { deviceIsOnline, type SteerDevice } from "@/lib/steer-devices"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { trpc } from "@/lib/trpc-client"
 
@@ -108,7 +104,7 @@ export function useDeviceReadinessAction(
 }
 
 /** The device's full block, or (`problemsOnly`) just the rows that need
- *  something. Renders nothing for an older build (no doctor). */
+ *  something. Renders nothing without a doctor report. */
 export function DeviceReadinessBlock({
   device,
   problemsOnly,
@@ -124,7 +120,6 @@ export function DeviceReadinessBlock({
       doctor={device.doctor}
       remote
       problemsOnly={problemsOnly}
-      canImport={deviceCanImportAgentLogin(device)}
       onAction={onAction}
       className={className}
     />
@@ -155,8 +150,7 @@ export function DeviceReadinessNotice({
         doctor={device.doctor}
         remote
         only={[blocker]}
-        canImport={deviceCanImportAgentLogin(device)}
-        onAction={onAction}
+          onAction={onAction}
         className={className}
       />
     )

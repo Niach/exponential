@@ -1076,6 +1076,8 @@ export const messageCardKindValues = [
   `picture`,
   `event`,
   `thread_started`,
+  `report`,
+  `suggestions`,
 ] as const
 export type MessageCardKind = (typeof messageCardKindValues)[number]
 
@@ -1090,23 +1092,13 @@ export const messageEventKindValues = [
 ] as const
 export type MessageEventKind = (typeof messageEventKindValues)[number]
 
-/** EXP-1322: one option of a question card: a plain label (THE wire form:
- *  `options` is always `string[]`), or — tolerated on read, since cards posted
- *  before the sidecar carry them — the label with its description as an
- *  object. An answer names the option by its label. The description of
- *  option i rides the parallel `optionDescriptions` sidecar
- *  (`questionCardOptionDescriptionsSchema`) instead.
- *
- *  COMPAT (EXP-1322 sidecar): old iOS 0.14.59 / Android 0.14.61 / desktop
- *  0.14.69 only read string options. The device may post {label, description}
- *  objects again once CLIENT_MIN_VERSION_IOS >= 0.14.60 AND _ANDROID >= 0.14.62
- *  AND _DESKTOP >= 0.14.70 (or keep the sidecar as the permanent form). */
-export type QuestionCardOption = string | { label: string; description?: string | null }
+/** EXP-1322: one option of a question card = its label (`options` is
+ *  always `string[]`). An answer names the option by its label. The
+ *  description of option i rides the parallel `optionDescriptions` sidecar
+ *  (`questionCardOptionDescriptionsSchema`). */
+export type QuestionCardOption = string
 
-export const questionCardOptionSchema = z.union([
-  z.string().max(500),
-  z.object({ label: z.string().max(500), description: z.string().max(2000).nullish() }).passthrough(),
-])
+export const questionCardOptionSchema = z.string().max(500)
 
 /** Cap on a question card's options (and so on its sidecar). */
 export const QUESTION_CARD_OPTIONS_MAX = 50
@@ -1168,6 +1160,30 @@ export type MessageCard =
       sessionId?: string | null
     }
   | { kind: `thread_started`; sessionId: string }
+  | { kind: `report`; sessionId: string; summary: string }
+  | { kind: `suggestions`; items: SuggestionItem[] }
+
+/** EXP-1323: one item of a `suggestions` card (`sessions_suggest`). Start =
+ *  a child (`sessionId` stamped), Do it here = a message to the posting
+ *  session (`here` stamped), File as issue = `issueId` stamped. */
+export interface SuggestionItem {
+  id: string
+  title: string
+  text: string
+  issueIds?: string[] | null
+  sessionId?: string | null
+  issueId?: string | null
+  here?: boolean | null
+  dismissed?: boolean | null
+}
+
+export const SUGGESTIONS_MAX = 10
+
+export const suggestionInputSchema = z.object({
+  title: z.string().trim().min(1).max(120),
+  text: z.string().trim().min(1).max(4000),
+  issueIds: z.array(z.string()).max(10).optional(),
+})
 
 // Tolerant read schema (a future card kind must not brick a collection):
 // clients render unknown kinds as nothing. Stays passthrough: the EXP-1322
@@ -1275,6 +1291,8 @@ export const sessionsSendInputSchema = z
     repositoryId: sendUuid.optional(),
     // A NEW team agent root (Settings → Agents).
     agent: agentFacetsSchema.optional(),
+    // EXP-1330: a `/btw` aside child of `parentId` (text = the question).
+    aside: z.boolean().optional(),
   })
   .superRefine((input, ctx) => {
     const issue = (message: string) =>
@@ -1286,11 +1304,14 @@ export const sessionsSendInputSchema = z
       input.agent !== undefined
     if (input.sessionId) {
       if (input.parentId) issue(`sessionId and parentId are exclusive`)
+      if (input.aside) issue(`an aside needs a parentId and a question`)
       if (rootFacets) issue(`a message to a session takes no root facets`)
       if (!input.text?.trim() && !input.attachmentIds?.length && !input.account)
         issue(`a message needs text, attachments or an account`)
       return
     }
+    if (input.aside && (!input.parentId || !input.text?.trim()))
+      issue(`an aside needs a parentId and a question`)
     if (input.parentId && rootFacets) issue(`a child session takes no root facets`)
     if (input.agent && (input.issueIds || input.actionId))
       issue(`an agent takes no issues or action`)

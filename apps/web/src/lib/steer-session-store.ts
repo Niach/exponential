@@ -148,7 +148,7 @@ export interface QuestionOption {
   description?: string
   /** EXP-513: claude's synthetic free-text row ("Type something.") —
    *  selecting it reveals an inline input and the typed reply rides the
-   *  answer frame's `text`. Absent from older desktops. */
+   *  answer frame's `text`. */
   freeText?: boolean
 }
 
@@ -206,7 +206,7 @@ export type ActivityEvent =
   | { kind: `user_message`; text: string; subagentId?: string; at?: number }
   // …and an interactive question (AskUserQuestion / plan approval).
   // `planMode` marks an ExitPlanMode plan-approval picker (EXP-97) — absent
-  // on generic questions and on events from older desktops/relays.
+  // on generic questions.
   // Protocol v2 (EXP-249) adds the identity fields: `id` makes the card
   // answerable through the semantic `answer` frame and lets a re-emission
   // replace the card in place; `askId` + `index`/`total` group a

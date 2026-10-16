@@ -62,15 +62,11 @@ pub struct EmailPrefs {
     #[serde(default)]
     pub digest: Option<String>,
     /// EXP-369: local hour (0–23) the DAILY digest goes out at, read in the
-    /// account's timezone (`users.timezone`). Absent on servers older than
-    /// EXP-369 — the pane falls back to the server default.
-    #[serde(default)]
-    pub digest_hour: Option<i64>,
+    /// account's timezone (`users.timezone`).
+    pub digest_hour: i64,
     /// EXP-801: may OTHER members' agents message this user over MCP? A
-    /// block, not a delivery mute. Absent on older servers — the pane reads
-    /// that as allowed (the server default).
-    #[serde(default)]
-    pub allow_agent_messages: Option<bool>,
+    /// block, not a delivery mute.
+    pub allow_agent_messages: bool,
     /// False on self-hosted instances without SES/SMTP — the pane
     /// hides/disables email affordances then (web parity).
     #[serde(default)]
@@ -158,13 +154,14 @@ mod tests {
     fn email_prefs_query_decodes_type_map() {
         let (base, captured) = one_shot_server(
             200,
-            r#"{"result":{"data":{"emailEnabled":true,"typePrefs":{"pr_merged":false},"digest":"daily","digestHour":8,"transportConfigured":true}}}"#,
+            r#"{"result":{"data":{"emailEnabled":true,"typePrefs":{"pr_merged":false},"digest":"daily","digestHour":8,"allowAgentMessages":true,"transportConfigured":true}}}"#,
         );
         let prefs = notifications_email_prefs(&client(&base)).unwrap();
         assert!(prefs.email_enabled);
         assert_eq!(prefs.type_prefs.get("pr_merged"), Some(&false));
         assert_eq!(prefs.digest.as_deref(), Some("daily"));
-        assert_eq!(prefs.digest_hour, Some(8));
+        assert_eq!(prefs.digest_hour, 8);
+        assert!(prefs.allow_agent_messages);
         assert!(prefs.transport_configured);
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         // Reads are GET (a POST to a .query 405s).
@@ -175,7 +172,7 @@ mod tests {
     fn update_email_prefs_sends_only_changed_fields() {
         let (base, captured) = one_shot_server(
             200,
-            r#"{"result":{"data":{"emailEnabled":false,"typePrefs":{},"digest":null,"transportConfigured":true}}}"#,
+            r#"{"result":{"data":{"emailEnabled":false,"typePrefs":{},"digest":null,"digestHour":8,"allowAgentMessages":true,"transportConfigured":true}}}"#,
         );
         let input = UpdateEmailPrefsInput {
             email_enabled: Some(false),
@@ -187,55 +184,35 @@ mod tests {
         assert!(request.ends_with(r#"{"emailEnabled":false}"#));
     }
 
-    /// Pre-EXP-369 servers omit `digestHour` entirely — the field must decode
-    /// as absent, not fail the whole prefs load.
+    /// EXP-801: the block round-trips in camelCase.
     #[test]
-    fn email_prefs_tolerates_a_missing_digest_hour() {
-        let (base, _captured) = one_shot_server(
-            200,
-            r#"{"result":{"data":{"emailEnabled":true,"typePrefs":{},"digest":"off","transportConfigured":true}}}"#,
-        );
-        let prefs = notifications_email_prefs(&client(&base)).unwrap();
-        assert_eq!(prefs.digest_hour, None);
-    }
-
-    /// EXP-801: the block round-trips in camelCase and decodes as absent on
-    /// a server that predates it.
-    #[test]
-    fn allow_agent_messages_round_trips_and_tolerates_absence() {
+    fn allow_agent_messages_round_trips() {
         let (base, captured) = one_shot_server(
             200,
-            r#"{"result":{"data":{"emailEnabled":true,"typePrefs":{},"digest":"daily","allowAgentMessages":false,"transportConfigured":true}}}"#,
+            r#"{"result":{"data":{"emailEnabled":true,"typePrefs":{},"digest":"daily","digestHour":8,"allowAgentMessages":false,"transportConfigured":true}}}"#,
         );
         let input = UpdateEmailPrefsInput {
             allow_agent_messages: Some(false),
             ..Default::default()
         };
         let prefs = notifications_update_email_prefs(&client(&base), &input).unwrap();
-        assert_eq!(prefs.allow_agent_messages, Some(false));
+        assert!(!prefs.allow_agent_messages);
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.ends_with(r#"{"allowAgentMessages":false}"#));
-
-        let (base, _captured) = one_shot_server(
-            200,
-            r#"{"result":{"data":{"emailEnabled":true,"typePrefs":{},"digest":"off","transportConfigured":true}}}"#,
-        );
-        let prefs = notifications_email_prefs(&client(&base)).unwrap();
-        assert_eq!(prefs.allow_agent_messages, None);
     }
 
     #[test]
     fn update_email_prefs_sends_camel_case_digest_hour() {
         let (base, captured) = one_shot_server(
             200,
-            r#"{"result":{"data":{"emailEnabled":true,"typePrefs":{},"digest":"daily","digestHour":17,"transportConfigured":true}}}"#,
+            r#"{"result":{"data":{"emailEnabled":true,"typePrefs":{},"digest":"daily","digestHour":17,"allowAgentMessages":true,"transportConfigured":true}}}"#,
         );
         let input = UpdateEmailPrefsInput {
             digest_hour: Some(17),
             ..Default::default()
         };
         let prefs = notifications_update_email_prefs(&client(&base), &input).unwrap();
-        assert_eq!(prefs.digest_hour, Some(17));
+        assert_eq!(prefs.digest_hour, 17);
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.ends_with(r#"{"digestHour":17}"#));
     }

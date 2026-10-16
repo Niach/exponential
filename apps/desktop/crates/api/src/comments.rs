@@ -174,7 +174,7 @@ mod tests {
         assert_eq!(out.comment.body.as_deref(), Some("ping @a@b.com"));
         assert_eq!(out.mentioned_user_ids, vec!["u-2".to_string()]);
         assert_eq!(out.tx_id, Some(21));
-        // An older server without `reporterEmailed` reads as a team comment.
+        // No `reporterEmailed` = a team comment.
         assert_eq!(out.reporter_emailed, None);
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.starts_with("POST /api/trpc/comments.create HTTP/1.1"));

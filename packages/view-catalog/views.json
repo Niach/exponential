@@ -1761,7 +1761,7 @@
       "id": "settings-mcp-servers",
       "group": "settings",
       "title": "Settings · MCP servers",
-      "blurb": "The team's MCP servers: one row per server with where it lives, how many members connected and shared, a Shared pill when the viewer shares theirs, and the viewer's one action (Connect, Set key, Connected with Share with team / Stop sharing, or No sign-in needed). Each member connects their own account once; the server holds the credential. Owners add from a catalog or a pasted URL, with the technical fields behind Advanced.",
+      "blurb": "The team's MCP servers: one row per server (name, Default pill, host) with the viewer's one action (Connect, Set key, Reconnect, No sign-in needed, or a read-only Connected caption) and ONE … menu holding the connection items (Test connection, Replace key, Share with team / Stop sharing, Disconnect) plus the owner's Edit / Remove. Each member connects their own account once; the server holds the credential. Owners add from a catalog or a pasted URL, with the technical fields behind Advanced.",
       "order": 20,
       "web": {
         "route": "/t/$teamSlug/settings/mcp-servers",

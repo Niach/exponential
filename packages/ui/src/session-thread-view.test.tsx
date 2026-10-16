@@ -1,7 +1,9 @@
 import { act, fireEvent, render, screen } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
-import type { ThreadRow } from "@exp/domain-contract/session-tree"
+import fixture from "@exp/domain-contract/fixtures/session-thread.json"
+import { buildSessionThread, type ThreadRow } from "@exp/domain-contract/session-tree"
 import {
+  suggestionKey,
   ThreadConversation,
   ThreadSessionTab,
   ThreadSessionTree,
@@ -26,8 +28,24 @@ const CARD = {
 
 const ROWS: ThreadRow[] = [
   { type: `session`, id: `s1`, card: CARD as never },
-  { type: `message`, id: `m1`, author: `user`, authorId: `u1`, body: `Do it`, queued: true },
-  { type: `message`, id: `m2`, author: `agent`, authorId: null, body: `On it`, queued: false },
+  {
+    type: `message`,
+    id: `m1`,
+    author: `user`,
+    authorId: `u1`,
+    body: `Do it`,
+    queued: true,
+    authorSessionId: null,
+  },
+  {
+    type: `message`,
+    id: `m2`,
+    author: `agent`,
+    authorId: null,
+    body: `On it`,
+    queued: false,
+    authorSessionId: null,
+  },
   {
     type: `question`,
     id: `q1`,
@@ -138,8 +156,8 @@ describe(`ThreadConversation`, () => {
   it(`puts the X only on the viewer's own queued row, and its tooltip leaves with it`, async () => {
     const onUnqueue = vi.fn()
     const rows: ThreadRow[] = [
-      { type: `message`, id: `m1`, author: `user`, authorId: `u1`, body: `Mine`, queued: true },
-      { type: `message`, id: `m3`, author: `user`, authorId: `u2`, body: `Theirs`, queued: true },
+      { type: `message`, id: `m1`, author: `user`, authorId: `u1`, body: `Mine`, queued: true, authorSessionId: null },
+      { type: `message`, id: `m3`, author: `user`, authorId: `u2`, body: `Theirs`, queued: true, authorSessionId: null },
     ]
     const { rerender } = renderRows(rows, { viewerId: `u1`, onUnqueue })
     const buttons = screen.getAllByTestId(`thread-unqueue`)
@@ -347,5 +365,130 @@ describe(`ThreadsListItem device`, () => {
     expect(device.getAttribute(`aria-label`)).toBe(`Alex's MacBook Pro`)
     const lock = screen.getByLabelText(`Private`)
     expect(lock.compareDocumentPosition(device) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+})
+
+// EXP-1323: the fixture's dispatcher case (suggestions in every state, a
+// report, a btw aside card with its caption).
+type Input = Parameters<typeof buildSessionThread>[0]
+const DISPATCHER = fixture.cases.find((entry) => entry.name.startsWith(`EXP-1323: a live`))!
+const MORE = fixture.cases.find((entry) => entry.name.startsWith(`EXP-1323: an ended`))!
+const rowsOf = (entry: typeof DISPATCHER) =>
+  buildSessionThread(entry.input as unknown as Input).rows
+
+describe(`ThreadConversation EXP-1323`, () => {
+  function renderCase(rows: ThreadRow[], over: Record<string, unknown> = {}) {
+    const actions = {
+      onStart: vi.fn(),
+      onStartAll: vi.fn(),
+      onHere: vi.fn(),
+      onDismiss: vi.fn(),
+      onFile: vi.fn(),
+      devices: [{ id: `dev-mac`, name: `Mac` }],
+      models: [{ value: `opus`, label: `Opus` }],
+    }
+    const onOpenSession = vi.fn()
+    const view = render(
+      <TooltipProvider>
+        <ThreadConversation
+          rows={rows}
+          renderText={(text) => <p>{text}</p>}
+          attachmentSrc={(id) => `/api/attachments/${id}`}
+          onOpenSession={onOpenSession}
+          suggestions={actions}
+          renderIssueRef={(_id, identifier) => <a data-testid="issue-ref">{identifier}</a>}
+          tail={<div data-testid="live-tail" />}
+          {...over}
+        />
+      </TooltipProvider>
+    )
+    return { ...view, actions, onOpenSession }
+  }
+
+  it(`paints every suggestion state, opens a started child, ends on the tail`, () => {
+    const { onOpenSession } = renderCase(rowsOf(DISPATCHER))
+    const card = document.querySelector(`[data-slot="thread-suggestions"]`)!
+    expect(card.textContent).toContain(`6 suggested tasks · 3 started`)
+    // A started item IS the child's session card, its caption under it.
+    expect(screen.getByText(`Reading CartLineItem.tsx`)).toBeTruthy()
+    fireEvent.click(screen.getByText(`Add width and height to cart thumbnails`))
+    expect(onOpenSession).toHaveBeenCalledWith(`c1`)
+    expect(card.textContent).toContain(`Sent here`)
+    expect(screen.getByTestId(`issue-ref`).textContent).toBe(`EXP-9`)
+    expect(card.textContent).toContain(`Filed EXP-9`)
+    // ONE open item: its buttons, no Start all.
+    expect(screen.queryByTestId(`thread-suggestions-start-all`)).toBeNull()
+    expect(screen.getAllByTestId(`thread-suggestion-start`)).toHaveLength(1)
+    const conversation = screen.getByTestId(`thread-conversation`)
+    expect(conversation.lastElementChild?.getAttribute(`data-testid`)).toBe(`live-tail`)
+  })
+
+  it(`a report is one line opening the child, the summary not repeated`, () => {
+    const { onOpenSession } = renderCase(rowsOf(DISPATCHER))
+    const report = document.querySelector(`[data-slot="thread-report"]`)!
+    expect(report.textContent).toBe(`Report from Lazy-load product images`)
+    expect(screen.queryByText(`Lazy-loading is in; PR #12 is open.`)).toBeNull()
+    fireEvent.click(report)
+    expect(onOpenSession).toHaveBeenCalledWith(`c2`)
+  })
+
+  it(`the aside's card keeps its answer as the caption`, () => {
+    renderCase(rowsOf(DISPATCHER))
+    expect(screen.getByText(`It returns the cart store's items and totals.`)).toBeTruthy()
+  })
+
+  it(`Start, Do it here, × and Start all call back with the card and item`, () => {
+    const { actions } = renderCase(rowsOf(MORE))
+    fireEvent.click(screen.getByTestId(`thread-suggestions-start-all`))
+    expect(actions.onStartAll).toHaveBeenCalledWith(`m4`)
+    const starts = screen.getAllByTestId(`thread-suggestion-start`)
+    expect(starts).toHaveLength(4)
+    fireEvent.click(starts[0]!)
+    expect(actions.onStart).toHaveBeenCalledWith(`m2`, `s1`)
+    fireEvent.click(screen.getAllByTestId(`thread-suggestion-here`)[1]!)
+    expect(actions.onHere).toHaveBeenCalledWith(`m4`, `s1`)
+    fireEvent.click(screen.getAllByTestId(`thread-suggestion-dismiss`)[3]!)
+    expect(actions.onDismiss).toHaveBeenCalledWith(`m4`, `s3`)
+  })
+
+  it(`a pending item locks its buttons; read-only cards draw none`, () => {
+    renderCase(rowsOf(MORE), {
+      suggestions: {
+        onStart: vi.fn(),
+        onStartAll: vi.fn(),
+        onHere: vi.fn(),
+        onDismiss: vi.fn(),
+        onFile: vi.fn(),
+        pending: new Set([suggestionKey(`m2`, `s1`)]),
+      },
+    })
+    expect(
+      (screen.getAllByTestId(`thread-suggestion-here`)[0] as HTMLButtonElement).disabled
+    ).toBe(true)
+    expect(
+      (screen.getAllByTestId(`thread-suggestion-here`)[1] as HTMLButtonElement).disabled
+    ).toBe(false)
+  })
+
+  it(`read-only: no buttons`, () => {
+    renderCase(rowsOf(MORE), { suggestions: undefined })
+    expect(screen.queryAllByTestId(`thread-suggestion-start`)).toHaveLength(0)
+    expect(screen.queryByTestId(`thread-suggestions-start-all`)).toBeNull()
+  })
+})
+
+describe(`ThreadsListItem EXP-1323`, () => {
+  it(`bolds an unread title and carries the caption`, () => {
+    render(
+      <ThreadsListItem lead={null} title="Speed up the shop" unread caption="Dispatching" />
+    )
+    const title = screen.getByText(`Speed up the shop`)
+    expect(title.getAttribute(`data-unread`)).toBe(`true`)
+    expect(title.className).toContain(`font-semibold`)
+    expect(screen.getByText(`Dispatching`)).toBeTruthy()
+  })
+  it(`a read row is plain`, () => {
+    render(<ThreadsListItem lead={null} title="Done" />)
+    expect(screen.getByText(`Done`).getAttribute(`data-unread`)).toBeNull()
   })
 })

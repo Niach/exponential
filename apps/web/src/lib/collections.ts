@@ -11,6 +11,7 @@ import {
   selectSyncedSessionSchema,
   selectSyncedSessionIssueSchema,
   selectSyncedMessageSchema,
+  selectSessionReadSchema,
   selectPullRequestSchema,
   selectSyncedPullRequestIssueSchema,
   selectAttachmentSchema,
@@ -73,7 +74,7 @@ const shapeFetch = async (
   }
 }
 
-// The per-collection shape wiring, identical for all 25 of them: the proxy URL,
+// The per-collection shape wiring, identical for all 26 of them: the proxy URL,
 // the timestamp parser and the snake→camel mapper `useLiveQuery` where clauses
 // depend on.
 function shapeOptions(path: string) {
@@ -318,6 +319,18 @@ export const messageCollection = createCollection(
     id: `messages`,
     shapeOptions: shapeOptions(`/api/shapes/messages`),
     schema: selectSyncedMessageSchema,
+    getKey: (item) => item.id,
+  })
+)
+
+// EXP-1323: the caller's read marks (`sessions.markRead`), the Threads
+// list's bold rows. Static per user like `pins`; a row renders only beside a
+// synced session.
+export const sessionReadsCollection = createCollection(
+  electricCollectionOptions({
+    id: `session_reads`,
+    shapeOptions: shapeOptions(`/api/shapes/session-reads`),
+    schema: selectSessionReadSchema,
     getKey: (item) => item.id,
   })
 )

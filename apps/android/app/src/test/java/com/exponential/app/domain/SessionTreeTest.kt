@@ -23,7 +23,7 @@ import org.junit.Test
  * EXP-1291 Threads v2: the session tree is fixture-locked ×4 — every case of
  * `session-card.json`, `session-thread.json` (cases + guidePullRequestCases +
  * composerCases + guideMenuCases) and `threads-list.json` (cases +
- * agentCases + markCases) runs here (TS `session-tree.test.ts`, desktop
+ * agentCases + markCases + unreadCases) runs here (TS `session-tree.test.ts`, desktop
  * `domain::session_tree`, iOS `SessionTreeTests`). Outputs are re-encoded in
  * the fixture's own JSON shape and compared as a WHOLE, so a field the port
  * forgets fails too. The embedded copy is proved equal to the fixtures'.
@@ -71,6 +71,13 @@ class SessionTreeTest {
         createdAt = json.str("createdAt")!!,
         updatedAt = json.str("updatedAt")!!,
         deviceId = json.str("deviceId"),
+        caption = json.str("caption"),
+        aside = (json["aside"] as? JsonPrimitive)?.boolean ?: false,
+    )
+
+    private fun read(json: JsonObject) = SessionTree.SessionRead(
+        sessionId = json.str("sessionId")!!,
+        readAt = json.str("readAt")!!,
     )
 
     private fun sessionIssue(json: JsonObject) = SessionTree.SessionIssue(
@@ -95,6 +102,7 @@ class SessionTreeTest {
         answeredAt = json.str("answeredAt"),
         consumedAt = json.str("consumedAt"),
         createdAt = json.str("createdAt")!!,
+        authorSessionId = json.str("authorSessionId"),
     )
 
     private fun pullRequest(json: JsonObject) = SessionTree.PullRequest(
@@ -120,6 +128,7 @@ class SessionTreeTest {
         put("tone", card.tone)
         put("elapsed", nullable(card.elapsed))
         put("running", card.running)
+        put("caption", nullable(card.caption))
         put("testId", card.testId)
     }
 
@@ -151,11 +160,42 @@ class SessionTreeTest {
             put("authorId", nullable(row.authorId))
             put("body", row.body)
             put("queued", row.queued)
+            put("authorSessionId", nullable(row.authorSessionId))
         }
         is SessionTree.ThreadRow.SessionRow -> buildJsonObject {
             put("type", "session")
             put("id", row.id)
             put("card", encode(row.card))
+        }
+        is SessionTree.ThreadRow.Report -> buildJsonObject {
+            put("type", "report")
+            put("id", row.id)
+            put("sessionId", row.sessionId)
+            put("text", row.text)
+            put("summary", row.summary)
+        }
+        is SessionTree.ThreadRow.Suggestions -> buildJsonObject {
+            put("type", "suggestions")
+            put("id", row.id)
+            put("sessionId", row.sessionId)
+            put("header", row.header)
+            put("startAll", row.startAll)
+            put(
+                "items",
+                JsonArray(
+                    row.items.map { item ->
+                        buildJsonObject {
+                            put("id", item.id)
+                            put("title", item.title)
+                            put("text", item.text)
+                            put("state", item.state.wire)
+                            put("card", item.card?.let(::encode) ?: JsonNull)
+                            put("issueId", nullable(item.issueId))
+                            put("identifier", nullable(item.identifier))
+                        }
+                    },
+                ),
+            )
         }
         is SessionTree.ThreadRow.Question -> buildJsonObject {
             put("type", "question")
@@ -219,6 +259,7 @@ class SessionTreeTest {
             },
         )
         put("live", view.live)
+        put("liveSessionId", nullable(view.liveSessionId))
         put("busy", view.busy)
         put("needsYou", view.needsYou)
     }
@@ -239,6 +280,11 @@ class SessionTreeTest {
                         put("needsYou", row.needsYou)
                         put("activityAt", row.activityAt)
                         put("deviceId", nullable(row.deviceId))
+                        put("depth", row.depth)
+                        put("parentId", nullable(row.parentId))
+                        put("rootId", row.rootId)
+                        put("unread", row.unread)
+                        put("caption", nullable(row.caption))
                     }
                 },
             ),
@@ -304,8 +350,41 @@ class SessionTreeTest {
                 issues = input.list("issues").map(::issue),
                 messages = input.list("messages").map(::message),
                 teamId = input.str("teamId"),
+                reads = input.list("reads").map(::read),
             )
             assertEquals(case.str("name"), case.getValue("expected"), JsonArray(actual.map(::encode)))
+        }
+    }
+
+    @Test
+    fun `every nav dot case matches the fixture`() {
+        val cases = listFixture.list("unreadCases")
+        assertTrue(cases.isNotEmpty())
+        for (case in cases) {
+            val groups = case.list("groups").map { group ->
+                SessionTree.ThreadsListGroup(
+                    key = SessionTree.ThreadsGroupKey.entries.first { it.wire == group.str("key") },
+                    title = group.str("title")!!,
+                    rows = group.list("rows").map { row ->
+                        SessionTree.ThreadsListRow(
+                            sessionId = row.str("sessionId")!!,
+                            teamId = row.str("teamId")!!,
+                            title = row.str("title")!!,
+                            private = row.bool("private"),
+                            busy = row.bool("busy"),
+                            needsYou = row.bool("needsYou"),
+                            activityAt = row.str("activityAt")!!,
+                            deviceId = row.str("deviceId"),
+                            depth = row.getValue("depth").jsonPrimitive.int,
+                            parentId = row.str("parentId"),
+                            rootId = row.str("rootId")!!,
+                            unread = row.bool("unread"),
+                            caption = row.str("caption"),
+                        )
+                    },
+                )
+            }
+            assertEquals(case.str("name"), case.bool("expected"), SessionTree.threadsUnread(groups))
         }
     }
 
@@ -424,6 +503,25 @@ class SessionTreeTest {
         assertEquals(testIds.str("guideMerge"), SessionTree.ThreadCopy.TEST_ID_GUIDE_MERGE)
         assertEquals(testIds.str("guideMenu"), SessionTree.ThreadCopy.TEST_ID_GUIDE_MENU)
         assertEquals(copy.str("stack"), SessionTree.ThreadCopy.STACK)
+        assertEquals(copy.str("report"), SessionTree.ThreadCopy.REPORT)
+        val suggestions = copy.getValue("suggestions").jsonObject
+        val embedded = mapOf(
+            "one" to SessionTree.SuggestionsCopy.ONE,
+            "many" to SessionTree.SuggestionsCopy.MANY,
+            "started" to SessionTree.SuggestionsCopy.STARTED,
+            "startAll" to SessionTree.SuggestionsCopy.START_ALL,
+            "start" to SessionTree.SuggestionsCopy.START,
+            "here" to SessionTree.SuggestionsCopy.HERE,
+            "options" to SessionTree.SuggestionsCopy.OPTIONS,
+            "startOn" to SessionTree.SuggestionsCopy.START_ON,
+            "startWith" to SessionTree.SuggestionsCopy.START_WITH,
+            "file" to SessionTree.SuggestionsCopy.FILE,
+            "dismiss" to SessionTree.SuggestionsCopy.DISMISS,
+            "sentHere" to SessionTree.SuggestionsCopy.SENT_HERE,
+            "filed" to SessionTree.SuggestionsCopy.FILED,
+        )
+        assertEquals(suggestions.keys, embedded.keys)
+        for ((key, value) in embedded) assertEquals(suggestions.str(key), value)
         val titles = threadFixture.getValue("titles").jsonObject
         assertEquals(titles.str("action"), SessionTree.ThreadCopy.TITLE_ACTION)
         assertEquals(titles.str("issue"), SessionTree.ThreadCopy.TITLE_ISSUE)

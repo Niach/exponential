@@ -25,6 +25,17 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-10-15-session-tree-talk`,
+    date: `2026-10-15`,
+    title: `Sessions talk back: reports, suggestions, live status and /btw`,
+    summary: `A sub-session's end lands as a report in its parent's conversation, agents propose follow-ups you start with one tap, every running session shows what it is doing right now, unread threads stand out and /btw asks a side question without interrupting.`,
+    body: `- **Reports**: when a sub-session ends, its summary arrives in its parent's conversation as a Report card and the parent picks it up as its next turn. A sub-session's question to its parent is shown as that session's, not yours.
+- **Suggestions**: an agent can propose follow-up tasks as one card. Start one as a sub-session, do it in the same session, file it as an issue or dismiss it, or start them all at once.
+- **Live status**: a running session's card shows its current step under the name, and sub-sessions nest under their thread in the Threads list.
+- **Unread**: a thread with agent messages you have not read yet shows its title in bold, on every device.
+- **/btw**: ask a running claude session a side question; the answer comes from a short fork and the session keeps working.`,
+  },
+  {
     id: `2026-10-15-thread-dispatcher`,
     date: `2026-10-15`,
     title: `Threads hand work to their own sessions`,
@@ -33,6 +44,14 @@ export const CHANGELOG: ChangelogEntry[] = [
 - **Reply box**: the thread and agent channel use the session's reply box on every device, with the model switch, the context ring, slash commands and Stop.
 - **Thread model**: device settings gain a Thread model under Model for each agent, Haiku for Claude by default.
 - **Models**: every model picker lists Fable, Opus, Sonnet and Haiku (Codex its three models) with no Default entry. Saved CLI defaults become Fable for the model and Opus for subagents.`,
+  },
+  {
+    id: `2026-10-15-compat-cleanup`,
+    date: `2026-10-15`,
+    title: `Older apps and older servers retired`,
+    summary: `This release drops the compatibility paths for app builds below the current store and desktop versions, and every app now expects a server from the same release.`,
+    body: `- **Update your apps**: iPhone below 0.14.60, Android below 0.14.62 and the desktop app or CLI below 0.14.70 show the update screen.
+- **Self-hosting**: set \`CLIENT_MIN_VERSION_IOS=0.14.60\`, \`CLIENT_MIN_VERSION_ANDROID=0.14.62\`, \`CLIENT_MIN_VERSION_DESKTOP=0.14.70\` and \`CLIENT_MIN_VERSION_CLI=0.14.70\` before upgrading (see \`selfhost/.env.example\`), and upgrade the server before the apps: new apps no longer work against an older server.`,
   },
   {
     id: `2026-10-15-release-train-described-options`,

@@ -954,11 +954,9 @@ export interface DeviceLaunchDefaults {
   computerUseModel?: string | null
   agents?: Record<string, DeviceAgentLaunchDefaults>
 }
-// Every field is `.nullish()`, not `.optional()`: 0.14.10 native builds
-// (EXP-495) serialized capability-masked toggles as explicit `null` and a
-// strict schema 400'd the whole register — leaving the machine invisible
-// with no self-heal path (the update request is consumed on register).
-// `clampLaunchDefaults` strips the nulls; stored copies stay null-free.
+// Every field is `.nullish()`, not `.optional()`: an explicit `null` clears
+// a field (EXP-495). `clampLaunchDefaults` strips the nulls; stored copies
+// stay null-free.
 // Plain `z.object` (strip mode) on purpose — never `.strict()`: an unknown
 // key from a newer or older client is dropped, not a reason to 400 the
 // register.
@@ -1331,7 +1329,7 @@ export const devices = pgTable(
       withTimezone: true,
     }),
     // EXP-484: per-agent sign-in status (see DeviceAgentAccount above) as the
-    // machine last probed it. NULL = never reported (older build) — clients
+    // machine last probed it. NULL = never reported — clients
     // render no Agents section rather than claiming "signed out".
     agentAccounts: jsonb(`agent_accounts`).$type<DeviceAgentAccounts>(),
     // EXP-484: per-agent usage windows as the machine last fetched them,
@@ -1342,8 +1340,8 @@ export const devices = pgTable(
     agentUsage: jsonb(`agent_usage`).$type<DeviceAgentUsageMap>(),
     agentUsageAt: timestamp(`agent_usage_at`, { withTimezone: true }),
     // EXP-1196: the device's readiness report (DeviceDoctor above), written
-    // on register + heartbeat. NULL = an older build: clients render no
-    // readiness block.
+    // on register + heartbeat. NULL = not reported yet: clients render
+    // no readiness block.
     doctor: jsonb().$type<DeviceDoctor>(),
     ...timestamps,
   },
@@ -1780,6 +1778,13 @@ export const sessions = pgTable(
     // Set by a person or the agent; NULL = derived for display
     // (`buildThreadView`). On a child: the CLI's auto-name (EXP-905).
     title: varchar({ length: 255 }),
+    // EXP-1323: the live status line (device-written on tool edges via
+    // `sessions.report`, throttled, <=80 chars, cleared at turn end; an
+    // aside keeps its answer's first line).
+    caption: varchar({ length: 80 }),
+    // EXP-1323: a `/btw` aside child: a forked read-only run, no worktree,
+    // branch, brief or PR; ends after its first reply.
+    aside: boolean().notNull().default(false),
     // The thread's ONE Guide = every PR body (`guide_write`, FOR UPDATE).
     guide: jsonb().$type<GuideEntry[]>(),
     // The action this thread ran (saved prompt) + its filled picks, and a
@@ -1905,6 +1910,12 @@ export const messages = pgTable(
     authorId: text(`author_id`).references(() => users.id, {
       onDelete: `set null`,
     }),
+    // EXP-1323: the SESSION that posted it (a `sessions_send` through a
+    // session's MCP key, a child's `report`); NULL = a person or the server.
+    authorSessionId: uuid(`author_session_id`).references(
+      (): AnyPgColumn => sessions.id,
+      { onDelete: `set null` }
+    ),
     // Plain GFM (images `![alt](/api/attachments/{id})`, mentions `@email`,
     // refs `#IDENT`). Empty on a pure card.
     body: text().notNull().default(``),
@@ -1923,6 +1934,31 @@ export const messages = pgTable(
     index(`idx_messages_pending`)
       .on(table.sessionId)
       .where(sql`author_kind = 'user' AND consumed_at IS NULL`),
+    index(`idx_messages_author_session`).on(table.authorSessionId),
+  ]
+)
+
+// EXP-1323: per-user read state of a session (a thread = its root's row).
+// Opening a thread or a session upserts `read_at` (`sessions.markRead`); a
+// list row is bold while its tree's newest agent message is newer. Synced
+// like `pins`: a STATIC per-user shape (`user_id = me`), never trash-scoped;
+// a row renders only beside a synced session.
+export const sessionReads = pgTable(
+  `session_reads`,
+  {
+    id: uuidPk(),
+    userId: text(`user_id`)
+      .notNull()
+      .references(() => users.id, { onDelete: `cascade` }),
+    sessionId: uuid(`session_id`)
+      .notNull()
+      .references(() => sessions.id, { onDelete: `cascade` }),
+    readAt: timestamp(`read_at`, { withTimezone: true }).notNull().defaultNow(),
+    ...timestamps,
+  },
+  (table) => [
+    uniqueIndex(`uniq_session_reads_user_session`).on(table.userId, table.sessionId),
+    index(`idx_session_reads_session`).on(table.sessionId),
   ]
 )
 
@@ -2881,6 +2917,7 @@ export const selectSyncedMessageSchema = selectMessageSchema.omit({
   shared: true,
   ownerId: true,
 })
+export const selectSessionReadSchema = createSelectSchema(sessionReads)
 export const selectPullRequestSchema = createSelectSchema(pullRequests, {
   state: prStateSchema,
 })
@@ -2975,6 +3012,7 @@ export type Attachment = InferSelectModel<typeof attachments>
 export type User = InferSelectModel<typeof users>
 export type Notification = InferSelectModel<typeof notifications>
 export type Pin = InferSelectModel<typeof pins>
+export type SessionRead = InferSelectModel<typeof sessionReads>
 export type IssueDraft = InferSelectModel<typeof issueDrafts>
 export type IssueSubscriber = InferSelectModel<typeof issueSubscribers>
 export type IssueEvent = InferSelectModel<typeof issueEvents>

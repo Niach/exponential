@@ -9,7 +9,8 @@
 //!   (the Guide's ONE PR) + [`guide_menu_entries`] (its header `…`,
 //!   EXP-1307) + [`composer_yields_to_card`] (EXP-820);
 //! * `fixtures/threads-list.json`   → [`partition_threads`] (the Threads page:
-//!   Needs you · Running · Recent) + [`list_agents`] (the rail's Agents).
+//!   Needs you · Running · Recent, live trees nested, EXP-1323) +
+//!   [`threads_unread`] (the nav dot) + [`list_agents`] (the rail's Agents).
 //!
 //! The copy, icon concepts, tones and test ids come FROM the fixtures
 //! ([`SESSION_CARD`], [`THREAD`], [`THREADS_LIST`]), never re-typed. Inputs
@@ -29,11 +30,12 @@ use crate::activity_fold::parse_instant;
 use crate::contract::{
     MESSAGE_AUTHOR_KIND_AGENT, MESSAGE_AUTHOR_KIND_USER, MESSAGE_CARD_KIND_EVENT,
     MESSAGE_CARD_KIND_PICTURE, MESSAGE_CARD_KIND_PLAN, MESSAGE_CARD_KIND_QUESTION,
-    MESSAGE_CARD_KIND_SESSION, MESSAGE_CARD_KIND_SUBAGENT, MESSAGE_CARD_KIND_THREAD_STARTED,
+    MESSAGE_CARD_KIND_REPORT, MESSAGE_CARD_KIND_SESSION, MESSAGE_CARD_KIND_SUBAGENT,
+    MESSAGE_CARD_KIND_SUGGESTIONS, MESSAGE_CARD_KIND_THREAD_STARTED,
     SESSION_KIND_AGENT, SESSION_KIND_THREAD, SESSION_STATUS_ENDED, SESSION_STATUS_QUEUED,
     SESSION_STATUS_RUNNING,
 };
-use crate::rows::{Issue, MessageRow, PullRequestRow, SessionIssueRow, SessionRow};
+use crate::rows::{Issue, MessageRow, PullRequestRow, SessionIssueRow, SessionReadRow, SessionRow};
 
 // ---------------------------------------------------------------------------
 // Fixture-sourced copy
@@ -100,6 +102,30 @@ pub struct ThreadCopy {
     pub guide: String,
     /// Event templates by `messageEventKind` (`{issue}` / `{pr}` slots).
     pub events: BTreeMap<String, String>,
+    /// EXP-1323: a child's report line (`Report from {session}`).
+    pub report: String,
+    /// EXP-1323: the suggestions card's copy.
+    pub suggestions: SuggestionsCopy,
+}
+
+/// EXP-1323: `session-thread.json` `copy.suggestions` (`{count}` /
+/// `{issue}` slots).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SuggestionsCopy {
+    pub one: String,
+    pub many: String,
+    pub started: String,
+    pub start_all: String,
+    pub start: String,
+    pub here: String,
+    pub options: String,
+    pub start_on: String,
+    pub start_with: String,
+    pub file: String,
+    pub dismiss: String,
+    pub sent_here: String,
+    pub filed: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -113,6 +139,11 @@ pub struct ThreadTestIds {
     /// EXP-1307: the header's Guide `…` trigger.
     #[serde(rename = "guideMenu")]
     pub guide_menu: String,
+    /// EXP-1323: a report row, the suggestions card, the live tail.
+    pub report: String,
+    pub suggestions: String,
+    #[serde(rename = "liveTail")]
+    pub live_tail: String,
 }
 
 /// `fixtures/session-thread.json` minus its cases.
@@ -223,6 +254,12 @@ pub static THREADS_LIST: LazyLock<ThreadsListSpec> = LazyLock::new(|| {
 /// ISO → epoch ms; `None` for absent/unparsable (TS `ms`).
 fn ms(iso: Option<&str>) -> Option<i64> {
     iso.filter(|value| !value.is_empty()).and_then(parse_instant)
+}
+
+/// EXP-1323: an ISO timestamp as epoch ms through the crate's one reader
+/// (the read-mark comparisons outside this module).
+pub fn iso_ms(iso: &str) -> Option<i64> {
+    ms(Some(iso))
 }
 
 fn ms_or_zero(iso: Option<&str>) -> i64 {
@@ -380,6 +417,9 @@ pub struct SessionCard {
     pub tone: String,
     pub elapsed: Option<String>,
     pub running: bool,
+    /// EXP-1323: the live status line under the name; an ended session's
+    /// is dropped unless it is an aside (its answer's first line stays).
+    pub caption: Option<String>,
     pub test_id: String,
 }
 
@@ -403,6 +443,12 @@ pub fn session_card(session: &SessionRow, ordinal: usize, now_ms: i64) -> Sessio
         Some(title) => title.to_string(),
         None => format!("{} {ordinal}", SESSION_CARD.copy.session),
     };
+    let caption = session
+        .caption
+        .as_deref()
+        .map(str::trim)
+        .filter(|caption| !caption.is_empty() && (state != SessionState::Ended || session.aside))
+        .map(str::to_string);
     SessionCard {
         session_id: session.id.clone(),
         icon: state.icon().to_string(),
@@ -412,6 +458,7 @@ pub fn session_card(session: &SessionRow, ordinal: usize, now_ms: i64) -> Sessio
         tone: state.tone().to_string(),
         elapsed,
         running: state == SessionState::Working,
+        caption,
         test_id: SESSION_CARD.test_ids.card.clone(),
     }
 }
@@ -567,24 +614,18 @@ pub fn session_tab_mark_state(session: &SessionRow) -> SessionTabMarkState {
 
 /// EXP-1322: one option of a thread question card. The synced card carries
 /// `options` as bare labels with the parallel `optionDescriptions` sidecar
-/// (null / "" = none; the key omitted when no option has one), or — on cards
-/// posted before the sidecar — `{label, description?}` objects inside
-/// `options`; all normalise here ([`question_options`]). The answer IS the
-/// label; the description renders under it.
-///
-/// COMPAT (EXP-1322 sidecar): old iOS 0.14.59 / Android 0.14.61 / desktop
-/// 0.14.69 only read string options. The device may post {label, description}
-/// objects again once CLIENT_MIN_VERSION_IOS >= 0.14.60 AND _ANDROID >=
-/// 0.14.62 AND _DESKTOP >= 0.14.70 (or keep the sidecar as the permanent form).
+/// (null / "" = none; the key omitted when no option has one); they zip here
+/// ([`question_options`]). The answer IS the label; the description renders
+/// under it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct QuestionOption {
     pub label: String,
     pub description: Option<String>,
 }
 
-/// The card's `options` zipped with its `optionDescriptions` sidecar (by
-/// index, before any filtering): an object option's own description wins,
-/// else the sidecar slot when it is a non-empty string. No array = no options.
+/// The card's `options` zipped with its `optionDescriptions` sidecar by
+/// index, BEFORE dropping non-string options (a description is the sidecar
+/// slot when it is a non-empty string). No array = no options.
 fn question_options(options: Option<&Value>, descriptions: Option<&Value>) -> Vec<QuestionOption> {
     let Some(Value::Array(options)) = options else {
         return Vec::new();
@@ -593,35 +634,18 @@ fn question_options(options: Option<&Value>, descriptions: Option<&Value>) -> Ve
     options
         .iter()
         .enumerate()
-        .map(|(index, option)| {
-            let mut normalised = question_option(option);
-            if normalised.description.is_none() {
-                normalised.description = descriptions
+        .filter_map(|(index, option)| {
+            let label = option.as_str()?;
+            Some(QuestionOption {
+                label: label.to_string(),
+                description: descriptions
                     .and_then(|list| list.get(index))
                     .and_then(Value::as_str)
                     .filter(|text| !text.is_empty())
-                    .map(str::to_string);
-            }
-            normalised
+                    .map(str::to_string),
+            })
         })
         .collect()
-}
-
-fn question_option(option: &Value) -> QuestionOption {
-    match option {
-        Value::Object(entry) => QuestionOption {
-            label: js_string(entry.get("label")),
-            description: entry
-                .get("description")
-                .and_then(Value::as_str)
-                .filter(|text| !text.is_empty())
-                .map(str::to_string),
-        },
-        other => QuestionOption {
-            label: js_string(Some(other)),
-            description: None,
-        },
-    }
 }
 
 /// One row of the thread's Conversation (the TS `ThreadRow`).
@@ -636,10 +660,29 @@ pub enum SessionThreadRow {
         author_id: Option<String>,
         body: String,
         queued: bool,
+        /// EXP-1323: the session that posted it (a child asking its parent).
+        author_session_id: Option<String>,
     },
     /// A session's card (`id` = the message id, or the root's id for its
     /// own leading card); opens that session.
     Session { id: String, card: SessionCard },
+    /// EXP-1323: a child's end report (`Report from <name>` + the summary);
+    /// opens `session_id`.
+    Report {
+        id: String,
+        session_id: String,
+        text: String,
+        summary: String,
+    },
+    /// EXP-1323: ONE suggestions card (`sessions_suggest`); `session_id` =
+    /// the posting session (Do it here messages it).
+    Suggestions {
+        id: String,
+        session_id: String,
+        header: String,
+        start_all: bool,
+        items: Vec<SuggestionRow>,
+    },
     Question {
         id: String,
         question: String,
@@ -672,6 +715,8 @@ impl SessionThreadRow {
         match self {
             Self::Message { id, .. }
             | Self::Session { id, .. }
+            | Self::Report { id, .. }
+            | Self::Suggestions { id, .. }
             | Self::Question { id, .. }
             | Self::Plan { id, .. }
             | Self::Subagent { id, .. }
@@ -679,6 +724,98 @@ impl SessionThreadRow {
             | Self::Event { id, .. } => id,
         }
     }
+}
+
+/// EXP-1323: a suggested task's state: `open` (× · Options · Do it here ·
+/// Start), `started` (the child's card once synced), `here` (sent to the
+/// posting session), `filed` (the issue it became). Dismissed items drop.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SuggestionState {
+    Open,
+    Started,
+    Here,
+    Filed,
+}
+
+/// EXP-1323: one item of a suggestions row.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SuggestionRow {
+    pub id: String,
+    pub title: String,
+    pub text: String,
+    pub state: SuggestionState,
+    pub card: Option<SessionCard>,
+    pub issue_id: Option<String>,
+    pub identifier: Option<String>,
+}
+
+fn suggestions_row(
+    message: &MessageRow,
+    card: &Value,
+    by_id: &HashMap<&str, &SessionRow>,
+    ordinals: &HashMap<&str, usize>,
+    issues: &HashMap<&str, &TreeIssue>,
+    now: i64,
+) -> Option<SessionThreadRow> {
+    let Value::Array(raw_items) = card.get("items")? else {
+        return None;
+    };
+    let mut items = Vec::new();
+    for raw in raw_items {
+        let Some(Value::String(id)) = raw.get("id") else {
+            continue;
+        };
+        if !raw.is_object() || raw.get("dismissed") == Some(&Value::Bool(true)) {
+            continue;
+        }
+        let session_id = card_str(raw, "sessionId");
+        let issue_id = card_str(raw, "issueId");
+        let target = session_id.and_then(|id| by_id.get(id));
+        let state = if session_id.is_some() {
+            SuggestionState::Started
+        } else if raw.get("here") == Some(&Value::Bool(true)) {
+            SuggestionState::Here
+        } else if issue_id.is_some() {
+            SuggestionState::Filed
+        } else {
+            SuggestionState::Open
+        };
+        items.push(SuggestionRow {
+            id: id.clone(),
+            title: js_string(raw.get("title")),
+            text: js_string(raw.get("text")),
+            state,
+            card: target.map(|target| {
+                session_card(target, ordinals.get(target.id.as_str()).copied().unwrap_or(1), now)
+            }),
+            issue_id: issue_id.map(str::to_string),
+            identifier: issue_id.and_then(|id| issues.get(id)).map(|issue| issue.identifier.clone()),
+        });
+    }
+    if items.is_empty() {
+        return None;
+    }
+    let copy = &THREAD.copy.suggestions;
+    let started = items.iter().filter(|item| item.state == SuggestionState::Started).count();
+    let count = if items.len() == 1 {
+        copy.one.clone()
+    } else {
+        copy.many.replacen("{count}", &items.len().to_string(), 1)
+    };
+    let header = if started > 0 {
+        format!("{count} · {}", copy.started.replacen("{count}", &started.to_string(), 1))
+    } else {
+        count
+    };
+    Some(SessionThreadRow::Suggestions {
+        id: message.id.clone(),
+        session_id: message.session_id.clone(),
+        header,
+        start_all: items.iter().filter(|item| item.state == SuggestionState::Open).count() > 1,
+        items,
+    })
 }
 
 /// Where the thread's composer sends (`sessions.send({sessionId})`).
@@ -704,6 +841,9 @@ pub struct SessionThreadView {
     pub composer: ThreadComposer,
     /// Any non-ended session in the tree.
     pub live: bool,
+    /// EXP-1323: the live tail (Tasks card + status line) reads this
+    /// session's relay state; `None` once the root ended.
+    pub live_session_id: Option<String>,
     pub busy: bool,
     pub needs_you: bool,
 }
@@ -893,6 +1033,7 @@ pub fn build_session_thread(input: SessionThreadInput<'_>, focus: Option<&str>) 
                 body: message.body_text().to_string(),
                 queued: author == MESSAGE_AUTHOR_KIND_USER
                     && message.consumed_at.as_deref().is_none_or(str::is_empty),
+                author_session_id: message.author_session_id.clone(),
             });
             continue;
         };
@@ -940,6 +1081,24 @@ pub fn build_session_thread(input: SessionThreadInput<'_>, focus: Option<&str>) 
                     caption: card_str(card, "caption").map(str::to_string),
                 });
             }
+            Some(MESSAGE_CARD_KIND_REPORT) => {
+                let Some(target) = card_str(card, "sessionId").and_then(|id| by_id.get(id)) else {
+                    continue;
+                };
+                let name = session_card(target, ordinals.get(target.id.as_str()).copied().unwrap_or(1), now).name;
+                rows.push(SessionThreadRow::Report {
+                    id: message.id.clone(),
+                    session_id: target.id.clone(),
+                    text: THREAD.copy.report.replacen("{session}", &name, 1),
+                    summary: card_str(card, "summary")
+                        .map_or_else(|| message.body_text().to_string(), str::to_string),
+                });
+            }
+            Some(MESSAGE_CARD_KIND_SUGGESTIONS) => {
+                if let Some(row) = suggestions_row(message, card, &by_id, &ordinals, &issue_map, now) {
+                    rows.push(row);
+                }
+            }
             Some(MESSAGE_CARD_KIND_EVENT) => {
                 if let Some(text) = event_text(card, &issue_map, &pr_map) {
                     rows.push(SessionThreadRow::Event {
@@ -976,6 +1135,7 @@ pub fn build_session_thread(input: SessionThreadInput<'_>, focus: Option<&str>) 
             placeholder: THREAD.copy.placeholder.clone(),
         },
         live: !live.is_empty(),
+        live_session_id: (!root.is_ended()).then(|| root.id.clone()),
         busy: live.iter().any(|session| session.busy),
         needs_you: live.iter().any(|session| session.needs_input),
     }
@@ -991,6 +1151,14 @@ pub fn build_session_thread(input: SessionThreadInput<'_>, focus: Option<&str>) 
 pub struct ThreadsListRow {
     pub session_id: String,
     pub team_id: String,
+    /// EXP-1323: 0 = the thread (opens the thread), >0 = a nested child
+    /// (opens that session); `parent_id` `None` on a root.
+    #[serde(default)]
+    pub depth: usize,
+    #[serde(default)]
+    pub parent_id: Option<String>,
+    #[serde(default)]
+    pub root_id: String,
     pub title: String,
     pub private: bool,
     /// EXP-1318: the ROOT session's logical `device_id` (the trailing
@@ -999,7 +1167,15 @@ pub struct ThreadsListRow {
     pub device_id: Option<String>,
     pub busy: bool,
     pub needs_you: bool,
-    /// The tree's newest `updated_at` (the sort key), verbatim.
+    /// EXP-1323: bold title (a root: the tree's newest agent message is
+    /// newer than the viewer's read of the root; a child: its own).
+    #[serde(default)]
+    pub unread: bool,
+    /// EXP-1323: the live caption (the session card rule).
+    #[serde(default)]
+    pub caption: Option<String>,
+    /// The tree's newest `updated_at` (the sort key), verbatim; a child's
+    /// own `updated_at`.
     pub activity_at: String,
 }
 
@@ -1043,6 +1219,8 @@ pub struct ThreadsListInput<'a> {
     pub messages: &'a [&'a MessageRow],
     /// The ACTIVE team; `None` = every team.
     pub team_id: Option<&'a str>,
+    /// EXP-1323: the viewer's `session_reads` (empty = none read).
+    pub reads: &'a [&'a SessionReadRow],
 }
 
 /// The Threads page: roots of kind `thread` in scope grouped Needs you (a
@@ -1050,11 +1228,35 @@ pub struct ThreadsListInput<'a> {
 /// queued or running) · Recent (the rest), each by the tree's newest
 /// `updated_at` desc (ties by id). Empty groups are omitted.
 pub fn partition_threads(input: ThreadsListInput<'_>) -> Vec<ThreadsListGroup> {
+    let read_at: HashMap<&str, i64> = input
+        .reads
+        .iter()
+        .map(|read| (read.session_id.as_str(), ms_or_zero(read.read_at.as_deref())))
+        .collect();
+    let root_of: HashMap<&str, &str> =
+        input.sessions.iter().map(|session| (session.id.as_str(), session.root_id_or_self())).collect();
+    let mut newest_agent: HashMap<&str, i64> = HashMap::new();
+    let mut newest_agent_in_tree: HashMap<&str, i64> = HashMap::new();
+    for message in input.messages {
+        if message.author_kind.as_deref() != Some(MESSAGE_AUTHOR_KIND_AGENT) {
+            continue;
+        }
+        let at = ms_or_zero(message.created_at.as_deref());
+        let own = newest_agent.entry(message.session_id.as_str()).or_insert(at);
+        *own = (*own).max(at);
+        if let Some(root) = root_of.get(message.session_id.as_str()) {
+            let tree = newest_agent_in_tree.entry(root).or_insert(at);
+            *tree = (*tree).max(at);
+        }
+    }
+    let unread_at = |newest: Option<&i64>, session_id: &str| {
+        newest.is_some_and(|newest| *newest > read_at.get(session_id).copied().unwrap_or(-1))
+    };
     let mut by_root: HashMap<&str, Vec<&SessionRow>> = HashMap::new();
     for session in input.sessions {
         by_root.entry(session.root_id_or_self()).or_default().push(session);
     }
-    let mut buckets: HashMap<ThreadsListKey, Vec<ThreadsListRow>> = HashMap::new();
+    let mut buckets: HashMap<ThreadsListKey, Vec<(ThreadsListRow, Vec<ThreadsListRow>)>> = HashMap::new();
     for root in input.sessions.iter().copied().filter(|session| {
         is_root(session)
             && kind_is(session, SESSION_KIND_THREAD)
@@ -1087,26 +1289,76 @@ pub fn partition_threads(input: ThreadsListInput<'_>) -> Vec<ThreadsListGroup> {
         } else {
             ThreadsListKey::Recent
         };
-        buckets.entry(key).or_default().push(ThreadsListRow {
+        let row = ThreadsListRow {
             session_id: root.id.clone(),
             team_id: root.team_id.clone().unwrap_or_default(),
+            depth: 0,
+            parent_id: None,
+            root_id: root.id.clone(),
             title,
             private: !root.shared,
             device_id: root.device_id.clone(),
             busy: live.iter().any(|session| session.busy),
             needs_you,
+            unread: unread_at(newest_agent_in_tree.get(root.id.as_str()), &root.id),
+            caption: session_card(root, 1, 0).caption,
             activity_at: activity,
-        });
+        };
+        // A live tree nests its children (depth-first, creation order;
+        // asides stay in the Conversation); Recent collapses to the root.
+        let mut children = Vec::new();
+        if key != ThreadsListKey::Recent {
+            let ordered = tree_order(tree);
+            let ordinals: HashMap<&str, usize> =
+                ordered.iter().enumerate().map(|(index, session)| (session.id.as_str(), index + 1)).collect();
+            fn walk<'s>(
+                parent_id: &str,
+                depth: usize,
+                ordered: &[&'s SessionRow],
+                visit: &mut dyn FnMut(&'s SessionRow, &str, usize),
+            ) {
+                for child in ordered.iter().copied() {
+                    if child.parent_id.as_deref() != Some(parent_id) || child.aside {
+                        continue;
+                    }
+                    visit(child, parent_id, depth);
+                    walk(&child.id, depth + 1, ordered, visit);
+                }
+            }
+            walk(&root.id, 1, &ordered, &mut |child, parent_id, depth| {
+                let card = session_card(child, ordinals.get(child.id.as_str()).copied().unwrap_or(1), 0);
+                children.push(ThreadsListRow {
+                    session_id: child.id.clone(),
+                    team_id: child.team_id.clone().unwrap_or_default(),
+                    depth,
+                    parent_id: Some(parent_id.to_string()),
+                    root_id: root.id.clone(),
+                    title: card.name,
+                    private: !child.shared,
+                    device_id: child.device_id.clone(),
+                    busy: !child.is_ended() && child.busy,
+                    needs_you: !child.is_ended() && child.needs_input,
+                    unread: unread_at(newest_agent.get(child.id.as_str()), &child.id),
+                    caption: card.caption,
+                    activity_at: child.updated_at.clone().unwrap_or_default(),
+                });
+            });
+        }
+        buckets.entry(key).or_default().push((row, children));
     }
     ThreadsListKey::ALL
         .into_iter()
         .filter_map(|key| {
-            let mut rows = buckets.remove(&key)?;
-            rows.sort_by(|a, b| {
+            let mut entries = buckets.remove(&key)?;
+            entries.sort_by(|(a, _), (b, _)| {
                 ms_or_zero(Some(&b.activity_at))
                     .cmp(&ms_or_zero(Some(&a.activity_at)))
                     .then_with(|| a.session_id.cmp(&b.session_id))
             });
+            let rows: Vec<ThreadsListRow> = entries
+                .into_iter()
+                .flat_map(|(row, children)| std::iter::once(row).chain(children))
+                .collect();
             Some(ThreadsListGroup {
                 key,
                 title: key.title().to_string(),
@@ -1115,6 +1367,12 @@ pub fn partition_threads(input: ThreadsListInput<'_>) -> Vec<ThreadsListGroup> {
         })
         .filter(|group| !group.rows.is_empty())
         .collect()
+}
+
+/// EXP-1323: the Threads nav dot = any thread (depth 0) row is unread
+/// (`threads-list.json` `unreadCases`).
+pub fn threads_unread(groups: &[ThreadsListGroup]) -> bool {
+    groups.iter().any(|group| group.rows.iter().any(|row| row.depth == 0 && row.unread))
 }
 
 /// EXP-1309/1318: the ONE quiet trailing word of a thread row ×4 (the lock
@@ -1289,35 +1547,11 @@ mod tests {
     use serde::de::DeserializeOwned;
     use serde_json::{json, Map};
 
-    /// EXP-1322: a bare label and `{label, description?}` both normalise;
-    /// an empty description reads as none.
-    #[test]
-    fn question_options_normalise_bare_labels_and_objects() {
-        let options = [
-            json!("Yes"),
-            json!({ "label": "No", "description": "Wait for the next release" }),
-            json!({ "label": "Later", "description": "" }),
-            json!({ "label": "Never" }),
-        ];
-        let normalised: Vec<QuestionOption> = options.iter().map(question_option).collect();
-        let pairs: Vec<(&str, Option<&str>)> =
-            normalised.iter().map(|option| (option.label.as_str(), option.description.as_deref())).collect();
-        assert_eq!(
-            pairs,
-            [
-                ("Yes", None),
-                ("No", Some("Wait for the next release")),
-                ("Later", None),
-                ("Never", None),
-            ]
-        );
-    }
-
     /// EXP-1322 sidecar: `optionDescriptions` zips with `options` by index
     /// (null / "" / a missing slot = none; a non-array sidecar is ignored);
-    /// an object option's own description wins over its sidecar slot.
+    /// a non-string option drops after the zip.
     #[test]
-    fn question_options_read_the_sidecar_and_keep_object_tolerance() {
+    fn question_options_read_the_sidecar() {
         let pairs = |options: Value, descriptions: Option<Value>| -> Vec<(String, Option<String>)> {
             question_options(Some(&options), descriptions.as_ref())
                 .into_iter()
@@ -1327,15 +1561,14 @@ mod tests {
         let some = |text: &str| Some(text.to_string());
         assert_eq!(
             pairs(
-                json!(["Yes", "No", "Later", "Never", { "label": "Own", "description": "Mine" }]),
-                Some(json!(["Ship it", null, "", "Not now"]))
+                json!(["Yes", "No", "Later", { "label": "Own" }, "Never"]),
+                Some(json!(["Ship it", null, "", "Mine", "Not now"]))
             ),
             [
                 ("Yes".to_string(), some("Ship it")),
                 ("No".to_string(), None),
                 ("Later".to_string(), None),
                 ("Never".to_string(), some("Not now")),
-                ("Own".to_string(), some("Mine")),
             ]
         );
         assert_eq!(
@@ -1494,17 +1727,26 @@ mod tests {
             let links: Vec<SessionIssueRow> = rows(&input["sessionIssues"]);
             let issues: Vec<TreeIssue> = serde_json::from_value(input["issues"].clone()).unwrap();
             let messages: Vec<MessageRow> = rows(&input["messages"]);
+            let reads: Vec<SessionReadRow> = rows(&input["reads"]);
             let sessions: Vec<&SessionRow> = sessions.iter().collect();
             let links: Vec<&SessionIssueRow> = links.iter().collect();
             let messages: Vec<&MessageRow> = messages.iter().collect();
+            let reads: Vec<&SessionReadRow> = reads.iter().collect();
             let groups = partition_threads(ThreadsListInput {
                 sessions: &sessions,
                 session_issues: &links,
                 issues: &issues,
                 messages: &messages,
                 team_id: input["teamId"].as_str(),
+                reads: &reads,
             });
             assert_whole(&groups, &case["expected"], name);
+        }
+        let unread_cases = fixture["unreadCases"].as_array().unwrap();
+        assert!(!unread_cases.is_empty());
+        for case in unread_cases {
+            let groups: Vec<ThreadsListGroup> = serde_json::from_value(case["groups"].clone()).unwrap();
+            assert_eq!(threads_unread(&groups), case["expected"].as_bool().unwrap(), "{}", case["name"]);
         }
         let agent_cases = fixture["agentCases"].as_array().unwrap();
         assert!(!agent_cases.is_empty());

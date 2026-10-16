@@ -6,10 +6,12 @@
 // A row = name · Default pill · host (×2 with the IDE) and ONE action for the
 // viewer: Connect (OAuth: `mcpServers.connect` → the provider's consent page
 // → the server-side callback → back here with `?mcp=connected|failed`), Set
-// key (an API-key server), or Connected (menu: Test connection, Share with
-// team / Stop sharing, Disconnect). FEED-73: a member may SHARE their own
-// connection with the team (like a shared device); the Connected menu says
-// which way it stands.
+// key (an API-key server), or a read-only "Connected" caption. EXP-1285: a
+// row has ONE "…" menu — the viewer's connection items (Test connection,
+// Replace key, Share with team / Stop sharing, Disconnect) and, for an owner,
+// Edit / Remove — so nothing that looks like a label does things. FEED-73: a
+// member may SHARE their own connection with the team (like a shared
+// device); the menu says which way it stands.
 // Adding a server starts from a catalog tile or a pasted URL; the server
 // probes it to detect the sign-in kind, so the owner only confirms a name.
 // Everything technical (auth override, transport, header/env names, scopes)
@@ -672,6 +674,11 @@ function ServerRow({
 }) {
   const target = mcpServerTarget(server)
   const Glyph = getMcpServerIcon(server)
+  const connected = server.connection.status === `connected`
+  const http = server.transport === `http`
+  // A stdio server's secret stays on this machine (the server refuses the
+  // share); only an already-shared row offers undo.
+  const shareOffered = connected && (http || server.connection.shared)
   return (
     <ListRow className="gap-3 px-3 py-2" data-testid="mcp-server-row">
       <Glyph className="size-4 shrink-0 text-foreground/70" />
@@ -692,35 +699,60 @@ function ServerRow({
           </span>
         </div>
       </div>
-      <ConnectionAction
-        server={server}
-        pending={pending}
-        onConnect={onConnect}
-        onDisconnect={onDisconnect}
-        onTest={onTest}
-        onToggleShared={onToggleShared}
-        onReplaceKey={onReplaceKey}
-      />
-      {isOwner && (
+      <ConnectionAction server={server} pending={pending} onConnect={onConnect} />
+      {/* EXP-1285: ONE "…" menu per row. The viewer's connection items sit
+          with the owner's Edit, the destructive ones (Disconnect, Remove)
+          below the separator. A member sees it only on a connected row. */}
+      {(connected || isOwner) && (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
               variant="ghost"
               size="icon-sm"
+              pending={connected && pending}
               aria-label={`Server menu for ${server.name}`}
             >
               <MoreIcon />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            <DropdownMenuItem onSelect={onEdit}>
-              <EditIcon />
-              Edit
-            </DropdownMenuItem>
-            <DropdownMenuItem variant="destructive" onSelect={onRemove}>
-              <RemoveIcon />
-              Remove
-            </DropdownMenuItem>
+            {connected && http && (
+              <DropdownMenuItem onSelect={onTest}>
+                <TestIcon />
+                Test connection
+              </DropdownMenuItem>
+            )}
+            {connected && server.auth === `secret` && (
+              <DropdownMenuItem onSelect={onReplaceKey}>
+                <KeyIcon />
+                Replace key
+              </DropdownMenuItem>
+            )}
+            {shareOffered && (
+              <DropdownMenuItem onSelect={onToggleShared}>
+                <ShareIcon />
+                {server.connection.shared ? `Stop sharing` : `Share with team`}
+              </DropdownMenuItem>
+            )}
+            {isOwner && (
+              <DropdownMenuItem onSelect={onEdit}>
+                <EditIcon />
+                Edit
+              </DropdownMenuItem>
+            )}
+            <DropdownMenuSeparator />
+            {connected && (
+              <DropdownMenuItem variant="destructive" onSelect={onDisconnect}>
+                <DisconnectIcon />
+                Disconnect
+              </DropdownMenuItem>
+            )}
+            {isOwner && (
+              <DropdownMenuItem variant="destructive" onSelect={onRemove}>
+                <RemoveIcon />
+                Remove
+              </DropdownMenuItem>
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
       )}
@@ -728,23 +760,17 @@ function ServerRow({
   )
 }
 
-/** The viewer's ONE action on a row, from their own `connection`. */
+/** The viewer's ONE action on a row, from their own `connection`; a
+ * connected row shows a read-only caption (its actions live in the row's
+ * "…" menu). */
 function ConnectionAction({
   server,
   pending,
   onConnect,
-  onDisconnect,
-  onTest,
-  onToggleShared,
-  onReplaceKey,
 }: {
   server: McpServerRow
   pending: boolean
   onConnect: () => void
-  onDisconnect: () => void
-  onTest: () => void
-  onToggleShared: () => void
-  onReplaceKey: () => void
 }) {
   const { status, error } = server.connection
 
@@ -757,49 +783,11 @@ function ConnectionAction({
   }
 
   if (status === `connected`) {
-    const http = server.transport === `http`
     return (
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            variant="ghost"
-            size="sm"
-            pending={pending}
-            className="text-emerald-500 hover:text-emerald-400"
-            aria-label={`Connected to ${server.name}`}
-          >
-            <ConnectedIcon />
-            Connected
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
-          {http && (
-            <DropdownMenuItem onSelect={onTest}>
-              <TestIcon />
-              Test connection
-            </DropdownMenuItem>
-          )}
-          {server.auth === `secret` && (
-            <DropdownMenuItem onSelect={onReplaceKey}>
-              <KeyIcon />
-              Replace key
-            </DropdownMenuItem>
-          )}
-          {/* A stdio server's secret stays on this machine (the server
-              refuses the share); only an already-shared row offers undo. */}
-          {(http || server.connection.shared) && (
-            <DropdownMenuItem onSelect={onToggleShared}>
-              <ShareIcon />
-              {server.connection.shared ? `Stop sharing` : `Share with team`}
-            </DropdownMenuItem>
-          )}
-          <DropdownMenuSeparator />
-          <DropdownMenuItem variant="destructive" onSelect={onDisconnect}>
-            <DisconnectIcon />
-            Disconnect
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
+      <span className="inline-flex shrink-0 items-center gap-1.5 text-xs text-emerald-500">
+        <ConnectedIcon className="size-3.5 shrink-0" />
+        Connected
+      </span>
     )
   }
 

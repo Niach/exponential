@@ -26,11 +26,11 @@ data class TeamEntity(
     // IS an issue, and the reporter conversation is its comments.)
     // EXP-1105: yolo mode — the team's agents merge their own PRs, so the
     // Reviews tab hides unless an open PR (= a failed auto-merge) is waiting.
-    // Toggled on web + desktop only; an older server without the column = off.
+    // Toggled on web + desktop only; an absent column = off.
     @ColumnInfo(name = "yolo_mode") @SerialName("yolo_mode") @JsonNames("yoloMode") val yoloMode: PgBool = false,
     // EXP-630: the team's estimate scale (contract `issueEstimation`:
     // none | exponential | fibonacci | linear | tshirt). `none` (and a row
-    // from an older server that lacks the column) = estimates OFF, so the
+    // without the column) = estimates OFF, so the
     // chip and the properties row hide; issues keep their point values.
     @ColumnInfo(name = "estimation_type") @SerialName("estimation_type") @JsonNames("estimationType") val estimationType: String? = null,
     @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String,
@@ -466,7 +466,7 @@ data class DeviceEntity(
     val platform: String? = null,
     // EXP-924: the owner-picked display icon (contract `deviceIcon`, the
     // registry's `devicePickable` set). NULL — which is what every machine
-    // registers with, and what a row synced from an older server carries — is
+    // registers with — is
     // the KIND default the clients derive (`deviceIconName`), never a hole.
     val icon: String? = null,
     val version: String? = null,
@@ -707,6 +707,11 @@ data class SessionEntity(
     val name: String? = null,
     val icon: String? = null,
     val color: String? = null,
+    // EXP-1323: the live status line (device-written on tool edges, <=80
+    // chars, cleared at turn end; an aside keeps its answer's first line).
+    val caption: String? = null,
+    // EXP-1323: a `/btw` aside child (read-only fork, ends after its reply).
+    @ColumnInfo(name = "aside", defaultValue = "0") val aside: PgBool = false,
     // The agent's triggers (contract `agentTrigger`), raw jsonb TEXT.
     @ColumnInfo(name = "triggers") @SerialName("triggers")
     @Serializable(with = JsonAsStringSerializer::class) val triggers: String? = null,
@@ -759,11 +764,33 @@ data class MessageEntity(
     @ColumnInfo(name = "author_kind") @SerialName("author_kind") @JsonNames("authorKind")
     val authorKind: String = com.exponential.app.domain.DomainContract.messageAuthorKindSystem,
     @ColumnInfo(name = "author_id") @SerialName("author_id") @JsonNames("authorId") val authorId: String? = null,
+    // EXP-1323: the SESSION that posted it (a child asking its parent, a
+    // child's report); NULL = a person or the server.
+    @ColumnInfo(name = "author_session_id") @SerialName("author_session_id") @JsonNames("authorSessionId")
+    val authorSessionId: String? = null,
     val body: String = "",
     @ColumnInfo(name = "card") @SerialName("card")
     @Serializable(with = JsonAsStringSerializer::class) val card: String? = null,
     @ColumnInfo(name = "answered_at") @SerialName("answered_at") @JsonNames("answeredAt") val answeredAt: String? = null,
     @ColumnInfo(name = "consumed_at") @SerialName("consumed_at") @JsonNames("consumedAt") val consumedAt: String? = null,
+    @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String = "",
+    @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String = "",
+)
+
+// EXP-1323: the viewer's read mark of one session (a thread = its root's
+// row), upserted by `sessions.markRead` when a thread or a session view opens.
+// Static per user like pins (`user_id = me`), never trash-scoped; a row only
+// matters beside a synced session.
+@Entity(
+    tableName = "session_reads",
+    indices = [Index("session_id")],
+)
+@Serializable
+data class SessionReadEntity(
+    @PrimaryKey val id: String,
+    @ColumnInfo(name = "user_id") @SerialName("user_id") @JsonNames("userId") val userId: String = "",
+    @ColumnInfo(name = "session_id") @SerialName("session_id") @JsonNames("sessionId") val sessionId: String = "",
+    @ColumnInfo(name = "read_at") @SerialName("read_at") @JsonNames("readAt") val readAt: String = "",
     @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String = "",
     @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String = "",
 )

@@ -33,7 +33,6 @@ import {
   type AgentProfileUsageRow,
 } from "@/lib/agent-usage"
 import {
-  deviceCanAgentLogin,
   deviceIsMine,
   deviceIsOnline,
   type SteerDevice,
@@ -78,19 +77,18 @@ export function DeviceLogins({
     [device]
   )
   // EXP-845 REVERSED (EXP-909): the "Add account" row renders only where a
-  // sign-in can actually be queued — my machine, online, taking the command,
-  // with an agent installed to sign in to. A disabled control naming a reason
-  // nobody can act on from here was chrome; the machine's own row above
-  // already says it is offline.
+  // sign-in can actually be queued — my machine, online, with an agent
+  // installed to sign in to. A disabled control naming a reason nobody can
+  // act on from here was chrome; the machine's own row above already says it
+  // is offline.
   const canAdd =
     !readOnly &&
     deviceIsMine(device) &&
     deviceIsOnline(device) &&
-    deviceCanAgentLogin(device) &&
     addableAgents(device).length > 0
   if (device.agentAccounts === undefined) {
-    // The machine has not reported its accounts yet (an older build, or a row
-    // that has not beaten since it registered) — not "no login".
+    // The machine has not reported its accounts yet (a row that has not
+    // beaten since it registered) — not "no login".
     return <p className="mt-1 text-[11px] text-muted-foreground">Checking…</p>
   }
   if (rows.length === 0 && !canAdd) {
@@ -140,7 +138,7 @@ export function DeviceLoginRowView({
   // The "as of …" fallback for a login with no numbers at all — the device
   // stamps `checkedAt` on every probe.
   const asOf = row.usage?.fetchedAt ?? row.checkedAt
-  const actionable = !readOnly && accountChipActionable(device, row)
+  const actionable = !readOnly && accountChipActionable(device)
   const menu = (
     <Button
       variant="ghost"

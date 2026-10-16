@@ -119,6 +119,7 @@ fn adapter_spec(scenario: &str, work: &Path, session_id: &str, exit: ChildExitLi
         system_append: coding::skill::system_append(None),
         context_layers: coding::ContextLayers::default(),
         name_conversation: false,
+        aside: false,
         exit,
     }
 }

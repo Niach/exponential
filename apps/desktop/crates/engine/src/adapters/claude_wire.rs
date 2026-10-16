@@ -1946,6 +1946,26 @@ mod tests {
         assert!(argv.contains(&"--fork-session".to_string()));
     }
 
+    /// EXP-1330: a `/btw` aside resumes its parent's conversation as a FORK
+    /// with the writing tools off; an ordinary run never forks.
+    #[test]
+    fn argv_for_an_aside_forks_read_only() {
+        assert!(!claude_argv(&ClaudeArgs::default()).contains(&"--fork-session".to_string()));
+        let args = ClaudeArgs {
+            resume: Some("parent-native"),
+            fork_session: true,
+            disallowed_tools: crate::aside::ASIDE_DISALLOWED_TOOLS,
+            ..ClaudeArgs::default()
+        };
+        let argv = claude_argv(&args);
+        let resume = argv.iter().position(|arg| arg == "--resume=parent-native").expect("--resume");
+        let fork = argv.iter().position(|arg| arg == "--fork-session").expect("--fork-session");
+        assert!(resume < fork, "the fork follows the resume it forks");
+        let tools =
+            argv.iter().position(|arg| arg == "--disallowedTools").expect("--disallowedTools");
+        assert_eq!(argv[tools + 1], "Edit,MultiEdit,Write,NotebookEdit,Bash,Task,Agent");
+    }
+
     #[test]
     fn argv_for_plan_mode_and_ultracode() {
         let args = ClaudeArgs {

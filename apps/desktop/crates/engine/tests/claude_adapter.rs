@@ -428,6 +428,7 @@ fn spec_env(
         system_append: coding::skill::system_append(None),
         context_layers: coding::ContextLayers::default(),
         name_conversation: false,
+        aside: false,
         exit: engine::ChildExitLink::new(),
     }
 }
@@ -3414,4 +3415,32 @@ async fn a_workflows_agents_get_lanes_of_their_own() {
         }),
         "an agent with an id is never queued: {cards:?}"
     );
+}
+
+/// EXP-1330: a `/btw` aside resumes its parent's conversation as a FORK, the
+/// writing tools off; the parent's own transcript never sees the question.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_aside_forks_the_parents_conversation_read_only() {
+    let _session = one_session_at_a_time();
+    let work = workdir("aside-fork");
+    let run = drive_turns_with(
+        "context-layout",
+        &work.0,
+        &["Where is the cart total computed?"],
+        reject_all(),
+        cancel_elicitations(),
+        |spec| {
+            spec.aside = true;
+            spec.resume = Some(engine::ResumeHandle::Native(
+                "11111111-2222-3333-4444-555555555555".to_string(),
+            ));
+        },
+    )
+    .await;
+    assert!(run.argv.iter().any(|arg| arg == "--resume=11111111-2222-3333-4444-555555555555"));
+    assert!(run.argv.iter().any(|arg| arg == "--fork-session"));
+    let tools = run.argv_value("--disallowedTools").expect("--disallowedTools");
+    for tool in ["Edit", "Write", "NotebookEdit", "Bash"] {
+        assert!(tools.split(',').any(|listed| listed == tool), "{tool} in {tools}");
+    }
 }

@@ -116,11 +116,14 @@ function InboxDot() {
 
 // EXP-1293: the Threads tab's dot — green while a thread runs, amber while
 // one needs you (green-500/yellow-400 = the natives' semantic tokens,
-// EXP-699). EXP-1186: across every member team, like the inbox.
+// EXP-699). EXP-1186: across every member team, like the inbox. EXP-1323:
+// else the unread dot while a thread holds an unread reply.
 function ThreadsDot({ teamIds }: { teamIds: readonly string[] }) {
-  const { live, needsYou } = useThreadsNav(teamIds)
-  if (!live) return null
-  return <TabDot className={needsYou ? `bg-yellow-400` : `bg-green-500`} />
+  const { live, needsYou, unread } = useThreadsNav(teamIds)
+  if (!live && !unread) return null
+  return (
+    <TabDot className={needsYou ? `bg-yellow-400` : live ? `bg-green-500` : `bg-primary`} />
+  )
 }
 
 // Any of MY live sessions, on the Chat launcher. Amber while one waits on a

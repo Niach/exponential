@@ -8,7 +8,9 @@
 //! bubble, the agent's prose, an event line, a child's session card, a
 //! question answered in place (an option with its description, EXP-1322)
 //! and the queued reply. The rows the first case has no example of (a plan,
-//! a subagent, a picture) follow from the second case, then THE session
+//! a subagent, a picture) follow from the second case, then (EXP-1323) the
+//! dispatcher case's report line and suggestions card in every item state,
+//! then THE session
 //! composer the thread hosts for its DISPATCHER root: the session view's own
 //! box with its run controls in the card's bottom row
 //! (`crate::composer::SessionComposerControls`: the model pin on the
@@ -50,6 +52,24 @@ pub(super) struct Case {
     messages: Vec<MessageRow>,
     issues: Vec<TreeIssue>,
 }
+
+/// EXP-1323: the index of the first fixture case whose name starts with
+/// `prefix` (the dispatcher case: suggestions, a report, an aside).
+pub(super) fn case_named(prefix: &str) -> usize {
+    let fixture: serde_json::Value =
+        serde_json::from_str(fixture_rows::SESSION_THREAD_JSON).expect("session-thread.json parses");
+    fixture["cases"]
+        .as_array()
+        .and_then(|cases| {
+            cases
+                .iter()
+                .position(|case| case["name"].as_str().is_some_and(|name| name.starts_with(prefix)))
+        })
+        .expect("the fixture case exists")
+}
+
+/// The EXP-1323 dispatcher case's name prefix.
+pub(super) const DISPATCHER_CASE: &str = "EXP-1323: a live";
 
 /// Fixture case `index`, built through the shared model.
 pub(super) fn case(index: usize) -> Case {
@@ -189,6 +209,14 @@ fn extra_rows(view: &SessionThreadView) -> Vec<&SessionThreadRow> {
         .collect()
 }
 
+/// EXP-1323: the dispatcher case's report line and suggestions card.
+fn dispatcher_rows(view: &SessionThreadView) -> Vec<&SessionThreadRow> {
+    view.rows
+        .iter()
+        .filter(|row| matches!(row, SessionThreadRow::Report { .. } | SessionThreadRow::Suggestions { .. }))
+        .collect()
+}
+
 /// THE session composer's field, kept across frames, and the demo
 /// dispatcher's model pick (the pin is a live menu here).
 struct ComposerDemo {
@@ -269,6 +297,10 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
     for item in extra_rows(&second.view) {
         conversation = conversation.child(row(&second, item, &images, window, cx));
     }
+    let dispatcher = case(case_named(DISPATCHER_CASE));
+    for item in dispatcher_rows(&dispatcher.view) {
+        conversation = conversation.child(row(&dispatcher, item, &images, window, cx));
+    }
     v_flex()
         .w(px(760.))
         .gap_4()
@@ -289,11 +321,13 @@ mod tests {
     fn the_demo_draws_every_row_kind() {
         let first = case(0);
         let second = case(1);
+        let dispatcher = case(case_named(DISPATCHER_CASE));
         let kinds: std::collections::BTreeSet<&str> = first
             .view
             .rows
             .iter()
             .chain(extra_rows(&second.view))
+            .chain(dispatcher_rows(&dispatcher.view))
             .map(|row| match row {
                 SessionThreadRow::Message { .. } => "message",
                 SessionThreadRow::Session { .. } => "session",
@@ -302,9 +336,11 @@ mod tests {
                 SessionThreadRow::Subagent { .. } => "subagent",
                 SessionThreadRow::Picture { .. } => "picture",
                 SessionThreadRow::Event { .. } => "event",
+                SessionThreadRow::Report { .. } => "report",
+                SessionThreadRow::Suggestions { .. } => "suggestions",
             })
             .collect();
-        assert_eq!(kinds.len(), 7, "{kinds:?}");
+        assert_eq!(kinds.len(), 9, "{kinds:?}");
         assert!(matches!(first.view.rows.first(), Some(SessionThreadRow::Session { .. })));
         assert_eq!(first.view.title, "Implement EXP-12 + 1");
     }

@@ -1,4 +1,4 @@
-//! The 25 synced shapes (masterplan-v3 §5.9) — the registry the `SyncManager`
+//! The 26 synced shapes (masterplan-v3 §5.9) — the registry the `SyncManager`
 //! iterates and the store builds its schema from. gpui-free.
 //!
 //! Each [`ShapeSpec`] carries the SQLite table name, the kebab-case proxy URL
@@ -80,11 +80,11 @@ impl ShapeSpec {
     }
 }
 
-/// The 25 shapes, in §5.9 order. Column sets mirror `packages/db-schema`
+/// The 26 shapes, in §5.9 order. Column sets mirror `packages/db-schema`
 /// (minus the §5.4 exclusions: no `email` on `issue_subscribers`, web-only
 /// billing fields dropped from `users`, no `body` on `actions`, no scoping
 /// mirrors on `device_worktrees`).
-pub const SHAPES: [ShapeSpec; 25] = [
+pub const SHAPES: [ShapeSpec; 26] = [
     ShapeSpec {
         name: "teams",
         path: "/api/shapes/teams",
@@ -417,6 +417,9 @@ pub const SHAPES: [ShapeSpec; 25] = [
             "ended_at",
             "shared",
             "title",
+            // EXP-1323: the live status line + a `/btw` aside child.
+            "caption",
+            "aside",
             "guide",
             "action_id",
             "action_name",
@@ -466,6 +469,8 @@ pub const SHAPES: [ShapeSpec; 25] = [
             "team_id",
             "author_kind",
             "author_id",
+            // EXP-1323: the session that posted it (a child's report or question).
+            "author_session_id",
             "body",
             "card",
             "answered_at",
@@ -717,6 +722,16 @@ pub const SHAPES: [ShapeSpec; 25] = [
         ],
         pk: PkKind::Id,
     },
+    ShapeSpec {
+        name: "session_reads",
+        path: "/api/shapes/session-reads",
+        // EXP-1323: the caller's read marks of sessions (`sessions.markRead`),
+        // the Threads list's bold rows + nav dot. Static per user like
+        // `pins`. Byte-matches the proxy's allowlist (apps/web
+        // routes/api/shapes/session-reads.ts).
+        columns: &["id", "user_id", "session_id", "read_at", "created_at", "updated_at"],
+        pk: PkKind::Id,
+    },
 ];
 
 /// Look a shape up by its table name.
@@ -729,8 +744,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn registry_has_25_shapes_with_kebab_paths() {
-        assert_eq!(SHAPES.len(), 25);
+    fn registry_has_26_shapes_with_kebab_paths() {
+        assert_eq!(SHAPES.len(), 26);
         for spec in &SHAPES {
             assert!(spec.path.starts_with("/api/shapes/"), "{}", spec.name);
             assert!(!spec.path.contains('_'), "paths are kebab-case: {}", spec.path);
@@ -1051,7 +1066,7 @@ mod tests {
     fn the_session_tree_shapes_match_the_proxies() {
         let sessions = shape_by_name("sessions").unwrap();
         assert_eq!(sessions.path, "/api/shapes/sessions");
-        assert_eq!(sessions.columns.len(), 38);
+        assert_eq!(sessions.columns.len(), 40);
         for column in ["parent_id", "root_id", "kind", "status", "busy", "needs_input", "shared", "guide", "triggers"] {
             assert!(sessions.columns.contains(&column), "sessions needs {column}");
         }

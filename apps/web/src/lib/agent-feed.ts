@@ -460,7 +460,7 @@ export interface AnswerState {
 export type AnswerStates = Record<string, AnswerState>
 
 /** No `answer_ack` within this long re-enables the card with an inline note —
- *  the desktop may be an older build, or the injection was lost. Derived from
+ *  the injection was lost. Derived from
  *  the desktop's worst-case ack budget (EXP-347): ANSWER_RETRY_TTL 4s +
  *  ANSWER_SETTLE 2s + PLAN_SUBMIT_PROBE 0.5s + ~1.5s tick/relay margin —
  *  iOS/Android parity, move all three in lockstep. */

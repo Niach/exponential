@@ -1,10 +1,10 @@
 import { TRPCError } from "@trpc/server"
-import { and, eq, inArray, ne, sql } from "drizzle-orm"
+import { and, desc, eq, inArray, isNull, ne, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
-import { sessions, type Session } from "@/db/schema"
+import { messages, sessions, type Session } from "@/db/schema"
 import { generateTxId } from "@/lib/trpc"
 import { assertCanSteer, loadSessionForUser } from "@/lib/sessions/access"
-import { postAgentMessage, postSystemCard } from "@/lib/sessions/messages"
+import { insertMessage, postAgentMessage, postSystemCard } from "@/lib/sessions/messages"
 import type { Tx } from "@/lib/sessions/tx"
 import {
   getSteerRelayConfig,
@@ -60,6 +60,64 @@ export async function markEnded(tx: Tx, ids: string[]): Promise<string[]> {
     )
     .returning({ id: sessions.id })
   return ended.map((row) => row.id)
+}
+
+/** A report's summary: the closing summary, else the child's last turn
+ *  reply, else the fallback. */
+export const REPORT_FALLBACK = `Ended without a summary.`
+const REPORT_MAX = 4000
+
+/**
+ * EXP-1329: a child's end lands on its PARENT as a `report` card, agent-
+ * authored by the child, `consumed_at` NULL: an idle parent resumes and reads
+ * it as its next turn (the person-message path, `pendingInput`). Any parent,
+ * any depth, an agent root too. Never for a `/btw` aside (it must not wake
+ * anything) or a parent that has ended (pre-consumed: shown, never fed).
+ */
+export async function postReportToParent(
+  tx: Tx,
+  child: Pick<Session, `id` | `parentId` | `aside`>,
+  summary?: string | null
+): Promise<string | null> {
+  if (!child.parentId || child.aside) return null
+  const [parent] = await tx
+    .select({
+      id: sessions.id,
+      rootId: sessions.rootId,
+      teamId: sessions.teamId,
+      shared: sessions.shared,
+      userId: sessions.userId,
+      status: sessions.status,
+    })
+    .from(sessions)
+    .where(eq(sessions.id, child.parentId))
+    .limit(1)
+  if (!parent) return null
+  let text = summary?.trim() ?? ``
+  if (!text) {
+    const [last] = await tx
+      .select({ body: messages.body })
+      .from(messages)
+      .where(
+        and(
+          eq(messages.sessionId, child.id),
+          eq(messages.authorKind, `agent`),
+          isNull(messages.card),
+          isNull(messages.authorSessionId)
+        )
+      )
+      .orderBy(desc(messages.createdAt))
+      .limit(1)
+    text = last?.body.trim() ?? ``
+  }
+  text = (text || REPORT_FALLBACK).slice(0, REPORT_MAX)
+  return insertMessage(tx, parent, {
+    authorKind: `agent`,
+    authorSessionId: child.id,
+    body: text,
+    card: { kind: `report`, sessionId: child.id, summary: text },
+    consumedAt: parent.status === `ended` ? new Date() : null,
+  })
 }
 
 /** Stop: interrupt the current turn. A session that never started (queued)
@@ -120,6 +178,7 @@ export async function endSession(args: {
         event: `session_ended`,
         sessionId: session.id,
       })
+      await postReportToParent(tx, session, args.summary)
     }
     return { txid, endedIds }
   })

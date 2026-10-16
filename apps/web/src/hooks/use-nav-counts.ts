@@ -14,6 +14,8 @@ import { threadsNavState } from "@/components/team/sidebar-running"
 export function useThreadsNav(teamIds: string | readonly string[] | undefined): {
   live: boolean
   needsYou: boolean
+  /** EXP-1323: a thread holds an agent reply the viewer has not read. */
+  unread: boolean
 } {
   const { groups } = useThreadsList(teamIds)
   return useMemo(() => threadsNavState(groups), [groups])

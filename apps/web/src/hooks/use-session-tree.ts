@@ -7,6 +7,7 @@ import {
   pullRequestIssueCollection,
   sessionCollection,
   sessionIssueCollection,
+  sessionReadsCollection,
 } from "@/lib/collections"
 import { useNow } from "@/hooks/use-now"
 import { teamScopeIds } from "@/lib/team-scope"
@@ -32,6 +33,7 @@ import {
   type TreeIssue,
   type TreeSession,
   type TreeSessionIssue,
+  type TreeSessionRead,
 } from "@/lib/session-tree"
 
 // EXP-1293 Threads v2 (web): ONE read layer over the session-tree shapes.
@@ -178,6 +180,19 @@ function useTitleContext(teamIds: readonly string[]) {
   )
 }
 
+/** EXP-1323: the viewer's read marks (`session_reads`, a per-user shape). */
+export function useSessionReads(): TreeSessionRead[] {
+  const { data } = useLiveQuery((query) => query.from({ reads: sessionReadsCollection }), [])
+  return useMemo(
+    () =>
+      ((data ?? []) as { sessionId: string; readAt: Date | string }[]).map((read) => ({
+        sessionId: read.sessionId,
+        readAt: read.readAt instanceof Date ? read.readAt.toISOString() : read.readAt,
+      })),
+    [data]
+  )
+}
+
 /**
  * The Threads list (Needs you · Running · Recent) for the ACTIVE team
  * (`teamId`; null/array = every listed team, phones band per team).
@@ -189,6 +204,7 @@ export function useThreadsList(teamId: string | readonly string[] | null | undef
   const teamIds = teamScopeIds(teamId ?? undefined)
   const { tree, isReady } = useTeamSessions(teamIds)
   const context = useTitleContext(teamIds)
+  const reads = useSessionReads()
   return useMemo(() => {
     const groups = partitionThreads({
       sessions: tree,
@@ -196,6 +212,7 @@ export function useThreadsList(teamId: string | readonly string[] | null | undef
       issues: context.issues,
       messages: context.messages,
       teamId: null,
+      reads,
     })
     // EXP-1316: a row holds its title only while ITS ladder still waits on
     // a shape (an issue-linked row until the issues land); a row named by
@@ -208,7 +225,7 @@ export function useThreadsList(teamId: string | readonly string[] | null | undef
       messagesReady: context.messagesReady,
     })
     return { groups: holdTitles(groups, held), isReady: isReady && held.size === 0 }
-  }, [tree, context, isReady])
+  }, [tree, context, isReady, reads])
 }
 
 /** The rail's Agents section: the team's agent roots, like boards. */

@@ -329,7 +329,7 @@ extension IssueEntity: Codable {
         // EXP-630: an integer off the wire as Postgres text, a scalar from
         // tRPC; absent on a pre-rotation snapshot.
         estimate = try container.decodeWireInt(forKey: .estimate)
-        // EXP-1231: absent on a pre-rotation snapshot / an older server.
+        // EXP-1231: absent on a pre-rotation snapshot.
         draftId = try container.decodeIfPresent(String.self, forKey: .draftId)
         createdAt = try container.decode(String.self, forKey: .createdAt)
         updatedAt = try container.decode(String.self, forKey: .updatedAt)
@@ -416,6 +416,11 @@ public struct SessionEntity: FetchableRecord, PersistableRecord, Identifiable, S
     public let sortOrder: Double
     public let createdAt: String
     public let updatedAt: String
+    /// EXP-1323: the live status line (device-written, ≤80 chars, cleared at
+    /// turn end); nil = none.
+    public let caption: String?
+    /// EXP-1323: a `/btw` aside child (its title = the question).
+    public let aside: Bool
 
     public init(
         id: String,
@@ -456,8 +461,12 @@ public struct SessionEntity: FetchableRecord, PersistableRecord, Identifiable, S
         triggers: String = "[]",
         sortOrder: Double = 0,
         createdAt: String,
-        updatedAt: String
+        updatedAt: String,
+        caption: String? = nil,
+        aside: Bool = false
     ) {
+        self.caption = caption
+        self.aside = aside
         self.id = id
         self.teamId = teamId
         self.parentId = parentId
@@ -506,7 +515,7 @@ public struct SessionEntity: FetchableRecord, PersistableRecord, Identifiable, S
 
     enum CodingKeys: String, CodingKey {
         case id, depth, kind, cli, account, model, effort, ultracode, branch, status
-        case busy, blocked, shared, title, guide, name, icon, color, triggers, dispatch
+        case busy, blocked, shared, title, guide, name, icon, color, triggers, dispatch, caption, aside
         case teamId = "team_id"
         case parentId = "parent_id"
         case rootId = "root_id"
@@ -576,6 +585,8 @@ extension SessionEntity: Codable {
         sortOrder = try c.decodeWireDouble(forKey: .sortOrder) ?? 0
         createdAt = try c.decode(String.self, forKey: .createdAt)
         updatedAt = try c.decode(String.self, forKey: .updatedAt)
+        caption = try c.decodeIfPresent(String.self, forKey: .caption)
+        aside = c.decodeWireBool(forKey: .aside, default: false)
     }
 }
 
@@ -683,6 +694,9 @@ public struct MessageEntity: FetchableRecord, PersistableRecord, Identifiable, S
     public let consumedAt: String?
     public let createdAt: String
     public let updatedAt: String
+    /// EXP-1323: the session that posted it (a child asking its parent);
+    /// nil = none.
+    public let authorSessionId: String?
 
     public init(
         id: String,
@@ -696,8 +710,10 @@ public struct MessageEntity: FetchableRecord, PersistableRecord, Identifiable, S
         answeredAt: String? = nil,
         consumedAt: String? = nil,
         createdAt: String,
-        updatedAt: String
+        updatedAt: String,
+        authorSessionId: String? = nil
     ) {
+        self.authorSessionId = authorSessionId
         self.id = id
         self.sessionId = sessionId
         self.rootId = rootId
@@ -719,6 +735,7 @@ public struct MessageEntity: FetchableRecord, PersistableRecord, Identifiable, S
         case teamId = "team_id"
         case authorKind = "author_kind"
         case authorId = "author_id"
+        case authorSessionId = "author_session_id"
         case answeredAt = "answered_at"
         case consumedAt = "consumed_at"
         case createdAt = "created_at"
@@ -741,6 +758,49 @@ extension MessageEntity: Codable {
         consumedAt = try c.decodeIfPresent(String.self, forKey: .consumedAt)
         createdAt = try c.decode(String.self, forKey: .createdAt)
         updatedAt = try c.decode(String.self, forKey: .updatedAt)
+        authorSessionId = try c.decodeIfPresent(String.self, forKey: .authorSessionId)
+    }
+}
+
+// MARK: - SessionRead (EXP-1323)
+
+// The viewer's read marks: ONE row per (user, session), stamped by
+// `sessions.markRead` when a thread or a session view opens. Static per user
+// (`user_id = me`) like `pins`; the Threads list folds them into `unread`
+// (bold titles + the Threads tab dot).
+public struct SessionReadEntity: Codable, FetchableRecord, PersistableRecord, Identifiable, Sendable {
+    public static let databaseTableName = "session_reads"
+
+    public let id: String
+    public let userId: String
+    public let sessionId: String
+    public let readAt: String
+    public let createdAt: String
+    public let updatedAt: String
+
+    public init(
+        id: String,
+        userId: String,
+        sessionId: String,
+        readAt: String,
+        createdAt: String,
+        updatedAt: String
+    ) {
+        self.id = id
+        self.userId = userId
+        self.sessionId = sessionId
+        self.readAt = readAt
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case userId = "user_id"
+        case sessionId = "session_id"
+        case readAt = "read_at"
+        case createdAt = "created_at"
+        case updatedAt = "updated_at"
     }
 }
 
@@ -1771,7 +1831,7 @@ extension AttachmentEntity: Codable {
         // EXP-824: both nullable and absent on pre-rotation snapshots.
         durationMs = try c.decodeWireInt(forKey: .durationMs)
         posterStorageKey = try c.decodeIfPresent(String.self, forKey: .posterStorageKey)
-        // EXP-1247: absent on pre-rotation snapshots and older servers.
+        // EXP-1247: absent on pre-rotation snapshots.
         asFile = c.decodeWireBool(forKey: .asFile, default: false)
         createdAt = try c.decode(String.self, forKey: .createdAt)
         updatedAt = try c.decode(String.self, forKey: .updatedAt)
@@ -2166,7 +2226,7 @@ extension DeviceEntity: Codable {
         agentAccounts = c.decodeWireJsonString(forKey: .agentAccounts)
         agentUsage = c.decodeWireJsonString(forKey: .agentUsage)
         agentUsageAt = try c.decodeIfPresent(String.self, forKey: .agentUsageAt)
-        // EXP-1196: jsonb like agent_accounts; absent on an older server.
+        // EXP-1196: jsonb like agent_accounts; nullable.
         doctor = c.decodeWireJsonString(forKey: .doctor)
         // SE-0230 flattens the try?-of-optional; unparseable text degrades to
         // 0 rather than dropping the row (activeSessions only gates a badge).

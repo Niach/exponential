@@ -352,8 +352,8 @@ class DeviceSettingsDefaultsTest {
         assertEquals(DomainContract.deviceComputerUseDefaultsModel, seedComputerUseModel(""))
     }
 
-    /** EXP-773 deleted the "Start in terminal" preference. An older server
-     *  still stamps `startInTerminal` onto `launchDefaults`; the decoder is
+    /** EXP-773 deleted the "Start in terminal" preference. A stored
+     *  `launchDefaults` may still carry `startInTerminal`; the decoder is
      *  `ignoreUnknownKeys`, so the key is skipped instead of failing the whole
      *  object and dropping the machine out of every picker. */
     @Test

@@ -34,7 +34,9 @@ extension TreeSession {
             endedAt: row.endedAt,
             createdAt: row.createdAt,
             updatedAt: row.updatedAt,
-            deviceId: row.deviceId.isEmpty ? nil : row.deviceId
+            deviceId: row.deviceId.isEmpty ? nil : row.deviceId,
+            caption: row.caption,
+            aside: row.aside
         )
     }
 }
@@ -63,8 +65,15 @@ extension TreeMessage {
             card: TreeMessageCard.parse(row.card),
             answeredAt: row.answeredAt,
             consumedAt: row.consumedAt,
-            createdAt: row.createdAt
+            createdAt: row.createdAt,
+            authorSessionId: row.authorSessionId
         )
+    }
+}
+
+extension TreeSessionRead {
+    init(sessionReadRow row: SessionReadEntity) {
+        self.init(sessionId: row.sessionId, readAt: row.readAt)
     }
 }
 

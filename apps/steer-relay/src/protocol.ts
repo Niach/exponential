@@ -19,12 +19,9 @@ import { z } from "zod"
 export const onlineFrame = z.object({
   t: z.literal(`online`),
   deviceId: z.string().min(1).max(128),
-  // EXP-672: presence is the deviceId → socket map and nothing more. Shipped
-  // desktops and daemons (0.14.28 and older) still put `deviceLabel` and the
-  // EXP-253 `caps` array in this frame; non-strict parsing drops them, and it
-  // MUST stay that way — a `.strict()` schema here would fail the parse and
-  // the device would silently go dark. Starts were always gated on the
-  // persisted `devices` row, never on what rode the online frame.
+  // EXP-672: presence is the deviceId → socket map and nothing more.
+  // Non-strict parsing drops unknown keys; never `.strict()` — an extra key
+  // would fail the parse and the device would silently go dark.
 })
 
 export const helloFrame = z.object({
@@ -398,13 +395,12 @@ export const activityEventSchema = z.discriminatedUnion(`kind`, [
     multiSelect: z.boolean().optional(),
     // Marks an ExitPlanMode plan-approval picker (EXP-97) so clients can
     // render a dedicated "Plan ready" card. Presentation-only; absent on
-    // AskUserQuestion events and on frames from older desktops.
+    // AskUserQuestion events.
     planMode: z.boolean().optional(),
     // Stable identity (EXP-249), derived from the agent's tool call id
     // (claude `<tool_use_id>#<index>`, codex `<call_id>#<index>`, synthetic
     // for transcript-born cards). The `answer` frame names it, and a re-emit
-    // with the same id REPLACES the card in place. Required since EXP-730:
-    // every publisher >= 0.14.31 stamps one.
+    // with the same id REPLACES the card in place. Required (EXP-730).
     id: z.string().min(1).max(128),
     // Groups the steps of one multi-question ask. An askId question WITHOUT
     // index/total is that ask's final review/submit step.
@@ -829,130 +825,7 @@ export type ClientFrame = z.infer<typeof clientFrame>
 
 // ── Relay → client control frames ────────────────────────────────────────────
 
-/** Launch options a remote start may carry (EXP-149; `agent` is EXP-201).
- * All optional — an absent field means "desktop settings default" (plan mode
- * OFF; absent agent = claude). Every launch bypasses the agent's permission
- * prompts (EXP-690); there is no per-run switch.
- * `startedBy` (EXP-432): the requesting teammate's userId on a start
- * targeting a SHARED server device — pure pass-through attribution the
- * daemon echoes into codingSessions.start; absent on own-device starts. */
-export interface StartSessionOptions {
-  startedBy?: string
-  /** EXP-679: the run was started by another coding session (through
-   * `exponential_sessions_start`) — the device writes it as
-   * `coding_sessions.started_reason` so the run is unattended, i.e. its own
-   * `exponential_sessions_end` close-out ends it. Absent on human starts;
-   * `agent` is the only value the relay accepts. */
-  startedReason?: `agent`
-  agent?: string
-  model?: string
-  effort?: string
-  /** EXP-981: claude only — the model its subagents run on. Pass-through. */
-  subagentModel?: string
-  ultracode?: boolean
-  planMode?: boolean
-  /** EXP-481: resume the issue's existing worktree/agent session instead of
-   * starting fresh. Single-issue starts only; the web server gates it on the
-   * device's `resume` cap — the relay passes it through untouched. */
-  resume?: boolean
-  /** EXP-792: team MCP server row ids the run connects to beside
-   * `exponential` (≤16; the web server validated them against the subject's
-   * team). Pass-through — the device resolves ids to its held secrets. */
-  mcpServerIds?: string[]
-  /** EXP-1249: computer use for this run; absent = the device's
-   * `launch_defaults.computerUse`. Pass-through. */
-  computerUse?: boolean
-  /** EXP-792 (EXP-747 B7): the agent account profile to launch on; absent
-   * or `system` = the ambient login. Pass-through. */
-  account?: string
-  /** EXP-825: the requester's free text beside the subject (the chat text,
-   * the create-action request, or additional instructions), in the
-   * steer-image-message shape. Pass-through (the web server validated it);
-   * never on a resume. */
-  prompt?: string
-  /** FEED-63: the id of THIS start request, on every subject incl. a
-   * resume. Verbatim pass-through: the device reports a failed start back to
-   * the web server under it. EXP-1259: minted by the CLIENT per Start press
-   * (the server mints one only when the client sent none) and REUSED by its
-   * Retry; the device ignores a startId it already started, so the relay
-   * forwards repeats untouched (STEER-WIRE-EXP-850.md §14). Absent from
-   * older web builds. */
-  startId?: string
-  /** EXP-1284: the thread the run starts into (composer "start a session here",
-   * MCP `sessions_start{threadId}`). Verbatim pass-through the device echoes
-   * into `codingSessions.start`; never on a resume (it stays in its
-   * predecessor's thread). The web server validated it. */
-  threadId?: string
-}
-
-/** Server-resolved repo group for a BATCH or ACTION remote start — the
- * desktop syncs no repositories, so the frame carries everything the
- * launcher needs to clone.
- * Never includes installationId (a server-only secret, stripped before it
- * reaches the relay). */
-export interface StartRepoGroup {
-  repositoryId: string
-  fullName: string
-  defaultBranch: string
-}
-
-/** EXP-257: one filled action input, fully resolved server-side (display =
- * repo fullName / board name / the text itself) so the desktop injects a
- * readable "## Inputs" block with no lookups. Dumb-pipe strings — the relay
- * never interprets them. */
-export interface StartInput {
-  key: string
-  label: string
-  type: string
-  value: string
-  display: string
-}
-
 export type ServerFrame =
-  | ({ t: `start_session`; issueId: string } & StartSessionOptions)
-  | ({
-      t: `start_session`
-      issueIds: string[]
-      teamId: string
-      repo: StartRepoGroup
-    } & StartSessionOptions)
-  // EXP-253 action run: actionName is a display snapshot (tab/trust-dialog
-  // title before the desktop's own actions.get resolves); repo is absent for
-  // repo-less actions. Since EXP-257 the full option set applies and
-  // `inputs` carries the resolved input values.
-  | ({
-      t: `start_session`
-      actionId: string
-      actionName: string
-      teamId: string
-      repo?: StartRepoGroup
-      inputs?: StartInput[]
-    } & StartSessionOptions)
-  // EXP-637: resume an ENDED run. The device's own run registry holds the
-  // cwd, agent, options and native transcript id, so the frame only names
-  // the run — the optional ids/branch are display hints the desktop can use
-  // before its registry lookup resolves. No launch options ride a resume: a
-  // resumed run keeps the ones it was started with.
-  | {
-      t: `start_session`
-      resumeSessionId: string
-      teamId: string
-      issueId?: string
-      actionId?: string
-      actionName?: string
-      branch?: string
-      startedBy?: string
-      /** EXP-679: the resume was asked for by another coding session — the
-       * device writes it as `coding_sessions.started_reason` so the relaunched
-       * run is unattended. */
-      startedReason?: `agent`
-      /** EXP-849/EXP-906: the profile to continue the run on — the ONE
-       * option a resume carries (naming another profile is the mid-run
-       * account switch). Pass-through. */
-      account?: string
-      /** FEED-63: the start request's id, verbatim (see StartSessionOptions). */
-      startId?: string
-    }
   | { t: `input`; data: string } // viewer keystrokes, relay → publisher
   | { t: `answer`; questionId: string; askId?: string; keys: string[]; text?: string } // relay → publisher
   // EXP-746: live-config steering, relay → publisher. Fire-and-forget — the

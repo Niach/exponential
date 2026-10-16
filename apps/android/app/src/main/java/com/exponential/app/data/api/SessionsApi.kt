@@ -63,6 +63,8 @@ data class SessionsSendInput(
     val repositoryId: String? = null,
     // A NEW team agent root.
     val agent: AgentFacetsInput? = null,
+    // EXP-1323: a `/btw` aside child (with [parentId]; text = the question).
+    val aside: Boolean? = null,
 ) {
     companion object {
         /**
@@ -135,6 +137,11 @@ data class SessionsSendInput(
             attachmentIds = attachmentIds?.takeIf { it.isNotEmpty() },
         )
 
+        /** EXP-1323: `/btw <question>` — a read-only aside child of
+         *  [parentId] (its device, no worktree); ends after its reply. */
+        fun aside(parentId: String, text: String): SessionsSendInput =
+            SessionsSendInput(parentId = parentId, text = text, aside = true)
+
         /**
          * A message to an existing session (resumes an idle one; an ENDED
          * thread continues server-side). Needs text or attachments.
@@ -179,6 +186,21 @@ private data class LinkIssuesInput(val sessionId: String, val issueIds: List<Str
 
 @Serializable
 private data class UnlinkIssueInput(val sessionId: String, val issueId: String)
+
+/** EXP-1323 `sessions.startSuggestion`: [where] = `child` (a new child of
+ *  the posting session, optional runner picks) | `here` (a message to it). */
+@Serializable
+data class StartSuggestionInput(
+    val messageId: String,
+    val itemId: String,
+    val where: String,
+    val deviceId: String? = null,
+    val account: String? = null,
+    val model: String? = null,
+)
+
+@Serializable
+private data class SuggestionItemInput(val messageId: String, val itemId: String)
 
 /** `sessions.answer`: [answer] for a `question` card, [decision]
  *  (`approved` | `rejected`) + optional [feedback] for a `plan` card. */
@@ -294,6 +316,47 @@ class SessionsApi @Inject constructor(private val trpc: TrpcClient) {
             path = "sessions.unqueue",
             input = MessageIdInput(messageId),
             inputSerializer = MessageIdInput.serializer(),
+        )
+    }
+
+    /** EXP-1323: stamp the viewer's read of a session (a thread = its root). */
+    suspend fun markRead(accountId: String, sessionId: String) =
+        unit(accountId, "sessions.markRead", sessionId)
+
+    /** EXP-1323: Start / Do it here on one suggested task. */
+    suspend fun startSuggestion(accountId: String, input: StartSuggestionInput) {
+        trpc.mutationUnit(
+            accountId,
+            path = "sessions.startSuggestion",
+            input = input,
+            inputSerializer = StartSuggestionInput.serializer(),
+        )
+    }
+
+    /** EXP-1323: Start all — every open item of a suggestions card. */
+    suspend fun startAllSuggestions(accountId: String, messageId: String) {
+        trpc.mutationUnit(
+            accountId,
+            path = "sessions.startAllSuggestions",
+            input = MessageIdInput(messageId),
+            inputSerializer = MessageIdInput.serializer(),
+        )
+    }
+
+    /** EXP-1323: × / Dismiss one suggested task. */
+    suspend fun dismissSuggestion(accountId: String, messageId: String, itemId: String) =
+        suggestionItem(accountId, "sessions.dismissSuggestion", messageId, itemId)
+
+    /** EXP-1323: File as issue — the item becomes an issue of the thread. */
+    suspend fun fileSuggestion(accountId: String, messageId: String, itemId: String) =
+        suggestionItem(accountId, "sessions.fileSuggestion", messageId, itemId)
+
+    private suspend fun suggestionItem(accountId: String, path: String, messageId: String, itemId: String) {
+        trpc.mutationUnit(
+            accountId,
+            path = path,
+            input = SuggestionItemInput(messageId, itemId),
+            inputSerializer = SuggestionItemInput.serializer(),
         )
     }
 

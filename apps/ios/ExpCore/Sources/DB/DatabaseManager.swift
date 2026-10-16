@@ -2498,6 +2498,50 @@ public final class DatabaseManager: @unchecked Sendable {
             }
         }
 
+        // v70 (EXP-1323): the live caption + `/btw` asides on `sessions`, the
+        // posting session on `messages` (guarded additive ALTERs; a cursor
+        // resets only when its column was added, the v63 pattern), and the
+        // per-user `session_reads` table (a brand-new table, no cursor yet).
+        migrator.registerMigration("v70_session_talk") { db in
+            let additions: [(table: String, shape: String, columns: [(String, Database.ColumnType)])] = [
+                ("sessions", "sessions", [("caption", .text), ("aside", .boolean)]),
+                ("messages", "messages", [("author_session_id", .text)]),
+            ]
+            for addition in additions {
+                guard try db.tableExists(addition.table) else { continue }
+                let existing = Set(try db.columns(in: addition.table).map(\.name))
+                let missing = addition.columns.filter { !existing.contains($0.0) }
+                guard !missing.isEmpty else { continue }
+                try db.alter(table: addition.table) { t in
+                    for (name, type) in missing {
+                        if type == .boolean {
+                            t.add(column: name, type).notNull().defaults(to: false)
+                        } else {
+                            t.add(column: name, type)
+                        }
+                    }
+                }
+                if try db.tableExists("electric_offsets") {
+                    try db.execute(
+                        sql: """
+                            UPDATE "electric_offsets"
+                            SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                            WHERE "shape" = ?
+                            """,
+                        arguments: [addition.shape]
+                    )
+                }
+            }
+            try db.create(table: "session_reads", ifNotExists: true) { t in
+                t.primaryKey("id", .text)
+                t.column("user_id", .text).notNull()
+                t.column("session_id", .text).notNull().indexed()
+                t.column("read_at", .text).notNull()
+                t.column("created_at", .text).notNull()
+                t.column("updated_at", .text).notNull()
+            }
+        }
+
         return migrator
     }
 
@@ -2631,6 +2675,7 @@ public final class DatabaseManager: @unchecked Sendable {
             try db.execute(sql: "DELETE FROM issue_drafts")
             // EXP-1291: the session tree's children before the sessions they
             // hang off, all before the issues they reference.
+            try db.execute(sql: "DELETE FROM session_reads")
             try db.execute(sql: "DELETE FROM pull_request_issues")
             try db.execute(sql: "DELETE FROM pull_requests")
             try db.execute(sql: "DELETE FROM messages")

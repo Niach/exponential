@@ -560,8 +560,8 @@ pub struct Attachment {
     #[serde(default)]
     pub poster_storage_key: Option<String>,
     /// EXP-1247: uploaded through a FILE button (paperclip / Attach file):
-    /// never inlined, listed under Files even when it is an image. `None` on
-    /// an older server's row = false.
+    /// never inlined, listed under Files even when it is an image. `None` (a
+    /// NULL or partial row) = false.
     #[serde(default, deserialize_with = "tolerant_opt_bool")]
     pub as_file: Option<bool>,
     #[serde(default)]
@@ -761,6 +761,14 @@ pub struct SessionRow {
     pub triggers: Option<serde_json::Value>,
     #[serde(default, deserialize_with = "tolerant_opt_f64")]
     pub sort_order: Option<f64>,
+    /// EXP-1323: the live status line (device-written, <=80 chars,
+    /// cleared at turn end); read through the session card's caption rule.
+    #[serde(default)]
+    pub caption: Option<String>,
+    /// EXP-1323: a `/btw` aside child (its card stays in the parent's
+    /// Conversation, never a nested list row).
+    #[serde(default, deserialize_with = "tolerant_bool_or_false")]
+    pub aside: bool,
     #[serde(default)]
     pub created_at: Option<String>,
     #[serde(default)]
@@ -882,6 +890,27 @@ pub struct MessageRow {
     pub answered_at: Option<String>,
     #[serde(default)]
     pub consumed_at: Option<String>,
+    /// EXP-1323: the session that posted it (a child asking its parent,
+    /// a report, a suggestions card); `None` = a person or the root itself.
+    #[serde(default)]
+    pub author_session_id: Option<String>,
+    #[serde(default)]
+    pub created_at: Option<String>,
+    #[serde(default)]
+    pub updated_at: Option<String>,
+}
+
+/// EXP-1323 `session_reads` shape row (per user, static): the viewer read
+/// `session_id` up to `read_at` (`sessions.markRead`). Drives the bold
+/// unread titles + the Threads nav dot.
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+pub struct SessionReadRow {
+    pub id: String,
+    #[serde(default)]
+    pub user_id: Option<String>,
+    pub session_id: String,
+    #[serde(default)]
+    pub read_at: Option<String>,
     #[serde(default)]
     pub created_at: Option<String>,
     #[serde(default)]
@@ -1002,8 +1031,7 @@ pub struct ActionRow {
     #[serde(default, deserialize_with = "tolerant_opt_json")]
     pub inputs: Option<serde_json::Value>,
     /// EXP-825: the composer's field hint while the action is picked (≤200
-    /// chars, NULL = the generic "Additional instructions" hint). Absent on
-    /// rows from a pre-EXP-825 server.
+    /// chars, NULL = the generic "Additional instructions" hint).
     #[serde(default)]
     pub prompt_placeholder: Option<String>,
     /// jsonb `ActionTrigger[]` (SLOP-2) — TEXT-stored like `inputs`. Each
@@ -1261,8 +1289,8 @@ mod tests {
     use serde_json::json;
 
     /// EXP-824: media rows hydrate their probed duration (a quoted wire int
-    /// too) and the poster marker; an older server's narrower row still
-    /// hydrates with both absent.
+    /// too) and the poster marker; a partial row still hydrates with both
+    /// absent.
     #[test]
     fn attachment_row_hydrates_media_fields_tolerantly() {
         let row: Attachment = serde_json::from_value(json!({
@@ -1317,7 +1345,7 @@ mod tests {
             "codex"
         );
         assert_eq!(row.active_sessions, Some(2));
-        // A minimal row (older server) still hydrates.
+        // A minimal (partial) row still hydrates.
         let narrow: DeviceRow = serde_json::from_value(json!({"id": "row-2"})).unwrap();
         assert!(!narrow.is_server());
         assert!(narrow.agent_ids().is_empty());
@@ -1439,7 +1467,7 @@ mod tests {
         assert_eq!(row.agent_usage_for("codex"), None);
         assert_eq!(row.agent_usage_at.as_deref(), Some("2026-08-28T10:00:00.000Z"));
 
-        // A row from an older server (or a garbage column) reads as nothing
+        // A partial row (or a garbage column) reads as nothing
         // to render, never a dropped row.
         let narrow: DeviceRow = serde_json::from_value(json!({
             "id": "row-2",
@@ -1687,8 +1715,8 @@ mod tests {
     fn board_icon_hydrates_and_stray_public_columns_are_ignored() {
         // The glyph comes from `icon`; the dropped public-board columns
         // (`is_public`/`public_show_*`, like the older `type`) and the dropped
-        // `is_protected` (EXP-364) no longer arrive — a stray one from an
-        // older server or a pre-drop local table is simply ignored (row
+        // `is_protected` (EXP-364) no longer arrive — a stray one from a
+        // pre-drop local table is simply ignored (row
         // structs carry no deny_unknown_fields).
         let board: Board = serde_json::from_value(json!({
             "id": "p-1",

@@ -16,9 +16,11 @@ import {
   GlassSectionHeader,
   IssueChip,
   SessionCard,
+  SessionRow,
   ThreadTabs,
   ThreadTabsAddButton,
   ThreadsListItem,
+  treeGuides,
 } from "@exp/ui"
 
 import type { ReactNode } from "react"
@@ -53,6 +55,10 @@ const STATUS = [
 const THREAD = buildSessionThread(threadFixture.cases[0]!.input as unknown as ThreadInput)
 const PRIVATE = buildSessionThread(threadFixture.cases[1]!.input as unknown as ThreadInput)
 const LIST = partitionThreads(listFixture.cases[0]!.input as unknown as ListInput)
+/** EXP-1323: a live tree nesting its children, unread rows bold. */
+const NESTED = partitionThreads(
+  listFixture.cases.find((entry) => entry.name.startsWith(`EXP-1323`))!.input as unknown as ListInput
+)
 
 const NOW = `2026-10-13T10:00:00.000Z`
 const BASE = {
@@ -82,6 +88,12 @@ const BASE = {
 
 const CARDS = [
   sessionCard({ ...BASE, busy: true }, 1, NOW),
+  // EXP-1323: the live caption, the card's muted second line.
+  sessionCard(
+    { ...BASE, title: `Add width and height to cart thumbnails`, busy: true, caption: `Reading CartLineItem.tsx` },
+    7,
+    NOW
+  ),
   sessionCard({ ...BASE, title: `Profile the launch path`, needsInput: true }, 2, NOW),
   sessionCard({ ...BASE, title: `Review the fix` }, 3, NOW),
   sessionCard({ ...BASE, status: `queued`, startedAt: null }, 4, NOW),
@@ -145,60 +157,89 @@ const WORDS: Record<string, { word: string; lead?: ReactNode; icon?: ReactNode }
   d: { word: `ready to merge`, lead: <PrOpenIcon className="size-3.5 text-emerald-500" /> },
 }
 
-function ThreadsList() {
+function ThreadsList({
+  groups = LIST,
+  agents = true,
+}: {
+  groups?: readonly ThreadsListGroup[]
+  agents?: boolean
+}) {
   return (
     <div className="flex max-w-3xl flex-col gap-6" data-testid="threads-list">
-      <div>
-        <GlassSectionHeader
-          label={listFixture.copy.agents}
-          leading={<BoardGlyph board={{ icon: `bot` }} className="size-3.5 text-muted-foreground" />}
-        />
-        <ThreadsListItem
-          testId="agents-row"
-          lead={<BoardGlyph board={{ icon: `bug`, color: `#a78bfa` }} className="size-3.5" />}
-          title="Triage"
-          word="needs input"
-          onOpen={noop}
-        />
-        <ThreadsListItem
-          testId="agents-row"
-          lead={<BoardGlyph board={{ icon: `palette`, color: `#f472b6` }} className="size-3.5" />}
-          title="Designer"
-          onOpen={noop}
-        />
-      </div>
-      {LIST.map((group) => (
-        <div key={group.key}>
-          <GlassSectionHeader label={group.title} leading={GROUP_GLYPH[group.key]} />
-          {group.rows.map((row) => {
-            const word = WORDS[row.sessionId]
-            return (
-              <ThreadsListItem
-                key={row.sessionId}
-                lead={
-                  row.busy ? (
-                    <AgentWorkingMark agent="claude" />
-                  ) : (
-                    (word?.lead ?? (
-                      <AgentRunMark
-                        agent="claude"
-                        state={row.needsYou ? `needs_input` : group.key === `recent` ? `ended` : undefined}
-                        ringClassName="ring-background"
-                      />
-                    ))
-                  )
-                }
-                title={row.title}
-                word={word?.word ?? null}
-                wordIcon={word?.icon}
-                locked={row.private}
-                device={row.deviceId ? DEVICE : null}
-                onOpen={noop}
-              />
-            )
-          })}
+      {agents && (
+        <div>
+          <GlassSectionHeader
+            label={listFixture.copy.agents}
+            leading={<BoardGlyph board={{ icon: `bot` }} className="size-3.5 text-muted-foreground" />}
+          />
+          <ThreadsListItem
+            testId="agents-row"
+            lead={<BoardGlyph board={{ icon: `bug`, color: `#a78bfa` }} className="size-3.5" />}
+            title="Triage"
+            word="needs input"
+            onOpen={noop}
+          />
+          <ThreadsListItem
+            testId="agents-row"
+            lead={<BoardGlyph board={{ icon: `palette`, color: `#f472b6` }} className="size-3.5" />}
+            title="Designer"
+            onOpen={noop}
+          />
         </div>
-      ))}
+      )}
+      {groups.map((group) => {
+        const guides = treeGuides(group.rows.map((row) => row.depth))
+        return (
+          <div key={group.key}>
+            <GlassSectionHeader label={group.title} leading={GROUP_GLYPH[group.key]} />
+            {group.rows.map((row, index) => {
+              if (row.depth > 0) {
+                return (
+                  <SessionRow
+                    key={row.sessionId}
+                    size={row.caption ? `big` : `small`}
+                    agent="claude"
+                    markState={row.needsYou ? `needs_input` : row.busy ? `working` : undefined}
+                    title={row.title}
+                    caption={row.caption}
+                    unread={row.unread}
+                    depth={row.depth}
+                    guide={guides[index]}
+                    onClick={noop}
+                  />
+                )
+              }
+              const word = WORDS[row.sessionId]
+              return (
+                <ThreadsListItem
+                  key={row.sessionId}
+                  lead={
+                    row.busy ? (
+                      <AgentWorkingMark agent="claude" />
+                    ) : (
+                      (word?.lead ?? (
+                        <AgentRunMark
+                          agent="claude"
+                          state={row.needsYou ? `needs_input` : group.key === `recent` ? `ended` : undefined}
+                          ringClassName="ring-background"
+                        />
+                      ))
+                    )
+                  }
+                  title={row.title}
+                  unread={row.unread}
+                  caption={row.caption}
+                  word={word?.word ?? null}
+                  wordIcon={word?.icon}
+                  locked={row.private}
+                  device={row.deviceId ? DEVICE : null}
+                  onOpen={noop}
+                />
+              )
+            })}
+          </div>
+        )
+      })}
     </div>
   )
 }
@@ -245,6 +286,7 @@ export const entry: StyleguideEntry = {
         ))}
       </div>
       <ThreadsList />
+      <ThreadsList groups={NESTED} agents={false} />
     </div>
   ),
 }

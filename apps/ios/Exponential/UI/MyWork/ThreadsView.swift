@@ -29,6 +29,10 @@ struct ThreadsView: View {
                     teams: teamState.teams,
                     onOpen: { rootId in
                         pushRoute(.thread(accountId: accountId, threadId: rootId))
+                    },
+                    // EXP-1323: a nested child row opens that session.
+                    onOpenSession: { sessionId in
+                        pushRoute(.agentSession(accountId: accountId, sessionId: sessionId))
                     }
                 )
             } else {
@@ -67,6 +71,8 @@ struct ThreadsListContent: View {
     var devices: [String: ThreadRowDevice] = [:]
     let teams: [TeamEntity]
     let onOpen: (String) -> Void
+    /// EXP-1323: a nested child row (depth > 0) opens its session view.
+    var onOpenSession: (String) -> Void = { _ in }
 
     var body: some View {
         if groups.isEmpty && agents.isEmpty {
@@ -143,7 +149,12 @@ struct ThreadsListContent: View {
             } trailing: {
                 EmptyView()
             }
-            ForEach(group.rows) { row in threadRow(row) }
+            // EXP-1323: a live tree nests its children under the root —
+            // SessionRow depth + THE tree guides.
+            let guides = TreeGuides.compute(depths: group.rows.map(\.depth))
+            ForEach(Array(group.rows.enumerated()), id: \.element.id) { index, row in
+                threadRow(row, guide: guides[index])
+            }
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(
@@ -184,15 +195,20 @@ struct ThreadsListContent: View {
         .accessibilityIdentifier("threads-group-agents")
     }
 
-    private func threadRow(_ row: ThreadsListRow) -> some View {
+    private func threadRow(_ row: ThreadsListRow, guide: TreeGuide) -> some View {
         Button {
-            onOpen(row.sessionId)
+            if row.depth > 0 {
+                onOpenSession(row.sessionId)
+            } else {
+                onOpen(row.sessionId)
+            }
         } label: {
             ThreadRowLabel(
                 row: row,
                 cli: clis[row.sessionId],
                 word: .some(words[row.sessionId]),
-                device: devices[row.sessionId]
+                device: devices[row.sessionId],
+                guide: guide
             )
         }
         .buttonStyle(.plain)
@@ -235,12 +251,17 @@ struct ThreadRowLabel: View {
     /// EXP-1316: the root's device glyph, last on the row (after the word
     /// and the lock); nil = none.
     var device: ThreadRowDevice? = nil
+    /// EXP-1323: the row's tree connector (a nested child's depth).
+    var guide = TreeGuide()
 
     var body: some View {
         if let word {
             SessionRow(
                 title: row.title,
+                guide: guide,
                 isPrivate: row.isPrivate,
+                unread: row.unread,
+                caption: row.caption,
                 word: word?.text,
                 wordIcon: word == .stack ? AppIcons.prStack : nil,
                 deviceIcon: device?.icon,
@@ -251,9 +272,11 @@ struct ThreadRowLabel: View {
         } else {
             SessionRow(
                 title: row.title,
+                guide: guide,
                 isPrivate: row.isPrivate,
                 busy: row.busy,
                 needsYou: row.needsYou,
+                unread: row.unread,
                 deviceIcon: device?.icon,
                 deviceName: device?.name
             ) {

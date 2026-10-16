@@ -54,6 +54,8 @@ export interface SessionRowProps
   active?: boolean
   /** An offline host: the row dims. */
   dimmed?: boolean
+  /** EXP-1323: news the viewer has not read: a bold title. */
+  unread?: boolean
   /** EXP-1316: a trailing word on the title line (the thread tree
    *  popover's state word). */
   trailing?: React.ReactNode
@@ -76,6 +78,7 @@ export function SessionRow({
   deviceName = null,
   active = false,
   dimmed = false,
+  unread = false,
   trailing,
   ringClassName = `ring-background`,
   onClick,
@@ -108,7 +111,12 @@ export function SessionRow({
               {identifier}
             </span>
           )}
-          <span className="truncate">{title}</span>
+          <span
+            data-unread={unread || undefined}
+            className={cn(`truncate`, unread && `font-semibold text-foreground`)}
+          >
+            {title}
+          </span>
           {trailing}
         </div>
         {big && caption && (

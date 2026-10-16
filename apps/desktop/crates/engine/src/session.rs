@@ -185,6 +185,7 @@ impl EngineSession {
             // ever measures a prefix to subtract from.
             context_layers: coding::ContextLayers::default(),
             name_conversation: false,
+            aside: false,
             exit: child_exit.clone(),
         })?;
 
@@ -216,6 +217,7 @@ impl EngineSession {
             // fresh `session/new` would show an empty transcript.
             resume: Some(resume),
             prompt: None,
+            aside: false,
             child_exit,
         });
         spawn_engine(ctx, agent, adapter, KillFeed::inert(), Arc::new(NoHost))
@@ -491,6 +493,7 @@ pub fn start(start: EngineStart, host: Arc<dyn EngineHost>) -> Result<EngineSess
         system_append: acp.system_append.clone(),
         context_layers: acp.context_layers.clone(),
         name_conversation: names_conversation(&start.data_dir, &start.prepared),
+        aside: is_aside_run(&start.data_dir, &start.prepared.session_id),
         exit: child_exit.clone(),
     })?;
     start_with(
@@ -531,6 +534,7 @@ where
     } = start;
     let agent = prepared.agent;
     let acp = prepared.acp.clone();
+    let aside = is_aside_run(&data_dir, &prepared.session_id);
     let ctx = build_ctx(CtxSpec {
         session_id: prepared.session_id.clone(),
         run: RunFacts {
@@ -558,6 +562,7 @@ where
         replay: false,
         resume: acp.resume.clone().map(ResumeHandle::from),
         prompt: acp.prompt.clone(),
+        aside,
         child_exit: parts.child_exit,
     });
     if let Some(sink) = parts.sink {
@@ -578,6 +583,11 @@ where
 /// record says which, as `prepare` wrote it; EXP-1316: an action run's
 /// record carries the action name as its title, so it is never named). A resume keeps the name its transcript
 /// carries; an agent root is listed under its own name.
+/// EXP-1330: the run record `coding::aside` wrote marks a `/btw` aside.
+fn is_aside_run(data_dir: &Path, session_id: &str) -> bool {
+    coding::run_registry::get(data_dir, session_id).is_some_and(|record| record.is_aside())
+}
+
 fn names_conversation(data_dir: &Path, prepared: &coding::PreparedLaunch) -> bool {
     prepared.acp.resume.is_none()
         && coding::run_registry::get(data_dir, &prepared.session_id)
@@ -680,6 +690,8 @@ struct CtxSpec {
     replay: bool,
     resume: Option<ResumeHandle>,
     prompt: Option<String>,
+    /// EXP-1330: a `/btw` aside run ([`is_aside_run`]).
+    aside: bool,
     /// The link the ADAPTER records its child's exit into — the same one, so
     /// the end sequence reads what the adapter wrote.
     child_exit: ChildExitLink,
@@ -750,6 +762,9 @@ fn build_ctx(spec: CtxSpec) -> Arc<SessionCtx> {
         local_sink: spec.local_sink,
         turn_signal: Arc::new(steer::TurnSignal::new()),
         caption_signal: Arc::new(steer::CaptionSignal::new()),
+        tool_caption: steer::CaptionSignal::new(),
+        caption_forwarder: Mutex::new(crate::live_caption::CaptionForwarder::new()),
+        aside: spec.aside.then(crate::aside::AsideState::default),
         agent_title: Arc::new(steer::AgentTitleSignal::new()),
         workflows: Mutex::new(Vec::new()),
         agent: spec.agent,

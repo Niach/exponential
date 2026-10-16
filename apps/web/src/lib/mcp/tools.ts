@@ -16,6 +16,8 @@ import {
   SESSIONS_SEND_TEXT_MAX,
   sessionKindValues,
   sessionsSendInputSchema,
+  SUGGESTIONS_MAX,
+  suggestionInputSchema,
   UUID_RE,
 } from "@exp/db-schema/domain"
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
@@ -125,6 +127,7 @@ import { getSessionTree, listSessions } from "@/lib/sessions/tree"
 import { endSession, stopSession } from "@/lib/sessions/lifecycle"
 import { linkIssues, unlinkIssue } from "@/lib/sessions/issues"
 import { writeGuide } from "@/lib/sessions/guide"
+import { postSuggestions } from "@/lib/sessions/suggestions"
 import {
   closePullRequestTx,
   mergePullRequest,
@@ -2341,6 +2344,49 @@ export function registerExponentialTools(
     )
   }
 
+  // EXP-1328: follow-ups for a person to start, as ONE suggestions card on
+  // the caller's own session (1:1 with the card; it wakes nothing).
+  if (gates.inSession) {
+    server.registerTool(
+      `exponential_sessions_suggest`,
+      {
+        description: `Propose follow-up tasks as one card in your conversation; a person starts, files or dismisses each. title = a short name, text = the request a started session gets, issueIds = issues it is about.`,
+        inputSchema: strictInput({
+          tasks: z
+            .array(
+              z.strictObject({
+                ...suggestionInputSchema.shape,
+                issueIds: z.array(z.string().min(1)).max(10).optional(),
+              })
+            )
+            .min(1)
+            .max(SUGGESTIONS_MAX),
+        }),
+      },
+      async ({ tasks }) => {
+        try {
+          const own = await loadCallerSession()
+          if (!own) throw new Error(noSessionMessage(`exponential_sessions_suggest`))
+          if (!access.full) assertTeamFullyGranted(access, own.teamId)
+          const resolved = await Promise.all(
+            tasks.map(async (task) => ({
+              title: task.title,
+              text: task.text,
+              ...(task.issueIds?.length
+                ? { issueIds: await resolveTeamIssues(task.issueIds, own.teamId) }
+                : {}),
+            }))
+          )
+          return ok(
+            await postSuggestions({ userId: user.id, callerSessionId: own.id, tasks: resolved })
+          )
+        } catch (e) {
+          return err(e)
+        }
+      }
+    )
+  }
+
   server.registerTool(
     `exponential_sessions_link`,
     {
@@ -2657,7 +2703,7 @@ export function registerExponentialTools(
     `exponential_devices_list`,
     {
       annotations: READ_ONLY,
-      description: `List your registered machines (desktop app / CLI daemon), plus servers teammates shared with teamId. Pick an online device whose agents includes the agent you want. agentUsage.<agent> = its last used login: windows[] (percent + resetsAt), fetchedAt = when those numbers were read, stale: true = the last refresh failed and they are as old as fetchedAt; agentUsageAt = when the device last reported. A session running on another account moves that account's own row under agentAccounts.<agent>.profiles[].usage instead. A live session refreshes only the account it runs on, per turn; once it ends — or a window's resetsAt passes — that login returns to the polled cadence. doctor = its readiness report: items[] {key, state ok|action|missing|off|error, detail, action} (null = older build).`,
+      description: `List your registered machines (desktop app / CLI daemon), plus servers teammates shared with teamId. Pick an online device whose agents includes the agent you want. agentUsage.<agent> = its last used login: windows[] (percent + resetsAt), fetchedAt = when those numbers were read, stale: true = the last refresh failed and they are as old as fetchedAt; agentUsageAt = when the device last reported. A session running on another account moves that account's own row under agentAccounts.<agent>.profiles[].usage instead. A live session refreshes only the account it runs on, per turn; once it ends — or a window's resetsAt passes — that login returns to the polled cadence. doctor = its readiness report: items[] {key, state ok|action|missing|off|error, detail, action} (null = not reported yet).`,
       // EXP-1183: the MCP Apps devices view (lib/mcp/apps.ts).
       _meta: appMeta(`devices`),
       inputSchema: strictInput({
@@ -2728,7 +2774,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_devices_account_login`,
     {
-      description: `Sign an agent account in on one of your own machines (exponential_devices_list: online, caps has agent-login). The machine runs the agent CLI's own login; only the sign-in URL and the code you type travel, the credential never leaves the machine. Start: {deviceId, agent} adds an account, or profileId re-signs an existing login (agentAccounts.<agent>.profiles[].id, e.g. one that needs a re-login); the login lands on the profile with its email. Returns status url + url (+ code for codex: enter it at url). Claude: the browser then shows a code, call again with {deviceId, agent, code}. status pending = the machine has not answered yet, call again with commandId. The login appears in exponential_devices_list after the machine's next heartbeat.`,
+      description: `Sign an agent account in on one of your own machines (exponential_devices_list: online). The machine runs the agent CLI's own login; only the sign-in URL and the code you type travel, the credential never leaves the machine. Start: {deviceId, agent} adds an account, or profileId re-signs an existing login (agentAccounts.<agent>.profiles[].id, e.g. one that needs a re-login); the login lands on the profile with its email. Returns status url + url (+ code for codex: enter it at url). Claude: the browser then shows a code, call again with {deviceId, agent, code}. status pending = the machine has not answered yet, call again with commandId. The login appears in exponential_devices_list after the machine's next heartbeat.`,
       inputSchema: strictInput({
         deviceId: z.string().min(1).max(128),
         agent: z.enum(codingAgentValues),

@@ -44,11 +44,9 @@ export const MAX_USAGE_WINDOWS = 10
 
 export type UsageSeverity = `normal` | `warning` | `danger`
 
-/** EXP-849: belt-and-braces against a RETIRED agent id (`pi`) still sitting
- * in a synced row. The server clamps every write (lib/trpc/devices.ts), but
- * rows written before that clamp — or served by a self-hosted instance on an
- * older image — must still never produce a usage row, an account chip or a
- * health verdict for an agent this build has no name, icon or launcher for. */
+/** EXP-849: an id outside contract `codingAgent` never produces a usage row,
+ * an account chip or a health verdict: this build has no name, icon or
+ * launcher for it. The server clamps every write too (lib/trpc/devices.ts). */
 export function isContractAgent(agent: string): boolean {
   return (contract.codingAgent.values as readonly string[]).includes(agent)
 }

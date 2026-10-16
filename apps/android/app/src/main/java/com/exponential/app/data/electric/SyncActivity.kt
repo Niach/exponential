@@ -9,16 +9,9 @@ import kotlinx.coroutines.flow.flow
  * The shapes every issue surface reads from. A refresh waits on exactly these
  * (the other ten — comments, attachments, notifications, events, … — are not
  * what "the list is stale" means), and the "Syncing…" chip watches the same
- * set.
- *
- * `issue_statuses` (EXP-314) is deliberately NOT core: against a pre-EXP-314
- * server that shape endpoint 404s forever, and a core shape that never reaches
- * its first snapshot would wedge this gate (and the refresh kick dedup) for
- * good. The list degrades gracefully without it — until the rows land,
- * `IssueStatusResolver` renders the CONSTRUCTED builtin defaults — so it must
- * never gate first paint.
+ * set. `issue_statuses` (EXP-314) is core: lists group by status row.
  */
-val CORE_SHAPES = setOf("teams", "boards", "issues", "issue_labels", "labels")
+val CORE_SHAPES = setOf("teams", "boards", "issues", "issue_labels", "labels", "issue_statuses")
 
 /**
  * How long after a kick we keep admitting that we might be behind. An offline

@@ -350,9 +350,8 @@ final class IssueDraftViewModel {
                     accountId: accountId, id: draftId
                 ) {
                     attachmentsLoaded = true
-                    // EXP-1247: the Files list only — the server filters
-                    // too, an older one may still hand back inline rows.
-                    attachments = files.filter { AttachmentFiles.isFile($0) }.map {
+                    // EXP-1247: the server lists the Files rows only.
+                    attachments = files.map {
                         IssueDraftFile(
                             id: $0.id,
                             filename: $0.filename,

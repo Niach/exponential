@@ -2960,6 +2960,12 @@ impl SteerSessionView {
         }
         let text = self.input.read(cx).value().to_string();
         self.notice = None;
+        // EXP-1323: `/btw <question>` is an ASIDE child of this session
+        // (`sessions.send({parentId, text, aside})`), never a message to it.
+        if let Some(question) = slash_commands::btw_question(&text, self.agent()) {
+            self.post_message_with(api::sessions::SendInput::aside(&self.session_id, &question), window, cx);
+            return;
+        }
         if self.pending_images.is_empty() {
             self.post_message(text, Vec::new(), window, cx);
             return;
@@ -3030,11 +3036,22 @@ impl SteerSessionView {
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) {
+        let input = api::sessions::SendInput::message(&self.session_id, &text, attachment_ids);
+        self.post_message_with(input, window, cx);
+    }
+
+    /// [`Self::post_message`]'s send for any `sessions.send` input (EXP-1323:
+    /// the `/btw` aside rides it too): the draft clears once it is in.
+    fn post_message_with(
+        &mut self,
+        input: api::sessions::SendInput,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
         let Some(trpc) = crate::queries::trpc_client(cx) else {
             crate::action_error::failed_action("send", "the message", None, cx);
             return;
         };
-        let input = api::sessions::SendInput::message(&self.session_id, &text, attachment_ids);
         self.sending = true;
         cx.notify();
         cx.spawn_in(window, async move |this, cx| {
@@ -5759,6 +5776,53 @@ impl SteerSessionView {
         Some(strip_block(block.into_any_element()).into_any_element())
     }
 
+    /// EXP-1323 — a thread's LIVE TAIL (`session-thread.json`
+    /// `liveSessionId`): the end of the Conversation, above the thread
+    /// composer, read off THIS view's relay state — THE Queue
+    /// ([`Self::render_task_queue`]) and ONE status line: the agent's mark,
+    /// the state word in its tone and the session's live caption. `None` once the session is over.
+    pub(crate) fn live_tail(&self, window: &Window, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
+        if self.session_over() {
+            return None;
+        }
+        let row = self.row.as_ref()?;
+        let state = self.view_state()?;
+        // EXP-1324: THE Queue, the same block as the transcript bottom.
+        let tasks = self.render_task_queue(window, cx);
+        let muted = cx.theme().muted_foreground;
+        let caption = row
+            .caption
+            .as_deref()
+            .map(str::trim)
+            .filter(|caption| !caption.is_empty() && state != domain::session_tree::SessionState::Ended)
+            .map(|caption| SharedString::from(caption.to_string()));
+        let status = h_flex()
+            .id("thread-live-status")
+            .w_full()
+            .min_w_0()
+            .gap_2()
+            .items_center()
+            .text_xs()
+            .child(crate::run_rows::run_mark(crate::run_rows::run_agent(row.cli.as_deref()), state, cx))
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .text_color(crate::work_card::session_tone_color(state.tone(), cx))
+                    .child(SharedString::from(state.word())),
+            )
+            .children(caption.map(|caption| div().min_w_0().truncate().text_color(muted).child(caption)));
+        Some(
+            v_flex()
+                .id(SharedString::from(domain::session_tree::THREAD.test_ids.live_tail.clone()))
+                .w_full()
+                .min_w_0()
+                .gap_2()
+                .children(tasks)
+                .child(status)
+                .into_any_element(),
+        )
+    }
+
     /// EXP-861: the messages the agent has not read yet — held behind an
     /// open compaction, or sent mid-turn and awaiting the agent's replay
     /// (EXP-873) — one line each, directly above the composer. A held line
@@ -7226,8 +7290,8 @@ pub(crate) fn run_account(session_id: &str, cx: &App) -> Option<String> {
 /// A run hosted here reads it in-process ([`crate::device_sync::
 /// refresh_agent_usage_here`], the polite read); one hosted on another of MY
 /// machines gets the `agent_usage_refresh` command — but only while that
-/// machine is online, advertises the cap and its last fetch is past the
-/// shared floor, which is the same gate the Devices page applies. A
+/// machine is online and its last fetch is past the shared floor, which is
+/// the same gate the Devices page applies. A
 /// teammate's machine is never asked: it is not mine to poll.
 pub(crate) fn refresh_run_usage(
     session_id: &str,
@@ -7268,12 +7332,6 @@ pub(crate) fn refresh_run_usage(
     if !row.mine
         || !row.online
         || crate::usage_bar::refresh_allowed_at(row.usage.as_ref(), now_epoch).is_some()
-    {
-        return;
-    }
-    if !crate::queries::device_caps(cx, &device_id)
-        .iter()
-        .any(|cap| cap == crate::usage_bar::USAGE_REFRESH_CAP)
     {
         return;
     }

@@ -30,3 +30,26 @@ describe(`sessionsSendInputSchema — a message`, () => {
     expect(sessionsSendInputSchema.safeParse({ sessionId: SESSION, account: `` }).success).toBe(false)
   })
 })
+
+// EXP-1330: a `/btw` aside = a child (`parentId`) carrying the question.
+describe(`sessionsSendInputSchema — an aside`, () => {
+  it(`takes parentId + text`, () => {
+    expect(
+      sessionsSendInputSchema.safeParse({ parentId: SESSION, text: `why?`, aside: true }).success
+    ).toBe(true)
+  })
+
+  it(`refuses an aside without a parent or a question`, () => {
+    for (const input of [
+      { text: `why?`, aside: true },
+      { parentId: SESSION, text: `  `, aside: true },
+      { sessionId: SESSION, text: `why?`, aside: true },
+    ]) {
+      const parsed = sessionsSendInputSchema.safeParse(input)
+      expect(parsed.success).toBe(false)
+      expect(parsed.error?.issues.map((issue) => issue.message)).toContain(
+        `an aside needs a parentId and a question`
+      )
+    }
+  })
+})

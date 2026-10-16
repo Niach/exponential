@@ -39,6 +39,9 @@ struct MobileTabBar: View {
     let threadsRunning: Bool
     /// EXP-1291: any thread (or agent) needs me — the dot turns amber.
     let threadsNeedYou: Bool
+    /// EXP-1323: a thread holds news I have not read (`threadsUnread`) —
+    /// the dot in the primary tone when nothing runs or waits.
+    var threadsUnread = false
     /// EXP-973: whether the New-issue arm can go anywhere. The split capsule
     /// itself rides EVERY bar-visible route now; only a team with no board at
     /// all leaves the arm dimmed and inert.
@@ -109,8 +112,10 @@ struct MobileTabBar: View {
                     glyph: AppIcons.navThreads,
                     label: SessionTree.ListCopy.title,
                     active: threadsActive,
-                    badge: threadsRunning || threadsNeedYou,
-                    badgeColor: threadsNeedYou ? DesignTokens.Semantic.yellow : DesignTokens.Semantic.green,
+                    badge: threadsRunning || threadsNeedYou || threadsUnread,
+                    badgeColor: threadsNeedYou
+                        ? DesignTokens.Semantic.yellow
+                        : threadsRunning ? DesignTokens.Semantic.green : DesignTokens.Palette.primary,
                     action: onThreads
                 )
                 .accessibilityIdentifier("tab-threads")

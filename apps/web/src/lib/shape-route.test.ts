@@ -12,6 +12,7 @@ import { Route as issueSubscribersRoute } from "@/routes/api/shapes/issue-subscr
 import { Route as attachmentsRoute } from "@/routes/api/shapes/attachments"
 import { Route as notificationsRoute } from "@/routes/api/shapes/notifications"
 import { Route as pinsRoute } from "@/routes/api/shapes/pins"
+import { Route as sessionReadsRoute } from "@/routes/api/shapes/session-reads"
 import { Route as issueDraftsRoute } from "@/routes/api/shapes/issue-drafts"
 import { Route as actionsRoute } from "@/routes/api/shapes/actions"
 import { Route as issueStatusesRoute } from "@/routes/api/shapes/issue-statuses"
@@ -831,6 +832,36 @@ describe(`team-stable trash-aware child shapes (REV2-5)`, () => {
     resolveSession.mockResolvedValue(null)
     const anon = await shapeHandler(pinsRoute)({
       request: new Request(`https://example.com/api/shapes/pins`),
+    })
+    expect(anon.status).toBe(401)
+  })
+
+  // EXP-1323: the session-reads shape — static per user like pins.
+  it(`session-reads clause is fully static per user and never anonymous`, async () => {
+    const originUrl = new URL(`https://electric.example/v1/shape`)
+    resolveSession.mockResolvedValue({ user: { id: `user-1` } })
+    prepareElectricUrl.mockReturnValue(originUrl)
+
+    await shapeHandler(sessionReadsRoute)({
+      request: new Request(`https://example.com/api/shapes/session-reads`, {
+        headers: { authorization: `Bearer t` },
+      }),
+    })
+
+    expect(originUrl.searchParams.get(`where`)).toBe(`"user_id" = 'user-1'`)
+    expect(membership.getUserTeamIds).not.toHaveBeenCalled()
+    expect(originUrl.searchParams.get(`columns`)?.split(`,`)).toEqual([
+      `id`,
+      `user_id`,
+      `session_id`,
+      `read_at`,
+      `created_at`,
+      `updated_at`,
+    ])
+
+    resolveSession.mockResolvedValue(null)
+    const anon = await shapeHandler(sessionReadsRoute)({
+      request: new Request(`https://example.com/api/shapes/session-reads`),
     })
     expect(anon.status).toBe(401)
   })

@@ -351,8 +351,8 @@ public struct FetchedIssue: Decodable, Sendable {
 /// `issues.create`'s envelope. The id is the only REQUIRED part; the full
 /// inserted row is decoded best-effort so the creating client can mirror the
 /// new issue into its local store and open it immediately (EXP-596) instead of
-/// waiting for the Electric long-poll. A row this build can't decode (an older
-/// or newer server) must never turn a committed create into a client-side
+/// waiting for the Electric long-poll. A row this build can't decode must
+/// never turn a committed create into a client-side
 /// failure — the mirror is simply skipped and sync delivers the row.
 public struct IssueCreateResult: Decodable, Sendable {
     public let id: String
