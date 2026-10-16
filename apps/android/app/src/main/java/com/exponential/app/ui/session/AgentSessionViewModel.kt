@@ -719,6 +719,14 @@ class AgentSessionViewModel @AssistedInject constructor(
                 .onFailure { if (it is CancellationException) throw it }
                 .getOrNull() ?: return@launch
             _mcpServers.value = servers
+            // The MCP row starts from the session's OWN picks; a failure
+            // falls back silently to the team defaults.
+            val picks = runCatching { sessionsApi.mcpPicks(accountId, codingSessionId) }
+                .onFailure { if (it is CancellationException) throw it }
+                .getOrNull() ?: return@launch
+            if (_configurePicks.value.mcpServerIds == null) {
+                _configurePicks.value = _configurePicks.value.copy(mcpServerIds = picks.mcpServerIds)
+            }
         }
     }
 

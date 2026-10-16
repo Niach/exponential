@@ -417,6 +417,10 @@ pub(crate) struct SteerSessionView {
     /// EXP-1334: the composer's emoji tool (a pick inserts at the cursor).
     emoji: Entity<crate::emoji_picker::EmojiPicker>,
     emoji_open: bool,
+    /// EXP-1334: the "+" menu's MCP servers row — the team's servers and
+    /// this session's server-only pick (`sessions.mcpPicks`), loaded once.
+    mcp: Option<SessionMcp>,
+    mcp_requested: bool,
     /// The team the completion source was last pointed at.
     mention_team: Option<String>,
     /// EXP-820: the inline free-text field, open on at most one option row.
@@ -714,6 +718,8 @@ impl SteerSessionView {
             mention,
             emoji,
             emoji_open: false,
+            mcp: None,
+            mcp_requested: false,
             mention_team: None,
             inline: None,
             editing_step: None,
@@ -3561,6 +3567,16 @@ pub(crate) const COMPOSER_PLACEHOLDER: &str = "Type / for commands";
 /// The element ids of one composer's controls — the session view's own,
 /// or a host's ([`SteerSessionView::host_root_composer`]: the thread screen
 /// and the agent channel name theirs, so captures and tests tell them apart).
+/// EXP-1334: a running session's MCP pick as the "+" menu offers it.
+#[derive(Clone, Debug, Default)]
+struct SessionMcp {
+    /// `(id, name, blocked)`: the team's servers, greyed where the viewer
+    /// has not connected.
+    servers: Vec<(String, String, bool)>,
+    /// The session's pick (sorted ids).
+    picks: Vec<String>,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ComposerIds {
     pub(crate) send: SharedString,
@@ -7069,6 +7085,7 @@ impl SteerSessionView {
             )
             .into_any_element()
         });
+        self.ensure_mcp_loaded(cx);
         let composer = self.composer_visible().then(|| self.render_composer(window, cx));
         if notice.is_none() && composer.is_none() {
             return None;
@@ -7127,6 +7144,53 @@ impl SteerSessionView {
     /// (`sessions.configure`): a live run it may message.
     fn configurable(&self) -> bool {
         self.may_message && self.run_open() && self.row.is_some()
+    }
+
+    /// EXP-1334: load the "+" menu's MCP row once per view — the team's
+    /// servers (`mcpServers.list`) and the session's pick
+    /// (`sessions.mcpPicks`), only while the run may be configured.
+    fn ensure_mcp_loaded(&mut self, cx: &mut gpui::Context<Self>) {
+        if self.mcp_requested || !self.configurable() {
+            return;
+        }
+        let Some(team_id) = self.row.as_ref().and_then(|row| row.team_id.clone()) else {
+            return;
+        };
+        let Some(trpc) = crate::queries::trpc_client(cx) else {
+            return;
+        };
+        self.mcp_requested = true;
+        let session_id = self.session_id.to_string();
+        cx.spawn(async move |this, cx| {
+            let loaded = cx
+                .background_executor()
+                .spawn(async move {
+                    let servers = api::mcp_servers::list(&trpc, &team_id)
+                        .inspect_err(|err| log::debug!("[steer] mcpServers.list: {err}"))
+                        .ok()?;
+                    let picks = api::session_device::mcp_picks(&trpc, &session_id)
+                        .inspect_err(|err| log::debug!("[steer] sessions.mcpPicks: {err}"))
+                        .ok()?;
+                    Some(SessionMcp {
+                        servers: servers
+                            .into_iter()
+                            .map(|entry| {
+                                let blocked = crate::launch_options::mcp_block_reason(&entry.connection).is_some();
+                                (entry.config.id, entry.config.name, blocked)
+                            })
+                            .collect(),
+                        picks,
+                    })
+                })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                if let Some(loaded) = loaded {
+                    this.mcp = Some(loaded);
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
     }
 
     /// EXP-1334 — `sessions.configure`: a running session's options, changed
@@ -7222,6 +7286,7 @@ impl SteerSessionView {
         } else {
             coding::CodingAgent::Codex
         };
+        let mcp = self.mcp.clone().filter(|mcp| !mcp.servers.is_empty());
         let (effort, ultracode, computer_use) = self
             .row
             .as_ref()
@@ -7324,6 +7389,50 @@ impl SteerSessionView {
                 ));
             }
             menu = menu.separator();
+            // MCP servers: the team's servers, the session's pick checked; a
+            // flip = sessions.configure({mcpServerIds}) (the device applies
+            // it between turns).
+            if let Some(mcp) = mcp.clone() {
+                let view = view.clone();
+                let base = base.clone();
+                let label = match mcp.picks.len() {
+                    0 => "MCP servers".to_string(),
+                    count => format!("MCP servers · {count}"),
+                };
+                menu = menu.submenu_with_icon(Row::McpServers.icon().map(Icon::new), label, window, cx, move |mut sub, _, _| {
+                    for (id, name, blocked) in &mcp.servers {
+                        let picked = mcp.picks.contains(id);
+                        let mut next: Vec<String> =
+                            mcp.picks.iter().filter(|pick| *pick != id).cloned().collect();
+                        if !picked {
+                            next.push(id.clone());
+                        }
+                        next.sort();
+                        let view = view.clone();
+                        let base = base.clone();
+                        let label = if *blocked { format!("{name} (not connected)") } else { name.clone() };
+                        sub = sub.item(pointer_check_item(label, picked, move |_, cx| {
+                            Self::configure(
+                                api::sessions::ConfigureInput {
+                                    mcp_server_ids: Some(next.clone()),
+                                    ..base()
+                                },
+                                cx,
+                            );
+                            let next = next.clone();
+                            if let Some(view) = view.upgrade() {
+                                view.update(cx, |this, cx| {
+                                    if let Some(mcp) = this.mcp.as_mut() {
+                                        mcp.picks = next;
+                                    }
+                                    cx.notify();
+                                });
+                            }
+                        }));
+                    }
+                    sub
+                });
+            }
             let configure = configure.clone();
             let base = base.clone();
             menu.item(pointer_toggle_item(
@@ -8130,6 +8239,7 @@ impl Render for SteerSessionView {
         let rate_limit = composer_visible
             .then(|| self.render_rate_limit_banner(cx))
             .flatten();
+        self.ensure_mcp_loaded(cx);
         let composer = composer_visible.then(|| self.render_composer(window, cx));
         // EXP-1191 (web order): banners → the queue bar (EXP-861) → the
         // background tasks / waits (EXP-850) → the agent's task list

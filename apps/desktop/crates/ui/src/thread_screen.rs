@@ -487,6 +487,20 @@ pub(crate) fn strip_chip(id: impl Into<gpui::ElementId>, active: bool, cx: &App)
     }
 }
 
+/// THE issue chip's lead ×4: the issue's STATUS glyph (an unsynced status
+/// reads as the builtin backlog default, never a document glyph).
+pub(crate) fn issue_glyph(status: Option<&domain::statuses::ResolvedStatus>, cx: &App) -> Icon {
+    let fallback;
+    let status = match status {
+        Some(status) => status,
+        None => {
+            fallback = domain::statuses::constructed_default(domain::IssueStatus::Backlog);
+            &fallback
+        }
+    };
+    crate::icons::resolved_status_icon(status, cx).xsmall().flex_shrink_0()
+}
+
 /// The issue chip's body in the strip: status glyph, mono identifier, title.
 pub(crate) fn strip_issue_body(
     status: Option<domain::statuses::ResolvedStatus>,
@@ -496,14 +510,8 @@ pub(crate) fn strip_issue_body(
     cx: &App,
 ) -> Vec<AnyElement> {
     let theme = cx.theme();
-    let glyph = match status {
-        Some(status) => crate::icons::resolved_status_icon(&status, cx).xsmall(),
-        None => Icon::new(registry::UI_ISSUE)
-            .xsmall()
-            .text_color(theme.muted_foreground),
-    };
     vec![
-        glyph.into_any_element(),
+        issue_glyph(status.as_ref(), cx).into_any_element(),
         div()
             .flex_shrink_0()
             .text_xs()
@@ -1973,11 +1981,7 @@ fn subtree_row(item: &SubtreeItem, guides: &domain::tree_guides::Guides, active:
         SubtreeItem::Issue {
             identifier, title, status, ..
         } => {
-            let glyph = match status {
-                Some(status) => crate::icons::resolved_status_icon(status, cx).xsmall(),
-                None => Icon::new(registry::UI_ISSUE).xsmall().text_color(theme.muted_foreground),
-            };
-            row.child(glyph)
+            row.child(issue_glyph(status.as_ref(), cx))
                 .child(
                     div()
                         .flex_shrink_0()
@@ -2117,6 +2121,60 @@ fn measure_strip_chip(tab: &ThreadTab, spec: &ThreadStrip, window: &Window) -> (
     }
 }
 
+/// The least a session chip may shrink to (its label ellipsized): the mark,
+/// a few letters of each label half, the chevron.
+fn session_chip_floor(tab: &ThreadTab, spec: &ThreadStrip, window: &Window) -> f32 {
+    const MIN_TEXT: f32 = 36.;
+    let g = STRIP_CHIP_INNER_GAP;
+    let mut floor = STRIP_CHIP_CHROME + domain::list_item::MARK + g + MIN_TEXT;
+    if open_nested(tab, &spec.open).is_some() {
+        let font = window.text_style().font();
+        floor += g + crate::screens::measure_text(window, "›", font, gpui::rems(0.875)) + g + MIN_TEXT;
+    }
+    if let ThreadTab::Session { nested, .. } = tab {
+        if !nested.is_empty() {
+            floor += g + 0.75 * f32::from(window.rem_size());
+        }
+    }
+    floor
+}
+
+/// EXP-1334: what the drawn chips still overflow by goes off the session
+/// chips (the active one first, then the widest), each down to its floor —
+/// identifiers and "+N" never truncate, a label ellipsizes inside its chip.
+/// Pure: the caps (`None` = natural width) per drawn session chip.
+pub(crate) fn shrink_session_chips(
+    drawn: f32,
+    available: f32,
+    widths: &[f32],
+    floors: &[f32],
+    active: Option<usize>,
+) -> Vec<Option<f32>> {
+    let mut caps: Vec<Option<f32>> = vec![None; widths.len()];
+    let mut excess = drawn - available;
+    if excess <= 0. {
+        return caps;
+    }
+    let mut order: Vec<usize> = (0..widths.len()).collect();
+    order.sort_by(|a, b| {
+        (Some(*b) == active)
+            .cmp(&(Some(*a) == active))
+            .then(widths[*b].total_cmp(&widths[*a]))
+    });
+    for index in order {
+        if excess <= 0. {
+            break;
+        }
+        let room = (widths[index] - floors[index]).max(0.);
+        let cut = room.min(excess);
+        if cut > 0. {
+            caps[index] = Some(widths[index] - cut);
+            excess -= cut;
+        }
+    }
+    caps
+}
+
 /// Paint THE thread strip.
 pub(crate) fn thread_strip(spec: ThreadStrip, window: &Window, cx: &App) -> AnyElement {
     let prefix = spec.prefix;
@@ -2126,6 +2184,7 @@ pub(crate) fn thread_strip(spec: ThreadStrip, window: &Window, cx: &App) -> AnyE
     let guide_dot_on = spec.tabs.iter().any(|tab| matches!(tab, ThreadTab::Guide { dot: true }));
 
     // The layout: measured widths through the contract's partition.
+    let mut session_caps: HashMap<usize, f32> = HashMap::new();
     let layout = match spec.available {
         Some(available) => {
             let issue_widths: Vec<domain::session_tree::StripIssueWidth> = issue_tabs
@@ -2140,15 +2199,56 @@ pub(crate) fn thread_strip(spec: ThreadStrip, window: &Window, cx: &App) -> AnyE
             let most = issue_tabs.len().max(session_tabs.len()).max(1);
             let overflow_w = STRIP_CHIP_CHROME
                 + crate::screens::measure_text(window, &format!("+{most}"), window.text_style().font(), gpui::rems(0.875));
-            domain::session_tree::partition_thread_strip(
+            let gap = crate::screens::chip_gap(window);
+            let active_session = session_tabs.iter().position(|tab| chip_active(tab, &spec.open));
+            let mut layout = domain::session_tree::partition_thread_strip(
                 &issue_widths,
                 &session_widths,
                 available,
-                crate::screens::chip_gap(window),
+                gap,
                 overflow_w,
                 issue_tabs.iter().position(|tab| chip_active(tab, &spec.open)),
-                session_tabs.iter().position(|tab| chip_active(tab, &spec.open)),
-            )
+                active_session,
+            );
+            // What the drawn chips take; any overflow comes off the session
+            // labels (never a clip), and when even their floors do not fit,
+            // the issue zone folds whole into its "+N".
+            let full_tier = layout.tier == domain::session_tree::StripTier::Full;
+            let drawn_of = |issues: &[usize]| {
+                let mut parts: Vec<f32> = issues
+                    .iter()
+                    .map(|&index| if full_tier { issue_widths[index].full } else { issue_widths[index].short })
+                    .collect();
+                if issues.len() < issue_tabs.len() {
+                    parts.push(overflow_w);
+                }
+                parts.extend(layout.sessions.iter().map(|&index| session_widths[index]));
+                if layout.sessions.len() < session_tabs.len() {
+                    parts.push(overflow_w);
+                }
+                parts.iter().sum::<f32>() + gap * parts.len().saturating_sub(1) as f32
+            };
+            let widths: Vec<f32> = layout.sessions.iter().map(|&index| session_widths[index]).collect();
+            let floors: Vec<f32> = layout
+                .sessions
+                .iter()
+                .map(|&index| session_chip_floor(session_tabs[index], &spec, window))
+                .collect();
+            let floor_drawn = drawn_of(&layout.issues) - widths.iter().sum::<f32>() + floors.iter().sum::<f32>();
+            if floor_drawn > available && !layout.issues.is_empty() {
+                layout.issues.clear();
+            }
+            let drawn = drawn_of(&layout.issues);
+            let active = active_session.and_then(|active| layout.sessions.iter().position(|&index| index == active));
+            for (slot, cap) in shrink_session_chips(drawn, available, &widths, &floors, active)
+                .into_iter()
+                .enumerate()
+            {
+                if let Some(cap) = cap {
+                    session_caps.insert(layout.sessions[slot], cap);
+                }
+            }
+            layout
         }
         None => domain::session_tree::ThreadStripLayout {
             tier: domain::session_tree::StripTier::Full,
@@ -2164,7 +2264,7 @@ pub(crate) fn thread_strip(spec: ThreadStrip, window: &Window, cx: &App) -> AnyE
     };
 
     // One chip (with its subtree menu when it nests).
-    let chip_element = |tab: &ThreadTab, cx: &App| -> AnyElement {
+    let chip_element = |tab: &ThreadTab, cap_w: Option<f32>, cx: &App| -> AnyElement {
         let active = chip_active(tab, &spec.open);
         let suffix = open_nested(tab, &spec.open);
         let groups = vec![subtree_of(tab, &spec)];
@@ -2245,11 +2345,14 @@ pub(crate) fn thread_strip(spec: ThreadStrip, window: &Window, cx: &App) -> AnyE
                 let cli = spec.clis.get(session_id).cloned().flatten();
                 let cap = if suffix.is_some() { SESSION_CHIP_PART_MAX_W } else { SESSION_CHIP_NAME_MAX_W };
                 let mut chip = strip_chip(id.clone(), active, cx)
-                    .child(crate::run_rows::run_mark(
-                        crate::run_rows::run_agent(cli.as_deref()),
-                        chip_state(*mark_state),
-                        cx,
-                    ))
+                    .when_some(cap_w, |chip, cap_w| chip.max_w(px(cap_w)))
+                    .child(
+                        div().flex_shrink_0().child(crate::run_rows::run_mark(
+                            crate::run_rows::run_agent(cli.as_deref()),
+                            chip_state(*mark_state),
+                            cx,
+                        )),
+                    )
                     .child(
                         div()
                             .min_w_0()
@@ -2265,7 +2368,7 @@ pub(crate) fn thread_strip(spec: ThreadStrip, window: &Window, cx: &App) -> AnyE
                             .flex_shrink(1.)
                             .gap(px(STRIP_CHIP_INNER_GAP))
                             .items_center()
-                            .child(div().text_color(cx.theme().muted_foreground).child("›"))
+                            .child(div().flex_shrink_0().text_color(cx.theme().muted_foreground).child("›"))
                             .child(
                                 div()
                                     .min_w_0()
@@ -2353,9 +2456,15 @@ pub(crate) fn thread_strip(spec: ThreadStrip, window: &Window, cx: &App) -> AnyE
     );
     let middle_index = lead.len();
 
-    let mut middle: Vec<AnyElement> = layout.issues.iter().map(|&index| chip_element(issue_tabs[index], cx)).collect();
+    let mut middle: Vec<AnyElement> =
+        layout.issues.iter().map(|&index| chip_element(issue_tabs[index], None, cx)).collect();
     middle.extend(overflow("issues", &issue_tabs, &layout.issues, cx));
-    middle.extend(layout.sessions.iter().map(|&index| chip_element(session_tabs[index], cx)));
+    middle.extend(
+        layout
+            .sessions
+            .iter()
+            .map(|&index| chip_element(session_tabs[index], session_caps.get(&index).copied(), cx)),
+    );
     middle.extend(overflow("sessions", &session_tabs, &layout.sessions, cx));
 
     let guide = strip_chip(SharedString::from(format!("{prefix}-child-guide")), spec.open == StripPick::Guide, cx)
@@ -3249,6 +3358,22 @@ mod tests {
     #[test]
     fn thread_texts_chip_bare_identifiers() {
         assert!(thread_text_resolver("team-1").bare);
+    }
+
+    /// EXP-1334: an overflowing strip shrinks the ACTIVE session chip first,
+    /// then the widest, each to its floor; a strip that fits keeps them all.
+    #[test]
+    fn overflow_comes_off_the_session_labels() {
+        assert_eq!(shrink_session_chips(300., 320., &[120., 100.], &[60., 60.], Some(1)), vec![None, None]);
+        assert_eq!(
+            shrink_session_chips(330., 300., &[120., 100.], &[60., 60.], Some(1)),
+            vec![None, Some(70.)]
+        );
+        assert_eq!(
+            shrink_session_chips(400., 300., &[120., 100.], &[60., 60.], Some(1)),
+            vec![Some(60.), Some(60.)]
+        );
+        assert_eq!(shrink_session_chips(330., 300., &[120., 100.], &[60., 60.], None), vec![Some(90.), None]);
     }
 
     /// EXP-1317: the X lives only on the author's queued row, and its id

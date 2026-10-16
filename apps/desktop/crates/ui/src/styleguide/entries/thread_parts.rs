@@ -109,12 +109,20 @@ fn strip(case: &Case, open: StripPick, width: f32, prefix: &'static str, window:
     let issues = case
         .issues
         .iter()
-        .map(|issue| {
+        .enumerate()
+        .map(|(index, issue)| {
+            // Demo statuses (no store here): the builtin defaults in turn.
+            let status = [
+                domain::IssueStatus::InProgress,
+                domain::IssueStatus::InReview,
+                domain::IssueStatus::Backlog,
+                domain::IssueStatus::Done,
+            ][index % 4];
             (
                 issue.id.clone(),
                 StripIssue {
                     title: issue.title.clone(),
-                    status: None,
+                    status: Some(domain::statuses::constructed_default(status)),
                     ringed: None,
                 },
             )

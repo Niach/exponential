@@ -1487,7 +1487,14 @@ struct ThreadComposer: View {
         guard let teamId = root?.teamId else { return }
         let rows = (try? await McpServersApi(trpc: deps.trpc).list(accountId: accountId, teamId: teamId)) ?? []
         mcpServers = rows
-        if picks.mcpServerIds == nil { picks.mcpServerIds = McpServers.preselect(rows, saved: nil) }
+        guard picks.mcpServerIds == nil else { return }
+        // The session's own pick; a dispatcher's work picks never read back.
+        if root?.dispatch != true,
+           let saved = try? await deps.sessionsApi.mcpPicks(accountId: accountId, sessionId: sessionId) {
+            picks.mcpServerIds = saved
+        } else {
+            picks.mcpServerIds = McpServers.preselect(rows, saved: nil)
+        }
     }
 
     /// Implement issue = link it into this thread (the dispatcher wakes).

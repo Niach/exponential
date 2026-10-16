@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { agentSupportsPlanMode } from "@/lib/coding-launch-prefs"
 import { CLI_DEFAULT_EFFORT } from "@/components/launch-dialog/launch-options-pane"
 import type { ComposerOptionsBinding } from "@/components/launch-dialog/composer-plus-menu"
@@ -15,8 +15,8 @@ import { trpc } from "@/lib/trpc-client"
 // and stays until the row confirms it. A DISPATCHER's picks are its WORK
 // picks (server-only `work_launch`, inherited by the children it spawns), so
 // they never come back on the synced row: the local pick is the read there.
-// The MCP pick is server-only for every session: a local selection, seeded
-// empty.
+// The MCP pick is server-only for every session: seeded once from
+// `sessions.mcpPicks` (a dispatcher's work picks never read back: empty).
 
 interface Overrides {
   planMode?: boolean
@@ -46,6 +46,19 @@ export function useSessionComposerOptions({
   const ended = row === null || row.status === `ended`
   const dispatch = row?.dispatch === true
   const mcp = useMcpServers(teamId, !ended)
+  useEffect(() => {
+    if (ended || dispatch) return
+    let live = true
+    trpc.sessions.mcpPicks
+      .query({ sessionId }, SKIP_ERROR_TOAST)
+      .then((picks) => {
+        if (live) setMcpServerIds(picks.mcpServerIds)
+      })
+      .catch(() => undefined)
+    return () => {
+      live = false
+    }
+  }, [sessionId, ended, dispatch])
   const team = useTeamById(teamId)
   const teamSlug = team?.slug ?? null
 

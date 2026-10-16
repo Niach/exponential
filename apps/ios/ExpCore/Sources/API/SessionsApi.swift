@@ -289,6 +289,10 @@ public struct AgentDetails: Decodable, Sendable, Equatable {
     }
 }
 
+private struct McpPicksResult: Decodable {
+    let mcpServerIds: [String]
+}
+
 private struct SessionIdInput: Encodable {
     let sessionId: String
 }
@@ -414,6 +418,14 @@ public final class SessionsApi: Sendable {
     /// Computer use / MCP servers (the composer's "+" and options line).
     public func configure(accountId: String, _ input: SessionConfigureInput) async throws {
         try await trpc.mutationVoid(accountId: accountId, path: "sessions.configure", input: input)
+    }
+
+    /// EXP-1334: a session's MCP pick (server-only; whoever may steer reads it).
+    public func mcpPicks(accountId: String, sessionId: String) async throws -> [String] {
+        let result: McpPicksResult = try await trpc.query(
+            accountId: accountId, path: "sessions.mcpPicks", input: SessionIdInput(sessionId: sessionId)
+        )
+        return result.mcpServerIds
     }
 
     public func unlinkIssue(accountId: String, sessionId: String, issueId: String) async throws {
