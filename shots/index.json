@@ -4033,8 +4033,8 @@
         "file": "shots/thread/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 87112,
-        "sha256": "7192751772c0c64c13439a2b3d3bb5fe8169decc0d77ee21780d997cf7e5a0bc"
+        "bytes": 86716,
+        "sha256": "056a181f59d79e690b8e8aebf5ac980e0bd11253da1fe8696cf441433cfbd393"
       },
       "web-mobile": {
         "file": "shots/thread/web-mobile.webp",
