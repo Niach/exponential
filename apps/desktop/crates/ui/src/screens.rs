@@ -565,13 +565,14 @@ pub(crate) fn rich_tab_child_gap(_window: &Window) -> f32 {
     6.
 }
 
-/// Width of the trailing "+N" button: an xsmall `Button` (`px_1` a side)
-/// with a `text_xs` label. `hidden_max` is the largest count the label could
-/// carry, so the reserve never comes out short.
+/// Width of the trailing "+N" button: THE strip chip box at rest with the
+/// count alone (EXP-1334 `surface::strip_overflow_button`: 8px sides, the
+/// hairline, a `text_sm` label). `hidden_max` is the largest count the label
+/// could carry, so the reserve never comes out short.
 pub(crate) fn overflow_button_width(window: &Window, hidden_max: usize) -> f32 {
     let label = format!("+{hidden_max}");
-    0.5 * f32::from(window.rem_size())
-        + measure_text(window, &label, window.text_style().font(), gpui::rems(0.75))
+    crate::surface::STRIP_OVERFLOW_CHROME
+        + measure_text(window, &label, window.text_style().font(), gpui::rems(0.875))
 }
 
 // EXP-288: which tabs get a chip, in strip order — the rest collapse into
@@ -2069,12 +2070,15 @@ impl ScreensPanel {
             })
             .collect();
         let panel = cx.entity().downgrade();
-        let trigger = Button::new(id)
-            .ghost().cursor_pointer()
-            .xsmall()
-            .label(format!("+{}", hidden_entries.len()))
-            .tooltip("More tabs");
-        crate::controls::PointerMenu::for_button(trigger, move |mut menu, _window, cx| {
+        // EXP-1334: THE "+N" (web `StripOverflowButton`): the strip chip box
+        // at rest, the count alone, the same button the thread header's
+        // folded zones open their menu with.
+        let trigger = crate::picker::PickerTrigger::new(
+            gpui::ElementId::from(gpui::SharedString::from(format!("{id}-trigger"))),
+            crate::surface::strip_overflow_button(gpui::SharedString::from(format!("{id}-chip")), hidden_entries.len(), cx)
+                .into_any_element(),
+        );
+        crate::controls::PointerMenu::new(id, trigger, move |mut menu, _window, cx| {
                 menu = menu.scrollable(true).max_h(px(320.));
                 for (screen, lead, title) in &hidden_entries {
                     let panel = panel.clone();

@@ -418,9 +418,21 @@ pub(crate) struct SteerSessionView {
     emoji: Entity<crate::emoji_picker::EmojiPicker>,
     emoji_open: bool,
     /// EXP-1334: the "+" menu's MCP servers row — the team's servers and
-    /// this session's server-only pick (`sessions.mcpPicks`), loaded once.
+    /// this session's server-only pick (`sessions.mcpPicks`), loaded once
+    /// (a failed load re-arms after [`MCP_RETRY_AFTER`], up to
+    /// [`MCP_LOAD_ATTEMPTS`] tries).
     mcp: Option<SessionMcp>,
     mcp_requested: bool,
+    mcp_attempts: u8,
+    /// EXP-1334: the option picks ahead of their synced row (web
+    /// `useSessionComposerOptions`' overrides): read before the row, dropped
+    /// once the row says the same (never on a DISPATCHER root, whose picks
+    /// are its WORK picks and never read back) or when the configure fails.
+    option_picks: OptionPicks,
+    /// EXP-1334: the configures waiting their turn — ONE request in flight at
+    /// a time, in pick order — and whether the worker draining them runs.
+    configure_queue: std::collections::VecDeque<QueuedConfigure>,
+    configure_busy: bool,
     /// The team the completion source was last pointed at.
     mention_team: Option<String>,
     /// EXP-820: the inline free-text field, open on at most one option row.
@@ -720,6 +732,10 @@ impl SteerSessionView {
             emoji_open: false,
             mcp: None,
             mcp_requested: false,
+            mcp_attempts: 0,
+            option_picks: OptionPicks::default(),
+            configure_queue: std::collections::VecDeque::new(),
+            configure_busy: false,
             mention_team: None,
             inline: None,
             editing_step: None,
@@ -1455,6 +1471,12 @@ impl SteerSessionView {
         if self.row != row || self.may_message != may_message {
             self.row = row;
             self.may_message = may_message;
+            // EXP-1334: the synced row now says what a pick asked for — the
+            // pick has settled (a DISPATCHER's never will: its picks are its
+            // WORK picks, server-only, so the local pick stays the read).
+            if let Some(row) = self.row.as_ref().filter(|row| !row.dispatch) {
+                self.option_picks.drop_matching(row);
+            }
             cx.notify();
         }
         // The ROOT's Guide rides the same collection (EXP-1294).
@@ -3242,12 +3264,63 @@ impl SteerSessionView {
         self.stage_images(images, window, cx);
     }
 
-    fn pick_images(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+    /// Attach files (and the "+" menu's "Add file or image"): the native
+    /// prompt with NO type filter, like web's any-file input.
+    fn pick_files(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
         composer_images::pick_attachment_files(window, cx, |this, read, window, cx| {
             this.stage_images(read, window, cx)
         });
     }
+
+    /// EXP-1334 — Add image: the same native prompt kept to the accepted
+    /// image types (web's image input `accept`s them; gpui's prompt has no
+    /// type filter, so the filter is ours, by extension, before any read).
+    /// A pick with nothing but other files says so instead of vanishing; an
+    /// unreadable or oversized image rides to the stage as a bare entry and
+    /// comes back as its rejection notice (EXP-1249).
+    fn pick_images(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        use crate::markdown::image_paste;
+        let receiver = crate::file_picker::prompt_for_paths(cx, gpui::PathPromptOptions {
+            files: true,
+            directories: false,
+            multiple: true,
+            prompt: Some("Add".into()),
+        });
+        cx.spawn_in(window, async move |this, cx| {
+            let Ok(Ok(Some(paths))) = receiver.await else {
+                return;
+            };
+            let files: Vec<std::path::PathBuf> = paths.into_iter().filter(|path| path.is_file()).collect();
+            let images: Vec<composer_images::StagedFile> = files
+                .iter()
+                .filter(|path| image_paste::is_inline_image_path(path))
+                .map(|path| {
+                    image_paste::read_any_file(path).unwrap_or_else(|_| {
+                        let filename = path.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default();
+                        (filename, image_paste::content_type_for_path(path).to_string(), Vec::new())
+                    })
+                })
+                .collect();
+            let others = files.len() - images.len();
+            if images.is_empty() && others == 0 {
+                return;
+            }
+            let _ = this.update_in(cx, |this, window, cx| {
+                if !images.is_empty() {
+                    this.stage_images(images, window, cx);
+                }
+                if others > 0 && this.notice.is_none() {
+                    this.notice = Some(SharedString::from(IMAGE_ONLY_NOTICE));
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
+    }
 }
+
+/// EXP-1334: the Add image tool's notice when a pick held no image.
+pub(crate) const IMAGE_ONLY_NOTICE: &str = "Add image takes PNG, JPEG, WebP, GIF or AVIF files";
 
 /// A Past row opened off its recorded transcript.
 pub(crate) const REPLAY_BANNER: &str = "Replaying transcript…";
@@ -3575,6 +3648,84 @@ struct SessionMcp {
     servers: Vec<(String, String, bool)>,
     /// The session's pick (sorted ids).
     picks: Vec<String>,
+}
+
+/// EXP-1334: how many times the "+" menu's MCP row may be loaded before the
+/// view gives up on it for good, and how long a failed load waits before
+/// the next try.
+const MCP_LOAD_ATTEMPTS: u8 = 3;
+const MCP_RETRY_AFTER: Duration = Duration::from_secs(5);
+
+/// EXP-1334: the option picks ahead of the synced row (web
+/// `useSessionComposerOptions`' `Overrides`). `None` = read the row.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct OptionPicks {
+    plan_mode: Option<bool>,
+    /// `Some(None)` = the default effort was picked.
+    effort: Option<Option<String>>,
+    ultracode: Option<bool>,
+    computer_use: Option<bool>,
+}
+
+impl OptionPicks {
+    /// Take `input`'s picks (a later pick replaces an earlier one).
+    fn apply(&mut self, input: &api::sessions::ConfigureInput) {
+        if let Some(on) = input.plan_mode {
+            self.plan_mode = Some(on);
+        }
+        if let Some(effort) = input.effort.as_ref() {
+            self.effort = Some(effort.clone());
+        }
+        if let Some(on) = input.ultracode {
+            self.ultracode = Some(on);
+        }
+        if let Some(on) = input.computer_use {
+            self.computer_use = Some(on);
+        }
+    }
+
+    /// Drop the picks `made`, unless a later pick replaced them (web
+    /// `dropSettled`).
+    fn drop_settled(&mut self, made: &OptionPicks) {
+        if made.plan_mode.is_some() && self.plan_mode == made.plan_mode {
+            self.plan_mode = None;
+        }
+        if made.effort.is_some() && self.effort == made.effort {
+            self.effort = None;
+        }
+        if made.ultracode.is_some() && self.ultracode == made.ultracode {
+            self.ultracode = None;
+        }
+        if made.computer_use.is_some() && self.computer_use == made.computer_use {
+            self.computer_use = None;
+        }
+    }
+
+    /// Drop every pick the synced row already says.
+    fn drop_matching(&mut self, row: &domain::rows::SessionRow) {
+        if self.plan_mode == Some(row.plan_mode) {
+            self.plan_mode = None;
+        }
+        if self.effort.as_ref() == Some(&row.effort) {
+            self.effort = None;
+        }
+        if self.ultracode == Some(row.ultracode) {
+            self.ultracode = None;
+        }
+        if self.computer_use == Some(row.computer_use) {
+            self.computer_use = None;
+        }
+    }
+}
+
+/// EXP-1334: one `sessions.configure` waiting its turn, with what to put
+/// back if the server refuses it.
+struct QueuedConfigure {
+    input: api::sessions::ConfigureInput,
+    /// The option picks this configure made (dropped again on failure).
+    picks: OptionPicks,
+    /// The MCP pick this configure replaced (restored on failure).
+    previous_mcp: Option<Vec<String>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -7029,14 +7180,28 @@ impl SteerSessionView {
                 .strip((!self.pending_images.is_empty()).then(|| self.render_pending_strip(cx)))
                 // EXP-1334: the inline tools — the "+" options menu
                 // (composer-menu.json rows a running session can change),
-                // attach (EXP-698: always offered), `#`, emoji.
+                // then web's `ComposerEditTools` ×2: Add image, Attach files
+                // (EXP-698: always offered), Insert issue reference, Insert
+                // emoji.
                 .tool(self.render_plus_menu(cx))
                 .tool(
+                    crate::composer::composer_tool(
+                        SharedString::from(format!("{}-image", self.composer_ids.attach)),
+                        registry::EDITOR_IMAGE,
+                        cx,
+                    )
+                    .tooltip("Add image")
+                    .disabled(self.sending)
+                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                        this.pick_images(window, cx);
+                    })),
+                )
+                .tool(
                     crate::composer::composer_tool(self.composer_ids.attach.clone(), registry::UI_ATTACH, cx)
-                        .tooltip("Add file or image")
+                        .tooltip("Attach files")
                         .disabled(self.sending)
                         .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                            this.pick_images(window, cx);
+                            this.pick_files(window, cx);
                         })),
                 )
                 .tool(
@@ -7045,7 +7210,7 @@ impl SteerSessionView {
                         registry::EDITOR_ISSUE_REF,
                         cx,
                     )
-                    .tooltip("Mention an issue")
+                    .tooltip("Insert issue reference")
                     .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
                         this.mention.update(cx, |mention, cx| mention.insert_text("#", window, cx));
                         let field = this.input.read(cx).focus_handle(cx);
@@ -7130,8 +7295,9 @@ impl SteerSessionView {
 
     /// EXP-877 — the run's controls in the composer card's bottom row
     /// ([`crate::composer::SessionComposerControls`]): the model pin, the
-    /// plan read (never on a DISPATCHER root, which hands the work to
-    /// children; web `planLabel`), the context ring.
+    /// Plan switch (a claude run only, web `planSupported`; on a DISPATCHER
+    /// root it reads the local pick, which is the children's plan mode from
+    /// then on), the context ring.
     fn render_composer_controls(&self, cx: &mut gpui::Context<Self>) -> crate::composer::SessionComposerControls {
         crate::composer::SessionComposerControls {
             model_pin: self.render_model_pin(cx),
@@ -7148,9 +7314,12 @@ impl SteerSessionView {
 
     /// EXP-1334: load the "+" menu's MCP row once per view — the team's
     /// servers (`mcpServers.list`) and the session's pick
-    /// (`sessions.mcpPicks`), only while the run may be configured.
+    /// (`sessions.mcpPicks`), only while the run may be configured. A load
+    /// that fails re-arms after [`MCP_RETRY_AFTER`], [`MCP_LOAD_ATTEMPTS`]
+    /// times in all, so one bad request does not hide the row for the life
+    /// of the view.
     fn ensure_mcp_loaded(&mut self, cx: &mut gpui::Context<Self>) {
-        if self.mcp_requested || !self.configurable() {
+        if self.mcp_requested || self.mcp_attempts >= MCP_LOAD_ATTEMPTS || !self.configurable() {
             return;
         }
         let Some(team_id) = self.row.as_ref().and_then(|row| row.team_id.clone()) else {
@@ -7183,46 +7352,127 @@ impl SteerSessionView {
                     })
                 })
                 .await;
-            let _ = this.update(cx, |this, cx| {
-                if let Some(loaded) = loaded {
+            let _ = this.update(cx, |this, cx| match loaded {
+                Some(loaded) => {
                     this.mcp = Some(loaded);
                     cx.notify();
+                }
+                None => {
+                    this.mcp_attempts = this.mcp_attempts.saturating_add(1);
+                    if this.mcp_attempts >= MCP_LOAD_ATTEMPTS {
+                        return;
+                    }
+                    cx.spawn(async move |this, cx| {
+                        cx.background_executor().timer(MCP_RETRY_AFTER).await;
+                        let _ = this.update(cx, |this, cx| {
+                            this.mcp_requested = false;
+                            cx.notify();
+                        });
+                    })
+                    .detach();
                 }
             });
         })
         .detach();
     }
 
+    /// EXP-1334 — `sessions.configure` from outside the view (a menu row):
+    /// see [`Self::configure_now`]. A view that is gone drops the pick.
+    fn configure(view: gpui::WeakEntity<Self>, input: api::sessions::ConfigureInput, cx: &mut App) {
+        let _ = view.update(cx, |this, cx| this.configure_now(input, cx));
+    }
+
     /// EXP-1334 — `sessions.configure`: a running session's options, changed
     /// mid-session (the host device applies them; the synced row confirms).
-    fn configure(input: api::sessions::ConfigureInput, cx: &mut App) {
-        let Some(trpc) = crate::queries::trpc_client(cx) else {
+    /// The pick shows AT ONCE — [`OptionPicks`] ahead of the row, the MCP
+    /// pick on the row itself — and the request joins the queue: one in
+    /// flight at a time, in pick order, so two quick picks land in the order
+    /// they were made. A refusal puts the pick back and toasts.
+    fn configure_now(&mut self, input: api::sessions::ConfigureInput, cx: &mut gpui::Context<Self>) {
+        if crate::queries::trpc_client(cx).is_none() {
             crate::action_error::failed_action("change", "the session", None, cx);
             return;
+        }
+        let mut picks = OptionPicks::default();
+        picks.apply(&input);
+        self.option_picks.apply(&input);
+        let previous_mcp = match (input.mcp_server_ids.as_ref(), self.mcp.as_mut()) {
+            (Some(next), Some(mcp)) => Some(std::mem::replace(&mut mcp.picks, next.clone())),
+            _ => None,
         };
-        cx.spawn(async move |cx| {
-            let result = cx
-                .background_executor()
-                .spawn(async move { api::sessions::configure(&trpc, &input) })
-                .await;
-            if let Err(err) = result {
-                log::warn!("[steer] configure the session failed: {err}");
-                cx.update(|cx| crate::action_error::failed_action_err("change", "the session", &err, cx));
+        self.configure_queue.push_back(QueuedConfigure {
+            input,
+            picks,
+            previous_mcp,
+        });
+        cx.notify();
+        self.drain_configures(cx);
+    }
+
+    /// The ONE worker behind [`Self::configure_now`]: pops the queue until
+    /// it is empty, one request at a time.
+    fn drain_configures(&mut self, cx: &mut gpui::Context<Self>) {
+        if self.configure_busy {
+            return;
+        }
+        self.configure_busy = true;
+        cx.spawn(async move |this, cx| {
+            loop {
+                let Some(next) = this.update(cx, |this, _| this.configure_queue.pop_front()).ok().flatten() else {
+                    break;
+                };
+                let QueuedConfigure {
+                    input,
+                    picks,
+                    previous_mcp,
+                } = next;
+                let trpc = cx.update(|cx| crate::queries::trpc_client(cx));
+                let outcome: Result<(), Option<api::ApiError>> = match trpc {
+                    Some(trpc) => cx
+                        .background_executor()
+                        .spawn(async move { api::sessions::configure(&trpc, &input).map(|_| ()) })
+                        .await
+                        .map_err(Some),
+                    // Signed out between the pick and its turn.
+                    None => Err(None),
+                };
+                if let Err(err) = outcome {
+                    if let Some(err) = err.as_ref() {
+                        log::warn!("[steer] configure the session failed: {err}");
+                    }
+                    let _ = this.update(cx, |this, cx| {
+                        this.option_picks.drop_settled(&picks);
+                        if let (Some(previous), Some(mcp)) = (previous_mcp, this.mcp.as_mut()) {
+                            mcp.picks = previous;
+                        }
+                        cx.notify();
+                    });
+                    let _ = cx.update(|cx| match err.as_ref() {
+                        Some(err) => crate::action_error::failed_action_err("change", "the session", err, cx),
+                        None => crate::action_error::failed_action("change", "the session", None, cx),
+                    });
+                }
             }
+            let _ = this.update(cx, |this, _| this.configure_busy = false);
         })
         .detach();
     }
 
-    /// EXP-1334 — THE Plan switch under the card: the live mode
-    /// (`config_state.currentMode`) else the row's `plan_mode`; a flip =
-    /// `sessions.configure({planMode})`. Read-only (a label) where the run
-    /// cannot change; nothing for an agent without a plan mode.
+    /// EXP-1334 — THE Plan switch under the card (web `planOn`): the pick
+    /// ahead of its row, else the live mode (`config_state.currentMode`,
+    /// never a DISPATCHER's: it hands the work to children), else the row's
+    /// `plan_mode`; a flip = `sessions.configure({planMode})`. Read-only
+    /// where the run cannot change; nothing for an agent without a plan mode
+    /// (web `agentSupportsPlanMode`: claude only).
     fn render_plan_switch(&self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
         let row = self.row.as_ref()?;
-        let on = if self.feed.config().is_some() {
-            self.plan_mode_label().is_some()
-        } else {
-            row.plan_mode
+        if self.agent() != SessionAgent::Claude {
+            return None;
+        }
+        let on = match self.option_picks.plan_mode {
+            Some(on) => on,
+            None if !row.dispatch && self.feed.config().is_some() => self.plan_mode_label().is_some(),
+            None => row.plan_mode,
         };
         let session_id = self.session_id.to_string();
         let configurable = self.configurable();
@@ -7239,8 +7489,8 @@ impl SteerSessionView {
                     crate::controls::web_switch(SharedString::from(format!("{}-plan", self.composer_ids.model)))
                         .checked(on)
                         .disabled(!configurable)
-                        .on_click(cx.listener(move |_, on: &bool, _, cx| {
-                            Self::configure(
+                        .on_click(cx.listener(move |this, on: &bool, _, cx| {
+                            this.configure_now(
                                 api::sessions::ConfigureInput {
                                     session_id: session_id.clone(),
                                     plan_mode: Some(*on),
@@ -7260,7 +7510,7 @@ impl SteerSessionView {
         let id = SharedString::from(format!("{}-emoji", self.composer_ids.attach));
         crate::emoji_picker::emoji_picker_popover(
             SharedString::from(format!("{id}-popover")),
-            crate::composer::composer_tool(id, registry::EDITOR_EMOJI, cx).tooltip("Emoji"),
+            crate::composer::composer_tool(id, registry::EDITOR_EMOJI, cx).tooltip("Insert emoji"),
             self.emoji.clone(),
             self.emoji_open,
             cx.listener(|this, open: &bool, _window, cx| {
@@ -7287,11 +7537,16 @@ impl SteerSessionView {
             coding::CodingAgent::Codex
         };
         let mcp = self.mcp.clone().filter(|mcp| !mcp.servers.is_empty());
-        let (effort, ultracode, computer_use) = self
-            .row
-            .as_ref()
-            .map(|row| (row.effort.clone().unwrap_or_default(), row.ultracode, row.computer_use))
+        // The pick ahead of its row, else the row (web `useSessionComposerOptions`).
+        let row = self.row.as_ref();
+        let picks = &self.option_picks;
+        let effort = picks
+            .effort
+            .clone()
+            .unwrap_or_else(|| row.and_then(|row| row.effort.clone()))
             .unwrap_or_default();
+        let ultracode = picks.ultracode.unwrap_or_else(|| row.is_some_and(|row| row.ultracode));
+        let computer_use = picks.computer_use.unwrap_or_else(|| row.is_some_and(|row| row.computer_use));
         let trigger = crate::composer::composer_tool(
             SharedString::from(format!("{}-plus", self.composer_ids.attach)),
             registry::UI_ADD,
@@ -7302,7 +7557,10 @@ impl SteerSessionView {
         crate::controls::PointerMenu::for_button(trigger, move |mut menu, window, cx| {
             use crate::controls::{menu_row, pointer_check_item, pointer_menu_item, pointer_toggle_item};
             menu = menu.min_w(px(260.));
-            let configure = |input: api::sessions::ConfigureInput, cx: &mut App| Self::configure(input, cx);
+            let configure = {
+                let view = view.clone();
+                move |input: api::sessions::ConfigureInput, cx: &mut App| Self::configure(view.clone(), input, cx)
+            };
             let base = {
                 let session_id = session_id.clone();
                 move || api::sessions::ConfigureInput {
@@ -7316,7 +7574,7 @@ impl SteerSessionView {
                 menu = menu.item(
                     pointer_menu_item(Row::AddFile.icon(), "Add file or image", |_| None, move |window, cx| {
                         if let Some(view) = view.upgrade() {
-                            view.update(cx, |this, cx| this.pick_images(window, cx));
+                            view.update(cx, |this, cx| this.pick_files(window, cx));
                         }
                     }),
                 );
@@ -7391,9 +7649,10 @@ impl SteerSessionView {
             menu = menu.separator();
             // MCP servers: the team's servers, the session's pick checked; a
             // flip = sessions.configure({mcpServerIds}) (the device applies
-            // it between turns).
+            // it between turns; the pick shows at once and comes back if the
+            // server refuses it).
             if let Some(mcp) = mcp.clone() {
-                let view = view.clone();
+                let configure = configure.clone();
                 let base = base.clone();
                 let label = match mcp.picks.len() {
                     0 => "MCP servers".to_string(),
@@ -7408,26 +7667,17 @@ impl SteerSessionView {
                             next.push(id.clone());
                         }
                         next.sort();
-                        let view = view.clone();
+                        let configure = configure.clone();
                         let base = base.clone();
                         let label = if *blocked { format!("{name} (not connected)") } else { name.clone() };
                         sub = sub.item(pointer_check_item(label, picked, move |_, cx| {
-                            Self::configure(
+                            configure(
                                 api::sessions::ConfigureInput {
                                     mcp_server_ids: Some(next.clone()),
                                     ..base()
                                 },
                                 cx,
                             );
-                            let next = next.clone();
-                            if let Some(view) = view.upgrade() {
-                                view.update(cx, |this, cx| {
-                                    if let Some(mcp) = this.mcp.as_mut() {
-                                        mcp.picks = next;
-                                    }
-                                    cx.notify();
-                                });
-                            }
                         }));
                     }
                     sub

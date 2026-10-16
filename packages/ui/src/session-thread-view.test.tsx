@@ -406,7 +406,10 @@ describe(`folded chips`, () => {
       </ThreadChipSubtree>
     )
     const chip = screen.getByTestId(`thread-tab-session`)
-    expect(chip.getAttribute(`aria-selected`)).toBe(`true`)
+    // A folded chip opens a menu, so it is no tab: its state is data-active.
+    expect(chip.getAttribute(`role`)).toBeNull()
+    expect(chip.getAttribute(`aria-selected`)).toBeNull()
+    expect(chip.closest(`[data-slot="strip-chip"]`)!.getAttribute(`data-active`)).toBe(`true`)
     expect(chip.textContent).toContain(`› Android lane`)
     expect(chip.querySelector(`[data-slot="strip-chip-chevron"]`)).not.toBeNull()
     act(() => {

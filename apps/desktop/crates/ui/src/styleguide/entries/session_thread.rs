@@ -3,28 +3,43 @@
 //! the thread screen's REAL row painters (`crate::thread_screen`, through
 //! [`super::thread_parts::row`]) over the contract model
 //! (`domain::session_tree::build_session_thread`) on `session-thread.json`'s
-//! first two cases, like the web entry: the root's messages oldest first
-//! (EXP-1334: no card of its own — the conversation IS the dispatcher) (a person's bubble, `queued` until
-//! consumed; the agent's prose; event lines; child session cards; questions
-//! and plans answered in the card; a subagent; a picture) and EXP-1323's
-//! dispatcher (the suggestions card, a report line, an aside's card) and
-//! EXP-1334's (a child's question and plan, answered in place).
+//! cases in the web entry's order: EXP-1334's dispatcher (a child's question
+//! and plan, answered in place; no root card — the conversation IS the
+//! dispatcher), the first two (a person's bubble, `queued` until consumed;
+//! the agent's prose; event lines; child session cards; questions and plans
+//! answered in the card; a subagent; a picture), then THE composer the
+//! thread hosts, idle and while it works
+//! ([`super::composer_dialog::ComposerSpecimen`]), then EXP-1323's ended
+//! root and its live dispatcher (the suggestions card in every state, a
+//! report line, an aside's card).
 
-use gpui::{px, App, Div, ParentElement as _, Styled as _, Window};
-use gpui_component::v_flex;
+use gpui::{div, px, App, Div, ParentElement as _, Styled as _, Window};
+use gpui_component::{v_flex, ActiveTheme as _};
 
 use crate::markdown::ImageCache;
 
+use super::composer_dialog::{composer_specimen, thread_placeholder, Phase};
 use super::thread_parts::{case, case_named, row, DISPATCHER_CASE, FOLD_CASE};
 
 pub(crate) const ID: &str = "session-thread";
 pub(crate) const OWNER: &str = "EXP-1293";
 
-/// The fixture cases the entry draws (the web entry's): the first two,
-/// then EXP-1323's dispatcher (suggestions in every state, a child's
-/// question, a report, a `/btw` aside card with its caption).
-fn cases() -> [usize; 4] {
-    [0, 1, case_named(DISPATCHER_CASE), case_named(FOLD_CASE)]
+/// The EXP-1323 ended-root case's name prefix.
+pub(super) const ENDED_CASE: &str = "EXP-1323: an ended";
+
+/// The fixture cases the entry draws, in the web entry's order: EXP-1334's
+/// dispatcher, the first two, then (after the two composers) EXP-1323's
+/// ended root and its live dispatcher.
+fn cases() -> [usize; 5] {
+    [case_named(FOLD_CASE), 0, 1, case_named(ENDED_CASE), case_named(DISPATCHER_CASE)]
+}
+
+/// The two composers sit after this many cases (the web's: after the first
+/// three).
+const COMPOSERS_AFTER: usize = 3;
+
+fn caption(text: &'static str, cx: &App) -> Div {
+    div().text_xs().text_color(cx.theme().muted_foreground).child(text)
 }
 
 pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
@@ -32,7 +47,26 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
         .use_keyed_state("sg-session-thread-images", cx, |_, _| ImageCache::new(None))
         .clone();
     let mut column = v_flex().w(px(720.)).gap_10();
-    for index in cases() {
+    for (position, index) in cases().into_iter().enumerate() {
+        if position == COMPOSERS_AFTER {
+            let placeholder = thread_placeholder();
+            column = column
+                .child(
+                    v_flex()
+                        .gap_2()
+                        .child(caption(
+                            "The thread's composer = THE session composer (EXP-1334): the card with \"+\" (the options) and the inline tools, model · Plan · the context ring under it.",
+                            cx,
+                        ))
+                        .child(composer_specimen("sg-session-thread-idle", Phase::Idle, &placeholder, window, cx)),
+                )
+                .child(
+                    v_flex()
+                        .gap_2()
+                        .child(caption("The same composer in a session while it works.", cx))
+                        .child(composer_specimen("sg-session-thread-running", Phase::Running, &placeholder, window, cx)),
+                );
+        }
         let case = case(index);
         let mut conversation = v_flex().w_full().gap_5();
         for item in &case.view.rows {
@@ -64,5 +98,19 @@ mod tests {
         let root = fold.view.root_id.clone();
         assert!(fold.view.rows.iter().any(|row| matches!(row, SessionThreadRow::Question { session_id, .. } if *session_id != root)));
         assert!(fold.view.rows.iter().any(|row| matches!(row, SessionThreadRow::Plan { session_id, .. } if *session_id != root)));
+    }
+
+    /// The web entry's order: the fold case first, then 0 and 1, the ended
+    /// root, the live dispatcher; five distinct cases.
+    #[test]
+    fn the_cases_are_the_webs_in_order() {
+        let cases = cases();
+        assert_eq!(cases[0], case_named(FOLD_CASE));
+        assert_eq!(&cases[1..3], &[0, 1]);
+        assert_eq!(cases[3], case_named(ENDED_CASE));
+        assert_eq!(cases[4], case_named(DISPATCHER_CASE));
+        let distinct: std::collections::BTreeSet<usize> = cases.into_iter().collect();
+        assert_eq!(distinct.len(), 5);
+        assert_eq!(COMPOSERS_AFTER, 3);
     }
 }

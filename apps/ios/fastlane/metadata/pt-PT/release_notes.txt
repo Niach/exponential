@@ -1,6 +1,6 @@
-- Threads: uma thread executa um pequeno distribuidor que responde sozinho a perguntas rápidas e inicia uma sessão para o trabalho a sério, e a caixa de resposta da thread é a mesma de uma sessão, com a troca de modelo
-- Relatórios: quando uma subsessão termina, o seu resumo chega como relatório à conversa da sessão principal, e um agente pode propor tarefas de seguimento que inicia com um toque
-- Lista de threads: uma sessão em curso mostra o passo atual sob o nome, as subsessões aninham-se sob a sua thread e uma thread com mensagens do agente por ler mostra o título a negrito
-- Transcrição: o trabalho de uma sessão lê-se como linhas de rastreio com blocos de código, e as mensagens em fila esperam num só sítio até o agente as recolher
-- Modelos: cada seletor de modelo lista Fable, Opus, Sonnet e Haiku, sem a entrada Default
-- /btw: faça uma pergunta à parte a uma sessão Claude em curso e receba a resposta sem interromper o seu trabalho
+- Cabeçalho do tópico: já nada desliza, os issues e as sessões recolhem-se em "+N" quando falta espaço, e os sub-issues e sessões mais profundas abrem com um toque
+- Ligar um issue: o "+" junto a Conversation oferece Link an issue e New issue
+- Sub-sessões: as perguntas e os planos de uma sub-sessão aparecem na conversa do tópico e são respondidos aí mesmo
+- Um só campo: o tópico, uma sessão e um novo início partilham um campo, "Type / for commands", com imagem, ficheiro, # e emoji na caixa
+- Opções a meio da sessão: o modo Plan muda de imediato, e o esforço, computer use e os servidores MCP aplicam-se a partir da mensagem seguinte
+- Estado do issue: ligar um issue passa-o para In progress, e um pull request passa-o para In review e, depois de integrado, para Done

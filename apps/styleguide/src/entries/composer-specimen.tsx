@@ -30,7 +30,7 @@ const UiAddIcon = conceptIcon(`ui-add`)
 export type ComposerPhase = `start` | `running` | `idle`
 
 const DEVICES = [
-  { id: `mint`, name: `mint — This device`, kind: `desktop` },
+  { id: `mint`, name: `mint · This device`, kind: `desktop` },
   { id: `buildbox`, name: `buildbox`, kind: `server` },
 ]
 const ACCOUNTS = [

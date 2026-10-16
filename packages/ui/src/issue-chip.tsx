@@ -39,9 +39,14 @@ export type IssueChipLinkProps = EntityChipLinkProps
 
 /** SLOP-15: `md` = glyph · identifier · title; `sm` = the SHORT chip, glyph ·
  *  identifier alone (the title rides in the tooltip), for the surfaces that
- *  stand for several issues at once — the hover graph's nodes, the phone
- *  header's badge — where a title per chip is what made them sprawl. */
-export type IssueChipSize = `md` | `sm` | `tab` | `pager`
+ *  stand for several issues at once (the hover graph's nodes, the phone
+ *  header's badge), where a title per chip is what made them sprawl.
+ *  `tab` (EXP-1316) = the strip tab box. EXP-1334 moved the thread header's
+ *  chips onto `StripChip` (`ThreadIssueTab`), so the app no longer draws
+ *  this size; the styleguide's issue-chip spec (`apps/styleguide/src/
+ *  components.tsx`) still does, which keeps it (the phones' `pager` size
+ *  had no caller left and is gone). */
+export type IssueChipSize = `md` | `sm` | `tab`
 
 /** A tab chip's title this long keeps a floor when the strip shrinks it; a
  *  shorter one stays its own width. */
@@ -90,8 +95,7 @@ export function IssueChip({
    *  `tab` (EXP-1316) = exactly the strip tab box (`stripTabClass`: h-8,
    *  text-sm, rounded-md, border, px-2.5): glyph · mono identifier · title,
    *  every chip of a strip the height of Conversation / Guide; a resting
-   *  chip keeps its hairline (a bordered rect). `pager` = the phones' strip:
-   *  the same box, glyph · identifier (the title rides in the tooltip). */
+   *  chip keeps its hairline (a bordered rect). */
   size?: IssueChipSize
   /** The tab size's active state (the glass wash). */
   active?: boolean
@@ -111,23 +115,21 @@ export function IssueChip({
   testId?: string
   removeTestId?: string
 } & ChipHostProps): ReactNode {
-  const tab = size === `tab` || size === `pager`
+  const tab = size === `tab`
   const body = tab ? (
     <>
       <StatusGlyph {...status} className={cn(`size-3.5 shrink-0`, status.className)} />
       <span className="shrink-0 font-mono text-xs text-muted-foreground">{identifier}</span>
-      {size === `tab` && (
-        <span
-          data-slot="issue-chip-title"
-          className={cn(
-            `max-w-[8.75rem] truncate`,
-            // The IDE's rule: a long title shrinks no further than 112px.
-            `min-w-0`
-          )}
-        >
-          {title}
-        </span>
-      )}
+      <span
+        data-slot="issue-chip-title"
+        className={cn(
+          `max-w-[8.75rem] truncate`,
+          // The IDE's rule: a long title shrinks no further than 112px.
+          `min-w-0`
+        )}
+      >
+        {title}
+      </span>
     </>
   ) : (
     <>
@@ -159,7 +161,7 @@ export function IssueChip({
               // EXP-1316 (the IDE's strip): a tab chip SHRINKS first, its
               // title between 112px and 140px with an ellipsis; the strip
               // scrolls only when even that does not fit.
-              size === `tab` && `min-w-0 shrink-[4]`
+              `min-w-0 shrink-[4]`
             )
           : undefined
       }
@@ -175,11 +177,7 @@ export function IssueChip({
       testId={testId}
       removeTestId={removeTestId}
       {...host}
-      style={
-        size === `tab`
-          ? { ...host.style, minWidth: tabChipMinWidth(identifier, title) }
-          : host.style
-      }
+      style={tab ? { ...host.style, minWidth: tabChipMinWidth(identifier, title) } : host.style}
     />
   )
 }

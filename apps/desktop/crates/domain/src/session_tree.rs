@@ -702,8 +702,9 @@ pub enum SessionThreadRow {
         /// EXP-1323: the session that posted it (a child asking its parent).
         author_session_id: Option<String>,
     },
-    /// A session's card (`id` = the message id, or the root's id for its
-    /// own leading card); opens that session.
+    /// A session's card (`id` = the message id of the `session` /
+    /// `thread_started` card that announced it; EXP-1334: the dispatcher
+    /// has no leading card of its own); opens that session.
     Session { id: String, card: SessionCard },
     /// EXP-1323: a child's end report (`Report from <name>` + the summary);
     /// opens `session_id`.
@@ -753,7 +754,7 @@ pub enum SessionThreadRow {
 }
 
 impl SessionThreadRow {
-    /// The row's id (the message id; the root id for its own card).
+    /// The row's id (the message id it was built from).
     pub fn id(&self) -> &str {
         match self {
             Self::Message { id, .. }
@@ -1004,7 +1005,7 @@ pub fn composer_yields_to_card(live: bool, pending_ask: bool) -> bool {
 /// chip's width is reserved only once something overflows; the ACTIVE
 /// chip's width is committed first so it is always visible (EXP-343: the
 /// old prefix-then-swap shape overflowed with a wide active tab); one chip
-/// always survives.
+/// always survives. An `active_ix` past the chips counts as none.
 pub fn partition_tabs(
     widths: &[f32],
     available: f32,
@@ -1013,6 +1014,7 @@ pub fn partition_tabs(
     active_ix: Option<usize>,
 ) -> Vec<usize> {
     let count = widths.len();
+    let active_ix = active_ix.filter(|ix| *ix < count);
     let available = available.max(0.);
     let total = widths.iter().sum::<f32>() + gap * count.saturating_sub(1) as f32;
     if total <= available {
@@ -1205,12 +1207,15 @@ fn issue_fold_parent<'a>(
     None
 }
 
-/// The thread screen: the header tabs (Conversation · one chip per issue ·
-/// + · session chips · Guide; the session chips = the viewed level: the
-/// root's run + its direct children, or with `focus` that session + ITS
-/// direct children), the root's conversation as rows (its own session card
-/// first, then its messages oldest first; a `session`/`thread_started` card
-/// becomes that session's card) and the composer target (the root).
+/// The thread screen (EXP-1334): the header strip (`+` · Conversation · one
+/// chip per TOP-LEVEL linked issue, its linked sub-issues folded under it ·
+/// one chip per DIRECT child of the dispatcher, every deeper session folded
+/// under its top-level ancestor · Guide), the dispatcher's conversation as
+/// rows (no card of its own: its messages oldest first, a
+/// `session`/`thread_started` card becoming that session's card, a child's
+/// open question/plan card surfacing here) and the composer target (the
+/// root). `focus` = the session open in place ([`SessionThreadView::focus_id`]);
+/// the chips stay the dispatcher's.
 pub fn build_session_thread(input: SessionThreadInput<'_>, focus: Option<&str>) -> SessionThreadView {
     let root = input.root;
     let now = input.now_ms;
@@ -2161,6 +2166,18 @@ mod tests {
                 case["name"]
             );
         }
+    }
+
+    /// An active index past the chips is no active chip: the plain pack,
+    /// never a panic.
+    #[test]
+    fn partition_tabs_ignores_an_active_index_past_the_chips() {
+        let widths = [40., 40., 40.];
+        assert_eq!(
+            partition_tabs(&widths, 100., 4., 30., Some(7)),
+            partition_tabs(&widths, 100., 4., 30., None)
+        );
+        assert_eq!(partition_tabs(&[], 100., 4., 30., Some(0)), Vec::<usize>::new());
     }
 
     /// EXP-1334: `session-thread.json` `stripCases`, whole values.

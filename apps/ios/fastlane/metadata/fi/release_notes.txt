@@ -1,6 +1,6 @@
-- Ketjut: ketju ajaa pientä välittäjää, joka vastaa nopeisiin kysymyksiin itse ja käynnistää istunnon varsinaiseen työhön, ja ketjun vastauskenttä on sama kuin istunnon, mallinvaihtimen kanssa
-- Raportit: kun aliistunto päättyy, sen yhteenveto saapuu raporttina yläistunnon keskusteluun, ja agentti voi ehdottaa jatkotehtäviä, jotka käynnistät yhdellä napautuksella
-- Ketjulista: käynnissä oleva istunto näyttää nykyisen vaiheensa nimensä alla, aliistunnot sisentyvät ketjunsa alle, ja ketju, jossa on lukemattomia agentin viestejä, näyttää otsikkonsa lihavoituna
-- Tallenne: istunnon työ näkyy jälkiriveinä koodilohkoineen, ja jonossa olevat viestit odottavat yhdessä paikassa, kunnes agentti ottaa ne
-- Mallit: jokainen mallinvalitsin listaa Fable, Opus, Sonnet ja Haiku, ilman Default-kohtaa
-- /btw: kysy käynnissä olevalta Claude-istunnolta sivukysymys ja saat vastauksen keskeyttämättä sen työtä
+- Ketjun otsikko: mikään ei enää vierity, issuet ja sessiot taittuvat "+N":ksi tilan loppuessa, ja ali-issuet ja syvemmät sessiot avautuvat napautuksella
+- Issuen linkitys: "+" Conversationin vieressä tarjoaa Link an issue ja New issue
+- Alisessiot: alisession kysymykset ja suunnitelmat näkyvät ketjun keskustelussa ja niihin vastataan suoraan siellä
+- Yksi kirjoituskenttä: ketju, sessio ja uusi aloitus jakavat yhden kentän, "Type / for commands", jossa on kuva, tiedosto, # ja emoji
+- Asetukset kesken session: Plan-tila vaihtuu heti, ja työmäärä, computer use ja MCP-palvelimet pätevät seuraavasta viestistä alkaen
+- Issuen tila: linkitetty issue siirtyy tilaan In progress, ja pull request siirtää sen tilaan In review ja yhdistämisen jälkeen tilaan Done

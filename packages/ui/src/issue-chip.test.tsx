@@ -69,15 +69,6 @@ describe(`IssueChip size="tab" (EXP-1316)`, () => {
   })
 })
 
-describe(`IssueChip size="pager" (EXP-1316)`, () => {
-  it(`is the tab box without the title`, () => {
-    render(<IssueChip identifier="EXP-2" title="Hidden" status={status} size="pager" testId="chip" />)
-    const chip = screen.getByTestId(`chip`)
-    expect(chip.className).toContain(`h-8`)
-    expect(chip.textContent).toBe(`EXP-2`)
-  })
-})
-
 // EXP-1316 (the IDE's strip rule): on md+ a tab chip shrinks first, its
 // title at most 8.75rem with an ellipsis, the chip floored by
 // `tabChipMinWidth` (a short title never shrinks).

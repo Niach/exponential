@@ -557,13 +557,15 @@ function issueFoldParent(
 }
 
 /**
- * The thread screen: the header tabs (Conversation · one chip per issue ·
- * + · session chips · Guide; the session chips = the viewed level: the
- * root's own run + its direct children, or with `focus` that session + ITS
- * direct children), the root's conversation as rows (the root's own session card
- * first, then its messages oldest first; a `session`/`thread_started` card
- * becomes that session's card) and the composer target (the root: a message
- * to an ended thread continues it server-side).
+ * The thread screen (EXP-1334): the header strip (`+` · Conversation · one
+ * chip per TOP-LEVEL linked issue, its linked sub-issues folded under it ·
+ * one chip per DIRECT child of the dispatcher, every deeper session folded
+ * under its top-level ancestor · Guide), the dispatcher's conversation as
+ * rows (no card of its own: its messages oldest first, a
+ * `session`/`thread_started` card becoming that session's card, a child's
+ * open question/plan card surfacing here) and the composer target (the root:
+ * a message to an ended thread continues it server-side). `focus` = the
+ * session open in place (`focusId`); the chips stay the dispatcher's.
  */
 export function buildSessionThread(input: {
   root: TreeSession

@@ -92,8 +92,6 @@ pub(crate) const MISSING_GRACE: Duration = Duration::from_secs(5);
 const CONVERSATION_W: f32 = 760.;
 /// The header + strip's side inset.
 const HEADER_INSET: f32 = 44.;
-/// One strip chip's height.
-const STRIP_CHIP_H: f32 = 28.;
 /// An issue chip title's ONE max width (then the ellipsis).
 const ISSUE_CHIP_TITLE_MAX_W: f32 = 140.;
 /// The issue chip's lead (a live root's mark) and its state badge.
@@ -458,33 +456,17 @@ fn link_issue_source(target: &ThreadMenuTarget) -> crate::picker::search_list::M
 // styleguide draw them too)
 // ---------------------------------------------------------------------------
 
-/// The strip's chip frame: active = the filled pill, else a ghost that
-/// washes under the pointer.
+/// The strip's chip frame (an issue, a session, a folded zone): THE strip
+/// chip box ×2 (EXP-1334 [`crate::surface::strip_chip_frame`], the box the
+/// work tabs strip wears too) with its hairline at rest.
 pub(crate) fn strip_chip(id: impl Into<gpui::ElementId>, active: bool, cx: &App) -> gpui::Stateful<gpui::Div> {
-    let theme = cx.theme();
-    let hover = theme.list_hover;
-    let base = div()
-        .id(id)
-        .flex()
-        .flex_row()
-        .flex_shrink_0()
-        .items_center()
-        .gap(px(6.))
-        .h(px(STRIP_CHIP_H))
-        .px(px(10.))
-        .rounded(px(6.))
-        .text_sm()
-        .cursor_pointer()
-        .border_1();
-    if active {
-        base.bg(theme.secondary)
-            .border_color(theme.border)
-            .text_color(theme.foreground)
-    } else {
-        base.border_color(gpui::transparent_black())
-            .text_color(theme.muted_foreground)
-            .hover(move |style| style.bg(hover))
-    }
+    crate::surface::strip_chip_frame(id, active, true, cx)
+}
+
+/// The strip's TAB frame (Conversation, Guide): the same box with no stroke
+/// at rest (web `stripTabClass(active)` unbordered).
+pub(crate) fn strip_tab(id: impl Into<gpui::ElementId>, active: bool, cx: &App) -> gpui::Stateful<gpui::Div> {
+    crate::surface::strip_chip_frame(id, active, false, cx)
 }
 
 /// THE issue chip's lead ×4: the issue's STATUS glyph (an unsynced status
@@ -2197,7 +2179,9 @@ pub(crate) fn thread_strip(spec: ThreadStrip, window: &Window, cx: &App) -> AnyE
             let session_widths: Vec<f32> =
                 session_tabs.iter().map(|tab| measure_strip_chip(tab, &spec, window).0).collect();
             let most = issue_tabs.len().max(session_tabs.len()).max(1);
-            let overflow_w = STRIP_CHIP_CHROME
+            // The "+N" is the strip chip box at rest with narrower sides
+            // (`surface::strip_overflow_button`); reserve what it paints.
+            let overflow_w = crate::surface::STRIP_OVERFLOW_CHROME
                 + crate::screens::measure_text(window, &format!("+{most}"), window.text_style().font(), gpui::rems(0.875));
             let gap = crate::screens::chip_gap(window);
             let active_session = session_tabs.iter().position(|tab| chip_active(tab, &spec.open));
@@ -2214,7 +2198,7 @@ pub(crate) fn thread_strip(spec: ThreadStrip, window: &Window, cx: &App) -> AnyE
             // labels (never a clip), and when even their floors do not fit,
             // the issue zone folds whole into its "+N".
             let full_tier = layout.tier == domain::session_tree::StripTier::Full;
-            let drawn_of = |issues: &[usize]| {
+            let drawn_of = |issues: &[usize], sessions: &[usize]| {
                 let mut parts: Vec<f32> = issues
                     .iter()
                     .map(|&index| if full_tier { issue_widths[index].full } else { issue_widths[index].short })
@@ -2222,23 +2206,43 @@ pub(crate) fn thread_strip(spec: ThreadStrip, window: &Window, cx: &App) -> AnyE
                 if issues.len() < issue_tabs.len() {
                     parts.push(overflow_w);
                 }
-                parts.extend(layout.sessions.iter().map(|&index| session_widths[index]));
-                if layout.sessions.len() < session_tabs.len() {
+                parts.extend(sessions.iter().map(|&index| session_widths[index]));
+                if sessions.len() < session_tabs.len() {
                     parts.push(overflow_w);
                 }
                 parts.iter().sum::<f32>() + gap * parts.len().saturating_sub(1) as f32
             };
-            let widths: Vec<f32> = layout.sessions.iter().map(|&index| session_widths[index]).collect();
-            let floors: Vec<f32> = layout
-                .sessions
-                .iter()
-                .map(|&index| session_chip_floor(session_tabs[index], &spec, window))
-                .collect();
-            let floor_drawn = drawn_of(&layout.issues) - widths.iter().sum::<f32>() + floors.iter().sum::<f32>();
+            let session_metrics = |sessions: &[usize]| -> (Vec<f32>, Vec<f32>) {
+                (
+                    sessions.iter().map(|&index| session_widths[index]).collect(),
+                    sessions
+                        .iter()
+                        .map(|&index| session_chip_floor(session_tabs[index], &spec, window))
+                        .collect(),
+                )
+            };
+            let (mut widths, mut floors) = session_metrics(&layout.sessions);
+            let floor_drawn =
+                drawn_of(&layout.issues, &layout.sessions) - widths.iter().sum::<f32>() + floors.iter().sum::<f32>();
             if floor_drawn > available && !layout.issues.is_empty() {
                 layout.issues.clear();
+                // The sessions get the room the folded issues freed (less
+                // the issue zone's "+N" and its gap): the chips that folded
+                // to make room for the issues unfold again.
+                let room = available - overflow_w - gap;
+                layout.sessions = domain::session_tree::partition_thread_strip(
+                    &[],
+                    &session_widths,
+                    room,
+                    gap,
+                    overflow_w,
+                    None,
+                    active_session,
+                )
+                .sessions;
+                (widths, floors) = session_metrics(&layout.sessions);
             }
-            let drawn = drawn_of(&layout.issues);
+            let drawn = drawn_of(&layout.issues, &layout.sessions);
             let active = active_session.and_then(|active| layout.sessions.iter().position(|&index| index == active));
             for (slot, cap) in shrink_session_chips(drawn, available, &widths, &floors, active)
                 .into_iter()
@@ -2412,14 +2416,10 @@ pub(crate) fn thread_strip(spec: ThreadStrip, window: &Window, cx: &App) -> AnyE
         if hidden.is_empty() {
             return None;
         }
-        let active = tabs
-            .iter()
-            .enumerate()
-            .any(|(index, tab)| !shown.contains(&index) && chip_active(tab, &spec.open));
+        // Web `StripOverflowButton`: the chip box at rest, the count alone
+        // (an active chip folded into it does not light the button).
         let id = SharedString::from(format!("{prefix}-{zone}-more"));
-        let trigger = strip_chip(id.clone(), active, cx)
-            .child(SharedString::from(format!("+{}", hidden.len())))
-            .into_any_element();
+        let trigger = crate::surface::strip_overflow_button(id.clone(), hidden.len(), cx).into_any_element();
         let open = spec.open.clone();
         let on_pick = spec.on_pick.clone();
         Some(
@@ -2448,7 +2448,7 @@ pub(crate) fn thread_strip(spec: ThreadStrip, window: &Window, cx: &App) -> AnyE
         );
     }
     lead.push(
-        strip_chip(SharedString::from(format!("{prefix}-child-conversation")), spec.open == StripPick::Conversation, cx)
+        strip_tab(SharedString::from(format!("{prefix}-child-conversation")), spec.open == StripPick::Conversation, cx)
             .child(Icon::new(registry::ACTION_CHAT).xsmall())
             .child(SharedString::from(THREAD.copy.conversation.clone()))
             .on_click(pick(StripPick::Conversation))
@@ -2467,7 +2467,7 @@ pub(crate) fn thread_strip(spec: ThreadStrip, window: &Window, cx: &App) -> AnyE
     );
     middle.extend(overflow("sessions", &session_tabs, &layout.sessions, cx));
 
-    let guide = strip_chip(SharedString::from(format!("{prefix}-child-guide")), spec.open == StripPick::Guide, cx)
+    let guide = strip_tab(SharedString::from(format!("{prefix}-child-guide")), spec.open == StripPick::Guide, cx)
         .child(Icon::new(registry::GUIDE_CHANGES).xsmall())
         .child(SharedString::from(THREAD.copy.guide.clone()))
         .when(guide_dot_on, |chip| chip.child(guide_dot(cx)))

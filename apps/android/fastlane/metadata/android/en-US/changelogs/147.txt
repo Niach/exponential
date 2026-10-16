@@ -1,0 +1,5 @@
+Threads: the header never scrolls; issues and sessions fold into "+N", sub-issues and deeper sessions open with a tap.
+Issues: link or create one from the "+" next to Conversation; status moves to In progress, In review and Done.
+Sub-sessions: their questions and plans are answered right in the thread.
+Composer: one for the thread, a session and a new start, with image, file, # and emoji.
+Options: Plan mode switches mid-session; effort, computer use and MCP apply from the next message.

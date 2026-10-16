@@ -68,6 +68,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
@@ -683,7 +687,12 @@ class AgentSessionViewModel @AssistedInject constructor(
 
     // ── EXP-1334: THE session composer's "+" changes a RUNNING session ──────
 
-    /** The person's live picks, ahead of the synced row (null = the row's). */
+    /** The person's live picks, ahead of the synced row (null = the row's).
+     *  A row pick (plan, effort, ultracode, computer use) stays ONLY until the
+     *  synced row says it (web parity: the row then follows the agent, its
+     *  `sessions.report` plan mode and its own `/model`); a DISPATCHER's never
+     *  reads back, so its picks stay. `mcpServerIds` has no row column: it is
+     *  the read itself, seeded by `sessions.mcpPicks`. */
     data class ConfigurePicks(
         val planMode: Boolean? = null,
         val effort: String? = null,
@@ -695,8 +704,17 @@ class AgentSessionViewModel @AssistedInject constructor(
     private val _configurePicks = MutableStateFlow(ConfigurePicks())
     val configurePicks: StateFlow<ConfigurePicks> = _configurePicks
 
+    init {
+        // A late sync: whenever the synced row says a pick, the override goes.
+        viewModelScope.launch {
+            session.filterNotNull().collect { row ->
+                if (!row.dispatch) _configurePicks.update { it.dropSettledBy(row) }
+            }
+        }
+    }
+
     private val _configureError = MutableStateFlow<String?>(null)
-    /** A refused `sessions.configure` — `Couldn't change the session`. */
+    /** A refused `sessions.configure` — `Couldn't change the session options`. */
     val configureError: StateFlow<String?> = _configureError
 
     fun clearConfigureError() {
@@ -708,19 +726,25 @@ class AgentSessionViewModel @AssistedInject constructor(
     val mcpServers: StateFlow<List<com.exponential.app.domain.McpServerOption>> = _mcpServers
     private var mcpTeam: String? = null
 
-    /** Fetch the session's team MCP servers once (the "+" menu's row). */
+    /** Fetch the session's team MCP servers once (the "+" menu's row) and,
+     *  independently, the session's OWN MCP picks (the row's seed). A failed
+     *  list releases the latch, so the next call retries. */
     fun loadMcpServers() {
         val team = session.value?.teamId?.takeIf { it.isNotEmpty() } ?: return
         if (mcpTeam == team) return
         mcpTeam = team
         viewModelScope.launch {
-            val accountId = auth.activeAccountId.value ?: return@launch
+            val accountId = auth.activeAccountId.value ?: run {
+                mcpTeam = null
+                return@launch
+            }
             val servers = runCatching { mcpServersApi.list(accountId, team) }
                 .onFailure { if (it is CancellationException) throw it }
-                .getOrNull() ?: return@launch
-            _mcpServers.value = servers
+                .getOrNull()
+            if (servers != null) _mcpServers.value = servers else mcpTeam = null
             // The MCP row starts from the session's OWN picks; a failure
-            // falls back silently to the team defaults.
+            // leaves the row empty (web parity) until a pick.
+            if (_configurePicks.value.mcpServerIds != null) return@launch
             val picks = runCatching { sessionsApi.mcpPicks(accountId, codingSessionId) }
                 .onFailure { if (it is CancellationException) throw it }
                 .getOrNull() ?: return@launch
@@ -762,17 +786,13 @@ class AgentSessionViewModel @AssistedInject constructor(
         }
     }
 
-    /** `sessions.configure` with the changed fields; the pick shows at once
-     *  and rolls back on a refusal. */
+    /** `sessions.configure` with the changed fields; the pick shows at once,
+     *  stays until the synced row confirms it (bounded: [CONFIGURE_SYNC_WAIT_MS],
+     *  web parity) and rolls back on a refusal. A dispatcher's row never
+     *  reflects its work picks: those stay as the read. */
     fun configure(change: ConfigurePicks) {
-        val before = _configurePicks.value
-        _configurePicks.value = ConfigurePicks(
-            planMode = change.planMode ?: before.planMode,
-            effort = change.effort ?: before.effort,
-            ultracode = change.ultracode ?: before.ultracode,
-            computerUse = change.computerUse ?: before.computerUse,
-            mcpServerIds = change.mcpServerIds ?: before.mcpServerIds,
-        )
+        val previousMcp = _configurePicks.value.mcpServerIds
+        _configurePicks.update { it.overriddenBy(change) }
         viewModelScope.launch {
             try {
                 val accountId = auth.activeAccountId.value ?: throw IllegalStateException("No active account")
@@ -787,9 +807,19 @@ class AgentSessionViewModel @AssistedInject constructor(
                         mcpServerIds = change.mcpServerIds,
                     ),
                 )
+                if (session.value?.dispatch == true) return@launch
+                // The synced row now says it (or the wait ran out: the row is
+                // the read either way, as on web).
+                withTimeoutOrNull(CONFIGURE_SYNC_WAIT_MS) {
+                    session.first { row -> row != null && change.rowPicks().dropSettledBy(row).hasRowPick().not() }
+                }
+                _configurePicks.update { it.dropSettled(change) }
             } catch (t: Throwable) {
                 if (t is CancellationException) throw t
-                _configurePicks.value = before
+                _configurePicks.update { current ->
+                    current.dropSettled(change)
+                        .let { if (change.mcpServerIds != null) it.copy(mcpServerIds = previousMcp) else it }
+                }
                 _configureError.value = trpcErrorMessage(t, "")
             }
         }
@@ -1058,3 +1088,49 @@ class AgentSessionViewModel @AssistedInject constructor(
         super.onCleared()
     }
 }
+
+// ── EXP-1334: the configure picks over the synced row ───────────────────────
+
+/** How long a configure waits (bounded) for its row to sync (web parity). */
+internal const val CONFIGURE_SYNC_WAIT_MS = 3_000L
+
+/** The picks with [change]'s set keys laid over them. */
+internal fun AgentSessionViewModel.ConfigurePicks.overriddenBy(
+    change: AgentSessionViewModel.ConfigurePicks,
+) = AgentSessionViewModel.ConfigurePicks(
+    planMode = change.planMode ?: planMode,
+    effort = change.effort ?: effort,
+    ultracode = change.ultracode ?: ultracode,
+    computerUse = change.computerUse ?: computerUse,
+    mcpServerIds = change.mcpServerIds ?: mcpServerIds,
+)
+
+/** The picks the synced row can confirm (everything but the MCP pick). */
+internal fun AgentSessionViewModel.ConfigurePicks.rowPicks() = copy(mcpServerIds = null)
+
+/** True while any row-backed pick is set. */
+internal fun AgentSessionViewModel.ConfigurePicks.hasRowPick() =
+    planMode != null || effort != null || ultracode != null || computerUse != null
+
+/** Drops the row-backed overrides [picks] set, unless a later pick replaced
+ *  them (web `dropSettled`). The MCP pick is never a row's: it stays. */
+internal fun AgentSessionViewModel.ConfigurePicks.dropSettled(
+    picks: AgentSessionViewModel.ConfigurePicks,
+) = AgentSessionViewModel.ConfigurePicks(
+    planMode = planMode?.takeUnless { it == picks.planMode },
+    effort = effort?.takeUnless { it == picks.effort },
+    ultracode = ultracode?.takeUnless { it == picks.ultracode },
+    computerUse = computerUse?.takeUnless { it == picks.computerUse },
+    mcpServerIds = mcpServerIds,
+)
+
+/** Drops every override the synced [row] already says. The row's null effort
+ *  is the CLI default, which the picker sends as `""`. */
+internal fun AgentSessionViewModel.ConfigurePicks.dropSettledBy(row: SessionEntity) = dropSettled(
+    AgentSessionViewModel.ConfigurePicks(
+        planMode = row.planMode,
+        effort = row.effort.orEmpty(),
+        ultracode = row.ultracode,
+        computerUse = row.computerUse,
+    ),
+)

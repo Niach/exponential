@@ -160,6 +160,10 @@ struct ThreadComposerPlusMenu: View {
     @Binding var ultracode: Bool
     @Binding var computerUse: Bool
     var addFileEnabled = true
+    /// An ENDED session: the Effort row and the toggles stand down (the
+    /// server refuses `sessions.configure`); Implement issue and Add file
+    /// stay, they never configure.
+    var rowsDisabled = false
     let onPick: (ComposerMenu.RowId) -> Void
 
     private var entries: [ComposerMenu.Entry] {
@@ -205,9 +209,11 @@ struct ThreadComposerPlusMenu: View {
             .font(.body)
             .padding(.horizontal, 12)
             .frame(minHeight: 48)
+            .disabled(rowsDisabled)
+            .opacity(rowsDisabled ? 0.45 : 1)
             .accessibilityIdentifier(ComposerMenu.rowTestId(row.id))
         case .submenu, .item:
-            let disabled = row.id == .effort && agent == "claude" && ultracode
+            let disabled = row.id == .effort && (rowsDisabled || agent == "claude" && ultracode)
                 || row.id == .addFile && !addFileEnabled
             Button {
                 onPick(row.id)

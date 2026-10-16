@@ -93,7 +93,8 @@ export function AgentChannel({
   onOpenSession: (session: SessionRow) => void
 }) {
   const now = useNow(1_000)
-  // The agent's own card (row 0) stays off its channel.
+  // EXP-1334: the thread has no root card any more, so every row is a
+  // channel row (the first one is the agent's first message).
   const rows = useMemo(
     () =>
       buildSessionThread({
@@ -104,7 +105,7 @@ export function AgentChannel({
         messages: messages.map(toTreeMessage),
         pullRequests: [],
         now: now.toISOString(),
-      }).rows.slice(1),
+      }).rows,
     [agent, teamSessions, messages, now]
   )
   const messagesById = useMemo(() => new Map(messages.map((m) => [m.id, m])), [messages])

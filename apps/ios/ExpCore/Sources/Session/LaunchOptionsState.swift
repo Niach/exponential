@@ -236,7 +236,7 @@ public final class LaunchOptionsState {
             // EXP-1277: clamped once more on the way out — the server takes
             // contract values only (`seedModel` turns a blank into the default).
             model: wireModel,
-            effort: effort == LaunchVocabulary.cliDefault ? "" : effort,
+            effort: LaunchVocabulary.wireEffort(effort),
             // The toggles only exist for the agents that support them — never
             // send a stale value the launcher would reject or misread.
             planMode: LaunchVocabulary.supportsPlanMode(agent) ? planMode : nil,

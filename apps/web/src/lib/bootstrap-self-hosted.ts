@@ -93,7 +93,9 @@ export async function runPrPollPass(now: Date = new Date()): Promise<void> {
         const state = await fetchPullState(repo, row.number, token)
         // A live PR's base moves on GitHub (a retarget on github.com, or
         // GitHub's restack when the PR below lands); a polling instance
-        // never gets the `edited` webhook, so the pass re-reads it.
+        // never gets the `edited` webhook, so the pass re-reads it. A merge
+        // carries the base it saw into applyPullRequestMerged instead, so
+        // the landed check runs on the base GitHub merged it into.
         if (state.state === `open` && !state.merged && state.baseRef && state.baseRef !== row.base) {
           await applyPullRequestBase({ pullRequestId: row.id, base: state.baseRef })
         }
@@ -102,6 +104,7 @@ export async function runPrPollPass(now: Date = new Date()): Promise<void> {
             await applyPullRequestMerged({
               pullRequestId: row.id,
               mergedAt: new Date(),
+              base: state.baseRef,
               actorUserId: null,
               // EXP-617: `merged_by` off the poll response is a self-hosted
               // instance's only attribution.

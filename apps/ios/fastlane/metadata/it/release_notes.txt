@@ -1,6 +1,6 @@
-- Thread: un thread esegue un piccolo dispatcher che risponde da solo alle domande rapide e avvia una sessione per il lavoro vero, e il campo di risposta del thread è lo stesso di una sessione, con il cambio di modello
-- Report: quando una sottosessione termina, il suo riepilogo arriva come report nella conversazione della sessione madre, e un agente può proporre attività successive che avvii con un tocco
-- Elenco thread: una sessione in corso mostra il passo attuale sotto il suo nome, le sottosessioni si annidano sotto il loro thread e un thread con messaggi dell'agente non letti mostra il titolo in grassetto
-- Trascrizione: il lavoro di una sessione si legge come righe di traccia con blocchi di codice, e i messaggi in coda aspettano in un unico posto finché l'agente non li prende
-- Modelli: ogni selettore di modello elenca Fable, Opus, Sonnet e Haiku, senza la voce Default
-- /btw: fai una domanda a parte a una sessione Claude in corso e ricevi la risposta senza interrompere il suo lavoro
+- Intestazione del thread: niente scorre più, issue e sessioni si raccolgono in "+N" quando manca spazio, e sotto-issue e sessioni più profonde si aprono con un tocco
+- Collega un issue: il "+" accanto a Conversation offre Link an issue e New issue
+- Sotto-sessioni: domande e piani di una sotto-sessione compaiono nella conversazione del thread e trovano risposta lì
+- Un solo campo: il thread, una sessione e un nuovo avvio condividono un campo, "Type / for commands", con immagine, file, # ed emoji nel riquadro
+- Opzioni durante la sessione: la modalità Plan cambia subito, mentre impegno, computer use e server MCP valgono dal messaggio successivo
+- Stato dell'issue: collegare un issue lo porta a In progress, e una pull request lo porta a In review e, una volta unita, a Done

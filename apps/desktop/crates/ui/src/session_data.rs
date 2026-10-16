@@ -457,7 +457,7 @@ pub(crate) fn session_thread_view(
     // issue still reads "Unlinked EXP-12" (the event lines look it up).
     let all_issues = collections.issues.read(cx);
     let mut seen: HashSet<&str> = HashSet::new();
-    let issues: Vec<TreeIssue> = links
+    let named = links
         .iter()
         .map(|link| link.issue_id.as_str())
         .chain(messages.iter().filter_map(|message| {
@@ -479,23 +479,41 @@ pub(crate) fn session_thread_view(
                 .filter_map(|item| item.get("issueId")?.as_str())
         }))
         .filter(|id| seen.insert(id))
+        .collect::<Vec<&str>>();
+    // Each issue's parent = its nearest SYNCED ancestor over the relations
+    // themselves (like the web's `linkedIssueParents` walk): an ancestor
+    // this device has not synced is walked past, so a missing intermediate
+    // never breaks the chain and promotes a sub-issue to a top-level chip.
+    let synced_parent = |id: &str| -> Option<String> {
+        let mut walked: HashSet<&str> = HashSet::from([id]);
+        let mut parent = parent_of.get(id).copied();
+        while let Some(candidate) = parent {
+            if !walked.insert(candidate) {
+                return None;
+            }
+            if all_issues.get(candidate).is_some() {
+                return Some(candidate.to_string());
+            }
+            parent = parent_of.get(candidate).copied();
+        }
+        None
+    };
+    let mut issues: Vec<TreeIssue> = named
+        .iter()
         .filter_map(|id| all_issues.get(id))
-        .map(|issue| {
-            TreeIssue::from_issue(issue).with_parent(parent_of.get(issue.id.as_str()).map(|id| id.to_string()))
-        })
+        .map(|issue| TreeIssue::from_issue(issue).with_parent(synced_parent(issue.id.as_str())))
         .collect();
-    let mut issues = issues;
-    let mut cursor: Vec<String> = issues.iter().filter_map(|issue| issue.parent_id.clone()).collect();
+    // The ancestors ride along (synced or not, the walk passes them) so the
+    // fold reaches every linked ancestor.
+    let mut cursor: Vec<&str> = named.iter().filter_map(|id| parent_of.get(id).copied()).collect();
     while let Some(id) = cursor.pop() {
-        let Some(issue) = all_issues.get(&id) else {
-            continue;
-        };
-        if !seen.insert(issue.id.as_str()) {
+        if !seen.insert(id) {
             continue;
         }
-        let parent = parent_of.get(issue.id.as_str()).map(|id| id.to_string());
-        cursor.extend(parent.clone());
-        issues.push(TreeIssue::from_issue(issue).with_parent(parent));
+        cursor.extend(parent_of.get(id).copied());
+        if let Some(issue) = all_issues.get(id) {
+            issues.push(TreeIssue::from_issue(issue).with_parent(synced_parent(id)));
+        }
     }
     let pulls: Vec<&PullRequestRow> = collections
         .pull_requests

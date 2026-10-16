@@ -183,13 +183,17 @@ type AutomationTarget = {
   category: IssueStatusCategory
 }
 
+/** A team's resolved automation for one event: the switch and the target
+ *  row. Resolved once per event and handed down to every issue it moves. */
+export type ResolvedAutomation = { enabled: boolean; target: AutomationTarget | null }
+
 /** The team's switch + target row for an event (EXP-319; `started` has no
  *  team setting: always on, the builtin In Progress). */
 async function resolveAutomationTarget(
   tx: Tx,
   teamId: string,
   event: IssueAutomationEvent
-): Promise<{ enabled: boolean; target: AutomationTarget | null }> {
+): Promise<ResolvedAutomation> {
   let enabled = true
   let configuredStatusId: string | null = null
   if (event !== `started`) {
@@ -256,13 +260,13 @@ export async function applyPrLifecycleStatusInTx(
     currentStatus: string
     event: IssueAutomationEvent
     origin?: IssueEventOrigin
+    /** The event's automation when the caller already resolved it (a batch
+     *  moving many issues resolves the team's target once). */
+    automation?: ResolvedAutomation
   }
 ): Promise<boolean> {
-  const { enabled: automationEnabled, target } = await resolveAutomationTarget(
-    tx,
-    opts.teamId,
-    opts.event
-  )
+  const { enabled: automationEnabled, target } =
+    opts.automation ?? (await resolveAutomationTarget(tx, opts.teamId, opts.event))
   if (!automationEnabled) return false
 
   const [fromRow] = await tx
@@ -330,6 +334,7 @@ export async function applyIssuesStartedInTx(
   }
 ): Promise<string[]> {
   if (opts.issueIds.length === 0) return []
+  const automation = await resolveAutomationTarget(tx, opts.teamId, `started`)
   const rows = await tx
     .select({ id: issues.id, status: issues.status })
     .from(issues)
@@ -342,6 +347,7 @@ export async function applyIssuesStartedInTx(
       actorUserId: opts.actorUserId,
       currentStatus: row.status,
       event: `started`,
+      automation,
       ...(opts.origin ? { origin: opts.origin } : {}),
     })
     if (applied) moved.push(row.id)
@@ -416,6 +422,27 @@ async function heldMergedAboveInTx(tx: Tx, pullRequestId: string): Promise<PullR
   return found
 }
 
+/** A merged PR is in the default branch: its issues and those of every
+ *  merged PR held above it take the team's merge automation (idempotent:
+ *  an issue already at the target never moves or re-fires). */
+async function applyLandedInTx(
+  tx: Tx,
+  pr: Pick<PullRequestRow, `id` | `teamId`>,
+  actorUserId: string | null
+): Promise<string[]> {
+  const held = await heldMergedAboveInTx(tx, pr.id)
+  const rows = await tx
+    .select({ id: pullRequestIssues.issueId })
+    .from(pullRequestIssues)
+    .where(inArray(pullRequestIssues.pullRequestId, [pr.id, ...held.map((row) => row.id)]))
+  return applyPrEventToIssuesInTx(tx, {
+    teamId: pr.teamId,
+    issueIds: rows.map((row) => row.id),
+    event: `merged`,
+    actorUserId,
+  })
+}
+
 /** The issues a parent's sub-issues must share to hold it back: linked to
  *  the same PRs, or to those PRs' threads. `prIds` = the parent's PRs that
  *  carry the event (live/merged for `opened`, landed for `merged`). */
@@ -480,7 +507,11 @@ export async function applyPrEventToIssuesInTx(
   }
 ): Promise<string[]> {
   if (opts.issueIds.length === 0) return []
-  const { target } = await resolveAutomationTarget(tx, opts.teamId, opts.event)
+  // One resolve per event: a team that switched the automation off moves
+  // nothing, so no issue or sub-issue is ever read for it.
+  const automation = await resolveAutomationTarget(tx, opts.teamId, opts.event)
+  if (!automation.enabled) return []
+  const { target } = automation
   const moved: string[] = []
   const tried = new Set<string>()
 
@@ -500,6 +531,7 @@ export async function applyPrEventToIssuesInTx(
       actorUserId: opts.actorUserId,
       currentStatus: issue.status,
       event: opts.event,
+      automation,
       ...(opts.origin ? { origin: opts.origin } : {}),
     })
     if (applied) moved.push(issue.id)
@@ -883,11 +915,16 @@ function invalidateOpenPullsLazy(teamId: string): void {
  * posts the thread's card, notifies and retargets the PRs stacked on it.
  * EXP-1334: a PR merged into ANOTHER PR's branch (stacked) leaves its issues
  * alone; once the stack's bottom lands in the default branch, every merged
- * PR stacked on it takes the merge automation too. Never ends a session.
+ * PR stacked on it takes the merge automation too. `base` = the base the
+ * caller saw at merge time (the webhook's `pr.base.ref`, the poller's read):
+ * written BEFORE the landed check, so a PR retargeted onto the default
+ * branch whose `edited` delivery is late or lost is not held by the stale
+ * stack parent it still points at. Never ends a session.
  */
 export async function applyPullRequestMerged(opts: {
   pullRequestId: string
   mergedAt?: Date | null
+  base?: string | null
   actorUserId?: string | null
   actorViaAgent?: boolean
   githubActorUserId?: string | null
@@ -900,6 +937,10 @@ export async function applyPullRequestMerged(opts: {
       .where(and(eq(pullRequests.id, opts.pullRequestId), ne(pullRequests.state, `merged`)))
       .returning()
     if (!claimed) return { applied: false as const, issueIds: [] as string[], txid: null, pr: null }
+    if (opts.base && opts.base !== claimed.base) {
+      claimed.basePullRequestId = await writeBaseInTx(tx, claimed, opts.base)
+      claimed.base = opts.base
+    }
     const linked = await tx
       .select({ id: issues.id })
       .from(pullRequestIssues)
@@ -915,19 +956,7 @@ export async function applyPullRequestMerged(opts: {
       })
     }
     if (await prLandedInTx(tx, claimed)) {
-      const held = await heldMergedAboveInTx(tx, claimed.id)
-      const heldIssues = held.length
-        ? await tx
-            .select({ id: pullRequestIssues.issueId })
-            .from(pullRequestIssues)
-            .where(inArray(pullRequestIssues.pullRequestId, held.map((pr) => pr.id)))
-        : []
-      await applyPrEventToIssuesInTx(tx, {
-        teamId: claimed.teamId,
-        issueIds: [...linked, ...heldIssues].map((issue) => issue.id),
-        event: `merged`,
-        actorUserId: opts.actorUserId ?? null,
-      })
+      await applyLandedInTx(tx, claimed, opts.actorUserId ?? null)
     }
     if (claimed.rootSessionId) {
       await postSystemCard(tx, claimed.rootSessionId, {
@@ -1019,11 +1048,12 @@ export async function applyPullRequestDraft(opts: {
     )
 }
 
+/** Stores `base` and the live PR it sits on; returns that stack parent. */
 async function writeBaseInTx(
   tx: Tx,
   row: Pick<PullRequestRow, `id` | `teamId` | `repositoryId` | `url`>,
   base: string
-): Promise<void> {
+): Promise<string | null> {
   const repoFullName = repoFromPrUrl(row.url) ?? ``
   const basePullRequestId = await resolveBasePullRequestId(tx, {
     teamId: row.teamId,
@@ -1036,10 +1066,14 @@ async function writeBaseInTx(
     .update(pullRequests)
     .set({ base, basePullRequestId, updatedAt: new Date() })
     .where(eq(pullRequests.id, row.id))
+  return basePullRequestId
 }
 
 /** A PR's base changed (our retarget, github.com, GitHub's own restack):
- *  store it and the open PR it now sits on. */
+ *  store it and the open PR it now sits on. A MERGED PR whose corrected base
+ *  lands it in the default branch (the `edited` delivery arrived after
+ *  `closed`, or the merge was recorded off a stale base) releases the
+ *  issues its merge held back, its own and those held above it. */
 export async function applyPullRequestBase(opts: {
   pullRequestId: string
   base: string
@@ -1051,7 +1085,11 @@ export async function applyPullRequestBase(opts: {
       .from(pullRequests)
       .where(eq(pullRequests.id, opts.pullRequestId))
       .limit(1)
-    if (row && row.base !== opts.base) await writeBaseInTx(tx, row, opts.base)
+    if (!row || row.base === opts.base) return { txid }
+    const basePullRequestId = await writeBaseInTx(tx, row, opts.base)
+    if (row.state === `merged` && (await prLandedInTx(tx, { ...row, basePullRequestId }))) {
+      await applyLandedInTx(tx, row, null)
+    }
     return { txid }
   })
 }

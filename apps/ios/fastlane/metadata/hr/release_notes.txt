@@ -1,6 +1,6 @@
-- Niti: nit pokreće malog dispečera koji sam odgovara na brza pitanja i pokreće sesiju za pravi posao, a polje za odgovor u niti isto je kao u sesiji, s promjenom modela
-- Izvješća: kad podsesija završi, njezin sažetak stiže kao izvješće u razgovor nadređene sesije, a agent može predložiti daljnje zadatke koje pokrećete jednim dodirom
-- Popis niti: sesija koja radi prikazuje svoj trenutni korak ispod naziva, podsesije su ugniježđene ispod svoje niti, a nit s nepročitanim porukama agenta prikazuje naslov podebljano
-- Zapis: rad sesije čita se kao retci traga s blokovima koda, a poruke u redu čekaju na jednom mjestu dok ih agent ne preuzme
-- Modeli: svaki odabir modela nudi Fable, Opus, Sonnet i Haiku, bez stavke Default
-- /btw: postavite sesiji Claude koja radi sporedno pitanje i dobijte odgovor bez prekidanja njezina rada
+- Zaglavlje niti: ništa se više ne pomiče, issues i sessions sklapaju se u "+N" kad ponestane mjesta, a pod-issues i dublje sessions otvaraju se dodirom
+- Povezivanje issuea: "+" pokraj Conversation nudi Link an issue i New issue
+- Pod-sessions: pitanja i planovi pod-sessiona pojavljuju se u razgovoru niti i odgovara se na njih upravo tamo
+- Jedno polje za pisanje: nit, session i novi početak dijele jedno polje, "Type / for commands", sa slikom, datotekom, # i emojijem u polju
+- Opcije tijekom sessiona: Plan način mijenja se odmah, a trud, computer use i MCP poslužitelji vrijede od sljedeće poruke
+- Status issuea: povezivanje issuea premješta ga u In progress, a pull request u In review i, nakon spajanja, u Done

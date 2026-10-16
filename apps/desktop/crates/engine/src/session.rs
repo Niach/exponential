@@ -603,9 +603,9 @@ fn record_wants_name(record: &coding::run_registry::RunRecord) -> bool {
             .is_none_or(|title| title.trim().is_empty())
 }
 
-/// EXP-1334: the ACP mode ids both adapters steer (`available_modes`).
-const PLAN_MODE_ID: &str = "plan";
-const BUILD_MODE_ID: &str = "bypassPermissions";
+// EXP-1334: the ACP mode ids both adapters steer (`available_modes`): the
+// codex adapter's own (claude's ids, one vocabulary), never re-typed here.
+use crate::adapters::codex::{BUILD_MODE_ID, PLAN_MODE_ID};
 
 fn plan_mode_id(on: bool) -> &'static str {
     if on {

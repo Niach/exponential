@@ -1,6 +1,6 @@
-- Threads: a thread runs a small dispatcher that answers quick questions itself and starts a session for real work, and the thread's reply box is the same as a session's, with the model switch
-- Reports: when a sub-session ends, its summary lands as a report in its parent's conversation, and an agent can propose follow-up tasks you start with one tap
-- Threads list: a running session shows its current step under its name, sub-sessions nest under their thread, and a thread with unread agent messages shows its title in bold
-- Transcript: a session's work reads as trace lines with code blocks, and queued messages wait in one place until the agent picks them up
-- Models: every model picker lists Fable, Opus, Sonnet and Haiku, with no Default entry
-- /btw: ask a running Claude session a side question and get the answer without interrupting its work
+- Thread header: nothing scrolls any more, issues and sessions fold into "+N" when space runs out, and sub-issues and deeper sessions open with a tap
+- Link an issue: the "+" next to Conversation offers Link an issue and New issue
+- Sub-sessions: a sub-session's questions and plans show up in the thread's conversation and are answered right there
+- One composer: the thread, a session and a new start share one composer, "Type / for commands", with image, file, # and emoji in the box
+- Options mid-session: plan mode switches at once, and effort, computer use and MCP servers apply from the next message
+- Issue status: linking an issue moves it to In progress, and a pull request moves it to In review and, once merged, to Done

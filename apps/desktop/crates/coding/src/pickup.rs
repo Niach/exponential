@@ -79,18 +79,23 @@ pub struct LaunchedOptions {
     /// A live plan switch this device sent and the engine has not echoed
     /// yet: the engine's (old) mode is no move of the agent's own.
     pub plan_switching: bool,
-    /// The row `updated_at` from BEFORE the device reported the agent's own
-    /// plan-mode move: that row's (old) `plan_mode` is stale, never a
-    /// person's change. Any newer row speaks for itself.
-    pub plan_stale_at: Option<String>,
+    /// The agent's own plan-mode move this device reported
+    /// (`sessions.report{planMode}`) and when: until a row ECHOES it, every
+    /// row still showing the other value is stale (the pre-report row, or
+    /// one of the device's own earlier reports landing after it; every
+    /// report bumps `updated_at`, so the stamp cannot tell them apart),
+    /// never a person's change. The echo clears it
+    /// ([`LiveRegistry::settle_options`]); [`REPORT_ECHO_WAIT`] bounds an
+    /// echo that never comes.
+    pub plan_reported: Option<(bool, std::time::Instant)>,
     /// The row's model (trimmed; `None` = the device's default), switched
     /// LIVE when the row moves (`/model`), written back when the agent's
     /// own moves (a person's `/model` in a terminal or the IDE).
     pub model: Option<String>,
     /// [`Self::plan_switching`] for the model.
     pub model_switching: bool,
-    /// [`Self::plan_stale_at`] for the model.
-    pub model_stale_at: Option<String>,
+    /// [`Self::plan_reported`] for the model.
+    pub model_reported: Option<(String, std::time::Instant)>,
     /// The agent's model vocabulary (`CodingAgent::model_values`): only a
     /// model in it is written back. Empty = unknown, any.
     pub models: &'static [&'static str],
@@ -108,11 +113,38 @@ impl LaunchedOptions {
             mcp,
             mcp_checked_at: row.updated_at.clone(),
             plan_switching: false,
-            plan_stale_at: None,
+            plan_reported: None,
             model: row_model(row),
             model_switching: false,
-            model_stale_at: None,
+            model_reported: None,
             models: &[],
+        }
+    }
+
+    /// Does `row` still show the value from BEFORE the device reported the
+    /// agent's own plan-mode move (the report not echoed yet)? Such a row
+    /// is stale: its plan mode is read as nothing.
+    fn plan_stale(&self, row: &SessionRow) -> bool {
+        report_unechoed(self.plan_reported.as_ref(), &row.plan_mode)
+    }
+
+    /// [`Self::plan_stale`] for the model.
+    fn model_stale(&self, row: &SessionRow) -> bool {
+        match (&self.model_reported, row_model(row)) {
+            (Some(_), Some(model)) => report_unechoed(self.model_reported.as_ref(), &model),
+            _ => false,
+        }
+    }
+
+    /// A row carrying the reported value IS the echo: the stale marks it
+    /// clears are gone for good (a later row showing the other value is a
+    /// person's pick).
+    fn settle_reports(&mut self, row: &SessionRow) {
+        if self.plan_reported.as_ref().is_some_and(|(mode, _)| *mode == row.plan_mode) {
+            self.plan_reported = None;
+        }
+        if self.model_reported.as_ref().is_some_and(|(model, _)| Some(model) == row_model(row).as_ref()) {
+            self.model_reported = None;
         }
     }
 
@@ -124,6 +156,17 @@ impl LaunchedOptions {
     fn knows_model(&self, model: &str) -> bool {
         self.models.is_empty() || self.models.contains(&model)
     }
+}
+
+/// How long a reported value keeps the rows still showing the old one
+/// stale when no echo arrives (a sync hiccup): past it the rows speak for
+/// themselves again.
+const REPORT_ECHO_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// `value` is the OLD one: a report of the other value went out less than
+/// [`REPORT_ECHO_WAIT`] ago and no row has echoed it yet.
+fn report_unechoed<T: PartialEq>(reported: Option<&(T, std::time::Instant)>, value: &T) -> bool {
+    reported.is_some_and(|(reported, at)| reported != value && at.elapsed() < REPORT_ECHO_WAIT)
 }
 
 fn row_model(row: &SessionRow) -> Option<String> {
@@ -154,8 +197,8 @@ pub struct OptionsDelta {
 
 /// EXP-1334: the row's options against the ones its engine honors.
 pub fn options_delta(row: &SessionRow, launched: &LaunchedOptions) -> OptionsDelta {
-    let stale = launched.plan_stale_at.is_some() && row.updated_at == launched.plan_stale_at;
-    let model_stale = launched.model_stale_at.is_some() && row.updated_at == launched.model_stale_at;
+    let stale = launched.plan_stale(row);
+    let model_stale = launched.model_stale(row);
     OptionsDelta {
         plan_mode: (row.plan_mode != launched.plan_mode && !stale).then_some(row.plan_mode),
         model: row_model(row).filter(|model| !model_stale && Some(model) != launched.model.as_ref()),
@@ -206,10 +249,12 @@ fn agent_model_move(view: &LiveView) -> Option<String> {
 }
 
 /// EXP-1334: report the agent's own plan-mode and model moves in ONE
-/// `sessions.report{planMode, model}` and honor them, the pre-report row
-/// marked stale so its old values never read as a person's change (a
-/// resume then launches on the row's model). Best-effort: an unlanded
-/// report is retried at the next pass.
+/// `sessions.report{planMode, model}` and honor them, the reported values
+/// remembered ([`LaunchedOptions::plan_reported`]) so every row still
+/// showing the old ones (the pre-report row AND the device's own earlier
+/// reports landing after it) never reads as a person's change (a resume
+/// then launches on the row's model). Best-effort: an unlanded report is
+/// retried at the next pass.
 fn sync_agent_state(row: &SessionRow, engine: &dyn LiveEngine, deps: &PickupDeps) {
     let session_id = row.id.as_str();
     if row.dispatch {
@@ -236,14 +281,15 @@ fn sync_agent_state(row: &SessionRow, engine: &dyn LiveEngine, deps: &PickupDeps
         return;
     }
     log::info!("pickup: session {session_id} plan mode {mode:?} / model {model:?} (the agent's own)");
+    let now = std::time::Instant::now();
     deps.live.update_options(session_id, |options| {
         if let Some(mode) = mode {
             options.plan_mode = mode;
-            options.plan_stale_at = row.updated_at.clone();
+            options.plan_reported = Some((mode, now));
         }
         if let Some(model) = model {
-            options.model = Some(model);
-            options.model_stale_at = row.updated_at.clone();
+            options.model = Some(model.clone());
+            options.model_reported = Some((model, now));
         }
     });
 }
@@ -908,6 +954,20 @@ impl LiveRegistry {
             entry.handed.retain(|id| !consumed.contains(id.as_str()));
         }
         locked(&self.consuming).retain(|id| !consumed.contains(id.as_str()));
+    }
+
+    /// EXP-1334: a row that echoes the device's own plan-mode / model
+    /// report ([`sync_agent_state`]) clears its stale mark
+    /// ([`LaunchedOptions::plan_reported`]): from then on a row showing the
+    /// other value is a person's pick. Hosts call it with the pass's rows
+    /// before [`Self::live_views`].
+    pub fn settle_options(&self, sessions: &[SessionRow]) {
+        let mut entries = self.lock();
+        for row in sessions {
+            if let Some(options) = entries.get_mut(row.id.as_str()).and_then(|entry| entry.options.as_mut()) {
+                options.settle_reports(row);
+            }
+        }
     }
 
     /// EXP-1292: Launch actions for the rows this host claimed (or may have
@@ -1692,7 +1752,7 @@ pub fn switch_session(
         deps.live.update_options(session_id, |options| {
             options.plan_mode = on;
             options.plan_switching = true;
-            options.plan_stale_at = None;
+            options.plan_reported = None;
         });
     }
     if let Some(model) = delta.model.clone() {
@@ -1701,7 +1761,7 @@ pub fn switch_session(
         deps.live.update_options(session_id, |options| {
             options.model = Some(model);
             options.model_switching = true;
-            options.model_stale_at = None;
+            options.model_reported = None;
         });
     }
     let has_turn = prompt.is_some() || !pending.is_empty();
@@ -3788,6 +3848,7 @@ mod tests {
         host.deps.live.insert_for("sess-1", host.engine.clone(), None, Some(String::new()));
         host.deps.live.set_options("sess-1", Some(LaunchedOptions::of(&planning, Some(Vec::new()))));
         let pass = |row: &SessionRow| {
+            host.deps.live.settle_options(std::slice::from_ref(row));
             plan(PickupInput {
                 device_id: DEV,
                 sessions: std::slice::from_ref(row),
@@ -3824,6 +3885,89 @@ mod tests {
         assert_eq!(procedures(&requests).len(), 1);
     }
 
+    /// Every device report bumps the row's `updated_at` (the needs-input
+    /// flip when the plan card is answered, busy, captions), so the row
+    /// that lands AFTER the agent's own move was reported may still carry
+    /// the OLD plan mode under a new stamp: it is stale too (no switch back
+    /// to plan mode behind the working agent), until a row echoes the
+    /// report; a person's pick after the echo moves the engine.
+    #[test]
+    fn the_devices_own_reports_landing_after_the_agents_move_are_stale_too() {
+        let dir = temp_dir("pickup-agent-plan-late-rows");
+        let (base, requests) = canned_server_recording(vec![(200, REPORT_OK.to_string())]);
+        let host = host(&base, &dir.0, |_| {});
+        crate::run_registry::record(&dir.0, record(&dir.0, "sess-1"));
+        let planning = SessionRow {
+            plan_mode: true,
+            updated_at: Some("t0".to_string()),
+            ..session("sess-1", "idle", DEV, "t")
+        };
+        host.deps.live.insert_for("sess-1", host.engine.clone(), None, Some(String::new()));
+        host.deps.live.set_options("sess-1", Some(LaunchedOptions::of(&planning, Some(Vec::new()))));
+        let pass = |row: &SessionRow| {
+            host.deps.live.settle_options(std::slice::from_ref(row));
+            plan(PickupInput {
+                device_id: DEV,
+                sessions: std::slice::from_ref(row),
+                messages: &[],
+                live: &host.deps.live.live_views(),
+                in_flight: &HashSet::new(),
+            })
+        };
+        *host.engine.mode.lock().unwrap() = Some(true);
+        assert!(pass(&planning).is_empty());
+        // The plan was approved (the device reported needs_input = false:
+        // the server row is at t_a, plan_mode still true, not synced yet);
+        // claude left plan mode on its own against the t0 snapshot.
+        *host.engine.mode.lock().unwrap() = Some(false);
+        assert!(matches!(pass(&planning).as_slice(), [PickupAction::Switch { account, .. }] if account.is_empty()));
+        assert_eq!(switch_session(&planning, "", None, &[], &host.deps), Ok(Switched::AlreadyOn));
+        assert_eq!(procedures(&requests), vec!["sessions.report"]);
+        assert!(host.engine.plan_switches.lock().unwrap().is_empty());
+        // The t_a row lands: a NEW stamp, the OLD plan mode. Stale, not a
+        // person's pick: nothing is planned and a switch moves nothing.
+        let late = SessionRow { updated_at: Some("ta".to_string()), ..planning.clone() };
+        assert!(pass(&late).is_empty(), "the device's own late row never reads as a person's pick");
+        assert_eq!(switch_session(&late, "", None, &[], &host.deps), Ok(Switched::AlreadyOn));
+        assert!(host.engine.plan_switches.lock().unwrap().is_empty(), "never switched back to plan mode");
+        assert!(host.deps.live.options("sess-1").unwrap().plan_reported.is_some());
+        // The echo (t_b) lands: the stale mark is gone …
+        let echoed = SessionRow { plan_mode: false, updated_at: Some("tb".to_string()), ..planning.clone() };
+        assert!(pass(&echoed).is_empty());
+        assert!(host.deps.live.options("sess-1").unwrap().plan_reported.is_none());
+        // … so a person's later pick of plan mode moves the engine.
+        let picked = SessionRow { plan_mode: true, updated_at: Some("tc".to_string()), ..planning };
+        assert!(matches!(pass(&picked).as_slice(), [PickupAction::Switch { account, .. }] if account.is_empty()));
+        assert_eq!(switch_session(&picked, "", None, &[], &host.deps), Ok(Switched::AlreadyOn));
+        assert_eq!(*host.engine.plan_switches.lock().unwrap(), vec![true]);
+        assert_eq!(procedures(&requests).len(), 1, "no second report");
+    }
+
+    /// A reported value keeps the OLD value stale only until it is echoed
+    /// or [`REPORT_ECHO_WAIT`] passed; the reported value itself and an
+    /// absent report are never stale.
+    #[test]
+    fn a_report_keeps_the_old_value_stale_until_echoed_or_timed_out() {
+        let now = std::time::Instant::now();
+        assert!(report_unechoed(Some(&(false, now)), &true));
+        assert!(!report_unechoed(Some(&(false, now)), &false));
+        assert!(!report_unechoed::<bool>(None, &true));
+        assert!(report_unechoed(Some(&("haiku".to_string(), now)), &"opus".to_string()));
+        if let Some(long_ago) = now.checked_sub(REPORT_ECHO_WAIT + std::time::Duration::from_secs(1)) {
+            assert!(!report_unechoed(Some(&(false, long_ago)), &true), "past the wait the row speaks");
+        }
+        let mut options = LaunchedOptions::of(&session("s1", "idle", DEV, "t"), None);
+        options.plan_reported = Some((false, now));
+        options.model_reported = Some(("haiku".to_string(), now));
+        let stale = SessionRow { plan_mode: true, model: Some("opus".to_string()), ..session("s1", "idle", DEV, "t") };
+        assert_eq!(options_delta(&stale, &options), OptionsDelta::default());
+        options.settle_reports(&stale);
+        assert!(options.plan_reported.is_some() && options.model_reported.is_some(), "no echo yet");
+        let echo = SessionRow { plan_mode: false, model: Some("haiku".to_string()), ..session("s1", "idle", DEV, "t") };
+        options.settle_reports(&echo);
+        assert!(options.plan_reported.is_none() && options.model_reported.is_none());
+    }
+
     /// The model follows either path: a person's `sessions.configure
     /// {model}` switches the live run at once (no restart), and the agent's
     /// own `/model` is written back onto the row (so a resume launches on
@@ -3847,6 +3991,7 @@ mod tests {
         );
         *host.engine.model.lock().unwrap() = Some("opus".to_string());
         let pass = |row: &SessionRow| {
+            host.deps.live.settle_options(std::slice::from_ref(row));
             plan(PickupInput {
                 device_id: DEV,
                 sessions: std::slice::from_ref(row),

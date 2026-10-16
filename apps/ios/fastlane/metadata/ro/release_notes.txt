@@ -1,6 +1,6 @@
-- Fire: un fir rulează un mic dispecer care răspunde singur la întrebările rapide și pornește o sesiune pentru munca reală, iar caseta de răspuns a firului este aceeași ca la o sesiune, cu schimbarea modelului
-- Rapoarte: când o subsesiune se încheie, rezumatul ei ajunge ca raport în conversația sesiunii părinte, iar un agent poate propune sarcini de continuare pe care le pornești cu o atingere
-- Lista firelor: o sesiune în desfășurare își arată pasul curent sub nume, subsesiunile sunt imbricate sub firul lor, iar un fir cu mesaje necitite de la agent are titlul îngroșat
-- Transcriere: munca unei sesiuni se citește ca linii de urmărire cu blocuri de cod, iar mesajele din coadă așteaptă într-un singur loc până le preia agentul
-- Modele: fiecare selector de model afișează Fable, Opus, Sonnet și Haiku, fără opțiunea Default
-- /btw: pune o întrebare secundară unei sesiuni Claude în desfășurare și primește răspunsul fără să-i întrerupi munca
+- Antetul firului: nimic nu se mai derulează, issue-urile și sesiunile se pliază în "+N" când nu mai e loc, iar sub-issue-urile și sesiunile mai adânci se deschid cu o atingere
+- Legarea unui issue: "+" de lângă Conversation oferă Link an issue și New issue
+- Sub-sesiuni: întrebările și planurile unei sub-sesiuni apar în conversația firului și primesc răspuns chiar acolo
+- Un singur câmp: firul, o sesiune și un nou început împart un câmp, "Type / for commands", cu imagine, fișier, # și emoji în casetă
+- Opțiuni în timpul sesiunii: modul Plan se schimbă imediat, iar efortul, computer use și serverele MCP se aplică de la următorul mesaj
+- Starea issue-ului: legarea unui issue îl mută în In progress, iar un pull request îl mută în In review și, după îmbinare, în Done

@@ -2275,6 +2275,12 @@ const DAEMON_TICK: Duration = Duration::from_secs(30);
 /// (a claim that failed over the network leaves the row `queued`).
 const PICKUP_RETRY: Duration = Duration::from_secs(30);
 
+/// EXP-1334: how long a switch / reconfigure that a turn in flight refused
+/// waits before the pass plans it again (the turn's own rows nudge the
+/// pass; a full [`PICKUP_RETRY`] would hold the session's deliveries,
+/// answers and kills with it).
+const SWITCH_BUSY_RETRY: Duration = Duration::from_secs(2);
+
 /// How long a posted trigger firing counts its agent busy before the
 /// `messages` shape shows it (then the row's own `consumed_at` decides).
 const FIRING_SYNC_GRACE: Duration = Duration::from_secs(10 * 60);
@@ -2461,7 +2467,12 @@ impl DaemonPickup {
     }
 
     fn back_off(&self, session_id: &str) {
-        lock_or_recover(&self.backoff).insert(session_id.to_string(), Instant::now() + PICKUP_RETRY);
+        self.back_off_for(session_id, PICKUP_RETRY);
+    }
+
+    /// [`Self::back_off`] for `wait`.
+    fn back_off_for(&self, session_id: &str, wait: Duration) {
+        lock_or_recover(&self.backoff).insert(session_id.to_string(), Instant::now() + wait);
     }
 
     /// The pass's `in_flight` set: attempts running and attempts backing off.
@@ -2600,6 +2611,16 @@ fn rescan_events(batch: &[DaemonWork]) -> bool {
 }
 
 /// The session a pickup action is about.
+/// EXP-1334: what a [`coding::pickup::PickupAction::Switch`] is, for the
+/// log: an empty `account` is a reconfigure.
+fn switch_kind(account: &str) -> &'static str {
+    if account.is_empty() {
+        "reconfigure"
+    } else {
+        "account switch"
+    }
+}
+
 fn action_session_id(action: &coding::pickup::PickupAction) -> &str {
     use coding::pickup::PickupAction;
     match action {
@@ -2650,6 +2671,7 @@ impl DaemonHost {
             log::debug!("pickup: session {session_id}'s engine is gone");
         }
         live.settle_handed(messages);
+        live.settle_options(rows);
         if !self.reconciled {
             self.reconciled = true;
             self.reconcile_rows(rows, messages);
@@ -2745,6 +2767,30 @@ impl DaemonHost {
                     ),
                     coding::pickup::PickupAction::Deliver { session_id, messages } => {
                         woke(coding::pickup::deliver_messages(session_id, messages, &deps))
+                    }
+                    // EXP-1334: a switch (an account's, or a reconfigure) a
+                    // turn in flight refuses is no failure: the turn's end
+                    // (its busy=false row) re-plans it, so it waits only
+                    // [`SWITCH_BUSY_RETRY`], never [`PICKUP_RETRY`], which
+                    // would hold the session's deliveries, answers and
+                    // kills with it.
+                    coding::pickup::PickupAction::Switch { session, account, messages } => {
+                        let kind = switch_kind(account);
+                        match coding::pickup::switch_session(session, account, None, messages, &deps) {
+                            Ok(outcome) => {
+                                log::info!("pickup: {kind} of {session_id}: {outcome:?}");
+                                true
+                            }
+                            Err(coding::pickup::SwitchError::Busy) => {
+                                log::info!("pickup: {kind} of {session_id} waits for the turn to end");
+                                pickup.back_off_for(&session_id, SWITCH_BUSY_RETRY);
+                                true
+                            }
+                            Err(err) => {
+                                log::warn!("pickup: {kind} of {session_id} failed: {err}");
+                                false
+                            }
+                        }
                     }
                     other => match coding::pickup::execute(other, &deps) {
                         Ok(()) => true,
