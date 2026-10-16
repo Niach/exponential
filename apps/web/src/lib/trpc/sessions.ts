@@ -588,6 +588,11 @@ export const sessionsRouter = router({
         // EXP-1331: the live status line (throttled by the device; null
         // clears it). Trimmed and capped at 80 here.
         caption: z.string().max(1000).nullable().optional(),
+        // EXP-1334: the agent's OWN plan-mode move (claude leaving plan mode
+        // once a plan is approved, or entering it): the row follows the
+        // run, so every client's toggle says the mode it is really in. A
+        // dispatcher never plans: ignored there.
+        planMode: z.boolean().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -623,6 +628,7 @@ export const sessionsRouter = router({
             ...(input.blocked !== undefined ? { blocked: blocked ?? null } : {}),
             ...(input.branch ? { branch: input.branch } : {}),
             ...(input.account ? { account: input.account } : {}),
+            ...(input.planMode !== undefined && !session.dispatch ? { planMode: input.planMode } : {}),
             // The CLI's auto-name only fills a blank title (a person's or
             // the agent's own title wins).
             ...(input.title?.trim() && !session.title ? { title: input.title.trim() } : {}),

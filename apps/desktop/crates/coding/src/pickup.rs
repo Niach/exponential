@@ -50,6 +50,9 @@ pub struct LiveView {
     /// (a wake rebuilt from the run record, a foreground run), never
     /// reconfigured.
     pub options: Option<LaunchedOptions>,
+    /// EXP-1334: whether the engine is in plan mode right now
+    /// ([`LiveEngine::plan_mode`]); `None` = unknown.
+    pub agent_plan_mode: Option<bool>,
 }
 
 /// EXP-1334: a live run's launch options, in the row's terms (the row's
@@ -70,6 +73,13 @@ pub struct LaunchedOptions {
     /// The row's `updated_at` the MCP pick was last verified at (the
     /// launch's row, then every between-turn check).
     pub mcp_checked_at: Option<String>,
+    /// A live plan switch this device sent and the engine has not echoed
+    /// yet: the engine's (old) mode is no move of the agent's own.
+    pub plan_switching: bool,
+    /// The row `updated_at` from BEFORE the device reported the agent's own
+    /// plan-mode move: that row's (old) `plan_mode` is stale, never a
+    /// person's change. Any newer row speaks for itself.
+    pub plan_stale_at: Option<String>,
 }
 
 impl LaunchedOptions {
@@ -83,6 +93,8 @@ impl LaunchedOptions {
             computer_use: row.computer_use,
             mcp,
             mcp_checked_at: row.updated_at.clone(),
+            plan_switching: false,
+            plan_stale_at: None,
         }
     }
 }
@@ -107,8 +119,9 @@ pub struct OptionsDelta {
 
 /// EXP-1334: the row's options against the ones its engine honors.
 pub fn options_delta(row: &SessionRow, launched: &LaunchedOptions) -> OptionsDelta {
+    let stale = launched.plan_stale_at.is_some() && row.updated_at == launched.plan_stale_at;
     OptionsDelta {
-        plan_mode: (row.plan_mode != launched.plan_mode).then_some(row.plan_mode),
+        plan_mode: (row.plan_mode != launched.plan_mode && !stale).then_some(row.plan_mode),
         restart: row_effort(row) != launched.effort
             || row.ultracode != launched.ultracode
             || row.computer_use != launched.computer_use,
@@ -124,7 +137,50 @@ pub fn options_delta(row: &SessionRow, launched: &LaunchedOptions) -> OptionsDel
 fn reconfigure_due(row: &SessionRow, view: &LiveView, has_messages: bool) -> bool {
     let Some(launched) = &view.options else { return false };
     let delta = options_delta(row, launched);
-    delta.plan_mode.is_some() || (has_messages && (delta.restart || (delta.mcp_due && !row.busy)))
+    delta.plan_mode.is_some()
+        || (!row.dispatch && agent_plan_move(view).is_some())
+        || (has_messages && (delta.restart || (delta.mcp_due && !row.busy)))
+}
+
+/// EXP-1334: the plan mode the agent moved to ON ITS OWN (claude leaving
+/// plan mode once a plan is approved, or entering it) — the engine's mode
+/// past the honored one, a live switch of this device's not pending. The
+/// device writes it back to the row ([`sync_agent_plan_mode`]).
+fn agent_plan_move(view: &LiveView) -> Option<bool> {
+    let launched = view.options.as_ref()?;
+    if launched.plan_switching {
+        return None;
+    }
+    view.agent_plan_mode.filter(|mode| *mode != launched.plan_mode)
+}
+
+/// EXP-1334: report the agent's own plan-mode move (`sessions.report
+/// {planMode}`) and honor it, the pre-report row marked stale so its old
+/// `plan_mode` never reads as a person's change. Best-effort: an unlanded
+/// report is retried at the next pass.
+fn sync_agent_plan_mode(row: &SessionRow, engine: &dyn LiveEngine, deps: &PickupDeps) {
+    let session_id = row.id.as_str();
+    if row.dispatch {
+        return;
+    }
+    let Some(launched) = deps.live.options(session_id) else { return };
+    let Some(mode) = engine.plan_mode().filter(|mode| *mode != launched.plan_mode) else { return };
+    if launched.plan_switching {
+        return;
+    }
+    let report = session_device::SessionReport {
+        plan_mode: Some(mode),
+        ..session_device::SessionReport::default()
+    };
+    if let Err(err) = session_device::report(&deps.coding.trpc, session_id, &report) {
+        log::warn!("pickup: session {session_id}'s plan mode {mode} not reported: {err}");
+        return;
+    }
+    log::info!("pickup: session {session_id} plan mode -> {mode} (the agent's own)");
+    deps.live.update_options(session_id, |options| {
+        options.plan_mode = mode;
+        options.plan_stale_at = row.updated_at.clone();
+    });
 }
 
 /// One pass's input.
@@ -676,9 +732,16 @@ impl LiveRegistry {
     /// cards.
     pub fn live_views(&self) -> HashMap<String, LiveView> {
         self.lock()
-            .iter()
+            .iter_mut()
             .filter(|(_, entry)| !entry.engine.is_done())
             .map(|(id, entry)| {
+                let agent_plan_mode = entry.engine.plan_mode();
+                // EXP-1334: a live switch is through once the engine says it.
+                if let Some(options) = entry.options.as_mut() {
+                    if agent_plan_mode == Some(options.plan_mode) {
+                        options.plan_switching = false;
+                    }
+                }
                 let mut open_cards = entry.engine.open_cards();
                 open_cards.retain(|message_id, _| !entry.answered.contains(message_id));
                 (
@@ -689,6 +752,7 @@ impl LiveRegistry {
                         row_account: entry.row_account.clone(),
                         running_account: entry.running_account.clone(),
                         options: entry.options.clone(),
+                        agent_plan_mode,
                     },
                 )
             })
@@ -1541,12 +1605,17 @@ pub fn switch_session(
     // EXP-1334: the row's options past the ones the engine honors. Plan mode
     // switches live at once (even mid-turn); the rest needs a restart, which
     // only a turn may carry (a pending message or the caller's prompt).
+    sync_agent_plan_mode(row, &*engine, deps);
     let delta = deps.live.options(session_id).map(|launched| options_delta(row, &launched));
     let delta = delta.unwrap_or_default();
     if let Some(on) = delta.plan_mode {
         log::info!("pickup: session {session_id} plan mode -> {on} (live)");
         engine.set_plan_mode(on);
-        deps.live.update_options(session_id, |options| options.plan_mode = on);
+        deps.live.update_options(session_id, |options| {
+            options.plan_mode = on;
+            options.plan_switching = true;
+            options.plan_stale_at = None;
+        });
     }
     let has_turn = prompt.is_some() || !pending.is_empty();
     let mut restart = has_turn && delta.restart;
@@ -2280,6 +2349,7 @@ mod tests {
                 row_account: None,
                 running_account: None,
                 options: None,
+                agent_plan_mode: None,
             },
         )
         .live("l2", LiveView::default())
@@ -2409,6 +2479,7 @@ mod tests {
             row_account: None,
             running_account: None,
             options: None,
+            agent_plan_mode: None,
         });
         assert!(registry.contains_live("s1"));
         assert!(!registry.contains_live("s2"));
@@ -3473,6 +3544,8 @@ mod tests {
     fn a_launch_option_change_restarts_the_run_between_turns() {
         let dir = temp_dir("pickup-reconfigure");
         let (base, requests) = canned_server_recording(vec![
+            // The run is in plan mode on its own: the row is told first.
+            (200, REPORT_OK.to_string()),
             (200, BRIEF_OK.to_string()),
             (200, RESOLVE_NONE.to_string()),
             (200, REPORT_OK.to_string()),
@@ -3481,7 +3554,11 @@ mod tests {
         let mut low = record(&dir.0, "sess-1");
         low.effort = "low".to_string();
         crate::run_registry::record(&dir.0, low);
-        let launched = SessionRow { effort: Some("low".to_string()), ..session("sess-1", "idle", DEV, "t") };
+        let launched = SessionRow {
+            effort: Some("low".to_string()),
+            updated_at: Some("u0".to_string()),
+            ..session("sess-1", "idle", DEV, "t")
+        };
         let old = Arc::new(FakeEngine::default());
         *old.mode.lock().unwrap() = Some(true);
         host.deps.live.insert_for("sess-1", old.clone(), None, Some(String::new()));
@@ -3503,8 +3580,9 @@ mod tests {
         assert_eq!(*old.killed.lock().unwrap(), Some("suspended"));
         assert_eq!(
             procedures(&requests),
-            vec!["sessions.brief", "mcpServers.resolveForLaunch", "sessions.report"]
+            vec!["sessions.report", "sessions.brief", "mcpServers.resolveForLaunch", "sessions.report"]
         );
+        assert!(old.plan_switches.lock().unwrap().is_empty(), "the agent's own mode is never reverted");
         let spawned = host.spawned.lock().unwrap().clone();
         assert_eq!(spawned.len(), 1);
         assert_eq!(spawned[0].session_id, "sess-1", "the SAME row");
@@ -3588,5 +3666,60 @@ mod tests {
             ]
         );
         assert_eq!(host.spawned.lock().unwrap()[0].seed_message_id.as_deref(), Some("m2"));
+    }
+
+    /// The agent's OWN plan-mode move (claude leaving plan mode once its
+    /// plan is approved) is planned, reported onto the row and honored: the
+    /// stale pre-report row and the device's own echo move nothing, a
+    /// person's later pick does. A live switch of this device's own is no
+    /// agent move while the engine has not echoed it.
+    #[test]
+    fn the_agents_own_plan_mode_move_follows_onto_the_row() {
+        let dir = temp_dir("pickup-agent-plan");
+        let (base, requests) = canned_server_recording(vec![(200, REPORT_OK.to_string())]);
+        let host = host(&base, &dir.0, |_| {});
+        crate::run_registry::record(&dir.0, record(&dir.0, "sess-1"));
+        let planning = SessionRow {
+            plan_mode: true,
+            updated_at: Some("u1".to_string()),
+            ..session("sess-1", "idle", DEV, "t")
+        };
+        host.deps.live.insert_for("sess-1", host.engine.clone(), None, Some(String::new()));
+        host.deps.live.set_options("sess-1", Some(LaunchedOptions::of(&planning, Some(Vec::new()))));
+        let pass = |row: &SessionRow| {
+            plan(PickupInput {
+                device_id: DEV,
+                sessions: std::slice::from_ref(row),
+                messages: &[],
+                live: &host.deps.live.live_views(),
+                in_flight: &HashSet::new(),
+            })
+        };
+        // Still planning: nothing.
+        *host.engine.mode.lock().unwrap() = Some(true);
+        assert!(pass(&planning).is_empty());
+        // The plan was approved: claude left plan mode on its own.
+        *host.engine.mode.lock().unwrap() = Some(false);
+        assert!(matches!(
+            pass(&planning).as_slice(),
+            [PickupAction::Switch { account, .. }] if account.is_empty()
+        ));
+        assert_eq!(switch_session(&planning, "", None, &[], &host.deps), Ok(Switched::AlreadyOn));
+        assert_eq!(procedures(&requests), vec!["sessions.report"]);
+        let report = requests.lock().unwrap()[0].clone();
+        assert!(report.ends_with(r#"{"sessionId":"sess-1","planMode":false}"#), "{report}");
+        assert!(host.engine.plan_switches.lock().unwrap().is_empty(), "never switched back");
+        assert!(!host.deps.live.options("sess-1").unwrap().plan_mode);
+        // The stale row and the device's own echo move nothing …
+        assert!(pass(&planning).is_empty());
+        let echoed = SessionRow { plan_mode: false, updated_at: Some("u2".to_string()), ..planning.clone() };
+        assert!(pass(&echoed).is_empty());
+        // … a person's later pick does, and is no agent move until echoed.
+        let picked = SessionRow { plan_mode: true, updated_at: Some("u3".to_string()), ..planning };
+        assert_eq!(switch_session(&picked, "", None, &[], &host.deps), Ok(Switched::AlreadyOn));
+        assert_eq!(*host.engine.plan_switches.lock().unwrap(), vec![true]);
+        *host.engine.mode.lock().unwrap() = Some(false);
+        assert!(pass(&picked).is_empty(), "the engine has not echoed the switch yet");
+        assert_eq!(procedures(&requests).len(), 1);
     }
 }

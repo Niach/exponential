@@ -807,6 +807,28 @@ describe.skipIf(!ready.ok)(`the sessions router: device procedures and answers`,
     })
   })
 
+  it(`EXP-1334: the device reports the agent's own plan-mode move onto the row`, async () => {
+    const w = await world()
+    const root = await sendSession({
+      userId: w.owner,
+      input: { teamId: w.teamId, deviceId: w.deviceId, cli: `claude`, text: `root` },
+    })
+    const child = await sendSession({
+      userId: w.owner,
+      input: { parentId: root.sessionId, planMode: true, text: `plan first` },
+    })
+    const host = caller(w.owner)
+    expect((await row(child.sessionId)).planMode).toBe(true)
+    // The plan was approved: claude left plan mode, the row follows.
+    await host.report({ sessionId: child.sessionId, planMode: false })
+    expect((await row(child.sessionId)).planMode).toBe(false)
+    // Omitted = unchanged; a dispatcher never plans, whatever is reported.
+    await host.report({ sessionId: child.sessionId, busy: true })
+    expect((await row(child.sessionId)).planMode).toBe(false)
+    await host.report({ sessionId: root.sessionId, planMode: true })
+    expect((await row(root.sessionId)).planMode).toBe(false)
+  })
+
   it(`EXP-1334: mcpPicks is the host device's read only`, async () => {
     const w = await world({ shared: true })
     const sent = await sendSession({

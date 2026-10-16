@@ -155,6 +155,10 @@ pub struct SessionReport {
     /// and session end).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub caption: Option<Option<String>>,
+    /// EXP-1334: the agent's OWN plan-mode move (claude leaving plan mode
+    /// once a plan is approved): the row's `plan_mode` follows the run.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub plan_mode: Option<bool>,
 }
 
 #[derive(Serialize)]
@@ -502,6 +506,7 @@ mod tests {
             title: Some("Fix the login".to_string()),
             account: Some("0a1b2c3d".to_string()),
             caption: Some(Some("Editing cart.rs".to_string())),
+            plan_mode: Some(false),
         };
         let input = ReportInput {
             session_id: "s1",
@@ -509,7 +514,7 @@ mod tests {
         };
         assert_eq!(
             serde_json::to_string(&input).unwrap(),
-            r#"{"sessionId":"s1","status":"running","needsInput":true,"blocked":{"kind":"rate_limit","agent":"claude","window":"session","resetsAt":"2026-10-13T12:00:00Z","since":"2026-10-13T10:00:00Z","handled":true},"branch":"exp/EXP-1","title":"Fix the login","account":"0a1b2c3d","caption":"Editing cart.rs"}"#
+            r#"{"sessionId":"s1","status":"running","needsInput":true,"blocked":{"kind":"rate_limit","agent":"claude","window":"session","resetsAt":"2026-10-13T12:00:00Z","since":"2026-10-13T10:00:00Z","handled":true},"branch":"exp/EXP-1","title":"Fix the login","account":"0a1b2c3d","caption":"Editing cart.rs","planMode":false}"#
         );
 
         // Some(None) = an explicit null (the wall cleared); a no-reset wall
