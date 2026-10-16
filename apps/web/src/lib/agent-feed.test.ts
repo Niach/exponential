@@ -83,6 +83,9 @@ import {
   type QuestionLike,
   backgroundStripLines,
   parseBackgroundTasks,
+  sessionTaskQueue,
+  stampBackgroundStarts,
+  subagentDurationMs,
   parseTaskList,
   taskListSummary,
   TASK_LIST_MAX,
@@ -2434,6 +2437,84 @@ describe(`parseWorkflow`, () => {
     })
     expect(workflow?.phases).toEqual([{ index: 2, title: `Beta` }])
     expect(workflow?.agents.map((agent) => agent.index)).toEqual([3])
+  })
+})
+
+describe(`EXP-1321/1324: the Queue's inputs`, () => {
+  it(`reads a wire start and ignores a bad one`, () => {
+    expect(
+      parseBackgroundTasks({
+        tasks: [
+          { id: `a`, kind: `shell`, description: `x`, startedAt: 1_792_000_000_000 },
+          { id: `b`, kind: `shell`, description: `y`, startedAt: `soon` },
+        ],
+      })
+    ).toEqual([
+      { id: `a`, kind: `shell`, description: `x`, startedAt: 1_792_000_000_000 },
+      { id: `b`, kind: `shell`, description: `y` },
+    ])
+  })
+
+  it(`stamps first sight, keeps it, forgets a finished id`, () => {
+    const seen = new Map<string, number>()
+    const one = stampBackgroundStarts(
+      [{ id: `a`, kind: `shell`, description: `x` }],
+      seen,
+      100
+    )
+    expect(one[0]?.startedAt).toBe(100)
+    const two = stampBackgroundStarts(
+      [{ id: `a`, kind: `shell`, description: `x` }],
+      seen,
+      900
+    )
+    expect(two[0]?.startedAt).toBe(100)
+    stampBackgroundStarts([], seen, 1000)
+    expect(seen.size).toBe(0)
+  })
+
+  it(`folds the task list, background work and open waits into taskQueue`, () => {
+    const queue = sessionTaskQueue({
+      taskList: [
+        { content: `Profile the launch path`, status: `completed` },
+        { content: `Measuring on the Galaxy A54`, status: `in_progress` },
+        { content: `Open the PR with the numbers`, status: `pending` },
+      ],
+      backgroundTasks: [
+        { id: `b1`, kind: `shell`, description: `Rerun the captures`, startedAt: 0 },
+        { id: `a1`, kind: `agent`, description: `Explore` },
+      ],
+      feed: [
+        { id: 7, kind: `tool`, name: `TaskOutput`, detail: `the captures`, toolKind: `wait` },
+        { id: 8, kind: `tool`, name: `TaskOutput`, toolKind: `wait`, settled: true },
+      ],
+      now: 130_000,
+    })
+    expect(queue?.todo.title).toBe(`4 to do`)
+    expect(queue?.todo.items.map((item) => [item.key, item.description])).toEqual([
+      [`task:1`, null],
+      [`background:b1`, `2m 10s`],
+      [`wait:7`, null],
+      [`task:2`, null],
+    ])
+    expect(queue?.completed?.title).toBe(`1 completed`)
+  })
+
+  it(`nothing to do is no Queue`, () => {
+    expect(sessionTaskQueue({ taskList: [], feed: [], now: 0 })).toBeNull()
+  })
+
+  it(`a subagent's span runs from its first start to its completion, or now`, () => {
+    const started = { kind: `subagent`, status: `started`, at: 1_000 }
+    expect(subagentDurationMs([started], 32_000)).toBe(31_000)
+    expect(
+      subagentDurationMs([started, { kind: `subagent`, status: `completed`, at: 73_000 }], 99_000)
+    ).toBe(72_000)
+    expect(subagentDurationMs([{ kind: `subagent`, status: `started` }], 5)).toBeNull()
+  })
+
+  it(`a thought is a tool-class row in the gap ladder`, () => {
+    expect(rowClass({ kind: `single`, item: { id: 1, kind: `thought` } })).toBe(`tool`)
   })
 })
 

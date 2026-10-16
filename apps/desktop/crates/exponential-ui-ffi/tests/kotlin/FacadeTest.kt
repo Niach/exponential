@@ -221,6 +221,9 @@ fun main(args: Array<String>) {
     }
     val code = load("code-tokens.json")
     for (c in list(code["cases"]).map(::obj)) equal(tokenizeCodeJson(c["code"] as String, c["language"] as String), c["expected"], "code-tokens ${c["name"]}")
+    check(codeText("\u001b[32mok\u001b[0m", "ansi") == "ok") { "code-text ansi" }
+    val shimmer = load("text-shimmer.json")
+    for (c in list(shimmer["cases"]).map(::obj)) equal(textShimmerJson(c["color"] as String, c["dark"] as Boolean), c["expected"], "text-shimmer ${c["name"]}")
     check(weekStart("de-DE") == 1.toUByte() && textDirection("ar") == "rtl") { "locale" }
 
     val r1 = Surface("r1", coreCatalogId(), null, "light")

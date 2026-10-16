@@ -72,21 +72,25 @@ fn local(name: &str) -> Vec<engine::LocalFeedEvent> {
 
 #[test]
 fn a_recorded_turn_maps_to_the_wire_vector() {
+    // EXP-1324: a thought's `ended` edge carries a wall-clock duration.
+    let mut wire = wire("turn.jsonl");
+    for event in wire.iter_mut() {
+        if event["kind"] == "thought" && event.get("durationMs").is_some() {
+            event["durationMs"] = json!(0);
+        }
+    }
     assert_eq!(
-        wire("turn.jsonl"),
+        wire,
         vec![
             // The two chunks of `m1` coalesced; the tool call flushed them.
             // EXP-772: every flush carries the agent's own message id, so a
             // client merges the pieces of ONE message back into one row.
             json!({"kind": "narration", "text": "Looking at the repo", "messageId": "m1"}),
-            // A THOUGHT derives its own id from the message's: the agent gives
-            // the thought and the answer one `messageId`, and merging by it
-            // would fold the chain of thought into the answer row.
-            json!({
-                "kind": "narration",
-                "text": "They want the tests green",
-                "messageId": "t1#thought"
-            }),
+            // EXP-1324: a THOUGHT is its two edges on the wire and never its
+            // text; its id derives from the message's (the agent gives the
+            // thought and the answer one `messageId`).
+            json!({"kind": "thought", "id": "t1#thought", "state": "started"}),
+            json!({"kind": "thought", "id": "t1#thought", "state": "ended", "durationMs": 0}),
             // The detail is the location path, relative to the worktree.
             // EXP-785: the row carries the ACP id and kind bucket, and its
             // settle follows as a `tool_update` the clients fold in by id.
@@ -1072,8 +1076,12 @@ fn the_workflow_fixture_maps_to_the_two_new_slots_and_a_wait_row() {
         .filter(|event| event["kind"] == "background_tasks")
         .collect();
     assert_eq!(strips.len(), 2, "{wire:?}");
+    // EXP-1324: every listed task carries the engine's first sight of it.
+    assert!(strips[0]["tasks"][0]["startedAt"].as_i64().is_some_and(|ms| ms > 0));
+    let mut first = strips[0].clone();
+    first["tasks"][0].as_object_mut().unwrap().remove("startedAt");
     assert_eq!(
-        *strips[0],
+        first,
         json!({
             "kind": "background_tasks",
             "tasks": [{

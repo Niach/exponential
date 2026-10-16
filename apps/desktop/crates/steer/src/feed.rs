@@ -191,6 +191,15 @@ pub enum FeedKind {
         /// stamped one — the Work card's elapsed counts from it.
         started_at: Option<i64>,
     },
+    /// EXP-1324: the Reasoning line — a thought's lifecycle off the wire's
+    /// `thought` edges (`started` = running, `ended` = its duration). The
+    /// text never rides the wire; the desktop's own run keeps it locally.
+    Thought {
+        thought_id: String,
+        running: bool,
+        duration_ms: Option<u64>,
+        subagent_id: Option<String>,
+    },
     UserMessage {
         text: String,
         /// EXP-773: a turn addressed to a SUBAGENT, shown inside its card.
@@ -318,6 +327,7 @@ impl FeedItem {
         match &self.kind {
             FeedKind::Tool { subagent_id, .. }
             | FeedKind::Narration { subagent_id, .. }
+            | FeedKind::Thought { subagent_id, .. }
             | FeedKind::UserMessage { subagent_id, .. }
             | FeedKind::ApiError { subagent_id, .. } => subagent_id.as_deref(),
             FeedKind::Subagent { subagent_id, .. } => Some(subagent_id.as_str()),
@@ -1134,6 +1144,42 @@ impl SteerFeed {
 
     fn handle_activity(&mut self, event: ActivityEvent) {
         match event {
+            // EXP-1324: `started` opens the Reasoning line, `ended` settles
+            // the SAME row (by id) with its duration; a lone `ended` (its
+            // start evicted) is a settled line of its own.
+            ActivityEvent::Thought {
+                id,
+                state,
+                duration_ms: ended_ms,
+                subagent_id,
+                ..
+            } => {
+                let existing = self.items.iter_mut().rev().find(|item| {
+                    matches!(&item.kind, FeedKind::Thought { thought_id, .. } if *thought_id == id)
+                });
+                match (state, existing) {
+                    (crate::frames::ThoughtState::Started, Some(_)) => {}
+                    (crate::frames::ThoughtState::Ended, Some(item)) => {
+                        if let FeedKind::Thought {
+                            running,
+                            duration_ms,
+                            ..
+                        } = &mut item.kind
+                        {
+                            *running = false;
+                            *duration_ms = ended_ms;
+                        }
+                    }
+                    (state, None) => {
+                        self.push_item(FeedKind::Thought {
+                            thought_id: id,
+                            running: state == crate::frames::ThoughtState::Started,
+                            duration_ms: ended_ms,
+                            subagent_id,
+                        });
+                    }
+                }
+            }
             // An inline API failure: one prose-class row, appended where it
             // landed; a blank message says nothing.
             ActivityEvent::ApiError {
@@ -1891,6 +1937,7 @@ fn item_bytes(kind: &FeedKind) -> usize {
                     .sum::<usize>()
         }
         FeedKind::Compaction => 0,
+        FeedKind::Thought { thought_id, .. } => thought_id.len(),
         FeedKind::ApiError {
             message,
             error_type,
@@ -2049,6 +2096,7 @@ impl FeedKind {
             | FeedKind::Compaction
             | FeedKind::ApiError { .. } => RowClass::Prose,
             FeedKind::Tool { .. }
+            | FeedKind::Thought { .. }
             | FeedKind::Subagent { .. }
             | FeedKind::Permission { .. } => RowClass::Tool,
         }
@@ -2777,6 +2825,7 @@ mod tests {
                 FeedKind::Question(card) => card.text.clone(),
                 FeedKind::Compaction => COMPACTED_LABEL.to_string(),
                 FeedKind::ApiError { message, .. } => message.clone(),
+                FeedKind::Thought { thought_id, .. } => thought_id.clone(),
             })
             .collect()
     }
@@ -3534,6 +3583,33 @@ mod tests {
 
     // ── Compaction (EXP-724) ───────────────────────────────────────────────
 
+    /// EXP-1324: `started` opens ONE Reasoning row, `ended` settles that
+    /// same row with its duration; a lone `ended` is a settled row.
+    #[test]
+    fn thought_edges_fold_into_one_reasoning_row() {
+        let edge = |id: &str, state, duration_ms| ActivityEvent::Thought {
+            id: id.to_string(),
+            state,
+            duration_ms,
+            subagent_id: None,
+            at: None,
+        };
+        let mut feed = SteerFeed::new();
+        feed.apply(edge("t1", crate::frames::ThoughtState::Started, None));
+        feed.apply(edge("t1", crate::frames::ThoughtState::Started, None));
+        assert_eq!(feed.len(), 1);
+        assert!(matches!(feed.items()[0].kind, FeedKind::Thought { running: true, .. }));
+        feed.apply(edge("t1", crate::frames::ThoughtState::Ended, Some(5400)));
+        assert_eq!(feed.len(), 1);
+        assert!(matches!(
+            feed.items()[0].kind,
+            FeedKind::Thought { running: false, duration_ms: Some(5400), .. }
+        ));
+        feed.apply(edge("t2", crate::frames::ThoughtState::Ended, Some(10)));
+        assert_eq!(feed.len(), 2);
+        assert!(matches!(feed.items()[1].kind, FeedKind::Thought { running: false, .. }));
+    }
+
     #[test]
     fn a_compaction_shows_the_strip_until_ended_then_leaves_a_marker() {
         let mut feed = SteerFeed::new();
@@ -4234,6 +4310,7 @@ mod tests {
             kind: crate::BackgroundTaskKind::Shell,
             description: "Sleep in the background".to_string(),
             tool_id: None,
+            started_at: None,
         }]));
         assert_eq!(feed.task_list().len(), 1);
         assert_eq!(feed.background_tasks().len(), 1);
@@ -5123,6 +5200,7 @@ mod exp850_tests {
             kind: BackgroundTaskKind::Shell,
             description: "Sleep in the background".to_string(),
             tool_id: Some("toolu_1".to_string()),
+            started_at: None,
         }]));
         assert_eq!(feed.len(), 0, "never a row");
         assert_eq!(feed.background_tasks().len(), 1);

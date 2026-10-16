@@ -4452,10 +4452,76 @@
       }
     },
     {
+      "id": "exponential-ui-trace",
+      "group": "exponential-ui-catalog",
+      "title": "Exponential UI · Trace",
+      "blurb": "A column of TraceItem lines (an agent's steps). The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/trace/.",
+      "order": 90,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-trace",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-trace"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-trace",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-trace",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
+      "id": "exponential-ui-trace-item",
+      "group": "exponential-ui-catalog",
+      "title": "Exponential UI · TraceItem",
+      "blurb": "One step line: icon, title, muted detail; may expand to show its children. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/trace-item/.",
+      "order": 91,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-trace-item",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-trace-item"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-trace-item",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-trace-item",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
       "id": "work-card",
       "group": "coding",
       "title": "Work card",
-      "blurb": "ONE card ×4 for a workflow, a task list and a subagent (EXP-1240, work-card.json): kind icon, name, kind word, progress and elapsed over a segment bar; finished phases fold to one row, the running phase lists its lanes one line each.",
+      "blurb": "ONE card ×4 for a workflow (EXP-1240, work-card.json): kind icon, name, kind word, progress and elapsed over a segment bar; finished phases fold to one row, the running phase lists its lanes one line each. EXP-1324: a subagent is its Trace line and the task list THE Queue, so a transcript's one Work card is a workflow's.",
       "order": 13,
       "web": {
         "route": "/t/$teamSlug/sessions/$sessionId",
@@ -4482,13 +4548,14 @@
         },
         "anchorDelayMs": 2500,
         "env": {
-          "EXP_DEV_SHOW_WORK": "1"
+          "EXP_DEV_SHOW_WORK": "1",
+          "EXP_DEV_SCROLL_TO": "work-card"
         }
       },
       "notes": {
-        "web": "The raw session view (`session`; EXP-1293: its feed always shows the work, no Show work toggle): `scrollToWorkCards` centres the last subagent's Work card of the relay-fed demo feed (apps/web/scripts/screenshot-desktop.ts). Needs `bun run screenshots:desktop`, like `steering`.",
-        "web-mobile": "Inherits web: the phone transcript draws the same cards at full width.",
-        "desktop": "The `steering` drive with `EXP_DEV_SHOW_WORK=1`: the transcript opens on its tail, where the relay-fed demo feed's task list (apps/web/scripts/screenshot-desktop.ts) is the Work card in the strip under the transcript; the two subagent cards sit above the fold. Needs `bun run screenshots:desktop` and the steer relay, like `steering`."
+        "web": "The raw session view (`session`; EXP-1293: its feed always shows the work): `scrollToWorkCards` centres the demo feed's workflow card (`cold-start-review`, apps/web/scripts/screenshot-desktop.ts). Needs `bun run screenshots:desktop`, like `steering`.",
+        "web-mobile": "Inherits web: the phone transcript draws the same card at full width.",
+        "desktop": "The `steering` drive with `EXP_DEV_SHOW_WORK=1` and `EXP_DEV_SCROLL_TO=work-card`: the transcript parks on the demo feed's workflow card (`cold-start-review`, apps/web/scripts/screenshot-desktop.ts) instead of the tail. Needs `bun run screenshots:desktop` and the steer relay, like `steering`."
       }
     },
     {
@@ -4573,6 +4640,82 @@
       }
     },
     {
+      "id": "trace",
+      "group": "coding",
+      "title": "Trace",
+      "blurb": "THE Trace ×4 (EXP-1324, trace.json): a session transcript's tool calls, tool groups, reasoning, subagents and failed test runs as one-line Trace lines at size sm (icon, title, muted description; running shimmers, error is rose, pending dims), a collapsible line opening onto its railed content; the Queue (task-queue.json) at the bottom: “n to do” open, “n completed” folded.",
+      "order": 21,
+      "web": {
+        "route": "/t/$teamSlug/agent?dev=trace",
+        "anchor": {
+          "testId": "trace-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "webMobile": "inherit",
+      "ios": {
+        "shot": "sg_trace",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_trace",
+        "lane": "styleguide"
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "styleguide:trace"
+        },
+        "anchorDelayMs": 1500
+      },
+      "notes": {
+        "web": "The DEV-ONLY `?dev=trace` on the Agent route (never parsed in a production build, like `feedback-states`): `@exp/ui` `TraceSpecimen`, the styleguide entry's board inside the app chrome, line for line the natives' specimen (iOS/Android `sg_trace`, the IDE's `styleguide:trace`). The `session` view shows the same lines in a live transcript.",
+        "web-mobile": "Inherits web: the phone frame draws the same specimen at full width.",
+        "ios": "The ExpUI Trace specimen (ThreadCardsScreen, the web island line for line), shot sg_trace.",
+        "android": "See ios: the same specimen in StyleguideScreenshotsTest.",
+        "desktop": "The DEV-ONLY `EXP_DEV_SCREEN=styleguide:trace`: the IDE styleguide entry `trace.rs` drawn full-window on the real `crate::trace` primitive, the web island line for line."
+      }
+    },
+    {
+      "id": "code-block",
+      "group": "coding",
+      "title": "Code block",
+      "blurb": "THE CodeBlock ×4 (EXP-1324, trace.json geometry.codeBlock): a tool's Output inside a Trace line at size sm, the title and the copy action over the mono code, coloured by the catalog's one tokenizer (`ansi` for command output); a failed call's block is destructive.",
+      "order": 22,
+      "web": {
+        "route": "/t/$teamSlug/agent?dev=code-block",
+        "anchor": {
+          "testId": "code-block-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "webMobile": "inherit",
+      "ios": {
+        "shot": "sg_code-block",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_code-block",
+        "lane": "styleguide"
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "styleguide:code-block"
+        },
+        "anchorDelayMs": 1500
+      },
+      "notes": {
+        "web": "The DEV-ONLY `?dev=code-block` on the Agent route (never parsed in a production build, like `feedback-states`): `@exp/ui` `CodeBlockSpecimen`, the styleguide entry's three sm blocks (a titled plain block, an `ansi` Output, the destructive Output), identical to the natives' specimen.",
+        "web-mobile": "Inherits web: the phone frame draws the same blocks at full width.",
+        "ios": "The ExpUI CodeBlock specimen (ThreadCardsScreen: the web island's three sm blocks), shot sg_code-block.",
+        "android": "See ios: the same specimen in StyleguideScreenshotsTest.",
+        "desktop": "The DEV-ONLY `EXP_DEV_SCREEN=styleguide:code-block`: the IDE styleguide entry `code_block.rs` drawn full-window on the real `crate::code_block` primitive, the web island's three blocks."
+      }
+    },
+    {
       "id": "feedback-states",
       "group": "coding",
       "title": "Feedback states",
@@ -4654,7 +4797,8 @@
           "text": "Profile the launch path",
           "timeoutMs": 30000
         },
-        "settleMs": 2500
+        "settleMs": 2500,
+        "recipe": "openTraceOutput"
       },
       "webMobile": "inherit",
       "ios": {
@@ -4674,7 +4818,7 @@
       "notes": {
         "ios": "EXP-1309: the LIVE walk over the seed web/desktop photograph (signed in, the relay stub online), never fixture rows: a session card of the cold-start thread opens DEMO_SESSION_ID (\"Profile the launch path\"), its feed from `screenshots:desktop`, the pending question card in the composer's place.",
         "android": "See ios: the same walk in StyleguideScreenshotsTest.",
-        "web": "`$sessionId` resolves to DEMO_SESSION_ID (apps/web/scripts/screenshot-demo.ts), the cold-start thread's child. Its feed is published by `bun run screenshots:desktop` under the same id; without the relay the header still renders over a Reconnecting feed, so the anchor is the header's title and the settle lets the feed land."
+        "web": "`$sessionId` resolves to DEMO_SESSION_ID (apps/web/scripts/screenshot-demo.ts), the cold-start thread's child. Its feed is published by `bun run screenshots:desktop` under the same id; without the relay the header still renders over a Reconnecting feed, so the anchor is the header's title and the settle lets the feed land. EXP-1324: `openTraceOutput` opens the `./gradlew :app:startupProfile` Trace line onto its Output and centres the tail (the thought, the Explore subagent's badge, the failed benchmark run, the Queue below), as the approved draft shows it."
       }
     },
     {

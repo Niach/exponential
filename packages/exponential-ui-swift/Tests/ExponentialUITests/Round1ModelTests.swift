@@ -434,6 +434,17 @@ final class Round1ModelTests: XCTestCase {
         XCTAssertFalse(m.announcement?.text.isEmpty ?? true)
     }
 
+    /// EXP-1324: the copy part carries `text` (ANSI escapes stripped): the
+    /// clipboard gets that, never the raw escapes.
+    func testAnAnsiCodeBlockCopiesItsPlainText() throws {
+        let host = Round1Host()
+        let m = try model(root([obj(["id": "cb", "component": "CodeBlock", "props": obj(["code": "\u{1b}[31mred\u{1b}[0m ok", "language": "ansi"])])]), host: host)
+        let copy = try XCTUnwrap(m.index(of: "cb.copy"))
+        XCTAssertEqual(m.node(copy)?.props.str("text"), "red ok")
+        m.press(copy)
+        XCTAssertEqual(host.copied, ["red ok"])
+    }
+
     func testFilePickAndUpload() throws {
         let host = Round1Host()
         let tree = root([obj(["id": "f", "component": "FileUpload", "props": obj(["label": "Files", "name": "files", "accept": "image/*,.pdf", "multiple": true]), "on": obj(["upload": obj(["event": obj(["name": "upload"])])])])])

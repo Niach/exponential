@@ -318,6 +318,8 @@ Open layers (`LayoutOutput::layers`, in order) paint ABOVE the tree as gpui
 | `position: sticky` | painted at `LayoutOutput.sticky` offsets, last (on top), in DOM order for AccessKit |
 | `backdropBlur` | gpui samples nothing behind a box: the translucent background paints alone |
 | `animation` | the core's frames (`frame_with_timing`) from the node's first paint: opacity, translate, a leaf's scale, an Icon's rotation, the shimmer band; reduced motion = the rest frame |
+| Text `shimmer` (EXP-1324) | gpui cannot fill glyphs with a gradient: the text paints glyph by glyph (`natives::tracked_text`) and each glyph takes the `textShimmer` gradient's colour at its centre (`ShimmerPaint`, colours from the core's `text_shimmer`), the highlight sliding from `-spread` to `width + spread` every `durationMs` (RTL the other way) while frames are requested; reduced motion = the plain text |
+| CodeBlock copy | copies the `copy` part's `text` (ANSI escapes stripped by the core), else the owner's `code` |
 | formatting | `SurfaceViewOptions::formatter` / `set_formatter` (else the core's English one), also for chart ticks, values and tooltips; a view re-binds once a minute only while it shows a relative time (`ticks_minutely`); `set_clock` pins `now` |
 | direction | a leaf's text aligns by the core's physical `text_align` and shapes with the node's direction as its bidi paragraph direction (a leading RLM / LRM when the first strong character disagrees) |
 | strings | every built-in label a surface paints comes from the strings table (`controls::*` are IDE chrome, English) |

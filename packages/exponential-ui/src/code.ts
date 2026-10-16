@@ -13,6 +13,7 @@ export interface CodeToken {
 
 interface LanguageSpec {
   plain?: boolean
+  ansi?: boolean
   lineKinds?: Record<string, string>
   lineComment?: string[]
   blockComment?: [string, string][]
@@ -45,8 +46,10 @@ function nextNonSpace(code: string, j: number): string | undefined {
   return code[k]
 }
 
-/** The source as flat tokens (text may span lines). */
-function scan(code: string, spec: LanguageSpec): CodeToken[] {
+/** The source as flat tokens (text may span lines). `lineStart` = whether
+ *  index 0 sits at the start of a line (an ansi run that begins mid-line
+ *  does not). */
+function scan(code: string, spec: LanguageSpec, lineStart = true): CodeToken[] {
   const out: CodeToken[] = []
   const n = code.length
   const operators = spec.operators ?? codeJson.defaults.operators
@@ -72,8 +75,10 @@ function scan(code: string, spec: LanguageSpec): CodeToken[] {
       continue
     }
     // (1) line kinds
-    if (spec.lineKinds && (i === 0 || code[i - 1] === `\n` || isSpaceRunToLineStart(code, i))) {
-      const prefix = Object.keys(spec.lineKinds).find((p) => code.startsWith(p, i))
+    if (spec.lineKinds && (i === 0 ? lineStart : code[i - 1] === `\n` || isSpaceRunToLineStart(code, i, lineStart))) {
+      // EXP-1324: the LONGEST listed prefix wins (`FAILED` over `FAIL`).
+      let prefix: string | undefined
+      for (const p of Object.keys(spec.lineKinds)) if (code.startsWith(p, i) && (!prefix || p.length > prefix.length)) prefix = p
       if (prefix && !isSpace(c)) {
         let j = i
         while (j < n && code[j] !== `\n`) j++
@@ -227,11 +232,99 @@ function scan(code: string, spec: LanguageSpec): CodeToken[] {
   return out
 }
 
-/** True when only spaces/tabs separate `i` from the start of its line. */
-function isSpaceRunToLineStart(code: string, i: number): boolean {
+/** True when only spaces/tabs separate `i` from the start of its line
+ *  (`lineStart` = whether the text's index 0 starts a line). */
+function isSpaceRunToLineStart(code: string, i: number, lineStart = true): boolean {
   let k = i - 1
   while (k >= 0 && isSpace(code[k])) k--
-  return k < 0 || code[k] === `\n`
+  return k < 0 ? lineStart : code[k] === `\n`
+}
+
+/** EXP-1324 `ansi`: one run of the escape-free text, with the SGR colour
+ *  (a codeToken kind) it was printed in, or null. */
+export interface AnsiRun {
+  kind: string | null
+  text: string
+}
+
+const isCsiParam = (c: number) => c >= 0x30 && c <= 0x3f
+const isCsiIntermediate = (c: number) => c >= 0x20 && c <= 0x2f
+const isCsiFinal = (c: number) => c >= 0x40 && c <= 0x7e
+
+/** The SGR colour after applying `params` (left to right) to `kind`:
+ *  31/91 error, 32/92 success, 33/93 warning, 2/90 comment, 0/39/empty
+ *  reset; any other parameter leaves the colour as it was. */
+function sgrKind(params: string, kind: string | null): string | null {
+  let out = kind
+  for (const raw of params.split(`;`)) {
+    const p = raw === `` ? 0 : Number(raw)
+    if (p === 0 || p === 39) out = null
+    else if (p === 31 || p === 91) out = `error`
+    else if (p === 32 || p === 92) out = `success`
+    else if (p === 33 || p === 93) out = `warning`
+    else if (p === 2 || p === 90) out = `comment`
+  }
+  return out
+}
+
+/** The source with every ANSI CSI escape removed, split into runs by SGR
+ *  colour (catalog/code.json `$comment`, `ansi`). Adjacent runs of one
+ *  colour merge; an incomplete escape stays text. */
+export function ansiRuns(source: string): AnsiRun[] {
+  const runs: AnsiRun[] = []
+  let kind: string | null = null
+  let text = ``
+  const flush = () => {
+    if (text === ``) return
+    const last = runs[runs.length - 1]
+    if (last && last.kind === kind) last.text += text
+    else runs.push({ kind, text })
+    text = ``
+  }
+  let i = 0
+  const n = source.length
+  while (i < n) {
+    if (source.charCodeAt(i) === 0x1b && source[i + 1] === `[`) {
+      let j = i + 2
+      while (j < n && isCsiParam(source.charCodeAt(j))) j++
+      const params = source.slice(i + 2, j)
+      while (j < n && isCsiIntermediate(source.charCodeAt(j))) j++
+      if (j < n && isCsiFinal(source.charCodeAt(j))) {
+        if (source[j] === `m`) {
+          const next = sgrKind(params, kind)
+          if (next !== kind) {
+            flush()
+            kind = next
+          }
+        }
+        i = j + 1
+        continue
+      }
+    }
+    text += source[i]
+    i++
+  }
+  flush()
+  return runs
+}
+
+/** `ansi`: coloured runs verbatim, uncoloured ones through the scanner. */
+function scanAnsi(code: string, spec: LanguageSpec): CodeToken[] {
+  const out: CodeToken[] = []
+  let atLine = true
+  for (const run of ansiRuns(code)) {
+    if (run.kind) out.push({ kind: run.kind, text: run.text })
+    else out.push(...scan(run.text, spec, atLine))
+    atLine = isSpaceRunToLineStart(run.text, run.text.length, atLine)
+  }
+  return out
+}
+
+/** The text a CodeBlock shows and copies: the source with CRLF → LF and,
+ *  for `ansi`, every escape removed. */
+export function codeText(source: string, language: string): string {
+  const code = source.replace(/\r\n?/g, `\n`)
+  return CODE_LANGUAGES[language]?.ansi ? ansiRuns(code).map((r) => r.text).join(``) : code
 }
 
 /** The source tokenized per LINE: each line's tokens concatenate to exactly
@@ -241,7 +334,7 @@ export function tokenizeCode(source: string, language: string): CodeToken[][] {
   const code = source.replace(/\r\n?/g, `\n`)
   const spec = CODE_LANGUAGES[language] ?? CODE_LANGUAGES.plain
   const lines: CodeToken[][] = [[]]
-  for (const token of scan(code, spec)) {
+  for (const token of spec.ansi ? scanAnsi(code, spec) : scan(code, spec)) {
     const pieces = token.text.split(`\n`)
     pieces.forEach((piece, index) => {
       if (index > 0) lines.push([])

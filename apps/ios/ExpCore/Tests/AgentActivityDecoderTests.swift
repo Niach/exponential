@@ -256,6 +256,50 @@ final class AgentActivityDecoderTests: XCTestCase {
         )
     }
 
+    // MARK: - EXP-1324: thought edges + background startedAt
+
+    func testThoughtEdgesDecodeAndAnUnknownStateIsSkipped() throws {
+        guard case let .thought(id, started, duration, agent) = try XCTUnwrap(
+            try decode(#"{"kind":"thought","id":"m-1#thought","state":"started"}"#)
+        ) else { return XCTFail("not a thought") }
+        XCTAssertEqual(id, "m-1#thought")
+        XCTAssertTrue(started)
+        XCTAssertNil(duration)
+        XCTAssertNil(agent)
+        guard case let .thought(_, endedStarted, endedDuration, endedAgent) = try XCTUnwrap(try decode(#"""
+        {"kind":"thought","id":"m-1#thought","state":"ended","durationMs":5400,"subagentId":"task-1","at":7}
+        """#)) else { return XCTFail("not a thought") }
+        XCTAssertFalse(endedStarted)
+        XCTAssertEqual(endedDuration, 5400)
+        XCTAssertEqual(endedAgent, "task-1")
+        XCTAssertNil(try decode(#"{"kind":"thought","id":"x","state":"pondering"}"#))
+        XCTAssertNil(try decode(#"{"kind":"thought","state":"started"}"#))
+    }
+
+    func testABackgroundTaskCarriesItsStartedAt() throws {
+        let event = try decode(#"""
+        {"kind":"background_tasks","tasks":[{"id":"b1","kind":"shell","description":"Capture","startedAt":1792000000000},
+         {"id":"b2","kind":"shell","description":"Old"}]}
+        """#)
+        guard case let .backgroundTasks(tasks) = try XCTUnwrap(event)
+        else { return XCTFail("not background_tasks") }
+        XCTAssertEqual(tasks[0].startedAt, 1_792_000_000_000)
+        XCTAssertNil(tasks[1].startedAt)
+    }
+
+    func testAThoughtEndedPatchesItsStartedRowInPlace() {
+        let feed: [AgentFeedItem] = [
+            .thought(id: 1, thoughtId: "t1", running: true),
+            .narration(id: 2, text: "hi"),
+        ]
+        let patched = AgentFeed.applyThought(feed, thoughtId: "t1", started: false, durationMs: 5400)
+        XCTAssertEqual(patched?.first, .thought(id: 1, thoughtId: "t1", running: false, durationMs: 5400))
+        // A replayed start changes nothing; an unknown id is the caller's append.
+        XCTAssertEqual(AgentFeed.applyThought(feed, thoughtId: "t1", started: true, durationMs: nil), feed)
+        XCTAssertNil(AgentFeed.applyThought(feed, thoughtId: "t2", started: false, durationMs: 1))
+        XCTAssertEqual(AgentFeedRow.single(feed[0]).rowClass, .tool)
+    }
+
     // MARK: - EXP-927 §2c: task_list
 
     func testTaskListDecodesTheFullListInOrderAndItsClose() throws {

@@ -11,8 +11,11 @@ use crate::code::tokenize_code;
 use crate::theme::RecipeQuery;
 
 /// The px height a CodeBlock line takes in the fixed geometry (the theme's
-/// `lineHeight` decides on a real surface; `maxLines` uses this as a floor).
-pub const CODE_LINE_HEIGHT: f32 = 20.0;
+/// `lineHeight` decides on a real surface; `maxLines` uses this as a floor):
+/// shadcn's code-block `leading-relaxed` over text-sm (EXP-1324).
+pub const CODE_LINE_HEIGHT: f32 = 22.75;
+/// The same at `size: sm` (text-xs, trace.json `geometry.codeBlock`).
+pub const CODE_LINE_HEIGHT_SM: f32 = 19.5;
 
 impl Builder<'_, '_> {
     pub(crate) fn code_block(&mut self, index: u32) {
@@ -47,7 +50,7 @@ impl Builder<'_, '_> {
                 let copied = self.ctx.local.copied.get(&owner.id).copied().unwrap_or(false);
                 let label = self.string(if copied { "copied" } else { "copy" });
                 let glyph = if copied { "CodeBlock.copied" } else { "CodeBlock.copy" };
-                let c = self.part_in(header, &owner, "copy", "Button", NodeKind::Leaf, json!({"flexShrink": 0}), json!({"icon": super::builtin_icon(glyph), "label": label, "variant": "ghost", "size": "icon", "copied": copied}), "");
+                let c = self.part_in(header, &owner, "copy", "Button", NodeKind::Leaf, json!({"flexShrink": 0}), json!({"icon": super::builtin_icon(glyph), "label": label, "variant": "ghost", "size": "icon", "copied": copied, "text": crate::code::code_text(&code, &language)}), "");
                 self.nodes[c as usize].pressable = true;
                 self.nodes[c as usize].live = copied.then(|| "polite".to_string());
             }
@@ -57,7 +60,8 @@ impl Builder<'_, '_> {
             body_style["overflowX"] = json!("auto");
         }
         if let Some(max) = owner.props.get("maxLines").and_then(Value::as_f64) {
-            body_style["maxHeight"] = json!(max as f32 * CODE_LINE_HEIGHT);
+            let line = if str_prop(&owner.props, "size") == Some("sm") { CODE_LINE_HEIGHT_SM } else { CODE_LINE_HEIGHT };
+            body_style["maxHeight"] = json!(max as f32 * line);
             body_style["overflowY"] = json!("auto");
         }
         let body = self.part(&owner, "body", "Box", NodeKind::Container, body_style, json!({}));

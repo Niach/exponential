@@ -1815,6 +1815,122 @@
                 }
               }
             ]
+          },
+          {
+            "id": "specimen-code-block-case-1",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-code-block-case-1-label",
+                "component": "Text",
+                "props": {
+                  "text": "variant · default",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c1-code-block",
+                "component": "CodeBlock",
+                "props": {
+                  "code": "const answer = 42 // the answer",
+                  "language": "ts",
+                  "lineNumbers": true,
+                  "variant": "default"
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen-code-block-case-2",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-code-block-case-2-label",
+                "component": "Text",
+                "props": {
+                  "text": "variant · destructive",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c2-code-block",
+                "component": "CodeBlock",
+                "props": {
+                  "code": "const answer = 42 // the answer",
+                  "language": "ts",
+                  "lineNumbers": true,
+                  "variant": "destructive"
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen-code-block-case-3",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-code-block-case-3-label",
+                "component": "Text",
+                "props": {
+                  "text": "size · default",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c3-code-block",
+                "component": "CodeBlock",
+                "props": {
+                  "code": "const answer = 42 // the answer",
+                  "language": "ts",
+                  "lineNumbers": true,
+                  "size": "default"
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen-code-block-case-4",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-code-block-case-4-label",
+                "component": "Text",
+                "props": {
+                  "text": "size · sm",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c4-code-block",
+                "component": "CodeBlock",
+                "props": {
+                  "code": "const answer = 42 // the answer",
+                  "language": "ts",
+                  "lineNumbers": true,
+                  "size": "sm"
+                }
+              }
+            ]
           }
         ]
       }
@@ -3071,6 +3187,384 @@
                     }
                   }
                 ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "exponential-ui-trace",
+      "component": "Trace",
+      "title": "Trace",
+      "node": {
+        "id": "specimen-trace",
+        "component": "Box",
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": "$spacing.lg",
+          "padding": "$spacing.xl",
+          "maxWidth": 720
+        },
+        "children": [
+          {
+            "id": "specimen-trace-case-0",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-trace-case-0-label",
+                "component": "Text",
+                "props": {
+                  "text": "example",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c0-trace",
+                "component": "Trace",
+                "props": {
+                  "size": "default"
+                },
+                "children": [
+                  {
+                    "id": "c0-think",
+                    "component": "TraceItem",
+                    "props": {
+                      "size": "default",
+                      "title": "Thought for 5s",
+                      "icon": "trace-reasoning"
+                    }
+                  },
+                  {
+                    "id": "c0-run",
+                    "component": "TraceItem",
+                    "props": {
+                      "size": "default",
+                      "title": "Ran bun test",
+                      "icon": "trace-terminal",
+                      "status": "error",
+                      "collapsible": true,
+                      "open": true
+                    },
+                    "children": [
+                      {
+                        "id": "c0-out",
+                        "component": "CodeBlock",
+                        "props": {
+                          "code": "\u001b[32m(pass)\u001b[0m Store > put [0.2ms]\n\u001b[31m(fail)\u001b[0m Store > get [1.2ms]\n\n 1 pass\n 1 fail",
+                          "language": "ansi",
+                          "title": "Output",
+                          "size": "sm",
+                          "variant": "destructive"
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "id": "c0-edit",
+                    "component": "TraceItem",
+                    "props": {
+                      "size": "default",
+                      "title": "Editing src/store.ts",
+                      "icon": "trace-edit",
+                      "status": "running"
+                    }
+                  },
+                  {
+                    "id": "c0-subagent",
+                    "component": "TraceItem",
+                    "props": {
+                      "size": "default",
+                      "title": "Ran the Explore agent",
+                      "icon": "trace-subagent",
+                      "description": "1m 12s",
+                      "collapsible": true
+                    }
+                  },
+                  {
+                    "id": "c0-next",
+                    "component": "TraceItem",
+                    "props": {
+                      "size": "default",
+                      "title": "Run the suite again",
+                      "icon": "trace-terminal",
+                      "status": "pending"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "specimen-trace-case-1",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-trace-case-1-label",
+                "component": "Text",
+                "props": {
+                  "text": "size · sm",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c1-trace",
+                "component": "Trace",
+                "props": {
+                  "size": "sm"
+                },
+                "children": [
+                  {
+                    "id": "c1-think",
+                    "component": "TraceItem",
+                    "props": {
+                      "size": "sm",
+                      "title": "Thought for 5s",
+                      "icon": "trace-reasoning"
+                    }
+                  },
+                  {
+                    "id": "c1-run",
+                    "component": "TraceItem",
+                    "props": {
+                      "size": "sm",
+                      "title": "Ran bun test",
+                      "icon": "trace-terminal",
+                      "status": "error",
+                      "collapsible": true,
+                      "open": true
+                    },
+                    "children": [
+                      {
+                        "id": "c1-out",
+                        "component": "CodeBlock",
+                        "props": {
+                          "code": "\u001b[32m(pass)\u001b[0m Store > put [0.2ms]\n\u001b[31m(fail)\u001b[0m Store > get [1.2ms]\n\n 1 pass\n 1 fail",
+                          "language": "ansi",
+                          "title": "Output",
+                          "size": "sm",
+                          "variant": "destructive"
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "id": "c1-edit",
+                    "component": "TraceItem",
+                    "props": {
+                      "size": "sm",
+                      "title": "Editing src/store.ts",
+                      "icon": "trace-edit",
+                      "status": "running"
+                    }
+                  },
+                  {
+                    "id": "c1-subagent",
+                    "component": "TraceItem",
+                    "props": {
+                      "size": "sm",
+                      "title": "Ran the Explore agent",
+                      "icon": "trace-subagent",
+                      "description": "1m 12s",
+                      "collapsible": true
+                    }
+                  },
+                  {
+                    "id": "c1-next",
+                    "component": "TraceItem",
+                    "props": {
+                      "size": "sm",
+                      "title": "Run the suite again",
+                      "icon": "trace-terminal",
+                      "status": "pending"
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "exponential-ui-trace-item",
+      "component": "TraceItem",
+      "title": "TraceItem",
+      "node": {
+        "id": "specimen-trace-item",
+        "component": "Box",
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": "$spacing.lg",
+          "padding": "$spacing.xl",
+          "maxWidth": 720
+        },
+        "children": [
+          {
+            "id": "specimen-trace-item-case-0",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-trace-item-case-0-label",
+                "component": "Text",
+                "props": {
+                  "text": "example",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c0-item",
+                "component": "TraceItem",
+                "props": {
+                  "title": "Ran bun test",
+                  "icon": "trace-terminal",
+                  "description": "4s",
+                  "collapsible": true,
+                  "open": true
+                },
+                "children": [
+                  {
+                    "id": "c0-out",
+                    "component": "CodeBlock",
+                    "props": {
+                      "code": "\u001b[32m✓\u001b[0m 12 tests passed\nDone in 4.1s",
+                      "language": "ansi",
+                      "title": "Output",
+                      "size": "sm"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "specimen-trace-item-case-1",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-trace-item-case-1-label",
+                "component": "Text",
+                "props": {
+                  "text": "status · running",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c1-item",
+                "component": "TraceItem",
+                "props": {
+                  "title": "Reading src/startup.kt",
+                  "icon": "trace-read",
+                  "status": "running"
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen-trace-item-case-2",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-trace-item-case-2-label",
+                "component": "Text",
+                "props": {
+                  "text": "status · error",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c2-item",
+                "component": "TraceItem",
+                "props": {
+                  "title": "The general-purpose agent failed",
+                  "icon": "trace-subagent",
+                  "description": "9s",
+                  "status": "error"
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen-trace-item-case-3",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-trace-item-case-3-label",
+                "component": "Text",
+                "props": {
+                  "text": "status · pending",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c3-item",
+                "component": "TraceItem",
+                "props": {
+                  "title": "Waiting on the web captures",
+                  "icon": "trace-background",
+                  "status": "pending"
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen-trace-item-case-4",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-trace-item-case-4-label",
+                "component": "Text",
+                "props": {
+                  "text": "size · sm",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c4-item",
+                "component": "TraceItem",
+                "props": {
+                  "title": "Searched persistOnStop",
+                  "icon": "trace-search",
+                  "size": "sm",
+                  "collapsible": true
+                }
               }
             ]
           }

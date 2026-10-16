@@ -1480,6 +1480,7 @@ mod exp850_tests {
             kind: BackgroundTaskKind::Shell,
             description: "sleep".to_string(),
             tool_id: None,
+            started_at: None,
         }]));
         writer.append(&ActivityEvent::turn(TurnState::Started));
         writer.append(&workflow("wf-2", WorkflowStatus::Running));

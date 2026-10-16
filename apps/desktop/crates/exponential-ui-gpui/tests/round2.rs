@@ -506,6 +506,91 @@ fn an_untitled_code_block_paints_its_language_beside_the_copy_button(cx: &mut Te
     let (title, copy, header) = (painted(&view, cx, "code.title"), painted(&view, cx, "code.copy"), painted(&view, cx, "code.header"));
     assert!(title.size.width > px(0.0) && copy.size.width > px(0.0));
     assert!(title.origin.x < copy.origin.x, "the label leads, the copy action trails");
-    assert!(header.size.height >= copy.size.height);
+    // EXP-1324: the header is 20 px tall, the 24 px copy button centres on it.
+    let centre = |b: gpui::Bounds<gpui::Pixels>| f32::from(b.origin.y) + f32::from(b.size.height) / 2.0;
+    assert!((centre(header) - centre(copy)).abs() < 0.5, "header {header:?} copy {copy:?}");
     assert_eq!(frame(&view, cx, "chart").h, 160.0, "Chart `height` = the whole box");
+}
+
+#[test]
+fn the_shimmer_highlight_sweeps_from_before_the_start_to_after_the_end() {
+    use exponential_ui_gpui::paint::natives::ShimmerPaint;
+    let ink = gpui::Hsla::from(gpui::Rgba { r: 0.6, g: 0.6, b: 0.6, a: 1.0 });
+    let (w, h) = (300.0, 20.0);
+    let at = |p: f32, x: f32, rtl: bool| ShimmerPaint::new(ink, true, p, rtl).color_at(x, h / 2.0, w, h);
+    let base = at(0.0, 0.0, false);
+    // progress 0: the highlight sits `spread` before the box (all base).
+    assert_eq!(at(0.0, 150.0, false), base);
+    // Half way: the highlight is at the centre, the edges are base.
+    let mid = at(0.5, 150.0, false);
+    assert!(mid.l > base.l + 0.1, "the highlight is lighter in dark mode: {mid:?} vs {base:?}");
+    assert_eq!(at(0.5, 0.0, false), base);
+    assert_eq!(at(0.5, 300.0, false), base);
+    // RTL sweeps the other way.
+    assert_eq!(at(0.25, 75.0 + 15.0, true), at(0.75, 75.0 + 15.0, false));
+    assert!((ShimmerPaint::progress_at(2500.0) - 0.25).abs() < 1e-6, "it loops every durationMs");
+}
+
+fn shimmer_tree() -> Value {
+    json!({"id": "root", "component": "Box", "style": {"padding": 20, "width": 400}, "children": [
+        {"id": "t", "component": "Text", "props": {"text": "Running the tests now", "shimmer": true}}
+    ]})
+}
+
+#[gpui::test]
+fn a_shimmering_text_paints_glyph_colours_that_move(cx: &mut TestAppContext) {
+    exponential_ui_gpui::paint::natives::record_tracked(true);
+    let (view, _log, cx) = surface(cx, shimmer_tree());
+    view.update(cx, |v, cx| v.advance_clock(Duration::from_millis(1000), cx));
+    let _ = exponential_ui_gpui::paint::natives::take_tracked();
+    draw(cx);
+    let one = exponential_ui_gpui::paint::natives::take_tracked().into_iter().find(|l| l.text.contains("Running")).expect("the shimmer paints glyph by glyph");
+    view.update(cx, |v, cx| v.advance_clock(Duration::from_millis(500), cx));
+    draw(cx);
+    let two = exponential_ui_gpui::paint::natives::take_tracked().into_iter().find(|l| l.text.contains("Running")).expect("it keeps painting");
+    exponential_ui_gpui::paint::natives::record_tracked(false);
+    assert!(one.inks.windows(2).any(|w| w[0] != w[1]), "glyph colours vary across the line");
+    assert_ne!(one.inks, two.inks, "the gradient moves");
+}
+
+#[gpui::test]
+fn a_shimmering_text_is_plain_under_reduced_motion(cx: &mut TestAppContext) {
+    exponential_ui_gpui::paint::natives::record_tracked(true);
+    let reduced = SurfaceSettings { reduced_motion: true, ..SurfaceSettings::default() };
+    let (_view, _log, cx) = surface_with(cx, shimmer_tree(), Some(reduced));
+    draw(cx);
+    let lines = exponential_ui_gpui::paint::natives::take_tracked();
+    exponential_ui_gpui::paint::natives::record_tracked(false);
+    assert!(lines.iter().all(|l| !l.text.contains("Running")), "plain text, no per-glyph paint");
+}
+
+#[gpui::test]
+fn a_trace_item_paints_its_chevron_rail_and_pending_line(cx: &mut TestAppContext) {
+    let tree = json!({"id": "root", "component": "Box", "style": {"padding": 20, "width": 400}, "children": [
+        {"id": "trace", "component": "Trace", "children": [
+            {"id": "ran", "component": "TraceItem", "props": {"title": "Ran bun test", "icon": "trace-terminal", "description": "4s", "collapsible": true, "open": true}, "children": [
+                {"id": "out", "component": "Text", "props": {"text": "12 pass"}}
+            ]},
+            {"id": "next", "component": "TraceItem", "props": {"title": "Edit file", "status": "pending"}}
+        ]}
+    ]});
+    let (view, _log, cx) = surface(cx, tree);
+    view.update(cx, |v, cx| v.advance_clock(Duration::from_millis(2000), cx));
+    draw(cx);
+    // Macro parts are `<id>.<part path>` nodes.
+    let (chevron, title, description, content, next_line) = ("ran.line.chevron", "ran.line.title", "ran.line.description", "ran.content", "next.line");
+    let (chevron_s, content_s, line_s) = view.read_with(cx, |v, _| (v.painted_style(chevron).unwrap(), v.painted_style(content).unwrap(), v.painted_style(next_line).unwrap()));
+    assert!((chevron_s.transform.rotate - 90.0).abs() < 0.5, "an open item's chevron turns a quarter: {:?}", chevron_s.transform);
+    assert_eq!(content_s.border, [0.0, 0.0, 0.0, 1.0], "the content rail = the left border only");
+    assert!(content_s.border_color.is_some());
+    assert!((line_s.opacity.unwrap_or(1.0) - 0.6).abs() < 0.01, "a pending line paints at 0.6: {:?}", line_s.opacity);
+    // The chevron's negative marginLeft pulls it into the gap after the title.
+    let (c, t, d) = (frame(&view, cx, chevron), frame(&view, cx, title), frame(&view, cx, description));
+    assert!(c.x > t.x, "the chevron trails the title");
+    assert!((c.x - (d.x + d.w + 8.0 - 4.0)).abs() < 0.5, "gap 8, marginLeft -4: chevron {} after description end {}", c.x, d.x + d.w);
+    let origin = view.read_with(cx, |v, _| v.origin());
+    let painted_c = painted(&view, cx, chevron);
+    assert!((f32::from(painted_c.origin.x - origin.x) - c.x).abs() < 0.5, "it paints at its frame");
+    let rail = painted(&view, cx, content);
+    assert!((f32::from(rail.origin.x - origin.x) - frame(&view, cx, content).x).abs() < 0.5);
 }

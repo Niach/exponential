@@ -77,9 +77,11 @@ pub mod login_picker;
 pub mod publisher;
 /// EXP-1279: the code-mode Script card model.
 pub mod script_card;
+pub mod task_queue;
 pub mod tool_diff;
 pub mod tool_output;
 pub mod tool_group_summary;
+pub mod trace;
 pub mod viewer;
 /// EXP-1240: THE Work card model (workflow, task list, subagent).
 pub mod work_card;
@@ -127,7 +129,7 @@ pub use frames::{
     QUEUE_TEXT_MAX,
     ConfigCommand, ConfigMode, ConfigOption, ConfigValue, QuestionOption, ServerFrame,
     SteerRole, SubagentStatus, ToolKind, ToolPreview,
-    TaskListEntry, TaskListStatus, ToolUpdateStatus, TurnState,
+    TaskListEntry, TaskListStatus, ThoughtState, ToolUpdateStatus, TurnState,
     ViewerFrame, ACTIVITY_CHANNEL, BACKGROUND_TASKS_MAX, TASK_LIST_MAX, CLOSE_REPLACED, CLOSE_SESSION_ENDED,
     CLOSE_SLOW_CONSUMER, CLOSE_UNAUTHORIZED, TOOL_PREVIEW_TEXT_MAX, EntityRef, TOOL_PREVIEW_MAX_REFS,
 };

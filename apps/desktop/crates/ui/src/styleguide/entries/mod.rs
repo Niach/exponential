@@ -46,6 +46,8 @@ pub(crate) mod comment_card;
 pub(crate) mod team_agents_settings;
 pub(crate) mod voice_call_overlay;
 pub(crate) mod feedback_states;
+pub(crate) mod trace;
+pub(crate) mod code_block;
 pub(crate) mod agent_home;
 pub(crate) mod work_tabs_strip;
 pub(crate) mod getting_started;
@@ -96,6 +98,8 @@ pub(crate) const ENTRIES: &[Entry] = &[
     Entry { id: toast::ID, owner: toast::OWNER, render: toast::render },
     Entry { id: jump_to_bottom::ID, owner: jump_to_bottom::OWNER, render: jump_to_bottom::render },
     Entry { id: feedback_states::ID, owner: feedback_states::OWNER, render: feedback_states::render },
+    Entry { id: trace::ID, owner: trace::OWNER, render: trace::render },
+    Entry { id: code_block::ID, owner: code_block::OWNER, render: code_block::render },
     Entry { id: composer_dialog::ID, owner: composer_dialog::OWNER, render: composer_dialog::render },
     Entry { id: issue_context_menu::ID, owner: issue_context_menu::OWNER, render: issue_context_menu::render },
     Entry { id: session_row::ID, owner: session_row::OWNER, render: session_row::render },

@@ -12,7 +12,7 @@ import SwiftUI
 struct ThreadCardsScreen: View {
     let kind: String
 
-    static let kinds: Set<String> = ["work-card", "script-card", "comment-call-card"]
+    static let kinds: Set<String> = ["work-card", "script-card", "comment-call-card", "trace", "code-block"]
 
     var body: some View {
         ZStack {
@@ -22,6 +22,8 @@ struct ThreadCardsScreen: View {
                     switch kind {
                     case "script-card": scriptCards
                     case "comment-call-card": commentCards
+                    case "trace": traceSpecimens
+                    case "code-block": codeBlockSpecimens
                     default: workCards
                     }
                 }
@@ -81,6 +83,118 @@ struct ThreadCardsScreen: View {
             )),
             onOpenSubagent: {}
         )
+    }
+
+    // MARK: - Trace (EXP-1324)
+
+    @State private var todoOpen = true
+    @State private var completedOpen = false
+
+    private static let profileOutput = """
+    > Task :app:startupProfile
+    Pixel 6a     p50 740 ms   p90 812 ms
+    Galaxy A54   p50 790 ms   p90 840 ms
+    BUILD SUCCESSFUL in 41s
+    """
+
+    private static let benchmarkOutput = """
+    StartupBenchmark > coldStart FAILED
+        java.lang.AssertionError: p90 812 ms > 800 ms
+
+    12 tests completed, 1 failed
+    """
+
+    private static let tsSource = """
+    export function coldStart(board: Board): Promise<void> {
+      // Paint the cached snapshot first, subscribe after the first frame.
+      const cached = snapshots.read(board.id)
+      return render(cached ?? [], { deferSubscribe: true })
+    }
+    """
+
+    private static let ansiOutput = [
+        "$ ./gradlew :app:startupProfile",
+        "> Task :app:startupProfile",
+        "\u{1B}[33mwarning:\u{1B}[0m baseline profile is 3 days old",
+        "Pixel 6a     p50 740 ms   p90 812 ms",
+        "\u{1B}[32mBUILD SUCCESSFUL\u{1B}[0m in 41s",
+    ].joined(separator: "\n")
+
+    /// The web island (apps/styleguide/src/entries/trace.tsx) line for line:
+    /// the transcript's tail at sm, THE Queue, two lines at the default size.
+    @ViewBuilder
+    private var traceSpecimens: some View {
+        let g = Trace.Geometry.sm
+        VStack(alignment: .leading, spacing: 24) {
+            TraceStack(size: .sm) {
+                TraceLine(Trace.tool(
+                    toolKind: "execute", name: "Bash", detail: "./gradlew :app:startupProfile",
+                    settled: false, failed: false
+                ), size: .sm)
+                TraceLine(Trace.reasoning(running: false, durationMs: 5_200), size: .sm)
+                TraceCollapsible(size: .sm, initiallyOpen: true) {
+                    TraceLine(Trace.tool(
+                        toolKind: "execute", name: "Bash", detail: "./gradlew :app:startupProfile",
+                        settled: true, failed: false
+                    ), size: .sm)
+                } content: {
+                    CodeBlockView(Self.profileOutput, language: .ansi, scrollToEnd: false)
+                }
+                let subagent = Trace.subagent(label: "Explore", running: false, failed: false, durationMs: 72_000)
+                HStack(spacing: g.chevronGap) {
+                    TraceLine(
+                        title: subagent.title, status: subagent.status, size: .sm,
+                        icon: { AppIcon(TraceIcons.glyph(subagent.icon), size: g.icon) },
+                        accessory: {
+                            if let badge = subagent.description { TraceBadge(badge, size: .sm) }
+                        }
+                    )
+                    AppIcon(AppIcons.traceChevron, size: g.icon)
+                        .foregroundStyle(DesignTokens.Palette.mutedForeground)
+                }
+                if let failed = Trace.failedTests(Trace.parseTestResults(Self.benchmarkOutput)) {
+                    TraceCollapsible(size: .sm) {
+                        TraceLine(failed, size: .sm)
+                    } content: {
+                        CodeBlockView(Self.benchmarkOutput, language: .ansi, destructive: true, scrollToEnd: false)
+                    }
+                }
+                let read = Trace.tool(toolKind: "read", name: "Read", detail: "README.md", settled: true, failed: false)
+                TraceLine(TraceLineModel(icon: read.icon, title: read.title, description: read.description, status: .pending), size: .sm)
+            }
+            if let queue = TaskQueue.build(TaskQueueInput(
+                tasks: [
+                    WorkCardTask(content: "Profile the cold start", status: "completed"),
+                    WorkCardTask(content: "Defer the snapshot cache warm-up", status: "completed"),
+                    WorkCardTask(content: "Measuring on the Galaxy A54", status: "in_progress"),
+                    WorkCardTask(content: "Open the PR with the numbers", status: "pending"),
+                ],
+                backgroundTasks: [TaskQueueInput.BackgroundTask(
+                    id: "b1", kind: "shell", description: "Rerun the web and web-phone captures", startedAt: 0
+                )],
+                waits: [],
+                now: 130_000
+            )) {
+                TaskQueueBlock(queue: queue, todoOpen: $todoOpen, completedOpen: $completedOpen)
+            }
+            TraceStack {
+                TraceLine(Trace.tool(toolKind: "search", name: "Grep", detail: "persistOnStop", settled: true, failed: false))
+                TraceLine(Trace.tool(toolKind: "execute", name: "Bash", detail: "bun test", settled: true, failed: true))
+            }
+        }
+    }
+
+    // MARK: - CodeBlock (EXP-1324)
+
+    /// The web island (apps/styleguide/src/entries/code-block.tsx): a titled
+    /// plain block, an `ansi` Output, the destructive Output, all at sm.
+    @ViewBuilder
+    private var codeBlockSpecimens: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            CodeBlockView(Self.tsSource, title: "startup.ts", scrollToEnd: false)
+            CodeBlockView(Self.ansiOutput, language: .ansi, scrollToEnd: false)
+            CodeBlockView(Self.benchmarkOutput, language: .ansi, destructive: true, scrollToEnd: false)
+        }
     }
 
     // MARK: - Script card (D13)

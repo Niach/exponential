@@ -2574,10 +2574,10 @@ impl ThreadScreenView {
     }
 
     /// EXP-1323: the live tail after the last row ([`sync_tail`]'s viewer).
-    fn render_tail(&self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
+    fn render_tail(&self, window: &Window, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
         let (_, view) = self.tail.as_ref()?;
         let inner = view.read(cx).inner().clone();
-        inner.update(cx, |inner, cx| inner.live_tail(cx))
+        inner.update(cx, |inner, cx| inner.live_tail(window, cx))
     }
 
     fn render_conversation(&mut self, model: &ThreadModel, window: &Window, cx: &mut gpui::Context<Self>) -> AnyElement {
@@ -2587,7 +2587,7 @@ impl ThreadScreenView {
             .iter()
             .map(|row| self.render_row(row, model, window, cx))
             .collect();
-        let tail = self.render_tail(cx);
+        let tail = self.render_tail(window, cx);
         let column = v_flex()
             .id(SharedString::from(THREAD.test_ids.conversation.clone()))
             .w_full()

@@ -13,6 +13,15 @@ import {
   useSyncExternalStore,
 } from "react"
 import { editCard } from "@exp/domain-contract/edit-card"
+import {
+  parseTestResults,
+  traceFailedTests,
+  traceReasoning,
+  traceSubagent,
+  traceTool,
+  TRACE_COPY,
+  type TraceLineModel,
+} from "@exp/domain-contract/trace"
 import { expToolGroupCaption } from "@exp/domain-contract/exp-tool-group"
 import { linkSegments } from "@/lib/linkify"
 import { useAppLinkClick } from "@/hooks/use-app-link-click"
@@ -47,6 +56,20 @@ import {
   DisclosureHeader,
   EmptyState,
   WorkCard,
+  Trace,
+  TraceLine,
+  TraceIcon,
+  TraceTitle,
+  TraceDescription,
+  TraceCollapsible,
+  TraceCollapsibleTrigger,
+  TraceCollapsibleContent,
+  CodeBlock,
+  CodeBlockHeader,
+  CodeBlockTitle,
+  CodeBlockActions,
+  CodeBlockCopyButton,
+  CodeBlockContent,
   ScriptCard,
   STARTING_COPY,
   SkeletonRows,
@@ -61,7 +84,6 @@ import { blockedBadgeLabel } from "@/lib/agent-usage"
 import { staleActivityMinutes } from "@/lib/stale-activity"
 import {
   activeQuestionIds,
-  backgroundStripLines,
   answerKey,
   askStepperView,
   collectSubagents,
@@ -89,6 +111,7 @@ import {
   sessionIsWorking,
   subagentLabel,
   subagentIdOf,
+  SUBAGENT_FALLBACK_TYPE,
   summarizeSubagentRow,
   toolGroupCaption,
   transcriptGapToken,
@@ -97,8 +120,8 @@ import {
   workflowWorkCard,
   workflowFoldedPhases,
   workflowLaneAgent,
-  taskListWorkCard,
-  subagentWorkCard,
+  sessionTaskQueue,
+  subagentDurationMs,
   isScriptCall,
   scriptCardInput,
   type AnswerState,
@@ -107,9 +130,8 @@ import {
   type ExpToolPreview,
   type RowClass,
   type SessionRateLimitState,
-  type BackgroundStripLine,
+  type BackgroundTask,
   type TaskListEntry,
-  taskListSummary,
   type SubagentSummary,
   type TranscriptGapToken,
   type WorkflowState,
@@ -121,6 +143,7 @@ import {
   RunCardsContext,
 } from "@/components/agent-comment-card"
 import { scriptCard } from "@exp/domain-contract/script-card"
+import taskQueueSpec from "@exp/domain-contract/fixtures/task-queue.json"
 import {
   mergeAgentCommands,
   parseSteerCommand,
@@ -156,7 +179,6 @@ const CodingAssistantIcon = conceptIcon(`coding-assistant`)
 const CodingCompactIcon = conceptIcon(`coding-compact`)
 const CodingCommandIcon = conceptIcon(`coding-command`)
 const CodingSubagentIcon = conceptIcon(`coding-subagent`)
-const CodingToolIcon = conceptIcon(`coding-tool`)
 const EditorImageIcon = conceptIcon(`editor-image`)
 const UiDeviceOfflineIcon = conceptIcon(`ui-device-offline`)
 const UiEditIcon = conceptIcon(`ui-edit`)
@@ -165,9 +187,12 @@ const UiPermissionIcon = conceptIcon(`ui-permission`)
 const UiRefreshIcon = conceptIcon(`ui-refresh`)
 const UiUsageIcon = conceptIcon(`ui-usage`)
 const UiWarningIcon = conceptIcon(`ui-warning`)
-const UiRepeatIcon = conceptIcon(`ui-repeat`)
+const TraceChevronIcon = conceptIcon(`trace-chevron`)
+const TraceToolIcon = conceptIcon(`trace-tool`)
 const UiQueuedIcon = conceptIcon(`ui-queued`)
 const UiCloseIcon = conceptIcon(`ui-close`)
+/** EXP-1321: the Queue's test ids, the fixture's (×4). */
+const TASK_QUEUE_TEST_IDS = taskQueueSpec.testIds
 // EXP-529: multi-select options carry an explicit checkbox state (Android
 // parity) — the amber tint alone read as "nothing selected".
 
@@ -482,11 +507,10 @@ export function AgentSessionView({
 
   /** EXP-850 §3: the subagents that belong to a workflow card. */
   const workflowAgents = useMemo(() => workflowSubagentIds(feed), [feed])
-  /** §1/§2: background tasks + every OPEN wait row, above the composer. */
-  const stripLines = useMemo(
-    () => backgroundStripLines({ backgroundTasks, feed }),
-    [backgroundTasks, feed]
-  )
+  /** EXP-1321/1324: the Queue's two folds; the reader's toggles stick for
+   *  the session (to do opens by default, completed stays folded). */
+  const [queueTodoOpen, setQueueTodoOpen] = useState(true)
+  const [queueCompletedOpen, setQueueCompletedOpen] = useState(false)
   /** §4: the duplicate warnings a workflow card carries, by workflow id. */
   const workflowDuplicates = useMemo(() => {
     const byWorkflow = new Map<string, string[]>()
@@ -596,8 +620,9 @@ export function AgentSessionView({
         return null
       }
       return wrap(
-        <SubagentCardRow
+        <SubagentLineRow
           items={row.items}
+          live={live && !sessionEnded}
           onOpen={() => setAgentTab(row.subagentId)}
         />
       )
@@ -619,6 +644,14 @@ export function AgentSessionView({
     switch (item.kind) {
       case `narration`:
         return wrap(<NarrationBubble text={item.text} />)
+      case `thought`:
+        // EXP-1324: the reasoning line; still open only while the run lives.
+        return wrap(
+          <ThoughtRow
+            item={item}
+            running={!item.settled && live && !sessionEnded}
+          />
+        )
       case `tool`: {
         // EXP-850 §3: the `Workflow` call renders as its CARD.
         const workflow = item.workflowId
@@ -669,8 +702,9 @@ export function AgentSessionView({
       case `subagent`:
         if (nestedWorkflowId(item, workflowAgents, workflows)) return null
         return wrap(
-          <SubagentCardRow
+          <SubagentLineRow
             items={[item]}
+            live={live && !sessionEnded}
             onOpen={() => setAgentTab(item.subagentId)}
           />
         )
@@ -799,6 +833,7 @@ export function AgentSessionView({
                 <AgentConversation
                   summary={agents.find((a) => a.subagentId === activeAgent)}
                   items={agentItems}
+                  live={live && !sessionEnded}
                 />
               </div>
             ) : (
@@ -962,6 +997,17 @@ export function AgentSessionView({
             </div>
           </div>
         )}
+        {/* EXP-1321/1324: THE Queue — the agent's tasks, background work and
+            open waits as two Trace folds, right above the queued messages. */}
+        <TaskQueueStrip
+          taskList={taskList}
+          backgroundTasks={backgroundTasks}
+          feed={feed}
+          todoOpen={queueTodoOpen}
+          onTodoOpenChange={setQueueTodoOpen}
+          completedOpen={queueCompletedOpen}
+          onCompletedOpenChange={setQueueCompletedOpen}
+        />
         {/* EXP-861: the messages the agent has not read yet (an X revokes a
             held one). */}
         <QueueStrip
@@ -970,9 +1016,6 @@ export function AgentSessionView({
             store.unqueue(entry.id)
           }}
         />
-        {/* EXP-850 §1/§2 + EXP-927: background work, then the agent's own
-            task list, directly on the composer. */}
-        <BackgroundStrip lines={stripLines} taskList={taskList} />
         {/* EXP-1306 (EXP-820 ×4): a card waiting on the viewer takes the
             composer's place; the draft comes back with it. */}
         {composer && composerFloats && !composerYieldsToCard({ live, pendingAsk: pendingCard !== null }) ? (
@@ -993,8 +1036,8 @@ export function AgentSessionView({
 
 /** EXP-1323 (#EXP-1333): a THREAD's live tail ×4 — while the root's session
  *  is live the Conversation ends on the raw view's OWN transcript bottom
- *  (`BackgroundStrip`, THE Queue once EXP-1324 lands: one task UI) and ONE
- *  status line. Same relay store as the raw view (one connection per
+ *  (THE Queue, `TaskQueueStrip`, EXP-1324: one task UI) and ONE status
+ *  line. Same relay store as the raw view (one connection per
  *  session, shared); nothing while there is neither. */
 export function SessionLiveTail({ session }: { session: SessionRow }) {
   const store = useMemo(() => acquireSteerSession(session.id), [session.id])
@@ -1022,15 +1065,24 @@ export function SessionLiveTail({ session }: { session: SessionRow }) {
     blocked: session.blocked != null,
     compacting: compacting !== null,
   })
-  const lines = useMemo(
-    () => backgroundStripLines({ backgroundTasks, feed }),
-    [backgroundTasks, feed]
+  const [todoOpen, setTodoOpen] = useState(true)
+  const [completedOpen, setCompletedOpen] = useState(false)
+  const queue = useMemo(
+    () => sessionTaskQueue({ taskList, backgroundTasks, feed, now: Date.now() }),
+    [taskList, backgroundTasks, feed]
   )
-  const summary = useMemo(() => taskListSummary(taskList), [taskList])
-  if (summary === null && lines.length === 0 && !working) return null
+  if (queue === null && !working) return null
   return (
     <div data-testid="thread-live-tail" className="flex flex-col gap-2">
-      <BackgroundStrip lines={lines} taskList={taskList} />
+      <TaskQueueStrip
+        taskList={taskList}
+        backgroundTasks={backgroundTasks}
+        feed={feed}
+        todoOpen={todoOpen}
+        onTodoOpenChange={setTodoOpen}
+        completedOpen={completedOpen}
+        onCompletedOpenChange={setCompletedOpen}
+      />
       {working && (
         <WorkingIndicatorRow
           agent={session.cli}
@@ -1096,61 +1148,144 @@ function WorkingIndicatorRow({
   )
 }
 
-/** EXP-850 §1/§2: the strip directly above the composer — the agent's own
- *  task list first (EXP-927, wire doc §2c), then one line per background task
- *  the CLI is running (`↻`, the repeat concept; never an AGENT — a subagent
- *  is a conversation tab) and one per OPEN `wait` tool row ("Waiting on …").
- *  Absent when all three are empty; the wait row itself stays an ordinary
- *  tool row in the transcript. The content sits in the transcript's reading
- *  column; only the hairline spans the panel. */
-function BackgroundStrip({
-  lines,
-  taskList,
+/** One Trace line off a pure model (`@exp/domain-contract/trace`): the
+ *  concept icon, the title (shimmering while running), the muted
+ *  description. `trailing` rides after it (a chevron, a badge). */
+function TraceModelLine({
+  model,
+  description,
+  trailing,
+  tooltip,
 }: {
-  lines: BackgroundStripLine[]
-  taskList: TaskListEntry[]
+  model: TraceLineModel
+  /** Overrides the model's description slot (the subagent's badge). */
+  description?: ReactNode
+  trailing?: ReactNode
+  tooltip?: string
 }) {
-  const summary = useMemo(() => taskListSummary(taskList), [taskList])
-  if (lines.length === 0 && summary === null) return null
+  const Icon = conceptIcon(model.icon as Parameters<typeof conceptIcon>[0])
   return (
-    <div
-      className="py-1.5"
-      data-testid="session-background-strip"
-    >
-      <div className={cn(TRANSCRIPT_COLUMN, `flex flex-col gap-0.5`)}>
-        {lines.map((line) => (
-          <div
-            key={line.key}
-            className={cn(
-              `flex min-w-0 items-center gap-1.5 text-muted-foreground`,
-              TRANSCRIPT_TOOL_TEXT
-            )}
-          >
-            {line.kind === `task` ? (
-              <UiRepeatIcon className="size-3 shrink-0" />
-            ) : (
-              <UiLoadingIcon className="size-3 shrink-0 motion-safe:animate-spin" />
-            )}
-            <span className="min-w-0 truncate" title={line.text}>
-              {line.text}
-            </span>
-          </div>
-        ))}
-        {/* EXP-1191: the task list closes the strip, right on the composer.
-            EXP-1240: as the Work card. */}
-        {summary !== null && <TaskListCard entries={taskList} />}
-      </div>
-    </div>
+    <TraceLine status={model.status}>
+      <TraceIcon>
+        <Icon />
+      </TraceIcon>
+      <TraceTitle title={tooltip ?? model.title}>{model.title}</TraceTitle>
+      {description ??
+        (model.description ? (
+          <TraceDescription>{model.description}</TraceDescription>
+        ) : null)}
+      {trailing}
+    </TraceLine>
   )
 }
 
-/** EXP-927 (wire doc §2c): the agent's OWN task list, as THE Work card
- *  (EXP-1240): `Tasks · 3 / 7`, a segment per task, the task in progress. */
-function TaskListCard({ entries }: { entries: TaskListEntry[] }) {
-  const card = useMemo(() => taskListWorkCard(entries), [entries])
+/** EXP-1321/1324: THE Queue, the ONE block at the bottom of the transcript
+ *  (`taskQueue`, fixture `task-queue.json` ×4): "n to do" (open by default)
+ *  lists the running work — shimmering — then the pending tasks, muted;
+ *  "n completed" stays folded. It replaces the background-task / "Waiting
+ *  on" lines and the task-list Work card; a running background task's
+ *  elapsed time ticks once a second. Absent when nothing is left to do. */
+function TaskQueueStrip({
+  taskList,
+  backgroundTasks,
+  feed,
+  todoOpen,
+  onTodoOpenChange,
+  completedOpen,
+  onCompletedOpenChange,
+}: {
+  taskList: TaskListEntry[]
+  backgroundTasks: BackgroundTask[]
+  feed: readonly FeedItem[]
+  todoOpen: boolean
+  onTodoOpenChange: (open: boolean) => void
+  completedOpen: boolean
+  onCompletedOpenChange: (open: boolean) => void
+}) {
+  const ticking = backgroundTasks.some((task) => task.kind !== `agent`)
+  const now = useNow(ticking ? 1_000 : 60_000)
+  const model = useMemo(
+    () =>
+      sessionTaskQueue({ taskList, backgroundTasks, feed, now: now.getTime() }),
+    [taskList, backgroundTasks, feed, now]
+  )
+  if (model === null) return null
+  const sections = [
+    {
+      section: model.todo,
+      open: todoOpen,
+      onOpenChange: onTodoOpenChange,
+      testId: TASK_QUEUE_TEST_IDS.todo,
+    },
+    ...(model.completed
+      ? [
+          {
+            section: model.completed,
+            open: completedOpen,
+            onOpenChange: onCompletedOpenChange,
+            testId: TASK_QUEUE_TEST_IDS.completed,
+          },
+        ]
+      : []),
+  ]
   return (
-    <div data-testid="session-task-list">
-      <WorkCard card={card} className={TRANSCRIPT_TOOL_TEXT} />
+    <div
+      className="max-h-[40vh] overflow-y-auto py-1.5"
+      data-testid={TASK_QUEUE_TEST_IDS.queue}
+    >
+      <div className={TRANSCRIPT_COLUMN}>
+        <Trace size="sm">
+          {sections.map(({ section, open, onOpenChange, testId }) => {
+            const Icon = conceptIcon(section.icon as Parameters<typeof conceptIcon>[0])
+            return (
+              <TraceCollapsible
+                key={testId}
+                open={open}
+                onOpenChange={onOpenChange}
+                data-testid={testId}
+              >
+                <TraceCollapsibleTrigger>
+                  <TraceLine>
+                    <TraceIcon>
+                      <Icon />
+                    </TraceIcon>
+                    <TraceTitle>{section.title}</TraceTitle>
+                  </TraceLine>
+                </TraceCollapsibleTrigger>
+                <TraceCollapsibleContent>
+                  <div className="flex flex-col gap-1.5">
+                    {section.items.map((item) => {
+                      const ItemIcon = conceptIcon(
+                        item.icon as Parameters<typeof conceptIcon>[0]
+                      )
+                      return (
+                        <TraceLine
+                          key={item.key}
+                          status={
+                            item.state === `running`
+                              ? `running`
+                              : item.state === `pending` || item.state === `done`
+                                ? `pending`
+                                : null
+                          }
+                        >
+                          <TraceIcon>
+                            <ItemIcon />
+                          </TraceIcon>
+                          <TraceTitle title={item.label}>{item.label}</TraceTitle>
+                          {item.description && (
+                            <TraceDescription>{item.description}</TraceDescription>
+                          )}
+                        </TraceLine>
+                      )
+                    })}
+                  </div>
+                </TraceCollapsibleContent>
+              </TraceCollapsible>
+            )
+          })}
+        </Trace>
+      </div>
     </div>
   )
 }
@@ -1217,8 +1352,18 @@ function QueueStrip({
  *  IS a transcript, so its rows take the gap ladder (EXP-787); folded inside a
  *  group row the lane keeps the tighter uniform rhythm, with its tool rows
  *  flush against each other. */
-function LaneRows({ items, gaps = false }: { items: FeedItem[]; gaps?: boolean }) {
+function LaneRows({
+  items,
+  gaps = false,
+  live = false,
+}: {
+  items: FeedItem[]
+  gaps?: boolean
+  /** The lane's agent is still running: its newest unsettled call is live. */
+  live?: boolean
+}) {
   const rows = useMemo(() => groupLaneRows(items), [items])
+  const liveRowId = live ? liveToolRowId(items) : undefined
   return (
     <>
       {rows.map((row, index) => {
@@ -1227,11 +1372,11 @@ function LaneRows({ items, gaps = false }: { items: FeedItem[]; gaps?: boolean }
               index === 0 ? null : rowClass(rows[index - 1]),
               rowClass(row)
             )
-          : null
+          : `py-0.5`
         if (row.kind === `edits`) {
           return (
-            <div key={row.id} className={gap ?? `py-0.5`}>
-              <EditsCardRow items={row.items as ToolItem[]} liveRowId={null} />
+            <div key={row.id} className={gap}>
+              <EditsCardRow items={row.items as ToolItem[]} liveRowId={liveRowId ?? null} />
             </div>
           )
         }
@@ -1239,51 +1384,55 @@ function LaneRows({ items, gaps = false }: { items: FeedItem[]; gaps?: boolean }
         // row the transcript draws.
         if (row.kind === `expRun`) {
           return (
-            <div key={row.id} className={gap ?? `py-0.5`}>
+            <div key={row.id} className={gap}>
               <ExpToolGroupRow items={row.items as ToolItem[]} />
             </div>
           )
         }
+        // EXP-1324: a tab is a transcript — its runs are lines `lineGap`
+        // apart, never folded (the tab IS the agent's own detail).
         if (row.kind === `toolRun`) {
-          const tools = (row.items as ToolItem[]).map((tool) => (
-            <ToolRow key={tool.id} item={tool} />
-          ))
-          return gap === null ? (
-            <Fragment key={row.id}>{tools}</Fragment>
-          ) : (
-            <div key={row.id} className={gap}>
-              {tools}
+          return (
+            <div key={row.id} className={cn(gap, `flex flex-col gap-1.5`)}>
+              {(row.items as ToolItem[]).map((tool) => (
+                <ToolRow key={tool.id} item={tool} live={tool.id === liveRowId} />
+              ))}
             </div>
           )
         }
         if (row.kind === `subagent` || row.kind === `ask`) return null
         const item = row.item
         if (item.kind === `tool`) {
-          return gap === null ? (
-            <ToolRow key={item.id} item={item} />
-          ) : (
+          return (
             <div key={item.id} className={gap}>
-              <ToolRow item={item} />
+              <ToolRow item={item} live={item.id === liveRowId} />
+            </div>
+          )
+        }
+        if (item.kind === `thought`) {
+          return (
+            <div key={item.id} className={gap}>
+              <ThoughtRow item={item} running={live && !item.settled} />
             </div>
           )
         }
         if (item.kind === `narration`) {
           return (
-            <div key={item.id} className={gap ?? `py-0.5`}>
+            <div key={item.id} className={gap}>
               <NarrationBubble text={item.text} />
             </div>
           )
         }
         if (item.kind === `user_message`) {
           return (
-            <div key={item.id} className={gap ?? `py-0.5`}>
+            <div key={item.id} className={gap}>
               <UserMessageBubble text={item.text} />
             </div>
           )
         }
         if (item.kind === `api_error`) {
           return (
-            <div key={item.id} className={gap ?? `py-0.5`}>
+            <div key={item.id} className={gap}>
               <ApiErrorRow message={item.message} errorType={item.errorType} />
             </div>
           )
@@ -2223,26 +2372,85 @@ function WorkflowCardRow({
   )
 }
 
-/** A subagent's work (protocol v2) as THE Work card (EXP-1240): its name, the
- *  calls it made, done or running. The card opens the subagent's own tab,
- *  where its rows live. EXP-748: the count is what the publisher reported
- *  (`toolCount`), not the rows that survived the replay buffer. */
-function SubagentCardRow({
+/** EXP-1324: a subagent as its Trace line — "Running the Explore agent"
+ *  (shimmering) → "Ran the Explore agent" with the duration as an outline
+ *  badge (`traceSubagent`); the line opens the subagent's own tab, where its
+ *  rows live. The label is the agent's TYPE; the spawning call's description
+ *  rides the tooltip. */
+function SubagentLineRow({
   items,
+  live,
   onOpen,
 }: {
   items: FeedItem[]
+  /** The run is live: an unfinished subagent is still running. */
+  live: boolean
   onOpen: () => void
 }) {
   const summary = useMemo(() => summarizeSubagentRow(items), [items])
-  const card = useMemo(() => subagentWorkCard(summary), [summary])
+  const running = live && !summary.done
+  const now = useNow(running ? 1_000 : 3_600_000)
+  const durationMs = subagentDurationMs(
+    items as { kind: string; status?: string; at?: number }[],
+    now.getTime()
+  )
+  const type = summary.agentType.trim()
+  const model = traceSubagent({
+    label: type === SUBAGENT_FALLBACK_TYPE ? `` : type,
+    running,
+    failed: false,
+    // A finished agent whose completed edge carried no stamp has no span.
+    durationMs: summary.done || running ? durationMs : null,
+  })
   // EXP-856 §4: a second copy of this agent started while the first was still
   // running. Amber, verbatim off the wire, and never folded away.
   const duplicate = summary.duplicateDetail
   return (
-    <WorkCard card={card} onOpenSubagent={onOpen} className={TRANSCRIPT_TOOL_TEXT}>
+    <>
+      <Trace size="sm">
+        <button
+          type="button"
+          onClick={onOpen}
+          data-testid="session-subagent-line"
+        >
+          <TraceModelLine
+            model={model}
+            tooltip={subagentLabel(summary)}
+            description={
+              model.description ? (
+                <TraceDescription className="rounded-full border border-border px-1.5 text-[0.625rem] leading-4">
+                  {model.description}
+                </TraceDescription>
+              ) : null
+            }
+            trailing={
+              <TraceIcon>
+                <TraceChevronIcon />
+              </TraceIcon>
+            }
+          />
+        </button>
+      </Trace>
       <DuplicateWarnings details={duplicate ? [duplicate] : []} />
-    </WorkCard>
+    </>
+  )
+}
+
+/** EXP-1324: the agent's reasoning as its Trace line — "Thinking" while it
+ *  streams, "Thought for 5s" once its `ended` edge landed (`traceReasoning`).
+ *  Never collapsible: no text rides the wire. */
+function ThoughtRow({
+  item,
+  running,
+}: {
+  item: Extract<FeedItem, { kind: `thought` }>
+  running: boolean
+}) {
+  const model = traceReasoning({ running, durationMs: item.durationMs ?? null })
+  return (
+    <Trace size="sm" data-testid="session-thought-line">
+      <TraceModelLine model={model} />
+    </Trace>
   )
 }
 
@@ -2283,9 +2491,11 @@ function AgentTab({
 function AgentConversation({
   summary,
   items,
+  live,
 }: {
   summary?: SubagentSummary
   items: FeedItem[]
+  live: boolean
 }) {
   // A tab shows the agent's STREAM: its tool calls and the prose and user
   // turns the mapper stamped with its id. Its lifecycle edges and everything
@@ -2296,6 +2506,7 @@ function AgentConversation({
       items.filter(
         (item) =>
           item.kind === `tool` ||
+          item.kind === `thought` ||
           item.kind === `narration` ||
           item.kind === `user_message` ||
           item.kind === `api_error`
@@ -2336,30 +2547,28 @@ function AgentConversation({
       ) : (
         /* EXP-787: a subagent's conversation is a transcript too — same rows,
            same gap ladder. */
-        <LaneRows items={stream} gaps />
+        <LaneRows items={stream} gaps live={live && summary?.done !== true} />
       )}
     </>
   )
 }
 
-/** Tool-call headline — compact single line, consecutive rows visually tight.
- *  `flush` drops the row's own padding: in the main transcript the gap ladder
- *  (EXP-787) supplies the rhythm, while the rows NESTED in an expanded tool
- *  group or a subagent conversation keep their tighter inner one.
- *  EXP-786: an `edit` call's own unified diff renders under the headline in a
- *  bounded box (the publisher already cut it to the contract's caps; the cut
- *  note becomes a muted footer, never a diff line); a `failed` call is tinted
- *  rose. The pinned "Latest changes" bar is untouched — that is the whole
- *  worktree, this is the one call.
+/** EXP-1324: one tool call as its Trace line (`traceTool`): the kind's
+ *  icon, "Running ./gradlew …" (shimmering) → "Ran ./gradlew …", rose when
+ *  it failed. A settled call that printed is COLLAPSIBLE and opens onto its
+ *  output in the CodeBlock (`execute` = the `ansi` Terminal pattern, a failed
+ *  call the destructive block). A settled `execute` whose output parses as a
+ *  test run with failures IS the failed-tests line instead ("Failed: 1 of 12
+ *  tests in StartupBenchmark", `traceFailedTests`), its content the output.
  *
  *  EXP-1206: `live` — set for the ONE row `liveToolRowId` names, the call
- *  still RUNNING — is the headline ALONE: nothing streams under it, so the
- *  transcript never jumps while a command prints. A settled row is the
- *  headline plus its compact evidence (the `failed` chip), its output folded
- *  until the reader's own tap opens it. */
+ *  still RUNNING — is the line ALONE: nothing streams under it, so the
+ *  transcript never jumps while a command prints; a settled row's output
+ *  stays folded until the reader's own tap opens it. A call that never
+ *  settled and is not live (a publisher that died mid-call) reads settled. */
 function ToolRow({
   item,
-  flush = false,
+  flush = true,
   live = false,
 }: {
   item: ToolItem
@@ -2368,15 +2577,24 @@ function ToolRow({
   live?: boolean
 }) {
   const failed = item.failed === true
-  // EXP-1206: a settled row opens only on the reader's tap; a running one
-  // never does.
   const [pinned, setPinned] = useState(false)
   const open = !live && pinned
-  // EXP-846: one of OUR MCP tools reads as a sentence with our mark on it —
-  // "Created issue · <title>" plus the preview its answer carried — instead of
-  // the raw `mcp__exponential__exponential_issues_create`.
-  // EXP-1279: a code-mode call is its Script card — the calls it made,
-  // grouped by tool.
+  const model = useMemo(() => {
+    const settled = item.settled === true || !live
+    if (item.toolKind === `execute` && item.settled === true && item.output) {
+      const tests = traceFailedTests(parseTestResults(item.output))
+      if (tests) return tests
+    }
+    return traceTool({
+      toolKind: item.toolKind ?? `other`,
+      name: item.name,
+      detail: item.detail ?? null,
+      settled,
+      failed,
+    })
+  }, [item.toolKind, item.settled, item.output, item.name, item.detail, live, failed])
+  // EXP-846: one of OUR MCP tools reads as a sentence with our mark on it.
+  // EXP-1279: a code-mode call is its Script card.
   if (isScriptCall(item)) return <ScriptCallRow item={item} flush={flush} />
   const exp = expToolDisplay(item.name)
   // EXP-1241: a SETTLED comment call is the comment itself, in the comment
@@ -2388,61 +2606,33 @@ function ToolRow({
   ) {
     return <CommentCallRow item={item} />
   }
-  if (exp) return <ExpToolRow item={item} display={exp} flush={flush} />
-  const headline = (
-    <>
-      <CodingToolIcon
-        className={cn(
-          `size-3 shrink-0`,
-          failed ? `text-rose-400/70` : `text-muted-foreground/60`
-        )}
-      />
-      <span className="shrink-0 font-medium">{item.name}</span>
-      {item.detail && (
-        <span
-          className={cn(
-            `truncate font-mono text-[0.6875rem]`,
-            failed ? `text-rose-400/80` : `text-muted-foreground`
-          )}
-          title={item.detail}
-        >
-          {item.detail}
-        </span>
-      )}
-      {failed && <span className="shrink-0 text-[0.6875rem]">failed</span>}
-    </>
-  )
-  const headlineClassName = cn(
-    `flex min-w-0 items-center gap-2`,
-    TRANSCRIPT_TOOL_TEXT,
-    failed && `text-rose-400`
-  )
+  if (exp) return <ExpToolRow item={item} display={exp} live={live} />
+  const tooltip =
+    item.detail && model.description === null ? item.detail : undefined
+  if (item.output === undefined || live) {
+    return (
+      <Trace size="sm" data-testid="session-tool-line">
+        <TraceModelLine model={model} tooltip={tooltip} />
+      </Trace>
+    )
+  }
   return (
-    <div className={cn(`min-w-0 pl-0.5`, !flush && `py-0.5`)}>
-      {item.output === undefined || live ? (
-        <div className={headlineClassName}>{headline}</div>
-      ) : (
-        // The output is the only thing a row-level toggle has to reveal —
-        // EXP-916 moved an edit's patch into its run's edited-files card.
-        // The chevron sits on the TRAILING edge (iOS/Android parity): a
-        // leading one would indent the log-carrying rows out of line with
-        // every other tool row in the same run.
-        <DisclosureHeader
-          chevron="trailing"
-          open={open}
-          onToggle={() => setPinned(!open)}
+    <Trace size="sm" data-testid="session-tool-line">
+      <TraceCollapsible open={open} onOpenChange={setPinned}>
+        <TraceCollapsibleTrigger
           aria-label={open ? `Hide the output` : `Show the output`}
-          className={headlineClassName}
         >
-          {headline}
-        </DisclosureHeader>
-      )}
-      {/* EXP-916: an edit call's patch belongs to the edited-files CARD its
-          run forms (`groupFeedRows`), never to a lone tool row. */}
-      {open && item.output !== undefined && (
-        <ToolOutput output={item.output} />
-      )}
-    </div>
+          <TraceModelLine model={model} tooltip={tooltip} />
+        </TraceCollapsibleTrigger>
+        <TraceCollapsibleContent>
+          <ToolOutput
+            output={item.output}
+            language={item.toolKind === `execute` ? `ansi` : `plain`}
+            failed={failed || model.icon === `trace-failed`}
+          />
+        </TraceCollapsibleContent>
+      </TraceCollapsible>
+    </Trace>
   )
 }
 
@@ -2465,27 +2655,48 @@ function ScriptCallRow({ item, flush }: { item: ToolItem; flush: boolean }) {
   )
 }
 
-/** EXP-895 — what one `execute` call printed, as its settle put it on the wire:
- *  already redacted and tail-cut by the publisher, so this only has to be a
- *  readable box. A cut output OPENS with the `\ N more lines truncated` marker
- *  (the dropped lines were at the front, unlike a patch's trailing note), which
- *  reads as the first line of the log and needs no parsing.
- *
- *  Scrolled to the BOTTOM on mount: the verdict is the last line, and it is why
- *  the output is on the wire at all. */
-const ToolOutput = memo(function ToolOutput({ output }: { output: string }) {
+/** EXP-895 — what one `execute` call printed, as its settle put it on the
+ *  wire (already redacted and tail-cut by the publisher; a cut output OPENS
+ *  with the `\ N more lines truncated` marker). EXP-1324: THE CodeBlock at
+ *  size sm, titled `Output` with the copy action; `ansi` colours command
+ *  output (the escapes never reach the text), a failed call is destructive.
+ *  Scrolled to the BOTTOM on mount: the verdict is the last line. */
+// eslint-disable-next-line no-control-regex
+const ANSI_ESCAPES = /\u001b\[[0-?]*[ -/]*[@-~]/g
+const ToolOutput = memo(function ToolOutput({
+  output,
+  language,
+  failed,
+}: {
+  output: string
+  language: string
+  failed: boolean
+}) {
   const box = useRef<HTMLPreElement | null>(null)
   useEffect(() => {
     const node = box.current
     if (node) node.scrollTop = node.scrollHeight
   }, [output])
+  const text = useMemo(() => output.replace(ANSI_ESCAPES, ``), [output])
   return (
-    <pre
-      ref={box}
-      className="mt-1 max-h-72 overflow-auto overscroll-contain whitespace-pre-wrap break-words rounded-md border border-border/60 px-2 py-1.5 font-mono text-[0.6875rem] leading-relaxed text-muted-foreground"
+    <CodeBlock
+      size="sm"
+      variant={failed ? `destructive` : `default`}
+      data-testid="session-tool-output"
     >
-      {output}
-    </pre>
+      <CodeBlockHeader>
+        <CodeBlockTitle>{TRACE_COPY.output}</CodeBlockTitle>
+        <CodeBlockActions>
+          <CodeBlockCopyButton
+            value={text}
+            labels={{ copy: TRACE_COPY.copy, copied: TRACE_COPY.copied }}
+          />
+        </CodeBlockActions>
+      </CodeBlockHeader>
+      <CodeBlockContent ref={box} language={language}>
+        {output}
+      </CodeBlockContent>
+    </CodeBlock>
   )
 })
 
@@ -2523,11 +2734,11 @@ function ShownPicture({ item }: { item: ToolItem }) {
 function ExpToolRow({
   item,
   display,
-  flush = false,
+  live = false,
 }: {
   item: ToolItem
   display: ExpToolDisplay
-  flush?: boolean
+  live?: boolean
 }) {
   const failed = item.failed === true
   const caption = expToolCaption(display, item.settled === true)
@@ -2547,37 +2758,28 @@ function ExpToolRow({
         item.preview?.identifier ??
         item.detail)
       : item.detail) ?? null
+  // EXP-1324: our call is a Trace line too — the mark, the sentence, the
+  // subject muted after it; rose when it failed, shimmering while it runs.
+  const status = failed
+    ? (`error` as const)
+    : live && item.settled !== true
+      ? (`running` as const)
+      : null
   return (
-    <div className={cn(`min-w-0 pl-0.5`, !flush && `py-0.5`)}>
-      <div
-        className={cn(
-          `flex min-w-0 items-center gap-2`,
-          TRANSCRIPT_TOOL_TEXT,
-          failed && `text-rose-400`
-        )}
-      >
-        <ExponentialLogo
-          variant="light"
-          size={12}
-          className={cn(
-            `size-3 shrink-0`,
-            failed ? `text-rose-400/70` : `text-muted-foreground/60`
-          )}
-        />
-        <span className="shrink-0 font-medium">{caption}</span>
-        {subject && (
-          <span
-            className={cn(
-              `truncate text-[0.6875rem]`,
-              failed ? `text-rose-400/80` : `text-muted-foreground`
+    <div className="min-w-0">
+      <Trace size="sm" data-testid="session-exp-tool-line">
+        <TraceLine status={status}>
+          <TraceIcon>
+            <ExponentialLogo variant="light" size={14} className="size-full" />
+          </TraceIcon>
+          <TraceTitle title={subject ? `${caption} ${subject}` : caption}>
+            {caption}
+            {subject && (
+              <span className="text-muted-foreground/70">{` ${subject}`}</span>
             )}
-            title={subject}
-          >
-            {subject}
-          </span>
-        )}
-        {failed && <span className="shrink-0 text-[0.6875rem]">failed</span>}
-      </div>
+          </TraceTitle>
+        </TraceLine>
+      </Trace>
       {!failed && display.result === `picture` && item.settled === true ? (
         <ShownPicture item={item} />
       ) : (
@@ -2742,10 +2944,11 @@ function EditsCardRow({
 /** A run of ≥2 consecutive tool calls collapsed into one row (EXP-97),
  *  expandable to the individual rows. EXP-785: the caption is the contract's
  *  `toolGroupSummary` over the rows' kinds ("Ran 4 commands · edited 2 files
- *  · 1 failed"), byte-identical on every client. While the run is the
- *  trailing row of a live session, the latest call's HEADLINE stays visible
- *  under the caption so the viewer still sees live progress (EXP-1206: never
- *  its output). */
+ *  · 1 failed"), byte-identical on every client. EXP-1324: the fold is a
+ *  TraceCollapsible over the members' own Trace lines. While the run is the
+ *  trailing row of a live session, the caption shimmers and the latest
+ *  call's LINE stays visible under it while folded, so the viewer still sees
+ *  live progress (EXP-1206: never its output). */
 function ToolGroupRow({
   items,
   liveTail,
@@ -2757,37 +2960,36 @@ function ToolGroupRow({
   const latest = items[items.length - 1]
   const caption = useMemo(() => toolGroupCaption(items), [items])
   return (
-    <div className="min-w-0">
-      <DisclosureHeader
-        open={expanded}
-        onToggle={() => setExpanded((v) => !v)}
-        className={cn(`pl-0.5`, TRANSCRIPT_TOOL_TEXT)}
-      >
-        <CodingToolIcon className="size-3 shrink-0 text-muted-foreground/60" />
-        <span className="min-w-0 truncate font-medium" title={caption}>
-          {caption}
-        </span>
-      </DisclosureHeader>
-      {expanded ? (
-        <div className="ml-5">
-          {items.map((item) => (
-            // EXP-1206: the RUNNING call is its headline alone — the same
-            // rule the top-level rows follow.
-            <ToolRow
-              key={item.id}
-              item={item}
-              live={liveTail && item.id === latest.id}
-            />
-          ))}
-        </div>
-      ) : (
-        liveTail && (
-          <div className="ml-5">
-            <ToolRow item={latest} live />
+    <Trace size="sm" data-testid="session-tool-group">
+      <TraceCollapsible open={expanded} onOpenChange={setExpanded}>
+        <TraceCollapsibleTrigger>
+          <TraceLine status={liveTail ? `running` : null}>
+            <TraceIcon>
+              <TraceToolIcon />
+            </TraceIcon>
+            <TraceTitle title={caption}>{caption}</TraceTitle>
+          </TraceLine>
+        </TraceCollapsibleTrigger>
+        <TraceCollapsibleContent>
+          <div className="flex flex-col gap-1.5">
+            {items.map((item) => (
+              // EXP-1206: the RUNNING call is its line alone — the same rule
+              // the top-level rows follow.
+              <ToolRow
+                key={item.id}
+                item={item}
+                live={liveTail && item.id === latest.id}
+              />
+            ))}
           </div>
-        )
+        </TraceCollapsibleContent>
+      </TraceCollapsible>
+      {!expanded && liveTail && (
+        <div className="pl-5">
+          <ToolRow item={latest} live />
+        </div>
       )}
-    </div>
+    </Trace>
   )
 }
 
@@ -2801,39 +3003,35 @@ function ExpToolGroupRow({ items }: { items: ToolItem[] }) {
   const [expanded, setExpanded] = useState(false)
   const caption = useMemo(() => expToolGroupCaption(items), [items])
   return (
-    <div className="min-w-0">
-      <DisclosureHeader
-        open={expanded}
-        onToggle={() => setExpanded((v) => !v)}
-        className={cn(`pl-0.5`, TRANSCRIPT_TOOL_TEXT)}
-      >
-        <ExponentialLogo
-          variant="light"
-          size={12}
-          className="size-3 shrink-0 text-muted-foreground/60"
-        />
-        <span className="min-w-0 truncate font-medium" title={caption}>
-          {caption}
-        </span>
-      </DisclosureHeader>
-      {expanded ? (
-        <div className="ml-5">
-          {items.map((item) => (
-            <ToolRow key={item.id} item={item} />
-          ))}
-        </div>
-      ) : (
-        // EXP-1172: a run of show calls keeps its pictures in view while
-        // folded — a picture never hides in a fold (open, each row has its
-        // own).
+    <Trace size="sm" data-testid="session-exp-tool-group">
+      <TraceCollapsible open={expanded} onOpenChange={setExpanded}>
+        <TraceCollapsibleTrigger>
+          <TraceLine>
+            <TraceIcon>
+              <ExponentialLogo variant="light" size={14} className="size-full" />
+            </TraceIcon>
+            <TraceTitle title={caption}>{caption}</TraceTitle>
+          </TraceLine>
+        </TraceCollapsibleTrigger>
+        <TraceCollapsibleContent>
+          <div className="flex flex-col gap-1.5">
+            {items.map((item) => (
+              <ToolRow key={item.id} item={item} />
+            ))}
+          </div>
+        </TraceCollapsibleContent>
+      </TraceCollapsible>
+      {/* EXP-1172: a run of show calls keeps its pictures in view while
+          folded — a picture never hides in a fold (open, each row has its
+          own). */}
+      {!expanded &&
         items.map((item) =>
           item.settled === true &&
           item.failed !== true &&
           expToolDisplay(item.name)?.result === `picture` ? (
             <ShownPicture key={item.id} item={item} />
           ) : null
-        )
-      )}
-    </div>
+        )}
+    </Trace>
   )
 }

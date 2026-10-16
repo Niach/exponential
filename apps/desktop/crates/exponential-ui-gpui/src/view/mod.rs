@@ -824,6 +824,12 @@ impl SurfaceView {
         Some((self.styles.get(i).and_then(|s| s.bg), *self.inks.get(i)?))
     }
 
+    /// The box style node `id` paints with now (mid-transition when one
+    /// runs): a test and automation aid like [`Self::painted_colors`].
+    pub fn painted_style(&self, id: &str) -> Option<crate::paint::PaintStyle> {
+        Some(self.shown_style(self.index_of(id)?))
+    }
+
     /// The surface's origin in window coordinates (as of the last frame).
     pub fn origin(&self) -> gpui::Point<Pixels> {
         self.origin

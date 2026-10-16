@@ -39,6 +39,8 @@ import com.exponential.app.ui.styleguide.FeedbackStatesScreen
 import com.exponential.app.ui.styleguide.FeedbackStatesScreenTestId
 import com.exponential.app.ui.styleguide.ThreadCardsKind
 import com.exponential.app.ui.styleguide.ThreadCardsScreen
+import com.exponential.app.ui.styleguide.TraceSpecimenKind
+import com.exponential.app.ui.styleguide.TraceSpecimenScreen
 import com.exponential.app.ui.theme.ExponentialTheme
 import com.exponential.app.domain.IssueDraftPage
 import com.exponential.app.ui.onboarding.OnboardingTestHooks
@@ -81,7 +83,7 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  *   sg_onboarding-devices · sg_agent-home · sg_search-list ·
  *   sg_getting-started · sg_feedback-states · sg_work-card ·
  *   sg_script-card · sg_comment-call-card · sg_thread · sg_agent-channel ·
- *   sg_session
+ *   sg_session · sg_trace · sg_code-block
  *
  * EXP-1295 retired `sg_chat-action` and `sg_action-create` (the builtin
  * actions and the action create sheet left the catalog), renamed the
@@ -154,6 +156,7 @@ class StyleguideScreenshotsTest {
         private val CAPTURE_SHOTS = setOf(
             "sg_feedback-states", "sg_work-card",
             "sg_script-card", "sg_comment-call-card",
+            "sg_trace", "sg_code-block",
         )
 
         // APP-5 — the only seeded issue with a comment thread.
@@ -998,6 +1001,14 @@ class StyleguideScreenshotsTest {
         flow.screenshot("sg_script-card")
         showThreadCards(ThreadCardsKind.Comment)
         flow.screenshot("sg_comment-call-card")
+
+        // --- sg_trace · sg_code-block: THE Trace (+ the Queue) and THE
+        // CodeBlock (EXP-1324), the same specimens as the web islands, drawn
+        // by the real primitives on a capture-only screen.
+        show(TraceSpecimenKind.Trace.testId) { TraceSpecimenScreen(TraceSpecimenKind.Trace) }
+        flow.screenshot("sg_trace")
+        show(TraceSpecimenKind.CodeBlock.testId) { TraceSpecimenScreen(TraceSpecimenKind.CodeBlock) }
+        flow.screenshot("sg_code-block")
 
         finished = true
     }

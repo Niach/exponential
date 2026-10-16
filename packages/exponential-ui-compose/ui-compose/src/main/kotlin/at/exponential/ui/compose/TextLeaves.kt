@@ -95,11 +95,13 @@ internal fun TextLeaf(cx: LeafContext) {
     val lines = cx.node.lines
     val text = cx.props.shownText("text")
     if (text.isEmpty()) return
+    // EXP-1324 `shimmer`: the glyphs filled with the moving gradient.
+    val shimmer = textShimmerBrush(cx)
     InnerBox(cx) {
         BasicText(
             cx.shown(text),
             modifier = Modifier.textSlack(textBias(align, cx.rtl)).fillMaxSize(),
-            style = cx.composeTextStyle(align = align),
+            style = cx.composeTextStyle(align = align).let { if (shimmer != null) it.copy(brush = shimmer) else it },
             softWrap = lines != 1,
             maxLines = lines ?: Int.MAX_VALUE,
             overflow = if (lines != null) TextOverflow.Ellipsis else TextOverflow.Clip,

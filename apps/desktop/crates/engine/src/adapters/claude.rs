@@ -3052,6 +3052,8 @@ impl ClaudeSession {
                                         .get("tool_use_id")
                                         .and_then(Value::as_str)
                                         .map(str::to_string),
+                                    // The mapper stamps the engine's first sight.
+                                    started_at: None,
                                 })
                             })
                             .collect()
@@ -6563,6 +6565,7 @@ mod tests {
             kind: steer::BackgroundTaskKind::Agent,
             description: "web lane".to_string(),
             tool_id: None,
+            started_at: None,
         }];
         assert_eq!(expired_tasks(&state), vec!["lost".to_string()]);
         // Neither overdue task defers the settle any more.

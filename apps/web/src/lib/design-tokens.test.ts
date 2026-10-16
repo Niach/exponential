@@ -25,6 +25,7 @@ const tokens = JSON.parse(
     duration: Record<string, number>
     ease: Record<string, number[]>
     scale: Record<string, number>
+    shimmer: Record<string, number>
   }
   transcript: Record<string, number | string>
   menu: { pointer: Record<string, number>; touch: Record<string, number> }
@@ -267,6 +268,26 @@ describe(`design-tokens parity with web styles.css`, () => {
         `tokens.motion.scale.${key} should equal --${cssVar} in styles.css`
       ).toBe(`${factor}`)
     }
+  })
+
+  // EXP-1324: the running Trace title's shimmer. The utility is shadcn's
+  // (`@import "shadcn/tailwind.css"`); styles.css pins its knobs to the
+  // token, and the utility's dark arm must still be the token's highlight
+  // rule, or the four clients stop looping alike.
+  it(`the shimmer knobs match motion.shimmer`, () => {
+    const s = tokens.motion.shimmer
+    expect(rootVars[`shimmer-duration`]).toBe(`${s.durationMs}ms`)
+    expect(rootVars[`shimmer-angle`]).toBe(`${s.angleDeg}deg`)
+    expect(rootVars[`shimmer-spread`]).toBe(`${s.spreadPx}px`)
+    expect(stylesCss).toContain(`@import "shadcn/tailwind.css";`)
+    const shadcnCss = readFileSync(
+      join(repoRoot, `node_modules/shadcn/dist/tailwind.css`),
+      `utf8`
+    ).replace(/\s+/g, ` `)
+    expect(shadcnCss).toContain(
+      `oklch(from currentColor max(${s.highlightLightnessMin}, calc(l + ${s.highlightLightnessBoost})) c h / calc(alpha + ${s.highlightAlphaBoost}))`
+    )
+    expect(shadcnCss).toContain(`animation: tw-shimmer var(--shimmer-duration, 2s) linear infinite;`)
   })
 
   // EXP-787: the transcript's measure and rhythm. Theme-invariant like the

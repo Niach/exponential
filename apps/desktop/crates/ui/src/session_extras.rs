@@ -14,8 +14,8 @@
 //! ([`steer::truncate_unified_diff`] at `TOOL_DIFF_MAX_LINES`/`_BYTES`), so a
 //! local and a remote viewer of one run show the same prefix of one edit; the
 //! header says how many lines were dropped. A remote viewer renders the
-//! wire's own per-call diff and settled output through the same cards
-//! ([`render_wire_extras`]).
+//! wire's own per-call diff through the same card; a settled call's output
+//! is its Trace line's Output CodeBlock (EXP-1324, `crate::code_block`).
 //!
 //! The join is the tricky part and is worth stating once: the wire `tool`
 //! event carries no id (`FeedKind::Tool` is `{name, detail, subagent_id}`),
@@ -65,13 +65,6 @@ use crate::icons::registry;
 /// stays free of the hosting view's type.
 pub(crate) type CardClick = Box<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
 
-/// Lines of an output card kept — the tail, because a command's verdict is at
-/// the end. Same cap the CLI attach printer applies.
-pub(crate) const OUTPUT_LINES_MAX: usize = 200;
-
-/// Rows of an OUTPUT card shown before it folds behind "Show more".
-const OUTPUT_PREVIEW_ROWS: usize = 12;
-
 /// A tool call's local extras, accumulated as the engine reports them.
 #[derive(Default)]
 pub(crate) struct ToolExtras {
@@ -82,15 +75,6 @@ pub(crate) struct ToolExtras {
     edits: String,
 }
 
-/// A settled call's output as the card draws it (the wire's, see
-/// [`OutputCard::from_wire`]).
-#[derive(Default)]
-struct OutputCard {
-    lines: Vec<String>,
-    /// A partial last line waiting for its newline.
-    partial: String,
-}
-
 /// Everything local a transcript accumulated: the per-tool-call extras.
 #[derive(Default)]
 pub(crate) struct LocalExtras {
@@ -99,7 +83,16 @@ pub(crate) struct LocalExtras {
     by_item: HashMap<FeedItemId, String>,
     /// EXP-783: `by_item` in bind order, so the cap evicts the OLDEST rows.
     bound: std::collections::VecDeque<FeedItemId>,
+    /// EXP-1324: the chain of thought this run's engine kept LOCAL (the wire
+    /// carries only a thought's edges), by the `thought` row's id — what the
+    /// desktop's own Reasoning line opens to. Oldest evicted past
+    /// [`THOUGHTS_CAP`].
+    thoughts: HashMap<String, String>,
+    thought_order: std::collections::VecDeque<String>,
 }
+
+/// EXP-1324 — how many thoughts keep their text.
+const THOUGHTS_CAP: usize = 500;
 
 /// EXP-783 — how many feed rows may carry extras at once.
 ///
@@ -152,7 +145,23 @@ impl LocalExtras {
             // EXP-791: the plan reaches the reader through the answer card
             // and the transcript, and a thought is transcript too — neither
             // is pinned state here any more.
-            engine::LocalFeedEvent::Plan { .. } | engine::LocalFeedEvent::Thought { .. } => {}
+            engine::LocalFeedEvent::Plan { .. } => {}
+            // EXP-1324: a thought's TEXT, keyed by its wire id — the
+            // Reasoning line the `thought` edges paint opens to it.
+            engine::LocalFeedEvent::Thought { message_id, text } => {
+                let Some(id) = message_id else { return };
+                let entry = self.thoughts.entry(id.clone()).or_insert_with(|| {
+                    self.thought_order.push_back(id);
+                    String::new()
+                });
+                // Flushes of one thought are pieces of one stream.
+                entry.push_str(&text);
+                while self.thought_order.len() > THOUGHTS_CAP {
+                    if let Some(oldest) = self.thought_order.pop_front() {
+                        self.thoughts.remove(&oldest);
+                    }
+                }
+            }
             // A tool card's header is already the feed's `tool` row — the
             // status/locations it carries add nothing the row does not show,
             // and a second header per call would double every line.
@@ -176,6 +185,15 @@ impl LocalExtras {
         self.by_tool_call.retain(|id, _| live.contains(id.as_str()));
     }
 
+    /// EXP-1324: the text of the thought `thought_id`, when this run's own
+    /// engine kept it (a remote viewer has none).
+    pub(crate) fn thought_text(&self, thought_id: &str) -> Option<&str> {
+        self.thoughts
+            .get(thought_id)
+            .map(String::as_str)
+            .filter(|text| !text.trim().is_empty())
+    }
+
     fn for_item(&self, item: FeedItemId) -> Option<&ToolExtras> {
         self.by_tool_call.get(self.by_item.get(&item)?)
     }
@@ -194,54 +212,6 @@ impl LocalExtras {
         self.for_item(item)
             .map(|extras| extras.edits.as_str())
             .filter(|patch| !patch.is_empty())
-    }
-}
-
-impl OutputCard {
-    fn push(&mut self, chunk: &str) {
-        self.partial.push_str(chunk);
-        while let Some(newline) = self.partial.find('\n') {
-            let line: String = self.partial.drain(..=newline).collect();
-            self.lines.push(line.trim_end_matches(['\n', '\r']).to_string());
-        }
-        self.trim();
-    }
-
-    fn finish(&mut self) {
-        if !self.partial.is_empty() {
-            let last = std::mem::take(&mut self.partial);
-            self.lines.push(last);
-        }
-        self.trim();
-    }
-
-    /// Keep the TAIL: a command's verdict is at the end, and an unbounded
-    /// buffer of a `yarn install` is megabytes of nothing.
-    fn trim(&mut self) {
-        if self.lines.len() > OUTPUT_LINES_MAX {
-            let overflow = self.lines.len() - OUTPUT_LINES_MAX;
-            self.lines.drain(..overflow);
-        }
-    }
-
-    fn rows(&self) -> Vec<String> {
-        let mut rows = self.lines.clone();
-        if !self.partial.is_empty() {
-            rows.push(self.partial.clone());
-        }
-        rows
-    }
-
-    /// EXP-895 — the WIRE's settled output as a card, so a local and a remote
-    /// viewer of one run read the SAME thing once a command ends. The publisher
-    /// already redacted it and cut it to the contract's caps; its leading
-    /// `\ N more lines truncated` marker is simply the log's first line. No exit
-    /// code rides the wire, so the tool row's own `failed` tint is the verdict.
-    fn from_wire(text: &str) -> Self {
-        let mut card = OutputCard::default();
-        card.push(text);
-        card.finish();
-        card
     }
 }
 
@@ -283,32 +253,6 @@ fn tool_edit_patch(path: PathBuf, old_text: Option<&str>, new_text: &str) -> Opt
     }
     tool_diff_file(&kept)?;
     Some(kept)
-}
-
-// ---------------------------------------------------------------------------
-// Rendering
-// ---------------------------------------------------------------------------
-
-/// The `Show more` / `Show less` line under a folded output card — the shared
-/// in-place text toggle (EXP-963, [`controls::text_button`]), not a hand-rolled
-/// muted line of its own.
-fn fold_toggle(
-    item: FeedItemId,
-    expanded: bool,
-    on_toggle: CardClick,
-    cx: &App,
-) -> gpui::Stateful<gpui::Div> {
-    text_button(
-        ("session-extras-toggle", item as usize),
-        if expanded { "Show less" } else { "Show more" },
-        TextButtonVariant::Text,
-        cx,
-    )
-    .mt_0p5()
-    .on_click(move |event: &ClickEvent, window, cx| {
-        cx.stop_propagation();
-        on_toggle(event, window, cx);
-    })
 }
 
 // ---------------------------------------------------------------------------
@@ -643,65 +587,6 @@ fn edit_row_stub(row: &domain::edit_card::EditCardRow, cx: &App) -> AnyElement {
     line.into_any_element()
 }
 
-fn render_output_card(output: &OutputCard, expanded: bool, cx: &App) -> AnyElement {
-    let muted = cx.theme().muted_foreground;
-    let rows = output.rows();
-    let shown = if expanded {
-        rows.len()
-    } else {
-        rows.len().min(OUTPUT_PREVIEW_ROWS)
-    };
-    // The TAIL is what matters, so a collapsed card shows the last rows.
-    let skip = rows.len().saturating_sub(shown);
-    let mut lines = v_flex().w_full().min_w_0();
-    for line in rows.iter().skip(skip) {
-        lines = lines.child(
-            div()
-                .w_full()
-                .min_w_0()
-                .truncate()
-                .text_2xs()
-                .text_color(muted)
-                .font_family(theme::terminal::FONT_FAMILY)
-                .child(SharedString::from(line.clone())),
-        );
-    }
-    let mut card = crate::surface::glass_row_card()
-        .w_full()
-        .min_w_0()
-        .px_2()
-        .py_1p5();
-    card = card.child(lines);
-    card.into_any_element()
-}
-
-/// EXP-895/EXP-916 — a row's WIRE evidence: what an `execute` call printed
-/// once it settled. The publisher's own cut is what shows (an output's LEADING
-/// `\ N more lines truncated` marker) and nothing is re-truncated here.
-///
-/// This is the SETTLED row's renderer on every client, the desktop runner
-/// included (EXP-895 runner parity); a RUNNING row has none (EXP-1206).
-/// Collapsed, the row is its headline alone; the reader's Show more opens the
-/// log. An EDIT row has
-/// nothing here — its patch belongs to the edited-files card (EXP-916).
-pub(crate) fn render_wire_extras(
-    output: Option<&str>,
-    item: FeedItemId,
-    expanded: bool,
-    on_toggle: CardClick,
-    cx: &App,
-) -> Option<AnyElement> {
-    let printed = output.filter(|text| !text.trim().is_empty())?;
-    let mut column = v_flex().w_full().min_w_0().gap_1().pl_5().pt_1();
-    // A settled log is COMPACT until it is asked for: the headline already
-    // says what ran and whether it failed.
-    if expanded {
-        column = column.child(render_output_card(&OutputCard::from_wire(printed), true, cx));
-    }
-    column = column.child(fold_toggle(item, expanded, on_toggle, cx));
-    Some(column.into_any_element())
-}
-
 /// The read of ONE steering value: the session MODE ([`mode_chip`]) or one
 /// `config_state.options` entry ([`option_chip`]). EXP-772 took the mid-session
 /// pickers away; EXP-877 brought back exactly one read, the model.
@@ -981,48 +866,6 @@ mod tests {
         // No file, no card; a hunk-less patch is no card either.
         assert!(tool_diff_file("nothing here").is_none());
         assert!(tool_diff_file("--- a/x\n+++ b/x\n").is_none());
-    }
-
-    /// The output card keeps the TAIL and folds partial chunks into lines —
-    /// a streamed build log arrives byte-wise, not line-wise.
-    #[test]
-    fn output_streams_into_lines_and_keeps_the_tail() {
-        let mut card = OutputCard::default();
-        card.push("one\ntw");
-        card.push("o\n");
-        assert_eq!(card.rows(), vec!["one".to_string(), "two".to_string()]);
-        for n in 0..OUTPUT_LINES_MAX + 5 {
-            card.push(&format!("line {n}\n"));
-        }
-        assert_eq!(card.rows().len(), OUTPUT_LINES_MAX);
-        assert_eq!(
-            card.rows().last().map(String::as_str),
-            Some(format!("line {}", OUTPUT_LINES_MAX + 4).as_str())
-        );
-        // A chunk with no trailing newline still shows, and the finish keeps
-        // it as the last line.
-        let mut card = OutputCard::default();
-        card.push("no newline");
-        assert_eq!(card.rows(), vec!["no newline".to_string()]);
-        card.finish();
-        assert_eq!(card.lines, vec!["no newline".to_string()]);
-    }
-
-    /// EXP-895: the WIRE's settled output reads as a card of its own — the
-    /// publisher's leading `\ N more lines truncated` marker is simply the
-    /// log's first line, nothing is live, and no exit code rides the wire.
-    #[test]
-    fn the_wire_output_becomes_a_finished_card_marker_line_and_all() {
-        let card = OutputCard::from_wire("\\ 12 more lines truncated\n42 passed\n");
-        assert_eq!(
-            card.rows(),
-            vec!["\\ 12 more lines truncated".to_string(), "42 passed".to_string()]
-        );
-        // A log with no trailing newline keeps its last word, and the card is
-        // still capped at the local window.
-        assert_eq!(OutputCard::from_wire("done").rows(), vec!["done".to_string()]);
-        let long: String = (0..OUTPUT_LINES_MAX + 20).map(|n| format!("l{n}\n")).collect();
-        assert_eq!(OutputCard::from_wire(&long).rows().len(), OUTPUT_LINES_MAX);
     }
 
     /// EXP-1206: a RUNNING command's output and its live terminal never

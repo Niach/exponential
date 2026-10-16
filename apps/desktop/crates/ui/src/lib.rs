@@ -169,6 +169,9 @@ mod thread_screen;
 mod threads_view;
 mod work_card;
 mod script_card;
+// EXP-1324: THE Trace + THE CodeBlock.
+mod trace;
+mod code_block;
 // EXP-1005: the account-rotation wall beat.
 mod account_rotation_host;
 pub mod steer_wiring;

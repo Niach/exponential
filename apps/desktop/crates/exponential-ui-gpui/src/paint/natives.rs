@@ -50,6 +50,9 @@ pub struct LeafCx<'a> {
     pub rtl: bool,
     /// The platform asked for reduced motion.
     pub reduced_motion: bool,
+    /// EXP-1324: a shimmering Text's gradient now (`None` = plain ink;
+    /// reduced motion never shimmers).
+    pub shimmer: Option<ShimmerPaint>,
     /// The leaf's corner radii after its clipping ancestors' (an image in a
     /// rounded card clips to the card's corners).
     pub radii: [f32; 4],
@@ -201,6 +204,8 @@ pub struct TrackedLine {
     pub last_shift: f32,
     pub cut: bool,
     pub underline: Option<(f32, f32)>,
+    /// Each painted glyph's colour (a shimmer varies them).
+    pub inks: Vec<Hsla>,
 }
 
 thread_local! {
@@ -232,6 +237,64 @@ pub struct Tracked {
     pub align: &'static str,
     /// The last line ends in an ellipsis when it overflows.
     pub ellipsize: bool,
+    /// EXP-1324: glyphs take the shimmer gradient's colour at their place.
+    pub shimmer: Option<ShimmerPaint>,
+}
+
+/// EXP-1324: the Text `shimmer` gradient at one instant (catalog/style.json
+/// `textShimmer`). gpui cannot fill glyphs with a gradient, so each glyph
+/// takes the gradient's colour at its centre: base @ ±spread, mid @
+/// ±spread/2, highlight @ the gradient's centre, which slides from `-spread`
+/// to `w + spread` (CSS background-position 100% → 0% of a `2w + 2·spread`
+/// wide gradient) over `durationMs`; RTL slides the other way.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ShimmerPaint {
+    pub base: Hsla,
+    pub mid: Hsla,
+    pub highlight: Hsla,
+    pub spread: f32,
+    /// The CSS gradient angle (90deg + `angleDeg`).
+    pub angle_deg: f32,
+    /// 0 → 1 through one sweep.
+    pub progress: f32,
+    pub rtl: bool,
+}
+
+impl ShimmerPaint {
+    /// The shimmer of `ink` at `progress` (0..1) of its sweep.
+    pub fn new(ink: Hsla, dark: bool, progress: f32, rtl: bool) -> Self {
+        let r = gpui::Rgba::from(ink);
+        let b = |v: f32| (v.clamp(0.0, 1.0) * 255.0).round() as u8;
+        let hex = format!("#{:02x}{:02x}{:02x}{:02x}", b(r.r), b(r.g), b(r.b), b(r.a));
+        let s = exponential_ui::text_shimmer::text_shimmer(&hex, dark);
+        let c = |h: &str| crate::paint::color::parse_hex(h).unwrap_or(ink);
+        ShimmerPaint { base: c(&s.base), mid: c(&s.mid), highlight: c(&s.highlight), spread: s.spread_px as f32, angle_deg: 90.0 + s.angle_deg as f32, progress, rtl }
+    }
+
+    /// The sweep's progress `elapsed_ms` after it started (looping).
+    pub fn progress_at(elapsed_ms: f64) -> f32 {
+        let d = exponential_ui::text_shimmer::SHIMMER.duration_ms.max(1) as f64;
+        (elapsed_ms.rem_euclid(d) / d) as f32
+    }
+
+    /// The colour at `(x, y)` in a `w × h` text box.
+    pub fn color_at(&self, x: f32, y: f32, w: f32, h: f32) -> Hsla {
+        let s = self.spread.max(1.0);
+        let p = if self.rtl { 1.0 - self.progress } else { self.progress };
+        let centre = -s + p * (w + 2.0 * s);
+        // The point projected onto the gradient line (CSS angles: 90deg =
+        // left → right, y grows downwards), about the box's centre.
+        let a = self.angle_deg.to_radians();
+        let u = w / 2.0 + (x - w / 2.0) * a.sin() - (y - h / 2.0) * a.cos();
+        let d = (u - centre).abs();
+        if d >= s {
+            self.base
+        } else if d >= s / 2.0 {
+            crate::paint::color::mix(self.mid, self.base, (d - s / 2.0) / (s / 2.0))
+        } else {
+            crate::paint::color::mix(self.highlight, self.mid, d / (s / 2.0))
+        }
+    }
 }
 
 /// Text with CSS `letter-spacing`. gpui text runs have no tracking, so each
@@ -279,6 +342,7 @@ pub fn tracked_text(t: Tracked) -> gpui::Canvas<()> {
                     let glyphs: Vec<(gpui::FontId, &gpui::ShapedGlyph)> = shaped.runs.iter().flat_map(|r| r.glyphs.iter().map(move |g| (r.font_id, g))).collect();
                     let mut end_x = x0;
                     let mut painted: Option<(f32, f32)> = None;
+                    let mut inks = Vec::new();
                     for (gi, (font_id, g)) in glyphs.iter().enumerate() {
                         let before = char_at.get(&g.index).copied().unwrap_or(0) as f32;
                         let x = x0 + f32::from(g.position.x) + t.ls * before;
@@ -291,7 +355,12 @@ pub fn tracked_text(t: Tracked) -> gpui::Canvas<()> {
                             end_x = next;
                         }
                         let origin = point(px(x), baseline);
-                        let _ = if g.is_emoji { window.paint_emoji(origin, *font_id, g.id, size) } else { window.paint_glyph(origin, *font_id, g.id, size, t.ink) };
+                        let ink = match &t.shimmer {
+                            Some(sh) => sh.color_at(x - f32::from(bounds.origin.x) + t.size * 0.3, f32::from(top - bounds.origin.y + lh / 2.0), f32::from(bounds.size.width), f32::from(bounds.size.height)),
+                            None => t.ink,
+                        };
+                        inks.push(ink);
+                        let _ = if g.is_emoji { window.paint_emoji(origin, *font_id, g.id, size) } else { window.paint_glyph(origin, *font_id, g.id, size, ink) };
                     }
                     if cut {
                         let dots = TextRun { len: "…".len(), font: t.font.clone(), color: t.ink, background_color: None, underline: None, strikethrough: None };
@@ -311,6 +380,7 @@ pub fn tracked_text(t: Tracked) -> gpui::Canvas<()> {
                                 last_shift,
                                 cut,
                                 underline: (t.decoration == Some(Decoration::Underline)).then(|| (x0, x0 + f32::from(width))),
+                                inks: std::mem::take(&mut inks),
                             });
                         }
                     });
@@ -329,7 +399,7 @@ impl LeafCx<'_> {
     /// The [`Tracked`] spec of this leaf's text (its font, ink, decoration
     /// and `letterSpacing`).
     pub fn tracked(&self, lines: Vec<String>, align: &'static str, ellipsize: bool) -> Tracked {
-        Tracked { font: self.font.clone(), size: self.text_style.font_size, line_height: self.text_style.line_height, ink: self.ink, decoration: self.style.decoration, ls: self.style.letter_spacing, lines, align, ellipsize }
+        Tracked { font: self.font.clone(), size: self.text_style.font_size, line_height: self.text_style.line_height, ink: self.ink, decoration: self.style.decoration, ls: self.style.letter_spacing, lines, align, ellipsize, shimmer: self.shimmer }
     }
 }
 
@@ -342,7 +412,8 @@ pub fn text_lines(cx: &LeafCx, lines: &[String], clamp: Option<usize>) -> AnyEle
     // Round 2 §2: every line shapes with the node's paragraph direction.
     let marked: Vec<String> = lines.iter().map(|l| crate::text::with_paragraph_direction(l, cx.rtl).into_owned()).collect();
     let lines = &marked[..];
-    if cx.style.letter_spacing != 0.0 {
+    // A shimmering text paints glyph by glyph too (its per-glyph colours).
+    if cx.style.letter_spacing != 0.0 || cx.shimmer.is_some() {
         let (x, y, w, h) = cx.inner();
         let shown: Vec<String> = match clamp {
             Some(1) => vec![lines.join(" ")],

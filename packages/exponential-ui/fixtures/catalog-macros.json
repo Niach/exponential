@@ -6511,6 +6511,2151 @@
       }
     },
     {
+      "name": "Trace/example",
+      "input": {
+        "id": "trace",
+        "component": "Trace",
+        "props": {
+          "size": "default"
+        },
+        "children": [
+          {
+            "id": "trace-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "id": "trace",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "trace-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            },
+            "children": []
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": 8,
+          "minWidth": 0
+        },
+        "recipe": {
+          "macro": "Trace",
+          "part": "root",
+          "props": {
+            "size": "default"
+          }
+        }
+      }
+    },
+    {
+      "name": "Trace/size=default",
+      "input": {
+        "id": "trace",
+        "component": "Trace",
+        "props": {
+          "size": "default"
+        },
+        "children": [
+          {
+            "id": "trace-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "id": "trace",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "trace-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            },
+            "children": []
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": 8,
+          "minWidth": 0
+        },
+        "recipe": {
+          "macro": "Trace",
+          "part": "root",
+          "props": {
+            "size": "default"
+          }
+        }
+      }
+    },
+    {
+      "name": "Trace/size=sm",
+      "input": {
+        "id": "trace",
+        "component": "Trace",
+        "props": {
+          "size": "sm"
+        },
+        "children": [
+          {
+            "id": "trace-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "id": "trace",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "trace-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            },
+            "children": []
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": 6,
+          "minWidth": 0
+        },
+        "recipe": {
+          "macro": "Trace",
+          "part": "root",
+          "props": {
+            "size": "sm"
+          }
+        }
+      }
+    },
+    {
+      "name": "TraceItem/example",
+      "input": {
+        "id": "trace-item",
+        "component": "TraceItem",
+        "props": {
+          "title": "Ran bun test",
+          "icon": "trace-terminal",
+          "description": "4s",
+          "collapsible": true,
+          "open": true
+        },
+        "children": [
+          {
+            "id": "trace-item-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "id": "trace-item",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "trace-item.line",
+            "component": "Box",
+            "props": {
+              "pressable": true
+            },
+            "children": [
+              {
+                "id": "trace-item.line.icon",
+                "component": "Icon",
+                "props": {
+                  "name": "trace-terminal",
+                  "size": "sm"
+                },
+                "children": [],
+                "style": {
+                  "width": 16,
+                  "height": 16,
+                  "flexShrink": 0
+                },
+                "recipe": {
+                  "macro": "TraceItem",
+                  "part": "icon",
+                  "props": {
+                    "size": "default",
+                    "collapsible": true,
+                    "open": true
+                  }
+                }
+              },
+              {
+                "id": "trace-item.line.title",
+                "component": "Text",
+                "props": {
+                  "text": "Ran bun test",
+                  "lines": 1,
+                  "shimmer": false
+                },
+                "children": [],
+                "style": {
+                  "flexShrink": 1,
+                  "minWidth": 0,
+                  "fontSize": 14,
+                  "lineHeight": 20
+                },
+                "recipe": {
+                  "macro": "TraceItem",
+                  "part": "title",
+                  "props": {
+                    "size": "default",
+                    "collapsible": true,
+                    "open": true
+                  }
+                }
+              },
+              {
+                "id": "trace-item.line.description",
+                "component": "Text",
+                "props": {
+                  "text": "4s",
+                  "lines": 1
+                },
+                "children": [],
+                "style": {
+                  "flexShrink": 0,
+                  "fontSize": 14,
+                  "lineHeight": 20
+                },
+                "recipe": {
+                  "macro": "TraceItem",
+                  "part": "description",
+                  "props": {
+                    "size": "default",
+                    "collapsible": true,
+                    "open": true
+                  }
+                }
+              },
+              {
+                "id": "trace-item.line.chevron",
+                "component": "Icon",
+                "props": {
+                  "name": "trace-chevron",
+                  "size": "sm"
+                },
+                "children": [],
+                "style": {
+                  "width": 16,
+                  "height": 16,
+                  "flexShrink": 0,
+                  "marginLeft": -4
+                },
+                "recipe": {
+                  "macro": "TraceItem",
+                  "part": "chevron",
+                  "props": {
+                    "size": "default",
+                    "collapsible": true,
+                    "open": true
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "center",
+              "gap": 8,
+              "minHeight": 20,
+              "alignSelf": "flex-start",
+              "maxWidth": "100%",
+              "minWidth": 0,
+              "borderRadius": "$radius.md"
+            },
+            "recipe": {
+              "macro": "TraceItem",
+              "part": "line",
+              "props": {
+                "size": "default",
+                "collapsible": true,
+                "open": true
+              }
+            },
+            "accessibility": {
+              "role": "button",
+              "expanded": true
+            }
+          },
+          {
+            "id": "trace-item.content",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "trace-item-child",
+                "component": "Text",
+                "props": {
+                  "text": "Child"
+                },
+                "children": []
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": 8,
+              "minWidth": 0,
+              "marginTop": 8,
+              "marginBottom": 4,
+              "marginLeft": 7,
+              "borderLeftWidth": 1,
+              "paddingLeft": 16,
+              "paddingRight": 4
+            },
+            "recipe": {
+              "macro": "TraceItem",
+              "part": "content",
+              "props": {
+                "size": "default",
+                "collapsible": true,
+                "open": true
+              }
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "minWidth": 0
+        },
+        "recipe": {
+          "macro": "TraceItem",
+          "part": "root",
+          "props": {
+            "size": "default",
+            "collapsible": true,
+            "open": true
+          }
+        }
+      }
+    },
+    {
+      "name": "TraceItem/status=running",
+      "input": {
+        "id": "trace-item",
+        "component": "TraceItem",
+        "props": {
+          "title": "Ran bun test",
+          "icon": "trace-terminal",
+          "description": "4s",
+          "collapsible": true,
+          "open": true,
+          "status": "running"
+        },
+        "children": [
+          {
+            "id": "trace-item-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "id": "trace-item",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "trace-item.line",
+            "component": "Box",
+            "props": {
+              "pressable": true
+            },
+            "children": [
+              {
+                "id": "trace-item.line.icon",
+                "component": "Icon",
+                "props": {
+                  "name": "trace-terminal",
+                  "size": "sm"
+                },
+                "children": [],
+                "style": {
+                  "width": 16,
+                  "height": 16,
+                  "flexShrink": 0
+                },
+                "recipe": {
+                  "macro": "TraceItem",
+                  "part": "icon",
+                  "props": {
+                    "status": "running",
+                    "size": "default",
+                    "collapsible": true,
+                    "open": true
+                  }
+                }
+              },
+              {
+                "id": "trace-item.line.title",
+                "component": "Text",
+                "props": {
+                  "text": "Ran bun test",
+                  "lines": 1,
+                  "shimmer": true
+                },
+                "children": [],
+                "style": {
+                  "flexShrink": 1,
+                  "minWidth": 0,
+                  "fontSize": 14,
+                  "lineHeight": 20
+                },
+                "recipe": {
+                  "macro": "TraceItem",
+                  "part": "title",
+                  "props": {
+                    "status": "running",
+                    "size": "default",
+                    "collapsible": true,
+                    "open": true
+                  }
+                }
+              },
+              {
+                "id": "trace-item.line.description",
+                "component": "Text",
+                "props": {
+                  "text": "4s",
+                  "lines": 1
+                },
+                "children": [],
+                "style": {
+                  "flexShrink": 0,
+                  "fontSize": 14,
+                  "lineHeight": 20
+                },
+                "recipe": {
+                  "macro": "TraceItem",
+                  "part": "description",
+                  "props": {
+                    "status": "running",
+                    "size": "default",
+                    "collapsible": true,
+                    "open": true
+                  }
+                }
+              },
+              {
+                "id": "trace-item.line.chevron",
+                "component": "Icon",
+                "props": {
+                  "name": "trace-chevron",
+                  "size": "sm"
+                },
+                "children": [],
+                "style": {
+                  "width": 16,
+                  "height": 16,
+                  "flexShrink": 0,
+                  "marginLeft": -4
+                },
+                "recipe": {
+                  "macro": "TraceItem",
+                  "part": "chevron",
+                  "props": {
+                    "status": "running",
+                    "size": "default",
+                    "collapsible": true,
+                    "open": true
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "center",
+              "gap": 8,
+              "minHeight": 20,
+              "alignSelf": "flex-start",
+              "maxWidth": "100%",
+              "minWidth": 0,
+              "borderRadius": "$radius.md"
+            },
+            "recipe": {
+              "macro": "TraceItem",
+              "part": "line",
+              "props": {
+                "status": "running",
+                "size": "default",
+                "collapsible": true,
+                "open": true
+              }
+            },
+            "accessibility": {
+              "role": "button",
+              "expanded": true
+            }
+          },
+          {
+            "id": "trace-item.content",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "trace-item-child",
+                "component": "Text",
+                "props": {
+                  "text": "Child"
+                },
+                "children": []
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": 8,
+              "minWidth": 0,
+              "marginTop": 8,
+              "marginBottom": 4,
+              "marginLeft": 7,
+              "borderLeftWidth": 1,
+              "paddingLeft": 16,
+              "paddingRight": 4
+            },
+            "recipe": {
+              "macro": "TraceItem",
+              "part": "content",
+              "props": {
+                "status": "running",
+                "size": "default",
+                "collapsible": true,
+                "open": true
+              }
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "minWidth": 0
+        },
+        "recipe": {
+          "macro": "TraceItem",
+          "part": "root",
+          "props": {
+            "status": "running",
+            "size": "default",
+            "collapsible": true,
+            "open": true
+          }
+        }
+      }
+    },
+    {
+      "name": "TraceItem/status=error",
+      "input": {
+        "id": "trace-item",
+        "component": "TraceItem",
+        "props": {
+          "title": "Ran bun test",
+          "icon": "trace-terminal",
+          "description": "4s",
+          "collapsible": true,
+          "open": true,
+          "status": "error"
+        },
+        "children": [
+          {
+            "id": "trace-item-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "id": "trace-item",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "trace-item.line",
+            "component": "Box",
+            "props": {
+              "pressable": true
+            },
+            "children": [
+              {
+                "id": "trace-item.line.icon",
+                "component": "Icon",
+                "props": {
+                  "name": "trace-terminal",
+                  "size": "sm"
+                },
+                "children": [],
+                "style": {
+                  "width": 16,
+                  "height": 16,
+                  "flexShrink": 0
+                },
+                "recipe": {
+                  "macro": "TraceItem",
+                  "part": "icon",
+                  "props": {
+                    "status": "error",
+                    "size": "default",
+                    "collapsible": true,
+                    "open": true
+                  }
+                }
+              },
+              {
+                "id": "trace-item.line.title",
+                "component": "Text",
+                "props": {
+                  "text": "Ran bun test",
+                  "lines": 1,
+                  "shimmer": false
+                },
+                "children": [],
+                "style": {
+                  "flexShrink": 1,
+                  "minWidth": 0,
+                  "fontSize": 14,
+                  "lineHeight": 20
+                },
+                "recipe": {
+                  "macro": "TraceItem",
+                  "part": "title",
+                  "props": {
+                    "status": "error",
+                    "size": "default",
+                    "collapsible": true,
+                    "open": true
+                  }
+                }
+              },
+              {
+                "id": "trace-item.line.description",
+                "component": "Text",
+                "props": {
+                  "text": "4s",
+                  "lines": 1
+                },
+                "children": [],
+                "style": {
+                  "flexShrink": 0,
+                  "fontSize": 14,
+                  "lineHeight": 20
+                },
+                "recipe": {
+                  "macro": "TraceItem",
+                  "part": "description",
+                  "props": {
+                    "status": "error",
+                    "size": "default",
+                    "collapsible": true,
+                    "open": true
+                  }
+                }
+              },
+              {
+                "id": "trace-item.line.chevron",
+                "component": "Icon",
+                "props": {
+                  "name": "trace-chevron",
+                  "size": "sm"
+                },
+                "children": [],
+                "style": {
+                  "width": 16,
+                  "height": 16,
+                  "flexShrink": 0,
+                  "marginLeft": -4
+                },
+                "recipe": {
+                  "macro": "TraceItem",
+                  "part": "chevron",
+                  "props": {
+                    "status": "error",
+                    "size": "default",
+                    "collapsible": true,
+                    "open": true
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "center",
+              "gap": 8,
+              "minHeight": 20,
+              "alignSelf": "flex-start",
+              "maxWidth": "100%",
+              "minWidth": 0,
+              "borderRadius": "$radius.md"
+            },
+            "recipe": {
+              "macro": "TraceItem",
+              "part": "line",
+              "props": {
+                "status": "error",
+                "size": "default",
+                "collapsible": true,
+                "open": true
+              }
+            },
+            "accessibility": {
+              "role": "button",
+              "expanded": true
+            }
+          },
+          {
+            "id": "trace-item.content",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "trace-item-child",
+                "component": "Text",
+                "props": {
+                  "text": "Child"
+                },
+                "children": []
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": 8,
+              "minWidth": 0,
+              "marginTop": 8,
+              "marginBottom": 4,
+              "marginLeft": 7,
+              "borderLeftWidth": 1,
+              "paddingLeft": 16,
+              "paddingRight": 4
+            },
+            "recipe": {
+              "macro": "TraceItem",
+              "part": "content",
+              "props": {
+                "status": "error",
+                "size": "default",
+                "collapsible": true,
+                "open": true
+              }
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "minWidth": 0
+        },
+        "recipe": {
+          "macro": "TraceItem",
+          "part": "root",
+          "props": {
+            "status": "error",
+            "size": "default",
+            "collapsible": true,
+            "open": true
+          }
+        }
+      }
+    },
+    {
+      "name": "TraceItem/status=pending",
+      "input": {
+        "id": "trace-item",
+        "component": "TraceItem",
+        "props": {
+          "title": "Ran bun test",
+          "icon": "trace-terminal",
+          "description": "4s",
+          "collapsible": true,
+          "open": true,
+          "status": "pending"
+        },
+        "children": [
+          {
+            "id": "trace-item-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "id": "trace-item",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "trace-item.line",
+            "component": "Box",
+            "props": {
+              "pressable": true
+            },
+            "children": [
+              {
+                "id": "trace-item.line.icon",
+                "component": "Icon",
+                "props": {
+                  "name": "trace-terminal",
+                  "size": "sm"
+                },
+                "children": [],
+                "style": {
+                  "width": 16,
+                  "height": 16,
+                  "flexShrink": 0
+                },
+                "recipe": {
+                  "macro": "TraceItem",
+                  "part": "icon",
+                  "props": {
+                    "status": "pending",
+                    "size": "default",
+                    "collapsible": true,
+                    "open": true
+                  }
+                }
+              },
+              {
+                "id": "trace-item.line.title",
+                "component": "Text",
+                "props": {
+                  "text": "Ran bun test",
+                  "lines": 1,
+                  "shimmer": false
+                },
+                "children": [],
+                "style": {
+                  "flexShrink": 1,
+                  "minWidth": 0,
+                  "fontSize": 14,
+                  "lineHeight": 20
+                },
+                "recipe": {
+                  "macro": "TraceItem",
+                  "part": "title",
+                  "props": {
+                    "status": "pending",
+                    "size": "default",
+                    "collapsible": true,
+                    "open": true
+                  }
+                }
+              },
+              {
+                "id": "trace-item.line.description",
+                "component": "Text",
+                "props": {
+                  "text": "4s",
+                  "lines": 1
+                },
+                "children": [],
+                "style": {
+                  "flexShrink": 0,
+                  "fontSize": 14,
+                  "lineHeight": 20
+                },
+                "recipe": {
+                  "macro": "TraceItem",
+                  "part": "description",
+                  "props": {
+                    "status": "pending",
+                    "size": "default",
+                    "collapsible": true,
+                    "open": true
+                  }
+                }
+              },
+              {
+                "id": "trace-item.line.chevron",
+                "component": "Icon",
+                "props": {
+                  "name": "trace-chevron",
+                  "size": "sm"
+                },
+                "children": [],
+                "style": {
+                  "width": 16,
+                  "height": 16,
+                  "flexShrink": 0,
+                  "marginLeft": -4
+                },
+                "recipe": {
+                  "macro": "TraceItem",
+                  "part": "chevron",
+                  "props": {
+                    "status": "pending",
+                    "size": "default",
+                    "collapsible": true,
+                    "open": true
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "center",
+              "gap": 8,
+              "minHeight": 20,
+              "alignSelf": "flex-start",
+              "maxWidth": "100%",
+              "minWidth": 0,
+              "borderRadius": "$radius.md"
+            },
+            "recipe": {
+              "macro": "TraceItem",
+              "part": "line",
+              "props": {
+                "status": "pending",
+                "size": "default",
+                "collapsible": true,
+                "open": true
+              }
+            },
+            "accessibility": {
+              "role": "button",
+              "expanded": true
+            }
+          },
+          {
+            "id": "trace-item.content",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "trace-item-child",
+                "component": "Text",
+                "props": {
+                  "text": "Child"
+                },
+                "children": []
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": 8,
+              "minWidth": 0,
+              "marginTop": 8,
+              "marginBottom": 4,
+              "marginLeft": 7,
+              "borderLeftWidth": 1,
+              "paddingLeft": 16,
+              "paddingRight": 4
+            },
+            "recipe": {
+              "macro": "TraceItem",
+              "part": "content",
+              "props": {
+                "status": "pending",
+                "size": "default",
+                "collapsible": true,
+                "open": true
+              }
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "minWidth": 0
+        },
+        "recipe": {
+          "macro": "TraceItem",
+          "part": "root",
+          "props": {
+            "status": "pending",
+            "size": "default",
+            "collapsible": true,
+            "open": true
+          }
+        }
+      }
+    },
+    {
+      "name": "TraceItem/size=default",
+      "input": {
+        "id": "trace-item",
+        "component": "TraceItem",
+        "props": {
+          "title": "Ran bun test",
+          "icon": "trace-terminal",
+          "description": "4s",
+          "collapsible": true,
+          "open": true,
+          "size": "default"
+        },
+        "children": [
+          {
+            "id": "trace-item-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "id": "trace-item",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "trace-item.line",
+            "component": "Box",
+            "props": {
+              "pressable": true
+            },
+            "children": [
+              {
+                "id": "trace-item.line.icon",
+                "component": "Icon",
+                "props": {
+                  "name": "trace-terminal",
+                  "size": "sm"
+                },
+                "children": [],
+                "style": {
+                  "width": 16,
+                  "height": 16,
+                  "flexShrink": 0
+                },
+                "recipe": {
+                  "macro": "TraceItem",
+                  "part": "icon",
+                  "props": {
+                    "size": "default",
+                    "collapsible": true,
+                    "open": true
+                  }
+                }
+              },
+              {
+                "id": "trace-item.line.title",
+                "component": "Text",
+                "props": {
+                  "text": "Ran bun test",
+                  "lines": 1,
+                  "shimmer": false
+                },
+                "children": [],
+                "style": {
+                  "flexShrink": 1,
+                  "minWidth": 0,
+                  "fontSize": 14,
+                  "lineHeight": 20
+                },
+                "recipe": {
+                  "macro": "TraceItem",
+                  "part": "title",
+                  "props": {
+                    "size": "default",
+                    "collapsible": true,
+                    "open": true
+                  }
+                }
+              },
+              {
+                "id": "trace-item.line.description",
+                "component": "Text",
+                "props": {
+                  "text": "4s",
+                  "lines": 1
+                },
+                "children": [],
+                "style": {
+                  "flexShrink": 0,
+                  "fontSize": 14,
+                  "lineHeight": 20
+                },
+                "recipe": {
+                  "macro": "TraceItem",
+                  "part": "description",
+                  "props": {
+                    "size": "default",
+                    "collapsible": true,
+                    "open": true
+                  }
+                }
+              },
+              {
+                "id": "trace-item.line.chevron",
+                "component": "Icon",
+                "props": {
+                  "name": "trace-chevron",
+                  "size": "sm"
+                },
+                "children": [],
+                "style": {
+                  "width": 16,
+                  "height": 16,
+                  "flexShrink": 0,
+                  "marginLeft": -4
+                },
+                "recipe": {
+                  "macro": "TraceItem",
+                  "part": "chevron",
+                  "props": {
+                    "size": "default",
+                    "collapsible": true,
+                    "open": true
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "center",
+              "gap": 8,
+              "minHeight": 20,
+              "alignSelf": "flex-start",
+              "maxWidth": "100%",
+              "minWidth": 0,
+              "borderRadius": "$radius.md"
+            },
+            "recipe": {
+              "macro": "TraceItem",
+              "part": "line",
+              "props": {
+                "size": "default",
+                "collapsible": true,
+                "open": true
+              }
+            },
+            "accessibility": {
+              "role": "button",
+              "expanded": true
+            }
+          },
+          {
+            "id": "trace-item.content",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "trace-item-child",
+                "component": "Text",
+                "props": {
+                  "text": "Child"
+                },
+                "children": []
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": 8,
+              "minWidth": 0,
+              "marginTop": 8,
+              "marginBottom": 4,
+              "marginLeft": 7,
+              "borderLeftWidth": 1,
+              "paddingLeft": 16,
+              "paddingRight": 4
+            },
+            "recipe": {
+              "macro": "TraceItem",
+              "part": "content",
+              "props": {
+                "size": "default",
+                "collapsible": true,
+                "open": true
+              }
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "minWidth": 0
+        },
+        "recipe": {
+          "macro": "TraceItem",
+          "part": "root",
+          "props": {
+            "size": "default",
+            "collapsible": true,
+            "open": true
+          }
+        }
+      }
+    },
+    {
+      "name": "TraceItem/size=sm",
+      "input": {
+        "id": "trace-item",
+        "component": "TraceItem",
+        "props": {
+          "title": "Ran bun test",
+          "icon": "trace-terminal",
+          "description": "4s",
+          "collapsible": true,
+          "open": true,
+          "size": "sm"
+        },
+        "children": [
+          {
+            "id": "trace-item-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "id": "trace-item",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "trace-item.line",
+            "component": "Box",
+            "props": {
+              "pressable": true
+            },
+            "children": [
+              {
+                "id": "trace-item.line.icon",
+                "component": "Icon",
+                "props": {
+                  "name": "trace-terminal",
+                  "size": "sm"
+                },
+                "children": [],
+                "style": {
+                  "width": 14,
+                  "height": 14,
+                  "flexShrink": 0
+                },
+                "recipe": {
+                  "macro": "TraceItem",
+                  "part": "icon",
+                  "props": {
+                    "size": "sm",
+                    "collapsible": true,
+                    "open": true
+                  }
+                }
+              },
+              {
+                "id": "trace-item.line.title",
+                "component": "Text",
+                "props": {
+                  "text": "Ran bun test",
+                  "lines": 1,
+                  "shimmer": false
+                },
+                "children": [],
+                "style": {
+                  "flexShrink": 1,
+                  "minWidth": 0,
+                  "fontSize": 12,
+                  "lineHeight": 18
+                },
+                "recipe": {
+                  "macro": "TraceItem",
+                  "part": "title",
+                  "props": {
+                    "size": "sm",
+                    "collapsible": true,
+                    "open": true
+                  }
+                }
+              },
+              {
+                "id": "trace-item.line.description",
+                "component": "Text",
+                "props": {
+                  "text": "4s",
+                  "lines": 1
+                },
+                "children": [],
+                "style": {
+                  "flexShrink": 0,
+                  "fontSize": 12,
+                  "lineHeight": 18
+                },
+                "recipe": {
+                  "macro": "TraceItem",
+                  "part": "description",
+                  "props": {
+                    "size": "sm",
+                    "collapsible": true,
+                    "open": true
+                  }
+                }
+              },
+              {
+                "id": "trace-item.line.chevron",
+                "component": "Icon",
+                "props": {
+                  "name": "trace-chevron",
+                  "size": "sm"
+                },
+                "children": [],
+                "style": {
+                  "width": 14,
+                  "height": 14,
+                  "flexShrink": 0,
+                  "marginLeft": -2
+                },
+                "recipe": {
+                  "macro": "TraceItem",
+                  "part": "chevron",
+                  "props": {
+                    "size": "sm",
+                    "collapsible": true,
+                    "open": true
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "center",
+              "gap": 6,
+              "minHeight": 18,
+              "alignSelf": "flex-start",
+              "maxWidth": "100%",
+              "minWidth": 0,
+              "borderRadius": "$radius.md"
+            },
+            "recipe": {
+              "macro": "TraceItem",
+              "part": "line",
+              "props": {
+                "size": "sm",
+                "collapsible": true,
+                "open": true
+              }
+            },
+            "accessibility": {
+              "role": "button",
+              "expanded": true
+            }
+          },
+          {
+            "id": "trace-item.content",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "trace-item-child",
+                "component": "Text",
+                "props": {
+                  "text": "Child"
+                },
+                "children": []
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": 6,
+              "minWidth": 0,
+              "marginTop": 6,
+              "marginBottom": 4,
+              "marginLeft": 6,
+              "borderLeftWidth": 1,
+              "paddingLeft": 13,
+              "paddingRight": 4
+            },
+            "recipe": {
+              "macro": "TraceItem",
+              "part": "content",
+              "props": {
+                "size": "sm",
+                "collapsible": true,
+                "open": true
+              }
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "minWidth": 0
+        },
+        "recipe": {
+          "macro": "TraceItem",
+          "part": "root",
+          "props": {
+            "size": "sm",
+            "collapsible": true,
+            "open": true
+          }
+        }
+      }
+    },
+    {
+      "name": "TraceItem/collapsible=true",
+      "input": {
+        "id": "trace-item",
+        "component": "TraceItem",
+        "props": {
+          "title": "Ran bun test",
+          "icon": "trace-terminal",
+          "description": "4s",
+          "collapsible": true,
+          "open": true
+        },
+        "children": [
+          {
+            "id": "trace-item-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "id": "trace-item",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "trace-item.line",
+            "component": "Box",
+            "props": {
+              "pressable": true
+            },
+            "children": [
+              {
+                "id": "trace-item.line.icon",
+                "component": "Icon",
+                "props": {
+                  "name": "trace-terminal",
+                  "size": "sm"
+                },
+                "children": [],
+                "style": {
+                  "width": 16,
+                  "height": 16,
+                  "flexShrink": 0
+                },
+                "recipe": {
+                  "macro": "TraceItem",
+                  "part": "icon",
+                  "props": {
+                    "size": "default",
+                    "collapsible": true,
+                    "open": true
+                  }
+                }
+              },
+              {
+                "id": "trace-item.line.title",
+                "component": "Text",
+                "props": {
+                  "text": "Ran bun test",
+                  "lines": 1,
+                  "shimmer": false
+                },
+                "children": [],
+                "style": {
+                  "flexShrink": 1,
+                  "minWidth": 0,
+                  "fontSize": 14,
+                  "lineHeight": 20
+                },
+                "recipe": {
+                  "macro": "TraceItem",
+                  "part": "title",
+                  "props": {
+                    "size": "default",
+                    "collapsible": true,
+                    "open": true
+                  }
+                }
+              },
+              {
+                "id": "trace-item.line.description",
+                "component": "Text",
+                "props": {
+                  "text": "4s",
+                  "lines": 1
+                },
+                "children": [],
+                "style": {
+                  "flexShrink": 0,
+                  "fontSize": 14,
+                  "lineHeight": 20
+                },
+                "recipe": {
+                  "macro": "TraceItem",
+                  "part": "description",
+                  "props": {
+                    "size": "default",
+                    "collapsible": true,
+                    "open": true
+                  }
+                }
+              },
+              {
+                "id": "trace-item.line.chevron",
+                "component": "Icon",
+                "props": {
+                  "name": "trace-chevron",
+                  "size": "sm"
+                },
+                "children": [],
+                "style": {
+                  "width": 16,
+                  "height": 16,
+                  "flexShrink": 0,
+                  "marginLeft": -4
+                },
+                "recipe": {
+                  "macro": "TraceItem",
+                  "part": "chevron",
+                  "props": {
+                    "size": "default",
+                    "collapsible": true,
+                    "open": true
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "center",
+              "gap": 8,
+              "minHeight": 20,
+              "alignSelf": "flex-start",
+              "maxWidth": "100%",
+              "minWidth": 0,
+              "borderRadius": "$radius.md"
+            },
+            "recipe": {
+              "macro": "TraceItem",
+              "part": "line",
+              "props": {
+                "size": "default",
+                "collapsible": true,
+                "open": true
+              }
+            },
+            "accessibility": {
+              "role": "button",
+              "expanded": true
+            }
+          },
+          {
+            "id": "trace-item.content",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "trace-item-child",
+                "component": "Text",
+                "props": {
+                  "text": "Child"
+                },
+                "children": []
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": 8,
+              "minWidth": 0,
+              "marginTop": 8,
+              "marginBottom": 4,
+              "marginLeft": 7,
+              "borderLeftWidth": 1,
+              "paddingLeft": 16,
+              "paddingRight": 4
+            },
+            "recipe": {
+              "macro": "TraceItem",
+              "part": "content",
+              "props": {
+                "size": "default",
+                "collapsible": true,
+                "open": true
+              }
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "minWidth": 0
+        },
+        "recipe": {
+          "macro": "TraceItem",
+          "part": "root",
+          "props": {
+            "size": "default",
+            "collapsible": true,
+            "open": true
+          }
+        }
+      }
+    },
+    {
+      "name": "TraceItem/collapsible=false",
+      "input": {
+        "id": "trace-item",
+        "component": "TraceItem",
+        "props": {
+          "title": "Ran bun test",
+          "icon": "trace-terminal",
+          "description": "4s",
+          "collapsible": false,
+          "open": true
+        },
+        "children": [
+          {
+            "id": "trace-item-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "id": "trace-item",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "trace-item.line",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "trace-item.line.icon",
+                "component": "Icon",
+                "props": {
+                  "name": "trace-terminal",
+                  "size": "sm"
+                },
+                "children": [],
+                "style": {
+                  "width": 16,
+                  "height": 16,
+                  "flexShrink": 0
+                },
+                "recipe": {
+                  "macro": "TraceItem",
+                  "part": "icon",
+                  "props": {
+                    "size": "default",
+                    "collapsible": false,
+                    "open": true
+                  }
+                }
+              },
+              {
+                "id": "trace-item.line.title",
+                "component": "Text",
+                "props": {
+                  "text": "Ran bun test",
+                  "lines": 1,
+                  "shimmer": false
+                },
+                "children": [],
+                "style": {
+                  "flexShrink": 1,
+                  "minWidth": 0,
+                  "fontSize": 14,
+                  "lineHeight": 20
+                },
+                "recipe": {
+                  "macro": "TraceItem",
+                  "part": "title",
+                  "props": {
+                    "size": "default",
+                    "collapsible": false,
+                    "open": true
+                  }
+                }
+              },
+              {
+                "id": "trace-item.line.description",
+                "component": "Text",
+                "props": {
+                  "text": "4s",
+                  "lines": 1
+                },
+                "children": [],
+                "style": {
+                  "flexShrink": 0,
+                  "fontSize": 14,
+                  "lineHeight": 20
+                },
+                "recipe": {
+                  "macro": "TraceItem",
+                  "part": "description",
+                  "props": {
+                    "size": "default",
+                    "collapsible": false,
+                    "open": true
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "center",
+              "gap": 8,
+              "minHeight": 20,
+              "alignSelf": "flex-start",
+              "maxWidth": "100%",
+              "minWidth": 0,
+              "borderRadius": "$radius.md"
+            },
+            "recipe": {
+              "macro": "TraceItem",
+              "part": "line",
+              "props": {
+                "size": "default",
+                "collapsible": false,
+                "open": true
+              }
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "minWidth": 0
+        },
+        "recipe": {
+          "macro": "TraceItem",
+          "part": "root",
+          "props": {
+            "size": "default",
+            "collapsible": false,
+            "open": true
+          }
+        }
+      }
+    },
+    {
+      "name": "TraceItem/open=true",
+      "input": {
+        "id": "trace-item",
+        "component": "TraceItem",
+        "props": {
+          "title": "Ran bun test",
+          "icon": "trace-terminal",
+          "description": "4s",
+          "collapsible": true,
+          "open": true
+        },
+        "children": [
+          {
+            "id": "trace-item-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "id": "trace-item",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "trace-item.line",
+            "component": "Box",
+            "props": {
+              "pressable": true
+            },
+            "children": [
+              {
+                "id": "trace-item.line.icon",
+                "component": "Icon",
+                "props": {
+                  "name": "trace-terminal",
+                  "size": "sm"
+                },
+                "children": [],
+                "style": {
+                  "width": 16,
+                  "height": 16,
+                  "flexShrink": 0
+                },
+                "recipe": {
+                  "macro": "TraceItem",
+                  "part": "icon",
+                  "props": {
+                    "size": "default",
+                    "collapsible": true,
+                    "open": true
+                  }
+                }
+              },
+              {
+                "id": "trace-item.line.title",
+                "component": "Text",
+                "props": {
+                  "text": "Ran bun test",
+                  "lines": 1,
+                  "shimmer": false
+                },
+                "children": [],
+                "style": {
+                  "flexShrink": 1,
+                  "minWidth": 0,
+                  "fontSize": 14,
+                  "lineHeight": 20
+                },
+                "recipe": {
+                  "macro": "TraceItem",
+                  "part": "title",
+                  "props": {
+                    "size": "default",
+                    "collapsible": true,
+                    "open": true
+                  }
+                }
+              },
+              {
+                "id": "trace-item.line.description",
+                "component": "Text",
+                "props": {
+                  "text": "4s",
+                  "lines": 1
+                },
+                "children": [],
+                "style": {
+                  "flexShrink": 0,
+                  "fontSize": 14,
+                  "lineHeight": 20
+                },
+                "recipe": {
+                  "macro": "TraceItem",
+                  "part": "description",
+                  "props": {
+                    "size": "default",
+                    "collapsible": true,
+                    "open": true
+                  }
+                }
+              },
+              {
+                "id": "trace-item.line.chevron",
+                "component": "Icon",
+                "props": {
+                  "name": "trace-chevron",
+                  "size": "sm"
+                },
+                "children": [],
+                "style": {
+                  "width": 16,
+                  "height": 16,
+                  "flexShrink": 0,
+                  "marginLeft": -4
+                },
+                "recipe": {
+                  "macro": "TraceItem",
+                  "part": "chevron",
+                  "props": {
+                    "size": "default",
+                    "collapsible": true,
+                    "open": true
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "center",
+              "gap": 8,
+              "minHeight": 20,
+              "alignSelf": "flex-start",
+              "maxWidth": "100%",
+              "minWidth": 0,
+              "borderRadius": "$radius.md"
+            },
+            "recipe": {
+              "macro": "TraceItem",
+              "part": "line",
+              "props": {
+                "size": "default",
+                "collapsible": true,
+                "open": true
+              }
+            },
+            "accessibility": {
+              "role": "button",
+              "expanded": true
+            }
+          },
+          {
+            "id": "trace-item.content",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "trace-item-child",
+                "component": "Text",
+                "props": {
+                  "text": "Child"
+                },
+                "children": []
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": 8,
+              "minWidth": 0,
+              "marginTop": 8,
+              "marginBottom": 4,
+              "marginLeft": 7,
+              "borderLeftWidth": 1,
+              "paddingLeft": 16,
+              "paddingRight": 4
+            },
+            "recipe": {
+              "macro": "TraceItem",
+              "part": "content",
+              "props": {
+                "size": "default",
+                "collapsible": true,
+                "open": true
+              }
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "minWidth": 0
+        },
+        "recipe": {
+          "macro": "TraceItem",
+          "part": "root",
+          "props": {
+            "size": "default",
+            "collapsible": true,
+            "open": true
+          }
+        }
+      }
+    },
+    {
+      "name": "TraceItem/open=false",
+      "input": {
+        "id": "trace-item",
+        "component": "TraceItem",
+        "props": {
+          "title": "Ran bun test",
+          "icon": "trace-terminal",
+          "description": "4s",
+          "collapsible": true,
+          "open": false
+        },
+        "children": [
+          {
+            "id": "trace-item-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "id": "trace-item",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "trace-item.line",
+            "component": "Box",
+            "props": {
+              "pressable": true
+            },
+            "children": [
+              {
+                "id": "trace-item.line.icon",
+                "component": "Icon",
+                "props": {
+                  "name": "trace-terminal",
+                  "size": "sm"
+                },
+                "children": [],
+                "style": {
+                  "width": 16,
+                  "height": 16,
+                  "flexShrink": 0
+                },
+                "recipe": {
+                  "macro": "TraceItem",
+                  "part": "icon",
+                  "props": {
+                    "size": "default",
+                    "collapsible": true,
+                    "open": false
+                  }
+                }
+              },
+              {
+                "id": "trace-item.line.title",
+                "component": "Text",
+                "props": {
+                  "text": "Ran bun test",
+                  "lines": 1,
+                  "shimmer": false
+                },
+                "children": [],
+                "style": {
+                  "flexShrink": 1,
+                  "minWidth": 0,
+                  "fontSize": 14,
+                  "lineHeight": 20
+                },
+                "recipe": {
+                  "macro": "TraceItem",
+                  "part": "title",
+                  "props": {
+                    "size": "default",
+                    "collapsible": true,
+                    "open": false
+                  }
+                }
+              },
+              {
+                "id": "trace-item.line.description",
+                "component": "Text",
+                "props": {
+                  "text": "4s",
+                  "lines": 1
+                },
+                "children": [],
+                "style": {
+                  "flexShrink": 0,
+                  "fontSize": 14,
+                  "lineHeight": 20
+                },
+                "recipe": {
+                  "macro": "TraceItem",
+                  "part": "description",
+                  "props": {
+                    "size": "default",
+                    "collapsible": true,
+                    "open": false
+                  }
+                }
+              },
+              {
+                "id": "trace-item.line.chevron",
+                "component": "Icon",
+                "props": {
+                  "name": "trace-chevron",
+                  "size": "sm"
+                },
+                "children": [],
+                "style": {
+                  "width": 16,
+                  "height": 16,
+                  "flexShrink": 0,
+                  "marginLeft": -4
+                },
+                "recipe": {
+                  "macro": "TraceItem",
+                  "part": "chevron",
+                  "props": {
+                    "size": "default",
+                    "collapsible": true,
+                    "open": false
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "center",
+              "gap": 8,
+              "minHeight": 20,
+              "alignSelf": "flex-start",
+              "maxWidth": "100%",
+              "minWidth": 0,
+              "borderRadius": "$radius.md"
+            },
+            "recipe": {
+              "macro": "TraceItem",
+              "part": "line",
+              "props": {
+                "size": "default",
+                "collapsible": true,
+                "open": false
+              }
+            },
+            "accessibility": {
+              "role": "button",
+              "expanded": false
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "minWidth": 0
+        },
+        "recipe": {
+          "macro": "TraceItem",
+          "part": "root",
+          "props": {
+            "size": "default",
+            "collapsible": true,
+            "open": false
+          }
+        }
+      }
+    },
+    {
       "name": "Pagination/example",
       "input": {
         "id": "pagination",
@@ -16411,6 +18556,465 @@
           "macro": "Collapsible",
           "part": "root",
           "props": {}
+        }
+      }
+    },
+    {
+      "name": "TraceItem/bound:title",
+      "input": {
+        "id": "trace-item",
+        "component": "TraceItem",
+        "props": {
+          "title": {
+            "path": "/title"
+          },
+          "icon": "trace-terminal",
+          "description": "4s",
+          "collapsible": true,
+          "open": true
+        },
+        "children": [
+          {
+            "id": "trace-item-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "id": "trace-item",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "trace-item.line",
+            "component": "Box",
+            "props": {
+              "pressable": true
+            },
+            "children": [
+              {
+                "id": "trace-item.line.icon",
+                "component": "Icon",
+                "props": {
+                  "name": "trace-terminal",
+                  "size": "sm"
+                },
+                "children": [],
+                "style": {
+                  "width": 16,
+                  "height": 16,
+                  "flexShrink": 0
+                },
+                "recipe": {
+                  "macro": "TraceItem",
+                  "part": "icon",
+                  "props": {
+                    "size": "default",
+                    "collapsible": true,
+                    "open": true
+                  }
+                }
+              },
+              {
+                "id": "trace-item.line.title",
+                "component": "Text",
+                "props": {
+                  "text": {
+                    "path": "/title"
+                  },
+                  "lines": 1,
+                  "shimmer": false
+                },
+                "children": [],
+                "style": {
+                  "flexShrink": 1,
+                  "minWidth": 0,
+                  "fontSize": 14,
+                  "lineHeight": 20
+                },
+                "recipe": {
+                  "macro": "TraceItem",
+                  "part": "title",
+                  "props": {
+                    "size": "default",
+                    "collapsible": true,
+                    "open": true
+                  }
+                }
+              },
+              {
+                "id": "trace-item.line.description",
+                "component": "Text",
+                "props": {
+                  "text": "4s",
+                  "lines": 1
+                },
+                "children": [],
+                "style": {
+                  "flexShrink": 0,
+                  "fontSize": 14,
+                  "lineHeight": 20
+                },
+                "recipe": {
+                  "macro": "TraceItem",
+                  "part": "description",
+                  "props": {
+                    "size": "default",
+                    "collapsible": true,
+                    "open": true
+                  }
+                }
+              },
+              {
+                "id": "trace-item.line.chevron",
+                "component": "Icon",
+                "props": {
+                  "name": "trace-chevron",
+                  "size": "sm"
+                },
+                "children": [],
+                "style": {
+                  "width": 16,
+                  "height": 16,
+                  "flexShrink": 0,
+                  "marginLeft": -4
+                },
+                "recipe": {
+                  "macro": "TraceItem",
+                  "part": "chevron",
+                  "props": {
+                    "size": "default",
+                    "collapsible": true,
+                    "open": true
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "center",
+              "gap": 8,
+              "minHeight": 20,
+              "alignSelf": "flex-start",
+              "maxWidth": "100%",
+              "minWidth": 0,
+              "borderRadius": "$radius.md"
+            },
+            "recipe": {
+              "macro": "TraceItem",
+              "part": "line",
+              "props": {
+                "size": "default",
+                "collapsible": true,
+                "open": true
+              }
+            },
+            "accessibility": {
+              "role": "button",
+              "expanded": true
+            }
+          },
+          {
+            "id": "trace-item.content",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "trace-item-child",
+                "component": "Text",
+                "props": {
+                  "text": "Child"
+                },
+                "children": []
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": 8,
+              "minWidth": 0,
+              "marginTop": 8,
+              "marginBottom": 4,
+              "marginLeft": 7,
+              "borderLeftWidth": 1,
+              "paddingLeft": 16,
+              "paddingRight": 4
+            },
+            "recipe": {
+              "macro": "TraceItem",
+              "part": "content",
+              "props": {
+                "size": "default",
+                "collapsible": true,
+                "open": true
+              }
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "minWidth": 0
+        },
+        "recipe": {
+          "macro": "TraceItem",
+          "part": "root",
+          "props": {
+            "size": "default",
+            "collapsible": true,
+            "open": true
+          }
+        }
+      }
+    },
+    {
+      "name": "TraceItem/bound:open",
+      "input": {
+        "id": "trace-item",
+        "component": "TraceItem",
+        "props": {
+          "title": "Ran bun test",
+          "icon": "trace-terminal",
+          "description": "4s",
+          "collapsible": true,
+          "open": {
+            "path": "/open"
+          }
+        },
+        "children": [
+          {
+            "id": "trace-item-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "id": "trace-item",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "trace-item.line",
+            "component": "Box",
+            "props": {
+              "pressable": true
+            },
+            "children": [
+              {
+                "id": "trace-item.line.icon",
+                "component": "Icon",
+                "props": {
+                  "name": "trace-terminal",
+                  "size": "sm"
+                },
+                "children": [],
+                "style": {
+                  "width": 16,
+                  "height": 16,
+                  "flexShrink": 0
+                },
+                "recipe": {
+                  "macro": "TraceItem",
+                  "part": "icon",
+                  "props": {
+                    "size": "default",
+                    "collapsible": true,
+                    "open": {
+                      "path": "/open"
+                    }
+                  }
+                }
+              },
+              {
+                "id": "trace-item.line.title",
+                "component": "Text",
+                "props": {
+                  "text": "Ran bun test",
+                  "lines": 1,
+                  "shimmer": false
+                },
+                "children": [],
+                "style": {
+                  "flexShrink": 1,
+                  "minWidth": 0,
+                  "fontSize": 14,
+                  "lineHeight": 20
+                },
+                "recipe": {
+                  "macro": "TraceItem",
+                  "part": "title",
+                  "props": {
+                    "size": "default",
+                    "collapsible": true,
+                    "open": {
+                      "path": "/open"
+                    }
+                  }
+                }
+              },
+              {
+                "id": "trace-item.line.description",
+                "component": "Text",
+                "props": {
+                  "text": "4s",
+                  "lines": 1
+                },
+                "children": [],
+                "style": {
+                  "flexShrink": 0,
+                  "fontSize": 14,
+                  "lineHeight": 20
+                },
+                "recipe": {
+                  "macro": "TraceItem",
+                  "part": "description",
+                  "props": {
+                    "size": "default",
+                    "collapsible": true,
+                    "open": {
+                      "path": "/open"
+                    }
+                  }
+                }
+              },
+              {
+                "id": "trace-item.line.chevron",
+                "component": "Icon",
+                "props": {
+                  "name": "trace-chevron",
+                  "size": "sm"
+                },
+                "children": [],
+                "style": {
+                  "width": 16,
+                  "height": 16,
+                  "flexShrink": 0,
+                  "marginLeft": -4
+                },
+                "recipe": {
+                  "macro": "TraceItem",
+                  "part": "chevron",
+                  "props": {
+                    "size": "default",
+                    "collapsible": true,
+                    "open": {
+                      "path": "/open"
+                    }
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "center",
+              "gap": 8,
+              "minHeight": 20,
+              "alignSelf": "flex-start",
+              "maxWidth": "100%",
+              "minWidth": 0,
+              "borderRadius": "$radius.md"
+            },
+            "recipe": {
+              "macro": "TraceItem",
+              "part": "line",
+              "props": {
+                "size": "default",
+                "collapsible": true,
+                "open": {
+                  "path": "/open"
+                }
+              }
+            },
+            "on": {
+              "press": {
+                "functionCall": {
+                  "call": "set",
+                  "args": {
+                    "path": "/open",
+                    "value": {
+                      "call": "not",
+                      "args": {
+                        "value": {
+                          "path": "/open"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "accessibility": {
+              "role": "button",
+              "expanded": {
+                "path": "/open"
+              }
+            }
+          },
+          {
+            "id": "trace-item.content",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "trace-item-child",
+                "component": "Text",
+                "props": {
+                  "text": "Child"
+                },
+                "children": []
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": 8,
+              "minWidth": 0,
+              "marginTop": 8,
+              "marginBottom": 4,
+              "marginLeft": 7,
+              "borderLeftWidth": 1,
+              "paddingLeft": 16,
+              "paddingRight": 4
+            },
+            "visible": {
+              "path": "/open"
+            },
+            "recipe": {
+              "macro": "TraceItem",
+              "part": "content",
+              "props": {
+                "size": "default",
+                "collapsible": true,
+                "open": {
+                  "path": "/open"
+                }
+              }
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "minWidth": 0
+        },
+        "recipe": {
+          "macro": "TraceItem",
+          "part": "root",
+          "props": {
+            "size": "default",
+            "collapsible": true,
+            "open": {
+              "path": "/open"
+            }
+          }
         }
       }
     },

@@ -1,0 +1,656 @@
+{
+  "$comment": "EXP-1324: THE Trace, shadcn's Trace (radix-nova) as ONE look x4. Web = the @exp/ui primitive (`Trace`, `TraceLine`, `TraceIcon`, `TraceTitle`, `TraceDescription`, `TraceCollapsible`, `TraceCollapsibleTrigger`, `TraceCollapsibleContent`); desktop gpui, iOS ExpUI and Android Compose rebuild it pixel-exact from `geometry` (px = pt = dp). A LINE = [icon][gap][title][gap][description] in ONE row of `lineHeight`: icon box `icon` square (glyph fills it, muted-foreground), title truncates with an ellipsis (muted-foreground; hover/pressed foreground when the line is interactive), description shrink-free muted-foreground at `descriptionAlpha` with tabular figures. status `running` paints the TITLE with the design-tokens `motion.shimmer` (never the icon; reduce motion = plain text); `error` paints icon + title + description in destructive (rose); `pending` paints the whole line at `pendingOpacity`. A COLLAPSIBLE line appends, `chevronGap` after the line, the `trace-chevron` glyph in an `icon` box, rotated 90deg (pointing down) while open, rotating over motion `standard`; the whole row is the toggle. Its CONTENT sits `contentTop` below the row and `contentBottom` above whatever follows, as a column whose left rail is a `railWidth` hairline (the border colour) at x = `railInset` (= icon/2 - 1, centred under the icon), the children inset `contentInset` from the row's left edge and `contentTrailing` from its right; text inside defaults to the line font in muted-foreground. Lines stacked in ONE `Trace` sit `lineGap` apart. Sizes: `default` (the styleguide/eUI default, text-sm) and `sm` (the session transcript + issue activity: the transcript tool scale). Tool OUTPUT inside a tool line's content = the CodeBlock primitive at size sm with the `Output` title and the copy action (`execute` output: language `ansi`, the Terminal pattern; a failed call: the destructive variant); a subagent line's duration paints as the outline Badge after the title instead of muted text. `cases` lock the pure models in src/trace.ts (`traceTool`, `traceReasoning`, `traceSubagent`, `parseTestResults` + `traceFailedTests`); mirrors compare the WHOLE expected object.",
+  "geometry": {
+    "default": {
+      "fontSize": 14,
+      "lineHeight": 20,
+      "icon": 16,
+      "gap": 8,
+      "lineGap": 8,
+      "chevronGap": 4,
+      "contentTop": 8,
+      "contentBottom": 4,
+      "railInset": 7,
+      "railWidth": 1,
+      "contentInset": 24,
+      "contentTrailing": 4
+    },
+    "sm": {
+      "fontSize": 12,
+      "lineHeight": 18,
+      "icon": 14,
+      "gap": 6,
+      "lineGap": 6,
+      "chevronGap": 4,
+      "contentTop": 6,
+      "contentBottom": 4,
+      "railInset": 6,
+      "railWidth": 1,
+      "contentInset": 20,
+      "contentTrailing": 4
+    },
+    "descriptionAlpha": 0.7,
+    "pendingOpacity": 0.6,
+    "codeBlock": {
+      "$comment": "THE CodeBlock primitive (shadcn code-block, radix-nova) at size sm: tool output inside a Trace line's content. Box: radius token `lg`, `border` hairline in the input colour over the input colour at `fillAlpha` (dark), clipped. Header row (the `Output` title: sans, `titleSize`, medium, foreground; trailing the ghost icon-xs copy button, `copyButton` round with a `copyIcon` glyph, ui-copy → ui-check for 2s): `padding` left/right, `padding` top, `headerActionsOutset` pulled into the right/top padding. Code: mono `fontSize`/`lineHeight`, `padding` on every side except `contentTopWithHeader` under a header, scrolls sideways (never wraps), at most `maxLines` lines tall before it scrolls. destructive variant: hairline = destructive at `destructiveBorderAlpha`, title + code text destructive, no fill.",
+      "radius": "lg",
+      "border": 1,
+      "fillAlpha": 0.3,
+      "padding": 10,
+      "contentTopWithHeader": 6,
+      "titleSize": 12,
+      "fontSize": 12,
+      "lineHeight": 19.5,
+      "copyButton": 24,
+      "copyIcon": 12,
+      "headerActionsOutset": 4,
+      "maxLines": 16,
+      "destructiveBorderAlpha": 0.4
+    }
+  },
+  "icons": {
+    "tool": "trace-tool",
+    "reasoning": "trace-reasoning",
+    "subagent": "trace-subagent",
+    "failed": "trace-failed",
+    "chevron": "trace-chevron"
+  },
+  "copy": {
+    "output": "Output",
+    "copy": "Copy",
+    "copied": "Copied"
+  },
+  "tool": {
+    "unnamed": "Tool",
+    "verbs": {
+      "execute": {
+        "running": "Running",
+        "settled": "Ran",
+        "blank": "a command",
+        "icon": "trace-terminal"
+      },
+      "read": {
+        "running": "Reading",
+        "settled": "Read",
+        "blank": "a file",
+        "icon": "trace-read"
+      },
+      "edit": {
+        "running": "Editing",
+        "settled": "Edited",
+        "blank": "a file",
+        "icon": "trace-edit"
+      },
+      "delete": {
+        "running": "Deleting",
+        "settled": "Deleted",
+        "blank": "a file",
+        "icon": "trace-edit"
+      },
+      "move": {
+        "running": "Moving",
+        "settled": "Moved",
+        "blank": "a file",
+        "icon": "trace-edit"
+      },
+      "search": {
+        "running": "Searching",
+        "settled": "Searched",
+        "blank": "the code",
+        "icon": "trace-search"
+      },
+      "fetch": {
+        "running": "Fetching",
+        "settled": "Fetched",
+        "blank": "a page",
+        "icon": "trace-fetch"
+      },
+      "think": {
+        "running": "Thinking",
+        "settled": "Thought",
+        "blank": "it through",
+        "icon": "trace-reasoning"
+      },
+      "wait": {
+        "running": "Waiting on",
+        "settled": "Waited on",
+        "blank": "a task",
+        "icon": "trace-background"
+      }
+    }
+  },
+  "reasoning": {
+    "running": "Thinking",
+    "settled": "Thought for {duration}",
+    "brief": "Thought for a moment"
+  },
+  "subagent": {
+    "named": {
+      "running": "Running the {label} agent",
+      "settled": "Ran the {label} agent",
+      "failed": "The {label} agent failed"
+    },
+    "unnamed": {
+      "running": "Running a subagent",
+      "settled": "Ran a subagent",
+      "failed": "A subagent failed"
+    }
+  },
+  "tests": {
+    "$comment": "parseTestResults: ANSI CSI escapes stripped, CRLF -> LF; the FIRST runner whose summary matches decides the counts: jest `Tests: [n failed, ][n skipped, ][n todo, ][n passed, ]n total`; vitest `Tests  [n failed][ | ][n passed] ... (total)`; cargo `test result: X. n passed; n failed;` (every such line summed); xcodebuild `Executed n tests, with n failures` (the LAST); gradle `n tests completed, n failed`; pytest `=== [n failed][, ][n passed]... in Xs ===`; bun `  n pass` / `  n fail` lines. The suite: every failure line of `(fail) Suite > t` (bun), `FAIL path[ > Suite > t]` (jest/vitest: the Suite, else the file name up to its first `.`), `Class > t FAILED` (gradle: last `.` segment), `FAILED path::t` (pytest: the file name up to its first `.`), `Test Case '-[Mod.Class t]' failed` (xcodebuild), `---- mod::t stdout ----` (cargo: the module); exactly ONE distinct name = the suite, else null. The line exists only for failed >= 1.",
+    "title": "Failed: {failed} of {total} {tests}",
+    "titleIn": "Failed: {failed} of {total} {tests} in {suite}",
+    "test": "test",
+    "tests": "tests"
+  },
+  "cases": {
+    "tool": [
+      {
+        "name": "a running command",
+        "input": {
+          "toolKind": "execute",
+          "name": "Bash",
+          "detail": "./gradlew :app:startupProfile",
+          "settled": false,
+          "failed": false
+        },
+        "expected": {
+          "icon": "trace-terminal",
+          "title": "Running ./gradlew :app:startupProfile",
+          "description": null,
+          "status": "running"
+        }
+      },
+      {
+        "name": "a settled command",
+        "input": {
+          "toolKind": "execute",
+          "name": "Bash",
+          "detail": "./gradlew :app:startupProfile",
+          "settled": true,
+          "failed": false
+        },
+        "expected": {
+          "icon": "trace-terminal",
+          "title": "Ran ./gradlew :app:startupProfile",
+          "description": null,
+          "status": null
+        }
+      },
+      {
+        "name": "a failed command keeps its past tense",
+        "input": {
+          "toolKind": "execute",
+          "name": "Bash",
+          "detail": "bun test",
+          "settled": true,
+          "failed": true
+        },
+        "expected": {
+          "icon": "trace-terminal",
+          "title": "Ran bun test",
+          "description": null,
+          "status": "error"
+        }
+      },
+      {
+        "name": "a command without a detail",
+        "input": {
+          "toolKind": "execute",
+          "name": "Bash",
+          "detail": null,
+          "settled": true,
+          "failed": false
+        },
+        "expected": {
+          "icon": "trace-terminal",
+          "title": "Ran a command",
+          "description": null,
+          "status": null
+        }
+      },
+      {
+        "name": "whitespace in the detail collapses",
+        "input": {
+          "toolKind": "read",
+          "name": "Read",
+          "detail": "  src/a.ts\n",
+          "settled": true,
+          "failed": false
+        },
+        "expected": {
+          "icon": "trace-read",
+          "title": "Read src/a.ts",
+          "description": null,
+          "status": null
+        }
+      },
+      {
+        "name": "an edit",
+        "input": {
+          "toolKind": "edit",
+          "name": "Edit",
+          "detail": "src/startup.kt",
+          "settled": true,
+          "failed": false
+        },
+        "expected": {
+          "icon": "trace-edit",
+          "title": "Edited src/startup.kt",
+          "description": null,
+          "status": null
+        }
+      },
+      {
+        "name": "a running search",
+        "input": {
+          "toolKind": "search",
+          "name": "Grep",
+          "detail": "persistOnStop",
+          "settled": false,
+          "failed": false
+        },
+        "expected": {
+          "icon": "trace-search",
+          "title": "Searching persistOnStop",
+          "description": null,
+          "status": "running"
+        }
+      },
+      {
+        "name": "a fetch",
+        "input": {
+          "toolKind": "fetch",
+          "name": "WebFetch",
+          "detail": "https://ui.shadcn.com",
+          "settled": true,
+          "failed": false
+        },
+        "expected": {
+          "icon": "trace-fetch",
+          "title": "Fetched https://ui.shadcn.com",
+          "description": null,
+          "status": null
+        }
+      },
+      {
+        "name": "a wait",
+        "input": {
+          "toolKind": "wait",
+          "name": "TaskOutput",
+          "detail": "the web captures",
+          "settled": false,
+          "failed": false
+        },
+        "expected": {
+          "icon": "trace-background",
+          "title": "Waiting on the web captures",
+          "description": null,
+          "status": "running"
+        }
+      },
+      {
+        "name": "another tool keeps its name, the detail is the description",
+        "input": {
+          "toolKind": "other",
+          "name": "TodoWrite",
+          "detail": "3 tasks",
+          "settled": true,
+          "failed": false
+        },
+        "expected": {
+          "icon": "trace-tool",
+          "title": "TodoWrite",
+          "description": "3 tasks",
+          "status": null
+        }
+      },
+      {
+        "name": "an unknown kind reads as other",
+        "input": {
+          "toolKind": "teleport",
+          "name": "Teleport",
+          "detail": null,
+          "settled": false,
+          "failed": false
+        },
+        "expected": {
+          "icon": "trace-tool",
+          "title": "Teleport",
+          "description": null,
+          "status": "running"
+        }
+      },
+      {
+        "name": "a nameless other tool",
+        "input": {
+          "toolKind": "other",
+          "name": " ",
+          "detail": null,
+          "settled": true,
+          "failed": false
+        },
+        "expected": {
+          "icon": "trace-tool",
+          "title": "Tool",
+          "description": null,
+          "status": null
+        }
+      }
+    ],
+    "reasoning": [
+      {
+        "name": "streaming",
+        "input": {
+          "running": true,
+          "durationMs": null
+        },
+        "expected": {
+          "icon": "trace-reasoning",
+          "title": "Thinking",
+          "description": null,
+          "status": "running"
+        }
+      },
+      {
+        "name": "five seconds",
+        "input": {
+          "running": false,
+          "durationMs": 5400
+        },
+        "expected": {
+          "icon": "trace-reasoning",
+          "title": "Thought for 5s",
+          "description": null,
+          "status": null
+        }
+      },
+      {
+        "name": "over a minute",
+        "input": {
+          "running": false,
+          "durationMs": 72000
+        },
+        "expected": {
+          "icon": "trace-reasoning",
+          "title": "Thought for 1m 12s",
+          "description": null,
+          "status": null
+        }
+      },
+      {
+        "name": "under a second",
+        "input": {
+          "running": false,
+          "durationMs": 400
+        },
+        "expected": {
+          "icon": "trace-reasoning",
+          "title": "Thought for a moment",
+          "description": null,
+          "status": null
+        }
+      },
+      {
+        "name": "no duration",
+        "input": {
+          "running": false,
+          "durationMs": null
+        },
+        "expected": {
+          "icon": "trace-reasoning",
+          "title": "Thought for a moment",
+          "description": null,
+          "status": null
+        }
+      }
+    ],
+    "subagent": [
+      {
+        "name": "running",
+        "input": {
+          "label": "Explore",
+          "running": true,
+          "failed": false,
+          "durationMs": 31000
+        },
+        "expected": {
+          "icon": "trace-subagent",
+          "title": "Running the Explore agent",
+          "description": "31s",
+          "status": "running"
+        }
+      },
+      {
+        "name": "done with a duration",
+        "input": {
+          "label": "Explore",
+          "running": false,
+          "failed": false,
+          "durationMs": 72000
+        },
+        "expected": {
+          "icon": "trace-subagent",
+          "title": "Ran the Explore agent",
+          "description": "1m 12s",
+          "status": null
+        }
+      },
+      {
+        "name": "failed",
+        "input": {
+          "label": "general-purpose",
+          "running": false,
+          "failed": true,
+          "durationMs": 9000
+        },
+        "expected": {
+          "icon": "trace-subagent",
+          "title": "The general-purpose agent failed",
+          "description": "9s",
+          "status": "error"
+        }
+      },
+      {
+        "name": "no duration, no label",
+        "input": {
+          "label": "",
+          "running": false,
+          "failed": false,
+          "durationMs": null
+        },
+        "expected": {
+          "icon": "trace-subagent",
+          "title": "Ran a subagent",
+          "description": null,
+          "status": null
+        }
+      }
+    ],
+    "tests": [
+      {
+        "name": "not test output",
+        "output": "Pixel 6a   p50 740 ms\nBUILD SUCCESSFUL in 41s",
+        "expected": {
+          "results": null,
+          "line": null
+        }
+      },
+      {
+        "name": "jest with one failing file",
+        "output": "PASS src/a.test.ts\nFAIL src/bench/StartupBenchmark.test.ts\n  ● cold start\n\nTests:       1 failed, 11 passed, 12 total\nTime:        2.1 s",
+        "expected": {
+          "results": {
+            "passed": 11,
+            "failed": 1,
+            "total": 12,
+            "suite": "StartupBenchmark"
+          },
+          "line": {
+            "icon": "trace-failed",
+            "title": "Failed: 1 of 12 tests in StartupBenchmark",
+            "description": null,
+            "status": "error"
+          }
+        }
+      },
+      {
+        "name": "jest all green has no line",
+        "output": "Tests:       12 passed, 12 total",
+        "expected": {
+          "results": {
+            "passed": 12,
+            "failed": 0,
+            "total": 12,
+            "suite": null
+          },
+          "line": null
+        }
+      },
+      {
+        "name": "vitest",
+        "output": " FAIL  src/startup.test.ts > StartupBenchmark > cold start\n\n Test Files  1 failed (1)\n      Tests  1 failed | 11 passed (12)",
+        "expected": {
+          "results": {
+            "passed": 11,
+            "failed": 1,
+            "total": 12,
+            "suite": "StartupBenchmark"
+          },
+          "line": {
+            "icon": "trace-failed",
+            "title": "Failed: 1 of 12 tests in StartupBenchmark",
+            "description": null,
+            "status": "error"
+          }
+        }
+      },
+      {
+        "name": "bun test",
+        "output": "(pass) StartupBenchmark > warm [0.2ms]\n(fail) StartupBenchmark > cold [1.2ms]\n\n 11 pass\n 1 fail\n 30 expect() calls\nRan 12 tests across 1 file. [80.00ms]",
+        "expected": {
+          "results": {
+            "passed": 11,
+            "failed": 1,
+            "total": 12,
+            "suite": "StartupBenchmark"
+          },
+          "line": {
+            "icon": "trace-failed",
+            "title": "Failed: 1 of 12 tests in StartupBenchmark",
+            "description": null,
+            "status": "error"
+          }
+        }
+      },
+      {
+        "name": "cargo sums every binary",
+        "output": "---- startup::cold_start stdout ----\nthread panicked\n\ntest result: FAILED. 9 passed; 1 failed; 0 ignored; 0 measured\n\ntest result: ok. 2 passed; 0 failed; 0 ignored; 0 measured",
+        "expected": {
+          "results": {
+            "passed": 11,
+            "failed": 1,
+            "total": 12,
+            "suite": "startup"
+          },
+          "line": {
+            "icon": "trace-failed",
+            "title": "Failed: 1 of 12 tests in startup",
+            "description": null,
+            "status": "error"
+          }
+        }
+      },
+      {
+        "name": "pytest",
+        "output": "FAILED tests/test_startup.py::test_cold - assert 812 < 800\n========== 1 failed, 11 passed in 0.12s ==========",
+        "expected": {
+          "results": {
+            "passed": 11,
+            "failed": 1,
+            "total": 12,
+            "suite": "test_startup"
+          },
+          "line": {
+            "icon": "trace-failed",
+            "title": "Failed: 1 of 12 tests in test_startup",
+            "description": null,
+            "status": "error"
+          }
+        }
+      },
+      {
+        "name": "gradle",
+        "output": "StartupBenchmark > coldStart FAILED\n    java.lang.AssertionError\n\n12 tests completed, 1 failed\n\nFAILURE: Build failed with an exception.",
+        "expected": {
+          "results": {
+            "passed": 11,
+            "failed": 1,
+            "total": 12,
+            "suite": "StartupBenchmark"
+          },
+          "line": {
+            "icon": "trace-failed",
+            "title": "Failed: 1 of 12 tests in StartupBenchmark",
+            "description": null,
+            "status": "error"
+          }
+        }
+      },
+      {
+        "name": "xcodebuild takes the last summary",
+        "output": "Test Case '-[AppTests.StartupBenchmark testCold]' failed (0.2 seconds).\n\t Executed 12 tests, with 1 failure (0 unexpected) in 0.4 (0.4) seconds\n\t Executed 12 tests, with 1 failure (0 unexpected) in 0.4 (0.5) seconds",
+        "expected": {
+          "results": {
+            "passed": 11,
+            "failed": 1,
+            "total": 12,
+            "suite": "StartupBenchmark"
+          },
+          "line": {
+            "icon": "trace-failed",
+            "title": "Failed: 1 of 12 tests in StartupBenchmark",
+            "description": null,
+            "status": "error"
+          }
+        }
+      },
+      {
+        "name": "two suites name none",
+        "output": "(fail) Startup > cold [1ms]\n(fail) Sync > merge [1ms]\n 10 pass\n 2 fail",
+        "expected": {
+          "results": {
+            "passed": 10,
+            "failed": 2,
+            "total": 12,
+            "suite": null
+          },
+          "line": {
+            "icon": "trace-failed",
+            "title": "Failed: 2 of 12 tests",
+            "description": null,
+            "status": "error"
+          }
+        }
+      },
+      {
+        "name": "ansi colours are stripped",
+        "output": "\u001b[31m(fail)\u001b[0m Store > put [1ms]\n\u001b[32m 0 pass\u001b[0m\n\u001b[31m 1 fail\u001b[0m",
+        "expected": {
+          "results": {
+            "passed": 0,
+            "failed": 1,
+            "total": 1,
+            "suite": "Store"
+          },
+          "line": {
+            "icon": "trace-failed",
+            "title": "Failed: 1 of 1 test in Store",
+            "description": null,
+            "status": "error"
+          }
+        }
+      }
+    ]
+  }
+}

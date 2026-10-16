@@ -235,6 +235,13 @@ fn print_event(event: &engine::LocalFeedEvent, state: &Mutex<AttachState>) {
 pub(crate) fn print_activity(event: &steer::ActivityEvent, state: &Mutex<AttachState>) {
     match event {
         steer::ActivityEvent::Narration { text, .. } => println!("{}", text.trim_end()),
+        // EXP-1324: a thought's edges — the settled one is a quiet line.
+        steer::ActivityEvent::Thought { state, duration_ms, .. } => {
+            if *state == steer::ThoughtState::Ended {
+                let line = steer::trace::trace_reasoning(false, *duration_ms);
+                println!("  · {}", line.title);
+            }
+        }
         steer::ActivityEvent::Tool { name, detail, .. } => match detail {
             Some(detail) => println!("  · {name} {detail}"),
             None => println!("  · {name}"),

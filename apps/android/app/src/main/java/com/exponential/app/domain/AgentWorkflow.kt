@@ -19,6 +19,9 @@ data class BackgroundTask(
     val description: String,
     /** The launching tool_use_id, once a `task_started` names one. */
     val toolId: String? = null,
+    /** EXP-1324: epoch ms the device saw it start (wire `startedAt`); null =
+     *  not said, the Queue then clocks it from this client's first sight. */
+    val startedAt: Long? = null,
 )
 
 const val BACKGROUND_TASK_KIND_OTHER = "other"

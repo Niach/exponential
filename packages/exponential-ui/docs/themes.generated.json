@@ -2168,7 +2168,9 @@
       "props": [
         "lineNumbers",
         "wrap",
-        "kind"
+        "kind",
+        "variant",
+        "size"
       ]
     },
     {
@@ -2324,6 +2326,35 @@
         "body"
       ],
       "props": [
+        "open"
+      ]
+    },
+    {
+      "name": "Trace",
+      "kind": "macro",
+      "parts": [
+        "root"
+      ],
+      "props": [
+        "size"
+      ]
+    },
+    {
+      "name": "TraceItem",
+      "kind": "macro",
+      "parts": [
+        "root",
+        "line",
+        "icon",
+        "title",
+        "description",
+        "chevron",
+        "content"
+      ],
+      "props": [
+        "status",
+        "size",
+        "collapsible",
         "open"
       ]
     },

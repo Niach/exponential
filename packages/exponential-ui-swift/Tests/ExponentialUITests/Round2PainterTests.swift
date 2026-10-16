@@ -1,5 +1,6 @@
 import XCTest
 import ExponentialUICore
+import SwiftUI
 @testable import ExponentialUI
 
 /// The round-2 painter asks (contract §7 "Painter asks", VAPP-100) as the
@@ -87,5 +88,92 @@ final class Round2PainterTests: XCTestCase {
         m.command(.scrollToIndex(id: "list", index: 150, align: "start"))
         let after = m.lists["list"]!
         XCTAssertTrue((after.start...after.end).contains(150), "window \(after.start)…\(after.end)")
+    }
+
+    // MARK: - EXP-1324: Text shimmer, Trace, CodeBlock variant/size
+
+    /// `fixtures/text-shimmer.json` through the facade and `TextShimmer`.
+    func testTextShimmerColoursReplayTheFixture() throws {
+        try XCTSkipUnless(Fixtures.available(), "fixtures not in this checkout")
+        let cases = try Round2Suites.textShimmer()
+        XCTAssertGreaterThan(cases.count, 3)
+        XCTAssertEqual(cases.compactMap { c in c.error.map { "\(c.name): \($0)" } }, [])
+    }
+
+    /// The gradient: 200% + 2 × spread wide, sliding background-position
+    /// 100% → 0% (rtl reversed); five stops centred on the highlight at
+    /// CSS 90° + angle.
+    func testTextShimmerGeometry() throws {
+        let s = try XCTUnwrap(TextShimmer.resolve(color: "#a1a1a1", dark: true))
+        XCTAssertEqual(s.gradientWidth(100), 320)
+        XCTAssertEqual(s.offset(width: 100, phase: 0, rtl: false), -220)
+        XCTAssertEqual(s.offset(width: 100, phase: 1, rtl: false), 0, accuracy: 1e-9)
+        XCTAssertEqual(s.offset(width: 100, phase: 0, rtl: true), 0)
+        let (g, start, end) = s.gradient(size: CGSize(width: 320, height: 20))
+        XCTAssertEqual(g.stops.count, 5)
+        XCTAssertEqual(g.stops[2].location, 0.5)
+        XCTAssertEqual(g.stops[0].location + g.stops[4].location, 1, accuracy: 1e-9)
+        XCTAssertLessThan(start.x, end.x, "left → right")
+        XCTAssertLessThan(start.y, end.y, "110deg leans down")
+        XCTAssertEqual((start.x + end.x) / 2, 0.5, accuracy: 1e-9)
+        XCTAssertEqual(Color(hex: "#73737399")!.hexRGBA(), "#73737399")
+        XCTAssertEqual(Color(hex: "#a1a1a1")!.hexRGBA(), "#a1a1a1")
+    }
+
+    /// A shimmering Text keeps the prop on its leaf and paints (masked
+    /// gradient; reduced motion = the plain text).
+    func testAShimmeringTextPaints() throws {
+        let m = try makeModel(fixed: true)
+        try m.setNested(json: #"{"id":"t","component":"Text","props":{"text":"Running tests","shimmer":true}}"#)
+        let t = try XCTUnwrap(m.index(of: "t"))
+        XCTAssertTrue(m.node(t)?.props.flag("shimmer") ?? false)
+        XCTAssertNotNil(TextShimmer.resolve(color: m.ink(t).hexRGBA(), dark: true))
+        #if canImport(AppKit)
+        let host = NSHostingView(rootView: ExponentialSurface(model: m).frame(width: 390, height: 200))
+        host.frame = CGRect(x: 0, y: 0, width: 390, height: 200)
+        host.layoutSubtreeIfNeeded()
+        XCTAssertNotNil(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+        #endif
+    }
+
+    /// TraceItem: the rail = the content's LEFT border only, the chevron's
+    /// negative margin from the core, rotated 90° open, a pending line dims.
+    func testTraceItemPaintsItsRecipes() throws {
+        let m = try makeModel(fixed: true)
+        let item = { (open: Bool, status: String) in
+            #"{"id":"trace","component":"Trace","children":[{"id":"ti","component":"TraceItem","props":{"title":"Ran bun test","icon":"trace-terminal","description":"4s","collapsible":true,"open":\#(open),"status":"\#(status)"},"children":[{"id":"c","component":"Text","props":{"text":"Child"}}]}]}"#
+        }
+        try m.setNested(json: item(true, "done"))
+        XCTAssertEqual(m.nodes.filter { $0.component == "Unknown" && !$0.removed }.map(\.id), [])
+        let content = try XCTUnwrap(m.index(of: "ti.content"))
+        let rail = m.style(content).borderWidths
+        XCTAssertEqual(rail[3], 1, "left border = the rail: \(rail)")
+        XCTAssertEqual(rail[0] + rail[1] + rail[2], 0)
+        let line = try XCTUnwrap(m.index(of: "ti.line"))
+        let chevron = try XCTUnwrap(m.index(of: "ti.line.chevron"))
+        let desc = try XCTUnwrap(m.index(of: "ti.line.description"))
+        XCTAssertEqual(m.frame(chevron).minX - m.frame(desc).maxX, 8 - 4, accuracy: 0.5, "gap 8, marginLeft -4")
+        XCTAssertNotEqual(m.style(chevron).transform, .identity, "open = rotate(90deg)")
+        XCTAssertNotEqual(m.style(line).opacity ?? 1, 0.6)
+        try m.setNested(json: item(false, "pending"))
+        XCTAssertEqual(m.style(m.index(of: "ti.line.chevron")!).transform, .identity)
+        XCTAssertEqual(m.style(m.index(of: "ti.line")!).opacity ?? 1, 0.6, accuracy: 1e-6)
+    }
+
+    /// CodeBlock `variant` / `size` reach the core's recipes; the new token
+    /// kinds of `ansi` come back coloured.
+    func testCodeBlockVariantSizeAndAnsiTokens() throws {
+        let m = try makeModel(fixed: true)
+        try m.setNested(json: #"{"id":"cb","component":"CodeBlock","props":{"code":"\u001b[32mok\u001b[0m \u001b[33mwarn\u001b[0m \u001b[31mfail\u001b[0m","language":"ansi","variant":"destructive","size":"sm"}}"#)
+        let cb = try XCTUnwrap(m.index(of: "cb"))
+        let plain = try makeModel(fixed: true)
+        try plain.setNested(json: #"{"id":"cb","component":"CodeBlock","props":{"code":"ok","language":"ansi"}}"#)
+        XCTAssertNotEqual(m.style(cb).borderColor, plain.style(plain.index(of: "cb")!).borderColor, "destructive variant recipe")
+        let line = try XCTUnwrap(m.nodes.first { $0.recipeComponent == "CodeBlock" && $0.part == "code" && !$0.removed })
+        let kinds = Set(line.props.list("tokens").compactMap { $0["kind"]?.string })
+        XCTAssertTrue(kinds.isSuperset(of: ["success", "warning", "error"]), "\(kinds)")
+        for kind in ["success", "warning", "error"] {
+            XCTAssertNotNil(m.part("CodeBlock", "token", props: ["kind": .string(kind), "language": .string("ansi")]).color, kind)
+        }
     }
 }

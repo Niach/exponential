@@ -89,10 +89,11 @@ use steer::{
 use theme::tokens::transcript;
 
 use crate::controls::{
-    disclosure_header, text_button, ChevronSide, TextButtonVariant, WebText as _,
+    text_button, TextButtonVariant, WebText as _,
 };
 use crate::icons::registry;
 use crate::slash_commands;
+use crate::trace::{trace_collapsible, trace_content, trace_line, trace_link, trace_stack, TraceLine, TraceSize};
 use crate::composer_images::{self, PendingImages};
 use crate::native_dialog::{self, AlertSpec};
 use crate::transcript_rows::{
@@ -478,8 +479,15 @@ pub(crate) struct SteerSessionView {
     /// EXP-884: `feed.subagents()` — the strip's tabs and the focused tab's
     /// validity read it twice a frame; it walks and buckets the whole run.
     subagents: Vec<steer::SubagentSummary>,
-    /// EXP-884: the §1/§2 strip lines, a whole-feed walk for open wait rows.
-    strip_lines: Vec<crate::session_rows::StripLine>,
+    /// EXP-884/EXP-1324: the Queue's open waits, a whole-feed walk.
+    queue_waits: Vec<steer::task_queue::TaskQueueWait>,
+    /// EXP-1324: this client's first sight of each background task — the
+    /// Queue's elapsed time for a publisher that sent no `startedAt`.
+    background_seen: HashMap<String, i64>,
+    /// EXP-1324: the reader's Queue toggles, sticky for the session: "to do"
+    /// opens by default, "completed" folds by default.
+    queue_todo_closed: bool,
+    queue_completed_open: bool,
     /// EXP-1240: the workflow Work cards whose folded row is open (keyed by
     /// workflow id). VIEW state, never persisted.
     open_work_folds: HashSet<String>,
@@ -707,7 +715,10 @@ impl SteerSessionView {
             expanded_edit_rows: HashMap::new(),
             derived_for: None,
             subagents: Vec::new(),
-            strip_lines: Vec::new(),
+            queue_waits: Vec::new(),
+            background_seen: HashMap::new(),
+            queue_todo_closed: false,
+            queue_completed_open: false,
             open_work_folds: HashSet::new(),
             duplicates: Vec::new(),
             expanded_cards: HashSet::new(),
@@ -903,8 +914,14 @@ impl SteerSessionView {
         self.derived_for = Some(generation);
         self.active = self.feed.active_question_ids();
         self.subagents = self.feed.subagents();
-        self.strip_lines =
-            crate::session_rows::strip_lines(self.feed.background_tasks(), self.feed.items());
+        self.queue_waits = crate::session_rows::queue_waits(self.feed.items());
+        let now = now_epoch_ms();
+        let tasks = self.feed.background_tasks();
+        self.background_seen
+            .retain(|id, _| tasks.iter().any(|task| task.id == *id));
+        for task in tasks {
+            self.background_seen.entry(task.id.clone()).or_insert(now);
+        }
         self.duplicates = crate::session_rows::duplicate_warnings(self.feed.items());
     }
 
@@ -955,6 +972,9 @@ impl SteerSessionView {
         // row's wire output (EXP-1206: the only output a row ever carries).
         let has_extras = self.extras.has_extras(item.id)
             || matches!(&item.kind, FeedKind::Tool { output: Some(_), .. })
+            // EXP-1324: a Reasoning line this run kept the text of opens.
+            || matches!(&item.kind, FeedKind::Thought { thought_id, .. }
+                if self.extras.thought_text(thought_id).is_some())
             || (self.source.session().is_none()
                 && matches!(&item.kind, FeedKind::Tool { diff: Some(_), .. }));
         if has_extras {
@@ -962,6 +982,10 @@ impl SteerSessionView {
             if self.expanded_extras.contains(&item.id) {
                 facets |= facet::EXTRAS_EXPANDED;
             }
+        }
+        // EXP-1324: the failed-tests line opens onto the output.
+        if item.is_tool() && self.expanded_cards.contains(&item.id) {
+            facets |= facet::TESTS_EXPANDED;
         }
         if let Some(key) = answer_key(item) {
             if self.feed.is_answer_locked(&key) {
@@ -1289,16 +1313,21 @@ impl SteerSessionView {
     /// while that row's index moves (the replay still landing rows above
     /// it), so a wheel is never fought.
     fn dev_scroll_to_script_card(&mut self) {
-        if !crate::screens::dev_scroll_to_script_card() {
+        let Some(target) = crate::screens::dev_scroll_to() else {
             return;
-        }
+        };
         let items = self.feed.items();
         let script_row = self.rows.iter().position(|spec| {
             spec.item_indices().iter().any(|&ix| {
-                matches!(
-                    items.get(ix).map(|item| &item.kind),
-                    Some(FeedKind::Tool { name, .. }) if steer::script_card::is_script_tool(name)
-                )
+                let Some(item) = items.get(ix) else { return false };
+                match target {
+                    // EXP-1324: the workflow's Work card rides its tool row.
+                    "work-card" => self.workflow_of(item).is_some(),
+                    _ => matches!(
+                        &item.kind,
+                        FeedKind::Tool { name, .. } if steer::script_card::is_script_tool(name)
+                    ),
+                }
             })
         });
         let Some(row) = script_row else {
@@ -2677,7 +2706,9 @@ impl SteerSessionView {
             cx.background_executor().timer(WORKING_TICK).await;
             if this
                 .update(cx, |this, cx| {
-                    if this.working_now() {
+                    // EXP-1324: a background task's elapsed time ticks in the
+                    // Queue even between turns.
+                    if this.working_now() || !this.feed.background_tasks().is_empty() {
                         cx.notify();
                     }
                 })
@@ -4239,13 +4270,13 @@ impl SteerSessionView {
             // EXP-850 §3: a `Workflow` call never reaches a tool RUN — the
             // grouping keeps it a row of its own (`is_workflow_call`), which
             // renders as the card.
-            FeedRow::ToolRun { id, items } => self.render_tool_run(*id, items, live_tail, cx),
+            FeedRow::ToolRun { id, items } => self.render_tool_run(*id, items, live_tail, window, cx),
             // EXP-916: a run of edits is the ONE edited-files card.
             FeedRow::Edits { id, items } => self.render_edits_card(*id, items, cx),
             // EXP-948: a run of the SAME Exponential tool is its own captioned
             // row — our work is never folded away as "N other tools".
             FeedRow::ExpRun { id, items } => {
-                self.render_exp_tool_run(*id, items, live_tail, cx)
+                self.render_exp_tool_run(*id, items, live_tail, window, cx)
             }
             FeedRow::Ask { id, items, .. } => self.render_ask(*id, items, active, window, cx),
             FeedRow::Subagent { id, items, .. } => {
@@ -4356,7 +4387,7 @@ impl SteerSessionView {
             // tool row — the card is the row (looked up by the call's id).
             FeedKind::Tool { .. } => match self.workflow_of(item).cloned() {
                 Some(workflow) => self.render_workflow_card(&workflow, Some(item), cx),
-                None => self.render_tool_item(item, self.tool_row_mode(item), cx),
+                None => self.render_tool_item(item, self.tool_row_mode(item), window, cx),
             },
             FeedKind::Permission { tool, detail } => {
                 let amber = theme::tokens::YELLOW.to_hsla();
@@ -4426,7 +4457,53 @@ impl SteerSessionView {
                 error_type,
                 ..
             } => self.render_api_error_row(message, error_type.as_deref(), cx),
+            FeedKind::Thought { .. } => self.render_thought(item, window, cx),
         }
+    }
+
+    /// EXP-1324: the Reasoning line — "Thinking" (shimmering) while the
+    /// thought streams, "Thought for 5s" once it closed. This run's own
+    /// engine kept the text, so here the line opens to it; a remote
+    /// viewer's line is not expandable (the wire carries no thought text).
+    fn render_thought(&self, item: &FeedItem, window: &Window, cx: &mut gpui::Context<Self>) -> AnyElement {
+        let FeedKind::Thought { thought_id, running, duration_ms, .. } = &item.kind else {
+            return div().into_any_element();
+        };
+        let model = steer::trace::trace_reasoning(*running, *duration_ms);
+        let line = TraceLine::from_model(("steer-thought", item.id as usize), &model);
+        let Some(text) = self.extras.thought_text(thought_id) else {
+            return div().id("session-thought-line").w_full().child(trace_line(line, window, cx)).into_any_element();
+        };
+        let id = item.id;
+        let open = self.expanded_extras.contains(&id);
+        let content = open.then(|| {
+            div()
+                .w_full()
+                .min_w_0()
+                .whitespace_normal()
+                .child(SharedString::from(text.trim().to_string()))
+                .into_any_element()
+        });
+        let entity = cx.entity().downgrade();
+        div()
+            .id("session-thought-line")
+            .w_full()
+            .child(trace_collapsible(
+                line,
+                open,
+                move |_, cx| {
+                    let _ = entity.update(cx, |this, cx| {
+                        if !this.expanded_extras.insert(id) {
+                            this.expanded_extras.remove(&id);
+                        }
+                        cx.notify();
+                    });
+                },
+                content,
+                window,
+                cx,
+            ))
+            .into_any_element()
     }
 
     /// A transient failure the agent CLI reported inline (claude's
@@ -4786,15 +4863,20 @@ impl SteerSessionView {
         )
     }
 
-    /// One tool call's row plus whatever hangs off it.
+    /// One tool call's row plus whatever hangs off it — EXP-1324: a Trace
+    /// line ("Ran ./gradlew …"). A SETTLED call that printed is collapsible
+    /// onto its Output CodeBlock (`execute` = `ansi`, a failed call the
+    /// destructive variant); a settled `execute` whose output parses as a
+    /// test run with failures adds the failed-tests line under it.
     ///
-    /// EXP-1206: the row still RUNNING is its headline alone; every SETTLED
-    /// row shows the WIRE's own tail-cut output, folded away, on the runner
+    /// EXP-1206: the row still RUNNING is its headline alone (it shimmers);
+    /// every settled row folds the WIRE's own tail-cut output, on the runner
     /// exactly as on a viewer (EXP-895 runner parity).
     fn render_tool_item(
         &self,
         item: &FeedItem,
         mode: ToolRowMode,
+        window: &Window,
         cx: &mut gpui::Context<Self>,
     ) -> AnyElement {
         let FeedKind::Tool {
@@ -4805,6 +4887,7 @@ impl SteerSessionView {
             settled,
             preview,
             diff,
+            tool_kind,
             ..
         } = &item.kind
         else {
@@ -4818,9 +4901,42 @@ impl SteerSessionView {
         if let Some(card) = self.render_comment_call(item, cx) {
             return card;
         }
+        let id = item.id;
+        let kind = tool_kind.map(|kind| kind.as_str()).unwrap_or("other");
+        // The live tail never streams output (EXP-1206).
+        let printed = (mode != ToolRowMode::Live)
+            .then_some(output.as_deref())
+            .flatten()
+            .filter(|text| !text.trim().is_empty());
+        let weak = cx.entity().downgrade();
+        let toggle = |set: fn(&mut Self) -> &mut HashSet<FeedItemId>| {
+            let entity = weak.clone();
+            move |_: &mut Window, cx: &mut App| {
+                let _ = entity.update(cx, |this, cx| {
+                    let set = set(this);
+                    if !set.insert(id) {
+                        set.remove(&id);
+                    }
+                    cx.notify();
+                });
+            }
+        };
+        let output_block = |printed: &str, destructive: bool, key: &str, cx: &App| {
+            crate::code_block::code_block(
+                crate::code_block::CodeBlockProps {
+                    id: SharedString::from(format!("steer-tool-{key}-{id}")),
+                    title: Some(SharedString::from(steer::trace::copy::OUTPUT)),
+                    code: printed.to_string(),
+                    language: if kind == "execute" { "ansi" } else { "plain" },
+                    destructive,
+                    copyable: true,
+                },
+                cx,
+            )
+        };
         // EXP-846: one of OUR MCP calls reads as product work (the mark, the
         // contract's caption, the answer's preview); everything else is the
-        // plain tool row.
+        // Trace tool line.
         let row = match steer::exp_tool_display(name, *settled) {
             Some(display) => {
                 // EXP-1172: a settled `sessions_show` call's picture, once it
@@ -4835,37 +4951,58 @@ impl SteerSessionView {
                     preview.as_ref(),
                     picture,
                     &self.session_id,
+                    window,
                     cx,
                 )
             }
-            None => tool_row(name, detail.as_deref(), *failed, cx).into_any_element(),
+            None => {
+                let model = steer::trace::trace_tool(kind, name, detail.as_deref(), *settled, *failed);
+                let line = TraceLine::from_model(("steer-tool", id as usize), &model);
+                match printed {
+                    Some(printed) => {
+                        let open = self.expanded_extras.contains(&id);
+                        let content = open.then(|| output_block(printed, *failed, "output", cx));
+                        div()
+                            .id("session-tool-output")
+                            .w_full()
+                            .child(trace_collapsible(
+                                line,
+                                open,
+                                toggle(|this| &mut this.expanded_extras),
+                                content,
+                                window,
+                                cx,
+                            ))
+                            .into_any_element()
+                    }
+                    None => trace_line(line, window, cx),
+                }
+            }
         };
+        // EXP-1324: a settled test run with failures IS its failed-tests
+        // line (trace.json), opening onto the same output — it replaces the
+        // call's own "Ran …" line, as on web, iOS and Android.
+        let tests = (kind == "execute" && *settled)
+            .then_some(printed)
+            .flatten()
+            .and_then(|printed| {
+                let results = steer::trace::parse_test_results(Some(printed));
+                let model = steer::trace::trace_failed_tests(results.as_ref())?;
+                let open = self.expanded_cards.contains(&id);
+                let content = open.then(|| output_block(printed, true, "tests", cx));
+                Some(trace_collapsible(
+                    TraceLine::from_model(("steer-tool-tests", id as usize), &model),
+                    open,
+                    toggle(|this| &mut this.expanded_cards),
+                    content,
+                    window,
+                    cx,
+                ))
+            });
+        let row = tests.unwrap_or(row);
         if mode == ToolRowMode::Nested {
             return row;
         }
-        let id = item.id;
-        let expanded = self.expanded_extras.contains(&id);
-        let extras = match mode {
-            // EXP-1206: the RUNNING row is its headline alone — no output
-            // tail, no live terminal strip — so the transcript never jumps.
-            ToolRowMode::Live => None,
-            // Runner parity: once a call ENDED the row reads the same locally
-            // and remotely — the wire's own tail-cut output. EXP-916: a
-            // patch never hangs off a tool row; it belongs to the
-            // edited-files card the run's edits grouped into.
-            _ => crate::session_extras::render_wire_extras(
-                output.as_deref(),
-                id,
-                expanded,
-                Box::new(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-                    if !this.expanded_extras.insert(id) {
-                        this.expanded_extras.remove(&id);
-                    }
-                    cx.notify();
-                })),
-                cx,
-            ),
-        };
         // EXP-916: a patch never hangs off a tool row — it belongs to the
         // edited-files card its run grouped into. An edit the engine tagged
         // with a workflow id whose frame never arrived is grouped into
@@ -4875,16 +5012,14 @@ impl SteerSessionView {
             .as_deref()
             .filter(|diff| !diff.is_empty())
             .map(|_| self.render_edits_card(id, &[item], cx));
-        if extras.is_none() && card.is_none() {
+        if card.is_none() {
             return row;
         }
-        v_flex()
-            .w_full()
-            .min_w_0()
-            .child(row)
-            .children(extras)
-            .children(card)
-            .into_any_element()
+        trace_stack(
+            std::iter::once(row).chain(card).collect(),
+            TraceSize::Sm,
+        )
+        .into_any_element()
     }
 
     /// EXP-1279 — the Script card of a `codemode__exec` call. The call log
@@ -5186,70 +5321,100 @@ impl SteerSessionView {
         id: FeedItemId,
         items: &[&FeedItem],
         live_tail: bool,
+        window: &Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> AnyElement {
+        // EXP-1324: the group is a TraceCollapsible captioned by the ONE
+        // summary every client derives ("Ran 3 commands · edited 2 files ·
+        // 1 failed", EXP-785), its calls the Trace lines inside.
+        let line = TraceLine::new(
+            ("steer-tool-run", id as usize),
+            Icon::new(registry::TRACE_TOOL),
+            tool_group_caption(items),
+        );
+        self.render_group(id, line, items, live_tail, false, window, cx)
+    }
+
+    /// EXP-1324 — a tool group as ONE Trace collapsible: closed it is the
+    /// caption alone (a run still going keeps its newest call visible under
+    /// it, EXP-895 — the live tail never streams output); open, every call's
+    /// line sits on the rail. `pictures` = a folded Exponential run still
+    /// shows its calls' inline tiles (EXP-1172).
+    #[allow(clippy::too_many_arguments)]
+    fn render_group(
+        &self,
+        id: FeedItemId,
+        line: TraceLine,
+        items: &[&FeedItem],
+        live_tail: bool,
+        pictures: bool,
+        window: &Window,
         cx: &mut gpui::Context<Self>,
     ) -> AnyElement {
         let expanded = self.expanded_groups.contains(&id);
-        // EXP-963: the shared disclosure header — the chevron, the muted rest
-        // brightening under the pointer and the whole line as the target come
-        // from `controls`, this row only says what it is made of.
-        let mut column = v_flex().w_full().min_w_0().child(
-            tool_text(disclosure_header(
-                ("steer-tool-run", id as usize),
-                expanded,
-                ChevronSide::Leading,
-                h_flex()
-                    .flex_1()
-                    .min_w_0()
-                    .gap_2()
-                    .child(Icon::new(registry::CODING_TOOL).xsmall())
-                    // EXP-785: the ONE caption every client derives from the
-                    // group's calls ("Ran 3 commands · edited 2 files · 1
-                    // failed").
-                    .child(
-                        div()
-                            .min_w_0()
-                            .truncate()
-                            .child(SharedString::from(tool_group_caption(items))),
-                    ),
-                cx,
-            ))
-            .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-                if !this.expanded_groups.insert(id) {
-                    this.expanded_groups.remove(&id);
-                }
-                cx.notify();
-            })),
+        let content = expanded.then(|| {
+            trace_stack(
+                items
+                    .iter()
+                    .filter(|item| item.is_tool())
+                    .map(|item| self.render_tool_item(item, self.tool_row_mode(item), window, cx))
+                    .collect(),
+                TraceSize::Sm,
+            )
+            .into_any_element()
+        });
+        let entity = cx.entity().downgrade();
+        let header = trace_collapsible(
+            line,
+            expanded,
+            move |_, cx| {
+                let _ = entity.update(cx, |this, cx| {
+                    if !this.expanded_groups.insert(id) {
+                        this.expanded_groups.remove(&id);
+                    }
+                    cx.notify();
+                });
+            },
+            content,
+            window,
+            cx,
         );
         if expanded {
+            return header;
+        }
+        let tail = live_tail
+            .then(|| items.last().filter(|item| item.is_tool()).copied())
+            .flatten();
+        let mut folded: Vec<AnyElement> = Vec::new();
+        if pictures {
+            // EXP-1172: a picture never hides in a fold — a FOLDED run of
+            // `sessions_show` calls draws its calls' inline tiles in call
+            // order under the caption. The live tail's own row draws its.
             for item in items {
-                if item.is_tool() {
-                    // EXP-787: the group's INNER rhythm is unchanged — the
-                    // 2px that used to live on `tool_row` itself (and gave
-                    // the transcript its old row spacing) sits here now.
-                    // EXP-746: an expanded group shows each call's cards
-                    // too — that is what expanding it is for.
-                    column = column.child(
-                        div()
-                            .pl_5()
-                            .py_0p5()
-                            .child(self.render_tool_item(item, self.tool_row_mode(item), cx)),
-                    );
+                if tail.is_some_and(|tail| tail.id == item.id) {
+                    continue;
+                }
+                if let Some(tile) = self.inline_picture_for(item, cx) {
+                    folded.push(tile);
                 }
             }
-        } else if live_tail {
-            // Collapsed but still running — keep the newest call visible, and
-            // EXP-895 keeps it EXPANDED: it is the row the flow is on, and the
-            // only one the reader can see of this run.
-            if let Some(item) = items.last().filter(|item| item.is_tool()) {
-                column = column.child(
-                    div()
-                        .pl_5()
-                        .py_0p5()
-                        .child(self.render_tool_item(item, ToolRowMode::Live, cx)),
-                );
-            }
         }
-        column.into_any_element()
+        if let Some(item) = tail {
+            folded.push(self.render_tool_item(item, ToolRowMode::Live, window, cx));
+        }
+        if folded.is_empty() {
+            return header;
+        }
+        v_flex()
+            .w_full()
+            .min_w_0()
+            .child(header)
+            .child(trace_content(
+                trace_stack(folded, TraceSize::Sm).into_any_element(),
+                TraceSize::Sm,
+                cx,
+            ))
+            .into_any_element()
     }
 
     /// EXP-948 — a run of ≥2 consecutive calls to the SAME Exponential MCP
@@ -5262,85 +5427,28 @@ impl SteerSessionView {
         id: FeedItemId,
         items: &[&FeedItem],
         live_tail: bool,
+        window: &Window,
         cx: &mut gpui::Context<Self>,
     ) -> AnyElement {
-        let expanded = self.expanded_groups.contains(&id);
-        let mut column = v_flex().w_full().min_w_0().child(
-            tool_text(disclosure_header(
-                ("steer-exp-tool-run", id as usize),
-                expanded,
-                ChevronSide::Leading,
-                h_flex()
-                    .flex_1()
-                    .min_w_0()
-                    .gap_2()
-                    // The app's own mark, exactly as a single call of ours
-                    // draws it.
-                    .child(Icon::from(crate::icons::ExpIcon::Logo).xsmall())
-                    .child(
-                        div()
-                            .min_w_0()
-                            .truncate()
-                            .child(SharedString::from(exp_tool_group_caption(items))),
-                    ),
-                cx,
-            ))
-            .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-                if !this.expanded_groups.insert(id) {
-                    this.expanded_groups.remove(&id);
-                }
-                cx.notify();
-            })),
+        // The app's own mark, exactly as a single call of ours draws it, and
+        // the contract's own plural caption.
+        let line = TraceLine::new(
+            ("steer-exp-tool-run", id as usize),
+            Icon::from(crate::icons::ExpIcon::Logo),
+            exp_tool_group_caption(items),
         );
-        if expanded {
-            for item in items {
-                if item.is_tool() {
-                    column = column.child(
-                        div()
-                            .pl_5()
-                            .py_0p5()
-                            .child(self.render_tool_item(item, self.tool_row_mode(item), cx)),
-                    );
-                }
-            }
-        } else {
-            // EXP-1172: a picture never hides in a fold — a FOLDED run of
-            // `sessions_show` calls draws its calls' inline tiles in call
-            // order under the caption (expanded, each row carries its own).
-            // The live tail's call is skipped: its own row below draws it.
-            let tail = live_tail
-                .then(|| items.last().filter(|item| item.is_tool()).map(|item| item.id))
-                .flatten();
-            for item in items {
-                if Some(item.id) == tail {
-                    continue;
-                }
-                if let Some(tile) = self.inline_picture_for(item, cx) {
-                    column = column.child(div().pl_5().py_1().child(tile));
-                }
-            }
-        }
-        if !expanded && live_tail {
-            // Collapsed but still running — the newest call stays visible
-            // and expanded, exactly as a plain tool run keeps its (EXP-895).
-            if let Some(item) = items.last().filter(|item| item.is_tool()) {
-                column = column.child(
-                    div()
-                        .pl_5()
-                        .py_0p5()
-                        .child(self.render_tool_item(item, ToolRowMode::Live, cx)),
-                );
-            }
-        }
-        column.into_any_element()
+        self.render_group(id, line, items, live_tail, true, window, cx)
     }
 
-    /// EXP-1240 — a subagent's group row is its Work card.
+    /// EXP-1324 — a subagent is its Trace line: "Running the Explore agent"
+    /// (shimmering) → "Ran the Explore agent" with its duration as the
+    /// outline Badge. A click opens its tab (its own transcript), as the
+    /// Work card did (EXP-1240).
     fn render_subagent(
         &self,
         id: FeedItemId,
         items: &[&FeedItem],
-        _window: &Window,
+        window: &Window,
         cx: &mut gpui::Context<Self>,
     ) -> AnyElement {
         let summary = summarize_subagent_row(items);
@@ -5351,9 +5459,6 @@ impl SteerSessionView {
             }),
             Some(SubagentStatus::Started)
         ) && !summary.done;
-        // EXP-1240: the subagent is ONE Work card — its label (the title,
-        // else its type), the calls it made, done or running. Its own rows
-        // live in its transcript, which the card opens.
         // EXP-1259 #11: elapsed from the `started` marker to the settling
         // one (to now while it runs).
         let marker_at = |wanted: SubagentStatus| {
@@ -5368,44 +5473,42 @@ impl SteerSessionView {
             running,
             now_epoch_ms(),
         );
-        let input = steer::work_card::WorkCardInput::Subagent {
-            title: Some(subagent_label(summary.title.as_deref(), &summary.agent_type)),
-            state: if running { "running" } else { "done" }.to_string(),
-            tool_calls: Some(summary.tool_count as u64),
-            elapsed_ms,
+        let label = if summary.agent_type.trim().is_empty() {
+            summary.title.clone().unwrap_or_default()
+        } else {
+            summary.agent_type.clone()
         };
-        let card = steer::work_card::work_card(&input);
-        let on_card = items
-            .iter()
-            .find_map(|item| item.subagent_id().map(str::to_string))
-            .map(|subagent_id| {
-                let entity = cx.entity().downgrade();
-                std::rc::Rc::new(move |window: &mut Window, cx: &mut App| {
-                    let subagent_id = subagent_id.clone();
-                    let _ = entity.update(cx, |this, cx| this.open_lane(subagent_id, window, cx));
-                }) as crate::work_card::CardClick
-            });
-        // EXP-856 §4: a duplicate edge on an ORDINARY subagent stays on its
-        // card.
-        let footer = crate::session_rows::duplicate_warnings(
+        let model = steer::trace::trace_subagent(
+            &label,
+            running,
+            false,
+            elapsed_ms.map(|ms| ms as i64),
+        );
+        let line = TraceLine::from_model(("steer-subagent", id as usize), &model).badge(true);
+        let element = match items.iter().find_map(|item| item.subagent_id().map(str::to_string)) {
+            Some(subagent_id) => trace_link(
+                line.chevron(true),
+                cx.listener(move |this, _: &ClickEvent, window, cx| {
+                    this.open_lane(subagent_id.clone(), window, cx)
+                }),
+                window,
+                cx,
+            ),
+            None => trace_line(line, window, cx),
+        };
+        // EXP-856 §4: a duplicate edge on an ORDINARY subagent stays under
+        // its line.
+        let warnings: Vec<AnyElement> = crate::session_rows::duplicate_warnings(
             &items.iter().map(|item| (*item).clone()).collect::<Vec<_>>(),
         )
         .iter()
         .map(|warning| self.render_duplicate_row(warning, cx))
         .collect();
-        crate::work_card::work_card(
-            crate::work_card::WorkCardProps {
-                id: SharedString::from(format!("steer-subagent-{id}")),
-                card: &card,
-                lanes: Vec::new(),
-                folded_open: false,
-                on_toggle_folded: None,
-                on_lane: None,
-                on_card,
-                footer,
-            },
-            cx,
-        )
+        if warnings.is_empty() {
+            return element;
+        }
+        trace_stack(std::iter::once(element).chain(warnings).collect(), TraceSize::Sm)
+            .into_any_element()
     }
 
     // ── EXP-850: the working row, the workflow card, the strips ───────────
@@ -5575,63 +5678,117 @@ impl SteerSessionView {
             .into_any_element()
     }
 
-    /// EXP-927 §2c — the agent's OWN task list, the FIRST block of the strip
-    /// (claude's `TodoWrite`, codex's plan — whatever the adapters hand the
-    /// engine as an ACP `Plan`). Hidden while it is empty or every entry is
-    /// done. EXP-1240: drawn as THE Work card (`tasks`): the progress, the
-    /// segment bar and the entry in progress (else the next pending one).
-    fn render_task_list_strip(&self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
-        // The visibility rule is ONE function ×4 (web `taskListSummary`):
-        // hidden while the list is empty or every entry is done.
-        let entries = self.feed.task_list();
-        crate::session_rows::task_list_summary(entries)?;
-        // EXP-1240: the list is the Work card's `tasks` kind.
-        let card = steer::work_card::work_card(&steer::work_card::WorkCardInput::from_tasks(entries));
-        let element = crate::work_card::work_card(
-            crate::work_card::WorkCardProps {
-                id: SharedString::from("steer-task-list"),
-                card: &card,
-                lanes: Vec::new(),
-                folded_open: false,
-                on_toggle_folded: None,
-                on_lane: None,
-                on_card: None,
-                footer: Vec::new(),
-            },
-            cx,
+    /// EXP-1321/1324 — THE Queue (`fixtures/task-queue.json`): ONE block at
+    /// the bottom of the transcript, in its reading column, right above the
+    /// queued-messages strip. Two Trace collapsibles at size sm: "n to do"
+    /// (open: the running work shimmering, then the pending tasks dimmed)
+    /// and "n completed" (folded, its lines dimmed). It replaced the
+    /// background-task + "Waiting on" lines and the Work card's `tasks`
+    /// variant. A background item's elapsed time ticks once a second.
+    fn render_task_queue(&self, window: &Window, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
+        use steer::task_queue::{test_ids, TaskQueueItemState, TaskQueueSection};
+        let input = crate::session_rows::task_queue_input(
+            self.feed.task_list(),
+            self.feed.background_tasks(),
+            self.queue_waits.clone(),
+            &self.background_seen,
+            now_epoch_ms(),
         );
-        Some(strip_block(element).into_any_element())
+        let queue = steer::task_queue::task_queue(&input)?;
+        let lines = |section: &TaskQueueSection, cx: &App| {
+            trace_stack(
+                section
+                    .items
+                    .iter()
+                    .map(|item| {
+                        let status = match item.state {
+                            TaskQueueItemState::Running => Some(steer::trace::TraceStatus::Running),
+                            TaskQueueItemState::Pending | TaskQueueItemState::Done => {
+                                Some(steer::trace::TraceStatus::Pending)
+                            }
+                        };
+                        trace_line(
+                            TraceLine::new(
+                                SharedString::from(format!("steer-queue-{}", item.key)),
+                                Icon::from(crate::trace::trace_icon(&item.icon)),
+                                item.label.clone(),
+                            )
+                            .description(item.description.clone())
+                            .status(status),
+                            window,
+                            cx,
+                        )
+                    })
+                    .collect(),
+                TraceSize::Sm,
+            )
+            .into_any_element()
+        };
+        let todo_open = !self.queue_todo_closed;
+        let todo = div().id(test_ids::TODO).w_full().child(trace_collapsible(
+            TraceLine::new(
+                "steer-queue-todo-line",
+                Icon::from(crate::trace::trace_icon(&queue.todo.icon)),
+                queue.todo.title.clone(),
+            ),
+            todo_open,
+            {
+                let entity = cx.entity().downgrade();
+                move |_, cx| {
+                    let _ = entity.update(cx, |this, cx| {
+                        this.queue_todo_closed = !this.queue_todo_closed;
+                        cx.notify();
+                    });
+                }
+            },
+            todo_open.then(|| lines(&queue.todo, cx)),
+            window,
+            cx,
+        ));
+        let completed = queue.completed.as_ref().map(|section| {
+            let open = self.queue_completed_open;
+            let entity = cx.entity().downgrade();
+            div().id(test_ids::COMPLETED).w_full().child(trace_collapsible(
+                TraceLine::new(
+                    "steer-queue-completed-line",
+                    Icon::from(crate::trace::trace_icon(&section.icon)),
+                    section.title.clone(),
+                ),
+                open,
+                move |_, cx| {
+                    let _ = entity.update(cx, |this, cx| {
+                        this.queue_completed_open = !this.queue_completed_open;
+                        cx.notify();
+                    });
+                },
+                open.then(|| lines(section, cx)),
+                window,
+                cx,
+            ))
+        });
+        let block = v_flex()
+            .id(test_ids::QUEUE)
+            .w_full()
+            .min_w_0()
+            .gap(px(TraceSize::Sm.geometry().line_gap))
+            .child(todo)
+            .children(completed);
+        Some(strip_block(block.into_any_element()).into_any_element())
     }
 
     /// EXP-1323 — a thread's LIVE TAIL (`session-thread.json`
     /// `liveSessionId`): the end of the Conversation, above the thread
-    /// composer, read off THIS view's relay state — the agent's task list as
-    /// THE Work card (`tasks`, [`Self::render_task_list_strip`]'s rule) and
-    /// ONE status line: the agent's mark, the state word in its tone and the
-    /// session's live caption. `None` once the session is over.
-    pub(crate) fn live_tail(&self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
+    /// composer, read off THIS view's relay state — THE Queue
+    /// ([`Self::render_task_queue`]) and ONE status line: the agent's mark,
+    /// the state word in its tone and the session's live caption. `None` once the session is over.
+    pub(crate) fn live_tail(&self, window: &Window, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
         if self.session_over() {
             return None;
         }
         let row = self.row.as_ref()?;
         let state = self.view_state()?;
-        let entries = self.feed.task_list();
-        let tasks = crate::session_rows::task_list_summary(entries).map(|_| {
-            let card = steer::work_card::work_card(&steer::work_card::WorkCardInput::from_tasks(entries));
-            crate::work_card::work_card(
-                crate::work_card::WorkCardProps {
-                    id: SharedString::from("thread-live-task-list"),
-                    card: &card,
-                    lanes: Vec::new(),
-                    folded_open: false,
-                    on_toggle_folded: None,
-                    on_lane: None,
-                    on_card: None,
-                    footer: Vec::new(),
-                },
-                cx,
-            )
-        });
+        // EXP-1324: THE Queue, the same block as the transcript bottom.
+        let tasks = self.render_task_queue(window, cx);
         let muted = cx.theme().muted_foreground;
         let caption = row
             .caption
@@ -5664,40 +5821,6 @@ impl SteerSessionView {
                 .child(status)
                 .into_any_element(),
         )
-    }
-
-    /// §1/§2 — the strip directly above the composer: one line per background
-    /// task, one per OPEN wait row. `None` when there is neither.
-    fn render_task_strip(&self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
-        // EXP-884: derived once per feed generation ([`Self::refresh_derived`]).
-        let lines = &self.strip_lines;
-        if lines.is_empty() {
-            return None;
-        }
-        let muted = cx.theme().muted_foreground;
-        let mut column = v_flex().w_full().min_w_0().gap_0p5();
-        for line in lines {
-            let glyph = match line {
-                crate::session_rows::StripLine::Task(_) => registry::UI_REPEAT,
-                crate::session_rows::StripLine::Waiting(_) => registry::UI_CLOCK,
-            };
-            column = column.child(
-                tool_text(h_flex())
-                    .w_full()
-                    .min_w_0()
-                    .gap_1p5()
-                    .items_center()
-                    .text_color(muted)
-                    .child(Icon::new(glyph).xsmall().text_color(muted.opacity(0.7)))
-                    .child(
-                        div()
-                            .min_w_0()
-                            .truncate()
-                            .child(SharedString::from(line.text().to_string())),
-                    ),
-            );
-        }
-        Some(strip_block(column.into_any_element()).into_any_element())
     }
 
     /// EXP-861: the messages the agent has not read yet — held behind an
@@ -7167,7 +7290,8 @@ pub(crate) fn run_account(session_id: &str, cx: &App) -> Option<String> {
 /// A run hosted here reads it in-process ([`crate::device_sync::
 /// refresh_agent_usage_here`], the polite read); one hosted on another of MY
 /// machines gets the `agent_usage_refresh` command — but only while that
-/// machine is online and its last fetch is past the shared floor, which is the same gate the Devices page applies. A
+/// machine is online and its last fetch is past the shared floor, which is
+/// the same gate the Devices page applies. A
 /// teammate's machine is never asked: it is not mine to poll.
 pub(crate) fn refresh_run_usage(
     session_id: &str,
@@ -7388,43 +7512,6 @@ fn script_card_input(item: &FeedItem) -> (steer::script_card::ScriptCardInput, b
     )
 }
 
-/// One tool call's line. EXP-789: a call whose `tool_update` said `failed`
-/// tints its name and glyph rose (the web `text-rose-400` row) — the detail
-/// stays muted, so the failure reads at a glance without shouting.
-fn tool_row(name: &str, detail: Option<&str>, failed: bool, cx: &App) -> impl IntoElement {
-    let muted = cx.theme().muted_foreground;
-    let rose = cx.theme().danger;
-    tool_text(h_flex())
-        .w_full()
-        .min_w_0()
-        .gap_2()
-        .items_center()
-        .child(
-            Icon::new(registry::CODING_TOOL)
-                .xsmall()
-                .text_color(if failed { rose.opacity(0.8) } else { muted.opacity(0.6) }),
-        )
-        .child(
-            div()
-                .flex_shrink_0()
-                .when(failed, |this| this.text_color(rose))
-                .child(SharedString::from(name.to_string())),
-        )
-        .when_some(detail, |this, detail| {
-            this.child(
-                div()
-                    .min_w_0()
-                    .truncate()
-                    // EXP-698: 11px, the web's caption rung — the tool NAME
-                    // is the 12px line, its argument the quieter one under it.
-                    .text_2xs()
-                    .text_color(muted)
-                    .font_family(theme::terminal::FONT_FAMILY)
-                    .child(SharedString::from(detail.to_string())),
-            )
-        })
-}
-
 /// EXP-846 — one of OUR MCP calls, as a row.
 ///
 /// A tool whose name resolves to a contract `expToolNames` row
@@ -7456,37 +7543,29 @@ fn exp_tool_call_row(
     preview: Option<&steer::frames::ToolPreview>,
     picture: Option<AnyElement>,
     run_id: &str,
+    window: &Window,
     cx: &mut App,
 ) -> AnyElement {
-    let muted = cx.theme().muted_foreground;
-    let rose = cx.theme().danger;
-    let header = tool_text(h_flex())
-        .w_full()
-        .min_w_0()
-        .gap_2()
-        .items_center()
-        .child(
-            // The app's own mark (`assets/icons/logo.svg`), at glyph size.
-            Icon::from(crate::icons::ExpIcon::Logo)
-                .xsmall()
-                .text_color(if failed { rose.opacity(0.8) } else { muted }),
+    // EXP-1324: the sentence + the mark as a Trace line — the contract's
+    // caption the title, the subject the description.
+    let status = if failed {
+        Some(steer::trace::TraceStatus::Error)
+    } else if settled {
+        None
+    } else {
+        Some(steer::trace::TraceStatus::Running)
+    };
+    let header = trace_line(
+        TraceLine::new(
+            ("steer-exp-tool", id as usize),
+            Icon::from(crate::icons::ExpIcon::Logo),
+            display.caption.to_string(),
         )
-        .child(
-            div()
-                .flex_shrink_0()
-                .when(failed, |this| this.text_color(rose))
-                .child(SharedString::from(display.caption)),
-        )
-        .when_some(detail, |this, detail| {
-            this.child(
-                div()
-                    .min_w_0()
-                    .truncate()
-                    .text_2xs()
-                    .text_color(muted)
-                    .child(SharedString::from(detail.to_string())),
-            )
-        });
+        .description(detail.map(|detail| detail.to_string()))
+        .status(status),
+        window,
+        cx,
+    );
     let body = if display.result == steer::exp_tool::result::RESULTS {
         (settled && !failed && !run_id.is_empty())
             .then(|| exp_open_results_button(id, run_id, cx))
@@ -7501,11 +7580,10 @@ fn exp_tool_call_row(
         Some(body) => v_flex()
             .w_full()
             .min_w_0()
-            .gap_1()
             .child(header)
-            .child(div().pl_5().child(body))
+            .child(trace_content(body, TraceSize::Sm, cx))
             .into_any_element(),
-        None => header.into_any_element(),
+        None => header,
     }
 }
 
@@ -7759,8 +7837,8 @@ impl Render for SteerSessionView {
         // EXP-1191 (web order): banners → the queue bar (EXP-861) → the
         // background tasks / waits (EXP-850) → the agent's task list
         // (EXP-927), which is ALWAYS the last block, directly on the composer.
-        let task_list = self.render_task_list_strip(cx);
-        let tasks = self.render_task_strip(cx);
+        // EXP-1324: THE Queue, right above the queued-messages strip.
+        let task_queue = self.render_task_queue(window, cx);
         // The strip follows the RUN, not the composer: with a question or
         // plan card pending (EXP-820 hides the field) a held message is still
         // revocable — it would otherwise go out the moment the card is
@@ -7805,9 +7883,8 @@ impl Render for SteerSessionView {
             .children(banners)
             .children(compacting)
             .children(rate_limit)
+            .children(task_queue)
             .children(queue)
-            .children(tasks)
-            .children(task_list)
             .children(composer);
         v_flex()
             .key_context("SteerSession")

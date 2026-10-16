@@ -16,6 +16,7 @@ import at.exponential.ui.ffi.reduceSurfaceJson
 import at.exponential.ui.ffi.resizableJson
 import at.exponential.ui.ffi.resolveConditionsJson
 import at.exponential.ui.ffi.runActionJson
+import at.exponential.ui.ffi.textShimmerJson
 import at.exponential.ui.ffi.tokenizeCodeJson
 import at.exponential.ui.format.IcuFormatter
 import at.exponential.ui.json.JsonValue
@@ -116,6 +117,11 @@ object Round2Suites {
 
     fun codeTokens(): List<Pair<String, String?>> = list(json("code-tokens.json"), "cases").map { c ->
         case(s(c, "name")) { same(tokenizeCodeJson(s(c, "code"), s(c, "language")), c["expected"]!!) }
+    }
+
+    /** EXP-1324: every `fixtures/text-shimmer.json` case through the facade's `textShimmerJson`. */
+    fun textShimmer(): List<Pair<String, String?>> = list(json("text-shimmer.json"), "cases").map { c ->
+        case(s(c, "name")) { same(textShimmerJson(s(c, "color"), c["dark"]?.bool ?: false), c["expected"]!!) }
     }
 
     // Round 2

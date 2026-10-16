@@ -105,6 +105,7 @@ export const setModeFrame = z.object({
 // patterns) — the relay stays a dumb pipe and fans them out to the activity
 // audience, never interpreting a field.
 //   narration:         assistant prose        { kind, text, beforeQuestionId?, messageId?, subagentId? }
+//   thought:           a thought's edges      { kind, id, state, durationMs?, subagentId? }             (NEVER its text)
 //   tool:              tool-call headline     { kind, name, detail?, subagentId? }
 //   tool_update:       a settle / diff / output / MCP preview / script log, folded into its tool row
 //   diff:              worktree unified diff  { kind, diff }  (latest replaces prior)
@@ -317,6 +318,19 @@ export const activityEventSchema = z.discriminatedUnion(`kind`, [
     messageId: z.string().max(128).optional(),
     // EXP-773: set → the prose belongs INSIDE that subagent's card, never the
     // main feed (same identity as `tool.subagentId`).
+    subagentId: z.string().max(128).optional(),
+    at: z.number().optional(),
+  }),
+  // EXP-1324: a THOUGHT's lifecycle, never its text: `started` on the first
+  // thought chunk, `ended` (with `durationMs`) when the thought closes (the
+  // next non-thought update in its lane, or the turn end). Clients paint the
+  // Trace Reasoning line off it; `id` pairs the two edges. A log row like
+  // `tool` (replayed in order), subagent-scoped rows evict with that tier.
+  z.object({
+    kind: z.literal(`thought`),
+    id: z.string().min(1).max(128),
+    state: z.enum([`started`, `ended`]),
+    durationMs: z.number().int().min(0).optional(),
     subagentId: z.string().max(128).optional(),
     at: z.number().optional(),
   }),
@@ -613,6 +627,9 @@ export const activityEventSchema = z.discriminatedUnion(`kind`, [
           description: z.string().max(WORKFLOW_TEXT_MAX),
           // The launching tool_use_id, when the CLI named one.
           toolId: z.string().max(128).optional(),
+          // EXP-1324: when the engine first saw the task (unix ms) — the
+          // Queue's ticking elapsed time.
+          startedAt: z.number().int().min(0).optional(),
         })
       )
       .max(BACKGROUND_TASKS_MAX),

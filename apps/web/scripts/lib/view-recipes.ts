@@ -477,21 +477,27 @@ async function centreCard(page: Page, testId: string): Promise<void> {
   await page.waitForTimeout(400)
 }
 
-/** The raw session view's Work cards (EXP-1240, work-card.json): the last
- *  subagent's card centred in the feed, the task list's card pinned in the
- *  strip under it. (The strip's card is the LAST `work-card` in the DOM and
- *  always on screen, so the scroll target is the subagent one.) EXP-1293: the
- *  feed always shows the work, so there is no Show work toggle to flip. */
+/** The raw session view's Work card (EXP-1240, work-card.json), centred in
+ *  the feed. EXP-1324: subagents are Trace lines and the task list is THE
+ *  Queue, so the one Work card left in a transcript is a workflow's (the
+ *  demo feed's `cold-start-review`). EXP-1293: the feed always shows the
+ *  work, so there is no Show work toggle to flip. */
 async function recipeScrollToWorkCards(page: Page): Promise<void> {
-  const subagents = page
-    .getByTestId(`work-card`)
+  await centreCard(page, `work-card`)
+}
+
+/** EXP-1324: the transcript's Trace tail as the approved draft shows it —
+ *  the `./gradlew :app:startupProfile` line opened onto its Output (the
+ *  CodeBlock at sm), centred with the lines around it. Settled rows fold
+ *  their output until the reader taps (EXP-1206), so the recipe taps. */
+async function recipeOpenTraceOutput(page: Page): Promise<void> {
+  const toggle = page
+    .getByRole(`button`, { name: `Show the output` })
     .filter({ visible: true })
-    .filter({ hasText: `Subagent` })
-  await subagents.first().waitFor({ timeout: 30_000 })
-  await subagents
-    .last()
-    .evaluate((node) => node.scrollIntoView({ block: `center` }))
-  await page.waitForTimeout(400)
+    .filter({ hasText: `startupProfile` })
+  await toggle.first().waitFor({ timeout: 30_000 })
+  await toggle.first().click()
+  await centreCard(page, `session-tool-output`)
 }
 
 /** The feed at the code-mode call's Script card (EXP-1279). */
@@ -660,5 +666,6 @@ export const RECIPES: Record<string, Recipe> = {
   openComposerMenuImplement: recipeOpenComposerMenuImplement,
   scrollToWorkCards: recipeScrollToWorkCards,
   scrollToScriptCard: recipeScrollToScriptCard,
+  openTraceOutput: recipeOpenTraceOutput,
   scrollToCommentCard: recipeScrollToCommentCard,
 }

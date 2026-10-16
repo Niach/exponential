@@ -850,6 +850,15 @@
           "description": "A colour tone instead of the default foreground."
         },
         {
+          "name": "shimmer",
+          "type": "boolean",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": false,
+          "description": "Animates a highlight across the text (work in progress)."
+        },
+        {
           "name": "live",
           "type": "off | polite | assertive",
           "required": false,
@@ -998,7 +1007,7 @@
         },
         {
           "name": "language",
-          "type": "plain | json | js | ts | tsx | rust | swift | kotlin | python | bash | html | css | sql | yaml | markdown",
+          "type": "plain | json | js | ts | tsx | rust | swift | kotlin | python | bash | html | css | sql | yaml | markdown | ansi",
           "required": false,
           "bindable": false,
           "responsive": false,
@@ -1055,6 +1064,24 @@
           "bindable": false,
           "responsive": false,
           "description": "Lines shown before the block scrolls."
+        },
+        {
+          "name": "variant",
+          "type": "default | destructive",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": "default",
+          "description": "destructive = failed output."
+        },
+        {
+          "name": "size",
+          "type": "default | sm",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": "default",
+          "description": "sm = compact."
         }
       ],
       "accessibility": {
@@ -1896,6 +1923,132 @@
         "open": false
       },
       "macro": "Expands to natives (see catalog/macros.json); the theme styles its parts by recipe Collapsible/<part>."
+    },
+    {
+      "name": "Trace",
+      "kind": "macro",
+      "group": "list",
+      "lite": true,
+      "specimenId": "exponential-ui-trace",
+      "description": "A column of TraceItem lines (an agent's steps).",
+      "children": "many",
+      "slots": [],
+      "events": [],
+      "basic": [],
+      "props": [
+        {
+          "name": "size",
+          "type": "default | sm",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": "default",
+          "description": "Line spacing; match the items."
+        }
+      ],
+      "accessibility": {
+        "role": "none",
+        "notes": "Layout only: a column of TraceItem lines.",
+        "keys": []
+      },
+      "example": {
+        "id": "example",
+        "component": "Trace",
+        "size": "default"
+      },
+      "macro": "Expands to natives (see catalog/macros.json); the theme styles its parts by recipe Trace/<part>."
+    },
+    {
+      "name": "TraceItem",
+      "kind": "macro",
+      "group": "list",
+      "lite": true,
+      "specimenId": "exponential-ui-trace-item",
+      "description": "One step line: icon, title, muted detail; may expand to show its children.",
+      "children": "many",
+      "slots": [],
+      "events": [
+        "change"
+      ],
+      "basic": [],
+      "props": [
+        {
+          "name": "title",
+          "type": "string",
+          "required": true,
+          "bindable": true,
+          "responsive": false,
+          "description": "What happened."
+        },
+        {
+          "name": "icon",
+          "type": "icon",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "description": "The lead glyph."
+        },
+        {
+          "name": "description",
+          "type": "string",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "description": "A muted detail (a duration)."
+        },
+        {
+          "name": "status",
+          "type": "running | error | pending",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "description": "running shimmers, error tints, pending dims."
+        },
+        {
+          "name": "size",
+          "type": "default | sm",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": "default",
+          "description": "sm = compact."
+        },
+        {
+          "name": "collapsible",
+          "type": "boolean",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": false,
+          "description": "The line toggles its children."
+        },
+        {
+          "name": "open",
+          "type": "boolean",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "default": false,
+          "description": "Whether the children show; bind it."
+        }
+      ],
+      "accessibility": {
+        "role": "group",
+        "notes": "A collapsible line is a button with aria-expanded = open ($a11y); a plain line is text; the icon is decorative.",
+        "keys": [
+          "Enter, Space: toggle (collapsible only)"
+        ]
+      },
+      "example": {
+        "id": "example",
+        "component": "TraceItem",
+        "title": "Ran bun test",
+        "icon": "trace-terminal",
+        "description": "4s",
+        "collapsible": true,
+        "open": true
+      },
+      "macro": "Expands to natives (see catalog/macros.json); the theme styles its parts by recipe TraceItem/<part>."
     },
     {
       "name": "Pagination",

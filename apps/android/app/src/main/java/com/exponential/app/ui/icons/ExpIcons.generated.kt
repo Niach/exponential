@@ -8859,6 +8859,38 @@ public object ExpIcons {
     public val supportResolved: ImageVector get() = `circle-check`
     /** Concept `tool-script`. */
     public val toolScript: ImageVector get() = `braces`
+    /** Concept `trace-background`. */
+    public val traceBackground: ImageVector get() = `repeat`
+    /** Concept `trace-chevron`. */
+    public val traceChevron: ImageVector get() = `chevron-right`
+    /** Concept `trace-completed`. */
+    public val traceCompleted: ImageVector get() = `list-checks`
+    /** Concept `trace-edit`. */
+    public val traceEdit: ImageVector get() = `pencil`
+    /** Concept `trace-failed`. */
+    public val traceFailed: ImageVector get() = `circle-x`
+    /** Concept `trace-fetch`. */
+    public val traceFetch: ImageVector get() = `globe`
+    /** Concept `trace-read`. */
+    public val traceRead: ImageVector get() = `file-text`
+    /** Concept `trace-reasoning`. */
+    public val traceReasoning: ImageVector get() = `brain`
+    /** Concept `trace-search`. */
+    public val traceSearch: ImageVector get() = `search`
+    /** Concept `trace-subagent`. */
+    public val traceSubagent: ImageVector get() = `bot`
+    /** Concept `trace-task-done`. */
+    public val traceTaskDone: ImageVector get() = `circle-check`
+    /** Concept `trace-task-pending`. */
+    public val traceTaskPending: ImageVector get() = `circle`
+    /** Concept `trace-task-running`. */
+    public val traceTaskRunning: ImageVector get() = `circle-dot`
+    /** Concept `trace-terminal`. */
+    public val traceTerminal: ImageVector get() = `terminal`
+    /** Concept `trace-todo`. */
+    public val traceTodo: ImageVector get() = `list-todo`
+    /** Concept `trace-tool`. */
+    public val traceTool: ImageVector get() = `wrench`
     /** Concept `trigger-event`. */
     public val triggerEvent: ImageVector get() = `zap`
     /** Concept `trigger-schedule`. */

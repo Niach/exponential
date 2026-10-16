@@ -48,6 +48,8 @@ interface Tokens {
     ease: Record<string, number[]>
     // EXP-1243: unitless scale factors (press, popover enter-from).
     scale: Record<string, number>
+    // EXP-1324: the running-title shimmer (ms, degrees, px, OKLCH deltas).
+    shimmer: Record<string, number>
   }
   // SLOP-18: the shared spacing scale (flat px integers).
   spacing: Record<string, number>
@@ -325,6 +327,9 @@ function emitKotlin(): string {
   const motionScale = motionEntries(tokens.motion.scale)
     .map(([k, v]) => `            const val ${pascalCase(k)}: Float = ${kotlinFloat(v)}`)
     .join(`\n`)
+  const motionShimmer = motionEntries(tokens.motion.shimmer)
+    .map(([k, v]) => `            const val ${pascalCase(k)}: Float = ${kotlinFloat(v)}`)
+    .join(`\n`)
 
   return `${HEADER_KOTLIN}
 package com.exponential.app.ui.theme
@@ -441,6 +446,10 @@ ${motionEase}
         object Scale {
 ${motionScale}
         }
+
+        object Shimmer {
+${motionShimmer}
+        }
     }
 }
 `
@@ -524,6 +533,9 @@ function emitSwift(): string {
     .join(`\n`)
   const motionScale = motionEntries(tokens.motion.scale)
     .map(([k, v]) => `            public static let ${k}: CGFloat = ${swiftDouble(v)}`)
+    .join(`\n`)
+  const motionShimmer = motionEntries(tokens.motion.shimmer)
+    .map(([k, v]) => `            public static let ${k}: Double = ${swiftDouble(v)}`)
     .join(`\n`)
 
   return `${HEADER_SWIFT}
@@ -634,6 +646,10 @@ ${motionEase}
         public enum Scale {
 ${motionScale}
         }
+
+        public enum Shimmer {
+${motionShimmer}
+        }
     }
 }
 `
@@ -715,6 +731,9 @@ function emitRust(): string {
     )
     .join(`\n`)
   const motionScale = motionEntries(tokens.motion.scale)
+    .map(([k, v]) => `        pub const ${screamingSnake(k)}: f32 = ${rustFloat(v)};`)
+    .join(`\n`)
+  const motionShimmer = motionEntries(tokens.motion.shimmer)
     .map(([k, v]) => `        pub const ${screamingSnake(k)}: f32 = ${rustFloat(v)};`)
     .join(`\n`)
 
@@ -830,6 +849,10 @@ ${motionEase}
 
     pub mod scale {
 ${motionScale}
+    }
+
+    pub mod shimmer {
+${motionShimmer}
     }
 }
 `

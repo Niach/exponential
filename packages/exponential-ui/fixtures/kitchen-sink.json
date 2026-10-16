@@ -2588,6 +2588,69 @@
       }
     },
     {
+      "id": "trace",
+      "component": "Trace",
+      "props": {
+        "size": "sm"
+      },
+      "children": [
+        {
+          "id": "trace-think",
+          "component": "TraceItem",
+          "props": {
+            "title": "Thought for 5s",
+            "icon": "trace-reasoning",
+            "size": "sm"
+          }
+        },
+        {
+          "id": "trace-run",
+          "component": "TraceItem",
+          "props": {
+            "title": "Ran bun test",
+            "icon": "trace-terminal",
+            "size": "sm",
+            "collapsible": true,
+            "open": true,
+            "status": "error"
+          },
+          "children": [
+            {
+              "id": "trace-out",
+              "component": "CodeBlock",
+              "props": {
+                "code": "\u001b[32m(pass)\u001b[0m Store > put\n\u001b[31m(fail)\u001b[0m Store > get\n\n 1 pass\n 1 fail",
+                "language": "ansi",
+                "title": "Output",
+                "size": "sm",
+                "variant": "destructive"
+              }
+            }
+          ]
+        },
+        {
+          "id": "trace-edit",
+          "component": "TraceItem",
+          "props": {
+            "title": "Editing src/store.ts",
+            "icon": "trace-edit",
+            "size": "sm",
+            "status": "running"
+          }
+        },
+        {
+          "id": "trace-next",
+          "component": "TraceItem",
+          "props": {
+            "title": "Run the suite again",
+            "icon": "trace-terminal",
+            "size": "sm",
+            "status": "pending"
+          }
+        }
+      ]
+    },
+    {
       "id": "composer",
       "component": "Composer",
       "props": {

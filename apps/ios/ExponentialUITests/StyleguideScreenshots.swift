@@ -26,7 +26,7 @@ import XCTest
 ///   sg_onboarding-devices · sg_agent-home · sg_search-list ·
 ///   sg_getting-started · sg_feedback-states · sg_work-card ·
 ///   sg_script-card · sg_comment-call-card · sg_thread · sg_agent-channel ·
-///   sg_session
+///   sg_session · sg_trace · sg_code-block
 ///
 /// EXP-1295 (Threads v2) repointed the shots whose screens left (Reviews,
 /// the work faces, the Recent sheet, the builtin actions, the action page)
@@ -864,6 +864,12 @@ final class StyleguideScreenshots: XCTestCase {
         snapshot("sg_script-card", settle: 2)
         openThreadCards(app, "comment-call-card")
         snapshot("sg_comment-call-card", settle: 2)
+        // ── sg_trace · sg_code-block: THE Trace + Queue and THE CodeBlock
+        // (EXP-1324), capture-only specimens over the real ExpUI views.
+        openThreadCards(app, "trace")
+        snapshot("sg_trace", settle: 2)
+        openThreadCards(app, "code-block")
+        snapshot("sg_code-block", settle: 2)
 
         finished = true
     }

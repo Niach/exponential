@@ -1043,12 +1043,15 @@ pub(crate) fn take_dev_composer_menu() -> bool {
 
 /// EXP-1259 — `EXP_DEV_SCROLL_TO=script-card` parks a session's transcript
 /// on its first code-mode Script card instead of the tail, so the
-/// `script-card` capture has it in frame.
+/// `script-card` capture has it in frame; EXP-1324 `work-card` parks it on
+/// the first workflow's Work card the same way.
 /// Read once: the transcript asks every frame.
-pub(crate) fn dev_scroll_to_script_card() -> bool {
-    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ON.get_or_init(|| {
-        std::env::var("EXP_DEV_SCROLL_TO").ok().as_deref() == Some("script-card")
+pub(crate) fn dev_scroll_to() -> Option<&'static str> {
+    static TARGET: std::sync::OnceLock<Option<&'static str>> = std::sync::OnceLock::new();
+    *TARGET.get_or_init(|| match std::env::var("EXP_DEV_SCROLL_TO").ok().as_deref() {
+        Some("script-card") => Some("script-card"),
+        Some("work-card") => Some("work-card"),
+        _ => None,
     })
 }
 

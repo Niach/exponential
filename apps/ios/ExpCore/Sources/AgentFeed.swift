@@ -518,6 +518,13 @@ public enum AgentFeedItem: Equatable, Sendable, Identifiable {
     /// gap in the conversation above it is explained forever after the strip
     /// is gone. Carries no text — every client renders `compactedLabel`.
     case compaction(id: Int)
+    /// EXP-1324: a reasoning block — the Trace "Thinking" line while
+    /// `running`, "Thought for 5s" once its `ended` edge patched it (by the
+    /// wire `thoughtId`). Carries no text. `subagentId` scopes it like prose.
+    case thought(
+        id: Int, thoughtId: String, running: Bool, durationMs: Int? = nil,
+        subagentId: String? = nil
+    )
 
     public var id: Int {
         switch self {
@@ -529,6 +536,7 @@ public enum AgentFeedItem: Equatable, Sendable, Identifiable {
         case let .subagent(id, _, _, _, _, _, _, _): id
         case let .permission(id, _, _): id
         case let .compaction(id): id
+        case let .thought(id, _, _, _, _): id
         }
     }
 
@@ -572,6 +580,11 @@ public enum AgentFeedItem: Equatable, Sendable, Identifiable {
             .permission(id: id, tool: tool, detail: detail)
         case .compaction:
             .compaction(id: id)
+        case let .thought(_, thoughtId, running, durationMs, subagentId):
+            .thought(
+                id: id, thoughtId: thoughtId, running: running, durationMs: durationMs,
+                subagentId: subagentId
+            )
         }
     }
 
@@ -601,6 +614,7 @@ public enum AgentFeedItem: Equatable, Sendable, Identifiable {
         case let .narration(_, _, _, subagentId): return subagentId
         case let .apiError(_, _, _, subagentId): return subagentId
         case let .userMessage(_, _, subagentId): return subagentId
+        case let .thought(_, _, _, _, subagentId): return subagentId
         default: return nil
         }
     }
@@ -751,7 +765,7 @@ extension AgentFeedRow {
             switch item {
             case .userMessage: .turn
             case .narration, .apiError, .question, .compaction: .prose
-            case .tool, .subagent, .permission: .tool
+            case .tool, .subagent, .permission, .thought: .tool
             }
         }
     }
@@ -923,6 +937,7 @@ public enum AgentFeed {
                 + (question.header?.utf8.count ?? 0)
                 + question.options.reduce(0) { $0 + $1.label.utf8.count + $1.key.utf8.count }
         case .compaction: return overhead
+        case let .thought(_, thoughtId, _, _, _): return overhead + thoughtId.utf8.count
         }
     }
 
@@ -1083,6 +1098,27 @@ public enum AgentFeed {
     public static func entityRefs(_ raw: Any?) -> [EntityRef] {
         guard let rows = raw as? [Any] else { return [] }
         return Array(rows.compactMap(EntityRef.parse).prefix(DomainContract.expToolPreviewMaxRefs))
+    }
+
+    /// EXP-1324: fold a `thought` edge. `ended` patches the NEWEST row with
+    /// that wire id in place (running → settled, its duration); a `started`
+    /// for an id already present is a replay and changes nothing. Otherwise
+    /// the result is nil and the caller APPENDS a new row (`started` running,
+    /// an orphan `ended` settled).
+    public static func applyThought(
+        _ feed: [AgentFeedItem], thoughtId: String, started: Bool, durationMs: Int?
+    ) -> [AgentFeedItem]? {
+        guard let index = feed.lastIndex(where: {
+            if case let .thought(_, id, _, _, _) = $0 { return id == thoughtId }
+            return false
+        }), case let .thought(id, _, _, _, subagentId) = feed[index] else { return nil }
+        if started { return feed }
+        var next = feed
+        next[index] = .thought(
+            id: id, thoughtId: thoughtId, running: false, durationMs: durationMs,
+            subagentId: subagentId
+        )
+        return next
     }
 
     /// EXP-785/786: fold a `tool_update` into the NEWEST tool row whose

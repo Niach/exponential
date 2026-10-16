@@ -11,11 +11,22 @@
 // Natives then add their own structure under `[data-xui-c="…"]`; a theme
 // never needs to (recipes carry only visuals, sizes and spacing).
 
-import { ANIMATION_NAMES, ANIMATION_PROPERTIES_CSS, RTL_MIRRORED_ICONS, SEARCH_LIST_FADE, SKELETON_OPACITY_HIGH, SKELETON_OPACITY_LOW, SKELETON_PULSE_MS, SKELETON_REDUCED_OPACITY, keyframesCss } from "@exponential-at/ui"
+import { ANIMATION_NAMES, ANIMATION_PROPERTIES_CSS, RTL_MIRRORED_ICONS, SEARCH_LIST_FADE, SKELETON_OPACITY_HIGH, SKELETON_OPACITY_LOW, SKELETON_PULSE_MS, SKELETON_REDUCED_OPACITY, TEXT_SHIMMER, keyframesCss } from "@exponential-at/ui"
+
+/** EXP-1324: the Text `shimmer` (catalog/style.json `textShimmer`, shadcn's
+ *  `shimmer` utility): the glyphs clip a gradient of the text colour that
+ *  slides right → left; light mode fades the highlight, dark lifts it in
+ *  OKLCH (src/text-shimmer.ts is the same maths for the natives); rtl
+ *  reverses; reduce motion = plain text (REDUCED_EXTRA). */
+const S = TEXT_SHIMMER
+const SHIMMER_CSS = `@keyframes xui-shimmer{from{background-position:100% 0}to{background-position:0 0}}
+[data-xui-shimmer]{--_spread:${S.spreadPx}px;--_base:currentColor;--_highlight:oklch(from currentColor l c h / calc(alpha * ${S.lightAlphaFactor}));background-image:linear-gradient(calc(90deg + ${S.angleDeg}deg),var(--_base) calc(50% - var(--_spread)),color-mix(in oklab,var(--_highlight),var(--_base) 50%) calc(50% - var(--_spread) * .5),var(--_highlight) 50%,color-mix(in oklab,var(--_highlight),var(--_base) 50%) calc(50% + var(--_spread) * .5),var(--_base) calc(50% + var(--_spread)));background-repeat:no-repeat;background-size:calc(200% + var(--_spread) * 2) 100%;background-position:0 0;-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;animation:xui-shimmer ${S.durationMs}ms linear infinite}
+[data-xui-mode="dark"] [data-xui-shimmer]{--_highlight:oklch(from currentColor min(1, max(${S.highlightLightnessMin}, calc(l + ${S.highlightLightnessBoost}))) c h / min(1, calc(alpha + ${S.highlightAlphaBoost})))}
+[dir="rtl"] [data-xui-shimmer]{animation-direction:reverse}`
 
 /** EXP-1259: under reduce motion nothing scales (a pressed button stays
  *  put) and a placeholder holds still at its reduced opacity. */
-const REDUCED_EXTRA = `.xui-surface [data-xui-c="Button"].xui-el:active{scale:none !important}.xui-surface [data-xui-c="Skeleton"].xui-el:not([data-rows]),.xui-surface .xui-Skeleton-dot,.xui-surface .xui-Skeleton-bar{animation:none !important;opacity:${SKELETON_REDUCED_OPACITY} !important}`
+const REDUCED_EXTRA = `.xui-surface [data-xui-shimmer]{animation:none !important;background-image:none !important;-webkit-text-fill-color:currentColor !important}.xui-surface [data-xui-c="Button"].xui-el:active{scale:none !important}.xui-surface [data-xui-c="Skeleton"].xui-el:not([data-rows]),.xui-surface .xui-Skeleton-dot,.xui-surface .xui-Skeleton-bar{animation:none !important;opacity:${SKELETON_REDUCED_OPACITY} !important}`
 
 /** Round 2 §2: the `animation` key's keyframe sets (style.json
  *  `animations`; the individual `translate`/`rotate`/`scale` properties
@@ -308,8 +319,9 @@ button:where([data-xui-part],.xui-calendar-nav,.xui-table-sort,.xui-carousel-nav
 .xui-FileUpload-fileName{flex:1 1 auto;min-width:0;overflow:clip;text-overflow:ellipsis;white-space:nowrap}
 [data-xui-c="CodeBlock"].xui-el{flex-direction:column;min-width:0;overflow:clip}
 .xui-CodeBlock-header{display:flex;flex-direction:row;align-items:center;justify-content:space-between}
+.xui-CodeBlock-copy>svg{width:12px;height:12px}
 .xui-codeblock-scroll{overflow:auto;min-width:0;outline:none}
-.xui-codeblock-scroll[data-max-lines]{max-height:calc(var(--xui-code-lines) * var(--xui-type-lineHeight-sm))}
+.xui-codeblock-scroll[data-max-lines]{max-height:calc(var(--xui-code-lines) * 1lh)}
 .xui-codeblock-pre{margin:0;padding:0;font:inherit;white-space:pre;tab-size:2;min-width:max-content}
 .xui-codeblock-scroll[data-wrap="true"]>.xui-codeblock-pre{white-space:pre-wrap;overflow-wrap:anywhere;min-width:0}
 .xui-codeblock-pre>code{font:inherit;display:block}
@@ -408,6 +420,7 @@ button:where([data-xui-part],.xui-calendar-nav,.xui-table-sort,.xui-carousel-nav
 [data-xui-c="Toast"][data-state="closed"].xui-el{animation:xui-fade-out var(--xui-motion-standard) var(--xui-ease-accelerate,ease-in) forwards}
 .xui-accordion-title{display:inline-flex;align-items:baseline;gap:var(--xui-spacing-xs);min-width:0}
 .xui-Collapsible-chevron.xui-el{transition:transform var(--xui-motion-fast) var(--xui-ease-standard,ease)}
+${SHIMMER_CSS}
 }
 @media (prefers-reduced-motion: reduce){@layer xui-base{.xui-surface *,.xui-surface *::before,.xui-surface *::after{animation-duration:0ms !important;animation-iteration-count:1 !important;transition-duration:0ms !important;scroll-behavior:auto !important}${REDUCED_EXTRA}}}
 .xui-surface[data-xui-motion="reduce"] *,.xui-surface[data-xui-motion="reduce"] *::after{animation-duration:0ms !important;animation-iteration-count:1 !important;transition-duration:0ms !important}

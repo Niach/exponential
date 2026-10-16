@@ -8,8 +8,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -25,6 +23,11 @@ import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.estimateEventPhrase
 import com.exponential.app.domain.relationEventPhrase
 import com.exponential.app.ui.components.StatusIcon
+import com.exponential.app.ui.components.Trace
+import com.exponential.app.ui.components.TraceLine
+import com.exponential.app.ui.components.TraceMuted
+import com.exponential.app.ui.components.TraceSize
+import androidx.compose.ui.platform.testTag
 import com.exponential.app.ui.components.userDisplayName
 import com.exponential.app.ui.icons.ExpIcons
 import kotlinx.serialization.json.JsonObject
@@ -50,13 +53,11 @@ internal fun EventRow(
     lineBelow: Boolean = false,
 ) {
     val who = userDisplayName(event.actorUserId?.let { usersById[it] }, event.actorUserId)
-    val time = relativeTime(event.createdAt)
-    val text = buildString {
-        append(who).append(' ').append(eventPhrase(event, usersById, labelsById, estimationType))
-        // Only append the separator when there is a time to follow it — an
-        // unparseable createdAt must not leave a dangling "·" (EXP-169).
-        if (time.isNotEmpty()) append(" · ").append(time)
-    }
+    // EXP-1324: the line is a Trace line at size sm — the sentence as the
+    // title, the relative time as the muted description (an unparseable
+    // createdAt has none, EXP-169); the glyph rides the timeline gutter.
+    val time = relativeTime(event.createdAt).takeIf { it.isNotEmpty() }
+    val text = "$who ${eventPhrase(event, usersById, labelsById, estimationType)}"
     val glyph = eventGlyph(event, statuses)
     Row(
         modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
@@ -72,7 +73,7 @@ internal fun EventRow(
                         StatusIcon(
                             glyph.status,
                             modifier = Modifier.align(Alignment.Center),
-                            size = 14.dp,
+                            size = TraceSize.Sm.geometry.icon.dp,
                         )
                     }
                 }
@@ -81,20 +82,17 @@ internal fun EventRow(
                         Icon(
                             glyph.icon,
                             contentDescription = null,
-                            modifier = Modifier.align(Alignment.Center).size(14.dp),
-                            tint = CommentMeta,
+                            modifier = Modifier.align(Alignment.Center).size(TraceSize.Sm.geometry.icon.dp),
+                            tint = TraceMuted,
                         )
                     }
                 }
                 null -> null
             },
         )
-        Text(
-            text,
-            style = MaterialTheme.typography.labelSmall,
-            color = CommentMeta,
-            modifier = Modifier.padding(vertical = 8.dp),
-        )
+        Trace(size = TraceSize.Sm, modifier = Modifier.weight(1f).padding(vertical = 8.dp)) {
+            TraceLine(title = text, description = time, modifier = Modifier.testTag("issue-event-line"))
+        }
     }
 }
 

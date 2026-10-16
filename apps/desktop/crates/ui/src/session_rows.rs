@@ -274,63 +274,71 @@ pub(crate) fn task_list_summary(entries: &[steer::TaskListEntry]) -> Option<Task
 // §1/§2 — the strip above the composer
 // ---------------------------------------------------------------------------
 
-/// One line of the strip above the composer.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum StripLine {
-    /// `↻ {description}` — a background task the CLI reports as running.
-    Task(String),
-    /// `Waiting on {detail}` — an UNSETTLED `wait` tool row.
-    Waiting(String),
-}
-
-impl StripLine {
-    pub(crate) fn text(&self) -> &str {
-        match self {
-            StripLine::Task(text) | StripLine::Waiting(text) => text,
-        }
-    }
-}
-
-/// §1/§2 — the strip's lines: one per background task, then one per open wait
-/// row, in feed order. Empty means the strip is absent.
-///
-/// EXP-927 (§2c): a task of kind `agent` is a SUBAGENT, and a subagent is a
-/// conversation tab ([`crate::steer_viewer::SteerSessionView::render_subagent_strip`])
-/// — it never doubles as a strip line. The strip is shells, workflows and
-/// whatever else the CLI reports.
-pub(crate) fn strip_lines(tasks: &[BackgroundTask], items: &[FeedItem]) -> Vec<StripLine> {
-    let mut lines: Vec<StripLine> = tasks
+/// EXP-1324 — the Queue's `waits`: one per UNSETTLED `wait` tool row, in
+/// feed order, its subject the row's detail (else the tool name). The model
+/// ([`steer::task_queue::task_queue`]) drops a blank one.
+pub(crate) fn queue_waits(items: &[FeedItem]) -> Vec<steer::task_queue::TaskQueueWait> {
+    items
         .iter()
-        .filter(|task| task.kind != steer::BackgroundTaskKind::Agent)
-        .map(|task| task.description.trim())
-        .filter(|description| !description.is_empty())
-        .map(|description| StripLine::Task(description.to_string()))
-        .collect();
-    for item in items {
-        let FeedKind::Tool {
-            name,
-            detail,
-            tool_kind,
-            settled,
-            ..
-        } = &item.kind
-        else {
-            continue;
-        };
-        if *settled || *tool_kind != Some(ToolKind::Wait) {
-            continue;
-        }
-        let label = detail
-            .as_deref()
-            .map(str::trim)
-            .filter(|detail| !detail.is_empty())
-            .unwrap_or(name.trim());
-        if label.is_empty() {
-            continue;
-        }
-        lines.push(StripLine::Waiting(format!("Waiting on {label}")));
+        .filter_map(|item| {
+            let FeedKind::Tool {
+                name,
+                detail,
+                tool_kind,
+                settled,
+                call_id,
+                ..
+            } = &item.kind
+            else {
+                return None;
+            };
+            if *settled || *tool_kind != Some(ToolKind::Wait) {
+                return None;
+            }
+            let subject = detail
+                .as_deref()
+                .map(str::trim)
+                .filter(|detail| !detail.is_empty())
+                .unwrap_or(name.trim());
+            Some(steer::task_queue::TaskQueueWait {
+                id: call_id.clone().unwrap_or_else(|| item.id.to_string()),
+                subject: subject.to_string(),
+            })
+        })
+        .collect()
+}
+
+/// EXP-1324 — THE Queue's input off the feed's slots: the agent's task list,
+/// the background tasks (`startedAt` off the wire, else this client's first
+/// sight in `seen`), the open waits, and `now`.
+pub(crate) fn task_queue_input(
+    tasks: &[steer::TaskListEntry],
+    background: &[BackgroundTask],
+    waits: Vec<steer::task_queue::TaskQueueWait>,
+    seen: &std::collections::HashMap<String, i64>,
+    now: i64,
+) -> steer::task_queue::TaskQueueInput {
+    use steer::task_queue::{TaskQueueBackground, TaskQueueInput, TaskQueueTask};
+    TaskQueueInput {
+        tasks: tasks
+            .iter()
+            .map(|entry| TaskQueueTask {
+                content: entry.content.clone(),
+                status: entry.status.as_str().to_string(),
+            })
+            .collect(),
+        background_tasks: background
+            .iter()
+            .map(|task| TaskQueueBackground {
+                id: task.id.clone(),
+                kind: task.kind.as_str().to_string(),
+                description: task.description.clone(),
+                started_at: task.started_at.or_else(|| seen.get(&task.id).copied()),
+            })
+            .collect(),
+        waits,
+        now,
     }
-    lines
 }
 
 // ---------------------------------------------------------------------------
@@ -732,16 +740,10 @@ mod tests {
         assert_eq!(format_tokens(1_200_000), "1.2M");
     }
 
-    /// §1/§2: the strip lists the tasks, then every OPEN wait row; a settled
-    /// wait is gone and an empty pair draws nothing.
+    /// EXP-1324: the Queue's waits are the OPEN wait rows (a settled one is
+    /// gone), and its input carries the wire's `startedAt`, else first sight.
     #[test]
-    fn the_strip_lists_background_tasks_then_open_waits() {
-        let tasks = vec![BackgroundTask {
-            id: "b4mwz6csc".to_string(),
-            kind: steer::BackgroundTaskKind::Shell,
-            description: "Sleep in the background".to_string(),
-            tool_id: None,
-        }];
+    fn the_queue_reads_open_waits_and_background_starts() {
         let mut waiting = tool(2, Some(ToolKind::Wait), false, None);
         if let FeedKind::Tool { detail, name, .. } = &mut waiting.kind {
             *name = "TaskOutput".to_string();
@@ -749,43 +751,34 @@ mod tests {
         }
         let settled = tool(3, Some(ToolKind::Wait), true, None);
         let items = vec![narration(1), waiting, settled];
-        assert_eq!(
-            strip_lines(&tasks, &items),
-            vec![
-                StripLine::Task("Sleep in the background".to_string()),
-                StripLine::Waiting("Waiting on Sleep in the background".to_string()),
-            ]
-        );
-        assert!(strip_lines(&[], &[narration(1)]).is_empty());
-    }
-
-    /// EXP-927 §2c: a subagent task is a conversation TAB, so the strip skips
-    /// it — the shell beside it stays.
-    #[test]
-    fn the_strip_skips_subagent_tasks() {
-        let task = |kind, description: &str| BackgroundTask {
-            id: format!("task-{description}"),
+        let waits = queue_waits(&items);
+        assert_eq!(waits.len(), 1);
+        assert_eq!(waits[0].subject, "Sleep in the background");
+        let task = |id: &str, kind, started_at| BackgroundTask {
+            id: id.to_string(),
             kind,
-            description: description.to_string(),
+            description: format!("task {id}"),
             tool_id: None,
+            started_at,
         };
-        let tasks = vec![
-            task(steer::BackgroundTaskKind::Agent, "Explore the crate"),
-            task(steer::BackgroundTaskKind::Shell, "Sleep in the background"),
-            task(steer::BackgroundTaskKind::Workflow, "Ship it"),
-        ];
-        assert_eq!(
-            strip_lines(&tasks, &[]),
-            vec![
-                StripLine::Task("Sleep in the background".to_string()),
-                StripLine::Task("Ship it".to_string()),
-            ]
+        let seen = std::collections::HashMap::from([("b2".to_string(), 5)]);
+        let input = task_queue_input(
+            &[],
+            &[
+                task("b1", steer::BackgroundTaskKind::Shell, Some(1)),
+                task("b2", steer::BackgroundTaskKind::Agent, None),
+            ],
+            waits,
+            &seen,
+            10,
         );
-        // A list of nothing but subagents leaves the strip absent.
-        assert!(
-            strip_lines(&[task(steer::BackgroundTaskKind::Agent, "Explore the crate")], &[])
-                .is_empty()
-        );
+        assert_eq!(input.background_tasks[0].started_at, Some(1));
+        assert_eq!(input.background_tasks[1].started_at, Some(5));
+        assert_eq!(input.background_tasks[1].kind, "agent");
+        // The agent never shows; the shell and the wait do.
+        let queue = steer::task_queue::task_queue(&input).expect("a queue");
+        assert_eq!(queue.todo.items.len(), 2);
+        assert_eq!(queue.todo.items[1].label, "Waiting on Sleep in the background");
     }
 
     /// EXP-927 §2c: the collapsed read — hidden while empty or all done, the
@@ -838,10 +831,9 @@ mod tests {
             *name = "Monitor".to_string();
             *detail = None;
         }
-        assert_eq!(
-            strip_lines(&[], &[waiting]),
-            vec![StripLine::Waiting("Waiting on Monitor".to_string())]
-        );
+        let waits = queue_waits(&[waiting]);
+        assert_eq!(waits.len(), 1);
+        assert_eq!(waits[0].subject, "Monitor");
     }
 
     /// EXP-916: the transcript's rows carry the edited-files CARD — the
@@ -949,11 +941,23 @@ mod tests {
         feed.apply(event(WAIT_ROW_FRAME));
         feed.apply(event(BACKGROUND_TASKS_FRAME));
         feed.apply(event(TURN_FRAME));
+        let labels = |feed: &steer::SteerFeed| {
+            let input = task_queue_input(
+                feed.task_list(),
+                feed.background_tasks(),
+                queue_waits(feed.items()),
+                &HashMap::new(),
+                0,
+            );
+            steer::task_queue::task_queue(&input)
+                .map(|queue| queue.todo.items.into_iter().map(|item| item.label).collect::<Vec<_>>())
+                .unwrap_or_default()
+        };
         assert_eq!(
-            strip_lines(feed.background_tasks(), feed.items()),
+            labels(&feed),
             vec![
-                StripLine::Task("Sleep in the background".to_string()),
-                StripLine::Waiting("Waiting on Sleep in the background".to_string()),
+                "Sleep in the background".to_string(),
+                "Waiting on Sleep in the background".to_string(),
             ]
         );
         // The wait row stays an ordinary tool row in the transcript (§1).
@@ -964,10 +968,7 @@ mod tests {
             Some(steer::ToolUpdateStatus::Completed),
             None,
         ));
-        assert_eq!(
-            strip_lines(feed.background_tasks(), feed.items()),
-            vec![StripLine::Task("Sleep in the background".to_string())]
-        );
+        assert_eq!(labels(&feed), vec!["Sleep in the background".to_string()]);
 
         let started_at = feed.turn_started_at().expect("the turn named its start");
         assert_eq!(started_at, 1_789_204_409_163);
@@ -1181,7 +1182,7 @@ mod bench {
         let prose = "Narration 3 of turn 7. ".repeat(12);
         timed("markdown parse (1 body)", reps, || crate::markdown::markdown_to_blocks(&prose));
         timed("collect_subagents x2", reps, || (feed.subagents(), feed.subagents()));
-        timed("strip_lines", reps, || super::strip_lines(feed.background_tasks(), items));
+        timed("queue_waits", reps, || super::queue_waits(items));
         timed("duplicate_warnings", reps, || super::duplicate_warnings(items));
         let start = items.len().saturating_sub(domain::contract::STEER_FEED_WINDOW);
         let mut rows = Vec::new();

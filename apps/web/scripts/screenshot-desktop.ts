@@ -43,7 +43,12 @@ import {
   type SteerRelayConfig,
   type SteerTicketSeed,
 } from "@/lib/steer"
-import { assertDemoLiveSessions } from "./lib/demo-live-sessions"
+import {
+  assertDemoLiveSessions,
+  DEMO_TASK_LIST,
+  DEMO_TRACE_FEED,
+  demoBackgroundTasks,
+} from "./lib/demo-live-sessions"
 import { reclockDemoRows } from "./lib/demo-reclock"
 import { assertLocalDatabase } from "./lib/local-db-guard"
 import {
@@ -268,6 +273,32 @@ diff --git a/app/src/main/java/com/exponential/app/data/sync/BoardSnapshotCache.
     kind: `narration`,
     text: `One caller assumed the first emission was the full list and skipped its empty state. Guarded it so the board never flashes "No issues" between the cached paint and the live snapshot.`,
   },
+  // EXP-1324: subagents and the task list are Trace lines / THE Queue now,
+  // so the `work-card` view photographs the one Work card the transcript
+  // keeps: a workflow's (EXP-850 §3), patched onto its `Workflow` row.
+  {
+    kind: `tool`,
+    id: `wf-launch-review`,
+    name: `Workflow`,
+    detail: `Review the cold-start diff`,
+  },
+  {
+    kind: `workflow`,
+    id: `wf-launch-review`,
+    name: `cold-start-review`,
+    description: `Review the cold-start diff`,
+    status: `completed`,
+    phases: [
+      { index: 1, title: `Review` },
+      { index: 2, title: `Verify` },
+    ],
+    agents: [
+      { index: 1, label: `review:correctness`, phaseIndex: 1, state: `done`, model: `opus`, durationMs: 41_000, toolCalls: 9 },
+      { index: 2, label: `review:performance`, phaseIndex: 1, state: `done`, model: `opus`, durationMs: 52_000, toolCalls: 12 },
+      { index: 3, label: `verify:benchmarks`, phaseIndex: 2, state: `done`, model: `sonnet`, durationMs: 64_000, toolCalls: 7 },
+    ],
+    summary: `No blocking findings; the A54 p90 sits 12 ms over target`,
+  },
   // EXP-1279: a code-mode `exec` call, the `script-card` view. The settle
   // carries the call log the code-mode server recorded (wire doc §1b in
   // apps/steer-relay/STEER-WIRE-EXP-850.md), so the card groups it by tool.
@@ -312,16 +343,9 @@ return issues.map((issue, i) => \`\${issue.identifier} \${threads[i].length} com
     name: `mcp__exponential__exponential_comments_create`,
     agentComment: true,
   },
-  {
-    kind: `tool`,
-    name: `Bash`,
-    detail: `./gradlew :app:testProductionDebugUnitTest · 214 passed`,
-  },
-  {
-    kind: `tool`,
-    name: `Bash`,
-    detail: `./gradlew :app:startupProfile --variant=release · p50 740ms, p90 812ms`,
-  },
+  // EXP-1324: the Trace tail (a thought, a command with its Output, an
+  // Explore subagent, a failing benchmark run), shared with the natives.
+  ...DEMO_TRACE_FEED,
   {
     kind: `narration`,
     text: `Cold start is down to 740ms on the Pixel 6a, so we're under target.\n\n| Device | Before | After |\n| --- | --- | --- |\n| Pixel 6a | 1.4 s | 740 ms |\n| Galaxy A54 | 1.6 s | 790 ms |\n\nThe markdown editor is still eagerly loaded and worth another ~90ms. Want me to lazy-load it in this same PR?`,
@@ -354,17 +378,11 @@ return issues.map((issue, i) => \`\${issue.identifier} \${threads[i].length} com
       { key: `task`, tokens: 600, source: `estimated` },
     ],
   },
-  // EXP-927: the agent's own task list — the bottom strip's first block
-  // (collapsed: the current entry + `2/4`).
-  {
-    kind: `task_list`,
-    entries: [
-      { content: `Profile the cold start`, status: `completed` },
-      { content: `Defer the snapshot cache warm-up`, status: `completed` },
-      { content: `Measuring on the Galaxy A54`, status: `in_progress` },
-      { content: `Open the PR`, status: `pending` },
-    ],
-  },
+  // EXP-927/1321: the agent's own task list and the CLI's background work —
+  // THE Queue at the bottom ("3 to do" open, "2 completed" folded). The
+  // background task's `startedAt` is stamped at publish time (2m 10s ago).
+  { kind: `task_list`, entries: DEMO_TASK_LIST },
+  { kind: `background_tasks`, demoBackgroundTasks: true },
   {
     kind: `question`,
     id: `q-lazy-markdown`,
@@ -462,13 +480,26 @@ function publishFeed(
     // Without the seeded comment (an older seed) the call is left out rather
     // than published as a card naming a comment nobody can open.
     if (entry.agentComment === true && !agentComment) continue
-    const { agentComment: _marker, ...rest } = entry
+    const { agentComment: _marker, atFromEndMs, ...rest } = entry as typeof entry & {
+      atFromEndMs?: number
+    }
+    // EXP-1324: a stamp pinned to the capture clock (a thought's or a
+    // subagent's edges, whose durations read off two stamps).
+    const stamp = typeof atFromEndMs === `number` ? now - atFromEndMs : at(index)
+    if (rest.demoBackgroundTasks === true) {
+      send({
+        t: `activity`,
+        event: { kind: `background_tasks`, tasks: demoBackgroundTasks(now), at: stamp },
+        seq: seq++,
+      })
+      continue
+    }
     const raw: Record<string, unknown> =
       entry.agentComment === true && agentComment
         ? { ...rest, detail: agentComment.detail, preview: agentComment.preview }
         : rest
     if (raw.kind !== `tool`) {
-      send({ t: `activity`, event: { ...raw, at: at(index) }, seq: seq++ })
+      send({ t: `activity`, event: { ...raw, at: stamp }, seq: seq++ })
       continue
     }
     const id = typeof raw.id === `string` ? raw.id : `stub-tool-${++toolIndex}`
@@ -479,19 +510,23 @@ function publishFeed(
     // EXP-916: an edit's patch is a `tool_update` field, never on the `tool`
     // row itself — the same wire shape the engine's mapper produces. So are
     // an Exponential call's `preview` (EXP-846) and a script's log (EXP-1279).
-    const { diff, preview, script, ...call } = raw as typeof raw & {
+    // EXP-1324: so are a command's `output` and a failed settle.
+    const { diff, preview, script, output, failed, ...call } = raw as typeof raw & {
       diff?: string
       preview?: unknown
       script?: unknown
+      output?: string
+      failed?: boolean
     }
-    send({ t: `activity`, event: { ...call, id, toolKind, at: at(index) }, seq: seq++ })
+    send({ t: `activity`, event: { ...call, id, toolKind, at: stamp }, seq: seq++ })
     send({
       t: `activity`,
       event: {
         kind: `tool_update`,
         id,
-        status: `completed`,
+        status: failed === true ? `failed` : `completed`,
         ...(diff ? { diff } : {}),
+        ...(output ? { output } : {}),
         ...(preview ? { preview } : {}),
         ...(script ? { script } : {}),
       },

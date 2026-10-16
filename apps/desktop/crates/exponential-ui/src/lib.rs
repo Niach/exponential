@@ -106,6 +106,7 @@ pub mod strings;
 pub mod style_check;
 pub mod surface;
 pub mod theme;
+pub mod text_shimmer;
 pub mod themes;
 pub mod tracks;
 pub mod tree_guides;

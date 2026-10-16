@@ -2108,52 +2108,68 @@ fn event_row(
         .as_deref()
         .map(|at| comments::relative_time(at, now_epoch))
         .unwrap_or_default();
-    let phrase = with_time(&phrase, &time);
     let actor_name = match event.actor_user_id.as_deref() {
         Some(id) => comments::user_label(id, user_map.get(id)),
         None => "Someone".to_string(),
     };
 
-    // The truncating phrase needs a DEFINITE width all the way down the
-    // chain: gpui's ellipsis measures against available space, and any
-    // auto-width link collapses it, truncating the text long before the row
-    // edge. EXP-144's flex_1 wrapper wasn't enough — the phrase div inside
-    // it was still auto-width and the row itself relied on implicit stretch
-    // (EXP-175). So: w_full row → flex_1 wrapper → flex_1 phrase, every
-    // level resolvable without measuring the text.
-    // EXP-698 round 5: the glyph is the rail's MARKER now — centred in the
-    // shared 28px gutter instead of leading the text row.
+    // EXP-1324: the row's text IS a Trace line at size sm (web `EventRow`):
+    // the sentence its title (the actor in medium foreground, truncating),
+    // the relative time its description (EXP-723: every event line ends in
+    // its own time). The glyph stays the rail's MARKER in the shared gutter
+    // (EXP-698 round 5), so the rail stays whole.
+    //
+    // The truncating title needs a DEFINITE width all the way down the chain
+    // (EXP-175): w_full row → flex_1 title → its own nowrap ellipsis.
+    let g = steer::trace::geometry::SM;
+    let muted = cx.theme().muted_foreground;
     let content = h_flex()
         .w_full()
         .py_1()
-        .gap_2()
-        .items_center()
-        .text_xs()
-        .text_color(cx.theme().muted_foreground)
         .child(
             h_flex()
-                .gap_1()
-                .flex_1()
+                .w_full()
                 .min_w_0()
-                .overflow_hidden()
+                .h(px(g.line_height))
+                .gap(px(g.gap))
+                .items_center()
+                .text_size(px(g.font_size))
+                .line_height(px(g.line_height))
+                .text_color(muted)
                 .child(
-                    div()
-                        .font_weight(FontWeight::MEDIUM)
-                        .text_color(cx.theme().foreground)
-                        .whitespace_nowrap()
-                        .flex_shrink_0()
-                        .child(SharedString::from(actor_name)),
-                )
-                .child(
-                    div()
+                    h_flex()
+                        .gap_1()
                         .flex_1()
                         .min_w_0()
-                        .whitespace_nowrap()
                         .overflow_hidden()
-                        .text_ellipsis()
-                        .when(link.is_some(), |el| el.text_color(cx.theme().link))
-                        .child(SharedString::from(phrase)),
-                ),
+                        .child(
+                            div()
+                                .font_weight(FontWeight::MEDIUM)
+                                .text_color(cx.theme().foreground)
+                                .whitespace_nowrap()
+                                .flex_shrink_0()
+                                .child(SharedString::from(actor_name)),
+                        )
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .whitespace_nowrap()
+                                .overflow_hidden()
+                                .text_ellipsis()
+                                .when(link.is_some(), |el| el.text_color(cx.theme().link))
+                                .child(SharedString::from(phrase)),
+                        ),
+                )
+                .when(!time.is_empty(), |row| {
+                    row.child(
+                        div()
+                            .flex_shrink_0()
+                            .whitespace_nowrap()
+                            .text_color(muted.opacity(steer::trace::geometry::DESCRIPTION_ALPHA))
+                            .child(SharedString::from(time.clone())),
+                    )
+                }),
         )
         .into_any_element();
 

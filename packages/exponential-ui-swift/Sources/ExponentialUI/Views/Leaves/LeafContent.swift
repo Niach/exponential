@@ -153,17 +153,26 @@ struct TextLeaf: View {
     let cx: LeafContext
 
     var body: some View {
-        let align = cx.style.textAlign ?? cx.props["align"]?.string
-        let lh = cx.textStyle.lineHeight
-        VStack(alignment: .leading, spacing: 0) {
-            ForEach(Array(Self.shown(cx.props.text("text"), cx.textStyle, width: cx.inner.width, clamp: cx.node.lines).enumerated()), id: \.offset) { _, line in
-                TextLabel(line, cx.textStyle, color: cx.ink, align: align, lines: 1)
-                    .frame(width: cx.inner.width, height: lh)
-            }
+        // EXP-1324: `shimmer` = the glyphs filled with the moving gradient.
+        let shimmer = cx.props.flag("shimmer") ? TextShimmer.resolve(color: cx.ink.hexRGBA(), dark: cx.dark) : nil
+        ShimmerMask(shimmer: shimmer, size: cx.inner.size, rtl: cx.rtl) {
+            lines(shimmer == nil ? cx.ink : .black)
         }
         .frame(width: cx.inner.width, height: cx.inner.height, alignment: .topLeading)
         .clipped()
         .offset(x: cx.inner.minX, y: cx.inner.minY)
+    }
+
+    private func lines(_ ink: Color) -> some View {
+        let align = cx.style.textAlign ?? cx.props["align"]?.string
+        let lh = cx.textStyle.lineHeight
+        return VStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(Self.shown(cx.props.text("text"), cx.textStyle, width: cx.inner.width, clamp: cx.node.lines).enumerated()), id: \.offset) { _, line in
+                TextLabel(line, cx.textStyle, color: ink, align: align, lines: 1)
+                    .frame(width: cx.inner.width, height: lh)
+            }
+        }
+        .frame(width: cx.inner.width, height: cx.inner.height, alignment: .topLeading)
     }
 
     /// The lines a text leaf draws (gpui `text_lines`).

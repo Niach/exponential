@@ -76,6 +76,8 @@ pub(crate) mod facet {
     /// EXP-820: an answered stepper step re-opened for editing (its one-line
     /// row unfolds into the whole prompt).
     pub const STEP_EDITING: u32 = 1 << 7;
+    /// EXP-1324: a tool's failed-tests line is open onto its output.
+    pub const TESTS_EXPANDED: u32 = 1 << 8;
 }
 
 /// The height heuristic behind [`RowKey::fingerprint`]. `group_expanded` is
@@ -175,6 +177,15 @@ pub(crate) fn row_fingerprint(
                 card.header.as_ref().map(String::len).hash(&mut hasher);
             }
             FeedKind::Compaction => {}
+            // EXP-1324: the Reasoning line's title moves with its state.
+            FeedKind::Thought {
+                running,
+                duration_ms,
+                ..
+            } => {
+                running.hash(&mut hasher);
+                duration_ms.hash(&mut hasher);
+            }
         }
     }
     hasher.finish()

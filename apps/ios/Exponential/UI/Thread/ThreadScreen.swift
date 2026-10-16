@@ -412,12 +412,17 @@ struct ThreadScreen: View {
                 }
                 .safeAreaInset(edge: .bottom) {
                     VStack(spacing: 0) {
-                        // EXP-1323: the live tail — THE session view's bottom
-                        // strip (status lines + the Tasks block) off the live
+                        // EXP-1323/1324: the live tail — THE Queue of the
+                        // session view's transcript bottom, off the live
                         // root's relay state, right on the composer.
-                        if let liveModel, view.liveSessionId != nil {
-                            AgentBottomStrip(lines: liveModel.visibleStripLines, taskList: liveModel.visibleTaskList)
-                                .accessibilityIdentifier("thread-live-tail")
+                        if let liveModel, view.liveSessionId != nil, !liveModel.isOver {
+                            TaskQueueView(
+                                todoOpen: Bindable(liveModel).queueTodoOpen,
+                                completedOpen: Bindable(liveModel).queueCompletedOpen,
+                                build: { liveModel.taskQueue(now: $0) }
+                            )
+                            .transcriptColumn()
+                            .accessibilityIdentifier("thread-live-tail")
                         }
                         ThreadComposer(
                             sessionId: view.composer.sessionId,

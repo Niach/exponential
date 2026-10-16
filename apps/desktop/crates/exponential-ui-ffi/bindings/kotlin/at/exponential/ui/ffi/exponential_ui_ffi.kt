@@ -778,6 +778,8 @@ external fun uniffi_exponential_ui_ffi_checksum_func_chart_extent_json(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_client_capabilities_json(
 ): Short
+external fun uniffi_exponential_ui_ffi_checksum_func_code_text(
+): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_combine_decisions(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_component_a11y_json(
@@ -857,6 +859,8 @@ external fun uniffi_exponential_ui_ffi_checksum_func_supported_catalog_ids_for(
 external fun uniffi_exponential_ui_ffi_checksum_func_template_messages_json(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_text_direction(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_func_text_shimmer_json(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_theme_issues_json(
 ): Short
@@ -1371,6 +1375,8 @@ external fun uniffi_exponential_ui_ffi_fn_func_chart_extent_json(`kind`: RustBuf
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_client_capabilities_json(`extensionIds`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_func_code_text(`code`: RustBuffer.ByValue,`language`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_combine_decisions(`a`: RustBuffer.ByValue,`b`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_component_a11y_json(`component`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -1450,6 +1456,8 @@ external fun uniffi_exponential_ui_ffi_fn_func_supported_catalog_ids_for(`extens
 external fun uniffi_exponential_ui_ffi_fn_func_template_messages_json(`packageJson`: RustBuffer.ByValue,`templateId`: RustBuffer.ByValue,`surfaceId`: RustBuffer.ByValue,`dataJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_text_direction(`locale`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_func_text_shimmer_json(`color`: RustBuffer.ByValue,`dark`: Byte,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_theme_issues_json(`themeJson`: RustBuffer.ByValue,`parentsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -1615,6 +1623,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_exponential_ui_ffi_checksum_func_client_capabilities_json() != 21405.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_exponential_ui_ffi_checksum_func_code_text() != 23100.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_exponential_ui_ffi_checksum_func_combine_decisions() != 28171.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1733,6 +1744,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_exponential_ui_ffi_checksum_func_text_direction() != 32593.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_exponential_ui_ffi_checksum_func_text_shimmer_json() != 7457.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_exponential_ui_ffi_checksum_func_theme_issues_json() != 53537.toShort()) {
@@ -9779,6 +9793,19 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     
 
         /**
+         * EXP-1324: the text a CodeBlock shows and copies (`ansi`: escapes removed).
+         */ fun `codeText`(`code`: kotlin.String, `language`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_code_text(
+    
+        FfiConverterString.lower(`code`),FfiConverterString.lower(`language`),_status)
+}
+    )
+    }
+    
+
+        /**
          * Two stacked decisions: the stricter wins.
          */
     @Throws(UiException::class) fun `combineDecisions`(`a`: kotlin.String, `b`: kotlin.String): kotlin.String {
@@ -10349,6 +10376,20 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_text_direction(
     
         FfiConverterString.lower(`locale`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * EXP-1324: the Text `shimmer` colours for a text colour (`#rrggbb[aa]`):
+         * `{base, highlight, mid, durationMs, angleDeg, spreadPx}`.
+         */ fun `textShimmerJson`(`color`: kotlin.String, `dark`: kotlin.Boolean): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_text_shimmer_json(
+    
+        FfiConverterString.lower(`color`),FfiConverterBoolean.lower(`dark`),_status)
 }
     )
     }

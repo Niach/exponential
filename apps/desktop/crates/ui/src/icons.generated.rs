@@ -708,6 +708,38 @@ pub const SUPPORT_OPEN: ExpIcon = ExpIcon::CircleDot;
 pub const SUPPORT_RESOLVED: ExpIcon = ExpIcon::CircleCheck;
 /// Registry concept `tool-script` -> Lucide `braces`.
 pub const TOOL_SCRIPT: ExpIcon = ExpIcon::Braces;
+/// Registry concept `trace-background` -> Lucide `repeat`.
+pub const TRACE_BACKGROUND: ExpIcon = ExpIcon::Repeat;
+/// Registry concept `trace-chevron` -> Lucide `chevron-right`.
+pub const TRACE_CHEVRON: ExpIcon = ExpIcon::ChevronRight;
+/// Registry concept `trace-completed` -> Lucide `list-checks`.
+pub const TRACE_COMPLETED: ExpIcon = ExpIcon::ListChecks;
+/// Registry concept `trace-edit` -> Lucide `pencil`.
+pub const TRACE_EDIT: ExpIcon = ExpIcon::Pencil;
+/// Registry concept `trace-failed` -> Lucide `circle-x`.
+pub const TRACE_FAILED: ExpIcon = ExpIcon::CircleX;
+/// Registry concept `trace-fetch` -> Lucide `globe`.
+pub const TRACE_FETCH: ExpIcon = ExpIcon::Globe;
+/// Registry concept `trace-read` -> Lucide `file-text`.
+pub const TRACE_READ: ExpIcon = ExpIcon::FileText;
+/// Registry concept `trace-reasoning` -> Lucide `brain`.
+pub const TRACE_REASONING: ExpIcon = ExpIcon::Brain;
+/// Registry concept `trace-search` -> Lucide `search`.
+pub const TRACE_SEARCH: ExpIcon = ExpIcon::Search;
+/// Registry concept `trace-subagent` -> Lucide `bot`.
+pub const TRACE_SUBAGENT: ExpIcon = ExpIcon::Bot;
+/// Registry concept `trace-task-done` -> Lucide `circle-check`.
+pub const TRACE_TASK_DONE: ExpIcon = ExpIcon::CircleCheck;
+/// Registry concept `trace-task-pending` -> Lucide `circle`.
+pub const TRACE_TASK_PENDING: ExpIcon = ExpIcon::Circle;
+/// Registry concept `trace-task-running` -> Lucide `circle-dot`.
+pub const TRACE_TASK_RUNNING: ExpIcon = ExpIcon::CircleDot;
+/// Registry concept `trace-terminal` -> Lucide `terminal`.
+pub const TRACE_TERMINAL: ExpIcon = ExpIcon::Terminal;
+/// Registry concept `trace-todo` -> Lucide `list-todo`.
+pub const TRACE_TODO: ExpIcon = ExpIcon::ListTodo;
+/// Registry concept `trace-tool` -> Lucide `wrench`.
+pub const TRACE_TOOL: ExpIcon = ExpIcon::Wrench;
 /// Registry concept `trigger-event` -> Lucide `zap`.
 pub const TRIGGER_EVENT: ExpIcon = ExpIcon::Zap;
 /// Registry concept `trigger-schedule` -> Lucide `clock`.
@@ -1076,6 +1108,22 @@ pub fn concept_by_name(name: &str) -> Option<ExpIcon> {
         "support-open" => SUPPORT_OPEN,
         "support-resolved" => SUPPORT_RESOLVED,
         "tool-script" => TOOL_SCRIPT,
+        "trace-background" => TRACE_BACKGROUND,
+        "trace-chevron" => TRACE_CHEVRON,
+        "trace-completed" => TRACE_COMPLETED,
+        "trace-edit" => TRACE_EDIT,
+        "trace-failed" => TRACE_FAILED,
+        "trace-fetch" => TRACE_FETCH,
+        "trace-read" => TRACE_READ,
+        "trace-reasoning" => TRACE_REASONING,
+        "trace-search" => TRACE_SEARCH,
+        "trace-subagent" => TRACE_SUBAGENT,
+        "trace-task-done" => TRACE_TASK_DONE,
+        "trace-task-pending" => TRACE_TASK_PENDING,
+        "trace-task-running" => TRACE_TASK_RUNNING,
+        "trace-terminal" => TRACE_TERMINAL,
+        "trace-todo" => TRACE_TODO,
+        "trace-tool" => TRACE_TOOL,
         "trigger-event" => TRIGGER_EVENT,
         "trigger-schedule" => TRIGGER_SCHEDULE,
         "ui-add" => UI_ADD,

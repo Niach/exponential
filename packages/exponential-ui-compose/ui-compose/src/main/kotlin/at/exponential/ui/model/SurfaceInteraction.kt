@@ -207,7 +207,22 @@ fun SurfaceModel.fire(index: Int, event: String, payload: JsonValue? = null) {
     } catch (_: UiException) {
         return
     }
-    dispatch(events)
+    dispatch(copyPartText(index, events))
+}
+
+/**
+ * EXP-1324: a CodeBlock `copy` part carries `text` = what to copy (ANSI
+ * escapes stripped); the core's Copy event carries the owner's raw `code`,
+ * so the part's `text` wins when present.
+ */
+internal fun SurfaceModel.copyPartText(index: Int, events: List<FfiEvent>): List<FfiEvent> {
+    val n = node(index) ?: return events
+    if (n.ownerComponent != "CodeBlock" || n.part != "copy") return events
+    val text = n.props["text"]?.string ?: return events
+    return events.map { e ->
+        if (e.kind != "copy") e
+        else e.copy(json = JsonValue.Obj(mapOf("text" to JsonValue.Str(text))).json)
+    }
 }
 
 /** A mirrored control value: the local one while the prop is unchanged. */

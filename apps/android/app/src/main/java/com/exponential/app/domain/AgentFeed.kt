@@ -77,6 +77,7 @@ fun feedItemBytes(item: AgentFeedItem): Long {
             (item.text.length + (item.answer?.length ?: 0) + (item.header?.length ?: 0) +
                 item.options.sumOf { it.label.length + it.key.length }).toLong()
         is AgentFeedItem.Compaction -> 0L
+        is AgentFeedItem.Thought -> item.thoughtId.length.toLong()
     }
 }
 
@@ -251,6 +252,10 @@ sealed interface AgentFeedItem {
          *  nest under the card; EXP-1225: it is a tab like any subagent. */
         val workflowId: String? = null,
         override val seq: Long? = null,
+        /** EXP-1324: the relay's `at` of the started / completed edge — the
+         *  subagent Trace line's duration badge. */
+        val startedAt: Long? = null,
+        val endedAt: Long? = null,
     ) : AgentFeedItem
 
     /** EXP-856: a SECOND copy of an agent that is still running started under
@@ -284,6 +289,21 @@ sealed interface AgentFeedItem {
         override val id: Long,
         override val seq: Long? = null,
     ) : AgentFeedItem
+
+    /** EXP-1324: one thought (`thought` started → ended, patched by
+     *  [thoughtId]): a Reasoning Trace line — "Thinking" while open,
+     *  "Thought for 5s" once ended. No text travels, so it never opens. A
+     *  started one whose `ended` never came is closed (no duration) when the
+     *  turn ends or the next thought starts. [subagentId] scopes it like
+     *  [Narration]. */
+    data class Thought(
+        override val id: Long,
+        val thoughtId: String,
+        val ended: Boolean = false,
+        val durationMs: Long? = null,
+        val subagentId: String? = null,
+        override val seq: Long? = null,
+    ) : AgentFeedItem
 }
 
 /** EXP-783: the same row under a new feed id. Used only by the older-page
@@ -300,6 +320,7 @@ fun AgentFeedItem.withId(id: Long): AgentFeedItem = when (this) {
     is AgentFeedItem.DuplicateAgent -> copy(id = id)
     is AgentFeedItem.Permission -> copy(id = id)
     is AgentFeedItem.Compaction -> copy(id = id)
+    is AgentFeedItem.Thought -> copy(id = id)
 }
 
 /** The subagent a feed item belongs to, if any — the grouping key of a
@@ -311,6 +332,7 @@ fun AgentFeedItem.subagentKey(): String? = when (this) {
     is AgentFeedItem.Narration -> subagentId
     is AgentFeedItem.ApiError -> subagentId
     is AgentFeedItem.UserMessage -> subagentId
+    is AgentFeedItem.Thought -> subagentId
     else -> null
 }
 
@@ -855,6 +877,8 @@ fun completeSubagent(
     /** EXP-850 (S4): a completed edge may be the first one naming the
      *  workflow; one that names none never erases it. */
     workflowId: String? = null,
+    /** EXP-1324: the completed edge's `at`. */
+    endedAt: Long? = null,
 ): List<AgentFeedItem>? {
     val index = feed.indexOfLast {
         it is AgentFeedItem.Subagent && it.subagentId == subagentId && !it.completed
@@ -872,6 +896,7 @@ fun completeSubagent(
             // description; one that carries none never erases it.
             title = title ?: item.title,
             workflowId = workflowId ?: item.workflowId,
+            endedAt = endedAt ?: item.endedAt,
         )
     }
 }
@@ -971,7 +996,19 @@ sealed interface AgentFeedRow {
          *  never a loose transcript row — its card summarises it; EXP-1225:
          *  its rows are its own tab's. */
         val workflowId: String? = null,
+        /** EXP-1324: the first started edge's and the completed edge's `at`
+         *  — the Trace line's duration badge. */
+        val startedAt: Long? = null,
+        val endedAt: Long? = null,
     ) : AgentFeedRow
+}
+
+/** EXP-1324: how long the run took (ended) or has run so far ([nowMs]);
+ *  null without a start. */
+fun AgentFeedRow.SubagentRun.durationMs(nowMs: Long): Long? {
+    val start = startedAt ?: return null
+    val end = if (completed) endedAt ?: return null else nowMs
+    return maxOf(0L, end - start)
 }
 
 /** EXP-847: how a subagent run READS — its description when the spawning call
@@ -1018,6 +1055,7 @@ val AgentFeedRow.rowClass: AgentRowClass
             is AgentFeedItem.Subagent,
             is AgentFeedItem.DuplicateAgent,
             is AgentFeedItem.Permission,
+            is AgentFeedItem.Thought,
             -> AgentRowClass.Tool
         }
     }
@@ -1231,6 +1269,8 @@ private class SubagentLanes private constructor(
             // EXP-850 (S4): the first marker that named a workflow — this run
             // belongs to that card.
             workflowId = markers.firstNotNullOfOrNull { it.workflowId },
+            startedAt = markers.firstNotNullOfOrNull { it.startedAt },
+            endedAt = markers.lastOrNull { it.endedAt != null }?.endedAt,
         )
     }
 
@@ -1754,8 +1794,9 @@ fun ActivityFeedState.applyActivityEvent(
         // EXP-850 (S4): the workflow this agent belongs to, when it belongs to
         // one — its edges nest under that card and never become a tab.
         val workflowId = event.str("workflowId")?.takeIf { it.isNotBlank() }
+        val at = event.long("at")?.takeIf { it > 0L }
         val closed = if (subagentId != null && completed) {
-            completeSubagent(feed, subagentId, detail, toolCalls, title, workflowId)
+            completeSubagent(feed, subagentId, detail, toolCalls, title, workflowId, endedAt = at)
         } else {
             null
         }
@@ -1791,8 +1832,41 @@ fun ActivityFeedState.applyActivityEvent(
                     title = title,
                     workflowId = workflowId,
                     seq = seq,
+                    startedAt = at.takeIf { !completed },
+                    endedAt = at.takeIf { completed },
                 ),
             )
+        }
+    }
+    // EXP-1324: a thought's edges — `started` opens a Reasoning row (and
+    // closes any earlier one still open), `ended` patches the SAME id with
+    // its duration. An `ended` for an id this feed does not hold is dropped.
+    "thought" -> {
+        val thoughtId = event.str("id")?.takeIf { it.isNotBlank() }
+        when {
+            thoughtId == null -> this
+            event.str("state") == "ended" -> {
+                val at = feed.indexOfLast { it is AgentFeedItem.Thought && it.thoughtId == thoughtId }
+                if (at < 0) {
+                    this
+                } else {
+                    val row = feed[at] as AgentFeedItem.Thought
+                    val next = row.copy(
+                        ended = true,
+                        durationMs = event.long("durationMs")?.takeIf { it >= 0L } ?: row.durationMs,
+                    )
+                    withFeed(feed.toMutableList().also { it[at] = next })
+                }
+            }
+            event.str("state") == "started" -> closeOpenThoughts().append(
+                AgentFeedItem.Thought(
+                    id = nextEventId,
+                    thoughtId = thoughtId,
+                    subagentId = event.str("subagentId")?.takeIf { it.isNotBlank() },
+                    seq = seq,
+                ),
+            )
+            else -> this
         }
     }
     "permission" -> {
@@ -1939,7 +2013,8 @@ fun ActivityFeedState.applyActivityEvent(
         val startedAt = event.long("startedAt")?.takeIf { it > 0L }
         val tokens = event.long("tokens")?.takeIf { it >= 0L }
         val freshTurn = startedAt != null && startedAt != turnStartedAt
-        copy(
+        // EXP-1324: a turn that ended leaves no thought running.
+        (if (state == TURN_STATE_ENDED) closeOpenThoughts() else this).copy(
             turnState = state ?: turnState,
             turnStartedAt = startedAt ?: turnStartedAt,
             turnTokens = when {
@@ -1969,6 +2044,10 @@ fun ActivityFeedState.applyActivityEvent(
                             ?: BACKGROUND_TASK_KIND_OTHER,
                         description = description,
                         toolId = task.str("toolId")?.takeIf { it.isNotBlank() },
+                        // EXP-1324: the wire's start, else what an earlier
+                        // frame said about the same id.
+                        startedAt = task.long("startedAt")?.takeIf { it > 0L }
+                            ?: backgroundTasks.firstOrNull { it.id == id }?.startedAt,
                     )
                 },
             )
@@ -2233,6 +2312,12 @@ fun ActivityFeedState.releaseResolvedLocks(): ActivityFeedState {
 /** Drop the compaction strip without an `ended` frame (EXP-724): the
  *  connection's [COMPACTION_TIMEOUT_MS] backstop, or the session ending under
  *  it. Leaves no marker — nothing was observed to finish. */
+/** EXP-1324: every thought still open reads settled (no duration). */
+fun ActivityFeedState.closeOpenThoughts(): ActivityFeedState {
+    if (feed.none { it is AgentFeedItem.Thought && !it.ended }) return this
+    return withFeed(feed.map { if (it is AgentFeedItem.Thought && !it.ended) it.copy(ended = true) else it })
+}
+
 fun ActivityFeedState.clearCompaction(): ActivityFeedState =
     if (compacting == null) this else copy(compacting = null)
 

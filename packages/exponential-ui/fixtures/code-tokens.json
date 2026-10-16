@@ -1,5 +1,5 @@
 {
-  "$comment": "Round 1 (docs/round-1-contract.md §3): the CodeBlock tokenizer contract (catalog/code.json). Inputs hand-written (name, language, code); `expected` = src/code.ts tokenizeCode: one token list per LINE, each line's tokens concatenating to exactly its text, adjacent tokens of one kind merged. Every renderer's tokenizer replays it.",
+  "$comment": "Round 1 (docs/round-1-contract.md §3): the CodeBlock tokenizer contract (catalog/code.json). Inputs hand-written (name, language, code); `expected` = src/code.ts tokenizeCode: one token list per LINE, each line's tokens concatenating to exactly its text, adjacent tokens of one kind merged. Every renderer's tokenizer replays it. EXP-1324: the `ansi` cases strip ANSI CSI escapes first (SGR colours → success/warning/error/comment runs); their lines concatenate to codeText(code, `ansi`), the escape-free text.",
   "cases": [
     {
       "name": "ts: keywords, types, functions, properties, numbers, comments, template strings",
@@ -1740,6 +1740,251 @@
           {
             "kind": "number",
             "text": "1"
+          }
+        ]
+      ]
+    },
+    {
+      "name": "ansi: SGR colours, a bold+red pair, resets (0, 39, empty)",
+      "language": "ansi",
+      "code": "\u001b[32m✓\u001b[0m warm start \u001b[2m(0.2ms)\u001b[0m\n\u001b[1;31mFAIL\u001b[39m cold start\n\u001b[33mslow\u001b[m done",
+      "expected": [
+        [
+          {
+            "kind": "success",
+            "text": "✓"
+          },
+          {
+            "kind": "plain",
+            "text": " warm start "
+          },
+          {
+            "kind": "comment",
+            "text": "(0.2ms)"
+          }
+        ],
+        [
+          {
+            "kind": "error",
+            "text": "FAIL"
+          },
+          {
+            "kind": "plain",
+            "text": " cold start"
+          }
+        ],
+        [
+          {
+            "kind": "warning",
+            "text": "slow"
+          },
+          {
+            "kind": "plain",
+            "text": " done"
+          }
+        ]
+      ]
+    },
+    {
+      "name": "ansi: other params keep the colour; bright colours; non-SGR CSI removed",
+      "language": "ansi",
+      "code": "\u001b[91merror \u001b[1mbold\u001b[22m still red\u001b[0m\n\u001b[2K\u001b[92mok\u001b[0m \u001b[90mdim\u001b[0m \u001b[93mwarn\u001b[0m",
+      "expected": [
+        [
+          {
+            "kind": "error",
+            "text": "error bold still red"
+          }
+        ],
+        [
+          {
+            "kind": "success",
+            "text": "ok"
+          },
+          {
+            "kind": "plain",
+            "text": " "
+          },
+          {
+            "kind": "comment",
+            "text": "dim"
+          },
+          {
+            "kind": "plain",
+            "text": " "
+          },
+          {
+            "kind": "warning",
+            "text": "warn"
+          }
+        ]
+      ]
+    },
+    {
+      "name": "ansi: lineKinds prefixes on uncoloured lines (longest wins, indent allowed)",
+      "language": "ansi",
+      "code": "$ ./gradlew :app:startupProfile\n> Task :app:compileKotlin\nwarning: unused variable\nerror[E0425]: cannot find value\nFAILED tests/test_startup.py::test_cold\nFAIL src/a.test.ts\n  PASS src/b.test.ts\n(pass) Store > put\n(fail) Store > get\n✗ cold start\nplain output 42",
+      "expected": [
+        [
+          {
+            "kind": "comment",
+            "text": "$ ./gradlew :app:startupProfile"
+          }
+        ],
+        [
+          {
+            "kind": "comment",
+            "text": "> Task :app:compileKotlin"
+          }
+        ],
+        [
+          {
+            "kind": "warning",
+            "text": "warning: unused variable"
+          }
+        ],
+        [
+          {
+            "kind": "error",
+            "text": "error[E0425]: cannot find value"
+          }
+        ],
+        [
+          {
+            "kind": "error",
+            "text": "FAILED tests/test_startup.py::test_cold"
+          }
+        ],
+        [
+          {
+            "kind": "error",
+            "text": "FAIL src/a.test.ts"
+          }
+        ],
+        [
+          {
+            "kind": "plain",
+            "text": "  "
+          },
+          {
+            "kind": "success",
+            "text": "PASS src/b.test.ts"
+          }
+        ],
+        [
+          {
+            "kind": "success",
+            "text": "(pass) Store > put"
+          }
+        ],
+        [
+          {
+            "kind": "error",
+            "text": "(fail) Store > get"
+          }
+        ],
+        [
+          {
+            "kind": "error",
+            "text": "✗ cold start"
+          }
+        ],
+        [
+          {
+            "kind": "plain",
+            "text": "plain output 42"
+          }
+        ]
+      ]
+    },
+    {
+      "name": "ansi: an escape-only line stays an empty line; a run mid-line is no line start",
+      "language": "ansi",
+      "code": "\u001b[0m\n\u001b[2mtime \u001b[0mFAIL is not a prefix here\n\u001b[32m\u001b[0mPASS after an empty colour run",
+      "expected": [
+        [],
+        [
+          {
+            "kind": "comment",
+            "text": "time "
+          },
+          {
+            "kind": "plain",
+            "text": "FAIL is not a prefix here"
+          }
+        ],
+        [
+          {
+            "kind": "success",
+            "text": "PASS after an empty colour run"
+          }
+        ]
+      ]
+    },
+    {
+      "name": "ansi: gradle BUILD SUCCESSFUL",
+      "language": "ansi",
+      "code": "> Task :app:test\n\nBUILD SUCCESSFUL in 41s\n12 actionable tasks: 3 executed, 9 up-to-date",
+      "expected": [
+        [
+          {
+            "kind": "comment",
+            "text": "> Task :app:test"
+          }
+        ],
+        [],
+        [
+          {
+            "kind": "success",
+            "text": "BUILD SUCCESSFUL in 41s"
+          }
+        ],
+        [
+          {
+            "kind": "plain",
+            "text": "12 actionable tasks: 3 executed, 9 up-to-date"
+          }
+        ]
+      ]
+    },
+    {
+      "name": "ansi: cargo test result: FAILED, CRLF normalised, an incomplete escape stays",
+      "language": "ansi",
+      "code": "running 2 tests\r\ntest startup::cold_start ... \u001b[31mFAILED\u001b[0m\r\n\r\ntest result: FAILED. 1 passed; 1 failed; 0 ignored\r\ntest result: ok. 2 passed\r\nlast \u001b[3",
+      "expected": [
+        [
+          {
+            "kind": "plain",
+            "text": "running 2 tests"
+          }
+        ],
+        [
+          {
+            "kind": "plain",
+            "text": "test startup::cold_start ... "
+          },
+          {
+            "kind": "error",
+            "text": "FAILED"
+          }
+        ],
+        [],
+        [
+          {
+            "kind": "error",
+            "text": "test result: FAILED. 1 passed; 1 failed; 0 ignored"
+          }
+        ],
+        [
+          {
+            "kind": "success",
+            "text": "test result: ok. 2 passed"
+          }
+        ],
+        [
+          {
+            "kind": "plain",
+            "text": "last \u001b[3"
           }
         ]
       ]

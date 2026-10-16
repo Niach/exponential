@@ -330,6 +330,12 @@ fn the_round_1_fixtures_replay_through_the_free_functions() {
         let got = tokenize_code_json(c["code"].as_str().unwrap().into(), c["language"].as_str().unwrap().into());
         assert!(json_equal(got.clone(), c["expected"].to_string()), "{}: {}", c["name"], json_diff(got, c["expected"].to_string()));
     }
+    assert_eq!(code_text("\u{1b}[32mok\u{1b}[0m\r\n".into(), "ansi".into()), "ok\n");
+    let shimmer = fixture("text-shimmer.json");
+    for c in shimmer["cases"].as_array().unwrap() {
+        let got = text_shimmer_json(c["color"].as_str().unwrap().into(), c["dark"].as_bool().unwrap());
+        assert!(json_equal(got.clone(), c["expected"].to_string()), "{}: {}", c["name"], json_diff(got, c["expected"].to_string()));
+    }
     let conditions = fixture("style-conditions.json");
     for c in conditions["cases"].as_array().unwrap() {
         for (ctx, expected) in c["contexts"].as_array().unwrap().iter().zip(c["expected"].as_array().unwrap()) {

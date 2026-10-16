@@ -66,6 +66,24 @@ enum BuiltinIcons {
         case "ui-play", "play": "play.fill"
         case "pause", "run-pause": "pause.fill"
         case "ui-more", "ellipsis": "ellipsis"
+        // EXP-1324: the Trace glyphs (icons.json `trace-*`), so a Trace
+        // paints in a host without an icon registry.
+        case "trace-chevron": "chevron.right"
+        case "trace-terminal", "terminal": "terminal"
+        case "trace-reasoning", "brain": "brain"
+        case "trace-read", "file-text": "doc.text"
+        case "trace-edit", "pencil": "pencil"
+        case "trace-search": "magnifyingglass"
+        case "trace-fetch", "globe": "globe"
+        case "trace-tool", "wrench": "wrench"
+        case "trace-subagent", "bot": "person.crop.square"
+        case "trace-failed": "xmark.circle"
+        case "trace-todo", "list-todo": "checklist"
+        case "trace-completed", "list-checks": "checklist.checked"
+        case "trace-task-running", "circle-dot": "smallcircle.filled.circle"
+        case "trace-task-pending", "circle": "circle"
+        case "trace-task-done": "checkmark.circle"
+        case "trace-background", "repeat": "repeat"
         default: nil
         }
     }

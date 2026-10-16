@@ -706,6 +706,38 @@ public enum AppIcons {
     public static let supportResolved: String = "circle-check"
     /// Concept `tool-script`.
     public static let toolScript: String = "braces"
+    /// Concept `trace-background`.
+    public static let traceBackground: String = "repeat"
+    /// Concept `trace-chevron`.
+    public static let traceChevron: String = "chevron-right"
+    /// Concept `trace-completed`.
+    public static let traceCompleted: String = "list-checks"
+    /// Concept `trace-edit`.
+    public static let traceEdit: String = "pencil"
+    /// Concept `trace-failed`.
+    public static let traceFailed: String = "circle-x"
+    /// Concept `trace-fetch`.
+    public static let traceFetch: String = "globe"
+    /// Concept `trace-read`.
+    public static let traceRead: String = "file-text"
+    /// Concept `trace-reasoning`.
+    public static let traceReasoning: String = "brain"
+    /// Concept `trace-search`.
+    public static let traceSearch: String = "search"
+    /// Concept `trace-subagent`.
+    public static let traceSubagent: String = "bot"
+    /// Concept `trace-task-done`.
+    public static let traceTaskDone: String = "circle-check"
+    /// Concept `trace-task-pending`.
+    public static let traceTaskPending: String = "circle"
+    /// Concept `trace-task-running`.
+    public static let traceTaskRunning: String = "circle-dot"
+    /// Concept `trace-terminal`.
+    public static let traceTerminal: String = "terminal"
+    /// Concept `trace-todo`.
+    public static let traceTodo: String = "list-todo"
+    /// Concept `trace-tool`.
+    public static let traceTool: String = "wrench"
     /// Concept `trigger-event`.
     public static let triggerEvent: String = "zap"
     /// Concept `trigger-schedule`.
