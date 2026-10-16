@@ -75,6 +75,7 @@ import {
   SkeletonRows,
   type WorkCardLaneTarget,
 } from "@exp/ui"
+import { codeText } from "@exponential-at/ui"
 import { Empty } from "@/components/empty"
 import { useFollowScroll } from "@/hooks/use-follow-scroll"
 import { useSessionDevice } from "@/hooks/use-session-device"
@@ -725,10 +726,13 @@ export function AgentSessionView({
   }
 
   const feedPlaceholder = feed.length === 0
+  /** The transcript STREAMS: a live publisher mid-turn (`TranscriptStreamingContext`). */
+  const streaming = live && !sessionEnded && turnState === `started`
 
   return (
     <SessionResultsRawContext.Provider value={session.guide}>
     <RunCardsContext.Provider value={runCards}>
+    <TranscriptStreamingContext.Provider value={streaming}>
     <div className="flex h-full min-h-0 flex-col" data-testid="agent-session-view">
       {header}
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-card/40">
@@ -1029,6 +1033,7 @@ export function AgentSessionView({
         ) : null}
       </div>
     </div>
+    </TranscriptStreamingContext.Provider>
     </RunCardsContext.Provider>
     </SessionResultsRawContext.Provider>
   )
@@ -1167,7 +1172,8 @@ function TraceModelLine({
   return (
     <TraceLine status={model.status}>
       <TraceIcon>
-        <Icon />
+        {/* The slot's own size, whatever button wraps the line. */}
+        <Icon className="size-full" />
       </TraceIcon>
       <TraceTitle title={tooltip ?? model.title}>{model.title}</TraceTitle>
       {description ??
@@ -2408,8 +2414,14 @@ function SubagentLineRow({
   return (
     <>
       <Trace size="sm">
-        <button
+        {/* The words-only Button in the Trace child's geometry (what the
+            group row's TraceCollapsibleTrigger wears): the line IS the
+            control, its own text styles over the button's. */}
+        <Button
           type="button"
+          variant="text"
+          size="inline"
+          className="w-fit max-w-full min-w-0 justify-start gap-0 rounded-md text-left font-normal"
           onClick={onOpen}
           data-testid="session-subagent-line"
         >
@@ -2425,11 +2437,11 @@ function SubagentLineRow({
             }
             trailing={
               <TraceIcon>
-                <TraceChevronIcon />
+                <TraceChevronIcon className="size-full" />
               </TraceIcon>
             }
           />
-        </button>
+        </Button>
       </Trace>
       <DuplicateWarnings details={duplicate ? [duplicate] : []} />
     </>
@@ -2553,6 +2565,13 @@ function AgentConversation({
   )
 }
 
+/** EXP-1206: the transcript STREAMS — a live publisher mid-turn
+ *  (`turnState === 'started'`). While it does, every unsettled call is a
+ *  RUNNING one (claude runs tool calls in parallel: only the last of them is
+ *  the `liveToolRowId` row); once the stream is gone, an unsettled call reads
+ *  settled. Provided once by the raw view; a lane or tab inherits it. */
+const TranscriptStreamingContext = createContext(false)
+
 /** EXP-1324: one tool call as its Trace line (`traceTool`): the kind's
  *  icon, "Running ./gradlew …" (shimmering) → "Ran ./gradlew …", rose when
  *  it failed. A settled call that printed is COLLAPSIBLE and opens onto its
@@ -2564,8 +2583,11 @@ function AgentConversation({
  *  EXP-1206: `live` — set for the ONE row `liveToolRowId` names, the call
  *  still RUNNING — is the line ALONE: nothing streams under it, so the
  *  transcript never jumps while a command prints; a settled row's output
- *  stays folded until the reader's own tap opens it. A call that never
- *  settled and is not live (a publisher that died mid-call) reads settled. */
+ *  stays folded until the reader's own tap opens it. The TENSE is the row's
+ *  own: an unsettled call reads "Running …" while it is live OR the
+ *  transcript still streams (parallel calls run beside the live one); one
+ *  that never settled once the stream is gone (a publisher that died
+ *  mid-call) reads settled. */
 function ToolRow({
   item,
   flush = true,
@@ -2577,10 +2599,11 @@ function ToolRow({
   live?: boolean
 }) {
   const failed = item.failed === true
+  const streaming = useContext(TranscriptStreamingContext)
   const [pinned, setPinned] = useState(false)
   const open = !live && pinned
   const model = useMemo(() => {
-    const settled = item.settled === true || !live
+    const settled = item.settled === true || (!live && !streaming)
     if (item.toolKind === `execute` && item.settled === true && item.output) {
       const tests = traceFailedTests(parseTestResults(item.output))
       if (tests) return tests
@@ -2592,7 +2615,7 @@ function ToolRow({
       settled,
       failed,
     })
-  }, [item.toolKind, item.settled, item.output, item.name, item.detail, live, failed])
+  }, [item.toolKind, item.settled, item.output, item.name, item.detail, live, streaming, failed])
   // EXP-846: one of OUR MCP tools reads as a sentence with our mark on it.
   // EXP-1279: a code-mode call is its Script card.
   if (isScriptCall(item)) return <ScriptCallRow item={item} flush={flush} />
@@ -2659,10 +2682,9 @@ function ScriptCallRow({ item, flush }: { item: ToolItem; flush: boolean }) {
  *  wire (already redacted and tail-cut by the publisher; a cut output OPENS
  *  with the `\ N more lines truncated` marker). EXP-1324: THE CodeBlock at
  *  size sm, titled `Output` with the copy action; `ansi` colours command
- *  output (the escapes never reach the text), a failed call is destructive.
+ *  output (the escapes never reach the text: the copy value is the SDK's
+ *  `codeText`, what the block itself copies), a failed call is destructive.
  *  Scrolled to the BOTTOM on mount: the verdict is the last line. */
-// eslint-disable-next-line no-control-regex
-const ANSI_ESCAPES = /\u001b\[[0-?]*[ -/]*[@-~]/g
 const ToolOutput = memo(function ToolOutput({
   output,
   language,
@@ -2677,7 +2699,7 @@ const ToolOutput = memo(function ToolOutput({
     const node = box.current
     if (node) node.scrollTop = node.scrollHeight
   }, [output])
-  const text = useMemo(() => output.replace(ANSI_ESCAPES, ``), [output])
+  const text = useMemo(() => codeText(output, language), [output, language])
   return (
     <CodeBlock
       size="sm"

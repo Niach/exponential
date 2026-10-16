@@ -186,6 +186,10 @@ public enum SlashCommands {
         return merged(catalog(for: agent), agent: extra).first { $0.token.lowercased() == needle }
     }
 
+    /// A slash command is the WHOLE message: with attachments in the box the
+    /// send is refused with this toast (web `session-composer` parity).
+    public static let attachmentsRefusal = "Remove the attachments to send a command"
+
     // MARK: - Confirm dialog copy (byte-identical ×4)
 
     public static func confirmTitle(_ command: SlashCommand) -> String {

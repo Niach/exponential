@@ -1,0 +1,5 @@
+Threads: a thread runs a dispatcher that answers quick questions and starts sessions for real work, with the same reply box and model switch.
+Reports: a sub-session's summary lands in its parent's conversation; agents propose follow-up tasks you start in one tap.
+Lists: a running session shows its step, sub-sessions nest under their thread, unread threads are bold.
+Transcript: trace lines with code blocks; queued messages wait in one place.
+Models: pickers list Fable, Opus, Sonnet and Haiku.

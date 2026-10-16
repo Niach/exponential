@@ -103,7 +103,10 @@ fun CodeBlock(
     val shown = remember(trimmed, language) {
         when (language) {
             CodeBlockLanguage.Ansi -> AnsiCode.tokenize(trimmed)
-            CodeBlockLanguage.Plain -> trimmed.replace("\r\n", "\n").split('\n').map { listOf(CodeToken("plain", it)) }
+            // The same line-end normalisation as the ansi path (`AnsiCode.normalize`):
+            // CRLF, then a lone CR (a progress bar's carriage returns).
+            CodeBlockLanguage.Plain -> trimmed.replace("\r\n", "\n").replace('\r', '\n').split('\n')
+                .map { listOf(CodeToken("plain", it)) }
         }
     }
     val text = remember(shown, destructive) { annotate(shown, colored = !destructive) }

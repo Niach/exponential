@@ -53,7 +53,7 @@ public enum DomainContract {
     public static let agentTriggerEventValues: [String] = ["created", "status_changed", "assignee_changed", "label_added", "priority_changed", "pr_opened", "pr_merged"]
     public static let agentScheduleIntervalValues: [String] = ["daily", "weekly", "monthly"]
     public static let steerCommandNames: [String] = ["compact", "clear", "btw"]
-    public static let steerCommandDescriptions: [String] = ["Compact the conversation context", "Start a fresh conversation (context is discarded)", "Ask a quick side question without adding to the session"]
+    public static let steerCommandDescriptions: [String] = ["Compact the conversation context", "Start a fresh conversation (context is discarded)", "Ask a quick side question, answered read-only without adding to the session"]
     public static let steerCommandArgHints: [String] = ["instructions", "", "question"]
     public static let steerCommandAgents: [String] = ["claude,codex", "claude,codex", "claude"]
     public static let steerCommandConfirm: [Bool] = [false, true, false]

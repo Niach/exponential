@@ -5,9 +5,10 @@ import SwiftUI
 /// EXP-893: the expanded steer composer's footer row, web's order: `+`
 /// attach (wave D: Photo | File) · the model pill (the session's `model`
 /// config option; picking one SENDS `/model <alias>` as a plain message,
-/// EXP-877; codex gets a plain label; before the relay reports one it falls
-/// back to the row/device model) · `Plan mode` (blue while the run is in plan
-/// mode, read-only: EXP-790 keeps plan mode launch-time) · spacer · the usage
+/// EXP-877; codex and an ENDED row get a plain label; before the relay
+/// reports one it falls back to the row/device model) · `Plan mode` (blue,
+/// only while the run is in plan mode — or the row's pick before the relay
+/// reports; read-only: EXP-790 keeps plan mode launch-time) · spacer · the usage
 /// ring (hidden until context data lands; opens the Usage sheet, EXP-1150).
 /// Rides `GlassComposer`'s `tools:` slot, so the send button stays the card's
 /// own. A thread's box carries the same controls for its ROOT session, minus
@@ -16,6 +17,7 @@ struct SessionComposerFooter: View {
     /// The session view's own controls: the plan chip, the model pill and
     /// the usage ring.
     struct Controls {
+        /// The run is in plan mode right now (the latest `config_state`).
         let planModeActive: Bool
         /// `AgentSessionModel.composerModelValue` (live, else the row, else
         /// the device/contract defaults) — nil hides the pill.
@@ -29,6 +31,20 @@ struct SessionComposerFooter: View {
         /// A dispatcher root (`sessions.dispatch`) has no plan mode of its
         /// own: its children take the launch's picks, so no plan chip.
         var showsPlan: Bool = true
+        /// The session's row ENDED: the model pin is a read-only label (web
+        /// disables the picker on `status === 'ended'`).
+        var ended: Bool = false
+        /// Before the relay reports a `config_state`, the synced row's own
+        /// `planMode` pick stands in for the read-out (web parity).
+        var planModeFallback: Bool = false
+
+        /// Codex has no mid-run model prompt and an ended row takes no
+        /// `/model`: both draw the chevron-less label.
+        var canPickModel: Bool { !ended && agent == "claude" }
+
+        /// The plan read-out shows only while plan mode is in force (or the
+        /// row says so before the relay does) — never a muted "off" label.
+        var showsPlanLabel: Bool { showsPlan && (planModeActive || planModeFallback) }
     }
 
     /// nil = the bare box (the `+` alone).
@@ -72,14 +88,10 @@ struct SessionComposerFooter: View {
             if let controls {
                 modelPill(controls)
 
-                if controls.showsPlan {
+                if controls.showsPlanLabel {
                     Text(AgentFeed.planModeFooterLabel)
                         .font(.caption.weight(.medium))
-                        .foregroundStyle(
-                            controls.planModeActive
-                                ? DesignTokens.Semantic.blue
-                                : .white.opacity(TextOpacity.tertiary)
-                        )
+                        .foregroundStyle(DesignTokens.Semantic.blue)
                         .lineLimit(1)
                         .accessibilityIdentifier("session-plan-mode")
                 }
@@ -109,7 +121,7 @@ struct SessionComposerFooter: View {
     private func modelPill(_ controls: Controls) -> some View {
         let agent = controls.agent
         if let modelValue = controls.modelValue {
-            if agent == "claude" {
+            if controls.canPickModel {
                 GlassMenu {
                     ForEach(LaunchVocabulary.modelValues(for: agent), id: \.self) { value in
                         GlassMenuItem(LaunchVocabulary.modelLabel(value)) {

@@ -202,11 +202,11 @@ class DeviceSettingsDefaultsTest {
     }
 
     /**
-     * EXP-1005: the desktop-owned `autoRotateAccounts` flag has no toggle on
-     * this client, and `setLaunchDefaults` REPLACES the stored object, so a
-     * save must ECHO the synced value: a stored boolean rides back as itself,
-     * and a row without the key writes NO key (never a literal null, which
-     * the server reads as a clear). The sheet never invents a value.
+     * EXP-1005: `setLaunchDefaults` REPLACES the stored object, so a save of
+     * an UNTOUCHED `autoRotateAccounts` must ECHO the synced value: a stored
+     * boolean rides back as itself, and a row without the key writes NO key
+     * (never a literal null, which the server reads as a clear). Only a flip
+     * of the "Auto-rotate accounts" row writes a value the row did not hold.
      */
     @Test
     fun `autoRotateAccounts is echoed as stored and absent when unset`() {

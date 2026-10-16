@@ -169,6 +169,42 @@ describe(`AgentSessionView Trace transcript`, () => {
     expect(screen.queryByRole(`button`, { name: `Show the output` })).toBeNull()
   })
 
+  it(`parallel unsettled calls all read as running while the turn streams`, () => {
+    // Claude runs tool calls side by side: only the LAST is the live row,
+    // yet the earlier one is no less running until its own settle lands.
+    snapshot = snap({
+      turnState: `started`,
+      feed: [
+        { id: 1, seq: 1, kind: `tool`, name: `Bash`, detail: `bun test`, toolKind: `execute` },
+        { id: 2, seq: 2, kind: `narration`, text: `Meanwhile.` },
+        { id: 3, seq: 3, kind: `tool`, name: `Bash`, detail: `bun run typecheck`, toolKind: `execute` },
+      ],
+    })
+    render(<AgentSessionView session={session} />)
+    const lines = [...document.querySelectorAll(`[data-slot="trace-line"]`)]
+    expect(lines.map((line) => line.textContent)).toEqual([
+      `Running bun test`,
+      `Running bun run typecheck`,
+    ])
+    expect(lines.map((line) => line.getAttribute(`data-status`))).toEqual([`running`, `running`])
+  })
+
+  it(`a call that never settled reads settled once the stream is gone`, () => {
+    // The turn ended (or the publisher died) with the settle never sent: the
+    // past tense, not a shimmer that never stops.
+    snapshot = snap({
+      turnState: `ended`,
+      feed: [
+        { id: 1, seq: 1, kind: `tool`, name: `Bash`, detail: `bun test`, toolKind: `execute` },
+        { id: 2, seq: 2, kind: `narration`, text: `Done.` },
+      ],
+    })
+    render(<AgentSessionView session={session} />)
+    const line = document.querySelector(`[data-slot="trace-line"]`)!
+    expect(line.textContent).toBe(`Ran bun test`)
+    expect(line.getAttribute(`data-status`)).toBeNull()
+  })
+
   it(`a tool run folds under its summary caption`, () => {
     snapshot = snap({
       feed: [

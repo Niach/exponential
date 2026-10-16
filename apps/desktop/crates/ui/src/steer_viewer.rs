@@ -467,6 +467,11 @@ pub(crate) struct SteerSessionView {
     /// EXP-884/EXP-916: the memo behind the edited-files cards — a card's
     /// patches are parsed once, not once per frame.
     edit_memo: crate::session_rows::EditMemo,
+    /// EXP-1324: the failed-tests line's parse, once per SETTLED `execute`
+    /// row (keyed by the row, re-read only when its output changed) — the
+    /// regex pass over every visible row's output ran on every frame while
+    /// the shimmer kept frames coming. Refilled by [`Self::refresh_derived`].
+    test_results: HashMap<FeedItemId, (usize, Option<steer::trace::TestResults>)>,
     /// EXP-916: which PATHS the reader unfolded inside each edited-files
     /// card, keyed by the card (its first member's id). The live row opens
     /// itself and closes again when the transcript moves on, so nothing here
@@ -712,6 +717,7 @@ impl SteerSessionView {
             extras: crate::session_extras::LocalExtras::default(),
             view_width: std::rc::Rc::new(std::cell::Cell::new(px(0.))),
             edit_memo: Default::default(),
+            test_results: HashMap::new(),
             expanded_edit_rows: HashMap::new(),
             derived_for: None,
             subagents: Vec::new(),
@@ -923,6 +929,33 @@ impl SteerSessionView {
             self.background_seen.entry(task.id.clone()).or_insert(now);
         }
         self.duplicates = crate::session_rows::duplicate_warnings(self.feed.items());
+        self.refresh_test_results();
+    }
+
+    /// EXP-1324: parse each settled `execute` row's output for test results
+    /// ONCE (a row's entry is kept while its output is the same bytes), so
+    /// the render reads a lookup instead of running the regex pass.
+    fn refresh_test_results(&mut self) {
+        let mut cached = std::mem::take(&mut self.test_results);
+        self.test_results = self
+            .feed
+            .items()
+            .iter()
+            .filter_map(|item| {
+                let FeedKind::Tool { tool_kind, settled: true, output: Some(output), .. } = &item.kind
+                else {
+                    return None;
+                };
+                if tool_kind.map(|kind| kind.as_str()) != Some("execute") || output.trim().is_empty() {
+                    return None;
+                }
+                let results = match cached.remove(&item.id) {
+                    Some((len, results)) if len == output.len() => results,
+                    _ => steer::trace::parse_test_results(Some(output)),
+                };
+                Some((item.id, (output.len(), results)))
+            })
+            .collect();
     }
 
     /// EXP-848 — the ONE working predicate (identical on all four clients,
@@ -2892,6 +2925,17 @@ impl SteerSessionView {
         // typed in the card itself, and the composer is hidden while one is
         // pending.
         if let Some(parsed) = parse_command(&text, self.agent()) {
+            // A slash command is the WHOLE message (web's rule): staged
+            // attachments would be parked silently (`/btw`) or ride a
+            // command as a message, so the send refuses with the ×4 copy.
+            if !self.pending_images.is_empty() {
+                crate::toast::show(
+                    crate::toast::Toast::error(slash_commands::ATTACHMENTS_BLOCK_COMMAND),
+                    window,
+                    cx,
+                );
+                return;
+            }
             if parsed.command.confirm {
                 self.prompt_command(parsed.command.name, window, cx);
                 return;
@@ -4472,7 +4516,11 @@ impl SteerSessionView {
         let model = steer::trace::trace_reasoning(*running, *duration_ms);
         let line = TraceLine::from_model(("steer-thought", item.id as usize), &model);
         let Some(text) = self.extras.thought_text(thought_id) else {
-            return div().id("session-thought-line").w_full().child(trace_line(line, window, cx)).into_any_element();
+            return div()
+                .id(("session-thought-line", item.id as usize))
+                .w_full()
+                .child(trace_line(line, window, cx))
+                .into_any_element();
         };
         let id = item.id;
         let open = self.expanded_extras.contains(&id);
@@ -4486,7 +4534,7 @@ impl SteerSessionView {
         });
         let entity = cx.entity().downgrade();
         div()
-            .id("session-thought-line")
+            .id(("session-thought-line", id as usize))
             .w_full()
             .child(trace_collapsible(
                 line,
@@ -4963,7 +5011,7 @@ impl SteerSessionView {
                         let open = self.expanded_extras.contains(&id);
                         let content = open.then(|| output_block(printed, *failed, "output", cx));
                         div()
-                            .id("session-tool-output")
+                            .id(("session-tool-output", id as usize))
                             .w_full()
                             .child(trace_collapsible(
                                 line,
@@ -4986,8 +5034,9 @@ impl SteerSessionView {
             .then_some(printed)
             .flatten()
             .and_then(|printed| {
-                let results = steer::trace::parse_test_results(Some(printed));
-                let model = steer::trace::trace_failed_tests(results.as_ref())?;
+                // Parsed once at settle ([`Self::refresh_test_results`]).
+                let results = self.test_results.get(&id).and_then(|(_, results)| results.as_ref());
+                let model = steer::trace::trace_failed_tests(results)?;
                 let open = self.expanded_cards.contains(&id);
                 let content = open.then(|| output_block(printed, true, "tests", cx));
                 Some(trace_collapsible(

@@ -109,6 +109,16 @@ class TraceTest {
         }
     }
 
+    /** `clean` collapses UNICODE whitespace like the TS reference's `\s` (an
+     *  NBSP or a narrow no-break space is a space, not a glyph). */
+    @Test
+    fun `clean collapses unicode whitespace`() {
+        assertEquals("bun test", Trace.clean("bun test"))
+        assertEquals("a b c", Trace.clean(" a  b \t\n c　"))
+        assertEquals("", Trace.clean("  "))
+        assertEquals("", Trace.clean(null))
+    }
+
     @Test
     fun `the spec constants match the fixture`() {
         val geometry = fixture.getValue("geometry").jsonObject

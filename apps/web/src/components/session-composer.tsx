@@ -33,6 +33,7 @@ import {
   modelLabel,
 } from "@/components/launch-dialog/launch-options-pane"
 import { useSessionRow } from "@/hooks/use-session-tree"
+import { useSteerCommand } from "@/hooks/use-steer-command"
 import { planModeChipLabel, sessionModel } from "@/lib/agent-feed"
 import { contextPercent, severity } from "@/lib/agent-usage"
 import {
@@ -175,6 +176,9 @@ export function SessionComposer({
     [catalogAgent, config?.commands]
   )
   const menu = useSlashCommandMenu({ text, commands, onAccept: setText })
+  // EXP-1323: `/btw <question>` is an ASIDE child of this session
+  // (`sessions.send({parentId, text, aside})`), never a message to it.
+  const dispatch = useSteerCommand({ teamId, sessionId, agent: catalogAgent })
   // The model pin: the model in force (the relay's `config_state`), else the
   // row's / device's. THE model choices, no Default row; a model this build
   // has no value for still reads as itself.
@@ -230,6 +234,13 @@ export function SessionComposer({
     }
     setSending(true)
     try {
+      // A steer command the web runs itself (`/btw`): the draft clears once
+      // the aside is in; a failed one toasted and keeps the draft.
+      const dispatched = await dispatch(text)
+      if (dispatched !== null) {
+        if (dispatched === `sent`) setText(``)
+        return
+      }
       const attachmentIds: string[] = []
       for (const entry of files) {
         const uploaded = await uploadTeamSessionImageFile(teamId, entry.file)

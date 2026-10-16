@@ -82,6 +82,15 @@ pub(crate) struct AgentDevice {
     settings: coding::Settings,
 }
 
+impl AgentDevice {
+    /// A machine a run can start on NOW: online with a runnable agent (the
+    /// relay refuses an offline start, a signed-out machine has nothing to
+    /// run) — web/iOS's start-target rule.
+    pub(crate) fn can_start_now(&self) -> bool {
+        self.online && !self.agents.is_empty()
+    }
+}
+
 /// The machines an agent of `team_id` can run on, online first, then by name.
 pub(crate) fn agent_devices(team_id: &str, cx: &App) -> Vec<AgentDevice> {
     let Some(store) = Store::try_global(cx) else {

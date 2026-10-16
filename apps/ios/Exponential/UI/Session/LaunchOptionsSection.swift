@@ -9,16 +9,12 @@ import SwiftUI
 // on every platform.
 //
 // `Variant.launch` is a RUN's options: the Device picker (only when there is a
-// choice), the agent capsule, Model + Effort and the launch toggles.
-// `Variant.trigger` configures a BINDING instead — its device row says
-// "Runs on" and lists every trigger-capable machine plainly (offline
-// included: a sleeping box still owns the binding and fires the missed
-// schedule when it comes back), and there are no toggles (a triggered run
-// takes the machine's own). EXP-995: its first row is THE account picker
-// (EXP-1021's shared `AccountPicker`: brand mark + email + limit bars over the
-// bound machine's logins, the agent riding the pick) where the launch variant
-// draws the agent capsule — the caller hands it `accountOptions`. Effort
-// speaks the "CLI default" sentinel; every model is explicit.
+// choice), the agent capsule, Model + Effort and the launch toggles. EXP-995:
+// a caller handing `accountOptions` gets THE account picker (EXP-1021's shared
+// `AccountPicker`: brand mark + email + limit bars, the agent riding the pick)
+// as the card's first row where the capsule would be. Effort speaks the "CLI
+// default" sentinel; every model is explicit. (The trigger BINDING variant
+// went with standalone automations, EXP-1291: triggers live on agents.)
 //
 // `Variant.device` (EXP-694) is a MACHINE's stored launch defaults — the
 // device-settings sheet used to hand-roll the same rows. It has no device
@@ -56,7 +52,6 @@ struct ModelPickerRow: View {
 struct LaunchOptionsSection: View {
     enum Variant {
         case launch
-        case trigger
         case device
     }
 
@@ -73,14 +68,13 @@ struct LaunchOptionsSection: View {
     let agent: String
     let onAgentChange: (String) -> Void
     /// EXP-995: when set, the card's first row is the account picker over
-    /// these logins instead of the agent capsule — the trigger form's
-    /// pin, where a pick names the agent too.
+    /// these logins instead of the agent capsule — a pick names the agent too.
     var accountOptions: [AccountOption]? = nil
     var selectedAccount: AccountOption? = nil
     var onAccountSelect: ((AccountOption) -> Void)? = nil
     @Binding var model: String
     /// EXP-981: claude's SUBAGENT model, bound only where it is editable (a
-    /// machine's launch defaults); a trigger has no such field.
+    /// machine's launch defaults).
     var subagentModel: Binding<String>? = nil
     /// The dispatcher root's model (threads + team agents), per agent; bound
     /// only on a machine's launch defaults.
@@ -108,19 +102,15 @@ struct LaunchOptionsSection: View {
 
     // MARK: - Device
 
-    /// The launch variant hides a one-machine picker (there is nothing to
-    /// choose); the trigger variant always shows it — the binding names the
-    /// machine that owns it, so it must be visible even when there is one.
+    /// A one-machine picker is hidden (there is nothing to choose).
     private var showsDevicePicker: Bool {
-        variant == .trigger ? !devices.isEmpty : devices.count > 1
+        devices.count > 1
     }
 
-    private var deviceTitle: String {
-        variant == .trigger ? "Runs on" : "Device"
-    }
+    private let deviceTitle = "Device"
 
-    /// No section header on either variant (EXP-615 dedupe) — the picker row
-    /// already says "Runs on" / "Device".
+    /// No section header (EXP-615 dedupe) — the picker row already says
+    /// "Device".
     @ViewBuilder
     private var deviceSection: some View {
         if devices.isEmpty {
@@ -140,8 +130,7 @@ struct LaunchOptionsSection: View {
                     devices: devices.map(DevicePickerDevice.init),
                     value: deviceId,
                     onChange: { deviceId = $0 },
-                    // The sheet says what the ROW says — a trigger's
-                    // "Runs on" must not open a sheet headed "Device".
+                    // The sheet says what the ROW says.
                     title: deviceTitle,
                     trigger: {
                         GlassPickerRowLabel(
@@ -178,10 +167,9 @@ struct LaunchOptionsSection: View {
         LaunchVocabulary.effortTitle(for: agent)
     }
 
-    /// Ultracode IS `--effort ultracode`, so it disables the Effort picker; a
-    /// binding has no toggles, so its row is always live.
+    /// Ultracode IS `--effort ultracode`, so it disables the Effort picker.
     private var effortEnabled: Bool {
-        variant == .trigger || ultracode?.wrappedValue != true
+        ultracode?.wrappedValue != true
     }
 
     /// ONE grouped card (EXP-694): the agent strip is its first row, then
@@ -266,8 +254,7 @@ struct LaunchOptionsSection: View {
                 enabled: effortEnabled
             )
             // EXP-208: no helper notices, like the IDE. Ultracode and plan
-            // mode are both claude-only (EXP-441/EXP-849); a binding (the
-            // trigger variant) has neither.
+            // mode are both claude-only (EXP-441/EXP-849).
             if let ultracode, agent == "claude" {
                 GlassToggleRow("Ultracode", isOn: ultracode)
             }

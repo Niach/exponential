@@ -486,6 +486,13 @@ internal fun seedModel(stored: String?, agent: String, fallback: String): String
 internal fun supportsPlanMode(agent: String): Boolean = agent == DEFAULT_AGENT
 
 /**
+ * EXP-1005: auto-rotating accounts is a claude-only device setting (codex
+ * keeps one login per session by contract) — web
+ * `agentSupportsAccountRotation`, iOS `LaunchVocabulary.supportsAccountRotation`.
+ */
+internal fun supportsAccountRotation(agent: String): Boolean = agent == DEFAULT_AGENT
+
+/**
  * EXP-981: only claude spawns subagents, so only claude takes a subagent
  * model. Hidden for every other agent exactly like Ultracode is.
  */

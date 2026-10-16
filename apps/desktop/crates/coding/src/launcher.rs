@@ -2259,14 +2259,25 @@ fn prepare_resume(
     let _ = crate::worktree_agents::record_worktree_agent_id(&cwd, agent.id());
     // EXP-792/1140: the row's team MCP server pick, re-resolved now (fresh
     // tokens); unconnected or unpicked ones are skipped, never a blocker.
-    let mut team_mcp = resolve_mcp_servers(deps, &session_id);
+    // EXP-1330: a `/btw` aside gets NO MCP servers at all — not the team
+    // pick (never even resolved), not code mode, not computer use: a side
+    // question answers with the read-only built-in tools alone (the engine
+    // drops `exponential` from its config too, `engine::aside`).
+    let aside = record.is_aside();
+    let mut team_mcp = if aside {
+        ResolvedMcp::default()
+    } else {
+        resolve_mcp_servers(deps, &session_id)
+    };
     let label = if req.issue_identifiers.is_empty() {
         record.display_name()
     } else {
         session_label(row, &req.issue_identifiers)
     };
-    let computer_use = attach_computer_use(deps, &options, &mut team_mcp, &session_id, &label);
-    let code_mode = attach_code_mode(&mut team_mcp, &agent_mcp, &personal_key, &session_id, &label);
+    let computer_use =
+        !aside && attach_computer_use(deps, &options, &mut team_mcp, &session_id, &label);
+    let code_mode =
+        !aside && attach_code_mode(&mut team_mcp, &agent_mcp, &personal_key, &session_id, &label);
 
     // Step 5 — the spawn spec, exactly like a fresh launch's.
     if agent == CodingAgent::Codex {
@@ -4489,6 +4500,29 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
         assert_eq!(prepared.acp.prompt.as_deref(), Some(MESSAGE));
         let record = crate::run_registry::get(&dir.0, "sess-old").expect("record");
         assert_eq!(record.claude_session_id.as_deref(), Some("claude-1"));
+    }
+
+    /// EXP-1330: a `/btw` aside resumes with NO MCP servers — the team pick
+    /// is never resolved (no call), code mode and computer use stay off, so
+    /// nothing of the person's key is reachable from a side question; the
+    /// engine renders the claude config empty on top (`engine::aside`).
+    #[cfg(unix)]
+    #[test]
+    fn an_aside_resume_carries_no_mcp_servers() {
+        let dir = temp_dir("resume-aside");
+        let (base, captured) = canned_server_recording(vec![(200, RESOLVE_NONE.to_string())]);
+        let mut deps = make_deps(&base, &dir.0, fake_worktrees(&dir.0.join("unused")));
+        deps.settings.claude_path = acp_ready_claude_stub(&dir.0).to_string_lossy().into_owned();
+        seed_transcript(&dir.0, &mut deps, "claude-1");
+        let mut record = resume_record(&dir.0, "aside-1");
+        record.set_aside_of("sess-parent");
+
+        let prepared = ready(launch(resume_request(record), &deps));
+        assert!(prepared.acp.servers.is_empty(), "{:?}", prepared.acp.servers);
+        assert!(prepared.acp.mcp_secrets.is_empty());
+        assert!(prepared.mcp_warnings.is_empty());
+        assert!(!prepared.acp.system_append.contains("# Code mode"));
+        assert!(captured.lock().unwrap().is_empty(), "an aside never resolves the team pick");
     }
 
     /// A person may change the model on a live session; the resume runs on

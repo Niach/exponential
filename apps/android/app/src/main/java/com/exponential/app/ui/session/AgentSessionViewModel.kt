@@ -533,6 +533,27 @@ class AgentSessionViewModel @AssistedInject constructor(
         _sendError.value = null
     }
 
+    /** A send the composer REFUSED before any call (a slash command with
+     *  attachments): the plain toast, raised once by the screen. */
+    private val _sendRefusal = MutableStateFlow<String?>(null)
+    val sendRefusal: StateFlow<String?> = _sendRefusal
+    fun clearSendRefusal() {
+        _sendRefusal.value = null
+    }
+
+    /**
+     * EXP-1323: when the agent's newest message on THIS session landed —
+     * the session view re-reads the session as news arrives under the
+     * reader (the row never turns bold while it is open).
+     */
+    val newestAgentMessageAt: StateFlow<String?> = dbFlow
+        .scopedQuery(emptyList<MessageEntity>()) { it.messageDao().observeBySession(codingSessionId) }
+        .map { messages ->
+            messages.filter { it.authorKind == DomainContract.messageAuthorKindAgent }.maxOfOrNull { it.createdAt }
+        }
+        .distinctUntilChanged()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
     /** The session's ROOT id (the thread it belongs to). */
     private val rootId: Flow<String?> = session
         .map { row -> row?.rootId?.takeIf { it.isNotEmpty() } ?: row?.id }
@@ -681,10 +702,17 @@ class AgentSessionViewModel @AssistedInject constructor(
         val images = pendingImages.value
         if (text.isBlank() && images.isEmpty()) return
         if (_sending.value) return
+        // A slash command (`/btw` included) is the WHOLE message: with
+        // attachments around it the send refuses, like web — never an
+        // ordinary message carrying the command text.
+        if (images.isNotEmpty() && pendingSlashCommand() != null) {
+            _sendRefusal.value = SlashCommands.COMMAND_WITH_ATTACHMENTS
+            return
+        }
         // EXP-1323: `/btw <question>` = a read-only aside child of THIS
         // session (its answer lands as a child card), never a message to it.
         val aside = SlashCommands.asideQuestion(text, SlashCommands.agentId(session.value?.cli, sessionConfig.value != null))
-        if (aside != null && images.isEmpty()) {
+        if (aside != null) {
             viewModelScope.launch {
                 val accountId = auth.activeAccountId.value ?: return@launch
                 _sending.value = true

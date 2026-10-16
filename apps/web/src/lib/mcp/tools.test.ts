@@ -2072,6 +2072,8 @@ describe(`exponential_sessions_send`, () => {
       userId: USER.id,
       input: { parentId: SESSION, deviceId: `mac-1`, text: `Fix the flaky test` },
       callerSessionId: SESSION,
+      // MCP = the one caller whose session may speak as itself.
+      viaMcp: true,
     })
   })
 

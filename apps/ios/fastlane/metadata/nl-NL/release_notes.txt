@@ -1,5 +1,6 @@
-- Threads: een thread is één scherm op elk apparaat, met issues, sessies en Guide in één strook, en Home zet het invoerveld onderaan op de dageraad
-- Titels: een thread is vernoemd naar zijn werk, zoals Implement EXP-12 of Run Triage, zodat elke lijst hetzelfde leest op telefoon, web en desktop
-- Vragen: de opties van een agent kunnen een korte beschrijving hebben, en elke vraag heeft een regel om je eigen antwoord te typen
-- Guide: een afbeelding opent naast de notities, met pijlen naar de volgende, en mensen die zonder uitnodiging aan het team zijn toegevoegd tonen als Not invited
-- Accounts: een sessie die zijn gebruikslimiet bereikt, kan overschakelen naar een ander ingelogd account en doorgaan
+- Threads: een thread draait een kleine dispatcher die snelle vragen zelf beantwoordt en voor echt werk een sessie start, en het antwoordveld van de thread is hetzelfde als dat van een sessie, met de modelkeuze
+- Rapporten: als een subsessie eindigt, komt haar samenvatting als rapport in het gesprek van de bovenliggende sessie, en een agent kan vervolgtaken voorstellen die je met één tik start
+- Threadlijst: een lopende sessie toont haar huidige stap onder haar naam, subsessies staan genest onder hun thread, en een thread met ongelezen agentberichten toont zijn titel vetgedrukt
+- Transcript: het werk van een sessie leest als traceregels met codeblokken, en berichten in de wachtrij wachten op één plek tot de agent ze oppakt
+- Modellen: elke modelkiezer toont Fable, Opus, Sonnet en Haiku, zonder Default-optie
+- /btw: stel een lopende Claude-sessie een zijvraag en krijg het antwoord zonder haar werk te onderbreken

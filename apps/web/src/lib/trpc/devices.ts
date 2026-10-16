@@ -638,8 +638,7 @@ export const devicesRouter = router({
   // EXP-481: the heartbeat is also the device's WORK PULL — one round trip
   // carries pending commands and (when the device's converged stamp differs)
   // the authoritative launch defaults. A relay `check_in` nudge just means
-  // "heartbeat now". Both fields are REQUIRED since EXP-485 — the pre-EXP-411
-  // and pre-EXP-481 daemon tolerances retired with the fleet.
+  // "heartbeat now". Both fields are REQUIRED (EXP-485).
   heartbeat: authedProcedure
     .input(
       z.object({

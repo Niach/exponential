@@ -1289,10 +1289,32 @@ pub(crate) fn legal_footer(cx: &App) -> impl IntoElement {
         .child(link("login-terms", "Terms", TERMS_URL))
 }
 
-/// The pre-fetch defaults (mirror `AuthConfig`'s serde defaults: password on,
-/// nothing else).
+/// The pre-fetch defaults: password on, nothing else. A struct literal, not a
+/// `{}` decode: #1080 made `emailOtpEnabled`/`passkeyEnabled` REQUIRED on the
+/// wire, so decoding an empty object panics (it took the IDE down on first
+/// paint of the login view, 2026-10-16).
 fn default_auth_config() -> api::AuthConfig {
-    serde_json::from_str("{}").expect("AuthConfig defaults decode")
+    api::AuthConfig {
+        password_enabled: true,
+        password_reset_enabled: false,
+        oidc_providers: Vec::new(),
+        google_login_enabled: false,
+        apple_login_enabled: false,
+        github_enabled: false,
+        email_otp_enabled: false,
+        passkey_enabled: false,
+    }
+}
+
+#[cfg(test)]
+mod default_auth_config_tests {
+    #[test]
+    fn the_pre_fetch_defaults_never_panic_and_offer_only_password() {
+        let config = super::default_auth_config();
+        assert!(config.password_enabled);
+        assert!(!config.email_otp_enabled && !config.passkey_enabled);
+        assert!(config.oidc_providers.is_empty());
+    }
 }
 
 fn labeled(cx: &App, label: &'static str, input: Input) -> impl IntoElement {

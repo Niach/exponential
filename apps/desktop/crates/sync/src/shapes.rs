@@ -1066,8 +1066,12 @@ mod tests {
     fn the_session_tree_shapes_match_the_proxies() {
         let sessions = shape_by_name("sessions").unwrap();
         assert_eq!(sessions.path, "/api/shapes/sessions");
-        assert_eq!(sessions.columns.len(), 40);
-        for column in ["parent_id", "root_id", "kind", "status", "busy", "needs_input", "shared", "guide", "triggers"] {
+        assert_eq!(sessions.columns.len(), 41);
+        for column in [
+            "parent_id", "root_id", "kind", "status", "busy", "needs_input", "shared", "guide", "triggers",
+            // EXP-1323: the live status line + a `/btw` aside child.
+            "caption", "aside",
+        ] {
             assert!(sessions.columns.contains(&column), "sessions needs {column}");
         }
         for server_only in ["host_user_id", "mcp_server_ids", "instructions"] {

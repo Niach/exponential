@@ -140,6 +140,10 @@ final class StoreScreenshots: XCTestCase {
             .matching(NSPredicate(format: "identifier == %@ AND label CONTAINS %@", "session-card", Self.steeredSessionTitle))
             .firstMatch
         expect(sessionCard, within: Wait.sync, "The thread drew no session card")
+        // EXP-1323: the conversation opens scrolled to its live tail (the
+        // Queue + status row is its last row), so the child's card can sit
+        // above the fold; scroll it back into reach before tapping.
+        for _ in 0..<4 where !sessionCard.isHittable { app.swipeDown() }
         sessionCard.tap()
         expect(
             app.descendants(matching: .any).matching(identifier: "agent-feed").firstMatch,

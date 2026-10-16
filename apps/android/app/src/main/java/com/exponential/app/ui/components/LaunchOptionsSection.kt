@@ -119,6 +119,13 @@ internal fun LaunchOptionsSection(
     planMode: Boolean = false,
     onPlanModeChange: (Boolean) -> Unit = {},
     planModeHidden: Boolean = false,
+    /**
+     * EXP-1005: claude's "Auto-rotate accounts" device toggle, offered only
+     * with a change handler (a machine's launch defaults). Null = the stored
+     * row has no key, which the launcher reads as ON.
+     */
+    autoRotateAccounts: Boolean? = null,
+    onAutoRotateAccountsChange: ((Boolean) -> Unit)? = null,
     resumeSlot: (@Composable () -> Unit)? = null,
     /**
      * EXP-995: when set, the card's FIRST row is this account picker row
@@ -273,6 +280,16 @@ internal fun LaunchOptionsSection(
                     title = "Plan mode",
                     checked = planMode,
                     onCheckedChange = onPlanModeChange,
+                )
+            }
+            // EXP-1005: the device-level rotation switch, under Plan mode as
+            // on web, desktop and iOS; claude only, null reads as ON.
+            if (onAutoRotateAccountsChange != null && supportsAccountRotation(agent)) {
+                GroupDivider()
+                SwitchRow(
+                    title = "Auto-rotate accounts",
+                    checked = autoRotateAccounts ?: true,
+                    onCheckedChange = onAutoRotateAccountsChange,
                 )
             }
         }

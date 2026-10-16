@@ -589,8 +589,11 @@ export interface ThreadSuggestionActions {
   onFile: (rowId: string, itemId: string) => void
   /** Start on… rows (the runnable devices). */
   devices?: readonly { id: string; name: string; icon?: MenuIcon }[]
-  /** Start with… rows (contract `codingModel`, never a default row). */
-  models?: readonly { value: string; label: string }[]
+  /** Start with… rows (contract `codingModel`, never a default row); a
+   *  function resolves them for the card's POSTING session (its agent's). */
+  models?:
+    | readonly { value: string; label: string }[]
+    | ((sessionId: string) => readonly { value: string; label: string }[])
   /** In-flight keys (`suggestionKey`; Start all = `suggestionKey(row)`). */
   pending?: ReadonlySet<string>
 }
@@ -646,6 +649,7 @@ export function ThreadSuggestionsCard({
           <SuggestionItemRow
             key={item.id}
             rowId={row.id}
+            sessionId={row.sessionId}
             item={item}
             actions={actions}
             onOpenSession={onOpenSession}
@@ -659,12 +663,15 @@ export function ThreadSuggestionsCard({
 
 function SuggestionItemRow({
   rowId,
+  sessionId,
   item,
   actions,
   onOpenSession,
   renderIssueRef,
 }: {
   rowId: string
+  /** The session that posted the card (its agent's models). */
+  sessionId: string
   item: SuggestionRow
   actions?: ThreadSuggestionActions
   onOpenSession?: (sessionId: string) => void
@@ -724,6 +731,8 @@ function SuggestionItemRow({
   }
   const key = suggestionKey(rowId, item.id)
   const busy = actions?.pending?.has(key) ?? false
+  const models =
+    typeof actions?.models === `function` ? actions.models(sessionId) : (actions?.models ?? [])
   const entries: MenuEntry[] = actions
     ? [
         {
@@ -741,8 +750,8 @@ function SuggestionItemRow({
         {
           kind: `submenu`,
           label: SUGGESTIONS_COPY.startWith,
-          disabled: (actions.models?.length ?? 0) === 0,
-          entries: (actions.models ?? []).map((model) => ({
+          disabled: models.length === 0,
+          entries: models.map((model) => ({
             kind: `item` as const,
             id: model.value,
             label: model.label,

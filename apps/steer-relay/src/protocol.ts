@@ -88,8 +88,8 @@ export const byeFrame = z.object({
 export const setConfigFrame = z.object({
   t: z.literal(`set_config`),
   id: z.string().min(1).max(64),
-  // NO `.min(1)`: a BLANK value is the "CLI default / omit the flag" choice
-  // the launch vocabulary already speaks (agentAllowsBlankModel).
+  // NO `.min(1)`: the relay only forwards; the publisher validates the value
+  // against the options it advertised (a blank one is its call to refuse).
   value: z.string().max(128),
 })
 

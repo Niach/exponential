@@ -1,5 +1,6 @@
-- Wątki: wątek to jeden ekran na każdym urządzeniu, z zadaniami, sesjami i Guide w jednym pasku, a Home ma pole pisania na dole, na tle świtu
-- Tytuły: wątek nosi nazwę swojej pracy, np. Implement EXP-12 albo Run Triage, więc każda lista wygląda tak samo na telefonie, w sieci i na komputerze
-- Pytania: opcje agenta mogą mieć krótki opis, a każde pytanie ma wiersz na Twoją własną odpowiedź
-- Guide: obraz otwiera się obok swoich notatek, ze strzałkami do następnego, a osoby dodane do zespołu bez zaproszenia widnieją jako Not invited
-- Konta: sesja, która osiągnie limit użycia, może przełączyć się na inne zalogowane konto i działać dalej
+- Wątki: wątek uruchamia małego dyspozytora, który sam odpowiada na szybkie pytania i uruchamia sesję do prawdziwej pracy, a pole odpowiedzi wątku jest takie samo jak w sesji, z przełącznikiem modelu
+- Raporty: gdy podsesja się kończy, jej podsumowanie trafia jako raport do rozmowy sesji nadrzędnej, a agent może zaproponować kolejne zadania, które uruchomisz jednym dotknięciem
+- Lista wątków: działająca sesja pokazuje pod nazwą bieżący krok, podsesje są zagnieżdżone pod swoim wątkiem, a wątek z nieprzeczytanymi wiadomościami agenta ma pogrubiony tytuł
+- Zapis: praca sesji czyta się jak linie śladu z blokami kodu, a wiadomości w kolejce czekają w jednym miejscu, aż agent je odbierze
+- Modele: każdy wybór modelu pokazuje Fable, Opus, Sonnet i Haiku, bez pozycji Default
+- /btw: zadaj działającej sesji Claude pytanie na boku i otrzymaj odpowiedź bez przerywania jej pracy

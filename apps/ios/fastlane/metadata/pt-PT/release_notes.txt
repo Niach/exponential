@@ -1,5 +1,6 @@
-- Threads: uma thread é um só ecrã em cada dispositivo, com issues, sessões e Guide numa faixa, e o Home põe o campo de escrita em baixo, sobre a aurora
-- Títulos: uma thread tem o nome do seu trabalho, como Implement EXP-12 ou Run Triage, para que cada lista se leia igual no telemóvel, na web e no computador
-- Perguntas: as opções de um agente podem ter uma breve descrição, e cada pergunta tem uma linha para escrever a sua própria resposta
-- Guide: uma imagem abre ao lado das suas notas, com setas para a seguinte, e quem é adicionado à equipa sem convite aparece como Not invited
-- Contas: uma sessão que atinge o limite de utilização pode mudar para outra conta com sessão iniciada e continuar
+- Threads: uma thread executa um pequeno distribuidor que responde sozinho a perguntas rápidas e inicia uma sessão para o trabalho a sério, e a caixa de resposta da thread é a mesma de uma sessão, com a troca de modelo
+- Relatórios: quando uma subsessão termina, o seu resumo chega como relatório à conversa da sessão principal, e um agente pode propor tarefas de seguimento que inicia com um toque
+- Lista de threads: uma sessão em curso mostra o passo atual sob o nome, as subsessões aninham-se sob a sua thread e uma thread com mensagens do agente por ler mostra o título a negrito
+- Transcrição: o trabalho de uma sessão lê-se como linhas de rastreio com blocos de código, e as mensagens em fila esperam num só sítio até o agente as recolher
+- Modelos: cada seletor de modelo lista Fable, Opus, Sonnet e Haiku, sem a entrada Default
+- /btw: faça uma pergunta à parte a uma sessão Claude em curso e receba a resposta sem interromper o seu trabalho

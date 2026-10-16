@@ -2,6 +2,39 @@ import ExpCore
 import ExpUI
 import SwiftUI
 
+/// EXP-1323/1324: a thread's live tail (web/Android `tail`, desktop's
+/// transcript bottom): THE Queue (`fixtures/task-queue.json` — the task list,
+/// background work, open waits) and, while the live root works a turn, ONE
+/// status line — the agent's mark, the state word and the live caption
+/// (`WorkingIndicatorRow`, the session view's own trailing row). Both read
+/// the live root's `AgentSessionModel`; nothing once it is over.
+struct ThreadLiveTail: View {
+    let model: AgentSessionModel
+    /// The live root's agent (its brand mark); nil = claude.
+    var agent: String?
+
+    var body: some View {
+        if !model.isOver {
+            VStack(alignment: .leading, spacing: DesignTokens.Transcript.gapBlock) {
+                TaskQueueView(
+                    todoOpen: Bindable(model).queueTodoOpen,
+                    completedOpen: Bindable(model).queueCompletedOpen,
+                    build: { model.taskQueue(now: $0) }
+                )
+                if model.agentWorking {
+                    WorkingIndicatorRow(
+                        agent: agent,
+                        caption: { model.workingCaption(now: $0) }
+                    )
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("thread-live-tail")
+        }
+    }
+}
+
 /// EXP-1295: a root's CONVERSATION (fixture `session-thread.json` `rows`) —
 /// a thread's, or a team agent's channel: the root's own session card
 /// first, then its messages oldest first, in the session view's own parts:
@@ -44,6 +77,10 @@ struct ThreadConversationView: View {
     var canAnswer = true
     /// EXP-1323: the suggested tasks cards' actions; nil = read-only.
     var suggestions: ThreadSuggestionActions?
+    /// EXP-1323/1324: the live tail — THE Queue + the status line off the
+    /// live root's relay state — as the Conversation's LAST row (web/Android
+    /// `tail` slot, desktop parity); nil while no root is live.
+    var liveTail: ThreadLiveTail?
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
@@ -83,6 +120,9 @@ struct ThreadConversationView: View {
                 } else {
                     rowView(row)
                 }
+            }
+            if let liveTail {
+                liveTail
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -505,26 +545,49 @@ struct ThreadSuggestionsCard: View {
                 }
             }
             if let actions {
-                HStack(spacing: 6) {
+                // Phones STACK the buttons (web `flex-col`, Android
+                // full-width pills): Options · Do it here · Start, each a
+                // full-width pill.
+                // The pill's capsule hugs its label (the SDK `PillView`), so a
+                // bare `.frame(maxWidth:)` only centres a short pill in the
+                // row: spacers in the leading/trailing slots make the capsule
+                // itself span the row with the label centred, like web's
+                // full-width buttons.
+                VStack(alignment: .leading, spacing: 6) {
                     GlassPill(
                         Copy.options,
                         mode: .action { actions.onOptions(rowId, item) },
                         enabled: !busy
                     ) {
-                        EmptyView()
+                        // Both slots nest the same way so the HStack splits
+                        // the slack evenly and "Options ˅" sits centred.
+                        HStack(spacing: 0) { Spacer(minLength: 0) }
                     } trailing: {
-                        AppIcon(AppIcons.uiChevronDown, size: 10)
+                        HStack(spacing: 4) {
+                            AppIcon(AppIcons.uiChevronDown, size: 10)
+                            Spacer(minLength: 0)
+                        }
                     }
+                    .frame(maxWidth: .infinity)
                     .accessibilityIdentifier("thread-suggestion-options")
-                    GlassPill(Copy.here, mode: .action { actions.onHere(rowId, item.id) }, enabled: !busy)
-                        .accessibilityIdentifier("thread-suggestion-here")
-                    Spacer(minLength: 0)
+                    GlassPill(Copy.here, mode: .action { actions.onHere(rowId, item.id) }, enabled: !busy) {
+                        Spacer(minLength: 0)
+                    } trailing: {
+                        Spacer(minLength: 0)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .accessibilityIdentifier("thread-suggestion-here")
                     GlassPill(
                         Copy.start,
                         mode: .action { actions.onStart(rowId, item.id) },
                         primary: true,
                         enabled: !busy
-                    )
+                    ) {
+                        Spacer(minLength: 0)
+                    } trailing: {
+                        Spacer(minLength: 0)
+                    }
+                    .frame(maxWidth: .infinity)
                     .accessibilityIdentifier("thread-suggestion-start")
                 }
             }

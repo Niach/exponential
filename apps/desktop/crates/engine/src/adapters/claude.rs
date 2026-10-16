@@ -1338,23 +1338,31 @@ impl ClaudeSession {
         drop(state);
 
         let inline_mcp;
-        let mcp = match &self.spec.mcp {
-            coding::AgentMcp::ClaudeInline { url, session_id } => {
-                inline_mcp =
-                    wire::inline_mcp_config(url, session_id.as_deref(), &self.spec.servers);
-                Some(McpConfig::Inline(&inline_mcp))
+        // EXP-1330: a `/btw` aside gets NO MCP servers — not `exponential`
+        // (its writes would run under the person's key), not code mode, not
+        // the team's — only the read-only built-in tools; strict, so the
+        // user's own config stays out as well ([`crate::aside`]).
+        let mcp = if self.spec.aside {
+            Some(McpConfig::Inline(crate::aside::ASIDE_MCP_CONFIG))
+        } else {
+            match &self.spec.mcp {
+                coding::AgentMcp::ClaudeInline { url, session_id } => {
+                    inline_mcp =
+                        wire::inline_mcp_config(url, session_id.as_deref(), &self.spec.servers);
+                    Some(McpConfig::Inline(&inline_mcp))
+                }
+                // The PTY path's `.exp-mcp.json`, kept as the zero-risk fallback.
+                coding::AgentMcp::ClaudeFile => {
+                    inline_mcp = self
+                        .spec
+                        .cwd
+                        .join(coding::mcp_json::MCP_JSON_FILE)
+                        .display()
+                        .to_string();
+                    Some(McpConfig::File(Path::new(&inline_mcp)))
+                }
+                _ => None,
             }
-            // The PTY path's `.exp-mcp.json`, kept as the zero-risk fallback.
-            coding::AgentMcp::ClaudeFile => {
-                inline_mcp = self
-                    .spec
-                    .cwd
-                    .join(coding::mcp_json::MCP_JSON_FILE)
-                    .display()
-                    .to_string();
-                Some(McpConfig::File(Path::new(&inline_mcp)))
-            }
-            _ => None,
         };
         // A launch that carries a resume seed reopens THAT conversation even
         // when the host called `session/new`: the recorded id is already taken,

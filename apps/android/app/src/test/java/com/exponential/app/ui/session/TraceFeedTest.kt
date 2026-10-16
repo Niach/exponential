@@ -62,6 +62,26 @@ class TraceFeedTest {
     }
 
     @Test
+    fun `a thought started in another lane leaves the others' open thoughts running`() {
+        // Parallel subagents each reason in their own lane: s2's `started`
+        // settles neither the main run's thought nor s1's; only s1's NEXT
+        // thought settles s1's, and the turn's end settles every lane.
+        val state = ActivityFeedState()
+            .applying("""{"kind":"thought","id":"m1","state":"started"}""")
+            .applying("""{"kind":"thought","id":"a1","state":"started","subagentId":"s1"}""")
+            .applying("""{"kind":"thought","id":"b1","state":"started","subagentId":"s2"}""")
+        fun open(s: ActivityFeedState) =
+            s.feed.filterIsInstance<AgentFeedItem.Thought>().filter { !it.ended }.map { it.thoughtId }
+        assertEquals(listOf("m1", "a1", "b1"), open(state))
+
+        val sameLane = state.applying("""{"kind":"thought","id":"a2","state":"started","subagentId":"s1"}""")
+        assertEquals(listOf("m1", "b1", "a2"), open(sameLane))
+
+        val turnEnded = sameLane.applying("""{"kind":"turn","state":"ended"}""")
+        assertEquals(emptyList<String>(), open(turnEnded))
+    }
+
+    @Test
     fun `a subagent's thought rides its lane`() {
         val state = ActivityFeedState()
             .applying("""{"kind":"subagent","id":"s1","agentType":"Explore","status":"started","at":1000}""")

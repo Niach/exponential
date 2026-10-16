@@ -2439,6 +2439,8 @@ pub fn group_subagent_row_specs_into(
                 item.kind,
                 FeedKind::Tool { .. }
                     | FeedKind::Narration { .. }
+                    // EXP-1324: the lane's own Reasoning lines.
+                    | FeedKind::Thought { .. }
                     | FeedKind::UserMessage { .. }
                     | FeedKind::ApiError { .. }
             )
@@ -4653,6 +4655,22 @@ mod tests {
             at: None,
         }); // 6
         feed.apply(scoped_tool("Edit", "a1")); // 7
+        // EXP-1324: the lane's reasoning line shows in its tab (another
+        // lane's never does).
+        feed.apply(ActivityEvent::Thought {
+            id: "th-a1".into(),
+            state: crate::frames::ThoughtState::Started,
+            duration_ms: None,
+            subagent_id: Some("a1".into()),
+            at: None,
+        }); // 8
+        feed.apply(ActivityEvent::Thought {
+            id: "th-a2".into(),
+            state: crate::frames::ThoughtState::Started,
+            duration_ms: None,
+            subagent_id: Some("a2".into()),
+            at: None,
+        }); // 9
         feed.apply(ActivityEvent::Subagent {
             id: "a1".into(),
             agent_type: "explore".into(),
@@ -4662,19 +4680,21 @@ mod tests {
             tool_calls: None,
             title: None,
             workflow_id: None,
-        }); // 8
+        }); // 10
 
         let items = feed.items();
+        assert!(matches!(items[8].kind, FeedKind::Thought { .. }));
         let mut rows = Vec::new();
         group_subagent_row_specs_into(items, 0, "a1", &[], &mut rows);
         let indices: Vec<Vec<usize>> = rows.iter().map(|row| row.item_indices().to_vec()).collect();
-        assert_eq!(indices, vec![vec![2, 5], vec![6], vec![7]]);
+        assert_eq!(indices, vec![vec![2, 5], vec![6], vec![7], vec![8]]);
         assert!(matches!(rows[0], FeedRowSpec::ToolRun { .. }));
         assert_eq!(rows[0].id(), items[2].id);
+        assert!(matches!(rows[3], FeedRowSpec::Single { item: 8, .. }));
         // The window start restricts it exactly like the main projection.
         group_subagent_row_specs_into(items, 6, "a1", &[], &mut rows);
         let indices: Vec<Vec<usize>> = rows.iter().map(|row| row.item_indices().to_vec()).collect();
-        assert_eq!(indices, vec![vec![6], vec![7]]);
+        assert_eq!(indices, vec![vec![6], vec![7], vec![8]]);
         // A subagent nobody scoped a row to projects nothing.
         group_subagent_row_specs_into(items, 0, "nobody", &[], &mut rows);
         assert!(rows.is_empty());

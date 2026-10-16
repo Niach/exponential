@@ -463,6 +463,12 @@ fun DeviceSettingsSheet(
                     onPlanModeChange = { next ->
                         editDraft(agentTab) { it.copy(planMode = next) }
                     },
+                    // EXP-1005: the device-level rotation switch (claude only;
+                    // absent on the row = ON, a flip stores the explicit value).
+                    autoRotateAccounts = draft.autoRotateAccounts,
+                    onAutoRotateAccountsChange = { next ->
+                        editDraft(agentTab) { it.copy(autoRotateAccounts = next) }
+                    },
                 )
                 // Whatever follows (Update, else Remove) opens with its own
                 // 8dp gap — the card needs no second one.
@@ -636,9 +642,10 @@ data class AgentDraft(
     val ultracode: Boolean,
     val planMode: Boolean,
     /**
-     * EXP-1005: the desktop-owned auto-rotate toggle, carried through the
-     * draft ONLY so a save echoes the synced value (the mutation replaces the
-     * whole object). No row edits it here; null = the stored row has no key.
+     * EXP-1005: claude's "Auto-rotate accounts" switch. Null = the stored row
+     * has no key (the launcher reads that as ON); a flip stores the explicit
+     * value, and an untouched draft echoes the synced value unchanged (the
+     * mutation replaces the whole object).
      */
     val autoRotateAccounts: Boolean? = null,
 )

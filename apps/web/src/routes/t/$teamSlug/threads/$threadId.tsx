@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react"
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react"
 import { inArray, useLiveQuery } from "@tanstack/react-db"
 import { createFileRoute, Navigate, redirect, useNavigate } from "@tanstack/react-router"
 import {
@@ -271,6 +271,13 @@ function ThreadScreen({
 
   const rowsById = useMemo(() => new Map(rows.map((row) => [row.id, row])), [rows])
   const focused = view.focusId ? (rowsById.get(view.focusId) ?? null) : null
+  /** EXP-1323: a suggested-tasks card's Start with… lists the POSTING
+   *  session's agent's models (a session of the tree; the root's as the
+   *  fallback). */
+  const agentFor = useCallback(
+    (sessionId: string) => rowsById.get(sessionId)?.cli ?? root.cli,
+    [rowsById, root.cli]
+  )
   // EXP-1323: opening the thread marks its root read (again whenever a newer
   // agent reply lands anywhere in the tree while it is open); an opened
   // session marks itself (`session-body.tsx`).
@@ -471,6 +478,7 @@ function ThreadScreen({
         canReply={permissions.isMember}
         busy={root.busy}
         onOpenSession={openSession}
+        agentFor={agentFor}
         topInset={topInset}
       />
     )
@@ -594,6 +602,7 @@ function ConversationBody({
   canReply,
   busy,
   onOpenSession,
+  agentFor,
   topInset = 0,
 }: {
   teamId: string
@@ -606,6 +615,8 @@ function ConversationBody({
   busy: boolean
   /** A session card opens that session in place (EXP-1316). */
   onOpenSession: (sessionId: string) => void
+  /** The agent CLI of a session of the tree (the suggestions' models). */
+  agentFor: (sessionId: string) => string | null | undefined
   /** Phones: the overlay header band's height (the scroller pads by it). */
   topInset?: number
 }) {
@@ -626,7 +637,7 @@ function ConversationBody({
   const lastRowId = view.rows.at(-1)?.id ?? null
   const follow = useFollowScroll([view.rows.length, lastRowId])
   const isMobile = useIsMobile()
-  const suggestions = useSuggestionActions({ teamId, enabled: canReply })
+  const suggestions = useSuggestionActions({ teamId, enabled: canReply, agentFor })
   const composer = canReply ? (
     <SessionComposer
       teamId={teamId}

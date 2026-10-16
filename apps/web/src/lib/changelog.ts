@@ -25,11 +25,22 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-10-16-release-train-trace-queue`,
+    date: `2026-10-16`,
+    title: `Release 2026-10-16: the transcript as trace lines, the Queue, and the review fixes`,
+    summary: `A session's work reads as one trace line per step with its output as a code block, the bottom of a session shows what is left to do and what is done, /btw works on web, Android gains Auto-rotate accounts, and the release review kept thread renames working on older apps.`,
+    body: `- **Trace transcript**: every step in a session is one line, "Ran bun test", "Thought for 5s", "Ran the Explore agent" with its duration, shimmering while it runs and red when it failed; a command's output opens under its line as a code block with a copy button, coloured like its terminal output.
+- **Failed tests**: a command whose output is a failing test run reads as its result, "Failed: 1 of 12 tests", instead of the command.
+- **The Queue**: the bottom of a session shows what is left to do and what is done as two folds, the running work first, with a background task's elapsed time ticking.
+- **Issue activity**: event lines on an issue use the same trace line, with the time on the right.
+- **Review fixes**: /btw on web asks its side question as a short fork instead of sending it to the session, and a /btw fork can no longer change issues or pull requests; the thread's model switch is off once the thread ended on iPhone; Android gains the Auto-rotate accounts toggle; parallel tool calls read as running until each one settles; a sub-session's report lands exactly once; a shared thread is not marked unread for everyone the moment this release lands; and renaming a thread keeps working from Android 0.14.61 and the desktop 0.14.68 until they update.`,
+  },
+  {
     id: `2026-10-15-session-tree-talk`,
     date: `2026-10-15`,
     title: `Sessions talk back: reports, suggestions, live status and /btw`,
     summary: `A sub-session's end lands as a report in its parent's conversation, agents propose follow-ups you start with one tap, every running session shows what it is doing right now, unread threads stand out and /btw asks a side question without interrupting.`,
-    body: `- **Reports**: when a sub-session ends, its summary arrives in its parent's conversation as a Report card and the parent picks it up as its next turn. A sub-session's question to its parent is shown as that session's, not yours.
+    body: `- **Reports**: when a sub-session ends, a Report line in its parent's conversation opens it, and the parent picks the summary up as its next turn.
 - **Suggestions**: an agent can propose follow-up tasks as one card. Start one as a sub-session, do it in the same session, file it as an issue or dismiss it, or start them all at once.
 - **Live status**: a running session's card shows its current step under the name, and sub-sessions nest under their thread in the Threads list.
 - **Unread**: a thread with agent messages you have not read yet shows its title in bold, on every device.
@@ -40,7 +51,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     date: `2026-10-15`,
     title: `Threads hand work to their own sessions`,
     summary: `A thread now runs a small dispatcher on the thread model (Haiku by default): it answers quick questions itself and starts a session for real work, with the same reply box and model switch as a session. Every model pick is explicit.`,
-    body: `- **Threads**: starting a thread or chatting with an agent runs a dispatcher on the thread model. Quick questions get answered in the thread, real work starts its own session with your model, effort and plan mode, and the dispatcher reports back in a line or two.
+    body: `- **Threads**: starting a thread or a new agent runs a dispatcher on the thread model (agents created before this release keep running on their own model). Quick questions get answered in the thread, real work starts its own session with your model, effort and plan mode, and the dispatcher reports back in a line or two.
 - **Reply box**: the thread and agent channel use the session's reply box on every device, with the model switch, the context ring, slash commands and Stop.
 - **Thread model**: device settings gain a Thread model under Model for each agent, Haiku for Claude by default.
 - **Models**: every model picker lists Fable, Opus, Sonnet and Haiku (Codex its three models) with no Default entry. Saved CLI defaults become Fable for the model and Opus for subagents.`,
@@ -49,9 +60,9 @@ export const CHANGELOG: ChangelogEntry[] = [
     id: `2026-10-15-compat-cleanup`,
     date: `2026-10-15`,
     title: `Older apps and older servers retired`,
-    summary: `This release drops the compatibility paths for app builds below the current store and desktop versions, and every app now expects a server from the same release.`,
-    body: `- **Update your apps**: iPhone below 0.14.60, Android below 0.14.62 and the desktop app or CLI below 0.14.70 show the update screen.
-- **Self-hosting**: set \`CLIENT_MIN_VERSION_IOS=0.14.60\`, \`CLIENT_MIN_VERSION_ANDROID=0.14.62\`, \`CLIENT_MIN_VERSION_DESKTOP=0.14.70\` and \`CLIENT_MIN_VERSION_CLI=0.14.70\` before upgrading (see \`selfhost/.env.example\`), and upgrade the server before the apps: new apps no longer work against an older server.`,
+    summary: `This release drops the server's compatibility paths for app builds older than the ones in the stores and on the desktop fleet, and every app now expects a server from the same release.`,
+    body: `- **Update your apps**: the oldest builds this server speaks to are iPhone 0.14.59, Android 0.14.61 and the desktop app or CLI 0.14.68. Older builds should update now; the update screen follows when the floors move.
+- **Self-hosting**: upgrade the server before the apps, since new apps no longer work against an older server, and set the \`CLIENT_MIN_VERSION_*\` floors to the builds your users run (see \`selfhost/.env.example\`).`,
   },
   {
     id: `2026-10-15-release-train-described-options`,

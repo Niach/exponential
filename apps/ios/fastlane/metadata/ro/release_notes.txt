@@ -1,5 +1,6 @@
-- Fire: un fir este un singur ecran pe fiecare dispozitiv, cu issue-uri, sesiuni și Guide într-o bandă, iar Home pune editorul jos, pe zori
-- Titluri: un fir poartă numele lucrării sale, ca Implement EXP-12 sau Run Triage, astfel încât fiecare listă arată la fel pe telefon, web și desktop
-- Întrebări: opțiunile unui agent pot avea o scurtă descriere, iar fiecare întrebare are un rând în care îți scrii propriul răspuns
-- Guide: o imagine se deschide lângă notițele ei, cu săgeți spre următoarea, iar persoanele adăugate în echipă fără invitație apar ca Not invited
-- Conturi: o sesiune care atinge limita de utilizare poate trece pe alt cont conectat și poate continua
+- Fire: un fir rulează un mic dispecer care răspunde singur la întrebările rapide și pornește o sesiune pentru munca reală, iar caseta de răspuns a firului este aceeași ca la o sesiune, cu schimbarea modelului
+- Rapoarte: când o subsesiune se încheie, rezumatul ei ajunge ca raport în conversația sesiunii părinte, iar un agent poate propune sarcini de continuare pe care le pornești cu o atingere
+- Lista firelor: o sesiune în desfășurare își arată pasul curent sub nume, subsesiunile sunt imbricate sub firul lor, iar un fir cu mesaje necitite de la agent are titlul îngroșat
+- Transcriere: munca unei sesiuni se citește ca linii de urmărire cu blocuri de cod, iar mesajele din coadă așteaptă într-un singur loc până le preia agentul
+- Modele: fiecare selector de model afișează Fable, Opus, Sonnet și Haiku, fără opțiunea Default
+- /btw: pune o întrebare secundară unei sesiuni Claude în desfășurare și primește răspunsul fără să-i întrerupi munca

@@ -1858,14 +1858,22 @@ fun ActivityFeedState.applyActivityEvent(
                     withFeed(feed.toMutableList().also { it[at] = next })
                 }
             }
-            event.str("state") == "started" -> closeOpenThoughts().append(
-                AgentFeedItem.Thought(
-                    id = nextEventId,
-                    thoughtId = thoughtId,
-                    subagentId = event.str("subagentId")?.takeIf { it.isNotBlank() },
-                    seq = seq,
-                ),
-            )
+            event.str("state") == "started" -> {
+                // A thought runs in ONE lane (the main run, or one subagent):
+                // a new one settles only an earlier open thought of the SAME
+                // lane. Parallel subagents each keep their own open thought —
+                // another lane's `started` never settles it (web appends and
+                // settles on `turn ended`; desktop settles by id).
+                val subagentId = event.str("subagentId")?.takeIf { it.isNotBlank() }
+                closeLaneThoughts(subagentId).append(
+                    AgentFeedItem.Thought(
+                        id = nextEventId,
+                        thoughtId = thoughtId,
+                        subagentId = subagentId,
+                        seq = seq,
+                    ),
+                )
+            }
             else -> this
         }
     }
@@ -2309,15 +2317,27 @@ fun ActivityFeedState.releaseResolvedLocks(): ActivityFeedState {
     return if (next.size == answerLocks.size) this else copy(answerLocks = next)
 }
 
+/** EXP-1324: every thought still open, in EVERY lane, reads settled (no
+ *  duration) — a turn that ended. */
+fun ActivityFeedState.closeOpenThoughts(): ActivityFeedState = settleThoughts { true }
+
+/** EXP-1324: the open thought of ONE lane ([subagentId]; null = the main
+ *  run) reads settled — the lane's next thought started. A parallel
+ *  subagent's `started` never settles another lane's reasoning. */
+fun ActivityFeedState.closeLaneThoughts(subagentId: String?): ActivityFeedState =
+    settleThoughts { it.subagentId == subagentId }
+
+private fun ActivityFeedState.settleThoughts(
+    inLane: (AgentFeedItem.Thought) -> Boolean,
+): ActivityFeedState {
+    val open = { item: AgentFeedItem -> item is AgentFeedItem.Thought && !item.ended && inLane(item) }
+    if (feed.none(open)) return this
+    return withFeed(feed.map { if (open(it)) (it as AgentFeedItem.Thought).copy(ended = true) else it })
+}
+
 /** Drop the compaction strip without an `ended` frame (EXP-724): the
  *  connection's [COMPACTION_TIMEOUT_MS] backstop, or the session ending under
  *  it. Leaves no marker — nothing was observed to finish. */
-/** EXP-1324: every thought still open reads settled (no duration). */
-fun ActivityFeedState.closeOpenThoughts(): ActivityFeedState {
-    if (feed.none { it is AgentFeedItem.Thought && !it.ended }) return this
-    return withFeed(feed.map { if (it is AgentFeedItem.Thought && !it.ended) it.copy(ended = true) else it })
-}
-
 fun ActivityFeedState.clearCompaction(): ActivityFeedState =
     if (compacting == null) this else copy(compacting = null)
 

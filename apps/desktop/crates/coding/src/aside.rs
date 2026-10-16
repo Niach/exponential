@@ -9,6 +9,10 @@
 //!   engine adds `--fork-session` and the read-only tool posture off the
 //!   record's [`crate::run_registry::ASIDE_OF_KEY`]);
 //! - the first prompt is the question itself (the brief's `## Request`);
+//! - NO MCP servers: the launcher's resume path skips the team pick, code
+//!   mode and computer use for an aside record, and the engine renders its
+//!   claude config empty (`engine::aside::ASIDE_MCP_CONFIG`) — a side
+//!   question never writes through `exponential` under the person's key;
 //! - its end never touches the parent's dir: no run cleanup, and the scratch
 //!   purge drops only the aside's own record.
 //!

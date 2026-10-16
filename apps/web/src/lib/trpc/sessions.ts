@@ -1,6 +1,6 @@
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
-import { and, eq, inArray, isNull, sql } from "drizzle-orm"
+import { and, eq, inArray, isNull, ne, sql } from "drizzle-orm"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
 import {
   AGENT_INSTRUCTIONS_MAX_BYTES,
@@ -53,7 +53,12 @@ import {
   startSuggestion,
 } from "@/lib/sessions/suggestions"
 import { issuesRouter } from "@/lib/trpc/issues"
-import { resolveSessionDevice, sendSession, withTriggerIds } from "@/lib/sessions/send"
+import {
+  assertRunnerVocabulary,
+  resolveSessionDevice,
+  sendSession,
+  withTriggerIds,
+} from "@/lib/sessions/send"
 import {
   fireAndForgetSessionMessageNotify,
   notifySessionBlocked,
@@ -156,8 +161,12 @@ export const sessionsRouter = router({
         userId: ctx.session.user.id,
         input,
         // EXP-1323: a session's own key stamps its messages (validated in
-        // `sendSession`: only the session's starter or host counts).
+        // `sendSession`: only the session's starter or host counts). Over
+        // tRPC the header only STAMPS `author_session_id` on a person's row;
+        // the agent-authored session-input path is MCP's alone (`viaMcp`),
+        // so a person's text can never turn into "from session A".
         callerSessionId: ctx.request ? parseMcpSessionHeader(ctx.request) : null,
+        viaMcp: ctx.viaMcp === true,
       })
     ),
 
@@ -235,6 +244,27 @@ export const sessionsRouter = router({
         sessionId: input.sessionId,
       })
       return { txid }
+    }),
+
+  // COMPAT (EXP-1316): delete once CLIENT_MIN_VERSION_ANDROID >= 0.14.62 AND
+  // CLIENT_MIN_VERSION_DESKTOP/_CLI >= 0.14.70. Android <= 0.14.61 and
+  // desktop <= 0.14.69 rename a thread by hand through this procedure. The
+  // stored `sessions.title` ranks BELOW the agent/action/issue names in the
+  // contract's threadTitle ladder, so the write is harmless.
+  setTitle: authedProcedure
+    .input(z.object({ sessionId: uuid, title: z.string().trim().max(255).nullable() }))
+    .mutation(async ({ ctx, input }): Promise<{ txid: number }> => {
+      const userId = ctx.session.user.id
+      const session = await loadSessionForUser(userId, input.sessionId)
+      await assertCanSteer(userId, session)
+      return ctx.db.transaction(async (tx) => {
+        const txid = await generateTxId(tx)
+        await tx
+          .update(sessions)
+          .set({ title: input.title || null, updatedAt: new Date() })
+          .where(eq(sessions.id, session.id))
+        return { txid }
+      })
     }),
 
   /** Link issues to a thread (always lands on the ROOT; the header "+"). */
@@ -368,6 +398,10 @@ export const sessionsRouter = router({
       const userId = ctx.session.user.id
       const agent = await loadAgent(userId, input.sessionId)
       await assertTeamOwner(userId, agent.teamId)
+      // The model comes from the agent's CLI vocabulary like a send's; a
+      // blank (an old client's "CLI default") = unset, never stored.
+      const model = input.model === undefined ? undefined : input.model || null
+      if (model) assertRunnerVocabulary({ cli: agent.cli ?? undefined, model })
       // A new device re-stamps the agent tree's visibility (its device's
       // share decides it) and hands the agent over: queued again, the new
       // device boots it, the old one drops a row that no longer names it.
@@ -387,7 +421,7 @@ export const sessionsRouter = router({
             ...(input.instructions !== undefined ? { instructions: input.instructions } : {}),
             ...(input.triggers !== undefined ? { triggers: withTriggerIds(input.triggers) } : {}),
             ...(input.account !== undefined ? { account: input.account } : {}),
-            ...(input.model !== undefined ? { model: input.model } : {}),
+            ...(model !== undefined ? { model } : {}),
             ...(input.sortOrder !== undefined ? { sortOrder: input.sortOrder } : {}),
             ...(moved
               ? {
@@ -536,7 +570,9 @@ export const sessionsRouter = router({
         (input.busy === false && session.busy) || status === `idle` || ending
       const txid = await ctx.db.transaction(async (tx) => {
         const txid = await generateTxId(tx)
-        await tx
+        // Guarded on the row's live status: a device end racing an explicit
+        // End must not end it twice (= two report cards on the parent).
+        const updated = await tx
           .update(sessions)
           .set({
             ...(status ? { status } : {}),
@@ -562,10 +598,12 @@ export const sessionsRouter = router({
                 : {}),
             updatedAt: now,
           })
-          .where(eq(sessions.id, session.id))
+          .where(and(eq(sessions.id, session.id), ne(sessions.status, `ended`)))
+          .returning({ id: sessions.id })
         // EXP-1329: the agent process went away = the child ended: report
-        // to its parent like an explicit End.
-        if (ending) await postReportToParent(tx, session)
+        // to its parent like an explicit End (once: only when THIS report
+        // flipped the row).
+        if (ending && updated.length > 0) await postReportToParent(tx, session)
         return txid
       })
       if (newlyBlocked) void notifySessionBlocked(session.id, blocked!)

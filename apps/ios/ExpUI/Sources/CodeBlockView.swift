@@ -133,6 +133,8 @@ public struct CodeBlockView: View {
         )
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("code-block")
+        // The copied-check reset must not outlive the view.
+        .onDisappear { copyReset?.cancel() }
     }
 
     private func header(_ title: String) -> some View {

@@ -232,6 +232,27 @@ describe.skipIf(!ready.ok)(`sessions.send — a new root`, () => {
     const brief = await composeSessionBrief(sent.sessionId)
     expect(brief.brief).toContain(`Triage the issue.`)
     expect(brief.brief).toContain(`Target`)
+    // A dispatcher started on an action hands it off; a work child sees the
+    // action through its dispatcher parent.
+    expect(brief.brief).toContain(`## Dispatch`)
+    const child = await sendSession({ userId: w.owner, input: { parentId: sent.sessionId, text: `do it` } })
+    const childBrief = await composeSessionBrief(child.sessionId)
+    expect(childBrief.brief).toContain(`Triage the issue.`)
+    expect(childBrief.brief).not.toContain(`## Dispatch`)
+
+    // An ended dispatcher's continuation carries the Action on, so ITS
+    // children (grandchildren of the root) still get it, and dispatches.
+    await endSession({ userId: w.owner, sessionId: sent.sessionId, summary: `Done.` })
+    const cont = await sendSession({ userId: w.owner, input: { sessionId: sent.sessionId, text: `again` } })
+    expect(await row(cont.sessionId)).toMatchObject({
+      dispatch: true,
+      actionId: action!.id,
+      actionName: `Triage`,
+      actionInputs: { issue: issueId },
+    })
+    expect((await composeSessionBrief(cont.sessionId)).brief).toContain(`## Dispatch`)
+    const grandchild = await sendSession({ userId: w.owner, input: { parentId: cont.sessionId, text: `go` } })
+    expect((await composeSessionBrief(grandchild.sessionId)).brief).toContain(`Triage the issue.`)
   })
 })
 
@@ -289,6 +310,18 @@ describe.skipIf(!ready.ok)(`sessions.send — dispatcher roots`, () => {
       input: { parentId: root.sessionId, text: `part 2`, model: `haiku`, planMode: false },
     })
     expect(await row(picked.sessionId)).toMatchObject({ model: `haiku`, planMode: false, effort: `high` })
+    // An old client's blank model/effort ("CLI default") is tolerated but
+    // never stored: the inherited pick stays.
+    const blank = await sendSession({
+      userId: w.owner,
+      input: { parentId: root.sessionId, text: `part 3`, model: ``, effort: `` },
+    })
+    expect(await row(blank.sessionId)).toMatchObject({ model: `opus`, effort: `high` })
+    const blankRoot = await sendSession({
+      userId: w.owner,
+      input: { teamId: w.teamId, deviceId: w.deviceId, cli: `claude`, model: ``, text: `x` },
+    })
+    expect((await row(blankRoot.sessionId)).workLaunch).toMatchObject({ model: null })
 
     // An ended dispatcher's continuation dispatches on.
     await endSession({ userId: w.owner, sessionId: root.sessionId, summary: `Done.` })
@@ -725,9 +758,18 @@ describe.skipIf(!ready.ok)(`EXP-1323: reports, asides, reads and suggestions`, a
       userId: w.owner,
       input: { sessionId: root.sessionId, text: `1:1 ratio?` },
       callerSessionId: child.sessionId,
+      viaMcp: true,
     })
     const [question] = await db.select().from(messages).where(eq(messages.id, asked.messageId!))
     expect(question).toMatchObject({ authorKind: `agent`, authorSessionId: child.sessionId, consumedAt: null })
+    // Over tRPC the same header only STAMPS a person's row: never "from A".
+    const typed = await sendSession({
+      userId: w.owner,
+      input: { sessionId: root.sessionId, text: `a person typed this` },
+      callerSessionId: child.sessionId,
+    })
+    const [personRow] = await db.select().from(messages).where(eq(messages.id, typed.messageId!))
+    expect(personRow).toMatchObject({ authorKind: `user`, authorId: w.owner, authorSessionId: child.sessionId })
 
     await endSession({ userId: w.owner, sessionId: child.sessionId, summary: `PR #12 is open.` })
     const report = (await sessionMessages(root.sessionId)).find(
@@ -766,6 +808,15 @@ describe.skipIf(!ready.ok)(`EXP-1323: reports, asides, reads and suggestions`, a
     )
     expect(reports.map((m) => m.body)).toEqual([`All done.`])
 
+    // An aside forks a RUNNING parent: a queued one has no run yet, an ended
+    // one none anymore.
+    await expect(
+      sendSession({ userId: w.owner, input: { parentId: root.sessionId, text: `q`, aside: true } })
+    ).rejects.toMatchObject({ code: `BAD_REQUEST`, message: `Asides need a running session` })
+    await expect(
+      sendSession({ userId: w.owner, input: { parentId: child.sessionId, text: `q`, aside: true } })
+    ).rejects.toMatchObject({ code: `BAD_REQUEST`, message: `Asides need a running session` })
+    await host.claim({ sessionId: root.sessionId })
     const aside = await sendSession({
       userId: w.owner,
       input: { parentId: root.sessionId, text: `why is CI red?\nctx`, aside: true },

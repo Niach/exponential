@@ -52,7 +52,7 @@ object DomainContract {
     val agentTriggerEventValues: List<String> = listOf("created", "status_changed", "assignee_changed", "label_added", "priority_changed", "pr_opened", "pr_merged")
     val agentScheduleIntervalValues: List<String> = listOf("daily", "weekly", "monthly")
     val steerCommandNames: List<String> = listOf("compact", "clear", "btw")
-    val steerCommandDescriptions: List<String> = listOf("Compact the conversation context", "Start a fresh conversation (context is discarded)", "Ask a quick side question without adding to the session")
+    val steerCommandDescriptions: List<String> = listOf("Compact the conversation context", "Start a fresh conversation (context is discarded)", "Ask a quick side question, answered read-only without adding to the session")
     val steerCommandArgHints: List<String> = listOf("instructions", "", "question")
     val steerCommandAgents: List<String> = listOf("claude,codex", "claude,codex", "claude")
     val steerCommandConfirm: List<Boolean> = listOf(false, true, false)

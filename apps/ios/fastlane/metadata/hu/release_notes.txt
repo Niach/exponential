@@ -1,5 +1,6 @@
-- Szálak: egy szál minden eszközön egy képernyő, a feladatai, munkamenetei és a Guide egy sávban, a Home pedig alul, a hajnalon mutatja a szerkesztőt
-- Címek: a szál a munkájáról kapja a nevét, például Implement EXP-12 vagy Run Triage, így minden lista ugyanúgy néz ki telefonon, weben és asztali gépen
-- Kérdések: az ügynök opcióihoz rövid leírás tartozhat, és minden kérdésnél van egy sor a saját válaszodhoz
-- Guide: a kép a jegyzetei mellett nyílik meg, nyilakkal a következőhöz, a meghívó nélkül a csapathoz adott emberek pedig Not invited jelzést kapnak
-- Fiókok: a használati korlátját elérő munkamenet átválthat egy másik bejelentkezett fiókra, és folytathatja a munkát
+- Szálak: egy szál egy kis diszpécsert futtat, amely a gyors kérdésekre maga válaszol, a valódi munkához pedig munkamenetet indít, és a szál válaszmezője ugyanaz, mint egy munkameneté, modellváltóval
+- Jelentések: amikor egy almunkamenet véget ér, az összefoglalója jelentésként érkezik a szülője beszélgetésébe, és egy agent követő feladatokat javasolhat, amelyeket egy koppintással indíthat
+- Szállista: egy futó munkamenet a neve alatt mutatja az aktuális lépését, az almunkamenetek a száluk alá ágyazódnak, és az olvasatlan agent-üzenetekkel rendelkező szál címe félkövér
+- Átirat: egy munkamenet munkája nyomkövetési sorokként olvasható kódblokkokkal, a sorban álló üzenetek pedig egy helyen várnak, amíg az agent fel nem veszi őket
+- Modellek: minden modellválasztó a Fable, Opus, Sonnet és Haiku modelleket kínálja, Default elem nélkül
+- /btw: tegyen fel mellékkérdést egy futó Claude munkamenetnek, és kapja meg a választ a munkája megszakítása nélkül

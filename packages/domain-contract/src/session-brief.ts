@@ -43,6 +43,10 @@ export function composeBrief(input: BriefInput): string {
     if (body.trim()) sections.push(`## ${heading}\n\n${body}`)
   }
   section(fixture.headings.request, (input.text ?? ``).trim())
+  // The hand-off order rides right behind the Request: the cut at
+  // `briefMaxBytes` trims from the END, so a near-cap action body can never
+  // take the Dispatch section with it.
+  if (input.handOff) section(fixture.headings.dispatch, fixture.handOff)
   if (input.action) {
     const parts = [input.action.body.trim()].filter(Boolean)
     if (input.action.inputs.length > 0) {
@@ -69,7 +73,6 @@ export function composeBrief(input: BriefInput): string {
         .replaceAll(`{branch}`, input.parent.branch ?? ``)
     )
   }
-  if (input.handOff) section(fixture.headings.dispatch, fixture.handOff)
   if (sections.length === 0) return fixture.empty
   return cutToBytes(sections.join(`\n\n`), contractJson.sessionsSend.briefMaxBytes)
 }

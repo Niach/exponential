@@ -404,14 +404,7 @@ extension AgentFeed {
         return lines
     }
 
-    // MARK: - The task list and subagents as Work cards (EXP-1240)
-
-    /// The agent's own task list as THE Work card (web `taskListWorkCard`).
-    public static func taskListWorkCard(_ entries: [AgentTaskListEntry]) -> WorkCard {
-        WorkCards.card(.tasks(entries.map {
-            WorkCardTask(content: $0.content, status: $0.status.rawValue)
-        }))
-    }
+    // MARK: - Subagents as Work cards (EXP-1240)
 
     /// A subagent's run as THE Work card (web `subagentWorkCard`): its label,
     /// the calls it made (EXP-748: the reported count when it is higher),

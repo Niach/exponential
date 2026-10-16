@@ -1103,8 +1103,9 @@ public enum AgentFeed {
     /// EXP-1324: fold a `thought` edge. `ended` patches the NEWEST row with
     /// that wire id in place (running → settled, its duration); a `started`
     /// for an id already present is a replay and changes nothing. Otherwise
-    /// the result is nil and the caller APPENDS a new row (`started` running,
-    /// an orphan `ended` settled).
+    /// the result is nil: the caller APPENDS a `started` as a running row and
+    /// DROPS an orphan `ended` (evicted, below the window — web parity, like
+    /// a `tool_update` nobody holds).
     public static func applyThought(
         _ feed: [AgentFeedItem], thoughtId: String, started: Bool, durationMs: Int?
     ) -> [AgentFeedItem]? {
@@ -1119,6 +1120,24 @@ public enum AgentFeed {
             subagentId: subagentId
         )
         return next
+    }
+
+    /// EXP-1324: a turn that ENDED settles every thought still open — a
+    /// `started` whose `ended` never came reads settled, without a duration
+    /// (web `steer-session-store` parity). Nil = nothing was open.
+    public static func settleThoughts(_ feed: [AgentFeedItem]) -> [AgentFeedItem]? {
+        var next = feed
+        var changed = false
+        for index in next.indices {
+            guard case let .thought(id, thoughtId, running, durationMs, subagentId) = next[index], running
+            else { continue }
+            next[index] = .thought(
+                id: id, thoughtId: thoughtId, running: false, durationMs: durationMs,
+                subagentId: subagentId
+            )
+            changed = true
+        }
+        return changed ? next : nil
     }
 
     /// EXP-785/786: fold a `tool_update` into the NEWEST tool row whose

@@ -1600,9 +1600,10 @@ fn suggestion_item_row(
     }
 }
 
-/// An open item's Options = THE Menu: Start on… (the team's runnable
-/// devices) · Start with… (the contract models, never a default row) ·
-/// File as issue · Dismiss.
+/// An open item's Options = THE Menu (web `session-thread-view`): Start on…
+/// (the team's devices that can start NOW — online with a runnable agent;
+/// disabled when there is none) · Start with… (the contract models, never a
+/// default row) · File as issue · Dismiss (plain rows, no glyphs).
 fn suggestion_menu(
     menu: gpui_component::menu::PopupMenu,
     message_id: &str,
@@ -1611,17 +1612,24 @@ fn suggestion_menu(
     window: &mut Window,
     cx: &mut gpui::Context<gpui_component::menu::PopupMenu>,
 ) -> gpui_component::menu::PopupMenu {
-    use crate::controls::{danger_menu_item, pointer_menu_item};
+    use crate::controls::{pointer_label_item, pointer_menu_item};
     let copy = &THREAD.copy.suggestions;
-    let devices = team_id
+    let devices: Vec<_> = team_id
         .map(|team_id| crate::settings::agent_detail::agent_devices(team_id, cx))
-        .unwrap_or_default();
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|device| device.can_start_now())
+        .collect();
     let (device_message, device_item) = (message_id.to_string(), item_id.to_string());
     let (model_message, model_item) = (message_id.to_string(), item_id.to_string());
     let (file_message, file_item) = (message_id.to_string(), item_id.to_string());
     let (dismiss_message, dismiss_item) = (message_id.to_string(), item_id.to_string());
-    menu.min_w(px(224.))
-        .submenu(copy.start_on.clone(), window, cx, move |mut sub, _, _| {
+    let menu = menu.min_w(px(224.));
+    let menu = if devices.is_empty() {
+        // No target: the entry stays, disabled (web's disabled submenu).
+        menu.item(pointer_label_item(copy.start_on.clone(), true))
+    } else {
+        menu.submenu(copy.start_on.clone(), window, cx, move |mut sub, _, _| {
             for device in &devices {
                 let (message_id, item_id) = (device_message.clone(), device_item.clone());
                 let device_id = device.device_id.clone();
@@ -1634,26 +1642,25 @@ fn suggestion_menu(
             }
             sub
         })
-        .submenu(copy.start_with.clone(), window, cx, move |mut sub, _, _| {
-            for model in domain::contract::CODING_MODEL_VALUES {
-                let (message_id, item_id) = (model_message.clone(), model_item.clone());
-                let label = crate::steer_viewer::model_label(model);
-                let model = model.to_string();
-                sub = sub.item(pointer_menu_item(None, label, |_| None, move |_, cx| {
-                    start_suggestion(&message_id, &item_id, false, None, Some(model.clone()), cx)
-                }));
-            }
-            sub
-        })
-        .separator()
-        .item(pointer_menu_item(Some(registry::UI_ADD), copy.file.clone(), |_| None, move |_, cx| {
-            file_suggestion(file_message.clone(), file_item.clone(), cx)
-        }))
-        .item(
-            danger_menu_item(copy.dismiss.clone(), Icon::new(registry::UI_CLOSE), cx).on_click(move |_, _, cx| {
-                dismiss_suggestion(dismiss_message.clone(), dismiss_item.clone(), cx)
-            }),
-        )
+    };
+    menu.submenu(copy.start_with.clone(), window, cx, move |mut sub, _, _| {
+        for model in domain::contract::CODING_MODEL_VALUES {
+            let (message_id, item_id) = (model_message.clone(), model_item.clone());
+            let label = crate::steer_viewer::model_label(model);
+            let model = model.to_string();
+            sub = sub.item(pointer_menu_item(None, label, |_| None, move |_, cx| {
+                start_suggestion(&message_id, &item_id, false, None, Some(model.clone()), cx)
+            }));
+        }
+        sub
+    })
+    .separator()
+    .item(pointer_menu_item(None, copy.file.clone(), |_| None, move |_, cx| {
+        file_suggestion(file_message.clone(), file_item.clone(), cx)
+    }))
+    .item(pointer_menu_item(None, copy.dismiss.clone(), |_| None, move |_, cx| {
+        dismiss_suggestion(dismiss_message.clone(), dismiss_item.clone(), cx)
+    }))
 }
 
 // ---------------------------------------------------------------------------

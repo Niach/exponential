@@ -128,6 +128,7 @@ public enum AnsiCode {
     }
 
     private static func isSpace(_ c: Character) -> Bool { c == " " || c == "\t" }
+    private static func isSpaceUnit(_ unit: UInt16) -> Bool { unit == 0x20 || unit == 0x09 }
 
     /// An uncoloured run through the `ansi` scanner. `lineStart` = whether
     /// its first character starts a line.
@@ -138,15 +139,21 @@ public enum AnsiCode {
         for (index, line) in lines.enumerated() {
             if index > 0 { out.append(CodeToken(kind: "plain", text: "\n")) }
             let atStart = index > 0 || lineStart
-            let chars = Array(line)
+            // UTF-16 units, like `runs()` and the TS reference: Swift's
+            // `String.hasPrefix` compares graphemes, so an emoji-presentation
+            // `✔️` (U+2714 U+FE0F) would NOT start with `✔` while
+            // `startsWith` (TS) and `starts_with` (Rust) say it does.
+            let units = Array(line.utf16)
             var k = 0
-            while k < chars.count, isSpace(chars[k]) { k += 1 }
-            let rest = String(chars[k...])
-            if atStart, !rest.isEmpty,
-               let hit = lineKinds.filter({ rest.hasPrefix($0.prefix) })
-                   .max(by: { $0.prefix.count < $1.prefix.count }) {
-                if k > 0 { out.append(CodeToken(kind: "plain", text: String(chars[..<k]))) }
-                out.append(CodeToken(kind: hit.kind, text: rest))
+            while k < units.count, isSpaceUnit(units[k]) { k += 1 }
+            let restUnits = units[k...]
+            if atStart, !restUnits.isEmpty,
+               let hit = lineKinds.filter({ restUnits.starts(with: Array($0.prefix.utf16)) })
+                   .max(by: { $0.prefix.utf16.count < $1.prefix.utf16.count }) {
+                if k > 0 {
+                    out.append(CodeToken(kind: "plain", text: String(decoding: units[..<k], as: UTF16.self)))
+                }
+                out.append(CodeToken(kind: hit.kind, text: String(decoding: restUnits, as: UTF16.self)))
             } else if !line.isEmpty {
                 out.append(CodeToken(kind: "plain", text: String(line)))
             }

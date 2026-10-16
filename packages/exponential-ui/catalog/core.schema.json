@@ -1767,7 +1767,7 @@
             },
             "shimmer": {
               "type": "boolean",
-              "description": "Animates a highlight across the text (work in progress).",
+              "description": "Animates a highlight across the text while work runs.",
               "default": false
             },
             "live": {
