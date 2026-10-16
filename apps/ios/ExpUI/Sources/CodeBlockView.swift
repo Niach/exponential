@@ -66,7 +66,8 @@ public struct CodeBlockView: View {
         switch kind {
         case "success": return DesignTokens.Diff.addFg
         case "error": return DesignTokens.Palette.destructive
-        case "warning": return DesignTokens.Semantic.yellow
+        // Web `--hljs-number` (Android `codeTokenColor`), not the yellow.
+        case "warning": return DesignTokens.Avatar.orange
         case "comment": return DesignTokens.Palette.mutedForeground
         default: return DesignTokens.Palette.foreground
         }

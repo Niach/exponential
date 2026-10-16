@@ -60,9 +60,9 @@ fn token_color(kind: &str, destructive: bool, cx: &App) -> Hsla {
     match kind {
         "comment" | "punctuation" | "operator" => theme.muted_foreground,
         "success" | "string" => hue(theme::tokens::avatar::GREEN),
-        "warning" => hue(theme::tokens::YELLOW),
         "error" => theme.danger,
-        "number" => hue(theme::tokens::avatar::ORANGE),
+        // Web: warning = `--hljs-number` (iOS, Android: the same orange).
+        "number" | "warning" => hue(theme::tokens::avatar::ORANGE),
         "keyword" | "tag" => hue(theme::tokens::avatar::VIOLET),
         "type" => hue(theme::tokens::avatar::TEAL),
         "function" | "property" | "attribute" => hue(theme::tokens::avatar::BLUE),

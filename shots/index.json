@@ -438,15 +438,15 @@
         "file": "shots/code-block/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 78716,
-        "sha256": "65d17b1b3be2e388ce1fc7086ae04b421f14772181b7750db78f572644735ff8"
+        "bytes": 49902,
+        "sha256": "8d95317c6171d67209755b96eb16a6b22acfa84cadd9270fed67f9d3273e383f"
       },
       "web-mobile": {
         "file": "shots/code-block/web-mobile.webp",
         "width": 832,
         "height": 1800,
-        "bytes": 83240,
-        "sha256": "4a7be5db7842a00a138795aefcf57059317f760a4e7eec0c632311cc88f6cc16"
+        "bytes": 49986,
+        "sha256": "53c82eace4ec410a7e20fe099b74ce7fa4e4db5742d884f1294550e1cacdc1a3"
       }
     },
     "comment-call-card": {
@@ -4144,15 +4144,15 @@
         "file": "shots/trace/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 78632,
-        "sha256": "3dc19e59b56b12ae37191c2357ad20549cb85d255f676907cad79aa0e7310798"
+        "bytes": 50844,
+        "sha256": "10fff3f87ba668f821339cc9a9e8add91c419382f55bd8fdc2392e0abdfa7a92"
       },
       "web-mobile": {
         "file": "shots/trace/web-mobile.webp",
         "width": 832,
         "height": 1800,
-        "bytes": 83240,
-        "sha256": "4a7be5db7842a00a138795aefcf57059317f760a4e7eec0c632311cc88f6cc16"
+        "bytes": 45908,
+        "sha256": "5df3b32772838729d6e8051c8c988cb0f9683cc7e86104bc99bc484d3399609b"
       }
     },
     "work-card": {
