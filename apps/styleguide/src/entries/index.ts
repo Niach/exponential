@@ -47,7 +47,6 @@ import { entry as menuSubmenu } from "./menu-submenu.tsx"
 import { entry as gettingStarted } from "./getting-started.tsx"
 import { entry as trace } from "./trace.tsx"
 import { entry as codeBlock } from "./code-block.tsx"
-import { entry as threadHeaderDrafts } from "./thread-header-drafts.tsx"
 import type { StyleguideEntry } from "./types.ts"
 
 export type { StyleguideEntry } from "./types.ts"
@@ -96,7 +95,6 @@ export const ENTRIES: readonly StyleguideEntry[] = [
   voiceCallOverlay,
   agentHome,
   workTabsStrip,
-  threadHeaderDrafts,
   gettingStarted,
 ]
 

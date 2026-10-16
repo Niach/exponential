@@ -7,7 +7,8 @@
 //! * `fixtures/session-thread.json` → [`build_session_thread`] (the thread
 //!   screen: tabs, conversation rows, composer target) + [`guide_pull_request`]
 //!   (the Guide's ONE PR) + [`guide_menu_entries`] (its header `…`,
-//!   EXP-1307) + [`composer_yields_to_card`] (EXP-820);
+//!   EXP-1307) + [`composer_yields_to_card`] (EXP-820) +
+//!   [`partition_thread_strip`] (the never-scrolling strip, EXP-1334);
 //! * `fixtures/threads-list.json`   → [`partition_threads`] (the Threads page:
 //!   Needs you · Running · Recent, live trees nested, EXP-1323) +
 //!   [`threads_unread`] (the nav dot) + [`list_agents`] (the rail's Agents).
@@ -20,7 +21,7 @@
 //! ISO reader); `now_ms` = epoch milliseconds. Pure; the view types serialize
 //! to the fixtures' camelCase shape so the replay compares whole values.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::LazyLock;
 
 use serde::{Deserialize, Serialize};
@@ -473,6 +474,10 @@ pub struct TreeIssue {
     pub id: String,
     pub identifier: String,
     pub title: String,
+    /// EXP-1334: the issue's parent (`issue_relations` kind parent; absent =
+    /// None): a linked sub-issue folds under its nearest LINKED ancestor.
+    #[serde(default, rename = "parentId")]
+    pub parent_id: Option<String>,
 }
 
 impl TreeIssue {
@@ -481,7 +486,14 @@ impl TreeIssue {
             id: issue.id.clone(),
             identifier: issue.identifier.clone(),
             title: issue.title.clone(),
+            parent_id: None,
         }
+    }
+
+    /// [`Self::from_issue`] with its parent (`issue_relations` kind parent).
+    pub fn with_parent(mut self, parent_id: Option<String>) -> Self {
+        self.parent_id = parent_id;
+        self
     }
 }
 
@@ -575,19 +587,46 @@ pub fn root_issues(
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case", rename_all_fields = "camelCase")]
 pub enum ThreadTab {
-    Conversation,
-    Issue { issue_id: String, identifier: String },
-    /// The `+` (link / file an issue).
+    /// The `+` (link / file an issue), LEFT of Conversation (EXP-1334).
     Add,
-    /// EXP-1316: a session at the viewed level (the root's run + its direct
-    /// children, or the focused session + ITS direct children).
+    Conversation,
+    /// EXP-1334: a TOP-LEVEL linked issue; its linked sub-issues fold into
+    /// `nested` (the chip's dropdown).
+    Issue {
+        issue_id: String,
+        identifier: String,
+        nested: Vec<ThreadTabNestedIssue>,
+    },
+    /// EXP-1334: one of the dispatcher's DIRECT children; every deeper
+    /// session folds into `nested`.
     Session {
         session_id: String,
         name: String,
         mark_state: SessionTabMarkState,
+        nested: Vec<ThreadTabNestedSession>,
     },
     /// `dot` = the root's guide holds any text or picture.
     Guide { dot: bool },
+}
+
+/// EXP-1334: one row of a folded issue chip's subtree; `depth` is relative
+/// to the chip (its children = 1).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ThreadTabNestedIssue {
+    pub issue_id: String,
+    pub identifier: String,
+    pub depth: usize,
+}
+
+/// EXP-1334: one row of a folded session chip's subtree.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ThreadTabNestedSession {
+    pub session_id: String,
+    pub name: String,
+    pub mark_state: SessionTabMarkState,
+    pub depth: usize,
 }
 
 /// EXP-1316: a session chip's lead ×4 = the thread row mark of THAT
@@ -685,6 +724,9 @@ pub enum SessionThreadRow {
     },
     Question {
         id: String,
+        /// EXP-1334: the session whose card it is (the root, or a child
+        /// whose own question surfaces in the Conversation).
+        session_id: String,
         question: String,
         options: Vec<QuestionOption>,
         /// EXP-1316: a free-text answer is offered (always, THE card).
@@ -694,6 +736,7 @@ pub enum SessionThreadRow {
     },
     Plan {
         id: String,
+        session_id: String,
         plan: String,
         decision: Option<String>,
     },
@@ -953,6 +996,215 @@ pub fn composer_yields_to_card(live: bool, pending_ask: bool) -> bool {
     live && pending_ask
 }
 
+// ── EXP-1334: the thread strip never scrolls ────────────────────────────────
+
+/// Which chips get drawn, in order; the rest collapse into one "+N"
+/// (EXP-288/326/343, the work tab strip's packer, shared with the thread
+/// strip). Chips pack in order until the next would not fit; the overflow
+/// chip's width is reserved only once something overflows; the ACTIVE
+/// chip's width is committed first so it is always visible (EXP-343: the
+/// old prefix-then-swap shape overflowed with a wide active tab); one chip
+/// always survives.
+pub fn partition_tabs(
+    widths: &[f32],
+    available: f32,
+    gap: f32,
+    overflow_w: f32,
+    active_ix: Option<usize>,
+) -> Vec<usize> {
+    let count = widths.len();
+    let available = available.max(0.);
+    let total = widths.iter().sum::<f32>() + gap * count.saturating_sub(1) as f32;
+    if total <= available {
+        return (0..count).collect();
+    }
+
+    let budget = (available - overflow_w - gap).max(0.);
+    let mut visible: Vec<usize> = Vec::new();
+    let mut used = active_ix.map_or(0., |ix| widths[ix]);
+    let mut chips = usize::from(active_ix.is_some());
+    for (ix, width) in widths.iter().enumerate() {
+        if Some(ix) == active_ix {
+            visible.push(ix);
+            continue;
+        }
+        let next = used + width + if chips > 0 { gap } else { 0. };
+        if next > budget && chips > 0 {
+            break;
+        }
+        visible.push(ix);
+        used = next;
+        chips += 1;
+    }
+    if let Some(active) = active_ix {
+        if !visible.contains(&active) {
+            visible.push(active);
+        }
+    }
+    if visible.is_empty() && count > 0 {
+        visible.push(0);
+    }
+    visible
+}
+
+/// [`partition_thread_strip`]'s tier: `Full` = identifier + title, `Short`
+/// = the identifier alone, `Fold` = short and some chips behind a "+N".
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StripTier {
+    Full,
+    Short,
+    Fold,
+}
+
+/// One issue chip's two measured widths.
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+pub struct StripIssueWidth {
+    pub full: f32,
+    pub short: f32,
+}
+
+/// [`partition_thread_strip`]'s answer: indexes of the drawn chips per zone.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ThreadStripLayout {
+    pub tier: StripTier,
+    pub issues: Vec<usize>,
+    pub sessions: Vec<usize>,
+}
+
+/// EXP-1334: the strip between Conversation and Guide (both pinned, never
+/// scrolled) holds two zones, issues then sessions, one `gap` between them.
+/// Tiers: everything full → every issue short → fold: the sessions keep
+/// their OWN room (what the short issues leave, at least half), each zone
+/// packs with [`partition_tabs`] and its own "+N" (`overflow_w`).
+pub fn partition_thread_strip(
+    issues: &[StripIssueWidth],
+    sessions: &[f32],
+    available: f32,
+    gap: f32,
+    overflow_w: f32,
+    active_issue: Option<usize>,
+    active_session: Option<usize>,
+) -> ThreadStripLayout {
+    let room = available.max(0.);
+    let span = |widths: &[f32]| -> f32 {
+        if widths.is_empty() {
+            0.
+        } else {
+            widths.iter().sum::<f32>() + gap * (widths.len() - 1) as f32
+        }
+    };
+    let sep = if !issues.is_empty() && !sessions.is_empty() { gap } else { 0. };
+    let session_span = span(sessions);
+    let full: Vec<f32> = issues.iter().map(|issue| issue.full).collect();
+    let short: Vec<f32> = issues.iter().map(|issue| issue.short).collect();
+    if span(&full) + sep + session_span <= room {
+        return ThreadStripLayout {
+            tier: StripTier::Full,
+            issues: (0..issues.len()).collect(),
+            sessions: (0..sessions.len()).collect(),
+        };
+    }
+    if span(&short) + sep + session_span <= room {
+        return ThreadStripLayout {
+            tier: StripTier::Short,
+            issues: (0..issues.len()).collect(),
+            sessions: (0..sessions.len()).collect(),
+        };
+    }
+    let zone = |widths: &[f32], budget: f32, active: Option<usize>| -> (Vec<usize>, f32) {
+        let shown = partition_tabs(widths, budget, gap, overflow_w, active);
+        let drawn: Vec<f32> = shown.iter().map(|&ix| widths[ix]).collect();
+        let used = span(&drawn) + if shown.len() < widths.len() { gap + overflow_w } else { 0. };
+        (shown, used)
+    };
+    let session_budget = if issues.is_empty() {
+        room
+    } else {
+        session_span.min((room / 2.).max(room - span(&short) - sep))
+    };
+    let (session_shown, session_used) = zone(sessions, session_budget, active_session);
+    let issue_budget = room - if sessions.is_empty() { 0. } else { session_used + sep };
+    let (issue_shown, _) = zone(&short, issue_budget, active_issue);
+    ThreadStripLayout {
+        tier: StripTier::Fold,
+        issues: issue_shown,
+        sessions: session_shown,
+    }
+}
+
+/// Depth-first walk of a forest given each node's FOLD parent (None = a
+/// top-level node), children in the given order; depth relative to the top;
+/// one item is placed once (a cycle's first item becomes a top).
+fn fold_forest<'a, T: ?Sized>(
+    items: &[&'a T],
+    id: impl Fn(&'a T) -> &'a str,
+    fold_parent: impl Fn(&'a T) -> Option<&'a str>,
+) -> Vec<(&'a T, Vec<(&'a T, usize)>)> {
+    let mut children: HashMap<Option<&'a str>, Vec<&'a T>> = HashMap::new();
+    for item in items {
+        children.entry(fold_parent(item)).or_default().push(item);
+    }
+    fn walk<'a, T: ?Sized>(
+        parent: &'a str,
+        depth: usize,
+        children: &HashMap<Option<&'a str>, Vec<&'a T>>,
+        id: &impl Fn(&'a T) -> &'a str,
+        seen: &mut HashSet<&'a str>,
+        nested: &mut Vec<(&'a T, usize)>,
+    ) {
+        for child in children.get(&Some(parent)).into_iter().flatten() {
+            let child_id = id(child);
+            if !seen.insert(child_id) {
+                continue;
+            }
+            nested.push((*child, depth));
+            walk(child_id, depth + 1, children, id, seen, nested);
+        }
+    }
+    let mut seen: HashSet<&'a str> = HashSet::new();
+    let mut fold = |top: &'a T, seen: &mut HashSet<&'a str>| {
+        let mut nested = Vec::new();
+        seen.insert(id(top));
+        walk(id(top), 1, &children, &id, seen, &mut nested);
+        (top, nested)
+    };
+    let mut out: Vec<(&'a T, Vec<(&'a T, usize)>)> = Vec::new();
+    for top in children.get(&None).into_iter().flatten() {
+        out.push(fold(top, &mut seen));
+    }
+    // A fold-parent cycle (a ↔ b) reaches no top: its first unreached item
+    // (input order) becomes a top-level chip, the rest fold under it.
+    for item in items {
+        if !seen.contains(id(item)) {
+            out.push(fold(item, &mut seen));
+        }
+    }
+    out
+}
+
+/// EXP-1334: a linked issue's fold parent = its nearest LINKED ancestor (an
+/// unlinked parent is skipped; a cycle or none = top-level).
+fn issue_fold_parent<'a>(
+    issue: &'a TreeIssue,
+    linked: &HashSet<&str>,
+    all: &HashMap<&str, &'a TreeIssue>,
+) -> Option<&'a str> {
+    let mut seen: HashSet<&str> = HashSet::from([issue.id.as_str()]);
+    let mut parent = issue.parent_id.as_deref();
+    while let Some(id) = parent {
+        if seen.contains(id) {
+            break;
+        }
+        if linked.contains(id) {
+            return Some(id);
+        }
+        seen.insert(id);
+        parent = all.get(id).and_then(|issue| issue.parent_id.as_deref());
+    }
+    None
+}
+
 /// The thread screen: the header tabs (Conversation · one chip per issue ·
 /// + · session chips · Guide; the session chips = the viewed level: the
 /// root's run + its direct children, or with `focus` that session + ITS
@@ -998,25 +1250,77 @@ pub fn build_session_thread(input: SessionThreadInput<'_>, focus: Option<&str>) 
     });
     let title = thread_title(root, &issues, &own);
     let focus = focus.and_then(|id| tree.iter().copied().find(|session| session.id == id));
-    let level = focus.unwrap_or(root);
-    let session_tabs: Vec<ThreadTab> = std::iter::once(level)
-        .chain(
-            tree.iter()
-                .copied()
-                .filter(|session| session.parent_id.as_deref() == Some(level.id.as_str()) && session.id != level.id),
-        )
-        .map(|session| ThreadTab::Session {
-            session_id: session.id.clone(),
-            name: session_card(session, ordinals.get(session.id.as_str()).copied().unwrap_or(1), now).name,
-            mark_state: session_tab_mark_state(session),
-        })
-        .collect();
+    // EXP-1334: the conversation IS the dispatcher (no chip of its own); the
+    // chips = its DIRECT children, every deeper session folded under its
+    // top-level ancestor (the chip's dropdown).
+    let name_of = |session: &SessionRow| {
+        session_card(session, ordinals.get(session.id.as_str()).copied().unwrap_or(1), now).name
+    };
+    let tree_ids: HashSet<&str> = tree.iter().map(|session| session.id.as_str()).collect();
+    let children: Vec<&SessionRow> = tree.iter().copied().filter(|session| session.id != root.id).collect();
+    let session_tabs: Vec<ThreadTab> = fold_forest(
+        &children,
+        |session| session.id.as_str(),
+        |session| match session.parent_id.as_deref() {
+            Some(parent) if parent != root.id && tree_ids.contains(parent) => Some(parent),
+            _ => None,
+        },
+    )
+    .into_iter()
+    .map(|(top, nested)| ThreadTab::Session {
+        session_id: top.id.clone(),
+        name: name_of(top),
+        mark_state: session_tab_mark_state(top),
+        nested: nested
+            .into_iter()
+            .map(|(item, depth)| ThreadTabNestedSession {
+                session_id: item.id.clone(),
+                name: name_of(item),
+                mark_state: session_tab_mark_state(item),
+                depth,
+            })
+            .collect(),
+    })
+    .collect();
+    let linked_ids: HashSet<&str> = issues.iter().map(|issue| issue.id.as_str()).collect();
+    let issue_refs: Vec<&TreeIssue> = issues.iter().collect();
+    let issue_tabs: Vec<ThreadTab> = fold_forest(
+        &issue_refs,
+        |issue| issue.id.as_str(),
+        |issue| issue_fold_parent(issue, &linked_ids, &issue_map),
+    )
+    .into_iter()
+    .map(|(top, nested)| ThreadTab::Issue {
+        issue_id: top.id.clone(),
+        identifier: top.identifier.clone(),
+        nested: nested
+            .into_iter()
+            .map(|(item, depth)| ThreadTabNestedIssue {
+                issue_id: item.id.clone(),
+                identifier: item.identifier.clone(),
+                depth,
+            })
+            .collect(),
+    })
+    .collect();
 
-    let mut rows = vec![SessionThreadRow::Session {
-        id: root.id.clone(),
-        card: session_card(root, 1, now),
-    }];
-    for message in own {
+    // EXP-1334: no root card; a CHILD's own question / plan card surfaces in
+    // the Conversation (answered here, straight back to that child).
+    let mut conversation: Vec<&MessageRow> = own.clone();
+    conversation.extend(input.messages.iter().copied().filter(|message| {
+        message.session_id != root.id
+            && tree_ids.contains(message.session_id.as_str())
+            && message.card.as_ref().is_some_and(|card| {
+                matches!(card_str(card, "kind"), Some(MESSAGE_CARD_KIND_QUESTION) | Some(MESSAGE_CARD_KIND_PLAN))
+            })
+    }));
+    conversation.sort_by(|a, b| {
+        ms_or_zero(a.created_at.as_deref())
+            .cmp(&ms_or_zero(b.created_at.as_deref()))
+            .then_with(|| a.id.cmp(&b.id))
+    });
+    let mut rows: Vec<SessionThreadRow> = Vec::new();
+    for message in conversation {
         let Some(card) = message.card.as_ref() else {
             let author = match message.author_kind.as_deref() {
                 Some(MESSAGE_AUTHOR_KIND_USER) => MESSAGE_AUTHOR_KIND_USER,
@@ -1053,6 +1357,7 @@ pub fn build_session_thread(input: SessionThreadInput<'_>, focus: Option<&str>) 
             }
             Some(MESSAGE_CARD_KIND_QUESTION) => rows.push(SessionThreadRow::Question {
                 id: message.id.clone(),
+                session_id: message.session_id.clone(),
                 question: js_string(card.get("question")),
                 options: question_options(card.get("options"), card.get("optionDescriptions")),
                 custom: true,
@@ -1061,6 +1366,7 @@ pub fn build_session_thread(input: SessionThreadInput<'_>, focus: Option<&str>) 
             }),
             Some(MESSAGE_CARD_KIND_PLAN) => rows.push(SessionThreadRow::Plan {
                 id: message.id.clone(),
+                session_id: message.session_id.clone(),
                 plan: js_string(card.get("plan")),
                 decision: card_str(card, "decision").map(str::to_string),
             }),
@@ -1113,12 +1419,8 @@ pub fn build_session_thread(input: SessionThreadInput<'_>, focus: Option<&str>) 
     }
 
     let live: Vec<&SessionRow> = tree.iter().copied().filter(|session| !session.is_ended()).collect();
-    let mut tabs = vec![ThreadTab::Conversation];
-    tabs.extend(issues.iter().map(|issue| ThreadTab::Issue {
-        issue_id: issue.id.clone(),
-        identifier: issue.identifier.clone(),
-    }));
-    tabs.push(ThreadTab::Add);
+    let mut tabs = vec![ThreadTab::Add, ThreadTab::Conversation];
+    tabs.extend(issue_tabs);
     tabs.extend(session_tabs);
     tabs.push(ThreadTab::Guide {
         dot: guide_dot(root.guide.as_ref()),
@@ -1648,7 +1950,7 @@ mod tests {
         assert_eq!(SessionState::NeedsYou.word(), "Needs you");
         assert_eq!(SessionState::Working.icon(), "coding-running");
         assert_eq!(SessionState::Blocked.tone(), "rose");
-        assert_eq!(THREAD.copy.placeholder, "Reply…");
+        assert_eq!(THREAD.copy.placeholder, "Type / for commands");
         assert_eq!(THREAD.title_max, 80);
         assert_eq!(THREADS_LIST.copy.title, "Threads");
         assert_eq!(ThreadsListKey::Recent.title(), "Recent");
@@ -1858,6 +2160,31 @@ mod tests {
                 "{}",
                 case["name"]
             );
+        }
+    }
+
+    /// EXP-1334: `session-thread.json` `stripCases`, whole values.
+    #[test]
+    fn partition_thread_strip_matches_the_fixture() {
+        let fixture = fixture(SESSION_THREAD_JSON);
+        let cases = fixture["stripCases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let input = &case["input"];
+            let issues: Vec<StripIssueWidth> = serde_json::from_value(input["issues"].clone()).unwrap();
+            let sessions: Vec<f32> = serde_json::from_value(input["sessions"].clone()).unwrap();
+            let num = |key: &str| input[key].as_f64().unwrap() as f32;
+            let index = |key: &str| input[key].as_u64().map(|ix| ix as usize);
+            let layout = partition_thread_strip(
+                &issues,
+                &sessions,
+                num("available"),
+                num("gap"),
+                num("overflowW"),
+                index("activeIssue"),
+                index("activeSession"),
+            );
+            assert_whole(&layout, &case["expected"], case["name"].as_str().unwrap());
         }
     }
 

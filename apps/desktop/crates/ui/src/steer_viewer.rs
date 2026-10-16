@@ -414,6 +414,9 @@ pub(crate) struct SteerSessionView {
     /// follows the run's team ([`Self::mention_team`]); a team-less run keeps
     /// the widget and gets plain-input behaviour.
     mention: Entity<crate::mention_input::MentionInput>,
+    /// EXP-1334: the composer's emoji tool (a pick inserts at the cursor).
+    emoji: Entity<crate::emoji_picker::EmojiPicker>,
+    emoji_open: bool,
     /// The team the completion source was last pointed at.
     mention_team: Option<String>,
     /// EXP-820: the inline free-text field, open on at most one option row.
@@ -673,6 +676,22 @@ impl SteerSessionView {
 
         let transport = crate::queries::attachment_transport(cx);
         let image_cache = cx.new(|_| crate::markdown::ImageCache::new(transport));
+        let emoji_view = cx.entity().downgrade();
+        let emoji = cx.new(|cx| {
+            crate::emoji_picker::EmojiPicker::new(
+                std::rc::Rc::new(move |unicode: &str, window: &mut Window, cx: &mut App| {
+                    let unicode = unicode.to_string();
+                    let _ = emoji_view.update(cx, |this, cx| {
+                        this.emoji_open = false;
+                        this.mention
+                            .update(cx, |mention, cx| mention.insert_text(&unicode, window, cx));
+                        cx.notify();
+                    });
+                }),
+                window,
+                cx,
+            )
+        });
         let mut this = Self {
             session_id: session_id.clone(),
             row: None,
@@ -693,6 +712,8 @@ impl SteerSessionView {
             last_activity: std::time::Instant::now(),
             input,
             mention,
+            emoji,
+            emoji_open: false,
             mention_team: None,
             inline: None,
             editing_step: None,
@@ -6990,17 +7011,32 @@ impl SteerSessionView {
                         .capture_action(tab)
                 })
                 .strip((!self.pending_images.is_empty()).then(|| self.render_pending_strip(cx)))
-                // EXP-698: the attach tool is ALWAYS offered — steer images
-                // upload to the session route. EXP-850 §13: `ui-add` ×4.
-                // EXP-1294: inside the card, Home's "+" slot.
+                // EXP-1334: the inline tools — the "+" options menu
+                // (composer-menu.json rows a running session can change),
+                // attach (EXP-698: always offered), `#`, emoji.
+                .tool(self.render_plus_menu(cx))
                 .tool(
-                    crate::composer::composer_tool(self.composer_ids.attach.clone(), registry::UI_ADD, cx)
+                    crate::composer::composer_tool(self.composer_ids.attach.clone(), registry::UI_ATTACH, cx)
                         .tooltip("Add file or image")
                         .disabled(self.sending)
                         .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
                             this.pick_images(window, cx);
                         })),
                 )
+                .tool(
+                    crate::composer::composer_tool(
+                        SharedString::from(format!("{}-issue", self.composer_ids.attach)),
+                        registry::EDITOR_ISSUE_REF,
+                        cx,
+                    )
+                    .tooltip("Mention an issue")
+                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                        this.mention.update(cx, |mention, cx| mention.insert_text("#", window, cx));
+                        let field = this.input.read(cx).focus_handle(cx);
+                        window.focus(&field, cx);
+                    })),
+                )
+                .tool(self.render_emoji_tool(cx))
                 .card_hook(move |card| card.capture_action(paste))
                 .controls(self.render_composer_controls(cx)),
             cx,
@@ -7080,22 +7116,234 @@ impl SteerSessionView {
     /// plan read (never on a DISPATCHER root, which hands the work to
     /// children; web `planLabel`), the context ring.
     fn render_composer_controls(&self, cx: &mut gpui::Context<Self>) -> crate::composer::SessionComposerControls {
-        let dispatcher = self.row.as_ref().is_some_and(|row| row.dispatch);
-        let plan = if dispatcher {
-            None
-        } else if self.feed.config().is_some() {
-            self.plan_mode_label()
-        } else {
-            self.row
-                .as_ref()
-                .is_some_and(|row| row.plan_mode)
-                .then(|| SharedString::from(crate::composer::PLAN_MODE_FALLBACK))
-        };
         crate::composer::SessionComposerControls {
             model_pin: self.render_model_pin(cx),
-            plan,
+            plan: self.render_plan_switch(cx),
             context_ring: self.render_context_ring(cx),
         }
+    }
+
+    /// EXP-1334: whether this viewer may change the run's options mid-session
+    /// (`sessions.configure`): a live run it may message.
+    fn configurable(&self) -> bool {
+        self.may_message && self.run_open() && self.row.is_some()
+    }
+
+    /// EXP-1334 — `sessions.configure`: a running session's options, changed
+    /// mid-session (the host device applies them; the synced row confirms).
+    fn configure(input: api::sessions::ConfigureInput, cx: &mut App) {
+        let Some(trpc) = crate::queries::trpc_client(cx) else {
+            crate::action_error::failed_action("change", "the session", None, cx);
+            return;
+        };
+        cx.spawn(async move |cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move { api::sessions::configure(&trpc, &input) })
+                .await;
+            if let Err(err) = result {
+                log::warn!("[steer] configure the session failed: {err}");
+                cx.update(|cx| crate::action_error::failed_action_err("change", "the session", &err, cx));
+            }
+        })
+        .detach();
+    }
+
+    /// EXP-1334 — THE Plan switch under the card: the live mode
+    /// (`config_state.currentMode`) else the row's `plan_mode`; a flip =
+    /// `sessions.configure({planMode})`. Read-only (a label) where the run
+    /// cannot change; nothing for an agent without a plan mode.
+    fn render_plan_switch(&self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
+        let row = self.row.as_ref()?;
+        let on = if self.feed.config().is_some() {
+            self.plan_mode_label().is_some()
+        } else {
+            row.plan_mode
+        };
+        let session_id = self.session_id.to_string();
+        let configurable = self.configurable();
+        Some(
+            h_flex()
+                .flex_shrink_0()
+                .gap_1p5()
+                .items_center()
+                .px_1()
+                .text_xs()
+                .text_color(cx.theme().muted_foreground)
+                .child(crate::composer::PLAN_MODE_FALLBACK)
+                .child(
+                    crate::controls::web_switch(SharedString::from(format!("{}-plan", self.composer_ids.model)))
+                        .checked(on)
+                        .disabled(!configurable)
+                        .on_click(cx.listener(move |_, on: &bool, _, cx| {
+                            Self::configure(
+                                api::sessions::ConfigureInput {
+                                    session_id: session_id.clone(),
+                                    plan_mode: Some(*on),
+                                    ..Default::default()
+                                },
+                                cx,
+                            );
+                        })),
+                )
+                .into_any_element(),
+        )
+    }
+
+    /// EXP-1334 — the emoji tool: THE shared picker; a pick inserts the
+    /// unicode at the cursor.
+    fn render_emoji_tool(&self, cx: &mut gpui::Context<Self>) -> AnyElement {
+        let id = SharedString::from(format!("{}-emoji", self.composer_ids.attach));
+        crate::emoji_picker::emoji_picker_popover(
+            SharedString::from(format!("{id}-popover")),
+            crate::composer::composer_tool(id, registry::EDITOR_EMOJI, cx).tooltip("Emoji"),
+            self.emoji.clone(),
+            self.emoji_open,
+            cx.listener(|this, open: &bool, _window, cx| {
+                this.emoji_open = *open;
+                cx.notify();
+            }),
+        )
+        .into_any_element()
+    }
+
+    /// EXP-1334 — the composer's "+": THE composer menu (composer-menu.json)
+    /// with the rows a RUNNING session can change — Add file or image, then
+    /// Effort and Ultracode, then Computer use — each a
+    /// `sessions.configure` (the subject pickers belong to a start).
+    fn render_plus_menu(&self, cx: &mut gpui::Context<Self>) -> AnyElement {
+        use crate::chat_screen::ComposerMenuRow as Row;
+        let view = cx.entity().downgrade();
+        let session_id = self.session_id.to_string();
+        let configurable = self.configurable();
+        let claude = self.agent() == SessionAgent::Claude;
+        let agent = if claude {
+            coding::CodingAgent::Claude
+        } else {
+            coding::CodingAgent::Codex
+        };
+        let (effort, ultracode, computer_use) = self
+            .row
+            .as_ref()
+            .map(|row| (row.effort.clone().unwrap_or_default(), row.ultracode, row.computer_use))
+            .unwrap_or_default();
+        let trigger = crate::composer::composer_tool(
+            SharedString::from(format!("{}-plus", self.composer_ids.attach)),
+            registry::UI_ADD,
+            cx,
+        )
+        .tooltip("Add")
+        .disabled(self.sending);
+        crate::controls::PointerMenu::for_button(trigger, move |mut menu, window, cx| {
+            use crate::controls::{menu_row, pointer_check_item, pointer_menu_item, pointer_toggle_item};
+            menu = menu.min_w(px(260.));
+            let configure = |input: api::sessions::ConfigureInput, cx: &mut App| Self::configure(input, cx);
+            let base = {
+                let session_id = session_id.clone();
+                move || api::sessions::ConfigureInput {
+                    session_id: session_id.clone(),
+                    ..Default::default()
+                }
+            };
+            // Add file or image.
+            {
+                let view = view.clone();
+                menu = menu.item(
+                    pointer_menu_item(Row::AddFile.icon(), "Add file or image", |_| None, move |window, cx| {
+                        if let Some(view) = view.upgrade() {
+                            view.update(cx, |this, cx| this.pick_images(window, cx));
+                        }
+                    }),
+                );
+            }
+            if !configurable {
+                return menu;
+            }
+            menu = menu.separator();
+            // Effort (Reasoning on codex); Ultracode IS the level while on.
+            let label = if claude { "Effort" } else { "Reasoning" };
+            let choices = crate::coding_selects::effort_choices_for(agent);
+            if ultracode && claude {
+                let title = SharedString::from(format!("{label} · Ultracode"));
+                menu = menu.item(
+                    gpui_component::menu::PopupMenuItem::element(move |_, cx| {
+                        menu_row(Row::Effort.icon(), title.clone(), None, true, cx)
+                    })
+                    .disabled(true),
+                );
+            } else {
+                let value = choices
+                    .iter()
+                    .find(|(_, value)| *value == effort)
+                    .map(|(label, _)| *label)
+                    .unwrap_or("Default");
+                let picked = effort.clone();
+                let configure = configure.clone();
+                let base = base.clone();
+                menu = menu.submenu_with_icon(
+                    Row::Effort.icon().map(Icon::new),
+                    format!("{label} · {value}"),
+                    window,
+                    cx,
+                    move |mut sub, _, _| {
+                        for (label, value) in choices {
+                            let configure = configure.clone();
+                            let base = base.clone();
+                            let value = (*value).to_string();
+                            sub = sub.item(pointer_check_item(*label, picked == value, move |_, cx| {
+                                configure(
+                                    api::sessions::ConfigureInput {
+                                        effort: Some(Some(value.clone()).filter(|value| !value.is_empty())),
+                                        ..base()
+                                    },
+                                    cx,
+                                );
+                            }));
+                        }
+                        sub
+                    },
+                );
+            }
+            if claude {
+                let configure = configure.clone();
+                let base = base.clone();
+                menu = menu.item(pointer_toggle_item(
+                    "steer-menu-ultracode",
+                    Row::Ultracode.icon(),
+                    "Ultracode",
+                    ultracode,
+                    move |on, _, cx| {
+                        configure(
+                            api::sessions::ConfigureInput {
+                                ultracode: Some(on),
+                                ..base()
+                            },
+                            cx,
+                        )
+                    },
+                ));
+            }
+            menu = menu.separator();
+            let configure = configure.clone();
+            let base = base.clone();
+            menu.item(pointer_toggle_item(
+                "steer-menu-computer-use",
+                Row::ComputerUse.icon(),
+                "Computer use",
+                computer_use,
+                move |on, _, cx| {
+                    configure(
+                        api::sessions::ConfigureInput {
+                            computer_use: Some(on),
+                            ..base()
+                        },
+                        cx,
+                    )
+                },
+            ))
+        })
+        .anchor(gpui::Anchor::BottomLeft)
+        .into_any_element()
     }
 
     /// EXP-877 — the model the run is on, off `config_state.options[model]`

@@ -34,14 +34,14 @@ describe(`linkedIssueParents`, () => {
     ])
   })
 
-  it(`leaves a cycle and an unlinked-only ancestry top-level`, () => {
+  it(`hands a linked cycle on as is (the contract folds it) and leaves an unlinked-only ancestry top-level`, () => {
     const out = linkedIssueParents(
       [issue(`x`), issue(`y`), issue(`z`)],
       [parent(`x`, `y`), parent(`y`, `x`), parent(`q`, `z`)]
     )
     expect(out.map((row) => [row.id, row.parentId])).toEqual([
-      [`x`, null],
-      [`y`, null],
+      [`x`, `y`],
+      [`y`, `x`],
       [`z`, null],
     ])
   })

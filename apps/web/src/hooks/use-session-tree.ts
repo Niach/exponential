@@ -333,8 +333,9 @@ interface ParentRelation {
 }
 
 /** EXP-1334: each linked issue's `parentId` = its nearest LINKED ancestor
- *  over the team's `parent` relations (walking past unlinked ones; a cycle
- *  or none = null). Several parents: the first by id, deterministic. */
+ *  over the team's `parent` relations (walking past unlinked ones; none
+ *  = null; a linked cycle is handed on, the contract folds it). Several
+ *  parents: the first by id, deterministic. */
 export function linkedIssueParents(
   issues: readonly TreeIssue[],
   relations: readonly ParentRelation[]
@@ -362,21 +363,11 @@ export function linkedIssueParents(
       cursor = parentOf.get(cursor)
     }
   }
-  // An issue on a linked-parent CYCLE keeps no parent (issue-nesting rule
-  // 3), so a cycle can never swallow its chips.
-  const onCycle = (id: string) => {
-    const seen = new Set<string>()
-    let cursor = linkedParent.get(id)
-    while (cursor && !seen.has(cursor)) {
-      if (cursor === id) return true
-      seen.add(cursor)
-      cursor = linkedParent.get(cursor)
-    }
-    return false
-  }
   return issues.map((issue) => ({
     ...issue,
-    parentId: onCycle(issue.id) ? null : (linkedParent.get(issue.id) ?? null),
+    // A linked-parent cycle is the contract's (`foldForest` promotes its
+    // first unreached issue to a chip).
+    parentId: linkedParent.get(issue.id) ?? null,
   }))
 }
 

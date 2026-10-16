@@ -47,7 +47,8 @@ import { SESSION_CARD_TONE, SessionCard } from "./work-card"
 //   ThreadTabs           the header's ONE strip, nothing scrolls (EXP-1334):
 //                        "+" · Conversation | issue chips … +X | session
 //                        chips … +Y | Guide (a dot while it holds anything);
-//                        `pager` = the phones' tabs. Chips = THE strip chip
+//                        `pager` = the phones' tabs (Conversation and Guide
+//                        icon-only there). Chips = THE strip chip
 //                        (`strip-chip.tsx`); a folded chip opens its subtree
 //                        (`ThreadChipSubtree`) on a click
 //   ThreadConversation   the conversation rows: messages (a person's bubble
@@ -136,7 +137,8 @@ function sameMeasure(a: StripMeasure | null, b: StripMeasure): boolean {
  * issues then sessions: everything full → the issues identifier-only → fold,
  * each zone with its own "+N" (`partitionThreadStrip`, the contract's
  * `stripCases`), the open chip always drawn. `pager` = the phones' header
- * band (no glyphs on Conversation / Guide).
+ * band: Conversation and Guide ICON-ONLY (the strip chip box, the label as
+ * aria-label/title, the Guide dot on the icon's corner).
  */
 export function ThreadTabs({
   conversation,
@@ -297,11 +299,15 @@ export function ThreadTabs({
         role="tab"
         aria-selected={conversation.active}
         data-testid="thread-tab-conversation"
-        className={tabClass(conversation.active)}
+        // EXP-1334: phones = an ICON-ONLY tab in the strip chip box (the
+        // middle zones keep their room); the label names it.
+        aria-label={pager ? conversation.label : undefined}
+        title={pager ? conversation.label : undefined}
+        className={cn(tabClass(conversation.active, pager), pager && `px-2`)}
         onClick={conversation.onSelect}
       >
-        {!pager && <ConversationIcon className="size-3.5 shrink-0" />}
-        {conversation.label}
+        <ConversationIcon className="size-3.5 shrink-0" />
+        {!pager && conversation.label}
       </Button>
       {(issues.length > 0 || sessions.length > 0) && !pager && divider}
       <div
@@ -336,18 +342,37 @@ export function ThreadTabs({
         role="tab"
         aria-selected={guide.active}
         data-testid="thread-tab-guide"
-        className={tabClass(guide.active)}
+        aria-label={pager ? guide.label : undefined}
+        title={pager ? guide.label : undefined}
+        className={cn(tabClass(guide.active, pager), pager && `px-2`)}
         onClick={guide.onSelect}
       >
-        {!pager && <GuideIcon className="size-3.5 shrink-0" />}
-        {guide.label}
-        {guide.dot && (
-          <span
-            data-testid="thread-guide-dot"
-            className="size-1.5 shrink-0 rounded-full bg-emerald-400"
-          >
-            <span className="sr-only">The Guide has content</span>
+        {pager ? (
+          // Phones: the icon alone, the dot on its corner.
+          <span className="relative flex shrink-0">
+            <GuideIcon className="size-3.5 shrink-0" />
+            {guide.dot && (
+              <span
+                data-testid="thread-guide-dot"
+                className="absolute -top-0.5 -right-0.5 size-1.5 rounded-full bg-emerald-400"
+              >
+                <span className="sr-only">The Guide has content</span>
+              </span>
+            )}
           </span>
+        ) : (
+          <>
+            <GuideIcon className="size-3.5 shrink-0" />
+            {guide.label}
+            {guide.dot && (
+              <span
+                data-testid="thread-guide-dot"
+                className="size-1.5 shrink-0 rounded-full bg-emerald-400"
+              >
+                <span className="sr-only">The Guide has content</span>
+              </span>
+            )}
+          </>
         )}
       </Button>
     </div>

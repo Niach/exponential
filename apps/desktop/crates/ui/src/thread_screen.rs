@@ -8,11 +8,17 @@
 //!   it) and a lock while private — no caption; its trailing slot holds the
 //!   Merge pill while the Guide's PR is open, then the Guide `…`, on EVERY
 //!   tab.
-//! * The STRIP: `Conversation` · one chip per linked issue (status glyph,
-//!   mono identifier, title) · `+` · a divider · `Guide` (a green dot while
-//!   the root's guide has content), every chip 28px. A chip linked moments
-//!   before it first renders fades in with a ring.
-//! * The CONVERSATION: the root's messages — a person's message a
+//! * The STRIP (EXP-1334, [`thread_strip`], never scrolls): `+` ·
+//!   `Conversation` pinned left, `Guide` (a green dot while the root's guide
+//!   has content) pinned right; between them the TOP-LEVEL linked issues
+//!   (status glyph, mono identifier, title) then the dispatcher's DIRECT
+//!   children, laid out by `partition_thread_strip` (titles → identifiers
+//!   → a "+N" menu per zone). A chip with sub-issues / deeper sessions wears
+//!   a chevron and a click opens THE Menu of its subtree (the tree rows);
+//!   it reads `<chip> › <open one>` while a nested one is open. A chip
+//!   linked moments before it first renders fades in with a ring.
+//! * The CONVERSATION (no root card: it IS the dispatcher): the root's
+//!   messages plus its children's question / plan cards — a person's message a
 //!   right-aligned bubble over `author · HH:MM` (`Queued` + remove while the
 //!   device has not consumed it), the agent's prose as markdown, a session
 //!   = THE session card ([`crate::work_card::session_card`], opens that
@@ -88,9 +94,6 @@ const CONVERSATION_W: f32 = 760.;
 const HEADER_INSET: f32 = 44.;
 /// One strip chip's height.
 const STRIP_CHIP_H: f32 = 28.;
-/// An issue chip's floor while the strip shrinks it (glyph + identifier +
-/// a few title letters and the ellipsis).
-const ISSUE_CHIP_MIN_W: f32 = 112.;
 /// An issue chip title's ONE max width (then the ellipsis).
 const ISSUE_CHIP_TITLE_MAX_W: f32 = 140.;
 /// The issue chip's lead (a live root's mark) and its state badge.
@@ -1192,6 +1195,7 @@ pub(crate) fn card_row(
             custom,
             answer,
             answered,
+            ..
         } => question_card(
             id,
             message_markdown(SharedString::from(format!("thread-question-{id}")), question, team_id, images),
@@ -1202,7 +1206,7 @@ pub(crate) fn card_row(
             window,
             cx,
         ),
-        SessionThreadRow::Plan { id, plan, decision } => plan_card(
+        SessionThreadRow::Plan { id, plan, decision, .. } => plan_card(
             id,
             message_markdown(SharedString::from(format!("thread-plan-{id}")), plan, team_id, images),
             decision.as_deref(),
@@ -1768,55 +1772,8 @@ pub(crate) fn issue_threads_row(issue_id: &str, cx: &App) -> Option<AnyElement> 
 }
 
 // ---------------------------------------------------------------------------
-// EXP-1316 (1b): the session chips and the tree popover
+// EXP-1334: the strip (never scrolls) and the chips' subtree menus
 // ---------------------------------------------------------------------------
-
-/// One row of the session-tree popover: the whole tree, flat, in tree
-/// order (a parent, then its children by creation), each with its tree
-/// guides (`list-item.json` SessionRow small + TreeGuides).
-#[derive(Clone, Debug, PartialEq)]
-pub(crate) struct SessionTreeRow {
-    pub(crate) session_id: String,
-    pub(crate) name: String,
-    pub(crate) state: domain::session_tree::SessionState,
-    pub(crate) cli: Option<String>,
-    pub(crate) guides: domain::tree_guides::Guides,
-}
-
-/// The tree under `root_id` as popover rows (pure): depth-first, children in
-/// creation order, names off THE session card (`Session N` by tree
-/// ordinal).
-pub(crate) fn session_tree_rows(root_id: &str, sessions: &[&SessionRow], now_ms: i64) -> Vec<SessionTreeRow> {
-    use domain::session_tree::{session_card, tree_order};
-    let tree: Vec<&SessionRow> = sessions
-        .iter()
-        .copied()
-        .filter(|session| session.id == root_id || session.root_id_or_self() == root_id)
-        .collect();
-    let ordered = tree_order(&tree);
-    let ordinal = |id: &str| ordered.iter().position(|session| session.id == id).map_or(1, |ix| ix + 1);
-    let mut out: Vec<(&SessionRow, usize)> = Vec::new();
-    fn walk<'a>(parent: &'a SessionRow, depth: usize, ordered: &[&'a SessionRow], out: &mut Vec<(&'a SessionRow, usize)>) {
-        out.push((parent, depth));
-        for child in ordered.iter().copied().filter(|child| child.parent_id.as_deref() == Some(parent.id.as_str())) {
-            walk(child, depth + 1, ordered, out);
-        }
-    }
-    if let Some(root) = ordered.iter().copied().find(|session| session.id == root_id) {
-        walk(root, 0, &ordered, &mut out);
-    }
-    let guides = domain::tree_guides::guides_for(&out.iter().map(|(_, depth)| *depth).collect::<Vec<_>>());
-    out.into_iter()
-        .zip(guides)
-        .map(|((session, _), guides)| SessionTreeRow {
-            session_id: session.id.clone(),
-            name: session_card(session, ordinal(&session.id), now_ms).name,
-            state: domain::session_tree::session_state(session),
-            cli: session.cli.clone(),
-            guides,
-        })
-        .collect()
-}
 
 /// A chip's mark state as THE session state (the run mark reads it).
 fn chip_state(mark: domain::session_tree::SessionTabMarkState) -> domain::session_tree::SessionState {
@@ -1834,64 +1791,609 @@ fn open_session_in_place(session_id: String, window: &mut Window, cx: &mut App) 
     crate::navigation::navigate(window, cx, Screen::Session { session_id });
 }
 
-/// One popover row: guides, the run mark, the name, the state word in its
-/// tone; the current session washed.
-fn tree_popover_row(row: &SessionTreeRow, active: bool, cx: &App) -> AnyElement {
-    use domain::list_item::{lead_x, BASE, GAP, SMALL};
-    let theme = cx.theme();
-    let row_hover = theme::tokens::glass::FILL_ROW.to_hsla();
-    let row_active = theme::tokens::glass::FILL_ACTIVE.to_hsla();
-    let session_id = row.session_id.clone();
-    let word = row.state.word();
-    let word_color = match row.state {
-        domain::session_tree::SessionState::NeedsYou | domain::session_tree::SessionState::Blocked => {
-            crate::work_card::session_tone_color(row.state.tone(), cx)
+/// What the strip shows open (a strip pick).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum StripPick {
+    Conversation,
+    Guide,
+    Issue(String),
+    Session(String),
+}
+
+/// One linked issue as the strip paints it.
+#[derive(Clone, Default)]
+pub(crate) struct StripIssue {
+    pub(crate) title: String,
+    pub(crate) status: Option<domain::statuses::ResolvedStatus>,
+    /// The link id while the chip wears its NEW ring.
+    pub(crate) ringed: Option<String>,
+}
+
+pub(crate) type OnStripPick = std::rc::Rc<dyn Fn(StripPick, &mut Window, &mut App)>;
+
+/// THE thread strip's inputs (the screen and the styleguide draw it):
+/// `[+] [Conversation] | issue chips … +X  session chips … +Y | [Guide]`,
+/// nothing scrolls — `+` and Conversation pinned left, Guide right, the
+/// middle laid out by `domain::session_tree::partition_thread_strip`.
+pub(crate) struct ThreadStrip {
+    /// Element id prefix (`thread` on the screen).
+    pub(crate) prefix: &'static str,
+    pub(crate) tabs: Vec<ThreadTab>,
+    pub(crate) issues: HashMap<String, StripIssue>,
+    /// Each session's agent CLI (its run mark).
+    pub(crate) clis: HashMap<String, Option<String>>,
+    pub(crate) open: StripPick,
+    /// The measured middle width (`None` = the first frame: every chip
+    /// drawn, clipped).
+    pub(crate) available: Option<f32>,
+    /// THE thread menu's target for the `+` and the issue chips' context
+    /// menus (`None` = a non-member: no `+`, no menus).
+    pub(crate) menu: Option<ThreadMenuTarget>,
+    pub(crate) on_pick: OnStripPick,
+    /// Records the middle slot's painted width.
+    pub(crate) on_slot: Option<std::rc::Rc<dyn Fn(f32, &mut App)>>,
+}
+
+/// A chip's frame: `px(10)` a side + the 1px border.
+const STRIP_CHIP_CHROME: f32 = 22.;
+/// The gap between a chip's own children (`strip_chip`'s `gap(6)`).
+const STRIP_CHIP_INNER_GAP: f32 = 6.;
+/// A session chip name's ONE max width.
+const SESSION_CHIP_NAME_MAX_W: f32 = 180.;
+/// Each half of `<chip> › <open one>` (a session chip with a nested one open).
+const SESSION_CHIP_PART_MAX_W: f32 = 110.;
+
+/// The open nested item of a chip (`<chip> › <open one>`).
+fn open_nested(tab: &ThreadTab, open: &StripPick) -> Option<String> {
+    match (tab, open) {
+        (ThreadTab::Issue { nested, .. }, StripPick::Issue(id)) => nested
+            .iter()
+            .find(|item| item.issue_id == *id)
+            .map(|item| item.identifier.clone()),
+        (ThreadTab::Session { nested, .. }, StripPick::Session(id)) => {
+            nested.iter().find(|item| item.session_id == *id).map(|item| item.name.clone())
         }
-        _ => theme.muted_foreground,
-    };
-    crate::surface::flat_row()
-        .id(SharedString::from(format!("thread-tree-{}", row.session_id)))
-        .relative()
-        .flex()
-        .flex_row()
-        .w_full()
-        .min_w_0()
+        _ => None,
+    }
+}
+
+/// Whether `tab`'s chip is active: it or one of its nested items is open.
+fn chip_active(tab: &ThreadTab, open: &StripPick) -> bool {
+    match (tab, open) {
+        (ThreadTab::Issue { issue_id, nested, .. }, StripPick::Issue(id)) => {
+            issue_id == id || nested.iter().any(|item| item.issue_id == *id)
+        }
+        (ThreadTab::Session { session_id, nested, .. }, StripPick::Session(id)) => {
+            session_id == id || nested.iter().any(|item| item.session_id == *id)
+        }
+        _ => false,
+    }
+}
+
+/// The issue chip's `› EXP-22` while a nested issue is open.
+fn chip_suffix(text: String, cx: &App) -> AnyElement {
+    h_flex()
+        .flex_shrink_0()
+        .gap(px(STRIP_CHIP_INNER_GAP))
         .items_center()
-        .gap(px(GAP))
-        .h(px(SMALL))
-        .pr_3()
-        .pl(px(lead_x(row.guides.depth())))
-        .rounded(px(theme::tokens::radius::MD))
-        .when(active, |this| this.bg(row_active))
-        .cursor_pointer()
-        .hover(move |style| style.bg(if active { row_active } else { row_hover }))
-        .children(crate::tree_guides::guide_layer(&row.guides, BASE, 0.))
-        .child(crate::run_rows::run_mark(crate::run_rows::run_agent(row.cli.as_deref()), row.state, cx))
-        .child(
-            div()
-                .min_w_0()
-                .truncate()
-                .text_sm()
-                .text_color(theme.foreground)
-                .child(SharedString::from(row.name.clone())),
-        )
-        .child(div().flex_shrink_0().text_sm().text_color(word_color).child(SharedString::from(word)))
-        .on_click(move |_, window, cx| open_session_in_place(session_id.clone(), window, cx))
+        .child(div().text_color(cx.theme().muted_foreground).child("›"))
+        .child(SharedString::from(text))
         .into_any_element()
 }
 
-/// Hovering the session chips (or the popover itself) keeps the tree
-/// popover open; leaving both closes it after a beat.
-#[derive(Default)]
-struct TreeHover {
-    chips: bool,
-    popover: bool,
-    open: bool,
+fn chevron(cx: &App) -> AnyElement {
+    Icon::new(registry::UI_CHEVRON_DOWN)
+        .xsmall()
+        .flex_shrink_0()
+        .text_color(cx.theme().muted_foreground)
+        .into_any_element()
 }
 
-/// How long the popover outlives the pointer (crossing the gap from the
-/// chips onto it).
-const TREE_CLOSE_DELAY: Duration = Duration::from_millis(160);
+/// One item of a chip's subtree menu (row 1 = the chip itself).
+#[derive(Clone)]
+enum SubtreeItem {
+    Issue {
+        issue_id: String,
+        identifier: String,
+        title: String,
+        status: Option<domain::statuses::ResolvedStatus>,
+    },
+    Session {
+        session_id: String,
+        name: String,
+        state: domain::session_tree::SessionState,
+        cli: Option<String>,
+    },
+}
+
+impl SubtreeItem {
+    fn pick(&self) -> StripPick {
+        match self {
+            Self::Issue { issue_id, .. } => StripPick::Issue(issue_id.clone()),
+            Self::Session { session_id, .. } => StripPick::Session(session_id.clone()),
+        }
+    }
+}
+
+/// A chip and its nested rows, depths relative to the chip (0).
+fn subtree_of(tab: &ThreadTab, spec: &ThreadStrip) -> Vec<(SubtreeItem, usize)> {
+    let issue = |issue_id: &str, identifier: &str| {
+        let info = spec.issues.get(issue_id).cloned().unwrap_or_default();
+        SubtreeItem::Issue {
+            issue_id: issue_id.to_string(),
+            identifier: identifier.to_string(),
+            title: info.title,
+            status: info.status,
+        }
+    };
+    let session = |session_id: &str, name: &str, mark| SubtreeItem::Session {
+        session_id: session_id.to_string(),
+        name: name.to_string(),
+        state: chip_state(mark),
+        cli: spec.clis.get(session_id).cloned().flatten(),
+    };
+    match tab {
+        ThreadTab::Issue {
+            issue_id,
+            identifier,
+            nested,
+        } => std::iter::once((issue(issue_id, identifier), 0))
+            .chain(nested.iter().map(|item| (issue(&item.issue_id, &item.identifier), item.depth)))
+            .collect(),
+        ThreadTab::Session {
+            session_id,
+            name,
+            mark_state,
+            nested,
+        } => std::iter::once((session(session_id, name, *mark_state), 0))
+            .chain(
+                nested
+                    .iter()
+                    .map(|item| (session(&item.session_id, &item.name, item.mark_state), item.depth)),
+            )
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+/// One subtree menu row: THE tree row (guides, the lead, the name, a
+/// session's state word in its tone), the open one checked.
+fn subtree_row(item: &SubtreeItem, guides: &domain::tree_guides::Guides, active: bool, cx: &App) -> gpui::Div {
+    use domain::list_item::{GAP, INDENT, SMALL};
+    let theme = cx.theme();
+    let mut row = h_flex()
+        .relative()
+        .flex_shrink_0()
+        .h(px(SMALL))
+        .gap(px(GAP))
+        .items_center()
+        .pl(px(INDENT * guides.depth() as f32))
+        .children(crate::tree_guides::guide_layer(guides, 0., 0.));
+    row = match item {
+        SubtreeItem::Issue {
+            identifier, title, status, ..
+        } => {
+            let glyph = match status {
+                Some(status) => crate::icons::resolved_status_icon(status, cx).xsmall(),
+                None => Icon::new(registry::UI_ISSUE).xsmall().text_color(theme.muted_foreground),
+            };
+            row.child(glyph)
+                .child(
+                    div()
+                        .flex_shrink_0()
+                        .text_xs()
+                        .font_family(theme::terminal::FONT_FAMILY)
+                        .text_color(theme.muted_foreground)
+                        .child(SharedString::from(identifier.clone())),
+                )
+                .child(
+                    div()
+                        .flex_shrink_0()
+                        .max_w(px(320.))
+                        .truncate()
+                        .text_sm()
+                        .text_color(theme.foreground)
+                        .child(SharedString::from(title.clone())),
+                )
+        }
+        SubtreeItem::Session { name, state, cli, .. } => {
+            let word_color = match state {
+                domain::session_tree::SessionState::NeedsYou | domain::session_tree::SessionState::Blocked => {
+                    crate::work_card::session_tone_color(state.tone(), cx)
+                }
+                _ => theme.muted_foreground,
+            };
+            row.child(crate::run_rows::run_mark(crate::run_rows::run_agent(cli.as_deref()), *state, cx))
+                .child(
+                    div()
+                        .flex_shrink_0()
+                        .max_w(px(320.))
+                        .truncate()
+                        .text_sm()
+                        .text_color(theme.foreground)
+                        .child(SharedString::from(name.clone())),
+                )
+                .child(
+                    div()
+                        .flex_shrink_0()
+                        .text_sm()
+                        .text_color(word_color)
+                        .child(SharedString::from(state.word())),
+                )
+        }
+    };
+    let check = active.then(|| {
+        Icon::new(registry::UI_CHECK)
+            .size(px(14.))
+            .text_color(theme.foreground)
+            .into_any_element()
+    });
+    crate::controls::pointer_row_fill(
+        h_flex()
+            .flex_1()
+            .min_w_0()
+            .gap_2()
+            .items_center()
+            .child(row)
+            .child(div().flex_1())
+            .children(check),
+        false,
+    )
+}
+
+/// THE Menu of chip subtrees: each group = a chip then its nested rows
+/// (one guide set per group); a pick opens it.
+fn subtree_menu(
+    mut menu: gpui_component::menu::PopupMenu,
+    groups: &[Vec<(SubtreeItem, usize)>],
+    open: &StripPick,
+    on_pick: &OnStripPick,
+) -> gpui_component::menu::PopupMenu {
+    menu = menu.min_w(px(300.)).scrollable(true).max_h(px(420.));
+    for (index, group) in groups.iter().enumerate() {
+        if index > 0 && groups.len() > 1 && group.len() > 1 {
+            menu = menu.separator();
+        }
+        let depths: Vec<usize> = group.iter().map(|(_, depth)| *depth).collect();
+        for ((item, _), guides) in group.iter().zip(domain::tree_guides::guides_for(&depths)) {
+            let pick = item.pick();
+            let active = *open == pick;
+            let item = item.clone();
+            let on_pick = on_pick.clone();
+            menu = menu.item(
+                gpui_component::menu::PopupMenuItem::element(move |_, cx| subtree_row(&item, &guides, active, cx))
+                    .on_click(move |_, window, cx| on_pick(pick.clone(), window, cx)),
+            );
+        }
+    }
+    menu
+}
+
+/// The measured widths of one chip (`short` = an issue's identifier-only
+/// width; a session chip has one).
+fn measure_strip_chip(tab: &ThreadTab, spec: &ThreadStrip, window: &Window) -> (f32, f32) {
+    let rem = f32::from(window.rem_size());
+    let font = window.text_style().font();
+    let mut mono = font.clone();
+    mono.family = theme::terminal::FONT_FAMILY.into();
+    let sm = |text: &str| crate::screens::measure_text(window, text, font.clone(), gpui::rems(0.875));
+    let xs_mono = |text: &str| crate::screens::measure_text(window, text, mono.clone(), gpui::rems(0.75));
+    let glyph = 0.75 * rem;
+    let g = STRIP_CHIP_INNER_GAP;
+    let suffix = open_nested(tab, &spec.open);
+    let has_nested = match tab {
+        ThreadTab::Issue { nested, .. } => !nested.is_empty(),
+        ThreadTab::Session { nested, .. } => !nested.is_empty(),
+        _ => false,
+    };
+    let tail = if has_nested { g + glyph } else { 0. };
+    match tab {
+        ThreadTab::Issue { issue_id, identifier, .. } => {
+            let mut short = STRIP_CHIP_CHROME + glyph + g + xs_mono(identifier);
+            if let Some(open) = suffix.as_deref() {
+                short += g + sm("›") + g + xs_mono(open);
+            }
+            let open_id = match &spec.open {
+                StripPick::Issue(id) if suffix.is_some() => id.as_str(),
+                _ => issue_id.as_str(),
+            };
+            let title = spec.issues.get(open_id).map(|issue| issue.title.as_str()).unwrap_or_default();
+            let full = if title.trim().is_empty() {
+                short
+            } else {
+                short + g + sm(title).min(ISSUE_CHIP_TITLE_MAX_W)
+            };
+            (full + tail, short + tail)
+        }
+        ThreadTab::Session { name, .. } => {
+            let cap = if suffix.is_some() { SESSION_CHIP_PART_MAX_W } else { SESSION_CHIP_NAME_MAX_W };
+            let mut width = STRIP_CHIP_CHROME + domain::list_item::MARK + g + sm(name).min(cap);
+            if let Some(open) = suffix.as_deref() {
+                width += g + sm("›") + g + sm(open).min(cap);
+            }
+            (width + tail, width + tail)
+        }
+        _ => (0., 0.),
+    }
+}
+
+/// Paint THE thread strip.
+pub(crate) fn thread_strip(spec: ThreadStrip, window: &Window, cx: &App) -> AnyElement {
+    let prefix = spec.prefix;
+    let issue_tabs: Vec<&ThreadTab> = spec.tabs.iter().filter(|tab| matches!(tab, ThreadTab::Issue { .. })).collect();
+    let session_tabs: Vec<&ThreadTab> =
+        spec.tabs.iter().filter(|tab| matches!(tab, ThreadTab::Session { .. })).collect();
+    let guide_dot_on = spec.tabs.iter().any(|tab| matches!(tab, ThreadTab::Guide { dot: true }));
+
+    // The layout: measured widths through the contract's partition.
+    let layout = match spec.available {
+        Some(available) => {
+            let issue_widths: Vec<domain::session_tree::StripIssueWidth> = issue_tabs
+                .iter()
+                .map(|tab| {
+                    let (full, short) = measure_strip_chip(tab, &spec, window);
+                    domain::session_tree::StripIssueWidth { full, short }
+                })
+                .collect();
+            let session_widths: Vec<f32> =
+                session_tabs.iter().map(|tab| measure_strip_chip(tab, &spec, window).0).collect();
+            let most = issue_tabs.len().max(session_tabs.len()).max(1);
+            let overflow_w = STRIP_CHIP_CHROME
+                + crate::screens::measure_text(window, &format!("+{most}"), window.text_style().font(), gpui::rems(0.875));
+            domain::session_tree::partition_thread_strip(
+                &issue_widths,
+                &session_widths,
+                available,
+                crate::screens::chip_gap(window),
+                overflow_w,
+                issue_tabs.iter().position(|tab| chip_active(tab, &spec.open)),
+                session_tabs.iter().position(|tab| chip_active(tab, &spec.open)),
+            )
+        }
+        None => domain::session_tree::ThreadStripLayout {
+            tier: domain::session_tree::StripTier::Full,
+            issues: (0..issue_tabs.len()).collect(),
+            sessions: (0..session_tabs.len()).collect(),
+        },
+    };
+    let full = layout.tier == domain::session_tree::StripTier::Full;
+
+    let pick = |pick: StripPick| {
+        let on_pick = spec.on_pick.clone();
+        move |_: &ClickEvent, window: &mut Window, cx: &mut App| on_pick(pick.clone(), window, cx)
+    };
+
+    // One chip (with its subtree menu when it nests).
+    let chip_element = |tab: &ThreadTab, cx: &App| -> AnyElement {
+        let active = chip_active(tab, &spec.open);
+        let suffix = open_nested(tab, &spec.open);
+        let groups = vec![subtree_of(tab, &spec)];
+        let nests = groups[0].len() > 1;
+        let (element, id): (AnyElement, SharedString) = match tab {
+            ThreadTab::Issue { issue_id, identifier, .. } => {
+                let id = SharedString::from(format!("{prefix}-child-{issue_id}"));
+                let info = spec.issues.get(issue_id).cloned().unwrap_or_default();
+                let open_id = match &spec.open {
+                    StripPick::Issue(id) if suffix.is_some() => id.clone(),
+                    _ => issue_id.clone(),
+                };
+                let open_info = spec.issues.get(&open_id).cloned().unwrap_or_default();
+                let mut body = strip_issue_body(open_info.status.clone().or(info.status.clone()), identifier, "", active, cx);
+                body.truncate(2);
+                let mut chip = strip_chip(id.clone(), active, cx).children(body);
+                if let Some(open) = suffix.clone() {
+                    chip = chip.child(
+                        div()
+                            .flex_shrink_0()
+                            .text_xs()
+                            .font_family(theme::terminal::FONT_FAMILY)
+                            .child(chip_suffix(open, cx)),
+                    );
+                }
+                if full && !open_info.title.trim().is_empty() {
+                    chip = chip.child(
+                        div()
+                            .flex_shrink(1.)
+                            .min_w_0()
+                            .max_w(px(ISSUE_CHIP_TITLE_MAX_W))
+                            .truncate()
+                            .text_color(if active { cx.theme().foreground } else { cx.theme().muted_foreground })
+                            .child(SharedString::from(open_info.title.clone())),
+                    );
+                }
+                if nests {
+                    chip = chip.child(chevron(cx));
+                } else {
+                    chip = chip.on_click(pick(StripPick::Issue(issue_id.clone())));
+                }
+                if info.ringed.is_some() {
+                    chip = chip.border_color(cx.theme().ring);
+                }
+                let chip: AnyElement = match spec.menu.clone() {
+                    Some(target) => {
+                        let target = ThreadMenuTarget {
+                            chip: Some((issue_id.clone(), identifier.clone())),
+                            ..target
+                        };
+                        chip.pointer_context_menu(move |menu, window, cx| thread_menu(menu, &target, window, cx))
+                            .into_any_element()
+                    }
+                    None => chip.into_any_element(),
+                };
+                let element = match info.ringed {
+                    Some(link_id) => div()
+                        .flex()
+                        .flex_shrink_0()
+                        .child(chip)
+                        .with_animation(
+                            SharedString::from(format!("{prefix}-child-enter-{link_id}")),
+                            Animation::new(theme::motion::ENTER).with_easing(theme::motion::decelerate()),
+                            |el, delta| el.opacity(delta),
+                        )
+                        .into_any_element(),
+                    None => chip,
+                };
+                (element, id)
+            }
+            ThreadTab::Session {
+                session_id,
+                name,
+                mark_state,
+                ..
+            } => {
+                let id = SharedString::from(format!("{prefix}-session-{session_id}"));
+                let cli = spec.clis.get(session_id).cloned().flatten();
+                let cap = if suffix.is_some() { SESSION_CHIP_PART_MAX_W } else { SESSION_CHIP_NAME_MAX_W };
+                let mut chip = strip_chip(id.clone(), active, cx)
+                    .child(crate::run_rows::run_mark(
+                        crate::run_rows::run_agent(cli.as_deref()),
+                        chip_state(*mark_state),
+                        cx,
+                    ))
+                    .child(
+                        div()
+                            .min_w_0()
+                            .flex_shrink(1.)
+                            .max_w(px(cap))
+                            .truncate()
+                            .child(SharedString::from(name.clone())),
+                    );
+                if let Some(open) = suffix {
+                    chip = chip.child(
+                        h_flex()
+                            .min_w_0()
+                            .flex_shrink(1.)
+                            .gap(px(STRIP_CHIP_INNER_GAP))
+                            .items_center()
+                            .child(div().text_color(cx.theme().muted_foreground).child("›"))
+                            .child(
+                                div()
+                                    .min_w_0()
+                                    .flex_shrink(1.)
+                                    .max_w(px(cap))
+                                    .truncate()
+                                    .child(SharedString::from(open)),
+                            ),
+                    );
+                }
+                if nests {
+                    chip = chip.child(chevron(cx));
+                } else {
+                    chip = chip.on_click(pick(StripPick::Session(session_id.clone())));
+                }
+                (chip.into_any_element(), id)
+            }
+            _ => return div().into_any_element(),
+        };
+        if !nests {
+            return element;
+        }
+        let open = spec.open.clone();
+        let on_pick = spec.on_pick.clone();
+        crate::controls::PointerMenu::new(
+            SharedString::from(format!("{id}-menu")),
+            crate::picker::PickerTrigger::new(SharedString::from(format!("{id}-trigger")).into(), element),
+            move |menu, _window, _cx| subtree_menu(menu, &groups, &open, &on_pick),
+        )
+        .into_any_element()
+    };
+
+    // A zone's "+N": THE Menu of the hidden chips (and their subtrees).
+    let overflow = |zone: &str, tabs: &[&ThreadTab], shown: &[usize], cx: &App| -> Option<AnyElement> {
+        let hidden: Vec<Vec<(SubtreeItem, usize)>> = tabs
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| !shown.contains(index))
+            .map(|(_, tab)| subtree_of(tab, &spec))
+            .collect();
+        if hidden.is_empty() {
+            return None;
+        }
+        let active = tabs
+            .iter()
+            .enumerate()
+            .any(|(index, tab)| !shown.contains(&index) && chip_active(tab, &spec.open));
+        let id = SharedString::from(format!("{prefix}-{zone}-more"));
+        let trigger = strip_chip(id.clone(), active, cx)
+            .child(SharedString::from(format!("+{}", hidden.len())))
+            .into_any_element();
+        let open = spec.open.clone();
+        let on_pick = spec.on_pick.clone();
+        Some(
+            crate::controls::PointerMenu::new(
+                SharedString::from(format!("{id}-menu")),
+                crate::picker::PickerTrigger::new(SharedString::from(format!("{id}-trigger")).into(), trigger),
+                move |menu, _window, _cx| subtree_menu(menu, &hidden, &open, &on_pick),
+            )
+            .into_any_element(),
+        )
+    };
+
+    let mut lead: Vec<AnyElement> = Vec::new();
+    if let Some(target) = spec.menu.clone() {
+        let trigger =
+            crate::controls::ghost_icon_button(SharedString::from(format!("{prefix}-child-add")), Icon::new(registry::UI_ADD), cx);
+        lead.push(
+            div()
+                .flex_shrink_0()
+                .child(crate::controls::PointerMenu::new(
+                    SharedString::from(format!("{prefix}-child-add-menu")),
+                    trigger,
+                    move |menu, window, cx| thread_menu(menu, &target, window, cx),
+                ))
+                .into_any_element(),
+        );
+    }
+    lead.push(
+        strip_chip(SharedString::from(format!("{prefix}-child-conversation")), spec.open == StripPick::Conversation, cx)
+            .child(Icon::new(registry::ACTION_CHAT).xsmall())
+            .child(SharedString::from(THREAD.copy.conversation.clone()))
+            .on_click(pick(StripPick::Conversation))
+            .into_any_element(),
+    );
+    let middle_index = lead.len();
+
+    let mut middle: Vec<AnyElement> = layout.issues.iter().map(|&index| chip_element(issue_tabs[index], cx)).collect();
+    middle.extend(overflow("issues", &issue_tabs, &layout.issues, cx));
+    middle.extend(layout.sessions.iter().map(|&index| chip_element(session_tabs[index], cx)));
+    middle.extend(overflow("sessions", &session_tabs, &layout.sessions, cx));
+
+    let guide = strip_chip(SharedString::from(format!("{prefix}-child-guide")), spec.open == StripPick::Guide, cx)
+        .child(Icon::new(registry::GUIDE_CHANGES).xsmall())
+        .child(SharedString::from(THREAD.copy.guide.clone()))
+        .when(guide_dot_on, |chip| chip.child(guide_dot(cx)))
+        .on_click(pick(StripPick::Guide))
+        .into_any_element();
+
+    let on_slot = spec.on_slot.clone();
+    h_flex()
+        .when_some(on_slot, |row, on_slot| {
+            row.on_children_prepainted(move |bounds: Vec<gpui::Bounds<gpui::Pixels>>, _window, cx| {
+                if let Some(slot) = bounds.get(middle_index) {
+                    on_slot(f32::from(slot.size.width), cx);
+                }
+            })
+        })
+        .id(SharedString::from(THREAD.test_ids.tabs.clone()))
+        .w_full()
+        .min_w_0()
+        .gap_1()
+        .items_center()
+        .children(lead)
+        .child(
+            h_flex()
+                .id(SharedString::from(format!("{prefix}-strip")))
+                .flex_1()
+                .min_w_0()
+                .gap_1()
+                .items_center()
+                .overflow_x_hidden()
+                .children(middle),
+        )
+        .child(strip_divider(cx))
+        .child(guide)
+        .into_any_element()
+}
 
 // ---------------------------------------------------------------------------
 // The view
@@ -1921,9 +2423,14 @@ impl ThreadModel {
             .tabs
             .iter()
             .filter_map(|tab| match tab {
-                ThreadTab::Issue { issue_id, .. } => Some(issue_id.clone()),
+                ThreadTab::Issue { issue_id, nested, .. } => Some(
+                    std::iter::once(issue_id.clone())
+                        .chain(nested.iter().map(|item| item.issue_id.clone()))
+                        .collect::<Vec<_>>(),
+                ),
                 _ => None,
             })
+            .flatten()
             .collect()
     }
 
@@ -2002,8 +2509,8 @@ pub(crate) struct ThreadScreenView {
     /// (the Conversation's Tasks card + status line), while it shows.
     tail: Option<(String, Entity<crate::session_screen::SessionScreenView>)>,
     _tail_sub: Option<Subscription>,
-    tree: TreeHover,
-    _tree_close: Option<Task<()>>,
+    /// EXP-1334: the strip's middle slot, measured (the partition budget).
+    strip_slot: Option<f32>,
     _missing_tick: Task<()>,
     _subscriptions: Vec<Subscription>,
 }
@@ -2066,8 +2573,7 @@ impl ThreadScreenView {
             _focus_sub: None,
             tail: None,
             _tail_sub: None,
-            tree: TreeHover::default(),
-            _tree_close: None,
+            strip_slot: None,
             _missing_tick: missing_tick,
             _subscriptions: subscriptions,
         };
@@ -2187,7 +2693,6 @@ impl ThreadScreenView {
             .as_ref()
             .map(|(_, view)| cx.observe(view, |_, _, cx| cx.notify()));
         self.focus = focus;
-        self.tree.open = false;
         self.refresh(cx);
     }
 
@@ -2206,70 +2711,6 @@ impl ThreadScreenView {
             });
         }
         self.set_child(child, window, cx);
-    }
-
-    /// The session chips' / popover's hover edge.
-    fn tree_hover(&mut self, chips: Option<bool>, popover: Option<bool>, cx: &mut gpui::Context<Self>) {
-        if let Some(chips) = chips {
-            self.tree.chips = chips;
-        }
-        if let Some(popover) = popover {
-            self.tree.popover = popover;
-        }
-        if self.tree.chips || self.tree.popover {
-            self._tree_close = None;
-            if !self.tree.open {
-                self.tree.open = true;
-                cx.notify();
-            }
-            return;
-        }
-        self._tree_close = Some(cx.spawn(async move |this, cx| {
-            cx.background_executor().timer(TREE_CLOSE_DELAY).await;
-            let _ = this.update(cx, |this, cx| {
-                if !this.tree.chips && !this.tree.popover && this.tree.open {
-                    this.tree.open = false;
-                    cx.notify();
-                }
-            });
-        }));
-    }
-
-    /// How many rows the hover tree would list (web `treeRows.length`).
-    fn tree_row_count(&self, cx: &App) -> usize {
-        let sessions = crate::session_data::tree_of_root(&self.root_id, cx);
-        let refs: Vec<&SessionRow> = sessions.iter().collect();
-        session_tree_rows(&self.root_id, &refs, crate::session_data::now_ms()).len()
-    }
-
-    /// The tree popover under the session chips.
-    fn render_tree_popover(&self, cx: &mut gpui::Context<Self>) -> AnyElement {
-        let sessions = crate::session_data::tree_of_root(&self.root_id, cx);
-        let refs: Vec<&SessionRow> = sessions.iter().collect();
-        let rows = session_tree_rows(&self.root_id, &refs, crate::session_data::now_ms());
-        let current = self.focus_id().map(str::to_string);
-        let theme = cx.theme();
-        let panel = v_flex()
-            .id("thread-tree-popover")
-            .min_w(px(320.))
-            .max_w(px(460.))
-            .p_1()
-            .rounded(px(theme::tokens::radius::LG))
-            .bg(theme.popover)
-            .border_1()
-            .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
-            .shadow_lg()
-            .children(
-                rows.iter()
-                    .map(|row| tree_popover_row(row, current.as_deref() == Some(row.session_id.as_str()), cx)),
-            )
-            .on_hover(cx.listener(|this, hovered: &bool, _, cx| this.tree_hover(None, Some(*hovered), cx)));
-        div()
-            .absolute()
-            .top(px(STRIP_CHIP_H + 6.))
-            .right_0()
-            .child(gpui::deferred(panel).with_priority(1))
-            .into_any_element()
     }
 
     // ── the Guide ────────────────────────────────────────────────────────
@@ -2311,7 +2752,7 @@ impl ThreadScreenView {
         }
     }
 
-    fn render_header(&mut self, model: &ThreadModel, cx: &mut gpui::Context<Self>) -> AnyElement {
+    fn render_header(&mut self, model: &ThreadModel, window: &Window, cx: &mut gpui::Context<Self>) -> AnyElement {
         // EXP-1316: the title is derived, plain text (no rename).
         let title = title_row(&model.view.title, model.view.private, cx).id("thread-title");
         // EXP-1316: the trailing slot on EVERY tab — the Merge pill while the
@@ -2352,175 +2793,79 @@ impl ThreadScreenView {
                     .children(stop)
                     .children(menu),
             )
-            .child(self.render_strip(model, cx))
+            .child(self.render_strip(model, window, cx))
             .child(div().w_full().h(px(1.)).bg(cx.theme().border))
             .into_any_element()
     }
 
-    fn render_strip(&mut self, model: &ThreadModel, cx: &mut gpui::Context<Self>) -> AnyElement {
-        let mut chips: Vec<AnyElement> = Vec::new();
-        // The Guide (after the divider) never scrolls out of reach.
-        let mut trailing: Vec<AnyElement> = Vec::new();
-        let mut sessions: Vec<AnyElement> = Vec::new();
-        // EXP-1316: Conversation leads; the issue chips shrink (each title
-        // ellipsized at one max width) and scroll past their minimum; the
-        // `+` sits right after them OUTSIDE that scroller, so it is never
-        // scrolled or clipped away.
-        let mut lead: Vec<AnyElement> = Vec::new();
-        let mut add: Option<AnyElement> = None;
+    /// EXP-1334: THE thread strip ([`thread_strip`]) over the view's tabs.
+    fn render_strip(&mut self, model: &ThreadModel, window: &Window, cx: &mut gpui::Context<Self>) -> AnyElement {
         let member = thread_member(model, cx);
-        for tab in &model.view.tabs {
-            match tab {
-                ThreadTab::Conversation => {
-                    let active = self.focus.is_none() && self.child == ThreadChildSel::Conversation;
-                    lead.push(
-                        strip_chip("thread-child-conversation", active, cx)
-                            .child(Icon::new(registry::ACTION_CHAT).xsmall())
-                            .child(SharedString::from(THREAD.copy.conversation.clone()))
-                            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                                this.select_child(ThreadChildSel::Conversation, window, cx)
-                            }))
-                            .into_any_element(),
-                    );
-                }
-                ThreadTab::Issue { issue_id, identifier } => {
-                    let active = self.focus.is_none() && self.child == ThreadChildSel::Issue(issue_id.clone());
-                    let issue = model.issues.get(issue_id);
-                    let status = issue.map(|issue| crate::queries::resolve_issue_status(cx, issue));
-                    let title = issue.map(|issue| issue.title.clone()).unwrap_or_default();
-                    let link_id = model
-                        .links
-                        .iter()
-                        .find(|link| link.issue_id == *issue_id)
-                        .map(|link| link.id.clone())
-                        .unwrap_or_default();
-                    let ringed = self.ringed(&link_id);
-                    let target = self.menu_target(Some((issue_id.clone(), identifier.clone())));
-                    let open = issue_id.clone();
-                    let chip = strip_chip(SharedString::from(format!("thread-child-{issue_id}")), active, cx)
-                        .flex_shrink(1.)
-                        .min_w(px(ISSUE_CHIP_MIN_W))
-                        .children(strip_issue_body(status, identifier, &title, active, cx))
-                        .when(ringed, |chip| chip.border_color(cx.theme().ring))
-                        .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                            this.select_child(ThreadChildSel::Issue(open.clone()), window, cx)
-                        }))
-                        .pointer_context_menu(move |menu, window, cx| thread_menu(menu, &target, window, cx));
-                    chips.push(if ringed {
-                        div()
-                            .flex()
-                            .flex_shrink(1.)
-                            .min_w(px(ISSUE_CHIP_MIN_W))
-                            .child(chip)
-                            .with_animation(
-                                SharedString::from(format!("thread-child-enter-{link_id}")),
-                                Animation::new(theme::motion::ENTER).with_easing(theme::motion::decelerate()),
-                                |el, delta| el.opacity(delta),
-                            )
-                            .into_any_element()
-                    } else {
-                        chip.into_any_element()
-                    });
-                }
-                // Web `add={permissions.isMember ? … : undefined}`: a
-                // non-member sees no `+` (the divider still splits the strip).
-                ThreadTab::Add if !member => trailing.push(strip_divider(cx)),
-                ThreadTab::Add => {
-                    let target = self.menu_target(None);
-                    let trigger =
-                        crate::controls::ghost_icon_button("thread-child-add", Icon::new(registry::UI_ADD), cx);
-                    add = Some(
-                        div()
-                            .flex_shrink_0()
-                            .child(crate::controls::PointerMenu::new(
-                                "thread-child-add-menu",
-                                trigger,
-                                move |menu, window, cx| thread_menu(menu, &target, window, cx),
-                            ))
-                            .into_any_element(),
-                    );
-                    trailing.push(strip_divider(cx));
-                }
-                // EXP-1316 (1b): the sessions at the viewed level — the
-                // agent's mark + the name, muted unless open in place.
-                ThreadTab::Session {
-                    session_id,
-                    name,
-                    mark_state,
-                } => {
-                    let active = self.focus_id() == Some(session_id.as_str());
-                    let cli = crate::session_data::session(session_id, cx).and_then(|row| row.cli);
-                    let open = session_id.clone();
-                    sessions.push(
-                        strip_chip(SharedString::from(format!("thread-session-{session_id}")), active, cx)
-                            .child(crate::run_rows::run_mark(
-                                crate::run_rows::run_agent(cli.as_deref()),
-                                chip_state(*mark_state),
-                                cx,
-                            ))
-                            .child(div().max_w(px(180.)).truncate().child(SharedString::from(name.clone())))
-                            .on_click(move |_, window, cx| open_session_in_place(open.clone(), window, cx))
-                            .into_any_element(),
-                    );
-                }
-                ThreadTab::Guide { dot } => {
-                    if !sessions.is_empty() {
-                        // Web: the hover tree only for a tree of MORE than
-                        // one row (`treeRows.length > 1`) — a lone session
-                        // has nothing to map.
-                        let tree = self.tree_row_count(cx) > 1;
-                        let group = div()
-                            .id("thread-session-chips")
-                            .relative()
-                            .flex()
-                            .flex_row()
-                            .flex_shrink_0()
-                            .items_center()
-                            .gap_1()
-                            .children(std::mem::take(&mut sessions))
-                            .when(tree, |group| {
-                                group.on_hover(
-                                    cx.listener(|this, hovered: &bool, _, cx| this.tree_hover(Some(*hovered), None, cx)),
-                                )
-                            })
-                            .when(tree && self.tree.open, |group| group.child(self.render_tree_popover(cx)));
-                        trailing.push(group.into_any_element());
-                        trailing.push(strip_divider(cx));
-                    }
-                    let active = self.focus.is_none() && self.child == ThreadChildSel::Guide;
-                    trailing.push(
-                        strip_chip("thread-child-guide", active, cx)
-                            .child(Icon::new(registry::GUIDE_CHANGES).xsmall())
-                            .child(SharedString::from(THREAD.copy.guide.clone()))
-                            .when(*dot, |chip| chip.child(guide_dot(cx)))
-                            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                                this.select_child(ThreadChildSel::Guide, window, cx)
-                            }))
-                            .into_any_element(),
-                    );
-                }
+        let open = match (self.focus_id(), &self.child) {
+            (Some(focus), _) => StripPick::Session(focus.to_string()),
+            (None, ThreadChildSel::Conversation) => StripPick::Conversation,
+            (None, ThreadChildSel::Guide) => StripPick::Guide,
+            (None, ThreadChildSel::Issue(id)) => StripPick::Issue(id.clone()),
+        };
+        let issues: HashMap<String, StripIssue> = model
+            .issues
+            .values()
+            .map(|issue| {
+                let link_id = model
+                    .links
+                    .iter()
+                    .find(|link| link.issue_id == issue.id)
+                    .map(|link| link.id.clone())
+                    .unwrap_or_default();
+                (
+                    issue.id.clone(),
+                    StripIssue {
+                        title: issue.title.clone(),
+                        status: Some(crate::queries::resolve_issue_status(cx, issue)),
+                        ringed: self.ringed(&link_id).then_some(link_id),
+                    },
+                )
+            })
+            .collect();
+        let clis: HashMap<String, Option<String>> = crate::session_data::tree_of_root(&self.root_id, cx)
+            .into_iter()
+            .map(|session| (session.id, session.cli))
+            .collect();
+        let this = cx.entity().downgrade();
+        let on_pick: OnStripPick = std::rc::Rc::new(move |pick, window, cx| match pick {
+            StripPick::Session(session_id) => open_session_in_place(session_id, window, cx),
+            other => {
+                let child = match other {
+                    StripPick::Issue(id) => ThreadChildSel::Issue(id),
+                    StripPick::Guide => ThreadChildSel::Guide,
+                    _ => ThreadChildSel::Conversation,
+                };
+                let _ = this.update(cx, |this, cx| this.select_child(child, window, cx));
             }
-        }
-        h_flex()
-            .id(SharedString::from(THREAD.test_ids.tabs.clone()))
-            .w_full()
-            .min_w_0()
-            .gap_1()
-            .items_center()
-            .children(lead)
-            .child(
-                h_flex()
-                    .id("thread-strip")
-                    .flex_shrink(1.)
-                    .min_w_0()
-                    .gap_1()
-                    .items_center()
-                    .overflow_x_scroll()
-                    .children(chips),
-            )
-            .children(add)
-            .children(trailing)
-            .into_any_element()
+        });
+        let slot = cx.entity().downgrade();
+        thread_strip(
+            ThreadStrip {
+                prefix: "thread",
+                tabs: model.view.tabs.clone(),
+                issues,
+                clis,
+                open,
+                available: self.strip_slot,
+                menu: member.then(|| self.menu_target(None)),
+                on_pick,
+                on_slot: Some(std::rc::Rc::new(move |width, cx| {
+                    let _ = slot.update(cx, |this, cx| {
+                        if this.strip_slot.is_none_or(|prev| (prev - width).abs() > 0.5) {
+                            this.strip_slot = Some(width);
+                            cx.notify();
+                        }
+                    });
+                })),
+            },
+            window,
+            cx,
+        )
     }
 
     fn render_row(
@@ -2822,7 +3167,7 @@ impl Render for ThreadScreenView {
             cx.global_mut::<PendingThreadChild>().0.remove(&self.root_id);
             self.set_child(ThreadChildSel::Issue(issue_id), window, cx);
         }
-        let header = self.render_header(&model, cx);
+        let header = self.render_header(&model, window, cx);
         // EXP-1323: the live tail's viewer rides the Conversation only.
         let live = (self.focus.is_none() && self.child == ThreadChildSel::Conversation)
             .then(|| model.view.live_session_id.clone())
@@ -2904,31 +3249,6 @@ mod tests {
     #[test]
     fn thread_texts_chip_bare_identifiers() {
         assert!(thread_text_resolver("team-1").bare);
-    }
-
-    /// EXP-1316 (1b): the tree popover lists the WHOLE tree depth-first
-    /// (children by creation), names off the session card, guides off the
-    /// depths.
-    #[test]
-    fn the_tree_popover_walks_the_tree_depth_first() {
-        let row = |value: serde_json::Value| -> SessionRow { serde_json::from_value(value).unwrap() };
-        let sessions = [
-            row(serde_json::json!({"id": "r", "root_id": "r", "kind": "thread", "status": "running", "busy": true, "created_at": "2026-10-14T10:00:00Z"})),
-            row(serde_json::json!({"id": "b", "root_id": "r", "parent_id": "r", "depth": 1, "status": "ended", "created_at": "2026-10-14T10:02:00Z"})),
-            row(serde_json::json!({"id": "a", "root_id": "r", "parent_id": "r", "depth": 1, "status": "idle", "needs_input": true, "title": "Profile the launch path", "created_at": "2026-10-14T10:01:00Z"})),
-            row(serde_json::json!({"id": "a1", "root_id": "r", "parent_id": "a", "depth": 2, "status": "running", "created_at": "2026-10-14T10:03:00Z"})),
-            row(serde_json::json!({"id": "x", "root_id": "x", "kind": "thread", "status": "idle", "created_at": "2026-10-14T09:00:00Z"})),
-        ];
-        let refs: Vec<&SessionRow> = sessions.iter().collect();
-        let rows = session_tree_rows("r", &refs, 0);
-        let ids: Vec<&str> = rows.iter().map(|row| row.session_id.as_str()).collect();
-        assert_eq!(ids, vec!["r", "a", "a1", "b"]);
-        let names: Vec<&str> = rows.iter().map(|row| row.name.as_str()).collect();
-        assert_eq!(names, vec!["Session 1", "Profile the launch path", "Session 4", "Session 3"]);
-        let depths: Vec<usize> = rows.iter().map(|row| row.guides.depth()).collect();
-        assert_eq!(depths, vec![0, 1, 2, 1]);
-        assert!(rows[1].guides.tee, "a sibling follows");
-        assert_eq!(rows[1].state, domain::session_tree::SessionState::NeedsYou);
     }
 
     /// EXP-1317: the X lives only on the author's queued row, and its id

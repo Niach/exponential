@@ -272,6 +272,32 @@ function stubWidths(zone: number) {
 }
 
 describe(`ThreadTabs`, () => {
+  it(`draws Conversation and Guide icon-only on the pager, labelled, the dot on the icon`, () => {
+    render(
+      <ThreadTabs
+        variant="pager"
+        conversation={{ ...CONVERSATION, active: true }}
+        issues={[issueItem(`APP-5`)]}
+        guide={{ ...GUIDE, dot: true }}
+      />
+    )
+    const conversation = screen.getByTestId(`thread-tab-conversation`)
+    const guide = screen.getByTestId(`thread-tab-guide`)
+    expect(conversation.textContent).toBe(``)
+    expect(conversation.getAttribute(`aria-label`)).toBe(`Conversation`)
+    expect(conversation.querySelector(`svg`)).not.toBeNull()
+    expect(guide.getAttribute(`aria-label`)).toBe(`Guide`)
+    expect(guide.textContent).toBe(`The Guide has content`)
+    expect(guide.className).toContain(`border-glass-stroke`)
+    expect(screen.getByTestId(`thread-guide-dot`).className).toContain(`absolute`)
+  })
+
+  it(`keeps icon + label from md up`, () => {
+    render(<ThreadTabs conversation={CONVERSATION} issues={[]} guide={GUIDE} />)
+    expect(screen.getByTestId(`thread-tab-conversation`).textContent).toBe(`Conversation`)
+    expect(screen.getByTestId(`thread-tab-guide`).textContent).toBe(`Guide`)
+  })
+
   it(`pins + and Conversation left, Guide right, issues then sessions between`, () => {
     render(
       <ThreadTabs

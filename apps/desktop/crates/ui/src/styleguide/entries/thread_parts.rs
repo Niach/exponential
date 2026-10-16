@@ -3,32 +3,32 @@
 //! (`crate::thread_screen`) over the contract model
 //! (`domain::session_tree::build_session_thread`), fed
 //! `fixtures/session-thread.json`'s first case: the title, the ONE tab strip
-//! (Conversation · the issue chips · + · Guide with its dot), then every
-//! conversation row in order — the root's own session card, the person's
+//! (+ · Conversation · the issue chips · Guide with its dot), then every
+//! conversation row in order (EXP-1334: no root card) — the person's
 //! bubble, the agent's prose, an event line, a child's session card, a
 //! question answered in place (an option with its description, EXP-1322)
 //! and the queued reply. The rows the first case has no example of (a plan,
 //! a subagent, a picture) follow from the second case, then (EXP-1323) the
 //! dispatcher case's report line and suggestions card in every item state,
-//! then THE session
-//! composer the thread hosts for its DISPATCHER root: the session view's own
-//! box with its run controls in the card's bottom row
-//! (`crate::composer::SessionComposerControls`: the model pin on the
-//! dispatcher's thread model after the "+", the context ring before Send, no
-//! plan read), with the fixture's placeholder.
+//! then EXP-1334's folded strip (wide, then narrow with a nested session
+//! open), then THE session composer the thread hosts for its DISPATCHER
+//! root: the inline tools in the card ("+", attach, `#`, emoji) and the run
+//! controls on the options line UNDER it
+//! (`crate::composer::SessionComposerControls`: the model pin, the Plan
+//! switch, the usage ring), with the fixture's placeholder.
 //!
 //! No `sync::Store` here: authors read `Someone`, no `#IDENT` pills, and the
 //! image cache has no transport (the picture paints its placeholder box).
 
 use gpui::{
-    div, prelude::FluentBuilder as _, px, AnyElement, App, Context, Div, Entity,
+    div, px, AnyElement, App, Context, Div, Entity,
     IntoElement as _, ParentElement as _, Render, SharedString, Styled as _, Window,
 };
-use gpui_component::{h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _};
+use gpui_component::{v_flex, ActiveTheme as _};
 
 use domain::rows::{MessageRow, PullRequestRow, SessionIssueRow, SessionRow};
 use domain::session_tree::{
-    build_session_thread, SessionThreadInput, SessionThreadRow, SessionThreadView, ThreadTab, TreeIssue,
+    build_session_thread, SessionThreadInput, SessionThreadRow, SessionThreadView, TreeIssue,
     THREAD,
 };
 
@@ -36,8 +36,8 @@ use crate::icons::registry;
 use crate::markdown::ImageCache;
 use crate::mention_input::MentionInput;
 use crate::thread_screen::{
-    agent_prose, bubble_caption, card_row, clock, guide_dot, message_markdown, muted_line, strip_chip,
-    strip_divider, strip_issue_body, title_row, user_bubble,
+    agent_prose, bubble_caption, card_row, clock, message_markdown, muted_line, thread_strip, title_row,
+    user_bubble, StripIssue, StripPick, ThreadMenuTarget, ThreadStrip,
 };
 
 use super::fixture_rows;
@@ -79,16 +79,7 @@ pub(super) fn case(index: usize) -> Case {
     let root: SessionRow = fixture_rows::row(&input["root"]);
     let sessions: Vec<SessionRow> = fixture_rows::rows(&input["sessions"]);
     let links: Vec<SessionIssueRow> = fixture_rows::rows(&input["sessionIssues"]);
-    let issues: Vec<TreeIssue> = input["issues"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .map(|issue| TreeIssue {
-            id: issue["id"].as_str().unwrap_or_default().to_string(),
-            identifier: issue["identifier"].as_str().unwrap_or_default().to_string(),
-            title: issue["title"].as_str().unwrap_or_default().to_string(),
-        })
-        .collect();
+    let issues: Vec<TreeIssue> = serde_json::from_value(input["issues"].clone()).unwrap_or_default();
     let messages: Vec<MessageRow> = fixture_rows::rows(&input["messages"]);
     let pulls: Vec<PullRequestRow> = fixture_rows::rows(&input["pullRequests"]);
     let view = build_session_thread(
@@ -106,67 +97,59 @@ pub(super) fn case(index: usize) -> Case {
     Case { view, messages, issues }
 }
 
-/// The strip the thread screen draws over `view.tabs`: Conversation active,
-/// the `+`, the divider, Guide.
-fn strip(case: &Case, cx: &App) -> AnyElement {
-    let mut chips: Vec<AnyElement> = Vec::new();
-    let mut trailing: Vec<AnyElement> = Vec::new();
-    for tab in &case.view.tabs {
-        match tab {
-            ThreadTab::Conversation => chips.push(
-                strip_chip("sg-thread-conversation", true, cx)
-                    .child(Icon::new(registry::ACTION_CHAT).xsmall())
-                    .child(SharedString::from(THREAD.copy.conversation.clone()))
-                    .into_any_element(),
-            ),
-            ThreadTab::Issue { issue_id, identifier } => {
-                let title = case
-                    .issues
-                    .iter()
-                    .find(|issue| issue.id == *issue_id)
-                    .map(|issue| issue.title.as_str())
-                    .unwrap_or_default();
-                chips.push(
-                    strip_chip(SharedString::from(format!("sg-thread-issue-{issue_id}")), false, cx)
-                        .children(strip_issue_body(None, identifier, title, false, cx))
-                        .into_any_element(),
-                );
-            }
-            ThreadTab::Add => {
-                chips.push(
-                    crate::controls::ghost_icon_button("sg-thread-add", Icon::new(registry::UI_ADD), cx)
-                        .into_any_element(),
-                );
-                trailing.push(strip_divider(cx));
-            }
-            // EXP-1316 (1b): the session chips (agent mark + name, muted).
-            ThreadTab::Session { session_id, name, .. } => trailing.push(
-                strip_chip(SharedString::from(format!("sg-thread-session-{session_id}")), false, cx)
-                    .child(crate::run_rows::run_mark(
-                        crate::run_rows::run_agent(None),
-                        domain::session_tree::SessionState::Waiting,
-                        cx,
-                    ))
-                    .child(SharedString::from(name.clone()))
-                    .into_any_element(),
-            ),
-            ThreadTab::Guide { dot } => trailing.push(
-                strip_chip("sg-thread-guide", false, cx)
-                    .child(Icon::new(registry::GUIDE_CHANGES).xsmall())
-                    .child(SharedString::from(THREAD.copy.guide.clone()))
-                    .when(*dot, |chip| chip.child(guide_dot(cx)))
-                    .into_any_element(),
-            ),
-        }
-    }
-    h_flex()
-        .w_full()
-        .min_w_0()
-        .gap_1()
-        .items_center()
-        .children(chips)
-        .children(trailing)
-        .into_any_element()
+/// EXP-1334's case: folded issue + session chips, a child's asks.
+pub(super) const FOLD_CASE: &str = "EXP-1334: the dispatcher";
+
+/// THE strip the thread screen draws ([`thread_strip`]) over `view.tabs`,
+/// `open` picked, laid out in `width` px through the contract's partition
+/// over the MEASURED middle slot (like the screen).
+fn strip(case: &Case, open: StripPick, width: f32, prefix: &'static str, window: &mut Window, cx: &mut App) -> AnyElement {
+    let slot = window.use_keyed_state(SharedString::from(format!("{prefix}-slot")), cx, |_, _| None::<f32>);
+    let available = *slot.read(cx);
+    let issues = case
+        .issues
+        .iter()
+        .map(|issue| {
+            (
+                issue.id.clone(),
+                StripIssue {
+                    title: issue.title.clone(),
+                    status: None,
+                    ringed: None,
+                },
+            )
+        })
+        .collect();
+    let strip = thread_strip(
+        ThreadStrip {
+            prefix,
+            tabs: case.view.tabs.clone(),
+            issues,
+            clis: Default::default(),
+            open,
+            available,
+            menu: Some(ThreadMenuTarget {
+                root_id: case.view.root_id.clone(),
+                team_id: None,
+                chip: None,
+                linked: Vec::new(),
+            }),
+            on_pick: std::rc::Rc::new(|_, _, _| {}),
+            on_slot: Some(std::rc::Rc::new(move |measured, cx| {
+                let changed = slot.update(cx, |slot, _| {
+                    let changed = slot.is_none_or(|prev| (prev - measured).abs() > 0.5);
+                    *slot = Some(measured);
+                    changed
+                });
+                if changed {
+                    cx.refresh_windows();
+                }
+            })),
+        },
+        window,
+        cx,
+    );
+    div().w(px(width)).max_w_full().child(strip).into_any_element()
 }
 
 /// One conversation row, the way the thread screen paints it.
@@ -269,13 +252,28 @@ impl Render for ComposerDemo {
         );
         crate::composer::session_composer_box(
             crate::composer::SessionComposerBox::new(self.mention.clone(), submit)
+                // EXP-1334: the inline tools (the "+" options menu, attach,
+                // `#`, emoji), the options line under the card.
+                .tool(crate::composer::composer_tool("sg-thread-plus", crate::icons::registry::UI_ADD, cx).tooltip("Add"))
                 .tool(
-                    crate::composer::composer_tool("sg-thread-attach", crate::icons::registry::UI_ADD, cx)
+                    crate::composer::composer_tool("sg-thread-attach", crate::icons::registry::UI_ATTACH, cx)
                         .tooltip("Add file or image"),
                 )
+                .tool(crate::composer::composer_tool("sg-thread-issue", crate::icons::registry::EDITOR_ISSUE_REF, cx))
+                .tool(crate::composer::composer_tool("sg-thread-emoji", crate::icons::registry::EDITOR_EMOJI, cx))
                 .controls(crate::composer::SessionComposerControls {
                     model_pin: model,
-                    plan: None,
+                    plan: Some(
+                        gpui_component::h_flex()
+                            .gap_1p5()
+                            .items_center()
+                            .px_1()
+                            .text_xs()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(crate::composer::PLAN_MODE_FALLBACK)
+                            .child(crate::controls::web_switch("sg-thread-plan").checked(false))
+                            .into_any_element(),
+                    ),
                     context_ring: ring,
                 }),
             cx,
@@ -301,12 +299,34 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
     for item in dispatcher_rows(&dispatcher.view) {
         conversation = conversation.child(row(&dispatcher, item, &images, window, cx));
     }
+    // EXP-1334: the folded strip, wide (titles), then narrow (identifiers,
+    // then "+N" per zone), a nested session open (`<chip> › <open one>`).
+    let fold = case(case_named(FOLD_CASE));
+    let muted = cx.theme().muted_foreground;
+    let border = cx.theme().border;
+    let title = title_row(&first.view.title, first.view.private, cx);
+    let strips = [
+        strip(&first, StripPick::Conversation, 760., "sg-thread", window, cx),
+        strip(&fold, StripPick::Conversation, 760., "sg-thread-wide", window, cx),
+        strip(&fold, StripPick::Issue("i-1".into()), 600., "sg-thread-mid", window, cx),
+        strip(&fold, StripPick::Session("g2".into()), 480., "sg-thread-narrow", window, cx),
+    ];
+    let [plain, wide, mid, narrow] = strips;
     v_flex()
         .w(px(760.))
         .gap_4()
-        .child(title_row(&first.view.title, first.view.private, cx))
-        .child(strip(&first, cx))
-        .child(div().w_full().h(px(1.)).bg(cx.theme().border))
+        .child(title)
+        .child(plain)
+        .child(div().w_full().h(px(1.)).bg(border))
+        .child(
+            div()
+                .text_xs()
+                .text_color(muted)
+                .child("Folded chips: sub-issues and deeper sessions behind a chevron (760 · 600 · 480 px)"),
+        )
+        .child(wide)
+        .child(mid)
+        .child(narrow)
         .child(conversation)
         .child(composer)
 }
@@ -341,7 +361,8 @@ mod tests {
             })
             .collect();
         assert_eq!(kinds.len(), 9, "{kinds:?}");
-        assert!(matches!(first.view.rows.first(), Some(SessionThreadRow::Session { .. })));
+        // EXP-1334: the dispatcher has no card of its own.
+        assert!(!matches!(first.view.rows.first(), Some(SessionThreadRow::Session { .. })));
         assert_eq!(first.view.title, "Implement EXP-12 + 1");
     }
 

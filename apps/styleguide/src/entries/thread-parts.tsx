@@ -356,8 +356,8 @@ function FoldedStrips() {
       <Strip tabs={FOLDED_TABS} width="54rem" zone={640} />
       <Caption>Narrow: each zone folds into its own "+N"; the open chip (a nested session) stays</Caption>
       <Strip tabs={FOLDED_TABS} open="g2" width="36rem" zone={340} />
-      <Caption>Phone pager: identifiers only, the same zones</Caption>
-      <Strip tabs={FOLDED_TABS} open="i-3" width="24rem" zone={170} pager />
+      <Caption>Phone pager: Conversation and Guide icon-only, identifiers only, the same zones</Caption>
+      <Strip tabs={FOLDED_TABS} open="i-3" width="28rem" zone={200} pager />
       <div className="mt-2 flex flex-wrap items-start gap-8">
         <div className="flex flex-col gap-2">
           <div className={cn(MENU_SURFACE_CLASS, `w-80 p-1`)}>
