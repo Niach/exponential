@@ -4754,7 +4754,7 @@
       "id": "threads",
       "group": "coding",
       "title": "Threads",
-      "blurb": "Every thread of the team (EXP-1293, threads-list.json): Needs you · Running · Recent bands, one row per root session with its glyph, first issue identifier, title and ONE quiet right word (question, ready to merge, stack, merged) or a lock for a private one. Phones show the team's Agents band on top.",
+      "blurb": "Every thread of the team (EXP-1293, threads-list.json): Needs you · Running · Recent bands, one row per root session with its glyph (a merged thread = the violet pr-merged glyph), title, ONE quiet right word (question, ready to merge, stack) and the root's device glyph; no lock, no merged word (EXP-1339). Phones show the team's Agents band on top.",
       "order": 18,
       "web": {
         "route": "/t/$teamSlug/threads",
@@ -4781,7 +4781,7 @@
       },
       "notes": {
         "web": "Seeded rows only (seedSessionTree in apps/web/scripts/seed-screenshots.ts): six roots, one per list state, plus the three team agents phones band on top.",
-        "ios": "EXP-1309: the LIVE walk over the seed web/desktop photograph (signed in, the relay stub online), never fixture rows: the Threads tab, gated on the seeded rows' quiet words (`stack`, `merged`).",
+        "ios": "EXP-1309: the LIVE walk over the seed web/desktop photograph (signed in, the relay stub online), never fixture rows: the Threads tab, gated on the seeded rows' quiet words (`question`, `stack`).",
         "android": "See ios."
       }
     },

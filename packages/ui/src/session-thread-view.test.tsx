@@ -443,14 +443,10 @@ describe(`folded chips`, () => {
 })
 
 describe(`ThreadsListItem`, () => {
-  it(`shows the word AND the lock when private, word first`, () => {
-    const { rerender } = render(<ThreadsListItem lead={null} title="T" word="merged" />)
-    expect(screen.getByText(`merged`)).toBeTruthy()
+  it(`shows the word and never a lock (EXP-1339)`, () => {
+    render(<ThreadsListItem lead={null} title="T" word="stack" />)
+    expect(screen.getByText(`stack`)).toBeTruthy()
     expect(screen.queryByLabelText(`Private`)).toBeNull()
-    rerender(<ThreadsListItem lead={null} title="T" word="merged" locked />)
-    const word = screen.getByText(`merged`)
-    const lock = screen.getByLabelText(`Private`)
-    expect(word.compareDocumentPosition(lock) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 })
 
@@ -505,22 +501,21 @@ describe(`session tree`, () => {
   })
 })
 
-// EXP-1318: the row ends on the ROOT's device glyph, after the word and lock.
+// EXP-1318: the row ends on the ROOT's device glyph, after the word.
 describe(`ThreadsListItem device`, () => {
-  it(`trails the word and the lock, named for AT`, () => {
+  it(`trails the word, named for AT`, () => {
     render(
       <ThreadsListItem
         lead={null}
         title="T"
-        word="merged"
-        locked
+        word="stack"
         device={{ icon: () => <svg />, name: `Alex's MacBook Pro` }}
       />
     )
     const device = document.querySelector(`[data-slot="session-row-device"]`)!
     expect(device.getAttribute(`aria-label`)).toBe(`Alex's MacBook Pro`)
-    const lock = screen.getByLabelText(`Private`)
-    expect(lock.compareDocumentPosition(device) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    const word = screen.getByText(`stack`)
+    expect(word.compareDocumentPosition(device) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 })
 

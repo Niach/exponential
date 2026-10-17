@@ -11,14 +11,13 @@ import {
   SessionRowDevice,
   TreeGuides,
   TREE_INDENT,
+  threadRunMarkState,
   treeGuides,
-  type RunMarkState,
 } from "@exp/ui"
 import { sessionCollection } from "@/lib/collections"
 import {
   THREADS_LIST_COPY,
   railThreads,
-  threadRowMarkState,
   threadsUnread,
   type ThreadRowWord,
   type ThreadsListGroup,
@@ -113,17 +112,8 @@ export function threadsNavState(groups: readonly ThreadsListGroup[]): {
 /** The sidebar row's left padding = `SidebarMenuButton`'s own 8px. */
 const SIDEBAR_TREE_BASE = 8
 
-/** A thread row's mark state — the ×4 rule (`threadRowMarkState`, EXP-1312)
- *  in the run marks' words (waiting = the bare mark). */
-export function threadRunMarkState(row: {
-  needsYou: boolean
-  busy: boolean
-}): RunMarkState | undefined {
-  const state = threadRowMarkState(row)
-  if (state === `needs_you`) return `needs_input`
-  if (state === `working`) return `working`
-  return undefined
-}
+/** A thread row's mark state (EXP-1312): THE one in `@exp/ui`. */
+export { threadRunMarkState }
 
 /** The agent CLI of a thread's root (its brand mark). */
 function rootCli(sessionId: string): string | null {

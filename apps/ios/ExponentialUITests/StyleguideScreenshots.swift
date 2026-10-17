@@ -897,7 +897,8 @@ final class StyleguideScreenshots: XCTestCase {
         threadsTab.tap()
         // ── sg_threads: gate on the rows' quiet words (pull requests + the
         // pending question have synced), not on the list container.
-        for word in ["question", "stack", "merged"] {
+        // EXP-1339: `merged` draws no word (only the violet lead).
+        for word in ["question", "stack"] {
             expect(
                 threadRow(app, containing: word),
                 within: Wait.sync,

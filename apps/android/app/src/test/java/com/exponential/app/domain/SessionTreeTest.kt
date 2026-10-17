@@ -303,7 +303,6 @@ class SessionTreeTest {
                         put("sessionId", row.sessionId)
                         put("teamId", row.teamId)
                         put("title", row.title)
-                        put("private", row.private)
                         put("busy", row.busy)
                         put("needsYou", row.needsYou)
                         put("activityAt", row.activityAt)
@@ -398,7 +397,6 @@ class SessionTreeTest {
                             sessionId = row.str("sessionId")!!,
                             teamId = row.str("teamId")!!,
                             title = row.str("title")!!,
-                            private = row.bool("private"),
                             busy = row.bool("busy"),
                             needsYou = row.bool("needsYou"),
                             activityAt = row.str("activityAt")!!,
@@ -590,7 +588,9 @@ class SessionTreeTest {
         assertEquals(copy.str("empty"), SessionTree.ListCopy.EMPTY)
         assertEquals(copy.str("rail"), SessionTree.ListCopy.RAIL)
         val words = copy.getValue("words").jsonObject
-        assertEquals(words.keys, SessionTree.ThreadRowWord.entries.map { it.wire }.toSet())
+        // EXP-1339: `merged` carries no text (it only turns the lead violet).
+        assertEquals(words.keys, SessionTree.ThreadRowWord.entries.filter { it.text != null }.map { it.wire }.toSet())
+        assertEquals(null, SessionTree.ThreadRowWord.Merged.text)
         for (word in SessionTree.ThreadRowWord.entries) assertEquals(words.str(word.wire), word.text)
         val groups = copy.getValue("groups").jsonObject
         assertEquals(groups.keys, SessionTree.ThreadsGroupKey.entries.map { it.wire }.toSet())

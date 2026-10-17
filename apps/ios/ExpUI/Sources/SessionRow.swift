@@ -6,12 +6,10 @@ import SwiftUI
 /// `list-item.json`, the row facts = `threads-list.json`). ONE line:
 /// [tree guides][lead at 12 + 14·depth][mono id · title][state]. The state
 /// is label-free (EXP-1323: the live caption alone may ride a muted second
-/// line, the bold title marks unread): a lock while the thread
-/// is private, the inline spinner while it works, the amber dot while it
-/// needs you. EXP-1309: the Threads list instead ends on ONE quiet `word`
-/// (web `ThreadsListItem`: `stack`, `merged`, `question`…) beside the lock
-/// (EXP-1318: word AND lock)
-/// and carries its state in the lead. No fold chevron, no trailing
+/// line, the bold title marks unread): the inline spinner while it works,
+/// the amber dot while it needs you. EXP-1309: the Threads list instead
+/// ends on ONE quiet `word` (web `ThreadsListItem`: `stack`, `question`…;
+/// EXP-1339: no lock) and carries its state in the lead. No fold chevron, no trailing
 /// chevron, no buttons.
 ///
 /// The row is CONTENT: the host wraps it in its own NavigationLink/Button
@@ -21,7 +19,6 @@ public struct SessionRow<Lead: View>: View {
     private let identifier: String?
     private let title: String
     private let guide: TreeGuide
-    private let isPrivate: Bool
     private let busy: Bool
     private let needsYou: Bool
     private let active: Bool
@@ -37,10 +34,9 @@ public struct SessionRow<Lead: View>: View {
     ///   - identifier: the thread's first linked issue (`APP-14`), nil = none.
     ///   - guide: this row's connector (`TreeGuides.compute(depths:)[i]`);
     ///     its depth indents the lead 14pt per level.
-    ///   - isPrivate: started on a device not shared with the team (`!shared`).
     ///   - busy: a session of the tree works — the inline spinner.
     ///   - needsYou: a live session waits on a person — the amber dot.
-    ///   - word: ONE quiet trailing word (EXP-1309), the lock rides after it.
+    ///   - word: ONE quiet trailing word (EXP-1309).
     ///   - wordIcon: the word's glyph (`AppIcons.prStack` for `stack`).
     ///   - deviceIcon: EXP-1316: the root's device glyph
     ///     (`DeviceIconDisplay`), last on the row; nil = none.
@@ -52,7 +48,6 @@ public struct SessionRow<Lead: View>: View {
         identifier: String? = nil,
         title: String,
         guide: TreeGuide = TreeGuide(),
-        isPrivate: Bool = false,
         busy: Bool = false,
         needsYou: Bool = false,
         active: Bool = false,
@@ -69,7 +64,6 @@ public struct SessionRow<Lead: View>: View {
         self.identifier = identifier
         self.title = title
         self.guide = guide
-        self.isPrivate = isPrivate
         self.busy = busy
         self.needsYou = needsYou
         self.active = active
@@ -121,11 +115,6 @@ public struct SessionRow<Lead: View>: View {
                 }
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 .fixedSize()
-            }
-            if isPrivate {
-                AppIcon(AppIcons.uiPrivate, size: 12)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                    .accessibilityLabel("Private")
             }
             if let deviceIcon {
                 AppIcon(deviceIcon, size: 13)

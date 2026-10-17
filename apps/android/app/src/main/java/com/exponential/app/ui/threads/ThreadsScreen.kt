@@ -234,10 +234,10 @@ private fun AgentListRow(agent: SessionTree.AgentRow, onClick: () -> Unit) {
 }
 
 /** A thread: its state mark, the title (it names the issue, EXP-1316: no
- *  identifier slot), a lock when private, then a spinner while busy or an
+ *  identifier slot; EXP-1339: no lock), then a spinner while busy or an
  *  amber dot when it needs you. EXP-1309/1318: on the Threads tab
  *  ([threadsTab], web `ThreadsListView`) the row ends on ONE quiet [word]
- *  AND the lock, and its state moves into the lead (web `rowLead`): the
+ *  (`merged` = no text), and its state moves into the lead (web `rowLead`): the
  *  working mark while busy, the badged mark when it needs you, the PR glyph
  *  `ready to merge` / `merged` name, else the mark (dimmed with no word). */
 @Composable
@@ -287,16 +287,10 @@ internal fun ThreadListRow(
                 )
             }
         }
-        if (threadsTab && word != null) QuietWord(word)
-        if (row.private) {
-            Icon(
-                ExpIcons.uiPrivate,
-                contentDescription = "Private",
-                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                modifier = Modifier.size(12.dp).testTag("threads-row-private"),
-            )
-        }
-        // EXP-1318 ×4: the ROOT's device, last (after the word and the lock),
+        // EXP-1339: no lock on a list row; `merged` has no text (its lead
+        // alone turns pr-merged violet).
+        if (threadsTab && word?.text != null) QuietWord(word)
+        // EXP-1318 ×4: the ROOT's device, last (after the word),
         // its icon as the Devices screen draws it; unknown device = none.
         meta?.device?.let { device ->
             Icon(
@@ -345,7 +339,7 @@ private fun QuietWord(word: SessionTree.ThreadRowWord) {
         if (word == SessionTree.ThreadRowWord.Stack) {
             Icon(ExpIcons.prStack, contentDescription = null, tint = muted, modifier = Modifier.size(12.dp))
         }
-        Text(word.text, style = MaterialTheme.typography.labelSmall, color = muted, maxLines = 1)
+        Text(word.text.orEmpty(), style = MaterialTheme.typography.labelSmall, color = muted, maxLines = 1)
     }
 }
 

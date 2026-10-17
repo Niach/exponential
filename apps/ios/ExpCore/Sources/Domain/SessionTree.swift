@@ -733,7 +733,6 @@ public struct ThreadsListRow: Equatable, Sendable, Identifiable {
     public let parentId: String?
     public let rootId: String
     public let title: String
-    public let isPrivate: Bool
     public let busy: Bool
     public let needsYou: Bool
     /// The tree's newest `updatedAt` (wire text).
@@ -756,7 +755,6 @@ public struct ThreadsListRow: Equatable, Sendable, Identifiable {
         parentId: String? = nil,
         rootId: String? = nil,
         title: String,
-        isPrivate: Bool,
         busy: Bool,
         needsYou: Bool,
         unread: Bool = false,
@@ -773,7 +771,6 @@ public struct ThreadsListRow: Equatable, Sendable, Identifiable {
         self.sessionId = sessionId
         self.teamId = teamId
         self.title = title
-        self.isPrivate = isPrivate
         self.busy = busy
         self.needsYou = needsYou
         self.activityAt = activityAt
@@ -819,11 +816,12 @@ public enum ThreadRowWord: String, Equatable, Sendable, CaseIterable {
     /// An agent row waiting on a person.
     case needsInput
 
-    public var text: String {
+    /// EXP-1339: `merged` has no text (it only turns the lead violet).
+    public var text: String? {
         switch self {
         case .readyToMerge: "ready to merge"
         case .stack: "stack"
-        case .merged: "merged"
+        case .merged: nil
         case .question: "question"
         case .needsInput: "needs input"
         }
@@ -1494,7 +1492,6 @@ public enum SessionTree {
                 parentId: nil,
                 rootId: root.id,
                 title: title,
-                isPrivate: !root.shared,
                 busy: live.contains { $0.busy },
                 needsYou: needsYou,
                 unread: unread(newestAgentInTree[root.id], root.id),
@@ -1520,7 +1517,6 @@ public enum SessionTree {
                             parentId: parentId,
                             rootId: root.id,
                             title: sessionCard(child, ordinal: ordinals[child.id] ?? 1, now: Date()).name,
-                            isPrivate: !child.shared,
                             busy: !ended && child.busy,
                             needsYou: !ended && child.needsInput,
                             unread: unread(newestAgent[child.id], child.id),

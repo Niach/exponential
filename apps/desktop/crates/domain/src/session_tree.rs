@@ -199,7 +199,6 @@ pub struct ThreadsListCopy {
 pub struct ThreadRowWords {
     pub stack: String,
     pub ready_to_merge: String,
-    pub merged: String,
     pub question: String,
     pub needs_input: String,
 }
@@ -1464,7 +1463,6 @@ pub struct ThreadsListRow {
     #[serde(default)]
     pub root_id: String,
     pub title: String,
-    pub private: bool,
     /// EXP-1318: the ROOT session's logical `device_id` (the trailing
     /// device icon); `None` when unset.
     #[serde(default)]
@@ -1600,7 +1598,6 @@ pub fn partition_threads(input: ThreadsListInput<'_>) -> Vec<ThreadsListGroup> {
             parent_id: None,
             root_id: root.id.clone(),
             title,
-            private: !root.shared,
             device_id: root.device_id.clone(),
             busy: live.iter().any(|session| session.busy),
             needs_you,
@@ -1638,7 +1635,6 @@ pub fn partition_threads(input: ThreadsListInput<'_>) -> Vec<ThreadsListGroup> {
                     parent_id: Some(parent_id.to_string()),
                     root_id: root.id.clone(),
                     title: card.name,
-                    private: !child.shared,
                     device_id: child.device_id.clone(),
                     busy: !child.is_ended() && child.busy,
                     needs_you: !child.is_ended() && child.needs_input,
@@ -1679,8 +1675,8 @@ pub fn threads_unread(groups: &[ThreadsListGroup]) -> bool {
     groups.iter().any(|group| group.rows.iter().any(|row| row.depth == 0 && row.unread))
 }
 
-/// EXP-1309/1318: the ONE quiet trailing word of a thread row ×4 (the lock
-/// rides beside it when private).
+/// EXP-1309/1318: the ONE quiet trailing word of a thread row ×4 (EXP-1339:
+/// no lock; `Merged` has no text, it only turns the lead violet).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ThreadRowWord {
     Stack,
@@ -1700,14 +1696,15 @@ impl ThreadRowWord {
         }
     }
 
-    /// The copy (`ready to merge`, …).
-    pub fn text(self) -> &'static str {
+    /// The copy (`ready to merge`, …); `None` for `Merged` (EXP-1339: the
+    /// violet pr-merged lead says it, no trailing text).
+    pub fn text(self) -> Option<&'static str> {
         let words = &THREADS_LIST.copy.words;
         match self {
-            Self::Stack => &words.stack,
-            Self::ReadyToMerge => &words.ready_to_merge,
-            Self::Merged => &words.merged,
-            Self::Question => &words.question,
+            Self::Stack => Some(&words.stack),
+            Self::ReadyToMerge => Some(&words.ready_to_merge),
+            Self::Merged => None,
+            Self::Question => Some(&words.question),
         }
     }
 }

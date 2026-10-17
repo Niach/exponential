@@ -79,7 +79,6 @@ class ThreadRowWordTest {
                             sessionId = row.str("sessionId")!!,
                             teamId = row.str("teamId")!!,
                             title = row.str("title")!!,
-                            private = row.bool("private"),
                             busy = row.bool("busy"),
                             needsYou = row.bool("needsYou"),
                             activityAt = row.str("activityAt")!!,

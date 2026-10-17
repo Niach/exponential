@@ -12,6 +12,8 @@ pub(crate) const SESSION_CARD_JSON: &str =
     include_str!("../../../../../../../packages/domain-contract/fixtures/session-card.json");
 pub(crate) const SESSION_THREAD_JSON: &str =
     include_str!("../../../../../../../packages/domain-contract/fixtures/session-thread.json");
+pub(crate) const THREADS_LIST_JSON: &str =
+    include_str!("../../../../../../../packages/domain-contract/fixtures/threads-list.json");
 
 /// `teamId` → `team_id`.
 fn snake(key: &str) -> String {

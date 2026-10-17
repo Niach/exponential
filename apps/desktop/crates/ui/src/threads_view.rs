@@ -10,7 +10,8 @@
 //! root's PR glyph: open emerald, merged violet, else the root session's
 //! agent mark; the amber badge when it needs you) · the title (EXP-1316: it
 //! names the issue already, no identifier slot) · the contract's quiet word
-//! (`domain::session_tree::thread_row_word`) AND a lock when private. A row
+//! (`domain::session_tree::thread_row_word`; EXP-1339: no lock, and
+//! `merged` draws no word, the violet lead says it) · the device icon. A row
 //! opens the thread. EXP-1323: a live tree nests its children under the
 //! root (tree guides; a child opens its session), an unread title is
 //! semibold, the live caption is the muted second line.
@@ -24,7 +25,8 @@ use gpui_component::{h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _};
 
 use domain::rows::{PullRequestRow, SessionRow};
 use domain::session_tree::{
-    thread_in_stack, thread_row_word, StackPr, ThreadRowWord, ThreadsListKey, ThreadsListRow, THREADS_LIST,
+    thread_in_stack, thread_row_word, StackPr, ThreadRowWord, ThreadsListGroup, ThreadsListKey, ThreadsListRow,
+    THREADS_LIST,
 };
 
 use crate::actions_view::page_scaffold_with;
@@ -139,16 +141,16 @@ pub(crate) fn thread_device_icon(device_id: Option<&str>, row_key: &str, cx: &Ap
 }
 
 /// The row's trailing slot: the quiet word (the stack word carries the
-/// stack glyph in front), the lock when private, then the device icon;
-/// `None` when all are absent.
+/// stack glyph in front; EXP-1339: `Merged` has no text, the violet lead
+/// says it), then the device icon; `None` when both are absent.
 pub(crate) fn thread_row_trailing(
     word: Option<ThreadRowWord>,
-    private: bool,
     device: Option<gpui::AnyElement>,
     cx: &App,
 ) -> Option<gpui::AnyElement> {
     let muted = cx.theme().muted_foreground;
-    if word.is_none() && !private && device.is_none() {
+    let word = word.and_then(|word| word.text().map(|text| (word, text)));
+    if word.is_none() && device.is_none() {
         return None;
     }
     Some(
@@ -156,7 +158,7 @@ pub(crate) fn thread_row_trailing(
             .flex_shrink_0()
             .gap_2()
             .items_center()
-            .children(word.map(|word| {
+            .children(word.map(|(word, text)| {
                 h_flex()
                     .flex_shrink_0()
                     .gap_1()
@@ -166,12 +168,110 @@ pub(crate) fn thread_row_trailing(
                     .when(word == ThreadRowWord::Stack, |this| {
                         this.child(Icon::new(registry::PR_STACK).xsmall().text_color(muted))
                     })
-                    .child(word.text())
+                    .child(text)
             }))
-            .children(private.then(|| Icon::new(registry::UI_PRIVATE).xsmall().flex_shrink_0().text_color(muted)))
             .children(device)
             .into_any_element(),
     )
+}
+
+/// The band glyph ×4: Needs you = coding-needs-input amber, Running = the
+/// working mark, Recent = ui-check.
+fn band_glyph(key: ThreadsListKey, cx: &App) -> gpui::AnyElement {
+    let quiet = cx.theme().foreground.opacity(0.7);
+    match key {
+        ThreadsListKey::NeedsYou => Icon::new(registry::CODING_NEEDS_INPUT)
+            .xsmall()
+            .flex_shrink_0()
+            .text_color(theme::tokens::YELLOW.to_hsla())
+            .into_any_element(),
+        ThreadsListKey::Running => crate::coding_selects::agent_mark(coding::CodingAgent::default())
+            .xsmall()
+            .flex_shrink_0()
+            .into_any_element(),
+        ThreadsListKey::Recent => Icon::new(registry::UI_CHECK)
+            .xsmall()
+            .flex_shrink_0()
+            .text_color(quiet)
+            .into_any_element(),
+    }
+}
+
+/// One row of the Threads page (the styleguide's `thread-parts` specimen
+/// draws the same): the lead, the title, the trailing word + device icon.
+fn thread_list_row(
+    row: &ThreadsListRow,
+    guides: domain::tree_guides::Guides,
+    snapshot: &PrSnapshot,
+    cx: &App,
+) -> gpui::AnyElement {
+    // EXP-1323: a nested child = its own session's mark, no word; it
+    // opens that session (a thread row opens the thread).
+    let child = row.depth > 0;
+    let lead = if child {
+        child_row_lead(&row.session_id, row.busy, row.needs_you, cx)
+    } else {
+        thread_row_lead(&row.session_id, row.busy, row.needs_you, &snapshot.pulls, cx)
+    };
+    let word = (!child)
+        .then(|| thread_word(&row.session_id, row.busy, row.needs_you, &snapshot.pulls))
+        .flatten();
+    let device = thread_device_icon(row.device_id.as_deref(), &row.session_id, cx);
+    let trailing = thread_row_trailing(word, device, cx);
+    let session_id = row.session_id.clone();
+    pr_row(
+        PrRowSpec {
+            lead: Some(lead),
+            trailing,
+            guides,
+            strong: row.unread,
+            caption: row.caption.clone().map(SharedString::from),
+            on_click: Some(Box::new(move |_: &ClickEvent, window: &mut Window, cx: &mut App| {
+                let session_id = session_id.clone();
+                let screen = if child {
+                    Screen::Session { session_id }
+                } else {
+                    Screen::Thread { session_id }
+                };
+                crate::navigation::navigate(window, cx, screen);
+            })),
+            ..PrRowSpec::open(
+                format!("{}-{}", THREADS_LIST.test_ids.row, row.session_id),
+                row.title.clone(),
+            )
+        },
+        cx,
+    )
+}
+
+/// The Threads page's bands: per group its glass band (glyph + title, no
+/// count) over its rows, the nested children's tree guides off the band's
+/// depth sequence (TreeGuides, 14px/level, the corner tee; EXP-1323). The
+/// page and the styleguide's `thread-parts` specimen both draw this.
+pub(crate) fn thread_list_bands(
+    groups: &[ThreadsListGroup],
+    snapshot: &PrSnapshot,
+    cx: &App,
+) -> Vec<gpui::AnyElement> {
+    groups
+        .iter()
+        .map(|group| {
+            let band = crate::surface::glass_section_band(
+                Some(band_glyph(group.key, cx)),
+                SharedString::from(group.title.clone()),
+                None,
+                cx,
+            );
+            let guides = domain::tree_guides::guides_for(&group.rows.iter().map(|row| row.depth).collect::<Vec<_>>());
+            let rows: Vec<gpui::AnyElement> = group
+                .rows
+                .iter()
+                .enumerate()
+                .map(|(index, row)| thread_list_row(row, guides.get(index).cloned().unwrap_or_default(), snapshot, cx))
+                .collect();
+            v_flex().min_w_0().pb_2().child(band).children(rows).into_any_element()
+        })
+        .collect()
 }
 
 /// The agent CLI a root runs.
@@ -195,72 +295,6 @@ impl ThreadsView {
             scroll: ScrollHandle::new(),
             _subscriptions: subscriptions,
         }
-    }
-
-    fn band_glyph(key: ThreadsListKey, cx: &App) -> gpui::AnyElement {
-        let quiet = cx.theme().foreground.opacity(0.7);
-        match key {
-            ThreadsListKey::NeedsYou => Icon::new(registry::CODING_NEEDS_INPUT)
-                .xsmall()
-                .flex_shrink_0()
-                .text_color(theme::tokens::YELLOW.to_hsla())
-                .into_any_element(),
-            ThreadsListKey::Running => crate::coding_selects::agent_mark(coding::CodingAgent::default())
-                .xsmall()
-                .flex_shrink_0()
-                .into_any_element(),
-            ThreadsListKey::Recent => Icon::new(registry::UI_CHECK)
-                .xsmall()
-                .flex_shrink_0()
-                .text_color(quiet)
-                .into_any_element(),
-        }
-    }
-
-    fn row(
-        &self,
-        row: &ThreadsListRow,
-        guides: domain::tree_guides::Guides,
-        snapshot: &PrSnapshot,
-        cx: &App,
-    ) -> gpui::AnyElement {
-        // EXP-1323: a nested child = its own session's mark, no word; it
-        // opens that session (a thread row opens the thread).
-        let child = row.depth > 0;
-        let lead = if child {
-            child_row_lead(&row.session_id, row.busy, row.needs_you, cx)
-        } else {
-            thread_row_lead(&row.session_id, row.busy, row.needs_you, &snapshot.pulls, cx)
-        };
-        let word = (!child)
-            .then(|| thread_word(&row.session_id, row.busy, row.needs_you, &snapshot.pulls))
-            .flatten();
-        let device = thread_device_icon(row.device_id.as_deref(), &row.session_id, cx);
-        let trailing = thread_row_trailing(word, row.private, device, cx);
-        let session_id = row.session_id.clone();
-        pr_row(
-            PrRowSpec {
-                lead: Some(lead),
-                trailing,
-                guides,
-                strong: row.unread,
-                caption: row.caption.clone().map(SharedString::from),
-                on_click: Some(Box::new(move |_: &ClickEvent, window: &mut Window, cx: &mut App| {
-                    let session_id = session_id.clone();
-                    let screen = if child {
-                        Screen::Session { session_id }
-                    } else {
-                        Screen::Thread { session_id }
-                    };
-                    crate::navigation::navigate(window, cx, screen);
-                })),
-                ..PrRowSpec::open(
-                    format!("{}-{}", THREADS_LIST.test_ids.row, row.session_id),
-                    row.title.clone(),
-                )
-            },
-            cx,
-        )
     }
 }
 
@@ -293,27 +327,7 @@ impl Render for ThreadsView {
                 .as_deref()
                 .map(|team_id| session_data::team_pr_snapshot(team_id, cx))
                 .unwrap_or_default();
-            let mut bands: Vec<gpui::AnyElement> = Vec::new();
-            for group in groups.iter() {
-                let band = crate::surface::glass_section_band(
-                    Some(Self::band_glyph(group.key, cx)),
-                    SharedString::from(group.title.clone()),
-                    None,
-                    cx,
-                );
-                // EXP-1323: the nested children's connectors off the band's
-                // depth sequence (TreeGuides, 14px/level, the corner tee).
-                let guides =
-                    domain::tree_guides::guides_for(&group.rows.iter().map(|row| row.depth).collect::<Vec<_>>());
-                let rows: Vec<gpui::AnyElement> = group
-                    .rows
-                    .iter()
-                    .enumerate()
-                    .map(|(index, row)| self.row(row, guides.get(index).cloned().unwrap_or_default(), &snapshot, cx))
-                    .collect();
-                bands.push(v_flex().min_w_0().pb_2().child(band).children(rows).into_any_element());
-            }
-            v_flex().min_w_0().gap_2().children(bands)
+            v_flex().min_w_0().gap_2().children(thread_list_bands(&groups, &snapshot, cx))
         };
         page_scaffold_with("threads-screen-scroll", &self.scroll, column, THREADS_COLUMN_W)
     }
@@ -349,6 +363,7 @@ mod tests {
 
     /// The word follows the contract: open in a stack → stack, open idle →
     /// ready to merge, merged, else a question while it needs you.
+    /// EXP-1339: `merged` has no text (the violet lead says it).
     #[test]
     fn the_thread_word_follows_the_contract() {
         let mut stacked = pull("p2", "r1", "open", "2026-10-13T08:00:00.000Z");
@@ -365,5 +380,9 @@ mod tests {
         assert_eq!(thread_word("r3", false, true, &pulls), Some(ThreadRowWord::Merged));
         assert_eq!(thread_word("r4", false, true, &pulls), Some(ThreadRowWord::Question));
         assert_eq!(thread_word("r4", false, false, &pulls), None);
+        assert_eq!(ThreadRowWord::Merged.text(), None);
+        assert_eq!(ThreadRowWord::ReadyToMerge.text(), Some("ready to merge"));
+        assert_eq!(ThreadRowWord::Stack.text(), Some("stack"));
+        assert_eq!(ThreadRowWord::Question.text(), Some("question"));
     }
 }

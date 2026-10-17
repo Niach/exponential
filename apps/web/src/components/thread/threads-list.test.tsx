@@ -68,3 +68,47 @@ describe(`ThreadsListView EXP-1323`, () => {
     }
   })
 })
+
+// EXP-1339: a merged thread keeps the violet lead but shows no trailing
+// word, and no row ever carries the private lock.
+describe(`ThreadsListView EXP-1339`, () => {
+  it(`drops the merged word and the lock`, () => {
+    const groups: ThreadsListGroup[] = [
+      {
+        key: `recent`,
+        title: `Recent`,
+        rows: [
+          {
+            sessionId: `m`,
+            teamId: `t`,
+            depth: 0,
+            parentId: null,
+            rootId: `m`,
+            title: `Merged thread`,
+            deviceId: null,
+            busy: false,
+            needsYou: false,
+            unread: false,
+            caption: null,
+            activityAt: `2026-10-17T00:00:00.000Z`,
+          } as unknown as ThreadsListGroup[`rows`][number],
+        ],
+      },
+    ]
+    render(
+      <TooltipProvider>
+        <ThreadsListView
+          groups={groups}
+          cliByRoot={new Map()}
+          prsByRoot={new Map([[`m`, [{ id: `p`, state: `merged`, basePullRequestId: null }]]])}
+          teamPrs={[]}
+          onOpenThread={vi.fn()}
+        />
+      </TooltipProvider>
+    )
+    const row = screen.getByTestId(`threads-row`)
+    expect(row.querySelector(`[data-slot="threads-row-word"]`)).toBeNull()
+    expect(screen.queryByLabelText(`Private`)).toBeNull()
+    expect(row.querySelector(`.text-violet-400`)).not.toBeNull()
+  })
+})
