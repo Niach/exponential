@@ -503,7 +503,6 @@ export interface DemoAgentStatus {
 
 export interface DemoAgentProfile {
   id: string
-  label: string
   signedIn: boolean
   email?: string
   plan?: string
@@ -541,7 +540,6 @@ export const DEMO_AGENT_STATUS: Record<`claude` | `codex`, DemoAgentStatus> = {
     profiles: [
       {
         id: `system`,
-        label: `Default`,
         signedIn: true,
         email: DEMO_EMAIL,
         plan: `max`,
@@ -549,7 +547,6 @@ export const DEMO_AGENT_STATUS: Record<`claude` | `codex`, DemoAgentStatus> = {
       },
       {
         id: `work`,
-        label: `Work`,
         signedIn: true,
         email: `alex@northwind.dev`,
         plan: `team`,
@@ -565,7 +562,6 @@ export const DEMO_AGENT_STATUS: Record<`claude` | `codex`, DemoAgentStatus> = {
     profiles: [
       {
         id: `system`,
-        label: `Default`,
         signedIn: true,
         email: DEMO_EMAIL,
         plan: `plus`,
@@ -593,7 +589,6 @@ interface DemoReportUsage {
 
 interface DemoReportProfile {
   id: string
-  label: string
   signedIn: boolean
   email?: string
   plan?: string
@@ -646,7 +641,6 @@ export function demoAgentReport(now: Date): {
         ? {
             profiles: status.profiles.map((profile, index) => ({
               id: profile.id,
-              label: profile.label,
               signedIn: profile.signedIn,
               ...(profile.email ? { email: profile.email } : {}),
               ...(profile.plan ? { plan: profile.plan } : {}),

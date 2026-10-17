@@ -46,6 +46,19 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-10-17-account-switch-keeps-model",
+    date: "2026-10-17",
+    title: "Account switching keeps your model and shows itself",
+    summary: "Switching a session to another account, by hand or by auto-rotate, keeps the model you picked, and every device shows the switch while it happens.",
+    body: r#"- **Model stays put**: a model you pick with /model stays when the session moves to another account, by hand or by auto-rotate, instead of falling back to the one the session started on.
+- **You see the switch**: while auto-rotate checks your other accounts, the session reads "Checking other accounts…"; while it moves, its card spins with "Switching to you@example.com…".
+- **Emails only**: the note a rotated session starts with names accounts by email, never an internal name.
+- **No needless pushes**: a usage limit the device rotates past no longer notifies you."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_54: ChangelogEntry = ChangelogEntry {
     id: "2026-10-17-thread-header-one-composer",
     date: "2026-10-17",
     title: "Threads: a header that never scrolls, one composer, and options mid-session",

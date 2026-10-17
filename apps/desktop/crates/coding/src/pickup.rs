@@ -281,6 +281,11 @@ fn sync_agent_state(row: &SessionRow, engine: &dyn LiveEngine, deps: &PickupDeps
         return;
     }
     log::info!("pickup: session {session_id} plan mode {mode:?} / model {model:?} (the agent's own)");
+    // EXP-1281: the run record follows too, so a resume with no row at hand
+    // (a wake, a switch racing the report's echo) keeps the person's model.
+    if let Some(model) = &model {
+        record_model(deps, session_id, model);
+    }
     let now = std::time::Instant::now();
     deps.live.update_options(session_id, |options| {
         if let Some(mode) = mode {
@@ -292,6 +297,28 @@ fn sync_agent_state(row: &SessionRow, engine: &dyn LiveEngine, deps: &PickupDeps
             options.model_reported = Some((model, now));
         }
     });
+}
+
+/// EXP-1281: stamp `model` on the persisted run record (the resume's
+/// fallback when the row says none).
+fn record_model(deps: &PickupDeps, session_id: &str, model: &str) {
+    crate::run_registry::update(&deps.coding.data_dir, session_id, |record| {
+        let moved = record.model != model;
+        record.model = model.to_string();
+        moved
+    });
+}
+
+/// EXP-1281: the model a live engine honors right now — a person's row pick
+/// being switched in (`picked`), else the agent's own move (a `/model` typed
+/// into the run, reported or not), else the one it launched with / last
+/// switched to. `None` = unknown (a wake with no row at hand).
+fn honored_model(engine: &dyn LiveEngine, picked: Option<String>, launched: Option<LaunchedOptions>) -> Option<String> {
+    let launched = launched?;
+    picked.or_else(|| {
+        let view = LiveView { options: Some(launched.clone()), agent_model: engine.model(), ..LiveView::default() };
+        agent_model_move(&view).or(launched.model)
+    })
 }
 
 /// One pass's input.
@@ -1807,8 +1834,26 @@ pub fn switch_session(
     } else {
         deps.live.row_account(session_id)
     };
+    // EXP-1281: the model the run honors right now (a person's `/model`
+    // whose echo has not landed on `row` yet included) is the one the new
+    // engine launches on — never the stale row's, never the launch's.
+    let prior = deps.live.options(session_id);
+    let model = if row.dispatch { None } else { honored_model(&*engine, delta.model.clone(), prior.clone()) };
+    let mut launch_row = row.clone();
+    // Cleared on every way out but a landed move (that run's turn edges
+    // take over).
+    let mut switching = SwitchingShown { trpc: account_moves.then_some(&*deps.coding.trpc), session_id };
+    if let Some(model) = &model {
+        launch_row.model = Some(model.clone());
+        record_model(deps, session_id, model);
+    }
     if account_moves {
         log::info!("pickup: account switch of {session_id} -> {target}: suspending the run");
+        // EXP-1281: every client shows the move as it happens (the card's
+        // spinner + caption), a rotation included; the resumed run's first
+        // turn edge (or a refusal) clears it.
+        let email = crate::agent_profiles::known_email(&deps.coding.data_dir, record.agent, &target);
+        report_switching(deps, session_id, &switching_caption(email.as_deref()));
     } else {
         log::info!("pickup: reconfiguring session {session_id}: suspending the run");
     }
@@ -1869,7 +1914,7 @@ pub fn switch_session(
     // recorded login.
     options.account = account_moves.then_some(target);
     let req = SessionLaunchRequest {
-        session: row.clone(),
+        session: launch_row.clone(),
         brief,
         issue_identifiers: identifiers,
         resume: Some(resume),
@@ -1879,9 +1924,12 @@ pub fn switch_session(
     let is_agent = row.is_agent();
     match crate::prepare(&PrepareRequest::Session(req), &deps.coding) {
         Ok(Prepared::Ready(prepared)) => {
-            let engine = spawn(session_id, is_agent, prepared, claim, true, row_account, Some(row), deps)
+            let engine = spawn(session_id, is_agent, prepared, claim, true, row_account, Some(&launch_row), deps)
                 .inspect_err(|_| deps.live.note_refused(session_id, &pending))
                 .map_err(failed)?;
+            if let Some(model) = model.filter(|model| Some(model) != row_model(row).as_ref()) {
+                keep_model(deps, session_id, model, prior.and_then(|prior| prior.model_reported));
+            }
             // EXP-1334: codex has no launch flag for plan mode — the fresh run
             // re-enters it live.
             if reconfigure.is_some_and(|r| r.plan_mode) && !agent.supports_plan_mode() {
@@ -1896,6 +1944,7 @@ pub fn switch_session(
             hand(&*engine, session_id, &rest, deps);
             let running = session_device::SessionReport {
                 status: Some(session_device::ReportStatus::Running),
+                caption: switching.trpc.take().map(|_| None),
                 ..session_device::SessionReport::default()
             };
             if let Err(err) = session_device::report(&deps.coding.trpc, session_id, &running) {
@@ -1914,6 +1963,105 @@ pub fn switch_session(
             Err(failed(reason))
         }
     }
+}
+
+/// EXP-1281: a shown [`report_switching`] still owed its clear.
+struct SwitchingShown<'a> {
+    trpc: Option<&'a api::trpc::TrpcClient>,
+    session_id: &'a str,
+}
+
+impl Drop for SwitchingShown<'_> {
+    fn drop(&mut self) {
+        if let Some(trpc) = self.trpc.take() {
+            report_switch_settled(trpc, self.session_id);
+        }
+    }
+}
+
+/// EXP-1281: the caption a session wears while it moves to another login —
+/// its email, never a profile id.
+pub fn switching_caption(email: Option<&str>) -> String {
+    match email.map(str::trim).filter(|email| !email.is_empty()) {
+        Some(email) => format!("Switching to {email}…"),
+        None => SWITCHING_CAPTION.to_string(),
+    }
+}
+
+/// EXP-1281: [`switching_caption`] when the target's email is unknown.
+pub const SWITCHING_CAPTION: &str = "Switching account…";
+
+/// EXP-1281: the caption while a walled run looks for another login (the
+/// rotation's forced usage probe).
+pub const ROTATION_PROBE_CAPTION: &str = "Checking other accounts…";
+
+/// EXP-1281: report a session as busy with `caption` (an account move in
+/// flight, the wall lifted: the cards spin, the caption says why).
+/// Best-effort.
+pub fn report_switching(deps: &PickupDeps, session_id: &str, caption: &str) {
+    report_switching_via(&deps.coding.trpc, session_id, caption);
+}
+
+/// [`report_switching`] for callers with only a client at hand (the
+/// rotation hosts).
+pub fn report_switching_via(trpc: &api::trpc::TrpcClient, session_id: &str, caption: &str) {
+    // The wall stays with the login the run leaves.
+    let report = session_device::SessionReport {
+        busy: Some(true),
+        blocked: Some(None),
+        caption: Some(Some(caption.to_string())),
+        ..session_device::SessionReport::default()
+    };
+    if let Err(err) = session_device::report(trpc, session_id, &report) {
+        log::warn!("pickup: switching state of {session_id} not reported: {err}");
+    }
+}
+
+/// EXP-1281: set (or clear, `None`) a walled session's caption while the
+/// rotation reads the other logins' usage ([`ROTATION_PROBE_CAPTION`]): the
+/// wall stays, the caption says something is happening. Best-effort.
+pub fn report_caption_via(trpc: &api::trpc::TrpcClient, session_id: &str, caption: Option<&str>) {
+    let report = session_device::SessionReport {
+        caption: Some(caption.map(str::to_string)),
+        ..session_device::SessionReport::default()
+    };
+    if let Err(err) = session_device::report(trpc, session_id, &report) {
+        log::warn!("pickup: caption of {session_id} not reported: {err}");
+    }
+}
+
+/// EXP-1281: clear a [`report_switching`] that led nowhere (no target, a
+/// failed switch): not busy, no caption. Best-effort.
+pub fn report_switch_settled(trpc: &api::trpc::TrpcClient, session_id: &str) {
+    let report = session_device::SessionReport {
+        busy: Some(false),
+        caption: Some(None),
+        ..session_device::SessionReport::default()
+    };
+    if let Err(err) = session_device::report(trpc, session_id, &report) {
+        log::warn!("pickup: settled switch of {session_id} not reported: {err}");
+    }
+}
+
+/// EXP-1281: a switched run launched on `model` while the row still says
+/// another (the agent's `/model` not echoed yet): the row is told (unless an
+/// earlier report of it is still in flight), and until it echoes, the stale
+/// row never switches the run back.
+fn keep_model(deps: &PickupDeps, session_id: &str, model: String, reported: Option<(String, std::time::Instant)>) {
+    let reported = match reported.filter(|(value, _)| *value == model) {
+        Some(reported) => reported,
+        None => {
+            let report = session_device::SessionReport {
+                model: Some(model.clone()),
+                ..session_device::SessionReport::default()
+            };
+            if let Err(err) = session_device::report(&deps.coding.trpc, session_id, &report) {
+                log::warn!("pickup: switched session {session_id}'s model not reported: {err}");
+            }
+            (model, std::time::Instant::now())
+        }
+    };
+    deps.live.update_options(session_id, |options| options.model_reported = Some(reported));
 }
 
 /// EXP-1334: re-read the session's server-only MCP pick between turns and
@@ -3289,6 +3437,7 @@ mod tests {
     fn a_switch_suspends_the_idle_engine_and_resumes_on_the_target() {
         let dir = temp_dir("pickup-switch");
         let (base, requests) = canned_server_recording(vec![
+            (200, REPORT_OK.to_string()),
             (200, BRIEF_OK.to_string()),
             (200, RESOLVE_NONE.to_string()),
             (200, REPORT_OK.to_string()),
@@ -3320,8 +3469,17 @@ mod tests {
         assert_eq!(*old.killed.lock().unwrap(), Some("suspended"));
         assert_eq!(
             procedures(&requests),
-            vec!["sessions.brief", "mcpServers.resolveForLaunch", "sessions.report"]
+            vec!["sessions.report", "sessions.brief", "mcpServers.resolveForLaunch", "sessions.report"]
         );
+        // EXP-1281: every client sees the move while it happens (the wall
+        // lifted, the cards spinning), and the landed run clears the caption.
+        let shown = requests.lock().unwrap()[0].clone();
+        assert!(
+            shown.ends_with(r#"{"sessionId":"sess-1","busy":true,"blocked":null,"caption":"Switching account…"}"#),
+            "{shown}"
+        );
+        let running = requests.lock().unwrap()[3].clone();
+        assert!(running.ends_with(r#"{"sessionId":"sess-1","status":"running","caption":null}"#), "{running}");
         let spawned = host.spawned.lock().unwrap().clone();
         assert_eq!(spawned.len(), 1);
         assert_eq!(spawned[0].session_id, "sess-1", "the SAME row");
@@ -3469,6 +3627,7 @@ mod tests {
     fn a_switch_never_redelivers_what_the_old_engine_was_handed() {
         let dir = temp_dir("pickup-switch-owed");
         let (base, requests) = canned_server_recording(vec![
+            (200, REPORT_OK.to_string()),
             (200, BRIEF_OK.to_string()),
             (200, RESOLVE_NONE.to_string()),
             (200, REPORT_OK.to_string()),
@@ -3505,7 +3664,7 @@ mod tests {
         assert!(consume.contains("m1") && consume.contains("m2") && !consume.contains("m3"), "{consume}");
         assert_eq!(
             procedures(&requests),
-            vec!["sessions.brief", "mcpServers.resolveForLaunch", "sessions.report", "sessions.consume"]
+            vec!["sessions.report", "sessions.brief", "mcpServers.resolveForLaunch", "sessions.report", "sessions.consume"]
         );
         // A later pass hands nothing twice.
         let rows = vec![message("m1", "sess-1", "a"), pending[0].clone(), pending[1].clone()];
@@ -3556,8 +3715,10 @@ mod tests {
     fn a_switch_whose_resume_fails_is_explained_once() {
         let dir = temp_dir("pickup-switch-prepare-fails");
         let (base, requests) = canned_server_recording(vec![
+            (200, REPORT_OK.to_string()),
             (200, BRIEF_OK.to_string()),
             (200, REPLY_OK.to_string()),
+            (200, REPORT_OK.to_string()),
             (200, REPORT_OK.to_string()),
         ]);
         let host = host(&base, &dir.0, |coding| coding.acp_available = false);
@@ -3577,10 +3738,16 @@ mod tests {
             switch_session(&row, &target.id, None, &pending, &host.deps),
             Ok(Switched::Refused(_))
         ));
-        assert_eq!(procedures(&requests), vec!["sessions.brief", "sessions.reply", "sessions.report"]);
+        // EXP-1281: the switching state shown first is cleared last.
+        assert_eq!(
+            procedures(&requests),
+            vec!["sessions.report", "sessions.brief", "sessions.reply", "sessions.report", "sessions.report"]
+        );
+        let settled = requests.lock().unwrap()[4].clone();
+        assert!(settled.ends_with(r#"{"sessionId":"sess-1","busy":false,"caption":null}"#), "{settled}");
         // The wake the next pass plans for the same message stays quiet.
         assert!(resume_session(&row, &pending, &host.deps).unwrap().is_empty());
-        assert_eq!(requests.lock().unwrap().len(), 3);
+        assert_eq!(requests.lock().unwrap().len(), 5);
     }
 
     /// A row whose account moved while no engine ran here wakes ON it; a
@@ -4026,5 +4193,57 @@ mod tests {
         // A model id outside the vocabulary is never written back.
         *host.engine.model.lock().unwrap() = Some("claude-opus-4-1-20250805".to_string());
         assert!(pass(&echoed).is_empty());
+    }
+
+    /// EXP-1281: a person's `/model` typed into a walled run, then an account
+    /// switch before the row echoes it — the resumed run keeps the person's
+    /// model (never the stale row's, never the launch's), and so does the
+    /// run record a later wake falls back to.
+    #[test]
+    fn an_account_switch_keeps_the_model_the_run_is_on() {
+        let dir = temp_dir("pickup-switch-model");
+        let (base, requests) = canned_server_recording(vec![
+            (200, REPORT_OK.to_string()),
+            (200, REPORT_OK.to_string()),
+            (200, BRIEF_OK.to_string()),
+            (200, RESOLVE_NONE.to_string()),
+            (200, REPORT_OK.to_string()),
+        ]);
+        let host = host(&base, &dir.0, |_| {});
+        let target = crate::agent_profiles::create(&dir.0, CodingAgent::Claude).unwrap();
+        let mut on_a = record(&dir.0, "sess-1");
+        on_a.set_account(Some(crate::test_support::TEST_PROFILE));
+        on_a.model = "sonnet".to_string();
+        crate::run_registry::record(&dir.0, on_a);
+        let launched = SessionRow {
+            model: Some("sonnet".to_string()),
+            updated_at: Some("u1".to_string()),
+            ..on_account(session("sess-1", "idle", DEV, "t"), crate::test_support::TEST_PROFILE)
+        };
+        let old = Arc::new(FakeEngine::default());
+        host.deps.live.insert_for(
+            "sess-1",
+            old.clone(),
+            None,
+            Some(crate::test_support::TEST_PROFILE.to_string()),
+        );
+        host.deps.live.set_options(
+            "sess-1",
+            Some(LaunchedOptions::of(&launched, Some(Vec::new())).for_agent(CodingAgent::Claude)),
+        );
+        // The person's `/model opus`, not on the row yet.
+        *old.model.lock().unwrap() = Some("opus".to_string());
+        let switched = SessionRow { updated_at: Some("u2".to_string()), ..on_account(launched, &target.id) };
+
+        assert_eq!(switch_session(&switched, &target.id, Some("moved"), &[], &host.deps), Ok(Switched::Moved));
+        let launched = host.launched.lock().unwrap().clone();
+        assert_eq!(launched.last().map(|options| options.model.as_str()), Some("opus"));
+        assert_eq!(crate::run_registry::get(&dir.0, "sess-1").expect("record").model, "opus");
+        let first = requests.lock().unwrap()[0].clone();
+        assert!(first.ends_with(r#"{"sessionId":"sess-1","model":"opus"}"#), "{first}");
+        // The stale row (still sonnet) never switches the new run back.
+        let options = host.deps.live.options("sess-1").expect("options");
+        assert_eq!(options.model.as_deref(), Some("opus"));
+        assert_eq!(options_delta(&switched, &options).model, None);
     }
 }
