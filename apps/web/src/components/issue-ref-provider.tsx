@@ -1,4 +1,4 @@
-import { createContext, useContext, useMemo } from "react"
+import { createContext, useContext, useMemo, useRef } from "react"
 import { useNavigate } from "@tanstack/react-router"
 import { inArray, useLiveQuery } from "@tanstack/react-db"
 import type { IconName } from "@exp/icons"
@@ -75,7 +75,7 @@ export interface IssueRefContextValue {
   open: (identifier: string, options?: { from?: string }) => void
 }
 
-const IssueRefContext = createContext<IssueRefContextValue | null>(null)
+export const IssueRefContext = createContext<IssueRefContextValue | null>(null)
 
 export function useIssueRefs(): IssueRefContextValue | null {
   return useContext(IssueRefContext)
@@ -217,4 +217,43 @@ export function IssueRefProvider({
       {children}
     </IssueRefContext.Provider>
   )
+}
+
+/** EXP-1347 (session-thread.json): chip navigation = the INNERMOST outlet.
+ *  Inside a thread, a pill (#IDENT, an issue chip, a card chip) whose issue
+ *  is one of `issueIds` (that thread's issue tabs, nested ones included)
+ *  selects that tab (`onOpen`) and never leaves the thread; any other issue
+ *  defers to the enclosing provider (the full issue page). */
+export function IssueRefOutlet({
+  issueIds,
+  onOpen,
+  children,
+}: {
+  issueIds: readonly string[]
+  onOpen: (issueId: string) => void
+  children: React.ReactNode
+}) {
+  const parent = useIssueRefs()
+  // The callback rides a ref: a fresh `onOpen` per render must not rotate
+  // the context value (the editors repaint their pills on every rotation).
+  const onOpenRef = useRef(onOpen)
+  onOpenRef.current = onOpen
+  const key = [...issueIds].sort().join(`,`)
+  const value = useMemo<IssueRefContextValue | null>(() => {
+    if (!parent) return null
+    const own = new Set(key ? key.split(`,`) : [])
+    return {
+      ...parent,
+      open: (identifier, options) => {
+        const ref = parent.resolve(identifier)
+        if (ref && own.has(ref.id)) {
+          onOpenRef.current(ref.id)
+          return
+        }
+        parent.open(identifier, options)
+      },
+    }
+  }, [parent, key])
+  if (!value) return <>{children}</>
+  return <IssueRefContext.Provider value={value}>{children}</IssueRefContext.Provider>
 }
