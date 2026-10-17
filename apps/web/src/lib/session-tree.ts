@@ -73,7 +73,12 @@ export function toTreeSession(row: SessionRow): TreeSession {
 }
 
 export function toTreeSessionIssue(row: SessionIssueRow): TreeSessionIssue {
-  return { sessionId: row.sessionId, issueId: row.issueId, sortOrder: row.sortOrder }
+  return {
+    sessionId: row.sessionId,
+    issueId: row.issueId,
+    sortOrder: row.sortOrder,
+    assignedSessionId: row.assignedSessionId ?? null,
+  }
 }
 
 export function toTreeIssue(row: { id: string; identifier: string; title: string }): TreeIssue {

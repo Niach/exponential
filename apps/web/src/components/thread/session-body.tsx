@@ -16,7 +16,6 @@ import {
   useSessionCard,
   useSessionRow,
   useSessionThread,
-  useTreeSessions,
 } from "@/hooks/use-session-tree"
 import { useMarkRead, useNewestAgentMessageAt } from "@/hooks/use-mark-read"
 import { useTeamUsers } from "@/hooks/use-team-data"
@@ -82,19 +81,20 @@ export function SessionScreen({ teamSlug, row }: { teamSlug: string; row: Sessio
   useOpenedSessionRead(row.id)
   const isMobile = useIsMobile()
   const rootId = row.rootId ?? row.id
-  const { tree } = useTreeSessions(rootId)
+  const isRoot = rootId === row.id
   const { row: syncedRoot } = useSessionRow(rootId === row.id ? null : rootId)
-  const rootRow = rootId === row.id ? row : syncedRoot
+  const rootRow = isRoot ? row : syncedRoot
   // Under a team agent the way back is the agent's channel, never /threads.
   const agentRoot = rootRow?.kind === `agent` ? rootRow : null
-  const card = useSessionCard(row, tree)
+  const card = useSessionCard(row)
   const { view } = useSessionThread(rootId)
   const threadTitle = view?.title ?? null
-  const name = card?.name ?? row.title ?? `Session`
-  usePageTitle(pageTitle(name, threadTitle ?? `Session`))
+  // EXP-1341: the card's `sessionTitle`, else the thread's; never a generic
+  // word (both hold while their shapes load).
+  const name = card?.name ?? (isRoot ? threadTitle : null)
+  usePageTitle(name ? pageTitle(name, isRoot ? null : threadTitle) : undefined)
 
   const live = row.status !== `ended`
-  const isRoot = rootId === row.id
   const CardIcon = conceptIcon((card?.icon ?? `coding-assistant`) as IconConcept)
 
   const header = (

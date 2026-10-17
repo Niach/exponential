@@ -237,16 +237,17 @@ fn finish_caption(ctx: &SessionCtx) {
 
 /// EXP-1292: the row's last status write at the end of a run.
 fn finish_row(ctx: &SessionCtx, outcome: &str) -> Result<(), api::ApiError> {
-    if !ends_row(ctx.agent_root, outcome) {
+    if !ends_row(ctx.persistent, outcome) {
         return api::session_device::report(&ctx.trpc, &ctx.session_id, &agent_idle_report());
     }
     coding::end_session(&ctx.trpc, &ctx.session_id)
 }
 
 /// Does this exit END the row? A thread session's does, unless the host
-/// only suspended it; an agent root's never does.
-fn ends_row(agent_root: bool, outcome: &str) -> bool {
-    !agent_root && outcome != SUSPEND_OUTCOME
+/// only suspended it; a PERSISTENT session's (`domain::session_kind`, an
+/// agent root) never does.
+fn ends_row(persistent: bool, outcome: &str) -> bool {
+    !persistent && outcome != SUSPEND_OUTCOME
 }
 
 /// EXP-1292: an agent root (or a suspended session) whose process is gone —

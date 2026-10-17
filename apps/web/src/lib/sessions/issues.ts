@@ -114,6 +114,48 @@ export async function linkIssues(
   return { linked }
 }
 
+/**
+ * EXP-1341: hand issues to ONE session of the tree (the dispatcher groups
+ * and forwards freely): link the new ones to the root (`linkIssues`), then
+ * stamp `assigned_session_id` on all of them (a reassignment moves it). The
+ * root itself = its own: the stamp clears.
+ */
+export async function assignIssues(
+  tx: Tx,
+  args: {
+    sessionId: string
+    issueIds: string[]
+    source: SessionIssueSource
+    addedBy: string | null
+    addedBySessionId: string | null
+    quiet?: boolean
+  }
+): Promise<{ linked: string[] }> {
+  if (args.issueIds.length === 0) return { linked: [] }
+  const root = await resolveRoot(tx, args.sessionId)
+  const result = await linkIssues(tx, {
+    rootId: root.rootId,
+    issueIds: args.issueIds,
+    source: args.source,
+    addedBy: args.addedBy,
+    addedBySessionId: args.addedBySessionId,
+    quiet: args.quiet,
+  })
+  await tx
+    .update(sessionIssues)
+    .set({
+      assignedSessionId: args.sessionId === root.rootId ? null : args.sessionId,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(sessionIssues.sessionId, root.rootId),
+        inArray(sessionIssues.issueId, [...new Set(args.issueIds)])
+      )
+    )
+  return result
+}
+
 /** EXP-1334: the person's message a MANUAL link posts on the root (one for
  *  all newly linked issues), so the dispatcher wakes and routes the work. */
 export function manualLinkText(identifiers: string[]): string | null {

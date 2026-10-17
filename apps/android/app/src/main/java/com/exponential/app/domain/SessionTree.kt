@@ -68,7 +68,13 @@ object SessionTree {
     /** EXP-1323: the viewer's read marks (`session_reads`, already user-scoped). */
     data class SessionRead(val sessionId: String, val readAt: String)
 
-    data class SessionIssue(val sessionId: String, val issueId: String, val sortOrder: Double)
+    /** [assignedSessionId] (EXP-1341) = the tree session working on it (null = the root's). */
+    data class SessionIssue(
+        val sessionId: String,
+        val issueId: String,
+        val sortOrder: Double,
+        val assignedSessionId: String? = null,
+    )
 
     /** [parentId] (EXP-1334) = the issue's `parent` relation (null = none):
      *  a linked sub-issue folds under its nearest LINKED ancestor. */
@@ -94,7 +100,6 @@ object SessionTree {
     // ── copy (= the fixtures) ───────────────────────────────────────────────
 
     object CardCopy {
-        const val SESSION = "Session"
         val STATES: Map<SessionState, String> = mapOf(
             SessionState.Queued to "Queued",
             SessionState.Working to "Working",
@@ -139,11 +144,6 @@ object SessionTree {
             "pr_closed" to "Closed PR {pr}",
             "session_ended" to "Session ended",
         )
-        const val TITLE_MAX = 80
-        /** EXP-1316 `titles`. */
-        const val TITLE_ACTION = "Run {action}"
-        const val TITLE_ISSUE = "Implement {issue}"
-        const val TITLE_ISSUES = "Implement {issue} + {more}"
         const val TEST_ID_TABS = "thread-tabs"
         const val TEST_ID_CONVERSATION = "thread-conversation"
         const val TEST_ID_COMPOSER = "thread-composer"
@@ -239,7 +239,7 @@ object SessionTree {
         else -> SessionState.Waiting
     }
 
-    /** Sessions of one tree in creation order (ties by id): `Session N` names. */
+    /** Sessions of one tree in creation order (ties by id). */
     fun treeOrder(sessions: List<Session>): List<Session> =
         sessions.sortedWith(compareBy<Session>({ ms(it.createdAt) ?: 0L }, { it.id }))
 
@@ -263,11 +263,10 @@ object SessionTree {
     /**
      * THE session card = the Work card's header row: icon, name, the muted
      * state word, trailing elapsed, a spinner while [SessionCard.running].
-     * Tapping it opens that session's raw view. [ordinal] = its 1-based place
-     * in the tree's creation order (names an untitled session `Session N`);
-     * [now] = an ISO timestamp.
+     * Tapping it opens that session's raw view. [title] = its [sessionTitle]
+     * (EXP-1341, never `Session N`); [now] = an ISO timestamp.
      */
-    fun sessionCard(session: Session, ordinal: Int, now: String): SessionCard {
+    fun sessionCard(session: Session, title: String, now: String): SessionCard {
         val state = sessionState(session)
         val start = ms(session.startedAt)
         val end = if (state == SessionState.Ended) {
@@ -280,12 +279,11 @@ object SessionTree {
         } else {
             null
         }
-        val title = session.title?.trim()
         val caption = session.caption?.trim()
         return SessionCard(
             sessionId = session.id,
             icon = CardCopy.ICONS.getValue(state),
-            name = if (!title.isNullOrEmpty()) title else "${CardCopy.SESSION} $ordinal",
+            name = title,
             kindWord = CardCopy.STATES.getValue(state),
             state = state,
             tone = CardCopy.TONES.getValue(state),
@@ -296,43 +294,51 @@ object SessionTree {
         )
     }
 
-    /** First line of a person's text, capped (a thread named by its request). */
-    private fun firstLine(body: String, max: Int): String? {
-        val line = body.split("\n")
-            .map { it.trim() }
-            .firstOrNull { it.isNotEmpty() && !it.startsWith("![") }
-            ?: return null
-        return if (line.length > max) "${line.substring(0, max - 1).trimEnd()}…" else line
-    }
+    // ── EXP-1341: titles via [SessionTitle] ─────────────────────────────────
 
-    /**
-     * EXP-1316: a thread's title, never stored by a person (no rename ×4): an
-     * agent's `name`; else `Run <action>`; else `Implement <IDENT>` (the first
-     * synced issue by sortOrder, `+ <n-1>` with more); else the stored title
-     * (the CLI's auto-name); else the first line of the root's first person
-     * message (capped); else `Untitled`.
-     */
-    fun threadTitle(root: Session, issues: List<Issue>, messages: List<Message>): String {
-        val name = root.name?.trim()
-        if (root.kind == DomainContract.sessionKindAgent && !name.isNullOrEmpty()) return name
-        val action = root.actionName?.trim()
-        if (!action.isNullOrEmpty()) return ThreadCopy.TITLE_ACTION.replace("{action}", action)
-        if (issues.isNotEmpty()) {
-            val issue = issues[0].identifier
-            return if (issues.size > 1) {
-                ThreadCopy.TITLE_ISSUES.replace("{issue}", issue).replace("{more}", (issues.size - 1).toString())
-            } else {
-                ThreadCopy.TITLE_ISSUE.replace("{issue}", issue)
-            }
-        }
-        val stored = root.title?.trim()
-        if (!stored.isNullOrEmpty()) return stored
-        val first = messages
-            .filter { it.sessionId == root.id && it.authorKind == DomainContract.messageAuthorKindUser }
-            .sortedBy { ms(it.createdAt) ?: 0L }
-            .firstOrNull()
-        return first?.let { firstLine(it.body, ThreadCopy.TITLE_MAX) } ?: ThreadCopy.UNTITLED
-    }
+    private fun titleSession(s: Session) =
+        SessionTitle.TitleSession(id = s.id, rootId = s.rootId, name = s.name, title = s.title, actionName = s.actionName)
+
+    private fun titleLink(link: SessionIssue) =
+        SessionTitle.TitleLink(link.sessionId, link.issueId, link.sortOrder, link.assignedSessionId)
+
+    private fun titleIssue(issue: Issue) = SessionTitle.TitleIssue(issue.id, issue.identifier, issue.title)
+
+    private fun titleMessage(m: Message) = SessionTitle.TitleMessage(
+        id = m.id,
+        sessionId = m.sessionId,
+        authorKind = m.authorKind,
+        authorSessionId = m.authorSessionId,
+        body = m.body,
+        hasCard = m.card != null,
+        createdAt = m.createdAt,
+    )
+
+    /** THE display title of [session] (fixture `session-title.json`). */
+    fun sessionTitle(
+        session: Session,
+        sessionIssues: List<SessionIssue>,
+        issues: List<Issue>,
+        messages: List<Message>,
+    ): String = SessionTitle.sessionTitle(
+        titleSession(session),
+        sessionIssues.map(::titleLink),
+        issues.map(::titleIssue),
+        messages.map(::titleMessage),
+    )
+
+    /** Every given session's title, keyed by id. */
+    fun sessionTitles(
+        sessions: List<Session>,
+        sessionIssues: List<SessionIssue>,
+        issues: List<Issue>,
+        messages: List<Message>,
+    ): Map<String, String> = SessionTitle.sessionTitles(
+        sessions.map(::titleSession),
+        sessionIssues.map(::titleLink),
+        issues.map(::titleIssue),
+        messages.map(::titleMessage),
+    )
 
     /** A session chip's lead ×4: the thread row mark of THAT session,
      *  [SessionState.Ended] once it ended. */
@@ -513,7 +519,7 @@ object SessionTree {
         message: Message,
         card: JsonObject,
         byId: Map<String, Session>,
-        ordinals: Map<String, Int>,
+        titles: Map<String, String>,
         issues: Map<String, Issue>,
         now: String,
     ): ThreadRow? {
@@ -539,7 +545,7 @@ object SessionTree {
                     title = raw.text("title"),
                     text = raw.text("text"),
                     state = state,
-                    card = target?.let { sessionCard(it, ordinals[it.id] ?: 1, now) },
+                    card = target?.let { sessionCard(it, titles[it.id] ?: "", now) },
                     issueId = issueId,
                     identifier = issueId?.let { issues[it]?.identifier },
                 ),
@@ -627,19 +633,19 @@ object SessionTree {
     ): ThreadView {
         val tree = treeOrder(sessions.filter { it.rootId == root.id || it.id == root.id }).toMutableList()
         if (tree.none { it.id == root.id }) tree.add(0, root)
-        val ordinals = tree.mapIndexed { index, s -> s.id to index + 1 }.toMap()
         val byId = sessions.associateBy { it.id }.toMutableMap()
         byId[root.id] = root
+        val titles = sessionTitles(byId.values.toList(), sessionIssues, issues, messages)
         val linked = rootIssues(root.id, sessionIssues, issues)
         val issueMap = issues.associateBy { it.id }
         val prMap = pullRequests.associateBy { it.id }
         val own = messages.filter { it.sessionId == root.id }.sortedWith(messageOrder)
-        val title = threadTitle(root, linked, own)
+        val title = titles.getValue(root.id)
         val focused = focus?.let { id -> tree.firstOrNull { it.id == id } }
         // EXP-1334: the conversation IS the dispatcher (no chip of its own);
         // the chips = its DIRECT children, every deeper session folded under
         // its top-level ancestor (the chip's dropdown).
-        fun nameOf(s: Session) = sessionCard(s, ordinals[s.id] ?: 1, now).name
+        fun nameOf(s: Session) = sessionCard(s, titles[s.id] ?: "", now).name
         val treeIds = tree.map { it.id }.toSet()
         val sessionTabs = foldForest(
             tree.filter { it.id != root.id },
@@ -697,7 +703,7 @@ object SessionTree {
             when (card.str("kind")) {
                 DomainContract.messageCardKindSession, DomainContract.messageCardKindThreadStarted -> {
                     val target = card.str("sessionId")?.let { byId[it] } ?: continue
-                    rows.add(ThreadRow.SessionRow(message.id, sessionCard(target, ordinals[target.id] ?: 1, now)))
+                    rows.add(ThreadRow.SessionRow(message.id, sessionCard(target, titles[target.id] ?: "", now)))
                 }
                 DomainContract.messageCardKindQuestion -> rows.add(
                     ThreadRow.Question(
@@ -745,14 +751,14 @@ object SessionTree {
                             sessionId = target.id,
                             text = ThreadCopy.REPORT.replace(
                                 "{session}",
-                                sessionCard(target, ordinals[target.id] ?: 1, now).name,
+                                sessionCard(target, titles[target.id] ?: "", now).name,
                             ),
                             summary = card.str("summary") ?: message.body,
                         ),
                     )
                 }
                 DomainContract.messageCardKindSuggestions -> {
-                    suggestionsRow(message, card, byId, ordinals, issueMap, now)?.let(rows::add)
+                    suggestionsRow(message, card, byId, titles, issueMap, now)?.let(rows::add)
                 }
                 DomainContract.messageCardKindEvent -> {
                     val text = eventText(card, issueMap, prMap)
@@ -846,6 +852,11 @@ object SessionTree {
         }
         fun unreadAt(newest: Long?, sessionId: String) = newest != null && newest > (readAt[sessionId] ?: -1L)
         val now = ""
+        // Converted once: titles are resolved per row below.
+        val titleLinks = sessionIssues.map(::titleLink)
+        val titleIssues = issues.map(::titleIssue)
+        val titleMessages = messages.map(::titleMessage)
+        fun titleOf(s: Session) = SessionTitle.sessionTitle(titleSession(s), titleLinks, titleIssues, titleMessages)
         val roots = sessions.filter {
             it.parentId == null && it.kind == DomainContract.sessionKindThread &&
                 (teamId == null || it.teamId == teamId)
@@ -867,7 +878,7 @@ object SessionTree {
             val activity = tree.fold(root.updatedAt) { latest, s ->
                 if ((ms(s.updatedAt) ?: 0L) > (ms(latest) ?: 0L)) s.updatedAt else latest
             }
-            val title = threadTitle(root, rootIssues(root.id, sessionIssues, issues), messages)
+            val title = titleOf(root)
             val row = ThreadsListRow(
                 sessionId = root.id,
                 teamId = root.teamId,
@@ -880,7 +891,7 @@ object SessionTree {
                 parentId = null,
                 rootId = root.id,
                 unread = unreadAt(newestAgentInTree[root.id], root.id),
-                caption = sessionCard(root, 1, now).caption,
+                caption = sessionCard(root, title, now).caption,
             )
             val key = when {
                 needsYou -> ThreadsGroupKey.NeedsYou
@@ -892,11 +903,10 @@ object SessionTree {
             val children = mutableListOf<ThreadsListRow>()
             if (key != ThreadsGroupKey.Recent) {
                 val ordered = treeOrder(tree)
-                val ordinals = ordered.mapIndexed { index, s -> s.id to index + 1 }.toMap()
                 fun walk(parentId: String, depth: Int) {
                     for (child in ordered) {
                         if (child.parentId != parentId || child.aside) continue
-                        val card = sessionCard(child, ordinals[child.id] ?: 1, now)
+                        val card = sessionCard(child, titleOf(child), now)
                         val ended = child.status == DomainContract.sessionStatusEnded
                         children.add(
                             ThreadsListRow(
@@ -1225,7 +1235,12 @@ object SessionTree {
     )
 
     fun sessionIssue(row: SessionIssueEntity): SessionIssue =
-        SessionIssue(sessionId = row.sessionId, issueId = row.issueId, sortOrder = row.sortOrder)
+        SessionIssue(
+            sessionId = row.sessionId,
+            issueId = row.issueId,
+            sortOrder = row.sortOrder,
+            assignedSessionId = row.assignedSessionId,
+        )
 
     fun issue(row: IssueEntity, parentId: String? = null): Issue =
         Issue(id = row.id, identifier = row.identifier, title = row.title, parentId = parentId)

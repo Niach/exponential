@@ -132,7 +132,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v63_issue_draft_id", "v64_attachment_as_file",
              "v65_trigger_id", "v66_threads",
              "v67_issue_draft_thread", "v68_session_tree",
-             "v69_session_dispatch", "v70_session_talk"]
+             "v69_session_dispatch", "v70_session_talk", "v71_session_issue_assignee"]
         )
     }
 
@@ -186,7 +186,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v63_issue_draft_id", "v64_attachment_as_file",
              "v65_trigger_id", "v66_threads",
              "v67_issue_draft_thread", "v68_session_tree",
-             "v69_session_dispatch", "v70_session_talk"]
+             "v69_session_dispatch", "v70_session_talk", "v71_session_issue_assignee"]
         )
     }
 
@@ -711,7 +711,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v63_issue_draft_id", "v64_attachment_as_file",
              "v65_trigger_id", "v66_threads",
              "v67_issue_draft_thread", "v68_session_tree",
-             "v69_session_dispatch", "v70_session_talk"]
+             "v69_session_dispatch", "v70_session_talk", "v71_session_issue_assignee"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -813,7 +813,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v63_issue_draft_id", "v64_attachment_as_file",
              "v65_trigger_id", "v66_threads",
              "v67_issue_draft_thread", "v68_session_tree",
-             "v69_session_dispatch", "v70_session_talk"]
+             "v69_session_dispatch", "v70_session_talk", "v71_session_issue_assignee"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }
@@ -1876,7 +1876,8 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertEqual(
             try columnNames(pool, "session_issues"),
             ["id", "session_id", "issue_id", "team_id", "source", "added_by",
-             "added_by_session_id", "sort_order", "created_at", "updated_at"]
+             "added_by_session_id", "sort_order", "created_at", "updated_at",
+             "assigned_session_id"]
         )
         XCTAssertEqual(
             try columnNames(pool, "messages"),

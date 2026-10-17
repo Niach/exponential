@@ -1,0 +1,13 @@
+{
+  "$comment": "EXP-1341: ONE session model. Every session is a `sessions` row run by the same engine; a root dispatches (its prompt says so, `dispatch` stamped at creation for every root, agents included) and that prompt is the ONLY behavioural difference of a thread. An agent = a root that is `persistent` (never ends: an exit or a refused launch reports `idle`, `sessions.end` refuses it, its scratch dir is kept, a message resumes the SAME row, and its device REVIVES it when it comes back) and carries `triggers`. sessionTraits(kind) reads `kinds`; an unknown kind = `thread`. Mirrors: TS src/session-kind.ts, desktop `domain::session_kind`, iOS ExpCore `SessionKind.swift`, Android `domain/SessionKind.kt`; the server and the device branch on these traits, never on the kind string.",
+  "kinds": {
+    "thread": { "persistent": false, "triggers": false },
+    "agent": { "persistent": true, "triggers": true }
+  },
+  "cases": [
+    { "kind": "thread", "expected": { "persistent": false, "triggers": false } },
+    { "kind": "agent", "expected": { "persistent": true, "triggers": true } },
+    { "kind": "something-new", "expected": { "persistent": false, "triggers": false } },
+    { "kind": null, "expected": { "persistent": false, "triggers": false } }
+  ]
+}

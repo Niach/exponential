@@ -25,8 +25,8 @@ import {
 describe(`session-tree fixtures (EXP-1291)`, () => {
   for (const entry of card.cases) {
     test(`session card: ${entry.name}`, () => {
-      const { session, ordinal, now } = entry.input as never
-      expect(sessionCard(session, ordinal, now)).toEqual(entry.expected as never)
+      const { session, title, now } = entry.input as never
+      expect(sessionCard(session, title, now)).toEqual(entry.expected as never)
     })
   }
   for (const entry of thread.cases) {

@@ -105,7 +105,7 @@ function SessionRowSpecimen() {
     <div className="flex w-[300px] max-w-full flex-col gap-1 rounded-lg bg-sidebar p-2">
       <div className="px-2 py-1 text-xs text-muted-foreground">Running</div>
       {ROWS.map((row, index) => {
-        const card = sessionCard(row.session, 1, NOW)
+        const card = sessionCard(row.session, row.session.title ?? ``, NOW)
         return (
           <SessionRow
             key={row.session.id}

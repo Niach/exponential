@@ -105,7 +105,8 @@ final class SessionTreeTests: XCTestCase {
             TreeSessionIssue(
                 sessionId: try XCTUnwrap(string($0["sessionId"])),
                 issueId: try XCTUnwrap(string($0["issueId"])),
-                sortOrder: try XCTUnwrap($0["sortOrder"] as? Double)
+                sortOrder: try XCTUnwrap($0["sortOrder"] as? Double),
+                assignedSessionId: string($0["assignedSessionId"])
             )
         }
     }
@@ -281,7 +282,7 @@ final class SessionTreeTests: XCTestCase {
     func testSessionCardCopyMatchesTheFixture() throws {
         let fixture = try fixture("session-card.json")
         let copy = try XCTUnwrap(fixture["copy"] as? [String: Any])
-        XCTAssertEqual(copy["session"] as? String, SessionTree.CardCopy.session)
+        XCTAssertNil(copy["session"])
         let states = try XCTUnwrap(copy["states"] as? [String: String])
         let icons = try XCTUnwrap(fixture["icons"] as? [String: String])
         let tones = try XCTUnwrap(fixture["tones"] as? [String: String])
@@ -300,7 +301,7 @@ final class SessionTreeTests: XCTestCase {
             let input = try XCTUnwrap(testCase["input"] as? [String: Any])
             let card = SessionTree.sessionCard(
                 try session(input["session"]),
-                ordinal: try XCTUnwrap(input["ordinal"] as? Int),
+                title: try XCTUnwrap(input["title"] as? String),
                 now: try date(input["now"])
             )
             assertJSON(json(card), testCase["expected"], name)
@@ -324,12 +325,9 @@ final class SessionTreeTests: XCTestCase {
         XCTAssertEqual(copy["placeholder"] as? String, SessionTree.ThreadCopy.placeholder)
         XCTAssertEqual(copy["conversation"] as? String, SessionTree.ThreadCopy.conversation)
         XCTAssertEqual(copy["guide"] as? String, SessionTree.ThreadCopy.guide)
-        let titles = try XCTUnwrap(fixture["titles"] as? [String: String])
-        XCTAssertEqual(titles["action"], SessionTree.ThreadCopy.titleAction)
-        XCTAssertEqual(titles["issue"], SessionTree.ThreadCopy.titleIssue)
-        XCTAssertEqual(titles["issues"], SessionTree.ThreadCopy.titleIssues)
+        XCTAssertNil(fixture["titles"])
         XCTAssertEqual(copy["events"] as? [String: String], SessionTree.ThreadCopy.events)
-        XCTAssertEqual(fixture["titleMax"] as? Int, SessionTree.ThreadCopy.titleMax)
+        XCTAssertNil(fixture["titleMax"])
         let testIds = try XCTUnwrap(fixture["testIds"] as? [String: String])
         XCTAssertEqual(testIds["tabs"], SessionTree.ThreadCopy.tabsTestId)
         XCTAssertEqual(testIds["conversation"], SessionTree.ThreadCopy.conversationTestId)

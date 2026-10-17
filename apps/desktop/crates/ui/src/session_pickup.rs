@@ -145,6 +145,7 @@ fn action_session_id(action: &PickupAction) -> &str {
     match action {
         PickupAction::Launch { session }
         | PickupAction::Resume { session, .. }
+        | PickupAction::Revive { session }
         | PickupAction::Switch { session, .. } => &session.id,
         PickupAction::Deliver { session_id, .. }
         | PickupAction::Revoke { session_id, .. }
@@ -196,21 +197,25 @@ fn run_pass(cx: &mut App) {
     let in_flight = cx.global::<PickupHost>().in_flight.clone();
     let stalled = cx.global::<PickupHost>().stalled.clone();
     let views = live.live_views();
+    let revive_held = live.revive_held();
     let mut actions: Vec<PickupAction> = pickup::plan(PickupInput {
         device_id: &device_id,
         sessions: &sessions,
         messages: &messages,
         live: &views,
         in_flight: &in_flight,
+        revive_held: &revive_held,
     });
     // Rows this host claimed whose launch failed transiently read `running`
     // — the plan only launches `queued` ones.
     actions.extend(live.retry_launches(&device_id, &sessions, &in_flight));
     let blocking = |action: &PickupAction| match action {
         // EXP-849: a switch suspends + relaunches (network + git).
-        PickupAction::Launch { .. } | PickupAction::Resume { .. } | PickupAction::Switch { .. } => {
-            true
-        }
+        // EXP-1341: a revive resumes/launches (network + git).
+        PickupAction::Launch { .. }
+        | PickupAction::Resume { .. }
+        | PickupAction::Revive { .. }
+        | PickupAction::Switch { .. } => true,
         // A delivery to an engine that just finished wakes it.
         PickupAction::Deliver { session_id, .. } => !live.contains_live(session_id),
         _ => false,
@@ -266,6 +271,14 @@ fn run_pass(cx: &mut App) {
             PickupAction::Deliver { messages, .. } => {
                 woke(&session_id, pickup::deliver_messages(&session_id, messages, &deps))
             }
+            // EXP-1341: the registry backs a failed revive off on its own.
+            PickupAction::Revive { session } => match pickup::revive_session(session, &deps) {
+                Ok(()) => StepOutcome::Progressed,
+                Err(err) => {
+                    log::warn!("[pickup] reviving {session_id}: {err}");
+                    StepOutcome::Progressed
+                }
+            },
             PickupAction::Switch { session, account, messages } => switched(
                 &session_id,
                 account,

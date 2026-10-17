@@ -37,6 +37,12 @@ use crate::contract::{
     SESSION_STATUS_RUNNING,
 };
 use crate::rows::{Issue, MessageRow, PullRequestRow, SessionIssueRow, SessionReadRow, SessionRow};
+use crate::session_title::{session_title, session_titles};
+
+/// A resolved title from [`session_titles`] (`""` when absent, TS `?? ''`).
+fn title_of<'t>(titles: &'t HashMap<String, String>, id: &str) -> &'t str {
+    titles.get(id).map_or("", String::as_str)
+}
 
 // ---------------------------------------------------------------------------
 // Fixture-sourced copy
@@ -68,8 +74,6 @@ impl StateStrings {
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct SessionCardCopy {
-    /// `Session` (an untitled session reads `Session N`).
-    pub session: String,
     /// The muted state word per state.
     pub states: StateStrings,
 }
@@ -152,23 +156,7 @@ pub struct ThreadTestIds {
 #[serde(rename_all = "camelCase")]
 pub struct ThreadSpec {
     pub copy: ThreadCopy,
-    /// A title derived from a person's first line is capped at this many
-    /// characters (with `…`).
-    pub title_max: usize,
-    /// EXP-1316: the derived title templates.
-    pub titles: ThreadTitles,
     pub test_ids: ThreadTestIds,
-}
-
-/// `session-thread.json` `titles` (`{action}` / `{issue}` / `{more}` slots).
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-pub struct ThreadTitles {
-    /// `Run {action}`.
-    pub action: String,
-    /// `Implement {issue}`.
-    pub issue: String,
-    /// `Implement {issue} + {more}`.
-    pub issues: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -383,7 +371,7 @@ pub fn thread_row_mark_state(needs_you: bool, busy: bool) -> SessionState {
     }
 }
 
-/// Sessions of one tree in creation order (ties by id): `Session N` names.
+/// Sessions of one tree in creation order (ties by id).
 pub fn tree_order<'a>(sessions: &[&'a SessionRow]) -> Vec<&'a SessionRow> {
     let mut ordered = sessions.to_vec();
     ordered.sort_by(|a, b| {
@@ -392,15 +380,6 @@ pub fn tree_order<'a>(sessions: &[&'a SessionRow]) -> Vec<&'a SessionRow> {
             .then_with(|| a.id.cmp(&b.id))
     });
     ordered
-}
-
-/// The 1-based place of `session_id` in its tree's creation order (1 when
-/// it is not in `tree`): the `ordinal` [`session_card`] takes.
-pub fn tree_ordinal(session_id: &str, tree: &[&SessionRow]) -> usize {
-    tree_order(tree)
-        .iter()
-        .position(|session| session.id == session_id)
-        .map_or(1, |index| index + 1)
 }
 
 /// THE session card = the Work card's header row: icon, name, the muted
@@ -423,9 +402,9 @@ pub struct SessionCard {
     pub test_id: String,
 }
 
-/// The card for `session`; `ordinal` = its 1-based place in the tree's
-/// creation order (names an untitled session `Session N`).
-pub fn session_card(session: &SessionRow, ordinal: usize, now_ms: i64) -> SessionCard {
+/// The card for `session`; `title` = its [`session_title`] (EXP-1341,
+/// `fixtures/session-title.json`; never `Session N`).
+pub fn session_card(session: &SessionRow, title: &str, now_ms: i64) -> SessionCard {
     let state = session_state(session);
     let start = ms(session.started_at.as_deref());
     let end = if state == SessionState::Ended {
@@ -439,10 +418,7 @@ pub fn session_card(session: &SessionRow, ordinal: usize, now_ms: i64) -> Sessio
         }
         _ => None,
     };
-    let name = match session.explicit_title() {
-        Some(title) => title.to_string(),
-        None => format!("{} {ordinal}", SESSION_CARD.copy.session),
-    };
+    let name = title.to_string();
     let caption = session
         .caption
         .as_deref()
@@ -464,7 +440,7 @@ pub fn session_card(session: &SessionRow, ordinal: usize, now_ms: i64) -> Sessio
 }
 
 // ---------------------------------------------------------------------------
-// The thread title
+// The tree issue
 // ---------------------------------------------------------------------------
 
 /// An issue as the tree views need it.
@@ -494,63 +470,6 @@ impl TreeIssue {
         self.parent_id = parent_id;
         self
     }
-}
-
-/// First line of a person's text, capped (a thread named by its request).
-fn first_line(body: &str, max: usize) -> Option<String> {
-    let line = body
-        .split('\n')
-        .map(str::trim)
-        .find(|part| !part.is_empty() && !part.starts_with("!["))?;
-    if line.chars().count() > max {
-        let head: String = line.chars().take(max.saturating_sub(1)).collect();
-        Some(format!("{}…", head.trim_end()))
-    } else {
-        Some(line.to_string())
-    }
-}
-
-/// EXP-1316: a thread's title, never stored by a person (no rename ×4):
-/// an agent's `name`; else `Run <action>`; else `Implement <IDENT>` (the
-/// first issue of `issues` = the root's synced issues by sort order,
-/// `+ <n-1>` with more); else the stored title (the CLI's auto-name); else
-/// the first line of the root's first person message (capped); else
-/// `Untitled`.
-pub fn thread_title(root: &SessionRow, issues: &[TreeIssue], messages: &[&MessageRow]) -> String {
-    let titles = &THREAD.titles;
-    if kind_is(root, SESSION_KIND_AGENT) {
-        if let Some(name) = root.name.as_deref().map(str::trim).filter(|name| !name.is_empty()) {
-            return name.to_string();
-        }
-    }
-    if let Some(action) = root.action_name.as_deref().map(str::trim).filter(|name| !name.is_empty()) {
-        return titles.action.replacen("{action}", action, 1);
-    }
-    if let Some(first) = issues.first() {
-        return if issues.len() > 1 {
-            titles
-                .issues
-                .replacen("{issue}", &first.identifier, 1)
-                .replacen("{more}", &(issues.len() - 1).to_string(), 1)
-        } else {
-            titles.issue.replacen("{issue}", &first.identifier, 1)
-        };
-    }
-    if let Some(stored) = root.explicit_title() {
-        return stored.to_string();
-    }
-    let mut own: Vec<&MessageRow> = messages
-        .iter()
-        .copied()
-        .filter(|message| {
-            message.session_id == root.id
-                && message.author_kind.as_deref() == Some(MESSAGE_AUTHOR_KIND_USER)
-        })
-        .collect();
-    own.sort_by_key(|message| ms_or_zero(message.created_at.as_deref()));
-    own.first()
-        .and_then(|message| first_line(message.body_text(), THREAD.title_max))
-        .unwrap_or_else(|| THREAD.copy.untitled.clone())
 }
 
 /// The issues linked to `root_id`, by link sort order; unsynced issues drop
@@ -798,7 +717,7 @@ fn suggestions_row(
     message: &MessageRow,
     card: &Value,
     by_id: &HashMap<&str, &SessionRow>,
-    ordinals: &HashMap<&str, usize>,
+    titles: &HashMap<String, String>,
     issues: &HashMap<&str, &TreeIssue>,
     now: i64,
 ) -> Option<SessionThreadRow> {
@@ -830,9 +749,7 @@ fn suggestions_row(
             title: js_string(raw.get("title")),
             text: js_string(raw.get("text")),
             state,
-            card: target.map(|target| {
-                session_card(target, ordinals.get(target.id.as_str()).copied().unwrap_or(1), now)
-            }),
+            card: target.map(|target| session_card(target, title_of(titles, &target.id), now)),
             issue_id: issue_id.map(str::to_string),
             identifier: issue_id.and_then(|id| issues.get(id)).map(|issue| issue.identifier.clone()),
         });
@@ -1225,14 +1142,11 @@ pub fn build_session_thread(input: SessionThreadInput<'_>, focus: Option<&str>) 
     if !tree.iter().any(|session| session.id == root.id) {
         tree.insert(0, root);
     }
-    let ordinals: HashMap<&str, usize> = tree
-        .iter()
-        .enumerate()
-        .map(|(index, session)| (session.id.as_str(), index + 1))
-        .collect();
     let mut by_id: HashMap<&str, &SessionRow> =
         input.sessions.iter().map(|session| (session.id.as_str(), *session)).collect();
     by_id.insert(root.id.as_str(), root);
+    let everyone: Vec<&SessionRow> = by_id.values().copied().collect();
+    let titles = session_titles(&everyone, input.session_issues, input.issues, input.messages);
     let issues = root_issues(&root.id, input.session_issues, input.issues);
     let issue_map: HashMap<&str, &TreeIssue> =
         input.issues.iter().map(|issue| (issue.id.as_str(), issue)).collect();
@@ -1249,13 +1163,13 @@ pub fn build_session_thread(input: SessionThreadInput<'_>, focus: Option<&str>) 
             .cmp(&ms_or_zero(b.created_at.as_deref()))
             .then_with(|| a.id.cmp(&b.id))
     });
-    let title = thread_title(root, &issues, &own);
+    let title = title_of(&titles, &root.id).to_string();
     let focus = focus.and_then(|id| tree.iter().copied().find(|session| session.id == id));
     // EXP-1334: the conversation IS the dispatcher (no chip of its own); the
     // chips = its DIRECT children, every deeper session folded under its
     // top-level ancestor (the chip's dropdown).
     let name_of = |session: &SessionRow| {
-        session_card(session, ordinals.get(session.id.as_str()).copied().unwrap_or(1), now).name
+        session_card(session, title_of(&titles, &session.id), now).name
     };
     let tree_ids: HashSet<&str> = tree.iter().map(|session| session.id.as_str()).collect();
     let children: Vec<&SessionRow> = tree.iter().copied().filter(|session| session.id != root.id).collect();
@@ -1349,11 +1263,7 @@ pub fn build_session_thread(input: SessionThreadInput<'_>, focus: Option<&str>) 
                 };
                 rows.push(SessionThreadRow::Session {
                     id: message.id.clone(),
-                    card: session_card(
-                        target,
-                        ordinals.get(target.id.as_str()).copied().unwrap_or(1),
-                        now,
-                    ),
+                    card: session_card(target, title_of(&titles, &target.id), now),
                 });
             }
             Some(MESSAGE_CARD_KIND_QUESTION) => rows.push(SessionThreadRow::Question {
@@ -1392,7 +1302,7 @@ pub fn build_session_thread(input: SessionThreadInput<'_>, focus: Option<&str>) 
                 let Some(target) = card_str(card, "sessionId").and_then(|id| by_id.get(id)) else {
                     continue;
                 };
-                let name = session_card(target, ordinals.get(target.id.as_str()).copied().unwrap_or(1), now).name;
+                let name = session_card(target, title_of(&titles, &target.id), now).name;
                 rows.push(SessionThreadRow::Report {
                     id: message.id.clone(),
                     session_id: target.id.clone(),
@@ -1402,7 +1312,7 @@ pub fn build_session_thread(input: SessionThreadInput<'_>, focus: Option<&str>) 
                 });
             }
             Some(MESSAGE_CARD_KIND_SUGGESTIONS) => {
-                if let Some(row) = suggestions_row(message, card, &by_id, &ordinals, &issue_map, now) {
+                if let Some(row) = suggestions_row(message, card, &by_id, &titles, &issue_map, now) {
                     rows.push(row);
                 }
             }
@@ -1579,11 +1489,7 @@ pub fn partition_threads(input: ThreadsListInput<'_>) -> Vec<ThreadsListGroup> {
                 activity = session.updated_at.clone().unwrap_or_default();
             }
         }
-        let title = thread_title(
-            root,
-            &root_issues(&root.id, input.session_issues, input.issues),
-            input.messages,
-        );
+        let title = session_title(root, input.session_issues, input.issues, input.messages);
         let key = if needs_you {
             ThreadsListKey::NeedsYou
         } else if running {
@@ -1591,6 +1497,7 @@ pub fn partition_threads(input: ThreadsListInput<'_>) -> Vec<ThreadsListGroup> {
         } else {
             ThreadsListKey::Recent
         };
+        let caption = session_card(root, &title, 0).caption;
         let row = ThreadsListRow {
             session_id: root.id.clone(),
             team_id: root.team_id.clone().unwrap_or_default(),
@@ -1602,7 +1509,7 @@ pub fn partition_threads(input: ThreadsListInput<'_>) -> Vec<ThreadsListGroup> {
             busy: live.iter().any(|session| session.busy),
             needs_you,
             unread: unread_at(newest_agent_in_tree.get(root.id.as_str()), &root.id),
-            caption: session_card(root, 1, 0).caption,
+            caption,
             activity_at: activity,
         };
         // A live tree nests its children (depth-first, creation order;
@@ -1610,8 +1517,6 @@ pub fn partition_threads(input: ThreadsListInput<'_>) -> Vec<ThreadsListGroup> {
         let mut children = Vec::new();
         if key != ThreadsListKey::Recent {
             let ordered = tree_order(tree);
-            let ordinals: HashMap<&str, usize> =
-                ordered.iter().enumerate().map(|(index, session)| (session.id.as_str(), index + 1)).collect();
             fn walk<'s>(
                 parent_id: &str,
                 depth: usize,
@@ -1627,7 +1532,11 @@ pub fn partition_threads(input: ThreadsListInput<'_>) -> Vec<ThreadsListGroup> {
                 }
             }
             walk(&root.id, 1, &ordered, &mut |child, parent_id, depth| {
-                let card = session_card(child, ordinals.get(child.id.as_str()).copied().unwrap_or(1), 0);
+                let card = session_card(
+                    child,
+                    &session_title(child, input.session_issues, input.issues, input.messages),
+                    0,
+                );
                 children.push(ThreadsListRow {
                     session_id: child.id.clone(),
                     team_id: child.team_id.clone().unwrap_or_default(),
@@ -1945,12 +1854,10 @@ mod tests {
 
     #[test]
     fn the_copy_comes_from_the_fixtures() {
-        assert_eq!(SESSION_CARD.copy.session, "Session");
         assert_eq!(SessionState::NeedsYou.word(), "Needs you");
         assert_eq!(SessionState::Working.icon(), "coding-running");
         assert_eq!(SessionState::Blocked.tone(), "rose");
         assert_eq!(THREAD.copy.placeholder, "Type / for commands");
-        assert_eq!(THREAD.title_max, 80);
         assert_eq!(THREADS_LIST.copy.title, "Threads");
         assert_eq!(ThreadsListKey::Recent.title(), "Recent");
         assert_eq!(THREADS_LIST.agent_defaults.icon, "bot");
@@ -1974,8 +1881,8 @@ mod tests {
             let name = case["name"].as_str().unwrap();
             let input = &case["input"];
             let session: SessionRow = row(&input["session"], "s");
-            let ordinal = input["ordinal"].as_u64().unwrap() as usize;
-            assert_whole(session_card(&session, ordinal, now(&input["now"])), &case["expected"], name);
+            let title = input["title"].as_str().unwrap();
+            assert_whole(session_card(&session, title, now(&input["now"])), &case["expected"], name);
         }
     }
 
@@ -2197,13 +2104,5 @@ mod tests {
             );
             assert_whole(&layout, &case["expected"], case["name"].as_str().unwrap());
         }
-    }
-
-    #[test]
-    fn tree_ordinal_counts_from_the_oldest() {
-        let a: SessionRow = row(&json!({"id": "a", "createdAt": "2026-10-13T10:00:00Z"}), "a");
-        let b: SessionRow = row(&json!({"id": "b", "createdAt": "2026-10-13T11:00:00Z"}), "b");
-        assert_eq!(tree_ordinal("b", &[&b, &a]), 2);
-        assert_eq!(tree_ordinal("zz", &[&b, &a]), 1);
     }
 }

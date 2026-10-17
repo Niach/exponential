@@ -971,8 +971,8 @@ pub(crate) fn host_prepared(
     let started_by_id = crate::session_data::session(&session_id, cx).and_then(|row| row.user_id);
     // EXP-1292: a team agent's ROOT never ends — its engine idles the row on
     // exit. `prepare` recorded the kind in the run record a moment ago.
-    let agent_root = coding::run_registry::get(&coding_data_dir(cx), &session_id)
-        .is_some_and(|record| record.kind == coding::run_registry::RunKind::Agent);
+    let persistent = coding::run_registry::get(&coding_data_dir(cx), &session_id)
+        .is_some_and(|record| record.kind.is_persistent());
     let run_cleanup = prepared.run_cleanup.clone();
     // EXP-792: the team MCP servers this run starts WITHOUT — logged; the
     // run's own transcript carries the warning.
@@ -1049,7 +1049,7 @@ pub(crate) fn host_prepared(
         own_user_id: Some(account.user_id),
         // REV2-17 + the agent's MCP bearer.
         personal_key: crate::steer_wiring::personal_key(cx),
-        agent_root,
+        persistent,
         foreign_host: crate::steer_wiring::foreign_host(started_by_id.as_deref(), cx),
         // EXP-1005: the desktop runs the account-rotation beat.
         rotation_host: true,

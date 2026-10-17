@@ -31,9 +31,8 @@ import {
   updateWorkTabs,
   useWorkTabs,
 } from "@/hooks/use-work-tabs"
-import { useAgents, useThreadsList } from "@/hooks/use-session-tree"
+import { useAgents, useSessionTitles, useThreadsList } from "@/hooks/use-session-tree"
 import {
-  SESSION_CARD_COPY,
   sessionState,
   toTreeSession,
   type SessionRow,
@@ -150,10 +149,14 @@ export function WorkTabsStrip({
     () => new Map(((issueRows ?? []) as Issue[]).map((row) => [row.id, row])),
     [issueRows]
   )
+  const sessionList = useMemo(() => (sessionRows ?? []) as SessionRow[], [sessionRows])
   const sessionsById = useMemo(
-    () => new Map(((sessionRows ?? []) as SessionRow[]).map((row) => [row.id, row])),
-    [sessionRows]
+    () => new Map(sessionList.map((row) => [row.id, row])),
+    [sessionList]
   )
+  // EXP-1341: a session tab reads THE display title (`sessionTitle`); a
+  // held one (its shapes still loading) shows the placeholder.
+  const { titles: sessionTitles } = useSessionTitles(sessionList)
   // Thread chips read their title + state off the Threads list (the ONE
   // model, `partitionThreads`); agent chips off the Agents list. Neither
   // query runs while no such tab is open.
@@ -260,7 +263,7 @@ export function WorkTabsStrip({
           key,
           tab,
           identifier: null,
-          title: row ? row.title?.trim() || SESSION_CARD_COPY.session : null,
+          title: row ? (sessionTitles.get(row.id) ?? null) : null,
           lead: row ? <SessionMark row={row} /> : <LiveDot tone="muted" />,
         }
       }

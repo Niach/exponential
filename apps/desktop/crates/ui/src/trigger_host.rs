@@ -424,7 +424,7 @@ fn busy_agent_ids(
     let mut busy: HashSet<String> = posted.keys().cloned().collect();
     busy.extend(
         rows.iter()
-            .filter(|row| row.is_agent() && row.busy)
+            .filter(|row| row.has_triggers() && row.busy)
             .map(|row| row.id.clone()),
     );
     busy.extend(

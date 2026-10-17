@@ -786,6 +786,17 @@ impl SessionRow {
         self.kind.as_deref() == Some(crate::contract::SESSION_KIND_AGENT)
     }
 
+    /// EXP-1341: a persistent session (an agent root): it idles instead of
+    /// ending and its device revives it ([`crate::session_kind`]).
+    pub fn is_persistent(&self) -> bool {
+        crate::session_kind::is_persistent(self.kind.as_deref())
+    }
+
+    /// EXP-1341: carries triggers its device fires (an agent root's kind).
+    pub fn has_triggers(&self) -> bool {
+        crate::session_kind::has_triggers(self.kind.as_deref())
+    }
+
     /// A thread session (root or child): every kind that is not `agent`.
     pub fn is_thread(&self) -> bool {
         !self.is_agent()
@@ -856,6 +867,10 @@ pub struct SessionIssueRow {
     pub added_by: Option<String>,
     #[serde(default)]
     pub added_by_session_id: Option<String>,
+    /// EXP-1341: the tree session working on it (`None` = the root's own);
+    /// a child's title + brief read only its ASSIGNED links.
+    #[serde(default)]
+    pub assigned_session_id: Option<String>,
     /// Ascending = the thread's issue-chip order.
     #[serde(default, deserialize_with = "tolerant_opt_f64")]
     pub sort_order: Option<f64>,

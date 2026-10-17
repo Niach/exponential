@@ -189,7 +189,7 @@ describe(`notifySessionBlocked — the run's owner gets a row and a push that ro
   it(`names the session by its title and pushes the session target`, async () => {
     selectResults.push([{ ...session, title: `Fix login` }])
     selectResults.push([]) // throttle: no recent wall
-    selectResults.push([]) // the root's issues: none, so the stored title names it (EXP-1316)
+    // EXP-1341: a stored title names it before any lookup.
     selectResults.push([{ id: `owner` }]) // membership guard
     executeState.rows = [{ id: `n-1`, user_id: `owner` }]
     selectResults.push([]) // push prefs: not muted
@@ -209,17 +209,30 @@ describe(`notifySessionBlocked — the run's owner gets a row and a push that ro
   it(`derives an untitled thread's name from its first issue, else its action`, async () => {
     selectResults.push([session])
     selectResults.push([]) // throttle
-    selectResults.push([{ identifier: `EXP-12`, title: `Login bug` }]) // the root's issues
+    // EXP-1341 session-title.json: the tree's links, then the input messages.
+    selectResults.push([
+      {
+        sessionId: `sess-1`,
+        issueId: `i-12`,
+        sortOrder: 1,
+        assignedSessionId: null,
+        id: `i-12`,
+        identifier: `EXP-12`,
+        title: `Login bug`,
+      },
+    ])
+    selectResults.push([])
     selectResults.push([{ id: `owner` }])
     executeState.rows = [{ id: `n-1`, user_id: `owner` }]
     selectResults.push([])
     await notifySessionBlocked(`sess-1`, blocked)
-    // EXP-1316: a thread is named after its work, `Implement <IDENT>`.
-    expect(vi.mocked(sendToUsers).mock.calls[0]![1].title).toBe(`Implement EXP-12 hit a rate limit`)
+    expect(vi.mocked(sendToUsers).mock.calls[0]![1].title).toBe(`#EXP-12 Login bug hit a rate limit`)
 
     vi.mocked(sendToUsers).mockClear()
     selectResults.push([{ ...session, actionName: `Triage inbox` }])
     selectResults.push([])
+    selectResults.push([]) // links: none
+    selectResults.push([]) // messages: none
     selectResults.push([{ id: `owner` }])
     selectResults.push([])
     await notifySessionBlocked(`sess-2`, blocked)
@@ -247,6 +260,8 @@ describe(`notifySessionBlocked — the run's owner gets a row and a push that ro
     const minutesAgo = (m: number) => new Date(Date.now() - m * 60_000)
 
     function expectDelivered() {
+      selectResults.push([]) // title: links
+      selectResults.push([]) // title: input messages
       selectResults.push([{ id: `owner` }]) // membership guard
       executeState.rows = [{ id: `n-2`, user_id: `owner` }]
       selectResults.push([]) // push prefs

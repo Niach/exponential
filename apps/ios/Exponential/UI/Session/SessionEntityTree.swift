@@ -43,7 +43,12 @@ extension TreeSession {
 
 extension TreeSessionIssue {
     init(sessionIssueRow row: SessionIssueEntity) {
-        self.init(sessionId: row.sessionId, issueId: row.issueId, sortOrder: row.sortOrder)
+        self.init(
+            sessionId: row.sessionId,
+            issueId: row.issueId,
+            sortOrder: row.sortOrder,
+            assignedSessionId: row.assignedSessionId
+        )
     }
 }
 
@@ -90,27 +95,20 @@ extension SessionEntity {
         SessionTree.sessionState(TreeSession(sessionRow: self))
     }
 
-    /// The session's name as its card reads it: its own title, else
-    /// `Session N` by its place in the tree (`SessionTree.sessionCard`).
-    /// `tree` = every row of its tree (any order); empty = `Session`.
-    func cardName(in tree: [SessionEntity], now: Date = Date()) -> String {
-        let ordered = SessionTree.treeOrder(tree.map { TreeSession(sessionRow: $0) })
-        guard let index = ordered.firstIndex(where: { $0.id == id }) else {
-            let own = title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            return own.isEmpty ? SessionTree.CardCopy.session : own
-        }
-        return SessionTree.sessionCard(ordered[index], ordinal: index + 1, now: now).name
-    }
 }
 
 extension SessionTree {
-    /// A ROOT row's thread title off the synced rows (`threadTitle`: agent name,
-    /// action, issues, stored, first request line, `Untitled`).
-    static func threadTitle(db: Database, root: SessionEntity) throws -> String {
-        let issues = try SessionQueries.issues(db: db, rootId: root.id)
-        let messages = try SessionQueries.messages(db: db, sessionId: root.id)
-        return threadTitle(
-            root: TreeSession(sessionRow: root),
+    /// THE display title of any session (root, child or agent) off the
+    /// synced rows (EXP-1341 `SessionTitle`: name/title → its issues (a
+    /// root's links, a child's ASSIGNED ones) → `Run <action>` → its first
+    /// prompt → `Untitled`; never `Session N`).
+    static func sessionTitle(db: Database, session: SessionEntity) throws -> String {
+        let links = try SessionQueries.sessionIssues(db: db, rootId: session.rootId)
+        let issues = try SessionQueries.issues(db: db, rootId: session.rootId)
+        let messages = try SessionQueries.messages(db: db, sessionId: session.id)
+        return SessionTitle.title(
+            TreeSession(sessionRow: session),
+            sessionIssues: links.map { TreeSessionIssue(sessionIssueRow: $0) },
             issues: issues.map { TreeIssue(issueRow: $0) },
             messages: messages.map { TreeMessage(messageRow: $0) }
         )

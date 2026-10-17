@@ -18,9 +18,9 @@ use api::session_device;
 use api::ApiError;
 
 use crate::launcher::{PrepareRequest, Prepared, ResumeRun, SessionLaunchRequest};
-use crate::run_registry::{RunKind, RunRecord};
+use crate::run_registry::RunRecord;
 use domain::contract::{
-    SESSION_KIND_AGENT, SESSION_STATUS_ENDED, SESSION_STATUS_IDLE, SESSION_STATUS_QUEUED,
+    SESSION_STATUS_ENDED, SESSION_STATUS_IDLE, SESSION_STATUS_QUEUED,
     SESSION_STATUS_RUNNING,
 };
 use domain::rows::{MessageRow, SessionRow};
@@ -335,6 +335,10 @@ pub struct PickupInput<'a> {
     /// Sessions this host is claiming/launching/resuming right now (no
     /// second action for them until the attempt settles).
     pub in_flight: &'a HashSet<String>,
+    /// EXP-1341: persistent roots NOT to revive this pass
+    /// ([`LiveRegistry::revive_held`]: already revived or run in this
+    /// process, backing off after a failed attempt, or given up).
+    pub revive_held: &'a HashSet<String>,
 }
 
 /// What the host must do. Ordered: kills first, then launches/resumes, then
@@ -350,6 +354,13 @@ pub enum PickupAction {
     /// (native resume) with `message` as the first prompt; consume it once
     /// sent. Later pending messages are delivered once it is live.
     Resume { session: SessionRow, message: MessageRow },
+    /// EXP-1341: a PERSISTENT root (`domain::session_kind`, an agent) on
+    /// this device reading `running`/`idle` with NO engine here and nothing
+    /// pending (its device came back, its process is gone): [`revive_session`]
+    /// resumes it from its run record with no prompt (it idles, waiting), or
+    /// with no record launches it from its brief. Once per absence
+    /// ([`LiveRegistry::revive_held`]).
+    Revive { session: SessionRow },
     /// Pending person messages of a LIVE session not yet handed to its
     /// engine, oldest first: `EngineSession::deliver(id, body)` each.
     Deliver { session_id: String, messages: Vec<MessageRow> },
@@ -382,6 +393,9 @@ pub enum PickupAction {
 /// - **Launch**: a `queued` row naming this device with no engine here.
 /// - **Resume**: a `running`/`idle` row naming this device with no engine
 ///   here and a pending person message (the oldest rides along).
+/// - **Revive** (EXP-1341): the same without a pending message, for a
+///   PERSISTENT root only (an agent never ends: its device revives it when
+///   it comes back), unless [`PickupInput::revive_held`] names it.
 /// - **Revoke**: a handed message whose row is gone (unqueued).
 /// - **Deliver**: a live session's pending person messages not yet handed.
 /// - **Answer**: an open card of a live session whose row is answered.
@@ -453,6 +467,8 @@ pub fn plan(input: PickupInput<'_>) -> Vec<PickupAction> {
                     row,
                     PickupAction::Resume { session: row.clone(), message: (*first).clone() },
                 ));
+            } else if row.is_root() && row.is_persistent() && !input.revive_held.contains(&row.id) {
+                starts.push((row, PickupAction::Revive { session: row.clone() }));
             }
         }
     }
@@ -776,6 +792,25 @@ pub struct LiveRegistry {
     /// Person message ids the pickup consumes itself (ones the session's
     /// previous engine handed over but could not report) — never delivered.
     consuming: std::sync::Mutex<HashSet<String>>,
+    /// EXP-1341: persistent roots and their revive state in THIS process
+    /// ([`LiveRegistry::revive_held`]).
+    revives: std::sync::Mutex<HashMap<String, ReviveState>>,
+}
+
+/// EXP-1341: one persistent root's revive state in this process. An engine
+/// that ran here (launched, resumed or revived) settles it for good: once
+/// per absence = once per host process, so an agent whose process exits
+/// idle later waits for its next message instead of looping.
+#[derive(Debug, Clone, Copy)]
+struct ReviveState {
+    attempts: u32,
+    not_before: std::time::Instant,
+    settled: bool,
+}
+
+/// EXP-1341: the wait after the n-th failed revive (30 s, 1, 2, 4 min).
+fn revive_backoff(attempts: u32) -> std::time::Duration {
+    std::time::Duration::from_secs(30u64 << attempts.saturating_sub(1).min(4))
 }
 
 fn locked<T>(mutex: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -836,6 +871,46 @@ impl LiveRegistry {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .remove(session_id);
+        self.settle_revive(session_id);
+    }
+
+    /// EXP-1341: the persistent roots [`plan`] must not revive right now —
+    /// one an engine ran for in this process, one backing off after a
+    /// failed attempt, or one given up after [`MAX_LAUNCH_ATTEMPTS`].
+    pub fn revive_held(&self) -> HashSet<String> {
+        let now = std::time::Instant::now();
+        locked(&self.revives)
+            .iter()
+            .filter(|(_, state)| {
+                state.settled || state.attempts >= MAX_LAUNCH_ATTEMPTS || now < state.not_before
+            })
+            .map(|(id, _)| id.clone())
+            .collect()
+    }
+
+    /// Count a revive attempt (the backoff starts now); returns the count.
+    fn note_revive(&self, session_id: &str) -> u32 {
+        let mut revives = locked(&self.revives);
+        let state = revives.entry(session_id.to_string()).or_insert(ReviveState {
+            attempts: 0,
+            not_before: std::time::Instant::now(),
+            settled: false,
+        });
+        state.attempts += 1;
+        state.not_before = std::time::Instant::now() + revive_backoff(state.attempts);
+        state.attempts
+    }
+
+    /// Never revive `session_id` again in this process.
+    fn settle_revive(&self, session_id: &str) {
+        locked(&self.revives)
+            .entry(session_id.to_string())
+            .and_modify(|state| state.settled = true)
+            .or_insert(ReviveState {
+                attempts: 0,
+                not_before: std::time::Instant::now(),
+                settled: true,
+            });
     }
 
     pub fn get(&self, session_id: &str) -> Option<std::sync::Arc<dyn LiveEngine>> {
@@ -1118,6 +1193,13 @@ impl LiveRegistry {
 /// the brief never does. The LAST heading wins: sections run Request ·
 /// Action · Issues · Parent, so a person's text cannot shadow it.
 pub fn brief_issue_identifiers(brief: &str) -> Vec<String> {
+    brief_issues(brief).into_iter().map(|(identifier, _)| identifier).collect()
+}
+
+/// EXP-1341: [`brief_issue_identifiers`] with each line's title
+/// (`- <IDENTIFIER> <title>` → `(identifier, title)`, the title trimmed):
+/// what the launcher's label names a session by (`domain::session_title`).
+pub fn brief_issues(brief: &str) -> Vec<(String, String)> {
     const HEADING: &str = "## Issues\n\n";
     let section = if brief.starts_with(HEADING) {
         Some(&brief[HEADING.len()..])
@@ -1132,9 +1214,11 @@ pub fn brief_issue_identifiers(brief: &str) -> Vec<String> {
     section
         .lines()
         .map_while(|line| line.strip_prefix("- "))
-        .filter_map(|line| line.split_whitespace().next())
-        .filter(|identifier| is_issue_identifier(identifier))
-        .map(str::to_string)
+        .filter_map(|line| {
+            let line = line.trim();
+            let (identifier, title) = line.split_once(char::is_whitespace).unwrap_or((line, ""));
+            is_issue_identifier(identifier).then(|| (identifier.to_string(), title.trim().to_string()))
+        })
         .collect()
 }
 
@@ -1287,7 +1371,7 @@ pub fn launch_queued(row: &SessionRow, deps: &PickupDeps) -> Result<LaunchQueued
     let gave_up = |reason: String| {
         if attempt >= MAX_LAUNCH_ATTEMPTS {
             deps.live.settle(&row.id);
-            refuse(row.is_agent(), &row.id, &reason, true, deps);
+            refuse(row.is_persistent(), &row.id, &reason, true, deps);
         }
         reason
     };
@@ -1321,7 +1405,7 @@ pub fn launch_queued(row: &SessionRow, deps: &PickupDeps) -> Result<LaunchQueued
         Err(err) => {
             deps.live.settle(&row.id);
             let reason = format!("Couldn't start this session: {err}");
-            refuse(row.is_agent(), &row.id, &reason, false, deps);
+            refuse(row.is_persistent(), &row.id, &reason, false, deps);
             return Err(reason);
         }
     };
@@ -1358,12 +1442,12 @@ pub fn launch_queued(row: &SessionRow, deps: &PickupDeps) -> Result<LaunchQueued
         Ok(Ok(prepared)) => {
             deps.live.settle(&row.id);
             let honored = Some(crate::agent_profiles::profile_id(row.account.as_deref()));
-            spawn(&row.id, row.is_agent(), prepared, claim, false, honored, Some(row), deps)?;
+            spawn(&row.id, row.is_persistent(), prepared, claim, false, honored, Some(row), deps)?;
             Ok(LaunchQueued::Launched { session_id: row.id.clone() })
         }
         Ok(Err(reason)) => {
             deps.live.settle(&row.id);
-            refuse(row.is_agent(), &row.id, &reason, false, deps);
+            refuse(row.is_persistent(), &row.id, &reason, false, deps);
             Ok(LaunchQueued::Disabled { reason })
         }
         Err(err) if prepare_transient(&err) => {
@@ -1372,7 +1456,7 @@ pub fn launch_queued(row: &SessionRow, deps: &PickupDeps) -> Result<LaunchQueued
         Err(err) => {
             deps.live.settle(&row.id);
             let reason = format!("Couldn't start this session: {err}");
-            refuse(row.is_agent(), &row.id, &reason, false, deps);
+            refuse(row.is_persistent(), &row.id, &reason, false, deps);
             Err(reason)
         }
     }
@@ -1517,16 +1601,16 @@ fn deliver(
         device_label: deps.device_label.clone(),
         options,
     };
-    let is_agent = row.is_agent();
+    let persistent = row.is_persistent();
     let refused = |reason: String| {
-        refuse(is_agent, session_id, &reason, true, deps);
+        refuse(persistent, session_id, &reason, true, deps);
         deps.live.note_refused(session_id, &pending);
         reason
     };
     match crate::prepare(&PrepareRequest::Session(req), &deps.coding) {
         Ok(Prepared::Ready(prepared)) => {
             let engine =
-                spawn(session_id, is_agent, prepared, claim, true, honored, at_hand.then_some(&row), deps)
+                spawn(session_id, persistent, prepared, claim, true, honored, at_hand.then_some(&row), deps)
                     .inspect_err(|_| deps.live.note_refused(session_id, &pending))?;
             let mut delivered = covered;
             let mut rest = pending.clone();
@@ -1548,6 +1632,77 @@ fn deliver(
     }
 }
 
+/// EXP-1341: revive a PERSISTENT root whose device came back with no
+/// engine for it ([`PickupAction::Revive`]): resumed natively from its run
+/// record with NO prompt (it waits idle for its next message), or with no
+/// record left launched afresh from its brief (an agent's empty brief says
+/// to wait). Once per absence: a failure backs off
+/// ([`LiveRegistry::revive_held`]) up to [`MAX_LAUNCH_ATTEMPTS`], then the
+/// row idles and stays down until a message wakes it; a refusal idles it at
+/// once (a persistent session never ends).
+pub fn revive_session(row: &SessionRow, deps: &PickupDeps) -> Result<(), String> {
+    let session_id = row.id.as_str();
+    if deps.live.contains_live(session_id) {
+        deps.live.settle_revive(session_id);
+        return Ok(());
+    }
+    let Some(claim) = ClaimLock::try_acquire(&deps.coding.data_dir, session_id)? else {
+        // Another process of this machine runs it.
+        deps.live.settle_revive(session_id);
+        return Ok(());
+    };
+    let attempt = deps.live.note_revive(session_id);
+    let give_up = |reason: String| {
+        log::warn!("pickup: reviving session {session_id} failed: {reason}");
+        if attempt >= MAX_LAUNCH_ATTEMPTS {
+            deps.live.settle_revive(session_id);
+            if let Err(err) = crate::idle_session(&deps.coding.trpc, session_id) {
+                log::warn!("pickup: unrevived session {session_id} not reported: {err}");
+            }
+        }
+        reason
+    };
+    let brief = session_device::brief(&deps.coding.trpc, session_id)
+        .map_err(|err| give_up(format!("brief of session {session_id}: {err}")))?;
+    let record = crate::run_registry::get(&deps.coding.data_dir, session_id);
+    let mut identifiers = brief_issue_identifiers(&brief.brief);
+    if identifiers.is_empty() {
+        identifiers = (deps.issue_identifiers)(row.root_id_or_self());
+    }
+    let req = SessionLaunchRequest {
+        session: row.clone(),
+        brief,
+        issue_identifiers: identifiers,
+        resume: record.map(|record| ResumeRun {
+            record,
+            prompt: String::new(),
+            message_id: None,
+            reconfigure: None,
+        }),
+        device_label: deps.device_label.clone(),
+        options: deps.options.clone(),
+    };
+    match crate::prepare(&PrepareRequest::Session(req), &deps.coding) {
+        Ok(Prepared::Ready(prepared)) => {
+            let honored = Some(crate::agent_profiles::profile_id(row.account.as_deref()));
+            // A failed spawn is replied and the row idled (`refuse`).
+            let spawned = spawn(session_id, true, prepared, claim, true, honored, Some(row), deps);
+            deps.live.settle_revive(session_id);
+            spawned.map(|_| log::info!("pickup: revived session {session_id}"))
+        }
+        Ok(Prepared::Disabled(reason)) => {
+            deps.live.settle_revive(session_id);
+            let reason = reason.message();
+            log::warn!("pickup: session {session_id} not revived: {reason}");
+            if let Err(err) = crate::idle_session(&deps.coding.trpc, session_id) {
+                log::warn!("pickup: unrevived session {session_id} not reported: {err}");
+            }
+            Err(reason)
+        }
+        Err(err) => Err(give_up(format!("Couldn't revive this session: {err}"))),
+    }
+}
+
 /// Run one [`plan`] action against this host. Launch/Resume/Deliver block
 /// (network + git) — call off the UI thread; Revoke/Answer/Kill only touch
 /// the live engine.
@@ -1557,6 +1712,7 @@ pub fn execute(action: &PickupAction, deps: &PickupDeps) -> Result<(), String> {
         PickupAction::Resume { session, message } => {
             resume_session(session, std::slice::from_ref(message), deps).map(|_| ())
         }
+        PickupAction::Revive { session } => revive_session(session, deps),
         PickupAction::Deliver { session_id, messages } => {
             deliver_messages(session_id, messages, deps).map(|_| ())
         }
@@ -1885,7 +2041,7 @@ pub fn switch_session(
     // resume's own requests, never stranding an id marked consuming.
     let _settle = SettleOwed { deps, session_id, ids: covered };
     let refused = |reason: &str| {
-        refuse(row.is_agent(), session_id, reason, true, deps);
+        refuse(row.is_persistent(), session_id, reason, true, deps);
         // Explained once: the same pending messages never re-post it.
         deps.live.note_refused(session_id, &pending);
     };
@@ -1921,10 +2077,10 @@ pub fn switch_session(
         device_label: deps.device_label.clone(),
         options,
     };
-    let is_agent = row.is_agent();
+    let persistent = row.is_persistent();
     match crate::prepare(&PrepareRequest::Session(req), &deps.coding) {
         Ok(Prepared::Ready(prepared)) => {
-            let engine = spawn(session_id, is_agent, prepared, claim, true, row_account, Some(&launch_row), deps)
+            let engine = spawn(session_id, persistent, prepared, claim, true, row_account, Some(&launch_row), deps)
                 .inspect_err(|_| deps.live.note_refused(session_id, &pending))
                 .map_err(failed)?;
             if let Some(model) = model.filter(|model| Some(model) != row_model(row).as_ref()) {
@@ -2157,7 +2313,7 @@ fn hand(
 #[allow(clippy::too_many_arguments)]
 fn spawn(
     session_id: &str,
-    is_agent: bool,
+    persistent: bool,
     prepared: crate::PreparedLaunch,
     claim: ClaimLock,
     waking: bool,
@@ -2187,22 +2343,22 @@ fn spawn(
         }
         Err(err) => {
             let reason = format!("Couldn't start this session: {err}");
-            refuse(is_agent, session_id, &reason, waking, deps);
+            refuse(persistent, session_id, &reason, waking, deps);
             Err(reason)
         }
     }
 }
 
 /// Explain a refusal in the conversation (an agent message), then settle
-/// the row: a refused LAUNCH ends a thread (an agent idles — agents never
-/// end); a refused WAKE leaves the row `idle`, so a later message can try
-/// again.
-fn refuse(is_agent: bool, session_id: &str, reason: &str, waking: bool, deps: &PickupDeps) {
+/// the row: a refused LAUNCH ends a thread (a PERSISTENT session idles —
+/// it never ends, `domain::session_kind`); a refused WAKE leaves the row
+/// `idle`, so a later message can try again.
+fn refuse(persistent: bool, session_id: &str, reason: &str, waking: bool, deps: &PickupDeps) {
     log::warn!("pickup: session {session_id} refused: {reason}");
     if let Err(err) = session_device::reply(&deps.coding.trpc, session_id, reason, None) {
         log::warn!("pickup: refusal of session {session_id} not replied: {err}");
     }
-    let settled = if is_agent || waking {
+    let settled = if persistent || waking {
         crate::idle_session(&deps.coding.trpc, session_id)
     } else {
         crate::end_session(&deps.coding.trpc, session_id)
@@ -2220,13 +2376,7 @@ fn row_from_record(record: &RunRecord, device_id: &str) -> SessionRow {
     SessionRow {
         id: record.session_id.clone(),
         team_id: some(&record.team_id),
-        kind: Some(
-            match record.kind {
-                RunKind::Agent => SESSION_KIND_AGENT,
-                RunKind::Thread => "thread",
-            }
-            .to_string(),
-        ),
+        kind: Some(record.kind.as_str().to_string()),
         device_id: Some(device_id.to_string()),
         cli: Some(record.agent.id().to_string()),
         account: record.account(),
@@ -2246,6 +2396,8 @@ fn row_from_record(record: &RunRecord, device_id: &str) -> SessionRow {
 mod tests {
     use super::*;
     use crate::agent::CodingAgent;
+    use crate::run_registry::RunKind;
+    use domain::contract::SESSION_KIND_AGENT;
     use crate::test_support::{
         canned_server, canned_server_recording, make_deps, temp_dir, FakeWorktrees, REPORT_OK,
         RESOLVE_NONE,
@@ -2312,11 +2464,18 @@ mod tests {
         messages: Vec<MessageRow>,
         live: HashMap<String, LiveView>,
         in_flight: HashSet<String>,
+        revive_held: HashSet<String>,
     }
 
     impl Pass {
         fn new(sessions: Vec<SessionRow>, messages: Vec<MessageRow>) -> Self {
-            Self { sessions, messages, live: HashMap::new(), in_flight: HashSet::new() }
+            Self {
+                sessions,
+                messages,
+                live: HashMap::new(),
+                in_flight: HashSet::new(),
+                revive_held: HashSet::new(),
+            }
         }
 
         fn live(mut self, id: &str, view: LiveView) -> Self {
@@ -2331,6 +2490,7 @@ mod tests {
                 messages: &self.messages,
                 live: &self.live,
                 in_flight: &self.in_flight,
+                revive_held: &self.revive_held,
             })
         }
     }
@@ -2340,6 +2500,77 @@ mod tests {
     }
 
     // ---- plan ----
+
+    /// EXP-1341: a persistent root (an agent) on this device, running or
+    /// idle with no engine and nothing pending, is revived; a thread, a
+    /// child, another device's row, a queued/ended row, a live or in-flight
+    /// one and one the registry holds are not.
+    #[test]
+    fn plan_revives_a_persistent_root_once_its_device_is_back() {
+        let running = agent("a1", SESSION_STATUS_RUNNING);
+        let idle = agent("a2", SESSION_STATUS_IDLE);
+        let ended = agent("a3", SESSION_STATUS_ENDED);
+        let mut child = agent("a4", SESSION_STATUS_IDLE);
+        child.parent_id = Some("a1".to_string());
+        child.root_id = Some("a1".to_string());
+        let mut elsewhere = agent("a5", SESSION_STATUS_IDLE);
+        elsewhere.device_id = Some("dev-2".to_string());
+        let thread = session("t1", SESSION_STATUS_IDLE, DEV, "2026-10-01T00:00:00Z");
+        let held = agent("a6", SESSION_STATUS_IDLE);
+        let live = agent("a7", SESSION_STATUS_RUNNING);
+        let flying = agent("a8", SESSION_STATUS_IDLE);
+        let mut pass = Pass::new(
+            vec![running, idle, ended, child, elsewhere, thread, held, live, flying],
+            Vec::new(),
+        )
+        .live("a7", LiveView::default());
+        pass.revive_held.insert("a6".to_string());
+        pass.in_flight.insert("a8".to_string());
+        let revived: Vec<String> = pass
+            .run()
+            .into_iter()
+            .filter_map(|action| match action {
+                PickupAction::Revive { session } => Some(session.id),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(revived, vec!["a1", "a2"]);
+    }
+
+    /// EXP-1341: a pending message wakes a persistent root through Resume
+    /// (the message is its turn), never a second Revive.
+    #[test]
+    fn plan_resumes_rather_than_revives_with_a_pending_message() {
+        let actions = Pass::new(
+            vec![agent("a1", SESSION_STATUS_IDLE)],
+            vec![message("m1", "a1", "2026-10-02T00:00:00Z")],
+        )
+        .run();
+        assert_eq!(actions.len(), 1);
+        assert!(matches!(&actions[0], PickupAction::Resume { session, .. } if session.id == "a1"));
+    }
+
+    /// EXP-1341: once per absence — an engine that ran here settles the
+    /// root for good; a failed attempt backs off, and gives up after
+    /// MAX_LAUNCH_ATTEMPTS.
+    #[test]
+    fn the_registry_holds_a_revived_root() {
+        let live = LiveRegistry::default();
+        assert!(live.revive_held().is_empty());
+        assert_eq!(live.note_revive("a1"), 1);
+        assert!(live.revive_held().contains("a1"), "backing off");
+        live.settle_revive("a2");
+        assert!(live.revive_held().contains("a2"));
+        // The backoff grows and is capped.
+        assert_eq!(revive_backoff(1), std::time::Duration::from_secs(30));
+        assert_eq!(revive_backoff(2), std::time::Duration::from_secs(60));
+        assert_eq!(revive_backoff(9), std::time::Duration::from_secs(480));
+        // Past the backoff a failed root is offered again, until it gave up.
+        locked(&live.revives).get_mut("a1").unwrap().not_before = std::time::Instant::now();
+        assert!(!live.revive_held().contains("a1"));
+        locked(&live.revives).get_mut("a1").unwrap().attempts = MAX_LAUNCH_ATTEMPTS;
+        assert!(live.revive_held().contains("a1"));
+    }
 
     /// EXP-1329: a child's end, as the server posts it on the PARENT.
     fn report(id: &str, parent: &str, child: &str, summary: &str) -> MessageRow {
@@ -3388,6 +3619,7 @@ mod tests {
                 messages,
                 live: &views,
                 in_flight: &HashSet::new(),
+                revive_held: &HashSet::new(),
             })
         };
         assert!(pass(running.clone(), &[]).is_empty());
@@ -3781,6 +4013,11 @@ mod tests {
         );
         assert_eq!(brief_issue_identifiers("## Issues\n\n- APP-7 First"), vec!["APP-7".to_string()]);
         assert!(brief_issue_identifiers("## Request\n\nFix it.").is_empty());
+        // EXP-1341: the titles ride along for the launcher's label.
+        assert_eq!(
+            brief_issues("## Issues\n\n- APP-7 First one\n- APP-8"),
+            vec![("APP-7".to_string(), "First one".to_string()), ("APP-8".to_string(), String::new())]
+        );
         assert!(brief_issue_identifiers("## Issues\n\n- not-an-id x").is_empty());
     }
 
@@ -4022,6 +4259,7 @@ mod tests {
                 messages: &[],
                 live: &host.deps.live.live_views(),
                 in_flight: &HashSet::new(),
+                revive_held: &HashSet::new(),
             })
         };
         // Still planning: nothing.
@@ -4079,6 +4317,7 @@ mod tests {
                 messages: &[],
                 live: &host.deps.live.live_views(),
                 in_flight: &HashSet::new(),
+                revive_held: &HashSet::new(),
             })
         };
         *host.engine.mode.lock().unwrap() = Some(true);
@@ -4165,6 +4404,7 @@ mod tests {
                 messages: &[],
                 live: &host.deps.live.live_views(),
                 in_flight: &HashSet::new(),
+                revive_held: &HashSet::new(),
             })
         };
         assert!(pass(&launched).is_empty());

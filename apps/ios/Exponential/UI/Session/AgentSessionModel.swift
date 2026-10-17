@@ -262,10 +262,10 @@ final class AgentSessionModel {
     /// thread's Guide lives there, and a `sessions_show` picture resolves
     /// against it.
     private(set) var root: SessionEntity?
-    /// The session's name as its card reads it (its title, else `Session N`
-    /// by its place in the tree) — the screen's title.
+    /// The session's display title (EXP-1341 `SessionTitle`, the same name
+    /// its card, chip and row read) — the screen's title.
     private(set) var title: String?
-    /// EXP-1310: the thread's title (the ROOT's `threadTitle`) — the header's
+    /// EXP-1310: the thread's title (the ROOT's `SessionTitle`) — the header's
     /// back row, ×4 (web `session-back`, Android `session-open-thread`).
     private(set) var threadTitle: String?
     /// EXP-549/550: the host machine as it presents right now — the LIVE
@@ -1371,9 +1371,9 @@ final class AgentSessionModel {
         let observation = ValueObservation.tracking { db -> (SessionEntity?, SessionEntity?, String?, String?) in
             guard let row = try SessionQueries.session(db: db, id: id) else { return (nil, nil, nil, nil) }
             let root = row.isRoot ? row : try SessionQueries.session(db: db, id: row.rootId)
-            let tree = try SessionQueries.tree(db: db, rootId: row.rootId)
-            let threadTitle = try root.map { try SessionTree.threadTitle(db: db, root: $0) }
-            return (row, root, row.cardName(in: tree), threadTitle)
+            let title = try SessionTree.sessionTitle(db: db, session: row)
+            let threadTitle = try root.map { try SessionTree.sessionTitle(db: db, session: $0) }
+            return (row, root, title, threadTitle)
         }
         sessionObservationTask = Task { [weak self] in
             // The GRDB stream is one-shot: any error (a busy database, a

@@ -449,6 +449,8 @@ pub const SHAPES: [ShapeSpec; 26] = [
             "source",
             "added_by",
             "added_by_session_id",
+            // EXP-1341: the tree session working on it (null = the root's).
+            "assigned_session_id",
             "sort_order",
             "created_at",
             "updated_at",
@@ -1079,7 +1081,7 @@ mod tests {
         }
         assert_eq!(
             shape_by_name("session_issues").unwrap().columns,
-            &["id", "session_id", "issue_id", "team_id", "source", "added_by", "added_by_session_id", "sort_order", "created_at", "updated_at"]
+            &["id", "session_id", "issue_id", "team_id", "source", "added_by", "added_by_session_id", "assigned_session_id", "sort_order", "created_at", "updated_at"]
         );
         let messages = shape_by_name("messages").unwrap();
         assert_eq!(messages.path, "/api/shapes/messages");

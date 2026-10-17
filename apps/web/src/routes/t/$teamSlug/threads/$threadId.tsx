@@ -225,6 +225,7 @@ function ThreadPage() {
       view={thread.view}
       root={thread.root}
       rows={thread.rows}
+      titles={thread.titles}
       pullRequests={thread.pullRequests}
     />
   )
@@ -236,6 +237,7 @@ function ThreadScreen({
   view,
   root,
   rows,
+  titles,
   pullRequests,
 }: {
   team: Team
@@ -244,6 +246,8 @@ function ThreadScreen({
   root: SessionRow
   /** Every session of the tree (the chips' marks, the tree popover). */
   rows: SessionRow[]
+  /** EXP-1341: every tree session's `sessionTitle` (the chips' names). */
+  titles: ReadonlyMap<string, string>
   pullRequests: PullRequestRow[]
 }) {
   const navigate = useNavigate()
@@ -432,8 +436,8 @@ function ThreadScreen({
   // sessions fold under their chip (SessionRow small + the tree guides).
   const treeRows = useMemo<ThreadTreeRow[]>(() => {
     const nowIso = new Date().toISOString()
-    return treeOrder(rows.map(toTreeSession)).map((session, index) => {
-      const card = sessionCard(session, index + 1, nowIso)
+    return treeOrder(rows.map(toTreeSession)).map((session) => {
+      const card = sessionCard(session, titles.get(session.id) ?? ``, nowIso)
       return {
         sessionId: session.id,
         parentId: session.parentId,
@@ -444,7 +448,7 @@ function ThreadScreen({
         stateTone: card.tone,
       }
     })
-  }, [rows, rowsById])
+  }, [rows, rowsById, titles])
   const treeRowsById = useMemo(
     () => new Map(treeRows.map((row) => [row.sessionId, row])),
     [treeRows]
@@ -611,7 +615,7 @@ function ThreadScreen({
       <ThreadGuideMenu pr={guidePr} canClose={permissions.isMember} className={className} />
     ) : null
 
-  // EXP-1316: the title is derived (`threadTitle`), never renamed.
+  // EXP-1316: the title is derived (`sessionTitle`), never renamed.
   const title = (
     <div className="flex min-w-0 items-center gap-2">
       <h1

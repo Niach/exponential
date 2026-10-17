@@ -1,3 +1,4 @@
+import { isPersistent } from "@exp/domain-contract/session-kind"
 import type { SessionRow } from "@/lib/session-tree"
 
 // EXP-1075: session lists are TEAM-scoped, so a session left behind in
@@ -21,7 +22,7 @@ export function countsAsLiveSession(
   agentRootIds: ReadonlySet<string>
 ): boolean {
   if (session.status === `ended`) return false
-  if (session.kind === `agent`) return false
+  if (isPersistent(session)) return false
   if (session.rootId && agentRootIds.has(session.rootId)) return false
   return true
 }

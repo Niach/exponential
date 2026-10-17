@@ -34,6 +34,7 @@ vi.mock(`@/hooks/use-session-tree`, () => ({
     isReady: true,
   }),
   useAgents: () => ({ agents: agents.value, isReady: true }),
+  useSessionTitles: () => ({ titles: new Map(), held: new Set(), ready: true }),
 }))
 vi.mock(`@/lib/trpc-client`, () => ({ trpc: {} }))
 vi.mock(`@/hooks/use-work-tabs`, () => ({

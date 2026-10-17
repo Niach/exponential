@@ -522,11 +522,8 @@ fn session_card(session_id: &str, cx: &mut App) -> Option<AnyElement> {
     let facts = crate::session_data::session_card_of(session_id, crate::session_data::now_ms(), cx)?;
     let root_id = session.root_id_or_self().to_string();
     let muted = cx.theme().muted_foreground;
-    let title = if session.is_root() {
-        crate::session_data::thread_title_of(&root_id, cx).unwrap_or_else(|| facts.name.clone())
-    } else {
-        facts.name.clone()
-    };
+    // EXP-1341: the card's name IS the session's title (root or child).
+    let title = facts.name.clone();
     let glyph = Icon::new(registry::concept_by_name(&facts.icon).unwrap_or(registry::NAV_THREADS))
         .small()
         .text_color(crate::work_card::session_tone_color(&facts.tone, cx));
@@ -536,7 +533,10 @@ fn session_card(session_id: &str, cx: &mut App) -> Option<AnyElement> {
         .items_center()
         .gap_2()
         .child(div().flex_shrink_0().child(glyph));
-    if let Some(identifier) = crate::session_data::first_issue_identifier(&root_id, cx) {
+    // The title already leads with `#IDENT` when the issue names it.
+    if let Some(identifier) = crate::session_data::first_issue_identifier(&root_id, cx)
+        .filter(|identifier| !title.starts_with(&format!("#{identifier}")))
+    {
         head = head.child(
             div()
                 .flex_shrink_0()

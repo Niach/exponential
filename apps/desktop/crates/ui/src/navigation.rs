@@ -430,33 +430,21 @@ fn issue_tab_title(issue: &domain::rows::Issue) -> gpui::SharedString {
     }
 }
 
-/// EXP-1294: a thread tab's label — `domain::session_tree::thread_title`
+/// EXP-1294: a thread tab's label — `domain::session_title` (EXP-1341)
 /// over the synced root (`ui::session_data`), the fixture's `untitled` while
 /// the root syncs. A tab is chrome, so it never renders a transient string.
 fn thread_tab_title(root_id: &str, cx: &App) -> gpui::SharedString {
     Store::try_global(cx)
-        .and_then(|_| crate::session_data::thread_title_of(root_id, cx))
+        .and_then(|_| crate::session_data::session_title_of(root_id, cx))
         .unwrap_or_else(|| domain::session_tree::THREAD.copy.untitled.clone())
         .into()
 }
 
-/// EXP-1294: a session's label — the root's title, the root being what the
-/// tab shares (EXP-1316: a thread's plain title; an agent's session keeps
-/// `EXP-42 · title`); `Session` while the row syncs.
+/// EXP-1294: a session's label — EXP-1341: THAT session's own title
+/// (`domain::session_title`: its name, its issues, its action, its first
+/// prompt), the fixture's `untitled` while the row syncs.
 fn session_tab_title(session_id: &str, cx: &App) -> gpui::SharedString {
-    let Some(root) = Store::try_global(cx).and_then(|_| crate::session_data::root_of(session_id, cx))
-    else {
-        return "Session".into();
-    };
-    let title = thread_tab_title(&root.id, cx);
-    // EXP-1316: a thread's title names its issue already.
-    if root.is_thread() {
-        return title;
-    }
-    match crate::session_data::first_issue_identifier(&root.id, cx) {
-        Some(identifier) => format!("{identifier} · {title}").into(),
-        None => title,
-    }
+    thread_tab_title(session_id, cx)
 }
 
 /// EXP-1294: an agent channel's label — the agent's name, `Agent` while the

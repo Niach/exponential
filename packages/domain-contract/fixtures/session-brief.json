@@ -110,7 +110,7 @@
         ],
         "handOff": true
       },
-      "expected": "## Request\n\nFix it.\n\n## Dispatch\n\nThis start is work: hand it to a child session in this turn with `exponential_sessions_send({parentId: <your session>, text: <a self-contained brief>})` (it inherits the model, effort and plan mode picked for the work and sees the Issues and Action itself), then reply in one line. Do not research it yourself first.\n\n## Issues\n\n- APP-5 Reduce cold start below 800 ms"
+      "expected": "## Request\n\nFix it.\n\n## Dispatch\n\nThis start is work: hand it to child sessions in this turn with `exponential_sessions_send({parentId: <your session>, name, issueIds, text: <a self-contained brief>})`: ONE child for issues that overlap or depend on each other, separate children for independent ones (each inherits the model, effort and plan mode picked for the work and the Action). Then reply in one line. Do not research it yourself first.\n\n## Issues\n\n- APP-5 Reduce cold start below 800 ms"
     },
     {
       "name": "a dispatcher started on an action keeps the hand-off ahead of the action body",
@@ -122,7 +122,7 @@
         },
         "handOff": true
       },
-      "expected": "## Dispatch\n\nThis start is work: hand it to a child session in this turn with `exponential_sessions_send({parentId: <your session>, text: <a self-contained brief>})` (it inherits the model, effort and plan mode picked for the work and sees the Issues and Action itself), then reply in one line. Do not research it yourself first.\n\n## Action: Tidy up\n\nClose stale issues."
+      "expected": "## Dispatch\n\nThis start is work: hand it to child sessions in this turn with `exponential_sessions_send({parentId: <your session>, name, issueIds, text: <a self-contained brief>})`: ONE child for issues that overlap or depend on each other, separate children for independent ones (each inherits the model, effort and plan mode picked for the work and the Action). Then reply in one line. Do not research it yourself first.\n\n## Action: Tidy up\n\nClose stale issues."
     },
     {
       "name": "nothing at all",
@@ -132,5 +132,5 @@
       "expected": "Wait for the next message."
     }
   ],
-  "handOff": "This start is work: hand it to a child session in this turn with `exponential_sessions_send({parentId: <your session>, text: <a self-contained brief>})` (it inherits the model, effort and plan mode picked for the work and sees the Issues and Action itself), then reply in one line. Do not research it yourself first."
+  "handOff": "This start is work: hand it to child sessions in this turn with `exponential_sessions_send({parentId: <your session>, name, issueIds, text: <a self-contained brief>})`: ONE child for issues that overlap or depend on each other, separate children for independent ones (each inherits the model, effort and plan mode picked for the work and the Action). Then reply in one line. Do not research it yourself first."
 }

@@ -295,7 +295,7 @@ struct AgentSessionView: View {
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("session-back")
             }
-            Text(model?.title ?? session.title ?? SessionTree.CardCopy.session)
+            Text(model?.title ?? session.title ?? SessionTitle.Copy.untitled)
                 .font(.headline)
                 .foregroundStyle(.white)
                 .lineLimit(1)

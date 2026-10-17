@@ -335,11 +335,22 @@ pub(crate) fn reconcile_stale_sessions(account: &api::Account, cx: &mut App) {
     let trpc = api::TrpcClient::new(&account.instance_url, provider);
     std::thread::spawn(move || {
         for id in stale {
-            let result = api::sessions::end(&trpc, &id);
+            // EXP-1341: the CLI's rule (`daemon::reconcile_stale_sessions`):
+            // a PERSISTENT session (an agent root) never ends — the server
+            // refuses `sessions.end` for it — so it is reported idle, and the
+            // pickup's Revive brings it back; a thread ends as before.
+            let persistent = coding::run_registry::get(&data_dir, &id)
+                .is_some_and(|record| record.kind.is_persistent());
+            let result = if persistent {
+                api::session_device::report(&trpc, &id, &stale_idle_report())
+            } else {
+                api::sessions::end(&trpc, &id).map(|_| ())
+            };
+            let verb = if persistent { "idled" } else { "ended" };
             match &result {
-                Ok(_) => log::info!("[session-registry] ended stale coding session {id}"),
+                Ok(_) => log::info!("[session-registry] {verb} stale coding session {id}"),
                 Err(err) => log::warn!(
-                    "[session-registry] could not end stale coding session {id}: {err}"
+                    "[session-registry] stale coding session {id} not {verb}: {err}"
                 ),
             }
             if end_outcome_resolves(&result) {
@@ -347,6 +358,15 @@ pub(crate) fn reconcile_stale_sessions(account: &api::Account, cx: &mut App) {
             }
         }
     });
+}
+
+/// EXP-1341: a stale persistent session's report: idle and not working.
+fn stale_idle_report() -> api::session_device::SessionReport {
+    api::session_device::SessionReport {
+        status: Some(api::session_device::ReportStatus::Idle),
+        busy: Some(false),
+        ..api::session_device::SessionReport::default()
+    }
 }
 
 #[cfg(test)]

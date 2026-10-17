@@ -10,6 +10,7 @@
 import cardFixture from "../fixtures/session-card.json" with { type: "json" }
 import threadFixture from "../fixtures/session-thread.json" with { type: "json" }
 import listFixture from "../fixtures/threads-list.json" with { type: "json" }
+import { sessionTitle, sessionTitles } from "./session-title"
 
 export interface TreeSession {
   id: string
@@ -52,6 +53,8 @@ export interface TreeSessionIssue {
   sessionId: string
   issueId: string
   sortOrder: number
+  /** EXP-1341: the tree session working on it (absent/null = the root's). */
+  assignedSessionId?: string | null
 }
 
 export interface TreeIssue {
@@ -124,7 +127,7 @@ export function sessionState(session: TreeSession): SessionState {
   return `waiting`
 }
 
-/** Sessions of one tree in creation order (ties by id): `Session N` names. */
+/** Sessions of one tree in creation order (ties by id). */
 export function treeOrder(sessions: readonly TreeSession[]): TreeSession[] {
   return [...sessions].sort(
     (a, b) =>
@@ -151,12 +154,12 @@ export interface SessionCard {
 /**
  * THE session card = the Work card's header row (EXP-1240): icon, name,
  * the muted state word, trailing elapsed, a spinner while `running`. Tapping
- * it opens that session's raw view. `ordinal` = its 1-based place in the
- * tree's creation order (names an untitled session `Session N`).
+ * it opens that session's raw view. `title` = its `sessionTitle` (EXP-1341,
+ * fixtures/session-title.json; never `Session N`).
  */
 export function sessionCard(
   session: TreeSession,
-  ordinal: number,
+  title: string,
   now: string
 ): SessionCard {
   const state = sessionState(session)
@@ -164,12 +167,11 @@ export function sessionCard(
   const end = state === `ended` ? ms(session.endedAt) ?? ms(session.updatedAt) : ms(now)
   const elapsed =
     start !== null && end !== null && state !== `queued` ? formatElapsed(end - start) : null
-  const title = session.title?.trim()
   const caption = session.caption?.trim()
   return {
     sessionId: session.id,
     icon: SESSION_CARD_ICONS[state],
-    name: title ? title : `${SESSION_CARD_COPY.session} ${ordinal}`,
+    name: title,
     kindWord: SESSION_CARD_COPY.states[state],
     state,
     tone: cardFixture.tones[state],
@@ -178,49 +180,6 @@ export function sessionCard(
     caption: caption && (state !== `ended` || session.aside === true) ? caption : null,
     testId: cardFixture.testIds.card,
   }
-}
-
-/** First line of a person's text, capped (a thread named by its request). */
-function firstLine(body: string, max: number): string | null {
-  const line = body
-    .split(`\n`)
-    .map((part) => part.trim())
-    .find((part) => part.length > 0 && !part.startsWith(`![`))
-  if (!line) return null
-  return line.length > max ? `${line.slice(0, max - 1).trimEnd()}…` : line
-}
-
-/**
- * EXP-1316: a thread's title, never stored by a person (no rename ×4):
- * an agent's `name`; else `Run <action>`; else `Implement <IDENT>` (the
- * first synced issue by sortOrder, `+ <n-1>` with more); else the stored
- * title (the CLI's auto-name, written by `sessions.report`); else the first
- * line of the root's first person message (capped `titleMax`); else
- * `Untitled`. The server's `deriveSessionTitle` calls this.
- */
-export function threadTitle(
-  root: Pick<TreeSession, `id` | `title` | `actionName` | `name`> & { kind?: string | null },
-  issues: readonly Pick<TreeIssue, `identifier`>[],
-  messages: readonly Pick<TreeMessage, `sessionId` | `authorKind` | `body` | `createdAt`>[]
-): string {
-  const titles = threadFixture.titles
-  const name = root.name?.trim()
-  if (root.kind === `agent` && name) return name
-  const action = root.actionName?.trim()
-  if (action) return titles.action.replace(`{action}`, action)
-  if (issues.length > 0) {
-    const issue = issues[0].identifier
-    return issues.length > 1
-      ? titles.issues.replace(`{issue}`, issue).replace(`{more}`, String(issues.length - 1))
-      : titles.issue.replace(`{issue}`, issue)
-  }
-  const stored = root.title?.trim()
-  if (stored) return stored
-  const first = [...messages]
-    .filter((m) => m.sessionId === root.id && m.authorKind === `user`)
-    .sort((a, b) => (ms(a.createdAt) ?? 0) - (ms(b.createdAt) ?? 0))[0]
-  const line = first ? firstLine(first.body, threadFixture.titleMax) : null
-  return line ?? THREAD_COPY.untitled
 }
 
 function rootIssues(
@@ -375,7 +334,7 @@ function suggestionsRow(
   message: TreeMessage,
   card: Record<string, unknown>,
   byId: ReadonlyMap<string, TreeSession>,
-  ordinals: ReadonlyMap<string, number>,
+  titles: ReadonlyMap<string, string>,
   issues: ReadonlyMap<string, TreeIssue>,
   now: string
 ): ThreadRow | null {
@@ -399,7 +358,7 @@ function suggestionsRow(
       title: String(raw.title ?? ``),
       text: String(raw.text ?? ``),
       state,
-      card: target ? sessionCard(target, ordinals.get(target.id) ?? 1, now) : null,
+      card: target ? sessionCard(target, titles.get(target.id) ?? ``, now) : null,
       issueId,
       identifier: issueId ? issues.get(issueId)?.identifier ?? null : null,
     })
@@ -578,9 +537,9 @@ export function buildSessionThread(input: {
   const { root, now } = input
   const tree = treeOrder(input.sessions.filter((s) => s.rootId === root.id || s.id === root.id))
   if (!tree.some((s) => s.id === root.id)) tree.unshift(root)
-  const ordinals = new Map(tree.map((s, index) => [s.id, index + 1]))
   const byId = new Map(input.sessions.map((s) => [s.id, s]))
   byId.set(root.id, root)
+  const titles = sessionTitles([...byId.values()], input.sessionIssues, input.issues, input.messages)
   const issues = rootIssues(root.id, input.sessionIssues, input.issues)
   const issueMap = new Map(input.issues.map((issue) => [issue.id, issue]))
   const prMap = new Map(input.pullRequests.map((pr) => [pr.id, pr]))
@@ -591,12 +550,12 @@ export function buildSessionThread(input: {
         (ms(a.createdAt) ?? 0) - (ms(b.createdAt) ?? 0) ||
         (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
     )
-  const title = threadTitle(root, issues, own)
+  const title = titles.get(root.id)!
   const focus = options.focus ? tree.find((s) => s.id === options.focus) ?? null : null
   // EXP-1334: the conversation IS the dispatcher (no chip of its own); the
   // chips = its DIRECT children, every deeper session folded under its
   // top-level ancestor (the chip's dropdown).
-  const nameOf = (s: TreeSession) => sessionCard(s, ordinals.get(s.id) ?? 1, now).name
+  const nameOf = (s: TreeSession) => sessionCard(s, titles.get(s.id) ?? ``, now).name
   const treeIds = new Set(tree.map((s) => s.id))
   const sessionTabs: ThreadTab[] = foldForest(
     tree.filter((s) => s.id !== root.id),
@@ -671,7 +630,7 @@ export function buildSessionThread(input: {
         rows.push({
           type: `session`,
           id: message.id,
-          card: sessionCard(target, ordinals.get(target.id) ?? 1, now),
+          card: sessionCard(target, titles.get(target.id) ?? ``, now),
         })
         break
       }
@@ -724,14 +683,14 @@ export function buildSessionThread(input: {
           sessionId: target.id,
           text: THREAD_COPY.report.replace(
             `{session}`,
-            sessionCard(target, ordinals.get(target.id) ?? 1, now).name
+            sessionCard(target, titles.get(target.id) ?? ``, now).name
           ),
           summary: typeof card.summary === `string` ? card.summary : message.body,
         })
         break
       }
       case `suggestions`: {
-        const row = suggestionsRow(message, card, byId, ordinals, issueMap, now)
+        const row = suggestionsRow(message, card, byId, titles, issueMap, now)
         if (row) rows.push(row)
         break
       }
@@ -869,11 +828,7 @@ export function partitionThreads(input: {
       (latest, s) => ((ms(s.updatedAt) ?? 0) > (ms(latest) ?? 0) ? s.updatedAt : latest),
       root.updatedAt
     )
-    const title = threadTitle(
-      root,
-      rootIssues(root.id, input.sessionIssues, input.issues),
-      input.messages
-    )
+    const title = sessionTitle(root, input.sessionIssues, input.issues, input.messages)
     const row: ThreadsListRow = {
       sessionId: root.id,
       teamId: root.teamId,
@@ -885,7 +840,7 @@ export function partitionThreads(input: {
       busy: live.some((s) => s.busy),
       needsYou,
       unread: unreadAt(newestAgentInTree.get(root.id), root.id),
-      caption: sessionCard(root, 1, now).caption,
+      caption: sessionCard(root, title, now).caption,
       activityAt: activity,
     }
     const key = needsYou ? `needs_you` : running ? `running` : `recent`
@@ -894,11 +849,14 @@ export function partitionThreads(input: {
     const children: ThreadsListRow[] = []
     if (key !== `recent`) {
       const ordered = treeOrder(tree)
-      const ordinals = new Map(ordered.map((s, index) => [s.id, index + 1]))
       const walk = (parentId: string, depth: number) => {
         for (const child of ordered) {
           if (child.parentId !== parentId || child.aside === true) continue
-          const card = sessionCard(child, ordinals.get(child.id) ?? 1, now)
+          const card = sessionCard(
+            child,
+            sessionTitle(child, input.sessionIssues, input.issues, input.messages),
+            now
+          )
           children.push({
             sessionId: child.id,
             teamId: child.teamId,

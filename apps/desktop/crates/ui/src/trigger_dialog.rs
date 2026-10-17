@@ -88,7 +88,7 @@ fn open_existing(window: &mut Window, cx: &mut App, target: Target, trigger_id: 
 fn open_inner(window: &mut Window, cx: &mut App, target: Target, existing: Option<Value>) {
     let team_id = match &target {
         Target::Agent(agent_id) => crate::session_data::session(agent_id, cx)
-            .filter(|row| row.is_agent())
+            .filter(|row| row.has_triggers())
             .and_then(|row| row.team_id),
         Target::Draft(draft) => Some(draft.team_id.clone()),
     };

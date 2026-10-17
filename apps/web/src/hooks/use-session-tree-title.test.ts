@@ -11,7 +11,7 @@ vi.mock(`@/lib/collections`, () => ({
 import { holdTitles, titleShapesReady, unsettledTitleRoots } from "@/hooks/use-session-tree"
 
 // EXP-1316: a thread title never flips from the request text to
-// `Implement EXP-12`: it falls back past its issues only once the issue
+// its issue label: it falls back past its issues only once the issue
 // shapes reported ready, and lists hold their row titles until then.
 describe(`thread title readiness`, () => {
   const ready = { linksReady: true, issueCount: 1, issuesReady: true, messagesReady: true }
@@ -56,38 +56,47 @@ describe(`thread title readiness`, () => {
     expect(holdTitles(groups, new Set())).toBe(groups)
   })
 
-  it(`settles agent, action and stored-title rows; holds issue-linked rows until the issues land`, () => {
-    const session = (id: string, over: Partial<{ kind: string; actionName: string | null; title: string | null; parentId: string | null }> = {}) => ({
+  it(`follows the title rungs: name/title settle, then own issues, then the action, then the first prompt`, () => {
+    const session = (
+      id: string,
+      over: Partial<{ name: string | null; actionName: string | null; title: string | null; rootId: string }> = {}
+    ) => ({
       id,
-      parentId: over.parentId ?? null,
-      kind: over.kind ?? `thread`,
+      rootId: over.rootId ?? id,
+      name: over.name ?? null,
       actionName: over.actionName ?? null,
       title: over.title ?? null,
     })
     const sessions = [
-      session(`agent`, { kind: `agent` }),
-      session(`action`, { actionName: `Deploy` }),
-      session(`linked`, { title: `Cold start` }),
+      session(`agent`, { name: `Triage` }),
       session(`named`, { title: `Cold start` }),
+      session(`linked`),
+      session(`linkedAction`, { actionName: `Deploy` }),
+      session(`action`, { actionName: `Deploy` }),
       session(`bare`),
-      session(`child`, { parentId: `named` }),
+      session(`assigned`, { rootId: `linked` }),
+      session(`child`, { rootId: `linked` }),
     ]
-    const links = [{ sessionId: `linked` }]
+    const links = [
+      { sessionId: `linked`, assignedSessionId: null },
+      { sessionId: `linkedAction`, assignedSessionId: null },
+      { sessionId: `linked`, assignedSessionId: `assigned` },
+    ]
     const all = { sessions, sessionIssues: links }
     // Everything in: nothing held.
     expect(
       unsettledTitleRoots({ ...all, linksReady: true, issuesReady: true, messagesReady: true })
     ).toEqual(new Set())
-    // Issues pending: only the linked row waits.
+    // Issues pending: only sessions with OWN issues wait (a root's links, a
+    // child's assigned ones), the action outranked by its issues too.
     expect(
       unsettledTitleRoots({ ...all, linksReady: true, issuesReady: false, messagesReady: true })
-    ).toEqual(new Set([`linked`]))
-    // Messages pending: only a root with no stored title waits.
+    ).toEqual(new Set([`linked`, `linkedAction`, `assigned`]))
+    // Messages pending: only an unnamed session with no issue and no action.
     expect(
       unsettledTitleRoots({ ...all, linksReady: true, issuesReady: true, messagesReady: false })
-    ).toEqual(new Set([`bare`]))
-    // Links unknown: any root that could still gain an issue waits; agents
-    // and action runs never do, children never list.
+    ).toEqual(new Set([`bare`, `child`]))
+    // Links unknown: every unnamed session could still gain an issue.
     expect(
       unsettledTitleRoots({
         ...all,
@@ -96,6 +105,6 @@ describe(`thread title readiness`, () => {
         issuesReady: false,
         messagesReady: true,
       })
-    ).toEqual(new Set([`linked`, `named`, `bare`]))
+    ).toEqual(new Set([`linked`, `linkedAction`, `action`, `bare`, `assigned`, `child`]))
   })
 })

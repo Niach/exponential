@@ -1,3 +1,4 @@
+import { PERSISTENT_KINDS } from "@exp/domain-contract/session-kind"
 import { TRPCError } from "@trpc/server"
 import {
   and,
@@ -8,6 +9,7 @@ import {
   ne,
   or,
   sql,
+  notInArray,
 } from "drizzle-orm"
 import {
   attachments,
@@ -200,7 +202,7 @@ export async function guardAndCleanupTeamsForUserDeletion(
     const ended = await tx
       .update(sessions)
       .set({ status: `ended`, endedAt: now, busy: false, needsInput: false })
-      .where(and(inArray(sessions.id, ids), ne(sessions.status, `ended`), eq(sessions.kind, `thread`)))
+      .where(and(inArray(sessions.id, ids), ne(sessions.status, `ended`), notInArray(sessions.kind, [...PERSISTENT_KINDS])))
       .returning({ id: sessions.id })
     endedSessionIds.push(...ended.map((row) => row.id))
   }
@@ -215,7 +217,7 @@ export async function guardAndCleanupTeamsForUserDeletion(
         eq(sessions.hostUserId, userId),
         ne(sessions.userId, userId),
         ne(sessions.status, `ended`),
-        eq(sessions.kind, `thread`)
+        notInArray(sessions.kind, [...PERSISTENT_KINDS])
       )
     )
     .returning({ id: sessions.id })

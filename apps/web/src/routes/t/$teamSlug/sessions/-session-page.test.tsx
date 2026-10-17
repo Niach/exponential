@@ -67,7 +67,7 @@ vi.mock(`@/hooks/use-session-tree`, () => ({
         : { row: null, isReady: false },
   useTreeSessions: () => ({ rows: [], tree: [], isReady: true }),
   useSessionCard: (row: { title: string | null } | null) =>
-    row ? { name: row.title ?? `Session 2`, icon: `coding-running` } : null,
+    row ? { name: row.title ?? `Untitled`, icon: `coding-running` } : null,
   useSessionThread: () => ({ view: { title: `Reduce cold start below 800 ms` } }),
   useSessionMessages: () => [],
 }))

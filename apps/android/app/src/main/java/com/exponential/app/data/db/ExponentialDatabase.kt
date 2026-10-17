@@ -418,8 +418,11 @@ import androidx.room.TypeConverters
     //      and the `session_reads` table (a new per-user shape). Explicit
     //      [MIGRATION_88_89] adds the columns, creates the table empty and
     //      refetches only the sessions + messages shapes.
+    // v90 (EXP-1341): session_issues.assigned_session_id (a child's assigned
+    //      issues). Explicit [MIGRATION_89_90] adds the nullable column and
+    //      refetches only the session_issues shape.
     // Older versions still fall back to destructive + resync (DatabaseHolder).
-    version = 89,
+    version = 90,
     exportSchema = false,
 )
 @TypeConverters(StringListConverters::class)

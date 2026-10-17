@@ -84,6 +84,7 @@ class SessionTreeTest {
         sessionId = json.str("sessionId")!!,
         issueId = json.str("issueId")!!,
         sortOrder = json.getValue("sortOrder").jsonPrimitive.double,
+        assignedSessionId = json.str("assignedSessionId"),
     )
 
     private fun issue(json: JsonObject) = SessionTree.Issue(
@@ -338,7 +339,7 @@ class SessionTreeTest {
             val input = case.getValue("input").jsonObject
             val actual = SessionTree.sessionCard(
                 session(input.getValue("session").jsonObject),
-                input.getValue("ordinal").jsonPrimitive.int,
+                input.str("title")!!,
                 input.str("now")!!,
             )
             assertEquals(case.str("name"), case.getValue("expected"), encode(actual))
@@ -522,7 +523,7 @@ class SessionTreeTest {
         val states = cardFixture.getValue("copy").jsonObject.getValue("states").jsonObject
         val icons = cardFixture.getValue("icons").jsonObject
         val tones = cardFixture.getValue("tones").jsonObject
-        assertEquals(cardFixture.getValue("copy").jsonObject.str("session"), SessionTree.CardCopy.SESSION)
+        assertTrue("copy.session is gone (EXP-1341)", "session" !in cardFixture.getValue("copy").jsonObject)
         assertEquals(states.keys, SessionTree.SessionState.entries.map { it.wire }.toSet())
         for (state in SessionTree.SessionState.entries) {
             assertEquals(states.str(state.wire), SessionTree.CardCopy.STATES[state])
@@ -546,7 +547,6 @@ class SessionTreeTest {
         assertEquals(events.keys, SessionTree.ThreadCopy.EVENTS.keys)
         for ((key, value) in events) assertEquals(value.jsonPrimitive.content, SessionTree.ThreadCopy.EVENTS[key])
         assertEquals(DomainContract.messageEventKindValues.toSet(), SessionTree.ThreadCopy.EVENTS.keys)
-        assertEquals(threadFixture.getValue("titleMax").jsonPrimitive.int, SessionTree.ThreadCopy.TITLE_MAX)
         val testIds = threadFixture.getValue("testIds").jsonObject
         assertEquals(testIds.str("tabs"), SessionTree.ThreadCopy.TEST_ID_TABS)
         assertEquals(testIds.str("conversation"), SessionTree.ThreadCopy.TEST_ID_CONVERSATION)
@@ -574,10 +574,6 @@ class SessionTreeTest {
         )
         assertEquals(suggestions.keys, embedded.keys)
         for ((key, value) in embedded) assertEquals(suggestions.str(key), value)
-        val titles = threadFixture.getValue("titles").jsonObject
-        assertEquals(titles.str("action"), SessionTree.ThreadCopy.TITLE_ACTION)
-        assertEquals(titles.str("issue"), SessionTree.ThreadCopy.TITLE_ISSUE)
-        assertEquals(titles.str("issues"), SessionTree.ThreadCopy.TITLE_ISSUES)
     }
 
     @Test

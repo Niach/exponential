@@ -475,7 +475,7 @@ fun AgentSessionScreen(
         topBar = {
             SessionHeaderBar(
                 threadTitle = header?.threadTitle,
-                sessionName = header?.sessionName ?: row?.title?.takeIf { it.isNotBlank() } ?: SessionTree.CardCopy.SESSION,
+                sessionName = header?.sessionName ?: row?.title?.takeIf { it.isNotBlank() } ?: "",
                 agent = row?.cli,
                 state = row?.let { SessionTree.sessionState(SessionTree.session(it)) },
                 canStop = canStop,

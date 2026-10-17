@@ -21,7 +21,8 @@ data class TeamLiveRuns(
 fun lightsLiveDot(session: SessionEntity): Boolean = when {
     session.isEnded -> false
     session.needsInput -> true
-    session.isAgent -> session.busy
+    // EXP-1341: a persistent session (an agent) idles instead of ending.
+    SessionKind.isPersistent(session.kind) -> session.busy
     else -> session.status == DomainContract.sessionStatusQueued ||
         session.status == DomainContract.sessionStatusRunning
 }

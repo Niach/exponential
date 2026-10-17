@@ -250,6 +250,21 @@ val MIGRATION_88_89: Migration = object : Migration(88, 89) {
     }
 }
 
+/**
+ * v90 (EXP-1341): `session_issues.assigned_session_id`, the tree session a
+ * root's issue is assigned to (titles a child by its issues). The
+ * session_issues shape refetches so already-synced rows re-arrive carrying it.
+ */
+val MIGRATION_89_90: Migration = object : Migration(89, 90) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `session_issues` ADD COLUMN `assigned_session_id` TEXT")
+        db.execSQL(
+            "UPDATE `electric_offsets` SET `handle` = '', `offset` = '-1', `is_live` = 0, " +
+                "`needs_refetch` = 1 WHERE `shape` = 'session_issues'",
+        )
+    }
+}
+
 private fun rebuild(
     db: SupportSQLiteDatabase,
     table: String,

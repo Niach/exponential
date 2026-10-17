@@ -214,7 +214,7 @@ fn back_target(session_id: &str, cx: &App) -> Option<(Screen, String)> {
             name,
         ));
     }
-    let title = crate::session_data::thread_title_of(&root.id, cx)
+    let title = crate::session_data::session_title_of(&root.id, cx)
         .unwrap_or_else(|| domain::session_tree::THREAD.copy.untitled.clone());
     Some((
         Screen::Thread {
