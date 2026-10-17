@@ -188,6 +188,8 @@ pub(super) struct ComposerSpecimen {
     phase: Phase,
     mention: Entity<MentionInput>,
     model: String,
+    /// EXP-1211: the quick replies above the card (none = the plain box).
+    replies: Option<domain::session_tree::ComposerReplies>,
 }
 
 impl ComposerSpecimen {
@@ -204,6 +206,7 @@ impl ComposerSpecimen {
             phase,
             mention,
             model: sample_model(phase).to_string(),
+            replies: None,
         }
     }
 }
@@ -255,8 +258,13 @@ impl Render for ComposerSpecimen {
             // In a session: model · Plan … the context ring.
             _ => (model, Some(plan), context_ring(prefix, phase, cx)),
         };
+        let replies = self
+            .replies
+            .as_ref()
+            .map(|replies| crate::composer::composer_replies_row(replies, false, cx));
         session_composer_box(
             SessionComposerBox::new(self.mention.clone(), submit)
+                .replies(replies)
                 // EXP-1334: the "+" (the options menu), then web's
                 // `ComposerEditTools`: Add image, Attach files, Insert issue
                 // reference, Insert emoji.
@@ -285,10 +293,23 @@ pub(super) fn composer_specimen(
     window: &mut Window,
     cx: &mut App,
 ) -> AnyElement {
+    composer_specimen_with_replies(key, phase, placeholder, None, window, cx)
+}
+
+/// [`composer_specimen`] with EXP-1211's quick replies above the card.
+pub(super) fn composer_specimen_with_replies(
+    key: &'static str,
+    phase: Phase,
+    placeholder: &str,
+    replies: Option<domain::session_tree::ComposerReplies>,
+    window: &mut Window,
+    cx: &mut App,
+) -> AnyElement {
     let placeholder = placeholder.to_string();
     window
-        .use_keyed_state(key, cx, move |window, cx| {
-            ComposerSpecimen::new(key, phase, &placeholder, window, cx)
+        .use_keyed_state(key, cx, move |window, cx| ComposerSpecimen {
+            replies,
+            ..ComposerSpecimen::new(key, phase, &placeholder, window, cx)
         })
         .into_any_element()
 }

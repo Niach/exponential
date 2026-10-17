@@ -413,6 +413,20 @@ class SessionsApi @Inject constructor(private val trpc: TrpcClient) {
     suspend fun fileSuggestion(accountId: String, messageId: String, itemId: String) =
         suggestionItem(accountId, "sessions.fileSuggestion", messageId, itemId)
 
+    /** EXP-1211: one quick reply = the session's next message (at once). */
+    suspend fun sendReply(accountId: String, messageId: String, itemId: String) =
+        suggestionItem(accountId, "sessions.sendReply", messageId, itemId)
+
+    /** EXP-1211: dismiss the quick-reply row (the whole card). */
+    suspend fun dismissReplies(accountId: String, messageId: String) {
+        trpc.mutationUnit(
+            accountId,
+            path = "sessions.dismissReplies",
+            input = MessageIdInput(messageId),
+            inputSerializer = MessageIdInput.serializer(),
+        )
+    }
+
     private suspend fun suggestionItem(accountId: String, path: String, messageId: String, itemId: String) {
         trpc.mutationUnit(
             accountId,

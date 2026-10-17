@@ -420,6 +420,55 @@ final class SessionTreeTests: XCTestCase {
         }
     }
 
+    /// EXP-1211: `repliesCases` — the quick replies above the composer.
+    func testComposerRepliesReplaysEveryCase() throws {
+        let fixture = try fixture("session-thread.json")
+        let copy = try XCTUnwrap(fixture["copy"] as? [String: Any])
+        XCTAssertEqual(copy["replies"] as? [String: String], [
+            "label": SessionTree.RepliesCopy.label, "dismiss": SessionTree.RepliesCopy.dismiss,
+        ])
+        XCTAssertEqual((fixture["testIds"] as? [String: String])?["replies"], SessionTree.RepliesCopy.testId)
+        let all = try cases(fixture, "repliesCases")
+        XCTAssertFalse(all.isEmpty)
+        for testCase in all {
+            let name = try XCTUnwrap(testCase["name"] as? String)
+            let input = try XCTUnwrap(testCase["input"] as? [String: Any])
+            let actual = SessionTree.composerReplies(
+                sessionId: try XCTUnwrap(string(input["sessionId"])),
+                messages: try messages(input["messages"])
+            )
+            let expected = try (testCase["expected"] as? [String: Any]).map { value in
+                ComposerReplies(
+                    messageId: try XCTUnwrap(string(value["messageId"])),
+                    items: try XCTUnwrap(value["items"] as? [[String: Any]]).map {
+                        ComposerReply(id: try XCTUnwrap(string($0["id"])), text: try XCTUnwrap(string($0["text"])))
+                    }
+                )
+            }
+            XCTAssertEqual(actual, expected, name)
+        }
+    }
+
+    /// EXP-1211: a replies card is never a Conversation row.
+    func testRepliesCardIsNeverAThreadRow() throws {
+        let root = TreeSession(
+            id: "r1", teamId: "team", parentId: nil, rootId: "r1", kind: "thread", userId: "u1",
+            status: "idle", busy: false, needsInput: false, blocked: nil, shared: true,
+            title: "Thread", guide: nil, actionName: nil, name: nil, icon: nil, color: nil,
+            sortOrder: 0, startedAt: nil, endedAt: nil,
+            createdAt: "2026-10-17T10:00:00.000Z", updatedAt: "2026-10-17T10:00:00.000Z"
+        )
+        let card = TreeMessageCard(kind: "replies", items: [TreeSuggestionItem(id: "a", title: "", text: "Open the PR")])
+        let message = TreeMessage(
+            id: "m1", sessionId: "r1", authorKind: "agent", authorId: nil, body: "",
+            card: card, answeredAt: nil, consumedAt: nil, createdAt: "2026-10-17T10:00:01.000Z", authorSessionId: nil
+        )
+        let view = SessionTree.buildSessionThread(
+            root: root, sessions: [root], sessionIssues: [], issues: [], messages: [message], pullRequests: [], now: Date()
+        )
+        XCTAssertEqual(view.rows, [])
+    }
+
     /// EXP-1334: `stripCases` — the never-scrolling strip's partition.
     func testPartitionThreadStripReplaysEveryCase() throws {
         for testCase in try cases(try fixture("session-thread.json"), "stripCases") {

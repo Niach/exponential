@@ -31,6 +31,7 @@ import com.exponential.app.ui.components.AgentRunMark
 import com.exponential.app.ui.components.IssueChip
 import com.exponential.app.ui.components.modelLabel
 import com.exponential.app.ui.session.CommentCallCard
+import com.exponential.app.ui.session.ComposerRepliesRow
 import com.exponential.app.ui.session.ScriptCardView
 import com.exponential.app.ui.session.WorkCardView
 import com.exponential.app.ui.thread.SessionCard
@@ -46,7 +47,7 @@ enum class ThreadCardsKind(val testId: String) {
     Script("script-card-screen"),
     Comment("comment-call-card-screen"),
     /** EXP-1323: the suggested tasks card in every state, a report line and
-     *  a session card with its live caption. */
+     *  a session card with its live caption; EXP-1211: the quick replies row. */
     Suggestions("thread-suggestions-screen"),
     /** EXP-1280: THE rich plan / question card (plan-card.json, shot sg_plan-card). */
     PlanCard("plan-card-screen"),
@@ -263,4 +264,19 @@ private fun SuggestionsSpecimens() {
     )
     Caption("Report")
     ThreadReportLine(text = "Report from Lazy-load product images", onOpen = {})
+    // EXP-1211: the quick replies above the session composer.
+    Caption(SessionTree.RepliesCopy.LABEL)
+    ComposerRepliesRow(
+        replies = SessionTree.ComposerReplies(
+            messageId = "m3",
+            items = listOf(
+                SessionTree.ComposerReply("q1", "Yes, open the PR"),
+                SessionTree.ComposerReply("q2", "Run the tests first"),
+                SessionTree.ComposerReply("q3", "Show me the diff before you push anything"),
+            ),
+        ),
+        pending = false,
+        onSend = {},
+        onDismiss = {},
+    )
 }

@@ -25,6 +25,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-10-17-quick-replies`,
+    date: `2026-10-17`,
+    title: `Quick replies above the composer`,
+    summary: `When an agent finishes a step it can offer its likely next messages as one-tap replies above the composer; tap one to send it, the others stay.`,
+    body: `- **One tap instead of typing**: an agent offers a few likely next messages, like "Raise the version numbers" or "Open the PR", as small buttons right above the composer of the session or thread.
+- **Sends at once**: a tap sends that reply as your next message, even while the agent is still working; the other replies stay, so you can queue another right away.
+- **Stays until replaced**: the replies stay across turns until the agent offers new ones; the × dismisses them.
+- **Everywhere**: the same row on the web, the desktop app, iOS and Android.`,
+  },
+  {
     id: `2026-10-17-custom-plan-mode`,
     date: `2026-10-17`,
     title: `Plans you can see and shape`,

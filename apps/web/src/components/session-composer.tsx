@@ -150,6 +150,21 @@ interface PendingFile {
   previewUrl: string | null
 }
 
+/** EXP-1211: the session's quick replies on their own (a host that draws
+ *  them outside the composer card, e.g. over the phones' capsule). */
+export function SessionComposerReplies({ sessionId }: { sessionId: string }) {
+  const quick = useComposerReplies(sessionId)
+  if (!quick.replies) return null
+  return (
+    <ComposerReplies
+      replies={quick.replies}
+      pending={quick.pending}
+      onSend={(messageId, itemId) => quick.send(messageId, itemId)}
+      onDismiss={quick.dismiss}
+    />
+  )
+}
+
 export function SessionComposer({
   teamId,
   sessionId,
@@ -160,6 +175,7 @@ export function SessionComposer({
   testId,
   className,
   opaque = false,
+  hideReplies = false,
 }: {
   teamId: string
   sessionId: string
@@ -173,6 +189,9 @@ export function SessionComposer({
   /** EXP-1316: the phones' floating card (`FloatingComposer`) floats over
    *  the conversation: the opaque Composer surface, never see-through. */
   opaque?: boolean
+  /** EXP-1211: the host draws `SessionComposerReplies` itself (the phones'
+   *  FloatingComposer keeps them over its collapsed capsule). */
+  hideReplies?: boolean
 }) {
   const [text, setText] = useState(``)
   const [files, setFiles] = useState<PendingFile[]>([])
@@ -349,6 +368,7 @@ export function SessionComposer({
       data-testid={testId}
       className={cn(`w-full`, className)}
       replies={
+        !hideReplies &&
         quick.replies && (
           <ComposerReplies
             replies={quick.replies}

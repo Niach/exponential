@@ -31,7 +31,8 @@ use crate::activity_fold::parse_instant;
 use crate::contract::{
     MESSAGE_AUTHOR_KIND_AGENT, MESSAGE_AUTHOR_KIND_USER, MESSAGE_CARD_KIND_EVENT,
     MESSAGE_CARD_KIND_PICTURE, MESSAGE_CARD_KIND_PLAN, MESSAGE_CARD_KIND_QUESTION,
-    MESSAGE_CARD_KIND_REPORT, MESSAGE_CARD_KIND_SESSION, MESSAGE_CARD_KIND_SUBAGENT,
+    MESSAGE_CARD_KIND_REPLIES, MESSAGE_CARD_KIND_REPORT, MESSAGE_CARD_KIND_SESSION,
+    MESSAGE_CARD_KIND_SUBAGENT,
     MESSAGE_CARD_KIND_SUGGESTIONS, MESSAGE_CARD_KIND_THREAD_STARTED,
     SESSION_KIND_AGENT, SESSION_KIND_THREAD, SESSION_STATUS_ENDED, SESSION_STATUS_QUEUED,
     SESSION_STATUS_RUNNING,
@@ -111,6 +112,17 @@ pub struct ThreadCopy {
     pub report: String,
     /// EXP-1323: the suggestions card's copy.
     pub suggestions: SuggestionsCopy,
+    /// EXP-1211: the quick replies row above the composer.
+    pub replies: RepliesCopy,
+}
+
+/// EXP-1211: `session-thread.json` `copy.replies`.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct RepliesCopy {
+    /// The row's accessible label (`Quick replies`).
+    pub label: String,
+    /// The trailing × button's label (`Dismiss quick replies`).
+    pub dismiss: String,
 }
 
 /// EXP-1323: `session-thread.json` `copy.suggestions` (`{count}` /
@@ -147,6 +159,8 @@ pub struct ThreadTestIds {
     /// EXP-1323: a report row, the suggestions card, the live tail.
     pub report: String,
     pub suggestions: String,
+    /// EXP-1211: the quick replies row.
+    pub replies: String,
     #[serde(rename = "liveTail")]
     pub live_tail: String,
 }
@@ -1068,6 +1082,57 @@ pub fn guide_menu_entries(state: Option<&str>, member: bool) -> Vec<GuideMenuEnt
         Some("open") if member => vec![GuideMenuEntry::ClosePr],
         _ => Vec::new(),
     }
+}
+
+/// EXP-1211: one open quick reply (`sessions.sendReply({messageId, itemId})`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ComposerReply {
+    pub id: String,
+    pub text: String,
+}
+
+/// EXP-1211: the quick replies row above a session's composer.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ComposerReplies {
+    pub message_id: String,
+    pub items: Vec<ComposerReply>,
+}
+
+/// EXP-1211 (`session-thread.json` `repliesCases`, TS `composerReplies`):
+/// the session's NEWEST `replies` card (created_at, then id) minus its sent,
+/// id-less and blank items; `None` when nothing is left. A replies card is
+/// never a Conversation row.
+pub fn composer_replies(session_id: &str, messages: &[&MessageRow]) -> Option<ComposerReplies> {
+    let mut newest: Option<&MessageRow> = None;
+    for message in messages.iter().copied() {
+        if message.session_id != session_id
+            || message.card.as_ref().and_then(|card| card_str(card, "kind")) != Some(MESSAGE_CARD_KIND_REPLIES)
+        {
+            continue;
+        }
+        let newer = newest.is_none_or(|best| {
+            let (at, best_at) = (ms_or_zero(message.created_at.as_deref()), ms_or_zero(best.created_at.as_deref()));
+            at > best_at || (at == best_at && message.id > best.id)
+        });
+        if newer {
+            newest = Some(message);
+        }
+    }
+    let newest = newest?;
+    let Some(Value::Array(raw_items)) = newest.card.as_ref().and_then(|card| card.get("items")) else {
+        return None;
+    };
+    let items: Vec<ComposerReply> = raw_items
+        .iter()
+        .filter_map(|raw| {
+            let id = raw.get("id")?.as_str()?;
+            let text = raw.get("text")?.as_str()?;
+            (raw.get("sent") != Some(&Value::Bool(true)) && !text.trim().is_empty())
+                .then(|| ComposerReply { id: id.to_string(), text: text.to_string() })
+        })
+        .collect();
+    (!items.is_empty()).then(|| ComposerReplies { message_id: newest.id.clone(), items })
 }
 
 /// EXP-1306 (EXP-820 ×4): a question or plan card waiting on the viewer
@@ -2233,6 +2298,23 @@ mod tests {
                 case["name"]
             );
         }
+    }
+
+    /// EXP-1211: `session-thread.json` `repliesCases`, whole values.
+    #[test]
+    fn composer_replies_match_the_fixture() {
+        let fixture = fixture(SESSION_THREAD_JSON);
+        let cases = fixture["repliesCases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let input = &case["input"];
+            let messages: Vec<MessageRow> = rows(&input["messages"]);
+            let messages: Vec<&MessageRow> = messages.iter().collect();
+            let replies = composer_replies(input["sessionId"].as_str().unwrap(), &messages);
+            assert_whole(&replies, &case["expected"], case["name"].as_str().unwrap());
+        }
+        assert_eq!(THREAD.copy.replies.label, "Quick replies");
+        assert_eq!(THREAD.test_ids.replies, "thread-replies");
     }
 
     /// An active index past the chips is no active chip: the plain pack,

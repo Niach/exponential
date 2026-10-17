@@ -174,6 +174,13 @@ object SessionTree {
         const val FILED = "Filed {issue}"
     }
 
+    /** EXP-1211 `copy.replies` + `testIds.replies`: the quick-reply row. */
+    object RepliesCopy {
+        const val LABEL = "Quick replies"
+        const val DISMISS = "Dismiss quick replies"
+        const val TEST_ID = "thread-replies"
+    }
+
     object ListCopy {
         const val TITLE = "Threads"
         const val AGENTS = "Agents"
@@ -1125,6 +1132,38 @@ object SessionTree {
                 if (diff > 0 || (diff == 0L && (pr.number ?: 0) > (best.number ?: 0))) pr else best
             }
         return newest(DomainContract.prStateOpen) ?: newest(DomainContract.prStateMerged)
+    }
+
+    /** EXP-1211: one quick reply (the composer row's pill). */
+    data class ComposerReply(val id: String, val text: String)
+
+    /** EXP-1211: the row above a session's composer; [messageId] = its card. */
+    data class ComposerReplies(val messageId: String, val items: List<ComposerReply>)
+
+    /**
+     * EXP-1211 ×4 (`repliesCases`): the session's NEWEST `replies` card (by
+     * createdAt, then id); sent, id-less and blank items drop; null when none
+     * remain. A replies card never renders as a Conversation row.
+     */
+    fun composerReplies(sessionId: String, messages: List<Message>): ComposerReplies? {
+        var newest: Message? = null
+        for (message in messages) {
+            if (message.sessionId != sessionId || message.card?.str("kind") != DomainContract.messageCardKindReplies) continue
+            val best = newest
+            val at = ms(message.createdAt) ?: 0L
+            val bestAt = best?.let { ms(it.createdAt) ?: 0L }
+            if (best == null || at > bestAt!! || (at == bestAt && message.id > best.id)) newest = message
+        }
+        val card = newest?.card ?: return null
+        val raws = card["items"] as? JsonArray ?: return null
+        val items = raws.mapNotNull { element ->
+            val raw = element as? JsonObject ?: return@mapNotNull null
+            val id = raw.str("id") ?: return@mapNotNull null
+            if ((raw["sent"] as? JsonPrimitive)?.takeIf { !it.isString }?.content == "true") return@mapNotNull null
+            val text = raw.str("text")?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+            ComposerReply(id, text)
+        }
+        return if (items.isEmpty()) null else ComposerReplies(newest.id, items)
     }
 
     /** EXP-820 ×4: a question or plan card waiting on the viewer takes the

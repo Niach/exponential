@@ -587,6 +587,9 @@ pub(crate) struct SteerSessionView {
     /// through `sessions.answer`.
     tool_card: Option<domain::session_tree::SessionThreadRow>,
     ask_dock: crate::ask_dock::AskDockState,
+    /// EXP-1211: this session's open quick replies (its newest synced
+    /// `replies` card), drawn above THE composer box.
+    replies: Option<domain::session_tree::ComposerReplies>,
     /// Whether the synthetic trailing "Working…" row is present — the list's
     /// last index when it is.
     working: bool,
@@ -647,6 +650,10 @@ impl SteerSessionView {
             let shared_state = store.state();
             subscriptions.push(cx.observe(&collections.sessions, |this, _, cx| {
                 this.refresh_row(cx);
+            }));
+            // EXP-1211: the quick replies follow the synced `replies` card.
+            subscriptions.push(cx.observe(&collections.messages, |this, _, cx| {
+                this.refresh_replies(cx);
             }));
             // EXP-776: the chip memo is only as fresh as the issues and
             // statuses it was read from (glyph and tint are part of a chip).
@@ -805,6 +812,7 @@ impl SteerSessionView {
             docked: None,
             tool_card: None,
             ask_dock: crate::ask_dock::AskDockState::default(),
+            replies: None,
             working: false,
             dev_scrolled_to: None,
             chips: None,
@@ -814,6 +822,7 @@ impl SteerSessionView {
             _subscriptions: subscriptions,
         };
         this.refresh_row(cx);
+        this.refresh_replies(cx);
         this.arm_stale_tick(cx);
         this.arm_working_tick(cx);
         // Seed the wakeup edges from the world as it is right now, so the
@@ -1462,6 +1471,18 @@ impl SteerSessionView {
     }
 
     // ── Synced row ─────────────────────────────────────────────────────────
+
+    /// EXP-1211: re-derive the quick replies ([`domain::session_tree::
+    /// composer_replies`]); repaints only when they changed.
+    fn refresh_replies(&mut self, cx: &mut gpui::Context<Self>) {
+        let messages = crate::session_data::messages_of_session(&self.session_id, cx);
+        let messages: Vec<&domain::rows::MessageRow> = messages.iter().collect();
+        let replies = domain::session_tree::composer_replies(&self.session_id, &messages);
+        if replies != self.replies {
+            self.replies = replies;
+            cx.notify();
+        }
+    }
 
     fn refresh_row(&mut self, cx: &mut gpui::Context<Self>) {
         let Some(store) = sync::Store::try_global(cx) else {
@@ -7344,8 +7365,15 @@ impl SteerSessionView {
                 cx,
             )
         });
+        let replies = self
+            .replies
+            .as_ref()
+            .map(|replies| crate::composer::composer_replies_row(replies, true, cx));
         crate::composer::session_composer_box(
             crate::composer::SessionComposerBox::new(self.mention.clone(), submit)
+                // EXP-1211: the quick replies sit DIRECTLY above the box, so
+                // they go with it whenever the ask dock takes its slot.
+                .replies(replies)
                 .above_field(slash)
                 .field_hook(move |field| {
                     field
