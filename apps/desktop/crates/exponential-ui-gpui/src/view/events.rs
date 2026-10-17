@@ -519,6 +519,15 @@ impl SurfaceView {
             .collect()
     }
 
+    /// EXP-1280: whether a ChoiceTiles part's owner picks several values.
+    fn choice_tiles_multiple(&self, n: &exponential_ui::surface::PlacedNode) -> bool {
+        n.owner
+            .as_deref()
+            .and_then(|owner| self.index_of(owner))
+            .and_then(|i| self.cache.node(i))
+            .is_some_and(|owner| owner.props.get("type").and_then(Value::as_str) == Some("multiple"))
+    }
+
     /// Move within a roving set by `step` (wrapping), Home/End = ends.
     fn roving_target(set: &[u32], current: u32, key: &str, step: Option<i64>) -> Option<u32> {
         if set.is_empty() {
@@ -652,6 +661,18 @@ impl SurfaceView {
                 if let Some(t) = Self::roving_target(&set, n.index, key, step_h) {
                     self.focus_key(t, window, cx);
                     self.press(t, window, cx);
+                    return true;
+                }
+            }
+            // EXP-1280 (a11y.json ChoiceTiles): arrows move the roving
+            // tile, a single pick follows the focus; Space/Enter toggle.
+            ("Box", "ChoiceTiles", Some("tile")) => {
+                let set = self.roving_set(&n);
+                if let Some(t) = Self::roving_target(&set, n.index, key, step_hv) {
+                    self.focus_key(t, window, cx);
+                    if !self.choice_tiles_multiple(&n) {
+                        self.press(t, window, cx);
+                    }
                     return true;
                 }
             }

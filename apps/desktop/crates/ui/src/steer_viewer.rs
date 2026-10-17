@@ -581,6 +581,11 @@ pub(crate) struct SteerSessionView {
     /// ONE answerable card, lifted out of `rows` into the composer's slot
     /// ([`Self::dock_row_spec`], refreshed by [`Self::sync_list`]).
     docked: Option<FeedRowSpec>,
+    /// EXP-1280: this session's waiting TOOL-posted card
+    /// (`exponential_plan_propose` / `exponential_sessions_ask`): no engine
+    /// ask behind it, so it docks from its `messages` row and answers only
+    /// through `sessions.answer`.
+    tool_card: Option<domain::session_tree::SessionThreadRow>,
     ask_dock: crate::ask_dock::AskDockState,
     /// Whether the synthetic trailing "Working…" row is present — the list's
     /// last index when it is.
@@ -798,6 +803,7 @@ impl SteerSessionView {
             row_keys: Vec::new(),
             active: HashSet::new(),
             docked: None,
+            tool_card: None,
             ask_dock: crate::ask_dock::AskDockState::default(),
             working: false,
             dev_scrolled_to: None,
@@ -2582,7 +2588,21 @@ impl SteerSessionView {
         // EXP-820 → THE ask dock (ask-dock.json ×4): the waiting card takes
         // the composer's place — free text is typed in the card, and a
         // message would only race the answer.
-        !self.dock_view().composer_hidden
+        !self.dock_view().composer_hidden && self.tool_card.is_none()
+    }
+
+    /// EXP-1280: the newest unanswered TOOL-posted card of this session
+    /// (never on a root's host: its thread docks the tree's cards).
+    fn refresh_tool_card(&mut self, cx: &App) {
+        self.tool_card = (!self.tree_scope && self.may_message)
+            .then(|| {
+                crate::session_data::messages_of_session(&self.session_id, cx)
+                    .iter()
+                    .rev()
+                    .find(|message| message.answered_at.is_none() && domain::session_tree::is_tool_card(message))
+                    .and_then(domain::session_tree::ask_card_row)
+            })
+            .flatten();
     }
 
     /// THE ask dock over this session's ONE answerable card
@@ -3923,14 +3943,17 @@ fn card_answer_input(
             decision: Some(if rejected { "rejected" } else { "approved" }.to_string()),
             fresh: fresh.then_some(true),
             feedback: feedback.filter(|_| rejected),
+            ..Default::default()
         };
     }
+    // EXP-1280: a multi-select's picks ride `answers` too (`answer` = the
+    // labels joined, the compat string).
+    let answers = (text.is_none() && card.multi_select).then(|| serde_json::json!(labels));
     api::sessions::AnswerInput {
         message_id,
         answer: Some(text.map_or_else(|| labels.join(", "), str::to_string)),
-        decision: None,
-        fresh: None,
-        feedback: None,
+        answers,
+        ..Default::default()
     }
 }
 
@@ -4097,6 +4120,42 @@ pub(crate) fn ask_option_button(
     index: usize,
     cx: &App,
 ) -> Button {
+    let trailing = key_chip(index, primary, cx);
+    ask_option_button_trailing(id, label, description, primary, picked, highlighted, trailing, cx)
+}
+
+/// EXP-1280 — a CHOICE row of the plan / question card (plan-card.json):
+/// THE option row, the check glyph at its right end when picked (a choice
+/// toggles; it never answers by itself, so it carries no number key).
+pub(crate) fn ask_choice_button(
+    id: impl Into<gpui::ElementId>,
+    label: String,
+    description: Option<String>,
+    picked: bool,
+    cx: &App,
+) -> Button {
+    let check = picked.then(|| {
+        Icon::new(registry::UI_CHECK)
+            .xsmall()
+            .flex_shrink_0()
+            .text_color(cx.theme().primary)
+            .into_any_element()
+    });
+    ask_option_button_trailing(id, label, description, false, picked, false, check, cx)
+}
+
+/// [`ask_option_button`] with any `trailing` element at the row's right end.
+#[allow(clippy::too_many_arguments)] // every flag is a render decision
+fn ask_option_button_trailing(
+    id: impl Into<gpui::ElementId>,
+    label: String,
+    description: Option<String>,
+    primary: bool,
+    picked: bool,
+    highlighted: bool,
+    trailing: Option<AnyElement>,
+    cx: &App,
+) -> Button {
         let muted = cx.theme().muted_foreground;
         let label_color = if primary {
             cx.theme().primary_foreground
@@ -4174,7 +4233,7 @@ pub(crate) fn ask_option_button(
                                 )
                             }),
                     )
-                    .children(key_chip(index, primary, cx)),
+                    .children(trailing),
             )
 }
 
@@ -7334,7 +7393,9 @@ impl SteerSessionView {
     /// THE ask dock (ask-dock.json ×4): the ONE answerable card's row
     /// ([`Self::docked`]) as the big card in the composer's slot.
     fn render_dock(&mut self, window: &Window, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
-        let spec = self.docked.clone()?;
+        let Some(spec) = self.docked.clone() else {
+            return self.render_tool_card_dock(window, cx);
+        };
         let view = self.dock_view();
         if !crate::ask_dock::shows(&view) {
             return None;
@@ -7348,6 +7409,37 @@ impl SteerSessionView {
                 _ => return None,
             }
         };
+        let dock = crate::ask_dock::dock(&mut self.ask_dock, &view, content, window);
+        Some(div().w_full().flex_shrink_0().py_2().child(work_column_row(dock)).into_any_element())
+    }
+
+    /// EXP-1280: THE ask dock over a TOOL-posted card ([`Self::tool_card`]):
+    /// the thread's rich card (`thread_screen::ask_row_card`) in the
+    /// composer's slot.
+    fn render_tool_card_dock(&mut self, window: &Window, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
+        let row = self.tool_card.clone()?;
+        let (kind, text) = match &row {
+            domain::session_tree::SessionThreadRow::Plan { plan, .. } => (domain::ask_dock::AskDockKind::Plan, plan.clone()),
+            domain::session_tree::SessionThreadRow::Question { question, .. } => (domain::ask_dock::AskDockKind::Question, question.clone()),
+            _ => return None,
+        };
+        let pending = [domain::ask_dock::AskDockPending {
+            id: row.id().to_string(),
+            kind,
+            text,
+            session_name: None,
+            created_at: 0,
+        }];
+        let view = domain::ask_dock::ask_dock(&pending, None);
+        let images = self.images.clone();
+        let content = crate::thread_screen::ask_row_card(
+            &row,
+            &crate::thread_screen::ThreadText::default(),
+            &images,
+            crate::thread_screen::CardChrome { docked: true, back: None },
+            window,
+            cx,
+        )?;
         let dock = crate::ask_dock::dock(&mut self.ask_dock, &view, content, window);
         Some(div().w_full().flex_shrink_0().py_2().child(work_column_row(dock)).into_any_element())
     }
@@ -8614,6 +8706,7 @@ impl Render for SteerSessionView {
         // frame here, before anything reads the cached projection.
         self.sync_list(cx);
         self.dev_scroll_to_script_card();
+        self.refresh_tool_card(cx);
         self.sync_card_focus(window, cx);
         // EXP-789: the subagent strip sits between the header and the feed.
         let strip = self.render_subagent_strip(cx);

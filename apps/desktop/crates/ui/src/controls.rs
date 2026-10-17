@@ -37,10 +37,11 @@ use theme::tokens as t;
 
 #[allow(unused_imports)] // the shared API; not every control has an IDE caller today
 pub(crate) use exponential_ui_gpui::controls::{
-    alert, alert_title, checkbox, disclosure_header, empty_state, empty_state_actions,
+    alert, alert_title, checkbox, choice_tiles, disclosure_header, empty_state, empty_state_actions,
     empty_state_list, ghost_icon_button,
     glass_icon_button, glass_input, search_field, segmented, segmented_item, skeleton,
-    text_button, web_switch, web_textarea, AlertVariant, CheckState, ChevronSide,
+    text_button, web_switch, web_textarea, AlertVariant, CheckState, ChevronSide, ChoiceTile,
+    ChoiceTilesGeometry, OnTilePick, TilePicture,
     SearchFieldSize, Skeleton, TextButtonVariant, WebControl, WebText, CHECKBOX_PX, CTL_LG_H,
     CTL_MD_H, CTL_SM_H, SEARCH_FIELD_SM_H, SKELETON_PULSE,
 };
