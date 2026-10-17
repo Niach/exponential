@@ -107,6 +107,7 @@ export * from "./session-dot"
 export * from "./session-results"
 export * from "./session-results-view"
 export * from "./session-thread-view"
+export * from "./threads-list"
 // EXP-1248: THE session row, small | big.
 export * from "./session-row"
 export * from "./run-status-row"

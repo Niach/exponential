@@ -701,25 +701,16 @@ class StyleguideScreenshotsTest {
 
         // --- sg_threads: the Threads tab (EXP-1291) over the seed's tree —
         // the Agents band, then Needs you · Running · Recent, each row ending
-        // on its quiet word (EXP-1309). Gated on the private root's lock (its
-        // glyph's label merges into the row) and on the seeded PRs' words —
-        // APP-14's open stack and APP-16's merged PR — so neither a
-        // half-synced tree nor PR-less rows are photographed.
+        // on its quiet word (EXP-1309). Gated on the private root's row (no
+        // lock on list rows since EXP-1339) and on APP-14's open stack word,
+        // so neither a half-synced tree nor PR-less rows are photographed
+        // (`merged` has no text, EXP-1339: its lead alone turns violet).
         composeRule.onNode(hasTestTag("tab-threads")).performClick()
         flow.waitFor(hasTestTag(SessionTree.ListCopy.TEST_ID_LIST), NAV_TIMEOUT)
         flow.waitFor(hasText(RECENT_THREAD_TITLE, substring = true), SYNC_TIMEOUT)
-        flow.waitFor(
-            hasTestTag(SessionTree.ListCopy.TEST_ID_ROW) and hasText(PRIVATE_THREAD_TITLE) and
-                hasContentDescription("Private"),
-            SYNC_TIMEOUT,
-        )
         val threadRow = hasTestTag(SessionTree.ListCopy.TEST_ID_ROW)
-        flow.waitFor(threadRow and hasText(SessionTree.ThreadRowWord.Stack.text), SYNC_TIMEOUT)
-        flow.waitFor(
-            threadRow and hasText(RECENT_THREAD_TITLE, substring = true) and
-                hasText(SessionTree.ThreadRowWord.Merged.text),
-            SYNC_TIMEOUT,
-        )
+        flow.waitFor(threadRow and hasText(PRIVATE_THREAD_TITLE), SYNC_TIMEOUT)
+        flow.waitFor(threadRow and hasText(SessionTree.ThreadRowWord.Stack.text!!), SYNC_TIMEOUT)
         val agentRow = hasTestTag(SessionTree.ListCopy.TEST_ID_AGENT_ROW) and hasText(AGENT_NAME)
         flow.waitFor(agentRow, SYNC_TIMEOUT)
         flow.settle()

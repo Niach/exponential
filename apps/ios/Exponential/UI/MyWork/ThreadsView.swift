@@ -235,21 +235,21 @@ struct ThreadsListContent: View {
 
 /// One thread as THE session row: the root agent's run mark (Claude's spark
 /// while it works, EXP-1312: amber-badged when it needs you), the title (no
-/// identifier slot, EXP-1318: the title names it), the lock / spinner /
+/// identifier slot, EXP-1318: the title names it), the spinner /
 /// amber dot — no caption
 /// (`threads-list.json`; Home's Running band). EXP-1309: on the Threads tab
 /// (`word` given, web `ThreadsListView`) the row ends on ONE quiet word
-/// AND the lock instead and its state moves into the lead: the working mark while busy,
+/// instead (EXP-1339: no lock) and its state moves into the lead: the working mark while busy,
 /// the mark with an amber badge when it needs you, the PR glyph `ready to
-/// merge` / `merged` name.
+/// merge` names, the violet pr-merged glyph for `merged` (no word).
 struct ThreadRowLabel: View {
     let row: ThreadsListRow
     /// The root's agent CLI; nil/empty = claude.
     var cli: String? = nil
     /// nil = Home's row (spinner / dot); `.some` = the Threads tab's row.
     var word: ThreadRowWord?? = nil
-    /// EXP-1316: the root's device glyph, last on the row (after the word
-    /// and the lock); nil = none.
+    /// EXP-1316: the root's device glyph, last on the row (after the
+    /// word); nil = none.
     var device: ThreadRowDevice? = nil
     /// EXP-1323: the row's tree connector (a nested child's depth).
     var guide = TreeGuide()
@@ -259,9 +259,9 @@ struct ThreadRowLabel: View {
             SessionRow(
                 title: row.title,
                 guide: guide,
-                isPrivate: row.isPrivate,
                 unread: row.unread,
                 caption: row.caption,
+                // EXP-1339: `merged` has no text, only the violet lead.
                 word: word?.text,
                 wordIcon: word == .stack ? AppIcons.prStack : nil,
                 deviceIcon: device?.icon,
@@ -273,7 +273,6 @@ struct ThreadRowLabel: View {
             SessionRow(
                 title: row.title,
                 guide: guide,
-                isPrivate: row.isPrivate,
                 busy: row.busy,
                 needsYou: row.needsYou,
                 unread: row.unread,

@@ -780,7 +780,6 @@ export interface ThreadsListRow {
   parentId: string | null
   rootId: string
   title: string
-  private: boolean
   /** EXP-1318: the ROOT's device (the row's trailing device icon);
    *  `partitionThreads` always sets it, hand-built rows may omit it (= null). */
   deviceId?: string | null
@@ -883,7 +882,6 @@ export function partitionThreads(input: {
       parentId: null,
       rootId: root.id,
       title,
-      private: !root.shared,
       deviceId: root.deviceId ?? null,
       busy: live.some((s) => s.busy),
       needsYou,
@@ -909,7 +907,6 @@ export function partitionThreads(input: {
             parentId,
             rootId: root.id,
             title: card.name,
-            private: !child.shared,
             deviceId: child.deviceId ?? null,
             busy: child.status !== `ended` && child.busy,
             needsYou: child.status !== `ended` && child.needsInput,
@@ -986,11 +983,13 @@ export function listAgents(
     }))
 }
 
-/** EXP-1309/1318: the ONE quiet trailing word of a thread row ×4 (the lock
- *  rides beside it when private). Keys; `THREAD_ROW_WORDS` = the copy. */
+/** EXP-1309/1318: the ONE quiet trailing word of a thread row ×4. Keys;
+ *  `THREAD_ROW_WORDS` = the copy (EXP-1339: `merged` has none, it only
+ *  turns the lead violet). */
 export type ThreadRowWord = `stack` | `readyToMerge` | `merged` | `question`
 
-export const THREAD_ROW_WORDS = listFixture.copy.words
+export const THREAD_ROW_WORDS: Partial<Record<ThreadRowWord | `needsInput`, string>> =
+  listFixture.copy.words
 
 export interface StackPr {
   id: string

@@ -9,17 +9,12 @@ import {
 } from "@exp/domain-contract/session-tree"
 import { SEMANTIC_ICONS } from "@exp/icons"
 import {
-  AgentRunMark,
-  AgentWorkingMark,
-  BoardGlyph,
   cn,
   conceptIcon,
   getDeviceIcon,
-  GlassSectionHeader,
   MENU_SURFACE_CLASS,
   MenuPanel,
   SessionCard,
-  SessionRow,
   ThreadChipSubtree,
   ThreadIssueTab,
   ThreadIssueTree,
@@ -27,8 +22,7 @@ import {
   ThreadSessionTree,
   ThreadTabs,
   ThreadTabsAddButton,
-  ThreadsListItem,
-  treeGuides,
+  ThreadsList,
   type ThreadIssueTreeRow,
   type ThreadStripItem,
   type ThreadTreeRow,
@@ -54,10 +48,6 @@ const noop = (): void => {}
 /** EXP-1318: the specimen rows' root device (the Devices page's glyph). */
 const DEVICE = { icon: getDeviceIcon({ kind: `desktop` }), name: `Alex's MacBook Pro` }
 const PrivateIcon = conceptIcon(`ui-private`)
-const NeedsYouIcon = conceptIcon(`coding-needs-input`)
-const RecentIcon = conceptIcon(`ui-check`)
-const PrOpenIcon = conceptIcon(`pr-open`)
-const PrStackIcon = conceptIcon(`pr-stack`)
 
 const STATUS = [
   { icon: SEMANTIC_ICONS[`status-in-progress`], colorClass: `text-amber-400` },
@@ -386,20 +376,31 @@ function FoldedStrips() {
   )
 }
 
-const GROUP_GLYPH: Record<ThreadsListGroup[`key`], ReactNode> = {
-  needs_you: <NeedsYouIcon className="size-3.5 shrink-0 text-amber-400" />,
-  running: <AgentWorkingMark agent={null} />,
-  recent: <RecentIcon className="size-3.5 shrink-0 text-muted-foreground" />,
-}
+/** The specimen's PRs: `b` sits in an open stack (on another thread's open
+ *  PR), `d` is ready to merge, `c` merged (the violet lead, no word); `a`
+ *  waits on a question. The words come from the REAL `threadWordOf`. */
+const TEAM_PRS = [
+  { id: `pb`, state: `open`, basePullRequestId: `px` },
+  { id: `px`, state: `open`, basePullRequestId: null },
+  { id: `pd`, state: `open`, basePullRequestId: null },
+  { id: `pc`, state: `merged`, basePullRequestId: null },
+]
+const PRS_BY_ROOT = new Map([
+  [`b`, [TEAM_PRS[0]!]],
+  [`d`, [TEAM_PRS[2]!]],
+  [`c`, [TEAM_PRS[3]!]],
+])
+const CLAUDE = new Map(
+  [...LIST, ...NESTED].flatMap((group) => group.rows.map((row) => [row.sessionId, `claude`] as const))
+)
+const AGENTS = [
+  { sessionId: `ag1`, teamId: `t`, name: `Triage`, icon: `bug`, color: `#a78bfa`, busy: false, needsYou: true },
+  { sessionId: `ag2`, teamId: `t`, name: `Designer`, icon: `palette`, color: `#f472b6`, busy: false, needsYou: false },
+]
+const deviceGlyph = (deviceId: string | null | undefined) => (deviceId ? DEVICE : null)
 
-/** The specimen's words: one per row, like the app derives them. */
-const WORDS: Record<string, { word: string; lead?: ReactNode; icon?: ReactNode }> = {
-  a: { word: `question` },
-  b: { word: `stack`, icon: <PrStackIcon className="size-3 shrink-0" /> },
-  d: { word: `ready to merge`, lead: <PrOpenIcon className="size-3.5 text-emerald-500" /> },
-}
-
-function ThreadsList({
+/** THE app list (`@exp/ui` `ThreadsList`, EXP-1339: same component, no drift). */
+function ThreadsListSpecimen({
   groups = LIST,
   agents = true,
 }: {
@@ -407,81 +408,18 @@ function ThreadsList({
   agents?: boolean
 }) {
   return (
-    <div className="flex max-w-3xl flex-col gap-6" data-testid="threads-list">
-      {agents && (
-        <div>
-          <GlassSectionHeader
-            label={listFixture.copy.agents}
-            leading={<BoardGlyph board={{ icon: `bot` }} className="size-3.5 text-muted-foreground" />}
-          />
-          <ThreadsListItem
-            testId="agents-row"
-            lead={<BoardGlyph board={{ icon: `bug`, color: `#a78bfa` }} className="size-3.5" />}
-            title="Triage"
-            word="needs input"
-            onOpen={noop}
-          />
-          <ThreadsListItem
-            testId="agents-row"
-            lead={<BoardGlyph board={{ icon: `palette`, color: `#f472b6` }} className="size-3.5" />}
-            title="Designer"
-            onOpen={noop}
-          />
-        </div>
-      )}
-      {groups.map((group) => {
-        const guides = treeGuides(group.rows.map((row) => row.depth))
-        return (
-          <div key={group.key}>
-            <GlassSectionHeader label={group.title} leading={GROUP_GLYPH[group.key]} />
-            {group.rows.map((row, index) => {
-              if (row.depth > 0) {
-                return (
-                  <SessionRow
-                    key={row.sessionId}
-                    size={row.caption ? `big` : `small`}
-                    agent="claude"
-                    markState={row.needsYou ? `needs_input` : row.busy ? `working` : undefined}
-                    title={row.title}
-                    caption={row.caption}
-                    unread={row.unread}
-                    depth={row.depth}
-                    guide={guides[index]}
-                    onClick={noop}
-                  />
-                )
-              }
-              const word = WORDS[row.sessionId]
-              return (
-                <ThreadsListItem
-                  key={row.sessionId}
-                  lead={
-                    row.busy ? (
-                      <AgentWorkingMark agent="claude" />
-                    ) : (
-                      (word?.lead ?? (
-                        <AgentRunMark
-                          agent="claude"
-                          state={row.needsYou ? `needs_input` : group.key === `recent` ? `ended` : undefined}
-                          ringClassName="ring-background"
-                        />
-                      ))
-                    )
-                  }
-                  title={row.title}
-                  unread={row.unread}
-                  caption={row.caption}
-                  word={word?.word ?? null}
-                  wordIcon={word?.icon}
-                  locked={row.private}
-                  device={row.deviceId ? DEVICE : null}
-                  onOpen={noop}
-                />
-              )
-            })}
-          </div>
-        )
-      })}
+    <div className="max-w-3xl">
+      <ThreadsList
+        groups={groups}
+        cliByRoot={CLAUDE}
+        prsByRoot={PRS_BY_ROOT}
+        teamPrs={TEAM_PRS}
+        agents={agents ? AGENTS : undefined}
+        deviceGlyph={deviceGlyph}
+        onOpenThread={noop}
+        onOpenSession={noop}
+        onOpenAgent={noop}
+      />
     </div>
   )
 }
@@ -491,11 +429,11 @@ export const entry: StyleguideEntry = {
   section: `special`,
   owner: `EXP-1293`,
   title: `Thread`,
-  blurb: `A thread IS a root session. Header: the title (\`Implement EXP-12\`, \`Run <action>\`, the agent's auto-name; nobody renames it; a lock when private) and ONE tab strip that never scrolls (EXP-1334): "+" (THE Menu: Link an issue › the search list, New issue) and Conversation pinned left, Guide pinned right (a green dot while the root's Guide holds anything); between them the TOP-LEVEL issue chips then the dispatcher's DIRECT child sessions, THE strip chip (\`StripChip\`, shared with the work tabs strip): everything full → issues identifier-only → each zone folds into its own "+N" (\`partitionThreadStrip\`), the open chip always drawn. A chip with sub-issues / deeper sessions wears a chevron and a CLICK opens its subtree (THE tree rows with guides; phones: the bottom sheet); it reads \`<chip> › <open one>\` while a nested item is open. The conversation IS the dispatcher: no card of its own. No captions, no right sidebar; md+: while the Guide's PR is open the title row's trailing slot carries Merge (\`Merge PR\` | \`Merge stack\`) on every tab, then the \`…\` on the Guide tab; phones use the strip as the pager and keep the bottom Merge capsule on the Guide. THE session card = the Work card's header row: the state icon, the name (\`Session N\` untitled), the muted state word (amber Needs you, rose Usage limit), trailing the elapsed and a spinner while working; it opens that session. The Threads page (and the phones' Threads tab) = Needs you · Running · Recent bands (filled, no count) over flat gapless rows, no dividers: the lead (spinner while busy, amber badge when it needs you, else the PR glyph), the title, ONE quiet word (\`ready to merge\`, \`stack\`, \`merged\`, \`question\`), the lock when private, then the root's device glyph (its name on hover, EXP-1318); phones put the Agents band on top. Models = \`buildSessionThread()\`, \`sessionCard()\`, \`partitionThreads()\` (fixtures \`session-thread.json\`, \`session-card.json\`, \`threads-list.json\` ×4).`,
+  blurb: `A thread IS a root session. Header: the title (\`Implement EXP-12\`, \`Run <action>\`, the agent's auto-name; nobody renames it; a lock when private) and ONE tab strip that never scrolls (EXP-1334): "+" (THE Menu: Link an issue › the search list, New issue) and Conversation pinned left, Guide pinned right (a green dot while the root's Guide holds anything); between them the TOP-LEVEL issue chips then the dispatcher's DIRECT child sessions, THE strip chip (\`StripChip\`, shared with the work tabs strip): everything full → issues identifier-only → each zone folds into its own "+N" (\`partitionThreadStrip\`), the open chip always drawn. A chip with sub-issues / deeper sessions wears a chevron and a CLICK opens its subtree (THE tree rows with guides; phones: the bottom sheet); it reads \`<chip> › <open one>\` while a nested item is open. The conversation IS the dispatcher: no card of its own. No captions, no right sidebar; md+: while the Guide's PR is open the title row's trailing slot carries Merge (\`Merge PR\` | \`Merge stack\`) on every tab, then the \`…\` on the Guide tab; phones use the strip as the pager and keep the bottom Merge capsule on the Guide. THE session card = the Work card's header row: the state icon, the name (\`Session N\` untitled), the muted state word (amber Needs you, rose Usage limit), trailing the elapsed and a spinner while working; it opens that session. The Threads page (and the phones' Threads tab) = Needs you · Running · Recent bands (filled, no count) over flat gapless rows, no dividers: the lead (spinner while busy, amber badge when it needs you, else the PR glyph), the title, ONE quiet word (\`ready to merge\`, \`stack\`, \`question\`; a merged thread shows only the violet lead, no word, and no row carries a lock, EXP-1339), then the root's device glyph (its name on hover, EXP-1318); the page and this specimen render THE same \`ThreadsList\`; phones put the Agents band on top. Models = \`buildSessionThread()\`, \`sessionCard()\`, \`partitionThreads()\` (fixtures \`session-thread.json\`, \`session-card.json\`, \`threads-list.json\` ×4).`,
   status: {
     web: {
       state: `ok`,
-      symbol: `ThreadTabs / ThreadsListItem / SessionCard`,
+      symbol: `ThreadTabs / ThreadsList / SessionCard`,
       file: `packages/ui/src/session-thread-view.tsx`,
       note: `pages: apps/web/src/routes/t/$teamSlug/threads/; card: packages/ui/src/work-card.tsx`,
     },
@@ -528,8 +466,8 @@ export const entry: StyleguideEntry = {
           <SessionCard key={card.name} card={card} onOpen={noop} />
         ))}
       </div>
-      <ThreadsList />
-      <ThreadsList groups={NESTED} agents={false} />
+      <ThreadsListSpecimen />
+      <ThreadsListSpecimen groups={NESTED} agents={false} />
     </div>
   ),
 }

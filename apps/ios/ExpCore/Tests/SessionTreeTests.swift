@@ -91,7 +91,6 @@ final class SessionTreeTests: XCTestCase {
             parentId: string(row["parentId"]),
             rootId: string(row["rootId"]),
             title: try XCTUnwrap(string(row["title"])),
-            isPrivate: try XCTUnwrap(row["private"] as? Bool),
             busy: try XCTUnwrap(row["busy"] as? Bool),
             needsYou: try XCTUnwrap(row["needsYou"] as? Bool),
             unread: (row["unread"] as? Bool) ?? false,
@@ -248,7 +247,6 @@ final class SessionTreeTests: XCTestCase {
                     "parentId": json(row.parentId),
                     "rootId": row.rootId,
                     "title": row.title,
-                    "private": row.isPrivate,
                     "busy": row.busy,
                     "needsYou": row.needsYou,
                     "unread": row.unread,
@@ -451,7 +449,7 @@ final class SessionTreeTests: XCTestCase {
         XCTAssertEqual(copy["empty"] as? String, SessionTree.ListCopy.empty)
         XCTAssertEqual(copy["rail"] as? String, SessionTree.ListCopy.rail)
         let words = try XCTUnwrap(copy["words"] as? [String: String])
-        XCTAssertEqual(Set(words.keys), Set(ThreadRowWord.allCases.map(\.rawValue)))
+        XCTAssertEqual(Set(words.keys), Set(ThreadRowWord.allCases.filter { $0.text != nil }.map(\.rawValue)))
         for word in ThreadRowWord.allCases {
             XCTAssertEqual(words[word.rawValue], word.text, word.rawValue)
         }
@@ -672,6 +670,6 @@ final class SessionTreeTests: XCTestCase {
         // Merged beats the question; a closed PR says nothing.
         XCTAssertEqual(SessionTree.threadRowWord(busy: false, needsYou: true, prs: [mergedBase], teamPrs: [mergedBase]), .merged)
         XCTAssertNil(SessionTree.threadRowWord(busy: false, needsYou: false, prs: [pr("c", "closed")], teamPrs: []))
-        XCTAssertEqual(ThreadRowWord.allCases.map(\.text), ["stack", "ready to merge", "merged", "question", "needs input"])
+        XCTAssertEqual(ThreadRowWord.allCases.map(\.text), ["stack", "ready to merge", nil, "question", "needs input"])
     }
 }

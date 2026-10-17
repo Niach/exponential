@@ -71,7 +71,6 @@ const GuideIcon = conceptIcon(`guide-changes`)
 const AddIcon = conceptIcon(`ui-add`)
 const CloseIcon = conceptIcon(`ui-close`)
 const SubagentIcon = conceptIcon(`coding-subagent`)
-const PrivateIcon = conceptIcon(`ui-private`)
 const ReportIcon = conceptIcon(`notification-reporter-reply`)
 const ChevronRightIcon = conceptIcon(`ui-chevron-right`)
 const ChevronDownIcon = conceptIcon(`ui-chevron-down`)
@@ -1355,7 +1354,6 @@ export function ThreadsListItem({
   title,
   word,
   wordIcon,
-  locked = false,
   device = null,
   unread = false,
   caption = null,
@@ -1372,13 +1370,12 @@ export function ThreadsListItem({
   unread?: boolean
   /** EXP-1323: the live caption, the muted line under the title. */
   caption?: string | null
-  /** ONE quiet trailing word (`ready to merge`, `stack`, `merged`). */
+  /** ONE quiet trailing word (`ready to merge`, `stack`, `question`;
+   *  EXP-1339: no lock, `merged` has no word). */
   word?: string | null
   wordIcon?: ReactNode
-  /** A private thread: the lock after the word (EXP-1318: both). */
-  locked?: boolean
-  /** EXP-1318: the ROOT's device, the trailing glyph after the word and the
-   *  lock (its name = tooltip + accessible name); null = none. */
+  /** EXP-1318: the ROOT's device, the trailing glyph after the word (its
+   *  name = tooltip + accessible name); null = none. */
   device?: { icon: ComponentType<{ className?: string }>; name: string | null } | null
   active?: boolean
   onOpen?: () => void
@@ -1419,14 +1416,6 @@ export function ThreadsListItem({
           {wordIcon}
           {word}
         </span>
-      )}
-      {locked && (
-        <PrivateIcon
-          role="img"
-          aria-label="Private"
-          data-slot="threads-row-lock"
-          className="size-3.5 shrink-0 text-muted-foreground"
-        />
       )}
       {device && <SessionRowDevice icon={device.icon} name={device.name} />}
     </ListRow>

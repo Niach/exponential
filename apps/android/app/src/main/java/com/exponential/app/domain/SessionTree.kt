@@ -799,7 +799,6 @@ object SessionTree {
         val sessionId: String,
         val teamId: String,
         val title: String,
-        val private: Boolean,
         val busy: Boolean,
         val needsYou: Boolean,
         val activityAt: String,
@@ -873,7 +872,6 @@ object SessionTree {
                 sessionId = root.id,
                 teamId = root.teamId,
                 title = title,
-                private = !root.shared,
                 busy = live.any { it.busy },
                 needsYou = needsYou,
                 activityAt = activity,
@@ -905,7 +903,6 @@ object SessionTree {
                                 sessionId = child.id,
                                 teamId = child.teamId,
                                 title = card.name,
-                                private = !child.shared,
                                 busy = !ended && child.busy,
                                 needsYou = !ended && child.needsInput,
                                 activityAt = child.updatedAt,
@@ -1094,11 +1091,12 @@ object SessionTree {
     }
 
     /** EXP-1309/1318 (`threads-list.json` `copy.words`): a Threads row's ONE
-     *  quiet word ([wire] = the fixture key); the lock rides beside it. */
-    enum class ThreadRowWord(val wire: String, val text: String) {
+     *  quiet word ([wire] = the fixture key). EXP-1339: [Merged] has NO text
+     *  (null), it only turns the lead pr-merged violet. */
+    enum class ThreadRowWord(val wire: String, val text: String?) {
         Stack("stack", "stack"),
         ReadyToMerge("readyToMerge", "ready to merge"),
-        Merged("merged", "merged"),
+        Merged("merged", null),
         Question("question", "question"),
 
         /** An agent row waiting on a person. */

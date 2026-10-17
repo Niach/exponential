@@ -15,7 +15,12 @@
 //! the first case has no example of (a plan, a subagent, a picture) follow
 //! from the second case, then (EXP-1323) the dispatcher case's report line
 //! and suggestions card in every item state. THE composer the thread hosts
-//! is the `session-thread` entry's (the web's too).
+//! is the `session-thread` entry's (the web's too). Last (EXP-1339), the
+//! Threads list: THE page's bands and rows
+//! ([`crate::threads_view::thread_list_bands`]) over `threads-list.json`'s
+//! first case through `partition_threads`, with demo pull requests so every
+//! trailing word shows: stack, ready to merge, a question, and a merged row
+//! (the violet pr-merged lead, no word). No lock on a list row.
 //!
 //! No `sync::Store` here: authors read `Someone`, no `#IDENT` pills, and the
 //! image cache has no transport (the picture paints its placeholder box).
@@ -29,15 +34,16 @@ use gpui::{
 use gpui_component::menu::{PopupMenu, PopupMenuItem};
 use gpui_component::{h_flex, v_flex, ActiveTheme as _, Icon};
 
-use domain::rows::{MessageRow, PullRequestRow, SessionIssueRow, SessionRow};
+use domain::rows::{MessageRow, PullRequestRow, SessionIssueRow, SessionReadRow, SessionRow};
 use domain::session_tree::{
-    build_session_thread, SessionState, SessionTabMarkState, SessionThreadInput, SessionThreadRow,
-    SessionThreadView, ThreadTab, TreeIssue,
+    build_session_thread, partition_threads, SessionState, SessionTabMarkState, SessionThreadInput,
+    SessionThreadRow, SessionThreadView, ThreadTab, ThreadsListGroup, ThreadsListInput, TreeIssue,
 };
 use domain::statuses::ResolvedStatus;
 
 use crate::icons::registry;
 use crate::markdown::ImageCache;
+use crate::session_data::PrSnapshot;
 use crate::thread_screen::{
     agent_prose, bubble_caption, card_row, clock, issue_glyph, message_markdown, muted_line, thread_menu,
     thread_strip, title_row, user_bubble, StripIssue, StripPick, ThreadMenuTarget, ThreadStrip,
@@ -508,6 +514,59 @@ fn dispatcher_rows(view: &SessionThreadView) -> Vec<&SessionThreadRow> {
         .collect()
 }
 
+/// EXP-1339: the demo pull requests per thread of the Threads list case
+/// (`threads-list.json` `cases[0]`), so each word shows: `d` an open PR
+/// alone (ready to merge), `e` an open PR based on another open one
+/// (stack), `c` a merged PR (the violet lead, no word); `a` needs you with
+/// no PR (question).
+fn list_pull_requests() -> Vec<PullRequestRow> {
+    let pull = |id: &str, root: &str, state: &str, base: Option<&str>| -> PullRequestRow {
+        serde_json::from_value(serde_json::json!({
+            "id": id,
+            "root_session_id": root,
+            "state": state,
+            "base_pull_request_id": base,
+            "created_at": "2026-10-13T06:00:00.000Z",
+        }))
+        .expect("a demo pull request")
+    };
+    vec![
+        pull("pr-d", "d", "open", None),
+        pull("pr-base", "elsewhere", "open", None),
+        pull("pr-e", "e", "open", Some("pr-base")),
+        pull("pr-c", "c", "merged", None),
+    ]
+}
+
+/// EXP-1339: the Threads list case — `cases[0]` partitioned by the domain
+/// (`partition_threads`) plus the demo pull requests.
+pub(super) fn threads_list_case() -> (Vec<ThreadsListGroup>, PrSnapshot) {
+    let fixture: serde_json::Value =
+        serde_json::from_str(fixture_rows::THREADS_LIST_JSON).expect("threads-list.json parses");
+    let input = &fixture["cases"][0]["input"];
+    let sessions: Vec<SessionRow> = fixture_rows::rows(&input["sessions"]);
+    let links: Vec<SessionIssueRow> = fixture_rows::rows(&input["sessionIssues"]);
+    let issues: Vec<TreeIssue> = serde_json::from_value(input["issues"].clone()).unwrap_or_default();
+    let messages: Vec<MessageRow> = fixture_rows::rows(&input["messages"]);
+    let reads: Vec<SessionReadRow> = fixture_rows::rows(&input["reads"]);
+    let groups = partition_threads(ThreadsListInput {
+        sessions: &sessions.iter().collect::<Vec<_>>(),
+        session_issues: &links.iter().collect::<Vec<_>>(),
+        issues: &issues,
+        messages: &messages.iter().collect::<Vec<_>>(),
+        team_id: input["teamId"].as_str(),
+        reads: &reads.iter().collect::<Vec<_>>(),
+    });
+    let snapshot = PrSnapshot {
+        pulls: list_pull_requests(),
+        ..PrSnapshot::default()
+    };
+    (groups, snapshot)
+}
+
+/// The Threads list's width (the page's column, web `max-w-3xl`).
+const LIST_W: f32 = 768.;
+
 pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
     let images = window
         .use_keyed_state("sg-thread-parts-images", cx, |_, _| ImageCache::new(None))
@@ -557,6 +616,15 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
                 .child(menus),
         )
         .child(conversation)
+        .child({
+            let (groups, snapshot) = threads_list_case();
+            v_flex()
+                .w(px(LIST_W))
+                .max_w_full()
+                .gap_2()
+                .child(caption("The Threads list: the page's rows (stack, ready to merge, a question; merged = the violet lead, no word)"))
+                .children(crate::threads_view::thread_list_bands(&groups, &snapshot, cx))
+        })
 }
 
 #[cfg(test)]
@@ -594,6 +662,27 @@ mod tests {
         assert_eq!(first.view.title, "Implement EXP-12 + 1");
         // The second header is the private one.
         assert!(second.view.private);
+    }
+
+    /// EXP-1339: the Threads list specimen shows every word (merged as
+    /// the violet lead with no text) and no row carries a lock.
+    #[test]
+    fn the_threads_list_shows_every_word() {
+        use domain::session_tree::ThreadRowWord;
+        let (groups, snapshot) = threads_list_case();
+        let words: std::collections::BTreeSet<&str> = groups
+            .iter()
+            .flat_map(|group| group.rows.iter())
+            .filter(|row| row.depth == 0)
+            .filter_map(|row| {
+                crate::threads_view::thread_word(&row.session_id, row.busy, row.needs_you, &snapshot.pulls)
+            })
+            .map(ThreadRowWord::key)
+            .collect();
+        assert_eq!(words, ["merged", "question", "readyToMerge", "stack"].into_iter().collect());
+        assert_eq!(ThreadRowWord::Merged.text(), None);
+        let merged = crate::threads_view::root_pull_request("c", &snapshot.pulls).expect("c's pull request");
+        assert!(merged.is_merged());
     }
 
     /// EXP-1322: the demo's open question shows an option's description
