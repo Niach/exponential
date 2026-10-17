@@ -85,6 +85,8 @@ struct ThreadConversationView: View {
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
+    /// EXP-1347: an issue of this thread's tabs opens its tab.
+    @Environment(\.threadIssueOutlet) private var threadIssueOutlet
 
     /// A card still waiting on its answer (`AskDock.threadPendingAsks`).
     static func isPending(_ row: ThreadRow) -> Bool {
@@ -107,8 +109,8 @@ struct ThreadConversationView: View {
             issueRefs: AgentIssueRefContext(
                 teamId: rows.root.teamId,
                 db: deps.db,
-                onOpen: { [deps, accountId] issueId in
-                    deps.deepLinkBus.navigateToIssue(issueId, accountId: accountId)
+                onOpen: { [deps, accountId, threadIssueOutlet] issueId in
+                    openIssueInnermost(issueId, outlet: threadIssueOutlet, deps: deps, accountId: accountId)
                 }
             )
         )
@@ -226,7 +228,9 @@ struct ThreadConversationView: View {
                 items: items,
                 actions: canAnswer ? suggestions : nil,
                 onOpenSession: onOpenSession,
-                onOpenIssue: { issueId in deps.deepLinkBus.navigateToIssue(issueId, accountId: accountId) }
+                onOpenIssue: { issueId in
+                    openIssueInnermost(issueId, outlet: threadIssueOutlet, deps: deps, accountId: accountId)
+                }
             )
         case .question, .plan:
             // THE ask dock (fixtures/ask-dock.json): a card still waiting on
@@ -272,7 +276,7 @@ struct ThreadConversationView: View {
             ))
         case let .event(_, _, text):
             ThreadEventLine(text: text, issue: rows.issues.first { issue in issue.identifier.map { text.hasSuffix(" \($0)") } ?? false }) { issueId in
-                deps.deepLinkBus.navigateToIssue(issueId, accountId: accountId)
+                openIssueInnermost(issueId, outlet: threadIssueOutlet, deps: deps, accountId: accountId)
             }
         }
     }

@@ -113,11 +113,21 @@ struct AgentSessionView: View {
     let accountId: String
     /// The row the screen opened on — the model observes it from there on.
     let session: SessionEntity
+    /// EXP-1343: a page of the thread screen — no header of its own (the
+    /// thread's band + strip are the ONE header; its Stop rides the thread
+    /// header's trailing slot through `onModel`).
+    var embedded = false
+    /// EXP-1343: the claimed model, handed to the host (nil once the page
+    /// left), keyed by this session's id.
+    var onModel: ((String, AgentSessionModel?) -> Void)? = nil
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.openURL) private var openURL
     @Environment(\.toaster) private var toaster
     @Environment(\.pushRoute) private var pushRoute
+    /// EXP-1347: inside a thread, an issue that is one of its tabs opens
+    /// that tab (the innermost outlet).
+    @Environment(\.threadIssueOutlet) private var threadIssueOutlet
     /// A cache of the SteerSessionStore lookup (EXP-621) — the model itself is
     /// app-scoped, so this view neither creates nor tears it down.
     @State private var model: AgentSessionModel?
@@ -251,7 +261,16 @@ struct AgentSessionView: View {
     /// the THREAD over the session's name; and Stop while the session is
     /// live and this viewer may stop it (EXP-942: a NATIVE bar button, not a
     /// glass pill — the bar wraps its items in its own capsule).
+    @ViewBuilder
     private func withChrome(_ content: some View) -> some View {
+        if embedded {
+            content
+        } else {
+            standaloneChrome(content)
+        }
+    }
+
+    private func standaloneChrome(_ content: some View) -> some View {
         content
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(.hidden, for: .navigationBar)
@@ -385,6 +404,7 @@ struct AgentSessionView: View {
                 guard !claimed else { return }
                 claimed = true
                 model = deps.attachSteerModel(accountId: accountId, session: session)
+                onModel?(session.id, model)
                 // EXP-1323: opening a session view reads it (the Threads
                 // list's bold child row).
                 markRead()
@@ -402,6 +422,7 @@ struct AgentSessionView: View {
                 model?.draftEditor.setFocused(nil)
                 guard claimed else { return }
                 claimed = false
+                onModel?(session.id, nil)
                 // NOT a teardown: the store keeps the socket up while the session
                 // runs and retires it once it is over (or falls off the cap).
                 deps.steerSessions.detach(accountId: accountId, sessionId: session.id)
@@ -476,8 +497,8 @@ struct AgentSessionView: View {
             issueRefs: AgentIssueRefContext(
                 teamId: session.teamId,
                 db: deps.db,
-                onOpen: { issueId in
-                    deps.deepLinkBus.navigateToIssue(issueId, accountId: accountId)
+                onOpen: { [threadIssueOutlet] issueId in
+                    openIssueInnermost(issueId, outlet: threadIssueOutlet, deps: deps, accountId: accountId)
                 }
             )
         )
@@ -1720,7 +1741,7 @@ struct AgentSessionView: View {
             onReturn: { handleComposerReturn(model) },
             onSend: { sendMessage(model) },
             onIssueRefTap: { issueId in
-                deps.deepLinkBus.navigateToIssue(issueId, accountId: accountId)
+                openIssueInnermost(issueId, outlet: threadIssueOutlet, deps: deps, accountId: accountId)
             },
             onArrow: { delta in
                 guard composerMenu(model) == .slash else { return false }

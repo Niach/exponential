@@ -1,6 +1,7 @@
 import ExpCore
 import Foundation
 import GRDB
+import SwiftUI
 
 /// EXP-1295: a thread screen's page — the strip's tabs as the phone's
 /// pager (Conversation · one per linked issue, EXP-1334: the folded
@@ -8,6 +9,9 @@ import GRDB
 enum ThreadPage: Hashable {
     case conversation
     case issue(String)
+    /// EXP-1343: a session chip (or a nested session) as a page — its raw
+    /// work + composer under the thread's header.
+    case session(String)
     case guide
 }
 
@@ -247,4 +251,46 @@ final class ThreadLanding: @unchecked Sendable {
     func land(threadId: String, page: ThreadPage) {
         request = Request(threadId: threadId, page: page, nonce: UUID())
     }
+}
+
+// MARK: - EXP-1347 chip navigation = the INNERMOST outlet
+
+/// Inside a thread (its Conversation, the ask dock, an embedded session
+/// page) an issue pill whose issue is one of THAT thread's issue tabs
+/// selects the tab; `open` answers whether the thread took the issue.
+/// A reference box like `PushRouteAction` (a bare closure cannot be an
+/// `EnvironmentKey.defaultValue` under strict concurrency); the thread
+/// screen holds ONE in `@State` and points it at its pages.
+final class ThreadIssueOutlet: @unchecked Sendable {
+    private var handler: ((String) -> Bool)?
+
+    init() {}
+
+    func setHandler(_ handler: @escaping (String) -> Bool) {
+        self.handler = handler
+    }
+
+    func open(_ issueId: String) -> Bool {
+        handler?(issueId) ?? false
+    }
+}
+
+private struct ThreadIssueOutletKey: EnvironmentKey {
+    static let defaultValue: ThreadIssueOutlet? = nil
+}
+
+extension EnvironmentValues {
+    var threadIssueOutlet: ThreadIssueOutlet? {
+        get { self[ThreadIssueOutletKey.self] }
+        set { self[ThreadIssueOutletKey.self] = newValue }
+    }
+}
+
+/// An issue pill's tap: the enclosing thread's tab when it holds the issue,
+/// else the app's push (`deepLinkBus.navigateToIssue`).
+func openIssueInnermost(
+    _ issueId: String, outlet: ThreadIssueOutlet?, deps: AppDependencies, accountId: String
+) {
+    if outlet?.open(issueId) == true { return }
+    deps.deepLinkBus.navigateToIssue(issueId, accountId: accountId)
 }

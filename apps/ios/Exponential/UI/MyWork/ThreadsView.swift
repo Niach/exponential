@@ -302,13 +302,16 @@ struct ThreadRowLabel: View {
             }
     }
 
-    /// Web `rowLead`.
+    /// Web `rowLead`. EXP-1344: `threadRowMarkState` FIRST at every depth
+    /// (needs-you's amber badge beats busy: a parked plan/question keeps
+    /// the device busy), then the PR glyphs.
     @ViewBuilder
     private func threadsLead(_ word: ThreadRowWord?) -> some View {
-        if row.busy {
-            AgentWorkingMark(agent: cli)
-        } else if row.needsYou {
+        let mark = SessionTree.threadRowMarkState(needsYou: row.needsYou, busy: row.busy)
+        if mark == .needsYou {
             needsYouMark
+        } else if mark == .working {
+            AgentWorkingMark(agent: cli)
         } else if word == .readyToMerge {
             AppIcon(AppIcons.prOpen, size: 13)
                 .foregroundStyle(DesignTokens.Semantic.green)

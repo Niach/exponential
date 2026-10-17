@@ -9,6 +9,27 @@ import XCTest
 // lock.
 final class AgentFeedTests: XCTestCase {
 
+    // EXP-1342 (web `takeQueuedEchoes`): a queue frame naming an echoed text
+    // takes the echo (and its row id) back; others stay.
+    func testTakeQueuedEchoesTakesHeldTextsOnly() {
+        let at = Date()
+        var echoes = [
+            AgentEcho(text: "first", at: at, rowId: 1),
+            AgentEcho(text: "held", at: at, rowId: 2),
+            AgentEcho(text: "also held", at: at, rowId: nil),
+        ]
+        let taken = AgentFeed.takeQueuedEchoes(&echoes, queued: [
+            QueuedMessage(id: "q1", text: "  held \n"),
+            QueuedMessage(id: "q2", text: "also held", sent: true),
+        ])
+        XCTAssertEqual(taken.map(\.text), ["held", "also held"])
+        XCTAssertEqual(taken.compactMap(\.rowId), [2])
+        XCTAssertEqual(echoes.map(\.text), ["first"])
+        XCTAssertEqual(AgentFeed.takeQueuedEchoes(&echoes, queued: []), [])
+        XCTAssertEqual(echoes.count, 1)
+    }
+
+
     // MARK: - activeQuestionIds
 
     func testHandlesAnAllQuestionFeedAndAnEmptyFeed() {

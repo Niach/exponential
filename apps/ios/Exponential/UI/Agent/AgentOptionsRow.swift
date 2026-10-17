@@ -113,16 +113,16 @@ struct AgentOptionsRow: View {
         .accessibilityIdentifier("start-coding-agent-picker")
     }
 
+    /// EXP-1345: a single-select pick = THE Picker (a bottom sheet, the
+    /// picked row's check trailing), never an anchored menu.
     private var modelPill: some View {
-        GlassMenu {
-            ForEach(LaunchVocabulary.modelValues(for: launch.agent), id: \.self) { value in
-                GlassMenuItem(LaunchVocabulary.modelLabel(value)) {
-                    launch.model = value
-                }
-            }
-        } label: {
-            OptionPillLabel(text: LaunchVocabulary.modelLabel(launch.model))
-        }
+        let state = model.launch
+        return ModelPicker(
+            agent: state.agent,
+            value: state.model,
+            onChange: { state.model = $0 },
+            trigger: { OptionPillLabel(text: LaunchVocabulary.modelLabel(state.model)) }
+        )
         .accessibilityLabel("Model")
     }
 

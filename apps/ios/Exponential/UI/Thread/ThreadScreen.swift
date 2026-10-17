@@ -105,12 +105,19 @@ struct ThreadScreen: View {
     /// (`attachSteerModel`, paired with `steerSessions.detach`).
     @State private var liveModel: AgentSessionModel?
     @State private var liveClaimId: String?
+    /// EXP-1343: the shown session page's model (its embedded view's claim),
+    /// for the header's Stop; nil off a session page.
+    @State private var sessionPageModel: (id: String, model: AgentSessionModel)?
+    @State private var sessionStopConfirm = false
+    /// EXP-1347: the innermost outlet for issue pills inside this thread.
+    @State private var issueOutlet = ThreadIssueOutlet()
 
     init(rootId: String, initialPage: ThreadPage = .conversation) {
         self.rootId = rootId
         self.initialPage = initialPage
-        // An issue tab may not be in the strip yet: hold it (`pendingPage`).
-        if case .issue = initialPage {
+        // An issue or session tab may not be in the strip yet: hold it
+        // (`pendingPage`).
+        if initialPage != .conversation, initialPage != .guide {
             _page = State(initialValue: .conversation)
             _pendingPage = State(initialValue: initialPage)
         } else {
@@ -124,13 +131,17 @@ struct ThreadScreen: View {
     /// Conversation alone).
     private func pages(_ rows: ThreadRows, _ view: SessionThreadView) -> [ThreadPage] {
         guard !rows.isAgent else { return [.conversation] }
-        // EXP-1334: a folded sub-issue is a page too (its chip's subtree).
+        // EXP-1334: a folded sub-issue is a page too (its chip's subtree);
+        // EXP-1343: so is every session chip and every session it folds, in
+        // strip order (`+` is never a page).
         return view.tabs.flatMap { tab -> [ThreadPage] in
             switch tab {
             case .conversation: [.conversation]
             case let .issue(issueId, _, nested): [.issue(issueId)] + nested.map { .issue($0.issueId) }
+            case let .session(sessionId, _, _, nested):
+                [.session(sessionId)] + nested.map { .session($0.sessionId) }
             case .guide: [.guide]
-            case .add, .session: []
+            case .add: []
             }
         }
     }
@@ -151,6 +162,7 @@ struct ThreadScreen: View {
                     pageView(page, rows: rows, view: view)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .environment(\.threadIssueOutlet, issueOutlet)
                 // EXP-1316 (detail-chrome.json): THE detail chrome band on
                 // every tab — the nav row (‹ · title + lock · …) over the
                 // strip, content scrolling under its scrim + edge fade.
@@ -193,6 +205,10 @@ struct ThreadScreen: View {
             // EXP-1307/1316: ONE `…` rides the header's action slot on every
             // tab while it has an entry — Close PR (EXP-1338: no GitHub
             // entry), in THE Menu's sheet.
+            // EXP-1343: a session page's Stop rides the ONE header's
+            // trailing slot while that session is live (always mounted,
+            // EXP-942; draws nothing otherwise).
+            ToolbarItem(placement: .topBarTrailing) { sessionStopButton }
             ToolbarItem(placement: .topBarTrailing) {
                 if !guideMenuEntries.isEmpty {
                     Button { openGuideMenu() } label: {
@@ -215,6 +231,17 @@ struct ThreadScreen: View {
                         pendingMenuAction = (action, target.issueId)
                         menuTarget = nil
                     }
+                }
+        }
+        // EXP-1343: the session page's Stop confirm (`Prompts.StopRun`).
+        .background {
+            Color.clear
+                .frame(width: 0, height: 0)
+                .allowsHitTesting(false)
+                .glassAlert(isPresented: $sessionStopConfirm) {
+                    GlassAlert(prompt: Prompts.StopRun.copy(), handlers: [
+                        "stop": { sessionPageModel?.model.stop() },
+                    ])
                 }
         }
         // EXP-1307: close-pr.json's confirm (the app's own card, EXP-240).
@@ -316,9 +343,10 @@ struct ThreadScreen: View {
                 },
                 onIssueMenu: { issueId in openMenu(issueId: issueId) },
                 onAdd: canEdit ? { openMenu(issueId: nil) } : nil,
-                // Phones push the session screen (its own back header).
+                // EXP-1343: a session chip is a page of this pager.
                 onOpenSession: { sessionId in
-                    pushRoute(.agentSession(accountId: accountId, sessionId: sessionId))
+                    pendingPage = nil
+                    openSession(sessionId)
                 },
                 onOpenFold: { fold in
                     UIApplication.endEditing()
@@ -338,7 +366,43 @@ struct ThreadScreen: View {
             pendingPage = nil
             selectPage(.issue(issueId))
         case let .session(sessionId, _, _, _):
+            pendingPage = nil
+            openSession(sessionId)
+        }
+    }
+
+    /// EXP-1343: a session of this thread's strip shows as its page; one
+    /// the strip does not hold (another root's) pushes its own screen.
+    private func openSession(_ sessionId: String) {
+        if currentPages.contains(.session(sessionId)) {
+            selectPage(.session(sessionId))
+        } else {
             pushRoute(.agentSession(accountId: accountId, sessionId: sessionId))
+        }
+    }
+
+    /// EXP-1347: an issue pill inside this thread whose issue is one of its
+    /// tabs selects that tab; false = not ours (the caller pushes).
+    private func openIssueTab(_ issueId: String) -> Bool {
+        guard currentPages.contains(.issue(issueId)) else { return false }
+        pendingPage = nil
+        guideSection = nil
+        selectPage(.issue(issueId))
+        return true
+    }
+
+    /// EXP-1343: Stop for the shown session page while it is live and this
+    /// viewer may stop it (the session view's own rule).
+    @ViewBuilder
+    private var sessionStopButton: some View {
+        if case let .session(shown) = page, let held = sessionPageModel, held.id == shown,
+           held.model.canStop, !held.model.isOver {
+            Button(role: .destructive) { sessionStopConfirm = true } label: {
+                Text("Stop").fontWeight(.medium)
+            }
+            .tint(DesignTokens.Semantic.red)
+            .accessibilityLabel("Stop the session")
+            .accessibilityIdentifier("session-stop")
         }
     }
 
@@ -358,6 +422,8 @@ struct ThreadScreen: View {
             conversationPage(rows: rows, view: view)
         case let .issue(issueId):
             issuePage(issueId)
+        case let .session(sessionId):
+            sessionPage(sessionId, rows: rows)
         case .guide:
             guidePage(rows: rows)
         }
@@ -375,9 +441,7 @@ struct ThreadScreen: View {
                         ThreadConversationView(
                             rows: rows,
                             view: view,
-                            onOpenSession: { sessionId in
-                                pushRoute(.agentSession(accountId: accountId, sessionId: sessionId))
-                            },
+                            onOpenSession: { sessionId in openSession(sessionId) },
                             onOpenThread: { threadId in
                                 pushRoute(.thread(accountId: accountId, threadId: threadId))
                             },
@@ -557,8 +621,8 @@ struct ThreadScreen: View {
             issueRefs: AgentIssueRefContext(
                 teamId: rows.root.teamId,
                 db: deps.db,
-                onOpen: { [deps, accountId] issueId in
-                    deps.deepLinkBus.navigateToIssue(issueId, accountId: accountId)
+                onOpen: { [deps, accountId, issueOutlet] issueId in
+                    openIssueInnermost(issueId, outlet: issueOutlet, deps: deps, accountId: accountId)
                 }
             )
         )
@@ -608,6 +672,35 @@ struct ThreadScreen: View {
         } else {
             SkeletonRows()
                 .padding(.horizontal, 16)
+                .padding(.top, 8)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        }
+    }
+
+    /// EXP-1343: a session page = that session's raw work + its composer
+    /// (the session view's body, no header of its own) under the thread's
+    /// ONE header. Only the SHOWN page holds a live model: a neighbour
+    /// renders cheap skeleton rows, and a page left unmounts its view (the
+    /// claim goes with it).
+    @ViewBuilder
+    private func sessionPage(_ sessionId: String, rows: ThreadRows) -> some View {
+        if page == .session(sessionId), let session = rows.session(id: sessionId) {
+            AgentSessionView(
+                accountId: accountId,
+                session: session,
+                embedded: true,
+                onModel: { id, model in
+                    if let model {
+                        sessionPageModel = (id, model)
+                    } else if sessionPageModel?.id == id {
+                        sessionPageModel = nil
+                    }
+                }
+            )
+            .id(sessionId)
+        } else {
+            SkeletonRows(rows: 3, rowHeight: 28, dividers: false)
+                .transcriptColumn()
                 .padding(.top, 8)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
@@ -1033,6 +1126,7 @@ struct ThreadScreen: View {
     // MARK: - Lifecycle
 
     private func appear() {
+        issueOutlet.setHandler { issueId in openIssueTab(issueId) }
         if model == nil {
             model = ThreadScreenModel(rootId: rootId, accountId: accountId, db: deps.db)
         }
@@ -1053,13 +1147,25 @@ struct ThreadScreen: View {
 
     /// EXP-1288: ONE issue model observes at a time — the shown issue tab's,
     /// created the first time its page is reached and kept (stopped) once
-    /// the page is left. An unlinked issue's model is dropped.
+    /// the page is left. An unlinked issue's model is dropped. EXP-1343: the
+    /// shown page's NEIGHBOURS get their (idle) model built too, so a swipe
+    /// lands on the page, not a skeleton flash.
     private func syncIssueModels() {
         guard let rows else { return }
         let ids = Set(rows.issues.map(\.id))
         for id in issueVMs.keys where !ids.contains(id) {
             if observingIssueId == id { stopIssueModel() }
             issueVMs[id] = nil
+        }
+        let pages = currentPages
+        if let at = pages.firstIndex(of: page) {
+            for neighbour in [at - 1, at + 1] where pages.indices.contains(neighbour) {
+                if case let .issue(id) = pages[neighbour], ids.contains(id), issueVMs[id] == nil {
+                    let vm = makeIssueModel(id)
+                    vm.preload()
+                    issueVMs[id] = vm
+                }
+            }
         }
         guard case let .issue(id) = page, ids.contains(id) else {
             stopIssueModel()

@@ -63,7 +63,7 @@ struct ThreadStripFold: Identifiable, Equatable {
 /// ICON-ONLY on phones (`action-chat`, `guide-changes`); between
 /// them the issue chips (status glyph + mono identifier, + the title while
 /// everything fits) then the session chips (the row mark + name; a tap
-/// pushes that session), laid out by `SessionTree.partitionThreadStrip`
+/// shows that session's page, EXP-1343), laid out by `SessionTree.partitionThreadStrip`
 /// over MEASURED widths (`ThreadStripMetrics`): titles go first, then each
 /// zone folds the rest behind its own "+N" (THE Menu's sheet of the hidden
 /// chips). A chip with `nested` wears a chevron-down and its TAP opens the
@@ -85,7 +85,8 @@ struct ThreadStripTabs: View {
     var onIssueMenu: (String) -> Void = { _ in }
     /// The "+" (nil = hidden: a reader who cannot add to the thread).
     var onAdd: (() -> Void)?
-    /// A session chip's tap (nil = session chips are not shown).
+    /// A session chip's tap (nil = session chips are not shown); EXP-1343:
+    /// the thread selects that session's page.
     var onOpenSession: ((String) -> Void)?
     /// A folded chip's tap or a "+N": the host presents THE Menu's sheet.
     var onOpenFold: (ThreadStripFold) -> Void = { _ in }
@@ -152,7 +153,7 @@ struct ThreadStripTabs: View {
             gap: Double(Self.gap),
             overflowW: Double(ThreadStripMetrics.overflowWidth),
             activeIssue: activeIssue,
-            activeSession: nil
+            activeSession: sessions.firstIndex { holdsShownSession($0) }
         )
         // Each zone is drawn at its MEASURED width (its chips, then its "+N");
         // the session zone never clips past the edge.
@@ -189,9 +190,14 @@ struct ThreadStripTabs: View {
         // Whatever the contract keeps, nothing may clip: an over-full zone
         // folds WHOLE into its "+N" — the sessions first while an issue is
         // the shown page (it must stay visible), else the issues first.
+        let activeSession = sessions.firstIndex { holdsShownSession($0) }
         let order: [String] = activeIssue != nil ? ["sessions", "issues"] : ["issues", "sessions"]
         for zone in order where !fits() {
-            if zone == "sessions" { shownSessions = [] } else { shownIssues = activeIssue.map { [$0] } ?? [] }
+            if zone == "sessions" {
+                shownSessions = activeSession.map { [$0] } ?? []
+            } else {
+                shownIssues = activeIssue.map { [$0] } ?? []
+            }
         }
         let sessionW = sessionsWidth()
         let issueW = issuesWidth()
@@ -233,10 +239,18 @@ struct ThreadStripTabs: View {
         return issue(issueId)?.title
     }
 
-    /// The shown page is this chip's own issue.
+    /// The shown page is this chip's own issue (or, EXP-1343, session).
     private func isShown(_ tab: ThreadTab) -> Bool {
         if case let .issue(issueId, _, _) = tab { return selection == .issue(issueId) }
+        if case let .session(sessionId, _, _, _) = tab { return selection == .session(sessionId) }
         return false
+    }
+
+    /// EXP-1343: the shown page is this session chip or one it folds.
+    private func holdsShownSession(_ tab: ThreadTab) -> Bool {
+        guard case let .session(sessionId, _, _, nested) = tab, case let .session(shown) = selection
+        else { return false }
+        return shown == sessionId || nested.contains { $0.sessionId == shown }
     }
 
     /// The nested issue that is the shown page, if any.
@@ -309,7 +323,7 @@ struct ThreadStripTabs: View {
     @ViewBuilder
     private func sessionChip(_ tab: ThreadTab) -> some View {
         if case let .session(sessionId, name, markState, nested) = tab, let onOpenSession {
-            ThreadStripTab(selected: false, bordered: true, fresh: false) {
+            ThreadStripTab(selected: holdsShownSession(tab), bordered: true, fresh: false) {
                 HStack(spacing: ThreadStripMetrics.innerSpacing) {
                     ThreadSessionChipMark(state: markState)
                         .frame(width: ThreadStripMetrics.markSize, height: ThreadStripMetrics.markSize)
@@ -359,7 +373,7 @@ struct ThreadStripTabs: View {
     private func pageTab(_ page: ThreadPage) -> some View {
         let selected = page == selection
         switch page {
-        case .issue:
+        case .issue, .session:
             EmptyView()
         case .guide:
             // EXP-1334: phones draw Conversation and Guide ICON-ONLY in the
