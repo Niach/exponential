@@ -762,6 +762,14 @@ export interface SteerSessionStore {
    *  the publisher cancels the turn and the feed shows the outcome. False =
    *  the socket is down and nothing went out. */
   interrupt(): boolean
+  /** EXP-1342: a Stop sent OUTSIDE this socket (`sessions.stop`, the web's
+   *  Stop): the device drops every unread message with the turn, so the
+   *  bar's text goes back to the draft (in order, `mergeHeldIntoDraft`) and
+   *  a dropped message never renders as a row. True = text came back. */
+  noteStopped(): boolean
+  /** EXP-1342: hand the draft's TEXT to a composer that keeps its own field
+   *  (the web `SessionComposer`) and clear it here; `` = nothing waiting. */
+  takeDraftText(): string
   /** EXP-861: revoke a queued message. Fire-and-forget like `interrupt`: the
    *  device's next `queue` frame is the confirmation; the entry is dropped
    *  from the local slot right away. False = the socket is down. */
@@ -783,6 +791,15 @@ interface InternalSteerSessionStore extends SteerSessionStore {
   _subscriberCount(): number
   _scheduleReap(): void
   _cancelReap(): void
+}
+
+/** EXP-861/EXP-1342: the queue's text handed back to a composer, in order:
+ *  an empty draft becomes the text, a draft in progress keeps its place and
+ *  the text lands after a blank line (STEER-WIRE-EXP-850 Stop rule). */
+export function mergeHeldIntoDraft(draft: string, held: readonly string[]): string {
+  if (held.length === 0) return draft
+  const text = held.join(`\n`)
+  return draft.trim() ? `${draft}\n\n${text}` : text
 }
 
 // Exported for tests; app code goes through acquireSteerSession.
@@ -851,6 +868,10 @@ export function createSteerSessionStore(
   let nextId = 0
   /** Locally-echoed sent messages awaiting their transcript-derived event. */
   const recentEchoes: EchoEntry[] = []
+  /** EXP-1342: messages a Stop dropped (their text went back to the draft):
+   *  a straggling `user_message` for one is skipped, never painted beside
+   *  the text the person is about to resend. */
+  const droppedEchoes: EchoEntry[] = []
   /** Per-card `answer_ack` deadlines (see ANSWER_ACK_TIMEOUT_MS). */
   const ackTimers = new Map<string, ReturnType<typeof setTimeout>>()
   /** EXP-751: the replay being staged, or null when nothing is staging. Holds
@@ -952,11 +973,17 @@ export function createSteerSessionStore(
    *  draft keeps its place; the queued text lands after a blank line. */
   const restoreQueueToDraft = (): boolean => {
     if (queue.length === 0) return false
-    const held = queue.map((entry) => entry.text).join(`\n`)
+    draftText = mergeHeldIntoDraft(draftText, queue.map((entry) => entry.text))
     queue = []
-    draftText = draftText.trim() ? `${draftText}\n\n${held}` : held
     commitDraft()
     return true
+  }
+  /** EXP-1342: a Stop drops the unread messages — remember them so a late
+   *  `user_message` for one never paints a row, then hand the text back. */
+  const dropQueueOnStop = (): boolean => {
+    const now = Date.now()
+    for (const entry of queue) pushEcho(droppedEchoes, entry.text, now)
+    return restoreQueueToDraft()
   }
 
   const clearAckTimer = (key: string) => {
@@ -1183,6 +1210,9 @@ export function createSteerSessionStore(
         // its transcript-derived twin. Never inside a replay fold: the replay
         // is authoritative and the echo FIFO was emptied when it began.
         if (!foldingReplay && consumeEcho(recentEchoes, event.text, Date.now()))
+          return
+        // EXP-1342: a message a Stop dropped (its text is back in the draft).
+        if (!foldingReplay && consumeEcho(droppedEchoes, event.text, Date.now()))
           return
         append({
           kind: `user_message`,
@@ -2407,8 +2437,20 @@ export function createSteerSessionStore(
      *  the confirmation. The draft is empty whenever the button reads Stop. */
     interrupt() {
       if (!sendInterruptFrame()) return false
-      if (restoreQueueToDraft()) commit()
+      if (dropQueueOnStop()) commit()
       return true
+    },
+    noteStopped() {
+      if (!dropQueueOnStop()) return false
+      commit()
+      return true
+    },
+    takeDraftText() {
+      const text = draftText
+      if (!text) return ``
+      draftText = ``
+      commitDraft()
+      return text
     },
     /** EXP-861: the strip's X. The frame is exactly `{"t":"unqueue","id"}`;
      *  the entry leaves the local slot at once (the device's next `queue`

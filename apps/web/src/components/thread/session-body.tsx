@@ -10,7 +10,7 @@ import {
 } from "@exp/ui"
 import type { IconConcept } from "@exp/icons"
 import { AgentSessionView } from "@/components/agent-session"
-import { SessionComposer } from "@/components/session-composer"
+import { SessionComposer, stopSessionTurn } from "@/components/session-composer"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import {
   useSessionCard,
@@ -21,7 +21,6 @@ import { useMarkRead, useNewestAgentMessageAt } from "@/hooks/use-mark-read"
 import { useTeamUsers } from "@/hooks/use-team-data"
 import { pageTitle, usePageTitle } from "@/lib/page-title"
 import type { SessionRow } from "@/lib/session-tree"
-import { trpc } from "@/lib/trpc-client"
 import { cn } from "@/lib/utils"
 
 // EXP-1293 / EXP-1316: ONE session's RAW WORK. Two hosts:
@@ -166,7 +165,7 @@ export function SessionStopPill({ sessionId }: { sessionId: string }) {
       onClick={async () => {
         setStopping(true)
         try {
-          await trpc.sessions.stop.mutate({ sessionId }, SKIP_ERROR_TOAST)
+          await stopSessionTurn(sessionId, SKIP_ERROR_TOAST)
         } catch (error) {
           failedAction(`stop`, `the session`, error)
         } finally {

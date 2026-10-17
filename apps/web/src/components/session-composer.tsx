@@ -48,7 +48,10 @@ import {
   defaultModelFor,
   defaultThreadModelFor,
 } from "@/lib/coding-launch-prefs"
-import { acquireSteerSession } from "@/lib/steer-session-store"
+import {
+  acquireSteerSession,
+  mergeHeldIntoDraft,
+} from "@/lib/steer-session-store"
 import {
   mergeAgentCommands,
   parseSteerCommand,
@@ -82,6 +85,18 @@ import { cn } from "@/lib/utils"
 // the context ring (its usage popover on click). The live reads (model in
 // force, usage, commands) are the session's relay state
 // (`acquireSteerSession`), the synced row the fallback.
+
+/** EXP-1342: Stop = `sessions.stop`; the device drops every unread message
+ *  with the turn, so their text goes back to the composer (×4) and a dropped
+ *  message never renders as a row. The text comes back at once (the
+ *  STEER-WIRE rule), the call failing leaves it in the draft. */
+export async function stopSessionTurn(
+  sessionId: string,
+  opts?: Parameters<typeof trpc.sessions.stop.mutate>[1]
+): Promise<void> {
+  acquireSteerSession(sessionId).noteStopped()
+  await trpc.sessions.stop.mutate({ sessionId }, opts)
+}
 
 /** How long a model pick reads as picked without the relay confirming. */
 const MODEL_PICK_CONFIRM_MS = 20_000
@@ -127,6 +142,7 @@ function useComposerSession(sessionId: string) {
     | { launchDefaults?: { agents?: Record<string, { model?: string; threadModel?: string }> } | null }
     | undefined
   return {
+    store,
     row,
     config: snapshot.config,
     usage: snapshot.usage,
@@ -174,7 +190,16 @@ export function SessionComposer({
   const fieldRef = useRef<MentionTextareaHandle>(null)
   const toolsRef = useRef<ComposerInlineToolsHandle>(null)
 
-  const { row, config, usage, contextLayout, fallback } = useComposerSession(sessionId)
+  const { store, row, config, usage, contextLayout, fallback } = useComposerSession(sessionId)
+  // EXP-1342: a Stop (here or the header's) hands the unread messages' text
+  // back through the session store's draft: it lands in THIS field, after a
+  // draft in progress, and the store's copy is cleared.
+  const restored = useSyncExternalStore(store.subscribe, store.getDraftSnapshot).text
+  useEffect(() => {
+    if (!restored) return
+    const held = store.takeDraftText()
+    if (held) setText((current) => mergeHeldIntoDraft(current, [held]))
+  }, [store, restored])
   const agent = row?.cli ?? `claude`
   const options = useSessionComposerOptions({ teamId, sessionId, row, agent })
   // The `/` menu: the contract catalog for this agent, then the agent's own
@@ -299,7 +324,7 @@ export function SessionComposer({
 
   const stop = async () => {
     try {
-      await trpc.sessions.stop.mutate({ sessionId })
+      await stopSessionTurn(sessionId)
     } catch {
       toast.error(`Couldn't stop the session`)
     }
