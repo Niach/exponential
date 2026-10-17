@@ -75,6 +75,20 @@ jobs:
           mise use -g tuist@4.202.6
           tuist version
 
+      # EXP-1280: the app links the Exponential UI Swift painter (the plan card's
+      # inline surface) only when its Rust core xcframework exists
+      # (packages/exponential-ui-swift/Binaries, gitignored; Project.swift checks
+      # for it): build it first, the same script exponential-ui.yml runs.
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios,aarch64-apple-darwin,x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop
+      - name: Build the Exponential UI xcframework
+        working-directory: ${{ github.workspace }}
+        run: bash apps/desktop/crates/exponential-ui-ffi/build-ios.sh
+
       # A fresh checkout has no Tuist/.build SPM checkouts; `tuist generate`
       # fails without this.
       - name: Resolve SPM dependencies
