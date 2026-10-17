@@ -420,13 +420,20 @@ impl Render for ImagePreview {
 /// The viewer's fixed side panel width (session-results.json `viewer`).
 pub(crate) const GUIDE_VIEWER_PANEL_W: f32 = 360.;
 
+/// The viewer dialog's window title (EXP-1348).
+const GUIDE_VIEWER_TITLE: &str = "Guide";
+
+/// The viewer's size floor: the panel and a picture both fit.
+const GUIDE_VIEWER_MIN_W: f32 = 720.;
+const GUIDE_VIEWER_MIN_H: f32 = 440.;
+
 /// The viewer window over `viewport`: 90% wide (≤ 1280), 85% tall (≤ 800),
-/// never under 720×440 so the panel and a picture both fit.
+/// never under the size floor.
 fn guide_viewer_window_size(viewport: Size<Pixels>) -> Size<Pixels> {
     let (vw, vh) = (f32::from(viewport.width), f32::from(viewport.height));
     size(
-        px((vw * 0.9).min(1280.).max(720.)),
-        px((vh * 0.85).min(800.).max(440.)),
+        px((vw * 0.9).min(1280.).max(GUIDE_VIEWER_MIN_W)),
+        px((vh * 0.85).min(800.).max(GUIDE_VIEWER_MIN_H)),
     )
 }
 
@@ -448,11 +455,15 @@ pub(crate) fn open_guide_viewer(
     window: &mut Window,
     cx: &mut App,
 ) {
-    let Some(state) = domain::guide_viewer::guide_viewer(Some(&source.guide), &attachment_id) else {
+    if domain::guide_viewer::guide_viewer(Some(&source.guide), &attachment_id).is_none() {
         open_image_preview(attachment_url(&attachment_id), String::new(), None, Some(images), window, cx);
         return;
-    };
-    let spec = DialogSpec::new(state.label.clone(), guide_viewer_window_size(window.viewport_size())).chromeless();
+    }
+    // EXP-1348: a real dialog window like every other IDE dialog (titlebar
+    // strip, movable, resizable down to the panel + a picture), not the
+    // chromeless lightbox panel. The title stays put while ←/→ step.
+    let spec = DialogSpec::new(GUIDE_VIEWER_TITLE, guide_viewer_window_size(window.viewport_size()))
+        .resizable(size(px(GUIDE_VIEWER_MIN_W), px(GUIDE_VIEWER_MIN_H)));
     native_dialog::open_dialog_window(window, cx, spec, move |window, cx| {
         let view = cx.new(|cx| GuideViewer::new(source, attachment_id, images, window, cx));
         DialogContent::new(view).padless()
@@ -534,6 +545,12 @@ impl gpui::Focusable for GuideViewer {
 impl Render for GuideViewer {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         use gpui::{InteractiveElement as _, StatefulInteractiveElement as _};
+        // EXP-1348: a native-chrome dialog window loses the focus claimed in
+        // `new` as it becomes key (the shell then takes it), which left ←/→
+        // dead; hold it whenever nothing inside the viewer does.
+        if !self.focus_handle.contains_focused(window, cx) {
+            window.focus(&self.focus_handle, cx);
+        }
         let Some(state) = self.state() else {
             return div().size_full().into_any_element();
         };

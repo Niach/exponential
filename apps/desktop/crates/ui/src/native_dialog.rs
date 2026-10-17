@@ -29,7 +29,8 @@
 //!   WM and dialogs are not maximizable, so a RESIZABLE Linux dialog also gets
 //!   its window type restamped once the WM has placed it — see
 //!   [`crate::x11_dialog_type`]. `Floating` also survives everywhere for
-//!   [`DialogSpec::chromeless`] dialogs (the ⌘K palette, the image lightbox):
+//!   [`DialogSpec::chromeless`] dialogs (the ⌘K palette, the image lightbox;
+//!   the Guide picture viewer is a native-chrome dialog, EXP-1348):
 //!   a palette is not a document window and wants to stay above its opener.
 //! - **Parent-relative positioning**: bounds are centered over the opener's
 //!   window bounds at open time (honoured on macOS/Windows; on Linux the
