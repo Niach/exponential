@@ -24,10 +24,11 @@ import { probeRealDb } from "@/test/real-db"
 // every team (and user) it made (cascade). Skips without a migrated DB that
 // has the EXP-1291 triggers (see src/test/real-db.ts).
 
+const notifyBlocked = vi.hoisted(() => vi.fn(async (..._args: unknown[]) => {}))
 vi.mock(`@/lib/pull-requests`, () => ({ syncPullRequestBodies: async () => {} }))
 vi.mock(`@/lib/integrations/notifications`, () => ({
   fireAndForgetSessionMessageNotify: () => {},
-  notifySessionBlocked: async () => {},
+  notifySessionBlocked: notifyBlocked,
   // EXP-1328: File as issue runs issues.create.
   fireAndForgetAssignmentNotify: () => {},
   fireAndForgetIssueMentionNotify: () => {},
@@ -682,6 +683,24 @@ describe.skipIf(!ready.ok)(`the sessions router: device procedures and answers`,
     expect((await row(sent.sessionId)).account).toBe(`bbbb2222`)
     await host.report({ sessionId: sent.sessionId, busy: true })
     expect((await row(sent.sessionId)).account).toBe(`bbbb2222`)
+
+    // EXP-1281: a wall the device rotates past (`handled`) is stored without
+    // the flag and pushes nobody; an unhandled one notifies.
+    const wall = {
+      kind: `rate_limit`,
+      agent: `claude`,
+      window: `session`,
+      resetsAt: `2026-10-17T12:00:00.000Z`,
+      since: `2026-10-17T10:00:00.000Z`,
+    } as const
+    notifyBlocked.mockClear()
+    await host.report({ sessionId: sent.sessionId, blocked: { ...wall, handled: true } })
+    expect((await row(sent.sessionId)).blocked).toEqual(wall)
+    expect(notifyBlocked).not.toHaveBeenCalled()
+    await host.report({ sessionId: sent.sessionId, blocked: null })
+    await host.report({ sessionId: sent.sessionId, blocked: wall })
+    expect(notifyBlocked).toHaveBeenCalledTimes(1)
+    await host.report({ sessionId: sent.sessionId, blocked: null })
 
     const { brief } = await host.brief({ sessionId: sent.sessionId })
     expect(brief).toContain(`start`)

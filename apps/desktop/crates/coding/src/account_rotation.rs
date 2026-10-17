@@ -870,7 +870,9 @@ impl RotationTracker {
         let state = self.chains.entry(run.chain_key.clone()).or_default();
         state.last_live_ms = now_ms;
         let from = profiles.iter().find(|profile| profile.profile_id == run.account);
-        let from_name = from.map(|profile| profile.local_name().to_string()).unwrap_or_else(|| run.account.clone());
+        // EXP-1281: a login is its email (`accountName`), never its internal
+        // profile id — one the probe did not read is "another account".
+        let from_name = from.map(|profile| profile.local_name().to_string());
         match pick_rotation_target_spread(
             &run.account,
             run.agent,
@@ -883,16 +885,21 @@ impl RotationTracker {
         ) {
             Some(target) => {
                 let to = profiles.iter().find(|profile| profile.profile_id == target);
-                let target_name = to.map(|profile| profile.local_name().to_string()).unwrap_or_else(|| target.clone());
+                let target_name = to.map(|profile| profile.local_name().to_string());
                 state.rotations.retain(|at| now_ms - *at < ROTATION_WINDOW_MS);
                 state.rotations.push(now_ms);
                 state.no_target_until = None;
                 state.no_target_wall = None;
                 state.switch_retry_until = None;
                 Decision::Switch {
-                    prompt: switch_prompt(&from_name, &target_name, &run.window, run.resets_at_ms),
+                    prompt: switch_prompt(
+                        from_name.as_deref(),
+                        target_name.as_deref(),
+                        &run.window,
+                        run.resets_at_ms,
+                    ),
                     target,
-                    target_name,
+                    target_name: target_name.unwrap_or_else(|| UNNAMED_ACCOUNT.to_string()),
                 }
             }
             None => {
@@ -1016,13 +1023,23 @@ fn lock_probes(probes: &Mutex<InflightProbes>) -> std::sync::MutexGuard<'_, Infl
 /// The resume's own first message on a rotation: what happened and why,
 /// then `prompt::ACCOUNT_SWITCH_CONTINUE_PROMPT` (the launcher appends it to
 /// every switch resume). Read by the agent AND shown in the run.
-pub fn switch_prompt(from: &str, to: &str, window: &str, resets_at_ms: Option<i64>) -> String {
+/// `None` = a login the probe could not name: never its profile id.
+pub fn switch_prompt(from: Option<&str>, to: Option<&str>, window: &str, resets_at_ms: Option<i64>) -> String {
+    let moved = match (from, to) {
+        (Some(from), Some(to)) => format!("from {from} to {to}"),
+        (None, Some(to)) => format!("to {to}"),
+        (Some(from), None) => format!("from {from} to {UNNAMED_ACCOUNT}"),
+        (None, None) => format!("to {UNNAMED_ACCOUNT}"),
+    };
     format!(
-        "Exponential moved this session from {from} to {to}: the {} window hit its limit{}.",
+        "Exponential moved this session {moved}: the {} window hit its limit{}.",
         window_label(window),
         until_suffix(resets_at_ms)
     )
 }
+
+/// EXP-1281: what the switch line calls a login it cannot name.
+const UNNAMED_ACCOUNT: &str = "another account";
 
 #[cfg(test)]
 mod tests {
@@ -1545,8 +1562,24 @@ mod tests {
     }
 
     #[test]
+    fn the_switch_line_never_names_a_profile_id() {
+        // EXP-1281: the walled run's own login is missing from the probe.
+        let mut tracker = RotationTracker::new();
+        let run = walled("0a1b2c3d", "session", true);
+        let mut b = profile("b", 10, 10);
+        b.name = "b@acme.test".to_string();
+        let Decision::Switch { prompt, target_name, .. } = tracker.decide(&run, &[b], NOW) else {
+            panic!("expected a switch");
+        };
+        assert!(!prompt.contains("0a1b2c3d"), "{prompt}");
+        assert!(prompt.starts_with("Exponential moved this session to b@acme.test:"), "{prompt}");
+        assert_eq!(target_name, "b@acme.test");
+        assert!(switch_prompt(Some("a@x"), None, "session", None).contains("from a@x to another account"));
+    }
+
+    #[test]
     fn the_messages_name_account_window_and_reset() {
-        assert!(switch_prompt("a@x", "b@x", "weekly", None).contains("the weekly window hit its limit"));
+        assert!(switch_prompt(Some("a@x"), Some("b@x"), "weekly", None).contains("the weekly window hit its limit"));
         assert!(until_suffix(Some(NOW)).contains("(resets "));
         assert_eq!(window_label("session"), "5h");
         assert_eq!(until_suffix(None), "");

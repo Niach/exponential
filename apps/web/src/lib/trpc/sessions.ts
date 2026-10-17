@@ -613,7 +613,12 @@ export const sessionsRouter = router({
         status: sessionStatusSchema.exclude([`queued`]).optional(),
         busy: z.boolean().optional(),
         needsInput: z.boolean().optional(),
-        blocked: codingSessionBlockedSchema.nullable().optional(),
+        // `handled` = the device rotates past the wall itself (EXP-1005): no
+        // push. Never stored.
+        blocked: codingSessionBlockedSchema
+          .extend({ handled: z.boolean().nullish() })
+          .nullable()
+          .optional(),
         branch: z.string().max(255).optional(),
         title: z.string().max(255).optional(),
         // EXP-849: the login the run ACTUALLY runs on (a start pick or a
@@ -646,8 +651,9 @@ export const sessionsRouter = router({
         input.status === `ended` && session.kind === `agent` ? `idle` : input.status
       const ending = status === `ended`
       const now = new Date()
-      const blocked = input.blocked as CodingSessionBlocked | null | undefined
-      const newlyBlocked = !!blocked && !session.blocked
+      const { handled = false, ...wall } = input.blocked ?? {}
+      const blocked = (input.blocked ? wall : input.blocked) as CodingSessionBlocked | null | undefined
+      const newlyBlocked = !!blocked && !session.blocked && !handled
       const model =
         input.model !== undefined &&
         !session.dispatch &&
