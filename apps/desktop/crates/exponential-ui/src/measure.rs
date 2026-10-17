@@ -291,6 +291,19 @@ impl FixedMeasure {
                 (FIXED_CHAR_WIDTH * widest, FIXED_LINE_HEIGHT * lines)
             }
             "Chart" => (320.0, leaf.props.get("height").and_then(Value::as_f64).unwrap_or(200.0) as f32),
+            // EXP-1280: an unexpanded ChoiceTiles (geometry mode) = its grid
+            // of tiles at 320 px: per row a picture (when any option has
+            // one, 1.6 : 1) over two lines, 8 px padding, 8 px gaps.
+            "ChoiceTiles" if leaf.part.is_none() => {
+                let options = leaf.props.get("options").and_then(Value::as_array);
+                let n = options.map_or(0, Vec::len) as f32;
+                let cols = leaf.props.get("columns").and_then(Value::as_f64).unwrap_or(2.0).round().clamp(1.0, 4.0) as f32;
+                let rows = (n / cols).ceil();
+                let pictures = options.is_some_and(|o| o.iter().any(|o| o.get("image").and_then(Value::as_str).is_some_and(|s| !s.is_empty())));
+                let tile_w = (320.0 - 8.0 * (cols - 1.0)) / cols - 18.0;
+                let tile_h = if pictures { tile_w / 1.6 + 4.0 } else { 0.0 } + 2.0 * FIXED_LINE_HEIGHT + 4.0 + 18.0;
+                (320.0, (rows * tile_h + (rows - 1.0).max(0.0) * 8.0).max(0.0))
+            }
             "Switch" => (44.0, 24.0),
             "Checkbox" | "Radio" => (16.0, 16.0),
             "Avatar" => {

@@ -746,6 +746,59 @@ impl Builder<'_, '_> {
         }
     }
 
+    /// ChoiceTiles (EXP-1280): a grid of `columns` (1–4) equal tiles, one
+    /// per option: `tile.<i>` (pressable, `selected` when its value is in
+    /// `value`, comma-joined when `type: multiple`) holding `picture.<i>`
+    /// (an Image, `aspectRatio` 1.6, cover; EVERY tile has one once any
+    /// option has an `image`, so a row keeps one height: a missing picture
+    /// paints the Image fallback), `label.<i>` and `description.<i>`.
+    pub(crate) fn choice_tiles(&mut self, index: u32) {
+        let owner = self.nodes[index as usize].clone();
+        let columns = owner.props.get("columns").and_then(Value::as_f64).filter(|c| c.is_finite()).unwrap_or(2.0).round().clamp(1.0, 4.0) as u32;
+        // The gap is the `ChoiceTiles/root` recipe's.
+        self.style_default(index, &[("display", json!("grid")), ("gridTemplateColumns", json!(format!("repeat({columns}, minmax(0, 1fr))"))), ("alignItems", json!("stretch"))]);
+        self.nodes[index as usize].kind = NodeKind::Container;
+        let picked = choice_values(&owner.props);
+        let options: Vec<Value> = owner.props.get("options").and_then(Value::as_array).map(|a| a.iter().filter(|o| o.is_object()).cloned().collect()).unwrap_or_default();
+        let pictures = options.iter().any(|o| o.get("image").and_then(Value::as_str).is_some_and(|s| !s.is_empty()));
+        let all_disabled = bool_prop(&owner.props, "disabled");
+        let invalid = !self.field_errors(&owner).is_empty();
+        for (i, option) in options.iter().enumerate() {
+            let suffix = format!(".{i}");
+            let v = option.get("value").map(js).unwrap_or_default();
+            let selected = picked.contains(&v);
+            let disabled = all_disabled || option.get("disabled").and_then(Value::as_bool).unwrap_or(false);
+            let label = option.get("label").map(js).unwrap_or_default();
+            let tile = self.part_in(index, &owner, "tile", "Box", NodeKind::Container, json!({"display": "flex", "flexDirection": "column", "minWidth": 0}), json!({"value": v, "label": label, "selected": selected, "disabled": disabled}), &suffix);
+            self.nodes[tile as usize].pressable = !disabled;
+            for (on, state) in [(selected, "selected"), (disabled, "disabled"), (invalid, "invalid")] {
+                if on {
+                    self.add_state(tile, state);
+                }
+            }
+            if pictures {
+                let src = option.get("image").and_then(Value::as_str).filter(|s| !s.is_empty());
+                let mut props = json!({"alt": "", "fit": "cover", "aspectRatio": CHOICE_PICTURE_ASPECT});
+                if let Some(src) = src {
+                    props["src"] = json!(src);
+                }
+                let pic = self.part_in(tile, &owner, "picture", "Image", NodeKind::Leaf, json!({"alignSelf": "stretch", "aspectRatio": CHOICE_PICTURE_ASPECT, "flexShrink": 0, "minWidth": 0}), props, &suffix);
+                let _ = pic;
+            }
+            self.text_part(tile, &owner, "label", &label, "body", &suffix);
+            if let Some(d) = option.get("description").map(js).filter(|d| !d.is_empty()) {
+                self.text_part(tile, &owner, "description", &d, "muted", &suffix);
+            }
+        }
+        let errors = self.field_errors(&owner);
+        if !errors.is_empty() {
+            let e = self.text_part(index, &owner, "error", &errors.join("\n"), "caption", "");
+            // The error spans every column.
+            self.nodes[e as usize].base_style.insert("gridColumn".into(), json!("1 / -1"));
+            self.add_state(e, "invalid");
+        }
+    }
+
     pub(crate) fn slider(&mut self, index: u32) {
         let owner = self.nodes[index as usize].clone();
         self.style_default(index, &[("display", json!("flex")), ("flexDirection", json!("column")), ("gap", json!("$spacing.xs"))]);
@@ -808,6 +861,39 @@ impl Builder<'_, '_> {
         walk(node, &mut out, true);
         out
     }
+}
+
+/// A ChoiceTiles picture's width / height (`plan-card.json` `tiles.pictureAspect`).
+pub const CHOICE_PICTURE_ASPECT: f64 = 1.6;
+
+/// The values a ChoiceTiles `value` picks: one for `single`, the comma-joined
+/// list for `multiple` (empty entries dropped).
+pub fn choice_values(props: &serde_json::Map<String, Value>) -> Vec<String> {
+    let raw = props.get("value").filter(|v| !v.is_null()).map(js).unwrap_or_default();
+    if props.get("type").and_then(Value::as_str) == Some("multiple") {
+        raw.split(',').map(str::trim).filter(|s| !s.is_empty()).map(str::to_string).collect()
+    } else if raw.is_empty() {
+        Vec::new()
+    } else {
+        vec![raw]
+    }
+}
+
+/// A press on option `value`: `single` picks it; `multiple` toggles it in
+/// the list, kept in OPTION order. The new comma-joined value.
+pub fn choice_toggle(props: &serde_json::Map<String, Value>, value: &str) -> String {
+    if props.get("type").and_then(Value::as_str) != Some("multiple") {
+        return value.to_string();
+    }
+    let mut picked = choice_values(props);
+    if let Some(i) = picked.iter().position(|v| v == value) {
+        picked.remove(i);
+    } else {
+        picked.push(value.to_string());
+    }
+    let order: Vec<String> = props.get("options").and_then(Value::as_array).map(|a| a.iter().filter_map(|o| o.get("value")).map(js).collect()).unwrap_or_default();
+    picked.sort_by_key(|v| order.iter().position(|o| o == v).unwrap_or(usize::MAX));
+    picked.join(",")
 }
 
 #[cfg(test)]

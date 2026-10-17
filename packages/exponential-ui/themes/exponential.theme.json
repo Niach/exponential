@@ -571,6 +571,31 @@
         }
       ]
     },
+    "ChoiceTiles": {
+      "tile": [
+        {
+          "style": {
+            "backgroundColor": "$color.card"
+          }
+        },
+        {
+          "when": {
+            "state": "hover"
+          },
+          "style": {
+            "backgroundColor": "$color.secondary"
+          }
+        },
+        {
+          "when": {
+            "state": "selected"
+          },
+          "style": {
+            "backgroundColor": "$color.accent"
+          }
+        }
+      ]
+    },
     "Switch": {
       "track": [
         {

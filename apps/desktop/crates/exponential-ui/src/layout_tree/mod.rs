@@ -415,7 +415,7 @@ pub const OVERLAYS: &[&str] = &["Dialog", "Drawer", "Popover", "Tooltip", "Menu"
 
 /// The form fields a Form collects (when they carry a `name`).
 pub const FORM_FIELDS: &[&str] =
-    &["Input", "Textarea", "NumberField", "Checkbox", "Radio", "Switch", "Select", "ChipInput", "DatePicker", "DateRangePicker", "TimePicker", "FileUpload", "Slider"];
+    &["Input", "Textarea", "NumberField", "Checkbox", "Radio", "ChoiceTiles", "Switch", "Select", "ChipInput", "DatePicker", "DateRangePicker", "TimePicker", "FileUpload", "Slider"];
 
 /// Text props (`string`/`markdown` schemas) bound to a number or a boolean
 /// show its [`crate::format::display_string`] (`412`, `true`): painters read
@@ -745,6 +745,7 @@ impl<'a, 'b> Builder<'a, 'b> {
             "CodeBlock" if expand => self.code_block(index),
             "Checkbox" | "Switch" if expand => self.check(index),
             "Radio" if expand => self.radio(index),
+            "ChoiceTiles" if expand => self.choice_tiles(index),
             "Slider" if expand => self.slider(index),
             "SearchList" if expand => self.search_list(index),
             "Skeleton" => self.skeleton_rows(index),

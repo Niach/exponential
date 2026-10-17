@@ -30,6 +30,8 @@ export * from "./button"
 export * from "./calendar"
 export * from "./changes-file-sheet"
 export * from "./checkbox"
+// EXP-1280: THE picture choice (the plan card questions = the eUI ChoiceTiles look).
+export * from "./choice-tiles"
 export * from "./cn"
 export * from "./code-block"
 export * from "./collapsible"

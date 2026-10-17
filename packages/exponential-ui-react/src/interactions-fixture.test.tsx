@@ -92,3 +92,30 @@ describe(`fixtures/interactions-round1.json`, () => {
     })
   }
 })
+
+interface ChoiceCase {
+  name: string
+  type: `single` | `multiple`
+  value: string | null
+  disabled?: number
+  presses: number[]
+  expect: { value: string; changes: string[] }
+}
+
+describe(`fixtures/interactions-round1.json choiceTiles`, () => {
+  for (const c of (fixture as unknown as { choiceTiles: ChoiceCase[] }).choiceTiles) {
+    it(`ChoiceTiles: ${c.name}`, () => {
+      const actions: SurfaceActionEvent[] = []
+      const options = [`a`, `b`, `c`].map((v, i) => ({ label: v.toUpperCase(), value: v, image: `https://example.com/${v}.png`, ...(c.disabled === i ? { disabled: true } : {}) }))
+      const root = tree({ id: `c`, component: `ChoiceTiles`, props: { name: `c`, type: c.type, options, value: { path: `/v` } }, on: { change: { event: { name: `change` } } } })
+      const data = c.value === null ? {} : { v: c.value }
+      const { container } = render(<ExponentialSurface root={root} data={data} theme="neutral" id={`ct`} host={{ onAction: (e) => void actions.push(e) }} />)
+      // A press on any part of tile i picks it (the label, the picture, the tile).
+      const parts = [`tile`, `label`, `picture`]
+      c.presses.forEach((i, k) => fireEvent.click(container.querySelector(`[data-xui-id="c.${parts[k % parts.length]}.${i}"]`)!))
+      expect(actions.filter((a) => a.name === `change`).map((a) => a.context.value)).toEqual(c.expect.changes)
+      const picked = [...container.querySelectorAll(`.xui-ChoiceTiles-tile[aria-checked="true"]`)].map((b) => b.getAttribute(`data-value`))
+      expect(picked.join(`,`)).toBe(c.expect.value)
+    })
+  }
+})
