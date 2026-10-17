@@ -39,7 +39,7 @@ use gpui_component::{
     input::InputState,
     menu::{DropdownMenu as _, PopupMenuItem},
     popover::Popover,
-    v_flex, ActiveTheme as _, Icon, Selectable, Side,
+    v_flex, ActiveTheme as _, Icon, Selectable,
 };
 use theme::tokens as t;
 
@@ -501,11 +501,11 @@ impl<T: Clone + PartialEq + 'static> Picker<T> {
         let empty_text = empty_text.unwrap_or_else(|| SharedString::from("No options"));
         PickerTrigger::new(id, trigger)
             .dropdown_menu(move |menu, _window, _cx| {
-                let mut menu = menu
-                    .min_w(px(PICKER_MENU_MIN_WIDTH))
-                    .max_h(px(PICKER_MENU_MAX_HEIGHT))
-                    .scrollable(true)
-                    .check_side(Side::Right);
+                let mut menu = crate::pickers::single_select_menu(
+                    menu.min_w(px(PICKER_MENU_MIN_WIDTH))
+                        .max_h(px(PICKER_MENU_MAX_HEIGHT))
+                        .scrollable(true),
+                );
                 if items.is_empty() {
                     return menu.item(PopupMenuItem::label(empty_text.clone()));
                 }
@@ -985,8 +985,8 @@ pub(crate) fn single_row_fills(selected: bool, cursor: Hsla) -> (Option<Hsla>, O
 /// by the EXP-1045 review and the same on all four clients: a SINGLE pick is
 /// marked by a trailing check (and an unpicked row by nothing at all), a
 /// MULTI pick by the row's own highlight wash and NEVER by a glyph. The menu
-/// surface says the same thing with `PopupMenuItem::checked` +
-/// `check_side(Side::Right)`.
+/// surface says the same thing with `PopupMenuItem::checked` inside
+/// `crate::pickers::single_select_menu`.
 fn row_glyph(multi: bool, selected: bool, cx: &App) -> Option<Icon> {
     if multi {
         return None;

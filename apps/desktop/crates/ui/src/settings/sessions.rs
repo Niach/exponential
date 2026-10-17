@@ -127,6 +127,7 @@ impl Render for SessionsPane {
                 .dropdown_menu({
                     let entity = cx.entity();
                     move |mut menu, _, _| {
+                        menu = crate::pickers::single_select_menu(menu);
                         for (days, label) in CHOICES {
                             let entity = entity.clone();
                             menu = menu.item(

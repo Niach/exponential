@@ -71,12 +71,11 @@ pub(crate) fn repo_picker(id: &'static str, window: &Window, cx: &mut App) -> Op
             .dropdown_caret(true)
             .tooltip(SharedString::from(active.full_name.clone()))
             .dropdown_menu(move |mut menu, _window, _cx| {
-                menu = menu.item(PopupMenuItem::label("Repository"));
+                menu = crate::pickers::single_select_menu(menu).item(PopupMenuItem::label("Repository"));
                 for (repository_id, full_name) in &items {
                     let repository_id = repository_id.clone();
                     menu = menu.item(
-                        // No per-item icon: it would replace the check
-                        // mark (the worktree switcher's menu reads the same).
+                        // EXP-1345: the check trails (`single_select_menu`).
                         crate::controls::pointer_label_item(full_name.clone(), false)
                             .checked(repository_id == active_id)
                             .on_click(move |_, window, cx| {

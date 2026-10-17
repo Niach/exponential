@@ -2017,6 +2017,7 @@ impl ChatScreenView {
         Some(
             inline_pin_trigger("chat-pin-repo".into(), label, cx)
                 .dropdown_menu(move |mut menu, _window, _cx| {
+                    menu = crate::pickers::single_select_menu(menu);
                     for repo in &repos {
                         let view = view.clone();
                         let repo = repo.clone();

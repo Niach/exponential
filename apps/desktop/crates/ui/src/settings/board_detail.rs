@@ -435,7 +435,7 @@ impl BoardDetailPane {
                 // Read LIVE state at open time — the component caches the
                 // built menu until dismiss, so a render-time snapshot would
                 // pin whatever the list looked like when the row last drew.
-                let mut menu = menu.scrollable(true).max_h(px(320.));
+                let mut menu = crate::pickers::single_select_menu(menu.scrollable(true).max_h(px(320.)));
                 let current = Store::global(cx)
                     .collections()
                     .boards

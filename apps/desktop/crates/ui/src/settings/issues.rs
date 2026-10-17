@@ -135,6 +135,7 @@ impl IssuesPane {
                         ),
                 )
                 .dropdown_menu(move |mut menu, _window, _cx| {
+                    menu = crate::pickers::single_select_menu(menu);
                     for (wire, label, hint) in ESTIMATION_OPTIONS {
                         let text: SharedString = if hint.is_empty() {
                             (*label).into()

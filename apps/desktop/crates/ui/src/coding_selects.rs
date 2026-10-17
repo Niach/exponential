@@ -325,7 +325,7 @@ pub(crate) fn agent_menu_items(
     on_pick: impl Fn(coding::CodingAgent, &mut Window, &mut App) + 'static,
 ) -> gpui_component::menu::PopupMenu {
     let on_pick = std::rc::Rc::new(on_pick);
-    let mut menu = menu;
+    let mut menu = crate::pickers::single_select_menu(menu);
     for agent in agents {
         let agent = *agent;
         let on_pick = on_pick.clone();

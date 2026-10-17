@@ -698,7 +698,7 @@ impl FileTreeView {
         Some(
             crate::controls::PointerMenu::for_button(trigger, move |mut menu, _window, _cx| {
                     let view = view.clone();
-                    menu = menu.item(PopupMenuItem::label("Trunk")).item(
+                    menu = crate::pickers::single_select_menu(menu).item(PopupMenuItem::label("Trunk")).item(
                         crate::controls::pointer_label_item(trunk_label.clone(), false)
                             .checked(selected.is_none())
                             .on_click({
