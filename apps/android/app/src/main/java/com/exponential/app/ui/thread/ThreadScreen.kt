@@ -102,14 +102,14 @@ import java.time.format.DateTimeFormatter
  *
  * A thread: the title (EXP-1316: derived, never renamed), then ONE tab strip
  * = the phone pager — Conversation · one chip per linked issue · "+" (link /
- * file an issue) · the session chips (a tap pushes that session's view) ·
+ * file an issue) · the session chips (EXP-1343: each a page = its raw work + composer) ·
  * Guide. Conversation = the root's rows (THE session card per session, the
  * person's bubbles, the agent's prose, THE session view's question / plan
  * card answered in place, subagent / picture / event rows) over THE composer
  * box; an issue page = that issue's [IssueScreen] embedded; Guide = the root's Guide with
  * the Merge capsule of its PR. An AGENT channel is the same screen with the
  * agent's icon + name (settings affordance) and the conversation only, its
- * messages as comment rows. Stop / End live in the session view.
+ * messages as comment rows. A live session page puts Stop in the header.
  */
 @Composable
 fun ThreadScreen(
@@ -156,6 +156,8 @@ fun ThreadScreen(
     var menuFor by remember { mutableStateOf<ThreadMenuTarget?>(null) }
     var linkPickerOpen by remember { mutableStateOf(false) }
     var closePrConfirm by remember { mutableStateOf<PullRequestEntity?>(null) }
+    var stopConfirmFor by remember { mutableStateOf<String?>(null) }
+    val tree by viewModel.tree.collectAsStateWithLifecycle()
 
     // THE session composer's state = the ROOT session's view model (the same
     // live relay state the session view reads: config, usage, queue, turn).
@@ -199,11 +201,13 @@ fun ThreadScreen(
     // EXP-760 ×4: a `#IDENTIFIER` (and, in the conversation, a BARE one) of a
     // synced same-team issue is a pill; one linked here opens its tab.
     val currentOnOpenIssue by rememberUpdatedState(onOpenIssue)
+    // EXP-1347: every issue ref inside the thread (its pages, nested issue
+    // tabs and embedded session pages included) takes this one handler.
+    val openIssueHere: (String) -> Unit = { id ->
+        if (statusById.containsKey(id)) selectedKey = "issue:$id" else currentOnOpenIssue(id)
+    }
     val issueRefHandler = remember(linkCandidates, statusById) {
-        IssueRefHandler(linkCandidates, searchServer = viewModel::searchIssues) { target ->
-            if (statusById.containsKey(target.issueId)) selectedKey = "issue:${target.issueId}"
-            else currentOnOpenIssue(target.issueId)
-        }
+        IssueRefHandler(linkCandidates, searchServer = viewModel::searchIssues) { target -> openIssueHere(target.issueId) }
     }
 
     // THE ask dock (ask-dock.json): every card waiting in the tree (any
@@ -242,7 +246,6 @@ fun ThreadScreen(
                 onAnswer = onAnswer,
                 onDecidePlan = onDecidePlan,
                 dockedIds = remember(askPending) { askPending.mapTo(mutableSetOf()) { it.id } },
-                onOpenSessionTab = { id -> onOpenSession(id) },
                 issueTitle = { id -> issueTitles[id] },
                 canUnqueue = { row -> row.authorId != null && row.authorId == me },
                 onUnqueue = viewModel::unqueue,
@@ -280,12 +283,26 @@ fun ThreadScreen(
                         issueId = issueId,
                         padding = padding,
                         onBack = onBack,
-                        onOpenIssue = { id ->
-                            if (statusById.containsKey(id)) selectedKey = "issue:$id" else onOpenIssue(id)
-                        },
+                        onOpenIssue = openIssueHere,
                         onOpenThread = { id -> if (id != viewModel.rootId) onOpenThread(id) },
                         onMessage = { text -> viewModel.send(text) },
                     )
+                },
+                // EXP-1343: a session chip's page = the session view's body
+                // (raw work + its composer) under the thread's ONE header.
+                sessionPage = { sessionId, padding ->
+                    com.exponential.app.ui.session.SessionPage(
+                        sessionId = sessionId,
+                        padding = padding,
+                        onOpenIssue = openIssueHere,
+                    )
+                },
+                sessionStop = { sessionId ->
+                    // A shared session lets every member Stop; a private one
+                    // only its starter (the server re-checks).
+                    tree.firstOrNull { it.id == sessionId }
+                        ?.takeIf { !it.isEnded && (it.shared || it.userId == me) }
+                        ?.let { { stopConfirmFor = sessionId } }
                 },
                 guidePage = { padding ->
                     ThreadGuidePage(
@@ -361,6 +378,18 @@ fun ThreadScreen(
             onDismiss = { linkPickerOpen = false },
         )
     }
+    stopConfirmFor?.let { sessionId ->
+        com.exponential.app.ui.components.PromptAlert(
+            prompt = Prompts.StopRun.prompt(),
+            onDismiss = { stopConfirmFor = null },
+            handlers = mapOf(
+                "stop" to {
+                    stopConfirmFor = null
+                    viewModel.stop(sessionId)
+                },
+            ),
+        )
+    }
     // EXP-1307: the Guide `…`'s Close PR asks first (close-pr.json, the
     // issue screen's confirm; batchLine when the PR links other issues).
     closePrConfirm?.let { pr ->
@@ -420,8 +449,6 @@ fun ThreadContent(
     canUnqueue: (SessionTree.ThreadRow.MessageRow) -> Boolean,
     onUnqueue: (messageId: String) -> Unit,
     onBack: (() -> Unit)?,
-    /** A session chip (or a folded row) of the strip: phones push that session's view. */
-    onOpenSessionTab: (sessionId: String) -> Unit,
     onAdd: (() -> Unit)?,
     onIssueMenu: ((SessionTree.ThreadTab.IssueTab) -> Unit)?,
     onAgentSettings: (() -> Unit)?,
@@ -430,6 +457,12 @@ fun ThreadContent(
     issuePage: @Composable (issueId: String, padding: PaddingValues) -> Unit,
     guidePage: @Composable (padding: PaddingValues) -> Unit,
     modifier: Modifier = Modifier,
+    /** EXP-1343: a session chip's page = that session's raw work + its
+     *  composer (the session view's body, no own header). */
+    sessionPage: @Composable (sessionId: String, padding: PaddingValues) -> Unit = { _, _ -> },
+    /** EXP-1343: the header's Stop while the shown session page is live and
+     *  the viewer may stop it; null = no Stop for that session. */
+    sessionStop: (sessionId: String) -> (() -> Unit)? = { null },
     /** EXP-1307: the header `…` (Close PR, EXP-1338) while the Guide tab is
      *  selected; the slot draws nothing without an entry. */
     guideMenu: (@Composable () -> Unit)? = null,
@@ -445,22 +478,26 @@ fun ThreadContent(
     dockedIds: Set<String> = emptySet(),
 ) {
     // An agent channel is the conversation only. EXP-1334: a folded
-    // sub-issue is a page too (right after its chip's).
-    val pages = if (agent != null || view == null) {
-        listOf<SessionTree.ThreadTab>(SessionTree.ThreadTab.Conversation)
-    } else {
-        view.tabs.flatMap { tab ->
-            when (tab) {
-                SessionTree.ThreadTab.Add, is SessionTree.ThreadTab.SessionTab -> emptyList()
-                is SessionTree.ThreadTab.IssueTab ->
-                    listOf(tab) + tab.nested.map { SessionTree.ThreadTab.IssueTab(it.issueId, it.identifier) }
-                else -> listOf(tab)
-            }
-        }
-    }
+    // sub-issue is a page too (right after its chip's). EXP-1343: phones
+    // page through EVERY strip tab in strip order, the session chips (and
+    // their folded sessions) included.
+    val pages = remember(agent != null, view?.tabs) { threadPages(if (agent != null) null else view?.tabs) }
     // A tab that left the strip (an issue unlinked elsewhere) falls back to
     // the conversation.
     val selected = pages.firstOrNull { threadTabKey(it) == selectedKey } ?: SessionTree.ThreadTab.Conversation
+    val pageKeys = remember(pages) { pages.mapTo(mutableSetOf()) { threadTabKey(it) } }
+    // EXP-1343: a session of this thread with a page opens AS that page; any
+    // other (another root's card) keeps its own route.
+    val openSessionHere: (String) -> Boolean = { id ->
+        val key = "session:$id"
+        if (key in pageKeys) {
+            onSelectKey(key)
+            true
+        } else {
+            false
+        }
+    }
+    val shownStop = (selected as? SessionTree.ThreadTab.SessionTab)?.let { sessionStop(it.sessionId) }
     var composerExpanded by rememberSaveable { mutableStateOf(false) }
     Scaffold(
         modifier = modifier,
@@ -482,9 +519,11 @@ fun ThreadContent(
                     title = view?.title.orEmpty(),
                     titleContent = { ThreadTitle(title = view?.title.orEmpty(), private = view?.private == true) },
                     onBack = { onBack?.invoke() },
-                    verb = null,
-                    verbEnabled = false,
-                    onVerb = {},
+                    // EXP-1343: ONE header for every page; a live session
+                    // page puts its Stop in the trailing slot.
+                    verb = if (shownStop != null) com.exponential.app.ui.work.WorkBarVerb.Stop else null,
+                    verbEnabled = shownStop != null,
+                    onVerb = { shownStop?.invoke() },
                     // EXP-1316: the `…` rides every tab ×4 while the Guide has a PR.
                     menu = guideMenu,
                     tabs = if (view != null) {
@@ -497,7 +536,7 @@ fun ThreadContent(
                                 issueStatus = issueStatus,
                                 issueTitle = issueTitle,
                                 onIssueMenu = onIssueMenu,
-                                onOpenSession = onOpenSessionTab,
+                                onOpenSession = { id -> openSessionHere(id) },
                             )
                         }
                     } else {
@@ -521,6 +560,11 @@ fun ThreadContent(
             onSelect = { onSelectKey(threadTabKey(it)) },
             key = { threadTabKey(it) },
             modifier = Modifier.fillMaxSize(),
+            // EXP-1343: only the shown page is composed at rest (a drag
+            // composes its neighbour), and each page owns its view models:
+            // they die with the page instead of piling up per swipe.
+            beyondViewportPageCount = 0,
+            pageViewModels = true,
         ) { tab ->
             when (tab) {
                 SessionTree.ThreadTab.Conversation -> {
@@ -539,7 +583,7 @@ fun ThreadContent(
                             rows = view.rows,
                             rootId = view.rootId,
                             meta = meta,
-                            onOpenCard = onOpenCard,
+                            onOpenCard = { card -> if (!openSessionHere(card.sessionId)) onOpenCard(card) },
                             onAnswer = onAnswer,
                             onDecidePlan = onDecidePlan,
                             canUnqueue = canUnqueue,
@@ -553,7 +597,7 @@ fun ThreadContent(
                                 bottom = bandClearance + 12.dp,
                             ),
                             jumpBottomInset = bandClearance,
-                            onOpenSession = onOpenSession,
+                            onOpenSession = onOpenSession?.let { open -> { id -> if (!openSessionHere(id)) open(id) } },
                             suggestions = suggestions,
                             tail = tail,
                             dockedIds = dockedIds,
@@ -579,10 +623,30 @@ fun ThreadContent(
                 }
                 is SessionTree.ThreadTab.IssueTab -> issuePage(tab.issueId, padding)
                 is SessionTree.ThreadTab.Guide -> guidePage(padding)
-                SessionTree.ThreadTab.Add, is SessionTree.ThreadTab.SessionTab -> Unit
+                is SessionTree.ThreadTab.SessionTab -> sessionPage(tab.sessionId, padding)
+                SessionTree.ThreadTab.Add -> Unit
             }
         }
     }
+}
+
+/**
+ * EXP-1343: the phone pager's pages = the strip's tabs in strip order, each
+ * folded issue / session right after its chip; null (an agent channel, or
+ * nothing loaded) = the conversation alone.
+ */
+internal fun threadPages(tabs: List<SessionTree.ThreadTab>?): List<SessionTree.ThreadTab> {
+    if (tabs == null) return listOf(SessionTree.ThreadTab.Conversation)
+    return tabs.flatMap { tab ->
+        when (tab) {
+            SessionTree.ThreadTab.Add -> emptyList()
+            is SessionTree.ThreadTab.IssueTab ->
+                listOf(tab) + tab.nested.map { SessionTree.ThreadTab.IssueTab(it.issueId, it.identifier) }
+            is SessionTree.ThreadTab.SessionTab ->
+                listOf(tab) + tab.nested.map { SessionTree.ThreadTab.SessionTab(it.sessionId, it.name, it.markState) }
+            else -> listOf(tab)
+        }
+    }.distinctBy(::threadTabKey)
 }
 
 /** EXP-1307: the Guide `…` for [pr] — [SessionTree.guideMenuEntries] over

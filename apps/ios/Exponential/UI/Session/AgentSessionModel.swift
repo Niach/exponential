@@ -841,7 +841,7 @@ final class AgentSessionModel {
     private var historyExhausted = false
     /// Locally-echoed sent messages awaiting their transcript-derived
     /// `user_message` event (EXP-78 dedupe).
-    private var recentEchoes: [(text: String, at: Date)] = []
+    private var recentEchoes: [AgentEcho] = []
     private var retryTask: Task<Void, Never>?
     /// Consecutive failed reconnect dials — indexes the backoff curve; reset
     /// on a successful (live) connection and on an explicit connect().
@@ -1202,11 +1202,14 @@ final class AgentSessionModel {
         if turn.state == .started || compacting != nil { return true }
         // Local echo (EXP-78): show the sent message immediately; its
         // transcript-derived `user_message` event is deduped via the FIFO.
-        recentEchoes.append((text: text.trimmingCharacters(in: .whitespacesAndNewlines), at: Date()))
+        let rowId = takeEventId()
+        recentEchoes.append(AgentEcho(
+            text: text.trimmingCharacters(in: .whitespacesAndNewlines), at: Date(), rowId: rowId
+        ))
         if recentEchoes.count > Self.echoCap {
             recentEchoes.removeFirst(recentEchoes.count - Self.echoCap)
         }
-        append(.userMessage(id: takeEventId(), text: text))
+        append(.userMessage(id: rowId, text: text))
         // EXP-656: sent while a replay stages — the replay predates it, so the
         // commit re-appends it unless the replay happened to carry it back.
         if isStaging { stagedLocalEchoes.append(text) }
@@ -2186,8 +2189,11 @@ final class AgentSessionModel {
         for text in echoes where !tailCarriesEcho(text) {
             // Not in the replay: re-show it, and re-arm the dedupe so its
             // transcript-derived twin doesn't render a second copy (EXP-78).
-            recentEchoes.append((text: text.trimmingCharacters(in: .whitespacesAndNewlines), at: Date()))
-            append(.userMessage(id: takeEventId(), text: text))
+            let rowId = takeEventId()
+            recentEchoes.append(AgentEcho(
+                text: text.trimmingCharacters(in: .whitespacesAndNewlines), at: Date(), rowId: rowId
+            ))
+            append(.userMessage(id: rowId, text: text))
         }
         for (key, sentAt) in carriedLocks where feedCarriesQuestion(key) {
             restoreAnswerLock(key, labels: carriedLabels[key] ?? [], sentAt: sentAt)
@@ -2471,6 +2477,7 @@ final class AgentSessionModel {
             // older page folding through says nothing about it.
             guard !prependingPage else { return }
             queued = messages
+            takeBackQueuedEchoes(messages)
         case let .workflow(workflow):
             // EXP-850 §3: latest-wins PER ID. The card patches onto the tool
             // row with the same id, so the projection has to be redone.
@@ -2497,6 +2504,24 @@ final class AgentSessionModel {
                 append(.compaction(id: takeEventId()))
             }
         }
+    }
+
+    /// EXP-1342 (web `takeQueuedEchoes`): an echoed message the device is
+    /// HOLDING lives only in the Queued strip until delivery — its echo row
+    /// goes, so a Stop handing the strip back to the composer (or a late
+    /// delivery) never shows it twice.
+    private func takeBackQueuedEchoes(_ messages: [QueuedMessage]) {
+        let taken = AgentFeed.takeQueuedEchoes(&recentEchoes, queued: messages)
+        guard !taken.isEmpty else { return }
+        let takenTexts = Set(taken.map(\.text))
+        stagedLocalEchoes.removeAll {
+            takenTexts.contains($0.trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+        let rowIds = Set(taken.compactMap(\.rowId))
+        guard !rowIds.isEmpty else { return }
+        feed.removeAll { rowIds.contains($0.id) }
+        for id in rowIds { seqById.removeValue(forKey: id) }
+        recountFeedBytes()
     }
 
     /// Whether an incoming `user_message` matches a recent local echo —

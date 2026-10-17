@@ -238,7 +238,8 @@ private fun AgentListRow(agent: SessionTree.AgentRow, onClick: () -> Unit) {
  *  amber dot when it needs you. EXP-1309/1318: on the Threads tab
  *  ([threadsTab], web `ThreadsListView`) the row ends on ONE quiet [word]
  *  (`merged` = no text), and its state moves into the lead (web `rowLead`): the
- *  working mark while busy, the badged mark when it needs you, the PR glyph
+ *  badged mark when it needs you (EXP-1344: beats busy), the working mark
+ *  while busy, the PR glyph
  *  `ready to merge` / `merged` name, else the mark (dimmed with no word). */
 @Composable
 internal fun ThreadListRow(
@@ -311,9 +312,13 @@ internal fun ThreadListRow(
 /** Web `rowLead`: a Threads-tab row's state, in its lead. */
 @Composable
 private fun ThreadsTabLead(row: SessionTree.ThreadsListRow, agent: String?, word: SessionTree.ThreadRowWord?) {
+    // EXP-1344 ×4: threadRowMarkState FIRST, at every depth: the amber badge
+    // BEATS busy (a parked plan/question keeps the device busy).
+    val mark = SessionTree.threadRowMarkState(row.needsYou, row.busy)
     when {
-        row.busy -> AgentWorkingMark(agent = agent, size = 14.dp)
-        row.needsYou -> AgentRunMark(agent = agent, state = SessionTree.SessionState.NeedsYou, size = 14.dp, badgeSize = 6.dp)
+        mark == SessionTree.SessionState.NeedsYou ->
+            AgentRunMark(agent = agent, state = SessionTree.SessionState.NeedsYou, size = 14.dp, badgeSize = 6.dp)
+        mark == SessionTree.SessionState.Working -> AgentWorkingMark(agent = agent, size = 14.dp)
         word == SessionTree.ThreadRowWord.ReadyToMerge ->
             Icon(ExpIcons.prOpen, contentDescription = null, tint = DesignTokens.Semantic.Green, modifier = Modifier.size(14.dp))
         word == SessionTree.ThreadRowWord.Merged ->

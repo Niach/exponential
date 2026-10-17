@@ -48,7 +48,10 @@ import {
   defaultModelFor,
   defaultThreadModelFor,
 } from "@/lib/coding-launch-prefs"
-import { acquireSteerSession } from "@/lib/steer-session-store"
+import {
+  acquireSteerSession,
+  mergeHeldIntoDraft,
+} from "@/lib/steer-session-store"
 import {
   mergeAgentCommands,
   parseSteerCommand,
@@ -62,6 +65,7 @@ import { deviceCollection, messageCollection } from "@/lib/collections"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import type { SessionRow } from "@/lib/session-tree"
 import { trpc } from "@/lib/trpc-client"
+import { stopSessionTurn } from "@/lib/session-stop"
 import { cn } from "@/lib/utils"
 
 // EXP-1293 Threads v2: THE reply box ×4 = the home's composer box (the
@@ -127,6 +131,7 @@ function useComposerSession(sessionId: string) {
     | { launchDefaults?: { agents?: Record<string, { model?: string; threadModel?: string }> } | null }
     | undefined
   return {
+    store,
     row,
     config: snapshot.config,
     usage: snapshot.usage,
@@ -174,7 +179,16 @@ export function SessionComposer({
   const fieldRef = useRef<MentionTextareaHandle>(null)
   const toolsRef = useRef<ComposerInlineToolsHandle>(null)
 
-  const { row, config, usage, contextLayout, fallback } = useComposerSession(sessionId)
+  const { store, row, config, usage, contextLayout, fallback } = useComposerSession(sessionId)
+  // EXP-1342: a Stop (here or the header's) hands the unread messages' text
+  // back through the session store's draft: it lands in THIS field, after a
+  // draft in progress, and the store's copy is cleared.
+  const restored = useSyncExternalStore(store.subscribe, store.getDraftSnapshot).text
+  useEffect(() => {
+    if (!restored) return
+    const held = store.takeDraftText()
+    if (held) setText((current) => mergeHeldIntoDraft(current, [held]))
+  }, [store, restored])
   const agent = row?.cli ?? `claude`
   const options = useSessionComposerOptions({ teamId, sessionId, row, agent })
   // The `/` menu: the contract catalog for this agent, then the agent's own
@@ -299,7 +313,7 @@ export function SessionComposer({
 
   const stop = async () => {
     try {
-      await trpc.sessions.stop.mutate({ sessionId })
+      await stopSessionTurn(sessionId)
     } catch {
       toast.error(`Couldn't stop the session`)
     }

@@ -11,6 +11,7 @@ import {
 import type { IconConcept } from "@exp/icons"
 import { AgentSessionView } from "@/components/agent-session"
 import { SessionComposer } from "@/components/session-composer"
+import { stopSessionTurn } from "@/lib/session-stop"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import {
   useSessionCard,
@@ -21,16 +22,15 @@ import { useMarkRead, useNewestAgentMessageAt } from "@/hooks/use-mark-read"
 import { useTeamUsers } from "@/hooks/use-team-data"
 import { pageTitle, usePageTitle } from "@/lib/page-title"
 import type { SessionRow } from "@/lib/session-tree"
-import { trpc } from "@/lib/trpc-client"
 import { cn } from "@/lib/utils"
 
 // EXP-1293 / EXP-1316: ONE session's RAW WORK. Two hosts:
 //
-//   InPlaceSession   web md+: the body of the thread page's session chip
+//   InPlaceSession   the body of the thread page's session chip
 //                    (`?tab=session&session=<id>`) under the thread's own
 //                    header + strip; the header carries its Stop pill
-//   SessionScreen    phones (the thread route's session tab) and sessions
-//                    under a team AGENT (`/sessions/$id`): its own header,
+//                    (EXP-1343: phones too, a page of the thread's pager)
+//   SessionScreen    sessions under a team AGENT (`/sessions/$id`): its own header,
 //                    back to the thread (or the agent's channel), the
 //                    session's name and Stop while live
 //
@@ -66,12 +66,38 @@ function useOpenedSessionRead(sessionId: string) {
   useMarkRead(sessionId, useNewestAgentMessageAt([sessionId]))
 }
 
-/** md+: the session open IN PLACE inside its thread. */
-export function InPlaceSession({ row }: { row: SessionRow }) {
+/** The session open IN PLACE inside its thread: md+ under the thread's
+ *  header + strip; EXP-1343 phones too — a PAGE of the thread's pager under
+ *  its floating header band (`topInset` clears it), replying through THE
+ *  floating composer capsule. */
+export function InPlaceSession({
+  row,
+  topInset = 0,
+  floating = false,
+}: {
+  row: SessionRow
+  /** Phones: the overlay header band's height. */
+  topInset?: number
+  floating?: boolean
+}) {
   useOpenedSessionRead(row.id)
   return (
     <div className="min-h-0 flex-1" data-testid="thread-session-body">
-      <AgentSessionView key={row.id} session={row} composer={<SessionReply row={row} />} />
+      <AgentSessionView
+        key={row.id}
+        session={row}
+        header={topInset ? <div aria-hidden className="shrink-0" style={{ height: topInset }} /> : undefined}
+        composerFloats={floating}
+        composer={
+          floating ? (
+            <FloatingComposer placeholder={REPLY_PLACEHOLDER}>
+              <SessionReply row={row} opaque />
+            </FloatingComposer>
+          ) : (
+            <SessionReply row={row} />
+          )
+        }
+      />
     </div>
   )
 }
@@ -166,7 +192,7 @@ export function SessionStopPill({ sessionId }: { sessionId: string }) {
       onClick={async () => {
         setStopping(true)
         try {
-          await trpc.sessions.stop.mutate({ sessionId }, SKIP_ERROR_TOAST)
+          await stopSessionTurn(sessionId, SKIP_ERROR_TOAST)
         } catch (error) {
           failedAction(`stop`, `the session`, error)
         } finally {

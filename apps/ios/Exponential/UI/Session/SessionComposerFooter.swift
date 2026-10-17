@@ -133,15 +133,13 @@ struct SessionModelPill: View {
         let agent = controls.agent
         if let modelValue = controls.modelValue {
             if controls.canPickModel {
-                GlassMenu {
-                    ForEach(LaunchVocabulary.modelValues(for: agent), id: \.self) { value in
-                        GlassMenuItem(LaunchVocabulary.modelLabel(value)) {
-                            controls.onPickModel(value)
-                        }
-                    }
-                } label: {
-                    ModelLabel(text: LaunchVocabulary.modelLabel(modelValue), chevron: true)
-                }
+                // EXP-1345: THE Picker (bottom sheet, trailing check).
+                ModelPicker(
+                    agent: agent,
+                    value: modelValue,
+                    onChange: { controls.onPickModel($0) },
+                    trigger: { ModelLabel(text: LaunchVocabulary.modelLabel(modelValue), chevron: true) }
+                )
                 .accessibilityLabel("Model")
                 .accessibilityIdentifier("session-model-pill")
             } else {

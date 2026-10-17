@@ -33,7 +33,7 @@ import {
 import type { Issue, User } from "@/db/schema"
 import { SessionLiveTail } from "@/components/agent-session"
 import { IssueChip as IssueRefChip } from "@/components/issue-chip"
-import { useIssueRefs } from "@/components/issue-ref-provider"
+import { IssueRefOutlet, useIssueRefs } from "@/components/issue-ref-provider"
 import { IssueDetailView } from "@/components/issue-detail-view"
 import { statusColorClass } from "@/components/issue-properties/status-dropdown"
 import { SessionComposer } from "@/components/session-composer"
@@ -52,8 +52,9 @@ import {
 import { useAnswerMessage, useUnqueueMessage } from "@/components/thread/agent-channel"
 import { renderThreadText } from "@/components/thread/thread-markdown"
 import { useThreadMenu } from "@/components/thread/thread-menu"
-import { InPlaceSession, SessionScreen, SessionStopPill } from "@/components/thread/session-body"
+import { InPlaceSession, SessionStopPill } from "@/components/thread/session-body"
 import { useMeasuredSize } from "@/hooks/use-detail-chrome"
+import { primeTabEnter, TAB_BODY_TOUCH_CLASS, useFaceSwipe } from "@/hooks/use-face-swipe"
 import { useMarkRead, useNewestAgentMessageAt } from "@/hooks/use-mark-read"
 import { useSuggestionActions } from "@/hooks/use-suggestion-actions"
 import { useFollowScroll } from "@/hooks/use-follow-scroll"
@@ -65,6 +66,7 @@ import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
 import type { Team } from "@/db/schema"
 import { issueCollection } from "@/lib/collections"
 import { pageTitle, usePageTitle } from "@/lib/page-title"
+import { threadPageOf, threadPages, threadPageSearch, type ThreadPage } from "@/lib/thread-pages"
 import { cn } from "@/lib/utils"
 import {
   sessionCard,
@@ -101,15 +103,17 @@ import {
 //                          Start, no pin, no Threads row)
 //   guide[&section=&file=] the root's Guide over its pull request (its stack
 //                          rail; phones: THE bottom Merge capsule)
-//   session&session=<id>   EXP-1316: that session's RAW WORK in place (md+:
-//                          under this header + strip, its Stop pill in the
-//                          header; phones: the session's own screen). The
+//   session&session=<id>   EXP-1316: that session's RAW WORK in place under
+//                          this header + strip, its Stop pill in the header
+//                          (EXP-1343: phones too, no own screen). The
 //                          session chips = the dispatcher's direct children;
 //                          a chip with descendants opens its subtree on a
 //                          CLICK. `/sessions/$id` redirects here.
 //
-// Phones: the strip IS the pager under the header. No right sidebar, no
-// Show work, no captions.
+// Phones: the strip IS the pager under the header (EXP-1343: every strip
+// tab is a page — swipe or tap, in strip order, `lib/thread-pages.ts`). No
+// right sidebar, no Show work, no captions. EXP-1347: an issue pill of one
+// of this thread's issues selects its tab (`IssueRefOutlet`).
 
 type ThreadSearch = {
   tab?: `issue` | `guide` | `session`
@@ -330,11 +334,18 @@ function ThreadScreen({
       params: { teamSlug, threadId: root.id },
       search: { tab: `session`, session: sessionId },
     })
-  /** A chip's pick: md+ swaps the tab in place; phones push the session's
-   *  own screen (Back returns here). */
-  const pickSession = (sessionId: string) =>
-    isMobile ? openSession(sessionId) : go({ tab: `session`, session: sessionId })
-  const pickIssue = (issueId: string) => go({ tab: `issue`, issue: issueId })
+  // EXP-1343: phones page through every strip tab (swipe AND tap, in strip
+  // order); a tap slides the new page in from the side it sits on.
+  const pages = useMemo(() => threadPages(view.tabs), [view.tabs])
+  const page = threadPageOf(tab)
+  const showPage = (next: ThreadPage) => {
+    if (isMobile) primeTabEnter(pages, page, next)
+    go(threadPageSearch(next))
+  }
+  const swipe = useFaceSwipe(pages, page, showPage)
+  /** A chip's pick swaps the tab in place (a page on phones). */
+  const pickSession = (sessionId: string) => showPage(`session:${sessionId}`)
+  const pickIssue = (issueId: string) => showPage(`issue:${issueId}`)
 
   const firstIssue = issueTabs[0] ? issuesById.get(issueTabs[0].issueId) : undefined
   const menu = useThreadMenu({
@@ -522,7 +533,7 @@ function ThreadScreen({
       conversation={{
         label: THREAD_COPY.conversation,
         active: tab.kind === `conversation`,
-        onSelect: () => go({}),
+        onSelect: () => showPage(`conversation`),
       }}
       issues={issueItems}
       add={menu.addMenu}
@@ -531,7 +542,7 @@ function ThreadScreen({
         label: THREAD_COPY.guide,
         active: tab.kind === `guide`,
         dot: guideTab?.kind === `guide` && guideTab.dot,
-        onSelect: () => go({ tab: `guide` }),
+        onSelect: () => showPage(`guide`),
       }}
     />
   )
@@ -539,7 +550,7 @@ function ThreadScreen({
   // ── The bodies ─────────────────────────────────────────────────────────────
   let body: ReactNode
   if (tab.kind === `session` && focused) {
-    body = <InPlaceSession row={focused} />
+    body = <InPlaceSession row={focused} topInset={topInset} floating={isMobile} />
   } else if (tab.kind === `issue`) {
     const issue = issuesById.get(tab.issueId)
     const board = issue ? boards.find((row) => row.id === issue.boardId) : undefined
@@ -661,19 +672,29 @@ function ThreadScreen({
     },
   }
 
-  if (isMobile && tab.kind === `session` && focused) {
-    // Phones push the session's own screen (its back header leads to the
-    // thread's Conversation).
-    return <SessionScreen key={focused.id} teamSlug={teamSlug} row={focused} />
-  }
+  const stopPill =
+    focused && focused.status !== `ended` && tab.kind === `session` ? (
+      <SessionStopPill sessionId={focused.id} />
+    ) : null
 
   if (isMobile) {
+    const trailing = guideMenu(HEADER_BUTTON_CLASS)
     return (
+      <IssueRefOutlet issueIds={issueIds} onOpen={pickIssue}>
       <MenuGestureHost menus={issueMenus}>
         {/* EXP-1316: THE detail chrome — the header band (blur, scrim, edge
             fade) floats OVER the body, which scrolls under it; every body's
             scroller pads its top by the band's measured height. */}
-        <div className={MOBILE_DETAIL_SCREEN_CLASS} data-testid="thread-page">
+        <div
+          className={MOBILE_DETAIL_SCREEN_CLASS}
+          data-testid="thread-page"
+          ref={swipe.ref}
+          style={swipe.style}
+          onTouchStart={swipe.onTouchStart}
+          onTouchMove={swipe.onTouchMove}
+          onTouchEnd={swipe.onTouchEnd}
+          onTouchCancel={swipe.onTouchCancel}
+        >
           <MobileDetailHeader
             overlay
             ref={headerRef}
@@ -690,25 +711,41 @@ function ThreadScreen({
               </span>
             }
             onBack={() => void navigate({ to: `/t/$teamSlug/threads`, params: { teamSlug } })}
-            menu={guideMenu(HEADER_BUTTON_CLASS)}
+            menu={
+              stopPill ? (
+                <span className="flex shrink-0 items-center gap-1">
+                  {stopPill}
+                  {trailing}
+                </span>
+              ) : (
+                trailing ?? undefined
+              )
+            }
             below={<div className="px-3 pb-2">{tabs}</div>}
           />
-          {body}
+          {/* The page under the band: only the visible one renders. */}
+          <div
+            data-face-body=""
+            data-testid="thread-page-body"
+            className={cn(`flex min-h-0 flex-1 flex-col`, TAB_BODY_TOUCH_CLASS)}
+          >
+            {body}
+          </div>
         </div>
       </MenuGestureHost>
+      </IssueRefOutlet>
     )
   }
 
   return (
+    <IssueRefOutlet issueIds={issueIds} onOpen={pickIssue}>
     <MenuGestureHost menus={issueMenus}>
       <div className="flex h-full min-h-0 flex-col" data-testid="thread-page">
         <div className="shrink-0 border-b border-border px-6 pt-6 pb-3 md:px-10">
           <div className="flex items-center gap-3">
             <div className="min-w-0 flex-1">{title}</div>
             <ThreadGuideMerge pr={guidePr} canMerge={permissions.isMember} placement="header" />
-            {focused && focused.status !== `ended` && tab.kind === `session` && (
-              <SessionStopPill sessionId={focused.id} />
-            )}
+            {stopPill}
             {guideMenu(`shrink-0 text-muted-foreground`)}
           </div>
           <div className="mt-4">{tabs}</div>
@@ -716,6 +753,7 @@ function ThreadScreen({
         {body}
       </div>
     </MenuGestureHost>
+    </IssueRefOutlet>
   )
 }
 

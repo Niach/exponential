@@ -790,11 +790,13 @@ fun AgentScreen(
         )
     }
     if (subagentPickerOpen) {
-        Picker(
-            items = subagentModelOptions().map { PickerItem(it, subagentModelLabel(it)) },
-            mode = PickerMode.Single,
-            value = setOf(launch.subagentModel),
-            onChange = { picked -> picked.firstOrNull()?.let(viewModel::setSubagentModel) },
+        // THE model picker rows (composer-menu.json `subagents`).
+        com.exponential.app.ui.components.picker.ModelPicker(
+            options = subagentModelOptions().map {
+                com.exponential.app.ui.components.picker.ModelPickerOption(it, subagentModelLabel(it))
+            },
+            value = launch.subagentModel,
+            onChange = viewModel::setSubagentModel,
             title = SUBAGENT_MODEL_LABEL,
             open = true,
             onOpenChange = { open -> if (!open) subagentPickerOpen = false },

@@ -460,7 +460,7 @@ fn branch_dropdown<V: gpui::Render>(
     let on_pick = std::rc::Rc::new(on_pick);
     button
         .dropdown_menu(move |menu, _window, cx| {
-            let mut menu = menu.scrollable(true).max_h(px(320.));
+            let mut menu = crate::pickers::single_select_menu(menu.scrollable(true).max_h(px(320.)));
             let Some(view) = view.upgrade() else {
                 return menu;
             };

@@ -250,6 +250,18 @@ final class IssueDetailViewModel {
             ?? []
     }
 
+    /// EXP-1343: a thread pager's NEIGHBOUR page reads its issue ONCE (no
+    /// observation), so a swipe lands on the page instead of a skeleton;
+    /// `startObserving` takes over once the page is shown.
+    func preload() {
+        guard issue == nil, let pool = try? db.pool(forAccountId: accountId) else { return }
+        let issueId = issueId
+        guard let found = try? pool.read({ db in try IssueEntity.fetchOne(db, key: issueId) }) else { return }
+        issue = found
+        editingTitle = found.title
+        editor.load(markdown: getIssueDescriptionText(found.description), baseURL: baseURL)
+    }
+
     func startObserving() {
         stopObserving() // restartable: the view re-arms on every appear
         // The by-id observation below only ever fires for a row that IS local,

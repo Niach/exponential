@@ -6,9 +6,9 @@
 //! (`domain::session_tree::partition_threads`, through the memoised
 //! [`crate::session_data::thread_lists`]), each a glass band with its glyph
 //! (no count) over flat gapless ONE-line rows ([`crate::pr_rows::pr_row`],
-//! no dividers, EXP-1320): the lead (working mark while busy, else the
-//! root's PR glyph: open emerald, merged violet, else the root session's
-//! agent mark; the amber badge when it needs you) · the title (EXP-1316: it
+//! no dividers, EXP-1320): the lead (EXP-1344: the amber badge when it
+//! needs you beats the working mark while busy; else the root's PR glyph:
+//! open emerald, merged violet, else the root session's agent mark) · the title (EXP-1316: it
 //! names the issue already, no identifier slot) · the contract's quiet word
 //! (`domain::session_tree::thread_row_word`; EXP-1339: no lock, and
 //! `merged` draws no word, the violet lead says it) · the device icon. A row
@@ -25,7 +25,7 @@ use gpui_component::{h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _};
 
 use domain::rows::{PullRequestRow, SessionRow};
 use domain::session_tree::{
-    thread_in_stack, thread_row_word, StackPr, ThreadRowWord, ThreadsListGroup, ThreadsListKey, ThreadsListRow,
+    thread_in_stack, thread_row_mark_state, thread_row_word, SessionState, StackPr, ThreadRowWord, ThreadsListGroup, ThreadsListKey, ThreadsListRow,
     THREADS_LIST,
 };
 
@@ -69,9 +69,10 @@ pub(crate) fn thread_word(root_id: &str, busy: bool, needs_you: bool, team_pulls
     thread_row_word(own.iter().map(|pull| pull.state.as_str()), busy, needs_you, in_stack)
 }
 
-/// The lead of a thread row ×4 (threads-list.json): the working mark while
-/// busy, else the root's Guide PR glyph (open emerald, merged violet) with
-/// the amber badge when it needs you, else the root session's mark.
+/// The lead of a thread row ×4 (threads-list.json, EXP-1344
+/// `threadRowMarkState` first): needs you (the amber badge) beats busy (the
+/// working mark); otherwise the root's Guide PR glyph (open emerald, merged
+/// violet) wearing the badge when it needs you, else the root session's mark.
 pub(crate) fn thread_row_lead(
     root_id: &str,
     busy: bool,
@@ -80,8 +81,9 @@ pub(crate) fn thread_row_lead(
     cx: &App,
 ) -> gpui::AnyElement {
     let root = session_data::session(root_id, cx);
+    let working = thread_row_mark_state(needs_you, busy) == SessionState::Working;
     match root_pull_request(root_id, team_pulls) {
-        _ if busy => crate::coding_selects::agent_working_mark(root_agent(root.as_ref()), LEAD_PX).into_any_element(),
+        _ if working => crate::coding_selects::agent_working_mark(root_agent(root.as_ref()), LEAD_PX).into_any_element(),
         Some(pull) => {
             let (glyph, tint) = if pull.is_merged() {
                 (registry::PR_MERGED, crate::pr_rows::PR_MERGED_TINT)
@@ -104,8 +106,8 @@ pub(crate) fn thread_row_lead(
     }
 }
 
-/// EXP-1323: a nested child row's lead — that session's own mark (working
-/// while busy, the amber badge while it needs you).
+/// EXP-1323: a nested child row's lead — that session's own mark (EXP-1344:
+/// the amber badge while it needs you beats the working mark while busy).
 fn child_row_lead(session_id: &str, busy: bool, needs_you: bool, cx: &App) -> gpui::AnyElement {
     match session_data::session(session_id, cx) {
         Some(session) => crate::thread_screen::root_mark(&session, busy, needs_you, LEAD_PX, LEAD_BADGE_PX),

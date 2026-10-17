@@ -238,6 +238,23 @@ pub struct Mapper {
     /// boundary), so the replay itself becomes the `user_message` row and
     /// the host is told to drop the bar entry (`MapOut::consumed`).
     pending_deliveries: std::collections::VecDeque<PendingDelivery>,
+    /// EXP-1342: the mid-turn messages of the CURRENT turn whose replay
+    /// already became their row. A Stop moves them (with the still-awaited
+    /// ones) into `cancelled_deliveries`; the turn's end forgets them.
+    delivered_this_turn: Vec<PendingDelivery>,
+    /// EXP-1342: mid-turn messages a Stop settled — either already a row
+    /// (`delivered_this_turn`) or handed back to the composer by every
+    /// client (the queue frame emptied). The CLI may still replay one around
+    /// its `interrupt{cancel_queued}` — on receipt, and again when the next
+    /// turn dequeues it — and each such replay used to paint a second,
+    /// identical row. A replay matching one is swallowed until the next
+    /// turn that completes without a Stop. Bounded at `QUEUE_MAX`.
+    cancelled_deliveries: std::collections::VecDeque<PendingDelivery>,
+    /// EXP-1342: every spelling of the last main-lane user row, cleared by
+    /// any agent output (narration, a thought, a tool call). A replay that
+    /// matches it with nothing from the agent in between is the same message
+    /// played back twice — never a second row.
+    last_user_row: Option<Vec<String>>,
     tools: HashMap<String, ToolState>,
     /// Settled tool calls in settle order, evicted past [`SETTLED_TOOLS_MAX`].
     settled_tools: std::collections::VecDeque<String>,
@@ -425,6 +442,22 @@ struct PendingDelivery {
     announce: String,
 }
 
+impl PendingDelivery {
+    /// Whether a replay's text is this message under either spelling.
+    fn matches(&self, text: &str) -> bool {
+        self.agent_text == text || self.announce.trim() == text
+    }
+
+    /// Every spelling a replay of this message may carry.
+    fn spellings(&self) -> Vec<String> {
+        let mut spellings = vec![self.announce.trim().to_string()];
+        if self.agent_text != spellings[0] {
+            spellings.push(self.agent_text.clone());
+        }
+        spellings
+    }
+}
+
 /// An ask that has been answered (or cancelled), queued for eviction.
 enum RetiredAsk {
     Permission(String),
@@ -550,6 +583,9 @@ impl Mapper {
             user: Coalescer::default(),
             pending_echoes: std::collections::VecDeque::new(),
             pending_deliveries: std::collections::VecDeque::new(),
+            delivered_this_turn: Vec::new(),
+            cancelled_deliveries: std::collections::VecDeque::new(),
+            last_user_row: None,
             tools: HashMap::new(),
             settled_tools: std::collections::VecDeque::new(),
             subagents: HashMap::new(),
@@ -731,6 +767,9 @@ impl Mapper {
                     self.reopen_on_output(out);
                 }
                 self.flush_user(out);
+                if !chunk_text(chunk).trim().is_empty() {
+                    self.last_user_row = None;
+                }
                 self.flush_thought(out);
                 self.close_thought(chunk_subagent.as_deref(), out);
                 if let Some(flushed) =
@@ -748,6 +787,7 @@ impl Mapper {
                 }
                 self.reopen_on_output(out);
                 self.flush_user(out);
+                self.last_user_row = None;
                 self.flush_message(out);
                 let source_id = message_id(chunk);
                 if let Some(flushed) =
@@ -762,6 +802,7 @@ impl Mapper {
                 self.reopen_on_output(out);
                 // EXP-1324: the lane's thought ends where its work starts.
                 self.flush_scope(chunk_subagent.as_deref(), out);
+                self.last_user_row = None;
                 self.close_thought(chunk_subagent.as_deref(), out);
                 self.on_tool_call(call, notification.meta.as_ref(), out)
             }
@@ -1139,6 +1180,11 @@ impl Mapper {
             self.on_cancel(out);
         }
         self.prompt_turn_open = false;
+        if !cancelled {
+            // EXP-1342: a turn ran to its end after the Stop — any replay
+            // of what that Stop settled has landed by now.
+            self.cancelled_deliveries.clear();
+        }
         // EXP-1224 (B): the agent already opened a turn of its own after this
         // prompt's `result` (claude's continuation on a background task's
         // notification, which races the prompt's answer). The prompt is
@@ -1169,10 +1215,12 @@ impl Mapper {
         // the bar forever. A Stop cleared these first (`forget_deliveries`):
         // a dropped message never renders as read.
         while let Some(delivered) = self.pending_deliveries.pop_front() {
-            out.consumed.push(delivered.id);
+            out.consumed.push(delivered.id.clone());
             let text = self.clean(&delivered.announce, NARRATION_MAX);
+            self.last_user_row = Some(delivered.spellings());
             emit(out, ActivityEvent::user_message(text), None);
         }
+        self.delivered_this_turn.clear();
         out.idle = Some(true);
         // EXP-1292: the turn's last top-level message is its reply in the
         // Conversation — redacted whole (a secret split across two chunks
@@ -1997,6 +2045,7 @@ impl Mapper {
         }
         self.flush_all(out);
         self.arm_echo(text);
+        self.last_user_row = Some(vec![text.trim().to_string()]);
         let text = self.clean(text, NARRATION_MAX);
         emit(out, ActivityEvent::user_message(text), None);
     }
@@ -2025,6 +2074,13 @@ impl Mapper {
         let agent_text = agent_text.trim();
         if agent_text.is_empty() || agent_text == announce {
             return;
+        }
+        if let Some(row) = self.last_user_row.as_mut() {
+            if row.first().map(String::as_str) == Some(announce)
+                && !row.iter().any(|text| text == agent_text)
+            {
+                row.push(agent_text.to_string());
+            }
         }
         // The NEWEST entry for this announce: an older identical prompt's
         // echo may still be outstanding, and it received its own text.
@@ -2057,11 +2113,27 @@ impl Mapper {
 
     /// EXP-873: a Stop — the agent drops what it held behind the turn
     /// (claude `cancel_queued`), so nothing sent mid-turn is awaited any
-    /// more. The host drops the same entries from its queue; a replay that
-    /// still lands (the agent took the message in on the very edge) renders
-    /// as a plain row, which is the truth.
+    /// more. The host drops the same entries from its queue and every client
+    /// hands their text back to the composer.
+    ///
+    /// EXP-1342: the CLI can still replay such a message around the
+    /// interrupt (it took it in on the very edge, or replays it again when
+    /// the next turn dequeues it). Those replays used to land as plain rows —
+    /// a second copy of a message already rendered, or a row for one the
+    /// composer now holds. Both kinds (awaited, and rendered this turn) are
+    /// remembered as cancelled so any later replay of them is swallowed.
     pub fn forget_deliveries(&mut self) {
-        self.pending_deliveries.clear();
+        let settled = self
+            .delivered_this_turn
+            .drain(..)
+            .chain(self.pending_deliveries.drain(..))
+            .collect::<Vec<_>>();
+        for delivered in settled {
+            self.cancelled_deliveries.push_back(delivered);
+        }
+        while self.cancelled_deliveries.len() > steer::QUEUE_MAX {
+            self.cancelled_deliveries.pop_front();
+        }
     }
 
     /// EXP-873: the ids of the mid-turn messages still awaiting a replay.
@@ -2107,8 +2179,10 @@ impl Mapper {
             // THIS is the row (the person's own words, never the localized
             // manifest), and the bar entry goes.
             let delivered = self.pending_deliveries.remove(at).expect("a matched delivery");
-            out.consumed.push(delivered.id);
+            out.consumed.push(delivered.id.clone());
             let text = self.clean(&delivered.announce, NARRATION_MAX);
+            self.last_user_row = Some(delivered.spellings());
+            self.delivered_this_turn.push(delivered);
             emit(out, ActivityEvent::user_message(text), None);
             return;
         }
@@ -2121,12 +2195,37 @@ impl Mapper {
             self.pending_echoes.remove(at);
             return;
         }
+        if flushed.subagent_id.is_none() {
+            // EXP-1342: a replay of a message a Stop settled — already a
+            // row, or handed back to the composer — never renders (again).
+            // Not retired on a match: the CLI may replay it once more when
+            // the next turn dequeues it; the next completed turn forgets.
+            if self
+                .cancelled_deliveries
+                .iter()
+                .any(|sent| sent.matches(text.trim()))
+            {
+                return;
+            }
+            // EXP-1342: the same message played back twice in a row, with
+            // nothing from the agent between, is one message.
+            if self
+                .last_user_row
+                .as_ref()
+                .is_some_and(|row| row.iter().any(|spelling| spelling == text.trim()))
+            {
+                return;
+            }
+        }
         // EXP-773: a subagent's FIRST turn is the prompt its Task tool call
         // already names — publishing it would print the whole prompt twice.
         if let Some(subagent_id) = &flushed.subagent_id {
             if self.subagent_prompts_seen.insert(subagent_id.clone()) {
                 return;
             }
+        }
+        if flushed.subagent_id.is_none() {
+            self.last_user_row = Some(vec![text.trim().to_string()]);
         }
         let text = self.clean(text, NARRATION_MAX);
         emit(
@@ -4293,6 +4392,10 @@ mod tests {
             }
             assert_eq!(user_rows(&out), 1);
             assert_eq!(user_rows(&replay(&mut mapper, agent)), 0, "late={late}");
+            // EXP-1342: the agent answers, so what follows is not a replay
+            // of the row above it.
+            let answer = ContentChunk::new(ContentBlock::Text(TextContent::new("Cropped.")));
+            mapper.on_update(&notify(SessionUpdate::AgentMessageChunk(answer)), &mut out);
             // The entry retired whole: the announce spelling is a new message.
             assert_eq!(user_rows(&replay(&mut mapper, announce)), 1, "late={late}");
         }

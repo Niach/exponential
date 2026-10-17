@@ -19,7 +19,12 @@ const mocks = vi.hoisted(() => ({
   toastActionError: vi.fn(),
   toastError: vi.fn(),
   awaitTxId: vi.fn(),
+  stop: vi.fn(),
   row: null as unknown,
+  // EXP-1342: the store's draft + the queue a Stop hands back.
+  draft: { text: `` },
+  queued: [] as string[],
+  listeners: new Set<() => void>(),
 }))
 
 vi.mock(`@/lib/trpc-client`, () => ({
@@ -28,7 +33,7 @@ vi.mock(`@/lib/trpc-client`, () => ({
       send: { mutate: mocks.send },
       configure: { mutate: mocks.configure },
       mcpPicks: { query: () => Promise.resolve({ mcpServerIds: [] }) },
-      stop: { mutate: vi.fn() },
+      stop: { mutate: mocks.stop },
     },
   },
 }))
@@ -59,10 +64,26 @@ vi.mock(`@/lib/steer-session-store`, async (importOriginal) => {
   return {
     ...actual,
     acquireSteerSession: () => ({
-      subscribe: () => () => {},
+      subscribe: (listener: () => void) => {
+        mocks.listeners.add(listener)
+        return () => mocks.listeners.delete(listener)
+      },
       getSnapshot: () => snapshot,
+      getDraftSnapshot: () => mocks.draft,
       connect: () => () => {},
       noteSessionStatus: () => {},
+      noteStopped: () => {
+        if (mocks.queued.length === 0) return false
+        mocks.draft = { text: actual.mergeHeldIntoDraft(mocks.draft.text, mocks.queued) }
+        mocks.queued = []
+        for (const listener of mocks.listeners) listener()
+        return true
+      },
+      takeDraftText: () => {
+        const text = mocks.draft.text
+        mocks.draft = { text: `` }
+        return text
+      },
     }),
   }
 })
@@ -134,6 +155,11 @@ beforeEach(() => {
   mocks.toastActionError.mockReset()
   mocks.toastError.mockReset()
   mocks.row = sessionRow()
+  mocks.stop.mockReset()
+  mocks.stop.mockResolvedValue({ txid: 1 })
+  mocks.draft = { text: `` }
+  mocks.queued = []
+  mocks.listeners.clear()
 })
 
 describe(`SessionComposer /btw`, () => {
@@ -328,5 +354,22 @@ describe(`SessionComposer, the one composer (EXP-1334)`, () => {
         .disabled
     ).toBe(true)
     expect((screen.getByTestId(`session-composer-plan`) as HTMLButtonElement).disabled).toBe(true)
+  })
+})
+
+// EXP-1342: Stop hands the unread messages back to the composer (×4): the
+// queued text lands in the field, the turn stops through sessions.stop.
+describe(`SessionComposer Stop (EXP-1342)`, () => {
+  it(`Stop puts the queued text back into the field`, async () => {
+    mocks.row = sessionRow({ status: `running`, busy: true })
+    mocks.queued = [`first`, `second`]
+    render(<SessionComposer teamId="t1" sessionId="s1" placeholder="Reply…" busy canStop />)
+    const field = screen.getByPlaceholderText(`Reply…`) as HTMLTextAreaElement
+    await act(async () => {
+      fireEvent.click(screen.getByRole(`button`, { name: `Stop` }))
+    })
+    expect(mocks.stop).toHaveBeenCalledWith({ sessionId: `s1` }, undefined)
+    await waitFor(() => expect(field.value).toBe(`first\nsecond`))
+    expect(mocks.draft.text).toBe(``)
   })
 })

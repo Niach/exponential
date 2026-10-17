@@ -467,6 +467,7 @@ impl McpServerDialogView {
         let view = cx.entity().downgrade();
         let control = crate::trigger_editor::picker_trigger(id.into(), picked, cx)
             .dropdown_menu(move |mut menu, _window, _cx| {
+                menu = crate::pickers::single_select_menu(menu);
                 for (value, label) in &options {
                     let view = view.clone();
                     let value = value.to_string();

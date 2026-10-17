@@ -159,6 +159,15 @@ pub(crate) fn option_item(
 // Single-pick menus (status / priority / assignee)
 // ---------------------------------------------------------------------------
 
+/// EXP-1345 (`composer-menu.json`): THE way a menu offers a single pick —
+/// the picked row's check is TRAILING, never leading. gpui-component's
+/// `PopupMenu` defaults to `check_side(Side::Left)`, where the check also
+/// REPLACES the row's own glyph. Every menu whose items call `.checked(…)`
+/// goes through here (`single_select_menus_check_trailing` gates it).
+pub(crate) fn single_select_menu(menu: PopupMenu) -> PopupMenu {
+    menu.check_side(Side::Right)
+}
+
 /// What a status picker emits (EXP-314). `status_id` is `Some` for a SYNCED
 /// row (the write sends `statusId`); `None` for a constructed
 /// `builtin:<key>` fallback, where the write degrades to the enum `anchor`.
@@ -258,7 +267,7 @@ pub(crate) fn status_menu(
     on_pick: OnPick<StatusPick>,
     cx: &App,
 ) -> PopupMenu {
-    let mut menu = menu.check_side(Side::Right);
+    let mut menu = single_select_menu(menu);
     for status in status_menu_options(statuses, scope) {
         let on_pick = on_pick.clone();
         let pick = StatusPick::from_resolved(status);
@@ -284,7 +293,7 @@ pub(crate) fn estimate_menu(
     current: Option<i64>,
     scale: &str,
 ) -> PopupMenu {
-    let mut menu = menu.check_side(Side::Right);
+    let mut menu = single_select_menu(menu);
     let clear_id = issue_id.clone();
     menu = menu.item(
         crate::controls::pointer_label_item(SharedString::from(NO_ESTIMATE), false)
@@ -456,6 +465,62 @@ pub(crate) fn due_date_popover(
 mod tests {
     use super::*;
     use domain::statuses::default_resolved_statuses;
+
+    /// EXP-1345: every menu that checks a row checks it TRAILING. A source
+    /// scan: a `.checked(` that is not a switch/checkbox/picker-item toggle
+    /// is a `PopupMenuItem` check, and its file must build the menu through
+    /// [`single_select_menu`] — gpui-component's default leading check also
+    /// replaces the row's glyph.
+    #[test]
+    fn single_select_menus_check_trailing() {
+        // Toggles that read `.checked(` but are no menu row.
+        // Spelled via concat! so `controls.rs`'s constructor scans skip it.
+        const TOGGLES: [&str; 5] = [
+            "web_switch(",
+            concat!("Switch", "::new("),
+            concat!("Checkbox", "::new("),
+            "PickerItem::new(",
+            "fn checked(",
+        ];
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut stack = vec![root.clone()];
+        let mut offenders = Vec::new();
+        while let Some(dir) = stack.pop() {
+            for entry in std::fs::read_dir(&dir).expect("the src dir reads") {
+                let path = entry.expect("a dir entry").path();
+                if path.is_dir() {
+                    stack.push(path);
+                    continue;
+                }
+                if path.extension().and_then(|ext| ext.to_str()) != Some("rs") {
+                    continue;
+                }
+                let source = std::fs::read_to_string(&path).expect("a source file reads");
+                if source.contains("single_select_menu(") {
+                    continue;
+                }
+                let lines: Vec<&str> = source.lines().collect();
+                for (at, line) in lines.iter().enumerate() {
+                    if !line.contains(".checked(") {
+                        continue;
+                    }
+                    let window = &lines[at.saturating_sub(8)..=at];
+                    if window.iter().any(|line| TOGGLES.iter().any(|toggle| line.contains(toggle))) {
+                        continue;
+                    }
+                    offenders.push(format!(
+                        "{}:{}",
+                        path.strip_prefix(&root).unwrap_or(&path).display(),
+                        at + 1
+                    ));
+                }
+            }
+        }
+        assert!(
+            offenders.is_empty(),
+            "menu checks outside `pickers::single_select_menu` (EXP-1345, the check trails): {offenders:?}"
+        );
+    }
 
     /// L27: the single-issue surfaces MUST offer the duplicate row (their
     /// `apply_status_selection` intercepts it into the canonical picker — it

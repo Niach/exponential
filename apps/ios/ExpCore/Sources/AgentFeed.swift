@@ -248,6 +248,40 @@ public struct QueuedMessage: Equatable, Sendable, Identifiable {
     }
 }
 
+/// EXP-78: one locally-echoed sent message awaiting its transcript-derived
+/// `user_message` twin; `rowId` = the feed row the echo painted (nil = none).
+public struct AgentEcho: Equatable, Sendable {
+    public let text: String
+    public let at: Date
+    public let rowId: Int?
+
+    public init(text: String, at: Date, rowId: Int? = nil) {
+        self.text = text
+        self.at = at
+        self.rowId = rowId
+    }
+}
+
+extension AgentFeed {
+    /// EXP-861/EXP-1342 (web `takeQueuedEchoes`): the echo gates on THIS
+    /// viewer's turn slot, the engine on its own — so a message can be
+    /// echoed here AND held by the device. Once a `queue` frame names it, the
+    /// Queued strip is the text's only home until delivery: the echo (and the
+    /// row it painted) is taken back, so a Stop that returns the strip to the
+    /// composer, or a delivery past the echo TTL, never shows it twice.
+    /// Removes the taken entries from `echoes`; returns them, oldest first.
+    public static func takeQueuedEchoes(
+        _ echoes: inout [AgentEcho], queued: [QueuedMessage]
+    ) -> [AgentEcho] {
+        guard !echoes.isEmpty, !queued.isEmpty else { return [] }
+        let held = Set(queued.map { $0.text.trimmingCharacters(in: .whitespacesAndNewlines) })
+        let taken = echoes.filter { held.contains($0.text) }
+        guard !taken.isEmpty else { return [] }
+        echoes.removeAll { held.contains($0.text) }
+        return taken
+    }
+}
+
 // MARK: - Live agent configuration (EXP-746)
 
 /// One selectable value of an `AgentConfigOption` (ACP

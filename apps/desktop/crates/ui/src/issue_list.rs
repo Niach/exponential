@@ -36,7 +36,7 @@ use gpui_component::{
     h_flex,
     menu::{PopupMenu, PopupMenuItem},
     scroll::ScrollableElement as _,
-    v_flex, v_virtual_list, ActiveTheme as _, Disableable as _, Icon, Side, Sizable as _,
+    v_flex, v_virtual_list, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
     VirtualListScrollHandle,
 };
 use sync::Store;
@@ -1934,7 +1934,7 @@ fn assignee_menu(
     current: Option<&str>,
     cx: &App,
 ) -> PopupMenu {
-    let mut menu = menu.check_side(Side::Right);
+    let mut menu = crate::pickers::single_select_menu(menu);
     if current.is_some() {
         let issue_id = issue_id.to_string();
         menu = menu.item(
@@ -2022,8 +2022,7 @@ pub(crate) fn build_row_context_menu(
     window: &mut Window,
     cx: &mut gpui::Context<PopupMenu>,
 ) -> PopupMenu {
-    let mut menu = menu
-        .check_side(Side::Right)
+    let mut menu = crate::pickers::single_select_menu(menu)
         .label(SharedString::from(issue.identifier.clone()));
 
     // Open issue.
@@ -2142,7 +2141,7 @@ pub(crate) fn build_row_context_menu(
         let current = issue.priority;
         let icon = option_icon(get_issue_priority_config(current), cx);
         menu = menu.submenu_with_icon(Some(icon), "Priority", window, cx, move |menu, _, cx| {
-            let mut menu = menu.check_side(Side::Right);
+            let mut menu = crate::pickers::single_select_menu(menu);
             for option in &ISSUE_PRIORITY_OPTIONS {
                 let issue_id = issue_id.clone();
                 let value = option.value;
@@ -2167,7 +2166,7 @@ pub(crate) fn build_row_context_menu(
         let board_id = issue.board_id.clone();
         let icon = Icon::from(ExpIcon::Tag);
         menu = menu.submenu_with_icon(Some(icon), "Labels", window, cx, move |menu, _, cx| {
-            let mut menu = menu.check_side(Side::Right);
+            let mut menu = crate::pickers::single_select_menu(menu);
             // EXP-1092: no Store (the styleguide) = no labels, not a panic.
             let Some(store) = cx.try_global::<Store>() else {
                 return menu;
@@ -2253,7 +2252,7 @@ pub(crate) fn build_row_context_menu(
         let due = issue.due_date.clone();
         let icon = Icon::from(ExpIcon::CalendarDays);
         menu = menu.submenu_with_icon(Some(icon), "Set due date", window, cx, move |menu, _, _| {
-            let mut menu = menu.check_side(Side::Right);
+            let mut menu = crate::pickers::single_select_menu(menu);
             let today = chrono::Local::now().date_naive();
             for (label, date) in due_date_presets(today) {
                 let formatted = date.format("%Y-%m-%d").to_string();
@@ -2312,7 +2311,7 @@ pub(crate) fn build_row_context_menu(
         let issue_id = issue.id.clone();
         let icon = Icon::new(registry::RELATION_SECTION);
         menu = menu.submenu_with_icon(Some(icon), "Add relation", window, cx, move |menu, _, _| {
-            crate::issue_relations::add_relation_submenu(menu.check_side(Side::Right), &issue_id)
+            crate::issue_relations::add_relation_submenu(crate::pickers::single_select_menu(menu), &issue_id)
         });
     }
 
@@ -2417,7 +2416,7 @@ pub(crate) fn move_to_board_menu(
     board_id: &str,
     cx: &App,
 ) -> PopupMenu {
-    let mut menu = menu.check_side(Side::Right);
+    let mut menu = crate::pickers::single_select_menu(menu);
     for board in move_target_boards(cx, board_id) {
         let is_current = board.id == board_id;
         let tint = board

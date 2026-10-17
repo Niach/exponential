@@ -4838,7 +4838,14 @@
         "settleMs": 2500,
         "recipe": "openTraceOutput"
       },
-      "webMobile": "inherit",
+      "webMobile": {
+        "route": "/t/$teamSlug/sessions/$sessionId",
+        "anchor": {
+          "testId": "thread-tabs",
+          "timeoutMs": 30000
+        },
+        "settleMs": 2500
+      },
       "ios": {
         "shot": "sg_session",
         "lane": "styleguide"

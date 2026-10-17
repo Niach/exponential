@@ -40,12 +40,15 @@ struct ModelPickerRow: View {
     }
 
     var body: some View {
-        GlassPickerRow(
-            title,
-            selection: $selection,
-            options: LaunchVocabulary.modelValues(for: agent),
-            label: { LaunchVocabulary.modelLabel($0) }
-        )
+        // EXP-1345: THE model picker (ExpUI), the form row as its trigger.
+        ModelPicker(
+            agent: agent,
+            value: selection,
+            onChange: { selection = $0 },
+            title: title
+        ) {
+            GlassPickerRowLabel(title, value: LaunchVocabulary.modelLabel(selection))
+        }
     }
 }
 

@@ -237,7 +237,7 @@ class PickerContractTest {
     fun everyTypedPickerRendersThroughThePrimitive() {
         val typed = listOf(
             "BoardPicker", "IssuePicker", "ActionPicker", "AccountPicker", "DevicePicker",
-            "AssigneePicker", "StatusPicker", "PriorityPicker", "LabelPicker",
+            "AssigneePicker", "StatusPicker", "PriorityPicker", "LabelPicker", "ModelPicker",
         )
         for (name in typed) {
             val source = pickerSource("$name.kt")
@@ -274,6 +274,7 @@ class PickerContractTest {
         val typed = listOf(
             "BoardPicker", "IssuePicker", "ActionPicker", "AccountPicker", "DevicePicker",
             "AssigneePicker", "StatusPicker", "PriorityPicker", "LabelPicker", "IconPicker",
+            "ModelPicker",
         )
         for (name in typed) {
             val call = Regex("""(^|[^A-Za-z0-9_])$name\s*\(""")

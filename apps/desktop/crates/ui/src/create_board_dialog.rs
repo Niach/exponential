@@ -686,7 +686,7 @@ impl CreateBoardDialogView {
                 None => crate::feedback::skeleton_value("create-board-repo-placeholder", 120., cx),
             })
             .dropdown_menu(move |menu, _window, _cx| {
-                let mut menu = menu.scrollable(true).max_h(px(320.));
+                let mut menu = crate::pickers::single_select_menu(menu.scrollable(true).max_h(px(320.)));
                 {
                     let view = view.clone();
                     menu = menu.item(

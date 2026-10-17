@@ -548,7 +548,7 @@ impl TriggerEditorState {
         let part = |id: String, text: String, count: u32, is_hour: bool, cx: &mut Context<V>| {
             let view = cx.entity().downgrade();
             picker_trigger_bare(id.into(), text, cx).dropdown_menu(move |menu, _window, _cx| {
-                let mut menu = menu.scrollable(true).max_h(gpui::px(320.));
+                let mut menu = crate::pickers::single_select_menu(menu.scrollable(true).max_h(gpui::px(320.)));
                 for value in 0..count {
                     let view = view.clone();
                     let picked = if is_hour { current / 60 } else { current % 60 } == value;

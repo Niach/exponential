@@ -78,7 +78,7 @@ fn demo(
     cx: &mut App,
 ) -> Div {
     let state = window.use_keyed_state(SharedString::from(key), cx, move |_, _| state).clone();
-    let dock = crate::thread_screen::conversation_dock(key, &rows, session_name, &state, None, images, window, cx)
+    let dock = crate::thread_screen::conversation_dock(key, &rows, session_name, &state, &crate::thread_screen::ThreadText::default(), images, window, cx)
         .map(|(dock, _)| dock);
     v_flex()
         .w_full()

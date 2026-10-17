@@ -475,6 +475,7 @@ impl Render for NotificationsPrefsPane {
                             let entity = cx.entity();
                             let current = digest.clone();
                             move |mut menu, _, _| {
+                                menu = crate::pickers::single_select_menu(menu);
                                 for (value, label) in [
                                     (DIGEST_OFF, "Hourly digest"),
                                     (DIGEST_DAILY, "Daily digest"),
@@ -518,7 +519,7 @@ impl Render for NotificationsPrefsPane {
                             .dropdown_menu({
                                 let entity = cx.entity();
                                 move |mut menu, _, _| {
-                                    menu = menu.scrollable(true).max_h(px(320.));
+                                    menu = crate::pickers::single_select_menu(menu.scrollable(true).max_h(px(320.)));
                                     for value in 0..24i64 {
                                         let entity = entity.clone();
                                         menu = menu.item(

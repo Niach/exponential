@@ -79,13 +79,14 @@ final class PickerContractTests: XCTestCase {
             ("ActionPicker", ActionPicker<EmptyView>.Body.self),
             ("AccountPicker", AccountPicker<EmptyView>.Body.self),
             ("DevicePicker", DevicePicker<EmptyView>.Body.self),
+            ("ModelPicker", ModelPicker<EmptyView>.Body.self),
             ("AssigneePicker", AssigneePicker<EmptyView>.Body.self),
             ("IconPicker", IconPicker.Body.self),
             ("StatusPicker", StatusPicker<EmptyView>.Body.self),
             ("PriorityPicker", PriorityPicker<EmptyView>.Body.self),
             ("LabelPicker", LabelPicker<EmptyView>.Body.self),
         ]
-        XCTAssertEqual(typed.count, 10)
+        XCTAssertEqual(typed.count, 11)
         for (name, body) in typed {
             XCTAssertTrue(
                 String(describing: body).hasPrefix("GlassPicker<"),
@@ -303,6 +304,23 @@ final class PickerContractTests: XCTestCase {
         // … and a row with no keywords falls back to its label, case-blind.
         XCTAssertEqual(PickerSearch.filter(items, query: "gam").map(\.value), ["c"])
         XCTAssertEqual(PickerSearch.filter(items, query: "zzz").map(\.value), [])
+    }
+
+    /// EXP-1345: the model pick is THE Picker — one row per contract model
+    /// in order, by its label, single-select (the trailing check).
+    func testModelPickerListsTheAgentsModelsAsASinglePick() {
+        let rows = ModelPicker<EmptyView>.items(agent: "claude")
+        XCTAssertEqual(rows.map(\.value), LaunchVocabulary.modelValues(for: "claude"))
+        XCTAssertEqual(rows.map(\.label), rows.map { LaunchVocabulary.modelLabel($0.value) })
+        XCTAssertEqual(
+            ModelPicker<EmptyView>.items(agent: "codex").map(\.value),
+            LaunchVocabulary.modelValues(for: "codex")
+        )
+        XCTAssertEqual(GlassPickerTokens.selectionStyle(for: .single), .check)
+        XCTAssertEqual(
+            ModelPicker(agent: "claude", value: nil, onChange: { _ in }, trigger: { EmptyView() }).title,
+            "Model"
+        )
     }
 
     /// A disabled row is INFORMATION — an offline device says why it cannot

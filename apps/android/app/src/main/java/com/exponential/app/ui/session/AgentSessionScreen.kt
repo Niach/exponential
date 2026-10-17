@@ -508,6 +508,31 @@ fun AgentSessionScreen(
 }
 
 /**
+ * EXP-1343: a session chip's page in its THREAD — the raw session view's body
+ * ([RunFace]: the session's raw work + THE session composer) without its own
+ * [SessionHeaderBar]: the thread's ONE header (the strip + Stop) stays on top.
+ * The view model lives in the page's own store (the thread pager's
+ * `PageViewModelStore`), so only the shown page holds the live session.
+ * [onOpenIssue] = the THREAD's handler (EXP-1347: a linked issue opens its tab).
+ */
+@Composable
+fun SessionPage(
+    sessionId: String,
+    padding: PaddingValues,
+    onOpenIssue: (issueId: String) -> Unit,
+) {
+    val viewModel = androidx.hilt.navigation.compose.hiltViewModel<AgentSessionViewModel, AgentSessionViewModel.Factory>(
+        key = "session:$sessionId",
+    ) { factory -> factory.create(sessionId) }
+    RunFace(
+        viewModel = viewModel,
+        padding = padding,
+        onOpenIssue = onOpenIssue,
+        trailingBarSlot = null,
+    )
+}
+
+/**
  * EXP-1291: the raw session view's header, stateless. The shared [com.exponential.app.ui.work.WorkTopBar]
  * (back · title · Stop) whose title is two lines: the back row naming the
  * thread (`session-open-thread`, muted, a chevron) over the session's name
@@ -5299,44 +5324,28 @@ private fun ExpandedSteerComposer(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         if (model != null) {
-            Box {
-                // codex: the model is what it is — the same read-out,
-                // disabled (desktop keeps the chevron, dimmed).
-                ComposerModelPin(
-                    label = modelLabel(model),
-                    enabled = modelPickable,
-                    onClick = {
-                        modelMenuOpen = true
-                        // EXP-931: an open menu is not a blur.
-                        onMenuOpenChange(COMPOSER_MENU_MODEL, true)
-                    },
-                )
-                if (modelPickable) {
-                    GlassDropdownMenu(
-                        expanded = modelMenuOpen,
-                        onDismissRequest = {
-                            modelMenuOpen = false
-                            onMenuOpenChange(COMPOSER_MENU_MODEL, false)
-                        },
-                    ) {
-                        modelChoices.forEach { alias ->
-                            GlassMenuItem(
-                                text = { Text(modelLabel(alias)) },
-                                leadingIcon = if (alias == model) {
-                                    { Icon(ExpIcons.uiCheck, contentDescription = null) }
-                                } else {
-                                    null
-                                },
-                                onClick = {
-                                    modelMenuOpen = false
-                                    onMenuOpenChange(COMPOSER_MENU_MODEL, false)
-                                    if (live && alias != model) onPickModel(alias)
-                                },
-                            )
-                        }
-                    }
-                }
-            }
+            // EXP-1345: THE picker (a bottom sheet, the picked row's TRAILING
+            // check). codex: the model is what it is — the same read-out,
+            // disabled (desktop keeps the chevron, dimmed).
+            com.exponential.app.ui.components.picker.ModelPicker(
+                options = modelChoices.map { com.exponential.app.ui.components.picker.ModelPickerOption(it, modelLabel(it)) },
+                value = model,
+                onChange = { alias -> if (live && alias != model) onPickModel(alias) },
+                enabled = modelPickable,
+                open = modelPickable && modelMenuOpen,
+                onOpenChange = { next ->
+                    modelMenuOpen = next
+                    // EXP-931: an open menu is not a blur.
+                    onMenuOpenChange(COMPOSER_MENU_MODEL, next)
+                },
+                trigger = { open ->
+                    ComposerModelPin(
+                        label = modelLabel(model),
+                        enabled = modelPickable,
+                        onClick = open,
+                    )
+                },
+            )
         }
         if (supportsPlanMode(menu.agent)) {
             Row(

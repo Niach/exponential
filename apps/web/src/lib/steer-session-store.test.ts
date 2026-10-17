@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import {
   acquireSteerSession,
   createSteerSessionStore,
+  mergeHeldIntoDraft,
   disposeAllSteerSessions,
   REPLAY_MAX_MS,
   REPLAY_QUIET_MS,
@@ -1122,6 +1123,42 @@ describe(`sending`, () => {
     expect(store.interrupt()).toBe(true)
     expect(store.getDraftSnapshot().text).toBe(`keep me`)
     store.dispose()
+  })
+
+  // EXP-1342: the web's Stop goes through `sessions.stop`, not the socket —
+  // the queue still comes back to the draft (and out through takeDraftText
+  // into the composer's own field), and a straggling `user_message` for a
+  // dropped line never paints a row beside the text about to be resent.
+  it(`noteStopped hands the queue back and never paints a dropped message`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    socket.frame({
+      t: `activity`,
+      event: { kind: `queue`, messages: [{ id: `m1`, text: `one`, sent: true }, { id: `m2`, text: `two` }] },
+    })
+    await vi.advanceTimersByTimeAsync(100)
+    socket.sent.length = 0
+    expect(store.noteStopped()).toBe(true)
+    expect(socket.sent).toEqual([])
+    expect(store.getSnapshot().queue).toEqual([])
+    expect(store.takeDraftText()).toBe(`one\ntwo`)
+    expect(store.takeDraftText()).toBe(``)
+    socket.frame({ t: `activity`, event: { kind: `user_message`, text: `one` } })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot().feed.filter((row) => row.kind === `user_message`)).toEqual([])
+    // Once: the same text sent again later renders as its own row.
+    socket.frame({ t: `activity`, event: { kind: `user_message`, text: `one` } })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot().feed.filter((row) => row.kind === `user_message`)).toHaveLength(1)
+    // Nothing queued: nothing comes back.
+    expect(store.noteStopped()).toBe(false)
+    store.dispose()
+  })
+
+  it(`mergeHeldIntoDraft keeps a draft in progress first`, () => {
+    expect(mergeHeldIntoDraft(``, [`a`, `b`])).toBe(`a\nb`)
+    expect(mergeHeldIntoDraft(`draft`, [`a`])).toBe(`draft\n\na`)
+    expect(mergeHeldIntoDraft(`draft`, [])).toBe(`draft`)
   })
 
   it(`interrupt returns false with no open socket and keeps the queue`, () => {
