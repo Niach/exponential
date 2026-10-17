@@ -44,9 +44,9 @@ struct IssueThreadLink: Identifiable, Equatable, Sendable {
             for issue in try SessionQueries.issues(db: db, rootId: root.id) {
                 issues[issue.id] = TreeIssue(issueRow: issue)
             }
-            // Only the root's user messages can name an untitled thread.
+            // Only the root's own messages can name an untitled thread
+            // (`SessionTitle`'s first-prompt rung picks the inputs).
             messages += try SessionQueries.messages(db: db, sessionId: root.id)
-                .filter { $0.authorKind == DomainContract.messageAuthorKindUser }
                 .map { TreeMessage(messageRow: $0) }
         }
         let rows = SessionTree.partitionThreads(

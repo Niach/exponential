@@ -109,6 +109,7 @@ import {
   DEMO_FEED_QUESTION,
   DEMO_PULL_REQUEST_IDS,
   DEMO_REPORT_SESSION_ID,
+  DEMO_GROUPED_SESSION_ID,
   DEMO_SESSION_ID,
   DEMO_THREAD_ID,
   DEMO_THREAD_IDS,
@@ -761,12 +762,37 @@ async function seedSessionTree(ctx: {
     branch: `exp/APP-5-a54`,
   })
 
+  // EXP-1341: an UNNAMED child the dispatcher handed two issues: its name is
+  // its assigned share (`#APP-10 … + 1`), never `Session N`.
+  await db.insert(sessions).values({
+    ...root(DEMO_GROUPED_SESSION_ID, {
+      status: `running`,
+      busy: true,
+      startedAt: minutesAgo(12),
+      lastTurnAt: minutesAgo(1),
+      createdAt: minutesAgo(12),
+      updatedAt: minutesAgo(1),
+    }),
+    parentId: ids.coldStart,
+    rootId: ids.coldStart,
+    depth: 1,
+    dispatch: false,
+    title: null,
+    branch: `exp/APP-10`,
+  })
+
   // ── the roots' issues ──────────────────────────────────────────────────
   const link = (
     sessionId: string,
     identifier: string,
     sortOrder: number,
-    extra: { shared?: boolean; source?: `user` | `agent`; by?: string; at?: Date } = {}
+    extra: {
+      shared?: boolean
+      source?: `user` | `agent`
+      by?: string
+      to?: string
+      at?: Date
+    } = {}
   ): typeof sessionIssues.$inferInsert => {
     const row = issue(identifier)
     return {
@@ -779,6 +805,7 @@ async function seedSessionTree(ctx: {
       source: extra.source ?? `user`,
       addedBy: demoId,
       addedBySessionId: extra.by,
+      assignedSessionId: extra.to,
       sortOrder,
       createdAt: extra.at,
       updatedAt: extra.at,
@@ -787,8 +814,18 @@ async function seedSessionTree(ctx: {
   await db.insert(sessionIssues).values([
     link(ids.coldStart, `APP-5`, 1, { at: minutesAgo(60) }),
     // Linked by the child's agent a few minutes in, then the one it FILED.
-    link(ids.coldStart, `APP-10`, 2, { source: `agent`, by: DEMO_SESSION_ID, at: minutesAgo(46) }),
-    link(ids.coldStart, `FB-3`, 3, { source: `agent`, by: DEMO_SESSION_ID, at: minutesAgo(30) }),
+    link(ids.coldStart, `APP-10`, 2, {
+      source: `agent`,
+      by: DEMO_SESSION_ID,
+      to: DEMO_GROUPED_SESSION_ID,
+      at: minutesAgo(46),
+    }),
+    link(ids.coldStart, `FB-3`, 3, {
+      source: `agent`,
+      by: DEMO_SESSION_ID,
+      to: DEMO_GROUPED_SESSION_ID,
+      at: minutesAgo(30),
+    }),
     link(ids.groupByAssignee, `APP-14`, 1),
     link(ids.sortReports, `FB-9`, 1, { source: `agent`, by: DEMO_AGENT_IDS.triage }),
     link(ids.batchLabels, `APP-15`, 1),

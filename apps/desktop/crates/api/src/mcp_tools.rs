@@ -429,6 +429,9 @@ pub struct SessionsSendInput {
     pub inputs: Option<std::collections::BTreeMap<String, String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub repository_id: Option<String>,
+    /// EXP-1341: an explicit name for a new root or child.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
 }
 
 /// What `exponential_sessions_send` hands back: the session (new or the one

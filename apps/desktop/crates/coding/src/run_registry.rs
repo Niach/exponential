@@ -126,6 +126,35 @@ pub enum RunKind {
     Agent,
 }
 
+impl RunKind {
+    /// The row's kind (`sessions.kind`; anything but `agent` = a thread).
+    pub fn of(row: &domain::rows::SessionRow) -> Self {
+        match row.kind.as_deref() {
+            Some(domain::contract::SESSION_KIND_AGENT) => Self::Agent,
+            _ => Self::Thread,
+        }
+    }
+
+    /// The contract kind string.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Thread => domain::contract::SESSION_KIND_THREAD,
+            Self::Agent => domain::contract::SESSION_KIND_AGENT,
+        }
+    }
+
+    /// EXP-1341: the kind's traits (`domain::session_kind`); behaviour
+    /// branches on these, never on the variant.
+    pub fn traits(self) -> domain::session_kind::SessionTraits {
+        domain::session_kind::session_traits(Some(self.as_str()))
+    }
+
+    /// A persistent session (never ends; revived by its device).
+    pub fn is_persistent(self) -> bool {
+        self.traits().persistent
+    }
+}
+
 /// Everything a resume needs about one session.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -499,14 +528,15 @@ impl RunRecord {
 
     /// What this record is CALLED wherever a resume is offered or narrated
     /// (tab titles, the ended strip): the issue's identifier, `EXP-42 +2`
-    /// for several, else the title it launched under, else `Session`.
+    /// for several, else the title it launched under, else `Untitled`
+    /// (EXP-1341: never a generic `Session`).
     pub fn display_name(&self) -> String {
         match self.issues.as_slice() {
             [] => self
                 .title
                 .clone()
                 .filter(|title| !title.trim().is_empty())
-                .unwrap_or_else(|| "Session".to_string()),
+                .unwrap_or_else(|| domain::session_title::copy::UNTITLED.to_string()),
             [only] => only.clone(),
             [first, rest @ ..] => format!("{first} +{}", rest.len()),
         }
@@ -1364,7 +1394,7 @@ mod tests {
         assert_eq!(several.display_name(), "EXP-42 +1");
         let mut untitled = sample("sess-4");
         untitled.title = None;
-        assert_eq!(untitled.display_name(), "Session");
+        assert_eq!(untitled.display_name(), "Untitled");
         assert!(sample("sess-1").owns_run_worktree());
         assert!(!issue_sample(&dir, "sess-5").owns_run_worktree());
         let _ = std::fs::remove_dir_all(&dir);

@@ -510,6 +510,9 @@ public struct SessionEntity: FetchableRecord, PersistableRecord, Identifiable, S
 
     public var isRoot: Bool { parentId == nil }
     public var isAgent: Bool { kind == DomainContract.sessionKindAgent }
+    /// EXP-1341: the kind's traits (`persistent`, `triggers`): branch on
+    /// these, never on the kind string.
+    public var traits: SessionTraits { SessionKind.traits(kind) }
     /// Not `ended` (queued, running and idle sessions all take messages).
     public var isLive: Bool { status != DomainContract.sessionStatusEnded }
 
@@ -611,6 +614,8 @@ public struct SessionIssueEntity: FetchableRecord, PersistableRecord, Identifiab
     public let addedBySessionId: String?
     /// Ascending = display order within the thread.
     public let sortOrder: Double
+    /// EXP-1341: the tree session working on it (nil = the root's own).
+    public let assignedSessionId: String?
     public let createdAt: String
     public let updatedAt: String
 
@@ -623,9 +628,11 @@ public struct SessionIssueEntity: FetchableRecord, PersistableRecord, Identifiab
         addedBy: String? = nil,
         addedBySessionId: String? = nil,
         sortOrder: Double = 0,
+        assignedSessionId: String? = nil,
         createdAt: String,
         updatedAt: String
     ) {
+        self.assignedSessionId = assignedSessionId
         self.id = id
         self.sessionId = sessionId
         self.issueId = issueId
@@ -646,6 +653,7 @@ public struct SessionIssueEntity: FetchableRecord, PersistableRecord, Identifiab
         case addedBy = "added_by"
         case addedBySessionId = "added_by_session_id"
         case sortOrder = "sort_order"
+        case assignedSessionId = "assigned_session_id"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
     }
@@ -663,6 +671,7 @@ extension SessionIssueEntity: Codable {
         addedBy = try c.decodeIfPresent(String.self, forKey: .addedBy)
         addedBySessionId = try c.decodeIfPresent(String.self, forKey: .addedBySessionId)
         sortOrder = try c.decodeWireDouble(forKey: .sortOrder) ?? 0
+        assignedSessionId = try c.decodeIfPresent(String.self, forKey: .assignedSessionId)
         createdAt = try c.decode(String.self, forKey: .createdAt)
         updatedAt = try c.decode(String.self, forKey: .updatedAt)
     }

@@ -659,7 +659,7 @@ mod tests {
         assert_eq!(kinds.len(), 9, "{kinds:?}");
         // EXP-1334: the dispatcher has no card of its own.
         assert!(!matches!(first.view.rows.first(), Some(SessionThreadRow::Session { .. })));
-        assert_eq!(first.view.title, "Implement EXP-12 + 1");
+        assert_eq!(first.view.title, "#EXP-12 Login fails on Safari + 1");
         // The second header is the private one.
         assert!(second.view.private);
     }

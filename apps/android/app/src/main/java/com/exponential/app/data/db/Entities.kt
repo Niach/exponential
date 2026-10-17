@@ -741,6 +741,9 @@ data class SessionIssueEntity(
     @ColumnInfo(name = "added_by") @SerialName("added_by") @JsonNames("addedBy") val addedBy: String? = null,
     @ColumnInfo(name = "added_by_session_id") @SerialName("added_by_session_id") @JsonNames("addedBySessionId")
     val addedBySessionId: String? = null,
+    // EXP-1341: the tree session working on it (null = the root's own).
+    @ColumnInfo(name = "assigned_session_id") @SerialName("assigned_session_id") @JsonNames("assignedSessionId")
+    val assignedSessionId: String? = null,
     @ColumnInfo(name = "sort_order") @SerialName("sort_order") @JsonNames("sortOrder") val sortOrder: Double = 0.0,
     @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String = "",
     @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String = "",

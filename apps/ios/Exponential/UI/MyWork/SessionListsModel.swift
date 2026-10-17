@@ -128,8 +128,9 @@ final class SessionListsModel {
     }
 
     /// The whole session table (the shape already scopes it to what I may
-    /// read), the root links, their issues, and the roots' OWN person
-    /// messages (`threadTitle`'s last fallback — never a whole transcript).
+    /// read), the root links, their issues, and every session's INPUT
+    /// messages (a person's or another session's card-less text: the
+    /// `SessionTitle` first-prompt rung — never a whole transcript).
     nonisolated private static func read(_ db: Database) throws -> Rows {
         let sessions = try SessionEntity.fetchAll(db)
         let links = try SessionIssueEntity.order(Column("sort_order")).fetchAll(db)
@@ -138,9 +139,13 @@ final class SessionListsModel {
             ? []
             : try IssueEntity.filter(issueIds.contains(Column("id"))).fetchAll(db)
         let messages = try MessageEntity
-            .filter(Column("session_id") == Column("root_id"))
-            .filter(Column("author_kind") == DomainContract.messageAuthorKindUser)
-            .order(Column("created_at"))
+            .filter(Column("card") == nil || Column("card") == "null")
+            .filter(
+                Column("author_kind") == DomainContract.messageAuthorKindUser
+                    || (Column("author_session_id") != nil
+                        && Column("author_session_id") != Column("session_id"))
+            )
+            .order(Column("created_at"), Column("id"))
             .fetchAll(db)
         // EXP-1323: unread only reads each session's NEWEST agent message, so
         // one aggregate row per session stands in for the transcript.

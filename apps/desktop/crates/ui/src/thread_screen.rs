@@ -128,7 +128,7 @@ pub(crate) fn draft_thread(draft_id: &str, cx: &App) -> Option<String> {
 pub(crate) fn draft_thread_chip(root_id: &str, cx: &App) -> AnyElement {
     use crate::surface::{glass_pill, PillMode, PillSize};
     let theme = cx.theme();
-    let title = crate::session_data::thread_title_of(root_id, cx)
+    let title = crate::session_data::session_title_of(root_id, cx)
         .unwrap_or_else(|| THREAD.copy.untitled.clone());
     let root_id = root_id.to_string();
     glass_pill("draft-thread", PillSize::Sm, PillMode::Action, cx)
@@ -1692,7 +1692,7 @@ fn issue_thread_chip(index: usize, root: &SessionRow, cx: &App) -> AnyElement {
     let (busy, needs_you) = live.fold((false, false), |(busy, needs), session| {
         (busy || session.busy, needs || session.needs_input)
     });
-    let title = crate::session_data::thread_title_of(&root.id, cx).unwrap_or_else(|| THREAD.copy.untitled.clone());
+    let title = crate::session_data::session_title_of(&root.id, cx).unwrap_or_else(|| THREAD.copy.untitled.clone());
     let root_id = root.id.clone();
     glass_pill(("issue-thread-chip", index), PillSize::Sm, PillMode::Action, cx)
         .max_w(px(260.))

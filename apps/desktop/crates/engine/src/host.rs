@@ -1004,9 +1004,9 @@ pub(crate) struct SessionCtx {
     pub(crate) account_id: String,
     #[allow(dead_code)]
     pub(crate) own_user_id: Option<String>,
-    /// EXP-1292: a team agent's root session — its process exiting idles the
-    /// row instead of ending it (agents never end).
-    pub(crate) agent_root: bool,
+    /// EXP-1292/1341: a PERSISTENT session (an agent root) — its process
+    /// exiting idles the row instead of ending it (it never ends).
+    pub(crate) persistent: bool,
     /// EXP-1292: the `messages.id` the seed prompt delivers (a resume's
     /// waking message), consumed once the seed turn is sent.
     pub(crate) seed_message_id: Option<String>,

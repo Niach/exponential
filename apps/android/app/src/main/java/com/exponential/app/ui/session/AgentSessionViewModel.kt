@@ -572,10 +572,9 @@ class AgentSessionViewModel @AssistedInject constructor(
         .distinctUntilChanged()
 
     /**
-     * EXP-1291: the header's back row — the THREAD's title
-     * ([SessionTree.threadTitle]: stored, action, first issue, first request
-     * line, `Untitled`) — and this session's own card name (`Session N` in
-     * the tree's creation order when untitled).
+     * EXP-1291: the header's back row — the THREAD's title — and this
+     * session's own name, both THE shared [SessionTree.sessionTitle]
+     * (EXP-1341, fixtures/session-title.json; never `Session N`).
      */
     data class Header(val threadTitle: String, val sessionName: String)
 
@@ -587,23 +586,23 @@ class AgentSessionViewModel @AssistedInject constructor(
             } else {
                 combine(
                     dbFlow.scopedQuery(emptyList<SessionEntity>()) { it.sessionDao().observeTree(root) },
-                    dbFlow.scopedQuery(emptyList<MessageEntity>()) { it.messageDao().observeBySession(root) },
+                    dbFlow.scopedQuery(emptyList<MessageEntity>()) { it.messageDao().observeByRoot(root) },
+                    dbFlow.scopedQuery(emptyList<SessionIssueEntity>()) { it.sessionIssueDao().observeByRoot(root) },
                     issues,
                     session,
-                ) { tree, messages, linked, row ->
+                ) { tree, messages, links, linked, row ->
                     val me = row ?: return@combine null
                     val sessions = tree.map(SessionTree::session)
                     val rootRow = sessions.firstOrNull { it.id == root } ?: SessionTree.session(me)
-                    val title = SessionTree.threadTitle(
-                        rootRow,
-                        linked.map(SessionTree::issue),
+                    val mine = sessions.firstOrNull { it.id == me.id } ?: SessionTree.session(me)
+                    val titles = SessionTree.sessionTitles(
+                        listOf(rootRow, mine).distinctBy { it.id },
+                        links.map(SessionTree::sessionIssue),
+                        linked.map { SessionTree.issue(it) },
                         messages.map(SessionTree::message),
                     )
-                    val ordered = SessionTree.treeOrder(sessions)
-                    val ordinal = ordered.indexOfFirst { it.id == me.id }.let { if (it < 0) 1 else it + 1 }
-                    val name = me.title?.trim()?.takeIf { it.isNotEmpty() }
-                        ?: me.name?.trim()?.takeIf { it.isNotEmpty() }
-                        ?: if (me.id == root) title else "${SessionTree.CardCopy.SESSION} $ordinal"
+                    val title = titles.getValue(rootRow.id)
+                    val name = titles.getValue(mine.id)
                     Header(threadTitle = title, sessionName = name)
                 }
             }

@@ -23,7 +23,7 @@ describe(`sessionsSendInputSchema — a message`, () => {
   it(`refuses a message with neither text, attachments nor an account`, () => {
     const parsed = sessionsSendInputSchema.safeParse({ sessionId: SESSION, text: `   ` })
     expect(parsed.success).toBe(false)
-    expect(parsed.error?.issues[0]?.message).toBe(`a message needs text, attachments or an account`)
+    expect(parsed.error?.issues[0]?.message).toBe(`a message needs text, attachments, issues or an account`)
   })
 
   it(`refuses an empty account id`, () => {
@@ -80,5 +80,48 @@ describe(`sessionsConfigureInputSchema model (EXP-1334)`, () => {
   it(`takes a model alone, never a blank one`, () => {
     expect(sessionsConfigureInputSchema.safeParse({ sessionId: SESSION, model: `opus` }).success).toBe(true)
     expect(sessionsConfigureInputSchema.safeParse({ sessionId: SESSION, model: `` }).success).toBe(false)
+  })
+})
+
+// EXP-1341: `name` names a NEW session; `issueIds` assign (child) or forward
+// (message).
+describe(`sessionsSendInputSchema — name and issues`, () => {
+  const ISSUE = `7e1c2b7a-5d4e-4f60-8a9b-0c1d2e3f4a5b`
+
+  it(`takes a name on a new root and on a child`, () => {
+    expect(sessionsSendInputSchema.safeParse({ text: `go`, name: `Perf pass` }).success).toBe(true)
+    expect(
+      sessionsSendInputSchema.safeParse({ parentId: SESSION, text: `go`, name: `Perf pass` }).success
+    ).toBe(true)
+  })
+
+  it(`refuses a name on a message, on an agent, and a blank one`, () => {
+    const cases: Array<[unknown, string]> = [
+      [{ sessionId: SESSION, text: `go`, name: `x` }, `a name is for a new session`],
+      [
+        {
+          name: `x`,
+          agent: { name: `Bot`, icon: `bot`, color: `#112233` },
+        },
+        `an agent is named by agent.name`,
+      ],
+    ]
+    for (const [input, message] of cases) {
+      const parsed = sessionsSendInputSchema.safeParse(input)
+      expect(parsed.success).toBe(false)
+      expect(parsed.error?.issues.map((issue) => issue.message)).toContain(message)
+    }
+    expect(sessionsSendInputSchema.safeParse({ text: `go`, name: `   ` }).success).toBe(false)
+  })
+
+  it(`takes issueIds on a child (assigned) and on a message (forwarded, even alone)`, () => {
+    expect(
+      sessionsSendInputSchema.safeParse({ parentId: SESSION, text: `go`, issueIds: [ISSUE] }).success
+    ).toBe(true)
+    expect(sessionsSendInputSchema.safeParse({ sessionId: SESSION, issueIds: [ISSUE] }).success).toBe(true)
+    expect(
+      sessionsSendInputSchema.safeParse({ parentId: SESSION, text: `why?`, aside: true, issueIds: [ISSUE] })
+        .success
+    ).toBe(false)
   })
 })

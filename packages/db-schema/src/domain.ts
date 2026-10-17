@@ -1254,7 +1254,10 @@ const sendUuid = z.string().uuid()
  * idle, an ended THREAD continues in a new child), start a CHILD
  * (`parentId`), or start a new ROOT (neither): a thread (optionally with
  * `issueIds` / `actionId`+`inputs` / `repositoryId`) or, with `agent`, a team
- * agent. A new session needs `deviceId` (the composer's device picker; an
+ * agent. EXP-1341: `name` names a NEW root or child (omitted = it names
+ * itself, session-title.json); `issueIds` on a child ASSIGNS them to it, on
+ * a message FORWARDS them to that session (linked to the root first).
+ * A new session needs `deviceId` (the composer's device picker; an
  * agent's spawn defaults to the agent's own device). `teamId` = the ACTIVE
  * team; omitted, it resolves from `sessionId`/`parentId`, else the CALLING
  * session's team (MCP), else it is required.
@@ -1284,7 +1287,9 @@ export const sessionsSendInputSchema = z
       .refine((value) => !value.includes(`\u0000`), `contains NUL bytes`)
       .optional(),
     attachmentIds: z.array(sendUuid).max(SESSIONS_SEND_MAX_ATTACHMENTS).optional(),
-    // Facets of a NEW root thread.
+    // EXP-1341: the new session's display name (root or child).
+    name: z.string().trim().min(1).max(255).optional(),
+    // A new root's issues; a child's ASSIGNED issues; a message's FORWARDED ones.
     issueIds: z.array(sendUuid).min(1).max(SESSIONS_SEND_MAX_ISSUES).optional(),
     actionId: sendUuid.optional(),
     inputs: z.record(z.string(), z.string().max(MAX_ACTION_INPUT_TEXT)).optional(),
@@ -1298,7 +1303,6 @@ export const sessionsSendInputSchema = z
     const issue = (message: string) =>
       ctx.addIssue({ code: z.ZodIssueCode.custom, message })
     const rootFacets =
-      input.issueIds !== undefined ||
       input.actionId !== undefined ||
       input.repositoryId !== undefined ||
       input.agent !== undefined
@@ -1306,8 +1310,14 @@ export const sessionsSendInputSchema = z
       if (input.parentId) issue(`sessionId and parentId are exclusive`)
       if (input.aside) issue(`an aside needs a parentId and a question`)
       if (rootFacets) issue(`a message to a session takes no root facets`)
-      if (!input.text?.trim() && !input.attachmentIds?.length && !input.account)
-        issue(`a message needs text, attachments or an account`)
+      if (input.name) issue(`a name is for a new session`)
+      if (
+        !input.text?.trim() &&
+        !input.attachmentIds?.length &&
+        !input.account &&
+        !input.issueIds
+      )
+        issue(`a message needs text, attachments, issues or an account`)
       return
     }
     if (input.aside && (!input.parentId || !input.text?.trim()))
@@ -1315,6 +1325,8 @@ export const sessionsSendInputSchema = z
     if (input.parentId && rootFacets) issue(`a child session takes no root facets`)
     if (input.agent && (input.issueIds || input.actionId))
       issue(`an agent takes no issues or action`)
+    if (input.agent && input.name) issue(`an agent is named by agent.name`)
+    if (input.aside && input.issueIds) issue(`an aside takes no issues`)
     if (input.inputs && !input.actionId) issue(`inputs need an actionId`)
     if (!input.agent && !input.text?.trim() && !input.issueIds && !input.actionId)
       issue(`a new session needs text, issues or an action`)

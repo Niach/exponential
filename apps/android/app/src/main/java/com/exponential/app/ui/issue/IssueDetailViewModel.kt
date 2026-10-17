@@ -606,13 +606,12 @@ class IssueDetailViewModel @AssistedInject constructor(
                 roots.filter { it.parentId == null && !it.isAgent }.map { root ->
                     val tree = all.filter { it.rootId == root.id || it.id == root.id }
                     val treeRoot = SessionTree.session(root)
-                    val linked = treeLinks.filter { it.sessionId == root.id }.sortedBy { it.sortOrder }
-                        .mapNotNull { link -> treeIssues.firstOrNull { it.id == link.issueId } }
                     IssueThread(
                         rootId = root.id,
-                        title = SessionTree.threadTitle(
+                        title = SessionTree.sessionTitle(
                             treeRoot,
-                            linked,
+                            treeLinks.filter { it.sessionId == root.id },
+                            treeIssues,
                             messages.filter { it.sessionId == root.id }.map(SessionTree::message),
                         ),
                         live = tree.any { !it.isEnded },

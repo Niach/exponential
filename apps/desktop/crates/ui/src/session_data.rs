@@ -22,7 +22,7 @@ use domain::rows::{
     Issue, MessageRow, PullRequestIssueRow, PullRequestRow, SessionIssueRow, SessionReadRow, SessionRow,
 };
 use domain::session_tree::{
-    build_session_thread, list_agents, partition_threads, session_card, thread_title, tree_order,
+    build_session_thread, list_agents, partition_threads, session_card, tree_order,
     AgentRow, SessionCard, SessionThreadInput, SessionThreadView, ThreadsListGroup, ThreadsListInput,
     ThreadsListKey, TreeIssue,
 };
@@ -95,7 +95,7 @@ pub(crate) fn root_of(session_id: &str, cx: &App) -> Option<SessionRow> {
 }
 
 /// The root plus every descendant, in the tree's creation order
-/// (`domain::session_tree::tree_order`, the `Session N` ordinals). Empty
+/// (`domain::session_tree::tree_order`). Empty
 /// while the root has not synced.
 pub(crate) fn tree_of_root(root_id: &str, cx: &App) -> Vec<SessionRow> {
     let Some(store) = Store::try_global(cx) else {
@@ -112,18 +112,46 @@ pub(crate) fn tree_of_root(root_id: &str, cx: &App) -> Vec<SessionRow> {
     tree_order(&members).into_iter().cloned().collect()
 }
 
-/// THE session card of one session, its ordinal taken from its tree.
+/// THE session card of one session, named by [`session_title_of`].
 pub(crate) fn session_card_of(session_id: &str, now_ms: i64, cx: &App) -> Option<SessionCard> {
+    let row = session(session_id, cx)?;
+    let title = session_title_of(session_id, cx)?;
+    Some(session_card(&row, &title, now_ms))
+}
+
+/// EXP-1341: THE display title of any session (`domain::session_title`:
+/// its name/title, its issues (a root's links, a child's ASSIGNED ones),
+/// `Run <action>`, its first prompt, else `Untitled`) off the synced rows;
+/// `None` while the session has not synced.
+pub(crate) fn session_title_of(session_id: &str, cx: &App) -> Option<String> {
     let store = Store::try_global(cx)?;
-    let sessions = store.collections().sessions.read(cx);
-    let row = sessions.get(session_id)?;
+    let collections = store.collections();
+    let row = collections.sessions.read(cx).get(session_id)?.clone();
     let root_id = row.root_id_or_self();
-    let tree: Vec<&SessionRow> = sessions
+    // The links all sit on the root (a child's carry `assigned_session_id`).
+    let links: Vec<SessionIssueRow> = collections
+        .session_issues
+        .read(cx)
         .iter()
-        .filter(|session| session.id == root_id || session.root_id_or_self() == root_id)
+        .filter(|link| link.session_id == root_id)
+        .cloned()
         .collect();
-    let ordinal = domain::session_tree::tree_ordinal(session_id, &tree);
-    Some(session_card(row, ordinal, now_ms))
+    let all_issues = collections.issues.read(cx);
+    let issues: Vec<TreeIssue> = links
+        .iter()
+        .filter_map(|link| all_issues.get(&link.issue_id))
+        .map(TreeIssue::from_issue)
+        .collect();
+    let messages: Vec<MessageRow> = collections
+        .messages
+        .read(cx)
+        .iter()
+        .filter(|message| message.session_id == session_id)
+        .cloned()
+        .collect();
+    let link_refs: Vec<&SessionIssueRow> = links.iter().collect();
+    let message_refs: Vec<&MessageRow> = messages.iter().collect();
+    Some(domain::session_title::session_title(&row, &link_refs, &issues, &message_refs))
 }
 
 // ---------------------------------------------------------------------------
@@ -148,14 +176,6 @@ pub(crate) fn issues_of_root(root_id: &str, cx: &App) -> Vec<Issue> {
     links
         .into_iter()
         .filter_map(|link| issues.get(&link.issue_id).cloned())
-        .collect()
-}
-
-/// [`issues_of_root`] as the tree views take them.
-pub(crate) fn tree_issues_of_root(root_id: &str, cx: &App) -> Vec<TreeIssue> {
-    issues_of_root(root_id, cx)
-        .iter()
-        .map(TreeIssue::from_issue)
         .collect()
 }
 
@@ -376,17 +396,6 @@ pub(crate) fn team_pr_snapshot(team_id: &str, cx: &App) -> PrSnapshot {
 // The thread screen
 // ---------------------------------------------------------------------------
 
-/// The thread title of `root_id` (`domain::session_tree::thread_title`: the
-/// stored title, the action, the first issue, the first message, else
-/// `Untitled`); `None` while the root has not synced.
-pub(crate) fn thread_title_of(root_id: &str, cx: &App) -> Option<String> {
-    let root = session(root_id, cx)?;
-    let issues = tree_issues_of_root(root_id, cx);
-    let messages = messages_of_session(root_id, cx);
-    let refs: Vec<&MessageRow> = messages.iter().collect();
-    Some(thread_title(&root, &issues, &refs))
-}
-
 /// The thread screen's model for `root_id` (`build_session_thread`): the
 /// tabs, the conversation rows, the composer target. `None` while the root
 /// has not synced. Works for an agent root too (its channel).
@@ -406,11 +415,14 @@ pub(crate) fn session_thread_view(
         .iter()
         .filter(|session| session.team_id == root.team_id || session.root_id_or_self() == root_id)
         .collect();
+    let team_ids: HashSet<&str> = team_sessions.iter().map(|session| session.id.as_str()).collect();
+    // EXP-1341: every team root's links name its cards (a child's assigned
+    // issues sit on its root); the tabs read the root's own.
     let mut links: Vec<&SessionIssueRow> = collections
         .session_issues
         .read(cx)
         .iter()
-        .filter(|link| link.session_id == root_id)
+        .filter(|link| team_ids.contains(link.session_id.as_str()))
         .collect();
     // One order everywhere (title, tabs, the list row's identifier).
     sort_links(&mut links);
@@ -427,6 +439,8 @@ pub(crate) fn session_thread_view(
         .iter()
         .filter(|message| {
             message.session_id == root_id
+                // EXP-1341: a card-less input names its session (first prompt).
+                || (team_ids.contains(message.session_id.as_str()) && message.card.is_none())
                 || (tree_ids.contains(message.session_id.as_str())
                     && message.card.as_ref().is_some_and(|card| {
                         matches!(
@@ -619,17 +633,15 @@ fn derive_thread_lists(team_id: &str, cx: &App) -> Vec<ThreadsListGroup> {
         .filter_map(|link| all_issues.get(&link.issue_id))
         .map(TreeIssue::from_issue)
         .collect();
-    // A root's own messages title it; EXP-1323: the tree's agent messages
+    // A session's own messages title it; EXP-1323: the tree's agent messages
     // decide its unread bold (and each child's own).
     let in_team: HashSet<&str> = rows.iter().map(|session| session.id.as_str()).collect();
     let messages: Vec<&MessageRow> = collections
         .messages
         .read(cx)
         .iter()
-        .filter(|message| {
-            roots.contains(message.session_id.as_str())
-                || (in_team.contains(message.session_id.as_str()) && !message.is_from_user())
-        })
+        // EXP-1341: every session's own first prompt names it.
+        .filter(|message| in_team.contains(message.session_id.as_str()))
         .collect();
     let session_reads = collections.session_reads.read(cx);
     let reads: Vec<&SessionReadRow> = session_reads

@@ -259,7 +259,7 @@ fn purge_dirless_records(data_dir: &Path, live_session_ids: &[String]) -> Vec<St
         .into_iter()
         .filter(|record| {
             record.clone.is_none()
-                && record.kind != crate::run_registry::RunKind::Agent
+                && !record.kind.is_persistent()
                 && is_scratch_dir(data_dir, &record.cwd)
                 && !record.cwd.is_dir()
                 && !live_session_ids.contains(&record.session_id)
@@ -274,10 +274,11 @@ fn purge_dirless_records(data_dir: &Path, live_session_ids: &[String]) -> Vec<St
 /// check never depends on how either side spelled the path.
 fn live_cwds(data_dir: &Path, live_session_ids: &[String]) -> HashSet<PathBuf> {
     let mut live = HashSet::new();
-    // EXP-1292: an agent's channel is always live work, running or idle.
+    // EXP-1292/1341: a persistent session (an agent's channel) is always
+    // live work, running or idle.
     let agents = crate::run_registry::all(data_dir)
         .into_iter()
-        .filter(|record| record.kind == crate::run_registry::RunKind::Agent)
+        .filter(|record| record.kind.is_persistent())
         .map(|record| record.cwd);
     for cwd in crate::run_registry::cwds_for(data_dir, live_session_ids).into_iter().chain(agents) {
         if let Ok(canonical) = std::fs::canonicalize(&cwd) {

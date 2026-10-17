@@ -442,14 +442,8 @@ enum EntityRefResolver {
     private static func sessionModel(_ ref: EntityRef, db: Database) throws -> EntityPreviewModel? {
         guard let session = try SessionQueries.session(db: db, id: ref.id) else { return nil }
         let state = session.sessionState
-        let tree = try SessionQueries.tree(db: db, rootId: session.rootId)
-        // A root names its thread; a child its own card name.
-        let title: String
-        if session.isRoot {
-            title = try SessionTree.threadTitle(db: db, root: session)
-        } else {
-            title = session.cardName(in: tree)
-        }
+        // EXP-1341: ONE display title for a root and a child alike.
+        let title = try SessionTree.sessionTitle(db: db, session: session)
         var facts: [EntityPreviewModel.Fact] = [
             .init(id: "state", label: state.word, tint: SessionStateDot.color(state)),
         ]
@@ -458,7 +452,7 @@ enum EntityRefResolver {
         }
         return EntityPreviewModel(
             icon: .sessionDot(state, pulsing: state == .working),
-            eyebrow: SessionTree.CardCopy.session,
+            eyebrow: "Session",
             title: title,
             subtitle: session.startedAt.map { "Started \(RelativeTime.long(wire: $0))" },
             facts: facts,

@@ -33,6 +33,10 @@
 //! * [`session_tree`] — EXP-1294 Threads v2: the session card, the thread
 //!   screen, the Threads page and the rail's Agents, byte-locked ×4 by
 //!   `fixtures/{session-card,session-thread,threads-list}.json`;
+//! * [`session_title`] / [`session_kind`] — EXP-1341: THE display title of
+//!   any session and the kind traits (`persistent`, `triggers`) every
+//!   behaviour branches on, byte-locked ×4 by
+//!   `fixtures/{session-title,session-kind}.json`;
 //! * [`agent_settings`] — EXP-1294 Team settings → Agents (trigger summary,
 //!   form validation), byte-locked ×4 by `fixtures/agent-settings.json`;
 //! * [`tree_guides`] — EXP-965 `guides_for`: the elbow/tee/pass-through
@@ -123,6 +127,9 @@ pub mod relations_view;
 pub mod reporter_reply;
 pub mod rows;
 pub mod session_results;
+// EXP-1341: ONE session model (kind traits) + THE session title, fixture-locked ×4.
+pub mod session_kind;
+pub mod session_title;
 // EXP-1294: the session tree's views (card, thread, Threads page, Agents), fixture-locked ×4.
 pub mod session_tree;
 pub mod statuses;

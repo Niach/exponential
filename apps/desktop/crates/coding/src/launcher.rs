@@ -235,11 +235,12 @@ pub fn owns_issue_work(row: &SessionRow, parent_branch: Option<&str>) -> bool {
     }
 }
 
-/// Whether the session runs the `## Dispatch` part of the playbook: a
-/// dispatcher root, and every team agent (dispatch or not, an agent's
-/// channel never codes).
+/// Whether the session runs the `## Dispatch` part of the playbook: the
+/// row's `dispatch` stamp alone. EXP-1341: the server stamps it on EVERY
+/// root at creation, agents included (a migration backfilled old agents), so
+/// the kind never decides it.
 pub fn dispatches(row: &SessionRow) -> bool {
-    row.dispatch || (row.is_agent() && row.is_root())
+    row.dispatch
 }
 
 /// A trimmed, non-blank text field.
@@ -269,28 +270,44 @@ pub fn session_own_branch(row: &SessionRow) -> String {
     format!("{SESSION_BRANCH_PREFIX}{id8}")
 }
 
-/// EXP-1292 — what a session is CALLED on this device (tab title, the
-/// computer-use cursor badge, logs): its issue (`EXP-42`, `EXP-42 +2`), else
-/// its title (an agent: its name), else `Session`.
-pub fn session_label(row: &SessionRow, issue_identifiers: &[String]) -> String {
-    if let Some(first) = issue_identifiers.first() {
-        return match issue_identifiers.len() {
-            1 => first.clone(),
-            n => format!("{first} +{}", n - 1),
-        };
+/// EXP-1292/1341 — what a session is CALLED on this device (tab title, the
+/// computer-use cursor badge, logs): THE session title
+/// (`domain::session_title`) over what the launch knows — the row's name /
+/// stored title, its issues (`issue_identifiers`, titled by the brief's
+/// `## Issues` lines: a child's brief lists only its ASSIGNED issues), its
+/// action, the brief's `## Request` first line — else `Untitled`. Never a
+/// generic `Session`.
+pub fn session_label(row: &SessionRow, issue_identifiers: &[String], brief: &str) -> String {
+    use domain::session_title::{title_from_parts, TitleIssue};
+    let titled = crate::pickup::brief_issues(brief);
+    let issues: Vec<TitleIssue<'_>> = issue_identifiers
+        .iter()
+        .map(|identifier| TitleIssue {
+            identifier,
+            title: titled
+                .iter()
+                .find(|(id, _)| id == identifier)
+                .map_or("", |(_, title)| title.as_str()),
+        })
+        .collect();
+    let label = title_from_parts(
+        row.name.as_deref(),
+        row.title.as_deref(),
+        &issues,
+        row.action_name.as_deref(),
+        brief_request(brief),
+    );
+    // An issue the brief did not title reads `#EXP-42` / `#EXP-42 + 2`.
+    if issues.first().is_some_and(|issue| issue.title.trim().is_empty()) && label.starts_with('#') {
+        return label.split_whitespace().collect::<Vec<_>>().join(" ");
     }
-    let named = |text: &Option<String>| {
-        text.as_deref()
-            .map(str::trim)
-            .filter(|text| !text.is_empty())
-            .map(str::to_string)
-    };
-    let preferred = if row.is_agent() {
-        named(&row.name).or_else(|| named(&row.title))
-    } else {
-        named(&row.title).or_else(|| named(&row.name))
-    };
-    preferred.unwrap_or_else(|| "Session".to_string())
+    label
+}
+
+/// The brief's `## Request` body (always its FIRST section), `None` when the
+/// brief opens with another one.
+fn brief_request(brief: &str) -> Option<&str> {
+    brief.strip_prefix("## Request\n\n")
 }
 
 /// EXP-1292 — the session's runner pickers layered OVER the host's launch
@@ -1359,7 +1376,7 @@ struct LastUsedStamp {
 fn last_used_stamp(req: &PrepareRequest, options: &LaunchOptions) -> Option<LastUsedStamp> {
     let PrepareRequest::Session(session_req) = req;
     let row = &session_req.session;
-    let person = session_req.resume.is_none() && row.parent_id.is_none() && !row.is_agent();
+    let person = session_req.resume.is_none() && row.parent_id.is_none() && !row.is_persistent();
     person.then(|| LastUsedStamp {
         agent: options.agent,
         account: options
@@ -1662,7 +1679,7 @@ fn prepare_session(
     // server-side (unconnected or unpicked ones are skipped, never a
     // blocker). The pick lives on the row, so no ids are named here.
     let mut team_mcp = resolve_mcp_servers(deps, &session_id);
-    let label = session_label(row, &req.issue_identifiers);
+    let label = session_label(row, &req.issue_identifiers, &req.brief.brief);
     let computer_use = attach_computer_use(deps, options, &mut team_mcp, &session_id, &label);
     let code_mode = attach_code_mode(&mut team_mcp, &agent_mcp, &personal_key, &session_id, &label);
 
@@ -1710,18 +1727,15 @@ fn prepare_session(
             session_id: session_id.clone(),
             account_id: deps.account_id.clone(),
             agent,
-            kind: if row.is_agent() { RunKind::Agent } else { RunKind::Thread },
+            kind: RunKind::of(row),
             team_id: row.team_id.clone().unwrap_or_default(),
             issues: own_issues.to_vec(),
-            // EXP-1134/1292: the row's REAL title (an agent: its name) —
-            // blank stays `None`, which is what asks the agent to name the
-            // conversation (`engine::session::record_wants_name`). EXP-1316: an
-            // action run is titled by its action, never by the agent.
-            title: if row.is_agent() {
-                named_text(&row.name)
-            } else {
-                named_text(&row.title).or_else(|| named_text(&row.action_name))
-            },
+            // EXP-1134/1292/1341: only a REAL name — an agent's name, else
+            // the row's stored title (`domain::session_title`'s first rung). Blank stays `None`, which is what asks the
+            // agent CLI to name the conversation
+            // (`engine::session::record_wants_name`): children, issue and
+            // action threads included (never the action name).
+            title: named_text(&row.name).or_else(|| named_text(&row.title)),
             cwd: cwd.clone(),
             clone: workspace.as_ref().map(|workspace| workspace.clone.clone()),
             repo: workspace.as_ref().map(|workspace| workspace.full_name.clone()),
@@ -2308,11 +2322,7 @@ fn prepare_resume(
     } else {
         resolve_mcp_servers(deps, &session_id)
     };
-    let label = if req.issue_identifiers.is_empty() {
-        record.display_name()
-    } else {
-        session_label(row, &req.issue_identifiers)
-    };
+    let label = session_label(row, &req.issue_identifiers, &req.brief.brief);
     let computer_use =
         !aside && attach_computer_use(deps, &options, &mut team_mcp, &session_id, &label);
     let code_mode =
@@ -3346,8 +3356,9 @@ mod tests {
         assert!(owns_issue_work(&child, None) && !owns_issue_work(&child, Some("exp/x")));
     }
 
-    /// Who reads the Dispatch playbook: a dispatcher root and every team
-    /// agent's channel, never a work child or a pre-dispatch thread.
+    /// Who reads the Dispatch playbook: the row's `dispatch` stamp alone
+    /// (EXP-1341: the server stamps every root, agents included), never a
+    /// work child or a pre-dispatch thread; the kind never decides.
     #[test]
     fn dispatchers_and_agents_read_the_dispatch_playbook() {
         let mut thread = row("t-1", None);
@@ -3356,7 +3367,9 @@ mod tests {
         assert!(dispatches(&thread));
         let mut agent = row("a-1", None);
         agent.kind = Some("agent".to_string());
-        assert!(dispatches(&agent), "a pre-dispatch agent is a caretaker too");
+        assert!(!dispatches(&agent), "the kind never decides");
+        agent.dispatch = true;
+        assert!(dispatches(&agent));
         let mut child = row("c-1", None);
         child.parent_id = Some("t-1".to_string());
         assert!(!dispatches(&child));
@@ -3403,21 +3416,32 @@ mod tests {
         assert_eq!(session_launch_options(&plain, &blank_host, &deps.settings).model, "gpt-5.6-sol");
     }
 
+    /// EXP-1341: the label = THE session title over what the launch knows
+    /// (name/title, the brief-titled issues, the action, the request's first
+    /// line), never a generic `Session`.
     #[test]
-    fn the_label_is_the_issues_then_the_title_then_an_agents_name() {
+    fn the_label_is_the_session_title() {
+        let brief = "## Request\n\n![shot](/api/attachments/x)\nSpeed it up\n\n## Issues\n\n- EXP-42 Cold start is slow\n- EXP-43 Lag";
         let mut thread = row("s-1", None);
-        assert_eq!(session_label(&thread, &["EXP-42".to_string()]), "EXP-42");
-        assert_eq!(
-            session_label(&thread, &["EXP-42".to_string(), "EXP-43".to_string(), "EXP-44".to_string()]),
-            "EXP-42 +2"
-        );
-        assert_eq!(session_label(&thread, &[]), "Code review");
+        assert_eq!(session_label(&thread, &["EXP-42".to_string()], brief), "Code review");
         thread.title = None;
-        assert_eq!(session_label(&thread, &[]), "Session");
+        assert_eq!(session_label(&thread, &["EXP-42".to_string()], brief), "#EXP-42 Cold start is slow");
+        assert_eq!(
+            session_label(&thread, &["EXP-42".to_string(), "EXP-43".to_string(), "EXP-44".to_string()], brief),
+            "#EXP-42 Cold start is slow + 2"
+        );
+        // An issue the brief does not title reads by its identifier alone.
+        assert_eq!(session_label(&thread, &["EXP-9".to_string(), "EXP-42".to_string()], ""), "#EXP-9 + 1");
+        assert_eq!(session_label(&thread, &[], brief), "Speed it up");
+        thread.action_name = Some("Tidy up".to_string());
+        assert_eq!(session_label(&thread, &[], brief), "Run Tidy up");
+        thread.action_name = None;
+        assert_eq!(session_label(&thread, &[], "## Issues\n\n- not-an-id"), "Untitled");
         let mut agent = row("a-1", None);
         agent.kind = Some("agent".to_string());
+        agent.title = None;
         agent.name = Some("Inbox watcher".to_string());
-        assert_eq!(session_label(&agent, &[]), "Inbox watcher");
+        assert_eq!(session_label(&agent, &[], ""), "Inbox watcher");
     }
 
     /// The row's pickers win over the host's defaults, normalized against the
@@ -3488,9 +3512,9 @@ mod tests {
         assert_eq!(prepared.acp.session_id, "sess-1");
         assert_eq!(prepared.branch, "exp/EXP-42");
         assert_eq!(prepared.worktree, worktree);
-        assert_eq!(prepared.tab_title, "claude · EXP-42");
-        assert_eq!(prepared.tab_title_prefix, "EXP-42");
-        assert_eq!(prepared.issue_identifier, "EXP-42");
+        assert_eq!(prepared.tab_title, "claude · Code review");
+        assert_eq!(prepared.tab_title_prefix, "Code review");
+        assert_eq!(prepared.issue_identifier, "Code review");
         assert_eq!(prepared.repository_id.as_deref(), Some("repo-happy"));
         assert_eq!(prepared.clone, dir.0.join("repos").join("acme").join("web"));
         assert_eq!(prepared.base_ref.as_deref(), Some("origin/main"));
@@ -3601,7 +3625,7 @@ mod tests {
         assert_eq!(cleanup.branch, "exp/session-5ecb3c42");
         assert_eq!(cleanup.base_branch, "exp/EXP-41");
         assert_eq!(prepared.base_branch.as_deref(), Some("exp/EXP-41"));
-        assert_eq!(prepared.tab_title, "claude · EXP-41");
+        assert_eq!(prepared.tab_title, "claude · Code review");
         let requests = captured.lock().unwrap();
         assert!(
             requests[1].ends_with(&format!(
@@ -3638,7 +3662,7 @@ mod tests {
         assert_eq!(prepared.branch, "", "no branch of its own");
         assert_eq!(prepared.worktree, worktree);
         assert!(prepared.run_cleanup.is_none());
-        assert_eq!(prepared.issue_identifier, "EXP-42");
+        assert_eq!(prepared.issue_identifier, "Code review");
         assert_eq!(prepared.acp.options.model, "haiku");
         assert!(!prepared.acp.options.plan_mode && !prepared.plan_mode);
         let seen = worktrees.seen.lock().unwrap().clone();
@@ -3790,6 +3814,8 @@ mod tests {
         agent.kind = Some("agent".to_string());
         agent.name = Some("Inbox watcher".to_string());
         agent.plan_mode = false;
+        // EXP-1341: the server stamps dispatch on every root, agents included.
+        agent.dispatch = true;
         let mut req = session_request(agent, &[]);
         req.brief.team_prompt = Some("Always write tests.".to_string());
         req.brief.agent_instructions = Some("Triage new issues.".to_string());
@@ -3971,7 +3997,7 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
         codex.effort = Some("high".to_string());
 
         let prepared = ready(launch(session_request(codex, &["EXP-42"]), &deps));
-        assert_eq!(prepared.tab_title, "codex · EXP-42");
+        assert_eq!(prepared.tab_title, "codex · Code review");
         assert_eq!(prepared.spawn.program, deps.settings.codex_path);
         assert!(!worktree.join(".exp-mcp.json").exists());
         assert!(prepared.spawn.args.is_empty(), "{:?}", prepared.spawn.args);
@@ -4079,8 +4105,8 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
         assert_eq!(b.branch, "exp/EXP-2");
         assert_ne!(a.worktree, b.worktree);
         assert_ne!(a.session_id, b.session_id);
-        assert_eq!(a.tab_title, "claude · EXP-1");
-        assert_eq!(b.tab_title, "claude · EXP-2");
+        assert_eq!(a.tab_title, "claude · Code review");
+        assert_eq!(b.tab_title, "claude · Code review");
         assert_eq!(a.spawn.cwd.as_deref(), Some(wt_a.as_path()));
         assert_eq!(b.spawn.cwd.as_deref(), Some(wt_b.as_path()));
     }

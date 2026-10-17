@@ -27,8 +27,8 @@ pub(crate) fn cards() -> Vec<SessionCard> {
     for case in fixture["cases"].as_array().into_iter().flatten() {
         let input = &case["input"];
         let session: SessionRow = fixture_rows::row(&input["session"]);
-        let ordinal = input["ordinal"].as_u64().unwrap_or(1) as usize;
-        let card = session_card(&session, ordinal, fixture_rows::now_ms(&input["now"]));
+        let title = input["title"].as_str().unwrap_or_default();
+        let card = session_card(&session, title, fixture_rows::now_ms(&input["now"]));
         if !seen.contains(&card.state) {
             seen.push(card.state);
             cards.push(card);
@@ -48,8 +48,8 @@ pub(crate) fn captioned_cards() -> Vec<SessionCard> {
         .map(|case| {
             let input = &case["input"];
             let session: SessionRow = fixture_rows::row(&input["session"]);
-            let ordinal = input["ordinal"].as_u64().unwrap_or(1) as usize;
-            session_card(&session, ordinal, fixture_rows::now_ms(&input["now"]))
+            let title = input["title"].as_str().unwrap_or_default();
+            session_card(&session, title, fixture_rows::now_ms(&input["now"]))
         })
         .filter(|card| card.caption.is_some())
         .collect()

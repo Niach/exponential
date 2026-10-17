@@ -6,7 +6,7 @@ import Foundation
 // `packages/domain-contract/src/session-tree.ts` (desktop
 // `domain::session_tree`, Android `domain/SessionTree.kt`), byte-locked by the
 // fixtures `SessionTreeTests` replays:
-//   fixtures/session-card.json   → `SessionTree.sessionCard`
+//   fixtures/session-card.json   → `SessionTree.sessionCard` (names = `SessionTitle`)
 //   fixtures/session-thread.json → `SessionTree.buildSessionThread`
 //   fixtures/threads-list.json   → `SessionTree.partitionThreads` + `listAgents` + `threadRowMarkState`
 // The fixtures' `$comment`s hold the rules. Pure: callers map their synced
@@ -168,11 +168,14 @@ public struct TreeSessionIssue: Equatable, Sendable {
     public let sessionId: String
     public let issueId: String
     public let sortOrder: Double
+    /// EXP-1341: the tree session working on it (nil = the root's own).
+    public let assignedSessionId: String?
 
-    public init(sessionId: String, issueId: String, sortOrder: Double) {
+    public init(sessionId: String, issueId: String, sortOrder: Double, assignedSessionId: String? = nil) {
         self.sessionId = sessionId
         self.issueId = issueId
         self.sortOrder = sortOrder
+        self.assignedSessionId = assignedSessionId
     }
 }
 
@@ -883,11 +886,10 @@ public struct AgentRow: Equatable, Sendable, Identifiable {
 public enum SessionTree {
     /// fixtures/session-card.json `copy` + `testIds`.
     public enum CardCopy {
-        public static let session = "Session"
         public static let testId = "session-card"
     }
 
-    /// fixtures/session-thread.json `copy` + `titleMax` + `testIds`.
+    /// fixtures/session-thread.json `copy` + `testIds` (titles: `SessionTitle`).
     public enum ThreadCopy {
         public static let untitled = "Untitled"
         public static let placeholder = "Type / for commands"
@@ -903,11 +905,6 @@ public enum SessionTree {
             "pr_closed": "Closed PR {pr}",
             "session_ended": "Session ended",
         ]
-        public static let titleMax = 80
-        /// `titles`: `{action}`, `{issue}`, `{more}`.
-        public static let titleAction = "Run {action}"
-        public static let titleIssue = "Implement {issue}"
-        public static let titleIssues = "Implement {issue} + {more}"
         public static let tabsTestId = "thread-tabs"
         /// EXP-1334: a zone's "+N" chip reads out as web's
         /// `THREAD_STRIP_MORE_COPY` (`2 more issues`, `1 more session`).
@@ -999,7 +996,7 @@ public enum SessionTree {
         return threadRowMarkState(needsYou: session.needsInput, busy: session.busy)
     }
 
-    /// Sessions of one tree in creation order (ties by id): `Session N` names.
+    /// Sessions of one tree in creation order (ties by id).
     public static func treeOrder(_ sessions: [TreeSession]) -> [TreeSession] {
         sessions.sorted { a, b in
             let ma = ms(a.createdAt) ?? 0, mb = ms(b.createdAt) ?? 0
@@ -1008,19 +1005,18 @@ public enum SessionTree {
         }
     }
 
-    /// THE session card. `ordinal` = its 1-based place in the tree's
-    /// creation order (names an untitled session `Session N`).
-    public static func sessionCard(_ session: TreeSession, ordinal: Int, now: Date) -> SessionCard {
+    /// THE session card. `title` = its `SessionTitle.title` (EXP-1341,
+    /// fixtures/session-title.json; never `Session N`).
+    public static func sessionCard(_ session: TreeSession, title: String, now: Date) -> SessionCard {
         let state = sessionState(session)
         let start = ms(session.startedAt)
         let end = state == .ended ? (ms(session.endedAt) ?? ms(session.updatedAt)) : ms(now)
         var elapsed: String?
         if let start, let end, state != .queued { elapsed = formatElapsed(ms: end - start) }
-        let title = session.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return SessionCard(
             sessionId: session.id,
             icon: state.icon,
-            name: title.isEmpty ? "\(CardCopy.session) \(ordinal)" : title,
+            name: title,
             kindWord: state.word,
             state: state,
             tone: state.tone,
@@ -1039,44 +1035,15 @@ public enum SessionTree {
         return caption
     }
 
-    /// EXP-1316: a thread's title, never renamed by a person: an agent's
-    /// `name`; else `Run <action>`; else `Implement <IDENT>` (the first
-    /// synced issue by sortOrder, `+ <n-1>` with more); else the stored
-    /// title (the CLI's auto-name); else the first line of the root's first
-    /// person message (capped `titleMax`); else `Untitled`.
-    public static func threadTitle(
-        root: TreeSession,
+    /// THE display title of one tree session off the tree rows
+    /// (`SessionTitle.title`).
+    public static func sessionTitle(
+        _ session: TreeSession,
+        sessionIssues: [TreeSessionIssue],
         issues: [TreeIssue],
         messages: [TreeMessage]
     ) -> String {
-        func trimmed(_ value: String?) -> String {
-            value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        }
-        let name = trimmed(root.name)
-        if root.kind == "agent", !name.isEmpty { return name }
-        let action = trimmed(root.actionName)
-        if !action.isEmpty { return ThreadCopy.titleAction.replacingOccurrences(of: "{action}", with: action) }
-        if let first = issues.first {
-            return issues.count > 1
-                ? ThreadCopy.titleIssues
-                    .replacingOccurrences(of: "{issue}", with: first.identifier)
-                    .replacingOccurrences(of: "{more}", with: String(issues.count - 1))
-                : ThreadCopy.titleIssue.replacingOccurrences(of: "{issue}", with: first.identifier)
-        }
-        let stored = trimmed(root.title)
-        if !stored.isEmpty { return stored }
-        let firstMessage = messages
-            .filter { $0.sessionId == root.id && $0.authorKind == "user" }
-            .enumerated()
-            .min { a, b in
-                // A stable oldest-first pick (the reference's sort is stable).
-                let ma = ms(a.element.createdAt) ?? 0, mb = ms(b.element.createdAt) ?? 0
-                return ma != mb ? ma < mb : a.offset < b.offset
-            }?.element
-        if let firstMessage, let line = firstLine(firstMessage.body, max: ThreadCopy.titleMax) {
-            return line
-        }
-        return ThreadCopy.untitled
+        SessionTitle.title(session, sessionIssues: sessionIssues, issues: issues, messages: messages)
     }
 
     /// The thread screen: the header tabs, the root's conversation as rows
@@ -1095,11 +1062,10 @@ public enum SessionTree {
     ) -> SessionThreadView {
         var tree = treeOrder(sessions.filter { $0.rootId == root.id || $0.id == root.id })
         if !tree.contains(where: { $0.id == root.id }) { tree.insert(root, at: 0) }
-        var ordinals: [String: Int] = [:]
-        for (index, session) in tree.enumerated() { ordinals[session.id] = index + 1 }
         var byId: [String: TreeSession] = [:]
         for session in sessions { byId[session.id] = session }
         byId[root.id] = root
+        let titles = SessionTitle.titles(Array(byId.values), sessionIssues: sessionIssues, issues: issues, messages: messages)
         let linked = rootIssues(root.id, sessionIssues: sessionIssues, issues: issues)
         var issueMap: [String: TreeIssue] = [:]
         for issue in issues { issueMap[issue.id] = issue }
@@ -1112,13 +1078,13 @@ public enum SessionTree {
                 if ma != mb { return ma < mb }
                 return a.id < b.id
             }
-        let title = threadTitle(root: root, issues: linked, messages: own)
+        let title = titles[root.id] ?? SessionTitle.Copy.untitled
         let focused = focus.flatMap { id in tree.first { $0.id == id } }
         // EXP-1334: the conversation IS the dispatcher (no chip of its own);
         // the chips = its DIRECT children, every deeper session folded under
         // its top-level ancestor (the chip's dropdown).
         func nameOf(_ session: TreeSession) -> String {
-            sessionCard(session, ordinal: ordinals[session.id] ?? 1, now: now).name
+            sessionCard(session, title: titles[session.id] ?? "", now: now).name
         }
         let treeIds = Set(tree.map(\.id))
         let sessionTabs: [ThreadTab] = foldForest(
@@ -1190,7 +1156,7 @@ public enum SessionTree {
                 guard let targetId = card.sessionId, let target = byId[targetId] else { break }
                 rows.append(.session(
                     id: message.id,
-                    card: sessionCard(target, ordinal: ordinals[target.id] ?? 1, now: now)
+                    card: sessionCard(target, title: titles[target.id] ?? "", now: now)
                 ))
             case "question":
                 rows.append(.question(
@@ -1222,12 +1188,12 @@ public enum SessionTree {
                     sessionId: target.id,
                     text: ThreadCopy.report.replacingOccurrences(
                         of: "{session}",
-                        with: sessionCard(target, ordinal: ordinals[target.id] ?? 1, now: now).name
+                        with: sessionCard(target, title: titles[target.id] ?? "", now: now).name
                     ),
                     summary: card.summary ?? message.body
                 ))
             case "suggestions":
-                if let row = suggestionsRow(message, card: card, byId: byId, ordinals: ordinals, issues: issueMap, now: now) {
+                if let row = suggestionsRow(message, card: card, byId: byId, titles: titles, issues: issueMap, now: now) {
                     rows.append(row)
                 }
             case "event":
@@ -1398,7 +1364,7 @@ public enum SessionTree {
         _ message: TreeMessage,
         card: TreeMessageCard,
         byId: [String: TreeSession],
-        ordinals: [String: Int],
+        titles: [String: String],
         issues: [String: TreeIssue],
         now: Date
     ) -> ThreadRow? {
@@ -1413,7 +1379,7 @@ public enum SessionTree {
                 title: item.title,
                 text: item.text,
                 state: state,
-                card: target.map { sessionCard($0, ordinal: ordinals[$0.id] ?? 1, now: now) },
+                card: target.map { sessionCard($0, title: titles[$0.id] ?? "", now: now) },
                 issueId: item.issueId,
                 identifier: item.issueId.flatMap { issues[$0]?.identifier }
             )
@@ -1480,11 +1446,7 @@ public enum SessionTree {
             let activity = tree.reduce(root.updatedAt) { latest, session in
                 (ms(session.updatedAt) ?? 0) > (ms(latest) ?? 0) ? session.updatedAt : latest
             }
-            let title = threadTitle(
-                root: root,
-                issues: rootIssues(root.id, sessionIssues: sessionIssues, issues: issues),
-                messages: messages
-            )
+            let title = SessionTitle.title(root, sessionIssues: sessionIssues, issues: issues, messages: messages)
             let row = ThreadsListRow(
                 sessionId: root.id,
                 teamId: root.teamId,
@@ -1505,8 +1467,6 @@ public enum SessionTree {
             var children: [ThreadsListRow] = []
             if key != .recent {
                 let ordered = treeOrder(tree)
-                var ordinals: [String: Int] = [:]
-                for (index, session) in ordered.enumerated() { ordinals[session.id] = index + 1 }
                 func walk(_ parentId: String, _ depth: Int) {
                     for child in ordered where child.parentId == parentId && !child.aside {
                         let ended = child.status == "ended"
@@ -1516,7 +1476,7 @@ public enum SessionTree {
                             depth: depth,
                             parentId: parentId,
                             rootId: root.id,
-                            title: sessionCard(child, ordinal: ordinals[child.id] ?? 1, now: Date()).name,
+                            title: SessionTitle.title(child, sessionIssues: sessionIssues, issues: issues, messages: messages),
                             busy: !ended && child.busy,
                             needsYou: !ended && child.needsInput,
                             unread: unread(newestAgent[child.id], child.id),
@@ -1734,19 +1694,6 @@ public enum SessionTree {
             return template.replacingOccurrences(of: "{pr}", with: "#\(pr.number)")
         }
         return template
-    }
-
-    /// First non-empty, non-image line of a person's text, capped with `…`.
-    private static func firstLine(_ body: String, max: Int) -> String? {
-        let line = body
-            .components(separatedBy: "\n")
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .first { !$0.isEmpty && !$0.hasPrefix("![") }
-        guard let line else { return nil }
-        guard line.count > max else { return line }
-        let head = String(line.prefix(max - 1))
-        let trimmed = head.replacingOccurrences(of: "\\s+$", with: "", options: .regularExpression)
-        return "\(trimmed)…"
     }
 
     /// Epoch milliseconds of a wire timestamp; nil when missing or unreadable.

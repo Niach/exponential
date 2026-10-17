@@ -1,3 +1,4 @@
+import { PERSISTENT_KINDS, isPersistent } from "@exp/domain-contract/session-kind"
 import { TRPCError } from "@trpc/server"
 import { and, eq, inArray, isNull, ne, sql } from "drizzle-orm"
 import type { z } from "zod"
@@ -28,7 +29,7 @@ import { assertTeamMember, assertTeamOwner, getTeamMember } from "@/lib/auth/mem
 import { resolveActionInputs } from "@/lib/action-inputs"
 import { actionInputLookups } from "@/lib/sessions/action-lookups"
 import { assertCanSteer, loadSessionForUser, sessionVisibleTo } from "@/lib/sessions/access"
-import { assertIssuesInTeam, linkIssues } from "@/lib/sessions/issues"
+import { assertIssuesInTeam, assignIssues, linkIssues } from "@/lib/sessions/issues"
 import { postPersonMessage, postSessionInput, postSystemCard } from "@/lib/sessions/messages"
 import type { Tx } from "@/lib/sessions/tx"
 import { asideTitle } from "@/lib/sessions/caption"
@@ -421,7 +422,7 @@ async function messageSession(
   }
 
   const hasMessage = !!input.text?.trim() || !!input.attachmentIds?.length
-  if (target.status !== `ended` || target.kind === `agent`) {
+  if (target.status !== `ended` || isPersistent(target)) {
     // EXP-849: `account` on a message = an account SWITCH. The synced
     // `sessions.account` is the login the session should run on; the host
     // device sees it move and resumes the SAME row on that login between
@@ -448,6 +449,17 @@ async function messageSession(
       const from = caller
         ? { sessionId: caller.id, asSession: viaMcp && caller.id !== target.id }
         : null
+      // EXP-1341: issues on a message = FORWARDED to that session.
+      if (input.issueIds?.length) {
+        await assertIssuesInTeam(tx, target.teamId, input.issueIds)
+        await assignIssues(tx, {
+          sessionId: target.id,
+          issueIds: input.issueIds,
+          source: caller ? `agent` : `user`,
+          addedBy: userId,
+          addedBySessionId: caller?.id ?? null,
+        })
+      }
       const messageId = await postSendMessage(tx, target, input, userId, uploaderIds, from)
       await extras.within?.(tx, { sessionId: target.id, messageId, rootId: target.rootId })
       return { sessionId: target.id, messageId, status: target.status, txid, queued: null }
@@ -497,6 +509,17 @@ async function messageSession(
       status: `queued`,
       shared: root.shared,
     })
+    if (input.issueIds?.length) {
+      await assertIssuesInTeam(tx, root.teamId, input.issueIds)
+      await assignIssues(tx, {
+        sessionId: child.id,
+        issueIds: input.issueIds,
+        source: caller ? `agent` : `user`,
+        addedBy: userId,
+        addedBySessionId: caller?.id ?? null,
+        quiet: true,
+      })
+    }
     const messageId = await postSendMessage(
       tx,
       child,
@@ -534,7 +557,7 @@ async function startChild(
   // an agent's tree, never on codex.
   const aside = input.aside === true
   if (aside) {
-    if (parent.kind === `agent` || parent.aside) {
+    if (isPersistent(parent) || parent.aside) {
       throw new TRPCError({ code: `BAD_REQUEST`, message: `Asides run on a thread session only` })
     }
     // A fork needs a run to fork: an ended parent has none, a queued one not
@@ -555,7 +578,7 @@ async function startChild(
     await assertTreeRoom(tx, parent.rootId, parent.depth + 1)
     const [root] = await tx.select().from(sessions).where(eq(sessions.id, parent.rootId)).limit(1)
     if (!root) throw new TRPCError({ code: `NOT_FOUND`, message: `Session not found` })
-    if (aside && root.kind === `agent`) {
+    if (aside && isPersistent(root)) {
       throw new TRPCError({ code: `BAD_REQUEST`, message: `Asides run on a thread session only` })
     }
     const mcpServerIds =
@@ -573,13 +596,28 @@ async function startChild(
       deviceId,
       ...runnerFields(input, parent),
       ...(aside ? { cli: `claude`, aside: true, title: asideTitle(input.text ?? ``) } : {}),
-      ...(!aside && extras.title?.trim() ? { title: extras.title.trim().slice(0, 255) } : {}),
+      // EXP-1341: the parent's `name`, else a suggestion's title; omitted =
+      // the session names itself (session-title.json).
+      ...(!aside && (input.name ?? extras.title)?.trim()
+        ? { title: (input.name ?? extras.title)!.trim().slice(0, 255) }
+        : {}),
       mcpServerIds,
       repositoryId: parent.repositoryId ?? root.repositoryId,
       status: `queued`,
       // One visibility per tree: a child inherits its root's.
       shared: root.shared,
     })
+    if (input.issueIds?.length) {
+      await assertIssuesInTeam(tx, root.teamId, input.issueIds)
+      await assignIssues(tx, {
+        sessionId: child.id,
+        issueIds: input.issueIds,
+        source: caller ? `agent` : `user`,
+        addedBy: userId,
+        addedBySessionId: caller?.id ?? null,
+        quiet: true,
+      })
+    }
     const messageId = await postSendMessage(
       tx,
       child,
@@ -648,14 +686,19 @@ async function startRoot(
   // An agent's spawn runs on the agent's own device unless it names one.
   const callerAgentRoot =
     caller && caller.teamId === teamId
-      ? caller.kind === `agent`
+      ? isPersistent(caller) && caller.parentId === null
         ? caller
         : caller.rootId !== caller.id
           ? (
               await db
                 .select()
                 .from(sessions)
-                .where(and(eq(sessions.id, caller.rootId), eq(sessions.kind, `agent`)))
+                .where(
+                  and(
+                    eq(sessions.id, caller.rootId),
+                    inArray(sessions.kind, [...PERSISTENT_KINDS])
+                  )
+                )
                 .limit(1)
             )[0] ?? null
           : null
@@ -720,6 +763,7 @@ async function startRoot(
         ? Object.fromEntries(actionInputs.map((entry) => [entry.key, entry.value]))
         : null,
       spawnedBySessionId: spawnedBy && caller && caller.teamId === teamId ? spawnedBy : null,
+      ...(input.name ? { title: input.name.slice(0, 255) } : {}),
       ...(agent
         ? {
             name: agent.name,

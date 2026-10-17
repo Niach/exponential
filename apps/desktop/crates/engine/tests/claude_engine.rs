@@ -186,7 +186,7 @@ fn start(scenario: &str, seed: Option<String>) -> Harness {
             account_id: "acct-1".to_string(),
             own_user_id: Some("user-1".to_string()),
             personal_key: Some("expu_test-key".to_string()),
-            agent_root: false,
+            persistent: false,
             foreign_host: false,
             rotation_host: false,
             publish: false,

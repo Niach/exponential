@@ -146,7 +146,9 @@ describe.skipIf(!ready.ok)(`sessions.send — a new root`, () => {
     await expect(loadSessionForUser(w.mate, root.id)).rejects.toMatchObject({ code: `NOT_FOUND` })
     expect(await listSessions(w.mate, { kind: `thread`, limit: 10, offset: 0 })).toEqual([])
     const [listed] = await listSessions(w.owner, { teamId: w.teamId, kind: `thread`, limit: 10, offset: 0 })
-    expect(listed).toMatchObject({ id: root.id, title: `Fix login` })
+    // EXP-1341: the shared chain: no name yet, so its issue names it.
+    expect(listed).toMatchObject({ id: root.id })
+    expect(listed!.title).toMatch(/^#CR-\d+ Fix login$/)
   })
 
   it(`stamps shared from the device and lets a teammate start on the shared box`, async () => {
@@ -373,6 +375,46 @@ describe.skipIf(!ready.ok)(`sessions.send — children, messages, continuation`,
     expect(tree.root.id).toBe(root.sessionId)
     expect(tree.children.map((s) => s.id)).toEqual([child.sessionId, d2.sessionId, d3.sessionId])
     expect(`instructions` in tree.root).toBe(false)
+  })
+
+  it(`EXP-1341: a child takes a name and its ASSIGNED issues; a message forwards one`, async () => {
+    const w = await world()
+    const [a, b, c] = [await w.issue(`Lag`), await w.issue(`Jank`), await w.issue(`Typo`)]
+    const root = await sendSession({
+      userId: w.owner,
+      input: { teamId: w.teamId, deviceId: w.deviceId, issueIds: [a, b], text: `perf`, name: `Perf pass` },
+    })
+    expect(await row(root.sessionId)).toMatchObject({ title: `Perf pass` })
+    const grouped = await sendSession({
+      userId: w.owner,
+      input: { parentId: root.sessionId, text: `Fix both`, issueIds: [a, b] },
+    })
+    const named = await sendSession({
+      userId: w.owner,
+      input: { parentId: root.sessionId, text: `Fix the typo`, issueIds: [c], name: `Copy fixes` },
+    })
+    const links = await db.select().from(sessionIssues).where(eq(sessionIssues.sessionId, root.sessionId))
+    const assigned = Object.fromEntries(links.map((link) => [link.issueId, link.assignedSessionId]))
+    // c was new: linked onto the ROOT, assigned to its child.
+    expect(assigned).toEqual({ [a]: grouped.sessionId, [b]: grouped.sessionId, [c]: named.sessionId })
+
+    const tree = await getSessionTree(w.owner, root.sessionId)
+    expect(tree.root.displayTitle).toBe(`Perf pass`)
+    const titles = Object.fromEntries(tree.children.map((s) => [s.id, s.displayTitle]))
+    expect(titles[grouped.sessionId]).toMatch(/^#CR-\d+ Lag \+ 1$/)
+    expect(titles[named.sessionId]).toBe(`Copy fixes`)
+    // The child's brief lists only its share.
+    const brief = await composeSessionBrief(grouped.sessionId)
+    expect(brief.brief).toContain(`Lag`)
+    expect(brief.brief).not.toContain(`Typo`)
+
+    // Forward: c moves to the grouped child.
+    await sendSession({ userId: w.owner, input: { sessionId: grouped.sessionId, issueIds: [c] } })
+    const [moved] = await db
+      .select()
+      .from(sessionIssues)
+      .where(and(eq(sessionIssues.sessionId, root.sessionId), eq(sessionIssues.issueId, c)))
+    expect(moved!.assignedSessionId).toBe(grouped.sessionId)
   })
 
   it(`a message to a live session lands on it; to an ended thread it continues in a new child`, async () => {

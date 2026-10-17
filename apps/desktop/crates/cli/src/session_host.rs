@@ -258,8 +258,8 @@ pub fn launch(
     let session_agent = acp_session_agent(&prepared);
     // EXP-1292: a team agent's ROOT never ends — its engine idles the row on
     // exit. `prepare` recorded the kind in the run record a moment ago.
-    let agent_root = coding::run_registry::get(&env.ctx.data_dir, &session_id)
-        .is_some_and(|record| record.kind == coding::run_registry::RunKind::Agent);
+    let persistent = coding::run_registry::get(&env.ctx.data_dir, &session_id)
+        .is_some_and(|record| record.kind.is_persistent());
     // EXP-792: the team MCP servers this run starts WITHOUT. The daemon has
     // no toast, so the run's log names them once the engine is up (the
     // desktop shows the same lines as one notification).
@@ -287,7 +287,7 @@ pub fn launch(
         data_dir: env.ctx.data_dir.clone(),
         refresher_hold: Mutex::new(refresher_hold),
         worktree: worktree.clone(),
-        agent_root,
+        persistent,
     });
     let session = engine::start(
         engine::EngineStart {
@@ -298,7 +298,7 @@ pub fn launch(
             account_id: env.ctx.account.id.clone(),
             own_user_id: Some(env.ctx.account.user_id.clone()),
             personal_key: env.personal_key.clone(),
-            agent_root,
+            persistent,
             foreign_host,
             rotation_host: env.rotation_host,
             // A runtime-less host never gets here, so the room is always on.
@@ -352,7 +352,7 @@ struct CliEngineHost {
     worktree: PathBuf,
     /// EXP-1292: a team agent's root — its last write is an idle report,
     /// which never passes the end observer (nor does a suspended run's).
-    agent_root: bool,
+    persistent: bool,
 }
 
 impl engine::EngineHost for CliEngineHost {
@@ -373,7 +373,7 @@ impl engine::EngineHost for CliEngineHost {
             // EXP-1292: an agent root's (or a suspended run's) idle report
             // is its "end" here — the observer only sees
             // `coding::end_session`, so apply it now.
-            Some(result) if self.agent_root || exit.outcome == engine::SUSPEND_OUTCOME => {
+            Some(result) if self.persistent || exit.outcome == engine::SUSPEND_OUTCOME => {
                 registry::apply_end_outcome(&self.data_dir, &exit.session_id, result)
             }
             // EXP-1292: a thread's END that never resolved is the one report

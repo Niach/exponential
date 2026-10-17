@@ -137,7 +137,11 @@ class ThreadViewModel @Inject constructor(
         }
     }
 
-    private val linksFlow = dbFlow.scopedQuery(emptyList()) { it.sessionIssueDao().observeByRoot(rootId) }
+    /** EXP-1341: EVERY link + message, so a card naming another tree (an
+     *  agent channel's `thread_started`) resolves its shared title too;
+     *  [SessionTree.buildSessionThread] scopes both to this tree itself. */
+    private val linksFlow = dbFlow.scopedQuery(emptyList()) { it.sessionIssueDao().observeAll() }
+    private val titleMessages = dbFlow.scopedQuery(emptyList<MessageEntity>()) { it.messageDao().observeAll() }
 
     /** Every synced session: the tree, plus the roots an agent channel's
      *  `thread_started` cards point at (another tree each). */
@@ -169,7 +173,7 @@ class ThreadViewModel @Inject constructor(
     val view: StateFlow<SessionTree.ThreadView?> = combine(
         combine(root, allSessions) { r, t -> r to t },
         combine(linksFlow, allIssues, issueParents) { l, i, p -> l to i.map { SessionTree.issue(it, p[it.id]) } },
-        messages,
+        titleMessages,
         pullRequests,
         clock,
     ) { (rootRow, treeRows), (links, issueRows), messageRows, prs, now ->

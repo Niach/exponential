@@ -10,6 +10,7 @@ import {
   sessionIssueCollection,
   sessionReadsCollection,
 } from "@/lib/collections"
+import { sessionTitles } from "@exp/domain-contract/session-title"
 import { useNow } from "@/hooks/use-now"
 import { teamScopeIds } from "@/lib/team-scope"
 import {
@@ -78,32 +79,38 @@ export function titleShapesReady(input: {
   )
 }
 
-/** EXP-1316: the roots whose title could still flip while the title shapes
- *  load — only those are held. A thread named by its agent or its action
- *  never flips; one with a linked issue waits for the links and the issues;
- *  while the links are not in yet any other thread may still gain one; a
- *  thread with no link and no stored title waits for its first message. */
+/** EXP-1316 / EXP-1341: the sessions whose title (`sessionTitle`) could
+ *  still flip while the title shapes load: only those are held. A name or
+ *  a stored title never flips; otherwise the links decide whether the
+ *  session has OWN issues (a root's links, a child's assigned ones), which
+ *  then wait for the issues; with none, an action names it; with no
+ *  action it waits for its first prompt (the messages). */
 export function unsettledTitleRoots(input: {
-  sessions: readonly Pick<TreeSession, `id` | `parentId` | `kind` | `actionName` | `title`>[]
-  sessionIssues: readonly Pick<TreeSessionIssue, `sessionId`>[]
+  sessions: readonly Pick<TreeSession, `id` | `rootId` | `name` | `actionName` | `title`>[]
+  sessionIssues: readonly Pick<TreeSessionIssue, `sessionId` | `assignedSessionId`>[]
   linksReady: boolean
   issuesReady: boolean
   messagesReady: boolean
 }): Set<string> {
-  const linked = new Set(input.sessionIssues.map((link) => link.sessionId))
+  const rootLinked = new Set(input.sessionIssues.map((link) => link.sessionId))
+  const assigned = new Set(
+    input.sessionIssues.flatMap((link) => (link.assignedSessionId ? [link.assignedSessionId] : []))
+  )
   const held = new Set<string>()
   for (const session of input.sessions) {
-    if (session.parentId !== null) continue
-    if (session.kind === `agent` || session.actionName) continue
-    if (linked.has(session.id)) {
-      if (!input.linksReady || !input.issuesReady) held.add(session.id)
-      continue
-    }
+    if (session.name?.trim() || session.title?.trim()) continue
     if (!input.linksReady) {
       held.add(session.id)
       continue
     }
-    if (!session.title && !input.messagesReady) held.add(session.id)
+    const ownIssues =
+      session.id === session.rootId ? rootLinked.has(session.id) : assigned.has(session.id)
+    if (ownIssues) {
+      if (!input.issuesReady) held.add(session.id)
+      continue
+    }
+    if (session.actionName?.trim()) continue
+    if (!input.messagesReady) held.add(session.id)
   }
   return held
 }
@@ -121,7 +128,7 @@ export function holdTitles(
   }))
 }
 
-/** The issue + message context `threadTitle` needs for a set of roots. */
+/** The issue + message context `sessionTitle` needs for a team's sessions. */
 function useTitleContext(teamIds: readonly string[]) {
   const key = teamIds.join(`,`)
   const { data: links, isReady: linksReady } = useLiveQuery(
@@ -384,6 +391,8 @@ export function useSessionThread(
   isReady: boolean
   /** EXP-1316: the issue shapes reported ready (the title cannot flip). */
   titleReady: boolean
+  /** EXP-1341: every tree session's `sessionTitle`, off the SAME inputs. */
+  titles: Map<string, string>
 } {
   const { rows, tree, isReady } = useTreeSessions(rootId)
   const root = rows.find((row) => row.id === rootId) ?? null
@@ -451,6 +460,16 @@ export function useSessionThread(
     messagesReady,
   })
   const pullRequests = useRootPullRequests(rootId)
+  const titles = useMemo(
+    () =>
+      sessionTitles(
+        tree,
+        ((links ?? []) as SessionIssueRow[]).map(toTreeSessionIssue),
+        foldedIssues,
+        ((messages ?? []) as MessageRow[]).map(toTreeMessage)
+      ),
+    [tree, links, foldedIssues, messages]
+  )
   const now = useNow(1_000)
   const view = useMemo(() => {
     if (!root) return null
@@ -464,7 +483,7 @@ export function useSessionThread(
       now: now.toISOString(),
     }, { focus })
   }, [root, tree, links, foldedIssues, messages, pullRequests, now, focus])
-  return { view, root, rows, pullRequests, isReady, titleReady }
+  return { view, root, rows, pullRequests, isReady, titleReady, titles }
 }
 
 /** The linked issues with their fold parents (`linkedIssueParents`), the
@@ -508,17 +527,89 @@ export function useSessionMessages(sessionId: string | null | undefined): Messag
   )
 }
 
-/** THE session card for any session row (ordinal = its tree position). */
-export function useSessionCard(
-  row: SessionRow | null,
-  tree: readonly TreeSession[]
-): SessionCard | null {
+/** EXP-1341: THE display title (`sessionTitles`, fixture
+ *  `session-title.json`) of any set of session rows: their roots' issue
+ *  links, the linked issues, and the rows' own messages, read in three live
+ *  queries for the whole set. `held` = the rows whose title could still
+ *  flip (`unsettledTitleRoots`); `titles` omits them, `ready` = none held. */
+export function useSessionTitles(rows: readonly SessionRow[]): {
+  titles: Map<string, string>
+  held: Set<string>
+  ready: boolean
+} {
+  const ids = [...new Set(rows.map((row) => row.id))].sort()
+  const rootIds = [...new Set(rows.map((row) => row.rootId ?? row.id))].sort()
+  const key = ids.join(`,`)
+  const rootKey = rootIds.join(`,`)
+  const { data: links, isReady: linksReady } = useLiveQuery(
+    (query) =>
+      rootIds.length > 0
+        ? query
+            .from({ links: sessionIssueCollection })
+            .where(({ links }) => inArray(links.sessionId, rootIds))
+        : undefined,
+    [rootKey]
+  )
+  const issueIds = [
+    ...new Set(((links ?? []) as SessionIssueRow[]).map((link) => link.issueId)),
+  ].sort()
+  const issueKey = issueIds.join(`,`)
+  const { data: issues, isReady: issuesReady } = useLiveQuery(
+    (query) =>
+      issueIds.length > 0
+        ? query
+            .from({ issues: issueCollection })
+            .where(({ issues }) => inArray(issues.id, issueIds))
+            .select(({ issues }) => ({
+              id: issues.id,
+              identifier: issues.identifier,
+              title: issues.title,
+            }))
+        : undefined,
+    [issueKey]
+  )
+  const { data: messages, isReady: messagesReady } = useLiveQuery(
+    (query) =>
+      ids.length > 0
+        ? query
+            .from({ messages: messageCollection })
+            .where(({ messages }) => inArray(messages.sessionId, ids))
+        : undefined,
+    [key]
+  )
+  return useMemo(() => {
+    const sessions = rows.map(toTreeSession)
+    const sessionIssues = ((links ?? []) as SessionIssueRow[]).map(toTreeSessionIssue)
+    const held = unsettledTitleRoots({
+      sessions,
+      sessionIssues,
+      linksReady: rootIds.length > 0 && linksReady,
+      issuesReady,
+      messagesReady: ids.length > 0 && messagesReady,
+    })
+    const titles = sessionTitles(
+      sessions.filter((session) => !held.has(session.id)),
+      sessionIssues,
+      ((issues ?? []) as TreeIssue[]).map(toTreeIssue),
+      ((messages ?? []) as MessageRow[]).map(toTreeMessage)
+    )
+    return { titles, held, ready: held.size === 0 }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows, links, issues, messages, linksReady, issuesReady, messagesReady])
+}
+
+/** THE session card for any session row (`sessionCard` over its
+ *  `sessionTitle`); null while the row is absent or its title is held. */
+export function useSessionCard(row: SessionRow | null): SessionCard | null {
   const now = useNow(1_000)
+  const rows = useMemo(() => (row ? [row] : []), [row])
+  const { titles } = useSessionTitles(rows)
   return useMemo(() => {
     if (!row) return null
-    const index = tree.findIndex((session) => session.id === row.id)
-    return sessionCard(toTreeSession(row), index >= 0 ? index + 1 : 1, now.toISOString())
-  }, [row, tree, now])
+    const title = titles.get(row.id)
+    if (title === undefined) return null
+    return sessionCard(toTreeSession(row), title, now.toISOString())
+  }, [row, titles, now])
 }
 
 /** The threads (roots) one issue sits in, newest activity first. */

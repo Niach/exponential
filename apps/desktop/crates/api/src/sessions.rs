@@ -47,6 +47,9 @@ pub struct AgentInput {
 /// `session_id` + text/attachments/`account` — an `account` on a message is
 /// an account SWITCH, EXP-849, and may ride alone — a child `parent_id` + `device_id`, a new
 /// root `team_id` + `device_id` + text/issues/action, a new agent `agent`).
+/// EXP-1341: `issue_ids` also ride a child (`parent_id`: linked to the root
+/// and ASSIGNED to the child) and a message (`session_id`: forwarded), and
+/// `name` names a new root or child — no client-side refusal of either.
 #[derive(Clone, Debug, Default, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SendInput {
@@ -87,6 +90,10 @@ pub struct SendInput {
     pub inputs: Option<BTreeMap<String, String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub repository_id: Option<String>,
+    /// EXP-1341: an explicit name for a new root or child (its stored
+    /// title; `domain::session_title`'s first rung).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub agent: Option<AgentInput>,
     /// EXP-1323: a `/btw` aside child (with `parent_id`; `text` = the
@@ -473,6 +480,25 @@ mod tests {
         let request = request(&captured);
         assert!(request.starts_with("POST /api/trpc/sessions.send HTTP/1.1"), "{request}");
         assert!(request.ends_with(r#"{"sessionId":"s-1","text":"Ship it"}"#), "{request}");
+    }
+
+    /// EXP-1341: a named child carrying its assigned issues goes out as is.
+    #[test]
+    fn a_named_child_with_issues_serializes() {
+        let input = SendInput {
+            issue_ids: Some(vec!["i-1".into(), "i-2".into()]),
+            name: Some("Port the strip".into()),
+            ..SendInput::child("p-1", "dev-1", "Do it")
+        };
+        assert_eq!(
+            serde_json::to_string(&input).unwrap(),
+            r#"{"parentId":"p-1","deviceId":"dev-1","text":"Do it","issueIds":["i-1","i-2"],"name":"Port the strip"}"#
+        );
+        let forward = SendInput {
+            issue_ids: Some(vec!["i-3".into()]),
+            ..SendInput::message("s-1", "", Vec::new())
+        };
+        assert_eq!(serde_json::to_string(&forward).unwrap(), r#"{"sessionId":"s-1","issueIds":["i-3"]}"#);
     }
 
     #[test]

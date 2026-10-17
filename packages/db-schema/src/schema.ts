@@ -1870,6 +1870,12 @@ export const sessionIssues = pgTable(
       (): AnyPgColumn => sessions.id,
       { onDelete: `set null` }
     ),
+    // EXP-1341: the tree session working on it (the dispatcher's grouping;
+    // NULL = the root's own). Names that child, scopes its brief + PR share.
+    assignedSessionId: uuid(`assigned_session_id`).references(
+      (): AnyPgColumn => sessions.id,
+      { onDelete: `set null` }
+    ),
     sortOrder: doublePrecision(`sort_order`).notNull().default(0),
     ...timestamps,
   },
@@ -1879,6 +1885,7 @@ export const sessionIssues = pgTable(
     index(`idx_session_issues_team`).on(table.teamId),
     index(`idx_session_issues_board`).on(table.boardId),
     index(`idx_session_issues_added_by_session`).on(table.addedBySessionId),
+    index(`idx_session_issues_assigned_session`).on(table.assignedSessionId),
   ]
 )
 

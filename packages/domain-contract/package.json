@@ -21,6 +21,8 @@
     "./home-greeting": "./src/home-greeting.ts",
     "./feedback-mark": "./src/feedback-mark.ts",
     "./session-tree": "./src/session-tree.ts",
+    "./session-title": "./src/session-title.ts",
+    "./session-kind": "./src/session-kind.ts",
     "./guide-viewer": "./src/guide-viewer.ts",
     "./agent-settings": "./src/agent-settings.ts",
     "./session-brief": "./src/session-brief.ts",

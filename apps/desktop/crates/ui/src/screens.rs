@@ -720,7 +720,7 @@ fn state_lead_of(state: domain::session_tree::SessionState, cx: &App) -> ChipLea
 }
 
 /// EXP-1294 — a thread tab's chip: the root's live state mark and the
-/// thread's title (`domain::session_tree::thread_title`).
+/// thread's title (`domain::session_title`, EXP-1341).
 fn thread_chip_content(root_id: &str, cx: &App) -> ChipContent {
     let Some(root) = crate::session_data::session(root_id, cx) else {
         return loading_chip(cx);
@@ -740,23 +740,18 @@ fn thread_chip_content(root_id: &str, cx: &App) -> ChipContent {
 }
 
 /// EXP-1294 — a session chip (the tab of its thread, showing the session):
-/// the root's state mark and the thread's title. EXP-1316: a THREAD's
-/// session reads the plain thread title (the title names the issue
-/// already); an agent's keeps the identifier slot.
+/// the root's state mark and EXP-1341: the session's own title
+/// (`domain::session_title`; it names the session's issues already).
 fn session_chip_content(session_id: &str, cx: &App) -> ChipContent {
     let Some(root) = crate::session_data::root_of(session_id, cx) else {
         return loading_chip(cx);
     };
-    let identifier = (!root.is_thread())
-        .then(|| crate::session_data::first_issue_identifier(&root.id, cx))
-        .flatten()
-        .map(gpui::SharedString::from);
     ChipContent {
         lead: state_lead(&root, cx),
-        identifier,
+        identifier: None,
         title: Some(screen_title(
-            &Screen::Thread {
-                session_id: root.id.clone(),
+            &Screen::Session {
+                session_id: session_id.to_string(),
             },
             cx,
         )),

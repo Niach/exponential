@@ -96,7 +96,7 @@ pub fn bound_agent_triggers<'a>(
 ) -> Vec<ArmedTrigger> {
     let mut bound = Vec::new();
     for row in rows {
-        if !row.is_agent()
+        if !row.has_triggers()
             || !row.is_root()
             || !row.on_device(device_id)
             || row.status_is(SESSION_STATUS_ENDED)

@@ -5,9 +5,10 @@ import { extractIssueRefs } from "@/lib/issue-refs"
 
 // EXP-1334: the issues a PR closes when `pr_open` names none. A thread's
 // issues sit on its ROOT, but the PR belongs to ONE session of the tree, so
-// it closes only that session's share: the links its subtree added
-// (`added_by_session_id`) plus the root issues its start message names as
-// `#IDENT`. The root's own PR takes the whole thread; a work session finding
+// it closes only that session's share: the links ASSIGNED to its subtree
+// (EXP-1341 `assigned_session_id`, the dispatcher's grouping), the links its
+// subtree added (`added_by_session_id`) plus the root issues its start
+// message names as `#IDENT`. The root's own PR takes the whole thread; a work session finding
 // no share takes the root issues no OTHER work session's subtree linked (the
 // thread's start issues, the dispatcher's own links), so the one session
 // doing the work keeps them when a review or fix-up child sits beside it.
@@ -38,7 +39,12 @@ export function subtreeOf(
 export function pickPrIssues(opts: {
   rootId: string
   sessionId: string | null
-  links: ReadonlyArray<{ issueId: string; identifier: string; addedBySessionId: string | null }>
+  links: ReadonlyArray<{
+    issueId: string
+    identifier: string
+    addedBySessionId: string | null
+    assignedSessionId?: string | null
+  }>
   tree: ReadonlyArray<{ id: string; parentId: string | null; dispatch: boolean; aside: boolean }>
   startText: string | null
 }): string[] {
@@ -49,6 +55,7 @@ export function pickPrIssues(opts: {
   const share = opts.links
     .filter(
       (link) =>
+        (link.assignedSessionId && subtree.has(link.assignedSessionId)) ||
         (link.addedBySessionId && subtree.has(link.addedBySessionId)) ||
         named.has(link.identifier.toUpperCase())
     )
@@ -68,7 +75,11 @@ export function pickPrIssues(opts: {
     for (const id of subtreeOf(opts.tree, worker.id)) owned.add(id)
   }
   return opts.links
-    .filter((link) => !link.addedBySessionId || !owned.has(link.addedBySessionId))
+    .filter(
+      (link) =>
+        (!link.addedBySessionId || !owned.has(link.addedBySessionId)) &&
+        (!link.assignedSessionId || !owned.has(link.assignedSessionId))
+    )
     .map((link) => link.issueId)
 }
 
@@ -82,6 +93,7 @@ export async function prDefaultIssueIds(
       issueId: sessionIssues.issueId,
       identifier: issues.identifier,
       addedBySessionId: sessionIssues.addedBySessionId,
+      assignedSessionId: sessionIssues.assignedSessionId,
     })
     .from(sessionIssues)
     .innerJoin(issues, eq(issues.id, sessionIssues.issueId))

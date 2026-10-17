@@ -1,11 +1,14 @@
 import { TRPCError } from "@trpc/server"
 import { and, asc, eq } from "drizzle-orm"
 import { composeBrief, type BriefInput } from "@exp/domain-contract/session-brief"
-import { threadTitle } from "@exp/domain-contract/session-tree"
+import { isPersistent } from "@exp/domain-contract/session-kind"
 import { db } from "@/db/connection"
 import { actions, issues, messages, sessionIssues, sessions, teams, type Session } from "@/db/schema"
 import { resolveActionInputs } from "@/lib/action-inputs"
 import { actionInputLookups } from "@/lib/sessions/action-lookups"
+import { deriveSessionTitle } from "@/lib/sessions/title"
+
+export { deriveSessionTitle }
 
 // EXP-1291: the server-composed FIRST prompt of a new session
 // (`sessions.brief`, fixture-locked by packages/domain-contract
@@ -23,36 +26,30 @@ async function firstPersonMessage(sessionId: string): Promise<string | null> {
   return row?.body ?? null
 }
 
-async function rootIssues(rootId: string) {
+async function sessionIssueRows(session: Pick<Session, `id` | `rootId`>) {
+  // EXP-1341: a child's Issues = the ones ASSIGNED to it, else the root's.
+  const fields = { identifier: issues.identifier, title: issues.title }
+  const order = [asc(sessionIssues.sortOrder), asc(sessionIssues.createdAt)] as const
+  if (session.rootId !== session.id) {
+    const assigned = await db
+      .select(fields)
+      .from(sessionIssues)
+      .innerJoin(issues, eq(issues.id, sessionIssues.issueId))
+      .where(
+        and(
+          eq(sessionIssues.sessionId, session.rootId),
+          eq(sessionIssues.assignedSessionId, session.id)
+        )
+      )
+      .orderBy(...order)
+    if (assigned.length > 0) return assigned
+  }
   return db
-    .select({ identifier: issues.identifier, title: issues.title })
+    .select(fields)
     .from(sessionIssues)
     .innerJoin(issues, eq(issues.id, sessionIssues.issueId))
-    .where(eq(sessionIssues.sessionId, rootId))
-    .orderBy(asc(sessionIssues.sortOrder), asc(sessionIssues.createdAt))
-}
-
-/** A session's display title, the ONE derivation the server uses = the
- *  contract's `threadTitle` (EXP-1316): agent name · `Run <action>` ·
- *  `Implement <IDENT>[ + n]` (roots only) · the stored auto-name · the first
- *  person message's first line · `Untitled`. */
-export async function deriveSessionTitle(
-  session: Pick<Session, `id` | `rootId` | `title` | `actionName` | `name`> & {
-    kind?: string | null
-  }
-): Promise<string> {
-  const quick = threadTitle(session, [], [])
-  if (session.kind === `agent` && session.name?.trim()) return quick
-  if (session.actionName?.trim()) return quick
-  const issues = session.rootId === session.id ? await rootIssues(session.id) : []
-  const body = issues.length > 0 || session.title?.trim() ? null : await firstPersonMessage(session.id)
-  return threadTitle(
-    session,
-    issues,
-    body === null
-      ? []
-      : [{ sessionId: session.id, authorKind: `user`, body, createdAt: new Date(0).toISOString() }]
-  )
+    .where(eq(sessionIssues.sessionId, session.rootId))
+    .orderBy(...order)
 }
 
 export async function composeSessionBrief(sessionId: string): Promise<{
@@ -103,13 +100,13 @@ export async function composeSessionBrief(sessionId: string): Promise<{
     }
   }
 
-  input.issues = await rootIssues(root.id)
+  input.issues = await sessionIssueRows(session)
   // A thread's dispatcher started on work by construction hands it off at
   // once instead of judging it: plan mode, linked issues or an action. An
   // ended dispatcher's continuation (a child row that dispatches on) too.
   input.handOff =
     session.dispatch &&
-    session.kind === `thread` &&
+    !isPersistent(session) &&
     Boolean(session.workLaunch?.planMode || input.issues.length > 0 || input.action)
 
   let parentBranch: string | null = null
@@ -133,7 +130,7 @@ export async function composeSessionBrief(sessionId: string): Promise<{
   return {
     brief: composeBrief(input),
     teamPrompt: team?.agentPrompt?.trim() || null,
-    agentInstructions: root.kind === `agent` ? root.instructions?.trim() || null : null,
+    agentInstructions: root.instructions?.trim() || null,
     parentBranch,
   }
 }

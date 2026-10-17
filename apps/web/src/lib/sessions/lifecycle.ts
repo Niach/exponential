@@ -1,5 +1,6 @@
 import { TRPCError } from "@trpc/server"
-import { and, desc, eq, inArray, isNull, ne, sql } from "drizzle-orm"
+import { and, desc, eq, inArray, isNull, ne, notInArray, sql } from "drizzle-orm"
+import { PERSISTENT_KINDS, TRIGGER_KINDS, isPersistent } from "@exp/domain-contract/session-kind"
 import { db } from "@/db/connection"
 import { messages, sessions, type Session } from "@/db/schema"
 import { generateTxId } from "@/lib/trpc"
@@ -48,7 +49,8 @@ async function liveSubtreeIds(tx: Tx, session: Session): Promise<string[]> {
   return (result.rows as Array<{ id: string }>).map((row) => row.id)
 }
 
-/** Flips rows to ended (never agents). Returns the ids it ended. */
+/** Flips rows to ended (never a persistent one: EXP-1341 session-kind.json).
+ *  Returns the ids it ended. */
 export async function markEnded(tx: Tx, ids: string[]): Promise<string[]> {
   if (ids.length === 0) return []
   const now = new Date()
@@ -56,7 +58,11 @@ export async function markEnded(tx: Tx, ids: string[]): Promise<string[]> {
     .update(sessions)
     .set({ status: `ended`, endedAt: now, busy: false, needsInput: false, updatedAt: now })
     .where(
-      and(inArray(sessions.id, ids), ne(sessions.status, `ended`), eq(sessions.kind, `thread`))
+      and(
+        inArray(sessions.id, ids),
+        ne(sessions.status, `ended`),
+        notInArray(sessions.kind, [...PERSISTENT_KINDS])
+      )
     )
     .returning({ id: sessions.id })
   return ended.map((row) => row.id)
@@ -130,7 +136,7 @@ export async function stopSession(args: {
   await assertCanSteer(args.userId, session)
   const txid = await db.transaction(async (tx) => {
     const txid = await generateTxId(tx)
-    if (session.status === `queued` && session.kind === `thread`) {
+    if (session.status === `queued` && !isPersistent(session)) {
       const ended = await markEnded(tx, [session.id])
       if (ended.length) {
         await postSystemCard(tx, session, {
@@ -160,7 +166,7 @@ export async function endSession(args: {
 }): Promise<{ txid: number; endedIds: string[] }> {
   const session = await loadSessionForUser(args.userId, args.sessionId)
   await assertCanSteer(args.userId, session)
-  if (session.kind === `agent`) {
+  if (isPersistent(session)) {
     throw new TRPCError({
       code: `BAD_REQUEST`,
       message: `An agent never ends; delete it in Settings → Agents`,
@@ -208,7 +214,7 @@ export async function endForeignHostedSessions(
           ne(sessions.userId, hostUserId),
           eq(sessions.teamId, teamId),
           ne(sessions.status, `ended`),
-          eq(sessions.kind, `thread`),
+          notInArray(sessions.kind, [...PERSISTENT_KINDS]),
           ...(deviceId ? [eq(sessions.deviceId, deviceId)] : [])
         )
       )
@@ -242,7 +248,8 @@ export async function pauseDeviceAgents(
     })
     .where(
       and(
-        eq(sessions.kind, `agent`),
+        inArray(sessions.kind, [...TRIGGER_KINDS]),
+        isNull(sessions.parentId),
         eq(sessions.deviceId, deviceId),
         inArray(sessions.teamId, teamIds)
       )

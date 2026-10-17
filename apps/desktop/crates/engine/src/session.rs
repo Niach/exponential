@@ -44,10 +44,10 @@ pub struct EngineStart {
     /// The `expu_` personal key: the redactor's exact-match secret (REV2-17)
     /// AND the codex MCP bearer that rides the spawn env.
     pub personal_key: Option<String>,
-    /// EXP-1292: the session is a team agent's ROOT. Agents never end: the
-    /// run's end idles the row (`sessions.report{status: idle}`) where a
-    /// thread session's ends it.
-    pub agent_root: bool,
+    /// EXP-1292/1341: the session is PERSISTENT (`domain::session_kind`, a
+    /// team agent's root). It never ends: the run's end idles the row
+    /// (`sessions.report{status: idle}`) where a thread session's ends it.
+    pub persistent: bool,
     /// EXP-444: a foreign requester on a shared host — suppresses login
     /// affordances.
     pub foreign_host: bool,
@@ -203,7 +203,7 @@ impl EngineSession {
             account_id: String::new(),
             own_user_id: None,
             personal_key,
-            agent_root: false,
+            persistent: false,
             seed_message_id: None,
             foreign_host: false,
             rotation_host: false,
@@ -525,7 +525,7 @@ where
         account_id,
         own_user_id,
         personal_key,
-        agent_root,
+        persistent,
         foreign_host,
         rotation_host,
         publish,
@@ -550,7 +550,7 @@ where
         account_id,
         own_user_id,
         personal_key,
-        agent_root,
+        persistent,
         seed_message_id: prepared.seed_message_id.clone(),
         foreign_host,
         rotation_host,
@@ -594,13 +594,13 @@ fn names_conversation(data_dir: &Path, prepared: &coding::PreparedLaunch) -> boo
             .is_some_and(|record| record_wants_name(&record))
 }
 
+/// EXP-1341: every session whose stored title is blank asks its agent CLI
+/// to name the conversation (children, issue and action threads included);
+/// the CLI's title is reported through `sessions.report`, which fills only a
+/// blank title. A persistent kind with a name never asks: its record's
+/// title IS that name (`launcher`: the stored title, else the agent's name).
 fn record_wants_name(record: &coding::run_registry::RunRecord) -> bool {
-    record.kind == coding::run_registry::RunKind::Thread
-        && record.issues.is_empty()
-        && record
-            .title
-            .as_deref()
-            .is_none_or(|title| title.trim().is_empty())
+    record.title.as_deref().is_none_or(|title| title.trim().is_empty())
 }
 
 // EXP-1334: the ACP mode ids both adapters steer (`available_modes`): the
@@ -710,7 +710,7 @@ struct CtxSpec {
     account_id: String,
     own_user_id: Option<String>,
     personal_key: Option<String>,
-    agent_root: bool,
+    persistent: bool,
     seed_message_id: Option<String>,
     foreign_host: bool,
     rotation_host: bool,
@@ -785,7 +785,7 @@ fn build_ctx(spec: CtxSpec) -> Arc<SessionCtx> {
         data_dir: spec.data_dir,
         account_id: spec.account_id,
         own_user_id: spec.own_user_id,
-        agent_root: spec.agent_root,
+        persistent: spec.persistent,
         seed_message_id: spec.seed_message_id,
         outbox: OnceLock::new(),
         message_ids: Mutex::new(std::collections::HashSet::new()),
@@ -1099,9 +1099,10 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// EXP-1134/EXP-1292: only a bare thread asks its agent for a name.
+    /// EXP-1134/1292/1341: any session with a blank stored title asks its
+    /// agent for a name (issues and kind aside); a named one never does.
     #[test]
-    fn only_a_thread_with_no_issue_and_no_title_is_named_by_its_agent() {
+    fn every_untitled_session_is_named_by_its_agent() {
         let record = |kind: &str, issues: serde_json::Value, title: serde_json::Value| {
             let record: coding::run_registry::RunRecord = serde_json::from_value(serde_json::json!({
                 "sessionId": "sess-1",
@@ -1119,9 +1120,10 @@ mod tests {
         let none = serde_json::Value::Null;
         assert!(record_wants_name(&record("thread", serde_json::json!([]), none.clone())));
         assert!(record_wants_name(&record("thread", serde_json::json!([]), serde_json::json!(" "))));
-        assert!(!record_wants_name(&record("thread", serde_json::json!(["EXP-1"]), none.clone())));
+        assert!(record_wants_name(&record("thread", serde_json::json!(["EXP-1"]), none.clone())));
         assert!(!record_wants_name(&record("thread", serde_json::json!([]), serde_json::json!("Named"))));
-        assert!(!record_wants_name(&record("agent", serde_json::json!([]), none)));
+        assert!(!record_wants_name(&record("agent", serde_json::json!([]), serde_json::json!("Triage"))));
+        assert!(record_wants_name(&record("agent", serde_json::json!([]), none)));
     }
 
     #[test]

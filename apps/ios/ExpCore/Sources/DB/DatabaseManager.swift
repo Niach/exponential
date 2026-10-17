@@ -2542,6 +2542,26 @@ public final class DatabaseManager: @unchecked Sendable {
             }
         }
 
+        // v71 (EXP-1341): `session_issues.assigned_session_id` — the tree
+        // session working on a link (names a child by its issues). A guarded
+        // additive ALTER; the cursor resets only when the column was added,
+        // so already-synced links re-arrive carrying it.
+        migrator.registerMigration("v71_session_issue_assignee") { db in
+            guard try db.tableExists("session_issues") else { return }
+            let existing = Set(try db.columns(in: "session_issues").map(\.name))
+            guard !existing.contains("assigned_session_id") else { return }
+            try db.alter(table: "session_issues") { t in
+                t.add(column: "assigned_session_id", .text)
+            }
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: """
+                    UPDATE "electric_offsets"
+                    SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                    WHERE "shape" = 'session-issues'
+                    """)
+            }
+        }
+
         return migrator
     }
 

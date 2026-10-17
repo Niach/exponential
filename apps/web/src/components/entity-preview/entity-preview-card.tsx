@@ -47,7 +47,7 @@ import { IssuePreviewCard } from "@/components/issue-preview-card"
 import { IssueChip } from "@/components/issue-chip"
 import { StatusIcon, statusColorClass } from "@/components/issue-properties/status-dropdown"
 import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
-import { useSessionCard, useTreeSessions } from "@/hooks/use-session-tree"
+import { useSessionCard } from "@/hooks/use-session-tree"
 import type { SessionRow, SessionState } from "@/lib/session-tree"
 import { useNow } from "@/hooks/use-now"
 import type { StatusRowOption } from "@/lib/team-statuses"
@@ -279,8 +279,7 @@ const SESSION_TONE: Record<SessionState, LiveDotTone> = {
 }
 
 function SessionPreviewCard({ session }: { session: SessionRow }) {
-  const { tree } = useTreeSessions(session.rootId ?? session.id)
-  const card = useSessionCard(session, tree)
+  const card = useSessionCard(session)
   if (!card) return null
   return (
     <EntityPreviewCard

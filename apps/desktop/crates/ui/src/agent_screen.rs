@@ -40,15 +40,16 @@ pub(crate) fn message_placeholder(name: &str) -> String {
     format!("Message {name}")
 }
 
-/// The agent's display name: its `name`, else the session copy.
+/// The agent's display name: its `name`, else EXP-1341's title ladder
+/// (`domain::session_title`; `Untitled` with nothing to go on).
 pub(crate) fn agent_name(agent: &SessionRow) -> String {
-    agent
-        .name
-        .as_deref()
-        .map(str::trim)
-        .filter(|name| !name.is_empty())
-        .map(str::to_string)
-        .unwrap_or_else(|| domain::session_tree::SESSION_CARD.copy.session.clone())
+    domain::session_title::title_from_parts(
+        agent.name.as_deref(),
+        agent.title.as_deref(),
+        &[],
+        agent.action_name.as_deref(),
+        None,
+    )
 }
 
 pub struct AgentScreenView {
@@ -317,6 +318,6 @@ mod tests {
         let agent: SessionRow = serde_json::from_value(serde_json::json!({"id": "a", "name": " Triage "})).unwrap();
         assert_eq!(agent_name(&agent), "Triage");
         let unnamed: SessionRow = serde_json::from_value(serde_json::json!({"id": "a"})).unwrap();
-        assert_eq!(agent_name(&unnamed), domain::session_tree::SESSION_CARD.copy.session);
+        assert_eq!(agent_name(&unnamed), domain::session_title::copy::UNTITLED);
     }
 }

@@ -399,12 +399,14 @@ fn foreground_pass(
     deps.live.settle_handed(&messages);
     let views = deps.live.live_views();
     let in_flight = std::collections::HashSet::new();
+    let revive_held = deps.live.revive_held();
     let actions = coding::pickup::plan(coding::pickup::PickupInput {
         device_id: &deps.device_id,
         sessions: &rows,
         messages: &messages,
         live: &views,
         in_flight: &in_flight,
+        revive_held: &revive_held,
     });
     for action in actions {
         let ours = match &action {
@@ -412,7 +414,11 @@ fn foreground_pass(
             | PickupAction::Revoke { session_id: id, .. }
             | PickupAction::Answer { session_id: id, .. }
             | PickupAction::Kill { session_id: id } => id == session_id,
-            PickupAction::Launch { .. } | PickupAction::Resume { .. } => false,
+            // EXP-1341: a revive is the daemon's (or the desktop's) work —
+            // this process runs ONE engine.
+            PickupAction::Launch { .. }
+            | PickupAction::Resume { .. }
+            | PickupAction::Revive { .. } => false,
             // EXP-849: this process runs ONE engine and exits with it, so it
             // never relaunches on another login: the person hears so ONCE
             // per pick, the pick stays UNhonored (the first wake after this

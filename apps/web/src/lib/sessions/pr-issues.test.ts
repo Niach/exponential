@@ -90,6 +90,28 @@ describe(`pickPrIssues`, () => {
   })
 })
 
+describe(`pickPrIssues: EXP-1341 assignment`, () => {
+  const assigned = (issueId: string, identifier: string, to: string) => ({
+    ...link(issueId, identifier),
+    assignedSessionId: to,
+  })
+  const grouped = [assigned(`i-1`, `EXP-1`, `a`), assigned(`i-2`, `EXP-2`, `a`), assigned(`i-3`, `EXP-3`, `b`)]
+
+  it(`a child takes the issues the dispatcher assigned to its subtree`, () => {
+    expect(pickPrIssues({ rootId: `root`, sessionId: `a`, links: grouped, tree, startText: `go` })).toEqual([
+      `i-1`,
+      `i-2`,
+    ])
+    expect(pickPrIssues({ rootId: `root`, sessionId: `a1`, links: grouped, tree, startText: `` })).toEqual([])
+    expect(pickPrIssues({ rootId: `root`, sessionId: `b`, links: grouped, tree, startText: `` })).toEqual([`i-3`])
+  })
+
+  it(`a worker's fallback never takes an issue assigned to another worker`, () => {
+    const mixed = [link(`i-0`, `EXP-0`), assigned(`i-3`, `EXP-3`, `b`)]
+    expect(pickPrIssues({ rootId: `root`, sessionId: `a`, links: mixed, tree, startText: `` })).toEqual([`i-0`])
+  })
+})
+
 describe(`subtreeOf`, () => {
   it(`collects the session and every descendant`, () => {
     expect([...subtreeOf(tree, `a`)].sort()).toEqual([`a`, `a1`])

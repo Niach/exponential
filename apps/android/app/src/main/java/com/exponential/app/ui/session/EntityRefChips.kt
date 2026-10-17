@@ -393,15 +393,29 @@ private fun SessionCard(ref: EntityRef, open: (EntityTarget) -> Unit) {
         SlimCard(ref, onOpen = { open(EntityTarget.Session(ref.id)) })
         return
     }
-    // EXP-1291: the ×4 session card — state word, name, elapsed.
+    // EXP-1291: the ×4 session card — state word, name, elapsed; EXP-1341:
+    // the name = THE shared session title (the tree's links + messages).
+    val rootId = row.rootId.ifEmpty { row.id }
+    val links by observeScoped(rootId, emptyList()) { it.sessionIssueDao().observeByRoot(rootId) }
+    val messages by observeScoped(rootId, emptyList()) { it.messageDao().observeByRoot(rootId) }
+    val issues by observeScoped(Unit, emptyList()) { it.issueDao().observeAll() }
+    val title = remember(row, links, messages, issues) {
+        val ids = links.map { it.issueId }.toSet()
+        SessionTree.sessionTitle(
+            SessionTree.session(row),
+            links.map(SessionTree::sessionIssue),
+            issues.filter { it.id in ids }.map { SessionTree.issue(it) },
+            messages.map(SessionTree::message),
+        )
+    }
     val nowMs = System.currentTimeMillis()
-    val card = remember(row, nowMs / 60_000) {
-        SessionTree.sessionCard(SessionTree.session(row), 1, SessionTree.nowIso(nowMs))
+    val card = remember(row, title, nowMs / 60_000) {
+        SessionTree.sessionCard(SessionTree.session(row), title, SessionTree.nowIso(nowMs))
     }
     EntityPreviewCard(
         icon = { AgentRunMark(agent = row.cli, state = card.state, size = 16.dp, badgeSize = 6.dp) },
         eyebrow = "Session",
-        title = row.title?.takeIf { it.isNotBlank() } ?: row.name?.takeIf { it.isNotBlank() } ?: card.name,
+        title = card.name,
         facts = {
             GlassPill(card.kindWord, size = PillSize.Sm, mode = PillMode.Readonly)
             row.startedAt?.let {

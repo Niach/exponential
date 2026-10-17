@@ -399,11 +399,13 @@ final class SyncApplyTests: XCTestCase {
         let linkJson = """
             {"id":"si1","session_id":"s1","issue_id":"i1","team_id":"ws1",
              "added_by":"u1","added_by_session_id":null,"sort_order":"1",
+             "assigned_session_id":"s2",
              "created_at":"2026-10-13T09:00:00Z","updated_at":"2026-10-13T09:00:00Z"}
             """
         let link = try JSONDecoder().decode(SessionIssueEntity.self, from: Data(linkJson.utf8))
         XCTAssertEqual(link.source, DomainContract.sessionIssueSourceUser)
         XCTAssertEqual(link.sortOrder, 1)
+        XCTAssertEqual(link.assignedSessionId, "s2")
         try await applyBatch(
             messages: [ShapeMessage<SessionIssueEntity>.insert(
                 key: #""public"."session_issues"/"si1""#, value: link

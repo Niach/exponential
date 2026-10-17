@@ -1,3 +1,4 @@
+import { isPersistent } from "@exp/domain-contract/session-kind"
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
 import { and, eq, inArray, isNull, ne, sql } from "drizzle-orm"
@@ -648,7 +649,7 @@ export const sessionsRouter = router({
       }
       // An agent never ends: its process going away leaves it idle.
       const status =
-        input.status === `ended` && session.kind === `agent` ? `idle` : input.status
+        input.status === `ended` && isPersistent(session) ? `idle` : input.status
       const ending = status === `ended`
       const now = new Date()
       const { handled = false, ...wall } = input.blocked ?? {}

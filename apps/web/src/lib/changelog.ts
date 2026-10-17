@@ -25,6 +25,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-10-17-session-names-grouped-work`,
+    date: `2026-10-17`,
+    title: `Sessions name themselves, and the dispatcher groups the work`,
+    summary: `Every session has a real name, never "Session 2", and a thread's dispatcher groups related issues into one session.`,
+    body: `- **Session names**: every session, tab and row shows a real name: the one it was started with, else the name the agent gives its own conversation, else its issues ("#EXP-12 Login fails on Safari + 1"), else its action, else the first line of its request. "Session 2" is gone everywhere.
+- **Grouped work**: a thread's dispatcher hands related or dependent issues to ONE session and independent ones to separate sessions, and names each one. A newly linked issue goes to the session already doing related work, or to a new one.
+- **Pull requests**: a session's pull request closes exactly the issues handed to it.
+- **Agents**: a team agent that was running when its device went away starts again when the device comes back.`,
+  },
+  {
     id: `2026-10-17-threads-live-dot`,
     date: `2026-10-17`,
     title: `Threads: the live dot on the phone`,

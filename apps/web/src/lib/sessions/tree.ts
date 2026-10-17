@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, isNull, ne, or, sql } from "drizzle-orm"
+import { and, asc, desc, eq, inArray, isNull, ne, or } from "drizzle-orm"
 import { db } from "@/db/connection"
 import {
   issues,
@@ -10,7 +10,7 @@ import {
 } from "@/db/schema"
 import { getUserTeamIds } from "@/lib/auth/membership"
 import { loadSessionForUser } from "@/lib/sessions/access"
-import { deriveSessionTitle } from "@/lib/sessions/brief"
+import { deriveSessionTitles } from "@/lib/sessions/title"
 import type { SessionKind } from "@exp/db-schema/domain"
 
 // EXP-1291: the session tree as one read (MCP `sessions_get`) and the thread
@@ -57,6 +57,7 @@ export async function getSessionTree(
         status: issues.status,
         source: sessionIssues.source,
         addedBySessionId: sessionIssues.addedBySessionId,
+        assignedSessionId: sessionIssues.assignedSessionId,
       })
       .from(sessionIssues)
       .innerJoin(issues, eq(issues.id, sessionIssues.issueId))
@@ -98,12 +99,16 @@ export async function getSessionTree(
           .limit(limit),
   ])
 
+  const titles = await deriveSessionTitles([root, ...childRows])
   return {
-    root: { ...publicSession(root), displayTitle: await deriveSessionTitle(root) },
+    root: { ...publicSession(root), displayTitle: titles.get(root.id)! },
     issues: issueRows,
     pullRequests: prRows,
     guide: root.guide ?? [],
-    children: childRows.map(publicSession),
+    children: childRows.map((child) => ({
+      ...publicSession(child),
+      displayTitle: titles.get(child.id)!,
+    })),
     // Oldest first, the last `limit` of the whole tree.
     messages: messageRows.reverse(),
   }
@@ -138,28 +143,13 @@ export async function listSessions(
     : memberTeams
   if (teamIds.length === 0) return []
 
-  // The derived title in SQL: title ?? action name ?? agent name ?? the
-  // first issue's title ?? the first person message's first line. Columns
-  // are spelled qualified: drizzle renders select-field columns bare, which
-  // the subqueries' own `id`s would make ambiguous.
-  const derivedTitle = sql<string>`coalesce(
-    nullif(trim(${sessions.title}), ''),
-    nullif(trim(${sessions.actionName}), ''),
-    nullif(trim(${sessions.name}), ''),
-    (SELECT i.title FROM session_issues si JOIN issues i ON i.id = si.issue_id
-      WHERE si.session_id = "sessions"."id" ORDER BY si.sort_order, si.created_at LIMIT 1),
-    (SELECT nullif(trim(split_part(m.body, E'\\n', 1)), '') FROM messages m
-      WHERE m.session_id = "sessions"."id" AND m.author_kind = 'user'
-      ORDER BY m.created_at LIMIT 1),
-    'Untitled'
-  )`
-
   const rows = await db
     .select({
       id: sessions.id,
       teamId: sessions.teamId,
       kind: sessions.kind,
-      title: derivedTitle,
+      rootId: sessions.rootId,
+      title: sessions.title,
       status: sessions.status,
       busy: sessions.busy,
       needsInput: sessions.needsInput,
@@ -184,5 +174,7 @@ export async function listSessions(
     .orderBy(desc(sessions.updatedAt))
     .limit(args.limit)
     .offset(args.offset)
-  return rows
+  // EXP-1341: THE title chain (session-title.json), never a SQL copy.
+  const titles = await deriveSessionTitles(rows)
+  return rows.map(({ rootId: _root, ...row }) => ({ ...row, title: titles.get(row.id)! }))
 }

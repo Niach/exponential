@@ -552,9 +552,8 @@ fn run_daemon(args: &[String]) -> CommandResult {
                     }
                     // EXP-1292: a team agent never ends — its scratch dir and
                     // record are what the next message or firing wakes it in.
-                    None if coding::run_registry::get(&ctx.data_dir, &session_id).is_some_and(
-                        |record| record.kind == coding::run_registry::RunKind::Agent,
-                    ) => {}
+                    None if coding::run_registry::get(&ctx.data_dir, &session_id)
+                        .is_some_and(|record| record.kind.is_persistent()) => {}
                     None if coding::scratch::is_scratch_dir(&ctx.data_dir, &worktree) => {
                         let purged = coding::scratch::purge(
                             &ctx.data_dir,
@@ -1280,7 +1279,7 @@ fn reconcile_stale_sessions(ctx: &Ctx) {
     std::thread::spawn(move || {
         for entry in stale {
             let owed_end = coding::run_registry::get(&data_dir, &entry.id).is_some_and(|record| {
-                record.kind == coding::run_registry::RunKind::Thread && record.unreported_end()
+                !record.kind.is_persistent() && record.unreported_end()
             });
             if entry.crashed || !owed_end {
                 let result = api::session_device::report(&trpc, &entry.id, &idle_report());
@@ -2637,6 +2636,7 @@ fn action_session_id(action: &coding::pickup::PickupAction) -> &str {
     match action {
         PickupAction::Launch { session }
         | PickupAction::Resume { session, .. }
+        | PickupAction::Revive { session }
         | PickupAction::Switch { session, .. } => &session.id,
         PickupAction::Deliver { session_id, .. }
         | PickupAction::Revoke { session_id, .. }
@@ -2689,12 +2689,14 @@ impl DaemonHost {
         }
         let excluded = self.pickup.excluded();
         let views = live.live_views();
+        let revive_held = live.revive_held();
         let mut actions = coding::pickup::plan(coding::pickup::PickupInput {
             device_id: &self.pickup.device_id,
             sessions: rows,
             messages,
             live: &views,
             in_flight: &excluded,
+            revive_held: &revive_held,
         });
         // EXP-1292: rows this host claimed whose launch failed transiently
         // (or whose claim answer was lost) read `running` — plan only
@@ -2717,6 +2719,8 @@ impl DaemonHost {
                 }
                 PickupAction::Launch { .. }
                 | PickupAction::Resume { .. }
+                // EXP-1341: a revive resumes/launches (network + git).
+                | PickupAction::Revive { .. }
                 // EXP-849: a switch suspends + relaunches (network + git).
                 | PickupAction::Switch { .. } => true,
                 // A delivery to an engine that just finished wakes it.
@@ -2778,6 +2782,14 @@ impl DaemonHost {
                     ),
                     coding::pickup::PickupAction::Deliver { session_id, messages } => {
                         woke(coding::pickup::deliver_messages(session_id, messages, &deps))
+                    }
+                    // EXP-1341: the registry backs a failed revive off on its
+                    // own (`revive_held`), so either way it is settled here.
+                    coding::pickup::PickupAction::Revive { session } => {
+                        if let Err(err) = coding::pickup::revive_session(session, &deps) {
+                            log::warn!("pickup: revive of {session_id}: {err}");
+                        }
+                        true
                     }
                     // EXP-1334: a switch (an account's, or a reconfigure) a
                     // turn in flight refuses is no failure: the turn's end
@@ -3023,7 +3035,7 @@ fn busy_agent_ids(
     let mut busy: HashSet<String> = posted.keys().cloned().collect();
     busy.extend(
         rows.iter()
-            .filter(|row| row.is_agent() && row.busy)
+            .filter(|row| row.has_triggers() && row.busy)
             .map(|row| row.id.clone()),
     );
     busy.extend(pending_session_ids(messages).into_iter().map(str::to_string));
