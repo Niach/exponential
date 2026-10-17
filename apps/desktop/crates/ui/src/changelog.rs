@@ -46,6 +46,16 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-10-17-threads-live-dot",
+    date: "2026-10-17",
+    title: "Threads: the live dot on the phone",
+    summary: "On the phone the running-session dot sits on Threads, not the chat launcher.",
+    body: r#"- **Threads dot**: on Android, iOS and the mobile web the green running-session dot now sits on the Threads tab, like the sidebar on web and desktop; the chat launcher no longer wears one."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_55: ChangelogEntry = ChangelogEntry {
     id: "2026-10-17-account-switch-keeps-model",
     date: "2026-10-17",
     title: "Account switching keeps your model and shows itself",

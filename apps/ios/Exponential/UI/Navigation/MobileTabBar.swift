@@ -35,10 +35,8 @@ struct MobileTabBar: View {
     /// EXP-1272: the caller has a draft (the Drafts segment's rows): the
     /// Inbox dot lights for it too, the same dot and colour as unread.
     var hasDrafts = false
-    let agentsRunning: Bool
-    let agentsNeedInput: Bool
-    /// EXP-1291: a thread runs — the Threads tab's green dot (the
-    /// launcher's tone rule).
+    /// EXP-1291: a thread runs — the Threads tab's green dot (EXP-1327: the
+    /// ONE live dot; the launcher wears none).
     let threadsRunning: Bool
     /// EXP-1291: any thread (or agent) needs me — the dot turns amber.
     let threadsNeedYou: Bool
@@ -100,8 +98,7 @@ struct MobileTabBar: View {
                 )
                 .accessibilityIdentifier("tab-mywork")
                 // Devices (EXP-686, the renamed Agents surface): the machine
-                // list. Its live dot moved to the Agent launcher with the
-                // sessions list.
+                // list.
                 tab(
                     glyph: AppIcons.navDevices,
                     label: "Devices",
@@ -147,10 +144,10 @@ struct MobileTabBar: View {
             Spacer()
 
             // The Chat launcher opens Home (the composer) from every
-            // top-level surface (EXP-631/694/827): it wears the live dot —
-            // amber while any of my sessions waits on a plan approval /
-            // question (EXP-214), green while one runs. EXP-973: New issue sits beside it on EVERY
-            // route, not only a board — the capsule is the bar's ONE launcher.
+            // top-level surface (EXP-631/694/827); no dot since EXP-1327 (the
+            // live dot rides Threads). EXP-973: New issue sits beside it on
+            // EVERY route, not only a board — the capsule is the bar's ONE
+            // launcher.
             launcherCapsule
         }
         .padding(.horizontal, MobileTabBarMetrics.inset)
@@ -161,15 +158,9 @@ struct MobileTabBar: View {
     /// EXP-827: the merged launcher on a board — the same 52pt height as the
     /// circle, two 52pt arms split by a hairline, each its own button with
     /// the labels and identifiers the single circles carry.
-    /// The launcher's dot color: nil while nothing of mine runs.
-    private var agentBadge: Color? {
-        guard agentsRunning else { return nil }
-        return agentsNeedInput ? DesignTokens.Semantic.yellow : DesignTokens.Semantic.green
-    }
-
     private var launcherCapsule: some View {
         HStack(spacing: 0) {
-            arm(glyph: AppIcons.actionChat, badge: agentBadge, selected: agentActive, action: onChat)
+            arm(glyph: AppIcons.actionChat, selected: agentActive, action: onChat)
                 .accessibilityLabel("Start chat")
                 .accessibilityIdentifier("chat-button")
             Rectangle()
@@ -196,7 +187,6 @@ struct MobileTabBar: View {
     /// its own (the capsule paints it).
     private func arm(
         glyph: String,
-        badge: Color? = nil,
         selected: Bool = false,
         enabled: Bool = true,
         action: @escaping () -> Void
@@ -220,24 +210,10 @@ struct MobileTabBar: View {
                             )
                     }
                 }
-                .overlay(alignment: .topTrailing) { launcherDot(badge) }
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .disabled(!enabled)
-    }
-
-    /// The launcher's status dot — the tab's 8pt disc at the same spot
-    /// relative to the glyph (its top-trailing corner), re-based on the
-    /// 52pt square.
-    @ViewBuilder
-    private func launcherDot(_ color: Color?) -> some View {
-        if let color {
-            Circle()
-                .fill(color)
-                .frame(width: 8, height: 8)
-                .offset(x: -12, y: 12)
-        }
     }
 
     private func tab(

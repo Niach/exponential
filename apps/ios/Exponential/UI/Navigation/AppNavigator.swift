@@ -595,8 +595,6 @@ struct MainNavigator: View {
                     threadsActive: tab == .threads,
                     unreadCount: unreadCount,
                     hasDrafts: draftCount > 0,
-                    agentsRunning: sessionLists.agentsRunning,
-                    agentsNeedInput: sessionLists.agentsNeedInput,
                     threadsRunning: sessionLists.threadsRunning,
                     threadsNeedYou: sessionLists.needsYou,
                     threadsUnread: sessionLists.threadsUnread,

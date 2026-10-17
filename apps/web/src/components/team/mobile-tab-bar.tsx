@@ -6,14 +6,10 @@ import { readLastVisited } from "@/lib/last-visited"
 import { useChromeHeightVar } from "@/hooks/use-chrome-height-var"
 import { useMobileChrome } from "@/hooks/use-mobile-chrome"
 import { useOpenNewDraft } from "@/hooks/use-open-new-draft"
-import { useSession } from "@/hooks/use-session"
 import { useUnreadNotificationCount } from "@/hooks/use-unread-notifications"
 import { useDraftEntries } from "@/hooks/use-issue-drafts"
 import { inboxDotLit } from "@/lib/issue-draft-page"
-import {
-  useAgentsRunningCount,
-  useThreadsNav,
-} from "@/hooks/use-nav-counts"
+import { useThreadsNav } from "@/hooks/use-nav-counts"
 import { useCrossTeamScope } from "@/hooks/use-cross-team-scope"
 import { ACTIONS_LABEL } from "@/components/team/sidebar-nav-entries"
 
@@ -130,15 +126,6 @@ function ThreadsDot({ teamIds }: { teamIds: readonly string[] }) {
   )
 }
 
-// Any of MY live sessions, on the Chat launcher. Amber while one waits on a
-// plan approval / question (EXP-214). EXP-1186: in ANY member team.
-function AgentDot({ teamIds }: { teamIds: readonly string[] }) {
-  const { data: session } = useSession()
-  const { count, needsInput } = useAgentsRunningCount(teamIds, session?.user?.id)
-  if (count === 0) return null
-  return <TabDot className={needsInput ? `bg-yellow-400` : `bg-green-500`} />
-}
-
 function TabDot({ className }: { className: string }) {
   return (
     <span
@@ -204,8 +191,8 @@ export function MobileTabBar({
   const publishTabBarHeight = useChromeHeightVar(`--tabbar-h`)
 
   const boardTarget = resolveBoardTarget(teamSlug, boards, boardSlug)
-  // EXP-1186: only Issues is team-scoped on the phone; the Threads and
-  // chat dots read every member team (md+ = the active team, the bar is
+  // EXP-1186: only Issues is team-scoped on the phone; the Threads dot
+  // reads every member team (md+ = the active team, the bar is
   // hidden there anyway).
   const scope = useCrossTeamScope(team)
   const openNewDraft = useOpenNewDraft(teamSlug)
@@ -304,9 +291,9 @@ export function MobileTabBar({
       {/* EXP-631/694: the chat launcher started on Devices and Actions,
           EXP-739 made it a LINK to the team's Agent page, EXP-827 merged it
           with New issue on a board (×3 mobile), and EXP-973 made that one
-          capsule the whole story — it rides every top-level surface, live dot
-          and all, with the New-issue arm dimmed only when the team has no
-          board. */}
+          capsule the whole story — it rides every top-level surface, with the
+          New-issue arm dimmed only when the team has no board. EXP-1327: no
+          dot here; the live dot rides Threads. */}
       <div className={FAB_GROUP_CLASS} data-testid="fab-group">
         <Link
           to="/t/$teamSlug/agent"
@@ -324,7 +311,6 @@ export function MobileTabBar({
           >
             <ActionChatIcon className="size-5" />
           </span>
-          <AgentDot teamIds={scope.teamIds} />
         </Link>
         <span aria-hidden className="my-3 w-px shrink-0 bg-glass-stroke-card" />
         {composeEnabled ? (
