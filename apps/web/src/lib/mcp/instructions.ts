@@ -55,6 +55,12 @@ export function mcpServerInstructions(gates: {
       `exponential_sessions_end ends this session; call it only when the person asks you to end the session.`
     )
   }
+  // EXP-1280: plan mode is Exponential's (a card + the pr_open gate).
+  if (gates.inSession) {
+    paragraphs.push(
+      `Plan mode: post the plan with exponential_plan_propose, then stop. Ask a person a choice with exponential_sessions_ask.`
+    )
+  }
   // EXP-879/1251: LAST, so it is what a truncating client keeps least — but
   // present, because a session never asked for its Guide never writes one.
   if (gates.inSession && !gates.agent) {

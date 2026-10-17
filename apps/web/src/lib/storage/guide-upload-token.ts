@@ -35,6 +35,10 @@ export interface GuideUploadTokenPayload {
   a?: string
   i?: 1
   c?: string
+  // EXP-1280: a CARD target (`exponential_plan_propose` /
+  // `exponential_sessions_ask`): `m` = the plan/question card's message id,
+  // `l` = the picture label in its `pictures`; `t` is unused (``).
+  m?: string
 }
 
 function secret(): string | null {
@@ -56,6 +60,8 @@ export function mintGuideUploadToken(
     userId: string
     /** EXP-1172: the sessions_show extras. */
     show?: { attachmentId: string; caption: string | null }
+    /** EXP-1280: a picture of a plan/question card (`label` names it). */
+    card?: { messageId: string }
   },
   now: number = Date.now()
 ): { token: string; expiresAt: Date } {
@@ -78,6 +84,7 @@ export function mintGuideUploadToken(
           ...(input.show.caption ? { c: input.show.caption } : {}),
         }
       : {}),
+    ...(input.card ? { m: input.card.messageId } : {}),
   }
   const body = Buffer.from(JSON.stringify(payload)).toString(`base64url`)
   return {
@@ -86,7 +93,7 @@ export function mintGuideUploadToken(
   }
 }
 
-/** The (session, topic, label, user) the token authorizes, or null for
+/** The (session, topic | card, label, user) the token authorizes, or null for
  *  anything malformed, mis-signed or expired. */
 export function verifyGuideUploadToken(
   token: string,
@@ -113,7 +120,8 @@ export function verifyGuideUploadToken(
       typeof payload?.u !== `string` ||
       typeof payload?.exp !== `number` ||
       (payload.a !== undefined && typeof payload.a !== `string`) ||
-      (payload.c !== undefined && typeof payload.c !== `string`)
+      (payload.c !== undefined && typeof payload.c !== `string`) ||
+      (payload.m !== undefined && typeof payload.m !== `string`)
     ) {
       return null
     }

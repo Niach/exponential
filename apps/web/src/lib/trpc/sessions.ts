@@ -1,7 +1,7 @@
 import { isPersistent } from "@exp/domain-contract/session-kind"
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
-import { and, eq, inArray, isNull, ne, sql } from "drizzle-orm"
+import { and, eq, inArray, isNull, ne, or, sql } from "drizzle-orm"
 import type { db } from "@/db/connection"
 import { clientAtOrBelow } from "@/lib/client-version"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
@@ -14,6 +14,8 @@ import {
   hexColorSchema,
   MESSAGE_BODY_MAX,
   messageCardSchema,
+  PLAN_CARD_LABEL_MAX,
+  planCardAnswersSchema,
   QUESTION_CARD_OPTIONS_MAX,
   questionCardOptionDescriptionsSchema,
   questionCardOptionSchema,
@@ -56,7 +58,7 @@ import {
 } from "@/lib/sessions/lifecycle"
 import { parseMcpSessionHeader } from "@/lib/mcp/session-header"
 import { normalizeCaption } from "@/lib/sessions/caption"
-import { pendingInput, postAgentMessage } from "@/lib/sessions/messages"
+import { answeredOwnCard, pendingInput, postAgentMessage } from "@/lib/sessions/messages"
 import {
   dismissSuggestion,
   fileSuggestion,
@@ -110,6 +112,15 @@ const cardAnswerInput = z.object({
   decision: z.enum([`approved`, `rejected`]).optional(),
   fresh: z.boolean().optional(),
   feedback: z.string().max(MESSAGE_BODY_MAX).optional(),
+  // EXP-1280: a plan's answers by question id, a question's picked labels;
+  // the inline surface's data model at answer time.
+  answers: z
+    .union([
+      planCardAnswersSchema,
+      z.array(z.string().max(PLAN_CARD_LABEL_MAX)).max(QUESTION_CARD_OPTIONS_MAX),
+    ])
+    .optional(),
+  surfaceData: z.record(z.string(), z.unknown()).optional(),
 })
 
 /** The card message + its session (steer-gated) + the answered card. */
@@ -128,7 +139,9 @@ async function loadCardForAnswer(
 }
 
 /** Stamp `card` + `answered_at` while still unanswered; needs-you clears
- *  once nothing else waits on a person. `claimed` = this call stamped it. */
+ *  once nothing else waits on a person. `claimed` = this call stamped it.
+ *  EXP-1280: an approved plan takes the session out of plan mode (the
+ *  `pr_open` gate opens) in the same transaction. */
 async function stampAnsweredCard(
   database: Database,
   messageId: string,
@@ -144,6 +157,12 @@ async function stampAnsweredCard(
       .where(and(eq(messages.id, messageId), isNull(messages.answeredAt)))
       .returning({ id: messages.id })
     if (claimed.length === 0) return { claimed: false, txid }
+    if (card.kind === `plan` && card.decision === `approved`) {
+      await tx
+        .update(sessions)
+        .set({ planMode: false, updatedAt: now })
+        .where(and(eq(sessions.id, sessionId), eq(sessions.planMode, true)))
+    }
     const [{ pending } = { pending: 0 }] = await tx
       .select({ pending: sql<number>`count(*)::int` })
       .from(messages)
@@ -819,7 +838,9 @@ export const sessionsRouter = router({
     ),
 
   /** The device delivered these pending inputs (person messages, another
-   *  session's question or report) into the agent. */
+   *  session's question or report) into the agent. EXP-1280: also the
+   *  session's OWN answered plan/question card (`exponential_plan_propose`,
+   *  `exponential_sessions_ask`) once its answer text was delivered. */
   consume: authedProcedure
     .input(z.object({ sessionId: uuid, messageIds: z.array(uuid).min(1).max(100) }))
     .mutation(async ({ ctx, input }) => {
@@ -836,7 +857,7 @@ export const sessionsRouter = router({
               eq(messages.sessionId, session.id),
               inArray(messages.id, input.messageIds),
               // EXP-1323: a person's message or another session's input.
-              pendingInput(),
+              or(pendingInput(), answeredOwnCard()),
               isNull(messages.consumedAt)
             )
           )

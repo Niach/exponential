@@ -12,6 +12,16 @@ import {
   issueEstimationValues,
   MAX_ISSUE_DESCRIPTION,
   MAX_MCP_SERVER_NAME,
+  MESSAGE_BODY_MAX,
+  PLAN_CARD_DESCRIPTION_MAX,
+  PLAN_CARD_LABEL_KEY_MAX,
+  PLAN_CARD_LABEL_MAX,
+  PLAN_CARD_OPTIONS_MAX,
+  PLAN_CARD_PICTURES_MAX,
+  PLAN_CARD_PROMPT_MAX,
+  PLAN_CARD_QUESTIONS_MAX,
+  pictureLabelSchema,
+  QUESTION_CARD_OPTIONS_MAX,
   SESSION_RESULT_REPORT_MAX,
   SESSIONS_SEND_TEXT_MAX,
   sessionKindValues,
@@ -128,6 +138,8 @@ import { endSession, stopSession } from "@/lib/sessions/lifecycle"
 import { linkIssues, unlinkIssue } from "@/lib/sessions/issues"
 import { writeGuide } from "@/lib/sessions/guide"
 import { postSuggestions } from "@/lib/sessions/suggestions"
+import { buildPlanCard, buildQuestionCard, postAskCard } from "@/lib/sessions/plan"
+import { PLAN_CARD_COPY } from "@exp/domain-contract/plan-card"
 import {
   closePullRequestTx,
   mergePullRequest,
@@ -293,6 +305,8 @@ interface CallerSession {
   rootId: string
   rootKind: string
   unattended: boolean
+  /** EXP-1280: the session plans (`exponential_pr_open` refuses). */
+  planMode: boolean
 }
 
 /** What a session-scoped tool answers a caller with no session of its own. */
@@ -317,6 +331,29 @@ const MAX_INLINE_TEXT_BYTES = 32 * 1024
 // adjacent evidence; the server is the only party that always knows the shape.
 // Serializes as additionalProperties:false (gated by api-conventions.test.ts).
 const strictInput = <S extends z.ZodRawShape>(shape: S) => z.strictObject(shape)
+
+// EXP-1280: the plan / question card's input parts (caps = contract
+// `planCard`; the behaviour = fixtures/plan-card.json).
+const cardPicturesInput = z
+  .array(
+    z.strictObject({
+      label: pictureLabelSchema,
+      caption: z.string().max(PLAN_CARD_DESCRIPTION_MAX).optional(),
+    })
+  )
+  .max(PLAN_CARD_PICTURES_MAX)
+  .optional()
+const cardOptionInput = z.strictObject({
+  label: z.string().trim().min(1).max(PLAN_CARD_LABEL_MAX),
+  description: z.string().max(PLAN_CARD_DESCRIPTION_MAX).optional(),
+  picture: pictureLabelSchema.optional(),
+})
+const cardSurfaceInput = z
+  .strictObject({
+    root: z.record(z.string(), z.unknown()),
+    data: z.record(z.string(), z.unknown()).optional(),
+  })
+  .optional()
 
 // EXP-1251 → EXP-1291: the Guide tool's description (always-loaded bytes).
 const GUIDE_TOOL_DESCRIPTION = `Your thread's GUIDE = the body of every PR in it. Per topic: text (2-3 GFM sentences) + files (touched paths); 'Summary' first. Sections together cover every changed file; unassigned files land in Other changes. prUrl = the topic's PR. label = picture: uploadUrl + curl (PNG/JPEG/WebP, 10 MB). remove drops a label, text (text: '') or topic.`
@@ -528,6 +565,7 @@ export function registerExponentialTools(
         hostUserId: sessions.hostUserId,
         rootKind: root.kind,
         rootSpawnedBy: root.spawnedBySessionId,
+        planMode: sessions.planMode,
       })
       .from(sessions)
       .leftJoin(root, eq(root.id, sessions.rootId))
@@ -541,6 +579,7 @@ export function registerExponentialTools(
       rootId: row.rootId,
       rootKind: row.rootKind ?? `thread`,
       unattended: row.parentId !== null || row.rootSpawnedBy != null,
+      planMode: row.planMode === true,
     }
   }
 
@@ -2391,6 +2430,73 @@ export function registerExponentialTools(
     )
   }
 
+  // EXP-1280 custom plan mode: the session posts ONE rich card on itself
+  // (lib/sessions/plan.ts) and stops; a person answers IN the card and the
+  // answer arrives as the session's next message. Not always-loaded: the
+  // runbook names both, tool search finds them.
+  if (gates.inSession) {
+    server.registerTool(
+      `exponential_plan_propose`,
+      {
+        description: `Plan mode: post your plan as one card for a person to approve, then end your turn. plan = GFM; a picture = ![alt](upload:<label>) declared in pictures (run each returned curl). questions = choices answered in the card (option.picture = a label). surface = an Exponential UI core tree {root, data}. The answer arrives as your next message.`,
+        inputSchema: strictInput({
+          plan: z.string().trim().min(1).max(MESSAGE_BODY_MAX),
+          pictures: cardPicturesInput,
+          questions: z
+            .array(
+              z.strictObject({
+                id: z.string().trim().min(1).max(PLAN_CARD_LABEL_KEY_MAX),
+                prompt: z.string().trim().min(1).max(PLAN_CARD_PROMPT_MAX),
+                multi: z.boolean().optional(),
+                custom: z.boolean().optional(),
+                options: z.array(cardOptionInput).max(PLAN_CARD_OPTIONS_MAX),
+              })
+            )
+            .max(PLAN_CARD_QUESTIONS_MAX)
+            .optional(),
+          surface: cardSurfaceInput,
+        }),
+      },
+      async (input) => {
+        try {
+          const own = await loadCallerSession()
+          if (!own) throw new Error(noSessionMessage(`exponential_plan_propose`))
+          if (!access.full) assertTeamFullyGranted(access, own.teamId)
+          const card = buildPlanCard(input)
+          return ok(await postAskCard({ userId: user.id, sessionId: own.id, card }))
+        } catch (e) {
+          return err(e)
+        }
+      }
+    )
+
+    server.registerTool(
+      `exponential_sessions_ask`,
+      {
+        description: `Ask a person ONE question as a card in your conversation, then end your turn. options = text or picture choices (picture = a label in pictures; run each returned curl), multi = several picks, custom = free text allowed (default true). surface = an Exponential UI core tree {root, data}. The answer arrives as your next message.`,
+        inputSchema: strictInput({
+          question: z.string().trim().min(1).max(PLAN_CARD_PROMPT_MAX),
+          options: z.array(cardOptionInput).max(QUESTION_CARD_OPTIONS_MAX),
+          multi: z.boolean().optional(),
+          custom: z.boolean().optional(),
+          pictures: cardPicturesInput,
+          surface: cardSurfaceInput,
+        }),
+      },
+      async (input) => {
+        try {
+          const own = await loadCallerSession()
+          if (!own) throw new Error(noSessionMessage(`exponential_sessions_ask`))
+          if (!access.full) assertTeamFullyGranted(access, own.teamId)
+          const card = buildQuestionCard(input)
+          return ok(await postAskCard({ userId: user.id, sessionId: own.id, card }))
+        } catch (e) {
+          return err(e)
+        }
+      }
+    )
+  }
+
   server.registerTool(
     `exponential_sessions_link`,
     {
@@ -2554,6 +2660,11 @@ export function registerExponentialTools(
     async ({ issueIds: refs, ...rest }) => {
       try {
         const own = await loadCallerSession()
+        // EXP-1280: a session in plan mode opens no PR until a person
+        // approves its plan (approval flips plan_mode off).
+        if (own?.planMode) {
+          throw new TRPCError({ code: `FORBIDDEN`, message: PLAN_CARD_COPY.planModeGate })
+        }
         const issueIds: string[] = []
         for (const ref of refs ?? []) {
           const id = await resolveIssueId(ref, user.id, access)

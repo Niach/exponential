@@ -97,7 +97,7 @@ describe(`session-tree fixtures (EXP-1291)`, () => {
 
 describe(`questionOption (EXP-1322)`, () => {
   test(`a label normalises; anything else drops`, () => {
-    expect(questionOption(`Yes`)).toEqual({ label: `Yes`, description: null })
+    expect(questionOption(`Yes`)).toEqual({ label: `Yes`, description: null, attachmentId: null })
     expect(questionOption({ label: `Yes`, description: `Ship it` })).toBeNull()
     expect(questionOption(3)).toBeNull()
   })

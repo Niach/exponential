@@ -257,7 +257,7 @@ export interface ThreadPlanQuestion {
  *  null (dropped). The sidecar description (see `questionOptions`) is zipped
  *  in by the caller. */
 export function questionOption(raw: unknown): ThreadQuestionOption | null {
-  return typeof raw === `string` ? { label: raw, description: null } : null
+  return typeof raw === `string` ? { label: raw, description: null, attachmentId: null } : null
 }
 
 /** The question card's options in the row form. `card.options` carries plain
