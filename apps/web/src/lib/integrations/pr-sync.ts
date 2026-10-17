@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, ne, sql } from "drizzle-orm"
+import { and, desc, eq, inArray, isNotNull, ne, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
 import {
   boards,
@@ -631,9 +631,14 @@ export async function loadLivePullRequestByHead(
   return row ?? null
 }
 
-/** The newest live PR linked to the issue. */
-export async function newestLivePullRequestForIssue(issueId: string): Promise<PullRequestRow | null> {
-  const [row] = await db
+/** Every live PR linked to the issue, newest first, with how many issues
+ *  each links and whether the issue's assigned tree session opened it
+ *  (FEED-111: a thread-level PR links the root's issues too, so newest-first
+ *  alone picks the wrong one; `pickIssuePullRequest` ranks these). */
+export async function livePullRequestsForIssue(
+  issueId: string
+): Promise<{ pr: PullRequestRow; linkedIssues: number; assigned: boolean }[]> {
+  const rows = await db
     .select({ pr: pullRequests })
     .from(pullRequestIssues)
     .innerJoin(pullRequests, eq(pullRequests.id, pullRequestIssues.pullRequestId))
@@ -641,8 +646,23 @@ export async function newestLivePullRequestForIssue(issueId: string): Promise<Pu
       and(eq(pullRequestIssues.issueId, issueId), inArray(pullRequests.state, [...LIVE_PR_STATES]))
     )
     .orderBy(desc(pullRequests.createdAt))
-    .limit(1)
-  return row?.pr ?? null
+  if (rows.length === 0) return []
+  const counts = await db
+    .select({ pullRequestId: pullRequestIssues.pullRequestId, n: sql<number>`count(*)::int` })
+    .from(pullRequestIssues)
+    .where(inArray(pullRequestIssues.pullRequestId, rows.map((row) => row.pr.id)))
+    .groupBy(pullRequestIssues.pullRequestId)
+  const assignees = await db
+    .select({ sessionId: sessionIssues.assignedSessionId })
+    .from(sessionIssues)
+    .where(and(eq(sessionIssues.issueId, issueId), isNotNull(sessionIssues.assignedSessionId)))
+  const linked = new Map(counts.map((row) => [row.pullRequestId, Number(row.n)]))
+  const assigned = new Set(assignees.map((row) => row.sessionId))
+  return rows.map(({ pr }) => ({
+    pr,
+    linkedIssues: linked.get(pr.id) ?? 1,
+    assigned: pr.sessionId != null && assigned.has(pr.sessionId),
+  }))
 }
 
 /** A session's newest live PR: one it opened, else its thread's newest. */

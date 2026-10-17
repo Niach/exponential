@@ -77,7 +77,7 @@ vi.mock(`@/lib/integrations/pr-sync`, () => ({
   loadPullRequest: vi.fn(),
   loadPullRequestByNumber: vi.fn(async () => null),
   loadPullRequestByUrl: vi.fn(async () => null),
-  newestLivePullRequestForIssue: vi.fn(async () => null),
+  livePullRequestsForIssue: vi.fn(async () => []),
   newestLivePullRequestForSession: vi.fn(async () => null),
   recordPullRequestOpened: vi.fn(),
   repoFromPrUrl: (url: string) => url.match(/github\.com\/([^/]+\/[^/]+)\/pull/)?.[1] ?? null,
@@ -505,10 +505,45 @@ describe(`mergePullRequest`, () => {
 })
 
 describe(`resolvePullRequest`, () => {
-  it(`an issue resolves to its newest live PR`, async () => {
+  it(`an issue resolves to its one live PR`, async () => {
     h.selectQueue.push([{ teamId: `team-1` }])
-    vi.mocked(sync.newestLivePullRequestForIssue).mockResolvedValueOnce(pr() as never)
+    vi.mocked(sync.livePullRequestsForIssue).mockResolvedValueOnce([
+      { pr: pr() as never, linkedIssues: 1, assigned: false },
+    ])
     await expect(resolvePullRequest({ userId: `u-1`, issueId: `i-1` })).resolves.toMatchObject({ id: `pr-1` })
+  })
+
+  // FEED-111: EXP-1327's own PR #1092 lost to the newer thread-level #1096,
+  // which links every root issue, so `pr_merge({issueId})` aimed at #1096.
+  const THREAD_PR = { pr: pr({ id: `pr-1096`, number: 1096 }) as never, linkedIssues: 8, assigned: false }
+  const OWN_PR = { pr: pr({ id: `pr-1092`, number: 1092 }) as never, linkedIssues: 1, assigned: false }
+
+  it(`an issue with several live PRs resolves to the one focused on it, not the newest`, async () => {
+    h.selectQueue.push([{ teamId: `team-1` }])
+    vi.mocked(sync.livePullRequestsForIssue).mockResolvedValueOnce([THREAD_PR, OWN_PR])
+    await expect(resolvePullRequest({ userId: `u-1`, issueId: `i-1` })).resolves.toMatchObject({
+      id: `pr-1092`,
+    })
+  })
+
+  it(`the PR the issue's assigned session opened wins`, async () => {
+    h.selectQueue.push([{ teamId: `team-1` }])
+    vi.mocked(sync.livePullRequestsForIssue).mockResolvedValueOnce([
+      { ...THREAD_PR, assigned: true },
+      OWN_PR,
+    ])
+    await expect(resolvePullRequest({ userId: `u-1`, issueId: `i-1` })).resolves.toMatchObject({
+      id: `pr-1096`,
+    })
+  })
+
+  it(`a tie refuses and names the candidates`, async () => {
+    h.selectQueue.push([{ teamId: `team-1` }])
+    vi.mocked(sync.livePullRequestsForIssue).mockResolvedValueOnce([{ ...THREAD_PR, linkedIssues: 1 }, OWN_PR])
+    await expect(resolvePullRequest({ userId: `u-1`, issueId: `i-1` })).rejects.toMatchObject({
+      code: `PRECONDITION_FAILED`,
+      message: expect.stringMatching(/#1096.*#1092/),
+    })
   })
 
   it(`nothing named = the caller session's newest live PR`, async () => {
