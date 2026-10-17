@@ -75,17 +75,17 @@ fun AskDockSpecimenScreen() {
                 verticalArrangement = Arrangement.spacedBy(24.dp),
             ) {
                 SpecimenCase("One waiting plan") {
-                    ThreadAskDock(STACK.take(1), sessionName, onAnswer = { _, _, _ -> }, onDecidePlan = { _, _, _, _, _ -> })
+                    ThreadAskDock(STACK.take(1), sessionName, onAnswer = { _, _, _ -> }, onDecidePlan = { _, _, _ -> })
                 }
                 SpecimenCase("Two plans and a question") {
-                    ThreadAskDock(STACK, sessionName, onAnswer = { _, _, _ -> }, onDecidePlan = { _, _, _, _, _ -> })
+                    ThreadAskDock(STACK, sessionName, onAnswer = { _, _, _ -> }, onDecidePlan = { _, _, _ -> })
                 }
                 SpecimenCase("Focused out of the stack") {
                     ThreadAskDock(
                         STACK,
                         sessionName,
                         onAnswer = { _, _, _ -> },
-                        onDecidePlan = { _, _, _, _, _ -> },
+                        onDecidePlan = { _, _, _ -> },
                         initialFocusedId = "p2",
                     )
                 }

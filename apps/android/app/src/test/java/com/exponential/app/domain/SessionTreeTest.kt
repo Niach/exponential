@@ -233,15 +233,15 @@ class SessionTreeTest {
                 "options",
                 JsonArray(
                     row.options.map { option ->
-                        buildJsonObject {
-                            put("label", option.label)
-                            put("description", nullable(option.description))
-                        }
+                        encode(option)
                     },
                 ),
             )
             put("custom", row.custom)
+            put("multi", row.multi)
+            put("surface", encode(row.surface))
             put("answer", nullable(row.answer))
+            put("answers", row.answers?.let { list -> JsonArray(list.map(::JsonPrimitive)) } ?: JsonNull)
             put("answered", row.answered)
         }
         is SessionTree.ThreadRow.Plan -> buildJsonObject {
@@ -249,8 +249,30 @@ class SessionTreeTest {
             put("id", row.id)
             put("sessionId", row.sessionId)
             put("plan", row.plan)
+            put(
+                "questions",
+                JsonArray(
+                    row.questions.map { question ->
+                        buildJsonObject {
+                            put("id", question.id)
+                            put("prompt", question.prompt)
+                            put("multi", question.multi)
+                            put("custom", question.custom)
+                            put("options", JsonArray(question.options.map { encode(it) }))
+                        }
+                    },
+                ),
+            )
+            put("surface", encode(row.surface))
             put("decision", nullable(row.decision))
             put("fresh", row.fresh)
+            put(
+                "answers",
+                row.answers?.let { answers ->
+                    JsonObject(answers.mapValues { (_, labels) -> JsonArray(labels.map(::JsonPrimitive)) })
+                } ?: JsonNull,
+            )
+            put("feedback", nullable(row.feedback))
         }
         is SessionTree.ThreadRow.Subagent -> buildJsonObject {
             put("type", "subagent")
@@ -273,6 +295,19 @@ class SessionTreeTest {
             put("text", row.text)
         }
     }
+
+    private fun encode(option: SessionTree.ThreadRow.QuestionChoice): JsonObject = buildJsonObject {
+        put("label", option.label)
+        put("description", nullable(option.description))
+        put("attachmentId", nullable(option.attachmentId))
+    }
+
+    private fun encode(surface: CardSurface?): JsonElement = surface?.let {
+        buildJsonObject {
+            put("root", it.root)
+            put("data", it.data ?: JsonNull)
+        }
+    } ?: JsonNull
 
     private fun encode(view: SessionTree.ThreadView): JsonObject = buildJsonObject {
         put("rootId", view.rootId)

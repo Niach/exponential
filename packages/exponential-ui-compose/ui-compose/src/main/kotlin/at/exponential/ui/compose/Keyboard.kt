@@ -11,6 +11,7 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.key.utf16CodePoint
 import at.exponential.ui.json.JsonValue
 import at.exponential.ui.json.num
+import at.exponential.ui.json.str
 import at.exponential.ui.model.NodeInfo
 import at.exponential.ui.model.SurfaceModel
 import at.exponential.ui.model.carouselPage
@@ -139,6 +140,14 @@ fun handleKey(model: SurfaceModel, key: String?, shift: Boolean = false, typed: 
         owner == "Radio" && (n.part == "dot" || n.part == "item") -> roving(model, n, key, hv)?.let { t ->
             model.focusRequest = model.node(t)?.id
             model.press(t)
+            return true
+        }
+        // EXP-1280: arrows rove the tiles (row-major); a single choice
+        // follows focus like a Radio, a multiple one only moves it (Space /
+        // Enter press the focused tile).
+        owner == "ChoiceTiles" && n.part == "tile" -> roving(model, n, key, hv)?.let { t ->
+            model.focusRequest = model.node(t)?.id
+            if (model.ownerProps(n.index).str("type") != "multiple") model.press(t)
             return true
         }
         owner == "Accordion" && n.part == "trigger" -> roving(model, n, key, vertical)?.let { t ->

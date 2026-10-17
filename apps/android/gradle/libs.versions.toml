@@ -39,6 +39,12 @@ coil = "3.5.0"
 # DefaultHttpDataSource (HttpURLConnection) on purpose — media3-datasource-okhttp
 # would drag its own okhttp line next to the ktor-pinned 5.x above.
 media3 = "1.11.1"
+# EXP-1280: the Exponential UI Compose painter (`:ui-compose`, included by
+# path for the plan card's inline surface) resolves these through THIS
+# catalog; pinned to packages/exponential-ui-compose/gradle/libs.versions.toml.
+jna = "5.17.0"
+robolectric = "4.15.1"
+roborazzi = "1.46.1"
 junit = "4.13.2"
 androidx-test-junit = "1.2.1"
 androidx-test-rules = "1.6.1"
@@ -74,6 +80,13 @@ compose-ui-test-junit4 = { group = "androidx.compose.ui", name = "ui-test-junit4
 compose-ui-test-manifest = { group = "androidx.compose.ui", name = "ui-test-manifest" }
 compose-ui-tooling-preview = { group = "androidx.compose.ui", name = "ui-tooling-preview" }
 compose-material3 = { group = "androidx.compose.material3", name = "material3" }
+compose-ui-text = { group = "androidx.compose.ui", name = "ui-text" }
+compose-foundation = { group = "androidx.compose.foundation", name = "foundation" }
+jna-aar = { group = "net.java.dev.jna", name = "jna", version.ref = "jna" }
+robolectric = { group = "org.robolectric", name = "robolectric", version.ref = "robolectric" }
+roborazzi = { group = "io.github.takahirom.roborazzi", name = "roborazzi", version.ref = "roborazzi" }
+roborazzi-compose = { group = "io.github.takahirom.roborazzi", name = "roborazzi-compose", version.ref = "roborazzi" }
+roborazzi-junit-rule = { group = "io.github.takahirom.roborazzi", name = "roborazzi-junit-rule", version.ref = "roborazzi" }
 navigation-compose = { group = "androidx.navigation", name = "navigation-compose", version.ref = "navigation-compose" }
 hilt-android = { group = "com.google.dagger", name = "hilt-android", version.ref = "hilt" }
 hilt-compiler = { group = "com.google.dagger", name = "hilt-compiler", version.ref = "hilt" }
@@ -122,6 +135,7 @@ android-application = { id = "com.android.application", version.ref = "agp" }
 android-library = { id = "com.android.library", version.ref = "agp" }
 kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
+roborazzi = { id = "io.github.takahirom.roborazzi", version.ref = "roborazzi" }
 kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
 ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
 hilt = { id = "com.google.dagger.hilt.android", version.ref = "hilt" }

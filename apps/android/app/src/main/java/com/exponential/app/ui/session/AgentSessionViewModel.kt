@@ -11,6 +11,7 @@ import com.exponential.app.data.api.DevicesApi
 import com.exponential.app.data.api.IssueImagesApi
 import com.exponential.app.data.api.IssuesApi
 import com.exponential.app.data.api.SessionsSendInput
+import com.exponential.app.data.api.AnswerInput
 import com.exponential.app.data.api.SessionsApi
 import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.data.api.agentUsageRefreshCommand
@@ -1132,6 +1133,36 @@ class AgentSessionViewModel @AssistedInject constructor(
     /** End the session for good (`sessions.end`; a root ends its tree). */
     fun endSession() = sessionCall("Couldn't end the session") { accountId ->
         sessionsApi.end(accountId, codingSessionId)
+    }
+
+    /**
+     * EXP-1280: a card a TOOL posted on this session (`exponential_plan_propose`
+     * / `exponential_sessions_ask`) has no open relay ask: the dock answers it
+     * through `sessions.answer` (the picks + the surface's data model) and
+     * the device delivers the answer as the next turn.
+     */
+    val toolAsks: StateFlow<List<SessionTree.ThreadRow>> = dbFlow
+        .scopedQuery(emptyList<MessageEntity>()) { it.messageDao().observeBySession(codingSessionId) }
+        .map { rows -> SessionTree.toolPostedAsks(rows.map(SessionTree::message)) }
+        .distinctUntilChanged()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** Answer a tool-posted card; [settled] = whether the call went through
+     *  (a failure toasts `Couldn't answer the <thing>`). */
+    fun answerCard(input: AnswerInput, thing: String, settled: (Boolean) -> Unit) {
+        viewModelScope.launch {
+            _killError.value = null
+            try {
+                val accountId = auth.activeAccountId.value
+                    ?: throw IllegalStateException("No active account")
+                sessionsApi.answer(accountId, input)
+                settled(true)
+            } catch (t: Throwable) {
+                if (t is CancellationException) throw t
+                _killError.value = trpcErrorMessage(t, "Couldn't answer the $thing")
+                settled(false)
+            }
+        }
     }
 
     private fun sessionCall(fallback: String, call: suspend (String) -> Unit) {

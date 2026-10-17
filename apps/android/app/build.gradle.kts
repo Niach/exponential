@@ -169,6 +169,8 @@ kotlin {
 
 dependencies {
     implementation(project(":ui-compose-primitives"))
+    // EXP-1280: the plan card renders an agent-authored eUI surface inline.
+    implementation(project(":ui-compose"))
     implementation(libs.core.ktx)
     implementation(libs.core.splashscreen)
     implementation(libs.lifecycle.runtime.ktx)

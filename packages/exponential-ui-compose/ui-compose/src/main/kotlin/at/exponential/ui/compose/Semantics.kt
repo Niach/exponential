@@ -134,6 +134,11 @@ internal fun Modifier.nodeSemantics(node: NodeInfo, model: SurfaceModel): Modifi
             val menuKind = if (node.ownerComponent == "Menu" && node.part == "item") node.props.str("kind") else ""
             val menuChecked = node.checked || node.props.flag("checked")
             val menuOpen = node.open
+            // EXP-1280: a ChoiceTiles tile = a radio (single) or a checkbox
+            // (multiple) carrying its option's picked state.
+            val tile = node.ownerComponent == "ChoiceTiles" && node.part == "tile"
+            val tileMultiple = tile && model.ownerProps(index).str("type") == "multiple"
+            val tilePicked = tile && node.props.flag("selected")
             return clearAndSetSemantics {
                 contentDescription = label ?: ""
                 role = Role.Button
@@ -153,6 +158,13 @@ internal fun Modifier.nodeSemantics(node: NodeInfo, model: SurfaceModel): Modifi
                     toggleableState = ToggleableState(menuChecked)
                 } else if (menuKind == "submenu") {
                     if (menuOpen) collapse { model.press(index); true } else expand { model.press(index); true }
+                }
+                if (tileMultiple) {
+                    role = Role.Checkbox
+                    toggleableState = ToggleableState(tilePicked)
+                } else if (tile) {
+                    role = Role.RadioButton
+                    selected = tilePicked
                 }
             }
         }
