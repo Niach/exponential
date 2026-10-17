@@ -37,6 +37,9 @@ struct SessionComposerFooter: View {
         /// Before the relay reports a `config_state`, the synced row's own
         /// `planMode` pick stands in for the read-out (web parity).
         var planModeFallback: Bool = false
+        /// EXP-1252: the Device pin before Model (`AgentSessionModel.devicePin`);
+        /// nil = hidden (agents, asides).
+        var devicePin: SessionDevicePin? = nil
 
         /// Codex has no mid-run model prompt and an ended row takes no
         /// `/model`: both draw the chevron-less label.
@@ -93,6 +96,9 @@ struct SessionComposerFooter: View {
             )
 
             if let controls {
+                if let devicePin = controls.devicePin {
+                    SessionDevicePinView(pin: devicePin, fullWidth: false)
+                }
                 SessionModelPill(controls: controls)
 
                 if controls.showsPlanLabel {
@@ -153,6 +159,84 @@ struct SessionModelPill: View {
     }
 }
 
+/// EXP-1252: the session's Device pin — what it needs to draw and act.
+struct SessionDevicePin {
+    /// The current device's name, or `Moving to <target>…` while a move is
+    /// pending (`SessionDeviceMove.pinLabel`).
+    let label: String
+    /// The current device's glyph (`DeviceIconDisplay`); nil = none known.
+    let icon: String?
+    /// The launch composer's devices for this team, refused ones disabled
+    /// with their reason as the description.
+    let rows: [DevicePickerDevice]
+    let currentDeviceId: String
+    /// The whole pin's refusal (`SessionDeviceMove.blockedReason`): a
+    /// chevron-less label that says why when tapped.
+    let blockedReason: String?
+    /// A request is in flight.
+    var sending: Bool = false
+    /// Another device = move, the current one while moving = cancel.
+    let onPick: (String) -> Void
+}
+
+extension DevicePickerDevice {
+    /// EXP-1252: a move target — the ONE device row bridge, a refused row
+    /// disabled with its reason as the description.
+    init(moveRow row: SessionDeviceMove.Row) {
+        let base = DevicePickerDevice(row.device)
+        self.init(
+            id: base.id,
+            name: base.name,
+            icon: base.icon,
+            description: row.blockedReason ?? base.description,
+            disabled: row.blockedReason != nil
+        )
+    }
+}
+
+/// EXP-1252: the Device pin, built EXACTLY like the launch line's
+/// (`AgentOptionsRow.devicePill`): the shared `DevicePicker` with the
+/// `OptionPillLabel` trigger, titled "Move to device", the note as its hint.
+struct SessionDevicePinView: View {
+    let pin: SessionDevicePin
+    /// The full name (the options line scrolls); false = it may truncate
+    /// (the raw session view's in-card footer, which cannot scroll).
+    var fullWidth: Bool = true
+
+    @Environment(\.toaster) private var toaster
+
+    var body: some View {
+        if pin.blockedReason == nil, !pin.sending {
+            DevicePicker(
+                devices: pin.rows,
+                value: pin.currentDeviceId,
+                onChange: pin.onPick,
+                title: SessionDeviceMove.pickerTitle,
+                trigger: {
+                    OptionPillLabel(icon: pin.icon, text: pin.label)
+                        .fixedSize(horizontal: fullWidth, vertical: false)
+                }
+            )
+            .accessibilityLabel("Device")
+            // The move's note rides the pin as its hint, like the account
+            // switch's cost note (web `title=`, desktop tooltip).
+            .accessibilityHint(SessionDeviceMove.note)
+            .accessibilityIdentifier("session-device-pin")
+        } else {
+            OptionPillLabel(icon: pin.icon, text: pin.label, chevron: false)
+                .fixedSize(horizontal: fullWidth, vertical: false)
+                .opacity(pin.sending ? 1 : 0.6)
+                .onTapGesture {
+                    guard let reason = pin.blockedReason else { return }
+                    toaster.info(reason)
+                }
+                .accessibilityLabel("Device")
+                .accessibilityHint(pin.blockedReason ?? "")
+                .accessibilityIdentifier("session-device-pin")
+        }
+    }
+}
+
 /// EXP-1334: the thread composer's options line UNDER the card — the model
 /// pill, the Plan switch (live mid-run through `sessions.configure`; nil =
 /// none) and, trailing, the usage ring (hidden until context data lands).
@@ -162,23 +246,34 @@ struct SessionComposerOptionsLine: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            SessionModelPill(controls: controls)
-            if let plan {
-                HStack(spacing: 6) {
-                    Text("Plan")
-                        .font(.subheadline)
-                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                    Toggle("Plan", isOn: plan)
-                        .labelsHidden()
-                        .toggleStyle(.switch)
-                        .controlSize(.mini)
-                        .tint(DesignTokens.Semantic.blue)
-                        .disabled(controls.ended)
+            // EXP-1252: with the Device pin the picks can outgrow a phone, so
+            // they scroll sideways like the launch line (`AgentOptionsRow`);
+            // the usage ring stays pinned trailing.
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 12) {
+                    if let devicePin = controls.devicePin {
+                        SessionDevicePinView(pin: devicePin)
+                    }
+                    SessionModelPill(controls: controls)
+                    if let plan {
+                        HStack(spacing: 6) {
+                            Text("Plan")
+                                .font(.subheadline)
+                                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                            Toggle("Plan", isOn: plan)
+                                .labelsHidden()
+                                .toggleStyle(.switch)
+                                .controlSize(.mini)
+                                .tint(DesignTokens.Semantic.blue)
+                                .disabled(controls.ended)
+                        }
+                        .fixedSize()
+                        .accessibilityElement(children: .combine)
+                        .accessibilityIdentifier("session-plan-toggle")
+                    }
                 }
-                .accessibilityElement(children: .combine)
-                .accessibilityIdentifier("session-plan-toggle")
             }
-            Spacer(minLength: 0)
+            .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
             if controls.usageFraction != nil {
                 Button(action: controls.onUsage) {
                     ContextRing(fraction: controls.usageFraction, severity: controls.usageSeverity)

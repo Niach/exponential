@@ -2139,7 +2139,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_sessions_send`,
     {
-      description: `THE one call for sessions. sessionId = message it (idle resumes, an ended thread continues in a child; account alone = switch its claude login; issueIds = forward them to it). parentId = start a child (issueIds = its share). Neither = a new thread (text, issueIds, actionId+inputs, repositoryId) or, with agent {name, icon, color, instructions?, triggers?}, a team agent. name = a new session's title (omitted: it names itself). New sessions need deviceId (exponential_devices_list); the other fields pick the runner. teamId defaults to your session's team; @email in text mentions. Queued at once: never resend.`,
+      description: `THE one call for sessions. sessionId = message it (idle resumes, an ended one continues in a child; account alone = switch its claude login; deviceId = move it there after its turn; issueIds = forward them). parentId = start a child (issueIds = its share). Neither = a new thread (text, issueIds, actionId+inputs, repositoryId) or, with agent {name, icon, color, instructions?, triggers?}, a team agent. name = a new session's title. New sessions need deviceId (exponential_devices_list); the other fields pick the runner. teamId defaults to your session's team; @email in text mentions. Queued at once: never resend.`,
       _meta: ALWAYS_LOAD_META,
       inputSchema: strictInput({
         teamId: uuidString.optional(),

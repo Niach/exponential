@@ -99,6 +99,6 @@ pub use session::{
     HistoryHandle, OpenTranscript, ResumeHandle,
 };
 pub use sink::{EventSink, RecordingSink};
-pub use lifecycle::SUSPEND_OUTCOME;
+pub use lifecycle::{keeps_workspace, RELEASED_OUTCOME, SUSPEND_OUTCOME};
 pub use stop_save::{save_stopped_run_work, stopped_by_person};
 pub use transport::{spawn_lines, ChildLines, LineWriter, StderrPolicy};

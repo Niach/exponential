@@ -34,6 +34,24 @@ vi.mock(`@/lib/integrations/notifications`, () => ({
   fireAndForgetIssueMentionNotify: () => {},
 }))
 
+// EXP-1252: the handoff package's object store (never reached here).
+const storage = vi.hoisted(() => ({
+  uploaded: [] as string[],
+  deleted: [] as string[],
+}))
+vi.mock(`@/lib/storage`, () => ({
+  uploadObject: async (options: { key: string }) => {
+    storage.uploaded.push(options.key)
+  },
+  getObject: async () => ({ Body: {}, ContentLength: 3 }),
+  toResponseBody: async () => new Uint8Array([1, 2, 3]).buffer,
+}))
+vi.mock(`@/lib/storage/issue-attachment-cleanup`, () => ({
+  deleteStorageObjects: async (keys: string[]) => {
+    storage.deleted.push(...keys)
+  },
+}))
+
 const ready = await probeRealDb(`
   SELECT (
     EXISTS (SELECT 1 FROM information_schema.columns
@@ -1121,5 +1139,310 @@ describe.skipIf(!ready.ok)(`EXP-1323: reports, asides, reads and suggestions`, a
     expect(items[3]!.issueId).toBe(filed.issueId)
     // Nothing open is left to start.
     expect((await host.startAllSuggestions({ messageId: posted.messageId })).sessionIds).toEqual([])
+  })
+})
+
+
+// ── EXP-1252: moving a session to another device (+ #FEED-84 / #FEED-85) ────
+
+const signedIn = (id: string, email: string) => ({
+  claude: { signedIn: true, email, profiles: [{ id, signedIn: true, email, active: true }] },
+})
+
+describe.skipIf(!ready.ok)(`EXP-1252: moving a session to another device`, async () => {
+  const { sessionsRouter } = await import(`@/lib/trpc/sessions`)
+  const { putHandoffBlob, getHandoffBlob } = await import(`@/lib/sessions/handoff`)
+  const { MOVE_COPY } = await import(`@/lib/sessions/move`)
+  const caller = (userId: string) =>
+    sessionsRouter.createCaller({
+      session: { user: { id: userId } },
+      db,
+      request: new Request(`http://x.test`),
+    } as never)
+
+  /** The owner's second machine, online, signed in to claude. */
+  async function moveWorld() {
+    const w = await world()
+    await db
+      .update(devices)
+      .set({ agentAccounts: signedIn(`pa`, `me@move.test`) })
+      .where(eq(devices.deviceId, w.deviceId))
+    const target = `dev-b-${id8()}`
+    await db.insert(devices).values({
+      userId: w.owner,
+      deviceId: target,
+      label: `b-box`,
+      kind: `desktop`,
+      agentAccounts: signedIn(`pb`, `ME@move.test`),
+    })
+    const root = await sendSession({
+      userId: w.owner,
+      input: { teamId: w.teamId, deviceId: w.deviceId, cli: `claude`, account: `pa`, text: `work` },
+    })
+    await caller(w.owner).claim({ sessionId: root.sessionId, deviceId: w.deviceId })
+    return { ...w, target, sessionId: root.sessionId, firstMessageId: root.messageId! }
+  }
+
+  it(`requests a move (carried login, caption, nothing posted) and cancels it`, async () => {
+    const w = await moveWorld()
+    const before = await db.select().from(messages).where(eq(messages.sessionId, w.sessionId))
+    const sent = await sendSession({ userId: w.owner, input: { sessionId: w.sessionId, deviceId: w.target } })
+    expect(sent).toMatchObject({ sessionId: w.sessionId, messageId: null, status: `running` })
+    const moving = await row(w.sessionId)
+    expect(moving).toMatchObject({
+      deviceId: w.deviceId,
+      moveToDeviceId: w.target,
+      caption: `Moving to b-box…`,
+      account: `pa`,
+    })
+    // The same address on the target carries (case-insensitive).
+    expect(moving.handoff?.request).toMatchObject({ deviceId: w.target, account: `pb`, requestedBy: w.owner })
+    expect(await db.select().from(messages).where(eq(messages.sessionId, w.sessionId))).toHaveLength(
+      before.length
+    )
+    // The current device while moving = cancel.
+    await sendSession({ userId: w.owner, input: { sessionId: w.sessionId, deviceId: w.deviceId } })
+    expect(await row(w.sessionId)).toMatchObject({ moveToDeviceId: null, handoff: null, caption: null })
+    // The current device with nothing pending = nothing at all.
+    await sendSession({ userId: w.owner, input: { sessionId: w.sessionId, deviceId: w.deviceId, text: `hi` } })
+    expect(await row(w.sessionId)).toMatchObject({ deviceId: w.deviceId, moveToDeviceId: null })
+  })
+
+  it(`refuses with the client copy: offline, visibility, no login, aside, agent, ended`, async () => {
+    const w = await moveWorld()
+    const add = async (values: Partial<typeof devices.$inferInsert>) => {
+      const deviceId = `dev-x-${id8()}`
+      await db.insert(devices).values({
+        userId: w.owner,
+        deviceId,
+        label: `x`,
+        kind: `server`,
+        agentAccounts: signedIn(`px`, `me@move.test`),
+        ...values,
+      })
+      return deviceId
+    }
+    const refuse = (deviceId: string, message: string, sessionId = w.sessionId) =>
+      expect(sendSession({ userId: w.owner, input: { sessionId, deviceId } })).rejects.toMatchObject({
+        message,
+      })
+    await refuse(await add({ lastSeenAt: new Date(Date.now() - 3_600_000) }), MOVE_COPY.offline)
+    await refuse(await add({ sharedTeamIds: [w.teamId] }), MOVE_COPY.visibility)
+    await refuse(await add({ agentAccounts: null }), MOVE_COPY.noLogin)
+    // A teammate's machine nobody shared is invisible to the starter.
+    await db.insert(devices).values({ userId: w.mate, deviceId: `dev-m-${id8()}`, label: `m`, kind: `desktop` })
+    const mateDevice = (
+      await db.select({ deviceId: devices.deviceId }).from(devices).where(eq(devices.userId, w.mate))
+    )[0]!.deviceId
+    await refuse(mateDevice, MOVE_COPY.visibility)
+    // An explicit login must be one of the target's.
+    await expect(
+      sendSession({ userId: w.owner, input: { sessionId: w.sessionId, deviceId: w.target, account: `nope` } })
+    ).rejects.toMatchObject({ code: `BAD_REQUEST` })
+
+    const aside = await sendSession({
+      userId: w.owner,
+      input: { parentId: w.sessionId, text: `why?`, aside: true },
+    })
+    await refuse(w.target, MOVE_COPY.aside, aside.sessionId)
+    const agent = await sendSession({
+      userId: w.owner,
+      input: {
+        teamId: w.teamId,
+        deviceId: w.deviceId,
+        agent: { name: `Bot`, icon: `bot`, color: `#336699`, instructions: ``, triggers: [] },
+      },
+    })
+    await refuse(w.target, MOVE_COPY.agent, agent.sessionId)
+    await endSession({ userId: w.owner, sessionId: w.sessionId })
+    await refuse(w.target, MOVE_COPY.ended)
+  })
+
+  it(`hands over: package up, moved re-stamps queued, the target restores without re-feeding`, async () => {
+    const w = await moveWorld()
+    const host = caller(w.owner)
+    await sendSession({ userId: w.owner, input: { sessionId: w.sessionId, deviceId: w.target } })
+    // A message sent while moving waits for the target.
+    const waiting = await sendSession({ userId: w.owner, input: { sessionId: w.sessionId, text: `after` } })
+
+    // Only the source, only with a move pending.
+    await expect(
+      host.handoff({ sessionId: w.sessionId, deviceId: w.target, outcome: `moved` })
+    ).rejects.toMatchObject({ code: `FORBIDDEN` })
+    const tooBig = await putHandoffBlob(
+      w.owner,
+      w.sessionId,
+      new Request(`http://x.test`, { method: `PUT`, body: new Uint8Array(10) }),
+      4
+    )
+    expect(tooBig.status).toBe(413)
+    const put = await putHandoffBlob(
+      w.owner,
+      w.sessionId,
+      new Request(`http://x.test`, { method: `PUT`, body: new Uint8Array([31, 139, 8]) })
+    )
+    expect(put.status).toBe(201)
+    const blob = (await row(w.sessionId)).handoff?.blob
+    expect(blob).toMatchObject({ sizeBytes: 3, fromDeviceId: w.deviceId, fromDeviceName: `box` })
+    expect(storage.uploaded).toContain(blob!.storageKey)
+
+    await host.handoff({ sessionId: w.sessionId, deviceId: w.deviceId, outcome: `moved` })
+    const moved = await row(w.sessionId)
+    expect(moved).toMatchObject({
+      deviceId: w.target,
+      hostUserId: null,
+      account: `pb`,
+      status: `queued`,
+      busy: false,
+      moveToDeviceId: null,
+      caption: null,
+    })
+    expect(moved.startedAt).not.toBeNull()
+    expect(moved.handoff).toMatchObject({ request: null, blob: { storageKey: blob!.storageKey } })
+    const system = await db
+      .select()
+      .from(messages)
+      .where(and(eq(messages.sessionId, w.sessionId), eq(messages.authorKind, `system`)))
+    expect(system.map((m) => m.body)).toContain(`Moved from box to b-box`)
+
+    // The target's brief names the package; the old device is shut out.
+    expect((await host.brief({ sessionId: w.sessionId })).handoff).toEqual({
+      sizeBytes: 3,
+      fromDeviceId: w.deviceId,
+      fromDeviceName: `box`,
+    })
+    await expect(host.claim({ sessionId: w.sessionId, deviceId: w.deviceId })).rejects.toMatchObject({
+      code: `FORBIDDEN`,
+    })
+    await host.report({ sessionId: w.sessionId, deviceId: w.deviceId, status: `idle` })
+    expect((await row(w.sessionId)).status).toBe(`queued`)
+    await host.claim({ sessionId: w.sessionId, deviceId: w.target })
+    expect((await row(w.sessionId)).status).toBe(`running`)
+    const [pending] = await db.select().from(messages).where(eq(messages.id, waiting.messageId!))
+    expect(pending!.consumedAt).toBeNull()
+
+    const got = await getHandoffBlob(w.owner, w.sessionId)
+    expect(got.status).toBe(200)
+    expect(got.headers.get(`content-type`)).toBe(`application/gzip`)
+    await host.handoffDone({ sessionId: w.sessionId })
+    expect((await row(w.sessionId)).handoff).toBeNull()
+    expect(storage.deleted).toContain(blob!.storageKey)
+    expect((await getHandoffBlob(w.owner, w.sessionId)).status).toBe(404)
+    // No move pending: the upload is refused.
+    const late = await putHandoffBlob(
+      w.owner,
+      w.sessionId,
+      new Request(`http://x.test`, { method: `PUT`, body: new Uint8Array([1]) })
+    )
+    expect(late.status).toBe(412)
+  })
+
+  it(`a failed handoff clears the move and says why; a never-started session moves at once`, async () => {
+    const w = await moveWorld()
+    await sendSession({ userId: w.owner, input: { sessionId: w.sessionId, deviceId: w.target } })
+    await caller(w.owner).handoff({
+      sessionId: w.sessionId,
+      deviceId: w.deviceId,
+      outcome: `failed`,
+      reason: `disk full`,
+    })
+    expect(await row(w.sessionId)).toMatchObject({ deviceId: w.deviceId, moveToDeviceId: null, handoff: null })
+    const system = await db
+      .select()
+      .from(messages)
+      .where(and(eq(messages.sessionId, w.sessionId), eq(messages.authorKind, `system`)))
+    expect(system.map((m) => m.body)).toContain(`Couldn't move the session: disk full`)
+
+    const fresh = await sendSession({
+      userId: w.owner,
+      input: { teamId: w.teamId, deviceId: w.deviceId, cli: `claude`, text: `not yet` },
+    })
+    await sendSession({ userId: w.owner, input: { sessionId: fresh.sessionId, deviceId: w.target } })
+    expect(await row(fresh.sessionId)).toMatchObject({
+      deviceId: w.target,
+      moveToDeviceId: null,
+      status: `queued`,
+      // No login picked at the start: the target settles on its own.
+      account: null,
+    })
+  })
+
+  it(`#FEED-84: an ended CHILD continues as its sibling with its branch, title and issues`, async () => {
+    const w = await world()
+    const issueId = await w.issue(`Sibling`)
+    const root = await sendSession({ userId: w.owner, input: { teamId: w.teamId, deviceId: w.deviceId, text: `r` } })
+    const c1 = await sendSession({ userId: w.owner, input: { parentId: root.sessionId, text: `c1` } })
+    const c2 = await sendSession({
+      userId: w.owner,
+      input: { parentId: c1.sessionId, text: `c2`, name: `Deep work`, issueIds: [issueId] },
+    })
+    await caller(w.owner).claim({ sessionId: c2.sessionId, branch: `exp/deep` })
+    await endSession({ userId: w.owner, sessionId: c2.sessionId })
+    const cont = await sendSession({ userId: w.owner, input: { sessionId: c2.sessionId, text: `more` } })
+    expect(await row(cont.sessionId)).toMatchObject({
+      parentId: c1.sessionId,
+      rootId: root.sessionId,
+      depth: 2,
+      branch: `exp/deep`,
+      title: `Deep work`,
+      status: `queued`,
+    })
+    const [link] = await db
+      .select()
+      .from(sessionIssues)
+      .where(and(eq(sessionIssues.sessionId, root.sessionId), eq(sessionIssues.issueId, issueId)))
+    expect(link!.assignedSessionId).toBe(cont.sessionId)
+    // An ended ROOT keeps continuing as its own child.
+    await endSession({ userId: w.owner, sessionId: root.sessionId })
+    const rootCont = await sendSession({ userId: w.owner, input: { sessionId: root.sessionId, text: `again` } })
+    expect(await row(rootCont.sessionId)).toMatchObject({ parentId: root.sessionId, depth: 1, branch: null })
+  })
+
+  it(`#FEED-84: sessions_list and sessions_get show the agent and its login`, async () => {
+    const w = await moveWorld()
+    const [listed] = await listSessions(w.owner, { teamId: w.teamId, kind: `thread`, limit: 10, offset: 0 })
+    expect(listed).toMatchObject({
+      id: w.sessionId,
+      cli: `claude`,
+      account: `pa`,
+      accountEmail: `me@move.test`,
+      accountHealth: `ok`,
+      blocked: null,
+    })
+    expect(listed).not.toHaveProperty(`hostUserId`)
+    const tree = await getSessionTree(w.owner, w.sessionId)
+    expect(tree.root).toMatchObject({ accountEmail: `me@move.test`, accountHealth: `ok` })
+    expect(tree.root).not.toHaveProperty(`handoff`)
+  })
+
+  it(`#FEED-85: idle clears busy, the sweep clears a dead device's busy, Stop frees a ghost`, async () => {
+    const { stopSession, sweepStaleSessions } = await import(`@/lib/sessions/lifecycle`)
+    const w = await moveWorld()
+    const host = caller(w.owner)
+    await host.report({ sessionId: w.sessionId, busy: true })
+    expect((await row(w.sessionId)).busy).toBe(true)
+    await host.report({ sessionId: w.sessionId, status: `idle` })
+    expect(await row(w.sessionId)).toMatchObject({ status: `idle`, busy: false })
+
+    // A dead device's idle row with a stale spinner.
+    const old = new Date(Date.now() - 3 * 3_600_000)
+    await db.update(devices).set({ lastSeenAt: old }).where(eq(devices.deviceId, w.deviceId))
+    // (the updated_at trigger would re-stamp it: write past the triggers)
+    await db.transaction(async (tx) => {
+      await tx.execute(sql`SET LOCAL session_replication_role = replica`)
+      await tx.update(sessions).set({ busy: true, updatedAt: old }).where(eq(sessions.id, w.sessionId))
+    })
+    await sweepStaleSessions()
+    expect((await row(w.sessionId)).busy).toBe(false)
+
+    // Stop on a running row whose device is offline frees it.
+    await db.update(sessions).set({ status: `running`, busy: true }).where(eq(sessions.id, w.sessionId))
+    await stopSession({ userId: w.owner, sessionId: w.sessionId })
+    expect(await row(w.sessionId)).toMatchObject({ status: `idle`, busy: false })
+    // An online device's Stop only interrupts.
+    await db.update(devices).set({ lastSeenAt: new Date() }).where(eq(devices.deviceId, w.deviceId))
+    await db.update(sessions).set({ status: `running`, busy: true }).where(eq(sessions.id, w.sessionId))
+    await stopSession({ userId: w.owner, sessionId: w.sessionId })
+    expect(await row(w.sessionId)).toMatchObject({ status: `running`, busy: true })
   })
 })

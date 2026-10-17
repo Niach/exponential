@@ -47,6 +47,8 @@ import com.exponential.app.domain.SessionAccountOption
 import com.exponential.app.domain.SessionAccountSwitch
 import com.exponential.app.domain.SessionConfigState
 import com.exponential.app.domain.SessionDevicePresentation
+import com.exponential.app.domain.SessionDeviceMove
+import com.exponential.app.domain.SessionDeviceMoveRow
 import com.exponential.app.domain.SessionUsageState
 import com.exponential.app.domain.SlashCommand
 import com.exponential.app.domain.SlashCommands
@@ -54,6 +56,7 @@ import com.exponential.app.domain.toSteerDevice
 import com.exponential.app.domain.parseLaunchDefaults
 import com.exponential.app.domain.resolveSessionDevice
 import com.exponential.app.ui.markdown.AttachmentDims
+import com.exponential.app.ui.steer.steerDeviceFlow
 import com.exponential.app.ui.markdown.IssueRefTarget
 import com.exponential.app.ui.markdown.issueRefTarget
 import com.exponential.app.ui.markdown.MentionMember
@@ -123,6 +126,21 @@ data class SessionAccountSwitchState(
     fun canSwitchAny(turnState: String): Boolean =
         options.any { refusal(it, turnState) == null }
 }
+
+/**
+ * EXP-1252: the session composer's Device pin — [SessionDeviceMove]'s rows
+ * and gates for ONE session. [visible] false = no pin at all (an agent, an
+ * aside); [blockedReason] = the whole pin disabled (can't steer, ended).
+ */
+data class SessionDeviceMoveState(
+    val visible: Boolean = false,
+    val blockedReason: String? = null,
+    val rows: List<SessionDeviceMoveRow> = emptyList(),
+    /** The current device's name, or `Moving to <target>…`. */
+    val label: String = "",
+    val moving: Boolean = false,
+    val deviceId: String? = null,
+)
 
 /**
  * The steer screen's ViewModel — a façade over the app-held SteerConnection
@@ -345,6 +363,42 @@ class AgentSessionViewModel @AssistedInject constructor(
             currentAccount = row.account,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SessionAccountSwitchState())
+
+    /**
+     * EXP-1252: the Device pin's rows — THE launch composer's machines for the
+     * session's team (own + shared into it, offline rows included so they can
+     * say why), each with its [SessionDeviceMove] refusal.
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val deviceMove: StateFlow<SessionDeviceMoveState> = combine(
+        session,
+        steerDeviceFlow(dbFlow, session.map { it?.teamId }.distinctUntilChanged(), auth.userId),
+        auth.userId,
+    ) { row, devices, userId ->
+        if (row == null || !SessionDeviceMove.visible(row.kind, row.aside)) {
+            return@combine SessionDeviceMoveState()
+        }
+        val moveTo = row.moveToDeviceId?.takeIf { it.isNotEmpty() }
+        val rows = SessionDeviceMove.rows(
+            devices.orEmpty(),
+            deviceId = row.deviceId.takeIf { it.isNotEmpty() },
+            moveToDeviceId = moveTo,
+            teamId = row.teamId,
+            shared = row.shared,
+            cli = row.cli,
+        )
+        SessionDeviceMoveState(
+            visible = true,
+            blockedReason = SessionDeviceMove.blockedReason(
+                canSteer = SessionDeviceMove.canSteer(row.shared, row.userId, userId),
+                ended = row.isEnded,
+            ),
+            rows = rows,
+            label = SessionDeviceMove.pinLabel(rows, row.deviceId, moveTo),
+            moving = moveTo != null,
+            deviceId = row.deviceId,
+        )
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SessionDeviceMoveState())
 
     /**
      * EXP-484/EXP-909: the rate-limit windows the Usage overlay heads with —
@@ -970,6 +1024,33 @@ class AgentSessionViewModel @AssistedInject constructor(
                 _switchError.value = trpcErrorMessage(t, "")
             } finally {
                 _switchingAccount.value = null
+            }
+        }
+    }
+
+    /** A failed move — `Couldn't move the session`, raised once by the screen. */
+    private val _moveError = MutableStateFlow<String?>(null)
+    val moveError: StateFlow<String?> = _moveError
+    fun clearMoveError() {
+        _moveError.value = null
+    }
+
+    /**
+     * EXP-1252: [picked] in the Device pin — another device = MOVE the session
+     * there, the current device while a move is pending = CANCEL it; both ONE
+     * `sessions.send({sessionId, deviceId})`. The synced `move_to_device_id`
+     * relabels the pin, so success needs nothing else.
+     */
+    fun moveToDevice(picked: String) {
+        val row = session.value ?: return
+        SessionDeviceMove.pick(picked, row.deviceId, row.moveToDeviceId?.takeIf { it.isNotEmpty() }) ?: return
+        viewModelScope.launch {
+            val accountId = auth.activeAccountId.value ?: return@launch
+            try {
+                sessionsApi.send(accountId, SessionsSendInput.moveToDevice(codingSessionId, picked))
+            } catch (t: Throwable) {
+                if (t is CancellationException) throw t
+                _moveError.value = trpcErrorMessage(t, "")
             }
         }
     }

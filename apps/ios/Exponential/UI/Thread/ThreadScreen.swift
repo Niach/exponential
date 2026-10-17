@@ -1317,6 +1317,10 @@ struct ThreadComposer: View {
                     guard let message else { return }
                     toaster.error(FeedbackStates.Errors.title(verb: "send", thing: "the message"), description: message)
                 }
+                .onChange(of: steerModel?.moveError) { _, message in
+                    guard let message else { return }
+                    toaster.error(SessionDeviceMove.failureToast, description: message)
+                }
                 .onChange(of: draft.draftEditor.isEditing) { _, editing in
                     if editing { focusPending = false }
                     guard expanded, !editing, !focusPending else { return }
@@ -1431,7 +1435,9 @@ struct ThreadComposer: View {
             onUsage: { showUsageSheet = true },
             showsPlan: row?.dispatch != true,
             ended: row?.status == DomainContract.sessionStatusEnded,
-            planModeFallback: model.sessionConfig == nil && row?.planMode == true
+            planModeFallback: model.sessionConfig == nil && row?.planMode == true,
+            // EXP-1252: the root's Device pin (move to another device).
+            devicePin: model.devicePin
         )
     }
 

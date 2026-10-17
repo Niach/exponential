@@ -1,11 +1,13 @@
 import { and, asc, desc, eq, inArray, isNull, ne, or } from "drizzle-orm"
 import { db } from "@/db/connection"
 import {
+  devices,
   issues,
   messages,
   pullRequests,
   sessionIssues,
   sessions,
+  type DeviceAgentHealth,
   type Session,
 } from "@/db/schema"
 import { getUserTeamIds } from "@/lib/auth/membership"
@@ -20,7 +22,7 @@ import type { SessionKind } from "@exp/db-schema/domain"
 
 export type PublicSession = Omit<
   Session,
-  `hostUserId` | `mcpServerIds` | `workLaunch` | `instructions`
+  `hostUserId` | `mcpServerIds` | `workLaunch` | `instructions` | `handoff`
 >
 
 export function publicSession(session: Session): PublicSession {
@@ -29,9 +31,60 @@ export function publicSession(session: Session): PublicSession {
     mcpServerIds: _mcp,
     workLaunch: _work,
     instructions: _instructions,
+    handoff: _handoff,
     ...rest
   } = session
   return rest
+}
+
+/** #FEED-84: the login a session runs on, as its HOST device reports it
+ *  (`devices.agent_accounts.<agent>.profiles[]`, the rows devices_list
+ *  returns): `accountEmail` + `accountHealth`, null when unknown. */
+export interface SessionAccountView {
+  accountEmail: string | null
+  accountHealth: DeviceAgentHealth | null
+}
+
+type AccountKey = Pick<Session, `deviceId` | `userId` | `hostUserId` | `cli` | `account`>
+
+export async function resolveSessionAccounts(
+  rows: readonly (AccountKey & { id: string })[]
+): Promise<Map<string, SessionAccountView>> {
+  const out = new Map<string, SessionAccountView>()
+  const wanted = rows.filter((row) => row.account)
+  const deviceIds = [...new Set(wanted.map((row) => row.deviceId))]
+  const deviceRows = deviceIds.length
+    ? await db
+        .select({
+          deviceId: devices.deviceId,
+          userId: devices.userId,
+          agentAccounts: devices.agentAccounts,
+          launchDefaults: devices.launchDefaults,
+        })
+        .from(devices)
+        .where(inArray(devices.deviceId, deviceIds))
+    : []
+  for (const row of rows) {
+    const owner = row.hostUserId ?? row.userId
+    const device = deviceRows.find(
+      (entry) => entry.deviceId === row.deviceId && entry.userId === owner
+    )
+    const agent = row.cli ?? device?.launchDefaults?.defaultAgent ?? null
+    const accounts = device?.agentAccounts ?? {}
+    const agents = agent ? [agent] : Object.keys(accounts)
+    const profile = row.account
+      ? agents
+          .flatMap((key) => accounts[key]?.profiles ?? [])
+          .find((entry) => entry?.id === row.account)
+      : undefined
+    out.set(row.id, {
+      accountEmail: profile?.email || null,
+      accountHealth: profile
+        ? (profile.health ?? (profile.signedIn ? `ok` : `signed_out`))
+        : null,
+    })
+  }
+  return out
 }
 
 const DEFAULT_TREE_MESSAGES = 20
@@ -100,14 +153,16 @@ export async function getSessionTree(
   ])
 
   const titles = await deriveSessionTitles([root, ...childRows])
+  const accounts = await resolveSessionAccounts([root, ...childRows])
   return {
-    root: { ...publicSession(root), displayTitle: titles.get(root.id)! },
+    root: { ...publicSession(root), displayTitle: titles.get(root.id)!, ...accounts.get(root.id)! },
     issues: issueRows,
     pullRequests: prRows,
     guide: root.guide ?? [],
     children: childRows.map((child) => ({
       ...publicSession(child),
       displayTitle: titles.get(child.id)!,
+      ...accounts.get(child.id)!,
     })),
     // Oldest first, the last `limit` of the whole tree.
     messages: messageRows.reverse(),
@@ -125,6 +180,13 @@ export interface SessionListRow {
   deviceId: string
   userId: string
   shared: boolean
+  // #FEED-84: the runner and its login (`accountEmail`/`accountHealth` off
+  // the host device's report), and the usage wall.
+  cli: string | null
+  account: string | null
+  accountEmail: string | null
+  accountHealth: DeviceAgentHealth | null
+  blocked: Session[`blocked`]
   name: string | null
   actionName: string | null
   createdAt: Date
@@ -155,7 +217,11 @@ export async function listSessions(
       needsInput: sessions.needsInput,
       deviceId: sessions.deviceId,
       userId: sessions.userId,
+      hostUserId: sessions.hostUserId,
       shared: sessions.shared,
+      cli: sessions.cli,
+      account: sessions.account,
+      blocked: sessions.blocked,
       name: sessions.name,
       actionName: sessions.actionName,
       createdAt: sessions.createdAt,
@@ -176,5 +242,10 @@ export async function listSessions(
     .offset(args.offset)
   // EXP-1341: THE title chain (session-title.json), never a SQL copy.
   const titles = await deriveSessionTitles(rows)
-  return rows.map(({ rootId: _root, ...row }) => ({ ...row, title: titles.get(row.id)! }))
+  const accounts = await resolveSessionAccounts(rows)
+  return rows.map(({ rootId: _root, hostUserId: _host, ...row }) => ({
+    ...row,
+    title: titles.get(row.id)!,
+    ...accounts.get(row.id)!,
+  }))
 }

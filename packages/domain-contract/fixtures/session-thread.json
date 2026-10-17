@@ -3052,6 +3052,101 @@
         "busy": true,
         "needsYou": true
       }
+    },
+    {
+      "name": "EXP-1252: a card-less system line (a session moved devices) is a system message row",
+      "input": {
+        "root": {
+          "teamId": "t-team-1",
+          "parentId": null,
+          "kind": "thread",
+          "userId": "u-dana",
+          "status": "running",
+          "busy": false,
+          "needsInput": false,
+          "blocked": null,
+          "shared": true,
+          "title": null,
+          "guide": null,
+          "actionName": null,
+          "name": null,
+          "icon": null,
+          "color": null,
+          "sortOrder": 0,
+          "startedAt": "2026-10-13T10:00:00.000Z",
+          "endedAt": null,
+          "createdAt": "2026-10-13T10:00:00.000Z",
+          "updatedAt": "2026-10-13T10:00:00.000Z",
+          "rootId": "r5",
+          "id": "r5"
+        },
+        "sessions": [],
+        "sessionIssues": [],
+        "issues": [],
+        "pullRequests": [],
+        "now": "2026-10-13T10:12:34.000Z",
+        "messages": [
+          {
+            "authorKind": "system",
+            "authorId": null,
+            "body": "Moved from Dana's MacBook to Build server",
+            "card": null,
+            "answeredAt": null,
+            "consumedAt": "2026-10-13T10:00:01.000Z",
+            "id": "m-moved",
+            "sessionId": "r5",
+            "createdAt": "2026-10-13T10:00:00.000Z"
+          },
+          {
+            "authorKind": "system",
+            "authorId": null,
+            "body": "",
+            "card": null,
+            "answeredAt": null,
+            "consumedAt": "2026-10-13T10:00:01.000Z",
+            "id": "m-blank",
+            "sessionId": "r5",
+            "createdAt": "2026-10-13T10:00:02.000Z"
+          }
+        ]
+      },
+      "expected": {
+        "rootId": "r5",
+        "title": "Untitled",
+        "private": false,
+        "focusId": null,
+        "tabs": [
+          {
+            "kind": "add"
+          },
+          {
+            "kind": "conversation"
+          },
+          {
+            "kind": "guide",
+            "dot": false
+          }
+        ],
+        "rows": [
+          {
+            "type": "message",
+            "id": "m-moved",
+            "author": "system",
+            "authorId": null,
+            "body": "Moved from Dana's MacBook to Build server",
+            "queued": false,
+            "authorSessionId": null
+          }
+        ],
+        "composer": {
+          "sessionId": "r5",
+          "placeholder": "Type / for commands"
+        },
+        "live": true,
+        "liveSessionId": "r5",
+        "busy": false,
+        "needsYou": false
+      }
     }
   ],
   "guidePullRequestCases": [

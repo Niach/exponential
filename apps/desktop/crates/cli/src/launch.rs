@@ -413,12 +413,19 @@ fn foreground_pass(
             PickupAction::Deliver { session_id: id, .. }
             | PickupAction::Revoke { session_id: id, .. }
             | PickupAction::Answer { session_id: id, .. }
-            | PickupAction::Kill { session_id: id } => id == session_id,
+            | PickupAction::Kill { session_id: id }
+            // EXP-1252: the row moved to another device: this engine stops
+            // without a row write.
+            | PickupAction::Release { session_id: id } => id == session_id,
             // EXP-1341: a revive is the daemon's (or the desktop's) work —
-            // this process runs ONE engine.
+            // this process runs ONE engine. EXP-1252: so is a move (its
+            // packing waits for this run to end) and a moved session's
+            // cleanup.
             PickupAction::Launch { .. }
             | PickupAction::Resume { .. }
-            | PickupAction::Revive { .. } => false,
+            | PickupAction::Revive { .. }
+            | PickupAction::Handoff { .. }
+            | PickupAction::Cleanup { .. } => false,
             // EXP-849: this process runs ONE engine and exits with it, so it
             // never relaunches on another login: the person hears so ONCE
             // per pick, the pick stays UNhonored (the first wake after this

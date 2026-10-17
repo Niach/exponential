@@ -51,6 +51,14 @@ pub(crate) fn canned_server(responses: Vec<(u16, String)>) -> String {
 pub(crate) fn canned_server_recording(
     responses: Vec<(u16, String)>,
 ) -> (String, Arc<std::sync::Mutex<Vec<String>>>) {
+    canned_server_bytes(responses.into_iter().map(|(status, body)| (status, body.into_bytes())).collect())
+}
+
+/// EXP-1252: [`canned_server_recording`] with raw byte bodies (a handoff
+/// package download).
+pub(crate) fn canned_server_bytes(
+    responses: Vec<(u16, Vec<u8>)>,
+) -> (String, Arc<std::sync::Mutex<Vec<String>>>) {
     let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
     let base = format!("http://127.0.0.1:{}", listener.local_addr().unwrap().port());
     let requests = Arc::new(std::sync::Mutex::new(Vec::new()));
@@ -94,11 +102,13 @@ pub(crate) fn canned_server_recording(
                 .lock()
                 .unwrap()
                 .push(String::from_utf8_lossy(&buf).into_owned());
-            let response = format!(
-                "HTTP/1.1 {status} X\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            let head = format!(
+                "HTTP/1.1 {status} X\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
                 body.len()
             );
-            let _ = stream.write_all(response.as_bytes());
+            let mut response = head.into_bytes();
+            response.extend_from_slice(&body);
+            let _ = stream.write_all(&response);
         }
     });
     (base, requests)

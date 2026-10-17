@@ -712,6 +712,10 @@ data class SessionEntity(
     val caption: String? = null,
     // EXP-1323: a `/btw` aside child (read-only fork, ends after its reply).
     @ColumnInfo(name = "aside", defaultValue = "0") val aside: PgBool = false,
+    // EXP-1252: a pending move to that steer deviceId (NULL = none); the
+    // source host hands the session off after its current turn.
+    @ColumnInfo(name = "move_to_device_id") @SerialName("move_to_device_id") @JsonNames("moveToDeviceId")
+    val moveToDeviceId: String? = null,
     // The agent's triggers (contract `agentTrigger`), raw jsonb TEXT.
     @ColumnInfo(name = "triggers") @SerialName("triggers")
     @Serializable(with = JsonAsStringSerializer::class) val triggers: String? = null,

@@ -156,14 +156,17 @@ impl RunLifecycle {
         }
         // 4b. EXP-1331: the caption's last write — the clear, or an aside's
         //     pinned answer — while the row is still live.
-        if !ctx.replay {
+        //     EXP-1252: a RELEASED run writes nothing to the row (it names
+        //     another device now, or is about to).
+        let released = outcome == RELEASED_OUTCOME;
+        if !ctx.replay && !released {
             finish_caption(ctx);
         }
         // 5. The row's last status. A thread session ends, through the
         //    observer-based path, so the CLI's `registry::end_outcome_resolves`
         //    applies; an agent root idles (agents never end — the next
         //    message or trigger firing wakes the SAME row).
-        let end = (!ctx.replay).then(|| finish_row(ctx, outcome));
+        let end = (!ctx.replay).then(|| if released { Ok(()) } else { finish_row(ctx, outcome) });
         // 6. EXP-758: this run's child (if it had one) is gone with the
         //    connection, so the record must stop naming it: a pid left here
         //    would make the next start's reaper sweep hunt a dead process,
@@ -211,6 +214,22 @@ impl RunLifecycle {
 /// account switch). The row goes `idle` like an agent root's, never `ended`
 /// (an ended root takes its whole tree with it), and no WIP is saved.
 pub const SUSPEND_OUTCOME: &str = "suspended";
+
+/// EXP-1252: the outcome of a shutdown that hands the session to ANOTHER
+/// device: the source host suspends its engine before packaging a move, or
+/// kills one whose row already names another device. Like
+/// [`SUSPEND_OUTCOME`] the workspace stays (the handoff packs it, the
+/// source's cleanup removes it once the target has it) and no WIP is saved,
+/// but the end sequence writes NOTHING to the row — not its status, not
+/// its caption: the row belongs to the target from the move on.
+pub const RELEASED_OUTCOME: &str = coding::pickup::RELEASED_OUTCOME;
+
+/// EXP-1252: an exit whose workspace the host must KEEP (a suspend for an
+/// immediate re-spawn, a release to another device) — never purged nor
+/// reclaimed on the way out.
+pub fn keeps_workspace(outcome: &str) -> bool {
+    outcome == SUSPEND_OUTCOME || outcome == RELEASED_OUTCOME
+}
 
 /// EXP-1331: the `sessions.report{caption}` hook.
 fn caption_hook(ctx: &SessionCtx) -> crate::live_caption::CaptionHook {
@@ -1034,6 +1053,17 @@ mod tests {
             serde_json::to_value(agent_idle_report()).expect("the report serializes"),
             serde_json::json!({"status": "idle", "busy": false})
         );
+    }
+
+    /// EXP-1252: a released run (handed to another device) writes no row:
+    /// no end, no idle, no caption — and keeps its workspace like a suspend.
+    #[test]
+    fn a_released_run_writes_no_row() {
+        assert!(keeps_workspace(RELEASED_OUTCOME));
+        assert!(keeps_workspace(SUSPEND_OUTCOME));
+        assert!(!keeps_workspace("killed"));
+        assert!(!keeps_workspace("ended"));
+        assert!(!crate::stop_save::stopped_by_person(RELEASED_OUTCOME));
     }
 
     /// EXP-1292: only a thread session's real exit ends its row; an agent

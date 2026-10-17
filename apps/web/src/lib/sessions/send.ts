@@ -21,6 +21,7 @@ import {
   mcpServers,
   pullRequests,
   repositories,
+  sessionIssues,
   sessions,
   type Session,
 } from "@/db/schema"
@@ -28,9 +29,28 @@ import { generateTxId } from "@/lib/trpc"
 import { assertTeamMember, assertTeamOwner, getTeamMember } from "@/lib/auth/membership"
 import { resolveActionInputs } from "@/lib/action-inputs"
 import { actionInputLookups } from "@/lib/sessions/action-lookups"
-import { assertCanSteer, loadSessionForUser, sessionVisibleTo } from "@/lib/sessions/access"
+import {
+  assertCanSteer,
+  loadSessionForUser,
+  sessionDeviceOwner,
+  sessionVisibleTo,
+} from "@/lib/sessions/access"
 import { assertIssuesInTeam, assignIssues, linkIssues } from "@/lib/sessions/issues"
-import { postPersonMessage, postSessionInput, postSystemCard } from "@/lib/sessions/messages"
+import {
+  postMovedMessage,
+  postPersonMessage,
+  postSessionInput,
+  postSystemCard,
+} from "@/lib/sessions/messages"
+import {
+  assertMovable,
+  deviceName,
+  loadDeviceRow,
+  movedText,
+  movingCaption,
+  resolveMoveTarget,
+  type MoveTarget,
+} from "@/lib/sessions/move"
 import type { Tx } from "@/lib/sessions/tx"
 import { asideTitle } from "@/lib/sessions/caption"
 import { buildAttachmentUrl, isAcceptedImageContentType } from "@/lib/storage/issue-attachments"
@@ -407,6 +427,103 @@ export async function effectiveCli(
   return device?.launchDefaults?.defaultAgent ?? null
 }
 
+/** EXP-1252: what a message's `deviceId` asks for. `none` = no device, or
+ *  the current one with no move pending (harmless); `cancel` = the current
+ *  device while a move is pending; `request` = move a run that started;
+ *  `direct` = a session that never started simply re-targets (nothing to
+ *  hand off). Refusals: agent, aside, ended, then the target's own. */
+type MovePlan =
+  | { kind: `none` }
+  | { kind: `cancel` }
+  | { kind: `request` | `direct`; target: MoveTarget }
+
+async function planMove(
+  session: Session,
+  input: SessionsSendInput
+): Promise<MovePlan> {
+  const deviceId = input.deviceId
+  if (deviceId === undefined) return { kind: `none` }
+  if (deviceId === session.deviceId && !session.moveToDeviceId) return { kind: `none` }
+  assertMovable(session)
+  if (deviceId === session.deviceId) return { kind: `cancel` }
+  const target = await resolveMoveTarget(session, deviceId, {
+    account: input.account ?? null,
+    requireOnline: true,
+  })
+  return {
+    kind: session.status === `queued` && !session.startedAt ? `direct` : `request`,
+    target,
+  }
+}
+
+/** Writes a move plan inside the send's transaction; returns the device to
+ *  nudge (the SOURCE for a request or cancel, the target for a direct move). */
+async function applyMove(
+  tx: Tx,
+  session: Session,
+  move: MovePlan,
+  requestedBy: string
+): Promise<SendOutcome[`queued`]> {
+  const now = new Date()
+  const blob = session.handoff?.blob ?? null
+  const source = { ownerId: sessionDeviceOwner(session), deviceId: session.deviceId }
+  switch (move.kind) {
+    case `none`:
+      return null
+    case `cancel`:
+      await tx
+        .update(sessions)
+        .set({
+          moveToDeviceId: null,
+          // A package uploaded before the cancel stays for the sweep.
+          handoff: blob ? { request: null, blob } : null,
+          caption: null,
+          updatedAt: now,
+        })
+        .where(eq(sessions.id, session.id))
+      return source
+    case `request`:
+      await tx
+        .update(sessions)
+        .set({
+          moveToDeviceId: move.target.deviceId,
+          handoff: {
+            request: {
+              deviceId: move.target.deviceId,
+              account: move.target.account,
+              requestedBy,
+              requestedAt: now.toISOString(),
+            },
+            blob,
+          },
+          caption: movingCaption(move.target.name),
+          updatedAt: now,
+        })
+        .where(eq(sessions.id, session.id))
+      return source
+    case `direct`: {
+      const from = deviceName(
+        await loadDeviceRow(session.deviceId, sessionDeviceOwner(session)),
+        session.deviceId
+      )
+      await tx
+        .update(sessions)
+        .set({
+          deviceId: move.target.deviceId,
+          hostUserId: move.target.hostUserId,
+          account: move.target.account,
+          moveToDeviceId: null,
+          handoff: blob ? { request: null, blob } : null,
+          caption: null,
+          updatedAt: now,
+        })
+        .where(eq(sessions.id, session.id))
+      await postMovedMessage(tx, session, movedText(from, move.target.name))
+      return { ownerId: move.target.ownerId, deviceId: move.target.deviceId }
+    }
+  }
+}
+
 async function messageSession(
   userId: string,
   uploaderIds: string[],
@@ -422,12 +539,15 @@ async function messageSession(
   }
 
   const hasMessage = !!input.text?.trim() || !!input.attachmentIds?.length
+  const move = await planMove(target, input)
   if (target.status !== `ended` || isPersistent(target)) {
     // EXP-849: `account` on a message = an account SWITCH. The synced
     // `sessions.account` is the login the session should run on; the host
     // device sees it move and resumes the SAME row on that login between
     // turns (`coding::pickup` Switch). An account-only send posts no message.
-    const switching = input.account !== undefined && input.account !== target.account
+    // With a move (EXP-1252) `account` is the login to use on the TARGET.
+    const switching =
+      move.kind === `none` && input.account !== undefined && input.account !== target.account
     if (switching && (await effectiveCli(target)) === `codex`) {
       throw new TRPCError({
         code: `BAD_REQUEST`,
@@ -442,6 +562,7 @@ async function messageSession(
           .set({ account: input.account, updatedAt: new Date() })
           .where(eq(sessions.id, target.id))
       }
+      const queued = await applyMove(tx, target, move, userId)
       // EXP-1323: another session's message over its MCP key is ITS input
       // (agent-authored, pending like a person's: the target wakes and reads
       // it). Over tRPC the header never speaks for a session: a person's
@@ -462,7 +583,7 @@ async function messageSession(
       }
       const messageId = await postSendMessage(tx, target, input, userId, uploaderIds, from)
       await extras.within?.(tx, { sessionId: target.id, messageId, rootId: target.rootId })
-      return { sessionId: target.id, messageId, status: target.status, txid, queued: null }
+      return { sessionId: target.id, messageId, status: target.status, txid, queued }
     })
   }
   if (!hasMessage) {
@@ -473,22 +594,29 @@ async function messageSession(
     })
   }
 
-  // An ended thread continues: a new child of the ROOT on the same device
-  // with the same pickers, its first message = this one.
+  // An ended thread continues: a new child on the same device with the same
+  // pickers, its first message = this one. An ended ROOT continues as a
+  // child of itself; an ended CHILD (#FEED-84) as its SIBLING: same parent,
+  // depth, branch (the device reuses its worktree), title and assigned
+  // issues, so it keeps its context.
   const device = await resolveSessionDevice(userId, target.teamId, target.deviceId)
+  const endedChild = target.parentId !== null
   return db.transaction(async (tx) => {
     const txid = await generateTxId(tx)
-    await assertTreeRoom(tx, target.rootId, 1)
+    const depth = endedChild ? target.depth || 1 : 1
+    await assertTreeRoom(tx, target.rootId, depth)
     const [root] = await tx.select().from(sessions).where(eq(sessions.id, target.rootId)).limit(1)
     if (!root) throw new TRPCError({ code: `NOT_FOUND`, message: `Session not found` })
+    const parentId = target.parentId ?? root.id
     const id = crypto.randomUUID()
     const child = await insertSession(tx, {
       id,
       teamId: root.teamId,
-      parentId: root.id,
+      parentId,
       rootId: root.id,
-      depth: 1,
+      depth,
       kind: `thread`,
+      ...(endedChild ? { branch: target.branch, title: target.title } : {}),
       userId,
       hostUserId: device.hostUserId,
       deviceId: target.deviceId,
@@ -509,6 +637,15 @@ async function messageSession(
       status: `queued`,
       shared: root.shared,
     })
+    if (endedChild) {
+      // The continuation takes over the ended child's issue claims.
+      await tx
+        .update(sessionIssues)
+        .set({ assignedSessionId: child.id })
+        .where(
+          and(eq(sessionIssues.sessionId, root.id), eq(sessionIssues.assignedSessionId, target.id))
+        )
+    }
     if (input.issueIds?.length) {
       await assertIssuesInTeam(tx, root.teamId, input.issueIds)
       await assignIssues(tx, {
@@ -528,7 +665,7 @@ async function messageSession(
       uploaderIds,
       caller ? { sessionId: caller.id, asSession: false } : null
     )
-    await postSystemCard(tx, root, { kind: `session`, sessionId: child.id })
+    await postSystemCard(tx, endedChild ? parentId : root, { kind: `session`, sessionId: child.id })
     await extras.within?.(tx, { sessionId: child.id, messageId, rootId: root.id })
     return {
       sessionId: child.id,

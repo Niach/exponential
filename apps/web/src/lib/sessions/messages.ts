@@ -71,6 +71,16 @@ export function postSystemCard(
   return insertMessage(tx, sessionId, { authorKind: `system`, card })
 }
 
+/** EXP-1252: a server line in the Conversation (a session moved devices, a
+ *  move failed). Pre-consumed: it never wakes or feeds the agent. */
+export function postMovedMessage(
+  tx: Tx,
+  sessionId: string | SessionMirror,
+  body: string
+): Promise<string> {
+  return insertMessage(tx, sessionId, { authorKind: `system`, body, consumedAt: new Date() })
+}
+
 /** The agent's side: a turn's final reply text and/or a card. */
 export function postAgentMessage(
   tx: Tx,

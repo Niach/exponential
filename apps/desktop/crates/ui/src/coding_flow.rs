@@ -1021,7 +1021,9 @@ pub(crate) fn host_prepared(
                 } else {
                     log::info!("[ui] acp session {session_id} ended ({})", exit.outcome);
                 }
-                let suspended = exit.outcome == engine::SUSPEND_OUTCOME;
+                // EXP-1252: a run released to another device keeps its
+                // workspace too (the move packs it; its cleanup removes it).
+                let suspended = engine::keeps_workspace(&exit.outcome);
                 crate::steer_wiring::unwatch_kill(&session_id, cx);
                 if let Some(sessions) = sessions.upgrade() {
                     LocalSessions::remove(&sessions, &session_id, suspended, cx);

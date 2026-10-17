@@ -78,18 +78,60 @@ export async function reclaimOrphanSessionAttachmentsInTx(
   return { storageKeys: collectAttachmentStorageKeys(rows) }
 }
 
+/** EXP-1252: a week-old handoff package (`sessions.handoff.blob`) nobody
+ *  restored (a target that never came back, a cancelled move's upload) is
+ *  dropped from its row; the keys come back for the S3 delete. */
+export const HANDOFF_BLOB_RETENTION_MS = 7 * 24 * 60 * 60 * 1000
+
+export async function reclaimStaleHandoffBlobsInTx(
+  tx: Tx,
+  cutoff: Date
+): Promise<{ storageKeys: string[] }> {
+  const updated = await tx.execute(sql`
+    WITH stale AS (
+      SELECT id, handoff->'blob'->>'storageKey' AS storage_key
+      FROM sessions
+      WHERE jsonb_typeof(handoff->'blob') = 'object'
+        AND (handoff->'blob'->>'uploadedAt')::timestamptz <= ${cutoff}
+      LIMIT ${MAX_BATCH}
+      FOR UPDATE
+    )
+    UPDATE sessions s
+    SET handoff = CASE
+        WHEN jsonb_typeof(s.handoff->'request') = 'object'
+          THEN jsonb_build_object('request', s.handoff->'request', 'blob', NULL)
+        ELSE NULL
+      END,
+      updated_at = now()
+    FROM stale
+    WHERE s.id = stale.id
+    RETURNING stale.storage_key
+  `)
+  const storageKeys = (updated.rows as Array<{ storage_key: string | null }>)
+    .map((row) => row.storage_key)
+    .filter((key): key is string => !!key)
+  return { storageKeys }
+}
+
 export async function runSessionAttachmentSweep(
   now: Date = new Date()
-): Promise<{ attachmentsDeleted: number; objectsDeleted: number }> {
+): Promise<{ attachmentsDeleted: number; objectsDeleted: number; handoffsDeleted: number }> {
   const cutoff = new Date(now.getTime() - ORPHAN_SESSION_ATTACHMENT_RETENTION_MS)
   const { storageKeys } = await db.transaction((tx) =>
     reclaimOrphanSessionAttachmentsInTx(tx, cutoff)
   )
-  if (storageKeys.length === 0) return { attachmentsDeleted: 0, objectsDeleted: 0 }
+  const handoffCutoff = new Date(now.getTime() - HANDOFF_BLOB_RETENTION_MS)
+  const handoffs = await db.transaction((tx) => reclaimStaleHandoffBlobsInTx(tx, handoffCutoff))
+  const keys = [...storageKeys, ...handoffs.storageKeys]
+  if (keys.length === 0) return { attachmentsDeleted: 0, objectsDeleted: 0, handoffsDeleted: 0 }
   // Best-effort, per-key error-swallowed (bun-s3-cleanup.ts: this module
   // must not reach aws-sdk).
-  await deleteStorageObjectsViaBun(storageKeys)
-  return { attachmentsDeleted: storageKeys.length, objectsDeleted: storageKeys.length }
+  await deleteStorageObjectsViaBun(keys)
+  return {
+    attachmentsDeleted: storageKeys.length,
+    objectsDeleted: keys.length,
+    handoffsDeleted: handoffs.storageKeys.length,
+  }
 }
 
 let started = false
@@ -104,7 +146,7 @@ async function sweep(): Promise<void> {
     reportSchedulerRun(`session-attachment-sweep`, {
       ok: true,
       durationMs: performance.now() - startMs,
-      detail: `${result.attachmentsDeleted} deleted, ${result.objectsDeleted} objects deleted`,
+      detail: `${result.attachmentsDeleted} deleted, ${result.handoffsDeleted} handoffs, ${result.objectsDeleted} objects deleted`,
     })
     if (result.attachmentsDeleted > 0) {
       console.log(

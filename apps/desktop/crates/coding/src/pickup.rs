@@ -383,6 +383,55 @@ pub enum PickupAction {
     /// past its engine's, [`options_delta`]): the login stays, plan mode
     /// switches live, the rest restarts the run between turns.
     Switch { session: SessionRow, account: String, messages: Vec<MessageRow> },
+    /// EXP-1252: a row on this device with a move pending
+    /// (`move_to_device_id`, [`SessionRow::moving_to`]): [`hand_off`] waits
+    /// for its engine's true idle, suspends it, packs and uploads the
+    /// session, then `sessions.handoff{moved}`. Its deliveries, switches,
+    /// resumes and revives wait (the messages stay on the server).
+    Handoff { session: SessionRow },
+    /// EXP-1252: a live engine here whose row names ANOTHER device (moved by
+    /// a handoff, or an agent moved in Settings): stop it with
+    /// [`RELEASED_OUTCOME`] — it writes nothing to the row (one writer).
+    Release { session_id: String },
+    /// EXP-1252: a session handed off from here whose row shows the target
+    /// claimed it ([`crate::handoff::cleanups_due`], appended by the hosts):
+    /// remove its local copy ([`crate::handoff::cleanup`]).
+    Cleanup { session_id: String },
+}
+
+/// EXP-1252: [`crate::pickup::PickupAction::Release`]'s outcome
+/// (`engine::RELEASED_OUTCOME`, mirrored here: `coding` cannot depend on
+/// `engine`).
+pub const RELEASED_OUTCOME: &str = "released";
+
+impl PickupAction {
+    /// The session the action is about.
+    pub fn session_id(&self) -> &str {
+        match self {
+            Self::Launch { session }
+            | Self::Resume { session, .. }
+            | Self::Revive { session }
+            | Self::Switch { session, .. }
+            | Self::Handoff { session } => &session.id,
+            Self::Deliver { session_id, .. }
+            | Self::Revoke { session_id, .. }
+            | Self::Answer { session_id, .. }
+            | Self::Kill { session_id }
+            | Self::Release { session_id }
+            | Self::Cleanup { session_id } => session_id,
+        }
+    }
+}
+
+/// EXP-1252: the [`PickupAction::Cleanup`]s due on this machine — hosts
+/// append them to [`plan`]'s actions (with EVERY visible row: the moved
+/// session's row names the target device). Blocking-free: reads one small
+/// file.
+pub fn cleanup_actions(data_dir: &std::path::Path, device_id: &str, sessions: &[SessionRow]) -> Vec<PickupAction> {
+    crate::handoff::cleanups_due(data_dir, device_id, sessions)
+        .into_iter()
+        .map(|session_id| PickupAction::Cleanup { session_id })
+        .collect()
 }
 
 /// Decide one pass. Pure.
@@ -441,6 +490,13 @@ pub fn plan(input: PickupInput<'_>) -> Vec<PickupAction> {
     let mut actions = Vec::new();
     let mut killed = HashSet::new();
     for &session_id in &live_ids {
+        // EXP-1252: a row naming another device is RELEASED — nothing here
+        // may write it any more, not even its end.
+        if rows.get(session_id).is_some_and(|row| !row.on_device(input.device_id)) {
+            killed.insert(session_id);
+            actions.push(PickupAction::Release { session_id: session_id.to_string() });
+            continue;
+        }
         let gone = rows
             .get(session_id)
             .map_or(true, |row| row.status_is(SESSION_STATUS_ENDED));
@@ -459,7 +515,11 @@ pub fn plan(input: PickupInput<'_>) -> Vec<PickupAction> {
         {
             continue;
         }
-        if row.status_is(SESSION_STATUS_QUEUED) {
+        if row.moving_to().is_some() && !row.status_is(SESSION_STATUS_ENDED) {
+            // EXP-1252: a move is pending — no launch, resume or revive
+            // here; the session is packed as it lies.
+            starts.push((row, PickupAction::Handoff { session: row.clone() }));
+        } else if row.status_is(SESSION_STATUS_QUEUED) {
             starts.push((row, PickupAction::Launch { session: row.clone() }));
         } else if row.status_is(SESSION_STATUS_RUNNING) || row.status_is(SESSION_STATUS_IDLE) {
             if let Some(first) = pending.get(row.id.as_str()).and_then(|queue| queue.first()) {
@@ -478,6 +538,7 @@ pub fn plan(input: PickupInput<'_>) -> Vec<PickupAction> {
     // 3. Switches, revokes, deliveries, answers of the surviving live
     // sessions.
     let mut switches = Vec::new();
+    let mut handoffs = Vec::new();
     let mut revokes = Vec::new();
     let mut deliveries: Vec<(&MessageRow, PickupAction)> = Vec::new();
     let mut answers: Vec<(&MessageRow, PickupAction)> = Vec::new();
@@ -493,8 +554,13 @@ pub fn plan(input: PickupInput<'_>) -> Vec<PickupAction> {
                 });
             }
         }
+        // EXP-1252: a move is pending — the engine finishes what it has,
+        // gets nothing new (the messages wait on the server for the target),
+        // and cards still answer.
+        let moving = rows.get(session_id).copied().filter(|row| row.moving_to().is_some());
         let fresh: Vec<&MessageRow> = pending
             .get(session_id)
+            .filter(|_| moving.is_none())
             .map(|queue| queue.iter().copied().filter(|m| !view.handed.contains(&m.id)).collect())
             .unwrap_or_default();
         let switch = rows.get(session_id).and_then(|row| {
@@ -506,7 +572,9 @@ pub fn plan(input: PickupInput<'_>) -> Vec<PickupAction> {
                 .filter(|row| reconfigure_due(row, view, !fresh.is_empty()))
                 .map(|row| (*row, String::new()))
         });
-        if let Some((row, account)) = switch {
+        if let Some(row) = moving {
+            handoffs.push(PickupAction::Handoff { session: row.clone() });
+        } else if let Some((row, account)) = switch {
             switches.push(PickupAction::Switch {
                 session: row.clone(),
                 account,
@@ -538,6 +606,7 @@ pub fn plan(input: PickupInput<'_>) -> Vec<PickupAction> {
     deliveries.sort_by(|(a, _), (b, _)| message_order(a, b));
     answers.sort_by(|(a, _), (b, _)| message_order(a, b));
     actions.extend(switches);
+    actions.extend(handoffs);
     actions.extend(revokes);
     actions.extend(deliveries.into_iter().map(|(_, action)| action));
     actions.extend(answers.into_iter().map(|(_, action)| action));
@@ -731,6 +800,11 @@ pub trait LiveEngine: Send + Sync {
     fn is_done(&self) -> bool;
     /// EXP-849: between turns (nothing in flight) — a switch waits for it.
     fn is_idle(&self) -> bool;
+    /// EXP-1252: TRULY idle — between turns, no backgrounded subagent still
+    /// running, no open question/plan card. A move waits for it.
+    fn quiescent(&self) -> bool {
+        self.is_idle() && self.open_cards().is_empty()
+    }
     /// EXP-1292: stop the PROCESS but not the session (the row idles, the
     /// run's workspace — a scratch dir included — is kept) for an immediate
     /// re-spawn of the same row on another account.
@@ -795,6 +869,9 @@ pub struct LiveRegistry {
     /// EXP-1341: persistent roots and their revive state in THIS process
     /// ([`LiveRegistry::revive_held`]).
     revives: std::sync::Mutex<HashMap<String, ReviveState>>,
+    /// EXP-1252: moves waiting for their engine's true idle → since when
+    /// ([`crate::handoff::IDLE_TIMEOUT`]).
+    handoff_waits: std::sync::Mutex<HashMap<String, std::time::Instant>>,
 }
 
 /// EXP-1341: one persistent root's revive state in this process. An engine
@@ -1378,7 +1455,7 @@ pub fn launch_queued(row: &SessionRow, deps: &PickupDeps) -> Result<LaunchQueued
     };
     let mut waits = CLAIM_RETRY.iter();
     loop {
-        match session_device::claim(&deps.coding.trpc, &row.id, None) {
+        match session_device::claim(&deps.coding.trpc, &row.id, Some(&deps.device_id), None) {
             Ok(()) => break,
             Err(ApiError::Http { status, message }) if claim_refused(status) => {
                 deps.live.settle(&row.id);
@@ -1398,7 +1475,7 @@ pub fn launch_queued(row: &SessionRow, deps: &PickupDeps) -> Result<LaunchQueued
             },
         }
     }
-    let brief = match session_device::brief(&deps.coding.trpc, &row.id) {
+    let mut brief = match session_device::brief(&deps.coding.trpc, &row.id) {
         Ok(brief) => brief,
         Err(err) if transient(&err) => {
             return Err(gave_up(format!("Couldn't start this session: {err}")));
@@ -1410,6 +1487,33 @@ pub fn launch_queued(row: &SessionRow, deps: &PickupDeps) -> Result<LaunchQueued
             return Err(reason);
         }
     };
+    // EXP-1252: the session MOVED here — its package waits on the server.
+    let moved_in = brief.handoff.clone().filter(|_| !row.aside);
+    let handoff = match &moved_in {
+        Some(info) => match receive_handoff(row, info, deps) {
+            Ok(received) => received,
+            Err(err) if transient(&err) => {
+                return Err(gave_up(format!("Couldn't fetch this session's move: {err}")));
+            }
+            Err(err) => {
+                // The package stays on the server; the session starts here
+                // without it and says so.
+                let reason = format!("Couldn't restore this session's move: {err}");
+                log::warn!("pickup: session {}: {reason}", row.id);
+                if let Err(err) = session_device::reply(&deps.coding.trpc, &row.id, &reason, None) {
+                    log::warn!("pickup: move failure of {} not replied: {err}", row.id);
+                }
+                None
+            }
+        },
+        None => None,
+    };
+    if let Some(info) = &moved_in {
+        if handoff.is_none() {
+            brief.brief = with_moved_note(&brief.brief, &info.from_device_name);
+        }
+    }
+    let mut restored = false;
     // EXP-1330: a `/btw` aside forks its parent's run (`crate::aside`): no
     // worktree, no brief turn — the question is the first prompt.
     let prepared = if row.aside {
@@ -1426,15 +1530,44 @@ pub fn launch_queued(row: &SessionRow, deps: &PickupDeps) -> Result<LaunchQueued
         if issue_identifiers.is_empty() {
             issue_identifiers = (deps.issue_identifiers)(row.root_id_or_self());
         }
-        let req = SessionLaunchRequest {
+        let from_device = moved_in.as_ref().map(|info| info.from_device_name.clone()).unwrap_or_default();
+        let mut req = SessionLaunchRequest {
             session: row.clone(),
             brief,
             issue_identifiers,
-            resume: None,
+            // EXP-1252: a moved session resumes natively from the package.
+            resume: handoff.map(|(record, import)| ResumeRun {
+                record,
+                prompt: String::new(),
+                message_id: None,
+                reconfigure: None,
+                handoff: Some(import),
+            }),
             device_label: deps.device_label.clone(),
             options: deps.options.clone(),
         };
-        crate::prepare(&PrepareRequest::Session(req), &deps.coding).map(|prepared| match prepared {
+        let first = crate::prepare(&PrepareRequest::Session(req.clone()), &deps.coding);
+        let prepared = match first {
+            // EXP-1252: a restore that failed falls back to a fresh launch on
+            // the session's branch (the worktree as far as it got), the
+            // move named in the brief.
+            Err(err) if req.resume.is_some() => {
+                let reason = format!("Couldn't restore everything this session brought along: {err}");
+                log::warn!("pickup: session {}: {reason}", row.id);
+                if let Err(err) = session_device::reply(&deps.coding.trpc, &row.id, &reason, None) {
+                    log::warn!("pickup: restore failure of {} not replied: {err}", row.id);
+                }
+                req.resume = None;
+                req.brief.brief = with_moved_note(&req.brief.brief, &from_device);
+                crate::prepare(&PrepareRequest::Session(req), &deps.coding)
+            }
+            Ok(prepared) => {
+                restored = req.resume.is_some() && matches!(prepared, Prepared::Ready(_));
+                Ok(prepared)
+            }
+            Err(err) => Err(err),
+        };
+        prepared.map(|prepared| match prepared {
             Prepared::Ready(prepared) => Ok(prepared),
             Prepared::Disabled(reason) => Err(reason.message()),
         })
@@ -1443,7 +1576,12 @@ pub fn launch_queued(row: &SessionRow, deps: &PickupDeps) -> Result<LaunchQueued
         Ok(Ok(prepared)) => {
             deps.live.settle(&row.id);
             let honored = Some(crate::agent_profiles::profile_id(row.account.as_deref()));
-            spawn(&row.id, row.is_persistent(), prepared, claim, false, honored, Some(row), deps)?;
+            // EXP-1252: a refused moved session idles (its work is here now).
+            let waking = moved_in.is_some();
+            spawn(&row.id, row.is_persistent(), prepared, claim, waking, honored, Some(row), deps)?;
+            if restored {
+                finish_handoff(&row.id, deps);
+            }
             Ok(LaunchQueued::Launched { session_id: row.id.clone() })
         }
         Ok(Err(reason)) => {
@@ -1460,6 +1598,62 @@ pub fn launch_queued(row: &SessionRow, deps: &PickupDeps) -> Result<LaunchQueued
             refuse(row.is_persistent(), &row.id, &reason, false, deps);
             Err(reason)
         }
+    }
+}
+
+/// EXP-1252: the brief of a moved session that starts afresh: the move named.
+fn with_moved_note(brief: &str, from_device: &str) -> String {
+    let note = crate::handoff::moved_note(from_device, false);
+    match brief.trim_end() {
+        "" => note,
+        brief => format!("{brief}\n\n{note}"),
+    }
+}
+
+/// EXP-1252: download and unpack a moved session's package into
+/// `{data_dir}/handoffs/<id>/`, restore its journal and build the run
+/// record it resumes from. `Ok(None)` = nothing usable to resume (no run
+/// ever recorded at the source, an unknown agent): an ordinary launch.
+fn receive_handoff(
+    row: &SessionRow,
+    info: &session_device::BriefHandoff,
+    deps: &PickupDeps,
+) -> Result<Option<(RunRecord, crate::handoff::HandoffImport)>, ApiError> {
+    let data_dir = &deps.coding.data_dir;
+    let dir = crate::handoff::package_dir(data_dir, &row.id)
+        .ok_or_else(|| ApiError::Decode(format!("session id {:?} is not a plain path segment", row.id)))?;
+    let bytes = session_device::download_handoff(&deps.coding.trpc, &row.id)?;
+    let _ = std::fs::remove_dir_all(&dir);
+    let manifest = crate::handoff::extract_package(&bytes, &dir).map_err(ApiError::Decode)?;
+    if manifest.session_id != row.id {
+        return Err(ApiError::Decode("the package belongs to another session".to_string()));
+    }
+    let import = crate::handoff::HandoffImport {
+        dir,
+        manifest,
+        from_device: info.from_device_name.clone(),
+    };
+    if let Err(err) = crate::handoff::restore_journal(data_dir, &import) {
+        log::warn!("pickup: session {}'s journal not restored: {err}", row.id);
+    }
+    let record = crate::handoff::target_record(
+        row,
+        &import.manifest,
+        data_dir,
+        &deps.coding.settings.repos_root_path(),
+        &deps.coding.account_id,
+    );
+    Ok(record.map(|record| (record, import)))
+}
+
+/// EXP-1252: the moved session runs here — the server drops the package
+/// (`sessions.handoffDone`), this machine its unpacked copy. Best-effort.
+fn finish_handoff(session_id: &str, deps: &PickupDeps) {
+    if let Err(err) = session_device::handoff_done(&deps.coding.trpc, session_id) {
+        log::warn!("pickup: handoff of {session_id} not marked done: {err}");
+    }
+    if let Some(dir) = crate::handoff::package_dir(&deps.coding.data_dir, session_id) {
+        let _ = std::fs::remove_dir_all(dir);
     }
 }
 
@@ -1569,6 +1763,7 @@ fn deliver(
         prompt: first.body.clone().unwrap_or_default(),
         message_id: Some(first.id.clone()),
         reconfigure: None,
+        handoff: None,
     });
     let seeded = resume.is_some();
     let mut options = deps.options.clone();
@@ -1679,6 +1874,7 @@ pub fn revive_session(row: &SessionRow, deps: &PickupDeps) -> Result<(), String>
             prompt: String::new(),
             message_id: None,
             reconfigure: None,
+            handoff: None,
         }),
         device_label: deps.device_label.clone(),
         options: deps.options.clone(),
@@ -1740,6 +1936,171 @@ pub fn execute(action: &PickupAction, deps: &PickupDeps) -> Result<(), String> {
         PickupAction::Switch { session, account, messages } => {
             switch_session(session, account, None, messages, deps).map(|_| ()).map_err(|err| err.to_string())
         }
+        PickupAction::Handoff { session } => hand_off(session, deps).map(|_| ()),
+        PickupAction::Release { session_id } => {
+            release(session_id, deps);
+            Ok(())
+        }
+        PickupAction::Cleanup { session_id } => {
+            crate::handoff::cleanup(&deps.coding.data_dir, session_id);
+            Ok(())
+        }
+    }
+}
+
+/// EXP-1252: stop a live engine whose row names another device, writing
+/// nothing to the row ([`RELEASED_OUTCOME`]).
+pub fn release(session_id: &str, deps: &PickupDeps) {
+    if let Some(engine) = deps.live.remove(session_id) {
+        log::info!("pickup: session {session_id} runs on another device now: releasing its engine");
+        engine.kill(RELEASED_OUTCOME);
+    }
+    locked(&deps.live.handoff_waits).remove(session_id);
+}
+
+/// What [`hand_off`] did.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HandedOff {
+    /// Packed, uploaded, `sessions.handoff{moved}`: the row is the target's.
+    Moved,
+    /// The engine is not truly idle yet: try again later (the wait counts
+    /// toward [`crate::handoff::IDLE_TIMEOUT`]).
+    Waiting,
+    /// `sessions.handoff{failed}` with this reason: the session stays here.
+    Failed(String),
+    /// Nothing to do (no move pending any more).
+    NotMoving,
+}
+
+/// How long a released engine gets to stop before the handoff tries again.
+const RELEASE_STOP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// EXP-1252 — THE source half of a move ([`PickupAction::Handoff`]): wait for
+/// the engine's true idle (non-blocking: [`HandedOff::Waiting`] until it
+/// is, a move past [`crate::handoff::IDLE_TIMEOUT`] fails), suspend it
+/// WITHOUT a row write ([`RELEASED_OUTCOME`]), pack the session
+/// ([`crate::handoff::build_package`]), upload it, then
+/// `sessions.handoff{moved}` and note the local copy for
+/// [`crate::handoff::cleanup`]. Any failure before the `moved` lands posts
+/// `handoff{failed}` and idles the row: the session stays here untouched,
+/// its engine revives on the next message.
+pub fn hand_off(row: &SessionRow, deps: &PickupDeps) -> Result<HandedOff, String> {
+    let session_id = row.id.as_str();
+    if row.moving_to().is_none() || !row.on_device(&deps.device_id) {
+        locked(&deps.live.handoff_waits).remove(session_id);
+        return Ok(HandedOff::NotMoving);
+    }
+    let trpc = &deps.coding.trpc;
+    let device_id = deps.device_id.as_str();
+    let fail = |reason: &str| -> HandedOff {
+        log::warn!("pickup: move of session {session_id} failed: {reason}");
+        locked(&deps.live.handoff_waits).remove(session_id);
+        if let Err(err) = session_device::handoff(
+            trpc,
+            session_id,
+            device_id,
+            session_device::HandoffOutcome::Failed,
+            Some(reason),
+        ) {
+            log::warn!("pickup: failed move of {session_id} not reported: {err}");
+        }
+        HandedOff::Failed(reason.to_string())
+    };
+    if let Some(engine) = deps.live.get(session_id).filter(|engine| !engine.is_done()) {
+        if !engine.quiescent() {
+            let since = *locked(&deps.live.handoff_waits)
+                .entry(session_id.to_string())
+                .or_insert_with(std::time::Instant::now);
+            if since.elapsed() >= crate::handoff::IDLE_TIMEOUT {
+                return Ok(fail(crate::handoff::REASON_NOT_IDLE));
+            }
+            return Ok(HandedOff::Waiting);
+        }
+        log::info!("pickup: session {session_id} moves to {:?}: releasing its engine", row.moving_to());
+        engine.kill(RELEASED_OUTCOME);
+        if !engine.wait_done(RELEASE_STOP_TIMEOUT) {
+            return Err(format!("session {session_id} did not stop for its move in time"));
+        }
+        deps.live.remove(session_id);
+    }
+    locked(&deps.live.handoff_waits).remove(session_id);
+    // Another process of this machine (a foreground `code`) runs it: wait.
+    let Some(_claim) = ClaimLock::try_acquire(&deps.coding.data_dir, session_id)? else {
+        return Ok(HandedOff::Waiting);
+    };
+    // From here the engine is down: a failure idles the row (ours still).
+    let failed_here = |reason: &str| {
+        let outcome = fail(reason);
+        report_idle_here(deps, session_id);
+        outcome
+    };
+    let source = crate::handoff::package_source(&deps.coding, session_id);
+    let package = match crate::handoff::build_package(&source, session_device::HANDOFF_MAX_BYTES) {
+        Ok(package) => package,
+        Err(err) => return Ok(failed_here(&err.to_string())),
+    };
+    log::info!(
+        "pickup: session {session_id}'s handoff package: {} bytes (transcript {}, journal {})",
+        package.bytes.len(),
+        package.manifest.native,
+        package.manifest.journal
+    );
+    let mut waits = CLAIM_RETRY.iter();
+    loop {
+        match session_device::upload_handoff(trpc, session_id, package.bytes.clone()) {
+            Ok(()) => break,
+            Err(err) => match waits.next() {
+                Some(wait) if transient(&err) => std::thread::sleep(*wait),
+                _ => return Ok(failed_here(&format!("Couldn't move the session: {err}"))),
+            },
+        }
+    }
+    let mut waits = CLAIM_RETRY.iter();
+    loop {
+        match session_device::handoff(trpc, session_id, device_id, session_device::HandoffOutcome::Moved, None) {
+            Ok(()) => break,
+            Err(err) => match waits.next() {
+                Some(wait) if transient(&err) => std::thread::sleep(*wait),
+                _ => {
+                    // Refused (the move was cancelled meanwhile): the session
+                    // stays here; the uploaded package is the server's to drop.
+                    log::warn!("pickup: move of session {session_id} not taken: {err}");
+                    report_idle_here(deps, session_id);
+                    return Ok(HandedOff::Failed(err.to_string()));
+                }
+            },
+        }
+    }
+    if let Some(record) = &source.record {
+        let workspace = package.manifest.workspace;
+        crate::handoff::note_moved_away(
+            &deps.coding.data_dir,
+            crate::handoff::MovedAway {
+                session_id: session_id.to_string(),
+                cwd: match workspace {
+                    crate::handoff::WorkspaceKind::None => std::path::PathBuf::new(),
+                    _ => record.cwd.clone(),
+                },
+                clone: record.clone.clone().filter(|_| workspace == crate::handoff::WorkspaceKind::Repo),
+                branch: record.branch.clone().filter(|_| workspace == crate::handoff::WorkspaceKind::Repo),
+                native: source.native.clone(),
+            },
+        );
+    }
+    log::info!("pickup: session {session_id} moved to {:?}", row.moving_to());
+    Ok(HandedOff::Moved)
+}
+
+/// EXP-1252: the row this device still owns goes idle and not busy (its
+/// engine is down after a failed move) — the device named, so a late write
+/// after a move is a no-op server-side.
+fn report_idle_here(deps: &PickupDeps, session_id: &str) {
+    let report = session_device::SessionReport {
+        device_id: Some(deps.device_id.clone()),
+        ..crate::launcher::idle_report()
+    };
+    if let Err(err) = session_device::report(&deps.coding.trpc, session_id, &report) {
+        log::warn!("pickup: session {session_id} not reported idle: {err}");
     }
 }
 
@@ -2065,6 +2426,7 @@ pub fn switch_session(
         prompt: prompt.map(str::to_string).or_else(|| seed.and_then(|m| m.body.clone())).unwrap_or_default(),
         message_id: seed.map(|m| m.id.clone()),
         reconfigure,
+        handoff: None,
     };
     let mut options = deps.options.clone();
     // EXP-849: a named account on a resume IS the switch; `None` keeps the
@@ -3124,7 +3486,8 @@ mod tests {
             vec!["sessions.claim", "sessions.brief", "mcpServers.resolveForLaunch"]
         );
         let claim = requests.lock().unwrap()[0].clone();
-        assert!(claim.ends_with(r#"{"sessionId":"sess-1"}"#), "{claim}");
+        // EXP-1252: the claim names this device (one writer).
+        assert!(claim.ends_with(r#"{"sessionId":"sess-1","deviceId":"dev-1"}"#), "{claim}");
         assert_eq!(
             *host.spawned.lock().unwrap(),
             vec![Spawned {
@@ -3226,7 +3589,7 @@ mod tests {
         let row = agent("agent-1", "queued");
         assert!(matches!(launch_queued(&row, &host.deps).unwrap(), LaunchQueued::Disabled { .. }));
         let requests = requests.lock().unwrap();
-        assert!(requests[3].ends_with(r#"{"sessionId":"agent-1","status":"idle"}"#), "{}", requests[3]);
+        assert!(requests[3].ends_with(r#"{"sessionId":"agent-1","status":"idle","busy":false}"#), "{}", requests[3]);
     }
 
     #[test]
@@ -3364,7 +3727,7 @@ mod tests {
             vec!["sessions.brief", "sessions.reply", "sessions.report"]
         );
         let report = requests.lock().unwrap()[2].clone();
-        assert!(report.ends_with(r#"{"sessionId":"sess-1","status":"idle"}"#), "a wake never ends: {report}");
+        assert!(report.ends_with(r#"{"sessionId":"sess-1","status":"idle","busy":false}"#), "a wake never ends: {report}");
         // The claim was released with the refusal.
         assert!(ClaimLock::try_acquire(&dir.0, "sess-1").unwrap().is_some());
         // A NEW message tries again (the canned server is spent, so the
@@ -4487,5 +4850,316 @@ mod tests {
         let options = host.deps.live.options("sess-1").expect("options");
         assert_eq!(options.model.as_deref(), Some("opus"));
         assert_eq!(options_delta(&switched, &options).model, None);
+    }
+
+    // ---- EXP-1252: moving a session to another device ----
+
+    fn moving(mut row: SessionRow, to: &str) -> SessionRow {
+        row.move_to_device_id = Some(to.to_string());
+        row
+    }
+
+    #[test]
+    fn a_pending_move_hands_off_instead_of_delivering_or_switching() {
+        let mut row = moving(session("s1", "running", DEV, "2026-10-01T00:00:00Z"), "dev-2");
+        row.account = Some("other-login".to_string());
+        let mut view = handed(&[]);
+        view.row_account = Some("first-login".to_string());
+        view.open_cards = HashMap::from([("c1".to_string(), "q-1".to_string())]);
+        let pass = Pass::new(
+            vec![row.clone()],
+            vec![message("m1", "s1", "2026-10-02T00:00:01Z"), card("c1", "s1", true)],
+        )
+        .live("s1", view);
+        let actions = pass.run();
+        // No Deliver, no Switch: the move; the answered card still answers.
+        assert_eq!(actions.len(), 2, "{actions:?}");
+        assert_eq!(actions[0], PickupAction::Handoff { session: row });
+        assert!(matches!(&actions[1], PickupAction::Answer { message_id, .. } if message_id == "c1"));
+    }
+
+    #[test]
+    fn an_engineless_moving_row_is_handed_off_not_resumed_launched_or_revived() {
+        let rows = vec![
+            moving(session("s1", "idle", DEV, "2026-10-01T00:00:01Z"), "dev-2"),
+            moving(session("s2", "queued", DEV, "2026-10-01T00:00:02Z"), "dev-2"),
+            moving(agent("a1", "idle"), "dev-2"),
+            // A "move" to the device it is on is none.
+            moving(session("s3", "queued", DEV, "2026-10-01T00:00:03Z"), DEV),
+            // Ended rows never move.
+            moving(session("s4", "ended", DEV, "2026-10-01T00:00:04Z"), "dev-2"),
+        ];
+        let pass = Pass::new(rows.clone(), vec![message("m1", "s1", "2026-10-02T00:00:01Z")]);
+        let actions = pass.run();
+        let kinds: Vec<(&str, &str)> = actions
+            .iter()
+            .map(|action| {
+                let kind = match action {
+                    PickupAction::Handoff { .. } => "handoff",
+                    PickupAction::Launch { .. } => "launch",
+                    PickupAction::Resume { .. } => "resume",
+                    PickupAction::Revive { .. } => "revive",
+                    _ => "other",
+                };
+                (kind, action.session_id())
+            })
+            .collect();
+        assert!(kinds.contains(&("handoff", "s1")), "{kinds:?}");
+        assert!(kinds.contains(&("handoff", "s2")), "{kinds:?}");
+        assert!(kinds.contains(&("handoff", "a1")), "{kinds:?}");
+        assert!(kinds.contains(&("launch", "s3")), "{kinds:?}");
+        assert!(!kinds.iter().any(|(_, id)| *id == "s4"), "{kinds:?}");
+        assert_eq!(kinds.len(), 4, "{kinds:?}");
+        // In flight: nothing at all.
+        let mut held = Pass::new(rows, vec![]);
+        held.in_flight = HashSet::from(["s1".to_string(), "s2".to_string(), "a1".to_string(), "s3".to_string()]);
+        assert!(held.run().is_empty());
+    }
+
+    #[test]
+    fn a_live_engine_whose_row_names_another_device_is_released_never_killed() {
+        let pass = Pass::new(
+            vec![
+                session("s1", "queued", "dev-2", "2026-10-01T00:00:00Z"),
+                session("s2", "ended", "dev-2", "2026-10-01T00:00:00Z"),
+            ],
+            vec![message("m1", "s1", "2026-10-02T00:00:01Z")],
+        )
+        .live("s1", LiveView::default())
+        .live("s2", LiveView::default());
+        assert_eq!(
+            pass.run(),
+            vec![
+                PickupAction::Release { session_id: "s1".to_string() },
+                PickupAction::Release { session_id: "s2".to_string() },
+            ]
+        );
+    }
+
+    #[test]
+    fn release_kills_the_engine_with_the_released_outcome() {
+        let dir = temp_dir("pickup-release");
+        let host = host("http://127.0.0.1:9", &dir.0, |_| {});
+        let engine = Arc::new(FakeEngine::default());
+        host.deps.live.insert("s1", engine.clone(), None);
+        execute(&PickupAction::Release { session_id: "s1".to_string() }, &host.deps).unwrap();
+        assert_eq!(*engine.killed.lock().unwrap(), Some(RELEASED_OUTCOME));
+        assert!(host.deps.live.get("s1").is_none());
+    }
+
+    #[test]
+    fn a_move_waits_for_a_truly_idle_engine() {
+        let dir = temp_dir("pickup-handoff-wait");
+        // Nothing may reach the server while the engine works.
+        let (base, requests) = canned_server_recording(vec![]);
+        let host = host(&base, &dir.0, |_| {});
+        let engine = Arc::new(FakeEngine::default());
+        engine.working.store(true, Ordering::SeqCst);
+        host.deps.live.insert("sess-1", engine.clone(), None);
+        let row = moving(session("sess-1", "running", DEV, "t"), "dev-2");
+        assert_eq!(hand_off(&row, &host.deps).unwrap(), HandedOff::Waiting);
+        // An open card holds it too.
+        engine.working.store(false, Ordering::SeqCst);
+        engine.cards.lock().unwrap().insert("c1".to_string(), "q-1".to_string());
+        assert_eq!(hand_off(&row, &host.deps).unwrap(), HandedOff::Waiting);
+        assert_eq!(*engine.killed.lock().unwrap(), None);
+        assert!(requests.lock().unwrap().is_empty());
+        // No move pending (cancelled): nothing to do.
+        let still = session("sess-1", "running", DEV, "t");
+        assert_eq!(hand_off(&still, &host.deps).unwrap(), HandedOff::NotMoving);
+    }
+
+    #[test]
+    fn an_idle_session_is_released_packed_uploaded_and_moved() {
+        let dir = temp_dir("pickup-handoff");
+        let (base, requests) = canned_server_recording(vec![
+            (200, "{}".to_string()),
+            (200, REPORT_OK.to_string()),
+        ]);
+        let host = host(&base, &dir.0, |_| {});
+        let mut rec = record(&dir.0, "sess-1");
+        std::fs::write(rec.cwd.join("notes.md"), "keep me").unwrap();
+        rec.cwd = crate::scratch::scratch_root(&dir.0).join("root-1").join("sess-1");
+        std::fs::create_dir_all(&rec.cwd).unwrap();
+        std::fs::write(rec.cwd.join("notes.md"), "keep me").unwrap();
+        crate::run_registry::record(&dir.0, rec.clone());
+        let engine = Arc::new(FakeEngine::default());
+        host.deps.live.insert("sess-1", engine.clone(), None);
+        let row = moving(session("sess-1", "idle", DEV, "t"), "dev-2");
+
+        assert_eq!(hand_off(&row, &host.deps).unwrap(), HandedOff::Moved);
+        assert_eq!(*engine.killed.lock().unwrap(), Some(RELEASED_OUTCOME));
+        assert!(host.deps.live.get("sess-1").is_none());
+        let requests = requests.lock().unwrap().clone();
+        assert!(requests[0].starts_with("PUT /api/sessions/sess-1/handoff "), "{}", requests[0]);
+        assert!(requests[1].starts_with("POST /api/trpc/sessions.handoff "), "{}", requests[1]);
+        assert!(
+            requests[1].ends_with(r#"{"sessionId":"sess-1","deviceId":"dev-1","outcome":"moved"}"#),
+            "{}",
+            requests[1]
+        );
+        // The local copy waits for the target's claim.
+        let pending = crate::handoff::moved_away(&dir.0);
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0].cwd, rec.cwd);
+        assert!(rec.cwd.join("notes.md").is_file(), "nothing is removed before the target has it");
+        let claimed = session("sess-1", "running", "dev-2", "t");
+        assert_eq!(
+            cleanup_actions(&dir.0, DEV, std::slice::from_ref(&claimed)),
+            vec![PickupAction::Cleanup { session_id: "sess-1".to_string() }]
+        );
+        execute(&PickupAction::Cleanup { session_id: "sess-1".to_string() }, &host.deps).unwrap();
+        assert!(!rec.cwd.exists());
+        assert!(crate::run_registry::get(&dir.0, "sess-1").is_none());
+    }
+
+    #[test]
+    fn a_refused_upload_fails_the_move_and_idles_the_row() {
+        let dir = temp_dir("pickup-handoff-fail");
+        let (base, requests) = canned_server_recording(vec![
+            (413, r#"{"error":"too large"}"#.to_string()),
+            (200, REPORT_OK.to_string()),
+            (200, REPORT_OK.to_string()),
+        ]);
+        let host = host(&base, &dir.0, |_| {});
+        crate::run_registry::record(&dir.0, record(&dir.0, "sess-1"));
+        let row = moving(session("sess-1", "idle", DEV, "t"), "dev-2");
+        assert!(matches!(hand_off(&row, &host.deps).unwrap(), HandedOff::Failed(_)));
+        let requests = requests.lock().unwrap().clone();
+        assert_eq!(procedures_of(&requests), vec!["/api/sessions/sess-1/handoff", "sessions.handoff", "sessions.report"]);
+        assert!(requests[1].contains(r#""outcome":"failed","reason":"Couldn't move the session: "#), "{}", requests[1]);
+        assert!(
+            requests[2].ends_with(r#"{"sessionId":"sess-1","status":"idle","busy":false,"deviceId":"dev-1"}"#),
+            "{}",
+            requests[2]
+        );
+        assert!(crate::handoff::moved_away(&dir.0).is_empty());
+        assert!(crate::run_registry::get(&dir.0, "sess-1").is_some(), "the session stays here untouched");
+    }
+
+    fn procedures_of(requests: &[String]) -> Vec<String> {
+        requests
+            .iter()
+            .map(|request| {
+                let path = request.split_whitespace().nth(1).unwrap_or_default();
+                path.split('?').next().unwrap_or_default().trim_start_matches("/api/trpc/").to_string()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_moved_session_is_restored_and_resumed_on_the_target() {
+        // The source's package: a scratch dir and a journal.
+        let src = temp_dir("pickup-moved-src");
+        let mut rec = record(&src.0, "sess-1");
+        rec.cwd = src.0.join("scratch-src");
+        std::fs::create_dir_all(&rec.cwd).unwrap();
+        std::fs::write(rec.cwd.join("notes.md"), "moved along").unwrap();
+        let journal = src.0.join("journal.jsonl");
+        std::fs::write(&journal, "{\"kind\":\"row\"}\n").unwrap();
+        let package = crate::handoff::build_package(
+            &crate::handoff::PackageSource {
+                session_id: "sess-1".to_string(),
+                record: Some(rec),
+                journal: Some(journal),
+                native: None,
+            },
+            1 << 20,
+        )
+        .unwrap();
+
+        let dir = temp_dir("pickup-moved");
+        let brief = r#"{"result":{"data":{"brief":"Review the login page.","teamPrompt":null,"agentInstructions":null,"parentBranch":null,"handoff":{"sizeBytes":10,"fromDeviceId":"dev-0","fromDeviceName":"Laptop"}}}}"#;
+        let (base, requests) = crate::test_support::canned_server_bytes(vec![
+            (200, CLAIM_OK.as_bytes().to_vec()),
+            (200, brief.as_bytes().to_vec()),
+            (200, package.bytes.clone()),
+            (200, RESOLVE_NONE.as_bytes().to_vec()),
+            (200, REPORT_OK.as_bytes().to_vec()),
+        ]);
+        let host = host(&base, &dir.0, |_| {});
+        let mut row = session("sess-1", "queued", DEV, "2026-10-01T00:00:00Z");
+        row.root_id = Some("root-1".to_string());
+        let outcome = launch_queued(&row, &host.deps).unwrap();
+        assert!(matches!(outcome, LaunchQueued::Launched { .. }), "{outcome:?}");
+        assert_eq!(
+            procedures(&requests),
+            vec![
+                "sessions.claim",
+                "sessions.brief",
+                "/api/sessions/sess-1/handoff",
+                "mcpServers.resolveForLaunch",
+                "sessions.handoffDone",
+            ]
+        );
+        let cwd = crate::scratch::scratch_root(&dir.0).join("root-1").join("sess-1");
+        assert_eq!(std::fs::read_to_string(cwd.join("notes.md")).unwrap(), "moved along");
+        assert_eq!(
+            std::fs::read_to_string(crate::handoff::journal_path(&dir.0, "sess-1").unwrap()).unwrap(),
+            "{\"kind\":\"row\"}\n"
+        );
+        // No transcript came along: a fresh conversation from the brief, the
+        // move named after it.
+        let spawned = host.spawned.lock().unwrap().clone();
+        let prompt = spawned[0].prompt.clone().unwrap();
+        assert!(prompt.starts_with("Review the login page."), "{prompt}");
+        assert!(prompt.contains("moved here from Laptop"), "{prompt}");
+        let record = crate::run_registry::get(&dir.0, "sess-1").expect("the target records the run");
+        assert_eq!(record.cwd, cwd);
+        assert!(!crate::handoff::package_dir(&dir.0, "sess-1").unwrap().exists(), "the unpacked copy goes");
+    }
+
+    #[test]
+    fn a_moved_claude_session_resumes_natively_on_its_imported_transcript() {
+        let src = temp_dir("pickup-native-src");
+        let mut rec = record(&src.0, "sess-1");
+        rec.cwd = src.0.join("scratch-src");
+        rec.claude_session_id = Some("native-1".to_string());
+        std::fs::create_dir_all(&rec.cwd).unwrap();
+        let source_cwd = rec.cwd.to_string_lossy().into_owned();
+        let native = src.0.join("native.jsonl");
+        std::fs::write(&native, format!("{}\n", serde_json::json!({"type": "user", "cwd": source_cwd}))).unwrap();
+        let package = crate::handoff::build_package(
+            &crate::handoff::PackageSource {
+                session_id: "sess-1".to_string(),
+                record: Some(rec),
+                journal: None,
+                native: Some(native),
+            },
+            1 << 20,
+        )
+        .unwrap();
+        assert!(package.manifest.native);
+
+        let dir = temp_dir("pickup-native");
+        let brief = r#"{"result":{"data":{"brief":"Review the login page.","handoff":{"sizeBytes":10,"fromDeviceId":"dev-0","fromDeviceName":"Laptop"}}}}"#;
+        let (base, _requests) = crate::test_support::canned_server_bytes(vec![
+            (200, CLAIM_OK.as_bytes().to_vec()),
+            (200, brief.as_bytes().to_vec()),
+            (200, package.bytes.clone()),
+            (200, RESOLVE_NONE.as_bytes().to_vec()),
+            (200, REPORT_OK.as_bytes().to_vec()),
+        ]);
+        let host = host(&base, &dir.0, |_| {});
+        let mut row = session("sess-1", "queued", DEV, "2026-10-01T00:00:00Z");
+        row.root_id = Some("root-1".to_string());
+        assert!(matches!(launch_queued(&row, &host.deps).unwrap(), LaunchQueued::Launched { .. }));
+        let cwd = crate::scratch::scratch_root(&dir.0).join("root-1").join("sess-1");
+        // Into the tree of the profile the resume runs on, under THIS cwd.
+        let record = crate::run_registry::get(&dir.0, "sess-1").unwrap();
+        let profile = crate::agent_profiles::account_dir(&dir.0, Some(CodingAgent::Claude), record.account().as_deref())
+            .expect("the resume runs on a profile");
+        let imported = profile
+            .join("projects")
+            .join(crate::handoff::munge(&cwd.to_string_lossy()))
+            .join("native-1.jsonl");
+        let line: serde_json::Value =
+            serde_json::from_str(std::fs::read_to_string(&imported).unwrap().lines().next().unwrap()).unwrap();
+        assert_eq!(line["cwd"], cwd.to_string_lossy().as_ref(), "the cwd follows the move");
+        // A native resume: no seed turn — the session idles, its waiting
+        // messages are delivered next.
+        let spawned = host.spawned.lock().unwrap().clone();
+        assert_eq!(spawned[0].prompt, None);
+        assert_eq!(record.claude_session_id.as_deref(), Some("native-1"));
     }
 }

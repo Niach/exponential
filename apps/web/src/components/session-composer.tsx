@@ -32,6 +32,7 @@ import {
 } from "@/components/composer-inline-tools"
 import { ComposerOptionsMenu } from "@/components/launch-dialog/composer-plus-menu"
 import { useSessionComposerOptions } from "@/components/session-composer-options"
+import { SessionDevicePin } from "@/components/session-device-pin"
 import {
   SlashCommandMenu,
   useSlashCommandMenu,
@@ -76,7 +77,8 @@ import { cn } from "@/lib/utils"
 // (composer-menu.json rows minus the subject rows: Effort ›, Ultracode,
 // MCP servers ›, Computer use — changed mid-session through
 // `sessions.configure`), the inline edit tools (image · files · # · emoji)
-// and Send ⇄ Stop; UNDER it the options line: the model pin (THE
+// and Send ⇄ Stop; UNDER it the options line: the Device pin (EXP-1252, a
+// pick MOVES the session; `session-device-pin.tsx`) · the model pin (THE
 // ModelPicker; a pick sends `/model <alias>` through `sessions.send`, shown
 // at once until the relay's `config_state` confirms) · the Plan switch …
 // the context ring (its usage popover on click). The live reads (model in
@@ -331,6 +333,9 @@ export function SessionComposer({
       options={
         row && (
           <ComposerOptionsRow data-testid="session-composer-options">
+            {/* EXP-1252: THE launch line's Device pin — a pick moves the
+                session to that device after its turn. */}
+            <SessionDevicePin teamId={teamId} row={row} />
             <span data-testid="session-composer-model" data-model={model}>
               <ModelPicker
                 value={model}

@@ -1292,32 +1292,6 @@ impl ChatScreenView {
                 if let Some(reason) = chat_launch::issue_count_blocker(issues.checked.len()) {
                     return Some(reason.into());
                 }
-                // EXP-202: only ONE session per issue — local registry and
-                // live synced rows alike.
-                let sessions = coding_flow::LocalSessions::global(cx);
-                let now = chrono::Utc::now().timestamp();
-                for row in issues.rows.iter() {
-                    if !issues.checked.contains(&row.issue_id) {
-                        continue;
-                    }
-                    if sessions.read(cx).get(&row.issue_id).is_some() {
-                        return Some(
-                            format!("Already coding {}. Stop that session first.", row.identifier)
-                                .into(),
-                        );
-                    }
-                    if let Some(device) =
-                        queries::live_session_device_for_issue(cx, &row.issue_id, now)
-                    {
-                        return Some(
-                            format!(
-                                "{} already has a live session on {device} (one session per issue).",
-                                row.identifier
-                            )
-                            .into(),
-                        );
-                    }
-                }
                 chat_launch::repo_blocker(&issues.rows, &issues.checked, &issues.repos).map(Into::into)
             }
         }

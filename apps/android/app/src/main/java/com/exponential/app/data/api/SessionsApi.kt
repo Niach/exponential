@@ -163,6 +163,15 @@ data class SessionsSendInput(
          */
         fun switchAccount(sessionId: String, account: String): SessionsSendInput =
             SessionsSendInput(sessionId = sessionId, account = account)
+
+        /**
+         * EXP-1252: MOVE the session to [deviceId] — `{sessionId, deviceId}`,
+         * no text. The server sets the synced `sessions.move_to_device_id`
+         * and the source host hands it off after its current turn; naming
+         * the CURRENT device while a move is pending cancels it.
+         */
+        fun moveToDevice(sessionId: String, deviceId: String): SessionsSendInput =
+            SessionsSendInput(sessionId = sessionId, deviceId = deviceId)
     }
 }
 

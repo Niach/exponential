@@ -301,7 +301,17 @@ private struct ThreadStripSpecimens: View {
             SessionComposerOptionsLine(
                 controls: SessionComposerFooter.Controls(
                     planModeActive: false, modelValue: "opus", agent: "claude", onPickModel: { _ in },
-                    usageFraction: 0.42, usageSeverity: .normal, onUsage: {}
+                    usageFraction: 0.42, usageSeverity: .normal, onUsage: {},
+                    devicePin: Self.devicePin(moveTo: nil)
+                ),
+                plan: .constant(true)
+            )
+            caption("EXP-1252: moving to another device")
+            SessionComposerOptionsLine(
+                controls: SessionComposerFooter.Controls(
+                    planModeActive: false, modelValue: "opus", agent: "claude", onPickModel: { _ in },
+                    usageFraction: 0.42, usageSeverity: .normal, onUsage: {},
+                    devicePin: Self.devicePin(moveTo: "studio")
                 ),
                 plan: .constant(true)
             )
@@ -316,6 +326,28 @@ private struct ThreadStripSpecimens: View {
                 .background(GlassTokens.fillCard, in: RoundedRectangle(cornerRadius: 16))
         }
         .accessibilityIdentifier("thread-strip-specimens")
+    }
+
+    /// EXP-1252: the Device pin specimen — this laptop, a shared studio
+    /// machine (refused: shared differently) and an offline one.
+    private static func devicePin(moveTo: String?) -> SessionDevicePin {
+        let devices = [
+            SteerDevice(deviceId: "laptop", deviceLabel: "MacBook Pro", agents: ["claude"], kind: "desktop", online: true),
+            SteerDevice(deviceId: "studio", deviceLabel: "Mac Studio", agents: ["claude"], kind: "desktop", online: true),
+            SteerDevice(deviceId: "build", deviceLabel: "Build server", agents: ["claude"], kind: "server", online: true, sharedTeamIds: ["t1"]),
+            SteerDevice(deviceId: "mini", deviceLabel: "Mac mini", agents: ["claude"], kind: "desktop", online: false),
+        ]
+        let rows = SessionDeviceMove.rows(
+            devices: devices, currentDeviceId: "laptop", sessionTeamId: "t1", sessionShared: false, agent: "claude"
+        )
+        return SessionDevicePin(
+            label: SessionDeviceMove.pinLabel(currentDeviceName: "MacBook Pro", moveToDeviceId: moveTo, devices: devices),
+            icon: DeviceIconDisplay.iconName(for: devices[0]),
+            rows: rows.map(DevicePickerDevice.init(moveRow:)),
+            currentDeviceId: "laptop",
+            blockedReason: nil,
+            onPick: { _ in }
+        )
     }
 
     private func caption(_ text: String) -> some View {

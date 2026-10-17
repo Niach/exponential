@@ -2096,7 +2096,7 @@ describe(`exponential_sessions_send`, () => {
   it(`applies the sessions.send rules (a message needs text)`, async () => {
     const result = await tool(`exponential_sessions_send`)({ sessionId: SESSION })
     expect(result.isError).toBe(true)
-    expect(result.content[0].text).toContain(`a message needs text, attachments, issues or an account`)
+    expect(result.content[0].text).toContain(`a message needs text, attachments, issues, an account or a device`)
     expect(sessionsCore.sendSession).not.toHaveBeenCalled()
   })
 

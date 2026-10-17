@@ -2562,6 +2562,26 @@ public final class DatabaseManager: @unchecked Sendable {
             }
         }
 
+        // v72 (EXP-1252): `sessions.move_to_device_id` — a pending move to
+        // another device (the composer's Device pin reads "Moving to X…").
+        // A guarded additive ALTER; the cursor resets only when the column
+        // was added, so already-synced sessions re-arrive carrying it.
+        migrator.registerMigration("v72_session_move_to_device") { db in
+            guard try db.tableExists("sessions") else { return }
+            let existing = Set(try db.columns(in: "sessions").map(\.name))
+            guard !existing.contains("move_to_device_id") else { return }
+            try db.alter(table: "sessions") { t in
+                t.add(column: "move_to_device_id", .text)
+            }
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: """
+                    UPDATE "electric_offsets"
+                    SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                    WHERE "shape" = 'sessions'
+                    """)
+            }
+        }
+
         return migrator
     }
 

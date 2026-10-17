@@ -1,8 +1,9 @@
 import { TRPCError } from "@trpc/server"
-import { and, desc, eq, inArray, isNull, ne, notInArray, sql } from "drizzle-orm"
+import { and, desc, eq, gte, inArray, isNull, ne, notInArray, sql } from "drizzle-orm"
 import { PERSISTENT_KINDS, TRIGGER_KINDS, isPersistent } from "@exp/domain-contract/session-kind"
+import { contract } from "@exp/domain-contract"
 import { db } from "@/db/connection"
-import { messages, sessions, type Session } from "@/db/schema"
+import { devices, messages, sessions, type Session } from "@/db/schema"
 import { generateTxId } from "@/lib/trpc"
 import { assertCanSteer, loadSessionForUser } from "@/lib/sessions/access"
 import { insertMessage, postAgentMessage, postSystemCard } from "@/lib/sessions/messages"
@@ -126,17 +127,45 @@ export async function postReportToParent(
   })
 }
 
+/** Whether the session's host device heartbeat within the contract's
+ *  online window (`devices.last_seen_at`). */
+export async function sessionDeviceOnline(
+  session: Pick<Session, `deviceId` | `userId` | `hostUserId`>,
+  now: Date = new Date()
+): Promise<boolean> {
+  const since = new Date(now.getTime() - contract.device.onlineWindowSeconds * 1000)
+  const [row] = await db
+    .select({ id: devices.id })
+    .from(devices)
+    .where(
+      and(
+        eq(devices.deviceId, session.deviceId),
+        eq(devices.userId, session.hostUserId ?? session.userId),
+        gte(devices.lastSeenAt, since)
+      )
+    )
+    .limit(1)
+  return !!row
+}
+
 /** Stop: interrupt the current turn. A session that never started (queued)
- *  simply never starts. The row write gives the caller its txid. */
+ *  simply never starts. The row write gives the caller its txid. #FEED-85: a
+ *  live row whose device is OFFLINE has no turn to interrupt and nobody to
+ *  clear its state: Stop frees it (idle, not busy) so a message resumes it
+ *  once the device is back. */
 export async function stopSession(args: {
   userId: string
   sessionId: string
 }): Promise<{ txid: number }> {
   const session = await loadSessionForUser(args.userId, args.sessionId)
   await assertCanSteer(args.userId, session)
+  const live = session.status === `running` || session.status === `idle`
+  const ghost = live && !(await sessionDeviceOnline(session))
   const txid = await db.transaction(async (tx) => {
     const txid = await generateTxId(tx)
-    if (session.status === `queued` && !isPersistent(session)) {
+    // A moved session re-queues on its target with `started_at` kept: Stop
+    // never ends a session that already ran.
+    if (session.status === `queued` && !session.startedAt && !isPersistent(session)) {
       const ended = await markEnded(tx, [session.id])
       if (ended.length) {
         await postSystemCard(tx, session, {
@@ -145,6 +174,11 @@ export async function stopSession(args: {
           sessionId: session.id,
         })
       }
+    } else if (ghost) {
+      await tx
+        .update(sessions)
+        .set({ status: `idle`, busy: false, updatedAt: new Date() })
+        .where(and(eq(sessions.id, session.id), ne(sessions.status, `ended`)))
     } else {
       await tx.update(sessions).set({ updatedAt: new Date() }).where(eq(sessions.id, session.id))
     }
@@ -265,13 +299,14 @@ export const STALE_DEVICE_MS = 2 * 60 * 60 * 1000
 const SWEEP_INTERVAL_MS = 10 * 60 * 1000
 
 /** Running sessions whose device stopped heartbeating go idle (nothing runs
- *  there any more; a message resumes them once the device is back). */
+ *  there any more; a message resumes them once the device is back), and an
+ *  idle row's stale `busy` clears too (#FEED-85: a spinner nobody stops). */
 export async function sweepStaleSessions(now: Date = new Date()): Promise<number> {
   const cutoff = new Date(now.getTime() - STALE_DEVICE_MS)
   const result = await db.execute(sql`
     UPDATE sessions s
     SET status = 'idle', busy = false, updated_at = now()
-    WHERE s.status = 'running'
+    WHERE (s.status = 'running' OR (s.status = 'idle' AND s.busy))
       AND s.updated_at < ${cutoff}
       AND NOT EXISTS (
         SELECT 1 FROM devices d

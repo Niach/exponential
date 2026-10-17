@@ -421,6 +421,9 @@ public struct SessionEntity: FetchableRecord, PersistableRecord, Identifiable, S
     public let caption: String?
     /// EXP-1323: a `/btw` aside child (its title = the question).
     public let aside: Bool
+    /// EXP-1252: a pending move to that device (nil = none); the source host
+    /// hands the session over after its current turn.
+    public let moveToDeviceId: String?
 
     public init(
         id: String,
@@ -463,10 +466,12 @@ public struct SessionEntity: FetchableRecord, PersistableRecord, Identifiable, S
         createdAt: String,
         updatedAt: String,
         caption: String? = nil,
-        aside: Bool = false
+        aside: Bool = false,
+        moveToDeviceId: String? = nil
     ) {
         self.caption = caption
         self.aside = aside
+        self.moveToDeviceId = moveToDeviceId
         self.id = id
         self.teamId = teamId
         self.parentId = parentId
@@ -538,6 +543,7 @@ public struct SessionEntity: FetchableRecord, PersistableRecord, Identifiable, S
         case sortOrder = "sort_order"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
+        case moveToDeviceId = "move_to_device_id"
     }
 }
 
@@ -590,6 +596,7 @@ extension SessionEntity: Codable {
         updatedAt = try c.decode(String.self, forKey: .updatedAt)
         caption = try c.decodeIfPresent(String.self, forKey: .caption)
         aside = c.decodeWireBool(forKey: .aside, default: false)
+        moveToDeviceId = try c.decodeIfPresent(String.self, forKey: .moveToDeviceId)
     }
 }
 

@@ -116,6 +116,11 @@ public enum SessionsSendInput: Sendable, Equatable {
     /// text. The server moves the synced `sessions.account`; the host device
     /// resumes the SAME row on that login between turns.
     case switchAccount(sessionId: String, account: String)
+    /// EXP-1252: MOVE the session to another device — `{sessionId, deviceId}`,
+    /// no text. The server sets the synced `sessions.move_to_device_id`; the
+    /// source host hands the SAME row over after its current turn. The
+    /// session's CURRENT device while a move is pending = cancel.
+    case moveDevice(sessionId: String, deviceId: String)
 }
 
 // Synthesized-style encodeIfPresent per field: every nil is OMITTED, never
@@ -167,6 +172,9 @@ extension SessionsSendInput: Encodable {
         case let .switchAccount(sessionId, account):
             try c.encode(sessionId, forKey: .sessionId)
             try c.encode(account, forKey: .account)
+        case let .moveDevice(sessionId, deviceId):
+            try c.encode(sessionId, forKey: .sessionId)
+            try c.encode(deviceId, forKey: .deviceId)
         case let .aside(parentId, text):
             try c.encode(parentId, forKey: .parentId)
             try c.encode(text, forKey: .text)

@@ -132,7 +132,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v63_issue_draft_id", "v64_attachment_as_file",
              "v65_trigger_id", "v66_threads",
              "v67_issue_draft_thread", "v68_session_tree",
-             "v69_session_dispatch", "v70_session_talk", "v71_session_issue_assignee"]
+             "v69_session_dispatch", "v70_session_talk", "v71_session_issue_assignee",
+             "v72_session_move_to_device"]
         )
     }
 
@@ -186,7 +187,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v63_issue_draft_id", "v64_attachment_as_file",
              "v65_trigger_id", "v66_threads",
              "v67_issue_draft_thread", "v68_session_tree",
-             "v69_session_dispatch", "v70_session_talk", "v71_session_issue_assignee"]
+             "v69_session_dispatch", "v70_session_talk", "v71_session_issue_assignee",
+             "v72_session_move_to_device"]
         )
     }
 
@@ -711,7 +713,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v63_issue_draft_id", "v64_attachment_as_file",
              "v65_trigger_id", "v66_threads",
              "v67_issue_draft_thread", "v68_session_tree",
-             "v69_session_dispatch", "v70_session_talk", "v71_session_issue_assignee"]
+             "v69_session_dispatch", "v70_session_talk", "v71_session_issue_assignee",
+             "v72_session_move_to_device"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -813,7 +816,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v63_issue_draft_id", "v64_attachment_as_file",
              "v65_trigger_id", "v66_threads",
              "v67_issue_draft_thread", "v68_session_tree",
-             "v69_session_dispatch", "v70_session_talk", "v71_session_issue_assignee"]
+             "v69_session_dispatch", "v70_session_talk", "v71_session_issue_assignee",
+             "v72_session_move_to_device"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }
@@ -1871,7 +1875,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "needs_input", "blocked", "started_at", "last_turn_at", "ended_at",
              "shared", "title", "guide", "action_id", "action_name", "action_inputs",
              "spawned_by_session_id", "name", "icon", "color", "triggers",
-             "sort_order", "created_at", "updated_at", "dispatch", "caption", "aside"]
+             "sort_order", "created_at", "updated_at", "dispatch", "caption", "aside",
+             "move_to_device_id"]
         )
         XCTAssertEqual(
             try columnNames(pool, "session_issues"),
@@ -3040,6 +3045,34 @@ final class DatabaseMigrationTests: XCTestCase {
                 sql: "SELECT \"shape\" FROM \"electric_offsets\" WHERE \"offset\" = '-1' ORDER BY \"shape\""
             )
             XCTAssertEqual(reset, ["messages", "sessions"])
+        }
+    }
+
+    // EXP-1252: v72 adds `sessions.move_to_device_id` and resets ONLY the
+    // sessions cursor, so synced rows re-arrive carrying a pending move.
+    func testSessionMoveToDeviceColumn() throws {
+        let pool = try makePool("session-move")
+        let migrator = DatabaseManager.makeMigrator()
+        try migrator.migrate(pool, upTo: "v71_session_issue_assignee")
+        try pool.write { db in
+            for shape in ["sessions", "messages"] {
+                try db.execute(sql: """
+                    INSERT INTO "electric_offsets"
+                        ("shape", "handle", "offset", "needs_refetch", "is_live")
+                    VALUES (?, 'h', '0_0', 0, 1)
+                    ON CONFLICT("shape") DO UPDATE SET "handle" = 'h', "offset" = '0_0',
+                        "needs_refetch" = 0, "is_live" = 1
+                    """, arguments: [shape])
+            }
+        }
+        XCTAssertNoThrow(try migrator.migrate(pool))
+        try pool.read { db in
+            XCTAssertTrue(try db.columns(in: "sessions").contains { $0.name == "move_to_device_id" })
+            let reset = try String.fetchAll(
+                db,
+                sql: "SELECT \"shape\" FROM \"electric_offsets\" WHERE \"offset\" = '-1' ORDER BY \"shape\""
+            )
+            XCTAssertEqual(reset, ["sessions"])
         }
     }
 

@@ -13,9 +13,11 @@ import {
   DevicePicker,
   Label,
   ModelPicker,
+  PickerTrigger,
   RepositoryPicker,
   Switch,
   conceptIcon,
+  getDeviceIcon,
   type MenuEntry,
 } from "@exp/ui"
 
@@ -47,22 +49,43 @@ export const MODELS = contract.codingModel.values.map((value) => ({
   label: value.charAt(0).toUpperCase() + value.slice(1),
 }))
 
+/** EXP-1252 `MOVING_LABEL` (apps/web/src/lib/session-device-move.ts ×4). */
+const movingLabel = (device: string) => `Moving to ${device}…`
+
 /** The options line: before a start device · account · model · Plan ·
- *  repository; in a session model · Plan … the context ring. */
-export function ComposerOptionsSpecimen({ phase }: { phase: ComposerPhase }) {
+ *  repository; in a session device · model · Plan … the context ring.
+ *  EXP-1252: the session's Device pin is THE launch pin (a pick moves the
+ *  session); `moving` = a move is pending, the pin names the target. */
+export function ComposerOptionsSpecimen({
+  phase,
+  moving = false,
+}: {
+  phase: ComposerPhase
+  moving?: boolean
+}) {
+  const target = DEVICES[1]!
   return (
     <ComposerOptionsRow>
+      <DevicePicker
+        triggerVariant="inline"
+        mobileTitle={phase === `start` ? `Device` : `Move to device`}
+        devices={DEVICES}
+        value="mint"
+        onChange={noop}
+        width="sm"
+        trigger={
+          moving ? (
+            <PickerTrigger
+              variant="inline"
+              label="Move to device"
+              value={movingLabel(target.name)}
+              icon={getDeviceIcon(target)}
+            />
+          ) : undefined
+        }
+      />
       {phase === `start` && (
-        <>
-          <DevicePicker
-            triggerVariant="inline"
-            devices={DEVICES}
-            value="mint"
-            onChange={noop}
-            width="sm"
-          />
-          <AccountPicker variant="inline" value="claude:1" options={ACCOUNTS} onChange={noop} />
-        </>
+        <AccountPicker variant="inline" value="claude:1" options={ACCOUNTS} onChange={noop} />
       )}
       <ModelPicker models={MODELS} value={phase === `idle` ? `haiku` : `opus`} onChange={noop} />
       <Label className="gap-1.5 font-normal">

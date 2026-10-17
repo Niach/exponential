@@ -49,6 +49,11 @@ pub const SESSION_HEADER: &str = "X-Exp-Session-Id";
 /// `ui::markdown::image_paste`'s attachment timeout).
 const BLOB_TIMEOUT: Duration = Duration::from_secs(60);
 
+/// EXP-1252: whole-request budget for a handoff package transfer
+/// ([`TrpcClient::put_bytes`], [`TrpcClient::get_bytes_within`]) — up to
+/// 64 MiB on a home uplink.
+pub const TRANSFER_TIMEOUT: Duration = Duration::from_secs(15 * 60);
+
 #[derive(Deserialize)]
 struct Envelope<T> {
     result: EnvelopeResult<T>,
@@ -171,10 +176,20 @@ impl TrpcClient {
     /// `Content-Type` is the only place their type is stated, so it comes
     /// back alongside the body. Blocking; background executor only (§3.5).
     pub fn get_bytes(&self, path: &str) -> Result<(Vec<u8>, Option<String>), ApiError> {
+        self.get_bytes_within(path, BLOB_TIMEOUT)
+    }
+
+    /// [`Self::get_bytes`] with an explicit whole-request budget — EXP-1252:
+    /// a handoff package is up to 64 MiB ([`TRANSFER_TIMEOUT`]).
+    pub fn get_bytes_within(
+        &self,
+        path: &str,
+        timeout: Duration,
+    ) -> Result<(Vec<u8>, Option<String>), ApiError> {
         let url = format!("{}{path}", self.base_url);
         let response = self
             .authorize(self.client().get(&url))
-            .timeout(BLOB_TIMEOUT)
+            .timeout(timeout)
             .send()
             .map_err(transport_error)?;
         http::record_success();
@@ -192,6 +207,28 @@ impl TrpcClient {
             response.bytes().map_err(transport_error)?.to_vec(),
             content_type,
         ))
+    }
+
+    /// EXP-1252: PUT raw bytes to a NON-tRPC route on the same instance
+    /// (`path` starts with `/`) with the same call-time bearer — a session's
+    /// handoff package (`/api/sessions/{id}/handoff`). The status passes the
+    /// AUTHED policy (401 = [`ApiError::Unauthorized`]); the body of a 2xx is
+    /// ignored. Blocking; background executor only.
+    pub fn put_bytes(&self, path: &str, body: Vec<u8>, content_type: &str) -> Result<(), ApiError> {
+        let url = format!("{}{path}", self.base_url);
+        let response = self
+            .authorize(self.client().put(&url).header("Content-Type", content_type))
+            .body(body)
+            .timeout(TRANSFER_TIMEOUT)
+            .send()
+            .map_err(transport_error)?;
+        http::record_success();
+        let status = response.status().as_u16();
+        let body = read_body(response)?;
+        if !(200..300).contains(&status) {
+            return Err(status_error_authed(status, &body));
+        }
+        Ok(())
     }
 
     /// POST a raw JSON body to a NON-tRPC route on the same instance (`path`

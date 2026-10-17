@@ -661,12 +661,19 @@ fn native_id_meta(id: &str) -> serde_json::Map<String, serde_json::Value> {
 #[derive(Default)]
 struct TestHost {
     exits: Mutex<Vec<(String, Option<i32>)>>,
+    /// EXP-1252: each exit's row write (`None` = none attempted; this
+    /// harness's server is unroutable, so any real write is an `Err`).
+    ends: Mutex<Vec<Option<Result<(), String>>>>,
     count: AtomicUsize,
 }
 
 impl EngineHost for TestHost {
     fn on_exit(&self, exit: EngineExit) {
         self.count.fetch_add(1, Ordering::SeqCst);
+        self.ends
+            .lock()
+            .expect("the end log is not poisoned")
+            .push(exit.end.as_ref().map(|end| end.as_ref().map(|_| ()).map_err(|err| err.to_string())));
         self.exits
             .lock()
             .expect("the exit log is not poisoned")
@@ -1643,6 +1650,31 @@ fn the_child_going_away_ends_the_run_exactly_once() {
             .cloned(),
         Some(("exit:3".to_string(), Some(3)))
     );
+}
+
+/// EXP-1252: a RELEASED run (handed to another device) writes nothing to
+/// the row — the end sequence's status write would fail against this
+/// harness's unroutable server, so a clean `Ok` proves none was attempted —
+/// while an ordinary kill does try to end it.
+#[test]
+fn a_released_run_writes_no_row() {
+    let harness = start_fake("released");
+    harness.session.send_prompt("hello".to_string());
+    until("the turn ends", || harness.session.turn_signal().is_idle());
+    harness.session.kill(engine::RELEASED_OUTCOME);
+    until("the exit", || harness.session.is_done());
+    std::thread::sleep(Duration::from_millis(100));
+    let ends = harness.host.ends.lock().expect("the end log is not poisoned").clone();
+    assert_eq!(ends, vec![Some(Ok(()))]);
+
+    let killed = start_fake("released-control");
+    killed.session.send_prompt("hello".to_string());
+    until("the turn ends", || killed.session.turn_signal().is_idle());
+    killed.session.kill("killed");
+    until("the exit", || killed.session.is_done());
+    std::thread::sleep(Duration::from_millis(100));
+    let ends = killed.host.ends.lock().expect("the end log is not poisoned").clone();
+    assert!(matches!(ends.as_slice(), [Some(Err(_))]), "{ends:?}");
 }
 
 #[test]
