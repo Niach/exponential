@@ -25,6 +25,10 @@ const mocks = vi.hoisted(() => ({
   draft: { text: `` },
   queued: [] as string[],
   listeners: new Set<() => void>(),
+  // EXP-1211: the session's synced messages (the quick replies' source).
+  messages: [] as unknown[],
+  sendReply: vi.fn(),
+  dismissReplies: vi.fn(),
 }))
 
 vi.mock(`@/lib/trpc-client`, () => ({
@@ -34,6 +38,8 @@ vi.mock(`@/lib/trpc-client`, () => ({
       configure: { mutate: mocks.configure },
       mcpPicks: { query: () => Promise.resolve({ mcpServerIds: [] }) },
       stop: { mutate: mocks.stop },
+      sendReply: { mutate: mocks.sendReply },
+      dismissReplies: { mutate: mocks.dismissReplies },
     },
   },
 }))
@@ -56,6 +62,7 @@ vi.mock(`@/hooks/use-team-data`, () => ({
 }))
 vi.mock(`@/hooks/use-session-tree`, () => ({
   useSessionRow: () => ({ row: mocks.row, isReady: true }),
+  useSessionMessages: () => mocks.messages,
 }))
 vi.mock(`@/lib/steer-session-store`, async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/steer-session-store")>()
@@ -160,6 +167,9 @@ beforeEach(() => {
   mocks.draft = { text: `` }
   mocks.queued = []
   mocks.listeners.clear()
+  mocks.messages = []
+  mocks.sendReply.mockReset()
+  mocks.dismissReplies.mockReset()
 })
 
 describe(`SessionComposer /btw`, () => {
@@ -371,5 +381,55 @@ describe(`SessionComposer Stop (EXP-1342)`, () => {
     expect(mocks.stop).toHaveBeenCalledWith({ sessionId: `s1` }, undefined)
     await waitFor(() => expect(field.value).toBe(`first\nsecond`))
     expect(mocks.draft.text).toBe(``)
+  })
+})
+
+describe(`SessionComposer quick replies (EXP-1211)`, () => {
+  const repliesMessage = (items: unknown[]) => ({
+    id: `m2`,
+    sessionId: `s1`,
+    rootId: `s1`,
+    teamId: `t1`,
+    authorKind: `agent`,
+    authorId: null,
+    authorSessionId: `s1`,
+    body: ``,
+    card: { kind: `replies`, items },
+    answeredAt: null,
+    consumedAt: `2026-10-17T10:00:01.000Z`,
+    createdAt: `2026-10-17T10:00:01.000Z`,
+    updatedAt: `2026-10-17T10:00:01.000Z`,
+  })
+
+  it(`shows the open replies above the card and a tap sends that reply`, async () => {
+    mocks.messages = [
+      repliesMessage([
+        { id: `a`, text: `Raise the version numbers` },
+        { id: `b`, text: `Open the PR`, sent: true },
+      ]),
+    ]
+    mocks.sendReply.mockResolvedValue({ sessionId: `s1`, txid: 1 })
+    renderComposer()
+    const pills = screen.getAllByTestId(`thread-reply`)
+    expect(pills.map((pill) => pill.textContent)).toEqual([`Raise the version numbers`])
+    fireEvent.click(pills[0]!)
+    await waitFor(() =>
+      expect(mocks.sendReply).toHaveBeenCalledWith({ messageId: `m2`, itemId: `a` }, expect.anything())
+    )
+    expect(mocks.send).not.toHaveBeenCalled()
+  })
+
+  it(`the dismiss stamps the card; no replies card = no row`, async () => {
+    mocks.messages = [repliesMessage([{ id: `a`, text: `Ship it` }])]
+    mocks.dismissReplies.mockResolvedValue({ txid: 1 })
+    const { unmount } = render(<SessionComposer teamId="t1" sessionId="s1" placeholder="Reply…" />)
+    fireEvent.click(screen.getByRole(`button`, { name: `Dismiss quick replies` }))
+    await waitFor(() =>
+      expect(mocks.dismissReplies).toHaveBeenCalledWith({ messageId: `m2` }, expect.anything())
+    )
+    unmount()
+    mocks.messages = []
+    renderComposer()
+    expect(screen.queryByTestId(`thread-replies`)).toBeNull()
   })
 })

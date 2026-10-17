@@ -528,6 +528,11 @@ struct ThreadScreen: View {
                         if !asks.isEmpty {
                             askDock(asks, rows: rows, view: view)
                         }
+                        // EXP-1211: the agent's quick replies, directly above
+                        // the composer; hidden with it while the dock shows.
+                        if asks.isEmpty {
+                            SessionComposerReplies(sessionId: view.composer.sessionId)
+                        }
                         // Hidden, never unmounted, while the dock holds the
                         // slot: its draft survives until the composer is back.
                         ThreadComposer(

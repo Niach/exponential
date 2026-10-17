@@ -10,7 +10,7 @@ import {
 } from "@exp/ui"
 import type { IconConcept } from "@exp/icons"
 import { AgentSessionView } from "@/components/agent-session"
-import { SessionComposer } from "@/components/session-composer"
+import { SessionComposer, SessionComposerReplies } from "@/components/session-composer"
 import { stopSessionTurn } from "@/lib/session-stop"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import {
@@ -55,6 +55,7 @@ function SessionReply({ row, opaque = false }: { row: SessionRow; opaque?: boole
       busy={row.busy}
       canStop={live}
       opaque={opaque}
+      hideReplies={opaque}
       testId="session-composer"
     />
   )
@@ -90,7 +91,10 @@ export function InPlaceSession({
         composerFloats={floating}
         composer={
           floating ? (
-            <FloatingComposer placeholder={REPLY_PLACEHOLDER}>
+            <FloatingComposer
+              placeholder={REPLY_PLACEHOLDER}
+              above={<SessionComposerReplies sessionId={row.id} />}
+            >
               <SessionReply row={row} opaque />
             </FloatingComposer>
           ) : (
@@ -170,7 +174,10 @@ export function SessionScreen({ teamSlug, row }: { teamSlug: string; row: Sessio
       composerFloats={isMobile}
       composer={
         isMobile ? (
-          <FloatingComposer placeholder={REPLY_PLACEHOLDER}>
+          <FloatingComposer
+              placeholder={REPLY_PLACEHOLDER}
+              above={<SessionComposerReplies sessionId={row.id} />}
+            >
             <SessionReply row={row} opaque />
           </FloatingComposer>
         ) : (

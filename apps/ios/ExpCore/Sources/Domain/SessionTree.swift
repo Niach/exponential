@@ -223,6 +223,10 @@ public struct TreeSuggestionItem: Equatable, Sendable {
     public let issueId: String?
     public let here: Bool
     public let dismissed: Bool
+    /// EXP-1211 `replies` item: already sent as a message.
+    public let sent: Bool
+    /// EXP-1211: `text` was a JSON string (a coerced scalar never renders as a reply).
+    public let textIsString: Bool
 
     public init(
         id: String,
@@ -231,8 +235,12 @@ public struct TreeSuggestionItem: Equatable, Sendable {
         sessionId: String? = nil,
         issueId: String? = nil,
         here: Bool = false,
-        dismissed: Bool = false
+        dismissed: Bool = false,
+        sent: Bool = false,
+        textIsString: Bool = true
     ) {
+        self.sent = sent
+        self.textIsString = textIsString
         self.id = id
         self.title = title
         self.text = text
@@ -385,7 +393,9 @@ public struct TreeMessageCard: Equatable, Sendable {
                         sessionId: item["sessionId"] as? String,
                         issueId: item["issueId"] as? String,
                         here: (item["here"] as? Bool) == true,
-                        dismissed: (item["dismissed"] as? Bool) == true
+                        dismissed: (item["dismissed"] as? Bool) == true,
+                        sent: (item["sent"] as? NSNumber).map { CFGetTypeID($0) == CFBooleanGetTypeID() && $0.boolValue } ?? false,
+                        textIsString: item["text"] is String
                     )
                 }
             }
@@ -395,6 +405,28 @@ public struct TreeMessageCard: Equatable, Sendable {
     /// The synced jsonb TEXT; nil/`null`/a non-object = no card.
     public static func parse(_ raw: String?) -> TreeMessageCard? {
         SessionTree.jsonObject(raw).map(TreeMessageCard.init(object:))
+    }
+}
+
+/// EXP-1211: one quick reply above the session composer.
+public struct ComposerReply: Equatable, Sendable, Identifiable {
+    public let id: String
+    public let text: String
+
+    public init(id: String, text: String) {
+        self.id = id
+        self.text = text
+    }
+}
+
+/// EXP-1211: `composerReplies` — the newest replies card's open items.
+public struct ComposerReplies: Equatable, Sendable {
+    public let messageId: String
+    public let items: [ComposerReply]
+
+    public init(messageId: String, items: [ComposerReply]) {
+        self.messageId = messageId
+        self.items = items
     }
 }
 
@@ -948,6 +980,13 @@ public enum SessionTree {
         public static let sentHere = "Sent here"
         /// `{issue}`.
         public static let filed = "Filed {issue}"
+    }
+
+    /// EXP-1211: fixtures/session-thread.json `copy.replies` + `testIds.replies`.
+    public enum RepliesCopy {
+        public static let label = "Quick replies"
+        public static let dismiss = "Dismiss quick replies"
+        public static let testId = "thread-replies"
     }
 
     /// fixtures/threads-list.json `copy` + `agentDefaults` + `testIds`
@@ -1664,6 +1703,26 @@ public enum SessionTree {
     /// takes the session composer's place.
     public static func composerYieldsToCard(live: Bool, pendingAsk: Bool) -> Bool {
         live && pendingAsk
+    }
+
+    /// EXP-1211: the quick replies above a session's composer = its NEWEST
+    /// `replies` card (createdAt, then id) minus the sent items; nil = none
+    /// (a newer card replaces an older one even when it is all sent).
+    public static func composerReplies(sessionId: String, messages: [TreeMessage]) -> ComposerReplies? {
+        var newest: TreeMessage?
+        for message in messages where message.sessionId == sessionId && message.card?.kind == "replies" {
+            guard let current = newest else { newest = message; continue }
+            let m = ms(message.createdAt) ?? 0, n = ms(current.createdAt) ?? 0
+            if m > n || (m == n && message.id > current.id) { newest = message }
+        }
+        guard let newest, let raw = newest.card?.items else { return nil }
+        let items = raw.compactMap { item -> ComposerReply? in
+            guard !item.sent, item.textIsString,
+                  !item.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            else { return nil }
+            return ComposerReply(id: item.id, text: item.text)
+        }
+        return items.isEmpty ? nil : ComposerReplies(messageId: newest.id, items: items)
     }
 
     // MARK: - Helpers

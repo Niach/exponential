@@ -315,6 +315,30 @@ private struct ThreadStripSpecimens: View {
                 ),
                 plan: .constant(true)
             )
+            caption("EXP-1211: the agent's quick replies above the composer")
+            VStack(spacing: 0) {
+                // fixtures/session-thread.json `repliesCases[1].expected`.
+                ComposerRepliesRow(
+                    replies: ComposerReplies(messageId: "m2", items: [
+                        ComposerReply(id: "a", text: "Raise the version numbers"),
+                        ComposerReply(id: "b", text: "Open the PR"),
+                    ]),
+                    onSend: { _ in },
+                    onDismiss: {}
+                )
+                FloatingComposer(
+                    placeholder: SessionTree.ThreadCopy.placeholder,
+                    open: false,
+                    collapsedLabel: SessionTree.ThreadCopy.placeholder,
+                    collapsedIdentifier: "thread-composer-collapsed",
+                    onExpand: {}
+                ) {
+                    EmptyView()
+                } card: {
+                    EmptyView()
+                }
+            }
+            .padding(.horizontal, -16)
             ThreadComposerPlusMenu(
                 conditions: ComposerMenu.Conditions(subagentModel: false, ultracode: true, mcp: true, computerUse: true),
                 agent: "claude",

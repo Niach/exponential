@@ -9,7 +9,8 @@
 //! the agent's prose; event lines; child session cards; questions and plans
 //! answered in the card; a subagent; a picture), then THE composer the
 //! thread hosts, idle and while it works
-//! ([`super::composer_dialog::ComposerSpecimen`]), then EXP-1323's ended
+//! ([`super::composer_dialog::ComposerSpecimen`]), EXP-1211's quick replies
+//! above it (`repliesCases[1]`), then EXP-1323's ended
 //! root and its live dispatcher (the suggestions card in every state, a
 //! report line, an aside's card).
 
@@ -18,7 +19,8 @@ use gpui_component::{v_flex, ActiveTheme as _};
 
 use crate::markdown::ImageCache;
 
-use super::composer_dialog::{composer_specimen, thread_placeholder, Phase};
+use super::composer_dialog::{composer_specimen, composer_specimen_with_replies, thread_placeholder, Phase};
+use super::fixture_rows;
 use super::thread_parts::{case, case_named, row, DISPATCHER_CASE, FOLD_CASE};
 
 pub(crate) const ID: &str = "session-thread";
@@ -37,6 +39,14 @@ fn cases() -> [usize; 5] {
 /// The two composers sit after this many cases (the web's: after the first
 /// three).
 const COMPOSERS_AFTER: usize = 3;
+
+/// EXP-1211: the quick replies specimen's model, `repliesCases[1].expected`
+/// (the web entry's).
+fn sample_replies() -> domain::session_tree::ComposerReplies {
+    let fixture: serde_json::Value =
+        serde_json::from_str(fixture_rows::SESSION_THREAD_JSON).expect("session-thread.json parses");
+    serde_json::from_value(fixture["repliesCases"][1]["expected"].clone()).expect("repliesCases[1] hydrates")
+}
 
 fn caption(text: &'static str, cx: &App) -> Div {
     div().text_xs().text_color(cx.theme().muted_foreground).child(text)
@@ -65,6 +75,22 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
                         .gap_2()
                         .child(caption("The same composer in a session while it works.", cx))
                         .child(composer_specimen("sg-session-thread-running", Phase::Running, &placeholder, window, cx)),
+                )
+                .child(
+                    v_flex()
+                        .gap_2()
+                        .child(caption(
+                            "EXP-1211: the agent's quick replies (`sessions_suggest` replies) above the composer; a tap sends one as the next message, the others stay.",
+                            cx,
+                        ))
+                        .child(composer_specimen_with_replies(
+                            "sg-session-thread-replies",
+                            Phase::Idle,
+                            &placeholder,
+                            Some(sample_replies()),
+                            window,
+                            cx,
+                        )),
                 );
         }
         let case = case(index);
@@ -112,5 +138,13 @@ mod tests {
         let distinct: std::collections::BTreeSet<usize> = cases.into_iter().collect();
         assert_eq!(distinct.len(), 5);
         assert_eq!(COMPOSERS_AFTER, 3);
+    }
+
+    /// EXP-1211: the specimen is the fixture's two open replies.
+    #[test]
+    fn the_quick_replies_specimen_is_the_fixtures() {
+        let replies = sample_replies();
+        assert_eq!(replies.message_id, "m2");
+        assert_eq!(replies.items.len(), 2);
     }
 }
