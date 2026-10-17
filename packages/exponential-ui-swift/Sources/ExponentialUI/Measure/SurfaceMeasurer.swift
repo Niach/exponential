@@ -353,6 +353,19 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
             mono.fontFamily = "ui-monospace"
             content = para(props.str("code"), mono, wrap: nil, lines: nil)
         case ("FileUpload", nil): content = MeasuredContent(240, 96)
+        case ("ChoiceTiles", nil):
+            // EXP-1280: an unexpanded ChoiceTiles (geometry mode) = its grid
+            // of tiles (the core's FixedMeasure rule): per row a picture
+            // (when any option has one, 1.6 : 1) over two lines, 8 padding,
+            // 8 gaps.
+            let options = props.list("options")
+            let cols = min(max((props.num("columns") ?? 2).rounded(), 1), 4)
+            let rows = (CGFloat(options.count) / cols).rounded(.up)
+            let pictures = options.contains { !($0["image"]?.string ?? "").isEmpty }
+            let w: CGFloat = inner.flatMap { $0 > 0 ? $0 : nil } ?? 320
+            let tileW = (w - 8 * (cols - 1)) / cols - 18
+            let tileH = (pictures ? tileW / 1.6 + 4 : 0) + 2 * ts.lineHeight + 4 + 18
+            content = MeasuredContent(w, max(rows * tileH + max(rows - 1, 0) * 8, 0))
         default: content = MeasuredContent(0, 0)
         }
         let box = c.borderBox(CGSize(width: content.width, height: content.height))

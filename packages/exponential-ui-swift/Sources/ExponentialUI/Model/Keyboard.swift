@@ -37,7 +37,9 @@ extension SurfaceModel {
             guard let n = nodes[safe: i], n.layer == layer, n.isFocusable else { continue }
             var group: String?
             switch (n.ownerComponent, n.part) {
-            case ("Tabs", "tab"), ("Radio", "dot"): group = n.owner
+            // EXP-1280: ChoiceTiles = one roving stop on the picked tile
+            // (the first when none), a11y.json.
+            case ("Tabs", "tab"), ("Radio", "dot"), ("ChoiceTiles", "tile"): group = n.owner
             default: group = nil
             }
             guard let g = group else {
@@ -264,6 +266,15 @@ extension SurfaceModel {
             if let t = Self.rovingTarget(rovingSet(n), current: n.index, key: key, step: stepHV) {
                 focusKey(t)
                 press(t)
+                return true
+            }
+        case ("Box", "ChoiceTiles", "tile"):
+            // EXP-1280 (a11y.json ChoiceTiles): arrows rove the tiles, a
+            // single pick follows the focus; Space / Enter press the focused
+            // tile (multiple: toggle).
+            if let t = Self.rovingTarget(rovingSet(n), current: n.index, key: key, step: stepHV) {
+                focusKey(t)
+                if !choiceTilesMultiple(n.index) { press(t) }
                 return true
             }
         case ("Text", "Accordion", "trigger"):

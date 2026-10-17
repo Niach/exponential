@@ -8,11 +8,11 @@ import SwiftUI
 /// card (a workflow mid-review, a task list, a subagent), the Script card and
 /// the Comment card, each from the REAL view over the shared models. Capture
 /// only: the styleguide suite opens one with `-uiTestingStyleguide
-/// <work-card|script-card|comment-call-card|…|ask-dock>` (`sg_<name>`).
+/// <work-card|script-card|comment-call-card|…|ask-dock|plan-card>` (`sg_<name>`).
 struct ThreadCardsScreen: View {
     let kind: String
 
-    static let kinds: Set<String> = ["work-card", "script-card", "comment-call-card", "trace", "code-block", "thread-strip", "ask-dock"]
+    static let kinds: Set<String> = ["work-card", "script-card", "comment-call-card", "trace", "code-block", "thread-strip", "ask-dock", "plan-card"]
 
     var body: some View {
         ZStack {
@@ -26,6 +26,7 @@ struct ThreadCardsScreen: View {
                     case "code-block": codeBlockSpecimens
                     case "thread-strip": ThreadStripSpecimens()
                     case "ask-dock": AskDockSpecimens()
+                    case "plan-card": PlanCardSpecimens()
                     default: workCards
                     }
                 }
@@ -380,21 +381,20 @@ private struct AskDockSpecimens: View {
     ].joined(separator: "\n")
 
     private static let single: [ThreadRow] = [
-        .plan(id: "p1", sessionId: "c1", plan: longPlan, decision: nil, fresh: false),
+        .plan(ThreadPlanRow(id: "p1", sessionId: "c1", plan: longPlan)),
     ]
 
     private static let stack: [ThreadRow] = [
-        .plan(id: "p1", sessionId: "c1", plan: longPlan, decision: nil, fresh: false),
-        .plan(
+        .plan(ThreadPlanRow(id: "p1", sessionId: "c1", plan: longPlan)),
+        .plan(ThreadPlanRow(
             id: "p2", sessionId: "c2",
-            plan: "1. Group the thread list by state\n2. Drop the per-row counters",
-            decision: nil, fresh: false
-        ),
-        .question(
+            plan: "1. Group the thread list by state\n2. Drop the per-row counters"
+        )),
+        .question(ThreadQuestionRow(
             id: "q1", sessionId: "c3", question: "Ship both fixes in one PR, or split them?",
             options: [TreeQuestionOption(label: "One PR"), TreeQuestionOption(label: "Split them")],
-            custom: true, answer: nil, answered: false
-        ),
+            custom: true, answered: false
+        )),
     ]
 
     private static let names = ["c1": "Ask dock", "c2": "Thread list", "c3": "Dock polish"]
@@ -421,6 +421,88 @@ private struct AskDockSpecimens: View {
                         bodyMaxHeight: cap
                     )
                 }
+            }
+        }
+    }
+}
+
+/// EXP-1280: THE rich plan / question card (`sg_plan-card`, web styleguide
+/// `plan-card`, the IDE's `styleguide:plan-card`): session-thread.json's case
+/// "EXP-1280: a rich plan card…" through the REAL row model
+/// (`ThreadRow.askCard`) and `ThreadAskCard`: the pending plan (a picture in
+/// the body, the inline surface, a picture-tile question + a multiple one),
+/// the answered question card (several picks, closed) and the approved plan
+/// with its feedback.
+private struct PlanCardSpecimens: View {
+    private static let pending = #"""
+    {"kind":"plan","plan":"# Plan\n\n1. Lift the partition\n\n![before](/api/attachments/att-1)\n\n![after](upload:after)",
+     "pictures":[{"label":"before","attachmentId":"att-1","width":1440,"height":900,"caption":"Before"},
+                 {"label":"after","attachmentId":null,"width":null,"height":null,"caption":null},
+                 {"label":"two","attachmentId":"att-2","width":800,"height":500},
+                 {"label":"one","attachmentId":null,"width":null,"height":null}],
+     "questions":[{"id":"layout","prompt":"Which layout?","multi":false,"custom":false,
+                   "options":[{"label":"Two columns","description":"Pictures beside the text","picture":"two"},
+                              {"label":"One column","picture":"one"},{"label":"Neither"}]},
+                  {"id":"platforms","prompt":"Platforms","multi":true,
+                   "options":[{"label":"iOS"},{"label":"Android","description":""}]},
+                  {"id":"broken","options":[]},"junk"],
+     "surface":{"root":{"id":"s","component":"Stack","props":{"direction":"vertical","gap":"sm"},
+                        "children":[{"id":"t","component":"Text","props":{"text":"Pick the accent"}},
+                                    {"id":"c","component":"ChoiceTiles","props":{"name":"accent",
+                                     "options":[{"label":"Blue","value":"blue"},{"label":"Green","value":"green"}],
+                                     "value":{"path":"/accent"}}}]},
+                "data":{"accent":"blue"}},
+     "decision":null,"fresh":null,"feedback":null,"answers":null,"surfaceData":null}
+    """#
+
+    private static let answered = #"""
+    {"kind":"question","question":"Which platforms first?","options":["Web","iOS","Android"],
+     "optionDescriptions":["The styleguide first",null,""],"optionPictures":["web",null,"ghost"],
+     "pictures":[{"label":"web","attachmentId":"att-3","width":1200,"height":750}],
+     "multi":true,"custom":false,"surface":null,"answer":"Web, Android","answers":["Web","Android"],
+     "surfaceData":{"size":"lg"}}
+    """#
+
+    private static let approved = #"""
+    {"kind":"plan","plan":"1. Old","decision":"approved","fresh":false,"feedback":"Go.",
+     "answers":{"q":["Yes",7]},
+     "questions":[{"id":"q","prompt":"Go?","multi":false,"custom":true,"options":[{"label":"Yes"}]}],
+     "surface":{"nope":true}}
+    """#
+
+    private static func row(_ id: String, _ card: String, answeredAt: String?) -> ThreadRow? {
+        ThreadRow.askCard(TreeMessage(
+            id: id,
+            sessionId: "r2",
+            authorKind: "agent",
+            authorId: nil,
+            body: "",
+            card: TreeMessageCard.parse(card),
+            answeredAt: answeredAt,
+            consumedAt: answeredAt,
+            createdAt: "2026-10-13T10:01:00.000Z",
+            authorSessionId: nil
+        ))
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 24) {
+            section("A plan waiting on you", Self.row("n1", Self.pending, answeredAt: nil))
+            section("Answered: several picks", Self.row("n2", Self.answered, answeredAt: "2026-10-13T10:03:00.000Z"))
+            section("Approved with feedback", Self.row("n3", Self.approved, answeredAt: "2026-10-13T10:04:00.000Z"))
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier(PlanCard.TestIds.card)
+    }
+
+    @ViewBuilder
+    private func section(_ title: String, _ row: ThreadRow?) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+            if let row {
+                ThreadAskCard(row: row)
             }
         }
     }

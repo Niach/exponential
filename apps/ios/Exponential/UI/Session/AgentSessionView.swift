@@ -174,6 +174,12 @@ struct AgentSessionView: View {
     @State private var editingSteps: [String: String] = [:]
     /// EXP-1310: the Stop confirm (`Prompts.StopRun`, ×4 with Android).
     @State private var stopConfirm = false
+    /// EXP-1280: this session's OWN tool-posted cards (`exponential_plan_propose`
+    /// / `exponential_sessions_ask`: a `plan` / `question` message with no
+    /// mirrored ACP ask) — the relay has no open ask for them, so they answer
+    /// through `sessions.answer`, in the ask dock like a thread's.
+    @State private var toolAsks: [ThreadRow] = []
+    @State private var toolAnsweringId: String?
     @Environment(\.motion) private var motion
 
     /// EXP-746: Usage opens on EITHER half — the machine's rate-limit report
@@ -369,6 +375,7 @@ struct AgentSessionView: View {
     /// chain is split at all.
     private func withLifecycle(_ content: some View) -> some View {
         content
+            .task(id: session.id) { await observeToolAsks() }
             // EXP-1031: the transient outcomes land as toasts.
             .onChange(of: model?.stopError) { _, message in
                 guard let message else { return }
@@ -1088,12 +1095,78 @@ struct AgentSessionView: View {
         }
     }
 
+    /// EXP-1280: the tool-posted cards still waiting on this viewer (one who
+    /// may post), oldest first.
+    private func pendingToolAsks(_ model: AgentSessionModel) -> [AskDock.Pending] {
+        guard model.mayPost, !model.sessionEnded else { return [] }
+        return AskDock.threadPendingAsks(toolAsks) { _ in nil }
+    }
+
+    /// EXP-1280: observe this session's own synced card messages; keep the
+    /// tool-posted ones (no `questionId`) as rows.
+    private func observeToolAsks() async {
+        guard let pool = try? deps.db.pool(forAccountId: accountId) else { return }
+        let id = session.id
+        let observation = ValueObservation.tracking { db in
+            try SessionQueries.messages(db: db, sessionId: id)
+        }
+        do {
+            for try await messages in observation.values(in: pool) {
+                toolAsks = messages.compactMap { row in
+                    let message = TreeMessage(messageRow: row)
+                    guard message.authorKind == "agent", message.card?.questionId == nil else { return nil }
+                    return ThreadRow.askCard(message)
+                }
+            }
+        } catch {}
+    }
+
+    /// EXP-1280: answer a tool-posted card (`sessions.answer`); a refusal
+    /// toasts and the card stays answerable.
+    private func submitToolAnswer(_ card: ThreadCardAnswer) {
+        guard toolAnsweringId == nil else { return }
+        toolAnsweringId = card.messageId
+        let api = deps.sessionsApi
+        let accountId = accountId
+        Task {
+            do {
+                try await api.answer(
+                    accountId: accountId, messageId: card.messageId, answer: card.answer, decision: card.decision,
+                    fresh: card.fresh, feedback: card.feedback, answers: card.answers, surfaceData: card.surfaceData
+                )
+            } catch {
+                toaster.error(
+                    FeedbackStates.Errors.title(verb: "send", thing: "the answer"),
+                    description: error.userFacingMessage
+                )
+            }
+            toolAnsweringId = nil
+        }
+    }
+
     /// THE ask dock in the composer's slot: the session view feeds it its
     /// one answerable card (no caption), drawn as THE big card with its
-    /// body capped.
+    /// body capped. EXP-1280: with no relay ask docked, the session's own
+    /// tool-posted cards (THE thread card, `ThreadAskCard`).
     @ViewBuilder
     private func askDock(_ model: AgentSessionModel) -> some View {
-        if let row = dockedRow(model) {
+        if dockedRow(model) == nil, case let toolPending = pendingToolAsks(model), !toolPending.isEmpty {
+            AskDockView(pending: toolPending) { id, onBack, cap in
+                if let row = toolAsks.first(where: { $0.id == id }) {
+                    ThreadAskCard(
+                        row: row,
+                        canAnswer: true,
+                        answeringId: toolAnsweringId,
+                        markdownContext: markdownContext,
+                        onBack: onBack,
+                        bodyMaxHeight: cap,
+                        onSubmit: submitToolAnswer
+                    )
+                }
+            }
+            .padding(.vertical, 8)
+            .transcriptColumn()
+        } else if let row = dockedRow(model) {
             let question: AgentQuestion? = switch row {
             case let .ask(group): group.questions.first
             case let .single(item): item.question
@@ -1523,7 +1596,7 @@ struct AgentSessionView: View {
     /// a reconnect and only goes away once the session is over. EXP-1295: a
     /// viewer who may not post (a private session) never gets one.
     private func bandRetired(_ model: AgentSessionModel) -> Bool {
-        model.isOver || model.cardPending || !model.mayPost
+        model.isOver || model.cardPending || !model.mayPost || !pendingToolAsks(model).isEmpty
     }
 
     @ViewBuilder
@@ -2322,6 +2395,19 @@ struct QuestionCard: View {
     /// the body scrolls inside it instead of folding. nil = in the
     /// transcript (the "Show more" fold).
     var bodyMaxHeight: CGFloat? = nil
+    /// EXP-1280 (plan-card.json): a rich card's form under the body — the
+    /// inline surface and the question blocks (`PlanCardForm.swift`); shown
+    /// open and answered alike (answered = inert, the picks highlighted).
+    var form: AnyView? = nil
+    /// EXP-1280: why the plan cannot be approved yet (`copy.answerIssues`);
+    /// the approve rows wait and the line shows under them. Rejecting never
+    /// needs answers.
+    var approveIssue: String? = nil
+    /// EXP-1280: the form answers the card itself (a question's picture
+    /// tiles): the option rows stay hidden.
+    var hidesOptions: Bool = false
+    /// EXP-1280: the answered plan's feedback, under its decision.
+    var resolutionNote: String? = nil
 
     @State private var expanded = false
     @State private var dockedBodyHeight: CGFloat = 0
@@ -2458,10 +2544,21 @@ struct QuestionCard: View {
             VStack(alignment: .leading, spacing: 8) {
                 priorStepSummary
                 prompt
+                if let form {
+                    form
+                }
                 if showsResolution {
                     resolution
                 } else {
-                    optionList
+                    if !hidesOptions {
+                        optionList
+                    }
+                    if let approveIssue, answerable {
+                        Text(approveIssue)
+                            .font(.caption2)
+                            .foregroundStyle(DesignTokens.Semantic.yellow)
+                            .accessibilityIdentifier(PlanCard.TestIds.issue)
+                    }
                     trailingActions
                 }
                 if editing {
@@ -2661,6 +2758,25 @@ struct QuestionCard: View {
                 .foregroundStyle(.white)
                 .textSelection(.enabled)
         }
+        if let resolutionNote, !resolutionNote.isEmpty {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(PlanCard.Copy.feedback)
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                Text(resolutionNote)
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    .textSelection(.enabled)
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier(PlanCard.TestIds.feedback)
+        }
+    }
+
+    /// EXP-1280: an approve row of a plan whose questions still wait.
+    private func approveBlocked(_ option: AgentQuestionOption) -> Bool {
+        guard question.planMode, approveIssue != nil else { return false }
+        return AskDock.planOption(key: option.key)?.decision == PlanDecision.approved.rawValue
     }
 
     /// EXP-788: every option is a real full-width button — a numbered chip
@@ -2693,8 +2809,8 @@ struct QuestionCard: View {
                             )
                         }
                         .buttonStyle(.plain)
-                        .disabled(locked)
-                        .opacity(locked ? 0.5 : 1)
+                        .disabled(locked || approveBlocked(option))
+                        .opacity(locked || approveBlocked(option) ? 0.5 : 1)
                         .accessibilityIdentifier("agent-question-option-\(index + 1)")
                     } else {
                         optionRow(

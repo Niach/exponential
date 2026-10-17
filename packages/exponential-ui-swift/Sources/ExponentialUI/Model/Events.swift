@@ -410,6 +410,17 @@ extension SurfaceModel {
         return !value.isNull && rv.displayText == value.displayText
     }
 
+    /// EXP-1280: whether a ChoiceTiles part's owner picks several values.
+    public func choiceTilesMultiple(_ index: Int) -> Bool {
+        ownerProps(index).str("type") == "multiple"
+    }
+
+    /// EXP-1280: whether a ChoiceTiles tile is picked (the core marks it).
+    public func choiceTileSelected(_ index: Int) -> Bool {
+        guard let n = node(index) else { return false }
+        return n.props["selected"]?.bool ?? n.has("selected")
+    }
+
     /// A Toggle's pressed state.
     public func togglePressed(_ index: Int) -> Bool {
         guard let n = owner(of: index) else { return false }

@@ -201,10 +201,14 @@ public struct TreeIssue: Equatable, Sendable, Identifiable {
 public struct TreeQuestionOption: Equatable, Sendable {
     public let label: String
     public let description: String?
+    /// EXP-1280: the option's picture (plan-card.json `pictureFor`); nil = a
+    /// text option.
+    public let attachmentId: String?
 
-    public init(label: String, description: String? = nil) {
+    public init(label: String, description: String? = nil, attachmentId: String? = nil) {
         self.label = label
         self.description = description
+        self.attachmentId = attachmentId
     }
 }
 
@@ -253,11 +257,26 @@ public struct TreeMessageCard: Equatable, Sendable {
     public let question: String?
     public let options: [TreeQuestionOption]
     public let answer: String?
+    /// EXP-1280 question: several picks; free text offered (default true);
+    /// the picked labels (nil on a legacy card = `answer` alone).
+    public let multi: Bool
+    public let custom: Bool
+    public let labels: [String]?
     /// plan.
     public let plan: String?
     public let decision: String?
     /// An approval that started in a fresh context (ask-dock.json).
     public let fresh: Bool
+    /// EXP-1280 plan: the choice questions, the picked labels per question,
+    /// the note.
+    public let questions: [ThreadPlanQuestion]
+    public let planAnswers: [String: [String]]?
+    public let feedback: String?
+    /// EXP-1280 plan + question: the inline Exponential UI surface.
+    public let surface: CardSurface?
+    /// The open ACP ask a device mirrored (nil = a tool-posted card,
+    /// `exponential_plan_propose` / `exponential_sessions_ask`, EXP-1280).
+    public let questionId: String?
     /// subagent.
     public let title: String?
     public let status: String?
@@ -281,9 +300,17 @@ public struct TreeMessageCard: Equatable, Sendable {
         question: String? = nil,
         options: [TreeQuestionOption] = [],
         answer: String? = nil,
+        multi: Bool = false,
+        custom: Bool = true,
+        labels: [String]? = nil,
         plan: String? = nil,
         decision: String? = nil,
         fresh: Bool = false,
+        questions: [ThreadPlanQuestion] = [],
+        planAnswers: [String: [String]]? = nil,
+        feedback: String? = nil,
+        surface: CardSurface? = nil,
+        questionId: String? = nil,
         title: String? = nil,
         status: String? = nil,
         attachmentId: String? = nil,
@@ -303,9 +330,17 @@ public struct TreeMessageCard: Equatable, Sendable {
         self.question = question
         self.options = options
         self.answer = answer
+        self.multi = multi
+        self.custom = custom
+        self.labels = labels
         self.plan = plan
         self.decision = decision
         self.fresh = fresh
+        self.questions = questions
+        self.planAnswers = planAnswers
+        self.feedback = feedback
+        self.surface = surface
+        self.questionId = questionId
         self.title = title
         self.status = status
         self.attachmentId = attachmentId
@@ -334,26 +369,50 @@ public struct TreeMessageCard: Equatable, Sendable {
             else { return nil }
             return value.doubleValue
         }
+        let pictures = PlanCardPicture.list(object["pictures"])
+        func sidecar(_ key: String, _ index: Int) -> String? {
+            guard let list = object[key] as? [Any], index < list.count,
+                  let value = list[index] as? String, !value.isEmpty
+            else { return nil }
+            return value
+        }
         self.init(
             kind: text("kind"),
             sessionId: text("sessionId"),
             question: loose("question"),
             // EXP-1322: `options` = plain labels, descriptions ride the
             // parallel `optionDescriptions` sidecar (null / "" = none), zipped
-            // by ORIGINAL index before non-string options drop.
+            // by ORIGINAL index before non-string options drop. EXP-1280:
+            // pictures ride `optionPictures` (labels resolved through
+            // `pictures`) the same way.
             options: (object["options"] as? [Any])?.enumerated().compactMap { index, option -> TreeQuestionOption? in
                 guard let label = option as? String else { return nil }
-                let sidecar = object["optionDescriptions"] as? [Any]
-                guard let sidecar, index < sidecar.count,
-                      let description = sidecar[index] as? String, !description.isEmpty
-                else { return TreeQuestionOption(label: label) }
-                return TreeQuestionOption(label: label, description: description)
+                return TreeQuestionOption(
+                    label: label,
+                    description: sidecar("optionDescriptions", index),
+                    attachmentId: PlanCard.pictureFor(pictures, label: sidecar("optionPictures", index))
+                )
             } ?? [],
             answer: text("answer"),
+            multi: CardJSON.isTrue(object["multi"]),
+            custom: !CardJSON.isFalse(object["custom"]),
+            labels: (object["answers"] as? [Any]).map { $0.compactMap { $0 as? String } },
             plan: loose("plan"),
             decision: text("decision"),
             // `card.fresh === true` in the reference.
             fresh: (object["fresh"] as? NSNumber).map { CFGetTypeID($0) == CFBooleanGetTypeID() && $0.boolValue } ?? false,
+            questions: ThreadPlanQuestion.list(object["questions"], pictures: pictures),
+            planAnswers: (object["answers"] as? [String: Any]).map { raw in
+                var answers: [String: [String]] = [:]
+                for (id, labels) in raw {
+                    guard let labels = labels as? [Any] else { continue }
+                    answers[id] = labels.compactMap { $0 as? String }
+                }
+                return answers
+            },
+            feedback: text("feedback").flatMap { $0.isEmpty ? nil : $0 },
+            surface: CardSurface.parse(object["surface"]),
+            questionId: text("questionId"),
             title: loose("title"),
             status: loose("status"),
             attachmentId: text("attachmentId"),
@@ -612,31 +671,151 @@ public enum ThreadRow: Equatable, Sendable {
     /// EXP-1323: ONE suggested-tasks card; `sessionId` = the posting session
     /// (Do it here messages it).
     case suggestions(id: String, sessionId: String, header: String, startAll: Bool, items: [SuggestionRow])
-    /// `custom` = a free-text answer is offered beside the options (always,
-    /// EXP-1316: THE session view's card).
-    /// `sessionId` (EXP-1334) = the session whose card it is (the root, or
-    /// a child whose own ask surfaces in the Conversation).
-    case question(id: String, sessionId: String, question: String, options: [TreeQuestionOption], custom: Bool, answer: String?, answered: Bool)
-    /// `fresh` = an approval that started in a fresh context (ask-dock.json).
-    case plan(id: String, sessionId: String, plan: String, decision: String?, fresh: Bool)
+    /// A question card (EXP-1280: rich, plan-card.json).
+    case question(ThreadQuestionRow)
+    /// A plan card (EXP-1280: rich, plan-card.json).
+    case plan(ThreadPlanRow)
     case subagent(id: String, title: String, status: String)
     case picture(id: String, attachmentId: String, width: Double?, height: Double?, caption: String?)
     /// One muted line.
     case event(id: String, event: String, text: String)
 
+    /// A `question` / `plan` card message as its row (nil = another kind).
+    public static func askCard(_ message: TreeMessage) -> ThreadRow? {
+        guard let card = message.card else { return nil }
+        switch card.kind {
+        case "question":
+            return .question(ThreadQuestionRow(
+                id: message.id,
+                sessionId: message.sessionId,
+                question: card.question ?? "",
+                options: card.options,
+                custom: card.custom,
+                multi: card.multi,
+                surface: card.surface,
+                answer: card.answer,
+                answers: card.labels,
+                answered: message.answeredAt != nil
+            ))
+        case "plan":
+            return .plan(ThreadPlanRow(
+                id: message.id,
+                sessionId: message.sessionId,
+                plan: card.plan ?? "",
+                questions: card.questions,
+                surface: card.surface,
+                decision: card.decision,
+                fresh: card.fresh,
+                answers: card.planAnswers,
+                feedback: card.feedback
+            ))
+        default:
+            return nil
+        }
+    }
+
     public var id: String {
         switch self {
+        case let .question(row): row.id
+        case let .plan(row): row.id
         case let .message(id, _, _, _, _, _),
              let .session(id, _),
              let .report(id, _, _, _),
              let .suggestions(id, _, _, _, _),
-             let .question(id, _, _, _, _, _, _),
-             let .plan(id, _, _, _, _),
              let .subagent(id, _, _),
              let .picture(id, _, _, _, _),
              let .event(id, _, _):
             id
         }
+    }
+}
+
+/// A question card row. `custom` = a free-text answer is offered beside the
+/// options (unless the card says `custom: false`, EXP-1280). `sessionId`
+/// (EXP-1334) = the session whose card it is (the root, or a child whose own
+/// ask surfaces in the Conversation).
+public struct ThreadQuestionRow: Equatable, Sendable, Identifiable {
+    public let id: String
+    public let sessionId: String
+    public let question: String
+    public let options: [TreeQuestionOption]
+    public let custom: Bool
+    /// EXP-1280: several picks allowed.
+    public let multi: Bool
+    /// EXP-1280: the inline Exponential UI surface, if any.
+    public let surface: CardSurface?
+    public let answer: String?
+    /// EXP-1280: the picked labels (nil on a legacy card = `answer` alone).
+    public let answers: [String]?
+    public let answered: Bool
+
+    public init(
+        id: String,
+        sessionId: String,
+        question: String,
+        options: [TreeQuestionOption],
+        custom: Bool = true,
+        multi: Bool = false,
+        surface: CardSurface? = nil,
+        answer: String? = nil,
+        answers: [String]? = nil,
+        answered: Bool
+    ) {
+        self.id = id
+        self.sessionId = sessionId
+        self.question = question
+        self.options = options
+        self.custom = custom
+        self.multi = multi
+        self.surface = surface
+        self.answer = answer
+        self.answers = answers
+        self.answered = answered
+    }
+
+    /// The labels shown picked: `answers`, else the legacy `answer`.
+    public var picked: [String] {
+        if let answers, !answers.isEmpty { return answers }
+        if let answer, !answer.isEmpty { return [answer] }
+        return []
+    }
+}
+
+/// A plan card row. `fresh` = an approval that started in a fresh context
+/// (ask-dock.json).
+public struct ThreadPlanRow: Equatable, Sendable, Identifiable {
+    public let id: String
+    public let sessionId: String
+    public let plan: String
+    /// EXP-1280: the choice questions, the inline surface.
+    public let questions: [ThreadPlanQuestion]
+    public let surface: CardSurface?
+    public let decision: String?
+    public let fresh: Bool
+    /// EXP-1280: the picked labels per question, the note.
+    public let answers: [String: [String]]?
+    public let feedback: String?
+
+    public init(
+        id: String,
+        sessionId: String,
+        plan: String,
+        questions: [ThreadPlanQuestion] = [],
+        surface: CardSurface? = nil,
+        decision: String? = nil,
+        fresh: Bool = false,
+        answers: [String: [String]]? = nil,
+        feedback: String? = nil
+    ) {
+        self.id = id
+        self.sessionId = sessionId
+        self.plan = plan
+        self.questions = questions
+        self.surface = surface
+        self.decision = decision
+        self.fresh = fresh
+        self.answers = answers
+        self.feedback = feedback
     }
 }
 
@@ -1165,18 +1344,8 @@ public enum SessionTree {
                     id: message.id,
                     card: sessionCard(target, title: titles[target.id] ?? "", now: now)
                 ))
-            case "question":
-                rows.append(.question(
-                    id: message.id,
-                    sessionId: message.sessionId,
-                    question: card.question ?? "",
-                    options: card.options,
-                    custom: true,
-                    answer: card.answer,
-                    answered: message.answeredAt != nil
-                ))
-            case "plan":
-                rows.append(.plan(id: message.id, sessionId: message.sessionId, plan: card.plan ?? "", decision: card.decision, fresh: card.fresh))
+            case "question", "plan":
+                if let row = ThreadRow.askCard(message) { rows.append(row) }
             case "subagent":
                 rows.append(.subagent(id: message.id, title: card.title ?? "", status: card.status ?? ""))
             case "picture":

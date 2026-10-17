@@ -70,6 +70,10 @@ struct A11yInfo: Equatable {
         case ("Checkbox", "box"), ("Checkbox", "checkbox"): return "checkbox"
         case ("Switch", "track"): return "switch"
         case ("Radio", "dot"): return "radio"
+        // EXP-1280: a radiogroup of tiles (single) or a group of checkbox
+        // tiles (multiple); the picture is decorative, the label names it.
+        case ("Box", "tile") where owner == "ChoiceTiles":
+            return model.choiceTilesMultiple(n.index) ? "checkbox" : "radio"
         case ("Slider", "track"): return "slider"
         case ("NumberField", "input"): return "spinbutton"
         case ("ChipInput", "input"), ("Input", "field"), ("Textarea", "field"): return "textbox"
@@ -122,7 +126,8 @@ struct A11yInfo: Equatable {
         info.traits = Self.traits(role: role)
         if info.live { info.traits.formUnion(.updatesFrequently) }
         // States (`accessibility` first, then the part states the core set).
-        let selected = a.selected ?? (n.selected || ((n.part == "dot") && model.radioChecked(n.index)))
+        let tile = n.ownerComponent == "ChoiceTiles" && n.part == "tile"
+        let selected = a.selected ?? (n.selected || ((n.part == "dot") && model.radioChecked(n.index)) || (tile && model.choiceTileSelected(n.index)))
         if selected { info.traits.formUnion(.isSelected) }
         var values: [String] = []
         if let current = a.current {
@@ -138,7 +143,9 @@ struct A11yInfo: Equatable {
         }
         switch role {
         case "checkbox", "switch", "menuitemcheckbox":
-            let checked = a.checked ?? (n.part == nil && n.component != "Checkbox" && n.component != "Switch" ? n.checked : model.checked(n.index))
+            let checked = a.checked ?? (tile
+                ? model.choiceTileSelected(n.index)
+                : (n.part == nil && n.component != "Checkbox" && n.component != "Switch" ? n.checked : model.checked(n.index)))
             values.append(checked ? "on" : "off")
         case "progressbar", "meter", "slider":
             let now = a.valueNow ?? (role == "slider" ? model.sliderValue(n.index) : n.props.num("value"))
