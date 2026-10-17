@@ -540,15 +540,16 @@ internal fun ModelPickerRow(
     onSelect: (String) -> Unit,
     enabled: Boolean = true,
 ) {
-    PickerRow(
-        label = label,
-        value = modelLabel(value),
-        options = modelOptionsFor(agent),
-        selected = value,
-        optionLabel = ::modelLabel,
-        onSelect = onSelect,
+    // EXP-1345: THE model picker (the composer pills ride it too).
+    com.exponential.app.ui.components.picker.ModelPicker(
+        options = modelOptionsFor(agent).map { com.exponential.app.ui.components.picker.ModelPickerOption(it, modelLabel(it)) },
+        value = value,
+        onChange = onSelect,
+        title = label,
         enabled = enabled,
-    )
+    ) { open ->
+        PickerValueRow(label = label, value = modelLabel(value), enabled = enabled, onClick = open)
+    }
 }
 
 internal fun agentLabel(value: String): String = when (value) {

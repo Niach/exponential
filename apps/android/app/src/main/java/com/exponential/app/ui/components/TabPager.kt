@@ -6,6 +6,7 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.PagerDefaults
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -42,6 +43,9 @@ fun <T> TabPager(
     key: (T) -> Any,
     modifier: Modifier = Modifier,
     beyondViewportPageCount: Int = 1,
+    /** EXP-1343: each page gets its own [PageViewModelStore] (its view
+     *  models die with the page instead of piling up on the screen's entry). */
+    pageViewModels: Boolean = false,
     content: @Composable (T) -> Unit,
 ) {
     val pagerState = rememberPagerState(initialPage = pages.indexOf(selected).coerceAtLeast(0)) { pages.size }
@@ -86,6 +90,7 @@ fun <T> TabPager(
         focusPage = selected
         focusManager.clearFocus()
     }
+    val outerHazeActive = LocalDetailHazeSourceActive.current
     HorizontalPager(
         state = pagerState,
         modifier = modifier,
@@ -95,6 +100,13 @@ fun <T> TabPager(
         flingBehavior = PagerDefaults.flingBehavior(pagerState),
     ) { index ->
         val page = pages.getOrNull(index) ?: return@HorizontalPager
-        Box(modifier = Modifier.fillMaxSize()) { content(page) }
+        val hazeActive = outerHazeActive && index == pagerState.currentPage
+        // EXP-1343: only the settled page feeds the ONE detail haze; a
+        // neighbour composed for a drag never registers a second source.
+        CompositionLocalProvider(LocalDetailHazeSourceActive provides hazeActive) {
+            Box(modifier = Modifier.fillMaxSize()) {
+                if (pageViewModels) PageViewModelStore { content(page) } else content(page)
+            }
+        }
     }
 }

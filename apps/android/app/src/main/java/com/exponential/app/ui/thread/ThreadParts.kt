@@ -289,6 +289,7 @@ private sealed interface StripSheet {
 
 /** The page key of an issue (a top-level chip or a folded sub-issue). */
 private fun issueKey(issueId: String) = "issue:$issueId"
+private fun sessionKey(sessionId: String) = "session:$sessionId"
 
 /**
  * EXP-1334 (session-thread.json): the ONE strip, and NOTHING scrolls — "+"
@@ -429,6 +430,8 @@ fun ThreadTabStrip(
                         )
                         is SessionTree.ThreadTab.SessionTab -> GlassSheetRow(
                             label = tab.name,
+                            selected = selectedKey == sessionKey(tab.sessionId) ||
+                                tab.nested.any { selectedKey == sessionKey(it.sessionId) },
                             onClick = {
                                 sheet = null
                                 activate(tab)
@@ -476,6 +479,13 @@ private fun ThreadStripChips(
     val activeIssue = issueTabs.indexOfFirst { tab ->
         selectedKey == issueKey(tab.issueId) || openNested(tab) != null
     }.takeIf { it >= 0 }
+    // EXP-1343: a session chip is a page too: active while it or a folded
+    // session is shown, reading `<chip> › <open one>`.
+    fun openNestedSession(tab: SessionTree.ThreadTab.SessionTab) =
+        tab.nested.firstOrNull { selectedKey == sessionKey(it.sessionId) }?.name
+    fun sessionActive(tab: SessionTree.ThreadTab.SessionTab) =
+        selectedKey == sessionKey(tab.sessionId) || openNestedSession(tab) != null
+    val activeSession = sessionTabs.indexOfFirst(::sessionActive).takeIf { it >= 0 }
     androidx.compose.ui.layout.SubcomposeLayout(modifier.clipToBounds().testTag("thread-strip-chips")) { constraints ->
         val loose = androidx.compose.ui.unit.Constraints()
         val gap = StripGap.roundToPx()
@@ -497,7 +507,14 @@ private fun ThreadStripChips(
             subcompose("issue-short-$index") { IssueChipFor(tab, full = false) }.first().measure(loose)
         }
         val sessions = sessionTabs.mapIndexed { index, tab ->
-            subcompose("session-$index") { SessionStripChip(tab, onClick = { onActivate(tab) }) }.first().measure(loose)
+            subcompose("session-$index") {
+                SessionStripChip(
+                    tab,
+                    selected = sessionActive(tab),
+                    openNested = openNestedSession(tab),
+                    onClick = { onActivate(tab) },
+                )
+            }.first().measure(loose)
         }
         // The "+N" probe at the widest count a zone can fold (10+ chips
         // would otherwise clip the real chip).
@@ -510,7 +527,7 @@ private fun ThreadStripChips(
             gap = gap.toFloat(),
             overflowW = overflowW.toFloat(),
             activeIssue = activeIssue,
-            activeSession = null,
+            activeSession = activeSession,
         )
         val isFull = layout.tier == SessionTree.StripTier.Full
         val issueWidths = (if (isFull) full else short).map { it.width }
@@ -657,10 +674,15 @@ private fun IssueStripChip(
  *  a chevron-down when it folds deeper sessions. Its accessible name is
  *  `name, state word` (iOS parity: the mark's word is read, not drawn). */
 @Composable
-private fun SessionStripChip(tab: SessionTree.ThreadTab.SessionTab, onClick: () -> Unit) {
+private fun SessionStripChip(
+    tab: SessionTree.ThreadTab.SessionTab,
+    selected: Boolean,
+    openNested: String?,
+    onClick: () -> Unit,
+) {
     val stateWord = SessionTree.CardCopy.STATES.getValue(tab.markState)
     ThreadTab(
-        selected = false,
+        selected = selected,
         onClick = onClick,
         onLongClick = null,
         testTag = "thread-tab-session",
@@ -672,11 +694,21 @@ private fun SessionStripChip(tab: SessionTree.ThreadTab.SessionTab, onClick: () 
         Text(
             tab.name,
             style = MaterialTheme.typography.labelMedium,
-            color = Secondary,
+            color = if (selected) MaterialTheme.colorScheme.onSurface else Secondary,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.widthIn(max = 120.dp),
         )
+        if (openNested != null) {
+            Text(
+                " › $openNested",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.widthIn(max = 120.dp),
+            )
+        }
         if (tab.nested.isNotEmpty()) FoldChevron()
     }
 }
@@ -740,7 +772,7 @@ private fun ThreadSubtreeSheet(
         rows.forEachIndexed { index, row ->
             com.exponential.app.ui.components.TreeGuidesRow(depth = row.depth, guide = guides.getOrNull(index)) {
                 val issue = row.mark == null
-                val selected = issue && selectedKey == issueKey(row.id)
+                val selected = selectedKey == if (issue) issueKey(row.id) else sessionKey(row.id)
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()

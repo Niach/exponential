@@ -31,11 +31,11 @@ import com.exponential.app.data.db.DeviceWorktreeEntity
 import com.exponential.app.domain.AccountOption
 import com.exponential.app.ui.components.GlassSwitch
 import com.exponential.app.ui.components.GlassSwitchSize
+import com.exponential.app.ui.components.picker.ModelPicker
+import com.exponential.app.ui.components.picker.ModelPickerOption
 import com.exponential.app.ui.components.picker.AccountPicker
 import com.exponential.app.ui.components.picker.AccountPickerPillTrigger
 import com.exponential.app.ui.components.toPickerAccount
-import com.exponential.app.ui.components.GlassDropdownMenu
-import com.exponential.app.ui.components.GlassMenuItem
 import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.PillMode
 import com.exponential.app.ui.components.deviceIcon
@@ -142,13 +142,19 @@ internal fun AgentOptionsRow(
                 },
             )
         }
-        OptionMenuPill(
-            text = modelLabel(launch.model),
-            contentDescription = "Model",
-            options = modelOptionsFor(launch.agent),
-            optionLabel = ::modelLabel,
-            selected = launch.model,
-            onSelect = onModelChange,
+        // EXP-1345: THE picker — a bottom sheet, the picked row's TRAILING check.
+        val modelOptions = modelOptionsFor(launch.agent)
+        ModelPicker(
+            options = modelOptions.map { ModelPickerOption(it, modelLabel(it)) },
+            value = launch.model,
+            onChange = onModelChange,
+            trigger = { open ->
+                OptionPill(
+                    text = modelLabel(launch.model),
+                    contentDescription = "Model",
+                    onOpen = open,
+                )
+            },
         )
         // Plan mode is claude-only since EXP-849. EXP-827: a slide switch on
         // every platform, not a lit select pill.
@@ -195,71 +201,10 @@ private fun PlanSwitchPill(
 }
 
 /**
- * One option pill that opens a menu of its values: a glyph, the picked value
- * and a chevron, on the capsule every other pill wears. [enabled] false
- * renders the label alone — a single value is a statement, not a choice.
- *
- * EXP-862: [optionIcon] puts the value's own glyph on the MENU rows too — a
- * picker whose trigger shows an icon shows it on its items.
- */
-@Composable
-private fun OptionMenuPill(
-    text: String,
-    contentDescription: String,
-    options: List<String>,
-    optionLabel: (String) -> String,
-    selected: String?,
-    onSelect: (String) -> Unit,
-    modifier: Modifier = Modifier,
-    icon: ImageVector? = null,
-    optionIcon: ((String) -> ImageVector?)? = null,
-    enabled: Boolean = true,
-) {
-    var open by remember { mutableStateOf(false) }
-    Box(modifier = modifier) {
-        OptionPill(
-            text = text,
-            contentDescription = contentDescription,
-            icon = icon,
-            enabled = enabled,
-            onOpen = { open = true },
-        )
-        GlassDropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-            options.forEach { option ->
-                val glyph = optionIcon?.invoke(option)
-                GlassMenuItem(
-                    text = { Text(optionLabel(option)) },
-                    leadingIcon = when {
-                        glyph != null -> {
-                            { Icon(glyph, contentDescription = null, modifier = Modifier.size(16.dp)) }
-                        }
-                        option == selected -> {
-                            { Icon(ExpIcons.uiCheck, contentDescription = null, modifier = Modifier.size(16.dp)) }
-                        }
-                        else -> null
-                    },
-                    // With a glyph in the leading slot the pick is marked at
-                    // the trailing edge instead, so both can show at once.
-                    trailingIcon = if (glyph != null && option == selected) {
-                        { Icon(ExpIcons.uiCheck, contentDescription = null, modifier = Modifier.size(16.dp)) }
-                    } else {
-                        null
-                    },
-                    onClick = {
-                        open = false
-                        onSelect(option)
-                    },
-                )
-            }
-        }
-    }
-}
-
-/**
  * The capsule every option pill wears: a glyph, the picked value and the
  * chevron that says it opens something. [enabled] false renders the label
  * alone — a single value is a statement, not a choice. Shared by the pills
- * that open a MENU ([OptionMenuPill]) and by the device pill, whose list is
+ * that open a picker (the model, EXP-1345) and by the device pill, whose list is
  * the shared picker's sheet.
  */
 @Composable
