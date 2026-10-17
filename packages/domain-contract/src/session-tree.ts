@@ -359,6 +359,11 @@ export function planAnswers(raw: unknown): Record<string, string[]> | null {
   return answers
 }
 
+/** EXP-1280: a JSON object (the surface's data model), else null. */
+function dataRecord(raw: unknown): Record<string, unknown> | null {
+  return raw && typeof raw === `object` && !Array.isArray(raw) ? (raw as Record<string, unknown>) : null
+}
+
 function stringList(raw: unknown): string[] | null {
   if (!Array.isArray(raw)) return null
   return raw.filter((entry): entry is string => typeof entry === `string`)
@@ -402,6 +407,8 @@ export type ThreadRow =
       answer: string | null
       /** EXP-1280: the picked labels (null on a legacy card = `answer` alone). */
       answers: string[] | null
+      /** EXP-1280: the surface's data model as the person answered it (null = unanswered / none). */
+      surfaceData: Record<string, unknown> | null
       answered: boolean
     }
   | {
@@ -418,6 +425,7 @@ export type ThreadRow =
       /** EXP-1280: the picked labels per question, the note. */
       answers: Record<string, string[]> | null
       feedback: string | null
+      surfaceData: Record<string, unknown> | null
     }
   | { type: `subagent`; id: string; title: string; status: string }
   | {
@@ -761,6 +769,7 @@ export function buildSessionThread(input: {
           surface: cardSurface(card.surface),
           answer: typeof card.answer === `string` ? card.answer : null,
           answers: stringList(card.answers),
+          surfaceData: dataRecord(card.surfaceData),
           answered: message.answeredAt !== null,
         })
         break
@@ -776,6 +785,7 @@ export function buildSessionThread(input: {
           fresh: card.fresh === true,
           answers: planAnswers(card.answers),
           feedback: typeof card.feedback === `string` && card.feedback !== `` ? card.feedback : null,
+          surfaceData: dataRecord(card.surfaceData),
         })
         break
       case `subagent`:

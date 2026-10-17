@@ -65,6 +65,7 @@ const ROWS: ThreadRow[] = [
     surface: null,
     answer: null,
     answers: null,
+    surfaceData: null,
     answered: false,
   },
   {
@@ -78,6 +79,7 @@ const ROWS: ThreadRow[] = [
     fresh: false,
     answers: null,
     feedback: null,
+    surfaceData: null,
   },
   { type: `event`, id: `e1`, event: `issue_linked`, text: `Linked APP-5` },
 ]
@@ -179,6 +181,7 @@ describe(`ThreadConversation`, () => {
         surface: null,
         answer: `Use C`,
         answers: null,
+        surfaceData: null,
         answered: true,
       },
       {
@@ -192,6 +195,7 @@ describe(`ThreadConversation`, () => {
         fresh: true,
         answers: null,
         feedback: `Ship it`,
+        surfaceData: null,
       },
     ])
     expect(screen.queryAllByTestId(`ask-option`)).toHaveLength(0)
@@ -806,6 +810,7 @@ describe(`ThreadConversation EXP-1280 rich cards`, () => {
             surface,
             answer: null,
             answers: null,
+            surfaceData: null,
             answered: false,
           },
         ]}

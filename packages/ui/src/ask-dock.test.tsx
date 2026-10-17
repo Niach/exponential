@@ -14,6 +14,7 @@ const plan = (id: string, text: string, sessionId: string): ThreadRow => ({
   fresh: false,
   answers: null,
   feedback: null,
+  surfaceData: null,
 })
 
 const ROWS: ThreadRow[] = [
@@ -30,6 +31,7 @@ const ROWS: ThreadRow[] = [
     surface: null,
     answer: null,
     answers: null,
+    surfaceData: null,
     answered: false,
   },
 ]

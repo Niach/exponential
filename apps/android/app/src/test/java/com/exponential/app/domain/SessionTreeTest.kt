@@ -242,6 +242,7 @@ class SessionTreeTest {
             put("surface", encode(row.surface))
             put("answer", nullable(row.answer))
             put("answers", row.answers?.let { list -> JsonArray(list.map(::JsonPrimitive)) } ?: JsonNull)
+            put("surfaceData", row.surfaceData ?: JsonNull)
             put("answered", row.answered)
         }
         is SessionTree.ThreadRow.Plan -> buildJsonObject {
@@ -273,6 +274,7 @@ class SessionTreeTest {
                 } ?: JsonNull,
             )
             put("feedback", nullable(row.feedback))
+            put("surfaceData", row.surfaceData ?: JsonNull)
         }
         is SessionTree.ThreadRow.Subagent -> buildJsonObject {
             put("type", "subagent")

@@ -434,6 +434,8 @@ object SessionTree {
             val surface: CardSurface? = null,
             /** EXP-1280: the picked labels (null on a legacy card = [answer] alone). */
             val answers: List<String>? = null,
+            /** EXP-1280: the surface's data model as the person answered it. */
+            val surfaceData: JsonObject? = null,
         ) : ThreadRow
 
         /** One choice of a question card: the answer is the [label] (EXP-1322);
@@ -462,6 +464,8 @@ object SessionTree {
             /** EXP-1280: the picked labels per question id, the note. */
             val answers: Map<String, List<String>>? = null,
             val feedback: String? = null,
+            /** EXP-1280: the surface's data model as the person answered it. */
+            val surfaceData: JsonObject? = null,
         ) : ThreadRow
 
         data class Subagent(override val id: String, val title: String, val status: String) : ThreadRow
@@ -545,6 +549,7 @@ object SessionTree {
                 multi = card.isTrue("multi"),
                 surface = cardSurface(card["surface"]),
                 answers = (card["answers"] as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.takeIf { p -> p.isString }?.content },
+                surfaceData = card["surfaceData"] as? JsonObject,
             )
             DomainContract.messageCardKindPlan -> ThreadRow.Plan(
                 id = message.id,
@@ -556,6 +561,7 @@ object SessionTree {
                 surface = cardSurface(card["surface"]),
                 answers = planAnswers(card["answers"]),
                 feedback = card.str("feedback")?.takeIf { it.isNotEmpty() },
+                surfaceData = card["surfaceData"] as? JsonObject,
             )
             else -> null
         }

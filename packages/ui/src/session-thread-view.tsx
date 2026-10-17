@@ -1343,6 +1343,7 @@ function ThreadQuestionCard({
         {row.surface && (
           <PlanCardSurface
             surface={row.surface}
+            data={row.answered ? row.surfaceData : null}
             disabled={!interactive}
             dataRef={surfaceData}
             testKey={row.id}
@@ -1480,6 +1481,7 @@ function ThreadPlanCard({
         {row.surface && (
           <PlanCardSurface
             surface={row.surface}
+            data={decided ? row.surfaceData : null}
             disabled={!interactive}
             dataRef={surfaceData}
             testKey={row.id}

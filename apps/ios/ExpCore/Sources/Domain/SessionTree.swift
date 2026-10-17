@@ -272,8 +272,10 @@ public struct TreeMessageCard: Equatable, Sendable {
     public let questions: [ThreadPlanQuestion]
     public let planAnswers: [String: [String]]?
     public let feedback: String?
-    /// EXP-1280 plan + question: the inline Exponential UI surface.
+    /// EXP-1280 plan + question: the inline Exponential UI surface, and its
+    /// data model as the person answered it.
     public let surface: CardSurface?
+    public let surfaceData: CardJSON?
     /// The open ACP ask a device mirrored (nil = a tool-posted card,
     /// `exponential_plan_propose` / `exponential_sessions_ask`, EXP-1280).
     public let questionId: String?
@@ -310,6 +312,7 @@ public struct TreeMessageCard: Equatable, Sendable {
         planAnswers: [String: [String]]? = nil,
         feedback: String? = nil,
         surface: CardSurface? = nil,
+        surfaceData: CardJSON? = nil,
         questionId: String? = nil,
         title: String? = nil,
         status: String? = nil,
@@ -340,6 +343,7 @@ public struct TreeMessageCard: Equatable, Sendable {
         self.planAnswers = planAnswers
         self.feedback = feedback
         self.surface = surface
+        self.surfaceData = surfaceData
         self.questionId = questionId
         self.title = title
         self.status = status
@@ -412,6 +416,7 @@ public struct TreeMessageCard: Equatable, Sendable {
             },
             feedback: text("feedback").flatMap { $0.isEmpty ? nil : $0 },
             surface: CardSurface.parse(object["surface"]),
+            surfaceData: (object["surfaceData"] as? [String: Any]).flatMap(CardJSON.init(any:)),
             questionId: text("questionId"),
             title: loose("title"),
             status: loose("status"),
@@ -695,6 +700,7 @@ public enum ThreadRow: Equatable, Sendable {
                 surface: card.surface,
                 answer: card.answer,
                 answers: card.labels,
+                surfaceData: card.surfaceData,
                 answered: message.answeredAt != nil
             ))
         case "plan":
@@ -707,7 +713,8 @@ public enum ThreadRow: Equatable, Sendable {
                 decision: card.decision,
                 fresh: card.fresh,
                 answers: card.planAnswers,
-                feedback: card.feedback
+                feedback: card.feedback,
+                surfaceData: card.surfaceData
             ))
         default:
             return nil
@@ -747,6 +754,8 @@ public struct ThreadQuestionRow: Equatable, Sendable, Identifiable {
     public let answer: String?
     /// EXP-1280: the picked labels (nil on a legacy card = `answer` alone).
     public let answers: [String]?
+    /// EXP-1280: the surface's data model as the person answered it.
+    public let surfaceData: CardJSON?
     public let answered: Bool
 
     public init(
@@ -759,6 +768,7 @@ public struct ThreadQuestionRow: Equatable, Sendable, Identifiable {
         surface: CardSurface? = nil,
         answer: String? = nil,
         answers: [String]? = nil,
+        surfaceData: CardJSON? = nil,
         answered: Bool
     ) {
         self.id = id
@@ -770,6 +780,7 @@ public struct ThreadQuestionRow: Equatable, Sendable, Identifiable {
         self.surface = surface
         self.answer = answer
         self.answers = answers
+        self.surfaceData = surfaceData
         self.answered = answered
     }
 
@@ -795,6 +806,8 @@ public struct ThreadPlanRow: Equatable, Sendable, Identifiable {
     /// EXP-1280: the picked labels per question, the note.
     public let answers: [String: [String]]?
     public let feedback: String?
+    /// EXP-1280: the surface's data model as the person answered it.
+    public let surfaceData: CardJSON?
 
     public init(
         id: String,
@@ -805,7 +818,8 @@ public struct ThreadPlanRow: Equatable, Sendable, Identifiable {
         decision: String? = nil,
         fresh: Bool = false,
         answers: [String: [String]]? = nil,
-        feedback: String? = nil
+        feedback: String? = nil,
+        surfaceData: CardJSON? = nil
     ) {
         self.id = id
         self.sessionId = sessionId
@@ -816,6 +830,7 @@ public struct ThreadPlanRow: Equatable, Sendable, Identifiable {
         self.fresh = fresh
         self.answers = answers
         self.feedback = feedback
+        self.surfaceData = surfaceData
     }
 }
 

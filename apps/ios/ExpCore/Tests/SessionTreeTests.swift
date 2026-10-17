@@ -221,7 +221,8 @@ final class SessionTreeTests: XCTestCase {
                 "type": "question", "id": row.id, "sessionId": row.sessionId, "question": row.question,
                 "options": row.options.map(json), "custom": row.custom, "multi": row.multi,
                 "surface": json(row.surface), "answer": json(row.answer),
-                "answers": row.answers.map { $0 as Any } ?? NSNull(), "answered": row.answered,
+                "answers": row.answers.map { $0 as Any } ?? NSNull(), "surfaceData": row.surfaceData?.any ?? NSNull(),
+                "answered": row.answered,
             ]
         case let .plan(row):
             [
@@ -234,6 +235,7 @@ final class SessionTreeTests: XCTestCase {
                 },
                 "surface": json(row.surface), "decision": json(row.decision), "fresh": row.fresh,
                 "answers": row.answers.map { $0 as Any } ?? NSNull(), "feedback": json(row.feedback),
+                "surfaceData": row.surfaceData?.any ?? NSNull(),
             ]
         case let .subagent(id, title, status):
             ["type": "subagent", "id": id, "title": title, "status": status]
