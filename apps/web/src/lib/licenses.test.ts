@@ -347,6 +347,12 @@ describe(`coverage — Android`, () => {
     // ksp(...) — compile-time processors, build.gradle.kts:162,179
     `com.google.dagger:hilt-compiler`,
     `androidx.room:room-compiler`,
+    // EXP-1280: `:ui-compose` (the Exponential UI painter the app links) resolves
+    // its testImplementation screenshot stack through this catalogue.
+    `org.robolectric:robolectric`,
+    `io.github.takahirom.roborazzi:roborazzi`,
+    `io.github.takahirom.roborazzi:roborazzi-compose`,
+    `io.github.takahirom.roborazzi:roborazzi-junit-rule`,
   ]
 
   it(`every runtime library in the version catalogue is attributed`, () => {

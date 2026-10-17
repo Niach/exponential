@@ -28,10 +28,26 @@ jobs:
           distribution: temurin
           java-version: '21'
 
-      - name: Set up Android SDK
+      - name: Set up Android SDK + NDK
         uses: android-actions/setup-android@v3
         with:
-          packages: 'platforms;android-36 build-tools;35.0.0'
+          packages: 'platforms;android-36 build-tools;35.0.0 ndk;28.2.13676358'
+
+      # EXP-1280: the app links the Exponential UI Compose painter (`:ui-compose`),
+      # whose AAR bundles the Rust core as the `exponential-ui-ffi` `.so`: build it
+      # for every shipped ABI before gradle runs (the same steps as exponential-ui.yml).
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop
+      - run: cargo install cargo-ndk --locked
+      - name: Build the Exponential UI facade for Android
+        env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/28.2.13676358
+          SKIP_BINDINGS: '1'
+        run: bash apps/desktop/crates/exponential-ui-ffi/build-android.sh
 
       - name: Cache Gradle packages
         uses: actions/cache@v4
