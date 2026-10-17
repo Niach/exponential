@@ -1135,6 +1135,7 @@ impl LiveRegistry {
         question_id: &str,
         answer: Option<String>,
         decision: Option<String>,
+        fresh: Option<bool>,
         feedback: Option<String>,
     ) -> Option<api::sessions::AnswerInput> {
         let mut entries = self.lock();
@@ -1143,7 +1144,7 @@ impl LiveRegistry {
         if !entry.answered.insert(message_id.clone()) {
             return None;
         }
-        Some(api::sessions::AnswerInput { message_id, answer, decision, feedback })
+        Some(api::sessions::AnswerInput { message_id, answer, decision, fresh, feedback })
     }
 
     fn mark_answered(&self, session_id: &str, message_id: &str) {
@@ -2803,7 +2804,7 @@ mod tests {
         let live = LiveRegistry::default();
         live.insert("s1", engine, None);
         let input = live
-            .resolve_card_input("s1", "q-1", None, Some("rejected".into()), Some("Smaller".into()))
+            .resolve_card_input("s1", "q-1", None, Some("rejected".into()), None, Some("Smaller".into()))
             .expect("the card");
         assert_eq!(
             input,
@@ -2811,11 +2812,12 @@ mod tests {
                 message_id: "c1".into(),
                 answer: None,
                 decision: Some("rejected".into()),
+                fresh: None,
                 feedback: Some("Smaller".into()),
             }
         );
-        assert!(live.resolve_card_input("s1", "q-1", Some("a".into()), None, None).is_none(), "once");
-        assert!(live.resolve_card_input("s2", "q-2", Some("a".into()), None, None).is_none());
+        assert!(live.resolve_card_input("s1", "q-1", Some("a".into()), None, None, None).is_none(), "once");
+        assert!(live.resolve_card_input("s2", "q-2", Some("a".into()), None, None, None).is_none());
         assert!(!live.live_views()["s1"].open_cards.contains_key("c1"), "never re-fed");
     }
 

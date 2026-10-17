@@ -209,8 +209,8 @@ final class SessionTreeTests: XCTestCase {
             ]
         case let .question(id, sessionId, question, options, custom, answer, answered):
             ["type": "question", "id": id, "sessionId": sessionId, "question": question, "options": options.map { ["label": $0.label, "description": json($0.description)] as [String: Any] }, "custom": custom, "answer": json(answer), "answered": answered]
-        case let .plan(id, sessionId, plan, decision):
-            ["type": "plan", "id": id, "sessionId": sessionId, "plan": plan, "decision": json(decision)]
+        case let .plan(id, sessionId, plan, decision, fresh):
+            ["type": "plan", "id": id, "sessionId": sessionId, "plan": plan, "decision": json(decision), "fresh": fresh]
         case let .subagent(id, title, status):
             ["type": "subagent", "id": id, "title": title, "status": status]
         case let .picture(id, attachmentId, width, height, caption):

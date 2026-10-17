@@ -330,14 +330,23 @@ class ThreadViewModel @Inject constructor(
         super.onCleared()
     }
 
-    /** Decide a `plan` card: [approved], with optional [feedback]. */
-    fun decidePlan(messageId: String, approved: Boolean, feedback: String? = null, settled: (Boolean) -> Unit = {}) =
+    /** Decide a `plan` card: [approved] (+ [fresh] = start in a fresh
+     *  context), with optional [feedback]. */
+    fun decidePlan(
+        messageId: String,
+        approved: Boolean,
+        fresh: Boolean = false,
+        feedback: String? = null,
+        settled: (Boolean) -> Unit = {},
+    ) =
         run("answer", "the plan", settled = settled) { accountId ->
             sessionsApi.answer(
                 accountId,
                 AnswerInput(
                     messageId = messageId,
                     decision = if (approved) "approved" else "rejected",
+                    // ask-dock.json: only an approval starts fresh.
+                    fresh = if (approved && fresh) true else null,
                     feedback = feedback?.takeIf { it.isNotBlank() },
                 ),
             )

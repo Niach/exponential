@@ -1,3 +1,4 @@
+import { askDock } from "@exp/domain-contract/ask-dock"
 import type { ReactNode } from "react"
 import {
   createContext,
@@ -29,6 +30,8 @@ import { splitIssueRefs } from "@/lib/issue-refs"
 import { Check, X } from "lucide-react"
 import {
   AskCard,
+  AskDock,
+  AskDockBody,
   AskPrompt,
   ASK_CARD_COPY,
   conceptIcon,
@@ -377,6 +380,17 @@ export function AgentSessionView({
     () => groupFeedRows(feed, windowStart),
     [feed, windowStart]
   )
+  /** THE ask dock (ask-dock.json ×4): the newest card still waiting on the
+   *  viewer leaves the transcript and takes the composer's slot. */
+  const dockedRow = useMemo(() => {
+    if (!canAnswer) return null
+    for (let i = rows.length - 1; i >= 0; i--) {
+      const row = rows[i]!
+      const items = row.kind === `ask` ? row.items : row.kind === `single` ? [row.item] : []
+      if (items.some((item) => item.kind === `question` && questionIds.has(item.id))) return row
+    }
+    return null
+  }, [rows, questionIds, canAnswer])
   /** EXP-895/1206: the ONE row still RUNNING (`liveToolRowId` ×4). */
   const liveRowId = useMemo(
     () => (live ? liveToolRowId(feed) : undefined),
@@ -567,6 +581,7 @@ export function AgentSessionView({
     index: number,
     list: readonly (typeof rows)[number][]
   ): ReactNode => {
+    if (row === dockedRow) return null
     // EXP-787: each row carries the space ABOVE it, from the row before it.
     const gap = transcriptGapClass(
       index === 0 ? null : rowClass(list[index - 1]),
@@ -1021,10 +1036,60 @@ export function AgentSessionView({
           }}
         />
         {/* EXP-1306 (EXP-820 ×4): a card waiting on the viewer takes the
-            composer's place; the draft comes back with it. */}
-        {composer && composerFloats && !composerYieldsToCard({ live, pendingAsk: pendingCard !== null }) ? (
+            composer's place (THE ask dock); the draft comes back with it. */}
+        {dockedRow !== null && (
+          <div className="py-2">
+            <div className={cn(WORK_COLUMN_CLASS, WORK_GUTTER_CLASS)}>
+              <AskDock
+                view={askDock({
+                  pending: [
+                    {
+                      id: dockedRow.kind === `single` ? String(dockedRow.item.id) : String(dockedRow.id),
+                      kind:
+                        dockedRow.kind === `single` &&
+                        (dockedRow.item as QuestionItem).planMode
+                          ? `plan`
+                          : `question`,
+                      text: ``,
+                      sessionName: null,
+                      createdAt: 0,
+                    },
+                  ],
+                  focusedId: null,
+                })}
+                onFocus={noop}
+                onBack={noop}
+                renderCard={() =>
+                  dockedRow.kind === `ask` ? (
+                    <AskStepperCard
+                      items={dockedRow.items as QuestionItem[]}
+                      activeIds={questionIds}
+                      canAnswer={canAnswer}
+                      answerStates={answerStates}
+                      onAnswer={answerQuestion}
+                      pendingId={pendingCard?.id ?? null}
+                      onSend={sendMessage}
+                    />
+                  ) : dockedRow.kind === `single` ? (
+                    <QuestionCard
+                      item={dockedRow.item as QuestionItem}
+                      active={questionIds.has(dockedRow.item.id)}
+                      canAnswer={canAnswer}
+                      answerState={answerStates[answerKey(dockedRow.item as QuestionItem)]}
+                      onAnswer={answerQuestion}
+                      hotkeys={pendingCard?.id === dockedRow.item.id}
+                      onSend={sendMessage}
+                      docked
+                    />
+                  ) : null
+                }
+              />
+            </div>
+          </div>
+        )}
+        {composer && composerFloats && dockedRow === null && !composerYieldsToCard({ live, pendingAsk: pendingCard !== null }) ? (
           composer
-        ) : composer && !composerYieldsToCard({ live, pendingAsk: pendingCard !== null }) ? (
+        ) : composer && dockedRow === null && !composerYieldsToCard({ live, pendingAsk: pendingCard !== null }) ? (
           <div className="py-2">
             <div className={cn(WORK_COLUMN_CLASS, WORK_GUTTER_CLASS)}>
               {composer}
@@ -1987,6 +2052,7 @@ function QuestionCard({
   onAnswer,
   onSend,
   hotkeys,
+  docked = false,
 }: {
   item: QuestionItem
   active: boolean
@@ -1996,15 +2062,19 @@ function QuestionCard({
   onSend: SendHandler
   /** EXP-788: this is the card the number keys answer. */
   hotkeys: boolean
+  /** In THE ask dock: the body scrolls inside its cap, never folds. */
+  docked?: boolean
 }) {
   const plan = item.planMode
   const clamp = useClampToggle(item.text)
-  // The plan is the thing the reader must approve — it is never folded.
-  const clampable = !plan && clamp.clampable
+  // The plan is the thing the reader must approve — it is never folded; a
+  // docked body scrolls in the dock's cap instead.
+  const clampable = !plan && !docked && clamp.clampable
   const { expanded, setExpanded } = clamp
   return (
     <AskCard plan={plan} label={plan ? ASK_CARD_COPY.planReady : item.header}>
       <>
+        <BodyCap docked={docked}>
           {plan ? (
             // The plan is GFM markdown — always rendered as markdown, always
             // in full (EXP-738).
@@ -2026,6 +2096,7 @@ function QuestionCard({
               <FeedText text={item.text} ariaLabel="Question" />
             </div>
           )}
+        </BodyCap>
           {clampable && (
             <ShowMoreButton
               expanded={expanded}
@@ -2045,6 +2116,11 @@ function QuestionCard({
       </>
     </AskCard>
   )
+}
+
+/** THE ask dock's body cap (scrolls inside), else the body as is. */
+function BodyCap({ docked, children }: { docked: boolean; children: ReactNode }) {
+  return docked ? <AskDockBody>{children}</AskDockBody> : <>{children}</>
 }
 
 /** One multi-question ask (protocol v2 `askId`), claude-style: one question at

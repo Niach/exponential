@@ -1,4 +1,5 @@
-import { Fragment, useEffect, useRef, useState, type ReactNode } from "react"
+import { Fragment, useEffect, useRef, useState, type HTMLAttributes, type ReactNode } from "react"
+import { ASK_DOCK_COPY, ASK_DOCK_TEST_IDS } from "@exp/domain-contract/ask-dock"
 import { Button } from "./button"
 import { cn } from "./cn"
 import { Composer, ComposerSubmit } from "./composer"
@@ -23,6 +24,7 @@ const SelectedIcon = conceptIcon(`ui-selected`)
 const UnselectedIcon = conceptIcon(`ui-unselected`)
 const CheckIcon = conceptIcon(`ui-check`)
 const CloseIcon = conceptIcon(`ui-close`)
+const BackIcon = conceptIcon(`ui-back`)
 
 /** The card's words ×web (hand-mirrored ×4 with the steer views). */
 export const ASK_CARD_COPY = {
@@ -66,11 +68,13 @@ export function askOptionHotkey(index: number): string | null {
   return index >= 0 && index < HOTKEY_MAX ? String(index + 1) : null
 }
 
-/** The card chrome. */
+/** The card chrome. `onBack` (the ask dock's focused card) leads the
+ *  header row with the back arrow (fixtures/ask-dock.json). */
 export function AskCard({
   plan,
   label,
   meta,
+  onBack,
   children,
   className,
   ...rest
@@ -79,15 +83,30 @@ export function AskCard({
   label?: ReactNode
   /** A trailing note beside the label (the stepper's "k of n"). */
   meta?: ReactNode
+  onBack?: () => void
   children: ReactNode
   className?: string
   "data-slot"?: string
   "data-answered"?: boolean
   "data-decision"?: string
-}) {
+  "data-testid"?: string
+  "data-kind"?: string
+} & Omit<HTMLAttributes<HTMLDivElement>, `children` | `className`>) {
   return (
     <GlassCard className={cn(`p-3`, className)} {...rest}>
       <div className="flex items-start gap-2">
+        {onBack && (
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            className="-my-1 -ml-1 shrink-0"
+            aria-label={ASK_DOCK_COPY.back}
+            data-testid={ASK_DOCK_TEST_IDS.back}
+            onClick={onBack}
+          >
+            <BackIcon />
+          </Button>
+        )}
         {plan ? (
           <PlanIcon className="mt-0.5 size-3.5 shrink-0 text-primary" />
         ) : (

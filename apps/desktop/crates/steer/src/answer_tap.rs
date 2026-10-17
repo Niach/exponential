@@ -25,6 +25,9 @@ pub struct CardResolution {
     pub question_id: String,
     pub answer: Option<String>,
     pub decision: Option<String>,
+    /// An approval in a fresh context (the picked key is
+    /// [`domain::ask_dock::FRESH_PLAN_OPTION_KEY`]).
+    pub fresh: Option<bool>,
     pub feedback: Option<String>,
 }
 
@@ -78,6 +81,9 @@ pub fn card_resolution(answer: &RemoteAnswer, question: Option<&ActivityEvent>) 
         let reject = options.last().map(|option| option.key.as_str());
         let rejected = reject.is_some_and(|reject| answer.keys.iter().any(|key| key == reject));
         resolution.decision = Some(if rejected { "rejected" } else { "approved" }.to_string());
+        resolution.fresh = (!rejected
+            && answer.keys.iter().any(|key| key == domain::ask_dock::FRESH_PLAN_OPTION_KEY))
+        .then_some(true);
         resolution.feedback = non_blank(answer.text.as_deref()).filter(|_| rejected);
         return resolution;
     }
@@ -150,5 +156,25 @@ mod tests {
         assert_eq!(rejected.decision.as_deref(), Some("rejected"));
         assert_eq!(rejected.feedback.as_deref(), Some("Smaller"));
         assert_eq!(rejected.answer, None);
+        assert_eq!(approved.fresh, None);
+    }
+
+    /// ask-dock.json `planOptions`: the fresh-context pick closes the
+    /// thread card `fresh: true`.
+    #[test]
+    fn a_fresh_context_pick_resolves_fresh() {
+        let mut plan = question(true);
+        if let ActivityEvent::Question { options, .. } = &mut plan {
+            *options = vec![
+                QuestionOption::new("Yes", "exit-plan-bypass"),
+                QuestionOption::new("Yes, and start with a fresh context", domain::ask_dock::FRESH_PLAN_OPTION_KEY),
+                QuestionOption::new("No, keep planning", "reject"),
+            ];
+        }
+        let fresh = card_resolution(&answer(&[domain::ask_dock::FRESH_PLAN_OPTION_KEY], None), Some(&plan));
+        assert_eq!(fresh.decision.as_deref(), Some("approved"));
+        assert_eq!(fresh.fresh, Some(true));
+        let plain = card_resolution(&answer(&["exit-plan-bypass"], None), Some(&plan));
+        assert_eq!(plain.fresh, None);
     }
 }

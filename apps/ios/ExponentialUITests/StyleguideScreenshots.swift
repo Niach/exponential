@@ -26,7 +26,7 @@ import XCTest
 ///   sg_onboarding-devices · sg_agent-home · sg_search-list ·
 ///   sg_getting-started · sg_feedback-states · sg_work-card ·
 ///   sg_script-card · sg_comment-call-card · sg_thread · sg_agent-channel ·
-///   sg_session · sg_trace · sg_code-block
+///   sg_session · sg_trace · sg_code-block · sg_ask-dock
 ///
 /// EXP-1295 (Threads v2) repointed the shots whose screens left (Reviews,
 /// the work faces, the Recent sheet, the builtin actions, the action page)
@@ -870,6 +870,10 @@ final class StyleguideScreenshots: XCTestCase {
         snapshot("sg_trace", settle: 2)
         openThreadCards(app, "code-block")
         snapshot("sg_code-block", settle: 2)
+        // ── sg_ask-dock: THE ask dock (fixtures/ask-dock.json): one plan,
+        // a stack of three, a focused card with the back arrow.
+        openThreadCards(app, "ask-dock")
+        snapshot("sg_ask-dock", settle: 2)
 
         finished = true
     }
@@ -926,12 +930,12 @@ final class StyleguideScreenshots: XCTestCase {
         let coldStart = threadRow(app, containing: Self.coldStartThreadTitle)
         expect(coldStart, within: Wait.nav, "Did not return to the Threads list")
         coldStart.tap()
-        // The Conversation lands on its END (bottom-anchored): the seeded
-        // question card the thread waits on.
+        // THE ask dock: the seeded question + the child's plan wait on the
+        // viewer, stacked in the composer's slot.
         expect(
-            anyElement(app, identified: "thread-question-card"),
+            anyElement(app, identified: "ask-dock-row"),
             within: Wait.sync,
-            "The cold-start thread drew no pending question card"
+            "The cold-start thread drew no ask dock stack"
         )
         // EXP-1334: the strip never scrolls — the "+" and Conversation pinned
         // left, Guide pinned right, the chips folded between them.
@@ -956,6 +960,10 @@ final class StyleguideScreenshots: XCTestCase {
         }
         expect(sessionCard, within: Wait.nav, "The cold-start thread drew no \"\(Self.sessionTitle)\" card")
         sessionCard.tap()
+        // THE ask dock: the card takes the composer's slot once the relay
+        // feed is live and answerable; give the session that beat before
+        // querying (the query alone timed out while the feed settled).
+        sleep(12)
         expect(
             anyElement(app, identified: "agent-feed-question"),
             within: Wait.network,

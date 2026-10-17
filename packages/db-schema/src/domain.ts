@@ -1148,7 +1148,14 @@ export type MessageCard =
       optionDescriptions?: QuestionCardOptionDescriptions | null
       answer?: string | null
     }
-  | { kind: `plan`; plan: string; decision?: `approved` | `rejected` | null; feedback?: string | null }
+  | {
+      kind: `plan`
+      plan: string
+      decision?: `approved` | `rejected` | null
+      /** An approval that starts the work in a fresh context (ask-dock.json `planOptions`). */
+      fresh?: boolean | null
+      feedback?: string | null
+    }
   | { kind: `subagent`; title: string; status: string; summary?: string | null }
   | { kind: `session`; sessionId: string }
   | { kind: `picture`; attachmentId: string; width: number | null; height: number | null; caption?: string | null }

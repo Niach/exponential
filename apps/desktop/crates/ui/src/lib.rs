@@ -31,6 +31,8 @@ mod action_run;
 mod actions;
 mod actions_view;
 mod agent_screen;
+// THE ask dock (waiting question/plan cards in the composer's slot), ask-dock.json ×4.
+mod ask_dock;
 mod trigger_host;
 mod app_title_bar;
 mod attachment_markdown_preview;

@@ -250,6 +250,7 @@ class SessionTreeTest {
             put("sessionId", row.sessionId)
             put("plan", row.plan)
             put("decision", nullable(row.decision))
+            put("fresh", row.fresh)
         }
         is SessionTree.ThreadRow.Subagent -> buildJsonObject {
             put("type", "subagent")

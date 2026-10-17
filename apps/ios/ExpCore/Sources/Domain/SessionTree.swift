@@ -256,6 +256,8 @@ public struct TreeMessageCard: Equatable, Sendable {
     /// plan.
     public let plan: String?
     public let decision: String?
+    /// An approval that started in a fresh context (ask-dock.json).
+    public let fresh: Bool
     /// subagent.
     public let title: String?
     public let status: String?
@@ -281,6 +283,7 @@ public struct TreeMessageCard: Equatable, Sendable {
         answer: String? = nil,
         plan: String? = nil,
         decision: String? = nil,
+        fresh: Bool = false,
         title: String? = nil,
         status: String? = nil,
         attachmentId: String? = nil,
@@ -302,6 +305,7 @@ public struct TreeMessageCard: Equatable, Sendable {
         self.answer = answer
         self.plan = plan
         self.decision = decision
+        self.fresh = fresh
         self.title = title
         self.status = status
         self.attachmentId = attachmentId
@@ -348,6 +352,8 @@ public struct TreeMessageCard: Equatable, Sendable {
             answer: text("answer"),
             plan: loose("plan"),
             decision: text("decision"),
+            // `card.fresh === true` in the reference.
+            fresh: (object["fresh"] as? NSNumber).map { CFGetTypeID($0) == CFBooleanGetTypeID() && $0.boolValue } ?? false,
             title: loose("title"),
             status: loose("status"),
             attachmentId: text("attachmentId"),
@@ -611,7 +617,8 @@ public enum ThreadRow: Equatable, Sendable {
     /// `sessionId` (EXP-1334) = the session whose card it is (the root, or
     /// a child whose own ask surfaces in the Conversation).
     case question(id: String, sessionId: String, question: String, options: [TreeQuestionOption], custom: Bool, answer: String?, answered: Bool)
-    case plan(id: String, sessionId: String, plan: String, decision: String?)
+    /// `fresh` = an approval that started in a fresh context (ask-dock.json).
+    case plan(id: String, sessionId: String, plan: String, decision: String?, fresh: Bool)
     case subagent(id: String, title: String, status: String)
     case picture(id: String, attachmentId: String, width: Double?, height: Double?, caption: String?)
     /// One muted line.
@@ -624,7 +631,7 @@ public enum ThreadRow: Equatable, Sendable {
              let .report(id, _, _, _),
              let .suggestions(id, _, _, _, _),
              let .question(id, _, _, _, _, _, _),
-             let .plan(id, _, _, _),
+             let .plan(id, _, _, _, _),
              let .subagent(id, _, _),
              let .picture(id, _, _, _, _),
              let .event(id, _, _):
@@ -1169,7 +1176,7 @@ public enum SessionTree {
                     answered: message.answeredAt != nil
                 ))
             case "plan":
-                rows.append(.plan(id: message.id, sessionId: message.sessionId, plan: card.plan ?? "", decision: card.decision))
+                rows.append(.plan(id: message.id, sessionId: message.sessionId, plan: card.plan ?? "", decision: card.decision, fresh: card.fresh))
             case "subagent":
                 rows.append(.subagent(id: message.id, title: card.title ?? "", status: card.status ?? ""))
             case "picture":

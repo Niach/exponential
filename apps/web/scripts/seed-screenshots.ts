@@ -840,10 +840,12 @@ async function seedSessionTree(ctx: {
     card?: MessageCard
     at: Date
     shared?: boolean
+    /** A child session's message: its thread's root. */
+    rootId?: string
   }
   const message = (spec: MessageSpec): typeof messages.$inferInsert => ({
     sessionId: spec.sessionId,
-    rootId: spec.sessionId,
+    rootId: spec.rootId ?? spec.sessionId,
     teamId,
     shared: spec.shared ?? true,
     ownerId: demoId,
@@ -857,6 +859,15 @@ async function seedSessionTree(ctx: {
     updatedAt: spec.at,
   })
   const fb3 = issue(`FB-3`).identifier
+  const DEMO_THREAD_PLAN = [
+    `## Plan: lazy-load the markdown editor`,
+    ``,
+    `1. Split the TipTap bundle out of the board route's entry chunk.`,
+    `2. Load it on the first focus of a description or comment field.`,
+    `3. Keep a plain-text fallback painting until the editor is ready.`,
+    `4. Re-measure cold start on the Pixel 6a and the CI device.`,
+    `5. Open the PR with the before/after numbers.`,
+  ].join(`\n`)
   await db.insert(messages).values(
     [
       // The cold-start thread (the `thread` view).
@@ -892,6 +903,15 @@ async function seedSessionTree(ctx: {
           answer: null,
         },
         at: minutesAgo(2),
+      },
+      // The ask dock (ask-dock.json): the child's plan waits too, so the
+      // thread stacks two cards in the composer's slot.
+      {
+        sessionId: DEMO_SESSION_ID,
+        rootId: ids.coldStart,
+        author: `agent`,
+        card: { kind: `plan`, plan: DEMO_THREAD_PLAN, decision: null },
+        at: minutesAgo(1),
       },
       // The other threads open on their request.
       {

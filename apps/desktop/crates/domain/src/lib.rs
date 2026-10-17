@@ -89,6 +89,8 @@ pub mod contract {
 }
 
 pub mod activity_fold;
+// THE ask dock (pending question/plan cards in the composer's slot), fixture-locked ×4.
+pub mod ask_dock;
 // EXP-1294: Team settings → Agents (trigger summary, validation), fixture-locked ×4.
 pub mod agent_settings;
 // EXP-1188: what a clicked link in agent prose opens, fixture-locked ×4.

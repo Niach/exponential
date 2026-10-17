@@ -134,6 +134,7 @@ export const ENTRY_BAND: Readonly<Record<string, ComponentKind>> = {
   [`session-thread`]: `Lists & rows`,
   [`work-card`]: `Surfaces`,
   [`thread-parts`]: `Surfaces`,
+  [`ask-dock`]: `Surfaces`,
   [`script-card`]: `Surfaces`,
   [`comment-call-card`]: `Surfaces`,
   [`pr-graph-badge`]: `Buttons & chips`,

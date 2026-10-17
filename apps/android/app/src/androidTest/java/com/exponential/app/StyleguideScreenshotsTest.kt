@@ -38,6 +38,8 @@ import com.exponential.app.ui.gettingstarted.GettingStartedStepKey
 import com.exponential.app.ui.styleguide.FeedbackStatesScreen
 import com.exponential.app.ui.styleguide.FeedbackStatesScreenTestId
 import com.exponential.app.ui.styleguide.ThreadCardsKind
+import com.exponential.app.ui.styleguide.AskDockSpecimenScreen
+import com.exponential.app.ui.styleguide.AskDockSpecimenScreenTestId
 import com.exponential.app.ui.styleguide.ThreadCardsScreen
 import com.exponential.app.ui.styleguide.TraceSpecimenKind
 import com.exponential.app.ui.styleguide.TraceSpecimenScreen
@@ -83,7 +85,7 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  *   sg_onboarding-devices · sg_agent-home · sg_search-list ·
  *   sg_getting-started · sg_feedback-states · sg_work-card ·
  *   sg_script-card · sg_comment-call-card · sg_thread · sg_agent-channel ·
- *   sg_session · sg_trace · sg_code-block
+ *   sg_session · sg_trace · sg_code-block · sg_ask-dock
  *
  * EXP-1295 retired `sg_chat-action` and `sg_action-create` (the builtin
  * actions and the action create sheet left the catalog), renamed the
@@ -156,7 +158,7 @@ class StyleguideScreenshotsTest {
         private val CAPTURE_SHOTS = setOf(
             "sg_feedback-states", "sg_work-card",
             "sg_script-card", "sg_comment-call-card",
-            "sg_trace", "sg_code-block",
+            "sg_trace", "sg_code-block", "sg_ask-dock",
         )
 
         // APP-5 — the only seeded issue with a comment thread.
@@ -740,7 +742,8 @@ class StyleguideScreenshotsTest {
         composeRule.onAllNodes(coldStartRow).onFirst().performClick()
         flow.waitFor(hasTestTag(SessionTree.ThreadCopy.TEST_ID_CONVERSATION), NAV_TIMEOUT)
         flow.waitFor(hasText(COLD_START_REPLY_FRAGMENT, substring = true), SYNC_TIMEOUT)
-        flow.waitFor(hasTestTag("thread-question-card"), SYNC_TIMEOUT)
+        // THE ask dock: the seeded question + the child's plan stack in the composer's slot.
+        flow.waitFor(hasTestTag("ask-dock-row"), SYNC_TIMEOUT)
         flow.waitFor(hasTestTag("thread-strip-chips"), SYNC_TIMEOUT)
         flow.waitFor(hasTestTag("thread-tab-add"), SYNC_TIMEOUT)
         flow.waitFor(hasTestTag("thread-tab-guide"), SYNC_TIMEOUT)
@@ -1007,6 +1010,12 @@ class StyleguideScreenshotsTest {
         flow.screenshot("sg_trace")
         show(TraceSpecimenKind.CodeBlock.testId) { TraceSpecimenScreen(TraceSpecimenKind.CodeBlock) }
         flow.screenshot("sg_code-block")
+
+        // --- sg_ask-dock: THE ask dock (ask-dock.json) — one waiting plan,
+        // the stack of two plans + a question, one focused with the back
+        // arrow — drawn by the real ThreadAskDock on a capture-only screen.
+        show(AskDockSpecimenScreenTestId) { AskDockSpecimenScreen() }
+        flow.screenshot("sg_ask-dock")
 
         finished = true
     }

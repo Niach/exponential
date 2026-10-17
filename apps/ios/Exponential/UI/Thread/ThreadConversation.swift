@@ -65,9 +65,9 @@ struct ThreadConversationView: View {
     var onOpenThread: (String) -> Void = { _ in }
     /// A question card's pick: (message id, the option).
     var onAnswer: (String, String) -> Void = { _, _ in }
-    /// A plan card's Approve / Reject: (message id, decision, the reject
-    /// row's feedback).
-    var onDecide: (String, PlanDecision, String?) -> Void = { _, _, _ in }
+    /// A plan card's pick (`AskDock.planOptions`): (message id, decision,
+    /// fresh context, the reject row's feedback).
+    var onDecide: (String, PlanDecision, Bool, String?) -> Void = { _, _, _, _ in }
     /// EXP-1317: the viewer's own queued message's X (`sessions.unqueue`).
     var onUnqueue: (String) -> Void = { _ in }
     /// The signed-in viewer (whose queued rows carry the X).
@@ -86,13 +86,14 @@ struct ThreadConversationView: View {
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
 
-    /// The plan card's two rows: the first is the primary approve, `reject`
-    /// expands into the inline feedback field (`AgentFeed.planRejectKey`).
-    static let planOptions = [
-        AgentQuestionOption(label: "Approve", key: approveKey),
-        AgentQuestionOption(label: "Reject", key: "reject"),
-    ]
-    static let approveKey = "approve"
+    /// A card still waiting on its answer (`AskDock.threadPendingAsks`).
+    static func isPending(_ row: ThreadRow) -> Bool {
+        switch row {
+        case let .plan(_, _, _, decision, _): decision == nil
+        case let .question(_, _, _, _, _, _, answered): !answered
+        default: false
+        }
+    }
 
     static let queuedWord = UserMessageCaption.queuedWord
 
@@ -227,69 +228,21 @@ struct ThreadConversationView: View {
                 onOpenSession: onOpenSession,
                 onOpenIssue: { issueId in deps.deepLinkBus.navigateToIssue(issueId, accountId: accountId) }
             )
-        case let .question(id, _, question, options, custom, answer, answered):
-            // THE session view's card (EXP-1316; EXP-1334: a CHILD's own ask
-            // lands here too, answered by message id straight back to it):
-            // the options AND the
-            // free-text answer (`withFreeTextRow`, ×4), closed once answered
-            // whichever path did it. The typed text IS the answer.
-            let base = AgentQuestion(
-                id: 0,
-                wireId: id,
-                text: question,
-                // Keyed `index:label` like web — two identical labels stay two
-                // rows; the answer names the option by its label (below).
-                options: options.enumerated().map { index, option in
-                    AgentQuestionOption(label: option.label, key: "\(index):\(option.label)", description: option.description)
-                },
-                resolved: answered,
-                answers: answer.map { [$0] } ?? []
-            )
-            let card = custom ? base.withFreeTextRow() : base
-            QuestionCard(
-                question: card,
-                active: !answered,
-                canAnswer: canAnswer,
-                locked: answeringId == id,
-                pending: answeringId == id,
-                failed: false,
-                onAnswer: { keys, text in
-                    let typed = text?.trimmingCharacters(in: .whitespacesAndNewlines)
-                    let freeKeys = Set(card.options.filter(\.freeText).map(\.key))
-                    let pickedLabel = keys.first(where: { !freeKeys.contains($0) })
-                        .flatMap { key in card.options.first { $0.key == key }?.label }
-                    if let pick = (typed?.isEmpty == false ? typed : nil) ?? pickedLabel {
-                        onAnswer(id, pick)
-                    }
-                },
-                markdownContext: markdownContext
-            )
-            .accessibilityIdentifier("thread-question-card")
-        case let .plan(id, _, plan, decision):
-            QuestionCard(
-                question: AgentQuestion(
-                    id: 0,
-                    wireId: id,
-                    text: plan,
-                    options: Self.planOptions,
-                    planMode: true,
-                    resolved: decision != nil,
-                    answers: decision.map {
-                        [$0 == PlanDecision.approved.rawValue ? "Approved" : "Rejected"]
-                    } ?? []
-                ),
-                active: decision == nil,
-                canAnswer: canAnswer,
-                locked: answeringId == id,
-                pending: answeringId == id,
-                failed: false,
-                onAnswer: { keys, _ in
-                    onDecide(id, keys.first == Self.approveKey ? .approved : .rejected, nil)
-                },
-                onAnswerThenSend: { _, feedback in onDecide(id, .rejected, feedback) },
-                markdownContext: markdownContext
-            )
-            .accessibilityIdentifier("thread-plan-card")
+        case .question, .plan:
+            // THE ask dock (fixtures/ask-dock.json): a card still waiting on
+            // this reader rides the composer's slot (`ThreadScreen`); here
+            // only the answered ones stay, CLOSED (and every card for a
+            // read-only reader).
+            if !(canAnswer && Self.isPending(row)) {
+                ThreadAskCard(
+                    row: row,
+                    canAnswer: canAnswer,
+                    answeringId: answeringId,
+                    markdownContext: markdownContext,
+                    onAnswer: onAnswer,
+                    onDecide: onDecide
+                )
+            }
         case let .subagent(_, title, status):
             HStack(spacing: 8) {
                 AppIcon(AppIcons.codingSubagent, size: 13)
@@ -656,5 +609,95 @@ struct ChannelMessageRow<Lead: View, Content: View>: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("channel-message")
+    }
+}
+
+/// A thread's question or plan card — THE session view's `QuestionCard`
+/// (EXP-1316; EXP-1334: a CHILD's own ask lands here too, answered by message
+/// id straight back to it), drawn inline once answered (closed) and as THE
+/// ask dock's big card while it waits (`caption` / `onBack` /
+/// `bodyMaxHeight`). A question offers its options AND the free-text answer
+/// (`withFreeTextRow`, ×4; the typed text IS the answer); a plan offers
+/// `AskDock.planOptions` and a decided one names `planDecisionLabel`.
+struct ThreadAskCard: View {
+    let row: ThreadRow
+    var canAnswer = true
+    var answeringId: String?
+    var markdownContext: AgentMarkdownContext?
+    var caption: String?
+    var onBack: (() -> Void)?
+    var bodyMaxHeight: CGFloat?
+    var onAnswer: (String, String) -> Void = { _, _ in }
+    var onDecide: (String, PlanDecision, Bool, String?) -> Void = { _, _, _, _ in }
+
+    var body: some View {
+        switch row {
+        case let .question(id, _, question, options, custom, answer, answered):
+            let base = AgentQuestion(
+                id: 0,
+                wireId: id,
+                text: question,
+                // Keyed `index:label` like web — two identical labels stay two
+                // rows; the answer names the option by its label (below).
+                options: options.enumerated().map { index, option in
+                    AgentQuestionOption(label: option.label, key: "\(index):\(option.label)", description: option.description)
+                },
+                resolved: answered,
+                answers: answer.map { [$0] } ?? []
+            )
+            let card = custom ? base.withFreeTextRow() : base
+            QuestionCard(
+                question: card,
+                active: !answered,
+                canAnswer: canAnswer,
+                locked: answeringId == id,
+                pending: answeringId == id,
+                failed: false,
+                onAnswer: { keys, text in
+                    let typed = text?.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let freeKeys = Set(card.options.filter(\.freeText).map(\.key))
+                    let pickedLabel = keys.first(where: { !freeKeys.contains($0) })
+                        .flatMap { key in card.options.first { $0.key == key }?.label }
+                    if let pick = (typed?.isEmpty == false ? typed : nil) ?? pickedLabel {
+                        onAnswer(id, pick)
+                    }
+                },
+                markdownContext: markdownContext,
+                caption: caption,
+                onBack: onBack,
+                bodyMaxHeight: bodyMaxHeight
+            )
+            .accessibilityIdentifier("thread-question-card")
+        case let .plan(id, _, plan, decision, fresh):
+            QuestionCard(
+                question: AgentQuestion(
+                    id: 0,
+                    wireId: id,
+                    text: plan,
+                    options: AskDock.planQuestionOptions,
+                    planMode: true,
+                    resolved: decision != nil,
+                    answers: decision.map { [AskDock.planDecisionLabel(decision: $0, fresh: fresh)] } ?? []
+                ),
+                active: decision == nil,
+                canAnswer: canAnswer,
+                locked: answeringId == id,
+                pending: answeringId == id,
+                failed: false,
+                onAnswer: { keys, _ in
+                    let option = AskDock.planOption(key: keys.first)
+                    let approved = option?.decision == PlanDecision.approved.rawValue
+                    onDecide(id, approved ? .approved : .rejected, approved && option?.fresh == true, nil)
+                },
+                onAnswerThenSend: { _, feedback in onDecide(id, .rejected, false, feedback) },
+                markdownContext: markdownContext,
+                caption: caption,
+                onBack: onBack,
+                bodyMaxHeight: bodyMaxHeight
+            )
+            .accessibilityIdentifier("thread-plan-card")
+        default:
+            EmptyView()
+        }
     }
 }

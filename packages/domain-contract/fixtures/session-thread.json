@@ -606,7 +606,8 @@
             "id": "n1",
             "sessionId": "r2",
             "plan": "1. Close stale issues",
-            "decision": "approved"
+            "decision": "approved",
+            "fresh": false
           },
           {
             "type": "subagent",
@@ -2606,7 +2607,8 @@
             "id": "p1",
             "sessionId": "c2",
             "plan": "1. Lift the partition",
-            "decision": "approved"
+            "decision": "approved",
+            "fresh": false
           }
         ],
         "composer": {
@@ -3037,7 +3039,8 @@
             "id": "p1",
             "sessionId": "c2",
             "plan": "1. Lift the partition",
-            "decision": "approved"
+            "decision": "approved",
+            "fresh": false
           }
         ],
         "composer": {

@@ -34,7 +34,13 @@ import { trpc } from "@/lib/trpc-client"
  *  failure toasts `Couldn't answer the question`. `pending` = the cards whose
  *  answer is in flight. */
 /** A card's answer: a question's text, or a plan's decision + note. */
-export type CardAnswer = { answer?: string; decision?: `approved` | `rejected`; feedback?: string }
+export type CardAnswer = {
+  answer?: string
+  decision?: `approved` | `rejected`
+  /** A plan approval that starts in a fresh context. */
+  fresh?: boolean
+  feedback?: string
+}
 
 export function useAnswerMessage(): {
   answer: (messageId: string, input: CardAnswer) => Promise<void>

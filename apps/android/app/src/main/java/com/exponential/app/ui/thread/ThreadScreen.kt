@@ -45,6 +45,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.PullRequestEntity
 import com.exponential.app.data.db.PullRequestIssueEntity
+import com.exponential.app.domain.AskDock
 import com.exponential.app.domain.ClosePr
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.FeedbackStates
@@ -205,6 +206,19 @@ fun ThreadScreen(
         }
     }
 
+    // THE ask dock (ask-dock.json): every card waiting in the tree (any
+    // session's plan with no decision, unanswered question) leaves the
+    // Conversation and takes the composer's slot; the asking session's name
+    // is the caption (the dispatcher's own = none).
+    val sessionName: (String) -> String? = remember(view) { AskDock.threadSessionNames(view?.tabs.orEmpty()) }
+    val askPending = remember(view, sessionName) {
+        view?.let { v -> AskDock.threadPendingAsks(v.rows, sessionName) }.orEmpty()
+    }
+    val onAnswer: ThreadAnswer = { id, answer, settled -> viewModel.answer(id, answer, settled) }
+    val onDecidePlan: ThreadPlanDecision = { id, approved, fresh, feedback, settled ->
+        viewModel.decidePlan(id, approved, fresh, feedback, settled)
+    }
+
     val hazeState = rememberHazeState()
     val titleCollapse = remember { TitleCollapseState() }
     ProvideMarkdownToolbar {
@@ -225,8 +239,9 @@ fun ThreadScreen(
                     // thread; every other card opens its raw session view.
                     if (viewModel.isOtherRoot(card.sessionId)) onOpenThread(card.sessionId) else onOpenSession(card.sessionId)
                 },
-                onAnswer = { id, answer, settled -> viewModel.answer(id, answer, settled) },
-                onDecidePlan = { id, approved, feedback, settled -> viewModel.decidePlan(id, approved, feedback, settled) },
+                onAnswer = onAnswer,
+                onDecidePlan = onDecidePlan,
+                dockedIds = remember(askPending) { askPending.mapTo(mutableSetOf()) { it.id } },
                 onOpenSessionTab = { id -> onOpenSession(id) },
                 issueTitle = { id -> issueTitles[id] },
                 canUnqueue = { row -> row.authorId != null && row.authorId == me },
@@ -248,6 +263,16 @@ fun ThreadScreen(
                         showQueue = false,
                         onOpenUsage = { usageSheetOpen = true },
                         modifier = Modifier.testTag(SessionTree.ThreadCopy.TEST_ID_COMPOSER),
+                        // The composer yields to ANY waiting card of the tree.
+                        askPending = askPending.isNotEmpty(),
+                        dock = {
+                            ThreadAskDock(
+                                rows = view?.rows.orEmpty(),
+                                sessionName = sessionName,
+                                onAnswer = onAnswer,
+                                onDecidePlan = onDecidePlan,
+                            )
+                        },
                     )
                 },
                 issuePage = { issueId, padding ->
@@ -416,6 +441,8 @@ fun ThreadContent(
     tail: (@Composable () -> Unit)? = null,
     /** EXP-1334: an issue's title (the strip's full tier). */
     issueTitle: (String) -> String? = { null },
+    /** THE ask dock: the waiting cards' ids (drawn in the composer's slot). */
+    dockedIds: Set<String> = emptySet(),
 ) {
     // An agent channel is the conversation only. EXP-1334: a folded
     // sub-issue is a page too (right after its chip's).
@@ -529,6 +556,7 @@ fun ThreadContent(
                             onOpenSession = onOpenSession,
                             suggestions = suggestions,
                             tail = tail,
+                            dockedIds = dockedIds,
                         )
                         FloatingBarEdge(
                             bottomInset = bottomInset,

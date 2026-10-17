@@ -8,11 +8,11 @@ import SwiftUI
 /// card (a workflow mid-review, a task list, a subagent), the Script card and
 /// the Comment card, each from the REAL view over the shared models. Capture
 /// only: the styleguide suite opens one with `-uiTestingStyleguide
-/// <work-card|script-card|comment-call-card>` (`sg_<name>`).
+/// <work-card|script-card|comment-call-card|…|ask-dock>` (`sg_<name>`).
 struct ThreadCardsScreen: View {
     let kind: String
 
-    static let kinds: Set<String> = ["work-card", "script-card", "comment-call-card", "trace", "code-block", "thread-strip"]
+    static let kinds: Set<String> = ["work-card", "script-card", "comment-call-card", "trace", "code-block", "thread-strip", "ask-dock"]
 
     var body: some View {
         ZStack {
@@ -25,6 +25,7 @@ struct ThreadCardsScreen: View {
                     case "trace": traceSpecimens
                     case "code-block": codeBlockSpecimens
                     case "thread-strip": ThreadStripSpecimens()
+                    case "ask-dock": AskDockSpecimens()
                     default: workCards
                     }
                 }
@@ -326,5 +327,69 @@ private struct ThreadStripSpecimens: View {
     private func strip(_ tabs: [ThreadTab], selection: ThreadPage) -> some View {
         ThreadStripTabs(tabs: tabs, selection: selection, onSelect: { _ in }, onAdd: {}, onOpenSession: { _ in })
             .background(GlassTokens.fillCard.opacity(0.4), in: RoundedRectangle(cornerRadius: 12))
+    }
+}
+
+/// THE ask dock specimen (`sg_ask-dock`, web styleguide `ask-dock`, the IDE's
+/// `styleguide:ask-dock`): one plan = THE big card; two plans + a question
+/// of three sessions = the stack; the same tree with one card focused = the
+/// big card with the back arrow. Real `AskDockView` + `ThreadAskCard`.
+private struct AskDockSpecimens: View {
+    // The web `AskDockSpecimen` rows (packages/ui/src/ask-dock-specimen.tsx), line for line.
+    private static let longPlan = [
+        "## Plan: one ask dock ×4",
+        "",
+        "1. Add `fixtures/ask-dock.json` + the TS model, mirrored ×4.",
+        "2. Move waiting cards out of the transcript into the composer's slot.",
+        "3. Stack several cards; a tap grows one into the big card.",
+        "4. Share THE plan options: Yes · Yes, and start with a fresh context · No.",
+        "5. Styleguide entry + scoped shots on every platform.",
+        "6. Open the PR with the Guide.",
+    ].joined(separator: "\n")
+
+    private static let single: [ThreadRow] = [
+        .plan(id: "p1", sessionId: "c1", plan: longPlan, decision: nil, fresh: false),
+    ]
+
+    private static let stack: [ThreadRow] = [
+        .plan(id: "p1", sessionId: "c1", plan: longPlan, decision: nil, fresh: false),
+        .plan(
+            id: "p2", sessionId: "c2",
+            plan: "1. Group the thread list by state\n2. Drop the per-row counters",
+            decision: nil, fresh: false
+        ),
+        .question(
+            id: "q1", sessionId: "c3", question: "Ship both fixes in one PR, or split them?",
+            options: [TreeQuestionOption(label: "One PR"), TreeQuestionOption(label: "Split them")],
+            custom: true, answer: nil, answered: false
+        ),
+    ]
+
+    private static let names = ["c1": "Ask dock", "c2": "Thread list", "c3": "Dock polish"]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 24) {
+            section("One waiting plan", rows: Self.single)
+            section("Two plans and a question", rows: Self.stack)
+            section("Focused out of the stack", rows: Self.stack, focused: "p2")
+        }
+    }
+
+    private func section(_ title: String, rows: [ThreadRow], focused: String? = nil) -> some View {
+        let pending = AskDock.threadPendingAsks(rows) { Self.names[$0] }
+        return VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+            AskDockView(pending: pending, initialFocusedId: focused) { id, onBack, cap in
+                if let row = rows.first(where: { $0.id == id }) {
+                    ThreadAskCard(
+                        row: row,
+                        onBack: onBack,
+                        bodyMaxHeight: cap
+                    )
+                }
+            }
+        }
     }
 }

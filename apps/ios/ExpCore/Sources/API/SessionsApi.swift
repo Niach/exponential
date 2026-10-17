@@ -195,11 +195,14 @@ public enum PlanDecision: String, Encodable, Sendable {
 }
 
 /// `sessions.answer`: a `question` card takes `answer`, a `plan` card a
-/// `decision` (+ optional `feedback`). Nil fields are omitted.
+/// `decision` (+ optional `feedback`; `fresh` = the approval starts in a
+/// fresh context, ask-dock.json `planOptions`, sent only with `approved`).
+/// Nil fields are omitted.
 struct AnswerMessageInput: Encodable {
     let messageId: String
     let answer: String?
     let decision: PlanDecision?
+    let fresh: Bool?
     let feedback: String?
 }
 
@@ -443,13 +446,15 @@ public final class SessionsApi: Sendable {
         messageId: String,
         answer: String? = nil,
         decision: PlanDecision? = nil,
+        fresh: Bool = false,
         feedback: String? = nil
     ) async throws {
         try await trpc.mutationVoid(
             accountId: accountId,
             path: "sessions.answer",
             input: AnswerMessageInput(
-                messageId: messageId, answer: answer, decision: decision, feedback: feedback
+                messageId: messageId, answer: answer, decision: decision,
+                fresh: decision == .approved && fresh ? true : nil, feedback: feedback
             )
         )
     }

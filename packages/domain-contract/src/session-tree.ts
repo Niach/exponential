@@ -303,7 +303,15 @@ export type ThreadRow =
       answer: string | null
       answered: boolean
     }
-  | { type: `plan`; id: string; sessionId: string; plan: string; decision: string | null }
+  | {
+      type: `plan`
+      id: string
+      sessionId: string
+      plan: string
+      decision: string | null
+      /** An approval that started in a fresh context (ask-dock.json). */
+      fresh: boolean
+    }
   | { type: `subagent`; id: string; title: string; status: string }
   | {
       type: `picture`
@@ -653,6 +661,7 @@ export function buildSessionThread(input: {
           sessionId: message.sessionId,
           plan: String(card.plan ?? ``),
           decision: typeof card.decision === `string` ? card.decision : null,
+          fresh: card.fresh === true,
         })
         break
       case `subagent`:

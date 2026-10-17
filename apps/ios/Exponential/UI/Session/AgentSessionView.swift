@@ -235,6 +235,7 @@ struct AgentSessionView: View {
             }
             // EXP-1321: the background lines, waits and task list moved
             // into THE Queue at the transcript's end (`TaskQueueView`).
+            askDock(model)
             bottomBar(model)
         }
         // EXP-1162: the bottom edge strip behind the band — not behind an
@@ -691,7 +692,11 @@ struct AgentSessionView: View {
                                     .frame(maxWidth: .infinity)
                                     .padding(.bottom, 4)
                             }
-                            let rows = model.rows
+                            // THE ask dock: the card waiting on this
+                            // steerer leaves the transcript for the
+                            // composer's slot (`bottomBand`).
+                            let docked = dockedRow(model)?.id
+                            let rows = model.rows.filter { $0.id != docked }
                             // EXP-787: every row's space above it comes from
                             // the shared gap ladder, keyed on the row BEFORE
                             // it — the rows themselves carry no outer margin
@@ -1042,9 +1047,56 @@ struct AgentSessionView: View {
         return deps.auth.userName
     }
 
+    /// THE ask dock (fixtures/ask-dock.json): the ONE card waiting on this
+    /// steerer (the oldest still-active question / ask) — what leaves the
+    /// transcript for the composer's slot. nil while nothing waits or this
+    /// client may not answer (a read-only viewer keeps it inline).
+    private func dockedRow(_ model: AgentSessionModel) -> AgentFeedRow? {
+        guard model.cardPending, canAnswer else { return nil }
+        let active = model.activeQuestionIds
+        return model.rows.first { row in
+            switch row {
+            case let .ask(group): group.questions.contains { active.contains($0.id) }
+            case let .single(item): item.question.map { active.contains($0.id) } ?? false
+            default: false
+            }
+        }
+    }
+
+    /// THE ask dock in the composer's slot: the session view feeds it its
+    /// one answerable card (no caption), drawn as THE big card with its
+    /// body capped.
+    @ViewBuilder
+    private func askDock(_ model: AgentSessionModel) -> some View {
+        if let row = dockedRow(model) {
+            let question: AgentQuestion? = switch row {
+            case let .ask(group): group.questions.first
+            case let .single(item): item.question
+            default: nil
+            }
+            if let question {
+                AskDockView(pending: [AskDock.Pending(
+                    id: String(row.id),
+                    kind: question.planMode ? .plan : .question,
+                    text: question.text,
+                    sessionName: nil,
+                    createdAt: 0
+                )]) { _, _, cap in
+                    switch row {
+                    case let .ask(group): askCard(group, bodyMaxHeight: cap)
+                    case let .single(item): item.question.map { questionCard($0, bodyMaxHeight: cap) }
+                    default: EmptyView()
+                    }
+                }
+                .padding(.vertical, 8)
+                .transcriptColumn()
+            }
+        }
+    }
+
     /// A lone question card: a plan approval or a single-question ask.
     @ViewBuilder
-    private func questionCard(_ raw: AgentQuestion) -> some View {
+    private func questionCard(_ raw: AgentQuestion, bodyMaxHeight: CGFloat? = nil) -> some View {
         // EXP-1316: every question card offers the free-text answer.
         let question = raw.withFreeTextRow()
         QuestionCard(
@@ -1057,7 +1109,8 @@ struct AgentSessionView: View {
             failed: model?.isAnswerFailed(question.lockKey) ?? false,
             onAnswer: { keys, text in sendAnswer(question, keys: keys, text: text) },
             onAnswerThenSend: { keys, text in answerThenSend(question, keys: keys, text: text) },
-            markdownContext: markdownContext
+            markdownContext: markdownContext,
+            bodyMaxHeight: bodyMaxHeight
         )
         .id(question.id)
         // EXP-642: the store slide's pop-out rect is measured off the question
@@ -1077,7 +1130,7 @@ struct AgentSessionView: View {
     /// picking (or "Back to current step") returns to the current step. The
     /// engine re-records the step without moving the stepper.
     @ViewBuilder
-    private func askCard(_ group: AgentAskGroup) -> some View {
+    private func askCard(_ group: AgentAskGroup, bodyMaxHeight: CGFloat? = nil) -> some View {
         let stepIndex = AgentFeed.currentStepIndex(
             of: group, done: model?.answeredQuestionIds ?? []
         )
@@ -1128,7 +1181,8 @@ struct AgentSessionView: View {
                         sendAnswer(editingStep, keys: keys, text: text, reanswer: true)
                         editingSteps[group.askId] = nil
                     },
-                    markdownContext: markdownContext
+                    markdownContext: markdownContext,
+                    bodyMaxHeight: bodyMaxHeight
                 )
                 // Its own identity per edited step — the picked state starts
                 // from the recorded answer, never from the current step's.
@@ -1152,7 +1206,8 @@ struct AgentSessionView: View {
                     askOpen: !complete,
                     onEditStep: editHandler,
                     onAnswer: { keys, text in sendAnswer(current, keys: keys, text: text) },
-                    markdownContext: markdownContext
+                    markdownContext: markdownContext,
+                    bodyMaxHeight: bodyMaxHeight
                 )
                 // A fresh identity per step — the card's local selection state must
                 // never leak from one question into the next.
@@ -2230,8 +2285,19 @@ struct QuestionCard: View {
     var onAnswerThenSend: (([String], String) -> Void)? = nil
     /// Image fetching for the prompt's markdown render (EXP-440).
     var markdownContext: AgentMarkdownContext? = nil
+    /// THE ask dock (fixtures/ask-dock.json): the asking session's name, a
+    /// muted truncating caption beside the label (a thread's card).
+    var caption: String? = nil
+    /// THE ask dock: a card focused out of the stack leads its header row
+    /// with the back arrow (`ui-back`) that returns to the stack.
+    var onBack: (() -> Void)? = nil
+    /// THE ask dock: the body's cap (`bodyMaxHeightFraction` of the screen);
+    /// the body scrolls inside it instead of folding. nil = in the
+    /// transcript (the "Show more" fold).
+    var bodyMaxHeight: CGFloat? = nil
 
     @State private var expanded = false
+    @State private var dockedBodyHeight: CGFloat = 0
     /// Tap order is the submit order of the semantic answer frame.
     @State private var picked: [String] = []
     /// EXP-820: the option whose inline field is open — a free-text row
@@ -2248,9 +2314,10 @@ struct QuestionCard: View {
     /// are single digits.
     private static let numberedRows = 9
 
-    /// Plans are always fully rendered — never folded (EXP-197).
+    /// Plans are always fully rendered — never folded (EXP-197); a docked
+    /// body scrolls in its cap instead.
     private var clampable: Bool {
-        !question.planMode
+        bodyMaxHeight == nil && !question.planMode
             && (question.text.count > Self.clampChars
                 || question.text.filter { $0 == "\n" }.count >= Self.clampLines)
     }
@@ -2303,15 +2370,20 @@ struct QuestionCard: View {
         // glyph beside a column holding the heading, the body and the
         // options, so the options indent under the text, never the glyph.
         HStack(alignment: .top, spacing: 8) {
+            // THE ask dock: the back arrow LEADS the header row (web
+            // `AskCard` `onBack`: ghost icon-xs, `-my-1 -ml-1`).
+            if let onBack {
+                AskDockBackButton(action: onBack)
+            }
             // EXP-820: no blue on the card — a plan's glyph and header are the
             // primary, a question's the semantic yellow.
             AppIcon(question.planMode ? AppIcons.codingPlan : AppIcons.uiHelp, size: 14)
                 .foregroundStyle(tint)
                 // Onto the first text line: the 12pt heading, else the
                 // larger prompt body.
-                .padding(.top, headerText != nil || stepLabel != nil ? 1 : 4)
+                .padding(.top, hasHeader ? 1 : 4)
             VStack(alignment: .leading, spacing: 0) {
-                if headerText != nil || stepLabel != nil {
+                if hasHeader {
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
                         if let headerText {
                             Text(headerText)
@@ -2326,6 +2398,13 @@ struct QuestionCard: View {
                                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                                 .fixedSize()
                         }
+                        if let caption, !caption.isEmpty {
+                            Text(caption)
+                                .font(.caption)
+                                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                        }
                     }
                     .padding(.bottom, 4)
                 }
@@ -2335,9 +2414,14 @@ struct QuestionCard: View {
         }
         .padding(12)
         // A bordered card, not a group container: the ask is one free-content
-        // block that has to stand off the transcript behind it.
-        .glassCard()
+        // block that has to stand off the transcript behind it. Docked, it
+        // floats over the scrolling transcript, so it is opaque.
+        .glassCard(isOpaque: bodyMaxHeight != nil)
         .onAppear(perform: preselectEditingAnswer)
+    }
+
+    private var hasHeader: Bool {
+        headerText != nil || stepLabel != nil || caption?.isEmpty == false
     }
 
     /// Everything under the heading: answered steps, the body, then the
@@ -2490,6 +2574,27 @@ struct QuestionCard: View {
 
     @ViewBuilder
     private var prompt: some View {
+        if let bodyMaxHeight {
+            // THE ask dock: the body never grows past its cap — it scrolls
+            // inside, the options stay below it.
+            ScrollView {
+                AgentMarkdownText(
+                    text: question.text,
+                    context: markdownContext,
+                    options: [.autolinkBareURLs]
+                )
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { dockedBodyHeight = $0 }
+            }
+            .scrollBounceBehavior(.basedOnSize)
+            .frame(height: min(max(dockedBodyHeight, 1), bodyMaxHeight))
+        } else {
+            foldablePrompt
+        }
+    }
+
+    @ViewBuilder
+    private var foldablePrompt: some View {
         let clamped = clampable && !expanded
         // No hard line breaks: a prompt or plan body is authored GFM prose,
         // where a wrapped source line is one paragraph.

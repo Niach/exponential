@@ -109,6 +109,7 @@ fn install_answer_tap(live: &Arc<pickup::LiveRegistry>, cx: &mut App) {
             &resolution.question_id,
             resolution.answer.clone(),
             resolution.decision.clone(),
+            resolution.fresh,
             resolution.feedback.clone(),
         ) {
             let _ = resolved.send(input);

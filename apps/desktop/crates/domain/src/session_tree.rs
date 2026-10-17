@@ -658,6 +658,8 @@ pub enum SessionThreadRow {
         session_id: String,
         plan: String,
         decision: Option<String>,
+        /// An approval that started in a fresh context (ask-dock.json).
+        fresh: bool,
     },
     Subagent { id: String, title: String, status: String },
     Picture {
@@ -1280,6 +1282,7 @@ pub fn build_session_thread(input: SessionThreadInput<'_>, focus: Option<&str>) 
                 session_id: message.session_id.clone(),
                 plan: js_string(card.get("plan")),
                 decision: card_str(card, "decision").map(str::to_string),
+                fresh: card.get("fresh").and_then(Value::as_bool) == Some(true),
             }),
             Some(MESSAGE_CARD_KIND_SUBAGENT) => rows.push(SessionThreadRow::Subagent {
                 id: message.id.clone(),

@@ -70,9 +70,6 @@ pub(crate) const NEW_ISSUE_LABEL: &str = "New issue";
 /// The Guide child before the root's guide (or its pull request) has
 /// anything to read.
 pub(crate) const NO_GUIDE_COPY: &str = "No Guide yet. The agent files one as it works.";
-/// A plan card's two answers.
-pub(crate) const PLAN_APPROVE_LABEL: &str = "Approve";
-pub(crate) const PLAN_REJECT_LABEL: &str = "Reject";
 
 /// `Unlink EXP-1270`.
 pub(crate) fn unlink_label(identifier: &str) -> String {
@@ -947,6 +944,25 @@ fn card_answering(cx: &App) -> AnyElement {
         .into_any_element()
 }
 
+/// How a card sits: inline in the Conversation (`Default`), or THE ask
+/// dock's big card (`docked`: the body capped and scrolling, `back` = the
+/// focused card's arrow leading its header; `fixtures/ask-dock.json`).
+#[derive(Default)]
+pub(crate) struct CardChrome {
+    pub docked: bool,
+    pub back: Option<AnyElement>,
+}
+
+/// A card's body, capped inside the dock.
+fn card_body(id: &str, body: gpui::Div, chrome: &CardChrome, window: &Window) -> AnyElement {
+    if chrome.docked {
+        crate::ask_dock::dock_body(SharedString::from(format!("thread-dock-body-{id}")), body, window)
+            .into_any_element()
+    } else {
+        body.into_any_element()
+    }
+}
+
 /// EXP-1316 — a question card = THE session view's card: the question over
 /// its numbered option rows and (`custom`) the free-text row that opens an
 /// inline field; once answered, CLOSED (the check + the chosen answer).
@@ -958,13 +974,12 @@ pub(crate) fn question_card(
     custom: bool,
     answer: Option<&str>,
     answered: bool,
+    chrome: CardChrome,
     window: &Window,
     cx: &mut App,
 ) -> AnyElement {
-    let mut column = v_flex()
-        .w_full()
-        .min_w_0()
-        .child(crate::steer_viewer::ask_body_text(cx).child(question));
+    let body = card_body(message_id, crate::steer_viewer::ask_body_text(cx).child(question), &chrome, window);
+    let mut column = v_flex().w_full().min_w_0().child(body);
     if answered {
         column = column.child(crate::steer_viewer::ask_resolved_line(answer, false, cx));
     } else if answering(message_id, cx) {
@@ -1023,92 +1038,163 @@ pub(crate) fn question_card(
         }
         column = column.child(rows);
     }
-    crate::steer_viewer::ask_card(false, None, None, column, cx)
+    crate::steer_viewer::ask_card_chrome(false, None, None, chrome.back, column, cx).into_any_element()
 }
 
-/// EXP-1316 — a plan card = THE session view's plan card: `Plan ready`,
-/// the plan, Approve (primary) and Reject (opens the note field); once
-/// decided, CLOSED (the check + the decision).
+/// EXP-1316 — a plan card = THE plan card ×4: `Plan ready`, the plan, THE
+/// options (`fixtures/ask-dock.json` `planOptions`: Yes (primary) / Yes,
+/// and start with a fresh context / No, keep planning, which opens the note
+/// field); once decided, CLOSED (the check + `planDecisionLabel`).
+#[allow(clippy::too_many_arguments)] // one row's facts
 pub(crate) fn plan_card(
     message_id: &str,
     plan: MarkdownView,
     decision: Option<&str>,
+    fresh: bool,
+    chrome: CardChrome,
     window: &Window,
     cx: &mut App,
 ) -> AnyElement {
-    let mut column = v_flex()
-        .w_full()
-        .min_w_0()
-        .child(crate::steer_viewer::ask_body_text(cx).child(plan));
+    let body = card_body(message_id, crate::steer_viewer::ask_body_text(cx).child(plan), &chrome, window);
+    let mut column = v_flex().w_full().min_w_0().child(body);
     match decision {
         Some(decision) => {
-            column = column.child(crate::steer_viewer::ask_resolved_line(Some(&decision_word(decision)), false, cx));
+            let label = domain::ask_dock::plan_decision_label(decision, fresh);
+            column = column.child(crate::steer_viewer::ask_resolved_line(Some(&label), false, cx));
         }
         None if answering(message_id, cx) => column = column.child(card_answering(cx)),
         None => {
             let inline = card_inline_open(message_id, cx).filter(|(plan_reject, _)| *plan_reject);
-            let approve_id = message_id.to_string();
-            let reject_id = message_id.to_string();
-            let mut rows = v_flex()
-                .mt_2()
-                .w_full()
-                .min_w_0()
-                .gap_1()
-                .child(
+            let mut rows = v_flex().mt_2().w_full().min_w_0().gap_1();
+            for (index, option) in domain::ask_dock::plan_options().iter().enumerate() {
+                let reject = option.decision == "rejected";
+                let id = message_id.to_string();
+                let fresh = option.fresh;
+                rows = rows.child(
                     crate::steer_viewer::ask_option_button(
-                        SharedString::from(format!("thread-plan-{message_id}-approved")),
-                        PLAN_APPROVE_LABEL.to_string(),
-                        None,
-                        true,
+                        SharedString::from(format!("thread-plan-{message_id}-{}", option.key)),
+                        option.label.clone(),
+                        option.description.clone(),
+                        index == 0,
+                        reject && inline.is_some(),
                         false,
-                        false,
-                        0,
+                        index,
                         cx,
                     )
-                    .on_click(move |_, _, cx| {
+                    .on_click(move |_, window, cx| {
                         cx.stop_propagation();
+                        if reject {
+                            open_card_inline(&id, true, window, cx);
+                            return;
+                        }
                         answer_card(
                             api::sessions::AnswerInput {
-                                message_id: approve_id.clone(),
+                                message_id: id.clone(),
                                 decision: Some("approved".to_string()),
+                                fresh: fresh.then_some(true),
                                 ..Default::default()
                             },
                             cx,
                         );
                     }),
-                )
-                .child(
-                    crate::steer_viewer::ask_option_button(
-                        SharedString::from(format!("thread-plan-{message_id}-rejected")),
-                        PLAN_REJECT_LABEL.to_string(),
-                        None,
-                        false,
-                        inline.is_some(),
-                        false,
-                        1,
-                        cx,
-                    )
-                    .on_click(move |_, window, cx| {
-                        cx.stop_propagation();
-                        open_card_inline(&reject_id, true, window, cx);
-                    }),
                 );
-            if let Some((_, state)) = &inline {
-                rows = rows.child(card_inline_field(message_id, state, true, window, cx));
+                if reject {
+                    if let Some((_, state)) = &inline {
+                        rows = rows.child(card_inline_field(message_id, state, true, window, cx));
+                    }
+                }
             }
             column = column.child(rows);
         }
     }
-    crate::steer_viewer::ask_card(true, Some(SharedString::from(PLAN_HEADING)), None, column, cx)
+    crate::steer_viewer::ask_card_chrome(true, Some(SharedString::from(PLAN_HEADING)), None, chrome.back, column, cx)
+        .into_any_element()
 }
 
-/// `approved` → `Approved`.
-pub(crate) fn decision_word(decision: &str) -> String {
-    let mut chars = decision.chars();
-    match chars.next() {
-        Some(first) => first.to_uppercase().chain(chars).collect(),
-        None => String::new(),
+/// THE ask dock in a root's Conversation (a thread, an agent channel;
+/// `fixtures/ask-dock.json`): the tree's waiting cards
+/// (`thread_pending_asks`, captioned by `session_name`) in the composer's
+/// slot: one = the big card, several = the stack, a click focuses one and
+/// the back arrow returns. Returns the dock and the docked row ids (they
+/// leave the Conversation); `None` = nothing waits (the composer shows).
+#[allow(clippy::too_many_arguments)] // the host's facts
+pub(crate) fn conversation_dock(
+    prefix: &str,
+    rows: &[SessionThreadRow],
+    session_name: impl Fn(&str) -> Option<String>,
+    state: &Entity<crate::ask_dock::AskDockState>,
+    team_id: Option<&str>,
+    images: &Entity<ImageCache>,
+    window: &Window,
+    cx: &mut App,
+) -> Option<(AnyElement, HashSet<String>)> {
+    let pending = domain::ask_dock::thread_pending_asks(rows, session_name);
+    if pending.is_empty() {
+        return None;
     }
+    let docked: HashSet<String> = pending.iter().map(|pending| pending.id.clone()).collect();
+    let focused = state.read(cx).focused().map(str::to_string);
+    let view = domain::ask_dock::ask_dock(&pending, focused.as_deref());
+    let content = match view.card_id.as_deref() {
+        Some(card_id) => {
+            let row = rows.iter().find(|row| row.id() == card_id)?;
+            let back = view.back.then(|| {
+                let state = state.clone();
+                crate::ask_dock::back_button(SharedString::from(format!("{prefix}-ask-dock-back")), move |_, _, cx| {
+                    state.update(cx, |state, _| state.back());
+                    cx.refresh_windows();
+                })
+            });
+            docked_card(row, team_id, images, CardChrome { docked: true, back }, window, cx)?
+        }
+        None => {
+            let state = state.clone();
+            crate::ask_dock::stack(
+                &view.rows,
+                std::rc::Rc::new(move |id: &str, _: &mut Window, cx: &mut App| {
+                    state.update(cx, |state, _| state.focus(id));
+                    cx.refresh_windows();
+                }),
+                cx,
+            )
+        }
+    };
+    let element = state.update(cx, |state, _| crate::ask_dock::dock(state, &view, content, window));
+    Some((element, docked))
+}
+
+/// A waiting row as the dock's big card.
+fn docked_card(
+    row: &SessionThreadRow,
+    team_id: Option<&str>,
+    images: &Entity<ImageCache>,
+    chrome: CardChrome,
+    window: &Window,
+    cx: &mut App,
+) -> Option<AnyElement> {
+    Some(match row {
+        SessionThreadRow::Plan { id, plan, decision, fresh, .. } => plan_card(
+            id,
+            message_markdown(SharedString::from(format!("thread-plan-{id}")), plan, team_id, images),
+            decision.as_deref(),
+            *fresh,
+            chrome,
+            window,
+            cx,
+        ),
+        SessionThreadRow::Question { id, question, options, custom, answer, answered, .. } => question_card(
+            id,
+            message_markdown(SharedString::from(format!("thread-question-{id}")), question, team_id, images),
+            options,
+            *custom,
+            answer.as_deref(),
+            *answered,
+            chrome,
+            window,
+            cx,
+        ),
+        _ => return None,
+    })
 }
 
 /// A picture card as the Guide's tile (a click opens the lightbox).
@@ -1178,13 +1264,16 @@ pub(crate) fn card_row(
             *custom,
             answer.as_deref(),
             *answered,
+            CardChrome::default(),
             window,
             cx,
         ),
-        SessionThreadRow::Plan { id, plan, decision, .. } => plan_card(
+        SessionThreadRow::Plan { id, plan, decision, fresh, .. } => plan_card(
             id,
             message_markdown(SharedString::from(format!("thread-plan-{id}")), plan, team_id, images),
             decision.as_deref(),
+            *fresh,
+            CardChrome::default(),
             window,
             cx,
         ),
@@ -2585,6 +2674,8 @@ pub(crate) struct ThreadScreenView {
     /// root's live source (`session_screen::root_composer_view`), whose
     /// composer stack this screen paints under the conversation.
     composer: Entity<crate::steer_viewer::SteerSessionView>,
+    /// THE ask dock's state (the focused card, the swap animation).
+    ask_dock: Entity<crate::ask_dock::AskDockState>,
     /// When each issue link was FIRST rendered, and whether it was new then
     /// (linked inside [`NEW_CHILD_WINDOW`]) — the fade-in ring.
     first_seen: HashMap<String, (Instant, bool)>,
@@ -2657,6 +2748,7 @@ impl ThreadScreenView {
             guide: GuideState::default(),
             images,
             composer,
+            ask_dock: cx.new(|_| crate::ask_dock::AskDockState::default()),
             first_seen: HashMap::new(),
             opened_at: Instant::now(),
             scroll: ScrollHandle::new(),
@@ -3027,10 +3119,32 @@ impl ThreadScreenView {
     }
 
     fn render_conversation(&mut self, model: &ThreadModel, window: &Window, cx: &mut gpui::Context<Self>) -> AnyElement {
+        // THE ask dock (ask-dock.json ×4): the tree's waiting cards take the
+        // composer's slot, exactly like a session's card; a reader who may
+        // not reply keeps them inline.
+        let dock = self
+            .composer
+            .read(cx)
+            .may_message()
+            .then(|| {
+                conversation_dock(
+                    "thread",
+                    &model.view.rows,
+                    domain::ask_dock::thread_session_names(&model.view.tabs),
+                    &self.ask_dock,
+                    model.root.team_id.as_deref(),
+                    &self.images,
+                    window,
+                    cx,
+                )
+            })
+            .flatten();
+        let docked = dock.as_ref().map(|(_, ids)| ids.clone()).unwrap_or_default();
         let rows: Vec<AnyElement> = model
             .view
             .rows
             .iter()
+            .filter(|row| !docked.contains(row.id()))
             .map(|row| self.render_row(row, model, window, cx))
             .collect();
         let tail = self.render_tail(window, cx);
@@ -3045,10 +3159,22 @@ impl ThreadScreenView {
             .gap_5()
             .children(rows)
             .children(tail);
-        // THE session composer of the session view, targeting the root.
-        let composer = self
-            .composer
-            .update(cx, |composer, cx| composer.render_session_composer(window, cx));
+        // THE session composer of the session view, targeting the root; it
+        // yields its slot to the dock.
+        let composer = match dock {
+            Some((dock, _)) => Some(
+                div()
+                    .w_full()
+                    .max_w(px(CONVERSATION_W))
+                    .mx_auto()
+                    .px(px(crate::work_header::WORK_GUTTER))
+                    .child(dock)
+                    .into_any_element(),
+            ),
+            None => self
+                .composer
+                .update(cx, |composer, cx| composer.render_session_composer(window, cx)),
+        };
         v_flex()
             .flex_1()
             .min_h_0()
@@ -3395,8 +3521,6 @@ mod tests {
             LINK_ISSUE_LABEL,
             NEW_ISSUE_LABEL,
             NO_GUIDE_COPY,
-            PLAN_APPROVE_LABEL,
-            PLAN_REJECT_LABEL,
             THREAD.copy.placeholder.as_str(),
             THREAD.copy.conversation.as_str(),
             THREAD.copy.guide.as_str(),
@@ -3404,7 +3528,8 @@ mod tests {
             assert!(!copy.to_lowercase().contains("thread"), "{copy}");
         }
         assert_eq!(in_thread_label("Offline sync plan"), "In Offline sync plan");
-        assert_eq!(decision_word("approved"), "Approved");
-        assert_eq!(decision_word(""), "");
+        for option in domain::ask_dock::plan_options() {
+            assert!(!option.label.to_lowercase().contains("thread"), "{}", option.label);
+        }
     }
 }

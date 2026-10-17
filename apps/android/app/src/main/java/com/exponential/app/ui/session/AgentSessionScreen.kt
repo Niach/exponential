@@ -324,6 +324,7 @@ import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.GlassTextField
 import com.exponential.app.ui.components.PendingAttachmentStrip
 import com.exponential.app.ui.icons.ExpIcons
+import com.exponential.app.domain.AskDock as AskDockModel
 import com.exponential.app.ui.emoji.rememberEmojiData
 import com.exponential.app.ui.emoji.rememberEmojiPrefs
 import com.exponential.app.ui.issue.NeedsInputAmber
@@ -853,6 +854,43 @@ private fun RunFaceContent(
             question.wireId, question.askId, listOf(key), listOf(label), text,
         )
     }
+    // THE ask dock (ask-dock.json): the card waiting on this viewer leaves
+    // the transcript and takes the composer's slot (the session view feeds
+    // the dock its ONE answerable card, so it is always `single`).
+    val dockable = phase == AgentPhase.Live && !sessionEnded
+    val dockActive = remember(feed) { activeQuestionIds(feed) }
+    val dockedRow = remember(feed, dockActive, dockable) {
+        if (!dockable || dockActive.isEmpty()) null else dockedAskRow(groupFeedRows(feed), dockActive)
+    }
+    val dockCards = AnswerCards(
+        answered = remember(answerStates) { answerStates.filterValues { it.locksCard() }.keys },
+        activeQuestionIds = dockActive,
+        answerEnabled = dockable,
+        answerStates = answerStates,
+        answerLabels = answerLabels,
+        onAnswer = onAnswer,
+        onPlanFollowUp = onPlanFollowUp,
+    )
+    val dock: (@Composable () -> Unit)? = dockedRow?.let { row ->
+        {
+            val pending = AskDockModel.Pending(
+                id = row.id.toString(),
+                kind = if ((row as? AgentFeedRow.Single)?.item.let { it as? AgentFeedItem.Question }?.planMode == true) {
+                    AskDockModel.Kind.Plan
+                } else {
+                    AskDockModel.Kind.Question
+                },
+                text = "",
+                sessionName = null,
+                createdAt = 0L,
+            )
+            AskDock(
+                view = AskDockModel.askDock(listOf(pending), null),
+                onFocus = {},
+                onBack = {},
+            ) { AnswerCardRow(row, dockCards) }
+        }
+    }
     // The placeholder states (no feed yet): connecting, a paused host, an
     // ended run's history fetch, an old desktop.
     val placeholderBody: @Composable () -> Unit = {
@@ -1047,6 +1085,7 @@ private fun RunFaceContent(
                     topInset = topInset,
                     statusRow = statusRow,
                     header = {},
+                    docked = dockedRow,
                 )
             }
         }
@@ -1073,6 +1112,7 @@ private fun RunFaceContent(
             onOpenUsage = { usageSheetOpen = true },
             trailing = trailingBarSlot,
             merge = mergeBarSlot,
+            dock = dock,
             modifier = Modifier.onSizeChanged { if (it.height != bandHeightPx) bandHeightPx = it.height },
             banners = {
                 // ── Status banners (feed retained above) ─────────────────────────
@@ -1765,6 +1805,9 @@ private fun ActivityFeed(
     /** EXP-1175: the Run face's status row, pinned under the header band
      *  above the tabs and the list. */
     statusRow: @Composable () -> Unit = {},
+    /** THE ask dock (ask-dock.json): the card row waiting on the viewer,
+     *  drawn in the composer's slot instead of here; null = none. */
+    docked: AgentFeedRow? = null,
 ) {
     // A card with a wire id stays answerable until it resolves; an id-less one
     // (a pre-EXP-249 desktop) is read-only (EXP-672).
@@ -1790,8 +1833,9 @@ private fun ActivityFeed(
     // while it is an unsettled tool call, and only in a LIVE run (an ended run's
     // trailing unsettled row is history, not a tail). The rule is shared ×4.
     val liveRowId = remember(feed, live) { if (live) liveToolRowId(feed) else null }
-    val rows = remember(feed, windowStart, workflowIds) {
+    val rows = remember(feed, windowStart, workflowIds, docked) {
         splitWorkflowToolRows(groupFeedRows(feed, windowStart, workflowIds), workflowIds)
+            .filterNot { docked != null && isSameAskRow(it, docked) }
     }
     // Cards whose tool row this window does not hold (see the tail items).
     val orphanWorkflows = remember(rows, workflows) {
@@ -2197,6 +2241,25 @@ private fun AnswerCardRow(row: AgentFeedRow, cards: AnswerCards) {
         else -> Unit
     }
 }
+/** THE ask dock ×session view: the ONE card row waiting on this viewer (the
+ *  newest stepper or question/plan card with an active step), drawn in the
+ *  composer's slot; null = nothing waits. */
+internal fun dockedAskRow(rows: List<AgentFeedRow>, active: Set<Long>): AgentFeedRow? =
+    rows.lastOrNull { row ->
+        when (row) {
+            is AgentFeedRow.QuestionStepper -> row.steps.any { it.id in active }
+            is AgentFeedRow.Single -> (row.item as? AgentFeedItem.Question)?.id?.let { it in active } == true
+            else -> false
+        }
+    }
+
+/** Whether [row] is the docked card row (a stepper by its ask, a card by id). */
+private fun isSameAskRow(row: AgentFeedRow, docked: AgentFeedRow): Boolean = when {
+    row is AgentFeedRow.QuestionStepper && docked is AgentFeedRow.QuestionStepper -> row.askId == docked.askId
+    row is AgentFeedRow.Single && docked is AgentFeedRow.Single -> row.item.id == docked.item.id
+    else -> false
+}
+
 /** Visually-at-the-bottom, with slack: the last item's bottom edge sits within
  *  [slackPx] of the viewport end (an empty list counts as bottom). A last item
  *  taller than the slack correctly reads as NOT near while its tail is off
@@ -3172,6 +3235,9 @@ internal fun AskCard(
     heading: String?,
     meta: String?,
     modifier: Modifier = Modifier,
+    /** The ask dock's focused card (ask-dock.json): the back arrow LEADS the
+     *  header row, before the kind glyph. */
+    onBack: (() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val tint = if (plan) MaterialTheme.colorScheme.primary else DesignTokens.Semantic.Yellow
@@ -3183,6 +3249,19 @@ internal fun AskCard(
         verticalAlignment = Alignment.Top,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
+        if (onBack != null) {
+            // Web `-my-1 -ml-1`: the 24dp button is pulled 4dp up, down and
+            // left, so it never grows the header line.
+            Box(
+                Modifier.layout { measurable, constraints ->
+                    val placeable = measurable.measure(constraints)
+                    val pull = 4.dp.roundToPx()
+                    layout(placeable.width - pull, placeable.height - 2 * pull) {
+                        placeable.placeRelative(-pull, -pull)
+                    }
+                },
+            ) { AskDockBackButton(onBack) }
+        }
         Icon(
             if (plan) ExpIcons.codingPlan else ExpIcons.uiHelp,
             contentDescription = null,
@@ -3214,9 +3293,11 @@ internal fun AskCard(
                     if (meta != null) {
                         Text(
                             meta,
+                            modifier = Modifier.weight(1f, fill = false),
                             style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                             maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                         )
                     }
                 }
@@ -3298,6 +3379,9 @@ internal fun QuestionCard(
     // and renders the retry hint below instead of the sent row.
     val locked = state.locksCard()
     val answerable = active && answerEnabled && !locked
+    // THE ask dock (ask-dock.json): a card drawn in the composer's slot caps
+    // its body and may lead with the back arrow.
+    val docked = LocalAskDockCard.current
     // Web `AskCard` parity (EXP-1191): ONE glass card, the glyph INSIDE it
     // beside the text, everything else — heading, body, options, status
     // lines — in the column the glyph leads, so options indent under the text.
@@ -3308,6 +3392,7 @@ internal fun QuestionCard(
         // EXP-627: the store slide's pop-out rect is measured off the
         // question card (`PopRects`), iOS parity.
         modifier = Modifier.testTag("agent-feed-question"),
+        onBack = docked?.onBack,
     ) {
         if (priorSteps.isNotEmpty()) {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -3320,7 +3405,17 @@ internal fun QuestionCard(
                 }
             }
         }
-        if (item.planMode) {
+        if (docked != null) {
+            // Docked: the body never exceeds the fixture's
+            // `bodyMaxHeightFraction` of the screen and scrolls inside; the
+            // options stay below it (no Show more).
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = docked.bodyMaxHeight)
+                    .verticalScroll(rememberScrollState()),
+            ) { MarkdownView(item.text) }
+        } else if (item.planMode) {
             // The plan is GFM markdown — always fully rendered, never
             // folded behind a Show more (EXP-197).
             MarkdownView(item.text)
@@ -4349,6 +4444,12 @@ internal fun SessionComposer(
     banners: @Composable ColumnScope.() -> Unit = {},
     beforeMenus: @Composable ColumnScope.() -> Unit = {},
     beforeComposer: @Composable ColumnScope.() -> Unit = {},
+    /** THE ask dock (ask-dock.json): drawn in the composer's slot while a
+     *  card waits on the viewer; null = the slot stays empty. */
+    dock: (@Composable () -> Unit)? = null,
+    /** Whether a card waits on the viewer (the thread: ANY pending card in
+     *  the tree); null = this session's own live feed decides. */
+    askPending: Boolean? = null,
 ) {
     val session by viewModel.session.collectAsStateWithLifecycle()
     val phase by viewModel.phase.collectAsStateWithLifecycle()
@@ -4386,10 +4487,14 @@ internal fun SessionComposer(
     // composer's place (EXP-820, `SessionTree.composerYieldsToCard`).
     val awaitingInput = phase == AgentPhase.Live &&
         remember(activity.feed) { activeQuestionIds(activity.feed) }.isNotEmpty()
-    val composerHidden = SessionTree.composerYieldsToCard(
-        live = phase == AgentPhase.Live && !sessionEnded,
-        pendingAsk = awaitingInput,
-    )
+    val composerHidden = if (askPending != null) {
+        askPending
+    } else {
+        SessionTree.composerYieldsToCard(
+            live = phase == AgentPhase.Live && !sessionEnded,
+            pendingAsk = awaitingInput,
+        )
+    }
     // EXP-790: mid-turn, the empty field's send glyph is a Stop.
     val agentWorking = agentWorking(
         live = phase == AgentPhase.Live,
@@ -4837,9 +4942,14 @@ internal fun SessionComposer(
                 trailing = trailing,
                 merge = merge,
             )
-        } else if (trailing != null || merge != null) {
-            FloatingBottomBar(right = trailing, afterCentre = merge) {
-                Spacer(Modifier.weight(1f))
+        } else {
+            if (dock != null) {
+                Box(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) { dock() }
+            }
+            if (trailing != null || merge != null) {
+                FloatingBottomBar(right = trailing, afterCentre = merge) {
+                    Spacer(Modifier.weight(1f))
+                }
             }
         }
     }
