@@ -15,6 +15,9 @@
 //   its specialised views on them (SLOP-18 convergence) without linking the
 //   core.
 //
+// EXP-1280: the Exponential app links `ExponentialUI` (the plan card's inline
+// surface) exactly when this package declares it (apps/ios/Project.swift).
+//
 // The binary target is declared only when the xcframework is present (or
 // `EXPONENTIAL_UI_FFI` names one, absolute or relative to this directory), so a checkout that only needs the
 // primitives (the app's Tuist graph, CI) resolves without a Rust toolchain.

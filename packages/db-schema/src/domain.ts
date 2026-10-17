@@ -1140,13 +1140,116 @@ export const questionCardOptionDescriptionsSchema = z
  *  read back: `options` = labels, `optionDescriptions` = the sidecar (must be
  *  parallel to `options` when present). Passthrough like `messageCardSchema`
  *  (`questionId` rides along). */
+// ── EXP-1280 custom plan mode: the rich plan / question card ─────────────────
+// Hand-mirrors contract.json `planCard` (parity-locked by the web
+// domain-contract test); the behaviour = fixtures/plan-card.json.
+export const PLAN_CARD_QUESTIONS_MAX = 10
+export const PLAN_CARD_OPTIONS_MAX = 12
+export const PLAN_CARD_PICTURES_MAX = 10
+export const PLAN_CARD_PROMPT_MAX = 500
+export const PLAN_CARD_LABEL_MAX = 500
+export const PLAN_CARD_DESCRIPTION_MAX = 2000
+export const PLAN_CARD_LABEL_KEY_MAX = 64
+export const PLAN_CARD_SURFACE_MAX_BYTES = 65536
+export const PLAN_CARD_SURFACE_MAX_COMPONENTS = 200
+export const PLAN_CARD_UPLOAD_SCHEME = `upload:`
+
+/** A picture label: the key of the upload namespace (`pictures[].label`,
+ *  an option's `picture`, `optionPictures[i]`, `![alt](upload:<label>)`). */
+export const pictureLabelSchema = z
+  .string()
+  .min(1)
+  .max(PLAN_CARD_LABEL_KEY_MAX)
+  .regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/, `a picture label is letters, digits, '.', '_' or '-'`)
+
+/** `pictures[]`: the upload namespace; null = not uploaded yet. */
+export const planCardPictureSchema = z.object({
+  label: pictureLabelSchema,
+  attachmentId: z.string().nullable(),
+  width: z.number().int().nullable(),
+  height: z.number().int().nullable(),
+  caption: z.string().max(PLAN_CARD_DESCRIPTION_MAX).nullish(),
+})
+export type PlanCardPicture = z.infer<typeof planCardPictureSchema>
+
+export const planCardOptionSchema = z.object({
+  label: z.string().trim().min(1).max(PLAN_CARD_LABEL_MAX),
+  description: z.string().max(PLAN_CARD_DESCRIPTION_MAX).nullish(),
+  /** The picture's LABEL in `pictures`. */
+  picture: pictureLabelSchema.nullish(),
+})
+export type PlanCardOption = z.infer<typeof planCardOptionSchema>
+
+export const planCardQuestionSchema = z.object({
+  id: z.string().trim().min(1).max(PLAN_CARD_LABEL_KEY_MAX),
+  prompt: z.string().trim().min(1).max(PLAN_CARD_PROMPT_MAX),
+  multi: z.boolean().nullish(),
+  /** Free text allowed (default true). */
+  custom: z.boolean().nullish(),
+  options: z.array(planCardOptionSchema).max(PLAN_CARD_OPTIONS_MAX),
+})
+export type PlanCardQuestion = z.infer<typeof planCardQuestionSchema>
+
+/** An Exponential UI core surface the agent authored (validated against
+ *  the catalog server-side; `root` = a NestedNode). */
+export const cardSurfaceSchema = z.object({
+  root: z.record(z.string(), z.unknown()),
+  data: z.record(z.string(), z.unknown()).nullish(),
+})
+export type CardSurface = z.infer<typeof cardSurfaceSchema>
+
+/** The answers of a plan card: question id → the picked labels (or the
+ *  free text) in pick order. */
+export const planCardAnswersSchema = z.record(
+  z.string().max(PLAN_CARD_LABEL_KEY_MAX),
+  z.array(z.string().max(PLAN_CARD_LABEL_MAX)).max(PLAN_CARD_OPTIONS_MAX)
+)
+
+/** The `plan` card as the tool posts it and as it is read back. Passthrough
+ *  like `messageCardSchema` (`questionId` rides along on a legacy row). */
+export const planCardSchema = z
+  .object({
+    kind: z.literal(`plan`),
+    plan: z.string(),
+    pictures: z.array(planCardPictureSchema).max(PLAN_CARD_PICTURES_MAX).nullish(),
+    questions: z.array(planCardQuestionSchema).max(PLAN_CARD_QUESTIONS_MAX).nullish(),
+    surface: cardSurfaceSchema.nullish(),
+    decision: z.enum([`approved`, `rejected`]).nullish(),
+    fresh: z.boolean().nullish(),
+    feedback: z.string().nullish(),
+    answers: planCardAnswersSchema.nullish(),
+    surfaceData: z.record(z.string(), z.unknown()).nullish(),
+  })
+  .passthrough()
+  .refine((card) => new Set((card.questions ?? []).map((q) => q.id)).size === (card.questions ?? []).length, {
+    message: `question ids must be unique`,
+    path: [`questions`],
+  })
+  .refine((card) => new Set((card.pictures ?? []).map((p) => p.label)).size === (card.pictures ?? []).length, {
+    message: `picture labels must be unique`,
+    path: [`pictures`],
+  })
+
+/** EXP-1280 sidecar: picture LABELS parallel to `options` (null = none). */
+export const questionCardOptionPicturesSchema = z
+  .array(pictureLabelSchema.nullable())
+  .max(QUESTION_CARD_OPTIONS_MAX)
+
 export const questionCardSchema = z
   .object({
     kind: z.literal(`question`),
     question: z.string(),
     options: z.array(questionCardOptionSchema).max(QUESTION_CARD_OPTIONS_MAX).optional(),
     optionDescriptions: questionCardOptionDescriptionsSchema.nullish(),
+    // EXP-1280: the rich question (exponential_sessions_ask).
+    optionPictures: questionCardOptionPicturesSchema.nullish(),
+    pictures: z.array(planCardPictureSchema).max(PLAN_CARD_PICTURES_MAX).nullish(),
+    multi: z.boolean().nullish(),
+    custom: z.boolean().nullish(),
+    surface: cardSurfaceSchema.nullish(),
     answer: z.string().nullish(),
+    answers: z.array(z.string().max(PLAN_CARD_LABEL_MAX)).max(QUESTION_CARD_OPTIONS_MAX).nullish(),
+    surfaceData: z.record(z.string(), z.unknown()).nullish(),
   })
   .passthrough()
   .refine(
@@ -1155,6 +1258,11 @@ export const questionCardSchema = z
       card.options === undefined ||
       card.optionDescriptions.length === card.options.length,
     { message: `optionDescriptions must be parallel to options`, path: [`optionDescriptions`] },
+  )
+  .refine(
+    (card) =>
+      card.optionPictures == null || card.options === undefined || card.optionPictures.length === card.options.length,
+    { message: `optionPictures must be parallel to options`, path: [`optionPictures`] },
   )
 
 /** messages.card: what a non-text conversation row shows. `session` = ONE
@@ -1169,15 +1277,32 @@ export type MessageCard =
       options?: QuestionCardOption[]
       /** EXP-1322 sidecar, parallel to `options`; absent when no option has a description. */
       optionDescriptions?: QuestionCardOptionDescriptions | null
+      /** EXP-1280 sidecar: picture LABELS (in `pictures`) parallel to `options`. */
+      optionPictures?: (string | null)[] | null
+      pictures?: PlanCardPicture[] | null
+      /** EXP-1280: several picks allowed; free text allowed (default true). */
+      multi?: boolean | null
+      custom?: boolean | null
+      surface?: CardSurface | null
+      /** The picks joined by ", " (compat), or the free text. */
       answer?: string | null
+      answers?: string[] | null
+      surfaceData?: Record<string, unknown> | null
     }
   | {
       kind: `plan`
       plan: string
+      /** EXP-1280: the upload namespace, the choice questions, the inline surface. */
+      pictures?: PlanCardPicture[] | null
+      questions?: PlanCardQuestion[] | null
+      surface?: CardSurface | null
       decision?: `approved` | `rejected` | null
       /** An approval that starts the work in a fresh context (ask-dock.json `planOptions`). */
       fresh?: boolean | null
       feedback?: string | null
+      /** EXP-1280: question id → picked labels; the surface's data model at answer time. */
+      answers?: Record<string, string[]> | null
+      surfaceData?: Record<string, unknown> | null
     }
   | { kind: `subagent`; title: string; status: string; summary?: string | null }
   | { kind: `session`; sessionId: string }

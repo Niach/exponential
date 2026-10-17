@@ -47,7 +47,14 @@ export interface AskOption {
   description?: string
   /** The free-text row: picking it opens the inline field. */
   freeText?: boolean
+  /** EXP-1280: inert for now (a plan's approve while an answer is missing). */
+  disabled?: boolean
 }
+
+/** THE option row's box (EXP-850 §13: a ROW, radius.md, never a capsule)
+ *  and its picked state; the rich plan card's option list shares them. */
+export const ASK_OPTION_ROW_CLASS = `h-auto min-h-8 w-full justify-start whitespace-normal rounded-md py-1.5 text-left text-xs`
+export const ASK_OPTION_PICKED_CLASS = `border-glass-stroke-active bg-glass-active`
 
 /** Whether picking `index` opens the inline field instead of answering: a
  *  free-text row, or a plan's reject (its LAST option). */
@@ -275,7 +282,7 @@ export function AskPrompt({
     options.filter((o) => keys.includes(o.key)).map((o) => o.label)
 
   const choose = (option: AskOption, index: number) => {
-    if (!open) return
+    if (!open || option.disabled) return
     // A row that opens the field (free text, a plan's reject) does so in a
     // multi-select too: its key never joins the picks.
     if (askOpensField(item, index)) {
@@ -403,10 +410,10 @@ export function AskPrompt({
                 variant={primary ? `default` : `outline`}
                 size="sm"
                 data-testid="ask-option"
+                disabled={option.disabled}
                 className={cn(
-                  // EXP-850 §13: an option is a ROW (radius.md), never a capsule.
-                  `h-auto min-h-8 w-full justify-start whitespace-normal rounded-md py-1.5 text-left text-xs`,
-                  !primary && (selected || fieldOpen) && `border-glass-stroke-active bg-glass-active`
+                  ASK_OPTION_ROW_CLASS,
+                  !primary && (selected || fieldOpen) && ASK_OPTION_PICKED_CLASS
                 )}
                 aria-pressed={multiSelect ? selected : undefined}
                 aria-expanded={askOpensField(item, index) ? fieldOpen : undefined}

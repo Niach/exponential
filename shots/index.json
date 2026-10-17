@@ -3387,6 +3387,43 @@
         "sha256": "5742d042a0339bb95d9e011bddb4745d362d4105a650800b06d9803d1a74d528"
       }
     },
+    "plan-card": {
+      "android": {
+        "file": "shots/plan-card/android.webp",
+        "width": 810,
+        "height": 1800,
+        "bytes": 18364,
+        "sha256": "203dc48c0ac8a31f1b2f6d620c8f8285d9bff9beb14f3a6e600e7e9e258ac615"
+      },
+      "desktop": {
+        "file": "shots/plan-card/desktop.webp",
+        "width": 1800,
+        "height": 1626,
+        "bytes": 51898,
+        "sha256": "a7fefa87a8eda3dead11ab6299c7bb855015daa98dc1e25635f78d88980185e5"
+      },
+      "ios": {
+        "file": "shots/plan-card/ios.webp",
+        "width": 828,
+        "height": 1800,
+        "bytes": 19500,
+        "sha256": "d540e1fb9d82dbe9e35664420dbb99cd86132043982fe7f488acc0c31cd0e6ec"
+      },
+      "web": {
+        "file": "shots/plan-card/web.webp",
+        "width": 1800,
+        "height": 1200,
+        "bytes": 42014,
+        "sha256": "efe7b9d5602a09d70711f41acfebd48c05c14e1ef176da9f8091234b71c15af8"
+      },
+      "web-mobile": {
+        "file": "shots/plan-card/web-mobile.webp",
+        "width": 1057,
+        "height": 1800,
+        "bytes": 31032,
+        "sha256": "c17d32cf531ad3f8d913e8ab28c46920c6f8a53dd4fa3da6dc6b8e4b6afebbdc"
+      }
+    },
     "pr-row": {
       "android": {
         "file": "shots/pr-row/android.webp",

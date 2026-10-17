@@ -108,6 +108,9 @@ export async function composeSessionBrief(sessionId: string): Promise<{
     session.dispatch &&
     !isPersistent(session) &&
     Boolean(session.workLaunch?.planMode || input.issues.length > 0 || input.action)
+  // EXP-1280: plan mode is Exponential's (a brief section + the pr_open
+  // gate), never a dispatcher's: it hands plan mode on to its children.
+  input.planMode = session.planMode === true && !session.dispatch
 
   let parentBranch: string | null = null
   if (session.parentId) {

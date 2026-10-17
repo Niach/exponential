@@ -294,7 +294,16 @@ impl EngineSession {
     /// ([`EngineSession::unqueue`] revokes it) and the engine reports it
     /// consumed (`sessions.consume`) once the agent has it.
     pub fn deliver(&self, message_id: String, text: String) {
-        self.send(EngineCommand::Deliver { message_id, text });
+        self.send(EngineCommand::Deliver { message_id, text, fresh: false });
+    }
+
+    /// EXP-1280: [`Self::deliver`] in a FRESH context — a plan approved "in
+    /// a fresh context": claude clears the conversation (`/clear`) and takes
+    /// `text` (which carries the plan) as the new conversation's first
+    /// prompt; codex, which has no such reset, takes it in the running one.
+    /// The row is consumed like any delivery.
+    pub fn deliver_fresh(&self, message_id: String, text: String) {
+        self.send(EngineCommand::Deliver { message_id, text, fresh: true });
     }
 
     /// EXP-1292: a question/plan card answered IN the Conversation (the
@@ -343,10 +352,23 @@ impl EngineSession {
         });
     }
 
+    /// A PERSON's mode switch (the Plan chip): EXP-1280 a real plan-mode
+    /// move steers the agent one line (`host::PLAN_MODE_ON_LINE` /
+    /// `PLAN_MODE_OFF_LINE`).
     pub fn set_mode(&self, id: &str) {
-        self.send(EngineCommand::SetMode(
-            agent_client_protocol::schema::v1::SessionModeId::new(id.to_string()),
-        ));
+        self.send(EngineCommand::SetMode {
+            id: agent_client_protocol::schema::v1::SessionModeId::new(id.to_string()),
+            announce: true,
+        });
+    }
+
+    /// EXP-1280: flip Exponential's plan flag WITHOUT telling the agent —
+    /// a plan approval (the answer the agent reads already says so).
+    pub fn set_plan_mode_silent(&self, on: bool) {
+        self.send(EngineCommand::SetMode {
+            id: agent_client_protocol::schema::v1::SessionModeId::new(plan_mode_id(on).to_string()),
+            announce: false,
+        });
     }
 
     /// Replay this session's history through the mapper (`session/load`) —
@@ -603,9 +625,9 @@ fn record_wants_name(record: &coding::run_registry::RunRecord) -> bool {
     record.title.as_deref().is_none_or(|title| title.trim().is_empty())
 }
 
-// EXP-1334: the ACP mode ids both adapters steer (`available_modes`): the
-// codex adapter's own (claude's ids, one vocabulary), never re-typed here.
-use crate::adapters::codex::{BUILD_MODE_ID, PLAN_MODE_ID};
+// EXP-1334/EXP-1280: the ACP mode ids both adapters advertise
+// (`available_modes`), never re-typed here.
+use crate::adapters::{BUILD_MODE_ID, PLAN_MODE_ID};
 
 fn plan_mode_id(on: bool) -> &'static str {
     if on {
@@ -629,6 +651,21 @@ impl coding::pickup::LiveEngine for EngineSession {
 
     fn answer_card(&self, question_id: &str, card: &serde_json::Value) {
         EngineSession::answer_card(self, question_id, card);
+    }
+
+    /// EXP-1280: an answered tool-posted card (`exponential_plan_propose`,
+    /// `exponential_sessions_ask`): an approval leaves plan mode SILENTLY
+    /// first, then the answer goes in as the next turn — a fresh approval
+    /// in a fresh context.
+    fn deliver_answer(&self, message_id: String, text: String, approved: bool, fresh: bool) {
+        if approved {
+            self.set_plan_mode_silent(false);
+        }
+        if fresh {
+            self.deliver_fresh(message_id, text);
+        } else {
+            EngineSession::deliver(self, message_id, text);
+        }
     }
 
     fn open_cards(&self) -> std::collections::HashMap<String, String> {
@@ -682,8 +719,8 @@ impl coding::pickup::LiveEngine for EngineSession {
     }
 
     /// EXP-1334: a person's `sessions.configure` moved plan mode — the ONE
-    /// steerable mode on both adapters (claude `set_permission_mode`, codex
-    /// its collaboration setting); off = build (`bypassPermissions`).
+    /// steerable mode on both adapters. EXP-1280: Exponential's flag (never
+    /// the CLI's), and a real move steers the agent one line.
     fn set_plan_mode(&self, on: bool) {
         self.set_mode(plan_mode_id(on));
     }

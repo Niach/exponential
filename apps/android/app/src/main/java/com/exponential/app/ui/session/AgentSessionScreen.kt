@@ -1,5 +1,6 @@
 package com.exponential.app.ui.session
 
+import com.exponential.app.data.api.AnswerInput
 import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.domain.EmptyStateCopy
 import android.net.Uri
@@ -888,6 +889,7 @@ private fun RunFaceContent(
     // the transcript and takes the composer's slot (the session view feeds
     // the dock its ONE answerable card, so it is always `single`).
     val dockable = phase == AgentPhase.Live && !sessionEnded
+    val toolAsks by viewModel.toolAsks.collectAsStateWithLifecycle()
     val dockActive = remember(feed) { activeQuestionIds(feed) }
     val dockedRow = remember(feed, dockActive, dockable) {
         if (!dockable || dockActive.isEmpty()) null else dockedAskRow(groupFeedRows(feed), dockActive)
@@ -919,6 +921,50 @@ private fun RunFaceContent(
                 onFocus = {},
                 onBack = {},
             ) { AnswerCardRow(row, dockCards) }
+        }
+    } ?: toolAsks.takeIf { it.isNotEmpty() && !sessionEnded }?.let { asks ->
+        // EXP-1280: a card a TOOL posted (plan_propose / sessions_ask) has no
+        // relay ask: THE rich card answers it through `sessions.answer`.
+        {
+            var focusedAsk by remember { mutableStateOf<String?>(null) }
+            val byId = remember(asks) { asks.associateBy { it.id } }
+            AskDock(
+                view = AskDockModel.askDock(AskDockModel.threadPendingAsks(asks) { null }, focusedAsk),
+                onFocus = { focusedAsk = it },
+                onBack = { focusedAsk = null },
+            ) { id ->
+                byId[id]?.let { row ->
+                    com.exponential.app.ui.thread.ThreadAskCard(
+                        row = row,
+                        onAnswer = { messageId, a, settled ->
+                            viewModel.answerCard(
+                                AnswerInput(
+                                    messageId = messageId,
+                                    answer = a.answer,
+                                    answers = a.answers?.let(AnswerInput::questionAnswers),
+                                    surfaceData = a.surfaceData,
+                                ),
+                                "question",
+                                settled,
+                            )
+                        },
+                        onDecidePlan = { messageId, d, settled ->
+                            viewModel.answerCard(
+                                AnswerInput(
+                                    messageId = messageId,
+                                    decision = if (d.approved) "approved" else "rejected",
+                                    fresh = if (d.approved && d.fresh) true else null,
+                                    feedback = d.feedback,
+                                    answers = d.answers?.let(AnswerInput::planAnswers),
+                                    surfaceData = d.surfaceData,
+                                ),
+                                "plan",
+                                settled,
+                            )
+                        },
+                    )
+                }
+            }
         }
     }
     // The placeholder states (no feed yet): connecting, a paused host, an

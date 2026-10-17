@@ -31,8 +31,8 @@ pub const RUN_SKILL: &str = include_str!("runbook.md");
 pub const DISPATCH_HEADING: &str = "## Dispatch";
 
 /// The coding-work sections a dispatcher never reads: it hands that work
-/// to children instead.
-pub const CODING_ONLY_HEADINGS: [&str; 3] = ["## Fan out", "## Pull requests", "## Guide"];
+/// (EXP-1280: planning included) to children instead.
+pub const CODING_ONLY_HEADINGS: [&str; 4] = ["## Fan out", "## Plan", "## Pull requests", "## Guide"];
 
 /// The playbook ONE run gets: a dispatcher's swaps the coding-work sections
 /// ([`CODING_ONLY_HEADINGS`]) for [`DISPATCH_HEADING`]; every other run
@@ -474,6 +474,27 @@ run `bun test`.\n"
         assert_eq!(fixed, dispatch);
         assert!(system_append_layers(Some("Rules"), None, &Extras { dispatch: true, ..Extras::NONE })
             .starts_with(dispatch.trim_end()));
+    }
+
+    /// EXP-1280: plan mode is Exponential's, so the playbook IS how a run
+    /// learns it: propose with the tool as the last call, stop, and the
+    /// standalone rich ask. Workers only.
+    #[test]
+    fn the_playbook_teaches_exponential_plan_mode() {
+        let coding = playbook(false);
+        let section = coding.split("## Plan\n").nth(1).unwrap().split("\n## ").next().unwrap();
+        for words in [
+            "`plan_mode`",
+            "no commits, pushes or PRs until a person approves",
+            "`exponential_plan_propose({plan, pictures?, questions?, surface?})`",
+            "LAST call of your turn and stop",
+            "upload:<label>",
+            "rejected = keep planning",
+            "`exponential_sessions_ask({question, options, multi?})`",
+        ] {
+            assert!(section.contains(words), "the Plan section never says {words}");
+        }
+        assert!(!playbook(true).contains("## Plan\n"), "a dispatcher hands planning to children");
     }
 
     #[test]

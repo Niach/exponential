@@ -15,7 +15,7 @@
       "composer-dialog", "issue-context-menu", "session-row", "pr-row", "pr-graph-badge", "device-settings",
       "stack-merge-choice-dialog", "draft-leave-dialog", "readiness-checklist",
       "device-readiness", "results-guide", "mcp-app-views", "run-status-row", "session-thread", "composer-options",
-      "work-card", "thread-parts", "ask-dock", "script-card", "comment-call-card",
+      "work-card", "thread-parts", "ask-dock", "plan-card", "script-card", "comment-call-card",
       "team-agents-settings", "voice-call-overlay",
       "agent-home", "work-tabs-strip",
       "getting-started"
@@ -59,6 +59,7 @@
     "work-card": "EXP-1240",
     "thread-parts": "EXP-1293",
     "ask-dock": "EXP-1341",
+    "plan-card": "EXP-1280",
     "script-card": "EXP-1279",
     "comment-call-card": "EXP-1241",
     "team-agents-settings": "EXP-1293",

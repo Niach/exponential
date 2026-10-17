@@ -63,11 +63,8 @@ struct ThreadConversationView: View {
     var onOpenSession: (String) -> Void = { _ in }
     /// A card naming ANOTHER root: open that thread.
     var onOpenThread: (String) -> Void = { _ in }
-    /// A question card's pick: (message id, the option).
-    var onAnswer: (String, String) -> Void = { _, _ in }
-    /// A plan card's pick (`AskDock.planOptions`): (message id, decision,
-    /// fresh context, the reject row's feedback).
-    var onDecide: (String, PlanDecision, Bool, String?) -> Void = { _, _, _, _ in }
+    /// A question or plan card's answer (`sessions.answer`).
+    var onSubmit: (ThreadCardAnswer) -> Void = { _ in }
     /// EXP-1317: the viewer's own queued message's X (`sessions.unqueue`).
     var onUnqueue: (String) -> Void = { _ in }
     /// The signed-in viewer (whose queued rows carry the X).
@@ -91,8 +88,8 @@ struct ThreadConversationView: View {
     /// A card still waiting on its answer (`AskDock.threadPendingAsks`).
     static func isPending(_ row: ThreadRow) -> Bool {
         switch row {
-        case let .plan(_, _, _, decision, _): decision == nil
-        case let .question(_, _, _, _, _, _, answered): !answered
+        case let .plan(card): card.decision == nil
+        case let .question(card): !card.answered
         default: false
         }
     }
@@ -243,8 +240,7 @@ struct ThreadConversationView: View {
                     canAnswer: canAnswer,
                     answeringId: answeringId,
                     markdownContext: markdownContext,
-                    onAnswer: onAnswer,
-                    onDecide: onDecide
+                    onSubmit: onSubmit
                 )
             }
         case let .subagent(_, title, status):
@@ -616,13 +612,32 @@ struct ChannelMessageRow<Lead: View, Content: View>: View {
     }
 }
 
+/// One answer leaving a thread card (`sessions.answer`): a question's
+/// `answer` (+ EXP-1280 `answers` = the picked labels), a plan's `decision`
+/// (+ `fresh`, `feedback`, `answers` by question id), and the inline
+/// surface's data model.
+struct ThreadCardAnswer {
+    let messageId: String
+    var answer: String? = nil
+    var decision: PlanDecision? = nil
+    var fresh = false
+    var feedback: String? = nil
+    var answers: CardAnswers? = nil
+    var surfaceData: CardJSON? = nil
+}
+
 /// A thread's question or plan card — THE session view's `QuestionCard`
 /// (EXP-1316; EXP-1334: a CHILD's own ask lands here too, answered by message
 /// id straight back to it), drawn inline once answered (closed) and as THE
 /// ask dock's big card while it waits (`caption` / `onBack` /
 /// `bodyMaxHeight`). A question offers its options AND the free-text answer
-/// (`withFreeTextRow`, ×4; the typed text IS the answer); a plan offers
-/// `AskDock.planOptions` and a decided one names `planDecisionLabel`.
+/// (`withFreeTextRow`, ×4; the typed text IS the answer) unless the card says
+/// `custom: false`; a plan offers `AskDock.planOptions` and a decided one
+/// names `planDecisionLabel`. EXP-1280 (plan-card.json): the rich card adds
+/// the inline surface and the question blocks under the body
+/// (`PlanCardForm.swift`); approving waits until every question is answered
+/// (`PlanCard.answerIssue`), a question with pictures answers through its
+/// tiles, and the answer carries `answers` + `surfaceData`.
 struct ThreadAskCard: View {
     let row: ThreadRow
     var canAnswer = true
@@ -631,77 +646,196 @@ struct ThreadAskCard: View {
     var caption: String?
     var onBack: (() -> Void)?
     var bodyMaxHeight: CGFloat?
-    var onAnswer: (String, String) -> Void = { _, _ in }
-    var onDecide: (String, PlanDecision, Bool, String?) -> Void = { _, _, _, _ in }
+    var onSubmit: (ThreadCardAnswer) -> Void = { _ in }
+
+    @State private var draft = PlanCardDraft()
 
     var body: some View {
         switch row {
-        case let .question(id, _, question, options, custom, answer, answered):
-            let base = AgentQuestion(
-                id: 0,
-                wireId: id,
-                text: question,
-                // Keyed `index:label` like web — two identical labels stay two
-                // rows; the answer names the option by its label (below).
-                options: options.enumerated().map { index, option in
-                    AgentQuestionOption(label: option.label, key: "\(index):\(option.label)", description: option.description)
-                },
-                resolved: answered,
-                answers: answer.map { [$0] } ?? []
-            )
-            let card = custom ? base.withFreeTextRow() : base
-            QuestionCard(
-                question: card,
-                active: !answered,
-                canAnswer: canAnswer,
-                locked: answeringId == id,
-                pending: answeringId == id,
-                failed: false,
-                onAnswer: { keys, text in
-                    let typed = text?.trimmingCharacters(in: .whitespacesAndNewlines)
-                    let freeKeys = Set(card.options.filter(\.freeText).map(\.key))
-                    let pickedLabel = keys.first(where: { !freeKeys.contains($0) })
-                        .flatMap { key in card.options.first { $0.key == key }?.label }
-                    if let pick = (typed?.isEmpty == false ? typed : nil) ?? pickedLabel {
-                        onAnswer(id, pick)
-                    }
-                },
-                markdownContext: markdownContext,
-                caption: caption,
-                onBack: onBack,
-                bodyMaxHeight: bodyMaxHeight
-            )
-            .accessibilityIdentifier("thread-question-card")
-        case let .plan(id, _, plan, decision, fresh):
-            QuestionCard(
-                question: AgentQuestion(
-                    id: 0,
-                    wireId: id,
-                    text: plan,
-                    options: AskDock.planQuestionOptions,
-                    planMode: true,
-                    resolved: decision != nil,
-                    answers: decision.map { [AskDock.planDecisionLabel(decision: $0, fresh: fresh)] } ?? []
-                ),
-                active: decision == nil,
-                canAnswer: canAnswer,
-                locked: answeringId == id,
-                pending: answeringId == id,
-                failed: false,
-                onAnswer: { keys, _ in
-                    let option = AskDock.planOption(key: keys.first)
-                    let approved = option?.decision == PlanDecision.approved.rawValue
-                    onDecide(id, approved ? .approved : .rejected, approved && option?.fresh == true, nil)
-                },
-                onAnswerThenSend: { _, feedback in onDecide(id, .rejected, false, feedback) },
-                markdownContext: markdownContext,
-                caption: caption,
-                onBack: onBack,
-                bodyMaxHeight: bodyMaxHeight
-            )
-            .accessibilityIdentifier("thread-plan-card")
+        case let .question(card):
+            questionCard(card)
+                .accessibilityIdentifier("thread-question-card")
+        case let .plan(card):
+            planCard(card)
+                .accessibilityIdentifier("thread-plan-card")
         default:
             EmptyView()
         }
+    }
+
+    // MARK: - Question
+
+    @ViewBuilder
+    private func questionCard(_ card: ThreadQuestionRow) -> some View {
+        let tiles = PlanCard.optionRows(card.options) == .tiles
+        let base = AgentQuestion(
+            id: 0,
+            wireId: card.id,
+            text: card.question,
+            // Keyed `index:label` like web — two identical labels stay two
+            // rows; the answer names the option by its label (below).
+            options: card.options.enumerated().map { index, option in
+                AgentQuestionOption(label: option.label, key: "\(index):\(option.label)", description: option.description)
+            },
+            multiSelect: card.multi,
+            resolved: card.answered,
+            answers: card.answered ? [PlanCard.joinAnswers(card.picked)].filter { !$0.isEmpty } : []
+        )
+        let question = card.custom && !tiles ? base.withFreeTextRow() : base
+        QuestionCard(
+            question: question,
+            active: !card.answered,
+            canAnswer: canAnswer,
+            locked: answeringId == card.id,
+            pending: answeringId == card.id,
+            failed: false,
+            onAnswer: { keys, text in
+                let typed = text?.trimmingCharacters(in: .whitespacesAndNewlines)
+                let labels = keys.compactMap { key -> String? in
+                    guard let option = question.options.first(where: { $0.key == key }) else { return nil }
+                    if option.freeText { return typed?.isEmpty == false ? typed : nil }
+                    return option.label
+                }
+                submitQuestion(card, labels: labels)
+            },
+            markdownContext: markdownContext,
+            caption: caption,
+            onBack: onBack,
+            bodyMaxHeight: bodyMaxHeight,
+            form: questionForm(card, tiles: tiles),
+            hidesOptions: tiles
+        )
+    }
+
+    /// A question card's form: its surface, and (pictures) the tiles + the
+    /// `custom` row + the Answer button.
+    private func questionForm(_ card: ThreadQuestionRow, tiles: Bool) -> AnyView? {
+        guard card.surface != nil || tiles else { return nil }
+        let editable = canAnswer && !card.answered
+        let picked = card.answered ? card.picked : draft.answer("")
+        return AnyView(VStack(alignment: .leading, spacing: 10) {
+            if let surface = card.surface {
+                PlanCardSurfaceView(surface: surface, handle: draft.surface, editable: editable)
+            }
+            if tiles {
+                PlanCardQuestionBlock(
+                    questionId: "",
+                    prompt: nil,
+                    multi: card.multi,
+                    custom: card.custom,
+                    options: card.options,
+                    picked: picked,
+                    editable: editable,
+                    customText: Binding(get: { draft.custom[""] ?? "" }, set: { draft.custom[""] = $0 }),
+                    onToggle: { draft.toggle("", label: $0, multi: card.multi) },
+                    onType: { draft.type("", text: $0, multi: card.multi) }
+                )
+                if editable {
+                    let issue = PlanCard.answerIssue(
+                        options: card.options.map(\.label), multi: card.multi, custom: card.custom,
+                        input: PlanCard.AnswerInput(labels: draft.answer(""))
+                    )
+                    GlassPill(
+                        PlanCard.Copy.answer,
+                        mode: .action { submitQuestion(card, labels: draft.answer("")) },
+                        primary: true,
+                        enabled: issue == nil && answeringId != card.id
+                    )
+                }
+            }
+        })
+    }
+
+    private func submitQuestion(_ card: ThreadQuestionRow, labels: [String]) {
+        let picked = labels.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        guard !picked.isEmpty else { return }
+        onSubmit(ThreadCardAnswer(
+            messageId: card.id,
+            answer: PlanCard.joinAnswers(picked),
+            answers: .question(picked),
+            surfaceData: card.surface == nil ? nil : draft.surface.snapshot()
+        ))
+    }
+
+    // MARK: - Plan
+
+    @ViewBuilder
+    private func planCard(_ card: ThreadPlanRow) -> some View {
+        let decided = card.decision != nil
+        let issue = decided ? nil : PlanCard.answerIssue(
+            questions: card.questions,
+            input: PlanCard.AnswerInput(planAnswers: draft.planAnswers(card.questions), decision: "approved")
+        )
+        QuestionCard(
+            question: AgentQuestion(
+                id: 0,
+                wireId: card.id,
+                text: PlanCard.renderableMarkdown(card.plan),
+                options: AskDock.planQuestionOptions,
+                planMode: true,
+                resolved: decided,
+                answers: card.decision.map { [AskDock.planDecisionLabel(decision: $0, fresh: card.fresh)] } ?? []
+            ),
+            active: !decided,
+            canAnswer: canAnswer,
+            locked: answeringId == card.id,
+            pending: answeringId == card.id,
+            failed: false,
+            onAnswer: { keys, _ in
+                let option = AskDock.planOption(key: keys.first)
+                let approved = option?.decision == PlanDecision.approved.rawValue
+                submitPlan(card, decision: approved ? .approved : .rejected, fresh: approved && option?.fresh == true)
+            },
+            markdownContext: markdownContext,
+            caption: caption,
+            onBack: onBack,
+            bodyMaxHeight: bodyMaxHeight,
+            form: planForm(card),
+            approveIssue: issue.map(PlanCard.Copy.issue),
+            resolutionNote: card.feedback,
+            feedback: $draft.feedback
+        )
+    }
+
+    /// A plan's form: the surface, then one block per question.
+    private func planForm(_ card: ThreadPlanRow) -> AnyView? {
+        guard card.surface != nil || !card.questions.isEmpty else { return nil }
+        let editable = canAnswer && card.decision == nil
+        return AnyView(VStack(alignment: .leading, spacing: 12) {
+            if let surface = card.surface {
+                PlanCardSurfaceView(surface: surface, handle: draft.surface, editable: editable)
+            }
+            ForEach(card.questions) { question in
+                PlanCardQuestionBlock(
+                    questionId: question.id,
+                    prompt: question.prompt,
+                    multi: question.multi,
+                    custom: question.custom,
+                    options: question.options,
+                    picked: card.decision != nil ? (card.answers?[question.id] ?? []) : draft.answer(question.id),
+                    editable: editable,
+                    customText: Binding(
+                        get: { draft.custom[question.id] ?? "" },
+                        set: { draft.custom[question.id] = $0 }
+                    ),
+                    onToggle: { draft.toggle(question.id, label: $0, multi: question.multi) },
+                    onType: { draft.type(question.id, text: $0, multi: question.multi) }
+                )
+            }
+        })
+    }
+
+    private func submitPlan(_ card: ThreadPlanRow, decision: PlanDecision, fresh: Bool) {
+        let answers = draft.planAnswers(card.questions)
+        let typed = draft.feedback.trimmingCharacters(in: .whitespacesAndNewlines)
+        let feedback: String? = typed.isEmpty ? nil : typed
+        onSubmit(ThreadCardAnswer(
+            messageId: card.id,
+            decision: decision,
+            fresh: fresh,
+            feedback: feedback,
+            answers: answers.isEmpty ? nil : .plan(answers),
+            surfaceData: card.surface == nil ? nil : draft.surface.snapshot()
+        ))
     }
 }

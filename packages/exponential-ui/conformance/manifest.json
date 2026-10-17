@@ -9,7 +9,7 @@
         "fixtures/catalog-components.json"
       ],
       "unit": "case",
-      "cases": 486,
+      "cases": 491,
       "check": "Reduce the case's nested node with the core catalog: no issues. Paint it under the default theme: no crash, no Unknown placeholder, every visible node painted."
     },
     {
@@ -54,7 +54,7 @@
         "fixtures/theme-recipes.json"
       ],
       "unit": "case",
-      "cases": 402,
+      "cases": 407,
       "check": "Resolve the part's recipe for the case's theme, props, mode and states: the visual equals the fixture."
     },
     {

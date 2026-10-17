@@ -20,7 +20,7 @@ nothing from the Exponential app.
 
 | path | what |
 |---|---|
-| `catalog/core.catalog.json` | THE source: ids, enums, shared shapes, functions (the basic 14 + the 17 core ones, `functions.core`), the built-in glyphs (`builtinIcons`), 75 components (73 offered + the hidden TreeGuides part and Unknown placeholder; round 4 removed the round-3 aliases; EXP-1259 added `SearchList`, EXP-1324 `Trace` + `TraceItem`) with props + descriptions |
+| `catalog/core.catalog.json` | THE source: ids, enums, shared shapes, functions (the basic 14 + the 17 core ones, `functions.core`), the built-in glyphs (`builtinIcons`), 76 components (74 offered + the hidden TreeGuides part and Unknown placeholder; round 4 removed the round-3 aliases; EXP-1259 added `SearchList`, EXP-1324 `Trace` + `TraceItem`, EXP-1280 `ChoiceTiles`) with props + descriptions |
 | `catalog/macros.json` | the declarative expansion table, one template per macro component |
 | `catalog/basic-map.json` | A2UI basic → core: components (+ named transforms), icons, functions |
 | `catalog/style.json` | the `Box` style whitelist (VAPP-4), one source for TS / schema / natives |

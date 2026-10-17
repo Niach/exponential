@@ -205,13 +205,46 @@ public enum PlanDecision: String, Encodable, Sendable {
 /// `sessions.answer`: a `question` card takes `answer`, a `plan` card a
 /// `decision` (+ optional `feedback`; `fresh` = the approval starts in a
 /// fresh context, ask-dock.json `planOptions`, sent only with `approved`).
-/// Nil fields are omitted.
+/// Nil fields are omitted. EXP-1280 (plan-card.json): `answers` = a plan's
+/// picked labels by question id, or a question's picked labels;
+/// `surfaceData` = the inline surface's data model at answer time.
 struct AnswerMessageInput: Encodable {
     let messageId: String
     let answer: String?
     let decision: PlanDecision?
     let fresh: Bool?
     let feedback: String?
+    var answers: CardAnswers? = nil
+    var surfaceData: CardJSON? = nil
+}
+
+/// `sessions.answer`'s `answers`: a plan's labels by question id, or a
+/// question card's picked labels.
+public enum CardAnswers: Encodable, Sendable, Equatable {
+    case plan([String: [String]])
+    case question([String])
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        switch self {
+        case let .plan(answers): try container.encode(answers)
+        case let .question(labels): try container.encode(labels)
+        }
+    }
+}
+
+extension CardJSON: Encodable {
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        switch self {
+        case .null: try container.encodeNil()
+        case let .bool(value): try container.encode(value)
+        case let .number(value): try container.encode(value)
+        case let .string(value): try container.encode(value)
+        case let .array(values): try container.encode(values)
+        case let .object(values): try container.encode(values)
+        }
+    }
 }
 
 /// A partial `sessions.updateAgent` (owner-gated). An OMITTED field (nil)
@@ -447,22 +480,26 @@ public final class SessionsApi: Sendable {
         )
     }
 
-    /// Answer a `question` card (`answer`) or decide a `plan` card
-    /// (`decision` + optional `feedback`) IN the card.
+    /// Answer a `question` card (`answer` / `answers`) or decide a `plan`
+    /// card (`decision` + optional `answers`, `feedback`) IN the card;
+    /// `surfaceData` = the inline surface's data model (EXP-1280).
     public func answer(
         accountId: String,
         messageId: String,
         answer: String? = nil,
         decision: PlanDecision? = nil,
         fresh: Bool = false,
-        feedback: String? = nil
+        feedback: String? = nil,
+        answers: CardAnswers? = nil,
+        surfaceData: CardJSON? = nil
     ) async throws {
         try await trpc.mutationVoid(
             accountId: accountId,
             path: "sessions.answer",
             input: AnswerMessageInput(
                 messageId: messageId, answer: answer, decision: decision,
-                fresh: decision == .approved && fresh ? true : nil, feedback: feedback
+                fresh: decision == .approved && fresh ? true : nil, feedback: feedback,
+                answers: answers, surfaceData: surfaceData
             )
         )
     }

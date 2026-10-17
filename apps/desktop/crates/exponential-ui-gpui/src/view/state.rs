@@ -271,7 +271,9 @@ pub fn focus_order(nodes: &[PlacedNode], paint_order: &[u32], layer: u32) -> Vec
             continue;
         }
         let group = match (n.owner_component.as_deref(), n.part.as_deref()) {
-            (Some("Tabs"), Some("tab")) | (Some("Radio"), Some("dot")) => n.owner.clone(),
+            // EXP-1280: ChoiceTiles = one roving stop on the picked tile
+            // (the first when none), a11y.json.
+            (Some("Tabs"), Some("tab")) | (Some("Radio"), Some("dot")) | (Some("ChoiceTiles"), Some("tile")) => n.owner.clone(),
             _ => None,
         };
         let Some(g) = group else {
@@ -410,6 +412,9 @@ pub fn role_of(n: &PlacedNode, parent_component: Option<&str>, macro_root: Optio
         ("Switch", None) => Role::Switch,
         ("Radio", None) => Role::RadioGroup,
         ("Radio", Some("dot")) => Role::RadioButton,
+        // EXP-1280: a radiogroup of tiles; the picture is decorative.
+        ("ChoiceTiles", None) => Role::RadioGroup,
+        ("Box", Some("tile")) if owner == "ChoiceTiles" => Role::RadioButton,
         ("Slider", Some("track")) => Role::Slider,
         ("Box", Some("handle")) if owner == "Resizable" => Role::Splitter,
         ("Resizable", None) => Role::Group,

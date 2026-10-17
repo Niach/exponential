@@ -97,7 +97,7 @@ describe(`session-tree fixtures (EXP-1291)`, () => {
 
 describe(`questionOption (EXP-1322)`, () => {
   test(`a label normalises; anything else drops`, () => {
-    expect(questionOption(`Yes`)).toEqual({ label: `Yes`, description: null })
+    expect(questionOption(`Yes`)).toEqual({ label: `Yes`, description: null, attachmentId: null })
     expect(questionOption({ label: `Yes`, description: `Ship it` })).toBeNull()
     expect(questionOption(3)).toBeNull()
   })
@@ -107,21 +107,21 @@ describe(`questionOption (EXP-1322)`, () => {
     expect(
       questionOptions({ options: [`Yes`, `No`, `Later`, `Never`], optionDescriptions: [`Ship it`, null, ``, `Not now`] }),
     ).toEqual([
-      { label: `Yes`, description: `Ship it` },
-      { label: `No`, description: null },
-      { label: `Later`, description: null },
-      { label: `Never`, description: `Not now` },
+      { label: `Yes`, description: `Ship it`, attachmentId: null },
+      { label: `No`, description: null, attachmentId: null },
+      { label: `Later`, description: null, attachmentId: null },
+      { label: `Never`, description: `Not now`, attachmentId: null },
     ])
     // No sidecar / a short sidecar / a non-array sidecar = undescribed.
     expect(questionOptions({ options: [`A`, `B`] })).toEqual([
-      { label: `A`, description: null },
-      { label: `B`, description: null },
+      { label: `A`, description: null, attachmentId: null },
+      { label: `B`, description: null, attachmentId: null },
     ])
     expect(questionOptions({ options: [`A`, `B`], optionDescriptions: [`a`] })).toEqual([
-      { label: `A`, description: `a` },
-      { label: `B`, description: null },
+      { label: `A`, description: `a`, attachmentId: null },
+      { label: `B`, description: null, attachmentId: null },
     ])
-    expect(questionOptions({ options: [`A`], optionDescriptions: `a` })).toEqual([{ label: `A`, description: null }])
+    expect(questionOptions({ options: [`A`], optionDescriptions: `a`, attachmentId: null })).toEqual([{ label: `A`, description: null, attachmentId: null }])
     // The sidecar index follows the ORIGINAL position even past a dropped option.
     expect(
       questionOptions({
@@ -129,9 +129,9 @@ describe(`questionOption (EXP-1322)`, () => {
         optionDescriptions: [`sidecar`, `dropped`, `filled`, null],
       }),
     ).toEqual([
-      { label: `Own`, description: `sidecar` },
-      { label: `Plain`, description: `filled` },
-      { label: `Z`, description: null },
+      { label: `Own`, description: `sidecar`, attachmentId: null },
+      { label: `Plain`, description: `filled`, attachmentId: null },
+      { label: `Z`, description: null, attachmentId: null },
     ])
     expect(questionOptions({})).toEqual([])
     expect(questionOptions({ options: `Yes` })).toEqual([])

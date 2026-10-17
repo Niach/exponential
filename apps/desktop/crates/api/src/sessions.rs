@@ -243,8 +243,11 @@ pub fn unlink_issue(trpc: &TrpcClient, session_id: &str, issue_id: &str) -> Resu
     trpc.mutation("sessions.unlinkIssue", &Input { session_id, issue_id })
 }
 
-/// `sessions.answer` input: a question card takes `answer`, a plan card
-/// `decision` (`approved` | `rejected`) + optional `feedback`.
+/// `sessions.answer` input: a question card takes `answer` (EXP-1280: or
+/// `answers`, its picked labels), a plan card `decision` (`approved` |
+/// `rejected`) + optional `feedback` and `answers` (`{questionId: labels}`);
+/// either may carry `surfaceData`, the inline surface's data model at
+/// answer time (`fixtures/plan-card.json`).
 #[derive(Clone, Debug, Default, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AnswerInput {
@@ -259,6 +262,13 @@ pub struct AnswerInput {
     pub fresh: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub feedback: Option<String>,
+    /// EXP-1280: a plan card's `{questionId: labels[]}`, a question card's
+    /// `labels[]`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub answers: Option<serde_json::Value>,
+    /// EXP-1280: the inline surface's data model at answer time.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub surface_data: Option<serde_json::Value>,
 }
 
 /// Answer a question/plan card in place.
@@ -682,6 +692,19 @@ mod tests {
         };
         answer(&client(&base), &input).unwrap();
         assert!(request(&captured).ends_with(r#"{"messageId":"m-2","decision":"approved","fresh":true}"#));
+        // EXP-1280: the form's answers + the surface's data, camelCase.
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"txid":1}}}"#);
+        let input = AnswerInput {
+            message_id: "m-3".into(),
+            decision: Some("approved".into()),
+            answers: Some(serde_json::json!({"layout": ["Two columns"]})),
+            surface_data: Some(serde_json::json!({"size": "lg"})),
+            ..AnswerInput::default()
+        };
+        answer(&client(&base), &input).unwrap();
+        assert!(request(&captured).ends_with(
+            r#"{"messageId":"m-3","decision":"approved","answers":{"layout":["Two columns"]},"surfaceData":{"size":"lg"}}"#
+        ));
         let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"txid":1}}}"#);
         unqueue(&client(&base), "m-2").unwrap();
         let request_text = request(&captured);

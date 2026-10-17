@@ -85,7 +85,7 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  *   sg_onboarding-devices · sg_agent-home · sg_search-list ·
  *   sg_getting-started · sg_feedback-states · sg_work-card ·
  *   sg_script-card · sg_comment-call-card · sg_thread · sg_agent-channel ·
- *   sg_session · sg_trace · sg_code-block · sg_ask-dock
+ *   sg_session · sg_trace · sg_code-block · sg_ask-dock · sg_plan-card
  *
  * EXP-1295 retired `sg_chat-action` and `sg_action-create` (the builtin
  * actions and the action create sheet left the catalog), renamed the
@@ -158,7 +158,7 @@ class StyleguideScreenshotsTest {
         private val CAPTURE_SHOTS = setOf(
             "sg_feedback-states", "sg_work-card",
             "sg_script-card", "sg_comment-call-card",
-            "sg_trace", "sg_code-block", "sg_ask-dock",
+            "sg_trace", "sg_code-block", "sg_ask-dock", "sg_plan-card",
         )
 
         // APP-5 — the only seeded issue with a comment thread.
@@ -1016,6 +1016,13 @@ class StyleguideScreenshotsTest {
         // arrow — drawn by the real ThreadAskDock on a capture-only screen.
         show(AskDockSpecimenScreenTestId) { AskDockSpecimenScreen() }
         flow.screenshot("sg_ask-dock")
+
+        // --- sg_plan-card: THE rich plan / question card (EXP-1280,
+        // plan-card.json): session-thread.json's rich case — the pending plan
+        // (pictures, a tile question, a list question, the inline eUI
+        // surface) and the answered multi question — by the real ThreadAskCard.
+        showThreadCards(ThreadCardsKind.PlanCard)
+        flow.screenshot("sg_plan-card")
 
         finished = true
     }

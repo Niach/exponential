@@ -18,6 +18,7 @@ First release.
 - Video / AudioPlayer: one open per player; a second press waits (spinner, control disabled), another src cancels it, a replaced player is released.
 - `data:` media files are refcounted and deleted by the last player, at most 8 kept, the cache directory emptied on the first use per process.
 - An `Image` without `alt` paints only the glyph (no English "image" label).
+- `ChoiceTiles` (EXP-1280): the core expands it into tiles; a tile reads as a radio (single) or a checkbox (multiple) with its picked state, arrows rove the tiles (a single choice follows focus), and an unexpanded one measures as its grid. `:ui-compose-primitives` adds the standalone `ChoiceTiles` primitive (picture over label + muted description, 2 dp accent ring on a pick, radius 10, gap 8, picture 1.6 : 1).
 - Markdown inline parsing is linear on hostile input (unclosed destinations, bracket and emphasis floods); link labels nest at most 32 deep.
 - Paint failures are keyed by component: a failed node paints empty, unreported, until ITS props change; it drops when it leaves the surface. The host dedupes per surface + component and forgets one when `updateComponents` names it.
 - Markdown block images align to the top of their box.

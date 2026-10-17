@@ -7,8 +7,8 @@
 //! the permission posture is per-agent:
 //!
 //! - **claude** — EXP-690: the classic `--dangerously-skip-permissions` on
-//!   every run, or plan mode when gated (plan wins the STARTING mode, with
-//!   the bypass one Shift+Tab away). The doctor's
+//!   every run (EXP-1280: plan mode is Exponential's, never the CLI's
+//!   `--permission-mode plan`). The doctor's
 //!   [`crate::doctor::MIN_CLAUDE_VERSION`] gate guarantees every claude flag
 //!   here.
 //! - **codex** — EXP-690: always `--dangerously-bypass-approvals-and-sandbox`
@@ -95,27 +95,12 @@ pub fn mcp_config_args() -> Vec<String> {
     ]
 }
 
-/// The permission tail of every CLAUDE coding argv (EXP-690 posture — every
-/// run bypasses permissions; plan mode is the only starting-mode choice
-/// left):
-///
-/// - Plan mode wins the STARTING mode: `--permission-mode plan` +
-///   `--allow-dangerously-skip-permissions` (the skip flag cannot ride NEXT
-///   TO a starting mode — both select one; the allow flag instead puts
-///   `bypassPermissions` in the Shift+Tab cycle, one keypress to full-auto
-///   after the plan is approved).
-/// - Otherwise: the classic `--dangerously-skip-permissions`
-///   (≡ `--permission-mode bypassPermissions`).
-pub fn permission_args(plan_mode: bool) -> Vec<String> {
-    if plan_mode {
-        vec![
-            "--permission-mode".into(),
-            "plan".into(),
-            "--allow-dangerously-skip-permissions".into(),
-        ]
-    } else {
-        vec!["--dangerously-skip-permissions".into()]
-    }
+/// The permission tail of every CLAUDE coding argv (EXP-690 posture): the
+/// classic `--dangerously-skip-permissions` (≡ `--permission-mode
+/// bypassPermissions`). EXP-1280: plan mode is Exponential's (the runbook's
+/// `## Plan` + the server's `pr_open` gate), never `--permission-mode plan`.
+pub fn permission_args() -> Vec<String> {
+    vec!["--dangerously-skip-permissions".into()]
 }
 
 /// A TOML basic string (double-quoted, single line) for a `-c key=value`
@@ -427,8 +412,8 @@ pub struct LaunchOptions {
     /// Dynamic workflows (`--effort ultracode`, CLI ≥2.1.203 —
     /// model-independent, no opus pin). Claude-only; wins over `effort`.
     pub ultracode: bool,
-    /// Launch-into-plan mode: claude natively (`--permission-mode plan`).
-    /// Never codex.
+    /// EXP-1280: start in Exponential's plan mode (the engine's flag + the
+    /// row's `plan_mode`; the CLI never sees it). Any agent.
     pub plan_mode: bool,
     /// EXP-981: the model claude's SUBAGENTS run on
     /// (`CLAUDE_CODE_SUBAGENT_MODEL`, exported at every claude spawn —
@@ -475,7 +460,7 @@ impl LaunchOptions {
             model: settings.model_for(agent).to_string(),
             effort: settings.effort_for(agent).to_string(),
             ultracode: settings.claude_ultracode && agent.supports_ultracode(),
-            plan_mode: settings.plan_mode_for(agent) && agent.supports_plan_mode(),
+            plan_mode: settings.plan_mode_for(agent),
             subagent_model: settings.subagent_model_for(agent).to_string(),
             mcp_server_ids: Vec::new(),
             // EXP-1158: unnamed — the launcher runs it on the agent's last
@@ -501,7 +486,7 @@ impl LaunchOptions {
     ///   an unattended desktop at the plan-approval TUI); a remote client
     ///   sending `plan_mode: true` opted in knowingly.
     /// - Capabilities mask everything: a non-claude agent can never carry
-    ///   ultracode, codex never carries plan.
+    ///   ultracode (EXP-1280: plan mode is every agent's).
     /// - EXP-849: `account` is the composer's account pick (a device-local
     ///   profile id), normalized by [`Self::with_account`]; absent/blank =
     ///   the last used one.
@@ -536,7 +521,7 @@ impl LaunchOptions {
             effort,
             ultracode: ultracode.unwrap_or(settings.claude_ultracode)
                 && agent.supports_ultracode(),
-            plan_mode: plan_mode.unwrap_or(false) && agent.supports_plan_mode(),
+            plan_mode: plan_mode.unwrap_or(false),
             // EXP-981: ABSENT on the frame = this machine's own default; the
             // caller layers an explicit pick on with
             // [`Self::with_subagent_model`].
@@ -655,7 +640,7 @@ pub fn shell_args(opts: &LaunchOptions, mcp: &AgentMcp, system_append: &str) -> 
                 args.push(effort);
             }
             args.extend(mcp_config_args());
-            args.extend(permission_args(opts.plan_mode));
+            args.extend(permission_args());
             // EXP-763: the run playbook (EXP-1025: + the team prompt),
             // appended to the system prompt.
             args.push("--append-system-prompt".into());
@@ -941,23 +926,10 @@ mod tests {
     }
 
     #[test]
-    fn permission_args_split_on_plan() {
-        // Gated: plan START mode + bypass ALLOWED (Shift+Tab reachable) but
-        // never `--dangerously-skip-permissions` itself — that flag IS a
-        // starting mode and would erase the gate.
-        assert_eq!(
-            permission_args(true),
-            vec![
-                "--permission-mode".to_string(),
-                "plan".to_string(),
-                "--allow-dangerously-skip-permissions".to_string(),
-            ]
-        );
-        // EXP-690: everything else bypasses permissions outright.
-        assert_eq!(
-            permission_args(false),
-            vec!["--dangerously-skip-permissions".to_string()]
-        );
+    fn permission_args_always_bypass() {
+        // EXP-690 + EXP-1280: every run bypasses permissions outright; plan
+        // mode never reaches the CLI.
+        assert_eq!(permission_args(), vec!["--dangerously-skip-permissions".to_string()]);
     }
 
     #[test]
@@ -1039,7 +1011,7 @@ mod tests {
         settings.codex_model = "gpt-5.6-terra".to_string();
         settings.codex_effort = "xhigh".to_string();
         settings.claude_ultracode = true; // claude-only — must mask
-        settings.claude_plan_mode = true; // claude-only — must mask
+        settings.claude_plan_mode = true; // the claude default, not codex's
         let opts = LaunchOptions::defaults(&settings);
         assert_eq!(opts.agent, CodingAgent::Codex);
         assert_eq!(opts.model, "gpt-5.6-terra");
@@ -1117,14 +1089,14 @@ mod tests {
             Some("gpt-5.6-luna"),
             Some("minimal"),
             Some(true), // ultracode — claude-only, must mask
-            Some(true), // plan — claude-only, must mask on codex
+            Some(true), // plan — EXP-1280: every agent's
             Some("system"),
         );
         assert_eq!(opts.agent, CodingAgent::Codex);
         assert_eq!(opts.model, "gpt-5.6-luna");
         assert_eq!(opts.effort, "minimal");
         assert!(!opts.ultracode);
-        assert!(!opts.plan_mode);
+        assert!(opts.plan_mode);
         // A legacy `system` rides through (the launcher reads it as
         // unpinned); blank is unnamed.
         assert_eq!(opts.account.as_deref(), Some("system"));

@@ -1,0 +1,271 @@
+{
+  "$comment": "EXP-1280 custom plan mode ×4 (web packages/ui session-thread-view.tsx + ask-card.tsx, desktop crates/ui thread_screen.rs + ask_dock.rs + steer_viewer.rs, iOS ThreadConversation.swift + AskDock.swift, Android ThreadParts.kt + AskDock.kt; device mirror crates/domain/src/plan_card.rs). Plan mode is Exponential's, not the CLI's: a session in plan mode (sessions.plan_mode) researches, may draft UI on its branch to picture it, then posts ONE rich card with `exponential_plan_propose({plan, pictures?, questions?, surface?})` as the last call of its turn and stops (needs_input; Needs you). `exponential_sessions_ask({question, options, multi?, custom?, pictures?, surface?})` posts the same kind of card as ONE question outside a plan. The card = the existing `plan` / `question` message card with ADDITIVE fields (an old client still renders the markdown + the decision): `plan` GFM may embed pictures (`![alt](/api/attachments/{id})`; until an upload lands `![alt](upload:<label>)`, which renders NOTHING); `pictures` [{label, attachmentId|null, width, height, caption?}] = the upload namespace (the tool answers one upload line per label, same curl as the Guide's; the upload route fills attachmentId/width/height and rewrites `upload:<label>` in the markdown: `resolveUpload`); `questions` [{id, prompt, multi, custom, options:[{label, description?, picture?: <label>}]}] = the form; `surface` {root, data?} = an Exponential UI core surface rendered inline by the real renderer (no transport, `set` only, media = /api/attachments + https); the answer = `decision` + `fresh` + `feedback` + `answers` {questionId: labels[]} + `surfaceData` (the surface's data model at answer time), stamped IN the card by `sessions.answer` (also flips sessions.plan_mode=false on approval; the device delivers `answerText` as the agent's next turn, `fresh` = a fresh context prompted with it). A question card gains `multi`, `custom`, `optionPictures` (sidecar of picture LABELS parallel to `options`, null = none), `surface`, `answers` (labels) + `surfaceData`; `answer` stays the labels joined by `joiner` (compat). RENDER ×4: the card = AskCard header (ask-dock.json) + the markdown body (pictures inline, max body height per ask-dock) + the surface (full card width, its own frame) + one block per question: `prompt` (strong) + `chooseOne`/`chooseAny` caption + the options as THE option rows (every option without a picture: `optionRows(options) = list`, the question card's rows: label + description, a check glyph when picked) or as TILES (`tiles` once ANY option has a picture: `tiles.columns` per row (phones `tiles.phoneColumns`), each tile = picture (`pictureAspect` w/h, cover, `radius`) over label + description, picked = `selectedRing` px accent ring; a tile without a picture keeps the frame with the placeholder glyph) + `custom` = the free-text row `copy.custom`; then the decision row = ask-dock.json `planOptions` (a question card: the Answer button) + the feedback field. `approveDisabled(card, answers)` = a required answer missing (`copy.answerIssues.missing` under the button); rejecting never needs answers. ANSWERED = closed: picked options stay highlighted, the rest inert, the decision label (ask-dock `planDecisionLabel`) + feedback shown. Model = pure `plan-card.ts` (TS reference): every mirror replays `answerTextCases` (the WHOLE string), `answerIssueCases`, `resolveUploadCases` (the WHOLE card), `optionRowsCases`, `pictureForCases`.",
+  "copy": {
+    "answers": "Answers",
+    "feedback": "Feedback",
+    "chooseOne": "Choose one",
+    "chooseAny": "Choose any",
+    "custom": "Other…",
+    "surface": "Preview",
+    "answer": "Answer",
+    "answerIssues": {
+      "decision": "Pick a decision",
+      "missing": "Answer every question to approve",
+      "multi": "This question takes one answer",
+      "unknown": "Pick one of the options"
+    },
+    "planModeGate": "This session is in plan mode: propose the plan with exponential_plan_propose and wait for approval before opening a PR.",
+    "proposeNext": "Posted. End your turn now: the decision, answers and feedback arrive as your next message."
+  },
+  "testIds": {
+    "card": "plan-card",
+    "question": "plan-card-question",
+    "option": "plan-card-option",
+    "tile": "plan-card-tile",
+    "custom": "plan-card-custom",
+    "surface": "plan-card-surface",
+    "feedback": "plan-card-feedback",
+    "issue": "plan-card-issue"
+  },
+  "tiles": {
+    "columns": 2,
+    "phoneColumns": 2,
+    "gap": 8,
+    "pictureAspect": 1.6,
+    "radius": 10,
+    "selectedRing": 2,
+    "padding": 8
+  },
+  "uploadScheme": "upload:",
+  "answerText": {
+    "approved": "Plan approved. Go ahead.",
+    "approvedFresh": "Plan approved. Implement the following plan:\n\n{plan}",
+    "rejected": "Plan not approved. Keep planning.",
+    "answers": "Answers:",
+    "answerLine": "- {prompt}: {answer}",
+    "feedback": "Feedback: {feedback}",
+    "surfaceData": "Form data: {json}",
+    "question": "Answer to \"{question}\": {answer}",
+    "joiner": ", "
+  },
+  "answerTextCases": [
+    {
+      "name": "approved, nothing else",
+      "card": { "kind": "plan", "plan": "1. One", "decision": "approved", "fresh": false },
+      "expected": "Plan approved. Go ahead."
+    },
+    {
+      "name": "approved with answers and feedback",
+      "card": {
+        "kind": "plan",
+        "plan": "1. One",
+        "questions": [
+          { "id": "layout", "prompt": "Which layout?", "multi": false, "custom": true, "options": [{ "label": "Two columns" }, { "label": "One column" }] },
+          { "id": "platforms", "prompt": "Platforms", "multi": true, "custom": false, "options": [{ "label": "iOS" }, { "label": "Android" }, { "label": "Desktop" }] }
+        ],
+        "decision": "approved",
+        "fresh": false,
+        "feedback": "Ship it this week.",
+        "answers": { "layout": ["Two columns"], "platforms": ["iOS", "Android"] }
+      },
+      "expected": "Plan approved. Go ahead.\n\nAnswers:\n- Which layout?: Two columns\n- Platforms: iOS, Android\n\nFeedback: Ship it this week."
+    },
+    {
+      "name": "approved in a fresh context carries the plan",
+      "card": {
+        "kind": "plan",
+        "plan": "# Plan\n\n1. Lift the partition\n\n![before](/api/attachments/a1)",
+        "questions": [{ "id": "q", "prompt": "Go?", "multi": false, "custom": false, "options": [{ "label": "Yes" }] }],
+        "decision": "approved",
+        "fresh": true,
+        "answers": { "q": ["Yes"] }
+      },
+      "expected": "Plan approved. Implement the following plan:\n\n# Plan\n\n1. Lift the partition\n\n![before](/api/attachments/a1)\n\nAnswers:\n- Go?: Yes"
+    },
+    {
+      "name": "rejected with feedback; unanswered questions are left out",
+      "card": {
+        "kind": "plan",
+        "plan": "1. One",
+        "questions": [
+          { "id": "a", "prompt": "A?", "multi": false, "custom": true, "options": [{ "label": "x" }] },
+          { "id": "b", "prompt": "B?", "multi": false, "custom": true, "options": [{ "label": "y" }] }
+        ],
+        "decision": "rejected",
+        "fresh": false,
+        "feedback": "Smaller steps.",
+        "answers": { "b": ["y"] }
+      },
+      "expected": "Plan not approved. Keep planning.\n\nAnswers:\n- B?: y\n\nFeedback: Smaller steps."
+    },
+    {
+      "name": "the surface's data model rides as compact JSON with sorted keys",
+      "card": {
+        "kind": "plan",
+        "plan": "1. One",
+        "surface": { "root": { "id": "r", "component": "Text", "props": { "text": "x" } } },
+        "decision": "approved",
+        "fresh": false,
+        "surfaceData": { "name": "Blue", "count": 2, "on": true }
+      },
+      "expected": "Plan approved. Go ahead.\n\nForm data: {\"count\":2,\"name\":\"Blue\",\"on\":true}"
+    },
+    {
+      "name": "a question card: one pick",
+      "card": { "kind": "question", "question": "Which first?", "options": ["Web", "iOS"], "answer": "Web", "answers": ["Web"] },
+      "expected": "Answer to \"Which first?\": Web"
+    },
+    {
+      "name": "a question card: several picks",
+      "card": { "kind": "question", "question": "Platforms?", "options": ["Web", "iOS", "Android"], "multi": true, "answer": "Web, Android", "answers": ["Web", "Android"] },
+      "expected": "Answer to \"Platforms?\": Web, Android"
+    },
+    {
+      "name": "a question card: free text wins when `answers` is absent",
+      "card": { "kind": "question", "question": "Where?", "options": ["Staging", "Prod"], "answer": "Only on staging" },
+      "expected": "Answer to \"Where?\": Only on staging"
+    },
+    {
+      "name": "a question card with a surface",
+      "card": { "kind": "question", "question": "Fill the form", "options": [], "surface": { "root": { "id": "r", "component": "Text", "props": { "text": "x" } } }, "answer": "Done", "answers": ["Done"], "surfaceData": { "size": "lg" } },
+      "expected": "Answer to \"Fill the form\": Done\n\nForm data: {\"size\":\"lg\"}"
+    }
+  ],
+  "answerIssueCases": [
+    {
+      "name": "a plan needs a decision",
+      "card": { "kind": "plan", "plan": "1." },
+      "input": {},
+      "expected": "decision"
+    },
+    {
+      "name": "approving needs every question answered",
+      "card": { "kind": "plan", "plan": "1.", "questions": [{ "id": "a", "prompt": "A?", "multi": false, "custom": true, "options": [{ "label": "x" }] }] },
+      "input": { "decision": "approved", "answers": {} },
+      "expected": "missing"
+    },
+    {
+      "name": "an empty answer list is unanswered",
+      "card": { "kind": "plan", "plan": "1.", "questions": [{ "id": "a", "prompt": "A?", "multi": false, "custom": true, "options": [{ "label": "x" }] }] },
+      "input": { "decision": "approved", "answers": { "a": [] } },
+      "expected": "missing"
+    },
+    {
+      "name": "rejecting never needs answers",
+      "card": { "kind": "plan", "plan": "1.", "questions": [{ "id": "a", "prompt": "A?", "multi": false, "custom": true, "options": [{ "label": "x" }] }] },
+      "input": { "decision": "rejected" },
+      "expected": null
+    },
+    {
+      "name": "a single-choice question takes one answer",
+      "card": { "kind": "plan", "plan": "1.", "questions": [{ "id": "a", "prompt": "A?", "multi": false, "custom": true, "options": [{ "label": "x" }, { "label": "y" }] }] },
+      "input": { "decision": "approved", "answers": { "a": ["x", "y"] } },
+      "expected": "multi"
+    },
+    {
+      "name": "without `custom` the answer must be an option",
+      "card": { "kind": "plan", "plan": "1.", "questions": [{ "id": "a", "prompt": "A?", "multi": false, "custom": false, "options": [{ "label": "x" }] }] },
+      "input": { "decision": "approved", "answers": { "a": ["z"] } },
+      "expected": "unknown"
+    },
+    {
+      "name": "with `custom` any text answers",
+      "card": { "kind": "plan", "plan": "1.", "questions": [{ "id": "a", "prompt": "A?", "multi": false, "custom": true, "options": [{ "label": "x" }] }] },
+      "input": { "decision": "approved", "answers": { "a": ["something else"] } },
+      "expected": null
+    },
+    {
+      "name": "an answer for a question the card never asked",
+      "card": { "kind": "plan", "plan": "1.", "questions": [] },
+      "input": { "decision": "approved", "answers": { "ghost": ["x"] } },
+      "expected": "unknown"
+    },
+    {
+      "name": "a complete approval",
+      "card": { "kind": "plan", "plan": "1.", "questions": [{ "id": "a", "prompt": "A?", "multi": true, "custom": false, "options": [{ "label": "x" }, { "label": "y" }] }] },
+      "input": { "decision": "approved", "answers": { "a": ["x", "y"] } },
+      "expected": null
+    },
+    {
+      "name": "a question card needs an answer",
+      "card": { "kind": "question", "question": "Q?", "options": ["x"] },
+      "input": {},
+      "expected": "missing"
+    },
+    {
+      "name": "a question card: one answer unless multi",
+      "card": { "kind": "question", "question": "Q?", "options": ["x", "y"] },
+      "input": { "answers": ["x", "y"] },
+      "expected": "multi"
+    },
+    {
+      "name": "a question card without `custom` refuses free text",
+      "card": { "kind": "question", "question": "Q?", "options": ["x"], "custom": false },
+      "input": { "answers": ["free"] },
+      "expected": "unknown"
+    },
+    {
+      "name": "a question card: free text by default",
+      "card": { "kind": "question", "question": "Q?", "options": ["x"] },
+      "input": { "answer": "free" },
+      "expected": null
+    },
+    {
+      "name": "a question card: multi picks",
+      "card": { "kind": "question", "question": "Q?", "options": ["x", "y"], "multi": true, "custom": false },
+      "input": { "answers": ["x", "y"] },
+      "expected": null
+    }
+  ],
+  "resolveUploadCases": [
+    {
+      "name": "the markdown embed and the pictures entry resolve; other labels stay",
+      "card": {
+        "kind": "plan",
+        "plan": "Before:\n\n![before](upload:before)\n\nAfter:\n\n![after](upload:after)",
+        "pictures": [
+          { "label": "before", "attachmentId": null, "width": null, "height": null, "caption": "Before" },
+          { "label": "after", "attachmentId": null, "width": null, "height": null, "caption": null }
+        ]
+      },
+      "upload": { "label": "before", "attachmentId": "att-1", "width": 1440, "height": 900 },
+      "expected": {
+        "kind": "plan",
+        "plan": "Before:\n\n![before](/api/attachments/att-1)\n\nAfter:\n\n![after](upload:after)",
+        "pictures": [
+          { "label": "before", "attachmentId": "att-1", "width": 1440, "height": 900, "caption": "Before" },
+          { "label": "after", "attachmentId": null, "width": null, "height": null, "caption": null }
+        ]
+      }
+    },
+    {
+      "name": "an unknown label changes nothing",
+      "card": { "kind": "plan", "plan": "![x](upload:x)", "pictures": [{ "label": "x", "attachmentId": null, "width": null, "height": null }] },
+      "upload": { "label": "ghost", "attachmentId": "att-9", "width": 10, "height": 10 },
+      "expected": { "kind": "plan", "plan": "![x](upload:x)", "pictures": [{ "label": "x", "attachmentId": null, "width": null, "height": null }] }
+    },
+    {
+      "name": "a second upload for the same label replaces the picture",
+      "card": { "kind": "plan", "plan": "![x](/api/attachments/att-1)", "pictures": [{ "label": "x", "attachmentId": "att-1", "width": 10, "height": 10 }] },
+      "upload": { "label": "x", "attachmentId": "att-2", "width": 20, "height": 30 },
+      "expected": { "kind": "plan", "plan": "![x](/api/attachments/att-1)", "pictures": [{ "label": "x", "attachmentId": "att-2", "width": 20, "height": 30 }] }
+    },
+    {
+      "name": "a question card resolves its pictures the same way",
+      "card": { "kind": "question", "question": "Which?", "options": ["A", "B"], "optionPictures": ["a", null], "pictures": [{ "label": "a", "attachmentId": null, "width": null, "height": null }] },
+      "upload": { "label": "a", "attachmentId": "att-3", "width": 800, "height": 500 },
+      "expected": { "kind": "question", "question": "Which?", "options": ["A", "B"], "optionPictures": ["a", null], "pictures": [{ "label": "a", "attachmentId": "att-3", "width": 800, "height": 500 }] }
+    }
+  ],
+  "pictureForCases": [
+    { "name": "a resolved label", "pictures": [{ "label": "a", "attachmentId": "att-1", "width": 1, "height": 1 }], "label": "a", "expected": "att-1" },
+    { "name": "an unresolved label", "pictures": [{ "label": "a", "attachmentId": null, "width": null, "height": null }], "label": "a", "expected": null },
+    { "name": "no label", "pictures": [{ "label": "a", "attachmentId": "att-1", "width": 1, "height": 1 }], "label": null, "expected": null },
+    { "name": "no pictures", "pictures": null, "label": "a", "expected": null }
+  ],
+  "optionRowsCases": [
+    { "name": "text only = the option list", "options": [{ "label": "A", "attachmentId": null }, { "label": "B", "attachmentId": null }], "expected": "list" },
+    { "name": "one picture = tiles for all", "options": [{ "label": "A", "attachmentId": "att-1" }, { "label": "B", "attachmentId": null }], "expected": "tiles" },
+    { "name": "no options = the list", "options": [], "expected": "list" }
+  ]
+}

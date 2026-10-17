@@ -37,6 +37,7 @@ import { entry as composerOptions } from "./composer-options.tsx"
 import { entry as workCard } from "./work-card.tsx"
 import { entry as threadParts } from "./thread-parts.tsx"
 import { entry as askDock } from "./ask-dock.tsx"
+import { entry as planCard } from "./plan-card.tsx"
 import { entry as scriptCard } from "./script-card.tsx"
 import { entry as commentCallCard } from "./comment-call-card.tsx"
 import { entry as teamAgentsSettings } from "./team-agents-settings.tsx"
@@ -93,6 +94,7 @@ export const ENTRIES: readonly StyleguideEntry[] = [
   workCard,
   threadParts,
   askDock,
+  planCard,
   scriptCard,
   commentCallCard,
   teamAgentsSettings,

@@ -1446,3 +1446,165 @@ describe.skipIf(!ready.ok)(`EXP-1252: moving a session to another device`, async
     expect(await row(w.sessionId)).toMatchObject({ status: `running`, busy: true })
   })
 })
+
+// EXP-1280 custom plan mode: the card a session posts on ITSELF
+// (`exponential_plan_propose` / `exponential_sessions_ask`), its pictures,
+// the answer (approval leaves plan mode) and the device's consume.
+describe.skipIf(!ready.ok)(`plan mode: the plan card`, async () => {
+  const { sessionsRouter } = await import(`@/lib/trpc/sessions`)
+  const { buildPlanCard, buildQuestionCard, postAskCard, publishCardPicture, assertCardPictureOpen } =
+    await import(`@/lib/sessions/plan`)
+  const { getSessionAttachmentTeamContext } = await import(`@/lib/team-membership`)
+  const caller = (userId: string) =>
+    sessionsRouter.createCaller({
+      session: { user: { id: userId } },
+      db,
+      request: new Request(`http://x.test`),
+    } as never)
+  const message = async (id: string) => (await db.select().from(messages).where(eq(messages.id, id)))[0]!
+  const picture = (label: string) => ({
+    attachmentId: crypto.randomUUID(),
+    filename: `${label}.png`,
+    contentType: `image/png`,
+    sizeBytes: 3,
+    storageKey: `test/${label}-${id8()}.png`,
+    url: `/api/attachments/x`,
+    width: 640,
+    height: 400,
+  })
+
+  it(`proposes, takes its picture, is approved with answers and consumed by the device`, async () => {
+    const w = await world({ shared: true })
+    const sent = await sendSession({
+      userId: w.mate,
+      input: { teamId: w.teamId, deviceId: w.deviceId, text: `plan it` },
+    })
+    await db.update(sessions).set({ planMode: true, dispatch: false }).where(eq(sessions.id, sent.sessionId))
+    const host = caller(w.owner)
+    await host.claim({ sessionId: sent.sessionId })
+
+    // The brief carries the Plan section for a planning worker.
+    const { brief } = await host.brief({ sessionId: sent.sessionId })
+    expect(brief).toContain(`## Plan`)
+
+    const card = buildPlanCard({
+      plan: `1. Tiles\n\n![Grid](upload:grid)`,
+      pictures: [{ label: `grid` }],
+      questions: [{ id: `layout`, prompt: `Layout?`, custom: false, options: [{ label: `Grid`, picture: `grid` }, { label: `List` }] }],
+      surface: { root: { id: `r`, component: `Text`, props: { text: { path: `/name` } } }, data: { name: `x` } },
+    })
+    const posted = await postAskCard({ userId: w.mate, sessionId: sent.sessionId, card })
+    expect(posted.uploads).toHaveLength(1)
+    expect(posted.uploads[0]!.uploadUrl).toContain(`/api/guide-uploads/`)
+    const stored = await message(posted.messageId)
+    expect(stored).toMatchObject({
+      authorKind: `agent`,
+      authorSessionId: sent.sessionId,
+      consumedAt: null,
+      answeredAt: null,
+      card: { kind: `plan`, decision: null, pictures: [{ label: `grid`, attachmentId: null }] },
+    })
+    expect((await row(sent.sessionId)).needsInput).toBe(true)
+
+    // ONE open plan per session.
+    await expect(postAskCard({ userId: w.mate, sessionId: sent.sessionId, card })).rejects.toMatchObject({
+      code: `CONFLICT`,
+    })
+    // An unanswered card is never consumed.
+    await host.consume({ sessionId: sent.sessionId, messageIds: [posted.messageId] })
+    expect((await message(posted.messageId)).consumedAt).toBeNull()
+
+    // The picture lands on the card's message and resolves the label.
+    const shot = picture(`grid`)
+    await publishCardPicture(
+      { messageId: posted.messageId, sessionId: sent.sessionId, teamId: w.teamId, label: `grid`, uploaderId: w.mate },
+      shot
+    )
+    const resolved = (await message(posted.messageId)).card as Extract<MessageCardRow, { kind: `plan` }>
+    expect(resolved.plan).toBe(`1. Tiles\n\n![Grid](/api/attachments/${shot.attachmentId})`)
+    expect(resolved.pictures).toEqual([
+      { label: `grid`, attachmentId: shot.attachmentId, width: 640, height: 400, caption: null },
+    ])
+    const [file] = await db.select().from(attachments).where(eq(attachments.id, shot.attachmentId))
+    expect(file).toMatchObject({ messageId: posted.messageId, teamId: w.teamId, issueId: null })
+    // Readable through the session-file path (shared session → every member).
+    expect(await getSessionAttachmentTeamContext(shot.attachmentId)).toMatchObject({
+      teamId: w.teamId,
+      messageId: posted.messageId,
+      messageShared: true,
+    })
+    // A picture is final; an unknown label is refused before storage work.
+    await expect(assertCardPictureOpen(posted.messageId, sent.sessionId, `grid`)).rejects.toMatchObject({
+      code: `CONFLICT`,
+    })
+    await expect(assertCardPictureOpen(posted.messageId, sent.sessionId, `nope`)).rejects.toMatchObject({
+      code: `NOT_FOUND`,
+    })
+
+    // Approving needs every question answered.
+    await expect(
+      caller(w.mate).answer({ messageId: posted.messageId, decision: `approved` })
+    ).rejects.toMatchObject({ code: `BAD_REQUEST` })
+    await caller(w.mate).answer({
+      messageId: posted.messageId,
+      decision: `approved`,
+      answers: { layout: [`Grid`] },
+      surfaceData: { name: `Ada` },
+      feedback: ` go `,
+    })
+    const answered = await message(posted.messageId)
+    expect(answered.answeredAt).not.toBeNull()
+    expect(answered.card).toMatchObject({
+      decision: `approved`,
+      fresh: false,
+      feedback: `go`,
+      answers: { layout: [`Grid`] },
+      surfaceData: { name: `Ada` },
+    })
+    expect(await row(sent.sessionId)).toMatchObject({ planMode: false, needsInput: false })
+
+    // Only the host device consumes it, once the answer text was delivered.
+    await expect(
+      caller(w.mate).consume({ sessionId: sent.sessionId, messageIds: [posted.messageId] })
+    ).rejects.toMatchObject({ code: `FORBIDDEN` })
+    await host.consume({ sessionId: sent.sessionId, messageIds: [posted.messageId] })
+    expect((await message(posted.messageId)).consumedAt).not.toBeNull()
+
+    // A rejection keeps planning; a new plan may follow once one is answered.
+    await db.update(sessions).set({ planMode: true }).where(eq(sessions.id, sent.sessionId))
+    const second = await postAskCard({ userId: w.mate, sessionId: sent.sessionId, card: buildPlanCard({ plan: `2. Again` }) })
+    await caller(w.mate).answer({ messageId: second.messageId, decision: `rejected` })
+    expect(await row(sent.sessionId)).toMatchObject({ planMode: true, needsInput: false })
+  })
+
+  it(`asks questions (several may wait) and stamps the picked labels`, async () => {
+    const w = await world()
+    const sent = await sendSession({
+      userId: w.owner,
+      input: { teamId: w.teamId, deviceId: w.deviceId, text: `ask` },
+    })
+    const ask = (question: string) =>
+      postAskCard({
+        userId: w.owner,
+        sessionId: sent.sessionId,
+        card: buildQuestionCard({ question, options: [{ label: `A` }, { label: `B` }], multi: true, custom: false }),
+      })
+    const first = await ask(`Which?`)
+    const second = await ask(`And?`)
+    await caller(w.owner).answer({ messageId: first.messageId, answers: [`A`, `B`] })
+    expect((await message(first.messageId)).card).toMatchObject({ answer: `A, B`, answers: [`A`, `B`] })
+    // The other question still waits on a person.
+    expect((await row(sent.sessionId)).needsInput).toBe(true)
+    await expect(
+      caller(w.owner).answer({ messageId: second.messageId, answer: `C` })
+    ).rejects.toMatchObject({ code: `BAD_REQUEST` })
+    await caller(w.owner).answer({ messageId: second.messageId, answers: [`B`] })
+    expect((await row(sent.sessionId)).needsInput).toBe(false)
+
+    // An ended session takes no card.
+    await db.update(sessions).set({ status: `ended` }).where(eq(sessions.id, sent.sessionId))
+    await expect(ask(`Late?`)).rejects.toMatchObject({ code: `PRECONDITION_FAILED` })
+  })
+})
+
+type MessageCardRow = import("@exp/db-schema/domain").MessageCard

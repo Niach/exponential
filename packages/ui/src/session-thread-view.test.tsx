@@ -57,14 +57,30 @@ const ROWS: ThreadRow[] = [
     sessionId: `s2`,
     question: `Which one?`,
     options: [
-      { label: `A`, description: `The first one` },
-      { label: `B`, description: null },
+      { label: `A`, description: `The first one`, attachmentId: null },
+      { label: `B`, description: null, attachmentId: null },
     ],
     custom: true,
+    multi: false,
+    surface: null,
     answer: null,
+    answers: null,
+    surfaceData: null,
     answered: false,
   },
-  { type: `plan`, id: `p1`, sessionId: `s1`, plan: `Step 1`, decision: null, fresh: false },
+  {
+    type: `plan`,
+    id: `p1`,
+    sessionId: `s1`,
+    plan: `Step 1`,
+    questions: [],
+    surface: null,
+    decision: null,
+    fresh: false,
+    answers: null,
+    feedback: null,
+    surfaceData: null,
+  },
   { type: `event`, id: `e1`, event: `issue_linked`, text: `Linked APP-5` },
 ]
 
@@ -99,8 +115,11 @@ describe(`ThreadConversation`, () => {
     fireEvent.click(screen.getByTestId(`session-card`))
     expect(onOpenSession).toHaveBeenCalledWith(`s1`)
     const question = document.querySelector(`[data-slot="thread-question"]`)!
-    fireEvent.click(question.querySelectorAll(`[data-testid="ask-option"]`)[1]!)
-    expect(onAnswer).toHaveBeenCalledWith(`q1`, { answer: `B` })
+    const answer = within(question as HTMLElement).getByTestId(`thread-question-answer`)
+    expect((answer as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.click(question.querySelectorAll(`[data-testid="plan-card-option"]`)[1]!)
+    fireEvent.click(answer)
+    expect(onAnswer).toHaveBeenCalledWith(`q1`, { answer: `B`, answers: [`B`] })
     const plan = document.querySelector(`[data-slot="thread-plan"]`)!
     fireEvent.click(plan.querySelectorAll(`[data-testid="ask-option"]`)[0]!)
     expect(onDecide).toHaveBeenCalledWith(`p1`, { decision: `approved` })
@@ -109,23 +128,20 @@ describe(`ThreadConversation`, () => {
   it(`shows a described option's description under its label, a plain one none`, () => {
     renderRows()
     const question = document.querySelector(`[data-slot="thread-question"]`)!
-    const options = question.querySelectorAll(`[data-testid="ask-option"]`)
+    const options = question.querySelectorAll(`[data-testid="plan-card-option"]`)
+    expect(options).toHaveLength(2)
     expect(options[0]!.textContent).toContain(`The first one`)
     expect(options[0]!.querySelectorAll(`span > span`)).toHaveLength(2)
     expect(options[1]!.querySelectorAll(`span > span`)).toHaveLength(1)
-    expect(options[2]!.textContent).toContain(`Type something.`)
   })
 
-  it(`answers a question with free text (the session view's card)`, () => {
+  it(`answers a question with free text (the custom row wins over a single pick)`, () => {
     const { onAnswer } = renderRows()
-    const question = document.querySelector(`[data-slot="thread-question"]`)!
-    const options = question.querySelectorAll(`[data-testid="ask-option"]`)
-    expect(options).toHaveLength(3)
-    fireEvent.click(options[2]!)
-    const field = screen.getByTestId(`ask-inline-field`)
-    fireEvent.change(field, { target: { value: `Neither, use C` } })
-    fireEvent.keyDown(field, { key: `Enter` })
-    expect(onAnswer).toHaveBeenCalledWith(`q1`, { answer: `Neither, use C` })
+    const question = document.querySelector(`[data-slot="thread-question"]`) as HTMLElement
+    fireEvent.click(question.querySelectorAll(`[data-testid="plan-card-option"]`)[0]!)
+    fireEvent.change(within(question).getByTestId(`plan-card-custom`), { target: { value: `Neither, use C` } })
+    fireEvent.click(within(question).getByTestId(`thread-question-answer`))
+    expect(onAnswer).toHaveBeenCalledWith(`q1`, { answer: `Neither, use C`, answers: [`Neither, use C`] })
   })
 
   it(`offers THE plan options and approves into a fresh context`, () => {
@@ -141,13 +157,11 @@ describe(`ThreadConversation`, () => {
     expect(onDecide).toHaveBeenCalledWith(`p1`, { decision: `approved`, fresh: true })
   })
 
-  it(`rejects a plan with a note`, () => {
+  it(`rejects a plan with the feedback field's note`, () => {
     const { onDecide } = renderRows()
-    const plan = document.querySelector(`[data-slot="thread-plan"]`)!
+    const plan = document.querySelector(`[data-slot="thread-plan"]`) as HTMLElement
+    fireEvent.change(within(plan).getByTestId(`plan-card-feedback`), { target: { value: `Smaller steps` } })
     fireEvent.click(plan.querySelectorAll(`[data-testid="ask-option"]`)[2]!)
-    const field = screen.getByTestId(`ask-inline-field`)
-    fireEvent.change(field, { target: { value: `Smaller steps` } })
-    fireEvent.keyDown(field, { key: `Enter` })
     expect(onDecide).toHaveBeenCalledWith(`p1`, { decision: `rejected`, feedback: `Smaller steps` })
   })
 
@@ -159,18 +173,37 @@ describe(`ThreadConversation`, () => {
         sessionId: `s1`,
         question: `Which one?`,
         options: [
-          { label: `A`, description: null },
-          { label: `B`, description: null },
+          { label: `A`, description: null, attachmentId: null },
+          { label: `B`, description: null, attachmentId: null },
         ],
         custom: true,
+        multi: false,
+        surface: null,
         answer: `Use C`,
+        answers: null,
+        surfaceData: null,
         answered: true,
       },
-      { type: `plan`, id: `p2`, sessionId: `s1`, plan: `Step 1`, decision: `approved`, fresh: true },
+      {
+        type: `plan`,
+        id: `p2`,
+        sessionId: `s1`,
+        plan: `Step 1`,
+        questions: [],
+        surface: null,
+        decision: `approved`,
+        fresh: true,
+        answers: null,
+        feedback: `Ship it`,
+        surfaceData: null,
+      },
     ])
     expect(screen.queryAllByTestId(`ask-option`)).toHaveLength(0)
+    expect(screen.queryAllByTestId(`thread-question-answer`)).toHaveLength(0)
+    expect(screen.queryAllByTestId(`plan-card-custom`)).toHaveLength(0)
     expect(screen.getByText(`Use C`)).toBeTruthy()
     expect(screen.getByText(`Yes, and start with a fresh context`)).toBeTruthy()
+    expect(screen.getByTestId(`plan-card-feedback`).textContent).toBe(`Feedback: Ship it`)
   })
 
   it(`puts the X only on the viewer's own queued row, and its tooltip leaves with it`, async () => {
@@ -654,5 +687,148 @@ describe(`ThreadsListItem EXP-1323`, () => {
   it(`a read row is plain`, () => {
     render(<ThreadsListItem lead={null} title="Done" />)
     expect(screen.getByText(`Done`).getAttribute(`data-unread`)).toBeNull()
+  })
+})
+
+describe(`ThreadConversation EXP-1280 rich cards`, () => {
+  const richCase = fixture.cases.find((c) => c.name.startsWith(`EXP-1280: a rich plan card`))!
+  const rows = buildSessionThread(richCase.input as never).rows
+
+  function renderRich(only: string[]) {
+    const onAnswer = vi.fn()
+    const onDecide = vi.fn()
+    const renderText = vi.fn((text: string) => <p>{text}</p>)
+    render(
+      <TooltipProvider>
+        <ThreadConversation
+          rows={rows.filter((row) => only.includes(row.id))}
+          renderText={renderText}
+          attachmentSrc={(id) => `/files/${id}`}
+          onAnswer={onAnswer}
+          onDecide={onDecide}
+        />
+      </TooltipProvider>
+    )
+    return { onAnswer, onDecide, renderText }
+  }
+
+  it(`paints the markdown without a pending upload, the surface frame, tiles and the list`, () => {
+    const { renderText } = renderRich([`n1`])
+    expect(renderText.mock.calls[0]![0]).not.toContain(`upload:`)
+    expect(renderText.mock.calls[0]![0]).toContain(`/api/attachments/att-1`)
+    const surface = screen.getByTestId(`plan-card-surface`)
+    expect(surface.textContent).toContain(`Preview`)
+    expect(surface.dataset.disabled).toBeUndefined()
+    const questions = screen.getAllByTestId(`plan-card-question`)
+    expect(questions.map((q) => q.dataset.question)).toEqual([`layout`, `platforms`])
+    expect(questions[0]!.textContent).toContain(`Choose one`)
+    expect(questions[1]!.textContent).toContain(`Choose any`)
+    // Any picture = tiles for every option of that question (a missing one
+    // keeps the frame); text only = THE option rows.
+    const tiles = within(questions[0]!).getByTestId(`plan-card-tile`)
+    expect(within(tiles).getAllByRole(`radio`)).toHaveLength(3)
+    expect(tiles.querySelector(`img`)?.getAttribute(`src`)).toBe(`/files/att-2`)
+    expect(within(questions[1]!).getAllByTestId(`plan-card-option`)).toHaveLength(2)
+    // `custom: false` = no free-text row; the second question's default = one.
+    expect(within(questions[0]!).queryByTestId(`plan-card-custom`)).toBeNull()
+    expect(within(questions[1]!).getByTestId(`plan-card-custom`)).toBeTruthy()
+  })
+
+  it(`approving waits on every question, rejecting never does`, () => {
+    const { onDecide } = renderRich([`n1`])
+    const card = screen.getByTestId(`plan-card`)
+    const options = card.querySelectorAll<HTMLButtonElement>(`[data-testid="ask-option"]`)
+    expect(options[0]!.disabled).toBe(true)
+    expect(options[1]!.disabled).toBe(true)
+    expect(options[2]!.disabled).toBe(false)
+    expect(screen.getByTestId(`plan-card-issue`).textContent).toBe(`Answer every question to approve`)
+    fireEvent.click(options[2]!)
+    expect(onDecide).toHaveBeenCalledWith(`n1`, { decision: `rejected`, surfaceData: { accent: `blue` } })
+  })
+
+  it(`multi picks and a tile pick approve with the answers and the surface data`, () => {
+    const { onDecide } = renderRich([`n1`])
+    const questions = screen.getAllByTestId(`plan-card-question`)
+    fireEvent.click(within(questions[0]!).getByRole(`radio`, { name: `Two columns` }))
+    const list = within(questions[1]!).getAllByTestId(`plan-card-option`)
+    fireEvent.click(list[1]!)
+    fireEvent.click(list[0]!)
+    expect(list[0]!.getAttribute(`aria-pressed`)).toBe(`true`)
+    expect(screen.queryByTestId(`plan-card-issue`)).toBeNull()
+    const options = screen.getByTestId(`plan-card`).querySelectorAll<HTMLButtonElement>(`[data-testid="ask-option"]`)
+    expect(options[0]!.disabled).toBe(false)
+    fireEvent.click(options[0]!)
+    expect(onDecide).toHaveBeenCalledWith(`n1`, {
+      decision: `approved`,
+      answers: { layout: [`Two columns`], platforms: [`iOS`, `Android`] },
+      surfaceData: { accent: `blue` },
+    })
+  })
+
+  it(`an answered multi-pick question is closed: the picks keep their ring, the rest inert`, () => {
+    renderRich([`n2`])
+    const card = screen.getByTestId(`plan-card`)
+    expect(card.dataset.answered).toBe(`true`)
+    const boxes = within(card).getAllByRole(`checkbox`) as HTMLButtonElement[]
+    expect(boxes.map((b) => [b.getAttribute(`aria-label`), b.getAttribute(`aria-checked`), b.disabled])).toEqual([
+      [`Web`, `true`, false],
+      [`iOS`, `false`, true],
+      [`Android`, `true`, false],
+    ])
+    expect(screen.queryByTestId(`thread-question-answer`)).toBeNull()
+    expect(screen.queryByTestId(`plan-card-custom`)).toBeNull()
+  })
+
+  it(`an answered plan is closed: the picks, the decision label and the feedback`, () => {
+    renderRich([`n3`])
+    expect(screen.queryAllByTestId(`ask-option`)).toHaveLength(0)
+    const option = screen.getByTestId(`plan-card-option`)
+    expect(option.dataset.picked).toBe(`true`)
+    expect(screen.getByText(`Yes`, { selector: `[data-slot="ask-answered"] span` })).toBeTruthy()
+    expect(screen.getByTestId(`plan-card-feedback`).textContent).toBe(`Feedback: Go.`)
+    // A malformed surface never paints.
+    expect(screen.queryByTestId(`plan-card-surface`)).toBeNull()
+  })
+
+  it(`a pending question with a surface answers with its data model`, () => {
+    const onAnswer = vi.fn()
+    const surface = { root: { id: `t`, component: `Text`, props: { text: `Size` } }, data: { size: `lg` } }
+    render(
+      <ThreadConversation
+        rows={[
+          {
+            type: `question`,
+            id: `q9`,
+            sessionId: `s1`,
+            question: `Which first?`,
+            options: [
+              { label: `Web`, description: null, attachmentId: null },
+              { label: `iOS`, description: null, attachmentId: null },
+            ],
+            custom: false,
+            multi: true,
+            surface,
+            answer: null,
+            answers: null,
+            surfaceData: null,
+            answered: false,
+          },
+        ]}
+        renderText={(text) => <p>{text}</p>}
+        attachmentSrc={(id) => id}
+        onAnswer={onAnswer}
+      />
+    )
+    expect(screen.getByText(`Choose any`)).toBeTruthy()
+    expect(screen.getByTestId(`plan-card-surface`).textContent).toContain(`Size`)
+    const options = screen.getAllByTestId(`plan-card-option`)
+    fireEvent.click(options[1]!)
+    fireEvent.click(options[0]!)
+    fireEvent.click(screen.getByTestId(`thread-question-answer`))
+    expect(onAnswer).toHaveBeenCalledWith(`q9`, {
+      answer: `Web, iOS`,
+      answers: [`Web`, `iOS`],
+      surfaceData: { size: `lg` },
+    })
   })
 })

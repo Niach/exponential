@@ -188,6 +188,15 @@ final class SessionTreeTests: XCTestCase {
         }
     }
 
+    private func json(_ option: TreeQuestionOption) -> [String: Any] {
+        ["label": option.label, "description": json(option.description), "attachmentId": json(option.attachmentId)]
+    }
+
+    private func json(_ surface: CardSurface?) -> Any {
+        guard let surface else { return NSNull() }
+        return ["root": surface.root.any, "data": surface.data?.any ?? NSNull()] as [String: Any]
+    }
+
     private func json(_ row: ThreadRow) -> [String: Any] {
         switch row {
         case let .message(id, author, authorId, body, queued, authorSessionId):
@@ -207,10 +216,27 @@ final class SessionTreeTests: XCTestCase {
                     ]
                 },
             ]
-        case let .question(id, sessionId, question, options, custom, answer, answered):
-            ["type": "question", "id": id, "sessionId": sessionId, "question": question, "options": options.map { ["label": $0.label, "description": json($0.description)] as [String: Any] }, "custom": custom, "answer": json(answer), "answered": answered]
-        case let .plan(id, sessionId, plan, decision, fresh):
-            ["type": "plan", "id": id, "sessionId": sessionId, "plan": plan, "decision": json(decision), "fresh": fresh]
+        case let .question(row):
+            [
+                "type": "question", "id": row.id, "sessionId": row.sessionId, "question": row.question,
+                "options": row.options.map(json), "custom": row.custom, "multi": row.multi,
+                "surface": json(row.surface), "answer": json(row.answer),
+                "answers": row.answers.map { $0 as Any } ?? NSNull(), "surfaceData": row.surfaceData?.any ?? NSNull(),
+                "answered": row.answered,
+            ]
+        case let .plan(row):
+            [
+                "type": "plan", "id": row.id, "sessionId": row.sessionId, "plan": row.plan,
+                "questions": row.questions.map { question -> [String: Any] in
+                    [
+                        "id": question.id, "prompt": question.prompt, "multi": question.multi,
+                        "custom": question.custom, "options": question.options.map(json),
+                    ]
+                },
+                "surface": json(row.surface), "decision": json(row.decision), "fresh": row.fresh,
+                "answers": row.answers.map { $0 as Any } ?? NSNull(), "feedback": json(row.feedback),
+                "surfaceData": row.surfaceData?.any ?? NSNull(),
+            ]
         case let .subagent(id, title, status):
             ["type": "subagent", "id": id, "title": title, "status": status]
         case let .picture(id, attachmentId, width, height, caption):

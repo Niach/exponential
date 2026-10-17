@@ -33,6 +33,7 @@
     "Drawer": { "content": [ { "style": { "backgroundColor": "$color.popover", "borderRadius": "$radius.xl3" } } ] },
     "Checkbox": { "box": [ { "style": { "backgroundColor": "$color.card", "boxShadow": "$shadow.none" } } ] },
     "Radio": { "item": [ { "style": { "backgroundColor": "$color.card", "boxShadow": "$shadow.none" } } ] },
+    "ChoiceTiles": { "tile": [ { "style": { "backgroundColor": "$color.card" } }, { "when": { "state": "hover" }, "style": { "backgroundColor": "$color.secondary" } }, { "when": { "state": "selected" }, "style": { "backgroundColor": "$color.accent" } } ] },
     "Switch": { "track": [ { "style": { "backgroundColor": "$color.input" } } ], "thumb": [ { "style": { "boxShadow": "$shadow.none" } } ] },
     "Skeleton": { "root": [ { "style": { "backgroundColor": "$color.secondary" } } ] },
     "NumberField": { "field": [ { "style": { "backgroundColor": "$color.card", "borderColor": "$color.input", "boxShadow": "$shadow.none" } } ] },

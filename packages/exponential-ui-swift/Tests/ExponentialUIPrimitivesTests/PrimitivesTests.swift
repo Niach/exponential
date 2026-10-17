@@ -144,3 +144,26 @@ final class EmptyStateSizeTests: XCTestCase {
         XCTAssertEqual(Set(EmptyStateSize.allCases.map(\.rawValue)), Set(try fixtureSizes().keys))
     }
 }
+
+/// EXP-1280: the ChoiceTiles primitive's geometry IS plan-card.json `tiles`
+/// (the app's picture tiles and the painter's recipe share it ×4).
+final class ChoiceTilesStyleTests: XCTestCase {
+    func testDefaultsMatchThePlanCardTiles() throws {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()   // Tests/ExponentialUIPrimitivesTests/
+            .deletingLastPathComponent()   // Tests/
+            .deletingLastPathComponent()   // packages/exponential-ui-swift/
+            .deletingLastPathComponent()   // packages/
+            .appendingPathComponent("domain-contract/fixtures/plan-card.json")
+        let fixture = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        let tiles = try XCTUnwrap(fixture["tiles"] as? [String: Double])
+        let style = ChoiceTilesStyle()
+        XCTAssertEqual(Double(style.columns), tiles["columns"])
+        XCTAssertEqual(Double(style.gap), tiles["gap"])
+        XCTAssertEqual(Double(style.radius), tiles["radius"])
+        XCTAssertEqual(Double(style.padding), tiles["padding"])
+        XCTAssertEqual(Double(style.pictureAspect), tiles["pictureAspect"])
+        XCTAssertEqual(Double(style.selectedRing), tiles["selectedRing"])
+        XCTAssertEqual(ChoiceTilesStyle.default(PrimitiveTokens()).radius, style.radius)
+    }
+}

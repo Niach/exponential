@@ -94,3 +94,26 @@ describe(`AskPrompt`, () => {
     expect(rows[1]!.getAttribute(`aria-pressed`)).toBe(`true`)
   })
 })
+
+describe(`AskPrompt disabled options (EXP-1280)`, () => {
+  it(`a disabled option is inert, the others still answer`, () => {
+    const onAnswer = vi.fn()
+    render(
+      <AskPrompt
+        variant="plan"
+        options={[
+          { key: `yes`, label: `Yes`, disabled: true },
+          { key: `no`, label: `No` },
+        ]}
+        answerable
+        onAnswer={onAnswer}
+      />
+    )
+    const [yes, no] = screen.getAllByTestId(`ask-option`) as HTMLButtonElement[]
+    expect(yes!.disabled).toBe(true)
+    fireEvent.click(yes!)
+    expect(onAnswer).not.toHaveBeenCalled()
+    fireEvent.click(no!)
+    expect(onAnswer).toHaveBeenCalledWith([`no`], [`No`])
+  })
+})

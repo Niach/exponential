@@ -120,15 +120,15 @@ final class AskDockTests: XCTestCase {
         let id = try XCTUnwrap(raw["id"] as? String)
         switch raw["type"] as? String {
         case "plan":
-            return .plan(
+            return .plan(ThreadPlanRow(
                 id: id,
                 sessionId: try XCTUnwrap(raw["sessionId"] as? String),
                 plan: try XCTUnwrap(raw["plan"] as? String),
                 decision: raw["decision"] as? String,
                 fresh: raw["fresh"] as? Bool ?? false
-            )
+            ))
         case "question":
-            return .question(
+            return .question(ThreadQuestionRow(
                 id: id,
                 sessionId: try XCTUnwrap(raw["sessionId"] as? String),
                 question: try XCTUnwrap(raw["question"] as? String),
@@ -136,7 +136,7 @@ final class AskDockTests: XCTestCase {
                 custom: raw["custom"] as? Bool ?? false,
                 answer: raw["answer"] as? String,
                 answered: try XCTUnwrap(raw["answered"] as? Bool)
-            )
+            ))
         default:
             return .message(id: id, author: "user", authorId: nil, body: "", queued: false, authorSessionId: nil)
         }

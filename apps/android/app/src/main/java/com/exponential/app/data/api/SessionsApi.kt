@@ -4,6 +4,7 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -212,7 +213,10 @@ data class StartSuggestionInput(
 private data class SuggestionItemInput(val messageId: String, val itemId: String)
 
 /** `sessions.answer`: [answer] for a `question` card, [decision]
- *  (`approved` | `rejected`) + optional [feedback] for a `plan` card. */
+ *  (`approved` | `rejected`) + optional [feedback] for a `plan` card.
+ *  EXP-1280 (plan-card.json): [answers] = a plan's `{questionId: labels}`
+ *  object or a question's labels array ([planAnswers] / [questionAnswers]
+ *  build it); [surfaceData] = the inline surface's data model at answer time. */
 @Serializable
 data class AnswerInput(
     val messageId: String,
@@ -222,7 +226,16 @@ data class AnswerInput(
      *  `planOptions`); only with decision `approved`, else omitted. */
     val fresh: Boolean? = null,
     val feedback: String? = null,
-)
+    val answers: JsonElement? = null,
+    val surfaceData: JsonObject? = null,
+) {
+    companion object {
+        fun planAnswers(answers: Map<String, List<String>>): JsonObject =
+            JsonObject(answers.mapValues { (_, labels) -> JsonArray(labels.map(::JsonPrimitive)) })
+
+        fun questionAnswers(labels: List<String>): JsonArray = JsonArray(labels.map(::JsonPrimitive))
+    }
+}
 
 /** EXP-1334 `sessions.configure`: a running session's launch picks changed
  *  live from THE session composer; a null field is omitted (unchanged). */

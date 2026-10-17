@@ -134,6 +134,28 @@ final class SessionsApiWireTests: XCTestCase {
         XCTAssertEqual(fresh["fresh"] as? Bool, true)
     }
 
+    // EXP-1280: a plan's answers by question id + the surface's data model;
+    // a question card's picked labels.
+    func testAnswerCarriesAnswersAndSurfaceData() throws {
+        let plan = try json(AnswerMessageInput(
+            messageId: "m-4", answer: nil, decision: .approved, fresh: nil, feedback: nil,
+            answers: .plan(["layout": ["Two columns"], "platforms": ["iOS", "Android"]]),
+            surfaceData: .object(["accent": .string("blue"), "count": .number(2), "on": .bool(true)])
+        ))
+        XCTAssertEqual(plan.keys.sorted(), ["answers", "decision", "messageId", "surfaceData"])
+        XCTAssertEqual(plan["answers"] as? [String: [String]], ["layout": ["Two columns"], "platforms": ["iOS", "Android"]])
+        let data = try XCTUnwrap(plan["surfaceData"] as? [String: Any])
+        XCTAssertEqual(data["accent"] as? String, "blue")
+        XCTAssertEqual(data["count"] as? Double, 2)
+        XCTAssertEqual(data["on"] as? Bool, true)
+        let question = try json(AnswerMessageInput(
+            messageId: "m-5", answer: "Web, Android", decision: nil, fresh: nil, feedback: nil,
+            answers: .question(["Web", "Android"])
+        ))
+        XCTAssertEqual(question.keys.sorted(), ["answer", "answers", "messageId"])
+        XCTAssertEqual(question["answers"] as? [String], ["Web", "Android"])
+    }
+
     // Omit keeps, an explicit null clears (`account` / `model` only), and an
     // empty trigger array still travels.
     func testUpdateAgentOmitVersusNull() throws {

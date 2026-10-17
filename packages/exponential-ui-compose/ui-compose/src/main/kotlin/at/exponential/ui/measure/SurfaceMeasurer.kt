@@ -291,6 +291,19 @@ class SurfaceMeasurer(
                     para(props.str("code"), ts.copy(fontFamily = "ui-monospace"), null, null)
                 } else plain(0f, 0f)
                 "FileUpload" -> if (p == null) plain(240f, 96f) else plain(0f, 0f)
+                // EXP-1280: an unexpanded ChoiceTiles = its grid of tiles (the
+                // core's FixedMeasure rule): per row a picture (when any option
+                // has one, 1.6 : 1) over two lines, 8 padding, 8 gaps.
+                "ChoiceTiles" -> if (p == null) {
+                    val options = props.list("options")
+                    val cols = ((props.num("columns") ?: 2.0).toFloat().let { kotlin.math.round(it) }).coerceIn(1f, 4f)
+                    val rows = kotlin.math.ceil(options.size / cols)
+                    val pictures = options.any { (it["image"]?.string ?: "").isNotEmpty() }
+                    val w = inner?.takeIf { it > 0f } ?: 320f
+                    val tileW = (w - 8f * (cols - 1f)) / cols - 18f
+                    val tileH = (if (pictures) tileW / 1.6f + 4f else 0f) + 2f * ts.lineHeight + 4f + 18f
+                    plain(w, max(rows * tileH + max(rows - 1f, 0f) * 8f, 0f))
+                } else plain(0f, 0f)
                 else -> plain(0f, 0f)
             }
         }

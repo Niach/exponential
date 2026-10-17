@@ -35,9 +35,10 @@ let package = Package(
         .package(url: "https://github.com/swiftlang/swift-cmark", from: "0.7.1"),
         .package(url: "https://github.com/firebase/firebase-ios-sdk.git", from: "11.0.0"),
         // The Exponential UI SDK (packages/exponential-ui-swift), a LOCAL path
-        // package: only its `ExponentialUIPrimitives` product is used, which
-        // needs no Rust toolchain (the painter's binary target is declared
-        // only when its xcframework exists).
+        // package: its `ExponentialUIPrimitives` product needs no Rust
+        // toolchain; the painter `ExponentialUI` (EXP-1280: the plan card's
+        // inline surface) is declared only when its xcframework exists, and
+        // Project.swift links it only then.
         .package(path: "../../../packages/exponential-ui-swift"),
     ]
 )

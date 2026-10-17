@@ -385,6 +385,19 @@
   "messageAuthorKind": {
     "values": ["user", "agent", "system"]
   },
+  "planCard": {
+    "$comment": "EXP-1280 custom plan mode: the caps of exponential_plan_propose and exponential_sessions_ask (the card's behaviour = fixtures/plan-card.json). Pictures are named by `label` in the call and uploaded afterwards; until the upload lands the markdown embeds `![alt](upload:<label>)` and an option names its picture by label.",
+    "questionsMax": 10,
+    "optionsMax": 12,
+    "picturesMax": 10,
+    "promptMax": 500,
+    "labelMax": 500,
+    "descriptionMax": 2000,
+    "labelKeyMax": 64,
+    "surfaceMaxBytes": 65536,
+    "surfaceMaxComponents": 200,
+    "uploadScheme": "upload:"
+  },
   "messageCardKind": {
     "values": ["question", "plan", "subagent", "session", "picture", "event", "thread_started", "report", "suggestions"]
   },
@@ -1058,6 +1071,17 @@
         "result": "none"
       },
       {
+        "name": "plan_propose",
+        "title": "Propose a plan",
+        "blurb": "Posts the plan card: markdown with pictures, choice questions and an optional surface; a person approves it in the card.",
+        "progressive": "Proposing a plan",
+        "done": "Proposed a plan",
+        "progressiveMany": "Proposing {n} plans",
+        "doneMany": "Proposed {n} plans",
+        "subjectKey": "plan",
+        "result": "none"
+      },
+      {
         "name": "pr_close",
         "title": "Close pull request",
         "blurb": "Closes an open pull request without merging it.",
@@ -1155,6 +1179,17 @@
         "doneMany": "Listed repositories {n} times",
         "subjectKey": "",
         "result": "list"
+      },
+      {
+        "name": "sessions_ask",
+        "title": "Ask a question",
+        "blurb": "Posts one question card with text or picture options, single or multiple choice; a person answers in the card.",
+        "progressive": "Asking a question",
+        "done": "Asked a question",
+        "progressiveMany": "Asking {n} questions",
+        "doneMany": "Asked {n} questions",
+        "subjectKey": "question",
+        "result": "none"
       },
       {
         "name": "sessions_compact",
@@ -1453,6 +1488,7 @@
       { "name": "members_list", "refs": "list:member@" },
       { "name": "notifications_list", "refs": "list:notification@" },
       { "name": "notifications_mark_read", "refs": "" },
+      { "name": "plan_propose", "refs": "" },
       { "name": "pr_close", "refs": "issue@$issueId" },
       { "name": "pr_files", "refs": "issue@$issueId" },
       { "name": "pr_merge", "refs": "issue@$issueId" },
@@ -1462,6 +1498,7 @@
       { "name": "report_bug", "refs": "issue@" },
       { "name": "repositories_add", "refs": "repository@" },
       { "name": "repositories_list", "refs": "list:repository@" },
+      { "name": "sessions_ask", "refs": "" },
       { "name": "sessions_compact", "refs": "" },
       { "name": "sessions_end", "refs": "" },
       { "name": "sessions_get", "refs": "session@root" },

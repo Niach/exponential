@@ -20,6 +20,7 @@
 
 mod animation;
 mod buttons;
+mod choice_tiles;
 mod fades;
 mod feedback;
 mod inputs;
@@ -33,6 +34,9 @@ pub use animation::{until_next_step, SteppedAnimationElement, SteppedAnimationEx
 pub use buttons::{
     custom_variant_fill, ghost_icon_button, glass_icon_button, text_button, web_switch,
     TextButtonVariant, CUSTOM_VARIANT_ALPHA_FACTOR,
+};
+pub use choice_tiles::{
+    choice_tile, choice_tile_rows, choice_tiles, ChoiceTile, ChoiceTilesGeometry, OnTilePick, TilePicture,
 };
 pub use fades::{edge_fade_bottom, edge_fade_bottom_soft, edge_fade_top};
 pub use feedback::{

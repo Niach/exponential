@@ -24,6 +24,13 @@ use serde_json::{json, Map, Value};
 use crate::host::ChildExitLink;
 use crate::session::{EngineError, ResumeHandle};
 
+/// EXP-772/EXP-1280: plan on, plan off — the ONE mode vocabulary both
+/// adapters advertise (`available_modes`). Plan mode is Exponential's flag
+/// (the runbook's `## Plan` + the server's `pr_open` gate), never a CLI
+/// permission mode: the CLIs always run full access.
+pub const PLAN_MODE_ID: &str = "plan";
+pub const BUILD_MODE_ID: &str = "bypassPermissions";
+
 /// Which adapter drives a run. Distinct from `coding::CodingAgent` only
 /// because `steer::SessionAgent` is the WIRE vocabulary and this is the
 /// engine's.

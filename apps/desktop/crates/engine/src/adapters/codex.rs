@@ -311,7 +311,9 @@ struct Config {
     effort: Option<String>,
     fast: bool,
     mode: CodexMode,
-    collaboration: String,
+    /// EXP-1280: Exponential's plan flag (the Plan chip's `currentMode`),
+    /// never sent to codex.
+    plan_mode: bool,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -645,36 +647,35 @@ impl ConnectTo<Client> for CodexAgent {
                 )
                 .on_receive_request(
                     async move |request: SetSessionModeRequest, responder, cx: ConnectionTo<Client>| {
-                        // EXP-772: plan on / plan off is the ONE steerable mode,
-                        // and on codex it IS the collaboration setting. The
-                        // answer goes back immediately (EXP-758: a mode switch
-                        // must never queue behind an app-server round trip) and
-                        // the `thread/settings/update` runs spawned, with the
-                        // mode that actually took echoed after it. A mode id
+                        // EXP-772: plan on / plan off is the ONE steerable mode.
+                        // EXP-1280: it is Exponential's flag, never codex's
+                        // collaboration setting — no `thread/settings/update`,
+                        // the switch is local and echoed at once (the host
+                        // steers the agent the line that says so). A mode id
                         // this build does not know is answered and IGNORED —
                         // an error would surface as an "Agent error" narration
                         // for a chip the user simply tapped.
                         let shared = set_mode.clone();
-                        let collaboration = match request.mode_id.0.as_ref() {
-                            PLAN_MODE_ID => Some(COLLABORATION_PLAN),
-                            BUILD_MODE_ID => Some(COLLABORATION_DEFAULT),
+                        let planning = match request.mode_id.0.as_ref() {
+                            PLAN_MODE_ID => Some(true),
+                            BUILD_MODE_ID => Some(false),
                             _ => None,
                         };
+                        if let Some(planning) = planning {
+                            if let Ok(mut config) = shared.config.lock() {
+                                config.plan_mode = planning;
+                            }
+                        }
                         let sent = responder.respond(SetSessionModeResponse::new());
-                        if let Some(collaboration) = collaboration {
-                            let notify = cx.clone();
-                            let _ = cx.spawn(async move {
-                                set_collaboration(&shared, collaboration).await;
-                                if let Some(session_id) = shared.session_id() {
-                                    let _ = notify.send_notification(SessionNotification::new(
-                                        session_id,
-                                        SessionUpdate::CurrentModeUpdate(CurrentModeUpdate::new(
-                                            SessionModeId::new(current_mode_id(&shared)),
-                                        )),
-                                    ));
-                                }
-                                Ok(())
-                            });
+                        if planning.is_some() {
+                            if let Some(session_id) = shared.session_id() {
+                                let _ = cx.send_notification(SessionNotification::new(
+                                    session_id,
+                                    SessionUpdate::CurrentModeUpdate(CurrentModeUpdate::new(
+                                        SessionModeId::new(current_mode_id(&shared)),
+                                    )),
+                                ));
+                            }
                         }
                         sent
                     },
@@ -964,7 +965,8 @@ async fn seed_config(shared: &Arc<Shared>, thread: &Value) {
         config.model = model;
         config.effort = effort;
         config.mode = CodexMode::default();
-        config.collaboration = "default".to_string();
+        // EXP-1280: Exponential's plan flag, launched as the row picked.
+        config.plan_mode = shared.spec.options.plan_mode;
     }
 }
 
@@ -1008,19 +1010,14 @@ fn model_info(entry: &Value) -> ModelInfo {
 
 /// EXP-772: plan on, plan off — the ids claude uses, so a client has ONE mode
 /// vocabulary for every agent. The approval × sandbox presets are no longer
-/// steerable: every run is full access.
-pub const PLAN_MODE_ID: &str = "plan";
-pub const BUILD_MODE_ID: &str = "bypassPermissions";
-/// The two values of codex's own `collaboration` thread setting.
-const COLLABORATION_PLAN: &str = "plan";
-const COLLABORATION_DEFAULT: &str = "default";
+/// steerable: every run is full access. EXP-1280: the ONE pair lives in
+/// [`super::PLAN_MODE_ID`] / [`super::BUILD_MODE_ID`].
+pub use super::{BUILD_MODE_ID, PLAN_MODE_ID};
 
+/// EXP-1280: Exponential's plan flag ([`Config::plan_mode`]), never codex's
+/// own collaboration setting.
 fn current_mode_id(shared: &Shared) -> &'static str {
-    let planning = shared
-        .config
-        .lock()
-        .map(|config| config.collaboration == COLLABORATION_PLAN)
-        .unwrap_or(false);
+    let planning = shared.config.lock().map(|config| config.plan_mode).unwrap_or(false);
     if planning {
         PLAN_MODE_ID
     } else {
@@ -1061,41 +1058,6 @@ fn config_options(shared: &Shared) -> Vec<SessionConfigOption> {
         Vec::<SessionConfigSelectOption>::new(),
     )
     .category(SessionConfigOptionCategory::Model)]
-}
-
-/// Switch codex's collaboration setting (its plan mode). Silent on a codex
-/// that has no `thread/settings/update` (0.144.5): the mode simply does not
-/// move, which is what [`current_mode_id`] then reports.
-async fn set_collaboration(shared: &Arc<Shared>, mode: &str) {
-    let (thread_id, model, effort) = {
-        let session = shared.session_id();
-        let config = shared.config.lock().ok();
-        (
-            session.map(|id| id.0.to_string()),
-            config.as_ref().map(|config| config.model.clone()),
-            config.as_ref().and_then(|config| config.effort.clone()),
-        )
-    };
-    let Some(thread_id) = thread_id else { return };
-    let result = call(
-        shared,
-        "thread/settings/update",
-        codex_wire::thread_settings_collaboration_params(
-            &thread_id,
-            mode,
-            model.as_deref(),
-            effort.as_deref(),
-        ),
-    )
-    .await;
-    match result {
-        Ok(_) => {
-            if let Ok(mut config) = shared.config.lock() {
-                config.collaboration = mode.to_string();
-            }
-        }
-        Err(error) => log::warn!("engine: codex collaboration mode unavailable: {error}"),
-    }
 }
 
 async fn apply_config_option(shared: &Arc<Shared>, request: &SetSessionConfigOptionRequest) {
@@ -1139,8 +1101,13 @@ async fn apply_config_option(shared: &Arc<Shared>, request: &SetSessionConfigOpt
             }
         }
         // Plan mode rides `session/set_mode` now (EXP-772); the option id is
-        // still accepted for a publisher that only speaks config options.
-        ("collaboration_mode", ConfigPick::Id(mode)) => set_collaboration(shared, &mode).await,
+        // still accepted for a publisher that only speaks config options
+        // (EXP-1280: Exponential's flag, nothing reaches codex).
+        ("collaboration_mode", ConfigPick::Id(mode)) => {
+            if let Ok(mut config) = shared.config.lock() {
+                config.plan_mode = mode == PLAN_MODE_ID;
+            }
+        }
         _ => {}
     }
 }

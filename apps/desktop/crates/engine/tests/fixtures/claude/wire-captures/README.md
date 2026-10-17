@@ -39,10 +39,7 @@ engine work; scenario dirs for `fake-claude.sh` are cut from these.
 Scenario dirs cut from these (EXP-850 / EXP-856, `tests/claude_adapter.rs`):
 `../workflow/`, `../background-tasks/`, `../duplicate-agent/` — each one's
 `turn1.jsonl` is the capture up to and including its FIRST `result` frame, so
-one prompt replays the whole probe. `../plan-flap/` and `../plan-stuck/`
-(EXP-853) are hand-built from the `../plan/` recording's `init` +
-`ExitPlanMode` frames: the same replay, once inside the mode-announcement
-grace window and once past it (`EXP_MODE_ANNOUNCE_GRACE_MS=0`).
+one prompt replays the whole probe.
 `../workflow-agents/` (EXP-1225) is `workflow-agents-2.1.286.jsonl` up to its
 first `result`. `../continuation/` (EXP-1224, `tests/claude_engine.rs`) is its
 background-`Agent` turn and the continuation after it, with the agent's
