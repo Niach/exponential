@@ -33,17 +33,13 @@ import {
   DialogCancel,
   Input,
   Label,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
   Switch,
   Tabs,
   TabsContent,
   TabsList,
   TabsTrigger,
   Textarea,
+  Picker,
 } from "@exp/ui"
 import type { BoardIcon } from "@exp/db-schema/domain"
 import { LabelPicker } from "@/components/issue-properties/label-picker"
@@ -69,6 +65,12 @@ export function parseDomains(value: string): string[] {
 }
 
 type WidgetThemeChoice = `dark` | `light` | `auto`
+
+const WIDGET_THEME_ITEMS: { value: WidgetThemeChoice; label: string }[] = [
+  { value: `dark`, label: `Dark` },
+  { value: `light`, label: `Light` },
+  { value: `auto`, label: `Match visitor's system` },
+]
 type WidgetDevice = `desktop` | `mobile`
 
 // Row-major picker order for the 3×2 position grid.
@@ -462,18 +464,15 @@ export function WidgetConfigDialog({
               </div>
               <div className="space-y-2">
                 <Label>Board</Label>
-                <Select value={formBoardId} onValueChange={setFormBoardId}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select a board" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {boards.map((board) => (
-                      <SelectItem key={board.id} value={board.id}>
-                        {board.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Picker
+                  mode="single"
+                  items={boards.map((board) => ({ value: board.id, label: board.name }))}
+                  value={formBoardId || null}
+                  onChange={setFormBoardId}
+                  triggerVariant="field"
+                  triggerLabel="Select a board"
+                  mobileTitle="Board"
+                />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="widget-domains">Allowed domains</Label>
@@ -677,23 +676,14 @@ export function WidgetConfigDialog({
                 <div className="space-y-4 sm:-m-1 sm:min-h-0 sm:overflow-y-auto sm:p-1">
                   <div className="space-y-2">
                     <Label>Theme</Label>
-                    <Select
+                    <Picker<WidgetThemeChoice>
+                      mode="single"
+                      items={WIDGET_THEME_ITEMS}
                       value={formTheme}
-                      onValueChange={(value) =>
-                        setFormTheme(value as WidgetThemeChoice)
-                      }
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="dark">Dark</SelectItem>
-                        <SelectItem value="light">Light</SelectItem>
-                        <SelectItem value="auto">
-                          Match visitor&apos;s system
-                        </SelectItem>
-                      </SelectContent>
-                    </Select>
+                      onChange={setFormTheme}
+                      triggerVariant="field"
+                      mobileTitle="Theme"
+                    />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="widget-button-label">Button label</Label>

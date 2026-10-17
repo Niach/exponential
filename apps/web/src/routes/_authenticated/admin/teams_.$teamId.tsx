@@ -8,13 +8,9 @@ import {
   Pill,
   Button,
   Prompt,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
   UserAvatar,
   ListEmpty,
+  Picker,
 } from "@exp/ui"
 import {
   issueEventActorFallback,
@@ -192,23 +188,22 @@ function AdminTeamDetail() {
           )}
           <div className="flex items-center justify-between gap-3">
             <div className="text-sm text-muted-foreground">Comp tier</div>
-            <Select
-              value={currentComp}
-              onValueChange={(value) => {
-                if (value !== currentComp) {
-                  setPendingComp(value as CompChoice)
-                }
-              }}
-            >
-              <SelectTrigger className="w-[160px]" size="sm">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="none">None</SelectItem>
-                <SelectItem value="team">Team</SelectItem>
-                <SelectItem value="unlimited">Unlimited</SelectItem>
-              </SelectContent>
-            </Select>
+            <div className="w-[160px]">
+              <Picker<CompChoice>
+                mode="single"
+                items={[
+                  { value: `none`, label: `None` },
+                  { value: `team`, label: `Team` },
+                  { value: `unlimited`, label: `Unlimited` },
+                ]}
+                value={currentComp}
+                onChange={(value) => {
+                  if (value !== currentComp) setPendingComp(value)
+                }}
+                triggerVariant="field"
+                mobileTitle="Comp tier"
+              />
+            </div>
           </div>
           <p className="text-xs text-muted-foreground">
             A comp tier is a floor over the paid plan. It lifts the team

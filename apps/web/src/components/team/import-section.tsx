@@ -48,16 +48,12 @@ import {
   Pill,
   SETTINGS_LIST_CLASS,
   SegmentedControl,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
   STATUS_COLORS,
   StatusGlyph,
   categoryStatusIcon,
   conceptIcon,
   toast,
+  Picker,
 } from "@exp/ui"
 
 type ImportJob = Awaited<ReturnType<typeof trpc.imports.get.query>>
@@ -701,9 +697,32 @@ function MapStep({
                     <div className="truncate text-sm font-medium">{target.name}</div>
                     <div className="text-xs text-muted-foreground">{target.hint}</div>
                   </div>
-                  <Select
+                  <div className="w-56 shrink-0">
+                  <Picker
+                    mode="single"
+                    items={[
+                      { value: `create`, label: `Create a new board` },
+                      ...boards.map((board) => ({
+                        value: `existing:${board.id}`,
+                        label: `${board.name} (${board.prefix})`,
+                      })),
+                      // An archived board (an earlier run's archive) never
+                      // syncs, so the pick the plan made needs its own row.
+                      ...(entry.mode === `existing` &&
+                      !boards.some((board) => board.id === entry.boardId)
+                        ? [
+                            {
+                              value: `existing:${entry.boardId}`,
+                              label: `Archived board from an earlier import`,
+                            },
+                          ]
+                        : []),
+                      { value: `skip`, label: `Skip these issues` },
+                    ]}
                     value={value}
-                    onValueChange={(next) => {
+                    triggerVariant="field"
+                    mobileTitle="Board"
+                    onChange={(next) => {
                       if (next === `skip`) setBoard(target.key, { mode: `skip` })
                       else if (next === `create`) {
                         setBoard(target.key, {
@@ -721,28 +740,8 @@ function MapStep({
                         })
                       }
                     }}
-                  >
-                    <SelectTrigger className="w-56">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="create">Create a new board</SelectItem>
-                      {boards.map((board) => (
-                        <SelectItem key={board.id} value={`existing:${board.id}`}>
-                          {board.name} ({board.prefix})
-                        </SelectItem>
-                      ))}
-                      {/* An archived board (an earlier run's archive) never
-                          syncs, so the pick the plan made needs its own row. */}
-                      {entry.mode === `existing` &&
-                        !boards.some((board) => board.id === entry.boardId) && (
-                          <SelectItem value={`existing:${entry.boardId}`}>
-                            Archived board from an earlier import
-                          </SelectItem>
-                        )}
-                      <SelectItem value="skip">Skip these issues</SelectItem>
-                    </SelectContent>
-                  </Select>
+                  />
+                  </div>
                 </div>
                 {entry.mode === `create` && (
                   <div className="flex flex-col gap-2 sm:flex-row">
@@ -828,9 +827,26 @@ function MapStep({
                       </div>
                     </div>
                   </div>
-                  <Select
+                  <div className="w-56 shrink-0">
+                  <Picker
+                    mode="single"
+                    items={[
+                      ...builtinOptions.map((option) => ({
+                        value: `builtin:${option.builtinKey}`,
+                        label: option.name,
+                      })),
+                      ...customOptions.map((option) => ({
+                        value: `existing:${option.id}`,
+                        label: option.name,
+                      })),
+                      ...(group.category !== `duplicate`
+                        ? [{ value: `create`, label: `Create as new status` }]
+                        : []),
+                    ]}
                     value={value}
-                    onValueChange={(next) => {
+                    triggerVariant="field"
+                    mobileTitle="Status"
+                    onChange={(next) => {
                       if (next === `create`) {
                         setStatusGroup(group.keys, {
                           mode: `create`,
@@ -854,26 +870,8 @@ function MapStep({
                         })
                       }
                     }}
-                  >
-                    <SelectTrigger className="w-56">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {builtinOptions.map((option) => (
-                        <SelectItem key={option.id} value={`builtin:${option.builtinKey}`}>
-                          {option.name}
-                        </SelectItem>
-                      ))}
-                      {customOptions.map((option) => (
-                        <SelectItem key={option.id} value={`existing:${option.id}`}>
-                          {option.name}
-                        </SelectItem>
-                      ))}
-                      {group.category !== `duplicate` && (
-                        <SelectItem value="create">Create as new status</SelectItem>
-                      )}
-                    </SelectContent>
-                  </Select>
+                  />
+                  </div>
                 </div>
                 {entry.mode === `create` && (
                   <div className="flex items-center gap-2">
@@ -917,26 +915,23 @@ function MapStep({
                     </div>
                   </div>
                 </div>
-                <Select
-                  value={value}
-                  onValueChange={(next) => {
-                    if (next === `create` || next === `skip`) setLabel(label.key, { mode: next })
-                    else setLabel(label.key, { mode: `existing`, labelId: next.replace(`existing:`, ``) })
-                  }}
-                >
-                  <SelectTrigger className="w-56">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="create">Create label</SelectItem>
-                    {labels.map((row) => (
-                      <SelectItem key={row.id} value={`existing:${row.id}`}>
-                        {row.name}
-                      </SelectItem>
-                    ))}
-                    <SelectItem value="skip">Skip</SelectItem>
-                  </SelectContent>
-                </Select>
+                <div className="w-56 shrink-0">
+                  <Picker
+                    mode="single"
+                    items={[
+                      { value: `create`, label: `Create label` },
+                      ...labels.map((row) => ({ value: `existing:${row.id}`, label: row.name })),
+                      { value: `skip`, label: `Skip` },
+                    ]}
+                    value={value}
+                    triggerVariant="field"
+                    mobileTitle="Label"
+                    onChange={(next) => {
+                      if (next === `create` || next === `skip`) setLabel(label.key, { mode: next })
+                      else setLabel(label.key, { mode: `existing`, labelId: next.replace(`existing:`, ``) })
+                    }}
+                  />
+                </div>
               </ListRow>
             )
           })}
@@ -1134,26 +1129,26 @@ function MemberRow({
           />
         )}
         {choice === `member` && (
-          <Select
-            // An unanswered pick keeps the trigger on its placeholder: the
-            // empty value matches no item, so nothing is chosen for anyone.
-            value={effective.mode === `member` ? effective.userId : ``}
-            onValueChange={(next) => {
-              setPicking(false)
-              onChange({ mode: `member`, userId: next })
-            }}
-          >
-            <SelectTrigger className="md:w-64">
-              <SelectValue placeholder="Pick a member" />
-            </SelectTrigger>
-            <SelectContent>
-              {roster.map((row) => (
-                <SelectItem key={row.id} value={row.id}>
-                  {row.id === importerId ? `${row.name} (you)` : `${row.name} · ${row.email}`}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <div className="md:w-64">
+            <Picker
+              mode="single"
+              search
+              items={roster.map((row) => ({
+                value: row.id,
+                label: row.id === importerId ? `${row.name} (you)` : `${row.name} · ${row.email}`,
+              }))}
+              // An unanswered pick keeps the trigger on its placeholder:
+              // nothing is chosen for anyone.
+              value={effective.mode === `member` ? effective.userId : null}
+              onChange={(next) => {
+                setPicking(false)
+                onChange({ mode: `member`, userId: next })
+              }}
+              triggerVariant="field"
+              triggerLabel="Pick a member"
+              mobileTitle="Member"
+            />
+          </div>
         )}
         {named && (
           <div className="flex flex-col gap-2 sm:flex-row">

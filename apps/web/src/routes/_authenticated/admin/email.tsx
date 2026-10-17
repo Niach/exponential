@@ -12,15 +12,11 @@ import {
   FEEDBACK_WORDS,
   Input,
   ListEmpty,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
   Tabs,
   TabsContent,
   TabsList,
   TabsTrigger,
+  Picker,
 } from "@exp/ui"
 import {
   AdminLoadFailure,
@@ -237,53 +233,44 @@ function AdminEmail() {
             The outbound-email ledger, newest first — what is going out to whom.
           </p>
           <div className="flex flex-wrap items-center gap-2">
-            <Select
-              value={search.kind ?? `all`}
-              onValueChange={(value) =>
-                void navigate({
-                  search: (prev) => ({
-                    ...prev,
-                    kind: value === `all` ? undefined : (value as DeliveryKind),
-                  }),
-                })
-              }
-            >
-              <SelectTrigger size="sm" className="w-[190px]">
-                <SelectValue placeholder="Kind" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All kinds</SelectItem>
-                {DELIVERY_KINDS.map((kind) => (
-                  <SelectItem key={kind} value={kind}>
-                    {kind}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select
-              value={search.status ?? `all`}
-              onValueChange={(value) =>
-                void navigate({
-                  search: (prev) => ({
-                    ...prev,
-                    status:
-                      value === `all` ? undefined : (value as DeliveryStatus),
-                  }),
-                })
-              }
-            >
-              <SelectTrigger size="sm" className="w-[150px]">
-                <SelectValue placeholder="Status" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All statuses</SelectItem>
-                {DELIVERY_STATUSES.map((status) => (
-                  <SelectItem key={status} value={status}>
-                    {status}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <div className="w-[190px]">
+              <Picker
+                mode="single"
+                items={DELIVERY_KINDS.map((kind) => ({ value: kind, label: kind }))}
+                value={search.kind ?? null}
+                onChange={(value) =>
+                  void navigate({
+                    search: (prev) => ({ ...prev, kind: value as DeliveryKind }),
+                  })
+                }
+                noneLabel="All kinds"
+                onNone={() =>
+                  void navigate({ search: (prev) => ({ ...prev, kind: undefined }) })
+                }
+                triggerVariant="field"
+                triggerLabel="All kinds"
+                mobileTitle="Kind"
+              />
+            </div>
+            <div className="w-[150px]">
+              <Picker
+                mode="single"
+                items={DELIVERY_STATUSES.map((status) => ({ value: status, label: status }))}
+                value={search.status ?? null}
+                onChange={(value) =>
+                  void navigate({
+                    search: (prev) => ({ ...prev, status: value as DeliveryStatus }),
+                  })
+                }
+                noneLabel="All statuses"
+                onNone={() =>
+                  void navigate({ search: (prev) => ({ ...prev, status: undefined }) })
+                }
+                triggerVariant="field"
+                triggerLabel="All statuses"
+                mobileTitle="Status"
+              />
+            </div>
             <Input
               value={qDraft}
               onChange={(e) => setQDraft(e.target.value)}
