@@ -9,7 +9,7 @@ import { useCallback, useEffect, useRef, type CSSProperties, type TouchEvent } f
 // was thrown, the tab flips, and the NEW body slides in from the other side
 // (`primeFaceEnter`). The header band and the fixed bottom bar never move. A
 // sideways scroller keeps the gesture only while it can still scroll that
-// way, and a text field keeps every gesture. (EXP-1293: the work faces it was
+// way, and a text field (an editor only while focused) keeps every gesture. (EXP-1293: the work faces it was
 // born for are gone; the gesture stayed.)
 
 /** Which way the finger went. `left` = the content followed the finger
@@ -55,7 +55,11 @@ function touchClaim(
     if (
       node instanceof HTMLInputElement ||
       node instanceof HTMLTextAreaElement ||
-      (node instanceof HTMLElement && node.isContentEditable)
+      // EXP-1343: an issue page is mostly its always-editable description;
+      // an editor keeps the gesture only while it is being edited.
+      (node instanceof HTMLElement &&
+        node.isContentEditable &&
+        node.contains(document.activeElement))
     ) {
       return { field: true, scroller: null }
     }
