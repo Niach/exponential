@@ -7771,6 +7771,191 @@
       }
     },
     {
+      "id": "exponential-ui-choice-tiles",
+      "component": "ChoiceTiles",
+      "title": "ChoiceTiles",
+      "node": {
+        "id": "specimen-choice-tiles",
+        "component": "Box",
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": "$spacing.lg",
+          "padding": "$spacing.xl",
+          "maxWidth": 720
+        },
+        "children": [
+          {
+            "id": "specimen-choice-tiles-case-0",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-choice-tiles-case-0-label",
+                "component": "Text",
+                "props": {
+                  "text": "example",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c0-choice-tiles",
+                "component": "ChoiceTiles",
+                "props": {
+                  "name": "design",
+                  "options": [
+                    {
+                      "label": "Two columns",
+                      "value": "two",
+                      "description": "Pictures beside the text",
+                      "image": "https://example.com/two.png"
+                    },
+                    {
+                      "label": "One column",
+                      "value": "one",
+                      "description": "Pictures under the text",
+                      "image": "https://example.com/one.png"
+                    }
+                  ],
+                  "value": "two"
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen-choice-tiles-case-1",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-choice-tiles-case-1-label",
+                "component": "Text",
+                "props": {
+                  "text": "type · single",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c1-choice-tiles",
+                "component": "ChoiceTiles",
+                "props": {
+                  "name": "design",
+                  "options": [
+                    {
+                      "label": "Two columns",
+                      "value": "two",
+                      "description": "Pictures beside the text",
+                      "image": "https://example.com/two.png"
+                    },
+                    {
+                      "label": "One column",
+                      "value": "one",
+                      "description": "Pictures under the text",
+                      "image": "https://example.com/one.png"
+                    }
+                  ],
+                  "value": "two",
+                  "type": "single"
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen-choice-tiles-case-2",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-choice-tiles-case-2-label",
+                "component": "Text",
+                "props": {
+                  "text": "type · multiple",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c2-choice-tiles",
+                "component": "ChoiceTiles",
+                "props": {
+                  "name": "design",
+                  "options": [
+                    {
+                      "label": "Two columns",
+                      "value": "two",
+                      "description": "Pictures beside the text",
+                      "image": "https://example.com/two.png"
+                    },
+                    {
+                      "label": "One column",
+                      "value": "one",
+                      "description": "Pictures under the text",
+                      "image": "https://example.com/one.png"
+                    }
+                  ],
+                  "value": "two",
+                  "type": "multiple"
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen-choice-tiles-case-3",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-choice-tiles-case-3-label",
+                "component": "Text",
+                "props": {
+                  "text": "disabled · true",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c3-choice-tiles",
+                "component": "ChoiceTiles",
+                "props": {
+                  "name": "design",
+                  "options": [
+                    {
+                      "label": "Two columns",
+                      "value": "two",
+                      "description": "Pictures beside the text",
+                      "image": "https://example.com/two.png"
+                    },
+                    {
+                      "label": "One column",
+                      "value": "one",
+                      "description": "Pictures under the text",
+                      "image": "https://example.com/one.png"
+                    }
+                  ],
+                  "value": "two",
+                  "disabled": true
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
       "id": "exponential-ui-switch",
       "component": "Switch",
       "title": "Switch",

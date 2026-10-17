@@ -2812,6 +2812,21 @@
       ]
     },
     {
+      "name": "ChoiceTiles",
+      "kind": "native",
+      "parts": [
+        "root",
+        "tile",
+        "picture",
+        "label",
+        "description"
+      ],
+      "props": [
+        "type",
+        "columns"
+      ]
+    },
+    {
       "name": "Switch",
       "kind": "native",
       "parts": [

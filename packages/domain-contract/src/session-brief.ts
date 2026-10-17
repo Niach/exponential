@@ -20,6 +20,8 @@ export interface BriefInput {
    *  or an action): its brief orders the hand-off instead of leaving it to
    *  the model's judgement. */
   handOff?: boolean
+  /** EXP-1280: a session started in plan mode (never a dispatcher). */
+  planMode?: boolean
 }
 
 function cutToBytes(text: string, maxBytes: number): string {
@@ -47,6 +49,7 @@ export function composeBrief(input: BriefInput): string {
   // `briefMaxBytes` trims from the END, so a near-cap action body can never
   // take the Dispatch section with it.
   if (input.handOff) section(fixture.headings.dispatch, fixture.handOff)
+  if (input.planMode) section(fixture.headings.plan, fixture.plan)
   if (input.action) {
     const parts = [input.action.body.trim()].filter(Boolean)
     if (input.action.inputs.length > 0) {

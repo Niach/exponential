@@ -11,6 +11,7 @@ import cardFixture from "../fixtures/session-card.json" with { type: "json" }
 import threadFixture from "../fixtures/session-thread.json" with { type: "json" }
 import listFixture from "../fixtures/threads-list.json" with { type: "json" }
 import { sessionTitle, sessionTitles } from "./session-title"
+import { pictureFor, type CardSurface, type PlanCardPicture } from "./plan-card"
 
 export interface TreeSession {
   id: string
@@ -239,6 +240,17 @@ export type ThreadTab =
 export interface ThreadQuestionOption {
   label: string
   description: string | null
+  /** EXP-1280: the option's picture (plan-card.json `pictureFor`); null = a text option. */
+  attachmentId: string | null
+}
+
+/** EXP-1280: one choice question of a plan card in the row form. */
+export interface ThreadPlanQuestion {
+  id: string
+  prompt: string
+  multi: boolean
+  custom: boolean
+  options: ThreadQuestionOption[]
 }
 
 /** A synced card option (a plain label) in the row form; anything else =
@@ -253,20 +265,103 @@ export function questionOption(raw: unknown): ThreadQuestionOption | null {
  *  sidecar (same length, null / "" = none; the key is omitted when no option
  *  has one): option i = `{label: options[i], description: optionDescriptions?.[i] || null}`.
  *  Zipped by index BEFORE dropping non-string options. */
-export function questionOptions(card: { options?: unknown; optionDescriptions?: unknown }): ThreadQuestionOption[] {
+export function questionOptions(card: {
+  options?: unknown
+  optionDescriptions?: unknown
+  optionPictures?: unknown
+  pictures?: unknown
+}): ThreadQuestionOption[] {
   if (!Array.isArray(card.options)) return []
   const descriptions = Array.isArray(card.optionDescriptions) ? card.optionDescriptions : []
+  const pictureLabels = Array.isArray(card.optionPictures) ? card.optionPictures : []
   const rows: ThreadQuestionOption[] = []
   card.options.forEach((raw, index) => {
     const option = questionOption(raw)
     if (!option) return
     const sidecar: unknown = descriptions[index]
+    const picture: unknown = pictureLabels[index]
     rows.push({
       label: option.label,
       description: typeof sidecar === `string` && sidecar !== `` ? sidecar : null,
+      attachmentId: pictureFor(cardPictures(card.pictures), typeof picture === `string` ? picture : null),
     })
   })
   return rows
+}
+
+/** EXP-1280: a card's `pictures` (the upload namespace) in a tolerant read. */
+export function cardPictures(raw: unknown): PlanCardPicture[] {
+  if (!Array.isArray(raw)) return []
+  return raw.flatMap((entry) => {
+    if (!entry || typeof entry !== `object`) return []
+    const picture = entry as Record<string, unknown>
+    if (typeof picture.label !== `string`) return []
+    return [
+      {
+        label: picture.label,
+        attachmentId: typeof picture.attachmentId === `string` ? picture.attachmentId : null,
+        width: typeof picture.width === `number` ? picture.width : null,
+        height: typeof picture.height === `number` ? picture.height : null,
+      },
+    ]
+  })
+}
+
+/** EXP-1280: a plan card's `questions` in the row form; a malformed
+ *  question (no string id/prompt) or option drops. */
+export function planQuestions(card: { questions?: unknown; pictures?: unknown }): ThreadPlanQuestion[] {
+  if (!Array.isArray(card.questions)) return []
+  const pictures = cardPictures(card.pictures)
+  const rows: ThreadPlanQuestion[] = []
+  for (const raw of card.questions) {
+    if (!raw || typeof raw !== `object`) continue
+    const question = raw as Record<string, unknown>
+    if (typeof question.id !== `string` || typeof question.prompt !== `string`) continue
+    const options: ThreadQuestionOption[] = []
+    for (const entry of Array.isArray(question.options) ? question.options : []) {
+      if (!entry || typeof entry !== `object`) continue
+      const option = entry as Record<string, unknown>
+      if (typeof option.label !== `string`) continue
+      options.push({
+        label: option.label,
+        description: typeof option.description === `string` && option.description !== `` ? option.description : null,
+        attachmentId: pictureFor(pictures, typeof option.picture === `string` ? option.picture : null),
+      })
+    }
+    rows.push({
+      id: question.id,
+      prompt: question.prompt,
+      multi: question.multi === true,
+      custom: question.custom !== false,
+      options,
+    })
+  }
+  return rows
+}
+
+/** EXP-1280: a card's inline surface (tolerant read; an object with a `root` object, else null). */
+export function cardSurface(raw: unknown): CardSurface | null {
+  if (!raw || typeof raw !== `object`) return null
+  const surface = raw as Record<string, unknown>
+  if (!surface.root || typeof surface.root !== `object`) return null
+  const data = surface.data && typeof surface.data === `object` && !Array.isArray(surface.data) ? (surface.data as Record<string, unknown>) : null
+  return { root: surface.root, data }
+}
+
+/** EXP-1280: a plan card's `answers` (question id → labels), strings only. */
+export function planAnswers(raw: unknown): Record<string, string[]> | null {
+  if (!raw || typeof raw !== `object` || Array.isArray(raw)) return null
+  const answers: Record<string, string[]> = {}
+  for (const [id, labels] of Object.entries(raw as Record<string, unknown>)) {
+    if (!Array.isArray(labels)) continue
+    answers[id] = labels.filter((label): label is string => typeof label === `string`)
+  }
+  return answers
+}
+
+function stringList(raw: unknown): string[] | null {
+  if (!Array.isArray(raw)) return null
+  return raw.filter((entry): entry is string => typeof entry === `string`)
 }
 
 export type ThreadRow =
@@ -300,7 +395,13 @@ export type ThreadRow =
       question: string
       options: ThreadQuestionOption[]
       custom: boolean
+      /** EXP-1280: several picks allowed. */
+      multi: boolean
+      /** EXP-1280: the inline Exponential UI surface, if any. */
+      surface: CardSurface | null
       answer: string | null
+      /** EXP-1280: the picked labels (null on a legacy card = `answer` alone). */
+      answers: string[] | null
       answered: boolean
     }
   | {
@@ -308,9 +409,15 @@ export type ThreadRow =
       id: string
       sessionId: string
       plan: string
+      /** EXP-1280: the choice questions, the inline surface. */
+      questions: ThreadPlanQuestion[]
+      surface: CardSurface | null
       decision: string | null
       /** An approval that started in a fresh context (ask-dock.json). */
       fresh: boolean
+      /** EXP-1280: the picked labels per question, the note. */
+      answers: Record<string, string[]> | null
+      feedback: string | null
     }
   | { type: `subagent`; id: string; title: string; status: string }
   | {
@@ -649,8 +756,11 @@ export function buildSessionThread(input: {
           sessionId: message.sessionId,
           question: String(card.question ?? ``),
           options: questionOptions(card),
-          custom: true,
+          custom: card.custom !== false,
+          multi: card.multi === true,
+          surface: cardSurface(card.surface),
           answer: typeof card.answer === `string` ? card.answer : null,
+          answers: stringList(card.answers),
           answered: message.answeredAt !== null,
         })
         break
@@ -660,8 +770,12 @@ export function buildSessionThread(input: {
           id: message.id,
           sessionId: message.sessionId,
           plan: String(card.plan ?? ``),
+          questions: planQuestions(card),
+          surface: cardSurface(card.surface),
           decision: typeof card.decision === `string` ? card.decision : null,
           fresh: card.fresh === true,
+          answers: planAnswers(card.answers),
+          feedback: typeof card.feedback === `string` && card.feedback !== `` ? card.feedback : null,
         })
         break
       case `subagent`:

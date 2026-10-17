@@ -2429,6 +2429,28 @@
                 "children": []
               },
               {
+                "id": "form-design",
+                "component": "ChoiceTiles",
+                "props": {
+                  "name": "design",
+                  "options": [
+                    {
+                      "label": "Two columns",
+                      "value": "two",
+                      "description": "Pictures beside the text"
+                    },
+                    {
+                      "label": "One column",
+                      "value": "one",
+                      "description": "Pictures under the text"
+                    }
+                  ],
+                  "value": "two",
+                  "columns": 2
+                },
+                "children": []
+              },
+              {
                 "id": "form-agree",
                 "component": "Checkbox",
                 "props": {
