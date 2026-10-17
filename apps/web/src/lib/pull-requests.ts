@@ -60,7 +60,7 @@ import {
   loadPullRequest,
   loadPullRequestByNumber,
   loadPullRequestByUrl,
-  newestLivePullRequestForIssue,
+  livePullRequestsForIssue,
   newestLivePullRequestForSession,
   recordPullRequestOpened,
   repoFromPrUrl,
@@ -432,7 +432,31 @@ export async function openPullRequest(args: {
 }
 
 /**
- * One PR by id, url, (repositoryId + number) or issue (its newest live PR);
+ * FEED-111: the issue's PR among its live linked ones. A thread-level PR
+ * links every root issue, so newest-first is wrong: the PR the issue's
+ * assigned session opened wins, else the one linking the fewest issues; a
+ * tie refuses rather than guess (a merge must never land the wrong PR).
+ */
+export function pickIssuePullRequest(
+  candidates: { pr: PullRequest; linkedIssues: number; assigned: boolean }[]
+): PullRequest | null {
+  if (candidates.length <= 1) return candidates[0]?.pr ?? null
+  const assigned = candidates.filter((c) => c.assigned)
+  if (assigned.length === 1) return assigned[0]!.pr
+  const pool = assigned.length > 1 ? assigned : candidates
+  const fewest = Math.min(...pool.map((c) => c.linkedIssues))
+  const focused = pool.filter((c) => c.linkedIssues === fewest)
+  if (focused.length === 1) return focused[0]!.pr
+  return fail(
+    `PRECONDITION_FAILED`,
+    `This issue has ${focused.length} open pull requests (${focused
+      .map((c) => `#${c.pr.number} ${c.pr.url}`)
+      .join(`, `)}). Name one with repositoryId + prNumber.`
+  )
+}
+
+/**
+ * One PR by id, url, (repositoryId + number) or issue (`pickIssuePullRequest`);
  * nothing given = the caller session's newest live PR. A PR GitHub holds
  * that nobody recorded (named by url or number, e.g. Reviews' unlinked
  * list) is recorded on first use, linked to nothing. Membership-checked.
@@ -463,7 +487,7 @@ export async function resolvePullRequest(args: {
       .limit(1)
     if (!issue) fail(`NOT_FOUND`, `Issue not found`)
     await assertPrAccess(args.userId, issue!.teamId)
-    pr = await newestLivePullRequestForIssue(args.issueId)
+    pr = pickIssuePullRequest(await livePullRequestsForIssue(args.issueId))
     if (!pr) fail(`PRECONDITION_FAILED`, `This issue has no open pull request`)
   } else if (args.callerSessionId) {
     const session = await loadSessionForUser(args.userId, args.callerSessionId)

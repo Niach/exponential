@@ -2493,8 +2493,9 @@ export function registerExponentialTools(
   // Pull requests (EXP-1291: `pull_requests` rows; lib/pull-requests.ts)
   // -----------------------------------------------------------------------
   // Every PR tool names its PR the same way: pullRequestId, issueId (the
-  // issue's open PR) or repositoryId + prNumber; none = the caller session's
-  // newest open PR. The PR's team must be fully granted.
+  // issue's open PR, `pickIssuePullRequest`: several = refused, FEED-111) or
+  // repositoryId + prNumber; none = the caller session's newest open PR. The
+  // PR's team must be fully granted.
 
   const prSelector = {
     pullRequestId: uuidString.optional(),
