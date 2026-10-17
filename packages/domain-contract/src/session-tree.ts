@@ -484,17 +484,16 @@ export function guidePullRequest<T extends GuidePullRequestLike>(
   return newest(`open`) ?? newest(`merged`)
 }
 
-export type GuideMenuEntry = `open-github` | `close-pr`
+export type GuideMenuEntry = `close-pr`
 
-/** EXP-1307: the thread header's `…` on the Guide: Open on GitHub whenever
- *  the Guide has a PR, Close PR while it is open and the viewer is a member;
- *  empty = no trigger. */
+/** EXP-1307: the thread header's `…` on the Guide: Close PR while the Guide's
+ *  PR is open and the viewer is a member; empty = no trigger. EXP-1338: no
+ *  GitHub entry, only the agent opens PRs. */
 export function guideMenuEntries(input: {
   state: string | null
   member: boolean
 }): GuideMenuEntry[] {
-  if (input.state === null) return []
-  return input.state === `open` && input.member ? [`open-github`, `close-pr`] : [`open-github`]
+  return input.state === `open` && input.member ? [`close-pr`] : []
 }
 
 /** EXP-1306 (EXP-820 ×4): a question or plan card waiting on the viewer

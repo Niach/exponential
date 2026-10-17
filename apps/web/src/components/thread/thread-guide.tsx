@@ -1,6 +1,5 @@
 import { useMemo, useState } from "react"
 import { useNavigate } from "@tanstack/react-router"
-import { contract } from "@exp/domain-contract"
 import {
   Button,
   conceptIcon,
@@ -45,11 +44,10 @@ import { trpc } from "@/lib/trpc-client"
 // that PR sits in a linear open stack, the Stack band + THE StackRail lead
 // the Guide (a row opens that PR's thread, a hovered row merges through);
 // the route closes the tab with THE bottom Merge capsule. No PR rows.
-// EXP-1307: Open on GitHub + Close PR = the header's `…` on the Guide.
+// EXP-1307: Close PR = the header's `…` on the Guide (EXP-1338: no GitHub entry).
 
 const PrStackIcon = conceptIcon(`pr-stack`)
 const MoreIcon = conceptIcon(`ui-more`)
-const GithubIcon = conceptIcon(`ui-github`)
 
 /** The base row's label when the bottom PR's base is unknown: never an
  *  assumed `main` (default branches resolve live). */
@@ -159,8 +157,9 @@ function GuideStackCard({
   )
 }
 
-/** The thread header's `…` on the Guide (`guideMenuEntries`, ×4): Open on
- *  GitHub, then Close PR while the PR is open and the viewer is a member. */
+/** The thread header's `…` on the Guide (`guideMenuEntries`, ×4): Close PR
+ *  while the PR is open and the viewer is a member (EXP-1338: no GitHub
+ *  entry, only the agent opens PRs). */
 export function ThreadGuideMenu({
   pr,
   canClose,
@@ -173,18 +172,7 @@ export function ThreadGuideMenu({
   const [open, setOpen] = useState(false)
   const close = usePullRequestClose(pr, canClose)
   const entries = guideMenuEntries({ state: pr.state, member: canClose }).flatMap(
-    (id): MenuEntry[] => {
-      if (id === `close-pr`) return close.entry ? [close.entry] : []
-      return [
-        {
-          kind: `item`,
-          id,
-          label: contract.diffUi.openOnGithub,
-          icon: GithubIcon,
-          onSelect: () => window.open(pr.url, `_blank`, `noopener,noreferrer`),
-        },
-      ]
-    }
+    (): MenuEntry[] => (close.entry ? [close.entry] : [])
   )
   if (entries.length === 0) return null
   return (

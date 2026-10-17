@@ -405,8 +405,8 @@ fun ThreadContent(
     issuePage: @Composable (issueId: String, padding: PaddingValues) -> Unit,
     guidePage: @Composable (padding: PaddingValues) -> Unit,
     modifier: Modifier = Modifier,
-    /** EXP-1307: the header `…` (Open on GitHub · Close PR) while the Guide
-     *  tab is selected; the slot draws nothing when the Guide has no PR. */
+    /** EXP-1307: the header `…` (Close PR, EXP-1338) while the Guide tab is
+     *  selected; the slot draws nothing without an entry. */
     guideMenu: (@Composable () -> Unit)? = null,
     /** EXP-1323: a report line / a started suggestion opens that session. */
     onOpenSession: ((sessionId: String) -> Unit)? = null,
@@ -562,7 +562,6 @@ fun ThreadContent(
 @Composable
 private fun GuideMenu(pr: PullRequestEntity, member: Boolean, onClosePr: () -> Unit) {
     ThreadGuideMenuButton(
-        prUrl = pr.url,
         entries = SessionTree.guideMenuEntries(state = pr.state, member = member),
         onClosePr = onClosePr,
     )

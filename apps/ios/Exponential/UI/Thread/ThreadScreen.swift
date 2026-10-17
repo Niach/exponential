@@ -20,7 +20,7 @@ import SwiftUI
 /// * Guide = the existing Guide face over the root's `guide` (the PR body),
 ///   counting the thread PR's files, with its Merge capsule while it is open
 ///   and ONE `…` in the header's action slot (EXP-1307: THE Menu's sheet,
-///   `guideMenuEntries` — Open on GitHub · Close PR behind the close-pr.json
+///   `guideMenuEntries` — Close PR (EXP-1338) behind the close-pr.json
 ///   confirm). EXP-1306: while that PR
 ///   sits in a linear open stack, a `Stack` band + THE `StackRail` lead it
 ///   (a row opens that PR's thread, a hold offers Merge through here).
@@ -48,7 +48,6 @@ struct ThreadScreen: View {
     @Environment(\.toaster) private var toaster
     @Environment(TeamState.self) private var teamState
     @Environment(\.threadLanding) private var threadLanding
-    @Environment(\.openURL) private var openURL
     @State private var page: ThreadPage
     /// A requested issue tab that has not synced into the strip yet (a
     /// just-filed issue): the page shows the Conversation and switches the
@@ -192,8 +191,8 @@ struct ThreadScreen: View {
                 }
             }
             // EXP-1307/1316: ONE `…` rides the header's action slot on every
-            // tab while the Guide has a PR — Open on GitHub · Close PR, in
-            // THE Menu's sheet.
+            // tab while it has an entry — Close PR (EXP-1338: no GitHub
+            // entry), in THE Menu's sheet.
             ToolbarItem(placement: .topBarTrailing) {
                 if !guideMenuEntries.isEmpty {
                     Button { openGuideMenu() } label: {
@@ -893,8 +892,6 @@ struct ThreadScreen: View {
         case .newIssue: newIssue()
         case .unlink:
             if let issueId = pending.issueId { unlink(issueId) }
-        case .openGithub:
-            if let url = rows?.guidePullRequest.flatMap({ URL(string: $0.url) }) { openURL(url) }
         case .closePr:
             closePrTarget = rows?.guidePullRequest.flatMap { $0.isOpen ? $0 : nil }
         }

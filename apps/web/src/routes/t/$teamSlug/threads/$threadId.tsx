@@ -603,8 +603,8 @@ function ThreadScreen({
     )
   }
 
-  // EXP-1307/1316: the header's `…` (Open on GitHub, Close PR) on EVERY tab
-  // while the Guide has a PR (the fixture's header merge; iOS and desktop
+  // EXP-1307/1316: the header's `…` (Close PR, EXP-1338) on EVERY tab
+  // while the Guide has an open PR (the fixture's header merge; iOS and desktop
   // already do), not only on the Guide.
   const guideMenu = (className?: string) =>
     guidePr ? (

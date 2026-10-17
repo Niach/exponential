@@ -966,7 +966,6 @@ pub fn guide_pull_request<'a>(
 /// EXP-1307: one entry of the thread header's Guide `…`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GuideMenuEntry {
-    OpenGithub,
     ClosePr,
 }
 
@@ -974,20 +973,18 @@ impl GuideMenuEntry {
     /// The fixture's entry id.
     pub fn id(self) -> &'static str {
         match self {
-            Self::OpenGithub => "open-github",
             Self::ClosePr => "close-pr",
         }
     }
 }
 
 /// EXP-1307: the Guide `…` entries for the Guide PR's `state` (None = no
-/// PR = no menu): Open on GitHub always, then Close PR while the PR is open
-/// and the viewer is a member.
+/// PR): Close PR while the PR is open and the viewer is a member, else none
+/// (EXP-1338: no GitHub entry, only the agent opens PRs).
 pub fn guide_menu_entries(state: Option<&str>, member: bool) -> Vec<GuideMenuEntry> {
     match state {
-        None => Vec::new(),
-        Some("open") if member => vec![GuideMenuEntry::OpenGithub, GuideMenuEntry::ClosePr],
-        Some(_) => vec![GuideMenuEntry::OpenGithub],
+        Some("open") if member => vec![GuideMenuEntry::ClosePr],
+        _ => Vec::new(),
     }
 }
 
