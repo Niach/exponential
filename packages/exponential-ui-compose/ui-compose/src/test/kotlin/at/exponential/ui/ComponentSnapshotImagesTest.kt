@@ -29,8 +29,6 @@ import com.github.takahirom.roborazzi.RoborazziOptions
 import com.github.takahirom.roborazzi.RoborazziTaskType
 import com.github.takahirom.roborazzi.ThresholdValidator
 import com.github.takahirom.roborazzi.captureRoboImage
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -91,7 +89,16 @@ class ComponentSnapshotImagesTest {
         // The window's density until ExponentialSurface hands the model its own shaper.
         val density = RuntimeEnvironment.getApplication().resources.displayMetrics.density
         val shaper = robolectricShaper(FontResolver { null }, density)
-        return SurfaceModel(id, options, OfflineHost, CoroutineScope(Dispatchers.Unconfined)) { shaper }
+        // EXP-1337: the model's default scope (the main looper), never
+        // `Dispatchers.Unconfined`. An unconfined scope resumes the model's
+        // delayed jobs (the kitchen sink's toast timers, the viewport settle)
+        // on the coroutine DefaultExecutor thread, so on a slow runner the
+        // models of the test that ran first keep running layout passes and
+        // writing Compose state from a background thread while the next test
+        // waits for idle: `Compose did not get idle after N attempts in 60
+        // SECONDS` (one run in five on ubuntu). On the paused main looper a
+        // delayed job never fires and nothing runs off the test thread.
+        return SurfaceModel(id, options, OfflineHost) { shaper }
     }
 
     private fun options(file: File) = RoborazziOptions(

@@ -16,6 +16,11 @@ name: record-compose-fixtures
 on:
   workflow_dispatch: {}
   push:
+    # Branch pushes only: `paths` is not evaluated for a tag push, so without
+    # the branch filter every release tag (five per train) re-ran this
+    # workflow on the same commit (EXP-1337).
+    branches:
+      - '**'
     paths:
       - '.github/workflows/record-compose-fixtures.yml'
 
