@@ -10,7 +10,8 @@ import {
 } from "@exp/ui"
 import type { IconConcept } from "@exp/icons"
 import { AgentSessionView } from "@/components/agent-session"
-import { SessionComposer, stopSessionTurn } from "@/components/session-composer"
+import { SessionComposer } from "@/components/session-composer"
+import { stopSessionTurn } from "@/lib/session-stop"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import {
   useSessionCard,

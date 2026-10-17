@@ -65,6 +65,7 @@ import { deviceCollection, messageCollection } from "@/lib/collections"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import type { SessionRow } from "@/lib/session-tree"
 import { trpc } from "@/lib/trpc-client"
+import { stopSessionTurn } from "@/lib/session-stop"
 import { cn } from "@/lib/utils"
 
 // EXP-1293 Threads v2: THE reply box ×4 = the home's composer box (the
@@ -85,18 +86,6 @@ import { cn } from "@/lib/utils"
 // the context ring (its usage popover on click). The live reads (model in
 // force, usage, commands) are the session's relay state
 // (`acquireSteerSession`), the synced row the fallback.
-
-/** EXP-1342: Stop = `sessions.stop`; the device drops every unread message
- *  with the turn, so their text goes back to the composer (×4) and a dropped
- *  message never renders as a row. The text comes back at once (the
- *  STEER-WIRE rule), the call failing leaves it in the draft. */
-export async function stopSessionTurn(
-  sessionId: string,
-  opts?: Parameters<typeof trpc.sessions.stop.mutate>[1]
-): Promise<void> {
-  acquireSteerSession(sessionId).noteStopped()
-  await trpc.sessions.stop.mutate({ sessionId }, opts)
-}
 
 /** How long a model pick reads as picked without the relay confirming. */
 const MODEL_PICK_CONFIRM_MS = 20_000
