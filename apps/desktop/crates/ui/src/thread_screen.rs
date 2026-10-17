@@ -36,12 +36,13 @@
 //!   `Unlink <IDENT>` (`sessions.unlinkIssue`).
 
 use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use gpui::{
     div, prelude::FluentBuilder as _, px, Animation, AnimationExt as _, AnyElement, App,
-    AppContext as _, ClickEvent, Entity, FocusHandle, Focusable, FontWeight,
-    InteractiveElement as _, IntoElement, ParentElement, Render, ScrollHandle, SharedString,
+    AppContext as _, ClickEvent, Entity, FocusHandle, FollowMode, Focusable, FontWeight,
+    InteractiveElement as _, IntoElement, ListAlignment, ListState, ParentElement, Render, SharedString,
     StatefulInteractiveElement as _, Styled, Subscription, Task, Window,
 };
 use gpui_component::{
@@ -60,7 +61,8 @@ use crate::controls::PointerContextMenuExt as _;
 use crate::controls::WebControl as _;
 use crate::controls::WebText as _;
 use crate::icons::registry;
-use crate::markdown::{ImageCache, MarkdownView, RefResolver};
+use crate::markdown::{ImageCache, IssueChipCache, MarkdownView, RefResolver};
+use crate::transcript_rows::{plan_list_sync, ListOp, RowKey, WORKING_ROW_ID};
 use crate::navigation::Screen;
 use crate::session_results::GuidePage;
 
@@ -665,15 +667,53 @@ pub(crate) fn thread_text_resolver(team_id: &str) -> RefResolver {
     RefResolver::from_store(team_id).bare(true)
 }
 
+/// EXP-1346: what every thread text renders through — the team its pills
+/// resolve against and ONE chip resolver ([`thread_text_resolver`]), built
+/// once per frame over the view's chip memo where the host keeps one (a long
+/// Conversation used to build a resolver per message per frame and re-scan
+/// the team's issues per token).
+#[derive(Clone, Default)]
+pub(crate) struct ThreadText {
+    team_id: Option<String>,
+    resolver: Option<RefResolver>,
+}
+
+impl ThreadText {
+    /// A fresh (un-memoised) resolver over `team_id`; `None` = no pills.
+    pub(crate) fn team(team_id: Option<&str>) -> Self {
+        Self::memoized(team_id, None)
+    }
+
+    /// The resolver over `team_id`, memoised behind `cache` when given (the
+    /// CALLER clears it when the issues or statuses notify).
+    pub(crate) fn memoized(team_id: Option<&str>, cache: Option<IssueChipCache>) -> Self {
+        let resolver = team_id.map(|team_id| {
+            let resolver = thread_text_resolver(team_id);
+            match cache {
+                Some(cache) => resolver.memoized(cache),
+                None => resolver,
+            }
+        });
+        Self {
+            team_id: team_id.map(str::to_string),
+            resolver,
+        }
+    }
+
+    pub(crate) fn team_id(&self) -> Option<&str> {
+        self.team_id.as_deref()
+    }
+}
+
 /// A message body as read-only chat markdown, `#IDENT` / bare `ABC-12` /
-/// `@email` pills scoped to `team_id` ([`thread_text_resolver`]). `images`
+/// `@email` pills scoped to `text`'s team ([`ThreadText`]). `images`
 /// is the screen's one [`ImageCache`]: a person's `![..](/api/attachments/..)`
 /// embed (the composer's pictures) fetches through it — a view without one
 /// paints every picture as "Image unavailable" without a fetch.
 pub(crate) fn message_markdown(
     id: SharedString,
     body: &str,
-    team_id: Option<&str>,
+    text: &ThreadText,
     images: &Entity<ImageCache>,
 ) -> MarkdownView {
     let mut view = MarkdownView::new(id, body.to_string())
@@ -682,10 +722,11 @@ pub(crate) fn message_markdown(
         .autolink(true)
         .images(images.clone())
         .on_open_link(crate::markdown::open_agent_link);
-    if let Some(team_id) = team_id {
-        let team = team_id.to_string();
+    if let (Some(team), Some(resolver)) = (text.team_id.clone(), text.resolver.clone()) {
+        // EXP-1347: a pill opens thread-aware (its thread tab, an open
+        // tab, else a new one).
         view = view
-            .resolver(thread_text_resolver(team_id))
+            .resolver(resolver)
             .on_open_issue(move |identifier, window, cx| {
                 crate::description_editor::open_issue_by_identifier(&team, identifier, window, cx);
             });
@@ -1123,18 +1164,34 @@ pub(crate) fn conversation_dock(
     rows: &[SessionThreadRow],
     session_name: impl Fn(&str) -> Option<String>,
     state: &Entity<crate::ask_dock::AskDockState>,
-    team_id: Option<&str>,
+    text: &ThreadText,
     images: &Entity<ImageCache>,
     window: &Window,
     cx: &mut App,
 ) -> Option<(AnyElement, HashSet<String>)> {
     let pending = domain::ask_dock::thread_pending_asks(rows, session_name);
+    conversation_dock_for(prefix, rows, &pending, state, text, images, window, cx)
+}
+
+/// [`conversation_dock`] over an already-scanned `pending` (EXP-1346: the
+/// thread scans once per model change, not per frame).
+#[allow(clippy::too_many_arguments)] // the host's facts
+pub(crate) fn conversation_dock_for(
+    prefix: &str,
+    rows: &[SessionThreadRow],
+    pending: &[domain::ask_dock::AskDockPending],
+    state: &Entity<crate::ask_dock::AskDockState>,
+    text: &ThreadText,
+    images: &Entity<ImageCache>,
+    window: &Window,
+    cx: &mut App,
+) -> Option<(AnyElement, HashSet<String>)> {
     if pending.is_empty() {
         return None;
     }
     let docked: HashSet<String> = pending.iter().map(|pending| pending.id.clone()).collect();
     let focused = state.read(cx).focused().map(str::to_string);
-    let view = domain::ask_dock::ask_dock(&pending, focused.as_deref());
+    let view = domain::ask_dock::ask_dock(pending, focused.as_deref());
     let content = match view.card_id.as_deref() {
         Some(card_id) => {
             let row = rows.iter().find(|row| row.id() == card_id)?;
@@ -1145,7 +1202,7 @@ pub(crate) fn conversation_dock(
                     cx.refresh_windows();
                 })
             });
-            docked_card(row, team_id, images, CardChrome { docked: true, back }, window, cx)?
+            docked_card(row, text, images, CardChrome { docked: true, back }, window, cx)?
         }
         None => {
             let state = state.clone();
@@ -1166,7 +1223,7 @@ pub(crate) fn conversation_dock(
 /// A waiting row as the dock's big card.
 fn docked_card(
     row: &SessionThreadRow,
-    team_id: Option<&str>,
+    text: &ThreadText,
     images: &Entity<ImageCache>,
     chrome: CardChrome,
     window: &Window,
@@ -1175,7 +1232,7 @@ fn docked_card(
     Some(match row {
         SessionThreadRow::Plan { id, plan, decision, fresh, .. } => plan_card(
             id,
-            message_markdown(SharedString::from(format!("thread-plan-{id}")), plan, team_id, images),
+            message_markdown(SharedString::from(format!("thread-plan-{id}")), plan, text, images),
             decision.as_deref(),
             *fresh,
             chrome,
@@ -1184,7 +1241,7 @@ fn docked_card(
         ),
         SessionThreadRow::Question { id, question, options, custom, answer, answered, .. } => question_card(
             id,
-            message_markdown(SharedString::from(format!("thread-question-{id}")), question, team_id, images),
+            message_markdown(SharedString::from(format!("thread-question-{id}")), question, text, images),
             options,
             *custom,
             answer.as_deref(),
@@ -1233,11 +1290,12 @@ pub(crate) fn picture_row(
 pub(crate) fn card_row(
     row: &SessionThreadRow,
     root_id: &str,
-    team_id: Option<&str>,
+    text: &ThreadText,
     images: &Entity<ImageCache>,
     window: &Window,
     cx: &mut App,
 ) -> Option<AnyElement> {
+    let team_id = text.team_id();
     Some(match row {
         SessionThreadRow::Message { .. } => return None,
         SessionThreadRow::Session { card, .. } => {
@@ -1259,7 +1317,7 @@ pub(crate) fn card_row(
             ..
         } => question_card(
             id,
-            message_markdown(SharedString::from(format!("thread-question-{id}")), question, team_id, images),
+            message_markdown(SharedString::from(format!("thread-question-{id}")), question, text, images),
             options,
             *custom,
             answer.as_deref(),
@@ -1270,7 +1328,7 @@ pub(crate) fn card_row(
         ),
         SessionThreadRow::Plan { id, plan, decision, fresh, .. } => plan_card(
             id,
-            message_markdown(SharedString::from(format!("thread-plan-{id}")), plan, team_id, images),
+            message_markdown(SharedString::from(format!("thread-plan-{id}")), plan, text, images),
             decision.as_deref(),
             *fresh,
             CardChrome::default(),
@@ -1735,11 +1793,12 @@ fn suggestion_menu(
 // The issue page's `Threads` row
 // ---------------------------------------------------------------------------
 
-/// A root's mark (its CLI's): the working mark while busy, the brand mark
-/// with an amber corner dot while it needs you.
+/// A root's mark (its CLI's), `threadRowMarkState` ×4 (EXP-1344): the brand
+/// mark with an amber corner dot while it needs you (beats busy), else the
+/// working mark while busy, else the bare brand mark.
 pub(crate) fn root_mark(root: &SessionRow, busy: bool, needs_you: bool, size: f32, badge: f32) -> AnyElement {
     let agent = root.cli.as_deref().and_then(coding::CodingAgent::parse);
-    if busy {
+    if domain::session_tree::thread_row_mark_state(needs_you, busy) == domain::session_tree::SessionState::Working {
         return crate::coding_selects::agent_working_mark(agent, size).into_any_element();
     }
     let mark = match agent {
@@ -2653,6 +2712,34 @@ fn thread_model(root_id: &str, focus: Option<&str>, cx: &App) -> Option<ThreadMo
     })
 }
 
+/// EXP-1346: how far beyond the viewport the Conversation renders and
+/// measures rows (the session feed's `FEED_OVERDRAW`).
+const CONVERSATION_OVERDRAW: gpui::Pixels = px(1024.);
+
+/// EXP-1346: the Conversation list's projection ([`ThreadScreenView::sync_list`]).
+#[derive(Default)]
+struct ConversationRows {
+    /// Indices into the model's rows, in list order.
+    rows: Vec<usize>,
+    /// Whether the live tail is the last list row.
+    tail: bool,
+    /// What the list was last told.
+    keys: Vec<RowKey>,
+    /// The inputs the projection was built from (model generation, may
+    /// message, tail shown).
+    synced: Option<(u64, bool, bool)>,
+}
+
+/// EXP-1346: a Conversation row's content identity (its measured height
+/// moves with it): the row itself plus a message's timestamp (its caption).
+fn conversation_fingerprint(row: &SessionThreadRow, at: Option<&str>) -> u64 {
+    use std::hash::{Hash as _, Hasher as _};
+    let mut hasher = std::hash::DefaultHasher::new();
+    serde_json::to_string(row).unwrap_or_default().hash(&mut hasher);
+    at.hash(&mut hasher);
+    hasher.finish()
+}
+
 /// The Guide child's own state: the open diff page, the pull request's
 /// diff, the hovered stack member. Merges ride [`crate::pr_merge`]'s state.
 #[derive(Default)]
@@ -2665,7 +2752,10 @@ struct GuideState {
 pub(crate) struct ThreadScreenView {
     root_id: String,
     child: ThreadChildSel,
-    model: Option<ThreadModel>,
+    /// EXP-1346: shared, never deep-cloned per frame.
+    model: Option<Rc<ThreadModel>>,
+    /// Bumped on every [`Self::refresh`]: what [`Self::sync_list`] diffs on.
+    model_gen: u64,
     /// The issue child's detail view (built on first show, re-pointed).
     issue_view: Option<Entity<crate::issue_detail::IssueDetailView>>,
     guide: GuideState,
@@ -2680,10 +2770,20 @@ pub(crate) struct ThreadScreenView {
     /// (linked inside [`NEW_CHILD_WINDOW`]) — the fade-in ring.
     first_seen: HashMap<String, (Instant, bool)>,
     opened_at: Instant,
-    scroll: ScrollHandle,
-    /// EXP-1316 (1n): the conversation follows its tail like the session
-    /// feed (opens on the newest row, pinned until the reader scrolls up).
-    follow: crate::controls::TailFollow,
+    /// EXP-1346: the virtualised Conversation (the session feed's recipe,
+    /// EXP-776): `gpui::list` renders and measures only the rows in and
+    /// around the viewport; [`FollowMode::Tail`] = EXP-1316 (1n)'s follow
+    /// (opens on the newest row, pinned until the reader scrolls up).
+    list: ListState,
+    /// The projection the list indexes into: indices into the model's rows
+    /// (the docked asks left out), then the live tail row while it shows.
+    conv: ConversationRows,
+    /// The ask dock's waiting cards, scanned once per model change.
+    pending_asks: Vec<domain::ask_dock::AskDockPending>,
+    /// The chip memo behind [`Self::text`] (cleared when the issues or
+    /// statuses notify) and this frame's resolver over it.
+    chip_cache: IssueChipCache,
+    text: ThreadText,
     focus_handle: FocusHandle,
     _ring_tick: Option<Task<()>>,
     /// EXP-1316 (1b): the session open IN PLACE (`Screen::Session` of this
@@ -2723,7 +2823,14 @@ impl ThreadScreenView {
             subscriptions.push(cx.observe(&collections.session_issues, |this, _, cx| this.refresh(cx)));
             subscriptions.push(cx.observe(&collections.messages, |this, _, cx| this.refresh(cx)));
             subscriptions.push(cx.observe(&collections.pull_requests, |this, _, cx| this.refresh(cx)));
-            subscriptions.push(cx.observe(&collections.issues, |this, _, cx| this.refresh(cx)));
+            subscriptions.push(cx.observe(&collections.issues, |this, _, cx| {
+                this.chip_cache.borrow_mut().clear();
+                this.refresh(cx);
+            }));
+            subscriptions.push(cx.observe(&collections.issue_statuses, |this, _, cx| {
+                this.chip_cache.borrow_mut().clear();
+                cx.notify();
+            }));
         }
         // The merge capsule's armed / merging state.
         let merge_state = crate::pr_merge::MergeState::global(cx);
@@ -2744,6 +2851,7 @@ impl ThreadScreenView {
             root_id,
             child: ThreadChildSel::Conversation,
             model: None,
+            model_gen: 0,
             issue_view: None,
             guide: GuideState::default(),
             images,
@@ -2751,8 +2859,15 @@ impl ThreadScreenView {
             ask_dock: cx.new(|_| crate::ask_dock::AskDockState::default()),
             first_seen: HashMap::new(),
             opened_at: Instant::now(),
-            scroll: ScrollHandle::new(),
-            follow: crate::controls::TailFollow::default(),
+            list: {
+                let list = ListState::new(0, ListAlignment::Top, CONVERSATION_OVERDRAW);
+                list.set_follow_mode(FollowMode::Tail);
+                list
+            },
+            conv: ConversationRows::default(),
+            pending_asks: Vec::new(),
+            chip_cache: Default::default(),
+            text: ThreadText::default(),
             focus_handle: cx.focus_handle(),
             _ring_tick: None,
             focus: None,
@@ -2783,7 +2898,17 @@ impl ThreadScreenView {
                 }
             }
         }
-        self.model = model;
+        self.pending_asks = model
+            .as_ref()
+            .map(|model| {
+                domain::ask_dock::thread_pending_asks(
+                    &model.view.rows,
+                    domain::ask_dock::thread_session_names(&model.view.tabs),
+                )
+            })
+            .unwrap_or_default();
+        self.model = model.map(Rc::new);
+        self.model_gen = self.model_gen.wrapping_add(1);
         cx.notify();
     }
 
@@ -2887,6 +3012,16 @@ impl ThreadScreenView {
         self.focus.as_ref().map(|(id, _)| id.as_str())
     }
 
+    /// EXP-1347: the issue ids of this thread's issue tabs (nested ones too).
+    pub(crate) fn issue_tab_ids(&self) -> Vec<String> {
+        self.model.as_ref().map(|model| model.linked_ids()).unwrap_or_default()
+    }
+
+    /// EXP-1347: an issue pill of one of this thread's issues selects its tab.
+    pub(crate) fn open_issue_tab(&mut self, issue_id: String, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        self.select_child(ThreadChildSel::Issue(issue_id), window, cx);
+    }
+
     /// A strip chip other than a session: leave the in-place session (back
     /// to `Screen::Thread`, the same tab) and show `child`.
     fn select_child(&mut self, child: ThreadChildSel, window: &mut Window, cx: &mut gpui::Context<Self>) {
@@ -2934,7 +3069,7 @@ impl ThreadScreenView {
             root_id: self.root_id.clone(),
             team_id: self.model.as_ref().and_then(|model| model.root.team_id.clone()),
             chip,
-            linked: self.model.as_ref().map(ThreadModel::linked_ids).unwrap_or_default(),
+            linked: self.model.as_ref().map(|model| model.linked_ids()).unwrap_or_default(),
         }
     }
 
@@ -3061,7 +3196,6 @@ impl ThreadScreenView {
         window: &Window,
         cx: &mut gpui::Context<Self>,
     ) -> AnyElement {
-        let team_id = model.root.team_id.as_deref();
         if let SessionThreadRow::Message {
             id,
             author,
@@ -3074,7 +3208,7 @@ impl ThreadScreenView {
             let markdown = message_markdown(
                 SharedString::from(format!("thread-message-{id}")),
                 body,
-                team_id,
+                &self.text,
                 &self.images,
             );
             return match author.as_str() {
@@ -3089,7 +3223,7 @@ impl ThreadScreenView {
                 _ => muted_line(registry::UI_INFO, body.clone(), cx),
             };
         }
-        card_row(row, &self.root_id, team_id, &self.images, window, cx).unwrap_or_else(|| div().into_any_element())
+        card_row(row, &self.root_id, &self.text, &self.images, window, cx).unwrap_or_else(|| div().into_any_element())
     }
 
     /// EXP-1323: keep ONE relay viewer on `live` (the view's
@@ -3118,47 +3252,177 @@ impl ThreadScreenView {
         inner.update(cx, |inner, cx| inner.live_tail(window, cx))
     }
 
+    /// EXP-1346: refresh the Conversation's projection and tell the list
+    /// what changed — only when its inputs moved (the model, whether the
+    /// reader may reply = whether the asks dock, the live tail), never per
+    /// frame. Rows key by POSITION (ids ascend, [`plan_list_sync`]'s rule)
+    /// with a content fingerprint, so an append is one splice and a row
+    /// that changed (or slid under another) re-measures.
+    fn sync_list(&mut self, model: &ThreadModel, may_message: bool) {
+        let inputs = (self.model_gen, may_message, self.tail.is_some());
+        if self.conv.synced == Some(inputs) {
+            return;
+        }
+        self.conv.synced = Some(inputs);
+        let docked: HashSet<&str> = if may_message {
+            self.pending_asks.iter().map(|pending| pending.id.as_str()).collect()
+        } else {
+            HashSet::new()
+        };
+        self.conv.rows = model
+            .view
+            .rows
+            .iter()
+            .enumerate()
+            .filter(|(_, row)| !docked.contains(row.id()))
+            .map(|(index, _)| index)
+            .collect();
+        self.conv.tail = self.tail.is_some();
+        let mut keys: Vec<RowKey> = self
+            .conv
+            .rows
+            .iter()
+            .enumerate()
+            .map(|(position, &index)| {
+                let row = &model.view.rows[index];
+                let at = match row {
+                    SessionThreadRow::Message { id, .. } => {
+                        model.messages.get(id).and_then(|message| message.created_at.as_deref())
+                    }
+                    _ => None,
+                };
+                RowKey {
+                    id: position as u64,
+                    fingerprint: conversation_fingerprint(row, at),
+                }
+            })
+            .collect();
+        if self.conv.tail {
+            keys.push(RowKey {
+                id: WORKING_ROW_ID,
+                fingerprint: 0,
+            });
+        }
+        for op in plan_list_sync(&self.conv.keys, &keys) {
+            match op {
+                ListOp::Splice { range, count } => self.list.splice(range, count),
+                ListOp::Remeasure(range) => self.list.remeasure_items(range),
+            }
+        }
+        self.conv.keys = keys;
+    }
+
+    /// One Conversation list row: the reading column (the old column's
+    /// measure and gutter), the row gap above every row but the first.
+    fn render_list_row(&mut self, ix: usize, window: &mut Window, cx: &mut gpui::Context<Self>) -> AnyElement {
+        let content = match (self.conv.rows.get(ix), self.model.clone()) {
+            (Some(&index), Some(model)) => match model.view.rows.get(index) {
+                Some(row) => Some(self.render_row(row, &model, window, cx)),
+                None => None,
+            },
+            // EXP-1323: the live tail after the last row.
+            _ => self.render_tail(window, cx),
+        };
+        let Some(content) = content else {
+            return div().into_any_element();
+        };
+        div()
+            .w_full()
+            .child(
+                v_flex()
+                    .w_full()
+                    .max_w(px(CONVERSATION_W))
+                    .mx_auto()
+                    .px(px(crate::work_header::WORK_GUTTER))
+                    .when(ix > 0, |this| this.pt_5())
+                    .child(content),
+            )
+            .into_any_element()
+    }
+
+    /// The Conversation's jump-to-bottom button
+    /// ([`crate::controls::jump_to_bottom_button`]) while the reader is off
+    /// the tail; a click re-arms the follow. gpui re-arms the follow in
+    /// LAYOUT, so a paint-time probe repaints once when it flipped.
+    fn render_jump_to_bottom(&self, cx: &mut gpui::Context<Self>) -> AnyElement {
+        let following = self.list.is_following_tail();
+        let shown = !self.conv.keys.is_empty() && !following;
+        let probe_list = self.list.clone();
+        let entity_id = cx.entity_id();
+        let probe = gpui::canvas(
+            move |_, _, cx| {
+                if probe_list.is_following_tail() != following {
+                    cx.defer(move |cx| cx.notify(entity_id));
+                }
+            },
+            |_, _: (), _, _| {},
+        )
+        .absolute()
+        .size_0();
+        let target = self.list.clone();
+        let button = shown.then(|| {
+            h_flex()
+                .absolute()
+                .left_0()
+                .right_0()
+                .bottom(px(crate::controls::JUMP_TO_BOTTOM_GAP))
+                .justify_center()
+                .child(crate::controls::jump_to_bottom_button(
+                    "thread-conversation-scroll-jump-to-bottom",
+                    cx.listener(move |_, _: &ClickEvent, _window, cx| {
+                        target.set_follow_mode(FollowMode::Tail);
+                        target.scroll_to_end();
+                        cx.notify();
+                    }),
+                    cx,
+                ))
+        });
+        div()
+            .absolute()
+            .left_0()
+            .right_0()
+            .bottom_0()
+            .child(probe)
+            .children(button)
+            .into_any_element()
+    }
+
     fn render_conversation(&mut self, model: &ThreadModel, window: &Window, cx: &mut gpui::Context<Self>) -> AnyElement {
         // THE ask dock (ask-dock.json ×4): the tree's waiting cards take the
         // composer's slot, exactly like a session's card; a reader who may
         // not reply keeps them inline.
-        let dock = self
-            .composer
-            .read(cx)
-            .may_message()
+        let may_message = self.composer.read(cx).may_message();
+        let dock = may_message
             .then(|| {
-                conversation_dock(
+                conversation_dock_for(
                     "thread",
                     &model.view.rows,
-                    domain::ask_dock::thread_session_names(&model.view.tabs),
+                    &self.pending_asks,
                     &self.ask_dock,
-                    model.root.team_id.as_deref(),
+                    &self.text,
                     &self.images,
                     window,
                     cx,
                 )
             })
             .flatten();
-        let docked = dock.as_ref().map(|(_, ids)| ids.clone()).unwrap_or_default();
-        let rows: Vec<AnyElement> = model
-            .view
-            .rows
-            .iter()
-            .filter(|row| !docked.contains(row.id()))
-            .map(|row| self.render_row(row, model, window, cx))
-            .collect();
-        let tail = self.render_tail(window, cx);
-        let column = v_flex()
+        self.sync_list(model, may_message);
+        let list = gpui::list(
+            self.list.clone(),
+            cx.processor(|this, ix: usize, window, cx| this.render_list_row(ix, window, cx)),
+        )
+        .pt_8()
+        .pb_8();
+        let scroller = div()
             .id(SharedString::from(THREAD.test_ids.conversation.clone()))
+            .relative()
+            .flex_1()
+            .min_h_0()
             .w_full()
-            .max_w(px(CONVERSATION_W))
-            .mx_auto()
-            .px(px(crate::work_header::WORK_GUTTER))
-            .pt_8()
-            .pb_8()
-            .gap_5()
-            .children(rows)
-            .children(tail);
+            .flex()
+            .flex_col()
+            .child(crate::scroll_pane::v_list_pane(list, &self.list))
+            .child(self.render_jump_to_bottom(cx));
         // THE session composer of the session view, targeting the root; it
         // yields its slot to the dock.
         let composer = match dock {
@@ -3179,13 +3443,7 @@ impl ThreadScreenView {
             .flex_1()
             .min_h_0()
             .w_full()
-            .child(self.follow.scroller(
-                "thread-conversation-scroll",
-                &self.scroll,
-                column,
-                cx.entity_id(),
-                cx,
-            ))
+            .child(scroller)
             .children(composer.map(|composer| div().w_full().pb_2().child(composer)))
             .into_any_element()
     }
@@ -3340,6 +3598,7 @@ impl Focusable for ThreadScreenView {
 
 impl Render for ThreadScreenView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        // EXP-1346: an Rc handle, never a deep clone of the model.
         let Some(model) = self.model.clone() else {
             let ready = Store::try_global(cx).is_some_and(|store| store.collections().sessions.read(cx).is_ready());
             // The sessions synced, this root is not among them, and the
@@ -3387,6 +3646,8 @@ impl Render for ThreadScreenView {
             cx.global_mut::<PendingThreadChild>().0.remove(&self.root_id);
             self.set_child(ThreadChildSel::Issue(issue_id), window, cx);
         }
+        // EXP-1346: ONE memoised chip resolver per frame for every text.
+        self.text = ThreadText::memoized(model.root.team_id.as_deref(), Some(self.chip_cache.clone()));
         let header = self.render_header(&model, window, cx);
         // EXP-1323: the live tail's viewer rides the Conversation only.
         let live = (self.focus.is_none() && self.child == ThreadChildSel::Conversation)

@@ -177,7 +177,7 @@ impl AgentScreenView {
             ..
         } = row
         else {
-            return crate::thread_screen::card_row(row, &self.agent_id, team_id.as_deref(), &self.images, window, cx)
+            return crate::thread_screen::card_row(row, &self.agent_id, &crate::thread_screen::ThreadText::team(team_id.as_deref()), &self.images, window, cx)
                 .map(|card| div().w_full().pl(px(CARD_INSET)).child(card).into_any_element())
                 .unwrap_or_else(|| div().into_any_element());
         };
@@ -288,7 +288,7 @@ impl Render for AgentScreenView {
                     &self.rows,
                     |_| None,
                     &self.ask_dock,
-                    team_id.as_deref(),
+                    &crate::thread_screen::ThreadText::team(team_id.as_deref()),
                     &self.images,
                     window,
                     cx,

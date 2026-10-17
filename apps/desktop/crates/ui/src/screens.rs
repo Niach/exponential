@@ -2092,9 +2092,19 @@ impl ScreensPanel {
             })
     }
 
+    /// EXP-1347: whether a top tab holds `screen`.
+    pub(crate) fn has_tab(&self, screen: &Screen) -> bool {
+        self.tabs.iter().any(|tab| tab.holds(screen))
+    }
+
+    /// EXP-1347: the open thread view of `root_id` in this window.
+    pub(crate) fn thread_view(&self, root_id: &str) -> Option<Entity<crate::thread_screen::ThreadScreenView>> {
+        self.threads.get(root_id).cloned()
+    }
+
     /// Show `screen`: activate its tab when one is open (origin restore and
     /// all), else navigate to it.
-    fn open_screen(&mut self, screen: Screen, window: &mut Window, cx: &mut gpui::Context<Self>) {
+    pub(crate) fn open_screen(&mut self, screen: Screen, window: &mut Window, cx: &mut gpui::Context<Self>) {
         match self.tabs.iter().position(|tab| tab.holds(&screen)) {
             Some(ix) => self.activate_tab(ix, window, cx),
             None => crate::navigation::navigate(window, cx, screen),

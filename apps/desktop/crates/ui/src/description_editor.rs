@@ -190,7 +190,8 @@ pub(crate) fn build_editor(
 }
 
 /// Resolve a `#IDENT` pill click against the synced issues of a team and
-/// navigate to its detail (§4.5 "clicking navigates to that issue's detail").
+/// open it ([`open_issue_pill`], §4.5 "clicking navigates to that issue's
+/// detail").
 pub(crate) fn open_issue_by_identifier(
     team_id: &str,
     identifier: &str,
@@ -198,8 +199,68 @@ pub(crate) fn open_issue_by_identifier(
     cx: &mut App,
 ) {
     if let Some(issue_id) = issue_id_by_identifier(team_id, identifier, cx) {
-        navigate(window, cx, Screen::IssueDetail { issue_id });
+        open_issue_pill(issue_id, window, cx);
     }
+}
+
+/// EXP-1347 (session-thread.json): where a tapped issue pill lands.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum IssuePillTarget {
+    /// The issue is one of the open thread's issue tabs: select that tab
+    /// (never leaving the thread).
+    ThreadTab,
+    /// A top (IDE) tab already holds the issue: focus it.
+    ExistingTab,
+    /// Open a new top tab.
+    NewTab,
+}
+
+/// EXP-1347: the pill decision (pure). `thread_issue_ids` = the issue tabs of
+/// the thread the pill was tapped inside (empty outside a thread);
+/// `existing_tab` = a top tab already holds the issue.
+pub(crate) fn issue_pill_target(thread_issue_ids: &[String], issue_id: &str, existing_tab: bool) -> IssuePillTarget {
+    if thread_issue_ids.iter().any(|id| id == issue_id) {
+        IssuePillTarget::ThreadTab
+    } else if existing_tab {
+        IssuePillTarget::ExistingTab
+    } else {
+        IssuePillTarget::NewTab
+    }
+}
+
+/// EXP-1347: open an issue pill's issue. Inside a thread (the window shows
+/// `Screen::Thread`, or a session of a thread in place: its Conversation, an
+/// embedded session view, a card, the issue child) an issue of THAT thread
+/// selects its thread tab; else an existing top tab holding it is focused;
+/// else a new top tab opens. Deferred: the click may land inside an update
+/// of a view this touches.
+pub(crate) fn open_issue_pill(issue_id: String, window: &mut Window, cx: &mut App) {
+    window.defer(cx, move |window, cx| {
+        let screen = Screen::IssueDetail { issue_id: issue_id.clone() };
+        let Some(panel) = crate::screens::screens_for_window(window, cx) else {
+            navigate(window, cx, screen);
+            return;
+        };
+        let nav = crate::navigation::nav_for_window(window, cx);
+        let root = match crate::navigation::resolved_screen(&nav, cx) {
+            Some(Screen::Thread { session_id }) => Some(session_id),
+            Some(Screen::Session { session_id }) => crate::screens::in_place_root(&session_id, cx),
+            _ => None,
+        };
+        let thread = root.and_then(|root| panel.read(cx).thread_view(&root));
+        let thread_ids = thread
+            .as_ref()
+            .map(|thread| thread.read(cx).issue_tab_ids())
+            .unwrap_or_default();
+        let existing = panel.read(cx).has_tab(&screen);
+        match (issue_pill_target(&thread_ids, &issue_id, existing), thread) {
+            (IssuePillTarget::ThreadTab, Some(thread)) => thread.update(cx, |thread, cx| {
+                thread.open_issue_tab(issue_id, window, cx);
+            }),
+            (IssuePillTarget::ExistingTab, _) => panel.update(cx, |panel, cx| panel.open_screen(screen, window, cx)),
+            _ => navigate(window, cx, screen),
+        }
+    });
 }
 
 /// EXP-760: the lookup half of [`open_issue_by_identifier`] — the row id a
@@ -306,5 +367,23 @@ impl DescriptionEditor for SeamEditor {
     fn focus(&self, window: &mut Window, cx: &mut App) {
         self.editor
             .update(cx, |editor, cx| editor.focus(window, cx));
+    }
+}
+
+#[cfg(test)]
+mod pill_tests {
+    use super::*;
+
+    /// EXP-1347: a thread's own issue selects its tab; otherwise an open
+    /// top tab is focused; otherwise a new tab opens.
+    #[test]
+    fn issue_pill_prefers_the_thread_tab_then_an_open_tab() {
+        let thread = vec!["i1".to_string(), "i2".to_string()];
+        assert_eq!(issue_pill_target(&thread, "i2", true), IssuePillTarget::ThreadTab);
+        assert_eq!(issue_pill_target(&thread, "i2", false), IssuePillTarget::ThreadTab);
+        assert_eq!(issue_pill_target(&thread, "i3", true), IssuePillTarget::ExistingTab);
+        assert_eq!(issue_pill_target(&thread, "i3", false), IssuePillTarget::NewTab);
+        assert_eq!(issue_pill_target(&[], "i1", true), IssuePillTarget::ExistingTab);
+        assert_eq!(issue_pill_target(&[], "i1", false), IssuePillTarget::NewTab);
     }
 }

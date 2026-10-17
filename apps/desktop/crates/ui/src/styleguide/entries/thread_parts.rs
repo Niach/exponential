@@ -475,7 +475,7 @@ pub(super) fn row(
     cx: &mut App,
 ) -> AnyElement {
     if let SessionThreadRow::Message { id, author, body, queued, .. } = row {
-        let markdown = message_markdown(SharedString::from(format!("sg-thread-message-{id}")), body, None, images);
+        let markdown = message_markdown(SharedString::from(format!("sg-thread-message-{id}")), body, &crate::thread_screen::ThreadText::default(), images);
         return match author.as_str() {
             domain::contract::MESSAGE_AUTHOR_KIND_USER => {
                 let at = case
@@ -490,7 +490,7 @@ pub(super) fn row(
             _ => muted_line(registry::UI_INFO, body.clone(), cx),
         };
     }
-    card_row(row, &case.view.root_id, None, images, window, cx).unwrap_or_else(|| div().into_any_element())
+    card_row(row, &case.view.root_id, &crate::thread_screen::ThreadText::default(), images, window, cx).unwrap_or_else(|| div().into_any_element())
 }
 
 /// The rows of the second case the first has no example of.
