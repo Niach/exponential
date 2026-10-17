@@ -1,8 +1,10 @@
 import { TRPCError } from "@trpc/server"
 import { and, asc, eq, isNotNull } from "drizzle-orm"
 import {
+  REPLIES_MAX,
   SUGGESTIONS_MAX,
   type MessageCard,
+  type ReplyItem,
   type SuggestionItem,
 } from "@exp/db-schema/domain"
 import { db } from "@/db/connection"
@@ -15,6 +17,7 @@ import { insertMessage } from "@/lib/sessions/messages"
 import { sendSession } from "@/lib/sessions/send"
 import type { Tx } from "@/lib/sessions/tx"
 import {
+  patchReplies,
   patchSuggestion,
   suggestionRequest,
   suggestionState,
@@ -109,6 +112,93 @@ export async function postSuggestions(args: {
       consumedAt: new Date(),
     })
     return { messageId, itemIds: items.map((item) => item.id) }
+  })
+}
+
+// EXP-1211: the `replies` card = quick replies above the composer of the
+// posting session (the newest card wins on the client). A tap = a message
+// to that session with the reply's text, the `sent` stamp in the send's
+// transaction; dismiss stamps every reply. Same gate as a suggestion.
+
+/** MCP `exponential_sessions_suggest` `replies`: the card on the CALLER's
+ *  session, pre-consumed (it wakes nothing). */
+export async function postReplies(args: {
+  userId: string
+  callerSessionId: string
+  replies: string[]
+}): Promise<{ messageId: string; itemIds: string[] }> {
+  if (args.replies.length === 0 || args.replies.length > REPLIES_MAX) {
+    throw new TRPCError({ code: `BAD_REQUEST`, message: `Offer 1 to ${REPLIES_MAX} replies` })
+  }
+  const session = await loadSessionForUser(args.userId, args.callerSessionId)
+  if (session.userId !== args.userId && session.hostUserId !== args.userId) {
+    throw new TRPCError({ code: `FORBIDDEN`, message: `Offer replies only on your own session` })
+  }
+  const items: ReplyItem[] = args.replies.map((text) => ({ id: crypto.randomUUID(), text }))
+  return db.transaction(async (tx) => {
+    const messageId = await insertMessage(tx, session, {
+      authorKind: `agent`,
+      authorSessionId: session.id,
+      card: { kind: `replies`, items },
+      consumedAt: new Date(),
+    })
+    return { messageId, itemIds: items.map((item) => item.id) }
+  })
+}
+
+async function loadRepliesCard(userId: string, messageId: string) {
+  const [message] = await db.select().from(messages).where(eq(messages.id, messageId)).limit(1)
+  if (!message) throw new TRPCError({ code: `NOT_FOUND`, message: `Message not found` })
+  const session = await loadSessionForUser(userId, message.sessionId)
+  await assertCanSteer(userId, session)
+  const card = message.card as MessageCard | null
+  if (!card || card.kind !== `replies`) {
+    throw new TRPCError({ code: `BAD_REQUEST`, message: `This message offers no replies` })
+  }
+  return { message, card }
+}
+
+/** Stamps a reply (null = all) sent under the message row's lock. */
+async function stampReplies(tx: Tx, messageId: string, itemId: string | null): Promise<void> {
+  const [row] = await tx
+    .select({ card: messages.card })
+    .from(messages)
+    .where(eq(messages.id, messageId))
+    .for(`update`)
+  const patched = patchReplies((row?.card ?? null) as MessageCard | null, itemId)
+  if (!patched.ok) throw new TRPCError({ code: patched.code, message: patched.message })
+  await tx
+    .update(messages)
+    .set({ card: patched.card, updatedAt: new Date() })
+    .where(eq(messages.id, messageId))
+}
+
+/** A tap: the reply's text as the next message to the card's session. */
+export async function sendReply(
+  userId: string,
+  input: { messageId: string; itemId: string }
+): Promise<{ sessionId: string; txid: number }> {
+  const { message, card } = await loadRepliesCard(userId, input.messageId)
+  const item = card.items.find((entry) => entry.id === input.itemId)
+  if (!item) throw new TRPCError({ code: `NOT_FOUND`, message: `Reply not found` })
+  if (item.sent) throw new TRPCError({ code: `CONFLICT`, message: `This reply was already sent` })
+  const result = await sendSession({
+    userId,
+    input: { sessionId: message.sessionId, text: item.text },
+    extras: { within: (tx) => stampReplies(tx, message.id, item.id) },
+  })
+  return { sessionId: result.sessionId, txid: result.txid }
+}
+
+export async function dismissReplies(
+  userId: string,
+  messageId: string
+): Promise<{ txid: number }> {
+  await loadRepliesCard(userId, messageId)
+  return db.transaction(async (tx) => {
+    const txid = await generateTxId(tx)
+    await stampReplies(tx, messageId, null)
+    return { txid }
   })
 }
 

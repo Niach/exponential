@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { MessageCard } from "@exp/db-schema/domain"
-import { patchSuggestion, suggestionRequest, suggestionState } from "./suggestion-card"
+import { patchReplies, patchSuggestion, suggestionRequest, suggestionState } from "./suggestion-card"
 
 // EXP-1328: an item is open until ONE action stamps it.
 const card: MessageCard = {
@@ -39,5 +39,38 @@ describe(`suggestion card`, () => {
       patchSuggestion({ kind: `plan`, plan: `p` } as MessageCard, `a`, { dismissed: true })
     ).toMatchObject({ ok: false, code: `BAD_REQUEST` })
     expect(patchSuggestion(null, `a`, { dismissed: true })).toMatchObject({ ok: false })
+  })
+})
+
+// EXP-1211: a quick reply is open until a tap or the dismiss stamps it sent.
+describe(`replies card`, () => {
+  const replies: MessageCard = {
+    kind: `replies`,
+    items: [
+      { id: `a`, text: `Raise the version numbers` },
+      { id: `b`, text: `Open the PR`, sent: true },
+    ],
+  }
+
+  it(`stamps one reply sent`, () => {
+    const patched = patchReplies(replies, `a`)
+    expect(patched.ok && patched.item).toEqual({ id: `a`, text: `Raise the version numbers`, sent: true })
+  })
+
+  it(`refuses a sent, unknown or wrong-kind reply`, () => {
+    expect(patchReplies(replies, `b`)).toMatchObject({ ok: false, code: `CONFLICT` })
+    expect(patchReplies(replies, `z`)).toMatchObject({ ok: false, code: `NOT_FOUND` })
+    expect(patchReplies(card, `a`)).toMatchObject({ ok: false, code: `BAD_REQUEST` })
+  })
+
+  it(`dismiss stamps every reply`, () => {
+    const patched = patchReplies(replies, null)
+    expect(patched.ok && patched.card).toEqual({
+      kind: `replies`,
+      items: [
+        { id: `a`, text: `Raise the version numbers`, sent: true },
+        { id: `b`, text: `Open the PR`, sent: true },
+      ],
+    })
   })
 })

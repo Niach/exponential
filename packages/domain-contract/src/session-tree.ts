@@ -584,6 +584,40 @@ export function composerYieldsToCard(input: { live: boolean; pendingAsk: boolean
   return input.live && input.pendingAsk
 }
 
+export const REPLIES_COPY = threadFixture.copy.replies
+
+export interface ComposerReplies {
+  messageId: string
+  items: { id: string; text: string }[]
+}
+
+/** EXP-1211: the quick replies above a session's composer = its NEWEST
+ *  `replies` card (createdAt, then id) minus the sent items; null = none. */
+export function composerReplies(input: {
+  sessionId: string
+  messages: readonly TreeMessage[]
+}): ComposerReplies | null {
+  let newest: TreeMessage | null = null
+  for (const message of input.messages) {
+    if (message.sessionId !== input.sessionId || message.card?.kind !== `replies`) continue
+    if (
+      !newest ||
+      (ms(message.createdAt) ?? 0) > (ms(newest.createdAt) ?? 0) ||
+      ((ms(message.createdAt) ?? 0) === (ms(newest.createdAt) ?? 0) && message.id > newest.id)
+    ) {
+      newest = message
+    }
+  }
+  if (!newest || !Array.isArray(newest.card?.items)) return null
+  const items: ComposerReplies[`items`] = []
+  for (const raw of newest.card.items as Record<string, unknown>[]) {
+    if (!raw || typeof raw !== `object` || typeof raw.id !== `string`) continue
+    if (raw.sent === true || typeof raw.text !== `string` || !raw.text.trim()) continue
+    items.push({ id: raw.id, text: raw.text })
+  }
+  return items.length > 0 ? { messageId: newest.id, items } : null
+}
+
 /** Depth-first walk of a forest given each node's FOLD parent (null = a
  *  top-level node), children in the given order. */
 function foldForest<T>(

@@ -1,4 +1,4 @@
-import type { MessageCard, SuggestionItem } from "@exp/db-schema/domain"
+import type { MessageCard, ReplyItem, SuggestionItem } from "@exp/db-schema/domain"
 
 // EXP-1328: the `suggestions` card's pure rules (the writers live in
 // `suggestions.ts`). An item is open until ONE of start / do it here / file /
@@ -35,6 +35,36 @@ export function patchSuggestion(
     return { ok: false, code: `CONFLICT`, message: `This suggestion was already handled` }
   }
   const next = { ...item, ...patch }
+  return {
+    ok: true,
+    card: { ...card, items: card.items.map((entry) => (entry.id === itemId ? next : entry)) },
+    item: next,
+  }
+}
+
+// EXP-1211: the `replies` card (quick replies above the composer). A reply
+// is open until a tap sends it or the row is dismissed (both stamp `sent`).
+
+/** Pure: the replies card with `itemId` stamped sent (null = every open
+ *  item, the dismiss), or the refusal. */
+export function patchReplies(
+  card: MessageCard | null,
+  itemId: string | null
+): { ok: true; card: MessageCard; item: ReplyItem | null } | { ok: false; code: `BAD_REQUEST` | `NOT_FOUND` | `CONFLICT`; message: string } {
+  if (!card || card.kind !== `replies`) {
+    return { ok: false, code: `BAD_REQUEST`, message: `This message offers no replies` }
+  }
+  if (itemId === null) {
+    return {
+      ok: true,
+      card: { ...card, items: card.items.map((entry) => ({ ...entry, sent: true })) },
+      item: null,
+    }
+  }
+  const item = card.items.find((entry) => entry.id === itemId)
+  if (!item) return { ok: false, code: `NOT_FOUND`, message: `Reply not found` }
+  if (item.sent) return { ok: false, code: `CONFLICT`, message: `This reply was already sent` }
+  const next = { ...item, sent: true }
   return {
     ok: true,
     card: { ...card, items: card.items.map((entry) => (entry.id === itemId ? next : entry)) },

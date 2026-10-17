@@ -1,5 +1,5 @@
 import fixture from "@exp/domain-contract/fixtures/session-thread.json"
-import { buildSessionThread } from "@exp/domain-contract/session-tree"
+import { buildSessionThread, type ComposerReplies as ComposerRepliesModel } from "@exp/domain-contract/session-tree"
 import { ThreadConversation, TooltipProvider, userMessageCaption } from "@exp/ui"
 
 import { ComposerSpecimen } from "./composer-specimen.tsx"
@@ -124,6 +124,17 @@ export const entry: StyleguideEntry = {
       <div className="grid gap-2">
         <p className="text-xs text-muted-foreground">The same composer in a session while it works.</p>
         <ComposerSpecimen phase="running" placeholder={fixture.copy.placeholder} />
+      </div>
+      <div className="grid gap-2" data-specimen="quick-replies">
+        <p className="text-xs text-muted-foreground">
+          EXP-1211: the agent's quick replies (`sessions_suggest` replies) above the composer; a tap
+          sends one as the next message, the others stay.
+        </p>
+        <ComposerSpecimen
+          phase="idle"
+          placeholder={fixture.copy.placeholder}
+          replies={fixture.repliesCases[1].expected as ComposerRepliesModel}
+        />
       </div>
       <Case index={caseIndex(`EXP-1323: an ended`)} />
       <Case index={caseIndex(`EXP-1323: a live`)} />
