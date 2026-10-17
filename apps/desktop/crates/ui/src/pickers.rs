@@ -474,8 +474,14 @@ mod tests {
     #[test]
     fn single_select_menus_check_trailing() {
         // Toggles that read `.checked(` but are no menu row.
-        const TOGGLES: [&str; 5] =
-            ["web_switch(", "Switch::new(", "Checkbox::new(", "PickerItem::new(", "fn checked("];
+        // Spelled via concat! so `controls.rs`'s constructor scans skip it.
+        const TOGGLES: [&str; 5] = [
+            "web_switch(",
+            concat!("Switch", "::new("),
+            concat!("Checkbox", "::new("),
+            "PickerItem::new(",
+            "fn checked(",
+        ];
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
         let mut stack = vec![root.clone()];
         let mut offenders = Vec::new();
