@@ -39,6 +39,7 @@
 //! [`coding::token_cache`]. An ordinary conflict is otherwise left in place
 //! (never auto-aborted) and re-derived from disk for the badge.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -1277,14 +1278,17 @@ fn run_sync_worker(
                         "[ui] auto-prune {}: skipped — a coding launch is in progress",
                         repo.full_name,
                     );
-                } else if !report.is_empty() {
-                    log::info!(
-                        "[ui] auto-prune {}: removed worktrees {:?}, deleted branches {:?}, skipped {:?}",
-                        repo.full_name,
-                        report.removed_worktrees,
-                        report.deleted_branches,
-                        report.skipped,
-                    );
+                } else {
+                    if !report.is_empty() {
+                        log::info!(
+                            "[ui] auto-prune {}: removed worktrees {:?}, deleted branches {:?}, skipped {:?}",
+                            repo.full_name,
+                            report.removed_worktrees,
+                            report.deleted_branches,
+                            report.skipped,
+                        );
+                    }
+                    sweep_cargo_target(clone, &repo.full_name);
                 }
             }
         }
@@ -1440,6 +1444,37 @@ fn finished_set_fires(
 /// truth alone — force-removing fresh worktrees of open issues.
 fn carry_prune_policy(issues_ready: bool, boards_ready: bool) -> bool {
     issues_ready && boards_ready
+}
+
+/// How often one clone's shared cargo target is size-walked.
+const CARGO_TARGET_GC_INTERVAL: Duration = Duration::from_secs(60 * 60);
+
+/// Bound the clone's shared cargo target (`coding::cargo_target_gc`) at most
+/// once per [`CARGO_TARGET_GC_INTERVAL`]: the size walk is too heavy for the
+/// 120-s AutoSync cadence it rides.
+fn sweep_cargo_target(clone: &Path, full_name: &str) {
+    static LAST_RUN: std::sync::Mutex<Option<HashMap<PathBuf, Instant>>> =
+        std::sync::Mutex::new(None);
+    {
+        let mut guard = LAST_RUN.lock().unwrap_or_else(|poison| poison.into_inner());
+        let last_run = guard.get_or_insert_with(HashMap::new);
+        if last_run
+            .get(clone)
+            .is_some_and(|at| at.elapsed() < CARGO_TARGET_GC_INTERVAL)
+        {
+            return;
+        }
+        last_run.insert(clone.to_path_buf(), Instant::now());
+    }
+    let report = coding::cargo_target_gc::sweep(clone);
+    if report.bytes_freed > 0 || !report.skipped_locked.is_empty() {
+        log::info!(
+            "[ui] cargo-target gc {full_name}: freed {} of {} bytes, skipped locked {:?}",
+            report.bytes_freed,
+            report.bytes_before,
+            report.skipped_locked,
+        );
+    }
 }
 
 #[cfg(test)]
