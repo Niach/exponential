@@ -59,13 +59,11 @@ const threadsNav = vi.hoisted(() => ({
   value: { live: false, needsYou: false },
   scope: [] as readonly string[],
 }))
-const myLive = vi.hoisted(() => ({ value: { count: 0, needsInput: false } }))
 vi.mock(`@/hooks/use-nav-counts`, () => ({
   useThreadsNav: (teamIds: readonly string[]) => {
     threadsNav.scope = teamIds
     return threadsNav.value
   },
-  useAgentsRunningCount: () => myLive.value,
 }))
 // EXP-1186: the bar's cross-team scope — the member teams the test sets.
 const memberTeams = vi.hoisted(() => ({ value: null as unknown[] | null }))
@@ -171,7 +169,6 @@ describe(`MobileTabBar Threads (EXP-1293)`, () => {
     route.value = ``
     memberTeams.value = null
     threadsNav.value = { live: false, needsYou: false }
-    myLive.value = { count: 0, needsInput: false }
   })
 
   const threadsTab = () => screen.getByTestId(`tab-threads`)
@@ -202,10 +199,13 @@ describe(`MobileTabBar Threads (EXP-1293)`, () => {
     expect(threadsNav.scope).toEqual([`t1`, `t2`])
   })
 
-  it(`dots the chat arm off my live sessions`, () => {
-    myLive.value = { count: 1, needsInput: true }
+  // EXP-1327: the live dot rides Threads, never the chat arm.
+  it(`never dots the chat arm`, () => {
+    threadsNav.value = { live: true, needsYou: true }
     renderBar()
-    expect(screen.getByTestId(`chat-button`).querySelector(`.bg-yellow-400`)).toBeTruthy()
+    expect(
+      screen.getByTestId(`chat-button`).querySelector(`.bg-green-500, .bg-yellow-400`)
+    ).toBeNull()
   })
 })
 

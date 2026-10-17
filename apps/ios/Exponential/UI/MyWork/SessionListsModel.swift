@@ -58,16 +58,6 @@ final class SessionListsModel {
         groups.contains { $0.key == .needsYou } || agents.contains(where: \.needsYou)
     }
 
-    /// The launcher's dot: one of my sessions is live (queued or running).
-    var agentsRunning: Bool {
-        liveByTeam.values.contains { $0.count > 0 || $0.needsInput }
-    }
-
-    /// The launcher's amber: one of my live sessions needs me.
-    var agentsNeedInput: Bool {
-        liveByTeam.values.contains(where: \.needsInput)
-    }
-
     /// (Re)binds to an account's pool; a no-op while already bound to it.
     func bind(accountId: String, userId: String?, db: DatabaseManager) {
         guard boundAccountId != accountId || task == nil else { return }

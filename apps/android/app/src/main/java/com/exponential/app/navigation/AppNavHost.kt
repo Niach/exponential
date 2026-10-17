@@ -332,8 +332,6 @@ fun AppNavHost() {
             // rebuild, no pending-handoff flags.
             val unreadCount by viewModel.unreadCount.collectAsStateWithLifecycle()
             val draftCount by viewModel.draftCount.collectAsStateWithLifecycle()
-            val agentsRunning by viewModel.agentsRunning.collectAsStateWithLifecycle()
-            val agentsNeedInput by viewModel.agentsNeedInput.collectAsStateWithLifecycle()
             // EXP-1075: the board switcher sheet's per-team live-run dots.
             val liveRunsByTeam by viewModel.liveRunsByTeam.collectAsStateWithLifecycle()
             val currentBoardId by viewModel.currentBoardId.collectAsStateWithLifecycle()
@@ -351,8 +349,6 @@ fun AppNavHost() {
                 needsOnboarding = needsOnboarding,
                 unreadCount = unreadCount,
                 draftCount = draftCount,
-                agentsRunning = agentsRunning,
-                agentsNeedInput = agentsNeedInput,
                 liveRunsByTeam = liveRunsByTeam,
                 currentBoardId = currentBoardId,
                 onSetInstanceUrl = { viewModel.setInstanceUrl(it) },
@@ -411,8 +407,6 @@ private fun AuthenticatedNav(
     needsOnboarding: Boolean,
     unreadCount: Int,
     draftCount: Int,
-    agentsRunning: Boolean,
-    agentsNeedInput: Boolean,
     liveRunsByTeam: Map<String, TeamLiveRuns>,
     currentBoardId: String?,
     onSetInstanceUrl: (String) -> Unit,
@@ -451,8 +445,10 @@ private fun AuthenticatedNav(
     val barSuppression = remember { BottomBarSuppression() }
     val barShown = barVisible && !barSuppression.suppressed
 
-    // EXP-1291: the Threads tab's amber dot (a thread needs a person).
+    // EXP-1291: the Threads tab's dot — amber while a thread needs a person,
+    // EXP-1327: green while one runs (the launcher wears none).
     val threadsVm: ThreadsViewModel = hiltViewModel()
+    val threadsRunning by threadsVm.anyRunning.collectAsStateWithLifecycle()
     val threadsNeedYou by threadsVm.needsYou.collectAsStateWithLifecycle()
     val threadsUnread by threadsVm.unread.collectAsStateWithLifecycle()
     // EXP-825: every launcher entry point is NAVIGATION onto the Agent page
@@ -959,12 +955,10 @@ private fun AuthenticatedNav(
             threadsActive = currentTab == MainTabs.THREADS,
             unreadCount = unreadCount,
             draftCount = draftCount,
-            agentsRunning = agentsRunning,
-            agentsNeedInput = agentsNeedInput,
+            threadsRunning = threadsRunning,
             threadsNeedYou = threadsNeedYou,
             threadsUnread = threadsUnread,
-            // The Chat arm (the Agent page, with its sessions list and live
-            // dot) rides every top-level surface, with New issue beside it in
+            // The Chat arm (the Agent page) rides every top-level surface, with New issue beside it in
             // one capsule (EXP-827/EXP-973) — dimmed while the team has no
             // board to file onto. The arm SWITCHES to the Agent page like a
             // tab (it is the start destination, never a push) and reads

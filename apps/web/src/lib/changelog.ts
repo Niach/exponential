@@ -25,6 +25,13 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-10-17-threads-live-dot`,
+    date: `2026-10-17`,
+    title: `Threads: the live dot on the phone`,
+    summary: `On the phone the running-session dot sits on Threads, not the chat launcher.`,
+    body: `- **Threads dot**: on Android, iOS and the mobile web the green running-session dot now sits on the Threads tab, like the sidebar on web and desktop; the chat launcher no longer wears one.`,
+  },
+  {
     id: `2026-10-17-account-switch-keeps-model`,
     date: `2026-10-17`,
     title: `Account switching keeps your model and shows itself`,

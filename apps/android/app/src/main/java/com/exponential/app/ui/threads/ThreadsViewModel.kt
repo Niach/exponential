@@ -132,6 +132,11 @@ class ThreadsViewModel @Inject constructor(
     val teams: StateFlow<List<TeamEntity>> = dbFlow.scopedQuery(emptyList()) { it.teamDao().observeAll() }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    /** EXP-1327: whether ANY thread runs (the tab's green dot, ×4). */
+    val anyRunning: StateFlow<Boolean> = groups.map { list ->
+        list.any { it.key == SessionTree.ThreadsGroupKey.Running && it.rows.isNotEmpty() }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
     /** Whether ANY thread needs a person (the tab's amber dot). */
     val needsYou: StateFlow<Boolean> = groups.map { list ->
         list.any { it.key == SessionTree.ThreadsGroupKey.NeedsYou && it.rows.isNotEmpty() }

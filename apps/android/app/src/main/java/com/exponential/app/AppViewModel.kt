@@ -254,8 +254,8 @@ class AppViewModel @Inject constructor(
 
     // EXP-1291: true while at least one of MY sessions is live in ANY member
     // team (`lightsLiveDot`: not ended; an agent only while busy / waiting) —
-    // drives the bottom bar's home dot. Own sessions only: a teammate's may
-    // never light a dot over an empty screen.
+    // drives the board switcher's per-team dots. Own sessions only: a
+    // teammate's may never light a dot over an empty screen.
     @OptIn(ExperimentalCoroutinesApi::class)
     private val myLiveSessions = accountDatabaseFlow(auth, databaseHolder)
         .flatMapLatest { db ->
@@ -264,15 +264,6 @@ class AppViewModel @Inject constructor(
                 if (me == null) emptyList() else sessions.filter { it.userId == me && lightsLiveDot(it) }
             }
         }
-
-    val agentsRunning: StateFlow<Boolean> = myLiveSessions
-        .map { it.isNotEmpty() }
-        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
-
-    /** …and one of them waits on a person (amber). */
-    val agentsNeedInput: StateFlow<Boolean> = myLiveSessions
-        .map { sessions -> sessions.any { it.needsInput } }
-        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
     // EXP-1075: the caller's LIVE sessions grouped by team — the board
     // switcher sheet's per-team dots.
