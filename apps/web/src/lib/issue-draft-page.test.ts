@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+import fixture from "@exp/domain-contract/fixtures/issue-draft.json"
 import {
   ISSUE_DRAFT_AUTOSAVE_MS,
   ISSUE_DRAFT_COPY,
@@ -7,6 +8,7 @@ import {
   draftExitPrompt,
   draftLandingNavigation,
   draftOriginFrom,
+  inboxDotLit,
   newDraftNavigation,
   parseIssueDraftSearch,
 } from "./issue-draft-page"
@@ -79,12 +81,17 @@ describe(`newDraftNavigation`, () => {
   })
 })
 
-// EXP-1212: a draft with content never goes silently.
+// EXP-1212: a draft with content never goes silently. EXP-1272: a reopened
+// one saves and leaves (`keep`); only a fresh New issue asks.
 describe(`draftExitPrompt`, () => {
+  for (const row of fixture.exitPrompt) {
+    it(row.case, () => {
+      expect(draftExitPrompt(row.hasContent, row.reopened)).toBe(row.prompt)
+    })
+  }
+
   // EXP-1247: no `×` discard trigger and no discard confirm any more.
-  it(`asks only when the draft has content`, () => {
-    expect(draftExitPrompt(`leave`, true)).toBe(`leave`)
-    expect(draftExitPrompt(`leave`, false)).toBe(`none`)
+  it(`has no discard copy outside the leave dialog`, () => {
     expect(`discard` in ISSUE_DRAFT_COPY).toBe(false)
     expect(`discardConfirm` in ISSUE_DRAFT_COPY).toBe(false)
   })
@@ -100,6 +107,15 @@ describe(`draftExitPrompt`, () => {
       canCreateDraft({ title: `Fix it`, creating: false, uploading: true })
     ).toBe(false)
   })
+})
+
+// EXP-1272: the phone Inbox dot = unread OR a draft in the team.
+describe(`inboxDotLit`, () => {
+  for (const row of fixture.inboxDot) {
+    it(row.case, () => {
+      expect(inboxDotLit(row.unread, row.drafts)).toBe(row.lit)
+    })
+  }
 })
 
 describe(`draftOriginFrom`, () => {

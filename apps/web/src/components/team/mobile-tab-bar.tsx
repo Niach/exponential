@@ -8,6 +8,8 @@ import { useMobileChrome } from "@/hooks/use-mobile-chrome"
 import { useOpenNewDraft } from "@/hooks/use-open-new-draft"
 import { useSession } from "@/hooks/use-session"
 import { useUnreadNotificationCount } from "@/hooks/use-unread-notifications"
+import { useDraftEntries } from "@/hooks/use-issue-drafts"
+import { inboxDotLit } from "@/lib/issue-draft-page"
 import {
   useAgentsRunningCount,
   useThreadsNav,
@@ -107,10 +109,12 @@ export function resolveBoardTarget(
 }
 
 // Tiny unread-dot components fed by the per-user shapes. Native parity:
-// dots, not counts.
-function InboxDot() {
+// dots, not counts. EXP-1272: the inbox dot also lights while the caller
+// has a draft in the team — the SAME dot (the phone has no Drafts entry).
+function InboxDot({ teamId }: { teamId: string | undefined }) {
   const unread = useUnreadNotificationCount()
-  if (unread === 0) return null
+  const drafts = useDraftEntries(teamId).length
+  if (!inboxDotLit(unread, drafts)) return null
   return <TabDot className="bg-primary" />
 }
 
@@ -265,7 +269,7 @@ export function MobileTabBar({
           className={tabClass(onInbox)}
         >
           <NavInboxIcon className="size-5" />
-          <InboxDot />
+          <InboxDot teamId={team?.id} />
         </Link>
         <Link
           to="/t/$teamSlug/devices"

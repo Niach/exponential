@@ -110,6 +110,9 @@ data class IssueDraftUiState(
     /** EXP-1284: the thread the issue files into — the route's `thread`,
      *  else the reopened row's; it rides every upsert and the create. */
     val threadId: String? = null,
+    /** EXP-1272: the row existed when the page opened (a Drafts list, a link
+     *  to a saved draft): leaving keeps it with no prompt. */
+    val reopened: Boolean = false,
 )
 
 /**
@@ -340,6 +343,7 @@ class IssueDraftViewModel @Inject constructor(
                         it.copy(
                             seeded = true,
                             rowExists = true,
+                            reopened = true,
                             boardId = it.boardId ?: row.boardId,
                             threadId = it.threadId ?: row.threadId,
                         )
@@ -360,6 +364,7 @@ class IssueDraftViewModel @Inject constructor(
                             // EXP-1284: a reopened thread draft keeps its thread.
                             threadId = it.threadId ?: row.threadId,
                             rowExists = true,
+                            reopened = true,
                             seeded = true,
                         )
                     }

@@ -378,6 +378,9 @@ struct MainNavigator: View {
     @State private var observationTasks: [Task<Void, Never>] = []
     @State private var syncing = false
     @State private var unreadCount = 0
+    /// EXP-1272: the Inbox tab's dot also lights while a draft resolves: the
+    /// SAME rows the inbox's Drafts segment lists (account-wide, like it).
+    @State private var draftCount = 0
     /// EXP-1291: the session tree's lists — ONE observation for the Threads
     /// tab and its dot, Home's Running band, the launcher dot and the board
     /// switcher's per-team dots.
@@ -591,6 +594,7 @@ struct MainNavigator: View {
                     myWorkActive: tab == .inbox,
                     threadsActive: tab == .threads,
                     unreadCount: unreadCount,
+                    hasDrafts: draftCount > 0,
                     agentsRunning: sessionLists.agentsRunning,
                     agentsNeedInput: sessionLists.agentsNeedInput,
                     threadsRunning: sessionLists.threadsRunning,
@@ -1047,12 +1051,25 @@ struct MainNavigator: View {
                 }
             } catch {}
         }
+        // EXP-1272: drafts light the Inbox dot too. The same resolved rows
+        // as the Drafts segment (`DraftsViewModel`), so the dot and the
+        // segment agree: a draft whose board is gone lights neither.
+        let draftsObs = ValueObservation.tracking { db in
+            try IssueDraftQueries.resolved(db: db).count
+        }
+        let draftsTask = Task { @MainActor in
+            do {
+                for try await count in draftsObs.values(in: pool) {
+                    draftCount = count
+                }
+            } catch {}
+        }
         // EXP-1291: the session tree's lists (the Threads tab + its dot,
         // Home's Running band, the launcher and board switcher dots).
         sessionLists.bind(
             accountId: deps.auth.activeAccountId ?? "", userId: deps.auth.userId, db: deps.db
         )
-        observationTasks = [wsTask, projTask, notifTask]
+        observationTasks = [wsTask, projTask, notifTask, draftsTask]
     }
 
     // MARK: - Current board (Issues tab)

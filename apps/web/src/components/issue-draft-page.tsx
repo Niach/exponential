@@ -58,7 +58,8 @@ import { failedAction } from "@/lib/action-error"
 // EXP-1212: a draft WITH content never goes silently (`draftExitPrompt`).
 // Every in-app navigation (Back, a sidebar or tab bar entry, another screen)
 // is HELD by the router blocker and asks Discard · Create issue · Save
-// draft, then continues to where the person was going. The page's own exits
+// draft, then continues to where the person was going. EXP-1272: only a
+// FRESH New issue asks; a reopened draft saves and goes on unasked. The page's own exits
 // (a filed Create) bypass it; closing the browser tab does not ask (the
 // autosave keeps the draft).
 //
@@ -189,8 +190,13 @@ export function IssueDraftPage({
   const goBackRef = useRef(goBack)
   goBackRef.current = goBack
 
+  // EXP-1272: a reopened draft WITH content saves through the blocker's
+  // `keep` (which stays on a failed save); writing here too would toast
+  // twice. An emptied one still writes here (the delete).
   const handleBack = () => {
-    void editor.leave()
+    if (draftExitPrompt(editor.hasContent, editor.reopened) !== `keep`) {
+      void editor.leave()
+    }
     goBack()
   }
 
@@ -219,9 +225,13 @@ export function IssueDraftPage({
   // @tanstack/history's own blocker behaviour.
   const hasContentRef = useRef(editor.hasContent)
   hasContentRef.current = editor.hasContent
+  const reopenedRef = useRef(editor.reopened)
+  reopenedRef.current = editor.reopened
   const isCreatingRef = useRef(editor.isCreating)
   isCreatingRef.current = editor.isCreating
-  const shouldBlockLeave = useCallback(
+  const leaveWriteRef = useRef(editor.leave)
+  leaveWriteRef.current = editor.leave
+  const exitPromptFor = useCallback(
     ({
       current,
       next,
@@ -229,11 +239,30 @@ export function IssueDraftPage({
       current: { pathname: string }
       next: { pathname: string }
     }) =>
-      next.pathname !== current.pathname &&
-      !isCreatingRef.current() &&
-      draftExitPrompt(`leave`, hasContentRef.current) === `leave`,
+      next.pathname === current.pathname || isCreatingRef.current()
+        ? (`none` as const)
+        : draftExitPrompt(hasContentRef.current, reopenedRef.current),
     []
   )
+  const shouldBlockLeave = useCallback(
+    (args: { current: { pathname: string }; next: { pathname: string } }) =>
+      exitPromptFor(args) === `leave`,
+    [exitPromptFor]
+  )
+  // EXP-1272: a REOPENED draft never asks — leaving runs the dialog's Keep
+  // (the same leave write) and goes on. A save that fails holds the
+  // navigation with no dialog: the page stays, its toast says why.
+  const shouldHoldForKeep = useCallback(
+    async (args: {
+      current: { pathname: string }
+      next: { pathname: string }
+    }) => exitPromptFor(args) === `keep` && !(await leaveWriteRef.current()),
+    [exitPromptFor]
+  )
+  useBlocker({
+    shouldBlockFn: shouldHoldForKeep,
+    enableBeforeUnload: false,
+  })
   const blocker = useBlocker({
     shouldBlockFn: shouldBlockLeave,
     enableBeforeUnload: false,

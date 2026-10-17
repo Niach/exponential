@@ -32,6 +32,9 @@ struct MobileTabBar: View {
     /// EXP-1291: lit while the Threads screen is up.
     let threadsActive: Bool
     let unreadCount: Int
+    /// EXP-1272: the caller has a draft (the Drafts segment's rows): the
+    /// Inbox dot lights for it too, the same dot and colour as unread.
+    var hasDrafts = false
     let agentsRunning: Bool
     let agentsNeedInput: Bool
     /// EXP-1291: a thread runs — the Threads tab's green dot (the
@@ -85,12 +88,13 @@ struct MobileTabBar: View {
                     .accessibilityIdentifier("tab-issues")
                 // EXP-58: Inbox + My Issues merged behind this one tab (SLOP-5:
                 // called Inbox, like the web and desktop entry) — same glyph,
-                // same unread dot.
+                // same unread dot. EXP-1272: a draft lights it too
+                // (`IssueDraftPage.inboxDotLit`).
                 tab(
                     glyph: AppIcons.navInbox,
                     label: "Inbox",
                     active: myWorkActive,
-                    badge: unreadCount > 0,
+                    badge: IssueDraftPage.inboxDotLit(unread: unreadCount, drafts: hasDrafts ? 1 : 0),
                     badgeColor: DesignTokens.Palette.primary,
                     action: onMyWork
                 )

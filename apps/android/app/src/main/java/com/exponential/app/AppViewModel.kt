@@ -21,6 +21,7 @@ import com.exponential.app.domain.defaultTeamId
 import com.exponential.app.domain.TeamLiveRuns
 import com.exponential.app.domain.liveRunsByTeam
 import com.exponential.app.domain.lightsLiveDot
+import com.exponential.app.domain.resolveDraftRows
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -234,6 +235,22 @@ class AppViewModel @Inject constructor(
         if (db == null || userId == null) flowOf(0)
         else db.notificationDao().observeUnreadCount(userId)
     }.stateIn(viewModelScope, SharingStarted.Eagerly, 0)
+
+    // EXP-1272: the account's drafts, resolved exactly like the Inbox's
+    // Drafts section (`DraftsViewModel`, `resolveDraftRows`: a draft whose
+    // board no longer resolves drops out), so the Inbox tab's dot and that
+    // section always agree. Statuses do not change the count.
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val draftCount: StateFlow<Int> = accountDatabaseFlow(auth, databaseHolder)
+        .flatMapLatest { db ->
+            if (db == null) flowOf(0)
+            else combine(
+                db.issueDraftDao().observeAll(),
+                db.boardDao().observeAll(),
+            ) { drafts, boards -> resolveDraftRows(drafts, boards, emptyMap()).size }
+        }
+        .distinctUntilChanged()
+        .stateIn(viewModelScope, SharingStarted.Eagerly, 0)
 
     // EXP-1291: true while at least one of MY sessions is live in ANY member
     // team (`lightsLiveDot`: not ended; an agent only while busy / waiting) —

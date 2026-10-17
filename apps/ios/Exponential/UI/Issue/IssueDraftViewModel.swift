@@ -125,6 +125,9 @@ final class IssueDraftViewModel {
 
     /// A row for `draftId` exists server-side.
     private(set) var rowExists = false
+    /// EXP-1272: the row existed when the page opened (a Drafts list, a link
+    /// to a saved draft): leaving saves at once instead of asking.
+    private(set) var reopened = false
     /// An upsert was SENT since the last delete: a write whose answer never
     /// came back (a timeout, a dropped connection) may still have landed, so
     /// an emptied page deletes on the way out even when `rowExists` is false.
@@ -240,7 +243,8 @@ final class IssueDraftViewModel {
     /// and a draft already created or discarded has nothing left to ask about.
     /// A reopened draft (its row exists) whose file list has not loaded may
     /// be file-only, so it counts as content until the list is known; a
-    /// brand-new draft (no row yet) is known to have no files.
+    /// brand-new draft (no row yet) is known to have no files. EXP-1272: a
+    /// reopened draft answers `.keep` (save, then continue) instead of asking.
     func prompt(for exit: IssueDraftPage.Exit) -> IssueDraftPage.Prompt {
         guard !finished, !creating else { return .none }
         let content = IssueDraftPage.hasContent(
@@ -249,7 +253,7 @@ final class IssueDraftViewModel {
             attachmentCount: attachments.count,
             attachmentsKnown: attachmentsLoaded || !rowExists
         )
-        return IssueDraftPage.prompt(for: exit, hasContent: content)
+        return IssueDraftPage.prompt(for: exit, hasContent: content, reopened: reopened)
     }
 
     /// EXP-1212: the leave dialog's answers. A sub-issue draft never writes
@@ -336,6 +340,7 @@ final class IssueDraftViewModel {
             }) ?? nil
             if let row {
                 rowExists = true
+                reopened = true
                 boardId = row.boardId
                 title = row.title
                 editor.load(markdown: row.description ?? "", baseURL: baseURL)

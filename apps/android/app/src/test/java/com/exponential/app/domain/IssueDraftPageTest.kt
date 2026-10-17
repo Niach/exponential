@@ -2,6 +2,9 @@ package com.exponential.app.domain
 
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.boolean
+import kotlinx.serialization.json.int
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.long
@@ -93,10 +96,51 @@ class IssueDraftPageTest {
     fun `a reopened draft counts as content until its files are known`() {
         assertTrue(IssueDraftPage.hasContent("", "", 0, attachmentsKnown = false))
         assertFalse(IssueDraftPage.hasContent("", "", 0, attachmentsKnown = true))
+        // EXP-1272: reopened, so it keeps rather than asks.
         assertEquals(
-            IssueDraftPage.Prompt.Leave,
-            IssueDraftPage.prompt(IssueDraftPage.hasContent("", "", 0, attachmentsKnown = false)),
+            IssueDraftPage.Prompt.Keep,
+            IssueDraftPage.prompt(IssueDraftPage.hasContent("", "", 0, attachmentsKnown = false), reopened = true),
         )
+    }
+
+    // EXP-1272: only a fresh New issue with content asks; a reopened one keeps.
+    @Test
+    fun `the exit prompt is the contract's`() {
+        val rows = fixture().getValue("exitPrompt").jsonArray
+        assertEquals(4, rows.size)
+        for (row in rows) {
+            val r = row.jsonObject
+            val expected = when (val wire = r.getValue("prompt").jsonPrimitive.content) {
+                "none" -> IssueDraftPage.Prompt.None
+                "leave" -> IssueDraftPage.Prompt.Leave
+                "keep" -> IssueDraftPage.Prompt.Keep
+                else -> error("unknown prompt $wire")
+            }
+            val hasContent = r.getValue("hasContent").jsonPrimitive.boolean
+            val reopened = r.getValue("reopened").jsonPrimitive.boolean
+            val case = r.getValue("case").jsonPrimitive.content
+            assertEquals(case, expected, IssueDraftPage.prompt(hasContent, reopened = reopened))
+            // Nothing is asked (nor kept) while a Create is in flight.
+            assertEquals(case, IssueDraftPage.Prompt.None, IssueDraftPage.prompt(hasContent, reopened = reopened, creating = true))
+        }
+    }
+
+    // EXP-1272: unread OR a draft lights the phones' Inbox dot.
+    @Test
+    fun `the inbox dot is the contract's`() {
+        val rows = fixture().getValue("inboxDot").jsonArray
+        assertEquals(4, rows.size)
+        for (row in rows) {
+            val r = row.jsonObject
+            assertEquals(
+                r.getValue("case").jsonPrimitive.content,
+                r.getValue("lit").jsonPrimitive.boolean,
+                IssueDraftPage.inboxDotLit(
+                    unread = r.getValue("unread").jsonPrimitive.int,
+                    drafts = r.getValue("drafts").jsonPrimitive.int,
+                ),
+            )
+        }
     }
 
     @Test

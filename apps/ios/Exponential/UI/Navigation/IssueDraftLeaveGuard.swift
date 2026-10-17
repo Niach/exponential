@@ -7,6 +7,8 @@ import SwiftUI
 /// tap) asks it first while that draft is the top route. A held change is
 /// handed to the page, which asks `IssueDraftPage.Leave` and continues it
 /// (Create · Keep as draft · Discard) or drops it (the dialog dismissed).
+/// EXP-1272: a REOPENED draft holds it too but never asks: it runs Keep
+/// (save, then continue; a failed save drops it and stays).
 ///
 /// The same reference-box shape as `PushRouteAction`: ONE instance in the
 /// navigator's `@State`, handed to the environment on every body pass.

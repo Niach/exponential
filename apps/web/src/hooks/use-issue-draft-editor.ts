@@ -177,6 +177,9 @@ export function useIssueDraftEditor({
   boardsRef.current = boards
 
   const rowExistsRef = useRef(draft != null)
+  // EXP-1272: the row existed when the page OPENED (a Drafts list, a link to
+  // a saved draft) — fixed for the page's life, unlike `rowExistsRef`.
+  const [reopened] = useState(draft != null)
   // What the row holds as far as this page knows: the reopened row's own
   // payload, so leaving an untouched draft writes nothing.
   const lastWrittenRef = useRef<string | null>(null)
@@ -556,6 +559,8 @@ export function useIssueDraftEditor({
     // known yet counts as content, as it does for the leave write.
     hasContent:
       hasDraftContent(snapshotRef.current) || !filesLoadedRef.current,
+    /** EXP-1272: a reopened draft leaves by saving (`keep`), never asking. */
+    reopened,
     setTitle: (value: string) => {
       setTitleState(value)
       schedule()

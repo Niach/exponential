@@ -42,18 +42,25 @@ object IssueDraftPage {
     fun createEnabled(title: String, hasBoard: Boolean, creating: Boolean, uploadsInFlight: Int): Boolean =
         title.isNotBlank() && hasBoard && !creating && uploadsInFlight == 0
 
-    /** What leaving the page asks before it happens. */
-    enum class Prompt { None, Leave }
+    /**
+     * What leaving the page asks before it happens. EXP-1272: [Keep] asks
+     * nothing either: it runs the leave prompt's Keep at once (save, then
+     * continue; a failed save stays on the page with the save error).
+     */
+    enum class Prompt { None, Leave, Keep }
 
     /**
      * EXP-1212: a draft WITH content never goes silently: back, a nav entry or
      * opening another screen asks the leave question (EXP-1247: the page has
      * no close button, Back + Create only, so discarding is the leave
      * prompt's answer). Nothing is asked while a Create is in flight (the
-     * page goes where the create lands).
+     * page goes where the create lands). EXP-1272 (`exitPrompt`): a
+     * [reopened] draft (its row existed when the page opened) never asks, it
+     * keeps; only a fresh New issue with content asks.
      */
-    fun prompt(hasContent: Boolean, creating: Boolean = false): Prompt = when {
+    fun prompt(hasContent: Boolean, reopened: Boolean = false, creating: Boolean = false): Prompt = when {
         creating || !hasContent -> Prompt.None
+        reopened -> Prompt.Keep
         else -> Prompt.Leave
     }
 
@@ -112,4 +119,10 @@ object IssueDraftPage {
         seen && !present -> Fate.Gone
         else -> Fate.Open
     }
+
+    /**
+     * EXP-1272 (`inboxDot`): on phones the Inbox tab's dot also lights while
+     * the caller has a draft in the team, the SAME dot and colour as unread.
+     */
+    fun inboxDotLit(unread: Int, drafts: Int): Boolean = unread > 0 || drafts > 0
 }

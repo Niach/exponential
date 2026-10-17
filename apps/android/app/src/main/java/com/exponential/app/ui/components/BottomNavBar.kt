@@ -33,6 +33,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.exponential.app.domain.IssueDraftPage
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
@@ -99,6 +100,8 @@ fun BottomNavBar(
     /** EXP-1291: lit while the Threads tab (it replaced Reviews) is up. */
     threadsActive: Boolean,
     unreadCount: Int,
+    /** EXP-1272: the caller's drafts; they light the Inbox dot too (`inboxDot`). */
+    draftCount: Int = 0,
     agentsRunning: Boolean,
     agentsNeedInput: Boolean,
     /** EXP-1291: an amber dot on Threads while a thread needs a person. */
@@ -153,7 +156,8 @@ fun BottomNavBar(
                 contentDescription = "Inbox",
                 testTag = "tab-mywork",
                 active = personalActive,
-                showDot = unreadCount > 0,
+                // EXP-1272: unread OR a draft, the same dot and colour.
+                showDot = IssueDraftPage.inboxDotLit(unreadCount, draftCount),
                 onClick = onPersonal,
             )
             // Devices (EXP-686, the renamed Agents surface): the machine list.
