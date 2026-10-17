@@ -157,6 +157,10 @@ struct DraftIdentity {
     id: String,
     /// Opened FROM a synced draft row (emptying it on leave deletes it).
     from_existing: bool,
+    /// EXP-1272: the row existed when the page opened ([`Self::from_existing`]
+    /// at construction, never cleared by a later delete): leaving keeps the
+    /// draft without asking ([`domain::issue_draft::exit_prompt`]).
+    reopened: bool,
     /// The page still owes writes. Cleared once the draft is filed (the
     /// server deleted the row in the create's transaction) or discarded.
     owed: bool,
@@ -275,6 +279,7 @@ impl DraftEditor {
             identity: DraftIdentity {
                 id: id.clone(),
                 from_existing,
+                reopened: from_existing,
                 owed: true,
                 ensured: false,
             },
@@ -298,6 +303,12 @@ impl DraftEditor {
             this.load_files(cx);
         }
         this
+    }
+
+    /// EXP-1272: the draft's row existed when the page opened (a Drafts row,
+    /// a link to a saved draft): its leave keeps it without asking.
+    pub(crate) fn reopened(&self) -> bool {
+        self.identity.reopened
     }
 
     pub(crate) fn files(&self) -> &[DraftFile] {

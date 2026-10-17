@@ -113,25 +113,31 @@ export function draftOriginFrom(
   return formatOrigin(capturedOrigin(screenFromPath(pathname), parseOrigin(from)))
 }
 
+/** Which prompt an exit raises: none (go at once), the three-choice leave
+ *  dialog, or EXP-1272 `keep` (save, then go, never asking). */
+export type DraftExitPrompt = `none` | `leave` | `keep`
+
 /**
- * EXP-1212: how the page leaves — any in-app navigation (Back, a nav entry,
- * another screen). EXP-1247: the `×` discard trigger is gone ×4; discarding
- * is the leave dialog's answer. The page's own exits after a successful
- * Create never ask.
+ * EXP-1212: how the page leaves on any in-app navigation (Back, a nav entry,
+ * another screen); EXP-1247: discarding is the leave dialog's answer. A
+ * draft WITH content (title, description or attachment) never goes
+ * silently; an empty one goes at once, as before. EXP-1272: a REOPENED
+ * draft (its row existed when the page opened) never asks — leaving saves
+ * it and goes on — so only a fresh New issue with content asks. The page's
+ * own exits after a successful Create never ask.
  */
-export type DraftExitTrigger = `leave`
-
-/** Which prompt an exit raises: none (go at once) or the three-choice leave
- *  dialog. */
-export type DraftExitPrompt = `none` | `leave`
-
-/** A draft WITH content (title, description or attachment) never goes
- *  silently; an empty one goes at once, as before. */
 export function draftExitPrompt(
-  _trigger: DraftExitTrigger,
-  hasContent: boolean
+  hasContent: boolean,
+  reopened: boolean
 ): DraftExitPrompt {
-  return hasContent ? `leave` : `none`
+  if (!hasContent) return `none`
+  return reopened ? `keep` : `leave`
+}
+
+/** EXP-1272: the phone Inbox tab's dot — lit by unread notifications OR a
+ *  draft of the caller's in the team (wide layouts keep their Drafts entry). */
+export function inboxDotLit(unread: number, drafts: number): boolean {
+  return unread > 0 || drafts > 0
 }
 
 /** The page's Create (and the leave dialog's): a title, nothing filing yet,

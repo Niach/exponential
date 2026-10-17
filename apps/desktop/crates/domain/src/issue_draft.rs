@@ -11,7 +11,8 @@
 //! is HELD behind the `Leave` question (Discard · Save draft · Create issue,
 //! Create issue the default), ONE question with no body. EXP-1247: the page
 //! has no close button any more (Back + Create only); discarding is the
-//! leave question's answer.
+//! leave question's answer. EXP-1272: a REOPENED draft (its row existed
+//! when the page opened) never asks: leaving runs Save draft at once.
 
 /// The identifier slot of the collapsed title.
 pub const HEADER: &str = "New issue";
@@ -78,17 +79,22 @@ pub enum DraftPrompt {
     None,
     /// The navigation is held: Discard · Save draft · Create issue.
     Leave,
+    /// EXP-1272: the navigation is held and runs Save draft at once, no
+    /// question (save, then continue; a failed save stays on the page).
+    Keep,
 }
 
 /// EXP-1212: the ONE rule ×4 (web `draftExitPrompt`). `has_content` = a
 /// non-blank title, a non-blank description or an attachment (exactly what
 /// makes the autosave write a row). Every way off the page is a leave: the
-/// page's OWN exits (a successful Create) never ask.
-pub fn exit_prompt(has_content: bool) -> DraftPrompt {
-    if has_content {
-        DraftPrompt::Leave
-    } else {
-        DraftPrompt::None
+/// page's OWN exits (a successful Create) never ask. EXP-1272: `reopened` =
+/// the draft's row existed when the page opened (a Drafts row, a link to a
+/// saved draft): it keeps without asking, so only a fresh New issue asks.
+pub fn exit_prompt(has_content: bool, reopened: bool) -> DraftPrompt {
+    match (has_content, reopened) {
+        (false, _) => DraftPrompt::None,
+        (true, false) => DraftPrompt::Leave,
+        (true, true) => DraftPrompt::Keep,
     }
 }
 
@@ -133,10 +139,28 @@ mod tests {
         assert_eq!(copy.as_object().unwrap().len(), 7, "a new string needs a test");
     }
 
+    /// EXP-1272: the fixture's `exitPrompt` table, every row.
     #[test]
-    fn exit_prompt_table() {
-        assert_eq!(exit_prompt(false), DraftPrompt::None);
-        assert_eq!(exit_prompt(true), DraftPrompt::Leave);
+    fn exit_prompt_matches_the_fixture() {
+        let fixture = fixture();
+        let rows = fixture["exitPrompt"].as_array().unwrap();
+        assert_eq!(rows.len(), 4);
+        for row in rows {
+            let has_content = row["hasContent"].as_bool().unwrap();
+            let reopened = row["reopened"].as_bool().unwrap();
+            let expected = match row["prompt"].as_str().unwrap() {
+                "none" => DraftPrompt::None,
+                "leave" => DraftPrompt::Leave,
+                "keep" => DraftPrompt::Keep,
+                other => panic!("unknown prompt {other}"),
+            };
+            assert_eq!(
+                exit_prompt(has_content, reopened),
+                expected,
+                "{}",
+                row["case"].as_str().unwrap_or_default()
+            );
+        }
     }
 
     #[test]

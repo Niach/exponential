@@ -24,10 +24,15 @@ const blockerState = vi.hoisted(() => ({
   proceed: vi.fn(),
   reset: vi.fn(),
   shouldBlockFn: null as null | ShouldBlock,
+  /** EXP-1272: the resolver-less blocker a reopened draft's `keep` runs in. */
+  keepFn: null as
+    | null
+    | ((args: Parameters<ShouldBlock>[0]) => Promise<boolean>),
   enableBeforeUnload: undefined as unknown,
 }))
 const editor = vi.hoisted(() => ({
   hasContent: true,
+  reopened: false,
   canCreate: true,
   creating: false,
   create: vi.fn(),
@@ -60,7 +65,12 @@ vi.mock(`@tanstack/react-router`, () => ({
   useBlocker: (opts: {
     shouldBlockFn: ShouldBlock
     enableBeforeUnload?: unknown
+    withResolver?: boolean
   }) => {
+    if (!opts.withResolver) {
+      blockerState.keepFn = opts.shouldBlockFn as never
+      return undefined
+    }
     blockerState.shouldBlockFn = opts.shouldBlockFn
     blockerState.enableBeforeUnload = opts.enableBeforeUnload
     return blockerState.status === `blocked`
@@ -150,6 +160,7 @@ beforeEach(() => {
   blockerState.proceed.mockReset()
   blockerState.reset.mockReset()
   editor.hasContent = true
+  editor.reopened = false
   editor.canCreate = true
   editor.create.mockReset()
   editor.creating = false
@@ -274,6 +285,47 @@ describe(`IssueDraftPage leaving`, () => {
     editor.hasContent = false
     renderPage()
     expect(blockerState.shouldBlockFn!(away)).toBe(false)
+  })
+
+  // EXP-1272: a reopened draft never asks — leaving saves, then goes on.
+  it(`a reopened draft with content saves and leaves without the dialog`, async () => {
+    editor.reopened = true
+    renderPage()
+    const away = {
+      current: { pathname: `/t/acme/drafts/d1` },
+      next: { pathname: `/t/acme/inbox` },
+    }
+    expect(blockerState.shouldBlockFn!(away)).toBe(false)
+    await expect(blockerState.keepFn!(away)).resolves.toBe(false)
+    expect(editor.leave).toHaveBeenCalledTimes(1)
+    expect(screen.queryByTestId(`issue-draft-leave-dialog`)).toBeNull()
+  })
+
+  it(`a reopened draft whose save fails stays, with no dialog`, async () => {
+    editor.reopened = true
+    editor.leave.mockImplementation(async () => false)
+    renderPage()
+    const away = {
+      current: { pathname: `/t/acme/drafts/d1` },
+      next: { pathname: `/t/acme/inbox` },
+    }
+    expect(blockerState.shouldBlockFn!(away)).toBe(false)
+    await expect(blockerState.keepFn!(away)).resolves.toBe(true)
+    expect(screen.queryByTestId(`issue-draft-leave-dialog`)).toBeNull()
+  })
+
+  it(`a fresh or emptied draft never runs the keep write`, async () => {
+    renderPage()
+    const away = {
+      current: { pathname: `/t/acme/drafts/d1` },
+      next: { pathname: `/t/acme/inbox` },
+    }
+    await expect(blockerState.keepFn!(away)).resolves.toBe(false)
+    editor.reopened = true
+    editor.hasContent = false
+    renderPage()
+    await expect(blockerState.keepFn!(away)).resolves.toBe(false)
+    expect(editor.leave).not.toHaveBeenCalled()
   })
 
   it(`holds nothing while a Create is in flight`, () => {

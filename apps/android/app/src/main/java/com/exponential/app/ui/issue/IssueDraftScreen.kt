@@ -153,8 +153,14 @@ fun IssueDraftScreen(
         state.attachments.size + state.heldFiles.size + state.pendingUploads.size,
         attachmentsKnown = state.attachmentsKnown,
     )
-    fun prompt() = IssueDraftPage.prompt(hasContent, creating = state.creating)
     val leaveChoices = IssueDraftPage.leaveChoices(canKeep = !viewModel.deferUploads)
+    // EXP-1272: a reopened draft never asks, it keeps (only where the mode
+    // offers Keep: share and parent mode write no row, so never reopen one).
+    fun prompt() = IssueDraftPage.prompt(
+        hasContent,
+        reopened = state.reopened && IssueDraftPage.LeaveChoice.Keep in leaveChoices,
+        creating = state.creating,
+    )
     // The navigation the leave prompt holds; null = no prompt.
     var heldLeave by remember { mutableStateOf<(() -> Unit)?>(null) }
     // The leave prompt's Create: continue THIS instead of opening the issue.
@@ -162,26 +168,50 @@ fun IssueDraftScreen(
     // Keep as draft's awaited save: the page holds still until it lands.
     var keeping by remember { mutableStateOf(false) }
 
+    // Keep as draft (the leave prompt's, and EXP-1272's promptless leave of a
+    // reopened draft): awaited, a failed save stays here (the model toasts
+    // it) and drops the navigation.
+    fun keepThen(proceed: () -> Unit) {
+        heldLeave = null
+        afterCreate = null
+        keeping = true
+        scope.launch {
+            val kept = try {
+                viewModel.keep()
+            } finally {
+                keeping = false
+            }
+            if (kept) proceed()
+        }
+    }
+
     fun leave() {
         if (state.creating || keeping) return
-        if (prompt() == IssueDraftPage.Prompt.Leave) {
-            heldLeave = onBack
-            return
+        when (prompt()) {
+            IssueDraftPage.Prompt.Leave -> heldLeave = onBack
+            IssueDraftPage.Prompt.Keep -> keepThen(onBack)
+            IssueDraftPage.Prompt.None -> {
+                viewModel.leave()
+                onBack()
+            }
         }
-        viewModel.leave()
-        onBack()
     }
     BackHandler(enabled = true) { leave() }
     // Every other way out (a push tap, a share, a deep link) asks AppNavHost's
-    // guard, which hands it here while the draft has content.
+    // guard, which hands it here while the draft has content: held for the
+    // prompt, or (EXP-1272, reopened) kept first and then continued.
     val leaveGuard = LocalLeaveGuard.current
-    val holdsLeave by rememberUpdatedState(
-        !keeping && prompt() == IssueDraftPage.Prompt.Leave,
+    val currentPrompt by rememberUpdatedState(
+        if (keeping) IssueDraftPage.Prompt.None else prompt(),
     )
     DisposableEffect(leaveGuard) {
         val unregister = leaveGuard?.register { proceed ->
-            if (holdsLeave) heldLeave = proceed
-            holdsLeave
+            when (currentPrompt) {
+                IssueDraftPage.Prompt.Leave -> heldLeave = proceed
+                IssueDraftPage.Prompt.Keep -> keepThen(proceed)
+                IssueDraftPage.Prompt.None -> Unit
+            }
+            currentPrompt != IssueDraftPage.Prompt.None
         }
         onDispose { unregister?.invoke() }
     }
@@ -460,21 +490,7 @@ fun IssueDraftScreen(
         val keepAction = GlassAlertAction(
             label = IssueDraftPage.LEAVE_KEEP,
             testTag = "issue-draft-leave-keep",
-            onClick = {
-                heldLeave = null
-                afterCreate = null
-                keeping = true
-                // Awaited: a failed save stays here (the model toasts it)
-                // and drops the navigation.
-                scope.launch {
-                    val kept = try {
-                        viewModel.keep()
-                    } finally {
-                        keeping = false
-                    }
-                    if (kept) proceed()
-                }
-            },
+            onClick = { keepThen(proceed) },
         )
         // The trailing row in `leaveChoices` order (Save draft · Create issue).
         val trailingChoices = leaveChoices.filter { it != IssueDraftPage.LeaveChoice.Discard }

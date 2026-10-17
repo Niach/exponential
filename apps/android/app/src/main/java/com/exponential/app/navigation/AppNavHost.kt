@@ -331,6 +331,7 @@ fun AppNavHost() {
             // re-scopes every live screen in place — no key(activeAccountId)
             // rebuild, no pending-handoff flags.
             val unreadCount by viewModel.unreadCount.collectAsStateWithLifecycle()
+            val draftCount by viewModel.draftCount.collectAsStateWithLifecycle()
             val agentsRunning by viewModel.agentsRunning.collectAsStateWithLifecycle()
             val agentsNeedInput by viewModel.agentsNeedInput.collectAsStateWithLifecycle()
             // EXP-1075: the board switcher sheet's per-team live-run dots.
@@ -349,6 +350,7 @@ fun AppNavHost() {
                 syncHealth = syncHealth,
                 needsOnboarding = needsOnboarding,
                 unreadCount = unreadCount,
+                draftCount = draftCount,
                 agentsRunning = agentsRunning,
                 agentsNeedInput = agentsNeedInput,
                 liveRunsByTeam = liveRunsByTeam,
@@ -408,6 +410,7 @@ private fun AuthenticatedNav(
     syncHealth: SyncHealth,
     needsOnboarding: Boolean,
     unreadCount: Int,
+    draftCount: Int,
     agentsRunning: Boolean,
     agentsNeedInput: Boolean,
     liveRunsByTeam: Map<String, TeamLiveRuns>,
@@ -955,6 +958,7 @@ private fun AuthenticatedNav(
             personalActive = currentTab == MainTabs.INBOX,
             threadsActive = currentTab == MainTabs.THREADS,
             unreadCount = unreadCount,
+            draftCount = draftCount,
             agentsRunning = agentsRunning,
             agentsNeedInput = agentsNeedInput,
             threadsNeedYou = threadsNeedYou,

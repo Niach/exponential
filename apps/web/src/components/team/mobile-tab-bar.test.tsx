@@ -41,8 +41,19 @@ vi.mock(`@/hooks/use-mobile-chrome`, () => ({
   useMobileChrome: () => ({ bulkBarPresent: false }),
 }))
 vi.mock(`@/hooks/use-session`, () => ({ useSession: () => ({ data: null }) }))
+const inbox = vi.hoisted(() => ({
+  unread: 0,
+  drafts: [] as unknown[],
+  draftTeamId: undefined as string | undefined,
+}))
 vi.mock(`@/hooks/use-unread-notifications`, () => ({
-  useUnreadNotificationCount: () => 0,
+  useUnreadNotificationCount: () => inbox.unread,
+}))
+vi.mock(`@/hooks/use-issue-drafts`, () => ({
+  useDraftEntries: (teamId: string | undefined) => {
+    inbox.draftTeamId = teamId
+    return inbox.drafts
+  },
 }))
 const threadsNav = vi.hoisted(() => ({
   value: { live: false, needsYou: false },
@@ -252,5 +263,38 @@ describe(`MobileTabBar tabs (EXP-1187)`, () => {
     expect(screen.getByTestId(`tab-actions`).className).not.toContain(
       `bg-glass-active`
     )
+  })
+})
+
+// EXP-1272: the phone has no Drafts entry — the Inbox tab's dot also lights
+// while the caller has a draft in the team, the SAME dot as unread.
+describe(`MobileTabBar Inbox dot (EXP-1272)`, () => {
+  beforeEach(() => {
+    route.value = ``
+    memberTeams.value = null
+    inbox.unread = 0
+    inbox.drafts = []
+    inbox.draftTeamId = undefined
+  })
+
+  const inboxDot = () =>
+    screen.getByRole(`link`, { name: `Inbox` }).querySelector(`.bg-primary`)
+
+  it(`stays dark with nothing unread and no drafts`, () => {
+    renderBar()
+    expect(inboxDot()).toBeNull()
+  })
+
+  it(`lights for unread notifications`, () => {
+    inbox.unread = 2
+    renderBar()
+    expect(inboxDot()).toBeTruthy()
+  })
+
+  it(`lights for a draft alone, read off the active team`, () => {
+    inbox.drafts = [{ draft: { id: `d1` } }]
+    renderBar()
+    expect(inboxDot()).toBeTruthy()
+    expect(inbox.draftTeamId).toBe(`t1`)
   })
 })

@@ -237,8 +237,21 @@ struct IssueDraftPageView: View {
     /// is in flight (`vm.prompt` is `.none`) or a Create/Keep answer runs:
     /// that navigation goes now, and the answer, landing off screen, drops
     /// its own held one instead of replaying it.
+    /// EXP-1272: a reopened draft is never asked: it runs Keep's save-then-
+    /// continue at once (a failed save stays with the save error, as Keep
+    /// does). Back and every navigator-driven change come through here.
     private func hold(_ held: IssueDraftLeaveGuard.Held) -> Bool {
-        guard !leaveAnswerInFlight, vm.prompt(for: .leave) == .leave else { return false }
+        guard !leaveAnswerInFlight else { return false }
+        switch vm.prompt(for: .leave) {
+        case .none:
+            return false
+        case .keep:
+            UIApplication.endEditing()
+            keepThenContinue(held)
+            return true
+        case .leave:
+            break
+        }
         UIApplication.endEditing()
         // A second hold while the dialog is up replaces the first, which is
         // dropped (for a link that consumes it off the bus).
@@ -306,16 +319,21 @@ struct IssueDraftPageView: View {
                 if created, onScreen { held.proceed() } else { held.dropped() }
             }
         case .keep:
-            // A failed save toasts (the page's save error) and stays.
-            leaveAnswerInFlight = true
-            Task {
-                let kept = await vm.flushForKeep()
-                leaveAnswerInFlight = false
-                if kept, onScreen { held.proceed() } else { held.dropped() }
-            }
+            keepThenContinue(held)
         case .discard:
             vm.discard()
             held.proceed()
+        }
+    }
+
+    /// Keep: save, then continue `held`. A failed save toasts (the page's
+    /// save error) and stays. EXP-1272: also a reopened draft's silent exit.
+    private func keepThenContinue(_ held: IssueDraftLeaveGuard.Held) {
+        leaveAnswerInFlight = true
+        Task {
+            let kept = await vm.flushForKeep()
+            leaveAnswerInFlight = false
+            if kept, onScreen { held.proceed() } else { held.dropped() }
         }
     }
 

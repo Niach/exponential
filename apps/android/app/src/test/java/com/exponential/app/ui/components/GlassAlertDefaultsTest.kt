@@ -40,7 +40,7 @@ class GlassAlertDefaultsTest {
 
     @Test
     fun theStackPutsTheLeadingDestructiveAnswerLast() {
-        // Discard (leading) · Create issue · Save draft (primary).
+        // Discard (leading) · Save draft · Create issue (primary).
         // The leading child is index 0, so it lands at the bottom.
         assertEquals(listOf(2, 1, 0), GlassAlertDefaults.stackOrder(3, hasLeading = true))
         assertEquals(listOf(3, 2, 1, 0), GlassAlertDefaults.stackOrder(4, hasLeading = true))

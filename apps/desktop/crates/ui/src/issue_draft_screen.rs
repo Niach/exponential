@@ -29,7 +29,10 @@
 //! screen changes pass (`navigation::leave_hold`: navigate, replace, a tab
 //! click's `set_screen`, Back, Forward, a team switch) and asks Discard ·
 //! Save draft · Create issue (ONE dialog; every move held meanwhile appends), the
-//! answer replaying the held moves in order. The page owns
+//! answer replaying the held moves in order. EXP-1272: a REOPENED draft (its
+//! row existed when the page opened) is held the same way but never asks:
+//! the hold runs Save draft at once and replays the moves once it lands (a
+//! failed save stays on the page with its error). The page owns
 //! no tab, so there is no tab of its own to close; window close and quit are
 //! not held (the release hook above saves).
 //!
@@ -704,11 +707,22 @@ impl IssueDraftView {
     /// EXP-1212: re-arm (or disarm) the navigation hold. Armed = the page is
     /// up, no Create is in flight, and leaving would ask
     /// ([`exit_prompt`]); called on every change that can move any of those.
+    ///
+    /// EXP-1272: a REOPENED draft with content arms too (prompt `Keep`): its
+    /// held leave runs Save draft at once ([`Self::prompt_leave`]), so a save
+    /// that fails still stays on the page.
     fn sync_guard(&self, cx: &App) {
-        let armed = self.active
-            && !self.creating
-            && exit_prompt(self.has_content(cx)) == DraftPrompt::Leave;
+        let armed = self.active && !self.creating && self.exit_prompt(cx) != DraftPrompt::None;
         self.armed.set(armed);
+    }
+
+    /// EXP-1212/EXP-1272: what leaving now asks ([`exit_prompt`]).
+    fn exit_prompt(&self, cx: &App) -> DraftPrompt {
+        let reopened = self
+            .parts
+            .as_ref()
+            .is_some_and(|parts| parts.editor.read(cx).reopened());
+        exit_prompt(self.has_content(cx), reopened)
     }
 
     /// The full row as it stands — what every write sends.
@@ -1293,6 +1307,15 @@ impl IssueDraftView {
             return;
         }
         if !self.held.borrow().holds_for(&draft_id) {
+            return;
+        }
+        // EXP-1272: a reopened draft never asks: the held moves run the
+        // dialog's Save draft at once (save, wait, then continue; a failed
+        // save stays with its error and drops them).
+        if self.exit_prompt(cx) == DraftPrompt::Keep {
+            if !self.keeping {
+                self.keep(draft_id, window, cx);
+            }
             return;
         }
         // Another dialog of this window is up: it is raised instead, and the

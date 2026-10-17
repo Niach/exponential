@@ -50,6 +50,9 @@ public enum IssueDraftPage {
     public enum Prompt: Equatable, Sendable {
         case none
         case leave
+        /// EXP-1272: a reopened draft never asks: save, then continue (a
+        /// save that fails stays on the page with the save error).
+        case keep
     }
 
     /// A title, a description or an attachment is content; chips never are.
@@ -121,13 +124,22 @@ public enum IssueDraftPage {
 
     /// EXP-1212: a draft with no content never asks (it goes and is deleted
     /// as before); one with content asks on leaving; the page's own exits
-    /// never ask.
-    public static func prompt(for exit: Exit, hasContent: Bool) -> Prompt {
+    /// never ask. EXP-1272: a `reopened` draft (its row existed when the page
+    /// opened) with content runs Keep at once instead of asking; only a fresh
+    /// New issue asks (contract table `exitPrompt`).
+    public static func prompt(for exit: Exit, hasContent: Bool, reopened: Bool = false) -> Prompt {
         guard hasContent else { return .none }
         switch exit {
-        case .leave: return .leave
+        case .leave: return reopened ? .keep : .leave
         case .own: return .none
         }
+    }
+
+    /// EXP-1272: phones light the Inbox tab's dot while anything is unread OR
+    /// the caller has a draft in the team: the SAME dot and colour (contract
+    /// table `inboxDot`).
+    public static func inboxDotLit(unread: Int, drafts: Int) -> Bool {
+        unread > 0 || drafts > 0
     }
 
     /// The leave prompt's Create runs the page's Create: disabled without a

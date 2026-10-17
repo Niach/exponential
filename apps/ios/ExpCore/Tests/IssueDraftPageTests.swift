@@ -33,9 +33,27 @@ final class IssueDraftPageTests: XCTestCase {
             let discardedGraceMs: Double
         }
 
+        /// EXP-1272: which prompt an exit raises, reopened or fresh.
+        struct ExitPromptCase: Decodable {
+            let `case`: String
+            let hasContent: Bool
+            let reopened: Bool
+            let prompt: String
+        }
+
+        /// EXP-1272: the phones' Inbox tab dot.
+        struct InboxDotCase: Decodable {
+            let `case`: String
+            let unread: Int
+            let drafts: Int
+            let lit: Bool
+        }
+
         let copy: Copy
         let autosave: Autosave
         let concurrency: Concurrency
+        let exitPrompt: [ExitPromptCase]
+        let inboxDot: [InboxDotCase]
     }
 
     private var fixtureURL: URL {
@@ -115,6 +133,43 @@ final class IssueDraftPageTests: XCTestCase {
 
     func testOwnExitsNeverAsk() {
         XCTAssertEqual(IssueDraftPage.prompt(for: .own, hasContent: true), .none)
+    }
+
+    // EXP-1272: a reopened draft saves and leaves; only a fresh one asks.
+
+    func testExitPromptTable() throws {
+        let cases = try fixture().exitPrompt
+        XCTAssertFalse(cases.isEmpty)
+        for row in cases {
+            let expected: IssueDraftPage.Prompt
+            switch row.prompt {
+            case "none": expected = .none
+            case "leave": expected = .leave
+            case "keep": expected = .keep
+            default:
+                XCTFail("unknown prompt \(row.prompt) in \(row.case)")
+                continue
+            }
+            XCTAssertEqual(
+                IssueDraftPage.prompt(for: .leave, hasContent: row.hasContent, reopened: row.reopened),
+                expected,
+                row.case
+            )
+            // The page's own exits never ask, reopened or not.
+            XCTAssertEqual(
+                IssueDraftPage.prompt(for: .own, hasContent: row.hasContent, reopened: row.reopened),
+                .none,
+                row.case
+            )
+        }
+    }
+
+    func testInboxDotTable() throws {
+        let cases = try fixture().inboxDot
+        XCTAssertFalse(cases.isEmpty)
+        for row in cases {
+            XCTAssertEqual(IssueDraftPage.inboxDotLit(unread: row.unread, drafts: row.drafts), row.lit, row.case)
+        }
     }
 
     func testHasContent() {

@@ -235,7 +235,7 @@ test(`uploads images into the draft and carries them onto the created issue`, as
   await expect(detail.locator(`img.editor-image`)).toHaveCount(0)
 })
 
-test(`keeps a draft on Back, reopens it from Drafts, and discards it`, async ({
+test(`keeps a draft on Back, reopens it from Drafts, leaves it unasked, and discards it`, async ({
   app,
   page,
 }) => {
@@ -272,16 +272,20 @@ test(`keeps a draft on Back, reopens it from Drafts, and discards it`, async ({
     app.issueTitle
   )
 
-  // EXP-1212: the × on a draft with content confirms first.
-  await reopened.getByTestId(`issue-draft-discard`).click()
-  const discardConfirm = page.getByTestId(`issue-draft-discard-confirm`)
-  await expect(discardConfirm).toContainText(`Discard this draft and its files?`)
-  await discardConfirm
-    .getByRole(`button`, { name: `Discard`, exact: true })
-    .click()
-
-  // Back to the Drafts list it came from, which has emptied out.
+  // EXP-1272: a REOPENED draft never asks — leaving saves it and goes on,
+  // back to the Drafts list it came from, the draft still listed.
+  await page.goBack()
+  await expect(page.getByTestId(`issue-draft-leave-dialog`)).toHaveCount(0)
   await expect(page).toHaveURL(/\/drafts\/?$/)
+  const backOnList = page.getByTestId(`drafts-list`)
+  await expect(backOnList).toContainText(app.issueTitle)
+
+  // EXP-1247: no × any more; a listed draft is discarded from its row's
+  // context Menu.
+  await backOnList.getByText(app.issueTitle).click({ button: `right` })
+  await page.getByRole(`menuitem`, { name: `Discard draft` }).click()
+
+  // The Drafts list has emptied out.
   await expect(page.getByTestId(`drafts-list`)).toHaveCount(0)
   await expect(page.getByRole(`link`, { name: `Drafts` })).toHaveCount(0)
 })

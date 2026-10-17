@@ -524,7 +524,9 @@ pub(crate) type HeldNavigation = Box<dyn FnOnce(&mut Window, &mut App)>;
 /// (`issue_draft_screen`, installed once per window). `armed` = the page is up
 /// with a draft that has content (a Cell: the hold must never read the page's
 /// entity, a navigation can run inside its update); `hold` takes the draft id
-/// the page shows plus the held navigation, and asks the leave question.
+/// the page shows plus the held navigation, and asks the leave question —
+/// EXP-1272: or, for a REOPENED draft, runs its Save draft at once (save,
+/// then replay; a failed save stays), so the hold arms for both.
 #[derive(Clone)]
 pub(crate) struct LeaveGuard {
     pub armed: Rc<Cell<bool>>,
@@ -2472,6 +2474,23 @@ mod tests {
         // Answered (a Keep still saving): its window closing keeps the moves.
         queue.dismiss(fresh);
         assert_eq!(queue.take("d1"), vec![3]);
+    }
+
+    /// EXP-1272: a REOPENED draft resolves its hold as Save draft with no
+    /// question (no `ask`): moves made while the save runs ride along and
+    /// replay once on success; a failed save clears them (the page stays).
+    #[test]
+    fn leave_queue_keeps_a_reopened_draft_without_asking() {
+        let mut queue = LeaveQueue::default();
+        assert!(queue.hold("d1", "close_tab"), "the first move starts the save");
+        assert!(!queue.hold("d1", "navigate"), "a move during the save rides along");
+        assert_eq!(queue.take("d1"), vec!["close_tab", "navigate"]);
+        assert!(queue.take("d1").is_empty(), "replayed once");
+
+        assert!(queue.hold("d1", "navigate"));
+        queue.clear(); // the save failed: stay with its error
+        assert!(queue.take("d1").is_empty());
+        assert!(queue.hold("d1", "retry"), "the next leave saves again");
     }
 
     /// EXP-1212 (R6): moves are keyed by the draft the question was about.
