@@ -386,7 +386,7 @@
     "values": ["user", "agent", "system"]
   },
   "messageCardKind": {
-    "values": ["question", "plan", "subagent", "session", "picture", "event", "thread_started", "report", "suggestions"]
+    "values": ["question", "plan", "subagent", "session", "picture", "event", "thread_started", "report", "suggestions", "replies"]
   },
   "messageEventKind": {
     "values": ["issue_linked", "issue_filed", "issue_unlinked", "pr_opened", "pr_merged", "pr_closed", "session_ended"]
@@ -1236,7 +1236,7 @@
       {
         "name": "sessions_suggest",
         "title": "Suggest tasks",
-        "blurb": "Proposes follow-up tasks as one card a person starts, files or dismisses.",
+        "blurb": "Proposes follow-up tasks as one card a person starts, files or dismisses, or quick replies above the composer.",
         "progressive": "Suggesting tasks",
         "done": "Suggested tasks",
         "progressiveMany": "Suggesting {n} task lists",

@@ -46,6 +46,19 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-10-17-quick-replies",
+    date: "2026-10-17",
+    title: "Quick replies above the composer",
+    summary: "When an agent finishes a step it can offer its likely next messages as one-tap replies above the composer; tap one to send it, the others stay.",
+    body: r#"- **One tap instead of typing**: an agent offers a few likely next messages, like "Raise the version numbers" or "Open the PR", as small buttons right above the composer of the session or thread.
+- **Sends at once**: a tap sends that reply as your next message, even while the agent is still working; the other replies stay, so you can queue another right away.
+- **Stays until replaced**: the replies stay across turns until the agent offers new ones; the × dismisses them.
+- **Everywhere**: the same row on the web, the desktop app, iOS and Android."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_59: ChangelogEntry = ChangelogEntry {
     id: "2026-10-17-move-session-device",
     date: "2026-10-17",
     title: "Move a session to another device",

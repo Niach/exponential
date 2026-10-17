@@ -959,7 +959,7 @@ describe.skipIf(!ready.ok)(`the sessions router: device procedures and answers`,
 
 describe.skipIf(!ready.ok)(`EXP-1323: reports, asides, reads and suggestions`, async () => {
   const { sessionsRouter } = await import(`@/lib/trpc/sessions`)
-  const { postSuggestions } = await import(`@/lib/sessions/suggestions`)
+  const { postReplies, postSuggestions } = await import(`@/lib/sessions/suggestions`)
   const { sessionReads } = await import(`@/db/schema`)
   const caller = (userId: string) =>
     sessionsRouter.createCaller({
@@ -1139,6 +1139,46 @@ describe.skipIf(!ready.ok)(`EXP-1323: reports, asides, reads and suggestions`, a
     expect(items[3]!.issueId).toBe(filed.issueId)
     // Nothing open is left to start.
     expect((await host.startAllSuggestions({ messageId: posted.messageId })).sessionIds).toEqual([])
+  })
+
+  it(`EXP-1211 quick replies: a tap sends the reply here, dismiss stamps the rest`, async () => {
+    const w = await world()
+    const root = await sendSession({
+      userId: w.owner,
+      input: { teamId: w.teamId, deviceId: w.deviceId, text: `r` },
+    })
+    const posted = await postReplies({
+      userId: w.owner,
+      callerSessionId: root.sessionId,
+      replies: [`Raise the version numbers`, `Open the PR`, `Merge it`],
+    })
+    const [card] = await db.select().from(messages).where(eq(messages.id, posted.messageId))
+    expect(card).toMatchObject({ authorKind: `agent`, authorSessionId: root.sessionId })
+    expect(card!.consumedAt).not.toBeNull()
+    const [a, b] = posted.itemIds as [string, string, string]
+    const host = caller(w.owner)
+
+    const sent = await host.sendReply({ messageId: posted.messageId, itemId: a })
+    expect(sent.sessionId).toBe(root.sessionId)
+    expect(
+      (await sessionMessages(root.sessionId)).some(
+        (m) => m.body === `Raise the version numbers` && m.authorKind === `user`
+      )
+    ).toBe(true)
+    await expect(host.sendReply({ messageId: posted.messageId, itemId: a })).rejects.toMatchObject({
+      code: `CONFLICT`,
+    })
+    // A teammate on a private session cannot tap it.
+    await expect(caller(w.mate).sendReply({ messageId: posted.messageId, itemId: b })).rejects.toMatchObject({
+      code: `NOT_FOUND`,
+    })
+    await host.dismissReplies({ messageId: posted.messageId })
+    const [stamped] = await db.select().from(messages).where(eq(messages.id, posted.messageId))
+    const items = (stamped!.card as unknown as { items: Array<Record<string, unknown>> }).items
+    expect(items.map((item) => item.sent)).toEqual([true, true, true])
+    await expect(host.sendReply({ messageId: posted.messageId, itemId: b })).rejects.toMatchObject({
+      code: `CONFLICT`,
+    })
   })
 })
 

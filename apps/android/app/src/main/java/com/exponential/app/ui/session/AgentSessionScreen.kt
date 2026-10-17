@@ -4491,6 +4491,11 @@ internal fun SessionComposer(
     val sessionConfig by viewModel.sessionConfig.collectAsStateWithLifecycle()
     val sessionUsage by viewModel.sessionUsage.collectAsStateWithLifecycle()
     val issueRefCandidates by viewModel.issueRefCandidates.collectAsStateWithLifecycle()
+    // EXP-1211: the session's quick replies; a refused tap = `Couldn't send the reply`.
+    val composerReplies by viewModel.composerReplies.collectAsStateWithLifecycle()
+    val replyPending by viewModel.replyPending.collectAsStateWithLifecycle()
+    val replyError by viewModel.replyError.collectAsStateWithLifecycle()
+    com.exponential.app.ui.components.FailedActionToast(replyError, onShown = viewModel::clearReplyError)
     // FEED-79: a refused send / unqueue = `Couldn't send the message`.
     val sendError by viewModel.sendError.collectAsStateWithLifecycle()
     com.exponential.app.ui.components.FailedActionToast(
@@ -4821,6 +4826,18 @@ internal fun SessionComposer(
                 ComposerMenu.None -> Unit
             }
             beforeComposer()
+            // EXP-1211: the quick replies sit directly above the card, and
+            // hide whenever the composer does (the ask dock).
+            val replies = composerReplies
+            if (!composerHidden && replies != null) {
+                ComposerRepliesRow(
+                    replies = replies,
+                    pending = replyPending,
+                    onSend = { itemId -> viewModel.sendReply(replies.messageId, itemId) },
+                    onDismiss = { viewModel.dismissReplies(replies.messageId) },
+                )
+                Spacer(Modifier.height(8.dp))
+            }
             // Escape has no hardware key on most phones — Back dismisses
             // the menu, and only the menu (EXP-724). One handler per menu,
             // and [composerMenu] guarantees at most one is ever enabled.

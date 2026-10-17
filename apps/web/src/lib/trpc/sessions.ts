@@ -58,8 +58,10 @@ import { parseMcpSessionHeader } from "@/lib/mcp/session-header"
 import { normalizeCaption } from "@/lib/sessions/caption"
 import { pendingInput, postAgentMessage } from "@/lib/sessions/messages"
 import {
+  dismissReplies,
   dismissSuggestion,
   fileSuggestion,
+  sendReply,
   startAllSuggestions,
   startSuggestion,
 } from "@/lib/sessions/suggestions"
@@ -269,6 +271,17 @@ export const sessionsRouter = router({
         return { issueId: issue.id }
       })
     ),
+
+  // ── EXP-1211: quick replies (the `replies` card above the composer) ──
+
+  /** A tap: the reply's text as the next message to the card's session. */
+  sendReply: authedProcedure
+    .input(suggestionRef)
+    .mutation(({ ctx, input }) => sendReply(ctx.session.user.id, input)),
+
+  dismissReplies: authedProcedure
+    .input(z.object({ messageId: uuid }))
+    .mutation(({ ctx, input }) => dismissReplies(ctx.session.user.id, input.messageId)),
 
   /** EXP-1334: change a live session's launch options mid-session (plan
    *  mode, effort, ultracode, computer use, MCP picks). Same rule as

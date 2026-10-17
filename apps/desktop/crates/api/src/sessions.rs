@@ -16,6 +16,7 @@
 //! - EXP-1323: `markRead`, the suggestions verbs (`startSuggestion`,
 //!   `startAllSuggestions`, `dismissSuggestion`, `fileSuggestion`) and the
 //!   `/btw` aside send ([`SendInput::aside`]).
+//! - EXP-1211: the quick replies verbs (`sendReply`, `dismissReplies`).
 //!
 //! Plain blocking calls: run them on a background executor only. Rows
 //! re-stream over the shapes, so callers fire-and-forget; `txId` also
@@ -351,6 +352,17 @@ pub fn file_suggestion(trpc: &TrpcClient, message_id: &str, item_id: &str) -> Re
     trpc.mutation("sessions.fileSuggestion", &SuggestionItemInput { message_id, item_id })
 }
 
+/// EXP-1211: send one quick reply as the viewer's message to the card's
+/// session (the item flips `sent`).
+pub fn send_reply(trpc: &TrpcClient, message_id: &str, item_id: &str) -> Result<serde::de::IgnoredAny, ApiError> {
+    trpc.mutation("sessions.sendReply", &SuggestionItemInput { message_id, item_id })
+}
+
+/// EXP-1211: drop a quick replies card (the row's ×).
+pub fn dismiss_replies(trpc: &TrpcClient, message_id: &str) -> Result<serde::de::IgnoredAny, ApiError> {
+    trpc.mutation("sessions.dismissReplies", &MessageIdInput { message_id })
+}
+
 /// `sessions.getAgent` output: the server-only instructions.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -606,6 +618,7 @@ mod tests {
                 dismiss_suggestion as fn(&TrpcClient, &str, &str) -> Result<serde::de::IgnoredAny, ApiError>,
             ),
             ("sessions.fileSuggestion", file_suggestion),
+            ("sessions.sendReply", send_reply),
         ] {
             let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"txid":3}}}"#);
             call(&client(&base), "m-1", "i-2").unwrap();
@@ -618,6 +631,12 @@ mod tests {
         start_all_suggestions(&client(&base), "m-1").unwrap();
         let text = request(&captured);
         assert!(text.starts_with("POST /api/trpc/sessions.startAllSuggestions HTTP/1.1"), "{text}");
+        assert!(text.ends_with(r#"{"messageId":"m-1"}"#), "{text}");
+
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"txid":4}}}"#);
+        dismiss_replies(&client(&base), "m-1").unwrap();
+        let text = request(&captured);
+        assert!(text.starts_with("POST /api/trpc/sessions.dismissReplies HTTP/1.1"), "{text}");
         assert!(text.ends_with(r#"{"messageId":"m-1"}"#), "{text}");
     }
 

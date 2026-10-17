@@ -496,6 +496,28 @@ class SessionTreeTest {
     }
 
     @Test
+    fun `every replies case matches the fixture`() {
+        val cases = threadFixture.list("repliesCases")
+        assertTrue(cases.isNotEmpty())
+        for (case in cases) {
+            val input = case.getValue("input").jsonObject
+            val actual = SessionTree.composerReplies(
+                sessionId = input.str("sessionId")!!,
+                messages = input.list("messages").map(::message),
+            )?.let { replies ->
+                buildJsonObject {
+                    put("messageId", replies.messageId)
+                    put(
+                        "items",
+                        JsonArray(replies.items.map { buildJsonObject { put("id", it.id); put("text", it.text) } }),
+                    )
+                }
+            } ?: JsonNull
+            assertEquals(case.str("name"), case.getValue("expected"), actual)
+        }
+    }
+
+    @Test
     fun `every guide menu case matches the fixture`() {
         val cases = threadFixture.list("guideMenuCases")
         assertTrue(cases.isNotEmpty())
@@ -575,6 +597,11 @@ class SessionTreeTest {
         )
         assertEquals(suggestions.keys, embedded.keys)
         for ((key, value) in embedded) assertEquals(suggestions.str(key), value)
+        val replies = copy.getValue("replies").jsonObject
+        assertEquals(setOf("label", "dismiss"), replies.keys)
+        assertEquals(replies.str("label"), SessionTree.RepliesCopy.LABEL)
+        assertEquals(replies.str("dismiss"), SessionTree.RepliesCopy.DISMISS)
+        assertEquals(testIds.str("replies"), SessionTree.RepliesCopy.TEST_ID)
     }
 
     @Test

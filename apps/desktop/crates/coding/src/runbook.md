@@ -12,7 +12,7 @@ The root's issues are your scope. Link an existing issue with `exponential_sessi
 
 ## Talk
 
-Your final text of every turn IS your message in the conversation, read by the whole team on a shared device. Keep it short: what you did, what is next. To ask, end the turn with the question; the answer arrives as the next message. `@<email>` mentions and notifies a member (`exponential_members_list` resolves emails). Write `#IDENT` whenever you name an issue: it renders as a pill and links it.
+Your final text of every turn IS your message in the conversation, read by the whole team on a shared device. Keep it short: what you did, what is next. To ask, end the turn with the question; the answer arrives as the next message. Likely next messages: `exponential_sessions_suggest({replies})`, one-tap chips above the composer. `@<email>` mentions and notifies a member (`exponential_members_list` resolves emails). Write `#IDENT` whenever you name an issue: it renders as a pill and links it.
 
 ## Fan out
 

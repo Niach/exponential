@@ -246,6 +246,12 @@ struct AgentSessionView: View {
             // EXP-1321: the background lines, waits and task list moved
             // into THE Queue at the transcript's end (`TaskQueueView`).
             askDock(model)
+            // EXP-1211: the agent's quick replies, directly above the
+            // composer; gone whenever the composer is.
+            if !bandRetired(model) {
+                SessionComposerReplies(sessionId: session.id)
+                    .environment(\.accountId, accountId)
+            }
             bottomBar(model)
         }
         // EXP-1162: the bottom edge strip behind the band — not behind an

@@ -24,6 +24,7 @@ export function FloatingComposer({
   defaultExpanded = false,
   hidden = false,
   testId = `floating-composer`,
+  above,
 }: {
   /** The capsule's words while collapsed (`Reply…`). */
   placeholder: string
@@ -33,6 +34,8 @@ export function FloatingComposer({
   /** Another bottom-edge owner is up (a card took the composer's place). */
   hidden?: boolean
   testId?: string
+  /** EXP-1211: shown over the capsule AND the card (the quick replies). */
+  above?: ReactNode
 }) {
   const [expanded, setExpanded] = useState(defaultExpanded)
   const [draft, setDraft] = useState(``)
@@ -82,6 +85,7 @@ export function FloatingComposer({
       hidden={hidden}
       expanded={
         <div data-testid={testId} data-expanded={expanded}>
+          {above && <div className="pb-2 empty:hidden">{above}</div>}
           {!expanded && (
             <MobileWorkCapsule
               className={cn(`w-full`, draft && `text-foreground`)}

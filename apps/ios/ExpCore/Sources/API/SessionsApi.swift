@@ -518,6 +518,23 @@ public final class SessionsApi: Sendable {
         )
     }
 
+    /// EXP-1211: send one quick reply — its text becomes the session's next
+    /// message (at once, even mid-turn) and the chip drops.
+    public func sendReply(accountId: String, messageId: String, itemId: String) async throws {
+        try await trpc.mutationVoid(
+            accountId: accountId,
+            path: "sessions.sendReply",
+            input: SuggestionItemInput(messageId: messageId, itemId: itemId)
+        )
+    }
+
+    /// EXP-1211: dismiss the session's quick replies (the whole card).
+    public func dismissReplies(accountId: String, messageId: String) async throws {
+        try await trpc.mutationVoid(
+            accountId: accountId, path: "sessions.dismissReplies", input: MessageIdInput(messageId: messageId)
+        )
+    }
+
     /// EXP-1323: File as issue — the item becomes an issue linked to the
     /// thread.
     public func fileSuggestion(accountId: String, messageId: String, itemId: String) async throws {
