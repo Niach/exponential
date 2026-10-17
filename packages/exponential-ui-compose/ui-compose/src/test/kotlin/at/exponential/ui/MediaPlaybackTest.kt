@@ -45,6 +45,8 @@ import java.io.File
 import java.net.InetAddress
 import java.net.ServerSocket
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 /**
  * VAPP-103: Video / AudioPlayer play their `src` ONLY through the media
@@ -65,6 +67,16 @@ class MediaPlaybackTest {
 
     /** Every request the server saw: its path and header lines. */
     private val requests = CopyOnWriteArrayList<Pair<String, List<String>>>()
+
+    /**
+     * EXP-1337: while set, the server answers `/clip.mp4` only once the latch
+     * opens, so a test can hold an open in flight for as long as it needs (on
+     * a loaded runner the probe of a local socket can finish before the
+     * opening coroutine even suspends, and a "second src while one opens"
+     * scenario then sees two players built).
+     */
+    @Volatile
+    private var holdClip: CountDownLatch? = null
     private val base get() = "http://127.0.0.1:${server.localPort}"
 
     @Before
@@ -85,6 +97,7 @@ class MediaPlaybackTest {
                     runCatching {
                         when (path) {
                             "/clip.mp4", "/signed/clip.mp4", "/open/clip.mp4", "/other.mp4" -> {
+                                if (path == "/clip.mp4") holdClip?.await(5, TimeUnit.SECONDS)
                                 head("200 OK\r\nContent-Type: video/mp4\r\nContent-Length: 100")
                                 out.write(ByteArray(100))
                             }
@@ -260,12 +273,22 @@ class MediaPlaybackTest {
         playback.stop()
         assertEquals(2, playback.playersReleased)
         // Another src while one opens cancels the open: only the second builds.
+        // The first probe is held at the server until the second press has
+        // been made, so the first open is still in flight whatever the runner's
+        // speed; the press releases it and the cancelled open never installs.
+        val held = CountDownLatch(1)
+        holdClip = held
         val switching = MediaPlayback(context)
         val a = async { switching.play(clip, police = police) }
         yield()
-        val b = async { switching.play(police("$base/other.mp4"), police = police) }
+        assertTrue(switching.loading)
+        val b = async {
+            held.countDown()
+            switching.play(police("$base/other.mp4"), police = police)
+        }
         a.await()
         b.await()
+        holdClip = null
         assertEquals(1, switching.playersBuilt)
         assertEquals("$base/other.mp4", switching.openedStream?.url)
         switching.stop()
