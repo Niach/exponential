@@ -7,6 +7,7 @@ import {
   Composer,
   ComposerFrame,
   ComposerOptionsRow,
+  ComposerReplies,
   ComposerSubmit,
   ContextRing,
   Label,
@@ -41,6 +42,7 @@ import {
   modelChoices,
   modelLabel,
 } from "@/components/launch-dialog/launch-options-pane"
+import { useComposerReplies } from "@/hooks/use-composer-replies"
 import { useSessionRow } from "@/hooks/use-session-tree"
 import { useSteerCommand } from "@/hooks/use-steer-command"
 import { planModeToggle, sessionModel } from "@/lib/agent-feed"
@@ -182,6 +184,8 @@ export function SessionComposer({
   const toolsRef = useRef<ComposerInlineToolsHandle>(null)
 
   const { store, row, config, usage, contextLayout, fallback } = useComposerSession(sessionId)
+  // EXP-1211: the agent's quick replies, above the card.
+  const quick = useComposerReplies(sessionId)
   // EXP-1342: a Stop (here or the header's) hands the unread messages' text
   // back through the session store's draft: it lands in THIS field, after a
   // draft in progress, and the store's copy is cleared.
@@ -344,6 +348,16 @@ export function SessionComposer({
     <ComposerFrame
       data-testid={testId}
       className={cn(`w-full`, className)}
+      replies={
+        quick.replies && (
+          <ComposerReplies
+            replies={quick.replies}
+            pending={quick.pending}
+            onSend={(messageId, itemId) => quick.send(messageId, itemId)}
+            onDismiss={quick.dismiss}
+          />
+        )
+      }
       options={
         row && (
           <ComposerOptionsRow data-testid="session-composer-options">

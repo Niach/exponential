@@ -1,8 +1,11 @@
 import type { ComponentProps, ReactElement, ReactNode } from "react"
 
+import { REPLIES_COPY, type ComposerReplies as ComposerRepliesModel } from "@exp/domain-contract/session-tree"
+import { Button } from "./button"
 import { cn } from "./cn"
 import { ComposerTool } from "./composer"
 import { conceptIcon } from "./icons.generated"
+import { Pill } from "./pill"
 
 // EXP-1334: ONE composer for a start, a thread and a session (owner
 // decision, the "old session composer layout"): THE Composer card holding
@@ -17,16 +20,20 @@ const ImageIcon = conceptIcon(`editor-image`)
 const AttachIcon = conceptIcon(`ui-attach`)
 const IssueRefIcon = conceptIcon(`editor-issue-ref`)
 const EmojiIcon = conceptIcon(`editor-emoji`)
+const CloseIcon = conceptIcon(`ui-close`)
 
 /** The card with its options line under it. */
 export function ComposerFrame({
   options,
+  replies,
   className,
   children,
   ...props
 }: ComponentProps<`div`> & {
   /** The options line (`ComposerOptionsRow`), under the card. */
   options?: ReactNode
+  /** EXP-1211: the quick replies (`ComposerReplies`), above the card. */
+  replies?: ReactNode
 }) {
   return (
     <div
@@ -34,6 +41,7 @@ export function ComposerFrame({
       className={cn(`flex flex-col gap-1.5`, className)}
       {...props}
     >
+      {replies}
       {children}
       {options}
     </div>
@@ -54,6 +62,63 @@ export function ComposerOptionsRow({ className, ...props }: ComponentProps<`div`
       )}
       {...props}
     />
+  )
+}
+
+/** EXP-1211 (session-thread.json `repliesCases`): the agent's quick replies
+ *  above the composer = one row of action Pills + a trailing dismiss. A tap
+ *  sends that reply as the next message. Phones keep ONE horizontally
+ *  scrolling row; md+ wraps. */
+export function ComposerReplies({
+  replies,
+  onSend,
+  onDismiss,
+  pending,
+  className,
+}: {
+  replies: ComposerRepliesModel
+  onSend: (messageId: string, itemId: string, text: string) => void
+  onDismiss: (messageId: string) => void
+  /** Item ids whose send is in flight (disabled). */
+  pending?: ReadonlySet<string>
+  className?: string
+}) {
+  return (
+    <div
+      role="group"
+      aria-label={REPLIES_COPY.label}
+      data-testid="thread-replies"
+      className={cn(
+        `flex flex-wrap items-center gap-1.5 px-1`,
+        `max-md:flex-nowrap max-md:overflow-x-auto max-md:[scrollbar-width:none] max-md:[&>*]:shrink-0`,
+        className
+      )}
+    >
+      {replies.items.map((item) => (
+        <Pill
+          key={item.id}
+          mode="action"
+          size="sm"
+          disabled={pending?.has(item.id)}
+          onClick={() => onSend(replies.messageId, item.id, item.text)}
+          data-testid="thread-reply"
+          className="max-w-full"
+        >
+          <span className="truncate">{item.text}</span>
+        </Pill>
+      ))}
+      <Button
+        variant="ghost"
+        size="icon-xs"
+        aria-label={REPLIES_COPY.dismiss}
+        title={REPLIES_COPY.dismiss}
+        onClick={() => onDismiss(replies.messageId)}
+        data-testid="thread-replies-dismiss"
+        className="text-muted-foreground"
+      >
+        <CloseIcon />
+      </Button>
+    </div>
   )
 }
 

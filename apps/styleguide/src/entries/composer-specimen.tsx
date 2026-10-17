@@ -1,5 +1,6 @@
 import { contract } from "@exp/domain-contract"
 import composerMenu from "@exp/domain-contract/fixtures/composer-menu.json"
+import type { ComposerReplies as ComposerRepliesModel } from "@exp/domain-contract/session-tree"
 import type { IconConcept } from "@exp/icons"
 import {
   AccountPicker,
@@ -7,6 +8,7 @@ import {
   ComposerEditTools,
   ComposerFrame,
   ComposerOptionsRow,
+  ComposerReplies,
   ComposerSubmit,
   ComposerTool,
   ContextRing,
@@ -115,14 +117,21 @@ export function ComposerSpecimen({
   phase,
   placeholder,
   submitLabel,
+  replies,
 }: {
   phase: ComposerPhase
   placeholder: string
   submitLabel?: string
+  /** EXP-1211: the quick replies above the card. */
+  replies?: ComposerRepliesModel
 }) {
   const stop = phase === `running`
   return (
-    <ComposerFrame className="w-[36rem] max-w-full" options={<ComposerOptionsSpecimen phase={phase} />}>
+    <ComposerFrame
+      className="w-[36rem] max-w-full"
+      options={<ComposerOptionsSpecimen phase={phase} />}
+      replies={replies && <ComposerReplies replies={replies} onSend={() => {}} onDismiss={() => {}} />}
+    >
       <Composer
         tools={
           <>

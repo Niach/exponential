@@ -5,6 +5,7 @@ import thread from "../fixtures/session-thread.json" with { type: "json" }
 import list from "../fixtures/threads-list.json" with { type: "json" }
 import {
   buildSessionThread,
+  composerReplies,
   composerYieldsToCard,
   guideMenuEntries,
   guidePullRequest,
@@ -48,6 +49,11 @@ describe(`session-tree fixtures (EXP-1291)`, () => {
     test(`strip (EXP-1334): ${entry.name}`, () => {
       // The REAL layout type: a shape drift in the fixture fails typecheck.
       expect(partitionThreadStrip(entry.input)).toEqual(entry.expected as ThreadStripLayout)
+    })
+  }
+  for (const entry of thread.repliesCases) {
+    test(`quick replies (EXP-1211): ${entry.name}`, () => {
+      expect(composerReplies(entry.input as never)).toEqual(entry.expected as never)
     })
   }
   for (const entry of thread.composerCases) {
