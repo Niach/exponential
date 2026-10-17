@@ -8,14 +8,13 @@ import SwiftUI
 /// identifier, the same two rows, then `Unlink <IDENT>` (destructive). A pick hands the
 /// action back; the host runs it once the sheet has dismissed (a push or a
 /// second sheet from under a dismissing one is dropped). EXP-1307: the
-/// Guide header's `…` opens it untitled with `guideMenuEntries` — Open on
-/// GitHub · Close PR without merging (destructive).
+/// Guide header's `…` opens it untitled with `guideMenuEntries` — Close PR
+/// without merging (destructive; EXP-1338: no GitHub entry).
 struct ThreadMenuSheet: View {
     enum Action: Equatable {
         case linkIssue
         case newIssue
         case unlink
-        case openGithub
         case closePr
     }
 
@@ -35,8 +34,6 @@ struct ThreadMenuSheet: View {
                 if let guideEntries {
                     ForEach(guideEntries, id: \.self) { entry in
                         switch entry {
-                        case .openGithub:
-                            row(.openGithub, DomainContract.diffUiOpenOnGithub, icon: AppIcons.uiGithub)
                         case .closePr:
                             row(.closePr, ClosePrCopy.menuItem, icon: AppIcons.prClosed, destructive: true)
                         }
@@ -79,7 +76,6 @@ struct ThreadMenuSheet: View {
         case .linkIssue: "link-issue"
         case .newIssue: "new-issue"
         case .unlink: "unlink"
-        case .openGithub: "open-github"
         case .closePr: "close-pr"
         }
     }

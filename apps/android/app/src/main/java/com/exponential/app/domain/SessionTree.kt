@@ -151,7 +151,7 @@ object SessionTree {
         const val STACK = "Stack"
         const val TEST_ID_GUIDE_STACK = "thread-guide-stack"
         const val TEST_ID_GUIDE_MERGE = "thread-guide-merge"
-        /** EXP-1307: the header `…` on the Guide (Open on GitHub · Close PR). */
+        /** EXP-1307: the header `…` on the Guide (Close PR, EXP-1338). */
         const val TEST_ID_GUIDE_MENU = "thread-guide-menu"
         /** EXP-1323: a child's report row. */
         const val REPORT = "Report from {session}"
@@ -1170,19 +1170,16 @@ object SessionTree {
         }
 
     /** EXP-1307: one entry of the thread header's `…` on the Guide. */
-    enum class GuideMenuEntry(val wire: String) { OpenGithub("open-github"), ClosePr("close-pr") }
+    enum class GuideMenuEntry(val wire: String) { ClosePr("close-pr") }
 
     /**
-     * EXP-1307: the thread header's `…` on the Guide: Open on GitHub whenever
-     * the Guide has a PR ([state] = its state, null = none), Close PR while it
-     * is open and the viewer is a [member]; empty = no trigger
-     * (`guideMenuCases`).
+     * EXP-1307: the thread header's `…` on the Guide: Close PR while the
+     * Guide's PR ([state] = its state, null = none) is open and the viewer is
+     * a [member]; empty = no trigger (`guideMenuCases`). EXP-1338: no GitHub
+     * entry, only the agent opens PRs.
      */
-    fun guideMenuEntries(state: String?, member: Boolean): List<GuideMenuEntry> = when {
-        state == null -> emptyList()
-        state == DomainContract.prStateOpen && member -> listOf(GuideMenuEntry.OpenGithub, GuideMenuEntry.ClosePr)
-        else -> listOf(GuideMenuEntry.OpenGithub)
-    }
+    fun guideMenuEntries(state: String?, member: Boolean): List<GuideMenuEntry> =
+        if (state == DomainContract.prStateOpen && member) listOf(GuideMenuEntry.ClosePr) else emptyList()
 
     // ── synced rows → the pure inputs ───────────────────────────────────────
 

@@ -1623,16 +1623,15 @@ public enum SessionTree {
 
     /// EXP-1307: one entry of the thread header's `…` on the Guide.
     public enum GuideMenuEntry: String, Sendable, Equatable {
-        case openGithub = "open-github"
         case closePr = "close-pr"
     }
 
-    /// EXP-1307: the thread header's `…` on the Guide: Open on GitHub whenever
-    /// the Guide has a PR (`state` = its state, nil = none), Close PR while it
-    /// is open and the viewer is a member; empty = no trigger.
+    /// EXP-1307: the thread header's `…` on the Guide: Close PR while the
+    /// Guide's PR (`state` = its state, nil = none) is open and the viewer is
+    /// a member; empty = no trigger. EXP-1338: no GitHub entry, only the agent
+    /// opens PRs.
     public static func guideMenuEntries(state: String?, member: Bool) -> [GuideMenuEntry] {
-        guard let state else { return [] }
-        return state == DomainContract.prStateOpen && member ? [.openGithub, .closePr] : [.openGithub]
+        state == DomainContract.prStateOpen && member ? [.closePr] : []
     }
 
     /// EXP-1318: an open PR of the thread sits in an open stack: based on

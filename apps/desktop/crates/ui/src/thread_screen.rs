@@ -570,8 +570,9 @@ fn thread_member(model: &ThreadModel, cx: &App) -> bool {
 }
 
 /// EXP-1307 — the Guide `…` (`guide_menu_entries` over the Guide PR):
-/// Open PR on GitHub, then Close PR while it is open (members only, the
-/// web's `canClose={permissions.isMember}`). No entries = none.
+/// Close PR while it is open (members only, the web's
+/// `canClose={permissions.isMember}`; EXP-1338: no GitHub entry). No
+/// entries = none.
 fn guide_menu(model: &ThreadModel, cx: &App) -> Option<AnyElement> {
     use domain::session_tree::{guide_menu_entries, GuideMenuEntry};
     let pull = model.pull()?;
@@ -579,7 +580,6 @@ fn guide_menu(model: &ThreadModel, cx: &App) -> Option<AnyElement> {
     if entries.is_empty() {
         return None;
     }
-    let url = pull.url.as_deref().map(str::trim).filter(|url| !url.is_empty()).map(str::to_string);
     let pull_request_id = pull.id.clone();
     // The batch line names the issues the PR closes beyond one.
     let others = Store::try_global(cx)
@@ -606,21 +606,6 @@ fn guide_menu(model: &ThreadModel, cx: &App) -> Option<AnyElement> {
             .child(crate::controls::PointerMenu::for_button(trigger, move |mut menu, _, cx| {
                 for entry in &entries {
                     menu = match entry {
-                        GuideMenuEntry::OpenGithub => {
-                            let url = url.clone();
-                            menu.item(
-                                crate::controls::pointer_label_item(
-                                    domain::contract::DIFF_UI_OPEN_ON_GITHUB,
-                                    url.is_none(),
-                                )
-                                .icon(Icon::new(registry::UI_GITHUB))
-                                .on_click(move |_, _, cx| {
-                                    if let Some(url) = url.clone() {
-                                        crate::settings::open_url(cx, url);
-                                    }
-                                }),
-                            )
-                        }
                         GuideMenuEntry::ClosePr => {
                             let pull_request_id = pull_request_id.clone();
                             menu.item(

@@ -1,6 +1,5 @@
 package com.exponential.app.ui.thread
 
-import android.content.Intent
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.RowScope
 import com.exponential.app.ui.components.GlassPill
@@ -61,7 +60,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -72,7 +70,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.net.toUri
 import com.exponential.app.data.db.UserEntity
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.AgentFeedItem
@@ -188,18 +185,16 @@ fun ThreadTitle(title: String, private: Boolean, modifier: Modifier = Modifier) 
 
 /**
  * EXP-1307: the thread header's `…` on the Guide (session-thread.json
- * `guideMenuEntries` ×4): Open on GitHub, then Close PR (destructive) while
- * the PR is open and the viewer is a member. THE app menu (the issue `…`'s
+ * `guideMenuEntries` ×4): Close PR (destructive) while the PR is open and
+ * the viewer is a member (EXP-1338: no GitHub entry). THE app menu (the issue `…`'s
  * [GlassDropdownMenu]); the host hosts Close's confirm. Empty = no trigger.
  */
 @Composable
 fun ThreadGuideMenuButton(
-    prUrl: String?,
     entries: List<SessionTree.GuideMenuEntry>,
     onClosePr: () -> Unit,
 ) {
     if (entries.isEmpty()) return
-    val context = LocalContext.current
     var open by remember { mutableStateOf(false) }
     // The Box anchors the dropdown to the button.
     Box {
@@ -212,22 +207,6 @@ fun ThreadGuideMenuButton(
         )
         GlassDropdownMenu(expanded = open, onDismissRequest = { open = false }) {
             for (entry in entries) when (entry) {
-                SessionTree.GuideMenuEntry.OpenGithub -> GlassMenuItem(
-                    leadingIcon = { Icon(ExpIcons.uiGithub, contentDescription = null) },
-                    text = { Text(DomainContract.diffUiOpenOnGithub) },
-                    enabled = !prUrl.isNullOrBlank(),
-                    onClick = {
-                        open = false
-                        // A device with no browser throws rather than
-                        // resolving the intent — a dead tap beats a crash.
-                        runCatching {
-                            val intent = Intent(Intent.ACTION_VIEW, prUrl.orEmpty().toUri())
-                            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                            context.startActivity(intent)
-                        }
-                    },
-                    modifier = Modifier.testTag("thread-guide-menu-open-github"),
-                )
                 SessionTree.GuideMenuEntry.ClosePr -> GlassMenuItem(
                     leadingIcon = { Icon(ExpIcons.prClosed, contentDescription = null) },
                     text = { Text(DomainContract.diffUiClosePr) },

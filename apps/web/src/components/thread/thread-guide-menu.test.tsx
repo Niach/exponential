@@ -1,12 +1,12 @@
 import { fireEvent, render, screen } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import closePrCopy from "@exp/domain-contract/fixtures/close-pr.json"
-import { contract } from "@exp/domain-contract"
 import { TooltipProvider } from "@exp/ui"
 import type { PullRequestRow } from "@/lib/session-tree"
 
 // EXP-1307: the thread header's `…` on the Guide (`guideMenuEntries`, ×4):
-// Open on GitHub, then Close PR while the PR is open and the viewer is a member.
+// Close PR while the PR is open and the viewer is a member. EXP-1338: no
+// GitHub entry, so anything else renders no trigger at all.
 
 vi.mock(`@tanstack/react-router`, () => ({ useNavigate: () => vi.fn() }))
 vi.mock(`@/lib/trpc-client`, () => ({ trpc: {} }))
@@ -48,22 +48,22 @@ function openMenu(state: string, canClose: boolean) {
 beforeEach(() => vi.restoreAllMocks())
 
 describe(`ThreadGuideMenu`, () => {
-  it(`offers Open on GitHub then Close PR on an open PR`, () => {
-    expect(openMenu(`open`, true)).toEqual([contract.diffUi.openOnGithub, closePrCopy.menuItem])
+  it(`offers Close PR alone on an open PR`, () => {
+    expect(openMenu(`open`, true)).toEqual([closePrCopy.menuItem])
   })
 
-  it(`offers Open on GitHub alone to a non-member or on a merged PR`, () => {
-    expect(openMenu(`open`, false)).toEqual([contract.diffUi.openOnGithub])
-  })
-
-  it(`opens the PR in a new tab`, () => {
-    const open = vi.spyOn(window, `open`).mockReturnValue(null)
-    openMenu(`merged`, true)
-    fireEvent.click(screen.getByRole(`menuitem`))
-    expect(open).toHaveBeenCalledWith(
-      `https://github.com/a/b/pull/54`,
-      `_blank`,
-      `noopener,noreferrer`
-    )
+  it(`renders no trigger for a non-member or a merged PR`, () => {
+    for (const [state, canClose] of [
+      [`open`, false],
+      [`merged`, true],
+    ] as const) {
+      const { unmount } = render(
+        <TooltipProvider>
+          <ThreadGuideMenu pr={pr(state)} canClose={canClose} />
+        </TooltipProvider>
+      )
+      expect(screen.queryByTestId(`thread-guide-menu`)).toBeNull()
+      unmount()
+    }
   })
 })
