@@ -444,8 +444,8 @@ fn attachment_url(attachment_id: &str) -> String {
 
 /// Open THE Guide picture viewer on `attachment_id` (EXP-1283, ×4): the
 /// picture large on the left, a 360px panel on the right — the topic, the
-/// picture's label pill, the topic's text (GFM), `‹ index / count ›` and
-/// `×`; ←/→ walk every Guide picture ([`domain::guide_viewer::guide_viewer`],
+/// picture's label pill, the topic's text (GFM) and `‹ index / count ›` (the
+/// native titlebar closes, EXP-1348); ←/→ walk every Guide picture ([`domain::guide_viewer::guide_viewer`],
 /// no wrap), Esc closes. An attachment the Guide does not hold falls back to
 /// the plain lightbox.
 pub(crate) fn open_guide_viewer(
@@ -568,8 +568,6 @@ impl Render for GuideViewer {
         };
         let back = step("guide-viewer-prev", crate::icons::registry::UI_CHEVRON_LEFT, prev.clone(), cx);
         let forward = step("guide-viewer-next", crate::icons::registry::UI_CHEVRON_RIGHT, next.clone(), cx);
-        let close = crate::controls::ghost_icon_button("guide-viewer-close", Icon::from(crate::icons::registry::UI_CLOSE), cx)
-            .on_click(|_, window, cx| native_dialog::close_dialog_window(window, cx));
         let text = state.text.clone().map(|text| {
             let mut view = crate::markdown::MarkdownView::new(
                 SharedString::from(format!("guide-viewer-text-{}", self.attachment_id)),
@@ -598,21 +596,16 @@ impl Render for GuideViewer {
                     .overflow_y_scroll()
                     .p_6()
                     .gap_3()
+                    // EXP-1348: no in-content × — the native titlebar's close
+                    // control is the window's one close affordance (Esc too).
                     .child(
-                        gpui_component::h_flex()
+                        div()
                             .w_full()
-                            .items_start()
-                            .gap_2()
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .min_w_0()
-                                    .text_lg()
-                                    .font_weight(gpui::FontWeight::SEMIBOLD)
-                                    .text_color(foreground)
-                                    .child(SharedString::from(state.topic.clone())),
-                            )
-                            .child(close),
+                            .min_w_0()
+                            .text_lg()
+                            .font_weight(gpui::FontWeight::SEMIBOLD)
+                            .text_color(foreground)
+                            .child(SharedString::from(state.topic.clone())),
                     )
                     .child(
                         gpui_component::h_flex().child(
