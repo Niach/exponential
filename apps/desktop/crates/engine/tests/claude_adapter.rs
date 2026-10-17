@@ -27,7 +27,7 @@ use agent_client_protocol::schema::v1::{
     SessionConfigId, SessionConfigKind, SessionConfigOptionValue, SessionConfigSelectOptions,
     SessionModeId,
     SessionNotification, SessionUpdate, SetSessionConfigOptionRequest, SetSessionModeRequest,
-    StopReason, TextContent, ToolCallContent, ToolKind,
+    StopReason, TextContent,
 };
 use agent_client_protocol::{
     on_receive_notification, on_receive_request, Client, ConnectionTo, Error,
@@ -209,16 +209,6 @@ impl Run {
             .collect()
     }
 
-    /// EXP-853: the `config_state.currentMode` sequence THE WIRE carried —
-    /// the chip's whole history for this run.
-    fn published_modes(&self) -> Vec<String> {
-        self.wire()
-            .into_iter()
-            .filter(|event| event["kind"] == "config_state")
-            .filter_map(|event| event["currentMode"].as_str().map(str::to_string))
-            .collect()
-    }
-
     /// The control responses the adapter wrote back to claude.
     fn control_responses(&self) -> Vec<&Value> {
         self.stdin
@@ -374,10 +364,8 @@ fn spec_at(scenario_dir: &Path, work: &Path, plan_mode: bool) -> AdapterSpec {
     spec_env(scenario_dir, work, plan_mode, &[])
 }
 
-/// [`spec_at`] with extra RUN-scoped environment — the seam EXP-853's
-/// `plan-stuck` uses to shrink the mode-announcement grace instead of
-/// sleeping ten seconds (the adapter reads it off its OWN spawn env, so one
-/// test can never change another's clock).
+/// [`spec_at`] with extra RUN-scoped environment (the adapter reads it off
+/// its OWN spawn env, so one test can never change another's).
 fn spec_env(
     scenario_dir: &Path,
     work: &Path,
@@ -962,31 +950,6 @@ async fn a_permission_reaches_the_client_and_its_answer_reaches_the_cli() {
     assert_eq!(payload["updatedInput"]["command"], serde_json::json!("rm -f /work/tree/x"));
 }
 
-/// EXP-772: the plan approval is one of the only two dialogs left, so it is
-/// what the cancellation contract is locked against.
-#[tokio::test]
-async fn a_cancelled_permission_is_denied_rather_than_left_hanging() {
-    let _session = one_session_at_a_time();
-    let work = workdir("permission-cancel");
-    let run = drive(
-        "plan",
-        &work.0,
-        "Append world to note.txt. Plan first.",
-        true,
-        Arc::new(|_request| RequestPermissionOutcome::Cancelled),
-        cancel_elicitations(),
-    )
-    .await;
-
-    // The ACP cancellation contract answers pending permissions with
-    // `Cancelled`; the CLI still needs a decision or the turn never ends.
-    let answer = run.control_responses().first().copied().expect("an answer went back");
-    let payload = &answer["response"]["response"];
-    assert_eq!(payload["behavior"], serde_json::json!("deny"));
-    assert_eq!(payload["message"], serde_json::json!("Cancelled by the user"));
-    assert_eq!(run.stop_reason, StopReason::EndTurn);
-}
-
 /// EXP-772: the CLI replays MACHINERY as `user` entries — system reminders,
 /// hook and task notifications, local-command echoes, the summary a
 /// compaction hands the fresh context. None of it may reach a feed as the
@@ -1113,11 +1076,12 @@ async fn a_tool_in_plan_mode_is_auto_allowed_without_a_card() {
     assert_eq!(payload["toolUseID"], serde_json::json!("toolu_theplanmodebash"));
 }
 
-/// EXP-772: a plan-mode launch keeps `--permission-mode plan` AND the
-/// dangerous flag — without the flag at spawn the CLI refuses the
-/// `bypassPermissions` switch the approved plan makes.
+/// EXP-1280: plan mode is Exponential's (the runbook + the server's
+/// `pr_open` gate): a plan launch runs the CLI in `bypassPermissions` with
+/// the dangerous flag, and an `ExitPlanMode` the model still calls is a
+/// plain allow: no card, no mode switch on the CLI.
 #[tokio::test]
-async fn a_plan_launch_still_bypasses_permissions() {
+async fn a_plan_launch_runs_full_access_and_exit_plan_mode_is_a_plain_allow() {
     let _session = one_session_at_a_time();
     let work = workdir("plan-argv");
     let run = drive(
@@ -1125,153 +1089,16 @@ async fn a_plan_launch_still_bypasses_permissions() {
         &work.0,
         "Append world to note.txt. Plan first.",
         true,
-        pick("exit-plan-bypass"),
+        pick("reject"),
         cancel_elicitations(),
     )
     .await;
 
-    assert_eq!(run.argv_value("--permission-mode"), Some("plan"));
+    assert_eq!(run.argv_value("--permission-mode"), Some("bypassPermissions"));
     assert!(run.argv.iter().any(|arg| arg == "--allow-dangerously-skip-permissions"));
-}
-
-/// EXP-954: the current CLI writes its plan to
-/// `{CLAUDE_CONFIG_DIR}/plans/<slug>.md` and then raises `ExitPlanMode` with
-/// an EMPTY input — the card used to read "Ready to code?" and nothing else
-/// on all four clients. The adapter recovers the plan from that `Write` (and
-/// offers the fresh-context option again, which only exists when there IS a
-/// plan to carry).
-#[tokio::test]
-async fn a_plan_written_to_a_file_still_fills_the_approval_card() {
-    let _session = one_session_at_a_time();
-    let work = workdir("plan-file");
-    let plan = "# Plan\\n\\n1. Read the issue\\n2. Fix the gate\\n";
-    let write = format!(
-        r#"{{"type":"assistant","message":{{"model":"claude-opus-5","id":"msg_planfile","type":"message","role":"assistant","content":[{{"type":"tool_use","id":"toolu_planwrite","name":"Write","input":{{"file_path":"/tmp/exp954/plans/steady-pelican.md","content":"{plan}"}},"caller":{{"type":"direct"}}}}]}},"parent_tool_use_id":null,"session_id":"11111111-2222-3333-4444-555555555555","uuid":"00000000-0000-4000-8000-000000000002"}}"#
-    );
-    let scenario = synthetic(
-        &work.0,
-        &[
-            r#"{"type":"system","subtype":"init","cwd":"/work/tree","session_id":"11111111-2222-3333-4444-555555555555","tools":["Write","ExitPlanMode"],"model":"claude-opus-5[1m]","permissionMode":"plan","slash_commands":["compact"],"agents":[],"uuid":"00000000-0000-4000-8000-000000000001"}"#,
-            &write,
-            r#"{"type":"control_request","request_id":"0f1c2d3e-4a5b-6c7d-8e9f-000000000954","request":{"subtype":"can_use_tool","tool_name":"ExitPlanMode","display_name":"ExitPlanMode","input":{},"tool_use_id":"toolu_planexit","requires_user_interaction":true}}"#,
-        ],
-        &[
-            r#"{"type":"result","subtype":"success","is_error":false,"stop_reason":"end_turn","result":"Done.","session_id":"11111111-2222-3333-4444-555555555555","uuid":"00000000-0000-4000-8000-000000000009","queued_turn_count":0}"#,
-        ],
-    );
-    let run = drive_at(
-        &scenario,
-        &work.0,
-        "Plan the fix.",
-        true,
-        pick("exit-plan-bypass"),
-        cancel_elicitations(),
-    )
-    .await;
-
-    let request = run.permissions.first().expect("the plan approval");
-    assert_eq!(request.tool_call.fields.kind, Some(ToolKind::SwitchMode));
-    let carried = request
-        .tool_call
-        .fields
-        .content
-        .as_ref()
-        .and_then(|content| content.first())
-        .expect("the recovered plan rides as content");
-    match carried {
-        ToolCallContent::Content(content) => match &content.content {
-            ContentBlock::Text(text) => {
-                assert!(text.text.starts_with("# Plan"), "{}", text.text);
-                assert!(text.text.contains("Fix the gate"), "{}", text.text);
-            }
-            other => panic!("expected the plan text, got {other:?}"),
-        },
-        other => panic!("expected content, got {other:?}"),
-    }
-    let options: Vec<String> =
-        request.options.iter().map(|option| option.option_id.0.to_string()).collect();
-    assert_eq!(
-        options,
-        vec![
-            "exit-plan-bypass".to_string(),
-            "exit-plan-clear-bypass".to_string(),
-            "reject".to_string(),
-        ],
-        "a recovered plan is a plan to carry into a fresh context"
-    );
-    // The card every client renders: the plan body, not the bare title.
-    let mut mapper = engine::Mapper::new(engine::MapperConfig {
-        redactor: Arc::new(steer::Redactor::new(Vec::new())),
-        cwd: PathBuf::from("/tmp/worktree"),
-        agent: steer::SessionAgent::Claude,
-        session_seed: "sess-1".to_string(),
-    });
-    let mut out = engine::MapOut::default();
-    mapper.on_permission(request, &mut out);
-    let card = out
-        .wire
-        .iter()
-        .map(|event| serde_json::to_value(event).expect("an activity event serializes"))
-        .find(|event| event["kind"] == "question")
-        .expect("the plan card");
-    assert_eq!(card["planMode"], serde_json::json!(true));
-    assert!(
-        card["text"].as_str().is_some_and(|text| text.contains("Fix the gate")),
-        "{card}"
-    );
-}
-
-/// EXP-954: the same recovery when the stream never held the plan text (a
-/// resumed conversation replays no tool input) — the file the `Write` named
-/// is read off disk.
-#[tokio::test]
-async fn a_plan_file_without_captured_content_is_read_from_disk() {
-    let _session = one_session_at_a_time();
-    let work = workdir("plan-file-disk");
-    let plans = work.0.join("claude-config").join("plans");
-    std::fs::create_dir_all(&plans).expect("a plans directory");
-    let path = plans.join("steady-pelican.md");
-    std::fs::write(&path, "# Plan\n\nRebuild the index.\n").expect("the plan on disk");
-    let write = format!(
-        r#"{{"type":"assistant","message":{{"model":"claude-opus-5","id":"msg_planfile","type":"message","role":"assistant","content":[{{"type":"tool_use","id":"toolu_planwrite","name":"Write","input":{{"file_path":"{}"}},"caller":{{"type":"direct"}}}}]}},"parent_tool_use_id":null,"session_id":"11111111-2222-3333-4444-555555555555","uuid":"00000000-0000-4000-8000-000000000002"}}"#,
-        path.display()
-    );
-    let scenario = synthetic(
-        &work.0,
-        &[
-            r#"{"type":"system","subtype":"init","cwd":"/work/tree","session_id":"11111111-2222-3333-4444-555555555555","tools":["Write","ExitPlanMode"],"model":"claude-opus-5[1m]","permissionMode":"plan","slash_commands":["compact"],"agents":[],"uuid":"00000000-0000-4000-8000-000000000001"}"#,
-            &write,
-            r#"{"type":"control_request","request_id":"0f1c2d3e-4a5b-6c7d-8e9f-000000000955","request":{"subtype":"can_use_tool","tool_name":"ExitPlanMode","display_name":"ExitPlanMode","input":{},"tool_use_id":"toolu_planexit","requires_user_interaction":true}}"#,
-        ],
-        &[
-            r#"{"type":"result","subtype":"success","is_error":false,"stop_reason":"end_turn","result":"Done.","session_id":"11111111-2222-3333-4444-555555555555","uuid":"00000000-0000-4000-8000-000000000009","queued_turn_count":0}"#,
-        ],
-    );
-    let run = drive_at(
-        &scenario,
-        &work.0,
-        "Plan the fix.",
-        true,
-        pick("exit-plan-bypass"),
-        cancel_elicitations(),
-    )
-    .await;
-
-    let request = run.permissions.first().expect("the plan approval");
-    let carried = request
-        .tool_call
-        .fields
-        .content
-        .as_ref()
-        .and_then(|content| content.first())
-        .expect("the plan read off disk rides as content");
-    match carried {
-        ToolCallContent::Content(content) => match &content.content {
-            ContentBlock::Text(text) => assert!(text.text.contains("Rebuild the index."), "{}", text.text),
-            other => panic!("expected the plan text, got {other:?}"),
-        },
-        other => panic!("expected content, got {other:?}"),
-    }
+    assert!(run.permissions.is_empty(), "no plan card from the CLI");
+    let answer = run.control_responses().first().copied().expect("an answer went back");
+    assert_eq!(answer["response"]["response"]["behavior"], serde_json::json!("allow"));
 }
 
 /// EXP-969: a manual `/compact` does not always land a `compact_boundary` —
@@ -1307,103 +1134,6 @@ async fn a_status_frame_that_stops_compacting_closes_the_fold() {
         edges,
         vec![CompactionStatus::InProgress, CompactionStatus::Completed],
         "the adapter itself closed the fold, no boundary frame needed"
-    );
-}
-
-#[tokio::test]
-async fn the_plan_approval_is_a_switch_mode_card_with_the_plan_and_its_options() {
-    let _session = one_session_at_a_time();
-    let work = workdir("plan");
-    let run = drive(
-        "plan",
-        &work.0,
-        "Append world to note.txt. Plan first.",
-        true,
-        pick("exit-plan-bypass"),
-        cancel_elicitations(),
-    )
-    .await;
-
-    assert_eq!(run.argv_value("--permission-mode"), Some("plan"));
-    let request = run.permissions.first().expect("the plan approval");
-    // All four clients gate their "Plan ready" card on this kind plus the
-    // plan markdown the card carries.
-    assert_eq!(request.tool_call.fields.kind, Some(ToolKind::SwitchMode));
-    assert_eq!(request.tool_call.fields.title.as_deref(), Some("Ready to code?"));
-    let plan = request
-        .tool_call
-        .fields
-        .content
-        .as_ref()
-        .and_then(|content| content.first())
-        .expect("the plan rides as content");
-    match plan {
-        ToolCallContent::Content(content) => match &content.content {
-            ContentBlock::Text(text) => assert!(text.text.starts_with("# Plan")),
-            other => panic!("expected the plan text, got {other:?}"),
-        },
-        other => panic!("expected content, got {other:?}"),
-    }
-    let options: Vec<String> =
-        request.options.iter().map(|option| option.option_id.0.to_string()).collect();
-    // EXP-772: coding the plan is the only elevated answer left; EXP-788:
-    // the plain "Yes" is index 0, the primary on every client.
-    assert_eq!(
-        options,
-        vec![
-            "exit-plan-bypass".to_string(),
-            "exit-plan-clear-bypass".to_string(),
-            "reject".to_string(),
-        ]
-    );
-
-    // A non-clearing approval ALLOWS and carries the mode switch with it.
-    let answer = run.control_responses().first().copied().expect("an answer went back");
-    let payload = &answer["response"]["response"];
-    assert_eq!(payload["behavior"], serde_json::json!("allow"));
-    assert_eq!(
-        payload["updatedPermissions"],
-        serde_json::json!([
-            { "type": "setMode", "mode": "bypassPermissions", "destination": "session" }
-        ])
-    );
-}
-
-#[tokio::test]
-async fn a_clear_context_approval_denies_with_an_interrupt_and_re_prompts_the_plan() {
-    let _session = one_session_at_a_time();
-    let work = workdir("plan-clear");
-    let run = drive(
-        "plan",
-        &work.0,
-        "Append world to note.txt. Plan first.",
-        true,
-        pick("exit-plan-clear-bypass"),
-        cancel_elicitations(),
-    )
-    .await;
-
-    let answer = run.control_responses().first().copied().expect("an answer went back");
-    let payload = &answer["response"]["response"];
-    // Allowing would run ExitPlanMode in the OLD context before the hand-off.
-    assert_eq!(payload["behavior"], serde_json::json!("deny"));
-    assert_eq!(payload["interrupt"], serde_json::json!(true));
-    assert_eq!(
-        payload["message"],
-        serde_json::json!("User accepted the plan and requested a fresh context")
-    );
-    // …and the plan is re-prompted on a cleared conversation instead of the
-    // turn ending there.
-    let prompts: Vec<String> = run
-        .stdin
-        .iter()
-        .filter(|line| line.get("type").and_then(Value::as_str) == Some("user"))
-        .filter_map(|line| line["message"]["content"][0]["text"].as_str().map(str::to_string))
-        .collect();
-    assert!(prompts.iter().any(|text| text == "/clear"), "{prompts:?}");
-    assert!(
-        prompts.iter().any(|text| text.starts_with("Implement the following plan:")),
-        "{prompts:?}"
     );
 }
 
@@ -2206,6 +1936,86 @@ async fn a_steer_the_cli_folds_into_the_running_turn_settles_with_it() {
     assert_eq!(steered, StopReason::EndTurn);
 }
 
+/// EXP-1280: a prompt asking for a FRESH context (a plan approved "in a
+/// fresh context", `FRESH_CONTEXT_META_KEY`) clears the conversation first:
+/// `/clear` goes in ahead of the prompt, its own zero-token `result` never
+/// settles the turn, and the prompt's turn runs in the new conversation.
+#[tokio::test]
+async fn a_fresh_context_prompt_clears_the_conversation_first() {
+    let _session = one_session_at_a_time();
+    let work = workdir("fresh-context");
+    let adapter = ClaudeAgent::new(spec("fresh-context", &work.0, false)).expect("the adapter builds");
+    let updates: Arc<Mutex<Vec<SessionNotification>>> = Arc::new(Mutex::new(Vec::new()));
+    let seen = updates.clone();
+    let driven = Client
+        .builder()
+        .name("exp746-test-client")
+        .on_receive_notification(
+            async move |notification: SessionNotification, _cx| {
+                seen.lock().expect("updates").push(notification);
+                Ok(())
+            },
+            on_receive_notification!(),
+        )
+        .connect_with(adapter, async move |cx: ConnectionTo<agent_client_protocol::Agent>| {
+            cx.send_request(
+                InitializeRequest::new(ProtocolVersion::V1)
+                    .client_capabilities(engine::client_capabilities()),
+            )
+            .block_task()
+            .await?;
+            let session = cx
+                .send_request(NewSessionRequest::new(std::env::temp_dir()))
+                .block_task()
+                .await?;
+            let mut meta = serde_json::Map::new();
+            meta.insert(engine::host::FRESH_CONTEXT_META_KEY.to_string(), Value::Bool(true));
+            let turn = cx
+                .send_request(
+                    PromptRequest::new(
+                        session.session_id.clone(),
+                        vec![ContentBlock::Text(TextContent::new(
+                            "Plan approved. Implement the following plan:\n\n1. One",
+                        ))],
+                    )
+                    .meta(meta),
+                )
+                .block_task()
+                .await?;
+            Ok::<_, Error>(turn.stop_reason)
+        });
+    let stop = tokio::time::timeout(Duration::from_secs(20), driven)
+        .await
+        .expect("the turn settles inside the budget")
+        .expect("the connection runs cleanly");
+    assert_eq!(stop, StopReason::EndTurn);
+    let users: Vec<String> = logged_stdin(&work.0)
+        .iter()
+        .filter(|line| line["type"] == "user")
+        .map(|line| {
+            let content = &line["message"]["content"];
+            content
+                .as_str()
+                .map(str::to_string)
+                .unwrap_or_else(|| content[0]["text"].as_str().unwrap_or_default().to_string())
+        })
+        .collect();
+    assert_eq!(users, vec!["/clear".to_string(), "Plan approved. Implement the following plan:\n\n1. One".to_string()]);
+    let texts: Vec<String> = updates
+        .lock()
+        .expect("updates")
+        .iter()
+        .filter_map(|notification| match &notification.update {
+            SessionUpdate::AgentMessageChunk(chunk) => match &chunk.content {
+                ContentBlock::Text(text) => Some(text.text.clone()),
+                _ => None,
+            },
+            _ => None,
+        })
+        .collect();
+    assert!(texts.iter().any(|text| text == "implementing"), "the real turn ran: {texts:?}");
+}
+
 #[tokio::test]
 async fn steering_the_mode_and_the_effort_reaches_the_cli_and_echoes_back() {
     let _session = one_session_at_a_time();
@@ -2259,10 +2069,9 @@ async fn steering_the_mode_and_the_effort_reaches_the_cli_and_echoes_back() {
         .filter_map(|line| serde_json::from_str(line).ok())
         .collect();
     let requests: Vec<&Value> = stdin.iter().map(|line| &line["request"]).collect();
-    assert!(requests.iter().any(|request| {
-        request["subtype"] == serde_json::json!("set_permission_mode")
-            && request["mode"] == serde_json::json!("plan")
-    }));
+    // EXP-1280: plan mode is Exponential's flag: the switch never reaches
+    // the CLI (it stays in `bypassPermissions`).
+    assert!(!requests.iter().any(|request| request["subtype"] == serde_json::json!("set_permission_mode")));
     // Effort is a settings-layer flag mid-session; `--effort` is spawn-only.
     assert!(requests.iter().any(|request| {
         request["subtype"] == serde_json::json!("apply_flag_settings")
@@ -2421,72 +2230,6 @@ async fn a_subagents_permission_chunks_and_edges_carry_the_parent_tool_use() {
     assert!(completed < run.updates.len() - 1, "{completed} of {}", run.updates.len());
 }
 
-/// EXP-753 — a BACKGROUNDED subagent never adopts a MAIN-THREAD permission.
-///
-/// The CLI sends no `agent_id` on a main-thread `can_use_tool` (every
-/// permission the spike recorded omits it), so attribution cannot guess from
-/// "the one live task": a Task started with `is_backgrounded: true` stays
-/// live while the main thread keeps working, and nesting that Bash approval
-/// under its card files the permission inside a subagent the user never
-/// connected it to. Synthetic frames, because a recording of a backgrounded
-/// Task racing a main-thread approval is not reproducible on demand.
-#[tokio::test]
-async fn a_backgrounded_subagent_never_adopts_a_main_thread_permission() {
-    let _session = one_session_at_a_time();
-    let work = workdir("subagent-background");
-    let scenario = synthetic(
-        &work.0,
-        &[
-            r#"{"type":"system","subtype":"init","cwd":"/work/tree/subagent","session_id":"11111111-2222-3333-4444-555555555555","tools":["Task","Bash"],"model":"claude-opus-5[1m]","permissionMode":"default","slash_commands":["compact"],"agents":["general-purpose"],"uuid":"00000000-0000-4000-8000-000000000001"}"#,
-            r#"{"type":"system","subtype":"task_started","task_id":"bg-task-1","tool_use_id":"toolu_thebackgroundtask","description":"Tail the dev server","subagent_type":"general-purpose","is_backgrounded":true,"spawn_depth":1,"task_type":"local_agent","uuid":"00000000-0000-4000-8000-000000000002","session_id":"11111111-2222-3333-4444-555555555555"}"#,
-            // EXP-772: the plan approval, because it is one of the only two
-            // dialogs a client still sees — an ordinary tool is auto-allowed
-            // and has no card to attribute at all.
-            r#"{"type":"control_request","request_id":"0f1c2d3e-4a5b-6c7d-8e9f-000000000001","request":{"subtype":"can_use_tool","tool_name":"ExitPlanMode","display_name":"ExitPlanMode","input":{"plan":"Plan: append main to main.txt"},"description":"Append main to main.txt","tool_use_id":"toolu_themainthreadplan"}}"#,
-        ],
-        &[
-            r#"{"type":"system","subtype":"task_updated","task_id":"bg-task-1","patch":{"status":"completed"},"uuid":"00000000-0000-4000-8000-000000000003","session_id":"11111111-2222-3333-4444-555555555555"}"#,
-            r#"{"type":"result","subtype":"success","is_error":false,"stop_reason":"end_turn","result":"Appended.","session_id":"11111111-2222-3333-4444-555555555555","uuid":"00000000-0000-4000-8000-000000000004","queued_turn_count":0}"#,
-        ],
-    );
-    let run = drive_at(
-        &scenario,
-        &work.0,
-        "Tail the dev server in the background and append main to main.txt.",
-        false,
-        pick("reject"),
-        cancel_elicitations(),
-    )
-    .await;
-
-    assert_eq!(run.stop_reason, StopReason::EndTurn);
-    // The background task WAS live when the permission was raised: its started
-    // edge is on the stream and nothing ended it until the answer went back.
-    assert_eq!(
-        run.subagent_edges().first().cloned(),
-        Some(("toolu_thebackgroundtask".to_string(), "started".to_string()))
-    );
-
-    // And the main thread's permission stays where it belongs: top level.
-    let permission = run.permissions.first().expect("the main thread's permission");
-    let meta = permission.tool_call.meta.as_ref().expect("the permission carries meta");
-    assert_eq!(meta.get("subagentId"), None, "{meta:?}");
-    assert_eq!(
-        meta.get("permission").and_then(|meta| meta.get("description")),
-        Some(&serde_json::json!("Append main to main.txt"))
-    );
-    // Nothing else on the stream claims the subagent either.
-    let nested: Vec<String> = run
-        .updates
-        .iter()
-        .filter(|notification| {
-            notification.meta.as_ref().and_then(|meta| meta.get("subagentId")).is_some()
-        })
-        .map(|notification| shape(&notification.update))
-        .collect();
-    assert!(nested.is_empty(), "{nested:?}");
-}
-
 /// EXP-753 — the DEFERRED outcome, and the edge that releases it.
 ///
 /// `subagent-deferred/` is the `subagent/` capture with its terminal
@@ -2540,14 +2283,15 @@ async fn a_control_request_in_flight_fails_when_the_cli_dies() {
     let _session = one_session_at_a_time();
     // EXP-758: the pump settled every TURN when stdout closed but nothing was
     // ever going to answer the control requests either, so a `set_mode` in
-    // flight sat out the whole 90 s `CONTROL_TIMEOUT` first. The fake closes
+    // flight sat out the whole 90 s `CONTROL_TIMEOUT` first (EXP-1280: the
+    // effort's `apply_flag_settings` — a mode switch is local now). The fake closes
     // its stdout and lingers, which is the shape that keeps the connection
     // open long enough (`CHILD_EXIT_GRACE`) for the adapter's own answer to
     // be the one the client sees.
     let work = workdir("control-drain");
     let mut adapter_spec = spec("basic", &work.0, false);
     adapter_spec.spawn =
-        adapter_spec.spawn.clone().env("EXP_FAKE_CLAUDE_DIE_ON", "set_permission_mode");
+        adapter_spec.spawn.clone().env("EXP_FAKE_CLAUDE_DIE_ON", "apply_flag_settings");
     let adapter = ClaudeAgent::new(adapter_spec).expect("the adapter builds");
 
     let driven = Client
@@ -2570,9 +2314,10 @@ async fn a_control_request_in_flight_fails_when_the_cli_dies() {
                 .await?;
             // The fake exits without answering this one.
             let result = cx
-                .send_request(SetSessionModeRequest::new(
+                .send_request(SetSessionConfigOptionRequest::new(
                     session.session_id.clone(),
-                    SessionModeId::new("plan"),
+                    SessionConfigId::new("effort"),
+                    SessionConfigOptionValue::value_id("high"),
                 ))
                 .block_task()
                 .await;
@@ -3059,90 +2804,6 @@ async fn a_resumed_agent_of_a_stopped_workflow_publishes_no_duplicate() {
 // ---------------------------------------------------------------------------
 // EXP-853 — the plan-mode chip stops flapping
 // ---------------------------------------------------------------------------
-
-/// EXP-853 §6.4 (plan-flap) — the CLI re-announces `permissionMode` on every
-/// turn `init`, and the one right after a plan approval still says `plan`
-/// because the CLI has not applied the switch yet. That announcement is
-/// DROPPED (rule 2) and the approval's own mode wins, so the wire carries
-/// exactly `plan` → `bypassPermissions` and nothing else.
-#[tokio::test(flavor = "multi_thread")]
-async fn a_plan_approval_is_not_walked_back_by_the_next_init() {
-    let _session = one_session_at_a_time();
-    let work = workdir("plan-flap");
-    // Rule 3's request is spawned off the approval: wait for the fake to log
-    // it rather than racing the teardown (EXP-1304).
-    let run = drive_spec_until(
-        spec_at(&Path::new(FIXTURES).join("plan-flap"), &work.0, false),
-        &work.0,
-        "Plan the change, then exit plan mode.",
-        pick("exit-plan-bypass"),
-        cancel_elicitations(),
-        |stdin| stdin.iter().any(|line| line["request"]["subtype"] == "set_permission_mode"),
-    )
-    .await;
-
-    assert_eq!(run.stop_reason, StopReason::EndTurn);
-    assert_eq!(
-        run.published_modes(),
-        vec!["plan".to_string(), "bypassPermissions".to_string()],
-        "the chip flapped: {:?}",
-        run.published_modes()
-    );
-    // Rule 1 (kept): a byte-identical `config_state` is dropped, so no frame
-    // ever restates the mode already in force (the dedupe itself is locked by
-    // `mapper::exp850_tests::an_identical_config_state_is_dropped`).
-    let wire = run.wire();
-    let frames: Vec<&Value> =
-        wire.iter().filter(|event| event["kind"] == "config_state").collect();
-    assert!(
-        frames.windows(2).all(|pair| pair[0] != pair[1]),
-        "a byte-identical config_state went out twice: {frames:?}"
-    );
-    // Rule 3: the engine ALSO tells the CLI, so its next init agrees instead
-    // of re-announcing the mode it has not applied.
-    let modes: Vec<&str> = run
-        .stdin
-        .iter()
-        .filter_map(|line| line.get("request")?.get("subtype")?.as_str().map(|_| line))
-        .filter(|line| line["request"]["subtype"] == "set_permission_mode")
-        .filter_map(|line| line["request"]["mode"].as_str())
-        .collect();
-    assert_eq!(modes, vec!["bypassPermissions"], "{:?}", run.stdin);
-}
-
-/// EXP-853 §6.4 (plan-stuck) — past the grace window the CLI's word IS the
-/// truth: a run whose approval never took keeps announcing `plan`, and the
-/// chip must say so rather than lie about a mode the agent is not in.
-///
-/// The window is shrunk to zero through this run's OWN spawn env
-/// (`EXP_MODE_ANNOUNCE_GRACE_MS`) — the same replay, ten seconds later.
-#[tokio::test(flavor = "multi_thread")]
-async fn a_cli_that_keeps_announcing_plan_wins_past_the_grace_window() {
-    let _session = one_session_at_a_time();
-    let work = workdir("plan-stuck");
-    let run = drive_env(
-        &Path::new(FIXTURES).join("plan-stuck"),
-        &work.0,
-        "Plan the change, then exit plan mode.",
-        false,
-        &[("EXP_MODE_ANNOUNCE_GRACE_MS", "0")],
-        pick("exit-plan-bypass"),
-        cancel_elicitations(),
-    )
-    .await;
-
-    assert_eq!(run.stop_reason, StopReason::EndTurn);
-    assert_eq!(
-        run.published_modes(),
-        vec![
-            "plan".to_string(),
-            "bypassPermissions".to_string(),
-            "plan".to_string(),
-        ],
-        "the chip must tell the truth: {:?}",
-        run.published_modes()
-    );
-}
 
 /// EXP-1134: a CHAT run asks claude to name the conversation once, off its
 /// first prompt, and publishes the answer as the run's title; an issue or

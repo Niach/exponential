@@ -85,6 +85,21 @@ pub const NATIVE_SESSION_META_KEY: &str = "exponentialNativeSessionId";
 /// other adapters have no such knob and ignore it.
 pub const CANCEL_QUEUED_META_KEY: &str = "exponentialCancelQueued";
 
+/// EXP-1280: the `_meta` key on a `session/prompt` asking the agent to take
+/// it in a FRESH context (a plan approved "in a fresh context"): claude
+/// injects `/clear` first, between turns only; an adapter with no such reset
+/// (codex) takes the prompt in the running conversation (the prompt carries
+/// the whole plan either way).
+pub const FRESH_CONTEXT_META_KEY: &str = "exponentialFreshContext";
+
+/// EXP-1280: the one line a person's switch INTO plan mode steers to the
+/// agent (plan mode is Exponential's: instructions + the server's `pr_open`
+/// gate, never the CLI's permission mode).
+pub const PLAN_MODE_ON_LINE: &str = "Plan mode is on: research and design, then propose the plan with `exponential_plan_propose` as the last call of your turn and stop; no commits, pushes or PRs until a person approves.";
+
+/// EXP-1280: the one line a person's switch OUT of plan mode steers.
+pub const PLAN_MODE_OFF_LINE: &str = "Plan mode is off: go ahead.";
+
 /// EXP-784: how many `session/prompt`s may be in flight on one session. A
 /// steer is a prompt, and a viewer hammering the input (or a relay replaying
 /// a backlog) used to open one request per message with nothing bounding
@@ -232,7 +247,10 @@ pub(crate) enum EngineCommand {
     /// EXP-1292: a person's `messages` row — a steer that carries its row id,
     /// which is the queue id while the agent has not read it and is reported
     /// consumed (`sessions.consume`) the moment it reaches the agent.
-    Deliver { message_id: String, text: String },
+    ///
+    /// EXP-1280: `fresh` = take it in a FRESH context (a plan approved "in
+    /// a fresh context", [`FRESH_CONTEXT_META_KEY`]).
+    Deliver { message_id: String, text: String, fresh: bool },
     /// EXP-1292: a question/plan card answered IN the Conversation, mapped
     /// onto the open ask ([`Mapper::card_answer`]).
     AnswerCard {
@@ -252,7 +270,11 @@ pub(crate) enum EngineCommand {
         id: SessionConfigId,
         value: SessionConfigOptionValue,
     },
-    SetMode(SessionModeId),
+    /// EXP-1280: `announce` = a PERSON moved plan mode (the relay
+    /// `set_mode`, `sessions.configure`): a real move steers the agent ONE
+    /// line ([`PLAN_MODE_ON_LINE`] / [`PLAN_MODE_OFF_LINE`]). The approval
+    /// path flips it silently.
+    SetMode { id: SessionModeId, announce: bool },
     Answer(steer::RemoteAnswer),
     /// A `/` command: an agent-advertised one becomes prompt text, a contract
     /// one is handled by `steer`'s `CommandLink` before it ever gets here.
@@ -2164,6 +2186,15 @@ fn advertises_mode(mapper: &Mapper, mode_id: &str) -> bool {
     )
 }
 
+/// EXP-1280: the line a person's plan-mode move steers to the agent.
+fn plan_mode_line(mode_id: &str) -> &'static str {
+    if mode_id == crate::adapters::PLAN_MODE_ID {
+        PLAN_MODE_ON_LINE
+    } else {
+        PLAN_MODE_OFF_LINE
+    }
+}
+
 /// The engine's own mirror of a `session/set_mode` that answered Ok.
 ///
 /// Gated on [`advertises_mode`]: a session with no modes answers Ok as a
@@ -2195,15 +2226,20 @@ fn handle_command(
                 TurnPrompt::Ready(LocalizedPrompt {
                     announce: text.clone(),
                     blocks,
+                    fresh: false,
                 })
             };
             gate_or_start(cx, ctx, session_id, text, prompt, turns, None)
         }
         // EXP-1292: a person's message row — a steer under its own id. Image
         // embeds localize on the spawned turn path like a composer message.
-        EngineCommand::Deliver { message_id, text } => {
+        EngineCommand::Deliver { message_id, text, fresh } => {
             ctx.note_message(&message_id);
-            let prompt = if ctx.attachments.is_some() && steer::has_attachment_embed(&text) {
+            // EXP-1280: a fresh-context prompt goes as it is (its plan's
+            // pictures stay links): the reset rides the request's `_meta`.
+            let prompt = if fresh {
+                TurnPrompt::Ready(LocalizedPrompt { fresh: true, ..LocalizedPrompt::plain(text.clone()) })
+            } else if ctx.attachments.is_some() && steer::has_attachment_embed(&text) {
                 TurnPrompt::Localize(text.clone())
             } else {
                 TurnPrompt::Ready(LocalizedPrompt::plain(text.clone()))
@@ -2226,19 +2262,6 @@ fn handle_command(
             // card that answered its last step submits the form.
             if let Some(submit) = ctx.with_mapper(|mapper| mapper.pending_submit(&question_id)) {
                 resolve_ask(ctx, submit);
-            }
-            // A rejected plan's feedback is what the person wants instead —
-            // the agent reads it as their next message.
-            if let Some(feedback) = mapped.follow_up {
-                gate_or_start(
-                    cx,
-                    ctx,
-                    session_id,
-                    feedback.clone(),
-                    TurnPrompt::Ready(LocalizedPrompt::plain(feedback)),
-                    turns,
-                    None,
-                );
             }
         }
         // EXP-873: a message that arrives while a turn is running goes to
@@ -2367,11 +2390,30 @@ fn handle_command(
                 Ok(())
             });
         }
-        EngineCommand::SetMode(mode_id) => {
+        EngineCommand::SetMode { id: mode_id, announce } => {
+            // EXP-1280: a PERSON's real move tells the agent (one steered
+            // line, after the switch); the approval's flip is silent.
+            let line = ctx.with_mapper(|mapper| {
+                let moved = advertises_mode(mapper, &mode_id.0) && mapper.current_mode() != Some(mode_id.0.as_ref());
+                (announce && moved).then(|| plan_mode_line(&mode_id.0))
+            });
             let sent = cx.send_request(SetSessionModeRequest::new(
                 session_id.clone(),
                 mode_id.clone(),
             ));
+            // The line goes AFTER the switch request (one connection, in
+            // order), so the agent reads it in the mode it describes.
+            if let Some(line) = line {
+                gate_or_start(
+                    cx,
+                    ctx,
+                    session_id,
+                    line.to_string(),
+                    TurnPrompt::Ready(LocalizedPrompt::plain(line.to_string())),
+                    turns,
+                    None,
+                );
+            }
             let ctx = ctx.clone();
             let _ = cx.spawn(async move {
                 let mut out = MapOut::default();
@@ -2718,6 +2760,8 @@ impl TurnGate {
 pub(crate) struct LocalizedPrompt {
     pub(crate) announce: String,
     pub(crate) blocks: Vec<ContentBlock>,
+    /// EXP-1280: ask for a fresh context ([`FRESH_CONTEXT_META_KEY`]).
+    pub(crate) fresh: bool,
 }
 
 impl LocalizedPrompt {
@@ -2727,6 +2771,7 @@ impl LocalizedPrompt {
         LocalizedPrompt {
             blocks: text_blocks(&text),
             announce: text,
+            fresh: false,
         }
     }
 }
@@ -2750,6 +2795,7 @@ pub(crate) async fn localize_for_agent(
     LocalizedPrompt {
         announce: text,
         blocks: text_blocks(&agent_text),
+        fresh: false,
     }
 }
 
@@ -2793,9 +2839,9 @@ fn start_turn(
     turns: &Arc<TurnGate>,
     pending: Option<String>,
 ) {
-    let (announce, ready_blocks, localize) = match prompt {
-        TurnPrompt::Ready(localized) => (localized.announce, Some(localized.blocks), None),
-        TurnPrompt::Localize(text) => (text.clone(), None, Some(text)),
+    let (announce, ready_blocks, localize, fresh) = match prompt {
+        TurnPrompt::Ready(localized) => (localized.announce, Some(localized.blocks), None, localized.fresh),
+        TurnPrompt::Localize(text) => (text.clone(), None, Some(text), false),
     };
     match (&pending, &ready_blocks) {
         // EXP-1098: the agent's replay may carry the LOCALIZED text (an
@@ -2822,7 +2868,16 @@ fn start_turn(
     let mut turn_out = MapOut::default();
     ctx.with_mapper(|mapper| mapper.set_turn(steer::TurnState::Started, false, &mut turn_out));
     ctx.dispatch(turn_out);
-    let request = ready_blocks.map(|blocks| PromptRequest::new(session_id.clone(), blocks));
+    let request = ready_blocks.map(|blocks| {
+        let request = PromptRequest::new(session_id.clone(), blocks);
+        if fresh {
+            let mut meta = serde_json::Map::new();
+            meta.insert(FRESH_CONTEXT_META_KEY.to_string(), serde_json::Value::Bool(true));
+            request.meta(meta)
+        } else {
+            request
+        }
+    });
     // FEED-62: a message sent MID-TURN to an agent that replays what it takes
     // in (claude) holds a bar line (`pending`) and takes NO turn slot. Claude
     // answers such a prompt only when the running turn's `result` lands, so

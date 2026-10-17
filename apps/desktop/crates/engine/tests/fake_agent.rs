@@ -1623,6 +1623,39 @@ fn set_config_and_set_mode_re_emit_the_config_state() {
             .as_deref(),
         Some("plan")
     );
+    // EXP-1280: a PERSON's real plan-mode move steers the agent ONE line.
+    until("the plan-mode line", || {
+        harness
+            .state
+            .prompts
+            .lock()
+            .expect("the prompt log is not poisoned")
+            .iter()
+            .any(|prompt| prompt == engine::host::PLAN_MODE_ON_LINE)
+    });
+    harness.session.kill("killed");
+}
+
+/// EXP-1280: a plan approval flips Exponential's plan flag SILENTLY (the
+/// answer the agent reads already says so): the mode moves, no line.
+#[test]
+fn a_silent_plan_mode_switch_steers_no_line() {
+    let harness = start_fake("config");
+    until("the first snapshot", || {
+        !events_of(&harness.sink, "config_state").is_empty()
+    });
+    harness.session.set_plan_mode_silent(true);
+    until("the re-emitted mode", || {
+        events_of(&harness.sink, "config_state")
+            .last()
+            .map(|state| state["currentMode"] == "plan")
+            .unwrap_or(false)
+    });
+    // A later prompt orders after anything the switch could have sent.
+    harness.session.send_prompt("after".to_string());
+    let prompts = || harness.state.prompts.lock().expect("the prompt log is not poisoned").clone();
+    until("the later prompt", || prompts().iter().any(|prompt| prompt == "after"));
+    assert!(!prompts().iter().any(|prompt| prompt.starts_with("Plan mode is")), "{:?}", prompts());
     harness.session.kill("killed");
 }
 

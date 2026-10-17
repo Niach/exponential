@@ -55,10 +55,8 @@ pub fn agent_options(
     if !interactive {
         options.plan_mode = false;
     }
+    // EXP-1280: plan mode is Exponential's, every agent's.
     if flags.plan {
-        if !agent.supports_plan_mode() {
-            bail!("--plan is not available for {}", agent.id());
-        }
         options.plan_mode = true;
     }
     Ok(options)
@@ -413,6 +411,8 @@ fn foreground_pass(
             PickupAction::Deliver { session_id: id, .. }
             | PickupAction::Revoke { session_id: id, .. }
             | PickupAction::Answer { session_id: id, .. }
+            // EXP-1280: an answered tool card is this engine's next turn.
+            | PickupAction::DeliverAnswer { session_id: id, .. }
             | PickupAction::Kill { session_id: id }
             // EXP-1252: the row moved to another device: this engine stops
             // without a row write.

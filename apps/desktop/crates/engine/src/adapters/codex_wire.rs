@@ -722,29 +722,6 @@ pub fn thread_compact_start_params(thread_id: &str) -> Value {
     json!({ "threadId": thread_id })
 }
 
-/// `thread/settings/update` — how codex-acp pushes a collaboration mode
-/// (`default` | `plan`). The method is NOT in the installed 0.144.5 schema, so
-/// the caller must treat a method-not-found error as "this codex has no plan
-/// mode" rather than as a failure.
-pub fn thread_settings_collaboration_params(
-    thread_id: &str,
-    mode: &str,
-    model: Option<&str>,
-    effort: Option<&str>,
-) -> Value {
-    json!({
-        "threadId": thread_id,
-        "collaborationMode": {
-            "mode": mode,
-            "settings": {
-                "model": model,
-                "reasoning_effort": effort,
-                "developer_instructions": Value::Null,
-            },
-        },
-    })
-}
-
 /// Everything one `turn/start` carries. Model, effort, mode and service tier
 /// all ride the TURN, never the thread: codex-acp passes neither
 /// `approvalPolicy` nor `sandbox` at `thread/start`, and every turn override

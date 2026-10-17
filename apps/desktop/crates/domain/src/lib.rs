@@ -118,6 +118,8 @@ pub mod issue_search;
 // EXP-1248: THE list item (geometry, PR node states), fixture-locked ×4.
 pub mod list_item;
 pub mod options;
+// EXP-1280: THE plan / question card (answer text, issues, uploads, tiles), fixture-locked ×4.
+pub mod plan_card;
 pub mod placeholder_status;
 pub mod pr_graph;
 pub mod pr_stack;

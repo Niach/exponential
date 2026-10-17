@@ -1302,20 +1302,28 @@ async fn a_failed_turn_stops_terminally_without_claiming_a_refusal() {
     );
 }
 
+/// EXP-1280: plan mode is Exponential's flag, never codex's collaboration
+/// setting: a mode switch (or the legacy `collaboration_mode` option) moves
+/// the published mode and sends NOTHING to the app-server.
 #[tokio::test]
-async fn a_slow_config_update_does_not_block_the_dispatch_loop() {
+async fn plan_mode_is_a_local_flag_never_sent_to_codex() {
     let _session = one_session_at_a_time();
-    // EXP-758: the other handler that ran an app-server call inline.
-    // `collaboration_mode` is a `thread/settings/update` round trip, and the
-    // rule is the same one the prompt handler already follows.
     let (fake, connection) = FakeServer::new(vec![frames("turn.jsonl")], Vec::new(), Vec::new());
     let agent = CodexAgent::with_connection(spec(), connection);
     let watcher = fake.clone();
+    let modes = Arc::new(Mutex::new(Vec::<String>::new()));
+    let seen = Arc::clone(&modes);
+    let waited = Arc::clone(&modes);
 
     Client
         .builder()
         .on_receive_notification(
-            async move |_notification: SessionNotification, _cx| Ok(()),
+            async move |notification: SessionNotification, _cx| {
+                if let SessionUpdate::CurrentModeUpdate(update) = &notification.update {
+                    seen.lock().unwrap().push(update.current_mode_id.0.to_string());
+                }
+                Ok(())
+            },
             agent_client_protocol::on_receive_notification!(),
         )
         .connect_with(agent, async move |cx: ConnectionTo<agent_client_protocol::Agent>| {
@@ -1329,41 +1337,24 @@ async fn a_slow_config_update_does_not_block_the_dispatch_loop() {
                 .send_request(NewSessionRequest::new(PathBuf::from("/work/tree")))
                 .block_task()
                 .await?;
-            watcher.hold("thread/settings/update");
-            let updating = tokio::spawn({
-                let cx = cx.clone();
-                let session_id = session.session_id.clone();
-                async move {
-                    cx.send_request(SetSessionConfigOptionRequest::new(
-                        session_id,
-                        "collaboration_mode",
-                        SessionConfigOptionValue::value_id("plan"),
-                    ))
-                    .block_task()
-                    .await
-                }
-            });
-            settle(|| watcher.saw("thread/settings/update")).await;
-
-            let answered = tokio::time::timeout(
-                SETTLE,
-                cx.send_request(SetSessionModeRequest::new(
-                    session.session_id.clone(),
-                    SessionModeId::new("agent"),
-                ))
-                .block_task(),
-            )
-            .await;
-            assert!(
-                answered.is_ok(),
-                "a request behind a pending thread/settings/update was never dispatched"
-            );
-            answered.expect("dispatched").expect("session/set_mode answers");
-
-            watcher.release();
-            updating.await.expect("the update task runs").expect("the option is set");
+            let current = session.modes.as_ref().map(|modes| modes.current_mode_id.0.to_string());
+            assert_eq!(current.as_deref(), Some("bypassPermissions"));
+            cx.send_request(SetSessionModeRequest::new(session.session_id.clone(), SessionModeId::new("plan")))
+                .block_task()
+                .await?;
+            cx.send_request(SetSessionConfigOptionRequest::new(
+                session.session_id.clone(),
+                "collaboration_mode",
+                SessionConfigOptionValue::value_id("default"),
+            ))
+            .block_task()
+            .await?;
+            settle(|| !waited.lock().unwrap().is_empty()).await;
             Ok(())
         })
         .await
-        .expect("the session runs");
+        .expect("the connection runs cleanly");
+
+    assert!(!watcher.saw("thread/settings/update"), "plan mode never reaches codex");
+    assert_eq!(modes.lock().unwrap().first().map(String::as_str), Some("plan"));
 }

@@ -165,17 +165,13 @@ impl Reply {
     }
 }
 
-/// The claude adapter's ExitPlanMode fresh-context option.
-use domain::ask_dock::FRESH_PLAN_OPTION_KEY;
-
-/// EXP-1292: an answered question/plan card mapped back onto the engine's
-/// open ask — the same [`steer::RemoteAnswer`] a relay `answer` frame
-/// carries, plus a rejected plan's feedback, which the agent gets as the
-/// person's next message.
+/// EXP-1292: an answered question card mapped back onto the engine's open
+/// ask — the same [`steer::RemoteAnswer`] a relay `answer` frame carries.
+/// (EXP-1280: plan cards are tool-posted now and answered by the device as
+/// the next turn, never through an open ask.)
 #[derive(Clone, Debug, PartialEq)]
 pub struct CardAnswer {
     pub answer: steer::RemoteAnswer,
-    pub follow_up: Option<String>,
 }
 
 /// Identifies one parked ask so an inbound `answer` frame can find the ACP
@@ -386,11 +382,6 @@ struct PermissionAsk {
     /// (option key, label) in published order — the answer's labels come
     /// from here so `question_resolved` reads like the card did.
     options: Vec<(String, String)>,
-    /// EXP-1292: the keys of the REJECT options — a plan card's `rejected`
-    /// decision picks the first of them, `approved` the first other one.
-    rejects: Vec<String>,
-    /// EXP-1292: the card is a plan (ExitPlanMode), answered by `decision`.
-    plan: bool,
     answered: bool,
 }
 
@@ -957,9 +948,10 @@ impl Mapper {
     }
 
     /// A `session/request_permission`. Returns the key the host parks the
-    /// `Responder` under. `ToolKind::SwitchMode` (ExitPlanMode) emits a
-    /// PLAN card: `plan_mode: true` with the plan markdown as `text`, or all
-    /// four clients degrade it to a generic question.
+    /// `Responder` under. EXP-1280: never a plan card — plan mode is
+    /// Exponential's (`exponential_plan_propose` posts the card), so no
+    /// `SwitchMode` permission arrives any more; one that does is a plain
+    /// question.
     pub fn on_permission(
         &mut self,
         request: &RequestPermissionRequest,
@@ -971,7 +963,6 @@ impl Mapper {
         let fields = &request.tool_call.fields;
         let title = fields.title.clone().unwrap_or_default();
         let body = content_text(fields.content.as_deref().unwrap_or_default());
-        let plan_mode = fields.kind == Some(ToolKind::SwitchMode);
         let raw_id = request.tool_call.tool_call_id.0.to_string();
         let question_id = if raw_id.is_empty() {
             self.synthetic_id("perm", &title)
@@ -989,28 +980,13 @@ impl Mapper {
             })
             .collect::<Vec<_>>();
 
-        let text = if plan_mode {
-            // The plan body IS the card on all four clients.
-            self.clean_marked(if body.is_empty() { &title } else { &body }, QUESTION_TEXT_MAX)
-        } else if body.is_empty() {
+        let text = if body.is_empty() {
             self.clean_marked(&title, QUESTION_TEXT_MAX)
         } else {
             self.clean_marked(&body, QUESTION_TEXT_MAX)
         };
-        let header = (!plan_mode && !title.is_empty())
-            .then(|| self.clean(&title, QUESTION_HEADER_MAX));
+        let header = (!title.is_empty()).then(|| self.clean(&title, QUESTION_HEADER_MAX));
 
-        let rejects = request
-            .options
-            .iter()
-            .filter(|option| {
-                matches!(
-                    option.kind,
-                    PermissionOptionKind::RejectOnce | PermissionOptionKind::RejectAlways
-                )
-            })
-            .map(|option| steer::truncate(&option.option_id.0, ID_MAX))
-            .collect();
         self.permissions.insert(
             question_id.clone(),
             PermissionAsk {
@@ -1018,8 +994,6 @@ impl Mapper {
                     .iter()
                     .map(|option| (option.key.clone(), option.label.clone()))
                     .collect(),
-                rejects,
-                plan: plan_mode,
                 answered: false,
             },
         );
@@ -1028,17 +1002,10 @@ impl Mapper {
         // EXP-1292: the ask is a Conversation card too, answered IN the card
         // (`answer_card`); the narration before it is no longer the reply.
         self.reset_turn_reply();
-        out.replies.push(Reply::card(if plan_mode {
-            api::session_device::ReplyCard::Plan {
-                plan: text.clone(),
-                question_id: question_id.clone(),
-            }
-        } else {
-            api::session_device::ReplyCard::Question {
-                question: text.clone(),
-                options: card_options(&options),
-                question_id: question_id.clone(),
-            }
+        out.replies.push(Reply::card(api::session_device::ReplyCard::Question {
+            question: text.clone(),
+            options: card_options(&options),
+            question_id: question_id.clone(),
         }));
 
         emit(
@@ -1047,7 +1014,7 @@ impl Mapper {
                 text,
                 options,
                 multi_select: None,
-                plan_mode: plan_mode.then_some(true),
+                plan_mode: None,
                 id: question_id.clone(),
                 ask_id: None,
                 index: None,
@@ -1682,8 +1649,7 @@ impl Mapper {
     }
 
     /// EXP-1292: an answered Conversation card (`messages.card` with
-    /// `answer`, or a plan's `decision` + `feedback`) as the answer the open
-    /// ask takes. A question's answer matches an option by label (or key),
+    /// `answer`) as the answer the open ask takes. A question's answer matches an option by label (or key),
     /// case-insensitively; a comma-separated answer to a multi-select step
     /// picks every option it names; anything else is the step's typed
     /// answer. `None` when nothing is open under `question_id` or the card
@@ -1707,31 +1673,6 @@ impl Mapper {
         match self.questions.get(question_id)? {
             AskRef::Permission(id) => {
                 let ask = self.permissions.get(id)?;
-                if ask.plan {
-                    let approved = match card.get("decision").and_then(Value::as_str)? {
-                        "approved" => true,
-                        "rejected" => false,
-                        _ => return None,
-                    };
-                    // ask-dock.json `planOptions`: a fresh approval takes the
-                    // claude adapter's fresh-context option when it offers one.
-                    let fresh = approved && card.get("fresh").and_then(Value::as_bool) == Some(true);
-                    let fresh_key = fresh
-                        .then(|| ask.options.iter().map(|(key, _)| key).find(|key| *key == FRESH_PLAN_OPTION_KEY))
-                        .flatten();
-                    let key = fresh_key
-                        .or_else(|| {
-                            ask.options
-                                .iter()
-                                .map(|(key, _)| key)
-                                .find(|key| ask.rejects.contains(key) != approved)
-                        })?
-                        .clone();
-                    return Some(CardAnswer {
-                        answer: remote(None, vec![key], None),
-                        follow_up: (!approved).then(|| text("feedback")).flatten(),
-                    });
-                }
                 let answer = text("answer")?;
                 let key = ask
                     .options
@@ -1741,10 +1682,7 @@ impl Mapper {
                     })?
                     .0
                     .clone();
-                Some(CardAnswer {
-                    answer: remote(None, vec![key], None),
-                    follow_up: None,
-                })
+                Some(CardAnswer { answer: remote(None, vec![key], None) })
             }
             AskRef::Elicitation(ask_id) => {
                 let ask = self.elicitations.get(ask_id)?;
@@ -1777,10 +1715,7 @@ impl Mapper {
                     }
                     None => (Vec::new(), Some(answer)),
                 };
-                Some(CardAnswer {
-                    answer: remote(Some(ask_id.clone()), keys, typed),
-                    follow_up: None,
-                })
+                Some(CardAnswer { answer: remote(Some(ask_id.clone()), keys, typed) })
             }
         }
     }
@@ -4915,8 +4850,11 @@ mod tests {
         assert!(mapper.permissions.contains_key("tc-199"));
     }
 
+    /// EXP-1280: plan mode is Exponential's (`exponential_plan_propose`
+    /// posts the plan card), so a `SwitchMode` permission that still
+    /// arrives is a plain question: no `planMode`, no plan card.
     #[test]
-    fn an_exit_plan_mode_permission_is_a_plan_card() {
+    fn a_switch_mode_permission_is_a_plain_question() {
         let mut mapper = mapper();
         let mut out = MapOut::default();
         let request = RequestPermissionRequest::new(
@@ -4932,7 +4870,7 @@ mod tests {
             ),
             vec![PermissionOption::new(
                 PermissionOptionId::new("approve"),
-                "Yes, and auto-accept edits",
+                "Yes",
                 PermissionOptionKind::AllowAlways,
             )],
         );
@@ -4942,11 +4880,15 @@ mod tests {
             json!({
                 "kind": "question",
                 "text": "## Plan\n\n1. Do the thing",
-                "options": [{"label": "Yes, and auto-accept edits", "key": "approve"}],
-                "planMode": true,
+                "options": [{"label": "Yes", "key": "approve"}],
+                "header": "Ready to code?",
                 "id": "tc-plan"
             })
         );
+        assert!(matches!(
+            out.replies.as_slice(),
+            [Reply { card: Some(api::session_device::ReplyCard::Question { .. }), .. }]
+        ));
     }
 
     #[test]
@@ -7027,94 +6969,12 @@ mod conversation_tests {
             .expect("the label matches");
         assert_eq!(mapped.answer.keys, vec!["allow".to_string()]);
         assert_eq!(mapped.answer.question_id, "tc-perm");
-        assert_eq!(mapped.follow_up, None);
         assert!(mapper
             .card_answer("tc-perm", &json!({"kind": "question", "answer": "maybe"}))
             .is_none());
         assert!(mapper
             .card_answer("tc-unknown", &json!({"kind": "question", "answer": "Yes"}))
             .is_none());
-    }
-
-    #[test]
-    fn exit_plan_mode_is_a_plan_card_answered_by_its_decision() {
-        let mut mapper = live();
-        let mut out = MapOut::default();
-        mapper.on_permission(
-            &permission("tc-plan", Some(ToolKind::SwitchMode), Some("## Plan\n\n1. Do it")),
-            &mut out,
-        );
-        assert_eq!(
-            out.replies[0].card,
-            Some(ReplyCard::Plan {
-                plan: "## Plan\n\n1. Do it".into(),
-                question_id: "tc-plan".into(),
-            })
-        );
-        let approved = mapper
-            .card_answer("tc-plan", &json!({"kind": "plan", "decision": "approved"}))
-            .expect("approved maps");
-        assert_eq!(approved.answer.keys, vec!["allow".to_string()]);
-        assert_eq!(approved.follow_up, None);
-        let rejected = mapper
-            .card_answer(
-                "tc-plan",
-                &json!({"kind": "plan", "decision": "rejected", "feedback": "Smaller steps"}),
-            )
-            .expect("rejected maps");
-        assert_eq!(rejected.answer.keys, vec!["reject".to_string()]);
-        assert_eq!(rejected.follow_up.as_deref(), Some("Smaller steps"));
-        assert!(mapper
-            .card_answer("tc-plan", &json!({"kind": "plan", "decision": null}))
-            .is_none());
-    }
-
-    /// ask-dock.json `planOptions`: a fresh approval picks the adapter's
-    /// fresh-context option; without one it is the plain approve.
-    #[test]
-    fn a_fresh_plan_approval_picks_the_fresh_context_option() {
-        let mut mapper = live();
-        let mut out = MapOut::default();
-        let fields = ToolCallUpdateFields::new()
-            .title("Ready to code?")
-            .kind(ToolKind::SwitchMode)
-            .content(vec![ToolCallContent::from(ContentBlock::Text(TextContent::new("1. Do it")))]);
-        let request = RequestPermissionRequest::new(
-            SessionId::new("acp-1"),
-            ToolCallUpdate::new(ToolCallId::new("tc-fresh"), fields),
-            vec![
-                PermissionOption::new(PermissionOptionId::new("exit-plan-bypass"), "Yes", PermissionOptionKind::AllowAlways),
-                PermissionOption::new(
-                    PermissionOptionId::new(FRESH_PLAN_OPTION_KEY),
-                    "Yes, and start with a fresh context",
-                    PermissionOptionKind::AllowAlways,
-                ),
-                PermissionOption::new(PermissionOptionId::new("reject"), "No, keep planning", PermissionOptionKind::RejectOnce),
-            ],
-        );
-        mapper.on_permission(&request, &mut out);
-        let fresh = mapper
-            .card_answer("tc-fresh", &json!({"kind": "plan", "decision": "approved", "fresh": true}))
-            .expect("fresh maps");
-        assert_eq!(fresh.answer.keys, vec![FRESH_PLAN_OPTION_KEY.to_string()]);
-        let plain = mapper
-            .card_answer("tc-fresh", &json!({"kind": "plan", "decision": "approved", "fresh": false}))
-            .expect("plain maps");
-        assert_eq!(plain.answer.keys, vec!["exit-plan-bypass".to_string()]);
-        let rejected = mapper
-            .card_answer("tc-fresh", &json!({"kind": "plan", "decision": "rejected", "fresh": true}))
-            .expect("rejected maps");
-        assert_eq!(rejected.answer.keys, vec!["reject".to_string()]);
-
-        // No fresh option offered: the plain approve.
-        mapper.on_permission(
-            &permission("tc-plan", Some(ToolKind::SwitchMode), Some("## Plan\n\n1. Do it")),
-            &mut out,
-        );
-        let fallback = mapper
-            .card_answer("tc-plan", &json!({"kind": "plan", "decision": "approved", "fresh": true}))
-            .expect("approved maps");
-        assert_eq!(fallback.answer.keys, vec!["allow".to_string()]);
     }
 
     #[test]

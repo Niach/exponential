@@ -532,9 +532,11 @@ fn attach_publisher(
                     id: agent_client_protocol::schema::v1::SessionConfigId::new(id),
                     value: crate::session::ConfigValue::from_wire(&value).into(),
                 },
-                steer::ConfigChange::Mode { id } => EngineCommand::SetMode(
-                    agent_client_protocol::schema::v1::SessionModeId::new(id),
-                ),
+                // EXP-1280: a viewer's chip tap is a PERSON's move.
+                steer::ConfigChange::Mode { id } => EngineCommand::SetMode {
+                    id: agent_client_protocol::schema::v1::SessionModeId::new(id),
+                    announce: true,
+                },
             };
             if commands.send(command).is_err() {
                 return;
