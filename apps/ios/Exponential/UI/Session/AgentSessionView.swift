@@ -382,6 +382,10 @@ struct AgentSessionView: View {
                 guard let message else { return }
                 toaster.error(FeedbackStates.Errors.title(verb: "switch", thing: "the account"), description: message)
             }
+            .onChange(of: model?.moveError) { _, message in
+                guard let message else { return }
+                toaster.error(SessionDeviceMove.failureToast, description: message)
+            }
             // EXP-790: blur collapses the composer ONLY when nothing would be
             // lost — empty draft, no pending images, no picker mid-flight
             // (presenting one resigns first responder). Copied from
@@ -1729,7 +1733,9 @@ struct AgentSessionView: View {
                 showsPlan: model.session?.dispatch != true,
                 // An ended row takes no `/model`: the pin is a label.
                 ended: model.session?.isLive == false,
-                planModeFallback: model.sessionConfig == nil && model.session?.planMode == true
+                planModeFallback: model.sessionConfig == nil && model.session?.planMode == true,
+                // EXP-1252: the Device pin before Model.
+                devicePin: model.devicePin
             ),
             attach: $attach,
             // EXP-1295: a message is a `messages` row, so sending never waits

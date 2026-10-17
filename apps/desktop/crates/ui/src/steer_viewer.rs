@@ -7426,6 +7426,7 @@ impl SteerSessionView {
     /// then on), the context ring.
     fn render_composer_controls(&self, cx: &mut gpui::Context<Self>) -> crate::composer::SessionComposerControls {
         crate::composer::SessionComposerControls {
+            device_pin: self.render_device_pin(cx),
             model_pin: self.render_model_pin(cx),
             plan: self.render_plan_switch(cx),
             context_ring: self.render_context_ring(cx),
@@ -7841,6 +7842,22 @@ impl SteerSessionView {
     /// refuses must not leave the footer lying. Codex's is a plain label.
     /// Before the run publishes a `model` option (or with no live relay at
     /// all) the pin reads [`crate::composer::session_fallback_model`].
+    /// EXP-1252 — the Device pin before the model: the session's device; a
+    /// pick moves the session there (`sessions.send{sessionId, deviceId}`).
+    /// None on a replay (a transcript has nowhere to move).
+    fn render_device_pin(&self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
+        if self.source.read_only() {
+            return None;
+        }
+        let row = self.row.as_ref()?;
+        crate::device_move::session_device_pin(
+            SharedString::from(format!("{}-device", self.composer_ids.model)),
+            row,
+            self.may_message,
+            cx,
+        )
+    }
+
     fn render_model_pin(&self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
         // The model in force (the relay's `config_state`), else the row's /
         // device's pick (web `sessionModel(config) ?? fallback`): a thread

@@ -17,7 +17,7 @@ use sync::Store;
 use domain::board::build_status_groups;
 use domain::issue_graph::{block_counts, BlockCounts, GraphIssue, GraphRelation};
 use domain::issue_nesting::{nest_issue_rows, NestingRelation};
-use domain::rows::{Issue, IssueStatusRow, Label, SessionIssueRow, SessionRow};
+use domain::rows::{Issue, IssueStatusRow, Label, SessionRow};
 use domain::statuses::{resolve_status_sorted, sort_team_statuses, ResolvedStatus};
 
 use crate::session::AuthContext;
@@ -846,71 +846,6 @@ fn build_inbox_entries(
 // Session hosts (EXP-1294: ONE `sessions` tree; reads of the tree itself live
 // in `session_data`)
 // ---------------------------------------------------------------------------
-
-/// REV2-24 / EXP-1294: the device already WORKING on `issue_id` according to
-/// the synced rows, or `None` when the issue is free. A session works on an
-/// issue when its tree's root links it (`session_issues`) and it is queued or
-/// running; an idle session waits on a person and blocks nothing, and an
-/// ended one is history.
-pub(crate) fn live_session_device_for_issue(
-    cx: &App,
-    issue_id: &str,
-    now_epoch: i64,
-) -> Option<String> {
-    live_session_device_for_issue_except(cx, issue_id, now_epoch, None)
-}
-
-/// [`live_session_device_for_issue`] with ONE session exempt (the one a
-/// message is about to resume: it is the same piece of work, not a second
-/// one).
-pub(crate) fn live_session_device_for_issue_except(
-    cx: &App,
-    issue_id: &str,
-    now_epoch: i64,
-    except: Option<&str>,
-) -> Option<String> {
-    let collections = Store::global(cx).collections();
-    let sessions = collections.sessions.read(cx);
-    let links = collections.session_issues.read(cx);
-    let devices = collections.devices.read(cx);
-    live_session_device(
-        sessions.iter(),
-        links.iter(),
-        devices.iter(),
-        issue_id,
-        except,
-        now_epoch * 1_000,
-    )
-}
-
-/// Pure core of [`live_session_device_for_issue`]. A working session with no
-/// resolvable device name still blocks; the label is only for the message.
-pub(crate) fn live_session_device<'a>(
-    sessions: impl Iterator<Item = &'a SessionRow>,
-    links: impl Iterator<Item = &'a SessionIssueRow>,
-    devices: impl Iterator<Item = &'a domain::rows::DeviceRow>,
-    issue_id: &str,
-    except: Option<&str>,
-    now_ms: i64,
-) -> Option<String> {
-    let roots: HashSet<&str> = links
-        .filter(|link| link.issue_id == issue_id)
-        .map(|link| link.session_id.as_str())
-        .collect();
-    if roots.is_empty() {
-        return None;
-    }
-    let session = sessions
-        .filter(|session| Some(session.id.as_str()) != except)
-        .filter(|session| roots.contains(session.root_id_or_self()))
-        .find(|session| crate::session_data::session_is_working(session))?;
-    let presentation = session_device_presentation(session, devices, now_ms);
-    Some(
-        presentation
-            .label
-            .unwrap_or_else(|| "another device".to_string()),
-    )
-}
 
 /// EXP-549/550: how a session names its host machine and whether that
 /// machine is offline, resolved against the synced `devices` rows so a
@@ -2029,15 +1964,6 @@ mod tests {
         .unwrap()
     }
 
-    fn issue_link(root_id: &str, issue_id: &str) -> SessionIssueRow {
-        serde_json::from_value(json!({
-            "id": format!("{root_id}-{issue_id}"),
-            "session_id": root_id,
-            "issue_id": issue_id,
-        }))
-        .unwrap()
-    }
-
     fn host_device(device_id: &str, label: &str, last_seen_at: &str) -> domain::rows::DeviceRow {
         serde_json::from_value(json!({
             "id": format!("row-{device_id}"),
@@ -2047,40 +1973,6 @@ mod tests {
             "last_seen_at": last_seen_at,
         }))
         .unwrap()
-    }
-
-    /// A WORKING session (queued or running) anywhere in a tree whose root
-    /// links the issue blocks it and names its machine; idle and ended
-    /// sessions, other issues and the exempt session never do.
-    #[test]
-    fn live_session_device_names_the_machine_working_on_the_issue() {
-        let now_ms = 1_784_289_600_000_i64;
-        let devices = vec![host_device("dev-1", "Studio", "2026-07-17T11:59:30Z")];
-        let links = vec![issue_link("r1", "issue-1"), issue_link("r2", "issue-2")];
-        let check = |sessions: &[SessionRow], except: Option<&str>| {
-            live_session_device(
-                sessions.iter(),
-                links.iter(),
-                devices.iter(),
-                "issue-1",
-                except,
-                now_ms,
-            )
-        };
-        let working = vec![
-            host_session("r1", "r1", "idle", Some("dev-1")),
-            host_session("c1", "r1", "running", Some("dev-1")),
-        ];
-        assert_eq!(check(&working, None).as_deref(), Some("Studio"));
-        assert_eq!(check(&working, Some("c1")), None);
-        let quiet = vec![
-            host_session("r1", "r1", "idle", Some("dev-1")),
-            host_session("c1", "r1", "ended", Some("dev-1")),
-            host_session("r2", "r2", "running", Some("dev-1")),
-        ];
-        assert_eq!(check(&quiet, None), None);
-        let unplaced = vec![host_session("r1", "r1", "queued", None)];
-        assert_eq!(check(&unplaced, None).as_deref(), Some("another device"));
     }
 
     /// The host resolves by `device_id` only; a lapsed heartbeat reads

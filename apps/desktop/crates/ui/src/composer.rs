@@ -395,13 +395,15 @@ pub(crate) fn session_composer_box(props: SessionComposerBox, cx: &App) -> AnyEl
         composer = composer.tool(tool);
     }
     let SessionComposerControls {
+        device_pin,
         model_pin,
         plan,
         context_ring,
     } = controls;
-    // EXP-1334: the options line UNDER the card (Home's): model · Plan, the
-    // usage ring right-aligned.
-    let options = (model_pin.is_some() || plan.is_some() || context_ring.is_some()).then(|| {
+    // EXP-1334: the options line UNDER the card (Home's): (EXP-1252: device ·)
+    // model · Plan, the usage ring right-aligned.
+    let options = (device_pin.is_some() || model_pin.is_some() || plan.is_some() || context_ring.is_some())
+        .then(|| {
         h_flex()
             .w_full()
             .min_w_0()
@@ -409,6 +411,7 @@ pub(crate) fn session_composer_box(props: SessionComposerBox, cx: &App) -> AnyEl
             .pt_1p5()
             .gap_2()
             .items_center()
+            .children(device_pin)
             .children(model_pin)
             .children(plan)
             .child(div().flex_1())
@@ -465,6 +468,10 @@ pub(crate) fn session_composer_box(props: SessionComposerBox, cx: &App) -> AnyEl
 /// part of the message.
 #[derive(Default)]
 pub(crate) struct SessionComposerControls {
+    /// EXP-1252: the Device pin BEFORE the model
+    /// ([`crate::device_move::session_device_pin`]): the session's device,
+    /// a pick moves it there.
+    pub(crate) device_pin: Option<AnyElement>,
     pub(crate) model_pin: Option<AnyElement>,
     /// EXP-1334: the Plan switch (`sessions.configure({planMode})`, live
     /// mid-session), or a read-only label where the run cannot change it.

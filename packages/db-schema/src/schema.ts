@@ -25,6 +25,7 @@ import {
   type ActionInputDef,
   actionInputsSchema,
   type CodingSessionBlocked,
+  type SessionHandoff,
   type SessionWorkLaunch,
   type AgentTrigger,
   type GuideEntry,
@@ -1761,6 +1762,11 @@ export const sessions = pgTable(
     }),
     // The session's working branch (device-written at claim).
     branch: varchar({ length: 255 }),
+    // EXP-1252: a pending MOVE to this device (synced): the source host
+    // hands the session over after its turn (`sessions.handoff`). NULL = none.
+    moveToDeviceId: varchar(`move_to_device_id`, { length: 128 }),
+    // SERVER-ONLY (EXP-1252): the move request + the uploaded handoff package.
+    handoff: jsonb().$type<SessionHandoff>(),
     // ── state ──
     status: sessionStatusEnum().notNull().default(`queued`),
     // Device-written turn state (EXP-848): the ONLY list-spinner input ×4.

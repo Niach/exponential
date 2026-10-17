@@ -670,6 +670,12 @@ impl coding::pickup::LiveEngine for EngineSession {
         self.turn_signal().is_idle()
     }
 
+    /// EXP-1252: a move waits for no turn, no backgrounded subagent (the
+    /// synced `busy` input) and no open card.
+    fn quiescent(&self) -> bool {
+        !self.agent_busy() && self.turn_signal().is_idle() && EngineSession::open_cards(self).is_empty()
+    }
+
     /// EXP-1292: the account switch's stop — the row idles, never ends.
     fn suspend(&self) {
         EngineSession::kill(self, crate::lifecycle::SUSPEND_OUTCOME);

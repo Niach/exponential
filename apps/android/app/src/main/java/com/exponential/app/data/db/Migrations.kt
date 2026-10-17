@@ -265,6 +265,21 @@ val MIGRATION_89_90: Migration = object : Migration(89, 90) {
     }
 }
 
+/**
+ * v91 (EXP-1252): `sessions.move_to_device_id`, a pending move of the session
+ * to another device. The sessions shape refetches so already-synced rows
+ * re-arrive carrying it.
+ */
+val MIGRATION_90_91: Migration = object : Migration(90, 91) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `sessions` ADD COLUMN `move_to_device_id` TEXT")
+        db.execSQL(
+            "UPDATE `electric_offsets` SET `handle` = '', `offset` = '-1', `is_live` = 0, " +
+                "`needs_refetch` = 1 WHERE `shape` = 'sessions'",
+        )
+    }
+}
+
 private fun rebuild(
     db: SupportSQLiteDatabase,
     table: String,

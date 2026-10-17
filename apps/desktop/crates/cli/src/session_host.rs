@@ -144,10 +144,14 @@ impl RunningSession {
 
     /// EXP-1292: the run ended by [`Self::suspend`] (an account switch
     /// re-spawns the same row): its workspace — a scratch dir too — stays.
+    ///
+    /// EXP-1252: a RELEASED run (handed to another device) keeps it too — the
+    /// handoff packs it, the source's cleanup removes it once the target
+    /// has it ([`engine::keeps_workspace`]).
     pub fn was_suspended(&self) -> bool {
         self.session
             .wait_timeout(Duration::ZERO)
-            .is_some_and(|exit| exit.outcome == engine::SUSPEND_OUTCOME)
+            .is_some_and(|exit| engine::keeps_workspace(&exit.outcome))
     }
 
     /// EXP-1292: the engine handle the pickup drives (`coding::pickup::
@@ -373,7 +377,9 @@ impl engine::EngineHost for CliEngineHost {
             // EXP-1292: an agent root's (or a suspended run's) idle report
             // is its "end" here — the observer only sees
             // `coding::end_session`, so apply it now.
-            Some(result) if self.persistent || exit.outcome == engine::SUSPEND_OUTCOME => {
+            // EXP-1252: a RELEASED run wrote nothing (the row is another
+            // device's): its entry simply goes.
+            Some(result) if self.persistent || engine::keeps_workspace(&exit.outcome) => {
                 registry::apply_end_outcome(&self.data_dir, &exit.session_id, result)
             }
             // EXP-1292: a thread's END that never resolved is the one report

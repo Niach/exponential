@@ -61,6 +61,8 @@ pub mod device_doctor;
 pub mod doctor;
 pub mod git_credentials;
 pub mod git_worktree;
+// EXP-1252: a session moving to another device (the handoff package).
+pub mod handoff;
 pub mod inventory;
 pub mod launch_defaults_sync;
 pub mod launch_gate;

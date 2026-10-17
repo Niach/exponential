@@ -39,6 +39,7 @@ import {
   loadSessionForUser,
 } from "@/lib/sessions/access"
 import { composeSessionBrief } from "@/lib/sessions/brief"
+import { briefHandoff, completeHandoff, finishHandoff } from "@/lib/sessions/handoff"
 import { configureSession, mcpPicks } from "@/lib/sessions/configure"
 import { answeredCard } from "@/lib/sessions/card-answer"
 import {
@@ -555,7 +556,12 @@ export const sessionsRouter = router({
     .query(async ({ ctx, input }) => {
       const session = await loadSessionForUser(ctx.session.user.id, input.sessionId)
       assertDeviceHost(ctx.session.user.id, session)
-      return composeSessionBrief(session.id)
+      return {
+        ...(await composeSessionBrief(session.id)),
+        // EXP-1252: a moved session's package to restore (`GET
+        // /api/sessions/{id}/handoff`), null otherwise.
+        handoff: briefHandoff(session),
+      }
     }),
 
   /** EXP-1334: the session's server-only MCP pick (sorted ids) — for
@@ -572,10 +578,24 @@ export const sessionsRouter = router({
 
   /** queued → running: the device took it (idempotent for its own device). */
   claim: authedProcedure
-    .input(z.object({ sessionId: uuid, branch: z.string().max(255).optional() }))
+    .input(
+      z.object({
+        sessionId: uuid,
+        // EXP-1252: the claiming device; another device's claim is refused
+        // (the row moved away from it).
+        deviceId: z.string().min(1).max(128).optional(),
+        branch: z.string().max(255).optional(),
+      })
+    )
     .mutation(async ({ ctx, input }) => {
       const session = await loadSessionForUser(ctx.session.user.id, input.sessionId)
       assertDeviceHost(ctx.session.user.id, session)
+      if (input.deviceId !== undefined && input.deviceId !== session.deviceId) {
+        throw new TRPCError({
+          code: `FORBIDDEN`,
+          message: `This session runs on another device`,
+        })
+      }
       if (session.status === `ended`) {
         throw new TRPCError({ code: `PRECONDITION_FAILED`, message: `This session has ended` })
       }
@@ -592,8 +612,9 @@ export const sessionsRouter = router({
           })
           .where(eq(sessions.id, session.id))
         // The brief's Request IS the session's first person message: it is
-        // delivered by the claim, so the device never feeds it twice.
-        if (session.status === `queued`) {
+        // delivered by the claim, so the device never feeds it twice. Only a
+        // FIRST start: a moved session re-queues with its messages pending.
+        if (session.status === `queued` && !session.startedAt) {
           await tx.execute(sql`
             UPDATE ${messages} SET consumed_at = ${now}, updated_at = ${now}
             WHERE id = (
@@ -612,6 +633,9 @@ export const sessionsRouter = router({
     .input(
       z.object({
         sessionId: uuid,
+        // EXP-1252: the reporting device; another device's report is a
+        // no-op (a stale host after a move).
+        deviceId: z.string().min(1).max(128).optional(),
         status: sessionStatusSchema.exclude([`queued`]).optional(),
         busy: z.boolean().optional(),
         needsInput: z.boolean().optional(),
@@ -644,8 +668,12 @@ export const sessionsRouter = router({
     .mutation(async ({ ctx, input }) => {
       const session = await loadSessionForUser(ctx.session.user.id, input.sessionId)
       assertDeviceHost(ctx.session.user.id, session)
-      if (session.status === `ended`) {
-        // An ended row stays ended; the device's late reports are no-ops.
+      if (
+        session.status === `ended` ||
+        (input.deviceId !== undefined && input.deviceId !== session.deviceId)
+      ) {
+        // An ended row stays ended; the device's late reports are no-ops,
+        // and so are a device's the session moved away from.
         return ctx.db.transaction(async (tx) => ({ txid: await generateTxId(tx) }))
       }
       // An agent never ends: its process going away leaves it idle.
@@ -675,7 +703,12 @@ export const sessionsRouter = router({
             ...(ending
               ? { endedAt: now, busy: false, needsInput: false }
               : {
-                  ...(input.busy !== undefined ? { busy: input.busy } : {}),
+                  // #FEED-85: idle with no explicit busy = the turn is over.
+                  ...(input.busy !== undefined
+                    ? { busy: input.busy }
+                    : status === `idle`
+                      ? { busy: false }
+                      : {}),
                   ...(input.needsInput !== undefined ? { needsInput: input.needsInput } : {}),
                 }),
             ...(input.blocked !== undefined ? { blocked: blocked ?? null } : {}),
@@ -691,7 +724,7 @@ export const sessionsRouter = router({
             // unless the device says otherwise (an aside keeps its answer).
             ...(input.caption !== undefined
               ? { caption: normalizeCaption(input.caption) }
-              : turnEnded && !session.aside && session.caption
+              : turnEnded && !session.aside && !session.moveToDeviceId && session.caption
                 ? { caption: null }
                 : {}),
             updatedAt: now,
@@ -761,6 +794,29 @@ export const sessionsRouter = router({
       if (input.body.includes(`@`)) fireAndForgetSessionMessageNotify({ messageId: result.messageId })
       return result
     }),
+
+  /** EXP-1252: the SOURCE host's outcome of a pending move. `moved` (the
+   *  package is uploaded) re-stamps the row onto the target, queued;
+   *  `failed` clears the move and the session stays here. */
+  handoff: authedProcedure
+    .input(
+      z.object({
+        sessionId: uuid,
+        deviceId: z.string().min(1).max(128),
+        outcome: z.enum([`moved`, `failed`]),
+        reason: z.string().max(2000).optional(),
+      })
+    )
+    .mutation(({ ctx, input }) =>
+      completeHandoff({ userId: ctx.session.user.id, ...input })
+    ),
+
+  /** EXP-1252: the TARGET restored the package; the server drops it. */
+  handoffDone: authedProcedure
+    .input(z.object({ sessionId: uuid }))
+    .mutation(({ ctx, input }) =>
+      finishHandoff({ userId: ctx.session.user.id, sessionId: input.sessionId })
+    ),
 
   /** The device delivered these pending inputs (person messages, another
    *  session's question or report) into the agent. */

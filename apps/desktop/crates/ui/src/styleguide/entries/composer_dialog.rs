@@ -48,6 +48,8 @@ pub(super) enum Phase {
 pub(super) const SAMPLE_DEVICE: &str = "mint · This device";
 pub(super) const SAMPLE_ACCOUNT: &str = "danny@example.dev";
 pub(super) const SAMPLE_REPOSITORY: &str = "Niach/exponential";
+/// EXP-1252: the device a moving session is headed to.
+pub(super) const SAMPLE_MOVE_TARGET: &str = "Studio";
 
 /// The model on the line, THE model list's alias: `opus`, `haiku` while idle.
 pub(super) fn sample_model(phase: Phase) -> &'static str {
@@ -73,7 +75,7 @@ fn sample_usage(phase: Phase) -> steer::SessionUsage {
 }
 
 /// The Plan switch: on while running.
-fn plan_switch(id: String, phase: Phase, cx: &App) -> AnyElement {
+pub(super) fn plan_switch(id: String, phase: Phase, cx: &App) -> AnyElement {
     h_flex()
         .gap_1p5()
         .items_center()
@@ -101,6 +103,20 @@ fn start_pins(prefix: &str, cx: &App) -> Vec<AnyElement> {
     ]
 }
 
+/// EXP-1252 — a session's Device pin (before the model): the launch line's
+/// pin trigger with the session's device, or `Moving to <device>…` while a
+/// move is pending ([`crate::device_move::pin_label`]).
+pub(super) fn session_device_pin(prefix: &str, moving: bool, cx: &App) -> AnyElement {
+    let label = crate::device_move::pin_label(SAMPLE_DEVICE, moving.then_some(SAMPLE_MOVE_TARGET));
+    inline_pin_trigger_with(
+        SharedString::from(format!("{prefix}-device")),
+        Some(registry::NAV_COMPUTER),
+        label,
+        cx,
+    )
+    .into_any_element()
+}
+
 /// The repository pin, the start line's last word.
 fn repository_pin(prefix: &str, cx: &App) -> AnyElement {
     inline_pin_trigger_with(
@@ -113,7 +129,7 @@ fn repository_pin(prefix: &str, cx: &App) -> AnyElement {
 }
 
 /// The context ring at the line's end (its usage sheet on a click).
-fn context_ring(prefix: &str, phase: Phase, cx: &App) -> Option<AnyElement> {
+pub(super) fn context_ring(prefix: &str, phase: Phase, cx: &App) -> Option<AnyElement> {
     session_context_ring(
         ContextRingProps {
             id: SharedString::from(format!("{prefix}-context")),
@@ -152,6 +168,9 @@ pub(super) fn options_line(prefix: &str, phase: Phase, cx: &App) -> Div {
         .text_color(cx.theme().muted_foreground);
     if phase == Phase::Start {
         line = line.children(start_pins(prefix, cx));
+    } else {
+        // EXP-1252: a session's line leads with its Device pin.
+        line = line.child(session_device_pin(prefix, false, cx));
     }
     line = line.child(model).child(plan_switch(format!("{prefix}-plan"), phase, cx));
     if phase == Phase::Start {
@@ -211,6 +230,7 @@ impl Render for ComposerSpecimen {
             cx,
         );
         let plan = plan_switch(format!("{prefix}-plan"), phase, cx);
+        let device_pin = (phase != Phase::Start).then(|| session_device_pin(prefix, false, cx));
         let (model_pin, plan, context_ring) = match phase {
             // Before a start: device · account · model · Plan · repository.
             Phase::Start => (
@@ -246,6 +266,7 @@ impl Render for ComposerSpecimen {
                 .tool(composer_tool(id("issue"), registry::EDITOR_ISSUE_REF, cx).tooltip("Insert issue reference"))
                 .tool(composer_tool(id("emoji"), registry::EDITOR_EMOJI, cx).tooltip("Insert emoji"))
                 .controls(SessionComposerControls {
+                    device_pin,
                     model_pin,
                     plan,
                     context_ring,

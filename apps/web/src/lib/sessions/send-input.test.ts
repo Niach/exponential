@@ -23,7 +23,14 @@ describe(`sessionsSendInputSchema — a message`, () => {
   it(`refuses a message with neither text, attachments nor an account`, () => {
     const parsed = sessionsSendInputSchema.safeParse({ sessionId: SESSION, text: `   ` })
     expect(parsed.success).toBe(false)
-    expect(parsed.error?.issues[0]?.message).toBe(`a message needs text, attachments, issues or an account`)
+    expect(parsed.error?.issues[0]?.message).toBe(`a message needs text, attachments, issues, an account or a device`)
+  })
+
+  it(`takes a device alone (EXP-1252: a move), with an account too`, () => {
+    expect(sessionsSendInputSchema.safeParse({ sessionId: SESSION, deviceId: `dev-b` }).success).toBe(true)
+    expect(
+      sessionsSendInputSchema.safeParse({ sessionId: SESSION, deviceId: `dev-b`, account: `p1` }).success
+    ).toBe(true)
   })
 
   it(`refuses an empty account id`, () => {

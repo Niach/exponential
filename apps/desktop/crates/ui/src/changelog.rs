@@ -46,6 +46,19 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-10-17-move-session-device",
+    date: "2026-10-17",
+    title: "Move a session to another device",
+    summary: "A running session moves to another of your devices with its worktree and conversation, and continuing or stopping a session no longer loses its place.",
+    body: r#"- **Move to device**: the Device pin in a session's options moves it to another online device that can run its agent. It moves after its current turn, taking its worktree, unpushed commits and conversation along; logins stay on each device, and the session keeps the same account when the other device has it.
+- **Moving…**: while a move waits, the pin reads "Moving to Studio…" with the other device's name; pick the current device again to cancel.
+- **Continue where it ended**: a message to an ended sub-session continues it next to the original, on the same branch with the same issues, instead of starting over from the thread.
+- **Stop always frees a session**: a session whose device went away no longer stays busy forever; Stop sets it idle, and its account shows in the session list."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_58: ChangelogEntry = ChangelogEntry {
     id: "2026-10-17-ask-dock",
     date: "2026-10-17",
     title: "Questions and plans take the composer's place",

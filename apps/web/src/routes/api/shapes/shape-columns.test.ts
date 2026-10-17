@@ -46,3 +46,11 @@ describe(`shape column allowlists`, () => {
     expect([...columns].filter((column) => !real.has(column))).toEqual([])
   })
 })
+
+describe(`sessions allowlist`, () => {
+  it(`syncs a pending move, never the server-only handoff`, () => {
+    expect(SESSION_COLUMNS).toContain(`move_to_device_id`)
+    expect(SESSION_COLUMNS).not.toContain(`handoff`)
+    expect(SESSION_COLUMNS).not.toContain(`host_user_id`)
+  })
+})

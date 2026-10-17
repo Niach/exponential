@@ -2291,6 +2291,9 @@ const PICKUP_RETRY: Duration = Duration::from_secs(30);
 /// answers and kills with it).
 const SWITCH_BUSY_RETRY: Duration = Duration::from_secs(2);
 
+/// EXP-1252: how soon a move whose engine is not truly idle yet looks again.
+const HANDOFF_WAIT_RETRY: Duration = Duration::from_secs(5);
+
 /// How long a posted trigger firing counts its agent busy before the
 /// `messages` shape shows it (then the row's own `consumed_at` decides).
 const FIRING_SYNC_GRACE: Duration = Duration::from_secs(10 * 60);
@@ -2632,17 +2635,7 @@ fn switch_kind(account: &str) -> &'static str {
 }
 
 fn action_session_id(action: &coding::pickup::PickupAction) -> &str {
-    use coding::pickup::PickupAction;
-    match action {
-        PickupAction::Launch { session }
-        | PickupAction::Resume { session, .. }
-        | PickupAction::Revive { session }
-        | PickupAction::Switch { session, .. } => &session.id,
-        PickupAction::Deliver { session_id, .. }
-        | PickupAction::Revoke { session_id, .. }
-        | PickupAction::Answer { session_id, .. }
-        | PickupAction::Kill { session_id } => session_id,
-    }
+    action.session_id()
 }
 
 /// Did a wake (a Resume, or a delivery that had to re-spawn) hand anything
@@ -2702,6 +2695,12 @@ impl DaemonHost {
         // (or whose claim answer was lost) read `running` — plan only
         // launches `queued` ones.
         actions.extend(live.retry_launches(&self.pickup.device_id, rows, &excluded));
+        // EXP-1252: sessions handed off from here that the target claimed.
+        actions.extend(
+            coding::pickup::cleanup_actions(&self.pickup.ctx.data_dir, &self.pickup.device_id, rows)
+                .into_iter()
+                .filter(|action| !excluded.contains(action.session_id())),
+        );
         if actions.is_empty() {
             return;
         }
@@ -2722,7 +2721,10 @@ impl DaemonHost {
                 // EXP-1341: a revive resumes/launches (network + git).
                 | PickupAction::Revive { .. }
                 // EXP-849: a switch suspends + relaunches (network + git).
-                | PickupAction::Switch { .. } => true,
+                | PickupAction::Switch { .. }
+                // EXP-1252: a move packs + uploads; a cleanup runs git.
+                | PickupAction::Handoff { .. }
+                | PickupAction::Cleanup { .. } => true,
                 // A delivery to an engine that just finished wakes it.
                 PickupAction::Deliver { session_id, .. } => !live.contains_live(session_id),
                 _ => false,
@@ -2811,6 +2813,25 @@ impl DaemonHost {
                             }
                             Err(err) => {
                                 log::warn!("pickup: {kind} of {session_id} failed: {err}");
+                                false
+                            }
+                        }
+                    }
+                    // EXP-1252: a move waiting for its engine's true idle is
+                    // no failure — it looks again shortly (the 30 min bound
+                    // is the registry's).
+                    coding::pickup::PickupAction::Handoff { session } => {
+                        match coding::pickup::hand_off(session, &deps) {
+                            Ok(coding::pickup::HandedOff::Waiting) => {
+                                pickup.back_off_for(&session_id, HANDOFF_WAIT_RETRY);
+                                true
+                            }
+                            Ok(outcome) => {
+                                log::info!("pickup: move of {session_id}: {outcome:?}");
+                                true
+                            }
+                            Err(err) => {
+                                log::warn!("pickup: move of {session_id} failed: {err}");
                                 false
                             }
                         }

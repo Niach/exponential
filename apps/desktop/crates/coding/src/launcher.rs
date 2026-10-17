@@ -435,6 +435,11 @@ pub struct ResumeRun {
     /// record's), ultracode and computer use — and the run re-enters the plan
     /// mode it was in. `None` = an ordinary wake (never enters plan mode).
     pub reconfigure: Option<ResumeReconfigure>,
+    /// EXP-1252: `Some` = the session MOVED here from another device: the
+    /// launcher restores its workspace from the package (the worktree is
+    /// re-made on the branch first) and imports claude's transcript into
+    /// the profile it resumes on; the system append names the move.
+    pub handoff: Option<crate::handoff::HandoffImport>,
 }
 
 /// EXP-1334: what a reconfigure resume carries beyond the row.
@@ -2181,6 +2186,35 @@ fn prepare_resume(
         }
     }
 
+    // EXP-1252 — a MOVED session: its workspace comes out of the package
+    // (the worktree was just re-made on its branch from `origin/<base>`, a
+    // scratch dir above), and claude's transcript goes into the tree of the
+    // profile this resume runs on, under THIS cwd's project dir. A restore
+    // that fails fails the prepare (the pickup falls back to a fresh
+    // launch); a transcript that cannot come along only costs the native
+    // resume.
+    let handoff = resume.handoff.as_ref();
+    if let Some(import) = handoff {
+        match import.manifest.workspace {
+            crate::handoff::WorkspaceKind::Repo if record.clone.is_some() => {
+                crate::handoff::restore_repo(&cwd, import).map_err(CodingError::Io)?
+            }
+            crate::handoff::WorkspaceKind::Scratch if record.clone.is_none() => {
+                crate::handoff::restore_scratch(&cwd, import).map_err(CodingError::Io)?
+            }
+            _ => {}
+        }
+        if agent == CodingAgent::Claude && import.manifest.native {
+            match claude_projects_root_in(deps, profile_dir.as_deref())
+                .ok_or_else(|| "no claude projects dir".to_string())
+                .and_then(|root| crate::handoff::import_native(&root, &cwd, import))
+            {
+                Ok(path) => log::info!("resume {session_id}: transcript imported to {}", path.display()),
+                Err(err) => log::warn!("resume {session_id}: transcript not imported ({err}): a fresh conversation"),
+            }
+        }
+    }
+
     // Step 3 — can the agent reopen its own conversation? Each agent answers
     // differently, and a `no` is never fatal: the fallback is a fresh
     // conversation seeded with the brief and the message.
@@ -2251,7 +2285,9 @@ fn prepare_resume(
     // cannot know, so its note opens the turn; an account switch (EXP-935)
     // tells the agent to carry on, LAST.
     let message = resume.prompt.trim();
-    let reclaimed_note = workspace_reclaimed
+    // EXP-1252: a moved session's re-made worktree is no news (the package
+    // restored it); the move is said instead.
+    let reclaimed_note = (workspace_reclaimed && handoff.is_none())
         .then(|| {
             record.branch.as_deref().map(|branch| {
                 // Which story is true depends on what the re-created worktree
@@ -2287,6 +2323,14 @@ fn prepare_resume(
         (Some(note), Some(body)) => Some(format!("{note}\n\n{body}")),
         (Some(note), None) => Some(note.clone()),
         (None, body) => body,
+    };
+    // EXP-1252: a moved session whose conversation did not come along starts
+    // over from the brief, the move named after it.
+    let moved_note = handoff.map(|import| crate::handoff::moved_note(&import.from_device, native_resume));
+    let rendered = match (&moved_note, rendered) {
+        (Some(note), Some(body)) if !native_resume => Some(format!("{body}\n\n{note}")),
+        (Some(note), None) if !native_resume => Some(note.clone()),
+        (_, rendered) => rendered,
     };
     // An account-only switch of an IDLE session seeds no turn of its own
     // (it resumes idle on the new login); one picked on the usage WALL
@@ -2424,6 +2468,12 @@ fn prepare_resume(
     );
     // FEED-73: the team-MCP delegation note rides AFTER the measured layers.
     let system_append = with_delegation_note(system_append, &team_mcp);
+    // EXP-1252: the move, rebuilt into this run's append (a later resume
+    // here rebuilds it without — the move is old news by then).
+    let system_append = match &moved_note {
+        Some(note) => format!("{system_append}\n\n{note}"),
+        None => system_append,
+    };
     Ok(Prepared::Ready(PreparedLaunch {
         session_id: session_id.clone(),
         account_pick: None,
@@ -2882,8 +2932,20 @@ pub fn end_session_best_effort(trpc: &TrpcClient, session_id: &str) {
 /// EXP-1292 — a team AGENT's process exited: `sessions.report{status:
 /// idle}`. Agents never end; the next message or trigger firing wakes the
 /// same row on this device.
+///
+/// #FEED-85: the idle report also clears `busy` — a session idled here (a
+/// refused wake, a revive given up) is never left spinning on every client.
 pub fn idle_session(trpc: &TrpcClient, session_id: &str) -> Result<(), ApiError> {
-    report_status(trpc, session_id, ReportStatus::Idle)
+    session_device::report(trpc, session_id, &idle_report())
+}
+
+/// #FEED-85: [`idle_session`]'s write — idle and not busy.
+pub fn idle_report() -> SessionReport {
+    SessionReport {
+        status: Some(ReportStatus::Idle),
+        busy: Some(false),
+        ..SessionReport::default()
+    }
 }
 
 fn report_status(trpc: &TrpcClient, session_id: &str, status: ReportStatus) -> Result<(), ApiError> {
@@ -4237,6 +4299,7 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
             prompt: "go on".to_string(),
             message_id: None,
             reconfigure: None,
+            handoff: None,
         });
         assert_eq!(last_used_stamp(&PrepareRequest::Session(resumed), &options(None)), None);
     }
@@ -4462,6 +4525,7 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
             prompt: MESSAGE.to_string(),
             message_id: Some("msg-1".to_string()),
             reconfigure: None,
+            handoff: None,
         });
         req
     }
@@ -4861,7 +4925,7 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
         let requests = captured.lock().unwrap();
         assert!(requests[0].starts_with("POST /api/trpc/sessions.report"));
         assert!(requests[0].ends_with(r#"{"sessionId":"s-thread","status":"ended"}"#), "{}", requests[0]);
-        assert!(requests[1].ends_with(r#"{"sessionId":"s-agent","status":"idle"}"#), "{}", requests[1]);
+        assert!(requests[1].ends_with(r#"{"sessionId":"s-agent","status":"idle","busy":false}"#), "{}", requests[1]);
     }
 
     // ---- EXP-1138: the gate judges the login the launch spends ----

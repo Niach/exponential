@@ -113,6 +113,11 @@ sha2 = "0.10"
 # portable-pty's ChildKiller only speaks SIGHUP. Already in the tree
 # transitively (portable-pty, gpui) at this exact major.
 libc = "0.2"
+# EXP-1252: a moving session's handoff package (`coding::handoff`) is a
+# tar.gz — `flate2` is already in the tree (image/zip decoders); `tar`
+# (MIT/Apache-2.0) is new; its default `xattr` feature stays off.
+flate2 = "1"
+tar = { version = "0.4", default-features = false }
 
 # EXP-746: the ONE internal contract for agent sessions (Apache-2.0). Only
 # `crates/engine` links it — the adapters speak ACP in-process to the user's

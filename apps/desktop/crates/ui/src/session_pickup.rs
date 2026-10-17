@@ -143,16 +143,7 @@ fn schedule(cx: &mut App) {
 
 /// The session a pickup action is about.
 fn action_session_id(action: &PickupAction) -> &str {
-    match action {
-        PickupAction::Launch { session }
-        | PickupAction::Resume { session, .. }
-        | PickupAction::Revive { session }
-        | PickupAction::Switch { session, .. } => &session.id,
-        PickupAction::Deliver { session_id, .. }
-        | PickupAction::Revoke { session_id, .. }
-        | PickupAction::Answer { session_id, .. }
-        | PickupAction::Kill { session_id } => session_id,
-    }
+    action.session_id()
 }
 
 /// One pass: snapshot, plan, execute (the daemon's `pickup_pass`).
@@ -165,12 +156,15 @@ fn run_pass(cx: &mut App) {
     };
     let collections = store.collections().clone();
     let device_id = queries::own_device_id(cx);
-    // Only this machine's sessions (and their messages) ever reach the plan.
-    let sessions: Vec<SessionRow> = collections
-        .sessions
-        .read(cx)
+    let live = Arc::clone(&cx.global::<PickupHost>().live);
+    // Only this machine's sessions (and their messages) reach the plan —
+    // plus, EXP-1252, the rows of engines live here that name another
+    // device now (a move: released without a row write).
+    let live_ids: HashSet<String> = live.session_ids().into_iter().collect();
+    let all_sessions: Vec<SessionRow> = collections.sessions.read(cx).iter().cloned().collect();
+    let sessions: Vec<SessionRow> = all_sessions
         .iter()
-        .filter(|row| row.device_id.as_deref() == Some(device_id.as_str()))
+        .filter(|row| row.device_id.as_deref() == Some(device_id.as_str()) || live_ids.contains(&row.id))
         .cloned()
         .collect();
     let hosted: HashSet<&str> = sessions.iter().map(|row| row.id.as_str()).collect();
@@ -181,7 +175,6 @@ fn run_pass(cx: &mut App) {
         .filter(|row| hosted.contains(row.session_id.as_str()))
         .cloned()
         .collect();
-    let live = Arc::clone(&cx.global::<PickupHost>().live);
     for session_id in live.prune() {
         log::debug!("[pickup] session {session_id}'s engine is gone");
     }
@@ -210,13 +203,22 @@ fn run_pass(cx: &mut App) {
     // Rows this host claimed whose launch failed transiently read `running`
     // — the plan only launches `queued` ones.
     actions.extend(live.retry_launches(&device_id, &sessions, &in_flight));
+    // EXP-1252: sessions handed off from here whose target claimed them.
+    actions.extend(
+        pickup::cleanup_actions(&coding_flow::coding_data_dir(cx), &device_id, &all_sessions)
+            .into_iter()
+            .filter(|action| !in_flight.contains(action.session_id())),
+    );
     let blocking = |action: &PickupAction| match action {
         // EXP-849: a switch suspends + relaunches (network + git).
         // EXP-1341: a revive resumes/launches (network + git).
         PickupAction::Launch { .. }
         | PickupAction::Resume { .. }
         | PickupAction::Revive { .. }
-        | PickupAction::Switch { .. } => true,
+        | PickupAction::Switch { .. }
+        // EXP-1252: a move packs + uploads; a cleanup runs git.
+        | PickupAction::Handoff { .. }
+        | PickupAction::Cleanup { .. } => true,
         // A delivery to an engine that just finished wakes it.
         PickupAction::Deliver { session_id, .. } => !live.contains_live(session_id),
         _ => false,
@@ -285,6 +287,22 @@ fn run_pass(cx: &mut App) {
                 account,
                 pickup::switch_session(session, account, None, messages, &deps),
             ),
+            // EXP-1252: a move whose engine is not truly idle yet looks
+            // again on the retry timer (the 30 min bound is the registry's).
+            PickupAction::Handoff { session } => match pickup::hand_off(session, &deps) {
+                Ok(pickup::HandedOff::Waiting) => {
+                    log::info!("[pickup] move of {session_id} waits for a quiet moment");
+                    StepOutcome::Failed
+                }
+                Ok(outcome) => {
+                    log::info!("[pickup] move of {session_id}: {outcome:?}");
+                    StepOutcome::Progressed
+                }
+                Err(err) => {
+                    log::warn!("[pickup] move of {session_id} failed: {err}");
+                    StepOutcome::Failed
+                }
+            },
             other => match pickup::execute(other, &deps) {
                 Ok(()) => StepOutcome::Progressed,
                 Err(err) => {

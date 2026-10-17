@@ -769,6 +769,11 @@ pub struct SessionRow {
     /// Conversation, never a nested list row).
     #[serde(default, deserialize_with = "tolerant_bool_or_false")]
     pub aside: bool,
+    /// EXP-1252: a pending MOVE to this device (`sessions.send{sessionId,
+    /// deviceId}`): the current host hands the session off after its turn;
+    /// `None` = no move pending.
+    #[serde(default)]
+    pub move_to_device_id: Option<String>,
     #[serde(default)]
     pub created_at: Option<String>,
     #[serde(default)]
@@ -776,6 +781,15 @@ pub struct SessionRow {
 }
 
 impl SessionRow {
+    /// EXP-1252: the device a pending move takes this session to (`None` =
+    /// none pending, or a blank / same-device value).
+    pub fn moving_to(&self) -> Option<&str> {
+        self.move_to_device_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|target| !target.is_empty() && Some(*target) != self.device_id.as_deref())
+    }
+
     /// A tree root (no parent).
     pub fn is_root(&self) -> bool {
         self.parent_id.as_deref().is_none_or(str::is_empty)

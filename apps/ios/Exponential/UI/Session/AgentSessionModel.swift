@@ -496,6 +496,90 @@ final class AgentSessionModel {
         }
     }
 
+    // MARK: EXP-1252 — move the session to another device
+
+    /// The launch composer's machines for the session's team (own +
+    /// team-shared), off the same synced rows the host read-out uses.
+    private var moveCandidateDevices: [SteerDevice] {
+        guard let session else { return [] }
+        return DeviceQueries.compose(
+            rows: deviceRows,
+            users: mentionUserRows,
+            teamId: session.teamId,
+            userId: currentUserId,
+            now: Date()
+        )
+    }
+
+    /// The composer's Device pin (before Model), or nil = hidden (agents,
+    /// asides, no row yet). Rules + copy: `SessionDeviceMove`.
+    var devicePin: SessionDevicePin? {
+        guard let session,
+              SessionDeviceMove.pinVisible(kind: session.kind, aside: session.aside)
+        else { return nil }
+        let devices = moveCandidateDevices
+        let agent = SessionAccountSwitch.agent(
+            cli: session.cli,
+            defaultAgent: hostSteerDevice?.launchDefaults?.defaultAgent
+        )
+        let rows = SessionDeviceMove.rows(
+            devices: devices,
+            currentDeviceId: session.deviceId,
+            sessionTeamId: session.teamId,
+            sessionShared: session.shared,
+            agent: agent
+        )
+        let current = devices.first { $0.deviceId == session.deviceId } ?? hostSteerDevice
+        let currentName = current.map(LaunchVocabulary.deviceName)
+            ?? hostDevice.label ?? session.deviceId
+        let canSteer = SessionAccountSwitch.canSteer(
+            shared: session.shared, userId: session.userId, currentUserId: currentUserId
+        )
+        return SessionDevicePin(
+            label: SessionDeviceMove.pinLabel(
+                currentDeviceName: currentName,
+                moveToDeviceId: session.moveToDeviceId,
+                devices: devices
+            ),
+            icon: current.map { DeviceIconDisplay.iconName(for: $0) },
+            rows: rows.map(DevicePickerDevice.init(moveRow:)),
+            currentDeviceId: session.deviceId,
+            blockedReason: SessionDeviceMove.blockedReason(canSteer: canSteer, ended: !session.isLive),
+            sending: movingDevice,
+            onPick: { [weak self] deviceId in
+                Task { await self?.moveDevice(to: deviceId) }
+            }
+        )
+    }
+
+    /// A move request is out — the pin stays put until it lands.
+    private(set) var movingDevice = false
+    /// Why the last move request failed — a toast, cleared on each attempt.
+    private(set) var moveError: String?
+
+    /// EXP-1252: ONE `sessions.send({sessionId, deviceId})`: another device
+    /// requests the move, the CURRENT one while moving cancels it. The synced
+    /// `move_to_device_id` is the confirmation.
+    func moveDevice(to deviceId: String) async {
+        guard let session, !movingDevice else { return }
+        let pick = SessionDeviceMove.pick(
+            deviceId: deviceId,
+            currentDeviceId: session.deviceId,
+            moveToDeviceId: session.moveToDeviceId
+        )
+        guard let input = SessionDeviceMove.sendInput(
+            sessionId: session.id, pick: pick, currentDeviceId: session.deviceId
+        ) else { return }
+        moveError = nil
+        movingDevice = true
+        defer { movingDevice = false }
+        do {
+            try await sessionsApi.send(accountId: accountId, input)
+        } catch {
+            moveError = error.trpcUserMessage
+        }
+    }
+
     /// Recompute the cached projections (ids of the still-answerable question
     /// items, the collapsed render rows, the subagent runs) — the pure rules
     /// live in ExpCore's AgentFeed, mirroring Android.

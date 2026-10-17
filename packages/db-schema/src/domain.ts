@@ -1037,6 +1037,29 @@ export interface SessionWorkLaunch {
   computerUse?: boolean
 }
 
+/** EXP-1252 `sessions.handoff` (server-only): a pending move's request and,
+ *  once the source uploaded it, the handoff package (worktree + transcript). */
+export interface SessionHandoff {
+  request?: {
+    deviceId: string
+    /** The login to use on the target (a profile id there), else carried. */
+    account: string | null
+    requestedBy: string
+    requestedAt: string
+  } | null
+  blob?: {
+    storageKey: string
+    sizeBytes: number
+    fromDeviceId: string
+    /** The source device's name at upload ("Moved from …", the brief). */
+    fromDeviceName?: string
+    uploadedAt: string
+  } | null
+}
+
+/** EXP-1252: the handoff package cap (gzip bytes). */
+export const SESSION_HANDOFF_MAX_BYTES = 64 * 1024 * 1024
+
 
 // ── Threads v2 (EXP-1291): ONE session tree ─────────────────────────────────
 // A thread IS a root session (`sessions.kind = thread`, `parent_id` NULL); a
@@ -1277,7 +1300,9 @@ export const sessionsSendInputSchema = z
     // Runner pickers (new sessions only), except `account`: on a message
     // (`sessionId`) it SWITCHES the session's login (EXP-849, claude only;
     // the host device resumes the same row on it between turns) and may be
-    // sent alone, with no text.
+    // sent alone, with no text. EXP-1252: `deviceId` on a message = MOVE the
+    // session to that device after its turn (its current device = cancel a
+    // pending move); may be sent alone, `account` = the login to use there.
     deviceId: z.string().min(1).max(128).optional(),
     cli: z.string().min(1).max(16).optional(),
     account: z.string().min(1).max(64).optional(),
@@ -1322,9 +1347,10 @@ export const sessionsSendInputSchema = z
         !input.text?.trim() &&
         !input.attachmentIds?.length &&
         !input.account &&
-        !input.issueIds
+        !input.issueIds &&
+        !input.deviceId
       )
-        issue(`a message needs text, attachments, issues or an account`)
+        issue(`a message needs text, attachments, issues, an account or a device`)
       return
     }
     if (input.aside && (!input.parentId || !input.text?.trim()))

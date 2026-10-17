@@ -421,8 +421,11 @@ import androidx.room.TypeConverters
     // v90 (EXP-1341): session_issues.assigned_session_id (a child's assigned
     //      issues). Explicit [MIGRATION_89_90] adds the nullable column and
     //      refetches only the session_issues shape.
+    // v91 (EXP-1252): sessions.move_to_device_id (a pending device move).
+    //      Explicit [MIGRATION_90_91] adds the nullable column and refetches
+    //      only the sessions shape.
     // Older versions still fall back to destructive + resync (DatabaseHolder).
-    version = 90,
+    version = 91,
     exportSchema = false,
 )
 @TypeConverters(StringListConverters::class)

@@ -4,7 +4,7 @@
 // advertised upload contract (widget submit: screenshot + 3 pictures at 10 MB
 // each; issue file uploads: 50 MB per file — INCLUDING the base64 MCP route,
 // where exponential_attachments_upload inflates 50 MB to ~66.7 MB plus the
-// JSON-RPC envelope) — Bun's own 413 carries no CORS headers, so an over-cap
+// JSON-RPC envelope; a session handoff package: 64 MiB, EXP-1252) — Bun's own 413 carries no CORS headers, so an over-cap
 // widget submit surfaces as an opaque network error. 72 MB covers every
 // contract with headroom while shutting the door on Bun's ~128 MB default.
 // Lock-tested in request-body-limit.test.ts.

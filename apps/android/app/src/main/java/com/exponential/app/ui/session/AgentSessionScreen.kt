@@ -122,6 +122,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
@@ -261,6 +262,10 @@ import com.exponential.app.ui.components.effortLabel
 import com.exponential.app.ui.components.effortValuesFor
 import com.exponential.app.ui.components.supportsPlanMode
 import com.exponential.app.ui.components.picker.ActionPicker
+import com.exponential.app.ui.components.picker.DevicePicker
+import com.exponential.app.ui.components.picker.DevicePickerDevice
+import com.exponential.app.ui.components.deviceIcon
+import com.exponential.app.domain.SessionDeviceMove
 import com.exponential.app.ui.components.picker.ActionPickerAction
 import com.exponential.app.ui.components.picker.McpServerPicker
 import com.exponential.app.ui.components.picker.Picker
@@ -4548,6 +4553,14 @@ internal fun SessionComposer(
         configureError?.let { com.exponential.app.ui.components.FailedAction("change", "the session options", it.ifBlank { null }) },
         onShown = viewModel::clearConfigureError,
     )
+    // EXP-1252: the options line's Device pin; a refused move =
+    // `Couldn't move the session`.
+    val deviceMove by viewModel.deviceMove.collectAsStateWithLifecycle()
+    val moveError by viewModel.moveError.collectAsStateWithLifecycle()
+    com.exponential.app.ui.components.FailedActionToast(
+        moveError?.let { com.exponential.app.ui.components.FailedAction("move", "the session", it.ifBlank { null }) },
+        onShown = viewModel::clearMoveError,
+    )
     LaunchedEffect(session?.teamId) { viewModel.loadMcpServers() }
     val composerAgent = session?.cli?.takeIf { it.isNotBlank() } ?: DEFAULT_AGENT
     val plusMenu = SessionComposerMenu(
@@ -4959,6 +4972,8 @@ internal fun SessionComposer(
                 ),
                 modelPickable = catalogAgent == DEFAULT_AGENT,
                 onPickModel = { alias -> viewModel.sendCommand("/model $alias") },
+                deviceMove = deviceMove,
+                onMoveDevice = viewModel::moveToDevice,
                 contextPercent = contextPercent,
                 hasUsage = hasUsage,
                 onOpenUsage = { onOpenUsage?.invoke() },
@@ -5073,6 +5088,9 @@ private fun SteerComposer(
     model: String?,
     modelPickable: Boolean,
     onPickModel: (String) -> Unit,
+    /** EXP-1252: the Device pin before Model (hidden while not [visible]). */
+    deviceMove: SessionDeviceMoveState,
+    onMoveDevice: (String) -> Unit,
     contextPercent: Int?,
     hasUsage: Boolean,
     onOpenUsage: () -> Unit,
@@ -5125,6 +5143,8 @@ private fun SteerComposer(
             model = model,
             modelPickable = modelPickable,
             onPickModel = onPickModel,
+            deviceMove = deviceMove,
+            onMoveDevice = onMoveDevice,
             contextPercent = contextPercent,
             hasUsage = hasUsage,
             onOpenUsage = onOpenUsage,
@@ -5135,6 +5155,7 @@ private fun SteerComposer(
 
 /** EXP-931: the expanded composer's own menus, as the keys of its open set. */
 private const val COMPOSER_MENU_MODEL = "model"
+private const val COMPOSER_MENU_DEVICE = "device"
 private const val COMPOSER_MENU_PLUS = "plus"
 private const val COMPOSER_MENU_EFFORT = "effort"
 private const val COMPOSER_MENU_MCP = "mcp"
@@ -5193,6 +5214,8 @@ private fun ExpandedSteerComposer(
     model: String?,
     modelPickable: Boolean,
     onPickModel: (String) -> Unit,
+    deviceMove: SessionDeviceMoveState,
+    onMoveDevice: (String) -> Unit,
     contextPercent: Int?,
     hasUsage: Boolean,
     onOpenUsage: () -> Unit,
@@ -5323,6 +5346,44 @@ private fun ExpandedSteerComposer(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
+        // EXP-1252: the Device pin BEFORE Model — the launch line's device
+        // picker, its trigger the same inline pin as Model. A disabled pin
+        // floats its reason on tap (the account rows' rule).
+        if (deviceMove.visible) {
+            val toaster = LocalToaster.current
+            val blocked = deviceMove.blockedReason
+            val current = deviceMove.rows.firstOrNull { it.current }
+            DevicePicker(
+                devices = deviceMove.rows.map { row ->
+                    DevicePickerDevice(
+                        id = row.id,
+                        name = row.name,
+                        icon = row.icon,
+                        isServer = row.isServer,
+                        description = row.reason,
+                        disabled = row.reason != null,
+                    )
+                },
+                value = deviceMove.deviceId,
+                onChange = onMoveDevice,
+                title = SessionDeviceMove.PICKER_TITLE,
+                onOpenChange = { open -> onMenuOpenChange(COMPOSER_MENU_DEVICE, open) },
+                trigger = { open ->
+                    ComposerPin(
+                        label = deviceMove.label,
+                        icon = deviceIcon(current?.icon, isServer = current?.isServer == true),
+                        enabled = blocked == null,
+                        contentDescription = "${SessionDeviceMove.PICKER_TITLE} ${deviceMove.label}",
+                        // The move's note (or the refusal) rides the pin as its
+                        // a11y hint, like the account switch: no picker footer.
+                        hint = blocked ?: SessionDeviceMove.NOTE,
+                        testTag = "steer-device",
+                        onClick = open,
+                        onDisabledClick = blocked?.let { reason -> { toaster.error(reason) } },
+                    )
+                },
+            )
+        }
         if (model != null) {
             // EXP-1345: THE picker (a bottom sheet, the picked row's TRAILING
             // check). codex: the model is what it is — the same read-out,
@@ -5506,20 +5567,58 @@ private fun ExpandedSteerComposer(
  * tap.
  */
 @Composable
-private fun ComposerModelPin(label: String, enabled: Boolean, onClick: () -> Unit) {
+private fun ComposerModelPin(label: String, enabled: Boolean, onClick: () -> Unit) =
+    ComposerPin(
+        label = label,
+        enabled = enabled,
+        contentDescription = "Model $label",
+        testTag = "steer-model",
+        onClick = onClick,
+    )
+
+/**
+ * THE options line's inline pin: plain muted text (+ an optional leading
+ * glyph, EXP-1252's device) and a down chevron, no pill background. A
+ * disabled pin dims; [onDisabledClick] (when given) still takes the tap so a
+ * refusal can say why.
+ */
+@Composable
+private fun ComposerPin(
+    label: String,
+    enabled: Boolean,
+    contentDescription: String,
+    testTag: String,
+    onClick: () -> Unit,
+    icon: androidx.compose.ui.graphics.vector.ImageVector? = null,
+    onDisabledClick: (() -> Unit)? = null,
+    /** An accessibility-only hint (EXP-1252: the device move's note). */
+    hint: String? = null,
+) {
     val textAlpha = if (enabled) TextEmphasis.Secondary else TextEmphasis.Tertiary
     val chevronAlpha = if (enabled) TextEmphasis.Tertiary else TextEmphasis.Quaternary
+    val tap = if (enabled) onClick else onDisabledClick
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp),
         modifier = Modifier
             .heightIn(min = 40.dp)
             .clip(RoundedCornerShape(6.dp))
-            .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
+            .clickable(enabled = tap != null, role = Role.Button) { tap?.invoke() }
             .padding(horizontal = 4.dp)
-            .semantics { contentDescription = "Model $label" }
-            .testTag("steer-model"),
+            .semantics {
+                this.contentDescription = contentDescription
+                if (hint != null) stateDescription = hint
+            }
+            .testTag(testTag),
     ) {
+        if (icon != null) {
+            Icon(
+                icon,
+                contentDescription = null,
+                modifier = Modifier.size(14.dp),
+                tint = Color.White.copy(alpha = textAlpha),
+            )
+        }
         Text(
             label,
             style = MaterialTheme.typography.labelLarge,

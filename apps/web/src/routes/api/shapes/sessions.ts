@@ -9,7 +9,8 @@ import { createShapeRouteHandler } from "@/lib/shape-route"
 // visibility rule: `shared OR user_id = me` inside the member's teams. A
 // device picks up its `queued` rows from this shape (the DB is the bus).
 // SERVER-ONLY, behind the allowlist: `host_user_id`, `mcp_server_ids`,
-// `work_launch` and an agent's `instructions` (tRPC `sessions.getAgent`).
+// `work_launch`, `handoff` and an agent's `instructions` (tRPC
+// `sessions.getAgent`).
 export const SESSION_COLUMNS = [
   `id`,
   `team_id`,
@@ -29,6 +30,9 @@ export const SESSION_COLUMNS = [
   `dispatch`,
   `repository_id`,
   `branch`,
+  // EXP-1252: a pending move's target device (the `handoff` jsonb stays
+  // server-only).
+  `move_to_device_id`,
   `status`,
   `busy`,
   `needs_input`,
