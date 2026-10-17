@@ -1161,3 +1161,104 @@ fn a_team_mcp_actor_meta_is_the_tool_rows_detail() {
         json!({ "kind": "tool", "name": "mcp__linear__create_comment", "id": "tc-plain", "toolKind": "other" })
     );
 }
+
+// ---------------------------------------------------------------------------
+// EXP-1342: a message sent mid-turn, then Stop — exactly ONE row, whatever
+// the CLI replays around its `interrupt{cancel_queued}` (mirrors
+// `tests/fixtures/claude/cancel/*`: a running turn, then the interrupt).
+// ---------------------------------------------------------------------------
+
+const MID_TURN: &str = "also fix the tests";
+
+fn feed(mapper: &mut Mapper, name: &str, out: &mut MapOut) {
+    for notification in fixture(name) {
+        mapper.on_update(&notification, out);
+    }
+}
+
+fn rows_of(out: &MapOut, text: &str) -> usize {
+    out.wire
+        .iter()
+        .map(|event| serde_json::to_value(event).expect("an activity event serializes"))
+        .filter(|event| event["kind"] == "user_message" && event["text"] == text)
+        .count()
+}
+
+/// The CLI took the message in (its replay = the row), the person pressed
+/// Stop, and the CLI replayed it AGAIN — glued to its interrupt marker, and
+/// once more when the next turn dequeued it.
+#[test]
+fn a_message_replayed_before_and_after_a_stop_renders_once() {
+    let mut mapper = mapper();
+    let mut out = MapOut::default();
+    feed(&mut mapper, "cancel_turn.jsonl", &mut out);
+    mapper.on_prompt_sent(MID_TURN, MID_TURN, "q-1");
+    feed(&mut mapper, "cancel_replay.jsonl", &mut out);
+    // The agent starts on it: the replay flushed as THE row.
+    feed(&mut mapper, "cancel_turn.jsonl", &mut out);
+    assert_eq!(out.consumed, vec!["q-1".to_string()]);
+    assert_eq!(rows_of(&out, MID_TURN), 1);
+    mapper.forget_deliveries();
+    mapper.on_cancel(&mut out);
+    feed(&mut mapper, "cancel_replay_interrupted.jsonl", &mut out);
+    mapper.on_stop(StopReason::Cancelled, &mut out);
+    feed(&mut mapper, "cancel_replay.jsonl", &mut out);
+    mapper.on_stop(StopReason::EndTurn, &mut out);
+    assert_eq!(rows_of(&out, MID_TURN), 1);
+    assert!(
+        rows_of(&out, "[Request interrupted by user]") == 0,
+        "the marker is never a row"
+    );
+}
+
+/// Stop BEFORE the CLI took the message in: every client hands the text back
+/// to the composer, so a replay that still lands is never a row.
+#[test]
+fn a_message_replayed_only_after_a_stop_stays_in_the_composer() {
+    let mut mapper = mapper();
+    let mut out = MapOut::default();
+    feed(&mut mapper, "cancel_turn.jsonl", &mut out);
+    mapper.on_prompt_sent(MID_TURN, MID_TURN, "q-1");
+    mapper.forget_deliveries();
+    mapper.on_cancel(&mut out);
+    feed(&mut mapper, "cancel_replay_interrupted.jsonl", &mut out);
+    mapper.on_stop(StopReason::Cancelled, &mut out);
+    assert_eq!(rows_of(&out, MID_TURN), 0);
+    assert!(out.consumed.is_empty(), "the host already dropped the line");
+}
+
+/// The person sends the restored text again after the Stop: its own row,
+/// and neither its replay nor the cancelled one's late replay adds another.
+#[test]
+fn a_resend_after_a_stop_is_one_row_whatever_replays() {
+    let mut mapper = mapper();
+    let mut out = MapOut::default();
+    feed(&mut mapper, "cancel_turn.jsonl", &mut out);
+    mapper.on_prompt_sent(MID_TURN, MID_TURN, "q-1");
+    mapper.forget_deliveries();
+    mapper.on_stop(StopReason::Cancelled, &mut out);
+    mapper.on_prompt(MID_TURN, &mut out);
+    feed(&mut mapper, "cancel_replay.jsonl", &mut out);
+    feed(&mut mapper, "cancel_replay.jsonl", &mut out);
+    mapper.on_stop(StopReason::EndTurn, &mut out);
+    assert_eq!(rows_of(&out, MID_TURN), 1);
+}
+
+/// The defensive rule: a replay byte-identical to the previous user row,
+/// with no agent output between, is the same message — while the same text
+/// after the agent answered (a person repeating themselves) is a new row.
+#[test]
+fn a_double_replay_is_one_row_but_a_repeat_after_output_is_two() {
+    let mut mapper = mapper();
+    let mut out = MapOut::default();
+    mapper.on_prompt_sent(MID_TURN, MID_TURN, "q-1");
+    feed(&mut mapper, "cancel_replay.jsonl", &mut out);
+    feed(&mut mapper, "cancel_replay.jsonl", &mut out);
+    mapper.on_stop(StopReason::EndTurn, &mut out);
+    assert_eq!(rows_of(&out, MID_TURN), 1);
+    feed(&mut mapper, "cancel_turn.jsonl", &mut out);
+    mapper.on_prompt_sent(MID_TURN, MID_TURN, "q-2");
+    feed(&mut mapper, "cancel_replay.jsonl", &mut out);
+    mapper.on_stop(StopReason::EndTurn, &mut out);
+    assert_eq!(rows_of(&out, MID_TURN), 2);
+}
