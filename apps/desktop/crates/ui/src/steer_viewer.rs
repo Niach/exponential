@@ -577,6 +577,11 @@ pub(crate) struct SteerSessionView {
     orphan_workflows: Vec<String>,
     row_keys: Vec<RowKey>,
     active: HashSet<FeedItemId>,
+    /// THE ask dock's row (ask-dock.json ×4): the main-transcript row of the
+    /// ONE answerable card, lifted out of `rows` into the composer's slot
+    /// ([`Self::dock_row_spec`], refreshed by [`Self::sync_list`]).
+    docked: Option<FeedRowSpec>,
+    ask_dock: crate::ask_dock::AskDockState,
     /// Whether the synthetic trailing "Working…" row is present — the list's
     /// last index when it is.
     working: bool,
@@ -792,6 +797,8 @@ impl SteerSessionView {
             orphan_workflows: Vec::new(),
             row_keys: Vec::new(),
             active: HashSet::new(),
+            docked: None,
+            ask_dock: crate::ask_dock::AskDockState::default(),
             working: false,
             dev_scrolled_to: None,
             chips: None,
@@ -1291,6 +1298,12 @@ impl SteerSessionView {
                 crate::session_rows::orphan_workflow_ids(&self.rows, self.feed.items(), &held);
         } else {
             self.orphan_workflows.clear();
+        }
+        // THE ask dock: the waiting card's row leaves the transcript (it
+        // returns, closed, once answered).
+        self.docked = self.dock_row_spec();
+        if let Some(docked) = self.docked.as_ref().map(FeedRowSpec::id) {
+            self.rows.retain(|spec| spec.id() != docked);
         }
         // EXP-850 §12: the per-turn file cards are derived state now
         // (EXP-884, [`Self::refresh_derived`] above).
@@ -2551,17 +2564,80 @@ impl SteerSessionView {
             || matches!(self.phase, ViewerPhase::Ended { .. }))
     }
 
+    /// Whether the reader may message this session at all (the thread's
+    /// ask dock gate: a reader who may not reply keeps the cards inline).
+    pub(crate) fn may_message(&self) -> bool {
+        self.may_message
+    }
+
     fn composer_visible(&self) -> bool {
         if !self.may_message {
             return false;
         }
-        // EXP-820: a pending card takes the composer's place — free text is
-        // typed in the card, and a message would only race the answer
-        // (THE rule ×4, EXP-1306).
-        !domain::session_tree::composer_yields_to_card(
-            self.phase == ViewerPhase::Live && self.connected,
-            !self.active.is_empty(),
-        )
+        // A root's host (thread, agent channel) docks the TREE's cards
+        // itself and hides this composer then (`conversation_dock`).
+        if self.tree_scope {
+            return true;
+        }
+        // EXP-820 → THE ask dock (ask-dock.json ×4): the waiting card takes
+        // the composer's place — free text is typed in the card, and a
+        // message would only race the answer.
+        !self.dock_view().composer_hidden
+    }
+
+    /// THE ask dock over this session's ONE answerable card
+    /// ([`Self::dock_card_id`]; caption none).
+    fn dock_view(&self) -> domain::ask_dock::AskDockView {
+        let pending: Vec<domain::ask_dock::AskDockPending> = self
+            .dock_card_id()
+            .and_then(|id| self.feed.items().iter().find(|item| item.id == id))
+            .and_then(|item| {
+                let card = item.question()?;
+                Some(domain::ask_dock::AskDockPending {
+                    id: item.id.to_string(),
+                    kind: if card.plan_mode {
+                        domain::ask_dock::AskDockKind::Plan
+                    } else {
+                        domain::ask_dock::AskDockKind::Question
+                    },
+                    text: card.text.clone(),
+                    session_name: None,
+                    created_at: 0,
+                })
+            })
+            .into_iter()
+            .collect();
+        domain::ask_dock::ask_dock(&pending, None)
+    }
+
+    /// The card THE ask dock holds: the newest unresolved card on a live,
+    /// connected, answerable run (an answer in flight keeps it docked,
+    /// "Answering…"). Never on a root's host ([`Self::composer_visible`]).
+    fn dock_card_id(&self) -> Option<FeedItemId> {
+        if self.tree_scope || !self.answerable_run() {
+            return None;
+        }
+        if let Some(editing) = self.editing_card_id() {
+            return Some(editing);
+        }
+        self.feed
+            .items()
+            .iter()
+            .rev()
+            .find(|item| self.active.contains(&item.id))
+            .map(|item| item.id)
+    }
+
+    /// The main-transcript row holding [`Self::dock_card_id`] (a lone card,
+    /// or its ask's stepper), lifted out of the transcript into the dock.
+    fn dock_row_spec(&self) -> Option<FeedRowSpec> {
+        let id = self.dock_card_id()?;
+        let items = self.feed.items();
+        let index = items.iter().position(|item| item.id == id)?;
+        self.feed
+            .row_specs()
+            .into_iter()
+            .find(|spec| spec.item_indices().contains(&index))
     }
 
     /// EXP-820: focus follows the composer's visibility EDGES, once per
@@ -3837,10 +3913,15 @@ fn card_answer_input(
                 .position(|option| &option.key == key)
                 .is_some_and(|index| is_plan_reject(card, index))
         });
+        // ask-dock.json `planOptions`: the fresh-context pick closes the
+        // thread card `fresh: true` (its "Yes, and start with a fresh
+        // context" label).
+        let fresh = !rejected && keys.iter().any(|key| key == domain::ask_dock::FRESH_PLAN_OPTION_KEY);
         return api::sessions::AnswerInput {
             message_id,
             answer: None,
             decision: Some(if rejected { "rejected" } else { "approved" }.to_string()),
+            fresh: fresh.then_some(true),
             feedback: feedback.filter(|_| rejected),
         };
     }
@@ -3848,6 +3929,7 @@ fn card_answer_input(
         message_id,
         answer: Some(text.map_or_else(|| labels.join(", "), str::to_string)),
         decision: None,
+        fresh: None,
         feedback: None,
     }
 }
@@ -4153,6 +4235,31 @@ pub(crate) fn ask_card(
     body: gpui::Div,
     cx: &App,
 ) -> AnyElement {
+    let meta = meta.map(|meta| {
+        // EXP-698: 11px — a caption beside the heading, never a peer of it.
+        div()
+            .flex_shrink_0()
+            .text_2xs()
+            .text_color(cx.theme().muted_foreground)
+            .child(SharedString::from(meta))
+            .into_any_element()
+    });
+    ask_card_chrome(plan, heading, meta, None, body, cx).into_any_element()
+}
+
+/// [`ask_card`]'s chrome with any `meta` element beside the heading (the
+/// ask dock's session caption) and an optional `back` control LEADING the
+/// header row, before the kind glyph (the ask dock's focused card,
+/// `fixtures/ask-dock.json`). The bare card, so a caller can make it a
+/// button (the dock's compact cards).
+pub(crate) fn ask_card_chrome(
+    plan: bool,
+    heading: Option<SharedString>,
+    meta: Option<AnyElement>,
+    back: Option<AnyElement>,
+    body: gpui::Div,
+    cx: &App,
+) -> gpui::Div {
     let accent = if plan {
         cx.theme().primary
     } else {
@@ -4169,6 +4276,9 @@ pub(crate) fn ask_card(
                 .min_w_0()
                 .gap_2()
                 .items_start()
+                // Web `-my-1 -ml-1`: the 24px ghost button overhangs the
+                // 16px heading line instead of growing the card.
+                .children(back.map(|back| div().flex_shrink_0().my(px(-4.)).ml(px(-4.)).child(back)))
                 .child(
                     // Centred on the first line: the 16px heading line, or
                     // the body's 22px one.
@@ -4208,23 +4318,12 @@ pub(crate) fn ask_card(
                                                 .child(heading),
                                         )
                                     })
-                                    .when_some(meta, |this, meta| {
-                                        this.child(
-                                            // EXP-698: 11px — a caption beside
-                                            // the heading, never a peer of it.
-                                            div()
-                                                .flex_shrink_0()
-                                                .text_2xs()
-                                                .text_color(cx.theme().muted_foreground)
-                                                .child(SharedString::from(meta)),
-                                        )
-                                    }),
+                                    .children(meta),
                             )
                         })
                         .child(body),
                 ),
         )
-        .into_any_element()
 }
 
 /// The question body (web `text-sm text-foreground/90`).
@@ -4510,7 +4609,7 @@ impl SteerSessionView {
             FeedRow::ExpRun { id, items } => {
                 self.render_exp_tool_run(*id, items, live_tail, window, cx)
             }
-            FeedRow::Ask { id, items, .. } => self.render_ask(*id, items, active, window, cx),
+            FeedRow::Ask { id, items, .. } => self.render_ask(*id, items, active, false, window, cx),
             FeedRow::Subagent { id, items, .. } => {
                 self.render_subagent(*id, items, window, cx)
             }
@@ -4669,7 +4768,7 @@ impl SteerSessionView {
                     .into_any_element()
             }
             FeedKind::Subagent { .. } => self.render_subagent(item.id, &[item], window, cx),
-            FeedKind::Question(_) => self.render_question(item, active, window, cx),
+            FeedKind::Question(_) => self.render_question(item, active, false, window, cx),
             // EXP-724: the quiet divider a finished compaction leaves behind
             // — everything above it is context the agent no longer holds.
             FeedKind::Compaction => tool_text(h_flex())
@@ -5487,17 +5586,6 @@ impl SteerSessionView {
         )
     }
 
-    /// A body that never folds: the plan a reader must approve is always
-    /// shown in full (EXP-738, parity with iOS/Android).
-    fn render_unfolded_body(
-        &self,
-        id: FeedItemId,
-        text: &str,
-        cx: &mut gpui::Context<Self>,
-    ) -> AnyElement {
-        self.render_body_folding(id, text, false, cx)
-    }
-
     fn render_body_folding(
         &self,
         id: FeedItemId,
@@ -6182,6 +6270,7 @@ impl SteerSessionView {
         _id: FeedItemId,
         items: &[&FeedItem],
         active: &HashSet<FeedItemId>,
+        docked: bool,
         window: &Window,
         cx: &mut gpui::Context<Self>,
     ) -> AnyElement {
@@ -6272,7 +6361,7 @@ impl SteerSessionView {
                         .w_full()
                         .min_w_0()
                         .mt_1p5()
-                        .child(ask_body_text(cx).child(self.render_body(item.id, &text, cx)))
+                        .child(self.render_card_body(item.id, &text, false, docked, window, cx))
                         .child(self.render_prompt(item, active, submit_step, false, window, cx)),
                 );
             }
@@ -6435,11 +6524,33 @@ impl SteerSessionView {
             .into_any_element()
     }
 
-    /// A standalone question / plan-approval card.
+    /// A card's body: in the transcript the folding chat body (a plan never
+    /// folds there: a read-only reader sees it whole, EXP-738); in THE ask
+    /// dock (`docked`) the whole body, capped and scrolling inside
+    /// (ask-dock.json `bodyMaxHeightFraction`, no "Show more").
+    fn render_card_body(
+        &self,
+        id: FeedItemId,
+        text: &str,
+        plan: bool,
+        docked: bool,
+        window: &Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> AnyElement {
+        if docked {
+            let body = ask_body_text(cx).child(self.render_body_folding(id, text, false, cx));
+            return crate::ask_dock::dock_body(("steer-dock-body", id as usize), body, window).into_any_element();
+        }
+        ask_body_text(cx).child(self.render_body_folding(id, text, !plan, cx)).into_any_element()
+    }
+
+    /// A standalone question / plan-approval card (`docked` = THE ask
+    /// dock's big card).
     fn render_question(
         &self,
         item: &FeedItem,
         active: &HashSet<FeedItemId>,
+        docked: bool,
         window: &Window,
         cx: &mut gpui::Context<Self>,
     ) -> AnyElement {
@@ -6457,11 +6568,7 @@ impl SteerSessionView {
         let body = v_flex()
             .w_full()
             .min_w_0()
-            .child(ask_body_text(cx).child(if card.plan_mode {
-                self.render_unfolded_body(item.id, &card.text, cx)
-            } else {
-                self.render_body(item.id, &card.text, cx)
-            }))
+            .child(self.render_card_body(item.id, &card.text, card.plan_mode, docked, window, cx))
             .child(self.render_prompt(item, active, false, false, window, cx));
         ask_card(card.plan_mode, heading, None, body, cx)
     }
@@ -7224,16 +7331,35 @@ impl SteerSessionView {
         )
     }
 
+    /// THE ask dock (ask-dock.json ×4): the ONE answerable card's row
+    /// ([`Self::docked`]) as the big card in the composer's slot.
+    fn render_dock(&mut self, window: &Window, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
+        let spec = self.docked.clone()?;
+        let view = self.dock_view();
+        if !crate::ask_dock::shows(&view) {
+            return None;
+        }
+        let content = {
+            let row = spec.resolve(self.feed.items());
+            let active = self.active.clone();
+            match &row {
+                FeedRow::Single(item) => self.render_question(item, &active, true, window, cx),
+                FeedRow::Ask { id, items, .. } => self.render_ask(*id, items, &active, true, window, cx),
+                _ => return None,
+            }
+        };
+        let dock = crate::ask_dock::dock(&mut self.ask_dock, &view, content, window);
+        Some(div().w_full().flex_shrink_0().py_2().child(work_column_row(dock)).into_any_element())
+    }
+
     /// The composer's bottom stack — a notice, THE composer box — for a
     /// screen hosting this view as a ROOT session's composer (the thread
     /// screen, the agent channel): the SAME composer and footer the session
     /// view paints, targeting this session. NO queue strip: the person's
     /// queued rows already render in the Conversation with their Remove X
-    /// (EXP-1317). `None` while the composer yields — ONLY to a question or
-    /// plan card of THIS (root) session waiting on the viewer (this view's
-    /// feed is the root's own, so a child's pending card, which shows inline
-    /// in the Conversation, never hides it), or to a reader who may not
-    /// steer.
+    /// (EXP-1317). `None` only for a reader who may not steer: a root's
+    /// host yields this slot to ITS ask dock itself (the tree's waiting
+    /// cards, `thread_screen::conversation_dock`).
     pub(crate) fn render_session_composer(
         &mut self,
         window: &Window,
@@ -8491,6 +8617,8 @@ impl Render for SteerSessionView {
             .flatten();
         self.ensure_mcp_loaded(cx);
         let composer = composer_visible.then(|| self.render_composer(window, cx));
+        // THE ask dock in the composer's slot (ask-dock.json ×4).
+        let dock = self.render_dock(window, cx);
         // EXP-1191 (web order): banners → the queue bar (EXP-861) → the
         // background tasks / waits (EXP-850) → the agent's task list
         // (EXP-927), which is ALWAYS the last block, directly on the composer.
@@ -8542,6 +8670,7 @@ impl Render for SteerSessionView {
             .children(rate_limit)
             .children(task_queue)
             .children(queue)
+            .children(dock)
             .children(composer);
         v_flex()
             .key_context("SteerSession")
@@ -9393,6 +9522,11 @@ mod tests {
         );
         assert_eq!(reject.decision.as_deref(), Some("rejected"));
         assert_eq!(reject.feedback.as_deref(), Some("smaller steps"));
+        assert_eq!(approve.fresh, None);
+        let fresh_key = domain::ask_dock::FRESH_PLAN_OPTION_KEY.to_string();
+        let fresh = card_answer_input(&plan, "m-1".into(), &[fresh_key], &[], None, None);
+        assert_eq!(fresh.decision.as_deref(), Some("approved"));
+        assert_eq!(fresh.fresh, Some(true), "the fresh-context pick closes the card fresh");
 
         let question = steer::QuestionCard {
             options: vec![option("A", false), option("B", false)],

@@ -433,7 +433,14 @@ object SessionTree {
         /** One choice of a question card: the answer is the [label] (EXP-1322). */
         data class QuestionChoice(val label: String, val description: String?)
 
-        data class Plan(override val id: String, val sessionId: String, val plan: String, val decision: String?) : ThreadRow
+        /** [fresh] = an approval that started in a fresh context (ask-dock.json). */
+        data class Plan(
+            override val id: String,
+            val sessionId: String,
+            val plan: String,
+            val decision: String?,
+            val fresh: Boolean = false,
+        ) : ThreadRow
 
         data class Subagent(override val id: String, val title: String, val status: String) : ThreadRow
 
@@ -726,7 +733,8 @@ object SessionTree {
                     ),
                 )
                 DomainContract.messageCardKindPlan -> rows.add(
-                    ThreadRow.Plan(id = message.id, sessionId = message.sessionId, plan = card.text("plan"), decision = card.str("decision")),
+                    ThreadRow.Plan(id = message.id, sessionId = message.sessionId, plan = card.text("plan"), decision = card.str("decision"),
+                        fresh = (card["fresh"] as? JsonPrimitive)?.takeIf { !it.isString }?.content == "true"),
                 )
                 DomainContract.messageCardKindSubagent -> rows.add(
                     ThreadRow.Subagent(id = message.id, title = card.text("title"), status = card.text("status")),

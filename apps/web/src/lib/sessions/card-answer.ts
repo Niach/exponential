@@ -7,6 +7,8 @@ import type { MessageCard } from "@exp/db-schema/domain"
 export interface CardAnswerInput {
   answer?: string
   decision?: `approved` | `rejected`
+  /** An approval that starts in a fresh context. */
+  fresh?: boolean
   feedback?: string
 }
 
@@ -27,6 +29,11 @@ export function answeredCard(card: MessageCard | null, input: CardAnswerInput): 
   if (!input.decision) return { ok: false, code: `BAD_REQUEST`, message: `decision is required` }
   return {
     ok: true,
-    card: { ...card, decision: input.decision, feedback: input.feedback?.trim() || null },
+    card: {
+      ...card,
+      decision: input.decision,
+      fresh: input.decision === `approved` && input.fresh === true,
+      feedback: input.feedback?.trim() || null,
+    },
   }
 }

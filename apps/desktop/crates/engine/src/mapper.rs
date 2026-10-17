@@ -165,6 +165,9 @@ impl Reply {
     }
 }
 
+/// The claude adapter's ExitPlanMode fresh-context option.
+use domain::ask_dock::FRESH_PLAN_OPTION_KEY;
+
 /// EXP-1292: an answered question/plan card mapped back onto the engine's
 /// open ask — the same [`steer::RemoteAnswer`] a relay `answer` frame
 /// carries, plus a rejected plan's feedback, which the agent gets as the
@@ -1662,11 +1665,19 @@ impl Mapper {
                         "rejected" => false,
                         _ => return None,
                     };
-                    let key = ask
-                        .options
-                        .iter()
-                        .map(|(key, _)| key)
-                        .find(|key| ask.rejects.contains(key) != approved)?
+                    // ask-dock.json `planOptions`: a fresh approval takes the
+                    // claude adapter's fresh-context option when it offers one.
+                    let fresh = approved && card.get("fresh").and_then(Value::as_bool) == Some(true);
+                    let fresh_key = fresh
+                        .then(|| ask.options.iter().map(|(key, _)| key).find(|key| *key == FRESH_PLAN_OPTION_KEY))
+                        .flatten();
+                    let key = fresh_key
+                        .or_else(|| {
+                            ask.options
+                                .iter()
+                                .map(|(key, _)| key)
+                                .find(|key| ask.rejects.contains(key) != approved)
+                        })?
                         .clone();
                     return Some(CardAnswer {
                         answer: remote(None, vec![key], None),
@@ -6953,6 +6964,54 @@ mod conversation_tests {
         assert!(mapper
             .card_answer("tc-plan", &json!({"kind": "plan", "decision": null}))
             .is_none());
+    }
+
+    /// ask-dock.json `planOptions`: a fresh approval picks the adapter's
+    /// fresh-context option; without one it is the plain approve.
+    #[test]
+    fn a_fresh_plan_approval_picks_the_fresh_context_option() {
+        let mut mapper = live();
+        let mut out = MapOut::default();
+        let fields = ToolCallUpdateFields::new()
+            .title("Ready to code?")
+            .kind(ToolKind::SwitchMode)
+            .content(vec![ToolCallContent::from(ContentBlock::Text(TextContent::new("1. Do it")))]);
+        let request = RequestPermissionRequest::new(
+            SessionId::new("acp-1"),
+            ToolCallUpdate::new(ToolCallId::new("tc-fresh"), fields),
+            vec![
+                PermissionOption::new(PermissionOptionId::new("exit-plan-bypass"), "Yes", PermissionOptionKind::AllowAlways),
+                PermissionOption::new(
+                    PermissionOptionId::new(FRESH_PLAN_OPTION_KEY),
+                    "Yes, and start with a fresh context",
+                    PermissionOptionKind::AllowAlways,
+                ),
+                PermissionOption::new(PermissionOptionId::new("reject"), "No, keep planning", PermissionOptionKind::RejectOnce),
+            ],
+        );
+        mapper.on_permission(&request, &mut out);
+        let fresh = mapper
+            .card_answer("tc-fresh", &json!({"kind": "plan", "decision": "approved", "fresh": true}))
+            .expect("fresh maps");
+        assert_eq!(fresh.answer.keys, vec![FRESH_PLAN_OPTION_KEY.to_string()]);
+        let plain = mapper
+            .card_answer("tc-fresh", &json!({"kind": "plan", "decision": "approved", "fresh": false}))
+            .expect("plain maps");
+        assert_eq!(plain.answer.keys, vec!["exit-plan-bypass".to_string()]);
+        let rejected = mapper
+            .card_answer("tc-fresh", &json!({"kind": "plan", "decision": "rejected", "fresh": true}))
+            .expect("rejected maps");
+        assert_eq!(rejected.answer.keys, vec!["reject".to_string()]);
+
+        // No fresh option offered: the plain approve.
+        mapper.on_permission(
+            &permission("tc-plan", Some(ToolKind::SwitchMode), Some("## Plan\n\n1. Do it")),
+            &mut out,
+        );
+        let fallback = mapper
+            .card_answer("tc-plan", &json!({"kind": "plan", "decision": "approved", "fresh": true}))
+            .expect("approved maps");
+        assert_eq!(fallback.answer.keys, vec!["allow".to_string()]);
     }
 
     #[test]

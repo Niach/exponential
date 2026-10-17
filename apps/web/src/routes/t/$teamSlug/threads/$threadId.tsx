@@ -1,3 +1,4 @@
+import { threadPendingAsks, threadSessionNames } from "@exp/domain-contract/ask-dock"
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react"
 import { inArray, useLiveQuery } from "@tanstack/react-db"
 import { createFileRoute, Navigate, redirect, useNavigate } from "@tanstack/react-router"
@@ -15,6 +16,7 @@ import {
   SkeletonRows,
   StatusGlyph,
   ThreadChipSubtree,
+  ThreadAskDock,
   ThreadConversation,
   ThreadIssueTab,
   ThreadIssueTree,
@@ -761,7 +763,30 @@ function ConversationBody({
   const follow = useFollowScroll([view.rows.length, lastRowId])
   const isMobile = useIsMobile()
   const suggestions = useSuggestionActions({ teamId, enabled: canReply, agentFor })
-  const composer = canReply ? (
+  // THE ask dock (ask-dock.json ×4): the tree's waiting cards take the
+  // composer's slot, exactly like a session's card; read-only viewers keep
+  // them inline.
+  const dockedIds = useMemo(
+    () =>
+      canReply
+        ? new Set(threadPendingAsks(view.rows, () => null).map((pending) => pending.id))
+        : new Set<string>(),
+    [canReply, view.rows]
+  )
+  const sessionName = useMemo(() => threadSessionNames(view.tabs), [view.tabs])
+  const dock =
+    dockedIds.size > 0 ? (
+      <ThreadAskDock
+        rows={view.rows}
+        sessionName={sessionName}
+        renderText={renderThreadText}
+        pending={pending}
+        onAnswer={(id, input) => void answer(id, input)}
+        onDecide={(id, input) => void answer(id, input)}
+        className="mx-auto max-w-3xl"
+      />
+    ) : null
+  const composer = canReply && dock === null ? (
     <SessionComposer
       teamId={teamId}
       sessionId={view.composer.sessionId}
@@ -808,6 +833,7 @@ function ConversationBody({
             onAnswer={canReply ? (id, input) => void answer(id, input) : undefined}
             onDecide={canReply ? (id, input) => void answer(id, input) : undefined}
             pending={pending}
+            docked={dockedIds}
             viewerId={session?.user?.id ?? null}
             onUnqueue={(id) => void unqueue(id)}
             suggestions={suggestions}
@@ -831,6 +857,11 @@ function ConversationBody({
       </div>
       {/* EXP-1316: phones reply through THE floating composer capsule;
           md+ keeps the in-flow Composer box. */}
+      {dock && (
+        <div className="shrink-0 px-4 pt-2 pb-[calc(1rem+env(safe-area-inset-bottom))] md:px-6 md:pb-4">
+          {dock}
+        </div>
+      )}
       {composer &&
         (isMobile ? (
           <FloatingComposer placeholder={view.composer.placeholder}>{composer}</FloatingComposer>

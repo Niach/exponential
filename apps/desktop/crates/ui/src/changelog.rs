@@ -46,6 +46,19 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-10-17-ask-dock",
+    date: "2026-10-17",
+    title: "Questions and plans take the composer's place",
+    summary: "A waiting question or plan replaces the composer in a session and a thread alike, several stack up and open one at a time, and every plan offers the same three answers.",
+    body: r#"- **One place to answer**: a question or plan waiting on you now sits where the composer was, in a session and in a thread alike, so a thread with one waiting card looks exactly like the session that asked.
+- **Several at once**: when sub-sessions wait on you together, their cards stack above each other with the plan's first line and the session that asked; tap one to open it in place, answer it, or go back to the stack with the arrow.
+- **Long plans**: a plan never stretches the conversation any more; it scrolls inside its card.
+- **The same plan answers everywhere**: Yes, Yes and start with a fresh context, or No, keep planning with a note, from a thread as well as a session, on every device."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_57: ChangelogEntry = ChangelogEntry {
     id: "2026-10-17-session-names-grouped-work",
     date: "2026-10-17",
     title: "Sessions name themselves, and the dispatcher groups the work",

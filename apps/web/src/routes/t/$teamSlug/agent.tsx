@@ -6,6 +6,7 @@ import {
   FeedbackStatesSpecimen,
   SkeletonRows,
   TraceSpecimen,
+  AskDockSpecimen,
   useKeyboardInset,
 } from "@exp/ui"
 import { HOME_GEOMETRY, HOME_TEST_IDS } from "@exp/domain-contract/home-greeting"
@@ -59,9 +60,9 @@ const str = (value: unknown): string | undefined =>
 // EXP-1259 (DEV-ONLY): `?dev=feedback-states` swaps the page for the six
 // feedback kinds side by side, for the view catalog's `feedback-states`
 // capture; EXP-1324: `?dev=trace` / `?dev=code-block` the Trace and
-// CodeBlock specimens (identical ×4) for theirs. Never parsed in a
+// CodeBlock specimens (`?dev=ask-dock` THE ask dock's) (identical ×4) for theirs. Never parsed in a
 // production build (`isProductionBuild`).
-const DEV_VIEWS = [`feedback-states`, `trace`, `code-block`] as const
+const DEV_VIEWS = [`feedback-states`, `trace`, `code-block`, `ask-dock`] as const
 type DevView = (typeof DEV_VIEWS)[number]
 const devView = (value: unknown): DevView | undefined =>
   !isProductionBuild && DEV_VIEWS.includes(value as DevView)
@@ -101,6 +102,8 @@ function AgentRoute() {
       <div className={`h-full min-h-0 overflow-y-auto p-6 ${TAB_BAR_CLEARANCE}`}>
         {dev === `trace` ? (
           <TraceSpecimen />
+        ) : dev === `ask-dock` ? (
+          <AskDockSpecimen />
         ) : dev === `code-block` ? (
           <CodeBlockSpecimen />
         ) : (

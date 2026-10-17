@@ -64,7 +64,7 @@ const ROWS: ThreadRow[] = [
     answer: null,
     answered: false,
   },
-  { type: `plan`, id: `p1`, sessionId: `s1`, plan: `Step 1`, decision: null },
+  { type: `plan`, id: `p1`, sessionId: `s1`, plan: `Step 1`, decision: null, fresh: false },
   { type: `event`, id: `e1`, event: `issue_linked`, text: `Linked APP-5` },
 ]
 
@@ -128,10 +128,23 @@ describe(`ThreadConversation`, () => {
     expect(onAnswer).toHaveBeenCalledWith(`q1`, { answer: `Neither, use C` })
   })
 
+  it(`offers THE plan options and approves into a fresh context`, () => {
+    const { onDecide } = renderRows()
+    const plan = document.querySelector(`[data-slot="thread-plan"]`)!
+    const options = plan.querySelectorAll(`[data-testid="ask-option"]`)
+    expect([...options].map((o) => o.firstElementChild?.textContent ?? o.textContent)).toEqual([
+      `Yes`,
+      `Yes, and start with a fresh context`,
+      `No, keep planningSends your next message back to planning`,
+    ])
+    fireEvent.click(options[1]!)
+    expect(onDecide).toHaveBeenCalledWith(`p1`, { decision: `approved`, fresh: true })
+  })
+
   it(`rejects a plan with a note`, () => {
     const { onDecide } = renderRows()
     const plan = document.querySelector(`[data-slot="thread-plan"]`)!
-    fireEvent.click(plan.querySelectorAll(`[data-testid="ask-option"]`)[1]!)
+    fireEvent.click(plan.querySelectorAll(`[data-testid="ask-option"]`)[2]!)
     const field = screen.getByTestId(`ask-inline-field`)
     fireEvent.change(field, { target: { value: `Smaller steps` } })
     fireEvent.keyDown(field, { key: `Enter` })
@@ -153,11 +166,11 @@ describe(`ThreadConversation`, () => {
         answer: `Use C`,
         answered: true,
       },
-      { type: `plan`, id: `p2`, sessionId: `s1`, plan: `Step 1`, decision: `approved` },
+      { type: `plan`, id: `p2`, sessionId: `s1`, plan: `Step 1`, decision: `approved`, fresh: true },
     ])
     expect(screen.queryAllByTestId(`ask-option`)).toHaveLength(0)
     expect(screen.getByText(`Use C`)).toBeTruthy()
-    expect(screen.getByText(`Approved`)).toBeTruthy()
+    expect(screen.getByText(`Yes, and start with a fresh context`)).toBeTruthy()
   })
 
   it(`puts the X only on the viewer's own queued row, and its tooltip leaves with it`, async () => {

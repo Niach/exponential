@@ -107,6 +107,7 @@ const cardAnswerInput = z.object({
   messageId: uuid,
   answer: z.string().max(MESSAGE_BODY_MAX).optional(),
   decision: z.enum([`approved`, `rejected`]).optional(),
+  fresh: z.boolean().optional(),
   feedback: z.string().max(MESSAGE_BODY_MAX).optional(),
 })
 

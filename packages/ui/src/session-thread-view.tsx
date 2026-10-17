@@ -20,8 +20,15 @@ import {
   type ThreadRow,
   type ThreadStripLayout,
 } from "@exp/domain-contract/session-tree"
+import {
+  askDock,
+  PLAN_OPTIONS,
+  planDecisionLabel,
+  threadPendingAsks,
+} from "@exp/domain-contract/ask-dock"
 import { AgentRunMark, type RunMarkState } from "./agent-brand-mark"
 import { ASK_CARD_COPY, AskCard, AskPrompt, type AskOption } from "./ask-card"
+import { AskDock, AskDockBody } from "./ask-dock"
 import { Button } from "./button"
 import { cn } from "./cn"
 import { stripTabClass } from "./entity-chip"
@@ -750,9 +757,12 @@ export interface ThreadConversationProps {
    *  read-only). */
   onAnswer?: (rowId: string, input: { answer: string }) => void
   /** A plan card's decision + the reject's note (absent = read-only). */
-  onDecide?: (rowId: string, input: { decision: `approved` | `rejected`; feedback?: string }) => void
+  onDecide?: (rowId: string, input: ThreadPlanDecision) => void
   /** The rows whose answer is in flight. */
   pending?: ReadonlySet<string>
+  /** The waiting cards THE ask dock holds (`threadPendingAsks`): they
+   *  leave the Conversation and take the composer's slot. */
+  docked?: ReadonlySet<string>
   /** The viewer: their OWN queued rows carry the Remove from queue X. */
   viewerId?: string | null
   /** EXP-1317: revoke a queued row (absent = no X). */
@@ -779,6 +789,7 @@ export function ThreadConversation({
   onAnswer,
   onDecide,
   pending,
+  docked,
   viewerId,
   onUnqueue,
   suggestions,
@@ -789,6 +800,7 @@ export function ThreadConversation({
   return (
     <div data-testid="thread-conversation" className={cn(`flex flex-col gap-4`, className)}>
       {rows.map((row) => {
+        if (docked?.has(row.id)) return null
         switch (row.type) {
           case `message`:
             if (row.author === `user`) {
@@ -1248,11 +1260,16 @@ function ThreadQuestionCard({
   renderText,
   busy,
   onAnswer,
+  docked = false,
+  onBack,
 }: {
   row: Extract<ThreadRow, { type: `question` }>
   renderText: (text: string) => ReactNode
   busy: boolean
   onAnswer?: (answer: string) => void
+  /** In THE ask dock: the body scrolls inside its cap. */
+  docked?: boolean
+  onBack?: () => void
 }) {
   // Memoized: `AskPrompt` keys its hotkey listener on `options`, and the
   // thread view is rebuilt every second (useNow).
@@ -1272,8 +1289,14 @@ function ThreadQuestionCard({
     [row.options, row.custom]
   )
   return (
-    <AskCard data-slot="thread-question" data-answered={row.answered || undefined}>
-      <div className="text-sm text-foreground/90">{renderText(row.question)}</div>
+    <AskCard
+      onBack={onBack}
+      data-slot="thread-question"
+      data-answered={row.answered || undefined}
+    >
+      <DockBody docked={docked}>
+        <div className="text-sm text-foreground/90">{renderText(row.question)}</div>
+      </DockBody>
       <AskPrompt
         options={options}
         answerable={!row.answered && onAnswer !== undefined}
@@ -1288,64 +1311,140 @@ function ThreadQuestionCard({
   )
 }
 
-/** The plan card's words (the decision values are `sessions.answer`'s). */
-export const THREAD_PLAN_COPY = {
-  approve: `Approve`,
-  reject: `Reject`,
-  approved: `Approved`,
-  rejected: `Rejected`,
-} as const
+/** A plan card's decision (`sessions.answer`): `fresh` = start the work in
+ *  a fresh context; `feedback` = the "No, keep planning" note. */
+export type ThreadPlanDecision = {
+  decision: `approved` | `rejected`
+  fresh?: boolean
+  feedback?: string
+}
 
-/** EXP-1316: a plan row = THE session view's plan card: the plan in full,
- *  Approve (primary) / Reject (opens the note field), closed once decided. */
+/** The big card's body: capped and scrolling inside THE ask dock. */
+function DockBody({ docked, children }: { docked: boolean; children: ReactNode }) {
+  return docked ? <AskDockBody>{children}</AskDockBody> : <>{children}</>
+}
+
+/** EXP-1316: a plan row = THE plan card ×4: the options are THE list
+ *  (`PLAN_OPTIONS`: Yes / Yes, and start with a fresh context / No, keep
+ *  planning → the note field), closed once decided. */
 function ThreadPlanCard({
   row,
   renderText,
   busy,
   onDecide,
+  docked = false,
+  onBack,
 }: {
   row: Extract<ThreadRow, { type: `plan` }>
   renderText: (text: string) => ReactNode
   busy: boolean
-  onDecide?: (input: { decision: `approved` | `rejected`; feedback?: string }) => void
+  onDecide?: (input: ThreadPlanDecision) => void
+  docked?: boolean
+  onBack?: () => void
 }) {
   const decided = row.decision === `approved` || row.decision === `rejected`
   return (
     <AskCard
       plan
       label={ASK_CARD_COPY.planReady}
+      onBack={onBack}
       data-slot="thread-plan"
       data-decision={row.decision ?? undefined}
     >
-      <div className="text-sm">{renderText(row.plan)}</div>
+      <DockBody docked={docked}>
+        <div className="text-sm">{renderText(row.plan)}</div>
+      </DockBody>
       <AskPrompt
         planMode
         variant="plan"
-        options={[
-          { key: `approved`, label: THREAD_PLAN_COPY.approve },
-          { key: `rejected`, label: THREAD_PLAN_COPY.reject },
-        ]}
+        options={PLAN_ASK_OPTIONS}
         answerable={!decided && onDecide !== undefined}
         locked={busy ? { labels: [] } : null}
         resolved={
           decided
-            ? {
-                answer:
-                  row.decision === `approved`
-                    ? THREAD_PLAN_COPY.approved
-                    : THREAD_PLAN_COPY.rejected,
-              }
+            ? { answer: planDecisionLabel(row.decision as `approved` | `rejected`, row.fresh) }
             : null
         }
-        onAnswer={(keys, _labels, text) =>
+        onAnswer={(keys, _labels, text) => {
+          const option = PLAN_OPTIONS.find((o) => o.key === keys[0])
+          if (!option) return
           onDecide?.(
-            keys[0] === `rejected`
+            option.decision === `rejected`
               ? { decision: `rejected`, ...(text ? { feedback: text } : {}) }
-              : { decision: `approved` }
+              : { decision: `approved`, ...(option.fresh ? { fresh: true } : {}) }
           )
-        }
+        }}
       />
     </AskCard>
+  )
+}
+
+const PLAN_ASK_OPTIONS: AskOption[] = PLAN_OPTIONS.map((option) => ({
+  key: option.key,
+  label: option.label,
+  ...(option.description ? { description: option.description } : {}),
+}))
+
+/** THE ask dock in a thread (fixtures/ask-dock.json): the tree's waiting
+ *  cards (`threadPendingAsks`) in the composer's slot: one = the big card,
+ *  several = the stack, a tap focuses one (the back arrow returns). */
+export function ThreadAskDock({
+  rows,
+  sessionName,
+  renderText,
+  pending,
+  onAnswer,
+  onDecide,
+  initialFocusedId = null,
+  className,
+}: {
+  rows: readonly ThreadRow[]
+  sessionName: (sessionId: string) => string | null
+  renderText: (text: string) => ReactNode
+  pending?: ReadonlySet<string>
+  onAnswer: (rowId: string, input: { answer: string }) => void
+  onDecide: (rowId: string, input: ThreadPlanDecision) => void
+  /** The card focused on mount (the styleguide's focused state). */
+  initialFocusedId?: string | null
+  className?: string
+}) {
+  const [focusedId, setFocusedId] = useState<string | null>(initialFocusedId)
+  const view = askDock({ pending: threadPendingAsks(rows, sessionName), focusedId })
+  return (
+    <AskDock
+      view={view}
+      className={className}
+      onFocus={setFocusedId}
+      onBack={() => setFocusedId(null)}
+      renderCard={(id, chrome) => {
+        const row = rows.find((r) => r.id === id)
+        if (row?.type === `plan`) {
+          return (
+            <ThreadPlanCard
+              row={row}
+              renderText={renderText}
+              busy={pending?.has(row.id) ?? false}
+              docked
+              onBack={chrome.onBack}
+              onDecide={(input) => onDecide(row.id, input)}
+            />
+          )
+        }
+        if (row?.type === `question`) {
+          return (
+            <ThreadQuestionCard
+              row={row}
+              renderText={renderText}
+              busy={pending?.has(row.id) ?? false}
+              docked
+              onBack={chrome.onBack}
+              onAnswer={(answer) => onAnswer(row.id, { answer })}
+            />
+          )
+        }
+        return null
+      }}
+    />
   )
 }
 

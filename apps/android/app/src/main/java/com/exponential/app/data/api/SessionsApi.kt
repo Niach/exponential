@@ -209,6 +209,9 @@ data class AnswerInput(
     val messageId: String,
     val answer: String? = null,
     val decision: String? = null,
+    /** An approval that starts in a fresh context (ask-dock.json
+     *  `planOptions`); only with decision `approved`, else omitted. */
+    val fresh: Boolean? = null,
     val feedback: String? = null,
 )
 

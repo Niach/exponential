@@ -253,6 +253,10 @@ pub struct AnswerInput {
     pub answer: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub decision: Option<String>,
+    /// An approval that starts in a fresh context (ask-dock.json
+    /// `planOptions`); only with `decision: approved`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fresh: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub feedback: Option<String>,
 }
@@ -669,6 +673,15 @@ mod tests {
         };
         answer(&client(&base), &input).unwrap();
         assert!(request(&captured).ends_with(r#"{"messageId":"m-1","decision":"rejected","feedback":"Smaller"}"#));
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"txid":1}}}"#);
+        let input = AnswerInput {
+            message_id: "m-2".into(),
+            decision: Some("approved".into()),
+            fresh: Some(true),
+            ..AnswerInput::default()
+        };
+        answer(&client(&base), &input).unwrap();
+        assert!(request(&captured).ends_with(r#"{"messageId":"m-2","decision":"approved","fresh":true}"#));
         let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"txid":1}}}"#);
         unqueue(&client(&base), "m-2").unwrap();
         let request_text = request(&captured);

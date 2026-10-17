@@ -4678,6 +4678,44 @@
       }
     },
     {
+      "id": "ask-dock",
+      "group": "coding",
+      "title": "Ask dock",
+      "blurb": "THE ask dock ×4 (ask-dock.json): the question/plan cards waiting on you take the composer's slot in a session and a thread alike. One card = THE big card; several = compact cards stacked oldest first (icon, label, the asking session, the plan's first line), a tap grows one into the big card with a back arrow. THE plan options: Yes · Yes, and start with a fresh context · No, keep planning.",
+      "order": 23,
+      "web": {
+        "route": "/t/$teamSlug/agent?dev=ask-dock",
+        "anchor": {
+          "testId": "ask-dock-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "webMobile": "inherit",
+      "ios": {
+        "shot": "sg_ask-dock",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_ask-dock",
+        "lane": "styleguide"
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "styleguide:ask-dock"
+        },
+        "anchorDelayMs": 1500
+      },
+      "notes": {
+        "web": "The DEV-ONLY `?dev=ask-dock` on the Agent route (never parsed in a production build, like `trace`): `@exp/ui` `AskDockSpecimen`, the styleguide entry's board (one plan, the stack, a focused card) line for line the natives' specimen. The `thread` view shows the live dock over the seeded cold-start thread (a question + the child's plan).",
+        "web-mobile": "Inherits web: the phone frame draws the same specimen at full width.",
+        "ios": "The ExpUI ask dock specimen, the web island line for line, shot sg_ask-dock.",
+        "android": "See ios: the same specimen in StyleguideScreenshotsTest.",
+        "desktop": "The DEV-ONLY `EXP_DEV_SCREEN=styleguide:ask-dock`: the IDE styleguide entry `ask_dock.rs` drawn full-window, the web island line for line."
+      }
+    },
+    {
       "id": "code-block",
       "group": "coding",
       "title": "Code block",

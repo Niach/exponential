@@ -22,11 +22,11 @@ describe(`answeredCard`, () => {
   it(`a plan takes the decision and the trimmed feedback, blank = null`, () => {
     expect(answeredCard({ kind: `plan`, plan: `1. x` }, { decision: `rejected`, feedback: ` not yet ` })).toEqual({
       ok: true,
-      card: { kind: `plan`, plan: `1. x`, decision: `rejected`, feedback: `not yet` },
+      card: { kind: `plan`, plan: `1. x`, decision: `rejected`, fresh: false, feedback: `not yet` },
     })
     expect(answeredCard({ kind: `plan`, plan: `1. x` }, { decision: `approved`, feedback: `` })).toEqual({
       ok: true,
-      card: { kind: `plan`, plan: `1. x`, decision: `approved`, feedback: null },
+      card: { kind: `plan`, plan: `1. x`, decision: `approved`, fresh: false, feedback: null },
     })
     expect(answeredCard({ kind: `plan`, plan: `1. x` }, {})).toMatchObject({ ok: false })
   })
@@ -37,5 +37,16 @@ describe(`answeredCard`, () => {
       message: `This message asks nothing`,
     })
     expect(answeredCard(null, { answer: `x` })).toMatchObject({ ok: false })
+  })
+
+  it(`a fresh-context approval stamps fresh; a rejection never does`, () => {
+    expect(answeredCard({ kind: `plan`, plan: `1. x` }, { decision: `approved`, fresh: true })).toEqual({
+      ok: true,
+      card: { kind: `plan`, plan: `1. x`, decision: `approved`, fresh: true, feedback: null },
+    })
+    expect(answeredCard({ kind: `plan`, plan: `1. x` }, { decision: `rejected`, fresh: true })).toEqual({
+      ok: true,
+      card: { kind: `plan`, plan: `1. x`, decision: `rejected`, fresh: false, feedback: null },
+    })
   })
 })

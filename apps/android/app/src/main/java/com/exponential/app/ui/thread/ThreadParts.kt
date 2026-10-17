@@ -71,6 +71,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.exponential.app.data.db.UserEntity
+import com.exponential.app.domain.AskDock
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.AgentFeedItem
 import com.exponential.app.domain.AnswerState
@@ -122,10 +123,6 @@ internal object ThreadUiCopy {
     const val QUEUED = "queued"
     /** EXP-1317 ×4: the queued bubble's ✕. */
     const val REMOVE_FROM_QUEUE = "Remove from queue"
-    const val APPROVE = "Approve"
-    const val REJECT = "Reject"
-    const val APPROVED = "Approved"
-    const val REJECTED = "Rejected"
     const val SEND = "Send"
     const val ADD = "Add"
     const val SETTINGS = "Agent settings"
@@ -149,8 +146,9 @@ fun threadTabKey(tab: SessionTree.ThreadTab): String = when (tab) {
 /** A `question` answer: (message id, answer, settled(ok)). */
 typealias ThreadAnswer = (messageId: String, answer: String, settled: (Boolean) -> Unit) -> Unit
 
-/** A `plan` decision: (message id, approved, feedback, settled(ok)). */
-typealias ThreadPlanDecision = (messageId: String, approved: Boolean, feedback: String?, settled: (Boolean) -> Unit) -> Unit
+/** A `plan` decision: (message id, approved, fresh, feedback, settled(ok));
+ *  [fresh] = "Yes, and start with a fresh context" (ask-dock.json). */
+typealias ThreadPlanDecision = (messageId: String, approved: Boolean, fresh: Boolean, feedback: String?, settled: (Boolean) -> Unit) -> Unit
 
 private val Muted: Color @Composable get() = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
 private val Secondary: Color @Composable get() = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
@@ -1001,9 +999,12 @@ fun ThreadConversation(
     /** EXP-1323: the live tail after the last row (the Tasks card + the
      *  status line), the host's; null = none. */
     tail: (@Composable () -> Unit)? = null,
+    /** THE ask dock (ask-dock.json): the waiting cards' ids, drawn in the
+     *  composer's slot instead of here (answered ones come back CLOSED). */
+    dockedIds: Set<String> = emptySet(),
 ) {
     // EXP-1334: no root card any more (the conversation IS the dispatcher).
-    val shown = rows
+    val shown = if (dockedIds.isEmpty()) rows else rows.filter { it.id !in dockedIds }
     // EXP-1316 (1n): the session feed's scroll — the thread opens at the
     // newest row and follows new rows while the reader sits at the bottom
     // (~96dp slack); a drag up stops following and shows THE jump-to-bottom
@@ -1235,16 +1236,14 @@ private fun UnqueueButton(onUnqueue: () -> Unit) {
     }
 }
 
-private const val PLAN_APPROVE_KEY = "approve"
-private const val PLAN_REJECT_KEY = "reject"
-
 /**
  * EXP-1316 ONE card ×4: a `question` or `plan` row is THE session view's card
  * ([QuestionCard]) over the row's data, answered through `sessions.answer`:
- * a question's options plus the free-text row (`custom`), a plan's Approve /
- * Reject with the reject's feedback field. An answered row renders closed
- * (the answer / decision shown); the card locks while the answer is in
- * flight and stays locked until the synced row flips.
+ * a question's options plus the free-text row (`custom`), a plan's options =
+ * ask-dock.json `planOptions` (Yes · Yes, and start with a fresh context ·
+ * No, keep planning, the last opening the feedback field). An answered row
+ * renders closed (the answer / `planDecisionLabel` shown); the card locks
+ * while the answer is in flight and stays locked until the synced row flips.
  */
 @Composable
 fun ThreadAskCard(row: SessionTree.ThreadRow, onAnswer: ThreadAnswer, onDecidePlan: ThreadPlanDecision) {
@@ -1267,14 +1266,11 @@ fun ThreadAskCard(row: SessionTree.ThreadRow, onAnswer: ThreadAnswer, onDecidePl
         is SessionTree.ThreadRow.Plan -> AgentFeedItem.Question(
             id = row.id.hashCode().toLong(),
             text = row.plan,
-            options = listOf(
-                QuestionOption(ThreadUiCopy.APPROVE, PLAN_APPROVE_KEY),
-                QuestionOption(ThreadUiCopy.REJECT, PLAN_REJECT_KEY),
-            ),
+            options = AskDock.PLAN_OPTIONS.map { QuestionOption(it.label, it.key, description = it.description) },
             multiSelect = false,
             planMode = true,
             resolved = row.decision != null,
-            answer = row.decision?.let { if (it == "approved") ThreadUiCopy.APPROVED else ThreadUiCopy.REJECTED },
+            answer = row.decision?.let { AskDock.planDecisionLabel(it, row.fresh) },
             wireId = row.id,
         )
         else -> return
@@ -1290,7 +1286,8 @@ fun ThreadAskCard(row: SessionTree.ThreadRow, onAnswer: ThreadAnswer, onDecidePl
                 state = AnswerState.Sending
                 val key = keys.firstOrNull()
                 if (row is SessionTree.ThreadRow.Plan) {
-                    onDecidePlan(row.id, key == PLAN_APPROVE_KEY, null, settle)
+                    val option = AskDock.PLAN_OPTIONS.firstOrNull { it.key == key }
+                    onDecidePlan(row.id, option?.decision != "rejected", option?.fresh == true, null, settle)
                 } else {
                     val answer = text?.takeIf { it.isNotBlank() }
                         ?: item.options.firstOrNull { it.key == key }?.label
@@ -1300,10 +1297,39 @@ fun ThreadAskCard(row: SessionTree.ThreadRow, onAnswer: ThreadAnswer, onDecidePl
             },
             onPlanFollowUp = { _, feedback ->
                 state = AnswerState.Sending
-                onDecidePlan(row.id, false, feedback, settle)
+                onDecidePlan(row.id, false, false, feedback, settle)
             },
         )
     }
+}
+
+/**
+ * THE ask dock ×thread (ask-dock.json; web `ThreadAskDock`): the tree's
+ * waiting cards ([AskDock.threadPendingAsks] over [rows], the asking
+ * session's name as the caption) in the composer's slot. One = THE big card;
+ * several = the stack, a tap focuses one ([initialFocusedId] seeds it, the
+ * styleguide's focused specimen), the back arrow returns; a focused card that
+ * got answered falls back to the stack.
+ */
+@Composable
+fun ThreadAskDock(
+    rows: List<SessionTree.ThreadRow>,
+    sessionName: (sessionId: String) -> String?,
+    onAnswer: ThreadAnswer,
+    onDecidePlan: ThreadPlanDecision,
+    modifier: Modifier = Modifier,
+    initialFocusedId: String? = null,
+) {
+    val pending = remember(rows, sessionName) { AskDock.threadPendingAsks(rows, sessionName) }
+    var focused by remember { mutableStateOf(initialFocusedId) }
+    LaunchedEffect(pending) { if (focused != null && pending.none { it.id == focused }) focused = null }
+    val byId = remember(rows) { rows.associateBy { it.id } }
+    com.exponential.app.ui.session.AskDock(
+        view = AskDock.askDock(pending, focused),
+        onFocus = { focused = it },
+        onBack = { focused = null },
+        modifier = modifier,
+    ) { id -> byId[id]?.let { row -> ThreadAskCard(row, onAnswer, onDecidePlan) } }
 }
 
 /** A `picture` card: the attachment through the markdown image path (auth,

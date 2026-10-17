@@ -118,14 +118,20 @@ final class SessionsApiWireTests: XCTestCase {
 
     func testAnswerOmitsTheUnusedHalf() throws {
         let question = try json(AnswerMessageInput(
-            messageId: "m-1", answer: "Board A", decision: nil, feedback: nil
+            messageId: "m-1", answer: "Board A", decision: nil, fresh: nil, feedback: nil
         ))
         XCTAssertEqual(question.keys.sorted(), ["answer", "messageId"])
         let plan = try json(AnswerMessageInput(
-            messageId: "m-2", answer: nil, decision: .rejected, feedback: "Smaller steps"
+            messageId: "m-2", answer: nil, decision: .rejected, fresh: nil, feedback: "Smaller steps"
         ))
         XCTAssertEqual(plan.keys.sorted(), ["decision", "feedback", "messageId"])
         XCTAssertEqual(plan["decision"] as? String, "rejected")
+        // ask-dock.json: "Yes, and start with a fresh context".
+        let fresh = try json(AnswerMessageInput(
+            messageId: "m-3", answer: nil, decision: .approved, fresh: true, feedback: nil
+        ))
+        XCTAssertEqual(fresh.keys.sorted(), ["decision", "fresh", "messageId"])
+        XCTAssertEqual(fresh["fresh"] as? Bool, true)
     }
 
     // Omit keeps, an explicit null clears (`account` / `model` only), and an

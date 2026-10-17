@@ -28,6 +28,7 @@
     "./session-brief": "./src/session-brief.ts",
     "./trace": "./src/trace.ts",
     "./task-queue": "./src/task-queue.ts",
+    "./ask-dock": "./src/ask-dock.ts",
     "./fixtures/*": "./fixtures/*"
   }
 }

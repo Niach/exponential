@@ -60,6 +60,8 @@ pub struct AgentScreenView {
     images: Entity<ImageCache>,
     /// THE session composer, targeting the agent root.
     composer: Entity<crate::steer_viewer::SteerSessionView>,
+    /// THE ask dock's state (the focused card, the swap animation).
+    ask_dock: Entity<crate::ask_dock::AskDockState>,
     /// The name the placeholder was built for.
     placeholder_name: Option<String>,
     scroll: ScrollHandle,
@@ -106,6 +108,7 @@ impl AgentScreenView {
             messages: std::collections::HashMap::new(),
             images,
             composer,
+            ask_dock: cx.new(|_| crate::ask_dock::AskDockState::default()),
             placeholder_name: name,
             scroll: ScrollHandle::new(),
             follow: crate::controls::TailFollow::default(),
@@ -272,10 +275,32 @@ impl Render for AgentScreenView {
                 .pt_6()
                 .child(crate::feedback::skeleton_rows("agent-loading", 3, 36., cx));
         }
+        // THE ask dock (ask-dock.json ×4): the channel's waiting cards take
+        // the composer's slot; a reader who may not reply keeps them inline.
+        let team_id = self.agent.as_ref().and_then(|agent| agent.team_id.clone());
+        let dock = self
+            .composer
+            .read(cx)
+            .may_message()
+            .then(|| {
+                crate::thread_screen::conversation_dock(
+                    "agent",
+                    &self.rows,
+                    |_| None,
+                    &self.ask_dock,
+                    team_id.as_deref(),
+                    &self.images,
+                    window,
+                    cx,
+                )
+            })
+            .flatten();
+        let docked = dock.as_ref().map(|(_, ids)| ids.clone()).unwrap_or_default();
         let rows: Vec<AnyElement> = self
             .rows
             .clone()
             .iter()
+            .filter(|row| !docked.contains(row.id()))
             .map(|row| self.render_row(row, window, cx))
             .collect();
         let column = v_flex()
@@ -287,10 +312,22 @@ impl Render for AgentScreenView {
             .pb_8()
             .gap_4()
             .children(rows);
-        // THE session composer of the session view, targeting the agent.
-        let composer = self
-            .composer
-            .update(cx, |composer, cx| composer.render_session_composer(window, cx));
+        // THE session composer of the session view, targeting the agent; it
+        // yields its slot to the dock.
+        let composer = match dock {
+            Some((dock, _)) => Some(
+                div()
+                    .w_full()
+                    .max_w(px(CHANNEL_W))
+                    .mx_auto()
+                    .px(px(crate::work_header::WORK_GUTTER))
+                    .child(dock)
+                    .into_any_element(),
+            ),
+            None => self
+                .composer
+                .update(cx, |composer, cx| composer.render_session_composer(window, cx)),
+        };
         v_flex()
             .track_focus(&self.focus_handle)
             .size_full()

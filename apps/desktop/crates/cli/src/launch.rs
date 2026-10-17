@@ -589,6 +589,7 @@ pub fn answer_tapped_registry(trpc: Arc<api::TrpcClient>) -> Arc<LiveRegistry> {
             &resolution.question_id,
             resolution.answer.clone(),
             resolution.decision.clone(),
+            resolution.fresh,
             resolution.feedback.clone(),
         ) {
             coding::pickup::write_back_card(Arc::clone(&trpc), input);

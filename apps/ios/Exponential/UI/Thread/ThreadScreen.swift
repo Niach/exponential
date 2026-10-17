@@ -382,8 +382,8 @@ struct ThreadScreen: View {
                                 pushRoute(.thread(accountId: accountId, threadId: threadId))
                             },
                             onAnswer: { messageId, option in answer(messageId, answer: option) },
-                            onDecide: { messageId, decision, feedback in
-                                answer(messageId, decision: decision, feedback: feedback)
+                            onDecide: { messageId, decision, fresh, feedback in
+                                answer(messageId, decision: decision, fresh: fresh, feedback: feedback)
                             },
                             onUnqueue: unqueue,
                             viewerId: deps.auth.userId,
@@ -454,6 +454,18 @@ struct ThreadScreen: View {
                 }
                 .safeAreaInset(edge: .bottom) {
                     VStack(spacing: 0) {
+                        // THE ask dock (fixtures/ask-dock.json): every card
+                        // of the tree still waiting on this reader takes the
+                        // composer's slot — one = the big card, several =
+                        // the stack; the composer is back once none waits.
+                        let asks = canEdit
+                            ? AskDock.threadPendingAsks(view.rows, sessionName: AskDock.threadSessionNames(view.tabs))
+                            : []
+                        if !asks.isEmpty {
+                            askDock(asks, rows: rows, view: view)
+                        }
+                        // Hidden, never unmounted, while the dock holds the
+                        // slot: its draft survives until the composer is back.
                         ThreadComposer(
                             sessionId: view.composer.sessionId,
                             root: rows.root,
@@ -467,6 +479,11 @@ struct ThreadScreen: View {
                                 pinOnInset = atBottom
                             }
                         )
+                        .frame(height: asks.isEmpty ? nil : 0, alignment: .top)
+                        .clipped()
+                        .opacity(asks.isEmpty ? 1 : 0)
+                        .allowsHitTesting(asks.isEmpty)
+                        .accessibilityHidden(!asks.isEmpty)
                     }
                     // EXP-1316 (Android 247c806b33): the floating composer's
                     // MEASURED height (capsule or open card, + its edge) is
@@ -504,6 +521,48 @@ struct ThreadScreen: View {
     }
 
     private static let coordSpace = "thread-conversation-scroll"
+
+    /// THE ask dock in the composer's slot: the waiting cards' big card or
+    /// stack (`AskDockView`), each card THE thread card (`ThreadAskCard`)
+    /// with the asking session's tab name as its caption.
+    private func askDock(_ asks: [AskDock.Pending], rows: ThreadRows, view: SessionThreadView) -> some View {
+        AskDockView(pending: asks) { id, onBack, cap in
+            if let row = view.rows.first(where: { $0.id == id }) {
+                ThreadAskCard(
+                    row: row,
+                    canAnswer: canEdit,
+                    answeringId: answeringId,
+                    markdownContext: askMarkdownContext(rows: rows),
+                    onBack: onBack,
+                    bodyMaxHeight: cap,
+                    onAnswer: { messageId, option in answer(messageId, answer: option) },
+                    onDecide: { messageId, decision, fresh, feedback in
+                        answer(messageId, decision: decision, fresh: fresh, feedback: feedback)
+                    }
+                )
+            }
+        }
+        .padding(.vertical, 8)
+        .transcriptColumn()
+        .floatingBarEdge()
+    }
+
+    /// The Conversation's markdown context (attachments through the
+    /// instance, `#EXP-1` refs against the root's team) for the dock's cards.
+    private func askMarkdownContext(rows: ThreadRows) -> AgentMarkdownContext {
+        AgentMarkdownContext(
+            baseURL: deps.auth.instanceBaseURL(forAccountId: accountId),
+            accountId: accountId,
+            httpClient: deps.httpClient,
+            issueRefs: AgentIssueRefContext(
+                teamId: rows.root.teamId,
+                db: deps.db,
+                onOpen: { [deps, accountId] issueId in
+                    deps.deepLinkBus.navigateToIssue(issueId, accountId: accountId)
+                }
+            )
+        )
+    }
 
     /// EXP-1316: pin the newest row above the floating composer — now, after
     /// the next layout pass (the safe-area inset lands one pass late) and
@@ -699,7 +758,8 @@ struct ThreadScreen: View {
     // MARK: - Cards (answered in place)
 
     private func answer(
-        _ messageId: String, answer: String? = nil, decision: PlanDecision? = nil, feedback: String? = nil
+        _ messageId: String, answer: String? = nil, decision: PlanDecision? = nil, fresh: Bool = false,
+        feedback: String? = nil
     ) {
         guard answeringId == nil else { return }
         answeringId = messageId
@@ -708,7 +768,8 @@ struct ThreadScreen: View {
         Task {
             do {
                 try await api.answer(
-                    accountId: accountId, messageId: messageId, answer: answer, decision: decision, feedback: feedback
+                    accountId: accountId, messageId: messageId, answer: answer, decision: decision, fresh: fresh,
+                    feedback: feedback
                 )
             } catch {
                 toaster.error(
