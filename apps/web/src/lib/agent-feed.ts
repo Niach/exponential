@@ -2775,3 +2775,48 @@ export function scriptCardInput(item: {
     elapsedMs: item.script?.elapsedMs ?? null,
   }
 }
+
+// ── EXP-1280: tool-posted cards in the session view ─────────────────────────
+
+/** The Exponential tools that POST a card (`plan_propose`, `sessions_ask`). */
+const CARD_TOOLS: ReadonlySet<string> = new Set([`plan_propose`, `sessions_ask`])
+
+/** A synced card a TOOL posted (`exponential_plan_propose` /
+ *  `exponential_sessions_ask`): a plan / question card WITHOUT an engine
+ *  `questionId`. The relay holds no open ask for it, so the session view
+ *  renders it off the `messages` shape and answers it through
+ *  `sessions.answer` only (never the relay `answer` frame). An engine card
+ *  (`questionId`) is the relay's QuestionCard already. */
+export function isToolPostedCard(card: unknown): boolean {
+  if (!card || typeof card !== `object`) return false
+  const c = card as { kind?: unknown; questionId?: unknown }
+  return (c.kind === `plan` || c.kind === `question`) && (c.questionId === undefined || c.questionId === null)
+}
+
+/** Where the session view paints each tool-posted card: right after the
+ *  settled call that posted it. Calls and cards pair from the NEWEST back
+ *  (the transcript may start mid-history; a failed call posted nothing);
+ *  a card with no call on screen = `unanchored` (it predates the window).
+ *  `cardIds` oldest first. */
+export function anchorToolCards(
+  feed: readonly { id: number; kind: string; name?: string; settled?: boolean; failed?: boolean }[],
+  cardIds: readonly string[]
+): { anchors: Map<number, string[]>; unanchored: string[] } {
+  const calls = feed.filter((item) => {
+    if (item.kind !== `tool` || item.settled !== true || item.failed === true) return false
+    const display = expToolDisplay(item.name)
+    return display !== null && CARD_TOOLS.has(display.name)
+  })
+  const anchors = new Map<number, string[]>()
+  const unanchored: string[] = []
+  for (let k = 0; k < cardIds.length; k++) {
+    const card = cardIds[cardIds.length - 1 - k]!
+    const call = calls[calls.length - 1 - k]
+    if (!call) {
+      unanchored.unshift(card)
+      continue
+    }
+    anchors.set(call.id, [...(anchors.get(call.id) ?? []), card])
+  }
+  return { anchors, unanchored }
+}

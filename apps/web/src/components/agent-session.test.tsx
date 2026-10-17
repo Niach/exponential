@@ -36,6 +36,19 @@ vi.mock(`@/components/session-account-switch`, () => ({
   SessionAccountSwitchButton: () => null,
 }))
 
+// EXP-1280: the session's synced messages (tool-posted cards) and the
+// `sessions.answer` call they answer through.
+let messages: unknown[] = []
+const answerMutate = vi.fn(async (_input: unknown, _opts?: unknown) => ({ txid: 1 }))
+vi.mock(`@/hooks/use-session-tree`, () => ({ useSessionMessages: () => messages }))
+vi.mock(`@/lib/trpc-client`, () => ({ trpc: { sessions: { answer: { mutate: answerMutate } } } }))
+vi.mock(`@/lib/collections`, () => ({
+  messageCollection: { utils: { awaitTxId: async () => undefined } },
+}))
+vi.mock(`@/components/thread/thread-markdown`, () => ({
+  renderThreadText: (text: string) => <p>{text}</p>,
+}))
+
 const { AgentSessionView } = await import(`./agent-session`)
 
 const session = {
@@ -88,6 +101,8 @@ const GRADLE_FAIL = `StartupBenchmark > coldStart FAILED\n\n12 tests completed, 
 
 beforeEach(() => {
   snapshot = snap({})
+  messages = []
+  answerMutate.mockClear()
 })
 
 describe(`AgentSessionView Trace transcript`, () => {
@@ -263,5 +278,72 @@ describe(`AgentSessionView Queue`, () => {
     snapshot = snap({ taskList: [{ content: `Ship it`, status: `completed` }] })
     render(<AgentSessionView session={session} />)
     expect(screen.queryByTestId(`session-task-queue`)).toBeNull()
+  })
+})
+
+describe(`AgentSessionView tool-posted cards (EXP-1280)`, () => {
+  const planMessage = (over: Record<string, unknown> = {}) => ({
+    id: `m-plan`,
+    sessionId: `s1`,
+    teamId: `t1`,
+    authorKind: `agent`,
+    authorId: null,
+    authorSessionId: null,
+    body: ``,
+    card: {
+      kind: `plan`,
+      plan: `1. Lift the partition`,
+      questions: [
+        { id: `q`, prompt: `Which layout?`, multi: false, custom: false, options: [{ label: `Two` }, { label: `One` }] },
+      ],
+    },
+    answeredAt: null,
+    consumedAt: null,
+    createdAt: new Date().toISOString(),
+    ...over,
+  })
+  const proposeCall = {
+    id: 3,
+    seq: 3,
+    kind: `tool` as const,
+    name: `mcp__exponential__exponential_plan_propose`,
+    settled: true,
+  }
+
+  it(`a waiting card docks and answers through sessions.answer, never the relay`, () => {
+    messages = [planMessage()]
+    snapshot = snap({ feed: [{ id: 1, seq: 1, kind: `narration`, text: `Planned.` }, proposeCall] })
+    render(<AgentSessionView session={session} composer={<div data-testid="composer" />} />)
+    const dock = screen.getByTestId(`ask-dock`)
+    expect(screen.queryByTestId(`composer`)).toBeNull()
+    expect(dock.textContent).toContain(`Which layout?`)
+    fireEvent.click(screen.getAllByTestId(`plan-card-option`)[0]!)
+    fireEvent.click(dock.querySelectorAll(`[data-testid="ask-option"]`)[0]!)
+    expect(answerMutate).toHaveBeenCalledWith(
+      { messageId: `m-plan`, decision: `approved`, answers: { q: [`Two`] } },
+      expect.anything()
+    )
+  })
+
+  it(`an answered card sits after the call that posted it; an engine card is the relay's`, () => {
+    messages = [
+      planMessage({
+        answeredAt: new Date().toISOString(),
+        card: { ...planMessage().card, decision: `approved`, fresh: false, answers: { q: [`One`] } },
+      }),
+      planMessage({ id: `m-engine`, card: { kind: `plan`, plan: `Engine plan`, questionId: `x` } }),
+    ]
+    snapshot = snap({
+      feed: [proposeCall, { id: 4, seq: 4, kind: `narration`, text: `Implementing.` }],
+    })
+    render(<AgentSessionView session={session} composer={<div data-testid="composer" />} />)
+    expect(screen.queryByTestId(`ask-dock`)).toBeNull()
+    expect(screen.getByTestId(`composer`)).toBeTruthy()
+    const cards = screen.getAllByTestId(`session-tool-card`)
+    expect(cards).toHaveLength(1)
+    expect(cards[0]!.textContent).not.toContain(`Engine plan`)
+    // After the call, before the next narration.
+    const narration = screen.getByText(`Implementing.`)
+    expect(cards[0]!.compareDocumentPosition(narration) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 })

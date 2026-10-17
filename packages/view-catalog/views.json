@@ -4716,6 +4716,44 @@
       }
     },
     {
+      "id": "plan-card",
+      "group": "coding",
+      "title": "Plan card",
+      "blurb": "THE rich plan / question card ×4 (EXP-1280, plan-card.json): plan mode posts ONE card through exponential_plan_propose: the markdown with pictures, the agent's Exponential UI surface in its Preview frame, one block per question (THE option rows, or picture tiles once any option has a picture; Choose one / Choose any; Other…), THE plan options + the feedback field, approving only once every question is answered. Answered = closed: the picks highlighted, the decision and the feedback.",
+      "order": 24,
+      "web": {
+        "route": "/t/$teamSlug/agent?dev=plan-card",
+        "anchor": {
+          "testId": "plan-card-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "webMobile": "inherit",
+      "ios": {
+        "shot": "sg_plan-card",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_plan-card",
+        "lane": "styleguide"
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "styleguide:plan-card"
+        },
+        "anchorDelayMs": 1500
+      },
+      "notes": {
+        "web": "The DEV-ONLY `?dev=plan-card` on the Agent route (never parsed in a production build, like `ask-dock`): `@exp/ui` `PlanCardSpecimen`, session-thread.json's rich case through the real ThreadConversation (the pending plan with a picture, the surface and two questions; the answered multi-pick question; the approved plan), stand-in pictures.",
+        "web-mobile": "Inherits web: the phone frame draws the same specimen at full width (tiles stay two per row).",
+        "ios": "The ExpUI plan card specimen (`PlanCardSpecimens`), the web island line for line, shot sg_plan-card.",
+        "android": "See ios: the same specimen (`PlanCardSpecimens.kt`) in StyleguideScreenshotsTest.",
+        "desktop": "The DEV-ONLY `EXP_DEV_SCREEN=styleguide:plan-card`: the IDE styleguide entry `plan_card.rs` drawn full-window, the web island line for line."
+      }
+    },
+    {
       "id": "code-block",
       "group": "coding",
       "title": "Code block",

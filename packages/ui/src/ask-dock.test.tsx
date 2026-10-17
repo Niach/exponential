@@ -8,8 +8,12 @@ const plan = (id: string, text: string, sessionId: string): ThreadRow => ({
   id,
   sessionId,
   plan: text,
+  questions: [],
+  surface: null,
   decision: null,
   fresh: false,
+  answers: null,
+  feedback: null,
 })
 
 const ROWS: ThreadRow[] = [
@@ -20,9 +24,12 @@ const ROWS: ThreadRow[] = [
     id: `q1`,
     sessionId: `root`,
     question: `Which branch?`,
-    options: [{ label: `main`, description: null }],
+    options: [{ label: `main`, description: null, attachmentId: null }],
     custom: true,
+    multi: false,
+    surface: null,
     answer: null,
+    answers: null,
     answered: false,
   },
 ]
@@ -73,5 +80,33 @@ describe(`ThreadAskDock`, () => {
       <ThreadAskDock rows={[]} sessionName={() => null} renderText={(t) => t} onDecide={vi.fn()} onAnswer={vi.fn()} />
     )
     expect(container.textContent).toBe(``)
+  })
+})
+
+describe(`ThreadAskDock rich plan (EXP-1280)`, () => {
+  it(`the big card carries the questions; approving waits on them`, () => {
+    const rich: ThreadRow = {
+      ...plan(`p9`, `1. Rich`, `a`),
+      questions: [
+        {
+          id: `q`,
+          prompt: `Which layout?`,
+          multi: false,
+          custom: false,
+          options: [
+            { label: `Two`, description: null, attachmentId: `att-2` },
+            { label: `One`, description: null, attachmentId: null },
+          ],
+        },
+      ],
+    } as ThreadRow
+    const { onDecide } = renderDock([rich])
+    const options = screen.getAllByTestId(`ask-option`) as HTMLButtonElement[]
+    expect(options[0]!.disabled).toBe(true)
+    expect(screen.getByTestId(`plan-card-issue`)).toBeTruthy()
+    fireEvent.click(screen.getByRole(`radio`, { name: `Two` }))
+    expect(screen.getByTestId(`plan-card-tile`).querySelector(`img`)?.getAttribute(`src`)).toBe(`/api/attachments/att-2`)
+    fireEvent.click(screen.getAllByTestId(`ask-option`)[0]!)
+    expect(onDecide).toHaveBeenCalledWith(`p9`, { decision: `approved`, answers: { q: [`Two`] } })
   })
 })

@@ -109,6 +109,8 @@ import {
   parseScriptLog,
   scriptCardInput,
   workflowSubagentIds,
+  anchorToolCards,
+  isToolPostedCard,
 } from "./agent-feed"
 import { CONFIG_DEFAULT_VALUE_LABEL } from "./steer-commands"
 import { contract } from "@exp/domain-contract"
@@ -3066,5 +3068,41 @@ describe(`nestedWorkflowId`, () => {
   it(`never nests an ordinary subagent`, () => {
     expect(nestedWorkflowId({ subagentId: `a2` }, agents, held)).toBeNull()
     expect(nestedWorkflowId({}, agents, held)).toBeNull()
+  })
+})
+
+describe(`tool-posted cards (EXP-1280)`, () => {
+  it(`a plan / question card without an engine questionId is the tool's`, () => {
+    expect(isToolPostedCard({ kind: `plan`, plan: `1.` })).toBe(true)
+    expect(isToolPostedCard({ kind: `question`, question: `Q?`, options: [] })).toBe(true)
+    expect(isToolPostedCard({ kind: `plan`, plan: `1.`, questionId: `q-1` })).toBe(false)
+    expect(isToolPostedCard({ kind: `session`, sessionId: `s` })).toBe(false)
+    expect(isToolPostedCard(null)).toBe(false)
+  })
+
+  it(`pairs settled card calls and cards from the newest back`, () => {
+    const call = (id: number, name: string, over: Record<string, unknown> = {}) => ({
+      id,
+      kind: `tool`,
+      name,
+      settled: true,
+      ...over,
+    })
+    const feed = [
+      call(1, `mcp__exponential__exponential_plan_propose`),
+      { id: 2, kind: `narration` },
+      call(3, `mcp__exponential__exponential_issues_get`),
+      call(4, `exponential_sessions_ask`, { failed: true }),
+      call(5, `mcp__exponential__exponential_sessions_ask`),
+      call(6, `mcp__other__plan_propose`),
+    ]
+    expect(anchorToolCards(feed, [`old`, `a`, `b`])).toEqual({
+      anchors: new Map([
+        [1, [`a`]],
+        [5, [`b`]],
+      ]),
+      unanchored: [`old`],
+    })
+    expect(anchorToolCards([], [`a`])).toEqual({ anchors: new Map(), unanchored: [`a`] })
   })
 })
