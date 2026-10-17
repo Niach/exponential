@@ -112,3 +112,51 @@ describe(`ThreadsListView EXP-1339`, () => {
     expect(row.querySelector(`.text-violet-400`)).not.toBeNull()
   })
 })
+
+// EXP-1344: a root row's lead follows `threadRowMarkState`, needs-you beats
+// busy: a busy row that also needs you shows the amber needs_input mark.
+describe(`ThreadsListView EXP-1344`, () => {
+  function leadOf(row: { busy: boolean; needsYou: boolean }) {
+    const groups: ThreadsListGroup[] = [
+      {
+        key: `needs_you`,
+        title: `Needs you`,
+        rows: [
+          {
+            sessionId: `r`,
+            teamId: `t`,
+            depth: 0,
+            parentId: null,
+            rootId: `r`,
+            title: `Busy and waiting`,
+            deviceId: null,
+            unread: false,
+            caption: null,
+            activityAt: `2026-10-17T00:00:00.000Z`,
+            ...row,
+          } as unknown as ThreadsListGroup[`rows`][number],
+        ],
+      },
+    ]
+    render(
+      <TooltipProvider>
+        <ThreadsListView
+          groups={groups}
+          cliByRoot={new Map([[`r`, `claude`]])}
+          prsByRoot={new Map()}
+          teamPrs={[]}
+          onOpenThread={vi.fn()}
+        />
+      </TooltipProvider>
+    )
+    return screen.getByTestId(`threads-row`).querySelector(`[data-slot="run-mark"]`)
+  }
+
+  it(`a busy row that needs you leads with the needs_input mark`, () => {
+    expect(leadOf({ busy: true, needsYou: true })?.getAttribute(`data-state`)).toBe(`needs_input`)
+  })
+
+  it(`a busy row alone leads with the working mark, not needs_input`, () => {
+    expect(leadOf({ busy: true, needsYou: false })?.getAttribute(`data-state`) ?? null).not.toBe(`needs_input`)
+  })
+})

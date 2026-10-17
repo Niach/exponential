@@ -81,8 +81,10 @@ function rowLead(
   cli: string | null,
   word: ThreadRowWord | null
 ): ReactNode {
-  if (row.busy) return <AgentWorkingMark agent={cli} />
-  if (row.needsYou) return <AgentRunMark agent={cli} state="needs_input" ringClassName="ring-background" />
+  // EXP-1344: the contract's `threadRowMarkState` order, needs-you beats busy.
+  const mark = threadRunMarkState(row)
+  if (mark === `needs_input`) return <AgentRunMark agent={cli} state="needs_input" ringClassName="ring-background" />
+  if (mark === `working`) return <AgentWorkingMark agent={cli} />
   if (word === `readyToMerge`) return <PrOpenIcon className="size-3.5 text-emerald-500" />
   if (word === `merged`) return <PrMergedIcon className="size-3.5 text-violet-400" />
   const state: RunMarkState | undefined = word === null ? `ended` : undefined
