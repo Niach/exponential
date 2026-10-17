@@ -2408,6 +2408,10 @@ struct QuestionCard: View {
     var hidesOptions: Bool = false
     /// EXP-1280: the answered plan's feedback, under its decision.
     var resolutionNote: String? = nil
+    /// EXP-1280 (×4): the pending plan's feedback field, ALWAYS below the
+    /// decision rows (`AskDock.Copy.feedbackPlaceholder`); it rides any
+    /// decision as `feedback`, so the reject row no longer expands.
+    var feedback: Binding<String>? = nil
 
     @State private var expanded = false
     @State private var dockedBodyHeight: CGFloat = 0
@@ -2446,7 +2450,7 @@ struct QuestionCard: View {
 
     /// EXP-820: the plan's reject row — the one option that expands into the
     /// inline feedback field (`AgentFeed.planRejectKey` rule, ×4).
-    private var rejectKey: String? { AgentFeed.planRejectKey(for: question) }
+    private var rejectKey: String? { feedback == nil ? AgentFeed.planRejectKey(for: question) : nil }
 
     /// EXP-820: a row that expands into an inline field instead of answering
     /// on the tap — a free-text row, or the plan's reject row.
@@ -2552,6 +2556,21 @@ struct QuestionCard: View {
                 } else {
                     if !hidesOptions {
                         optionList
+                    }
+                    if let feedback, answerable {
+                        GlassTextField(
+                            AskDock.Copy.feedbackPlaceholder,
+                            text: feedback,
+                            lines: 1...5,
+                            verticalPadding: 8,
+                            accessibilityIdentifier: PlanCard.TestIds.feedback
+                        ) {
+                            EmptyView()
+                        } trailing: {
+                            EmptyView()
+                        }
+                        .font(.caption)
+                        .disabled(locked)
                     }
                     if let approveIssue, answerable {
                         Text(approveIssue)

@@ -24,6 +24,8 @@ import ExponentialUI
 final class PlanCardDraft {
     var picks: [String: [String]] = [:]
     var custom: [String: String] = [:]
+    /// The plan's feedback field (sent with any decision).
+    var feedback = ""
     @ObservationIgnored let surface = PlanCardSurfaceHandle()
 
     /// A tap on an option: a single choice picks it (the typed text yields),

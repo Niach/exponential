@@ -784,16 +784,16 @@ struct ThreadAskCard: View {
             onAnswer: { keys, _ in
                 let option = AskDock.planOption(key: keys.first)
                 let approved = option?.decision == PlanDecision.approved.rawValue
-                submitPlan(card, decision: approved ? .approved : .rejected, fresh: approved && option?.fresh == true, feedback: nil)
+                submitPlan(card, decision: approved ? .approved : .rejected, fresh: approved && option?.fresh == true)
             },
-            onAnswerThenSend: { _, feedback in submitPlan(card, decision: .rejected, fresh: false, feedback: feedback) },
             markdownContext: markdownContext,
             caption: caption,
             onBack: onBack,
             bodyMaxHeight: bodyMaxHeight,
             form: planForm(card),
             approveIssue: issue.map(PlanCard.Copy.issue),
-            resolutionNote: card.feedback
+            resolutionNote: card.feedback,
+            feedback: $draft.feedback
         )
     }
 
@@ -825,8 +825,10 @@ struct ThreadAskCard: View {
         })
     }
 
-    private func submitPlan(_ card: ThreadPlanRow, decision: PlanDecision, fresh: Bool, feedback: String?) {
+    private func submitPlan(_ card: ThreadPlanRow, decision: PlanDecision, fresh: Bool) {
         let answers = draft.planAnswers(card.questions)
+        let typed = draft.feedback.trimmingCharacters(in: .whitespacesAndNewlines)
+        let feedback: String? = typed.isEmpty ? nil : typed
         onSubmit(ThreadCardAnswer(
             messageId: card.id,
             decision: decision,
