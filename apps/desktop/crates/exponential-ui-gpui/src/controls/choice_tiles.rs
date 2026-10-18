@@ -9,19 +9,66 @@
 //! tile = the picture (`picture_aspect` w / h, cover, rounded) over the label
 //! and the muted description, `padding` inside a `radius` frame; a picked
 //! tile wears a `selected_ring` px accent (primary) ring; a tile without a
-//! picture keeps the frame with a placeholder glyph so a row lines up.
+//! picture keeps the frame with a placeholder glyph so a row lines up. The
+//! paint = the eUI `ChoiceTiles` recipe (`neutral.theme.json`): fill the
+//! theme's card colour (hover secondary, picked accent), a `stroke` px
+//! `border` frame, label `sm` medium, description `xs` muted.
 
 use std::rc::Rc;
+use std::sync::LazyLock;
 
+use exponential_ui::theme::Mode;
 use gpui::{
-    div, prelude::FluentBuilder as _, px, AnyElement, App, Div, ElementId, FontWeight,
+    div, prelude::FluentBuilder as _, px, AnyElement, App, Div, ElementId, FontWeight, Hsla,
     InteractiveElement as _, IntoElement, ParentElement as _, SharedString,
     StatefulInteractiveElement as _, Styled, Window,
 };
 use gpui_component::{h_flex, v_flex, ActiveTheme as _, Icon};
 
-use super::sizing::WebText as _;
 use crate::chrome::Chrome;
+use crate::paint::parts::theme_color;
+
+/// The recipe's colours: the default eUI theme's `card` (rest), `secondary`
+/// + `input` border (hover), `accent` + `primary` ring (picked), `border`,
+/// `muted` (the picture well); the host chrome's glass ladder (the same
+/// values in the exponential theme) for a token the theme lacks.
+#[derive(Clone, Copy)]
+struct TileInk {
+    card: Hsla,
+    secondary: Hsla,
+    accent: Hsla,
+    primary: Hsla,
+    border: Hsla,
+    input: Hsla,
+    muted: Hsla,
+}
+
+static INK: LazyLock<[Option<[Option<Hsla>; 7]>; 2]> = LazyLock::new(|| {
+    let theme = exponential_ui::themes::builtin_theme(exponential_ui::themes::DEFAULT_THEME_ID);
+    let resolve = |mode: Mode| {
+        theme.as_ref().map(|theme| {
+            ["card", "secondary", "accent", "primary", "border", "input", "muted"]
+                .map(|name| theme_color(Some(theme), mode, name))
+        })
+    };
+    [resolve(Mode::Dark), resolve(Mode::Light)]
+});
+
+fn tile_ink(cx: &App) -> TileInk {
+    let chrome = Chrome::global(cx);
+    let theme = cx.theme();
+    let tokens = INK[if theme.is_dark() { 0 } else { 1 }].unwrap_or([None; 7]);
+    let pick = |index: usize, fallback: Hsla| tokens[index].unwrap_or(fallback);
+    TileInk {
+        card: pick(0, chrome.fill_card),
+        secondary: pick(1, chrome.fill_card),
+        accent: pick(2, chrome.fill_active),
+        primary: pick(3, theme.primary),
+        border: pick(4, chrome.stroke_card),
+        input: pick(5, chrome.stroke_active),
+        muted: pick(6, chrome.fill_section),
+    }
+}
 
 /// The tile grid's geometry (px; `picture_aspect` = width / height). The
 /// default = `plan-card.json` `tiles`.
@@ -33,6 +80,15 @@ pub struct ChoiceTilesGeometry {
     pub radius: f32,
     pub selected_ring: f32,
     pub padding: f32,
+    pub picture_radius: f32,
+    /// The tile's border width (the ring replaces it when picked).
+    pub stroke: f32,
+    /// The placeholder glyph's size (muted at 0.6).
+    pub placeholder_glyph: f32,
+    /// Picture → label and label → description.
+    pub label_gap: f32,
+    /// An answered grid's unpicked tiles.
+    pub inert_opacity: f32,
 }
 
 impl Default for ChoiceTilesGeometry {
@@ -44,6 +100,11 @@ impl Default for ChoiceTilesGeometry {
             radius: 10.,
             selected_ring: 2.,
             padding: 8.,
+            picture_radius: 6.,
+            stroke: 1.,
+            placeholder_glyph: 20.,
+            label_gap: 4.,
+            inert_opacity: 0.5,
         }
     }
 }
@@ -116,47 +177,46 @@ pub fn choice_tile(
     on_pick: Option<(usize, OnTilePick)>,
     cx: &App,
 ) -> impl IntoElement {
-    let chrome = Chrome::global(cx);
     let theme = cx.theme();
+    let ink = tile_ink(cx);
     let interactive = on_pick.is_some();
     // The ring grows inward: the padding shrinks by the extra border so the
     // content never shifts when a tile is picked.
-    let border = if tile.selected { geometry.selected_ring } else { 1. };
-    let padding = (geometry.padding - (border - 1.)).max(0.);
-    let picture_radius = (geometry.radius - geometry.padding / 2.).max(2.);
+    let border = if tile.selected { geometry.selected_ring } else { geometry.stroke };
+    let padding = (geometry.padding - (border - geometry.stroke)).max(0.);
     let picture = tile.picture.map(|picture| {
         let frame = div()
             .w_full()
             .aspect_ratio(geometry.picture_aspect)
             .flex_shrink_0()
             .overflow_hidden()
-            .rounded(px(picture_radius))
-            .bg(chrome.fill_card);
+            .rounded(px(geometry.picture_radius))
+            .bg(ink.muted);
         match picture {
             TilePicture::Element(element) => frame.child(div().size_full().child(element)),
             TilePicture::Placeholder(icon) => frame
                 .flex()
                 .items_center()
                 .justify_center()
-                .child(icon.size(px(20.)).text_color(theme.muted_foreground.opacity(0.6))),
+                .child(icon.size(px(geometry.placeholder_glyph)).text_color(theme.muted_foreground.opacity(0.6))),
         }
     });
-    let fill = if tile.selected { chrome.fill_active } else { chrome.fill_row };
+    let fill = if tile.selected { ink.accent } else { ink.card };
     div()
         .id(id)
         .size_full()
         .flex()
         .flex_col()
-        .gap(px(6.))
+        .gap(px(geometry.label_gap))
         .p(px(padding))
         .rounded(px(geometry.radius))
         .border(px(border))
-        .border_color(if tile.selected { theme.primary } else { chrome.stroke_card })
+        .border_color(if tile.selected { ink.primary } else { ink.border })
         .bg(fill)
-        .when(!interactive && !tile.selected, |this| this.opacity(0.6))
+        .when(!interactive && !tile.selected, |this| this.opacity(geometry.inert_opacity))
         .when_some(on_pick, |this, (index, pick)| {
             this.cursor_pointer()
-                .hover(|this| this.bg(chrome.fill_active))
+                .when(!tile.selected, |this| this.hover(move |this| this.bg(ink.secondary).border_color(ink.input)))
                 .on_click(move |_, window, cx| {
                     cx.stop_propagation();
                     pick(index, window, cx);
@@ -167,12 +227,12 @@ pub fn choice_tile(
             v_flex()
                 .w_full()
                 .min_w_0()
-                .gap(px(2.))
+                .gap(px(geometry.label_gap))
                 .child(
                     div()
                         .w_full()
                         .min_w_0()
-                        .text_xs()
+                        .text_sm()
                         .font_weight(FontWeight::MEDIUM)
                         .text_color(theme.foreground)
                         .child(tile.label),
@@ -182,7 +242,7 @@ pub fn choice_tile(
                         div()
                             .w_full()
                             .min_w_0()
-                            .text_2xs()
+                            .text_xs()
                             .text_color(theme.muted_foreground)
                             .child(description),
                     )
@@ -214,6 +274,11 @@ mod tests {
             (geometry.radius, "radius"),
             (geometry.selected_ring, "selectedRing"),
             (geometry.padding, "padding"),
+            (geometry.picture_radius, "pictureRadius"),
+            (geometry.stroke, "stroke"),
+            (geometry.placeholder_glyph, "placeholderGlyph"),
+            (geometry.label_gap, "labelGap"),
+            (geometry.inert_opacity, "inertOpacity"),
         ] {
             assert_eq!(value, tiles[key].as_f64().unwrap() as f32, "{key}");
         }

@@ -1631,7 +1631,7 @@ fn set_config_and_set_mode_re_emit_the_config_state() {
             .lock()
             .expect("the prompt log is not poisoned")
             .iter()
-            .any(|prompt| prompt == engine::host::PLAN_MODE_ON_LINE)
+            .any(|prompt| prompt == engine::host::plan_mode_on_line())
     });
     harness.session.kill("killed");
 }

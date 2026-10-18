@@ -872,10 +872,7 @@ pub(crate) fn muted_line(glyph: crate::icons::ExpIcon, text: String, cx: &App) -
         .into_any_element()
 }
 
-/// A plan card's heading (the session view's).
-pub(crate) const PLAN_HEADING: &str = "Plan ready";
-
-/// `Answering…` while the card's answer is on its way.
+/// `plan-card.json` `copy.answering` while the card's answer is on its way.
 pub(crate) fn card_answering(cx: &App) -> AnyElement {
     h_flex()
         .gap_1p5()
@@ -884,7 +881,7 @@ pub(crate) fn card_answering(cx: &App) -> AnyElement {
         .text_xs()
         .text_color(cx.theme().muted_foreground)
         .child(gpui_component::spinner::Spinner::new().xsmall())
-        .child("Answering…")
+        .child(SharedString::from(domain::plan_card::copy().answering.clone()))
         .into_any_element()
 }
 
@@ -949,7 +946,7 @@ pub(crate) fn plan_card(
 ) -> AnyElement {
     let (content, controls) = crate::plan_card::plan_parts(&facts, images, window, cx);
     let column = card_column(facts.message_id, plan, content, controls, &chrome, window, cx);
-    crate::steer_viewer::ask_card_chrome(true, Some(SharedString::from(PLAN_HEADING)), None, chrome.back, column, cx)
+    crate::steer_viewer::ask_card_chrome(true, Some(SharedString::from(domain::ask_dock::ASK_DOCK.copy.plan_ready.clone())), None, chrome.back, column, cx)
         .id(SharedString::from(format!("{}-{}", domain::plan_card::test_ids().card, facts.message_id)))
         .into_any_element()
 }

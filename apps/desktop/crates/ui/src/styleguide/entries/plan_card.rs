@@ -12,7 +12,7 @@
 
 use domain::rows::MessageRow;
 use domain::session_tree::SessionThreadRow;
-use gpui::{div, px, App, Div, Entity, ParentElement as _, Styled as _, Window};
+use gpui::{div, px, App, Div, Entity, ParentElement as _, SharedString, Styled as _, Window};
 use gpui_component::{v_flex, ActiveTheme as _};
 use serde_json::{Map, Value};
 
@@ -64,19 +64,48 @@ pub(crate) fn rows() -> Vec<SessionThreadRow> {
         .collect()
 }
 
-/// A stand-in picture: a soft diagonal gradient in `tone`, `w` × `h`.
-fn picture_png(tone: [u8; 3], w: u32, h: u32) -> Vec<u8> {
+/// THE stand-in palette ×4 (web `plan-card-specimen.tsx` `TONES`; the
+/// iOS / Android specimens draw the same): attachment id → gradient stops.
+const TONES: [(&str, [u8; 3], [u8; 3]); 3] = [
+    ("att-1", [0x3f, 0x3f, 0x46], [0x52, 0x52, 0x5b]),
+    ("att-2", [0x1e, 0x3a, 0x5f], [0x3b, 0x82, 0xf6]),
+    ("att-3", [0x14, 0x53, 0x2d], [0x22, 0xc5, 0x5e]),
+];
+
+/// The stand-in's size (the web SVG's).
+const PICTURE_SIZE: (u32, u32) = (800, 500);
+
+/// `(x, y, w, h, radius, white alpha)`: the 35% white bar and the 12% white
+/// panel the web SVG draws over the gradient.
+const PICTURE_SHAPES: [(f32, f32, f32, f32, f32, f32); 2] =
+    [(48., 48., 320., 28., 6., 0.35), (48., 100., 704., 352., 12., 0.12)];
+
+/// Whether pixel centre `(px, py)` falls inside a rounded rect.
+fn in_rounded_rect(px: f32, py: f32, (x, y, w, h, r, _): (f32, f32, f32, f32, f32, f32)) -> bool {
+    if px < x || py < y || px > x + w || py > y + h {
+        return false;
+    }
+    let dx = (x + r - px).max(px - (x + w - r)).max(0.);
+    let dy = (y + r - py).max(py - (y + h - r)).max(0.);
+    dx * dx + dy * dy <= r * r
+}
+
+/// A stand-in picture = the web's SVG: a diagonal gradient `from` → `to`
+/// (bounding-box diagonal, top left → bottom right) under the bar + panel.
+fn picture_png(from: [u8; 3], to: [u8; 3], w: u32, h: u32) -> Vec<u8> {
+    let (sx, sy) = (w as f32 / PICTURE_SIZE.0 as f32, h as f32 / PICTURE_SIZE.1 as f32);
     let image = image::RgbaImage::from_fn(w, h, |x, y| {
-        let t = (x as f32 / w as f32 + y as f32 / h as f32) / 2.;
-        let [r, g, b] = tone;
-        let mix = |c: u8| ((c as f32) * (0.55 + 0.45 * t)) as u8;
-        // A lighter "content" band, so it reads as a screen, not a swatch.
-        let band = (y as f32 / h as f32 - 0.35).abs() < 0.08 && x > w / 8 && x < w * 7 / 8;
-        if band {
-            image::Rgba([235, 235, 240, 255])
-        } else {
-            image::Rgba([mix(r), mix(g), mix(b), 255])
+        let (cx, cy) = (x as f32 + 0.5, y as f32 + 0.5);
+        let t = ((cx / w as f32) + (cy / h as f32)) / 2.;
+        let mut rgb: [f32; 3] = std::array::from_fn(|i| from[i] as f32 + (to[i] as f32 - from[i] as f32) * t);
+        for shape in PICTURE_SHAPES {
+            let (bx, by, bw, bh, br, alpha) = shape;
+            if in_rounded_rect(cx / sx, cy / sy, (bx, by, bw, bh, br, alpha)) {
+                rgb = rgb.map(|c| c + (255. - c) * alpha);
+            }
         }
+        let [r, g, b] = rgb.map(|c| c.round().clamp(0., 255.) as u8);
+        image::Rgba([r, g, b, 255])
     });
     let mut bytes = Vec::new();
     image::DynamicImage::ImageRgba8(image)
@@ -86,20 +115,17 @@ fn picture_png(tone: [u8; 3], w: u32, h: u32) -> Vec<u8> {
 }
 
 fn seed(cache: &mut ImageCache) {
-    for (id, tone, (w, h)) in [
-        ("att-1", [64, 92, 160], (720, 450)),
-        ("att-2", [46, 128, 112], (400, 250)),
-        ("att-3", [150, 84, 160], (400, 250)),
-    ] {
-        cache.insert_bytes(format!("/api/attachments/{id}"), "image/png", picture_png(tone, w, h));
+    let (w, h) = PICTURE_SIZE;
+    for (id, from, to) in TONES {
+        cache.insert_bytes(format!("/api/attachments/{id}"), "image/png", picture_png(from, to, w, h));
     }
 }
 
-fn caption(text: &'static str, cx: &App) -> Div {
-    div().text_xs().text_color(cx.theme().muted_foreground).child(text)
+fn caption(text: &str, cx: &App) -> Div {
+    div().text_xs().text_color(cx.theme().muted_foreground).child(SharedString::from(text.to_string()))
 }
 
-fn demo(label: &'static str, row: &SessionThreadRow, images: &Entity<ImageCache>, window: &mut Window, cx: &mut App) -> Div {
+fn demo(label: &str, row: &SessionThreadRow, images: &Entity<ImageCache>, window: &mut Window, cx: &mut App) -> Div {
     let card = crate::thread_screen::ask_row_card(row, &ThreadText::default(), images, CardChrome::default(), window, cx);
     v_flex().w_full().gap_2().child(caption(label, cx)).children(card)
 }
@@ -113,10 +139,11 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
         })
         .clone();
     let rows = rows();
+    let specimen = &domain::plan_card::copy().specimen;
     let label = |row: &SessionThreadRow| match row {
-        SessionThreadRow::Plan { decision: None, .. } => "A plan waiting on a decision: pictures, a surface, two questions",
-        SessionThreadRow::Plan { .. } => "A decided plan",
-        _ => "An answered question with several picks",
+        SessionThreadRow::Plan { decision: None, .. } => specimen.pending.as_str(),
+        SessionThreadRow::Plan { .. } => specimen.approved.as_str(),
+        _ => specimen.answered.as_str(),
     };
     let mut column = v_flex().w(px(640.)).gap_10();
     for row in &rows {
@@ -177,9 +204,31 @@ mod tests {
         }
     }
 
+    /// The stand-ins = the web SVG: gradient stops at the corners, the 35%
+    /// bar and the 12% panel over it.
     #[test]
-    fn stand_in_pictures_encode() {
-        let png = picture_png([10, 20, 30], 16, 10);
+    fn stand_in_pictures_are_the_web_palette() {
+        let (w, h) = PICTURE_SIZE;
+        let (_, from, to) = TONES[1];
+        let png = picture_png(from, to, w, h);
         assert_eq!(&png[1..4], b"PNG");
+        let image = image::load_from_memory(&png).unwrap().to_rgba8();
+        let near = |a: [u8; 4], b: [u8; 3]| a.iter().zip(b).all(|(a, b)| (*a as i16 - b as i16).abs() <= 2);
+        assert!(near(image.get_pixel(0, 0).0, from), "top left = from");
+        assert!(near(image.get_pixel(w - 1, h - 1).0, to), "bottom right = to");
+        let expected = |x: u32, y: u32, alpha: f32| -> [u8; 3] {
+            let t = ((x as f32 + 0.5) / w as f32 + (y as f32 + 0.5) / h as f32) / 2.;
+            std::array::from_fn(|i| {
+                let c = from[i] as f32 + (to[i] as f32 - from[i] as f32) * t;
+                (c + (255. - c) * alpha).round() as u8
+            })
+        };
+        assert!(near(image.get_pixel(60, 60).0, expected(60, 60, 0.35)), "the 35% bar");
+        assert!(near(image.get_pixel(400, 300).0, expected(400, 300, 0.12)), "the 12% panel");
+        assert!(near(image.get_pixel(400, 480).0, expected(400, 480, 0.)), "under the panel");
+        // The rounded corners stay gradient.
+        assert!(!in_rounded_rect(48.5, 48.5, PICTURE_SHAPES[0]));
+        assert!(in_rounded_rect(60.5, 60.5, PICTURE_SHAPES[0]));
+        assert_eq!(TONES.map(|(id, ..)| id), ["att-1", "att-2", "att-3"]);
     }
 }

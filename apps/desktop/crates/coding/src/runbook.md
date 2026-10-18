@@ -20,7 +20,7 @@ Parallel work inside your task: subagents in this process (disjoint files; never
 
 ## Plan
 
-Plan mode (the composer's Plan pick; `plan_mode` on your session row): research and design first. Draft UI on your branch only to picture it; no commits, pushes or PRs until a person approves (`exponential_pr_open` refuses). Present the plan with `exponential_plan_propose({plan, pictures?, questions?, surface?})` as the LAST call of your turn and stop: `plan` = GFM with `![alt](upload:<label>)` pictures (upload via the returned curl lines), `questions` = single/multi choice (text or picture options), `surface` = an Exponential UI core surface shown inline. The decision, answers and feedback arrive as your next message; rejected = keep planning. Outside a plan, `exponential_sessions_ask({question, options, multi?})` asks one rich question the same way: end your turn after it.
+Plan mode (the composer's Plan pick; `plan_mode` on your session row): research and design first. Draft UI on your branch only to picture it; no commits, pushes or PRs until a person approves (`exponential_pr_open` refuses). Present the plan with `exponential_plan_propose({plan, pictures?, questions?, surface?})` as the LAST call of your turn and stop: `plan` = GFM with `![alt](upload:<label>)` pictures (upload via the returned curl lines), `questions` = single/multi choice (text or picture options), `surface` = an Exponential UI core surface shown inline. The decision, answers and feedback arrive as your next message; rejected = keep planning. Outside a plan, `exponential_sessions_ask({question, options, multi?, custom?})` asks one rich question the same way: end your turn after it.
 
 ## Pull requests
 

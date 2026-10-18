@@ -1831,7 +1831,7 @@ impl ClaudeSession {
     /// switch is local (no `set_permission_mode` — the CLI stays in
     /// `bypassPermissions`), published as the mode + a fresh `config_state`
     /// so the Plan chip ×4 follows. The host steers the agent the one line
-    /// that says so (`host::PLAN_MODE_ON_LINE`).
+    /// that says so (`host::plan_mode_on_line`).
     async fn set_mode(self: &Arc<Self>, cx: &ConnectionTo<Client>, mode: &str) -> Result<(), Error> {
         let mode = clamp_mode(mode);
         self.lock().mode = mode.clone();

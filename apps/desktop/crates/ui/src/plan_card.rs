@@ -33,13 +33,13 @@ use exponential_ui::host::{media_request, MediaOptions, MediaRequest, UrlPolicy}
 use exponential_ui_gpui::host::HostPlugin;
 use exponential_ui_gpui::view::{SurfaceView, SurfaceViewOptions};
 use gpui::{
-    div, img, prelude::FluentBuilder as _, px, AnyElement, App, AppContext as _, Entity, FontWeight,
+    div, img, prelude::FluentBuilder as _, px, AnyElement, App, AppContext as _, Entity, Focusable as _, FontWeight,
     InteractiveElement as _, IntoElement, ObjectFit, ParentElement as _, SharedString, Styled as _,
     StyledImage as _, Subscription, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
-    input::{InputEvent, InputState},
+    input::{InputEvent, InputState, Textarea, TextareaState},
     v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
 use serde_json::{json, Value};
@@ -194,7 +194,8 @@ struct CardDraft {
     picks: BTreeMap<String, Vec<String>>,
     /// Question id → its free-text field.
     custom: HashMap<String, Entity<InputState>>,
-    feedback: Option<Entity<InputState>>,
+    /// THE feedback field (multi-line, `card.fieldMinHeight`).
+    feedback: Option<Entity<TextareaState>>,
     surface: Option<Entity<SurfaceView>>,
     /// A `Window::defer` creating the missing pieces is on its way.
     building: bool,
@@ -303,7 +304,8 @@ fn build(message_id: &str, needs: Needs, window: &mut Window, cx: &mut App) {
         draft._subscriptions.push(subscription);
     }
     if needs.feedback && draft(message_id, cx).is_none_or(|draft| draft.feedback.is_none()) {
-        let state = cx.new(|cx| InputState::new(window, cx).placeholder(copy.feedback.clone()));
+        let placeholder = domain::ask_dock::ASK_DOCK.copy.feedback_placeholder.clone();
+        let state = cx.new(|cx| crate::controls::web_textarea(1, 6, window, cx).placeholder(placeholder));
         draft_mut(message_id, cx).feedback = Some(state);
     }
     if let Some(surface) = needs.surface {
@@ -420,7 +422,9 @@ fn surface_view(message_id: &str, surface: &CardSurface, window: &mut Window, cx
         theme: exponential_ui::themes::builtin_theme(crate::exponential_ui_host::THEME_ID),
         mode: exponential_ui::theme::Mode::Dark,
         host: Rc::new(CardSurfaceHost::new(cx)),
-        width: Some(520.),
+        // `None`: the surface follows its frame's width (a fixed width
+        // left the surface's equal tile columns short of the frame).
+        width: None,
         ..Default::default()
     };
     let data = surface.data.clone();
@@ -442,24 +446,26 @@ fn surface_view(message_id: &str, surface: &CardSurface, window: &mut Window, cx
     Some(view)
 }
 
-/// The surface block: the `Preview` caption over the surface in its own
-/// frame (a skeleton-height box until the view exists).
+/// The surface block: the `Preview` label (medium) ABOVE the surface in
+/// its own frame (`card.surface*`; a skeleton-height box until the view
+/// exists).
 fn surface_block(message_id: &str, cx: &App) -> AnyElement {
     let copy = model::copy();
+    let card = model::card();
     let view = draft(message_id, cx).and_then(|draft| draft.surface.clone());
     v_flex()
         .id(SharedString::from(format!("{}-{message_id}", model::test_ids().surface)))
-        .mt_3()
+        .mt(px(card.block_gap))
         .w_full()
         .min_w_0()
-        .gap_1()
-        .child(caption(&copy.surface, cx))
+        .gap(px(card.surface_label_gap))
+        .child(caption(&copy.surface, cx).font_weight(FontWeight::MEDIUM))
         .child(
             div()
                 .w_full()
                 .min_w_0()
-                .p_2()
-                .rounded(px(theme::tokens::radius::LG))
+                .p(px(card.surface_padding))
+                .rounded(px(card.surface_radius))
                 .border_1()
                 .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
                 .bg(theme::tokens::glass::FILL_ROW.to_hsla())
@@ -502,6 +508,11 @@ fn geometry() -> ChoiceTilesGeometry {
         radius: tiles.radius,
         selected_ring: tiles.selected_ring,
         padding: tiles.padding,
+        picture_radius: tiles.picture_radius,
+        stroke: tiles.stroke,
+        placeholder_glyph: tiles.placeholder_glyph,
+        label_gap: tiles.label_gap,
+        inert_opacity: tiles.inert_opacity,
     }
 }
 
@@ -556,7 +567,7 @@ fn options_block(
             }) as crate::controls::OnTilePick
         });
         return div()
-            .mt_1()
+            .mt(px(model::card().options_gap))
             .w_full()
             .child(crate::controls::choice_tiles(
                 format!("{}-{message_id}-{key}", ids.tile),
@@ -567,7 +578,7 @@ fn options_block(
             ))
             .into_any_element();
     }
-    let mut rows = v_flex().mt_1().w_full().min_w_0().gap_1();
+    let mut rows = v_flex().mt(px(model::card().options_gap)).w_full().min_w_0().gap_1();
     for (index, option) in options.iter().enumerate() {
         let selected = picked.contains(&option.label);
         if !interactive {
@@ -581,6 +592,7 @@ fn options_block(
                 option.label.clone(),
                 option.description.clone(),
                 selected,
+                multi,
                 cx,
             )
             .on_click(move |_, window, cx| {
@@ -592,22 +604,21 @@ fn options_block(
     rows.into_any_element()
 }
 
-/// A closed option row: the check on a pick, the rest muted.
+/// A closed option row: the leading emerald check on a pick, the rest
+/// muted at `card.inertOpacity`; no fill (`plan-card.json` `card`).
 fn closed_option(option: &QuestionOption, picked: bool, cx: &App) -> AnyElement {
     let muted = cx.theme().muted_foreground;
+    let card = model::card();
     gpui_component::h_flex()
         .w_full()
         .min_w_0()
+        .min_h(px(card.row_min_height))
         .gap_1p5()
         .items_center()
         .px_3()
-        .py_1()
-        .rounded(px(theme::tokens::radius::MD))
-        .when(picked, |row| {
-            row.bg(theme::tokens::glass::FILL_ACTIVE.to_hsla())
-                .border_1()
-                .border_color(theme::tokens::glass::STROKE_ACTIVE.to_hsla())
-        })
+        .py_1p5()
+        .rounded(px(card.row_radius))
+        .when(!picked, |row| row.opacity(card.inert_opacity))
         .child(
             div().w(px(14.)).flex_shrink_0().when(picked, |slot| {
                 slot.child(Icon::new(registry::UI_CHECK).xsmall().text_color(theme::tokens::GREEN.to_hsla()))
@@ -619,7 +630,7 @@ fn closed_option(option: &QuestionOption, picked: bool, cx: &App) -> AnyElement 
                 .min_w_0()
                 .truncate()
                 .text_xs()
-                .text_color(if picked { cx.theme().foreground } else { muted.opacity(0.7) })
+                .text_color(if picked { cx.theme().foreground } else { muted })
                 .child(SharedString::from(option.label.clone())),
         )
         .into_any_element()
@@ -634,7 +645,13 @@ fn custom_field(message_id: &str, key: &str, window: &Window, cx: &App) -> Optio
             .mt_1()
             .w_full()
             .min_w_0()
-            .child(crate::controls::glass_input(&state, window, cx).small())
+            .child(
+                crate::controls::glass_input(&state, window, cx)
+                    .small()
+                    // `Input::h` is multi-line only: the box's own min height.
+                    .min_h(px(model::card().row_min_height))
+                    .text_xs(),
+            )
             .into_any_element(),
     )
 }
@@ -660,12 +677,12 @@ fn question_block(
         .filter(|pick| !question.options.iter().any(|option| option.label == **pick))
         .cloned()
         .collect();
+    let card = model::card();
     v_flex()
         .id(SharedString::from(format!("{}-{message_id}-{}", model::test_ids().question, question.id)))
-        .mt_3()
+        .mt(px(card.block_gap))
         .w_full()
         .min_w_0()
-        .gap_0p5()
         .child(
             div()
                 .w_full()
@@ -675,7 +692,7 @@ fn question_block(
                 .text_color(cx.theme().foreground)
                 .child(SharedString::from(question.prompt.clone())),
         )
-        .child(caption(choose, cx))
+        .child(caption(choose, cx).mt(px(card.block_inner_gap)))
         .child(options)
         .when(interactive && question.custom, |block| {
             block.children(custom_field(message_id, &question.id, window, cx))
@@ -759,10 +776,14 @@ pub(crate) fn plan_parts(facts: &PlanFacts, images: &Entity<ImageCache>, window:
                 .when_some(facts.feedback, |column, feedback| {
                     column.child(
                         div()
+                            .id(SharedString::from(format!("{}-{message_id}", model::test_ids().feedback)))
                             .mt_1()
+                            .w_full()
+                            .min_w_0()
+                            .truncate()
                             .text_xs()
                             .text_color(cx.theme().muted_foreground)
-                            .child(SharedString::from(format!("{}: {feedback}", model::copy().feedback))),
+                            .child(SharedString::from(model::copy().feedback_line(feedback))),
                     )
                 })
                 .into_any_element()
@@ -819,10 +840,24 @@ fn decision_row(facts: &PlanFacts, window: &Window, cx: &mut App) -> AnyElement 
                 .mt_1()
                 .w_full()
                 .min_w_0()
-                .child(crate::controls::glass_input(&state, window, cx).small()),
+                .child(feedback_field(&state, window, cx)),
         );
     }
     rows.into_any_element()
+}
+
+/// THE feedback field: the multi-line glass field (the theme's input
+/// stroke, the focus ring the glass input wears), `card.fieldMinHeight`
+/// tall, `sm` text, the ask-dock placeholder.
+fn feedback_field(state: &Entity<TextareaState>, window: &Window, cx: &App) -> AnyElement {
+    let focused = state.focus_handle(cx).is_focused(window);
+    Textarea::new(state)
+        .w_full()
+        .min_h(px(model::card().field_min_height))
+        .rounded(px(theme::tokens::radius::LG))
+        .text_sm()
+        .when(focused, |field| field.border_color(theme::tokens::glass::STROKE_ACTIVE.to_hsla()))
+        .into_any_element()
 }
 
 fn send_plan(message_id: &str, decision: &str, fresh: bool, questions: &[PlanQuestion], surface: Option<&CardSurface>, cx: &mut App) {
@@ -897,7 +932,6 @@ pub(crate) fn question_parts(facts: &QuestionFacts, images: &Entity<ImageCache>,
     if !facts.options.is_empty() {
         content.push(
             div()
-                .mt_1()
                 .w_full()
                 .child(options_block(message_id, QUESTION_KEY, facts.options, facts.multi, &picked, interactive, images, cx))
                 .into_any_element(),

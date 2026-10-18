@@ -4121,27 +4121,38 @@ pub(crate) fn ask_option_button(
     cx: &App,
 ) -> Button {
     let trailing = key_chip(index, primary, cx);
-    ask_option_button_trailing(id, label, description, primary, picked, highlighted, trailing, cx)
+    ask_option_button_trailing(id, label, description, primary, picked, highlighted, None, trailing, cx)
 }
 
-/// EXP-1280 — a CHOICE row of the plan / question card (plan-card.json):
-/// THE option row, the check glyph at its right end when picked (a choice
-/// toggles; it never answers by itself, so it carries no number key).
+/// EXP-1280 — a CHOICE row of the plan / question card (plan-card.json
+/// `card`): THE option row; single = the foreground check glyph at its
+/// right end when picked, multi = a leading selected / unselected glyph
+/// and no trailing check (a choice toggles; it never answers by itself, so
+/// it carries no number key).
 pub(crate) fn ask_choice_button(
     id: impl Into<gpui::ElementId>,
     label: String,
     description: Option<String>,
     picked: bool,
+    multi: bool,
     cx: &App,
 ) -> Button {
-    let check = picked.then(|| {
+    let leading = multi.then(|| {
+        let (glyph, color) = if picked {
+            (registry::UI_SELECTED, cx.theme().foreground)
+        } else {
+            (registry::UI_UNSELECTED, cx.theme().muted_foreground)
+        };
+        Icon::new(glyph).xsmall().flex_shrink_0().text_color(color).into_any_element()
+    });
+    let check = (picked && !multi).then(|| {
         Icon::new(registry::UI_CHECK)
             .xsmall()
             .flex_shrink_0()
-            .text_color(cx.theme().primary)
+            .text_color(cx.theme().foreground)
             .into_any_element()
     });
-    ask_option_button_trailing(id, label, description, false, picked, false, check, cx)
+    ask_option_button_trailing(id, label, description, false, picked, false, leading, check, cx)
 }
 
 /// [`ask_option_button`] with any `trailing` element at the row's right end.
@@ -4153,6 +4164,7 @@ fn ask_option_button_trailing(
     primary: bool,
     picked: bool,
     highlighted: bool,
+    leading: Option<AnyElement>,
     trailing: Option<AnyElement>,
     cx: &App,
 ) -> Button {
@@ -4166,10 +4178,10 @@ fn ask_option_button_trailing(
             .cursor_pointer()
             .w_full()
             .h_auto()
-            .min_h(px(32.))
+            .min_h(px(domain::plan_card::card().row_min_height))
             .px_3()
             .py_1p5()
-            .rounded(px(theme::tokens::radius::MD));
+            .rounded(px(domain::plan_card::card().row_radius));
         button = if primary {
             button.with_variant(ButtonVariant::Primary)
         } else if picked {
@@ -4201,6 +4213,7 @@ fn ask_option_button_trailing(
                     .min_w_0()
                     .gap_2()
                     .items_center()
+                    .children(leading)
                     .child(
                         v_flex()
                             .flex_1()
@@ -4250,10 +4263,10 @@ pub(crate) fn ask_resolved_line(answer: Option<&str>, dismissed: bool, cx: &App)
                 .xsmall()
                 .text_color(if dismissed { muted } else { theme::tokens::GREEN.to_hsla() }),
         )
-        .child(div().text_xs().child(SharedString::from(if dismissed {
+        .child(div().text_xs().font_weight(gpui::FontWeight::MEDIUM).child(SharedString::from(if dismissed {
             "Dismissed".to_string()
         } else {
-            answer.unwrap_or("Answered").to_string()
+            answer.unwrap_or(&domain::plan_card::copy().answered).to_string()
         })))
         .into_any_element()
 }
@@ -6524,7 +6537,7 @@ impl SteerSessionView {
             .filter(|labels| !labels.is_empty());
         let answer = in_flight
             .or_else(|| card.and_then(|card| card.answer.clone()))
-            .unwrap_or_else(|| "Answered".to_string());
+            .unwrap_or_else(|| domain::plan_card::copy().answered.clone());
         let editable = open && self.step_editable(item);
         let item_id = item.id;
         h_flex()
@@ -6617,7 +6630,7 @@ impl SteerSessionView {
             return div().into_any_element();
         };
         let heading = if card.plan_mode {
-            Some(SharedString::from("Plan ready"))
+            Some(SharedString::from(domain::ask_dock::ASK_DOCK.copy.plan_ready.clone()))
         } else {
             card.header.clone().map(SharedString::from)
         };
@@ -6671,7 +6684,7 @@ impl SteerSessionView {
                 .text_xs()
                 .text_color(muted)
                 .child(Spinner::new().xsmall())
-                .child("Answering…")
+                .child(SharedString::from(domain::plan_card::copy().answering.clone()))
                 .when(!labels.is_empty(), |this| {
                     this.child(
                         div()

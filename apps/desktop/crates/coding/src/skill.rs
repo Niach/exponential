@@ -490,7 +490,7 @@ run `bun test`.\n"
             "LAST call of your turn and stop",
             "upload:<label>",
             "rejected = keep planning",
-            "`exponential_sessions_ask({question, options, multi?})`",
+            "`exponential_sessions_ask({question, options, multi?, custom?})`",
         ] {
             assert!(section.contains(words), "the Plan section never says {words}");
         }

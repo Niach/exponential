@@ -353,7 +353,7 @@ impl EngineSession {
     }
 
     /// A PERSON's mode switch (the Plan chip): EXP-1280 a real plan-mode
-    /// move steers the agent one line (`host::PLAN_MODE_ON_LINE` /
+    /// move steers the agent one line (`host::plan_mode_on_line` /
     /// `PLAN_MODE_OFF_LINE`).
     pub fn set_mode(&self, id: &str) {
         self.send(EngineCommand::SetMode {

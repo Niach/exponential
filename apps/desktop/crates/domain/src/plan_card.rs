@@ -45,9 +45,31 @@ pub struct PlanCardCopy {
     pub custom: String,
     pub surface: String,
     pub answer: String,
+    /// A closed card's caption.
+    pub answered: String,
+    /// The in-flight caption while the answer posts.
+    pub answering: String,
+    /// The answered card's ONE feedback line (`{feedback}`).
+    pub feedback_line: String,
+    pub specimen: PlanCardSpecimenCopy,
     pub answer_issues: AnswerIssueCopy,
     pub plan_mode_gate: String,
     pub propose_next: String,
+}
+
+impl PlanCardCopy {
+    /// `feedback_line` with `{feedback}` filled in.
+    pub fn feedback_line(&self, feedback: &str) -> String {
+        self.feedback_line.replace("{feedback}", feedback)
+    }
+}
+
+/// The styleguide entry's three captions ×4.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct PlanCardSpecimenCopy {
+    pub pending: String,
+    pub answered: String,
+    pub approved: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -73,6 +95,35 @@ pub struct PlanCardTiles {
     pub radius: f32,
     pub selected_ring: f32,
     pub padding: f32,
+    pub picture_radius: f32,
+    /// The tile's border width.
+    pub stroke: f32,
+    /// The `editor-image` placeholder glyph size (drawn at 0.6).
+    pub placeholder_glyph: f32,
+    /// Picture → label and label → description.
+    pub label_gap: f32,
+    /// A closed card's unpicked tiles.
+    pub inert_opacity: f32,
+}
+
+/// The rest of the card's geometry (px; `heading_scale` × the body size).
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlanCardCard {
+    pub picture_radius: f32,
+    pub picture_stroke: f32,
+    pub surface_radius: f32,
+    pub surface_padding: f32,
+    pub surface_label_gap: f32,
+    pub block_gap: f32,
+    pub block_inner_gap: f32,
+    pub options_gap: f32,
+    pub row_min_height: f32,
+    pub row_radius: f32,
+    pub field_min_height: f32,
+    pub inert_opacity: f32,
+    pub list_indent: f32,
+    pub heading_scale: f32,
 }
 
 /// The answer text's templates (`{plan}`, `{prompt}`, `{answer}`, …).
@@ -97,6 +148,7 @@ pub struct PlanCardSpec {
     pub copy: PlanCardCopy,
     pub test_ids: PlanCardTestIds,
     pub tiles: PlanCardTiles,
+    pub card: PlanCardCard,
     pub upload_scheme: String,
     pub answer_text: PlanCardAnswerText,
 }
@@ -113,6 +165,11 @@ pub fn copy() -> &'static PlanCardCopy {
 /// The tile geometry (`PLAN_CARD.tiles`).
 pub fn tiles() -> &'static PlanCardTiles {
     &PLAN_CARD.tiles
+}
+
+/// The card geometry (`PLAN_CARD.card`).
+pub fn card() -> &'static PlanCardCard {
+    &PLAN_CARD.card
 }
 
 /// The test ids (`PLAN_CARD.test_ids`).
@@ -475,6 +532,39 @@ mod tests {
         assert_eq!(copy().answer_issues.missing, "Answer every question to approve");
         assert_eq!(tiles().columns, 2);
         assert_eq!(test_ids().card, "plan-card");
+    }
+
+    #[test]
+    fn spec_carries_the_look_and_captions() {
+        let c = copy();
+        for s in [&c.answered, &c.answering, &c.specimen.pending, &c.specimen.answered, &c.specimen.approved] {
+            assert!(!s.is_empty());
+        }
+        assert_eq!(c.feedback_line("Ship it"), "Feedback: Ship it");
+        let t = tiles();
+        for v in [t.picture_radius, t.stroke, t.placeholder_glyph, t.label_gap, t.inert_opacity] {
+            assert!(v > 0.0);
+        }
+        let k = card();
+        for v in [
+            k.picture_radius,
+            k.picture_stroke,
+            k.surface_radius,
+            k.surface_padding,
+            k.surface_label_gap,
+            k.block_gap,
+            k.block_inner_gap,
+            k.options_gap,
+            k.row_min_height,
+            k.row_radius,
+            k.field_min_height,
+            k.inert_opacity,
+            k.list_indent,
+            k.heading_scale,
+        ] {
+            assert!(v > 0.0);
+        }
+        assert!(k.inert_opacity < 1.0 && k.heading_scale > 1.0);
     }
 
     #[test]

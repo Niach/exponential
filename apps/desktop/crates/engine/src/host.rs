@@ -94,8 +94,11 @@ pub const FRESH_CONTEXT_META_KEY: &str = "exponentialFreshContext";
 
 /// EXP-1280: the one line a person's switch INTO plan mode steers to the
 /// agent (plan mode is Exponential's: instructions + the server's `pr_open`
-/// gate, never the CLI's permission mode).
-pub const PLAN_MODE_ON_LINE: &str = "Plan mode is on: research and design, then propose the plan with `exponential_plan_propose` as the last call of your turn and stop; no commits, pushes or PRs until a person approves.";
+/// gate, never the CLI's permission mode) = `plan-card.json`
+/// `copy.planModeGate`, the same sentence the server's gate speaks.
+pub fn plan_mode_on_line() -> &'static str {
+    &domain::plan_card::copy().plan_mode_gate
+}
 
 /// EXP-1280: the one line a person's switch OUT of plan mode steers.
 pub const PLAN_MODE_OFF_LINE: &str = "Plan mode is off: go ahead.";
@@ -272,7 +275,7 @@ pub(crate) enum EngineCommand {
     },
     /// EXP-1280: `announce` = a PERSON moved plan mode (the relay
     /// `set_mode`, `sessions.configure`): a real move steers the agent ONE
-    /// line ([`PLAN_MODE_ON_LINE`] / [`PLAN_MODE_OFF_LINE`]). The approval
+    /// line ([`plan_mode_on_line`] / [`PLAN_MODE_OFF_LINE`]). The approval
     /// path flips it silently.
     SetMode { id: SessionModeId, announce: bool },
     Answer(steer::RemoteAnswer),
@@ -2189,7 +2192,7 @@ fn advertises_mode(mapper: &Mapper, mode_id: &str) -> bool {
 /// EXP-1280: the line a person's plan-mode move steers to the agent.
 fn plan_mode_line(mode_id: &str) -> &'static str {
     if mode_id == crate::adapters::PLAN_MODE_ID {
-        PLAN_MODE_ON_LINE
+        plan_mode_on_line()
     } else {
         PLAN_MODE_OFF_LINE
     }
@@ -3179,6 +3182,15 @@ pub(crate) fn steer_images_dir(worktree: &std::path::Path) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// EXP-1280: the plan-mode line = the fixture's `planModeGate` (the
+    /// server gate's sentence); leaving plan mode keeps its own line.
+    #[test]
+    fn the_plan_mode_line_is_the_fixture_gate() {
+        assert_eq!(plan_mode_line(crate::adapters::PLAN_MODE_ID), domain::plan_card::copy().plan_mode_gate);
+        assert!(plan_mode_on_line().contains("exponential_plan_propose"));
+        assert_eq!(plan_mode_line("default"), PLAN_MODE_OFF_LINE);
+    }
 
     /// EXP-1317: the open-question table `answer_ask` translates an answer
     /// against — folded off the wire like `deliver` does, so a plan card's
