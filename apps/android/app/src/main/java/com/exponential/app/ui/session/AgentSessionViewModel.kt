@@ -621,6 +621,56 @@ class AgentSessionViewModel @AssistedInject constructor(
         .distinctUntilChanged()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
+    /**
+     * EXP-1211: the quick replies above THIS session's composer
+     * ([SessionTree.composerReplies] over its synced messages; null = none).
+     * The thread's composer reads its ROOT's, the raw view its own.
+     */
+    val composerReplies: StateFlow<SessionTree.ComposerReplies?> = dbFlow
+        .scopedQuery(emptyList<MessageEntity>()) { it.messageDao().observeBySession(codingSessionId) }
+        .map { rows -> SessionTree.composerReplies(codingSessionId, rows.map(SessionTree::message)) }
+        .distinctUntilChanged()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    private val _replyPending = MutableStateFlow(false)
+    /** A quick-reply tap or dismiss is in flight: the row is disabled. */
+    val replyPending: StateFlow<Boolean> = _replyPending
+
+    /** A refused quick-reply write: `Couldn't send the reply` (or dismiss). */
+    private val _replyError = MutableStateFlow<com.exponential.app.ui.components.FailedAction?>(null)
+    val replyError: StateFlow<com.exponential.app.ui.components.FailedAction?> = _replyError
+    fun clearReplyError() {
+        _replyError.value = null
+    }
+
+    /** EXP-1211: a tap = `sessions.sendReply` (the text is the next message). */
+    fun sendReply(messageId: String, itemId: String) =
+        replyCall("send", "the reply") { accountId -> sessionsApi.sendReply(accountId, messageId, itemId) }
+
+    /** EXP-1211: × = `sessions.dismissReplies` (the whole row goes). */
+    fun dismissReplies(messageId: String) =
+        replyCall("dismiss", "the replies") { accountId -> sessionsApi.dismissReplies(accountId, messageId) }
+
+    private fun replyCall(verb: String, thing: String, call: suspend (accountId: String) -> Unit) {
+        if (_replyPending.value) return
+        viewModelScope.launch {
+            val accountId = auth.activeAccountId.value ?: return@launch
+            _replyPending.value = true
+            try {
+                call(accountId)
+            } catch (t: Throwable) {
+                if (t is CancellationException) throw t
+                _replyError.value = com.exponential.app.ui.components.FailedAction(
+                    verb,
+                    thing,
+                    trpcErrorMessage(t, "").ifBlank { null },
+                )
+            } finally {
+                _replyPending.value = false
+            }
+        }
+    }
+
     /** The session's ROOT id (the thread it belongs to). */
     private val rootId: Flow<String?> = session
         .map { row -> row?.rootId?.takeIf { it.isNotEmpty() } ?: row?.id }

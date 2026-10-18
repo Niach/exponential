@@ -282,6 +282,9 @@ pub(crate) struct SessionComposerBox {
     pub(crate) controls: SessionComposerControls,
     /// Applied to the card (the paste capture).
     pub(crate) card_hook: Option<DivHook>,
+    /// EXP-1211: the quick replies row ([`composer_replies_row`]), directly
+    /// above the card in the same column.
+    pub(crate) replies: Option<AnyElement>,
 }
 
 impl SessionComposerBox {
@@ -298,7 +301,13 @@ impl SessionComposerBox {
             submit,
             controls: SessionComposerControls::default(),
             card_hook: None,
+            replies: None,
         }
+    }
+
+    pub(crate) fn replies(mut self, element: Option<AnyElement>) -> Self {
+        self.replies = element;
+        self
     }
 
     pub(crate) fn above_field(mut self, element: Option<AnyElement>) -> Self {
@@ -376,6 +385,7 @@ pub(crate) fn session_composer_box(props: SessionComposerBox, cx: &App) -> AnyEl
         submit,
         controls,
         card_hook,
+        replies,
     } = props;
     let field_wrap = div().w_full().min_w_0();
     let field_wrap = match field_hook {
@@ -447,6 +457,7 @@ pub(crate) fn session_composer_box(props: SessionComposerBox, cx: &App) -> AnyEl
                 .min_w_0()
                 .max_w(px(crate::work_header::WORK_COLUMN_W))
                 .px(px(crate::work_header::WORK_GUTTER))
+                .children(replies.map(|replies| div().w_full().min_w_0().pb_2().child(replies)))
                 .child(card)
                 .children(options),
         )
@@ -732,6 +743,120 @@ pub(crate) fn session_slash_menu<V: 'static>(
         window,
         cx,
     )
+}
+
+// ── EXP-1211: quick replies above the session composer ─────────────────────
+
+/// The quick reply writes in flight (`<message>:<item>`, the ×'s
+/// `<message>:*`): a pill (or the ×) locks until its write lands.
+#[derive(Default)]
+struct PendingReplies(std::collections::HashSet<String>);
+
+impl gpui::Global for PendingReplies {}
+
+fn reply_pending(key: &str, cx: &App) -> bool {
+    cx.try_global::<PendingReplies>().is_some_and(|pending| pending.0.contains(key))
+}
+
+/// One quick reply write, once per key while in flight; a failure is the
+/// `Couldn't <verb> <thing>` toast.
+fn reply_write(
+    key: String,
+    verb: &'static str,
+    thing: &'static str,
+    cx: &mut App,
+    call: impl FnOnce(&api::TrpcClient) -> Result<serde::de::IgnoredAny, api::ApiError> + Send + 'static,
+) {
+    if !cx.default_global::<PendingReplies>().0.insert(key.clone()) {
+        return;
+    }
+    cx.refresh_windows();
+    let Some(trpc) = crate::queries::trpc_client(cx) else {
+        cx.default_global::<PendingReplies>().0.remove(&key);
+        crate::action_error::failed_action(verb, thing, None, cx);
+        return;
+    };
+    cx.spawn(async move |cx| {
+        let result = cx.background_executor().spawn(async move { call(&trpc) }).await;
+        cx.update(|cx| {
+            cx.default_global::<PendingReplies>().0.remove(&key);
+            cx.refresh_windows();
+            if let Err(err) = result {
+                log::warn!("[composer] {verb} {thing} failed: {err}");
+                crate::action_error::failed_action_err(verb, thing, &err, cx);
+            }
+        });
+    })
+    .detach();
+}
+
+/// The row above a session's composer box (`session-thread.json`
+/// `copy.replies`, web `ComposerReplies`): one sm pill per open reply
+/// (`sessions.sendReply`), wrapping, then a ghost × (`sessions.
+/// dismissReplies`). It rides THE composer box's `replies` slot, so it goes
+/// whenever the ask dock takes the composer's slot. `live` =
+/// false paints the specimen (no writes).
+pub(crate) fn composer_replies_row(
+    replies: &domain::session_tree::ComposerReplies,
+    live: bool,
+    cx: &App,
+) -> AnyElement {
+    use gpui::InteractiveElement as _;
+    let spec = &domain::session_tree::THREAD;
+    let test_id = spec.test_ids.replies.as_str();
+    let message_id = replies.message_id.as_str();
+    let dismiss_key = format!("{message_id}:*");
+    let dismissing = reply_pending(&dismiss_key, cx);
+    let pills = replies.items.iter().map(|item| {
+        let key = format!("{message_id}:{}", item.id);
+        let busy = dismissing || reply_pending(&key, cx);
+        let (message, item_id) = (message_id.to_string(), item.id.clone());
+        crate::surface::glass_pill_button(
+            SharedString::from(format!("{test_id}-{message_id}-{}", item.id)),
+            crate::surface::PillSize::Sm,
+            cx,
+        )
+        .label(SharedString::from(item.text.clone()))
+        .disabled(busy)
+        .on_click(move |_, _, cx| {
+            cx.stop_propagation();
+            if !live {
+                return;
+            }
+            let (message, item_id) = (message.clone(), item_id.clone());
+            reply_write(format!("{message}:{item_id}"), "send", "the reply", cx, move |trpc| {
+                api::sessions::send_reply(trpc, &message, &item_id)
+            });
+        })
+        .into_any_element()
+    });
+    let message = message_id.to_string();
+    let dismiss = Button::new(SharedString::from(format!("{test_id}-dismiss-{message_id}")))
+        .ghost()
+        .web_icon_xs()
+        .icon(Icon::new(crate::icons::registry::UI_CLOSE))
+        .tooltip(spec.copy.replies.dismiss.clone())
+        .disabled(dismissing)
+        .on_click(move |_, _, cx| {
+            cx.stop_propagation();
+            if !live {
+                return;
+            }
+            let message = message.clone();
+            reply_write(format!("{message}:*"), "dismiss", "the replies", cx, move |trpc| {
+                api::sessions::dismiss_replies(trpc, &message)
+            });
+        });
+    h_flex()
+        .id(SharedString::from(format!("{test_id}-{message_id}")))
+        .w_full()
+        .min_w_0()
+        .flex_wrap()
+        .items_center()
+        .gap_1p5()
+        .children(pills)
+        .child(dismiss)
+        .into_any_element()
 }
 
 #[cfg(test)]

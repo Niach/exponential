@@ -26,7 +26,9 @@ import {
   SESSIONS_SEND_TEXT_MAX,
   sessionKindValues,
   sessionsSendInputSchema,
+  REPLIES_MAX,
   SUGGESTIONS_MAX,
+  replyInputSchema,
   suggestionInputSchema,
   UUID_RE,
 } from "@exp/db-schema/domain"
@@ -137,7 +139,7 @@ import { getSessionTree, listSessions } from "@/lib/sessions/tree"
 import { endSession, stopSession } from "@/lib/sessions/lifecycle"
 import { linkIssues, unlinkIssue } from "@/lib/sessions/issues"
 import { writeGuide } from "@/lib/sessions/guide"
-import { postSuggestions } from "@/lib/sessions/suggestions"
+import { postReplies, postSuggestions } from "@/lib/sessions/suggestions"
 import { buildPlanCard, buildQuestionCard, postAskCard } from "@/lib/sessions/plan"
 import { PLAN_CARD_COPY } from "@exp/domain-contract/plan-card"
 import {
@@ -2388,12 +2390,13 @@ export function registerExponentialTools(
   }
 
   // EXP-1328: follow-ups for a person to start, as ONE suggestions card on
-  // the caller's own session (1:1 with the card; it wakes nothing).
+  // the caller's own session (1:1 with the card; it wakes nothing). EXP-1211:
+  // `replies` = a replies card, quick replies above the caller's composer.
   if (gates.inSession) {
     server.registerTool(
       `exponential_sessions_suggest`,
       {
-        description: `Propose follow-up tasks as one card in your conversation; a person starts, files or dismisses each. title = a short name, text = the request a started session gets, issueIds = issues it is about.`,
+        description: `Propose follow-ups on your own session. tasks = one card in your conversation; a person starts, files or dismisses each (title = a short name, text = the request a started session gets, issueIds = issues it is about). replies = quick replies above the composer: likely next messages; a tap sends one to you as the next message; your newest replies replace older ones.`,
         inputSchema: strictInput({
           tasks: z
             .array(
@@ -2403,26 +2406,41 @@ export function registerExponentialTools(
               })
             )
             .min(1)
-            .max(SUGGESTIONS_MAX),
+            .max(SUGGESTIONS_MAX)
+            .optional(),
+          replies: z.array(replyInputSchema).min(1).max(REPLIES_MAX).optional(),
         }),
       },
-      async ({ tasks }) => {
+      async ({ tasks, replies }) => {
         try {
+          if (!tasks?.length && !replies?.length) throw new Error(`Pass tasks, replies or both`)
           const own = await loadCallerSession()
           if (!own) throw new Error(noSessionMessage(`exponential_sessions_suggest`))
           if (!access.full) assertTeamFullyGranted(access, own.teamId)
-          const resolved = await Promise.all(
-            tasks.map(async (task) => ({
-              title: task.title,
-              text: task.text,
-              ...(task.issueIds?.length
-                ? { issueIds: await resolveTeamIssues(task.issueIds, own.teamId) }
-                : {}),
-            }))
-          )
-          return ok(
-            await postSuggestions({ userId: user.id, callerSessionId: own.id, tasks: resolved })
-          )
+          const posted: {
+            tasks?: { messageId: string; itemIds: string[] }
+            replies?: { messageId: string; itemIds: string[] }
+          } = {}
+          if (tasks?.length) {
+            const resolved = await Promise.all(
+              tasks.map(async (task) => ({
+                title: task.title,
+                text: task.text,
+                ...(task.issueIds?.length
+                  ? { issueIds: await resolveTeamIssues(task.issueIds, own.teamId) }
+                  : {}),
+              }))
+            )
+            posted.tasks = await postSuggestions({
+              userId: user.id,
+              callerSessionId: own.id,
+              tasks: resolved,
+            })
+          }
+          if (replies?.length) {
+            posted.replies = await postReplies({ userId: user.id, callerSessionId: own.id, replies })
+          }
+          return ok(posted)
         } catch (e) {
           return err(e)
         }

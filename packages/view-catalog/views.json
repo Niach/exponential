@@ -1092,6 +1092,42 @@
       }
     },
     {
+      "id": "thread-replies",
+      "group": "coding",
+      "title": "Quick replies",
+      "blurb": "EXP-1211: the agent's quick replies (a `replies` card, MCP `sessions_suggest` `replies`) as ONE row of action pills directly above THE session composer, with a trailing dismiss. Never a Conversation row; hidden while the ask dock holds the composer's place. APP-15's thread is idle with its PR open and offers three replies.",
+      "order": 24,
+      "web": {
+        "route": "/t/$teamSlug/threads/$guideThreadId",
+        "anchor": {
+          "testId": "thread-replies",
+          "timeoutMs": 30000
+        },
+        "settleMs": 4000
+      },
+      "webMobile": "inherit",
+      "ios": {
+        "shot": "sg_thread-replies",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_thread-replies",
+        "lane": "styleguide"
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "thread:$guideThread"
+        }
+      },
+      "notes": {
+        "web": "`$guideThreadId` resolves to DEMO_GUIDE_THREAD_ID (apps/web/scripts/screenshot-demo.ts): APP-15's thread on its Conversation tab, its seeded `replies` card (Merge it · Add a test for the undo step · Show me the diff) above the composer.",
+        "ios": "The LIVE walk: APP-15's thread from its Threads chip, left on the Conversation tab; the row floats over the composer capsule.",
+        "android": "See ios.",
+        "desktop": "APP-15's thread (`thread:$guideThread`) on its Conversation tab."
+      }
+    },
+    {
       "id": "chat-from-issue",
       "group": "coding",
       "title": "Start coding from an issue (mobile)",

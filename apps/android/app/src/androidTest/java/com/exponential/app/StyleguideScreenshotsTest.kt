@@ -216,12 +216,12 @@ class StyleguideScreenshotsTest {
         // apps/web/scripts/seed-screenshots.ts). The private running root
         // (the home's Running band and the Threads tab), the ended one
         // (Threads' Recent), the cold-start thread and its child session.
-        // EXP-1316: a thread with linked issues is titled `Implement <first>`
-        // (`+ <n-1>` with more, session-thread.json `titles`); the issue-less
-        // private spike keeps its stored title.
+        // EXP-1341: a thread with linked issues is titled `#<first> <title>`
+        // (` + <n-1>` with more, session-title.json `titles`), matched on the
+        // issue title; the issue-less private spike keeps its stored title.
         private const val PRIVATE_THREAD_TITLE = "Spike: offline queue"
-        private const val RECENT_THREAD_TITLE = "Implement APP-16"
-        private const val COLD_START_THREAD_TITLE = "Implement APP-5 + 2"
+        private const val RECENT_THREAD_TITLE = "Fix flaky scroll restore on the issue list"
+        private const val COLD_START_THREAD_TITLE = "Reduce cold start below 800 ms"
         private const val COLD_START_REPLY_FRAGMENT = "Board snapshot cache"
         private const val CHILD_SESSION_TITLE = "Profile the launch path"
 
@@ -556,6 +556,27 @@ class StyleguideScreenshotsTest {
             flow.waitFor(hasTestTag(SessionTree.ThreadCopy.TEST_ID_GUIDE_STACK), SYNC_TIMEOUT)
             flow.settle()
             flow.screenshot("sg_guide")
+            // Thread → issue → board.
+            Espresso.pressBack()
+            flow.waitForGone(hasTestTag("thread-tabs"), NAV_TIMEOUT)
+            composeRule.onNode(hasContentDescription("Back")).performClick()
+            flow.waitFor(hasContentDescription("Switch board"), NAV_TIMEOUT)
+            flow.settle()
+        }
+
+        // --- sg_thread-replies: the quick replies (EXP-1211). APP-15's
+        // thread again, left on its Conversation: the seeded `replies`
+        // card's row over the composer capsule.
+        if (ScreenshotFlow.isShotWanted("sg_thread-replies")) {
+            composeRule.onNode(hasTestTag("issue-list"))
+                .performScrollToNode(hasTestTag(BATCH_GUIDE_ISSUE_ROW))
+            composeRule.onNode(hasTestTag(BATCH_GUIDE_ISSUE_ROW)).performClick()
+            flow.waitFor(hasTestTag("issue-thread-chip"), SYNC_TIMEOUT)
+            composeRule.onAllNodes(hasTestTag("issue-thread-chip")).onFirst().performScrollTo()
+            composeRule.onAllNodes(hasTestTag("issue-thread-chip")).onFirst().performClick()
+            flow.waitFor(hasTestTag(SessionTree.RepliesCopy.TEST_ID), SYNC_TIMEOUT)
+            flow.settle()
+            flow.screenshot("sg_thread-replies")
             // Thread → issue → board.
             Espresso.pressBack()
             flow.waitForGone(hasTestTag("thread-tabs"), NAV_TIMEOUT)

@@ -945,6 +945,21 @@ async function seedSessionTree(ctx: {
         body: `Done: the selection bar has a Labels button now, and a 40-issue edit lands as one undo step. The PR is open and green.`,
         at: minutesAgo(98),
       },
+      // EXP-1211: its quick replies above the composer (the `thread-replies`
+      // view); never a Conversation row.
+      {
+        sessionId: ids.batchLabels,
+        author: `agent`,
+        card: {
+          kind: `replies`,
+          items: [
+            { id: `merge`, text: `Merge it` },
+            { id: `test`, text: `Add a test for the undo step` },
+            { id: `diff`, text: `Show me the diff` },
+          ],
+        },
+        at: minutesAgo(97),
+      },
       {
         sessionId: ids.scrollRestore,
         author: `user`,

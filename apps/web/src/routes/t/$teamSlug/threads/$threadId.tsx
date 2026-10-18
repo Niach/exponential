@@ -36,7 +36,7 @@ import { IssueChip as IssueRefChip } from "@/components/issue-chip"
 import { IssueRefOutlet, useIssueRefs } from "@/components/issue-ref-provider"
 import { IssueDetailView } from "@/components/issue-detail-view"
 import { statusColorClass } from "@/components/issue-properties/status-dropdown"
-import { SessionComposer } from "@/components/session-composer"
+import { SessionComposer, SessionComposerReplies } from "@/components/session-composer"
 import {
   HEADER_BUTTON_CLASS,
   MOBILE_DETAIL_SCREEN_CLASS,
@@ -833,6 +833,7 @@ function ConversationBody({
       busy={busy}
       canStop
       opaque={isMobile}
+      hideReplies={isMobile}
       testId="thread-composer"
       className="mx-auto max-w-3xl"
     />
@@ -902,7 +903,12 @@ function ConversationBody({
       )}
       {composer &&
         (isMobile ? (
-          <FloatingComposer placeholder={view.composer.placeholder}>{composer}</FloatingComposer>
+          <FloatingComposer
+            placeholder={view.composer.placeholder}
+            above={<SessionComposerReplies sessionId={view.composer.sessionId} />}
+          >
+            {composer}
+          </FloatingComposer>
         ) : (
           <div className="shrink-0 px-4 pt-2 pb-4 md:px-6">{composer}</div>
         ))}
