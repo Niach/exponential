@@ -56,7 +56,9 @@
         "label": { "type": "string", "required": true, "bindable": true, "description": "The text shown for the option." },
         "value": { "type": "string", "required": true, "description": "The stable value the selection reports." },
         "icon": { "type": "icon", "description": "An icon shown before the label." },
-        "disabled": { "type": "boolean", "description": "Shows the option but refuses it." }
+        "disabled": { "type": "boolean", "description": "Shows the option but refuses it." },
+        "description": { "type": "string", "description": "A second line." },
+        "image": { "type": "url", "description": "A tile picture." }
       }
     },
     "check": {
@@ -350,7 +352,7 @@
     },
     "Sidebar": {
       "kind": "macro", "group": "layout", "lite": true, "children": "many", "slots": ["sidebar"],
-      "description": "A two-column shell: a navigation column (`sidebar` slot) beside the children, hidden below a breakpoint or when `collapsed`; give narrow screens another way in (a `bar` Segmented, or a Drawer from an AppBar button).",
+      "description": "A two-column shell: a navigation column (`sidebar` slot) beside the children, hidden below a breakpoint or when `collapsed`; give narrow screens another way in.",
       "props": {
         "side": { "type": "enum", "values": ["left", "right"], "default": "left", "description": "Which edge the column sits on." },
         "width": { "type": "number", "default": 240, "description": "The column width in px." },
@@ -372,7 +374,7 @@
     },
     "Section": {
       "kind": "macro", "group": "list", "lite": true, "children": "many", "slots": ["leading", "trailing"],
-      "description": "A band header over hairline-divided rows: a title with an optional caption, count and glyph, foldable, tinted; no title = just the rows.",
+      "description": "A band header over hairline-divided rows: title, optional caption, count and glyph, foldable, tinted; no title = just the rows.",
       "props": {
         "title": { "type": "string", "bindable": true, "description": "The band's label; omit it for a bare run of rows." },
         "caption": { "type": "string", "description": "Muted text after the title." },
@@ -555,7 +557,7 @@
     },
     "Segmented": {
       "kind": "native", "group": "navigation", "lite": true, "children": "none",
-      "description": "ONE row of segments selecting one or many values: the pill-track segmented control, bare toggles, joined outline buttons or a bottom bar of destinations.",
+      "description": "ONE row of segments selecting one or many values: a pill track, bare toggles, joined outline buttons or a bottom bar.",
       "props": {
         "items": { "type": "array", "items": { "type": "object", "shape": "option" }, "required": true, "description": "The segments in order." },
         "type": { "type": "enum", "enum": "groupType", "default": "single", "description": "One active value or several." },
@@ -703,7 +705,7 @@
     },
     "Menu": {
       "kind": "native", "group": "overlay", "lite": false, "children": "one",
-      "description": "A menu of actions, checkboxes, groups and one-level submenus: opened by pressing its child (or a default button) or by right-click / long-press on it.",
+      "description": "A menu of actions, checkboxes, groups and one-level submenus, opened by pressing its child or by right-click / long-press.",
       "props": {
         "label": { "type": "string", "description": "The default trigger's text when no child is given." },
         "icon": { "type": "icon", "description": "The default trigger's icon." },
@@ -750,7 +752,7 @@
     },
     "Chip": {
       "kind": "macro", "group": "feedback", "lite": true, "children": "none", "slots": ["leading"],
-      "description": "A small labelled token: a pill for a filter, label or state, or a rect naming an entity with a glyph or picture, optionally removable.",
+      "description": "A small labelled token: a pill for a filter, label or state, or a rect naming an entity with a glyph or picture; removable.",
       "props": {
         "label": { "type": "string", "required": true, "bindable": true, "description": "The chip text." },
         "shape": { "type": "enum", "enum": "chipShape", "default": "pill", "description": "A rounded pill or a squarer entity chip." },
@@ -768,13 +770,13 @@
     },
     "EmptyState": {
       "kind": "macro", "group": "feedback", "lite": true, "children": "none",
-      "description": "What a screen or a list says when it has nothing: a title of at most four words (`No <noun> yet`, `No <noun>`, `All caught up`) that never explains. `page` adds the icon disc, a sentence teaching the next step and an action; `list` is one muted line.",
+      "description": "What a screen or list says when empty: a title of at most four words (`No <noun> yet`, `All caught up`); `page` adds the icon disc, a next-step sentence and an action, `list` is one muted line.",
       "props": {
         "icon": { "type": "icon", "required": true, "description": "The glyph: in the disc on `page`, bare on `list`." },
         "title": { "type": "string", "required": true, "description": "What is empty." },
         "description": { "type": "string", "description": "The next step, `page` only." },
         "actionLabel": { "type": "string", "description": "A button label, `page` only; pressing it fires `press`." },
-        "size": { "type": "enum", "values": ["page", "list"], "default": "page", "description": "page = a whole screen's empty state with the disc, the sentence and the action; list = one muted line under a bare glyph inside a list, no description, no action." }
+        "size": { "type": "enum", "values": ["page", "list"], "default": "page", "description": "page = a whole screen's empty state with disc, sentence and action; list = one muted line under a bare glyph, no description, no action." }
       },
       "events": ["press"],
       "example": { "icon": "nav-inbox", "title": "No notifications", "description": "You are all caught up." }
@@ -836,7 +838,7 @@
     },
     "Table": {
       "kind": "native", "group": "data", "lite": false, "children": "none", "slots": ["*"], "slotScope": "row",
-      "description": "A data table of typed columns over rows: sorting, row selection, widths, alignment, windowed; a `slot` column renders a component per cell.",
+      "description": "A data table of typed columns over rows: sorting, selection, widths, alignment, windowed; a `slot` column renders a component per cell.",
       "props": {
         "columns": { "type": "array", "items": { "type": "object", "shape": "column" }, "required": true, "description": "The columns in order." },
         "rows": { "type": "array", "items": { "type": "object" }, "required": true, "bindable": true, "description": "One object per row keyed by column key; bind it for live data." },
@@ -855,7 +857,7 @@
     },
     "Chart": {
       "kind": "native", "group": "data", "lite": false, "children": "none",
-      "description": "A bar, stacked-bar, line, area, pie, donut or sparkline chart with axes, legend and tooltip, as wide as its box.",
+      "description": "A bar, stacked-bar, line, area, pie, donut or sparkline chart with axes, legend and tooltip.",
       "props": {
         "kind": { "type": "enum", "enum": "chartKind", "required": true, "description": "The chart form." },
         "categories": { "type": "array", "items": { "type": "string" }, "bindable": true, "description": "The x-axis labels, or the pie slices; omit for a sparkline." },
@@ -925,7 +927,7 @@
     },
     "Form": {
       "kind": "native", "group": "input", "lite": true, "children": "many",
-      "description": "Collects its fields by `name` and fires `submit` with their values once every check passes (a `submit` Button or Enter submits).",
+      "description": "Collects its fields by `name` and fires `submit` with their values once every check passes.",
       "props": {
         "name": { "type": "string", "required": true, "description": "The form's key in the submit payload." },
         "disabled": { "type": "boolean", "default": false, "bindable": true, "description": "Makes every field inert." },
@@ -1015,6 +1017,21 @@
       },
       "events": ["change"],
       "example": { "label": "Plan", "name": "plan", "options": [{ "label": "Free", "value": "free" }, { "label": "Team", "value": "team" }], "value": "free" }
+    },
+    "ChoiceTiles": {
+      "kind": "native", "group": "input", "lite": false, "children": "none",
+      "description": "Picture tiles picking one or many values; options show `image` and `description`.",
+      "props": {
+        "name": { "type": "string", "required": true, "description": "The field's key in the submitted data." },
+        "options": { "type": "array", "items": { "type": "object", "shape": "option" }, "required": true, "description": "The choices in order." },
+        "type": { "type": "enum", "enum": "groupType", "default": "single", "description": "One pick or several." },
+        "value": { "type": "string", "bindable": true, "description": "The pick (comma-joined when multiple); bind it." },
+        "columns": { "type": "number", "default": 2, "description": "Tiles per row." },
+        "disabled": { "type": "boolean", "default": false, "description": "Inert." },
+        "checks": { "type": "array", "items": { "type": "object", "shape": "check" }, "description": "Validation rules." }
+      },
+      "events": ["change"],
+      "example": { "name": "design", "options": [{ "label": "Two columns", "value": "two", "description": "Pictures beside the text", "image": "https://example.com/two.png" }, { "label": "One column", "value": "one", "description": "Pictures under the text", "image": "https://example.com/one.png" }], "value": "two" }
     },
     "Switch": {
       "kind": "native", "group": "input", "lite": true, "children": "none",
@@ -1183,7 +1200,7 @@
     },
     "Row": {
       "kind": "macro", "group": "list", "lite": true, "children": "none", "slots": ["leading", "trailing"],
-      "description": "THE list row: a lead glyph or slot, a mono identifier, a title with a subtitle, trailing meta or a readable value, a slot and a chevron; flat or a card, nestable by depth.",
+      "description": "THE list row: a lead glyph or slot, a mono identifier, a title with a subtitle, trailing meta or value, a slot and a chevron; flat or a card, nestable.",
       "props": {
         "title": { "type": "string", "required": true, "bindable": true, "description": "The main text." },
         "identifier": { "type": "string", "bindable": true, "description": "A mono identifier before the title (`EXP-12`)." },
@@ -1204,7 +1221,7 @@
     },
     "TreeGuides": {
       "kind": "native", "group": "list", "lite": true, "children": "none", "hidden": true,
-      "description": "The tree connector gutter a nested Row draws (its `guides` part, filled by the core from the rows around it): an elbow at its depth and pass-through lines for deeper ancestors; never authored directly.",
+      "description": "The tree connector gutter a nested Row draws (its `guides` part, filled by the core): an elbow at its depth and lines for deeper ancestors; never authored directly.",
       "props": {
         "depth": { "type": "number", "required": true, "description": "The row's nesting depth (0 = root)." },
         "elbowAt": { "type": "number", "description": "The gutter index that draws the elbow into this row; omit for a root." },

@@ -273,6 +273,13 @@ vi.mock(`@/lib/sessions/issues`, () => ({
 }))
 vi.mock(`@/lib/sessions/guide`, () => ({ writeGuide: h.sessionsCore.writeGuide }))
 vi.mock(`@/lib/pull-requests`, () => h.prs)
+// EXP-1280: the card builders stay real (the validation under test); only
+// the DB write is stubbed.
+const postAskCard = vi.hoisted(() => vi.fn())
+vi.mock(`@/lib/sessions/plan`, async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/sessions/plan")>()),
+  postAskCard,
+}))
 
 import { loadRepositoryForTeam } from "@/lib/trpc/repositories"
 import { noteAgentIssueActivity } from "@/lib/integrations/pr-actor-claims"
@@ -282,6 +289,7 @@ import { FULL_ACCESS, type McpAccess } from "@/lib/mcp/scope"
 import { ALL_MCP_TOOL_GATES, type McpToolGates } from "@/lib/mcp/gates"
 import type { McpUser } from "@/lib/mcp/server"
 import { contract } from "@exp/domain-contract"
+import { PLAN_CARD_COPY } from "@exp/domain-contract/plan-card"
 
 // ── Harness ──────────────────────────────────────────────────────────────────
 
@@ -2471,6 +2479,19 @@ describe(`pull request tools (EXP-1291)`, () => {
     expect(inside.isError).toBeFalsy()
   })
 
+  it(`EXP-1280: pr_open refuses while the caller session plans`, async () => {
+    dbRows.current = [callerRow({ planMode: true })]
+    const result = await collectTools(USER, SESSION).get(`exponential_pr_open`)!({ title: `Fix it` })
+    expect(result.isError).toBe(true)
+    expect(result.content[0]!.text).toBe(PLAN_CARD_COPY.planModeGate)
+    expect(prs.openPullRequest).not.toHaveBeenCalled()
+
+    dbRows.current = [callerRow({ planMode: false })]
+    prs.openPullRequest.mockResolvedValue({ pullRequestId: PR_ID })
+    const approved = await collectTools(USER, SESSION).get(`exponential_pr_open`)!({ title: `Fix it` })
+    expect(approved.isError).toBeFalsy()
+  })
+
   it(`pr_merge defaults to the caller session's PR and passes stack`, async () => {
     dbRows.current = [callerRow()]
     prs.mergePullRequest.mockResolvedValue({ merged: true, mergedIds: [PR_ID] })
@@ -2632,5 +2653,211 @@ describe(`exponential_attachments_get — a message's file (EXP-1291)`, () => {
     const result = await tool(`exponential_attachments_get`)({ id: UUID })
     expect(result.isError).toBe(true)
     expect(result.content[0].text).toContain(`Attachment not found`)
+  })
+})
+
+// EXP-1280 custom plan mode: the plan / question card the session posts on
+// itself. The builders (lib/sessions/plan.ts) run for real; postAskCard (the
+// DB write + upload minting) is stubbed.
+describe(`exponential_plan_propose / exponential_sessions_ask (EXP-1280)`, () => {
+  const POSTED = {
+    messageId: MSG,
+    uploads: [{ label: `grid`, uploadUrl: `https://x.test/u`, curl: `curl -F file=@grid.png "https://x.test/u"` }],
+    next: PLAN_CARD_COPY.proposeNext,
+  }
+  const surface = {
+    root: { id: `r`, component: `Stack`, children: [{ id: `t`, component: `Text`, props: { text: `Hi` } }] },
+    data: { name: `x` },
+  }
+  const propose = (args: Record<string, unknown>) =>
+    collectTools(USER, SESSION).get(`exponential_plan_propose`)!(args)
+  const ask = (args: Record<string, unknown>) =>
+    collectTools(USER, SESSION).get(`exponential_sessions_ask`)!(args)
+
+  beforeEach(() => {
+    dbRows.current = [callerRow()]
+    postAskCard.mockReset()
+    postAskCard.mockResolvedValue(POSTED)
+  })
+
+  it(`posts the normalised plan card on the caller's own session`, async () => {
+    const result = await propose({
+      plan: `  1. Tiles\n\n![Grid](upload:grid)  `,
+      pictures: [{ label: `grid`, caption: ` The grid ` }],
+      questions: [
+        { id: `layout`, prompt: `Layout?`, options: [{ label: `Grid`, picture: `grid` }, { label: `List`, description: `Rows` }] },
+      ],
+      surface,
+    })
+    expect(parseOk(result)).toEqual(POSTED)
+    expect(postAskCard).toHaveBeenCalledWith({
+      userId: USER.id,
+      sessionId: SESSION,
+      card: {
+        kind: `plan`,
+        plan: `1. Tiles\n\n![Grid](upload:grid)`,
+        pictures: [{ label: `grid`, attachmentId: null, width: null, height: null, caption: `The grid` }],
+        questions: [
+          {
+            id: `layout`,
+            prompt: `Layout?`,
+            multi: false,
+            custom: true,
+            options: [
+              { label: `Grid`, description: null, picture: `grid` },
+              { label: `List`, description: `Rows`, picture: null },
+            ],
+          },
+        ],
+        surface,
+        decision: null,
+        fresh: null,
+        feedback: null,
+        answers: null,
+        surfaceData: null,
+      },
+    })
+  })
+
+  it.each([
+    [`a picture label twice`, { pictures: [{ label: `a` }, { label: `a` }] }, `declared twice`],
+    [`an undeclared embed`, { plan: `![x](upload:nope)` }, `"nope"`],
+    [
+      `an undeclared option picture`,
+      { questions: [{ id: `q`, prompt: `Q?`, options: [{ label: `A`, picture: `nope` }] }] },
+      `questions[0].options[0]`,
+    ],
+    [
+      `a question id twice`,
+      { questions: [{ id: `q`, prompt: `Q?`, options: [{ label: `A` }] }, { id: `q`, prompt: `R?`, options: [{ label: `B` }] }] },
+      `"q" is used twice`,
+    ],
+    [
+      `an option label twice`,
+      { questions: [{ id: `q`, prompt: `Q?`, options: [{ label: `A` }, { label: `A` }] }] },
+      `listed twice`,
+    ],
+    [`an unanswerable question`, { questions: [{ id: `q`, prompt: `Q?`, custom: false, options: [] }] }, `cannot be answered`],
+    [`a surface outside the core catalog`, { surface: { root: { id: `r`, component: `Nope` } } }, `unknown component Nope`],
+    [`a surface with invalid props`, { surface: { root: { id: `r`, component: `Text` } } }, `props.text: required`],
+    [`a surface root that is no node`, { surface: { root: { kind: `x` } } }, `Exponential UI node`],
+    [`a malformed surface tree`, { surface: { root: { id: `r`, component: `Stack`, children: `x` } } }, `not a valid`],
+    [
+      `a surface past the byte cap`,
+      { surface: { root: { id: `r`, component: `Text`, props: { text: `x`.repeat(70_000) } } } },
+      `the cap is 65536`,
+    ],
+    [
+      `a surface past the component cap`,
+      {
+        surface: {
+          root: {
+            id: `r`,
+            component: `Stack`,
+            children: Array.from({ length: 200 }, (_, i) => ({ id: `t${i}`, component: `Text`, props: { text: `x` } })),
+          },
+        },
+      },
+      `201 components`,
+    ],
+  ])(`refuses %s with a message the agent can act on`, async (_name, args, message) => {
+    const result = await propose({ plan: `1. x`, ...args })
+    expect(result.isError).toBe(true)
+    expect(result.content[0]!.text).toContain(message)
+    expect(postAskCard).not.toHaveBeenCalled()
+  })
+
+  it(`refuses unknown keys, over-cap lists and bad labels at the schema`, () => {
+    const schema = collectToolDefs().get(`exponential_plan_propose`)!.inputSchema!
+    expect(schema.safeParse({ plan: `1. x` }).success).toBe(true)
+    expect(schema.safeParse({ plan: `1. x`, extra: 1 }).success).toBe(false)
+    expect(
+      schema.safeParse({ plan: `1. x`, pictures: Array.from({ length: 11 }, (_, i) => ({ label: `p${i}` })) }).success
+    ).toBe(false)
+    expect(schema.safeParse({ plan: `1. x`, pictures: [{ label: `bad label` }] }).success).toBe(false)
+    expect(
+      schema.safeParse({ plan: `1. x`, questions: [{ id: `q`, prompt: `Q?`, options: [{ label: `A`, extra: 1 }] }] }).success
+    ).toBe(false)
+    const askSchema = collectToolDefs().get(`exponential_sessions_ask`)!.inputSchema!
+    expect(askSchema.safeParse({ question: `Q?`, options: [{ label: `A` }] }).success).toBe(true)
+    expect(askSchema.safeParse({ question: `Q?` }).success).toBe(false)
+  })
+
+  it(`surfaces the one-open-plan CONFLICT`, async () => {
+    postAskCard.mockRejectedValue(
+      new TRPCError({ code: `CONFLICT`, message: `A plan is already waiting for an answer (message x)` })
+    )
+    const result = await propose({ plan: `1. x` })
+    expect(result.isError).toBe(true)
+    expect(result.content[0]!.text).toContain(`A plan is already waiting for an answer`)
+  })
+
+  it(`refuses a header that is not the caller's own session`, async () => {
+    dbRows.current = []
+    const result = await propose({ plan: `1. x` })
+    expect(result.isError).toBe(true)
+    expect(postAskCard).not.toHaveBeenCalled()
+  })
+
+  it(`posts one question with the sidecars only when an option carries one`, async () => {
+    await ask({ question: ` Which? `, options: [{ label: `A` }, { label: `B` }] })
+    expect(postAskCard).toHaveBeenLastCalledWith({
+      userId: USER.id,
+      sessionId: SESSION,
+      card: {
+        kind: `question`,
+        question: `Which?`,
+        options: [`A`, `B`],
+        pictures: [],
+        multi: false,
+        custom: true,
+        surface: null,
+        answer: null,
+        answers: null,
+        surfaceData: null,
+      },
+    })
+    const result = await ask({
+      question: `Which look?`,
+      options: [{ label: `Dark`, picture: `dark`, description: `Night` }, { label: `Light` }],
+      multi: true,
+      custom: false,
+      pictures: [{ label: `dark` }],
+      surface,
+    })
+    expect(parseOk(result)).toEqual(POSTED)
+    expect(postAskCard).toHaveBeenLastCalledWith({
+      userId: USER.id,
+      sessionId: SESSION,
+      card: {
+        kind: `question`,
+        question: `Which look?`,
+        options: [`Dark`, `Light`],
+        optionDescriptions: [`Night`, null],
+        optionPictures: [`dark`, null],
+        pictures: [{ label: `dark`, attachmentId: null, width: null, height: null, caption: null }],
+        multi: true,
+        custom: false,
+        surface,
+        answer: null,
+        answers: null,
+        surfaceData: null,
+      },
+    })
+  })
+
+  it(`refuses an undeclared option picture on a question`, async () => {
+    const result = await ask({ question: `Q?`, options: [{ label: `A`, picture: `nope` }] })
+    expect(result.isError).toBe(true)
+    expect(result.content[0]!.text).toContain(`options[0]`)
+  })
+
+  it(`registers only inside a session`, () => {
+    const headerless = collectToolDefs({ inSession: false, unattended: false, agent: false })
+    expect(headerless.has(`exponential_plan_propose`)).toBe(false)
+    expect(headerless.has(`exponential_sessions_ask`)).toBe(false)
+    const defs = collectToolDefs()
+    expect(defs.has(`exponential_plan_propose`)).toBe(true)
+    expect(defs.has(`exponential_sessions_ask`)).toBe(true)
   })
 })

@@ -144,3 +144,41 @@ final class EmptyStateSizeTests: XCTestCase {
         XCTAssertEqual(Set(EmptyStateSize.allCases.map(\.rawValue)), Set(try fixtureSizes().keys))
     }
 }
+
+/// EXP-1280: the ChoiceTiles primitive's geometry IS plan-card.json `tiles`
+/// (the app's picture tiles and the painter's recipe share it ×4).
+final class ChoiceTilesStyleTests: XCTestCase {
+    func testDefaultsMatchThePlanCardTiles() throws {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()   // Tests/ExponentialUIPrimitivesTests/
+            .deletingLastPathComponent()   // Tests/
+            .deletingLastPathComponent()   // packages/exponential-ui-swift/
+            .deletingLastPathComponent()   // packages/
+            .appendingPathComponent("domain-contract/fixtures/plan-card.json")
+        let fixture = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        let tiles = try XCTUnwrap(fixture["tiles"] as? [String: Double])
+        let style = ChoiceTilesStyle()
+        XCTAssertEqual(Double(style.columns), tiles["columns"])
+        XCTAssertEqual(Double(style.gap), tiles["gap"])
+        XCTAssertEqual(Double(style.radius), tiles["radius"])
+        XCTAssertEqual(Double(style.padding), tiles["padding"])
+        XCTAssertEqual(Double(style.pictureAspect), tiles["pictureAspect"])
+        XCTAssertEqual(Double(style.selectedRing), tiles["selectedRing"])
+        XCTAssertEqual(Double(style.pictureRadius), tiles["pictureRadius"])
+        XCTAssertEqual(Double(style.strokeWidth), tiles["stroke"])
+        XCTAssertEqual(Double(style.placeholderGlyph), tiles["placeholderGlyph"])
+        XCTAssertEqual(Double(style.labelGap), tiles["labelGap"])
+        XCTAssertEqual(Double(style.descriptionGap), tiles["labelGap"])
+        XCTAssertEqual(style.inertOpacity, tiles["inertOpacity"])
+        XCTAssertEqual(style.placeholderOpacity, 0.6)
+        XCTAssertEqual(style.labelFont, .system(size: 14, weight: .medium))
+        XCTAssertEqual(style.descriptionFont, .system(size: 12))
+        // The recipe's fills ride the theme tokens.
+        let tokens = PrimitiveTokens(card: .red, accent: .green, secondary: .blue)
+        let themed = ChoiceTilesStyle.default(tokens)
+        XCTAssertEqual(themed.tileFill, .red)
+        XCTAssertEqual(themed.tileFillSelected, .green)
+        XCTAssertEqual(themed.tileFillHover, .blue)
+        XCTAssertEqual(ChoiceTilesStyle.default(PrimitiveTokens()).radius, style.radius)
+    }
+}

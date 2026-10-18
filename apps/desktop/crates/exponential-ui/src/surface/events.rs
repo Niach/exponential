@@ -565,6 +565,24 @@ impl Surface {
                 out.extend(self.fire(&owner_id, "change", Some(json!({"value": value}))));
                 out.push(OutEvent::Relayout);
             }
+            ("ChoiceTiles", Some("tile" | "picture" | "label" | "description"), "press") => {
+                // EXP-1280: the option index is the id suffix
+                // (`<owner>.label.2`); the TILE (`<owner>.tile.2`) carries the
+                // option's value and whether it is disabled.
+                let suffix = n.id.rsplit('.').next().unwrap_or_default();
+                let tile = self.node_by_id(&format!("{owner_id}.tile.{suffix}")).cloned();
+                let Some(tile) = tile.filter(|t| t.props.get("disabled").and_then(Value::as_bool) != Some(true)) else { return out };
+                let value = tile.props.get("value").map(js).unwrap_or_default();
+                let mut props = self.node_by_id(&owner_id).map(|o| o.props.clone()).unwrap_or_default();
+                if let Some(current) = self.current_prop(&owner_id, "value") {
+                    props.insert("value".into(), current);
+                }
+                let next = Value::String(crate::layout_tree::fields::choice_toggle(&props, &value));
+                self.local.errors.remove(&owner_id);
+                out.extend(self.write_field(&owner_id, "value", next.clone()));
+                out.extend(self.fire(&owner_id, "change", Some(json!({"value": next}))));
+                out.push(OutEvent::Relayout);
+            }
             ("Toggle", _, "press") => {
                 let current = self.local.pressed_toggles.get(&owner_id).copied().unwrap_or_else(|| n.props.get("pressed").and_then(Value::as_bool).unwrap_or(false));
                 self.local.pressed_toggles.insert(owner_id.clone(), !current);
@@ -585,7 +603,7 @@ impl Surface {
                     out.extend(self.submit_form(&form));
                 }
             }
-            ("Input" | "Textarea" | "Select" | "DatePicker" | "Slider" | "Composer" | "Segmented" | "TimePicker" | "DateRangePicker", _, "change" | "commit" | "submit") => {
+            ("Input" | "Textarea" | "Select" | "DatePicker" | "Slider" | "Composer" | "Segmented" | "ChoiceTiles" | "TimePicker" | "DateRangePicker", _, "change" | "commit" | "submit") => {
                 let value = payload.as_ref().and_then(|p| p.get("value")).cloned().unwrap_or(Value::Null);
                 let name = n.props.get("name").or_else(|| self.node_by_id(&owner_id).and_then(|o| o.props.get("name"))).and_then(Value::as_str).unwrap_or(&owner_id).to_string();
                 let path = self.binding_path(&owner_id, "value");

@@ -253,8 +253,10 @@ pub struct SessionReport {
     /// and session end).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub caption: Option<Option<String>>,
-    /// EXP-1334: the agent's OWN plan-mode move (claude leaving plan mode
-    /// once a plan is approved): the row's `plan_mode` follows the run.
+    /// EXP-1334: the row's `plan_mode` as the run is in it. EXP-1280: no
+    /// device writes it any more (plan mode is Exponential's: a person's
+    /// `sessions.configure` or the server's approval moves the row); kept
+    /// for the wire.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub plan_mode: Option<bool>,
     /// EXP-1334: the agent's model as the run is on it (a `/model` switch
@@ -301,10 +303,6 @@ pub enum ReplyCard {
         options: Vec<ReplyOption>,
         question_id: String,
     },
-    Plan {
-        plan: String,
-        question_id: String,
-    },
     Subagent {
         title: String,
         status: String,
@@ -333,13 +331,6 @@ impl serde::Serialize for ReplyCard {
                 if let Some(descriptions) = &descriptions {
                     map.serialize_entry("optionDescriptions", descriptions)?;
                 }
-                map.serialize_entry("questionId", question_id)?;
-                map.end()
-            }
-            Self::Plan { plan, question_id } => {
-                let mut map = serializer.serialize_map(Some(3))?;
-                map.serialize_entry("kind", "plan")?;
-                map.serialize_entry("plan", plan)?;
                 map.serialize_entry("questionId", question_id)?;
                 map.end()
             }
@@ -809,13 +800,6 @@ mod tests {
         assert_eq!(ReplyOption::new("Now", None).description(), None);
         assert_eq!(option_descriptions(&["A".into(), "B".into()]), None);
         assert_eq!(
-            json(&ReplyCard::Plan {
-                plan: "1. Do it".to_string(),
-                question_id: "q-2".to_string(),
-            }),
-            r#"{"kind":"plan","plan":"1. Do it","questionId":"q-2"}"#
-        );
-        assert_eq!(
             json(&ReplyCard::Subagent {
                 title: "Review".to_string(),
                 status: "completed".to_string(),
@@ -832,7 +816,6 @@ mod tests {
             r#"{"kind":"subagent","title":"Review","status":"failed","summary":"No access"}"#
         );
         for card in [
-            ReplyCard::Plan { plan: String::new(), question_id: String::new() },
             ReplyCard::Question { question: String::new(), options: vec![], question_id: String::new() },
             ReplyCard::Subagent { title: String::new(), status: String::new(), summary: None },
         ] {

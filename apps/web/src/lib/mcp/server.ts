@@ -38,6 +38,7 @@ export function createExponentialMcpServer(
         inSession: gates.inSession,
         unattended: gates.unattended,
         agent: gates.agent,
+        planMode: gates.planMode === true,
         reportBug: Boolean(buildRuntimeConfig().feedbackWidget?.widgetKey),
       }),
     }

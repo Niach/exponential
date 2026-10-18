@@ -1,6 +1,7 @@
 package com.exponential.app.ui.markdown
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
@@ -42,6 +43,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
+import com.exponential.app.domain.PlanCard
+import com.exponential.app.ui.theme.GlassTokens
 import coil3.compose.AsyncImagePainter
 import com.exponential.app.ui.markdown.model.BlockKind
 import com.exponential.app.ui.markdown.model.ContentBlock
@@ -116,6 +119,12 @@ private fun ImageBlockView(url: String, alt: String) {
     val aspect = decodedAspect
         ?: dims.aspectRatioOf(url)
         ?: if (attachmentIdFromUrl(url) != null) DEFAULT_IMAGE_ASPECT_RATIO else null
+    // A chat body (the plan / question card, the transcript) draws the
+    // card's picture (plan-card.json `card`): the probed aspect at full
+    // width, no max height, its own radius + a stroke-card hairline. A
+    // document keeps the editor's 8dp tile.
+    val chat = LocalMarkdownBodyStyle.current != MdStyle.body
+    val shape = RoundedCornerShape(if (chat) PlanCard.Look.PICTURE_RADIUS.dp else 8.dp)
     AsyncImage(
         model = url,
         contentDescription = alt,
@@ -130,7 +139,8 @@ private fun ImageBlockView(url: String, alt: String) {
             .fillMaxWidth()
             .padding(vertical = 4.dp)
             .then(if (aspect != null) Modifier.aspectRatio(aspect) else Modifier)
-            .clip(RoundedCornerShape(8.dp)),
+            .clip(shape)
+            .then(if (chat) Modifier.border(PlanCard.Look.PICTURE_STROKE.dp, GlassTokens.StrokeCard, shape) else Modifier),
     )
 }
 
@@ -291,7 +301,9 @@ private fun LineView(
     when (a.kind) {
         BlockKind.Heading -> ChipText(
             line = annotateLine(text, marks, issueRefs, mentions, autolink, inlineCode, bare, appLinks),
-            style = MdStyle.heading(a.headingLevel),
+            // A chat body derives its headings from the body (h1 =
+            // `card.headingScale` × it); a document keeps the editor's scale.
+            style = if (body == MdStyle.body) MdStyle.heading(a.headingLevel) else MdStyle.chatHeading(a.headingLevel, body),
             modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
         )
 
@@ -334,28 +346,32 @@ private fun ListItemView(
     val bare = LocalIssueRefBare.current
     val appLinks = LocalAppLinks.current
     val body = LocalMarkdownBodyStyle.current
-    val indent = MdStyle.listIndentBase + MdStyle.listIndentPerDepth * a.listDepth
+    // A chat body puts the list TEXT at `card.listIndent` (the glyph column
+    // from the margin); a document keeps the editor's base indent before it.
+    val base = if (body == MdStyle.body) MdStyle.listIndentBase else 0.dp
+    val indent = base + MdStyle.listIndentPerDepth * a.listDepth
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(start = indent, top = 2.dp, bottom = 2.dp),
         verticalAlignment = Alignment.Top,
     ) {
+        val glyph = if (body == MdStyle.body) 22.dp else PlanCard.Look.LIST_INDENT.dp
         when (a.listType) {
             ListType.Checklist -> Text(
                 if (a.checked) "☑" else "☐",
                 style = body,
-                modifier = Modifier.width(22.dp),
+                modifier = Modifier.width(glyph),
             )
             ListType.Ordered -> Text(
                 "${a.orderedIndex}.",
                 style = body,
-                modifier = Modifier.width(22.dp),
+                modifier = Modifier.width(glyph),
             )
             ListType.Bullet, null -> Text(
                 "•",
                 style = body,
-                modifier = Modifier.width(22.dp),
+                modifier = Modifier.width(glyph),
             )
         }
         ChipText(

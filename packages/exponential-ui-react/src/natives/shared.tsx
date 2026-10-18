@@ -84,6 +84,7 @@ const PLACED: Readonly<Record<string, readonly string[]>> = {
   DateRangePicker: [`label`, `trigger`],
   TimePicker: [`label`, `trigger`],
   Radio: [`label`, `items`],
+  ChoiceTiles: [`error`],
   Checkbox: [`box`, `label`, `description`],
   Slider: [`header`, `label`, `value`, `track`],
   Tabs: [`list`, `content`, `new`],

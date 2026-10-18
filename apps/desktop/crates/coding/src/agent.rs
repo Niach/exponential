@@ -85,11 +85,11 @@ impl CodingAgent {
         matches!(self, CodingAgent::Claude)
     }
 
-    /// A launch-into-plan mode. Claude Code natively (`--permission-mode
-    /// plan`). Codex HAS an interactive plan mode (`/plan`) but no flag to
-    /// start in it.
+    /// EXP-1280: plan mode is Exponential's (the runbook's `## Plan` + the
+    /// server's `pr_open` gate), never the CLI's, so EVERY agent supports it.
+    /// Always `true`; kept only so `crates/ui` compiles until it drops it.
     pub fn supports_plan_mode(self) -> bool {
-        matches!(self, CodingAgent::Claude)
+        true
     }
 
     /// The closed model set for this agent. Every launch passes one of
@@ -190,11 +190,11 @@ mod tests {
 
     #[test]
     fn capability_matrix() {
-        // Ultracode and launch-into-plan are Claude-only (EXP-849 dropped pi).
+        // Ultracode is Claude-only (EXP-849 dropped pi); EXP-1280: plan
+        // mode is Exponential's, every agent's.
         // EXP-690: there is no skip-permissions capability any more — every
         // run bypasses.
         assert!(CodingAgent::Claude.supports_ultracode());
-        assert!(CodingAgent::Claude.supports_plan_mode());
         // EXP-981: only claude pins a subagent model.
         assert!(CodingAgent::Claude.supports_subagent_model());
         assert!(!CodingAgent::Codex.supports_subagent_model());
@@ -205,7 +205,6 @@ mod tests {
         for agent in CodingAgent::ALL {
             assert!(agent.model_values().contains(&agent.default_model()), "{agent}");
         }
-        assert!(!CodingAgent::Codex.supports_plan_mode());
     }
 
     /// EXP-877: a resolved id folds back onto the alias the picker offers —

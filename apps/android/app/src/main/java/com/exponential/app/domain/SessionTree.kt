@@ -424,14 +424,32 @@ object SessionTree {
             val sessionId: String,
             val question: String,
             val options: List<QuestionChoice>,
-            /** A free-text "Other" answer is offered (always, EXP-1316). */
+            /** A free-text "Other" answer is offered (default true; EXP-1280 `custom`). */
             val custom: Boolean,
             val answer: String?,
             val answered: Boolean,
+            /** EXP-1280: several picks allowed. */
+            val multi: Boolean = false,
+            /** EXP-1280: the inline Exponential UI surface, if any. */
+            val surface: CardSurface? = null,
+            /** EXP-1280: the picked labels (null on a legacy card = [answer] alone). */
+            val answers: List<String>? = null,
+            /** EXP-1280: the surface's data model as the person answered it. */
+            val surfaceData: JsonObject? = null,
         ) : ThreadRow
 
-        /** One choice of a question card: the answer is the [label] (EXP-1322). */
-        data class QuestionChoice(val label: String, val description: String?)
+        /** One choice of a question card: the answer is the [label] (EXP-1322);
+         *  [attachmentId] = its picture (EXP-1280 plan-card.json `pictureFor`). */
+        data class QuestionChoice(val label: String, val description: String?, val attachmentId: String? = null)
+
+        /** EXP-1280: one choice question of a plan card. */
+        data class PlanQuestion(
+            val id: String,
+            val prompt: String,
+            val multi: Boolean,
+            val custom: Boolean,
+            val options: List<QuestionChoice>,
+        )
 
         /** [fresh] = an approval that started in a fresh context (ask-dock.json). */
         data class Plan(
@@ -440,6 +458,14 @@ object SessionTree {
             val plan: String,
             val decision: String?,
             val fresh: Boolean = false,
+            /** EXP-1280: the choice questions, the inline surface. */
+            val questions: List<PlanQuestion> = emptyList(),
+            val surface: CardSurface? = null,
+            /** EXP-1280: the picked labels per question id, the note. */
+            val answers: Map<String, List<String>>? = null,
+            val feedback: String? = null,
+            /** EXP-1280: the surface's data model as the person answered it. */
+            val surfaceData: JsonObject? = null,
         ) : ThreadRow
 
         data class Subagent(override val id: String, val title: String, val status: String) : ThreadRow
@@ -498,6 +524,116 @@ object SessionTree {
         null, is JsonNull -> ""
         is JsonPrimitive -> value.content
         else -> value.toString()
+    }
+
+    private fun JsonObject.isTrue(key: String): Boolean =
+        (this[key] as? JsonPrimitive)?.takeIf { !it.isString }?.content == "true"
+
+    private fun JsonObject.isFalse(key: String): Boolean =
+        (this[key] as? JsonPrimitive)?.takeIf { !it.isString }?.content == "false"
+
+    // ── EXP-1280: the rich plan / question card (plan-card.json) ────────────
+
+    /** A `question` / `plan` message's row (null = another kind). */
+    fun askRow(message: Message): ThreadRow? {
+        val card = message.card ?: return null
+        return when (card.str("kind")) {
+            DomainContract.messageCardKindQuestion -> ThreadRow.Question(
+                id = message.id,
+                sessionId = message.sessionId,
+                question = card.text("question"),
+                options = questionOptions(card),
+                custom = !card.isFalse("custom"),
+                answer = card.str("answer"),
+                answered = message.answeredAt != null,
+                multi = card.isTrue("multi"),
+                surface = cardSurface(card["surface"]),
+                answers = (card["answers"] as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.takeIf { p -> p.isString }?.content },
+                surfaceData = card["surfaceData"] as? JsonObject,
+            )
+            DomainContract.messageCardKindPlan -> ThreadRow.Plan(
+                id = message.id,
+                sessionId = message.sessionId,
+                plan = card.text("plan"),
+                decision = card.str("decision"),
+                fresh = card.isTrue("fresh"),
+                questions = planQuestions(card),
+                surface = cardSurface(card["surface"]),
+                answers = planAnswers(card["answers"]),
+                feedback = card.str("feedback")?.takeIf { it.isNotEmpty() },
+                surfaceData = card["surfaceData"] as? JsonObject,
+            )
+            else -> null
+        }
+    }
+
+    /**
+     * The session view's waiting cards a TOOL posted (`exponential_plan_propose`
+     * / `exponential_sessions_ask`: no `questionId`, so no open relay ask
+     * mirrors them), oldest first; answered through `sessions.answer` only.
+     */
+    fun toolPostedAsks(messages: List<Message>): List<ThreadRow> = messages
+        .filter { it.card != null && it.card.str("questionId") == null }
+        .sortedWith(compareBy<Message>({ it.createdAt }, { it.id }))
+        .mapNotNull(::askRow)
+        .filter { row ->
+            (row is ThreadRow.Plan && row.decision == null) || (row is ThreadRow.Question && !row.answered)
+        }
+
+    /** The question card's options: `options` = plain labels, descriptions ride
+     *  the parallel `optionDescriptions` sidecar (null / "" = none, EXP-1322),
+     *  pictures the `optionPictures` sidecar of picture LABELS resolved through
+     *  `pictures`; zipped by ORIGINAL index before non-string options drop. */
+    fun questionOptions(card: JsonObject): List<ThreadRow.QuestionChoice> {
+        val options = card["options"] as? JsonArray ?: return emptyList()
+        val descriptions = card["optionDescriptions"] as? JsonArray
+        val pictureLabels = card["optionPictures"] as? JsonArray
+        val pictures = PlanCard.cardPictures(card["pictures"])
+        return options.mapIndexedNotNull { index, option ->
+            val label = (option as? JsonPrimitive)?.takeIf { it.isString }?.content ?: return@mapIndexedNotNull null
+            val description = (descriptions?.getOrNull(index) as? JsonPrimitive)
+                ?.takeIf { it.isString && it.content.isNotEmpty() }?.content
+            val picture = (pictureLabels?.getOrNull(index) as? JsonPrimitive)?.takeIf { it.isString }?.content
+            ThreadRow.QuestionChoice(label, description, PlanCard.pictureFor(pictures, picture))
+        }
+    }
+
+    /** A plan card's `questions`; a malformed question (no string id/prompt)
+     *  or option (no string label) drops. */
+    fun planQuestions(card: JsonObject): List<ThreadRow.PlanQuestion> {
+        val questions = card["questions"] as? JsonArray ?: return emptyList()
+        val pictures = PlanCard.cardPictures(card["pictures"])
+        return questions.mapNotNull { raw ->
+            val question = raw as? JsonObject ?: return@mapNotNull null
+            val id = question.str("id") ?: return@mapNotNull null
+            val prompt = question.str("prompt") ?: return@mapNotNull null
+            val options = (question["options"] as? JsonArray).orEmpty().mapNotNull { entry ->
+                val option = entry as? JsonObject ?: return@mapNotNull null
+                val label = option.str("label") ?: return@mapNotNull null
+                ThreadRow.QuestionChoice(
+                    label = label,
+                    description = option.str("description")?.takeIf { it.isNotEmpty() },
+                    attachmentId = PlanCard.pictureFor(pictures, option.str("picture")),
+                )
+            }
+            ThreadRow.PlanQuestion(id, prompt, question.isTrue("multi"), !question.isFalse("custom"), options)
+        }
+    }
+
+    /** A card's inline surface: an object with a `root` object, else null. */
+    fun cardSurface(raw: kotlinx.serialization.json.JsonElement?): CardSurface? {
+        val surface = raw as? JsonObject ?: return null
+        val root = surface["root"] as? JsonObject ?: return null
+        return CardSurface(root, surface["data"] as? JsonObject)
+    }
+
+    /** A plan card's `answers` (question id → labels), strings only. */
+    fun planAnswers(raw: kotlinx.serialization.json.JsonElement?): Map<String, List<String>>? {
+        val answers = raw as? JsonObject ?: return null
+        return answers.mapNotNull { (id, labels) ->
+            val list = labels as? JsonArray ?: return@mapNotNull null
+            id to list.mapNotNull { (it as? JsonPrimitive)?.takeIf { p -> p.isString }?.content }
+        }.toMap()
     }
 
     private fun JsonObject.int(key: String): Int? {
@@ -712,30 +848,8 @@ object SessionTree {
                     val target = card.str("sessionId")?.let { byId[it] } ?: continue
                     rows.add(ThreadRow.SessionRow(message.id, sessionCard(target, titles[target.id] ?: "", now)))
                 }
-                DomainContract.messageCardKindQuestion -> rows.add(
-                    ThreadRow.Question(
-                        id = message.id,
-                        sessionId = message.sessionId,
-                        question = card.text("question"),
-                        // EXP-1322: `options` = plain labels, descriptions ride the parallel
-                        // `optionDescriptions` sidecar (null / "" = none), zipped by ORIGINAL
-                        // index before non-string options drop.
-                        options = (card["options"] as? JsonArray)?.mapIndexedNotNull { index, option ->
-                            val label = (option as? JsonPrimitive)?.takeIf { it.isString }?.content
-                                ?: return@mapIndexedNotNull null
-                            val description = ((card["optionDescriptions"] as? JsonArray)?.getOrNull(index) as? JsonPrimitive)
-                                ?.takeIf { it.isString && it.content.isNotEmpty() }?.content
-                            ThreadRow.QuestionChoice(label, description)
-                        } ?: emptyList(),
-                        custom = true,
-                        answer = card.str("answer"),
-                        answered = message.answeredAt != null,
-                    ),
-                )
-                DomainContract.messageCardKindPlan -> rows.add(
-                    ThreadRow.Plan(id = message.id, sessionId = message.sessionId, plan = card.text("plan"), decision = card.str("decision"),
-                        fresh = (card["fresh"] as? JsonPrimitive)?.takeIf { !it.isString }?.content == "true"),
-                )
+                DomainContract.messageCardKindQuestion, DomainContract.messageCardKindPlan ->
+                    askRow(message)?.let(rows::add)
                 DomainContract.messageCardKindSubagent -> rows.add(
                     ThreadRow.Subagent(id = message.id, title = card.text("title"), status = card.text("status")),
                 )

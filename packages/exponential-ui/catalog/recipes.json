@@ -43,6 +43,7 @@
     "NumberField": { "parts": ["root", "label", "field", "decrement", "increment", "unit", "description", "error", "input"], "props": ["disabled"] },
     "Checkbox": { "parts": ["root", "box", "check", "label", "description"], "props": ["checked", "disabled"] },
     "Radio": { "parts": ["root", "item", "dot", "label", "items"], "props": ["orientation"] },
+    "ChoiceTiles": { "parts": ["root", "tile", "picture", "label", "description"], "props": ["type", "columns"] },
     "Switch": { "parts": ["root", "track", "thumb", "label", "description", "body"], "props": ["checked", "disabled"] },
     "Slider": { "parts": ["root", "track", "range", "thumb", "label", "value", "header"], "props": [] },
     "Select": { "parts": ["root", "label", "trigger", "placeholder", "content", "search", "item", "check", "empty"], "props": ["multiple", "searchable", "disabled"] },

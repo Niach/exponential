@@ -2269,6 +2269,98 @@
         }
       ]
     },
+    "ChoiceTiles": {
+      "root": [
+        {
+          "style": {
+            "gap": "$spacing.sm"
+          }
+        }
+      ],
+      "tile": [
+        {
+          "style": {
+            "padding": "$spacing.sm",
+            "gap": "$spacing.xs",
+            "borderWidth": "$border.hairline",
+            "borderColor": "$color.border",
+            "borderRadius": "$radius.md",
+            "backgroundColor": "$color.card",
+            "transition": "$motion.fast",
+            "transitionEasing": "$ease.standard"
+          }
+        },
+        {
+          "when": {
+            "state": "hover"
+          },
+          "style": {
+            "borderColor": "$color.input"
+          }
+        },
+        {
+          "when": {
+            "state": "focus"
+          },
+          "style": {
+            "borderColor": "$color.ring"
+          }
+        },
+        {
+          "when": {
+            "state": "selected"
+          },
+          "style": {
+            "borderWidth": "$border.thick",
+            "padding": 7,
+            "borderColor": "$color.primary"
+          }
+        },
+        {
+          "when": {
+            "state": "invalid"
+          },
+          "style": {
+            "borderColor": "$color.destructive"
+          }
+        },
+        {
+          "when": {
+            "state": "disabled"
+          },
+          "style": {
+            "opacity": "$opacity.disabled"
+          }
+        }
+      ],
+      "picture": [
+        {
+          "style": {
+            "borderRadius": 6,
+            "backgroundColor": "$color.muted"
+          }
+        }
+      ],
+      "label": [
+        {
+          "style": {
+            "fontSize": "$type.size.sm",
+            "lineHeight": "$type.lineHeight.sm",
+            "fontWeight": "$type.weight.medium",
+            "color": "$color.foreground"
+          }
+        }
+      ],
+      "description": [
+        {
+          "style": {
+            "fontSize": "$type.size.xs",
+            "lineHeight": "$type.lineHeight.xs",
+            "color": "$color.mutedForeground"
+          }
+        }
+      ]
+    },
     "Switch": {
       "root": [
         {

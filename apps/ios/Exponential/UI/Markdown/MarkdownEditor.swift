@@ -34,6 +34,10 @@ struct MarkdownEditor: View {
     /// Caps embedded image blocks — compact contexts (the comment composer)
     /// would otherwise be dominated by a single image (EXP-246).
     var imageMaxHeight: CGFloat?
+    /// EXP-1280: an image block's corner radius and hairline (the plan card's
+    /// inline picture = `PlanCard.Card.pictureRadius` + `pictureStroke`).
+    var imageCornerRadius: CGFloat = 8
+    var imageStroke: CGFloat? = nil
     /// Text blocks report their own IDEAL width (capped at the proposal)
     /// instead of filling it — a chat bubble must hug a one-line message
     /// rather than stretch across the feed (EXP-440).
@@ -193,6 +197,8 @@ struct MarkdownEditor: View {
                                 pendingImages: model.pendingImages,
                                 isReadOnly: isReadOnly,
                                 maxHeight: imageMaxHeight,
+                                cornerRadius: imageCornerRadius,
+                                stroke: imageStroke,
                                 onDelete: { model.deleteImageBlock(id: id) },
                                 onTapBelow: { focusBlock(after: id) },
                                 onRetry: { Task { await model.retryImage(blockId: id) } }
@@ -1422,6 +1428,9 @@ private struct BlockImageView: View {
     /// Height cap for compact contexts (the comment composer) — the aspect-fit
     /// image shrinks to fit, leading-aligned.
     var maxHeight: CGFloat?
+    var cornerRadius: CGFloat = 8
+    /// A hairline around the picture (`strokeCard`); nil = none.
+    var stroke: CGFloat? = nil
     var onDelete: () -> Void
     var onTapBelow: () -> Void
     var onRetry: () -> Void
@@ -1453,7 +1462,13 @@ private struct BlockImageView: View {
                     .frame(maxWidth: .infinity)
                     .aspectRatio(aspectRatio, contentMode: .fit)
                     .frame(maxHeight: maxHeight ?? .infinity, alignment: .leading)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
+                    .overlay {
+                        if let stroke {
+                            RoundedRectangle(cornerRadius: cornerRadius)
+                                .strokeBorder(GlassTokens.strokeCard, lineWidth: stroke)
+                        }
+                    }
                     .animation(motion.fast, value: aspectRatio)
 
                 if !isReadOnly {
@@ -1514,7 +1529,7 @@ private struct BlockImageView: View {
 
     @ViewBuilder
     private func placeholderTile<Content: View>(@ViewBuilder content: () -> Content) -> some View {
-        RoundedRectangle(cornerRadius: 8)
+        RoundedRectangle(cornerRadius: cornerRadius)
             .fill(Color.white.opacity(0.06))
             .overlay { content() }
     }

@@ -7,6 +7,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
+import com.exponential.app.domain.PlanCard
 import com.exponential.app.ui.theme.DesignTokens
 
 /**
@@ -79,6 +80,23 @@ object MdStyle {
             else -> bodySize
         }
         return TextStyle(color = Text, fontWeight = FontWeight.SemiBold, fontSize = size, lineHeight = size * 1.25f)
+    }
+
+    /** A CHAT body's heading (the transcript, the plan / question card;
+     *  plan-card.json `card.headingScale`): DERIVED from [chatBody], h1 =
+     *  the scale × it, h2 halfway, the rest the body size, all semibold. */
+    fun chatHeading(level: Int, chatBody: TextStyle): TextStyle {
+        val extra = PlanCard.Look.HEADING_SCALE - 1f
+        val scale = when (level) {
+            1 -> 1f + extra
+            2 -> 1f + extra / 2f
+            else -> 1f
+        }
+        return chatBody.copy(
+            fontWeight = FontWeight.SemiBold,
+            fontSize = chatBody.fontSize * scale,
+            lineHeight = chatBody.lineHeight * scale,
+        )
     }
 
     val mono = body.copy(fontFamily = FontFamily.Monospace, fontSize = bodySize * 0.9f)

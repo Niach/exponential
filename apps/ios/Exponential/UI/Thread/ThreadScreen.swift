@@ -445,10 +445,7 @@ struct ThreadScreen: View {
                             onOpenThread: { threadId in
                                 pushRoute(.thread(accountId: accountId, threadId: threadId))
                             },
-                            onAnswer: { messageId, option in answer(messageId, answer: option) },
-                            onDecide: { messageId, decision, fresh, feedback in
-                                answer(messageId, decision: decision, fresh: fresh, feedback: feedback)
-                            },
+                            onSubmit: submitAnswer,
                             onUnqueue: unqueue,
                             viewerId: deps.auth.userId,
                             answeringId: answeringId,
@@ -599,10 +596,7 @@ struct ThreadScreen: View {
                     markdownContext: askMarkdownContext(rows: rows),
                     onBack: onBack,
                     bodyMaxHeight: cap,
-                    onAnswer: { messageId, option in answer(messageId, answer: option) },
-                    onDecide: { messageId, decision, fresh, feedback in
-                        answer(messageId, decision: decision, fresh: fresh, feedback: feedback)
-                    }
+                    onSubmit: submitAnswer
                 )
             }
         }
@@ -850,23 +844,22 @@ struct ThreadScreen: View {
 
     // MARK: - Cards (answered in place)
 
-    private func answer(
-        _ messageId: String, answer: String? = nil, decision: PlanDecision? = nil, fresh: Bool = false,
-        feedback: String? = nil
-    ) {
+    private func submitAnswer(_ card: ThreadCardAnswer) {
         guard answeringId == nil else { return }
-        answeringId = messageId
+        answeringId = card.messageId
         let api = deps.sessionsApi
         let accountId = accountId
         Task {
             do {
                 try await api.answer(
-                    accountId: accountId, messageId: messageId, answer: answer, decision: decision, fresh: fresh,
-                    feedback: feedback
+                    accountId: accountId, messageId: card.messageId, answer: card.answer, decision: card.decision,
+                    fresh: card.fresh, feedback: card.feedback, answers: card.answers, surfaceData: card.surfaceData
                 )
             } catch {
                 toaster.error(
-                    FeedbackStates.Errors.title(verb: "send", thing: "the answer"),
+                    FeedbackStates.Errors.title(
+                        verb: "answer", thing: card.decision == nil ? "the question" : "the plan"
+                    ),
                     description: error.userFacingMessage
                 )
             }

@@ -30,18 +30,23 @@ import { trpc } from "@/lib/trpc-client"
 // card. Model = `buildSessionThread` over the agent root with the team's
 // sessions as card targets.
 
-/** Answer a question / decide a plan IN its card (`sessions.answer`); a
- *  failure toasts `Couldn't answer the question`. `pending` = the cards whose
- *  answer is in flight. */
-/** A card's answer: a question's text, or a plan's decision + note. */
+/** A card's answer (`sessions.answer`): a question's text + its picked
+ *  labels, or a plan's decision + note + EXP-1280 answers by question id;
+ *  both carry the inline surface's data model. */
 export type CardAnswer = {
   answer?: string
+  /** A plan: question id → labels; a question: its labels. */
+  answers?: Record<string, string[]> | string[]
   decision?: `approved` | `rejected`
   /** A plan approval that starts in a fresh context. */
   fresh?: boolean
   feedback?: string
+  surfaceData?: Record<string, unknown>
 }
 
+/** Answer a question / decide a plan IN its card (`sessions.answer`); a
+ *  failure toasts `Couldn't answer the question` (a plan: `the plan`).
+ *  `pending` = the cards whose answer is in flight. */
 export function useAnswerMessage(): {
   answer: (messageId: string, input: CardAnswer) => Promise<void>
   pending: ReadonlySet<string>
@@ -54,7 +59,7 @@ export function useAnswerMessage(): {
         const result = await trpc.sessions.answer.mutate({ messageId, ...input }, SKIP_ERROR_TOAST)
         await messageCollection.utils.awaitTxId(result.txid).catch(() => undefined)
       } catch (error) {
-        failedAction(`answer`, `the question`, error)
+        failedAction(`answer`, input.decision ? `the plan` : `the question`, error)
       } finally {
         setPending((current) => {
           const next = new Set(current)

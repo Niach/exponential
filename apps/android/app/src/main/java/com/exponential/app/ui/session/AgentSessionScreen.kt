@@ -1,5 +1,6 @@
 package com.exponential.app.ui.session
 
+import com.exponential.app.data.api.AnswerInput
 import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.domain.EmptyStateCopy
 import android.net.Uri
@@ -173,6 +174,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.data.db.SessionEntity
 import com.exponential.app.domain.SessionTree
+import com.exponential.app.domain.PlanCard
 import com.exponential.app.ui.components.AgentRunMark
 import com.exponential.app.domain.AgentFeedItem
 import com.exponential.app.domain.BACKGROUND_TASK_KIND_AGENT
@@ -888,6 +890,7 @@ private fun RunFaceContent(
     // the transcript and takes the composer's slot (the session view feeds
     // the dock its ONE answerable card, so it is always `single`).
     val dockable = phase == AgentPhase.Live && !sessionEnded
+    val toolAsks by viewModel.toolAsks.collectAsStateWithLifecycle()
     val dockActive = remember(feed) { activeQuestionIds(feed) }
     val dockedRow = remember(feed, dockActive, dockable) {
         if (!dockable || dockActive.isEmpty()) null else dockedAskRow(groupFeedRows(feed), dockActive)
@@ -919,6 +922,50 @@ private fun RunFaceContent(
                 onFocus = {},
                 onBack = {},
             ) { AnswerCardRow(row, dockCards) }
+        }
+    } ?: toolAsks.takeIf { it.isNotEmpty() && !sessionEnded }?.let { asks ->
+        // EXP-1280: a card a TOOL posted (plan_propose / sessions_ask) has no
+        // relay ask: THE rich card answers it through `sessions.answer`.
+        {
+            var focusedAsk by remember { mutableStateOf<String?>(null) }
+            val byId = remember(asks) { asks.associateBy { it.id } }
+            AskDock(
+                view = AskDockModel.askDock(AskDockModel.threadPendingAsks(asks) { null }, focusedAsk),
+                onFocus = { focusedAsk = it },
+                onBack = { focusedAsk = null },
+            ) { id ->
+                byId[id]?.let { row ->
+                    com.exponential.app.ui.thread.ThreadAskCard(
+                        row = row,
+                        onAnswer = { messageId, a, settled ->
+                            viewModel.answerCard(
+                                AnswerInput(
+                                    messageId = messageId,
+                                    answer = a.answer,
+                                    answers = a.answers?.let(AnswerInput::questionAnswers),
+                                    surfaceData = a.surfaceData,
+                                ),
+                                "question",
+                                settled,
+                            )
+                        },
+                        onDecidePlan = { messageId, d, settled ->
+                            viewModel.answerCard(
+                                AnswerInput(
+                                    messageId = messageId,
+                                    decision = if (d.approved) "approved" else "rejected",
+                                    fresh = if (d.approved && d.fresh) true else null,
+                                    feedback = d.feedback,
+                                    answers = d.answers?.let(AnswerInput::planAnswers),
+                                    surfaceData = d.surfaceData,
+                                ),
+                                "plan",
+                                settled,
+                            )
+                        },
+                    )
+                }
+            }
         }
     }
     // The placeholder states (no feed yet): connecting, a paused host, an
@@ -1762,7 +1809,7 @@ private fun ReadingColumn(modifier: Modifier = Modifier, content: @Composable ()
  *  DERIVED from the markdown body style, so the family, the colour and every
  *  other document affordance stay exactly as they are and only the measure
  *  changes: this is a wall of agent prose, not an issue description. */
-private val TranscriptBodyStyle: TextStyle = MdStyle.body.copy(
+internal val TranscriptBodyStyle: TextStyle = MdStyle.body.copy(
     fontSize = DesignTokens.Transcript.BodySize.sp,
     lineHeight = DesignTokens.Transcript.BodyLineHeight.sp,
 )
@@ -3114,7 +3161,7 @@ private fun AnsweredStepRow(
             overflow = TextOverflow.Ellipsis,
         )
         Text(
-            answer?.takeIf { it.isNotBlank() } ?: "Answered",
+            answer?.takeIf { it.isNotBlank() } ?: PlanCard.Copy.ANSWERED,
             modifier = Modifier.widthIn(max = 180.dp),
             style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Medium),
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
@@ -3568,26 +3615,15 @@ internal fun QuestionCard(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                if (state == AnswerState.Sending) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(12.dp),
-                        strokeWidth = 2.dp,
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
-                } else {
-                    Icon(
-                        ExpIcons.uiCheck,
-                        contentDescription = null,
-                        modifier = Modifier.size(12.dp),
-                        tint = LiveGreen,
-                    )
-                }
+                // Locked until the synced row flips: ONE in-flight caption
+                // ×4 (plan-card.json `copy.answering`, web `AskPrompt`).
+                CircularProgressIndicator(
+                    modifier = Modifier.size(12.dp),
+                    strokeWidth = 2.dp,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
                 Text(
-                    if (state == AnswerState.Sending) {
-                        "Sending your answer…"
-                    } else {
-                        "Answer sent. Waiting for the agent."
-                    },
+                    PlanCard.Copy.ANSWERING,
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                 )
@@ -3698,7 +3734,7 @@ internal fun AnsweredRow(answer: String?) {
         )
         SelectionContainer {
             Text(
-                answer?.takeIf { it.isNotBlank() } ?: "Answered",
+                answer?.takeIf { it.isNotBlank() } ?: PlanCard.Copy.ANSWERED,
                 style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Medium),
                 color = MaterialTheme.colorScheme.onSurface,
             )
@@ -3727,18 +3763,27 @@ internal fun QuestionOptionButton(
     /** Locked: the answer is out and the row waits on the ack. */
     dimmed: Boolean,
     onClick: () -> Unit,
+    /** EXP-1280 (plan-card.json `card`): a picked SINGLE-choice row trails a
+     *  foreground check (no leading dot). */
+    trailingCheck: Boolean = false,
+    /** EXP-1280: a CLOSED card's row — true = a pick (a leading emerald check
+     *  on the active fill), false = the rest (muted at `inertOpacity`, no
+     *  fill); null = a live row. */
+    closed: Boolean? = null,
 ) {
-    val shape = RoundedCornerShape(GlassTokens.RowRadius)
+    val shape = RoundedCornerShape(PlanCard.Look.ROW_RADIUS.dp)
     val content = if (primary) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
+    val rest = closed == false
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .alpha(if (dimmed) 0.5f else 1f)
+            .alpha(if (dimmed) PlanCard.Look.INERT_OPACITY else 1f)
             .clip(shape)
             .background(
                 when {
                     primary -> MaterialTheme.colorScheme.primary
-                    selected -> GlassTokens.RowFillActive
+                    rest -> Color.Transparent
+                    selected || closed == true -> GlassTokens.RowFillActive
                     else -> GlassTokens.RowFill
                 },
                 shape,
@@ -3746,25 +3791,33 @@ internal fun QuestionOptionButton(
             .then(
                 // The solid primary fill has no hairline (the pill's rule);
                 // an outline row wears the glass card stroke (web `outline`).
-                if (primary) {
+                if (primary || rest) {
                     Modifier
                 } else {
                     Modifier.border(
                         GlassTokens.Hairline,
-                        if (selected) GlassTokens.StrokeActive else GlassTokens.StrokeCard,
+                        if (selected || closed == true) GlassTokens.StrokeActive else GlassTokens.StrokeCard,
                         shape,
                     )
                 },
             )
             .then(
-                if (enabled) Modifier.clickable(role = Role.Button, onClick = onClick) else Modifier,
+                if (enabled && closed == null) Modifier.clickable(role = Role.Button, onClick = onClick) else Modifier,
             )
-            .heightIn(min = 32.dp)
+            .heightIn(min = PlanCard.Look.ROW_MIN_HEIGHT.dp)
             .padding(horizontal = 12.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        if (checked != null) {
+        if (closed != null) {
+            // The closed look (web `PlanCardOptions` closed): the check slot
+            // stays reserved so the labels line up.
+            Box(Modifier.size(14.dp), contentAlignment = Alignment.Center) {
+                if (closed) {
+                    Icon(ExpIcons.uiCheck, contentDescription = null, modifier = Modifier.size(14.dp), tint = LiveGreen)
+                }
+            }
+        } else if (checked != null) {
             Icon(
                 if (checked) ExpIcons.uiSelected else ExpIcons.uiUnselected,
                 contentDescription = null,
@@ -3779,15 +3832,20 @@ internal fun QuestionOptionButton(
             Text(
                 option.label,
                 style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Medium),
-                color = content,
+                color = if (rest) MaterialTheme.colorScheme.onSurfaceVariant else content,
+                modifier = if (rest) Modifier.alpha(PlanCard.Look.INERT_OPACITY) else Modifier,
             )
             option.description?.takeIf { it.isNotBlank() }?.let {
                 Text(
                     it,
                     style = MaterialTheme.typography.labelSmall,
                     color = content.copy(alpha = if (primary) TextEmphasis.Secondary else TextEmphasis.Tertiary),
+                    modifier = if (rest) Modifier.alpha(PlanCard.Look.INERT_OPACITY) else Modifier,
                 )
             }
+        }
+        if (trailingCheck) {
+            Icon(ExpIcons.uiCheck, contentDescription = null, modifier = Modifier.size(14.dp), tint = content)
         }
         if (ordinal in 1..9) {
             // EXP-1191 (web `kbd` parity): the number key TRAILS the row — a

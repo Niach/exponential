@@ -1,4 +1,5 @@
-import { askDock } from "@exp/domain-contract/ask-dock"
+import { ASK_DOCK_COPY, askDock } from "@exp/domain-contract/ask-dock"
+import { PLAN_CARD_COPY } from "@exp/domain-contract/plan-card"
 import type { ReactNode } from "react"
 import {
   createContext,
@@ -33,6 +34,8 @@ import {
   AskDock,
   AskDockBody,
   AskPrompt,
+  ThreadAskDock,
+  ThreadConversation,
   ASK_CARD_COPY,
   conceptIcon,
   EditedFilesCard,
@@ -140,6 +143,10 @@ import {
   type TranscriptGapToken,
   type WorkflowState,
 } from "@/lib/agent-feed"
+import { anchorToolCards, isToolPostedCard } from "@/lib/agent-feed"
+import { useSessionMessages } from "@/hooks/use-session-tree"
+import { useAnswerMessage } from "@/components/thread/agent-channel"
+import { renderThreadText } from "@/components/thread/thread-markdown"
 import { workingCaption } from "@/lib/working-caption"
 import {
   COMMENT_CALL_TOOL,
@@ -171,9 +178,12 @@ import { parseSteerMessage } from "@/lib/steer-image-message"
 import {
   composerYieldsToCard,
   SESSION_CARD_COPY,
+  buildSessionThread,
   sessionState,
+  toTreeMessage,
   toTreeSession,
   type SessionRow,
+  type ThreadRow,
 } from "@/lib/session-tree"
 import { cn } from "@/lib/utils"
 
@@ -391,6 +401,42 @@ export function AgentSessionView({
     }
     return null
   }, [rows, questionIds, canAnswer])
+  /** EXP-1280: the cards a TOOL posted (`plan_propose` / `sessions_ask`)
+   *  off the synced `messages` (`isToolPostedCard`): the relay holds no
+   *  open ask for them, so they render as THE thread card and answer via
+   *  `sessions.answer` only. A waiting one takes the ask dock when no relay
+   *  card does; the rest sit after the call that posted them. */
+  const sessionMessages = useSessionMessages(session.id)
+  const toolCards = useMemo(() => toolCardRows(session, sessionMessages), [session, sessionMessages])
+  const canAnswerCards = !sessionEnded
+  const dockedToolCards = useMemo(
+    () => (canAnswerCards && dockedRow === null ? toolCards.filter(cardWaiting) : []),
+    [toolCards, canAnswerCards, dockedRow]
+  )
+  const toolCardAnchors = useMemo(
+    () => anchorToolCards(feed, toolCards.map((row) => row.id)),
+    [feed, toolCards]
+  )
+  const { answer: answerCard, pending: cardsPending } = useAnswerMessage()
+  const renderToolCards = (ids: readonly string[], keyPrefix: string): ReactNode =>
+    ids
+      .filter((id) => !dockedToolCards.some((row) => row.id === id))
+      .map((id) => {
+        const row = toolCards.find((r) => r.id === id)
+        if (!row) return null
+        return (
+          <div key={`${keyPrefix}-${id}`} className={TRANSCRIPT_GAP_CLASS.gapBlock} data-testid="session-tool-card">
+            <ThreadConversation
+              rows={[row]}
+              renderText={renderThreadText}
+              attachmentSrc={attachmentUrl}
+              onAnswer={canAnswerCards ? (rowId, input) => void answerCard(rowId, input) : undefined}
+              onDecide={canAnswerCards ? (rowId, input) => void answerCard(rowId, input) : undefined}
+              pending={cardsPending}
+            />
+          </div>
+        )
+      })
   /** EXP-895/1206: the ONE row still RUNNING (`liveToolRowId` ×4). */
   const liveRowId = useMemo(
     () => (live ? liveToolRowId(feed) : undefined),
@@ -877,7 +923,16 @@ export function AgentSessionView({
                     </Button>
                   </div>
                 ) : null}
-                {rows.map((row, index) => renderTranscriptRow(row, index, rows))}
+                {renderToolCards(toolCardAnchors.unanchored, `head`)}
+                {rows.map((row, index) => (
+                  <Fragment key={row.kind === `single` ? `row-${row.item.id}` : `row-${row.id}`}>
+                    {renderTranscriptRow(row, index, rows)}
+                    {renderToolCards(
+                      rowItemIds(row).flatMap((id) => toolCardAnchors.anchors.get(id) ?? []),
+                      `after`
+                    )}
+                  </Fragment>
+                ))}
                 {/* EXP-850 §3: a card whose `Workflow` row is outside the
                     window lands at the tail (×4). */}
                 {orphanWorkflows.map((workflow, index) => (
@@ -1087,9 +1142,26 @@ export function AgentSessionView({
             </div>
           </div>
         )}
-        {composer && composerFloats && dockedRow === null && !composerYieldsToCard({ live, pendingAsk: pendingCard !== null }) ? (
+        {/* EXP-1280: a waiting TOOL-posted card (no relay ask) docks the
+            same way; it answers through `sessions.answer`. */}
+        {dockedToolCards.length > 0 && (
+          <div className="py-2">
+            <div className={cn(WORK_COLUMN_CLASS, WORK_GUTTER_CLASS)}>
+              <ThreadAskDock
+                rows={dockedToolCards}
+                sessionName={noSessionName}
+                renderText={renderThreadText}
+                attachmentSrc={attachmentUrl}
+                pending={cardsPending}
+                onAnswer={(rowId, input) => void answerCard(rowId, input)}
+                onDecide={(rowId, input) => void answerCard(rowId, input)}
+              />
+            </div>
+          </div>
+        )}
+        {composer && composerFloats && dockedRow === null && dockedToolCards.length === 0 && !composerYieldsToCard({ live, pendingAsk: pendingCard !== null }) ? (
           composer
-        ) : composer && dockedRow === null && !composerYieldsToCard({ live, pendingAsk: pendingCard !== null }) ? (
+        ) : composer && dockedRow === null && dockedToolCards.length === 0 && !composerYieldsToCard({ live, pendingAsk: pendingCard !== null }) ? (
           <div className="py-2">
             <div className={cn(WORK_COLUMN_CLASS, WORK_GUTTER_CLASS)}>
               {composer}
@@ -1102,6 +1174,40 @@ export function AgentSessionView({
     </RunCardsContext.Provider>
     </SessionResultsRawContext.Provider>
   )
+}
+
+/** EXP-1280: a tool-posted card's pictures resolve against the app. */
+const attachmentUrl = (attachmentId: string) => `/api/attachments/${attachmentId}`
+const noSessionName = () => null
+
+/** A card still waiting on a person. */
+function cardWaiting(row: ThreadRow): boolean {
+  if (row.type === `plan`) return row.decision !== `approved` && row.decision !== `rejected`
+  return row.type === `question` && !row.answered
+}
+
+/** EXP-1280: this session's TOOL-posted cards (`isToolPostedCard`) in THE
+ *  thread row form, oldest first. */
+function toolCardRows(session: SessionRow, messages: readonly MessageRowLike[]): ThreadRow[] {
+  const cards = messages.filter((message) => isToolPostedCard(message.card))
+  if (cards.length === 0) return []
+  return buildSessionThread({
+    root: toTreeSession(session),
+    sessions: [],
+    sessionIssues: [],
+    issues: [],
+    messages: cards.map(toTreeMessage),
+    pullRequests: [],
+    now: new Date().toISOString(),
+  }).rows.filter((row) => row.type === `plan` || row.type === `question`)
+}
+
+type MessageRowLike = Parameters<typeof toTreeMessage>[0]
+
+/** The feed item ids a transcript row draws. */
+function rowItemIds(row: { kind: string; item?: { id: number }; items?: readonly { id: number }[] }): number[] {
+  if (row.item) return [row.item.id]
+  return row.items ? row.items.map((item) => item.id) : []
 }
 
 /** EXP-1323 (#EXP-1333): a THREAD's live tail ×4 — while the root's session
@@ -2072,7 +2178,7 @@ function QuestionCard({
   const clampable = !plan && !docked && clamp.clampable
   const { expanded, setExpanded } = clamp
   return (
-    <AskCard plan={plan} label={plan ? ASK_CARD_COPY.planReady : item.header}>
+    <AskCard plan={plan} label={plan ? ASK_DOCK_COPY.planReady : item.header}>
       <>
         <BodyCap docked={docked}>
           {plan ? (
@@ -2300,7 +2406,7 @@ function AnsweredStepRow({
         {text}
       </span>
       <span className="max-w-[50%] shrink-0 truncate font-medium text-foreground/90">
-        {dismissed ? `Dismissed` : (answer ?? `Answered`)}
+        {dismissed ? ASK_CARD_COPY.dismissed : (answer ?? PLAN_CARD_COPY.answered)}
       </span>
     </>
   )

@@ -140,6 +140,9 @@ const SPDX_BY_NAME: Record<string, string> = {
   "mozilla public license, version 2.0": `MPL-2.0`,
   "common development and distribution license 1.0": `CDDL-1.0`,
   "cddl 1.0": `CDDL-1.0`,
+  // JNA (EXP-1280: the Exponential UI Compose painter the app links) declares
+  // LGPL-2.1-or-later AND Apache-2.0 as a dual choice; curated/overrides.ts elects Apache-2.0.
+  "lgpl-2.1-or-later": `LGPL-2.1-or-later`,
 }
 
 // ---------------------------------------------------------------------------

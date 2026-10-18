@@ -1092,3 +1092,44 @@ fn a_nested_surface_instantiates_its_list_template_per_item() {
     let texts: Vec<&Value> = ["row.0", "row.1"].iter().map(|id| &nodes.iter().find(|n| n.id == *id).unwrap_or_else(|| panic!("{id} built")).props["text"]).collect();
     assert_eq!(texts, [&json!("One"), &json!("Two")]);
 }
+
+#[test]
+fn choice_tiles_lay_out_equal_columns_with_pictures_and_states() {
+    // EXP-1280: `columns` equal tiles per row (the root recipe's gap), a
+    // 1.6 : 1 picture per tile once any option has one (a missing one keeps
+    // the frame), label + description, `selected` on the picked tiles.
+    let mut s = surface(json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": 400}, "children": [
+        {"id": "c", "component": "ChoiceTiles", "props": {"name": "c", "type": "multiple", "value": "a,c", "options": [
+            {"label": "A", "value": "a", "image": "https://example.com/a.png", "description": "First"},
+            {"label": "B", "value": "b", "disabled": true},
+            {"label": "C", "value": "c", "image": "https://example.com/c.png"}
+        ]}}
+    ]}));
+    s.set_viewport(400.0, 800.0, None);
+    let mut m = fixed();
+    let out = s.layout(&mut m);
+    let (t0, t1, t2) = (frame(&s, &out, "c.tile.0"), frame(&s, &out, "c.tile.1"), frame(&s, &out, "c.tile.2"));
+    assert_eq!(t0.w, t1.w, "equal columns");
+    assert!((t0.w - 196.0).abs() < 0.01, "(400 - gap 8) / 2: {}", t0.w);
+    assert_eq!(t0.y, t1.y, "one row");
+    assert!((t1.x - t0.x - 204.0).abs() < 0.01, "the gap: {}", t1.x - t0.x);
+    assert!(t2.y > t0.y && (t2.x - t0.x).abs() < 0.01, "the third tile wraps to the next row");
+    assert_eq!(t0.h, t1.h, "a row keeps one height");
+    let p0 = frame(&s, &out, "c.picture.0");
+    assert!((p0.w / p0.h - 1.6).abs() < 0.01, "picture aspect {}x{}", p0.w, p0.h);
+    assert!(s.index_of("c.picture.1").is_some(), "a tile without an image keeps its picture frame");
+    assert!(s.index_of("c.description.0").is_some() && s.index_of("c.description.1").is_none());
+    let nodes = s.nodes();
+    let tile = |id: &str| nodes.iter().find(|n| n.id == id).unwrap().clone();
+    assert_eq!(tile("c.tile.0").states, vec!["selected".to_string()]);
+    assert_eq!(tile("c.tile.1").states, vec!["disabled".to_string()]);
+    assert!(!tile("c.tile.1").pressable && tile("c.tile.2").pressable);
+    assert_eq!(tile("c.picture.1").props.get("src"), None);
+    // Without any image: no pictures at all.
+    let mut plain = surface(json!({"id": "c", "component": "ChoiceTiles", "props": {"name": "c", "columns": 9, "options": [{"label": "A", "value": "a"}, {"label": "B", "value": "b"}]}}));
+    plain.set_viewport(400.0, 800.0, None);
+    let out = plain.layout(&mut m);
+    assert!(plain.index_of("c.picture.0").is_none());
+    let (a, b) = (frame(&plain, &out, "c.tile.0"), frame(&plain, &out, "c.tile.1"));
+    assert!((b.x - a.x - a.w - 8.0).abs() < 0.01 && a.y == b.y, "columns clamp to 4: both on one row");
+}

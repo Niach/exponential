@@ -7594,6 +7594,135 @@
       }
     },
     {
+      "name": "ChoiceTiles/example",
+      "node": {
+        "id": "choice-tiles",
+        "component": "ChoiceTiles",
+        "props": {
+          "name": "design",
+          "options": [
+            {
+              "label": "Two columns",
+              "value": "two",
+              "description": "Pictures beside the text",
+              "image": "https://example.com/two.png"
+            },
+            {
+              "label": "One column",
+              "value": "one",
+              "description": "Pictures under the text",
+              "image": "https://example.com/one.png"
+            }
+          ],
+          "value": "two"
+        }
+      }
+    },
+    {
+      "name": "ChoiceTiles/type=single",
+      "node": {
+        "id": "choice-tiles",
+        "component": "ChoiceTiles",
+        "props": {
+          "name": "design",
+          "options": [
+            {
+              "label": "Two columns",
+              "value": "two",
+              "description": "Pictures beside the text",
+              "image": "https://example.com/two.png"
+            },
+            {
+              "label": "One column",
+              "value": "one",
+              "description": "Pictures under the text",
+              "image": "https://example.com/one.png"
+            }
+          ],
+          "value": "two",
+          "type": "single"
+        }
+      }
+    },
+    {
+      "name": "ChoiceTiles/type=multiple",
+      "node": {
+        "id": "choice-tiles",
+        "component": "ChoiceTiles",
+        "props": {
+          "name": "design",
+          "options": [
+            {
+              "label": "Two columns",
+              "value": "two",
+              "description": "Pictures beside the text",
+              "image": "https://example.com/two.png"
+            },
+            {
+              "label": "One column",
+              "value": "one",
+              "description": "Pictures under the text",
+              "image": "https://example.com/one.png"
+            }
+          ],
+          "value": "two",
+          "type": "multiple"
+        }
+      }
+    },
+    {
+      "name": "ChoiceTiles/disabled=true",
+      "node": {
+        "id": "choice-tiles",
+        "component": "ChoiceTiles",
+        "props": {
+          "name": "design",
+          "options": [
+            {
+              "label": "Two columns",
+              "value": "two",
+              "description": "Pictures beside the text",
+              "image": "https://example.com/two.png"
+            },
+            {
+              "label": "One column",
+              "value": "one",
+              "description": "Pictures under the text",
+              "image": "https://example.com/one.png"
+            }
+          ],
+          "value": "two",
+          "disabled": true
+        }
+      }
+    },
+    {
+      "name": "ChoiceTiles/disabled=false",
+      "node": {
+        "id": "choice-tiles",
+        "component": "ChoiceTiles",
+        "props": {
+          "name": "design",
+          "options": [
+            {
+              "label": "Two columns",
+              "value": "two",
+              "description": "Pictures beside the text",
+              "image": "https://example.com/two.png"
+            },
+            {
+              "label": "One column",
+              "value": "one",
+              "description": "Pictures under the text",
+              "image": "https://example.com/one.png"
+            }
+          ],
+          "value": "two",
+          "disabled": false
+        }
+      }
+    },
+    {
       "name": "Switch/example",
       "node": {
         "id": "switch",

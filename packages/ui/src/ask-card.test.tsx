@@ -2,6 +2,7 @@ import { useState } from "react"
 import { fireEvent, render, screen } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 import { ASK_CARD_COPY, AskPrompt, type AskOption } from "./ask-card"
+import { PLAN_CARD_COPY } from "@exp/domain-contract/plan-card"
 
 // EXP-1316 (1m): the question / plan card's interactive half.
 const OPTIONS: AskOption[] = [
@@ -61,7 +62,7 @@ describe(`AskPrompt`, () => {
     const field = screen.getByTestId(`ask-inline-field`) as HTMLTextAreaElement
     fireEvent.change(field, { target: { value: `half typed` } })
     fireEvent.keyDown(field, { key: `Enter` })
-    expect(screen.getByText(ASK_CARD_COPY.answering)).toBeTruthy()
+    expect(screen.getByText(PLAN_CARD_COPY.answering)).toBeTruthy()
     expect(screen.queryByTestId(`ask-inline-field`)).toBeNull()
     fireEvent.click(screen.getByText(`fail`))
     expect((screen.getByTestId(`ask-inline-field`) as HTMLTextAreaElement).value).toBe(`half typed`)
@@ -92,5 +93,28 @@ describe(`AskPrompt`, () => {
     const rows = screen.getAllByTestId(`ask-option`)
     expect(rows[0]!.getAttribute(`aria-pressed`)).toBe(`false`)
     expect(rows[1]!.getAttribute(`aria-pressed`)).toBe(`true`)
+  })
+})
+
+describe(`AskPrompt disabled options (EXP-1280)`, () => {
+  it(`a disabled option is inert, the others still answer`, () => {
+    const onAnswer = vi.fn()
+    render(
+      <AskPrompt
+        variant="plan"
+        options={[
+          { key: `yes`, label: `Yes`, disabled: true },
+          { key: `no`, label: `No` },
+        ]}
+        answerable
+        onAnswer={onAnswer}
+      />
+    )
+    const [yes, no] = screen.getAllByTestId(`ask-option`) as HTMLButtonElement[]
+    expect(yes!.disabled).toBe(true)
+    fireEvent.click(yes!)
+    expect(onAnswer).not.toHaveBeenCalled()
+    fireEvent.click(no!)
+    expect(onAnswer).toHaveBeenCalledWith([`no`], [`No`])
   })
 })

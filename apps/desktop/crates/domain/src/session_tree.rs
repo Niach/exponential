@@ -575,19 +575,117 @@ pub fn session_tab_mark_state(session: &SessionRow) -> SessionTabMarkState {
 /// ([`question_options`]). The answer IS the label; the description renders
 /// under it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct QuestionOption {
     pub label: String,
     pub description: Option<String>,
+    /// EXP-1280: the option's picture (plan-card.json `pictureFor`);
+    /// `None` = a text option.
+    pub attachment_id: Option<String>,
+}
+
+/// EXP-1280: one choice question of a plan card in the row form.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct PlanQuestion {
+    pub id: String,
+    pub prompt: String,
+    pub multi: bool,
+    /// Free text allowed (default true).
+    pub custom: bool,
+    pub options: Vec<QuestionOption>,
+}
+
+/// EXP-1280: a card's inline Exponential UI surface (`root` = a core
+/// NestedNode, `data` = its initial data model).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct CardSurface {
+    pub root: Value,
+    pub data: Option<Value>,
+}
+
+/// A card's surface (tolerant read): an object with a `root` object, else
+/// `None`; `data` only when it is an object.
+fn card_surface(raw: Option<&Value>) -> Option<CardSurface> {
+    let surface = raw?.as_object()?;
+    let root = surface.get("root").filter(|root| root.is_object())?;
+    Some(CardSurface {
+        root: root.clone(),
+        data: surface.get("data").filter(|data| data.is_object()).cloned(),
+    })
+}
+
+/// A plan card's `questions` in the row form; a malformed question (no
+/// string id/prompt) or option (no string label) drops. An option's
+/// `picture` label resolves through the card's `pictures`.
+fn plan_questions(card: &Value) -> Vec<PlanQuestion> {
+    let Some(questions) = card.get("questions").and_then(Value::as_array) else {
+        return Vec::new();
+    };
+    let pictures = card.get("pictures");
+    questions
+        .iter()
+        .filter_map(|question| {
+            let id = question.get("id")?.as_str()?;
+            let prompt = question.get("prompt")?.as_str()?;
+            let options = question
+                .get("options")
+                .and_then(Value::as_array)
+                .map(Vec::as_slice)
+                .unwrap_or(&[])
+                .iter()
+                .filter_map(|option| {
+                    let label = option.get("label")?.as_str()?;
+                    Some(QuestionOption {
+                        label: label.to_string(),
+                        description: option
+                            .get("description")
+                            .and_then(Value::as_str)
+                            .filter(|text| !text.is_empty())
+                            .map(str::to_string),
+                        attachment_id: crate::plan_card::picture_for(
+                            pictures,
+                            option.get("picture").and_then(Value::as_str),
+                        ),
+                    })
+                })
+                .collect();
+            Some(PlanQuestion {
+                id: id.to_string(),
+                prompt: prompt.to_string(),
+                multi: question.get("multi").and_then(Value::as_bool) == Some(true),
+                custom: question.get("custom").and_then(Value::as_bool) != Some(false),
+                options,
+            })
+        })
+        .collect()
+}
+
+/// A plan card's `answers` (question id → labels, strings only); `None`
+/// when not an object.
+fn plan_answers(raw: Option<&Value>) -> Option<BTreeMap<String, Vec<String>>> {
+    let answers = raw?.as_object()?;
+    Some(
+        answers
+            .iter()
+            .filter_map(|(id, labels)| Some((id.clone(), string_list(Some(labels))?)))
+            .collect(),
+    )
+}
+
+fn string_list(raw: Option<&Value>) -> Option<Vec<String>> {
+    Some(raw?.as_array()?.iter().filter_map(|item| item.as_str().map(str::to_string)).collect())
 }
 
 /// The card's `options` zipped with its `optionDescriptions` sidecar by
 /// index, BEFORE dropping non-string options (a description is the sidecar
 /// slot when it is a non-empty string). No array = no options.
-fn question_options(options: Option<&Value>, descriptions: Option<&Value>) -> Vec<QuestionOption> {
-    let Some(Value::Array(options)) = options else {
+fn question_options(card: &Value) -> Vec<QuestionOption> {
+    let Some(Value::Array(options)) = card.get("options") else {
         return Vec::new();
     };
-    let descriptions = descriptions.and_then(Value::as_array);
+    let descriptions = card.get("optionDescriptions").and_then(Value::as_array);
+    let picture_labels = card.get("optionPictures").and_then(Value::as_array);
+    let pictures = card.get("pictures");
     options
         .iter()
         .enumerate()
@@ -600,9 +698,58 @@ fn question_options(options: Option<&Value>, descriptions: Option<&Value>) -> Ve
                     .and_then(Value::as_str)
                     .filter(|text| !text.is_empty())
                     .map(str::to_string),
+                attachment_id: crate::plan_card::picture_for(
+                    pictures,
+                    picture_labels.and_then(|list| list.get(index)).and_then(Value::as_str),
+                ),
             })
         })
         .collect()
+}
+
+/// EXP-1280: a `question` / `plan` message as its Conversation row (the
+/// thread's, and the session view's tool-posted card); any other message =
+/// `None`.
+pub fn ask_card_row(message: &MessageRow) -> Option<SessionThreadRow> {
+    let card = message.card.as_ref()?;
+    Some(match card_str(card, "kind") {
+        Some(MESSAGE_CARD_KIND_QUESTION) => SessionThreadRow::Question {
+            id: message.id.clone(),
+            session_id: message.session_id.clone(),
+            question: js_string(card.get("question")),
+            options: question_options(card),
+            custom: card.get("custom").and_then(Value::as_bool) != Some(false),
+            multi: card.get("multi").and_then(Value::as_bool) == Some(true),
+            surface: card_surface(card.get("surface")),
+            answer: card_str(card, "answer").map(str::to_string),
+            answers: string_list(card.get("answers")),
+            surface_data: card.get("surfaceData").filter(|data| data.is_object()).cloned(),
+            answered: message.answered_at.is_some(),
+        },
+        Some(MESSAGE_CARD_KIND_PLAN) => SessionThreadRow::Plan {
+            id: message.id.clone(),
+            session_id: message.session_id.clone(),
+            plan: js_string(card.get("plan")),
+            questions: plan_questions(card),
+            surface: card_surface(card.get("surface")),
+            decision: card_str(card, "decision").map(str::to_string),
+            fresh: card.get("fresh").and_then(Value::as_bool) == Some(true),
+            answers: plan_answers(card.get("answers")),
+            feedback: card_str(card, "feedback").filter(|text| !text.is_empty()).map(str::to_string),
+            surface_data: card.get("surfaceData").filter(|data| data.is_object()).cloned(),
+        },
+        _ => return None,
+    })
+}
+
+/// EXP-1280: a TOOL-posted card (`exponential_plan_propose` /
+/// `exponential_sessions_ask`): no engine ask (`questionId`) behind it, so
+/// it answers only through `sessions.answer`.
+pub fn is_tool_card(message: &MessageRow) -> bool {
+    message.card.as_ref().is_some_and(|card| {
+        matches!(card_str(card, "kind"), Some(MESSAGE_CARD_KIND_QUESTION) | Some(MESSAGE_CARD_KIND_PLAN))
+            && card_str(card, "questionId").is_none()
+    })
 }
 
 /// One row of the thread's Conversation (the TS `ThreadRow`).
@@ -648,18 +795,35 @@ pub enum SessionThreadRow {
         session_id: String,
         question: String,
         options: Vec<QuestionOption>,
-        /// EXP-1316: a free-text answer is offered (always, THE card).
+        /// EXP-1316: a free-text answer is offered (EXP-1280: unless the
+        /// card says `custom: false`).
         custom: bool,
+        /// EXP-1280: several picks allowed.
+        multi: bool,
+        /// EXP-1280: the inline Exponential UI surface, if any.
+        surface: Option<CardSurface>,
         answer: Option<String>,
+        /// EXP-1280: the picked labels (`None` on a legacy card = `answer` alone).
+        answers: Option<Vec<String>>,
+        /// EXP-1280: the surface's data model as the person answered it.
+        surface_data: Option<Value>,
         answered: bool,
     },
     Plan {
         id: String,
         session_id: String,
         plan: String,
+        /// EXP-1280: the choice questions, the inline surface.
+        questions: Vec<PlanQuestion>,
+        surface: Option<CardSurface>,
         decision: Option<String>,
         /// An approval that started in a fresh context (ask-dock.json).
         fresh: bool,
+        /// EXP-1280: the picked labels per question, the note.
+        answers: Option<BTreeMap<String, Vec<String>>>,
+        feedback: Option<String>,
+        /// The surface's data model as the person answered it.
+        surface_data: Option<Value>,
     },
     Subagent { id: String, title: String, status: String },
     Picture {
@@ -1268,22 +1432,9 @@ pub fn build_session_thread(input: SessionThreadInput<'_>, focus: Option<&str>) 
                     card: session_card(target, title_of(&titles, &target.id), now),
                 });
             }
-            Some(MESSAGE_CARD_KIND_QUESTION) => rows.push(SessionThreadRow::Question {
-                id: message.id.clone(),
-                session_id: message.session_id.clone(),
-                question: js_string(card.get("question")),
-                options: question_options(card.get("options"), card.get("optionDescriptions")),
-                custom: true,
-                answer: card_str(card, "answer").map(str::to_string),
-                answered: message.answered_at.is_some(),
-            }),
-            Some(MESSAGE_CARD_KIND_PLAN) => rows.push(SessionThreadRow::Plan {
-                id: message.id.clone(),
-                session_id: message.session_id.clone(),
-                plan: js_string(card.get("plan")),
-                decision: card_str(card, "decision").map(str::to_string),
-                fresh: card.get("fresh").and_then(Value::as_bool) == Some(true),
-            }),
+            Some(MESSAGE_CARD_KIND_QUESTION) | Some(MESSAGE_CARD_KIND_PLAN) => {
+                rows.extend(ask_card_row(message));
+            }
             Some(MESSAGE_CARD_KIND_SUBAGENT) => rows.push(SessionThreadRow::Subagent {
                 id: message.id.clone(),
                 title: js_string(card.get("title")),
@@ -1766,7 +1917,11 @@ mod tests {
     #[test]
     fn question_options_read_the_sidecar() {
         let pairs = |options: Value, descriptions: Option<Value>| -> Vec<(String, Option<String>)> {
-            question_options(Some(&options), descriptions.as_ref())
+            let mut card = json!({ "options": options });
+            if let Some(descriptions) = descriptions {
+                card["optionDescriptions"] = descriptions;
+            }
+            question_options(&card)
                 .into_iter()
                 .map(|option| (option.label, option.description))
                 .collect()
@@ -1792,8 +1947,16 @@ mod tests {
             pairs(json!(["A"]), Some(json!("not a list"))),
             [("A".to_string(), None)]
         );
-        assert_eq!(question_options(None, Some(&json!(["x"]))), Vec::<QuestionOption>::new());
-        assert_eq!(question_options(Some(&json!("Yes")), None), Vec::<QuestionOption>::new());
+        assert_eq!(question_options(&json!({ "optionDescriptions": ["x"] })), Vec::<QuestionOption>::new());
+        assert_eq!(question_options(&json!({ "options": "Yes" })), Vec::<QuestionOption>::new());
+        // EXP-1280: the picture sidecar resolves through `pictures`.
+        let card = json!({
+            "options": ["A", "B"],
+            "optionPictures": ["a", null],
+            "pictures": [{ "label": "a", "attachmentId": "att-1" }]
+        });
+        let ids: Vec<Option<String>> = question_options(&card).into_iter().map(|o| o.attachment_id).collect();
+        assert_eq!(ids, [Some("att-1".to_string()), None]);
     }
 
     /// A camelCase TS row → the snake_case domain row (top-level keys only:

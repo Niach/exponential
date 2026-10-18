@@ -46,6 +46,20 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-10-17-custom-plan-mode",
+    date: "2026-10-17",
+    title: "Plans you can see and shape",
+    summary: "A plan now arrives as a visual card with pictures of the proposed UI, choice questions and a live preview, and you answer it in the card on every device.",
+    body: r#"- **Visual plans**: a session in plan mode presents its plan with screenshots and design drafts inline, instead of a wall of text with a bare yes or no.
+- **Choices, not just approval**: the plan asks what it needs to know as single or multiple choice, as text options or picture tiles, with a free-text answer where it fits; Yes waits until every question is answered, No keeps planning with your note.
+- **Live preview**: an agent can draw the proposed screen itself as an Exponential UI surface inside the card; what you set in it travels back with your answer.
+- **Rich questions anywhere**: outside a plan, an agent can ask one question the same way, with pictures and several picks.
+- **Same on every device**: the card, the tiles and the answers look and work the same on web, iOS, Android and the desktop app, and a session cannot open a pull request before its plan is approved."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_59: ChangelogEntry = ChangelogEntry {
     id: "2026-10-17-move-session-device",
     date: "2026-10-17",
     title: "Move a session to another device",

@@ -73,4 +73,27 @@ describe(`session result upload tokens (EXP-879)`, () => {
       vi.stubEnv(`BETTER_AUTH_SECRET`, `guide-upload-token-test-secret`)
     }
   })
+
+  // EXP-1280: a plan/question card's picture.
+  it(`round-trips a card target and refuses a re-pointed one`, () => {
+    const now = Date.now()
+    const MESSAGE = `00000000-0000-4000-8000-0000000000aa`
+    const { token } = mintGuideUploadToken(
+      { sessionId: SESSION, topic: ``, label: `grid`, userId: `user-1`, card: { messageId: MESSAGE } },
+      now
+    )
+    expect(verifyGuideUploadToken(token, now)).toEqual({
+      s: SESSION,
+      t: ``,
+      l: `grid`,
+      u: `user-1`,
+      exp: now + GUIDE_UPLOAD_TOKEN_TTL_MS,
+      m: MESSAGE,
+    })
+    const [, sig] = token.split(`.`)
+    const forged = Buffer.from(
+      JSON.stringify({ s: SESSION, t: ``, l: `grid`, u: `user-1`, exp: now + 60_000, m: `other` })
+    ).toString(`base64url`)
+    expect(verifyGuideUploadToken(`${forged}.${sig}`, now)).toBeNull()
+  })
 })

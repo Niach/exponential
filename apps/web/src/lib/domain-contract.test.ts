@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 import { contract } from "@exp/domain-contract"
+import { PLAN_CARD_CAPS } from "@exp/domain-contract/plan-card"
 import {
   issueStatusValues,
   issueStatusCategoryValues,
@@ -55,6 +56,16 @@ import {
   agentTriggerEventValues,
   agentScheduleIntervalValues,
   MAX_TRIGGER_FILTER_IDS,
+  PLAN_CARD_DESCRIPTION_MAX,
+  PLAN_CARD_LABEL_KEY_MAX,
+  PLAN_CARD_LABEL_MAX,
+  PLAN_CARD_OPTIONS_MAX,
+  PLAN_CARD_PICTURES_MAX,
+  PLAN_CARD_PROMPT_MAX,
+  PLAN_CARD_QUESTIONS_MAX,
+  PLAN_CARD_SURFACE_MAX_BYTES,
+  PLAN_CARD_SURFACE_MAX_COMPONENTS,
+  PLAN_CARD_UPLOAD_SCHEME,
 } from "@exp/db-schema/domain"
 import { MAX_STEER_IMAGES } from "@/lib/steer-image-message"
 import {
@@ -231,6 +242,25 @@ describe(`domain-contract parity`, () => {
       agentInstructionsMaxBytes: AGENT_INSTRUCTIONS_MAX_BYTES,
       treeMaxDepth: SESSION_TREE_MAX_DEPTH,
       treeMaxSessions: SESSION_TREE_MAX_SESSIONS,
+    })
+  })
+
+  // EXP-1280: the plan / question card caps (exponential_plan_propose,
+  // exponential_sessions_ask) are hand-mirrored into db-schema/domain.ts.
+  it(`plan card caps match the contract`, () => {
+    // `contract`'s generated type predates the section: read the JSON.
+    const { $comment: _comment, ...caps } = PLAN_CARD_CAPS
+    expect(caps).toEqual({
+      questionsMax: PLAN_CARD_QUESTIONS_MAX,
+      optionsMax: PLAN_CARD_OPTIONS_MAX,
+      picturesMax: PLAN_CARD_PICTURES_MAX,
+      promptMax: PLAN_CARD_PROMPT_MAX,
+      labelMax: PLAN_CARD_LABEL_MAX,
+      descriptionMax: PLAN_CARD_DESCRIPTION_MAX,
+      labelKeyMax: PLAN_CARD_LABEL_KEY_MAX,
+      surfaceMaxBytes: PLAN_CARD_SURFACE_MAX_BYTES,
+      surfaceMaxComponents: PLAN_CARD_SURFACE_MAX_COMPONENTS,
+      uploadScheme: PLAN_CARD_UPLOAD_SCHEME,
     })
   })
 

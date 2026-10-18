@@ -135,3 +135,49 @@ fn table_sort_cases_order_rows_like_the_reference() {
         assert_eq!(json!(order), c["order"], "{name}");
     }
 }
+
+#[test]
+fn choice_tiles_cases_pick_and_toggle_like_the_reference() {
+    let f = fixture();
+    for c in f["choiceTiles"].as_array().unwrap() {
+        let name = c["name"].as_str().unwrap();
+        let options: Vec<Value> = ["a", "b", "c"]
+            .iter()
+            .enumerate()
+            .map(|(i, v)| {
+                let mut o = json!({"label": v.to_uppercase(), "value": v, "image": format!("https://example.com/{v}.png")});
+                if c["disabled"].as_u64() == Some(i as u64) {
+                    o["disabled"] = json!(true);
+                }
+                o
+            })
+            .collect();
+        let mut s = surface(json!({"id": "root", "component": "Box", "children": [{"id": "c", "component": "ChoiceTiles", "props": {"name": "c", "type": c["type"], "options": options, "value": {"path": "/v"}}, "on": {"change": {"event": {"name": "change"}}}}]}));
+        if !c["value"].is_null() {
+            s.set_data("/v", Some(c["value"].clone())).unwrap();
+        }
+        let mut m = fixed();
+        let mut changes = vec![];
+        // Press a different part each time: every part of a tile picks it.
+        let parts = ["tile", "label", "picture"];
+        for (k, i) in c["presses"].as_array().unwrap().iter().enumerate() {
+            s.layout(&mut m);
+            let idx = s.index_of(&format!("c.{}.{}", parts[k % parts.len()], i)).unwrap_or_else(|| panic!("{name}: no tile {i}"));
+            for e in s.event(idx, "press", None) {
+                if let OutEvent::Action { name, context, .. } = e {
+                    if name == "change" {
+                        changes.push(context["value"].clone());
+                    }
+                }
+            }
+        }
+        assert_eq!(json!(changes), c["expect"]["changes"], "{name}: changes");
+        let v = s.get_data("/v").cloned().unwrap_or(Value::Null);
+        let expected = if c["expect"]["value"] == c["value"] && c["value"].is_null() { Value::Null } else { c["expect"]["value"].clone() };
+        assert_eq!(v, expected, "{name}: /v");
+        // The picked tiles carry `selected`.
+        s.layout(&mut m);
+        let picked: Vec<String> = s.nodes().into_iter().filter(|n| n.part.as_deref() == Some("tile") && n.props.get("selected") == Some(&json!(true))).map(|n| n.props["value"].as_str().unwrap().to_string()).collect();
+        assert_eq!(picked.join(","), c["expect"]["value"].as_str().unwrap(), "{name}: selected tiles");
+    }
+}

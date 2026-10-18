@@ -10,6 +10,7 @@ import type { NativeProps } from "../node-view"
 import { ButtonNative, LinkNative, ToggleNative } from "./actions"
 import { ChartNative } from "./chart"
 import { ChipInputNative, FileUploadNative } from "./chips"
+import { ChoiceTilesNative } from "./choice-tiles"
 import { CodeBlockNative } from "./code"
 import { DatePickerNative, DateRangePickerNative, TimePickerNative } from "./dates"
 import { ResizableNative } from "./resizable"
@@ -61,6 +62,7 @@ export const NATIVES: Record<string, ComponentType<NativeProps>> = {
   NumberField: NumberFieldNative,
   Checkbox: CheckboxNative,
   Radio: RadioNative,
+  ChoiceTiles: ChoiceTilesNative,
   Switch: SwitchNative,
   Slider: SliderNative,
   Select: SelectNative,

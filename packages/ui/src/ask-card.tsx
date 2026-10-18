@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useRef, useState, type HTMLAttributes, type ReactNode } from "react"
 import { ASK_DOCK_COPY, ASK_DOCK_TEST_IDS } from "@exp/domain-contract/ask-dock"
+import { PLAN_CARD_COPY } from "@exp/domain-contract/plan-card"
 import { Button } from "./button"
 import { cn } from "./cn"
 import { Composer, ComposerSubmit } from "./composer"
@@ -26,19 +27,17 @@ const CheckIcon = conceptIcon(`ui-check`)
 const CloseIcon = conceptIcon(`ui-close`)
 const BackIcon = conceptIcon(`ui-back`)
 
-/** The card's words ×web (hand-mirrored ×4 with the steer views). */
+/** The generic ask card's own words ×web (hand-mirrored ×4 with the steer
+ *  views). The plan / question card's copy lives in the fixtures:
+ *  `ASK_DOCK_COPY` (planReady, question, feedbackPlaceholder) and
+ *  `PLAN_CARD_COPY` (answered, answering). */
 export const ASK_CARD_COPY = {
-  planReady: `Plan ready`,
-  question: `Question`,
-  answering: `Answering…`,
-  answered: `Answered`,
   dismissed: `Dismissed`,
   submit: `Submit`,
   submitAnswers: `Submit answers`,
   /** The free-text row a thread question offers (claude's synthetic row). */
   freeTextRow: `Type something.`,
   freeTextPlaceholder: `Type your answer…`,
-  planFeedbackPlaceholder: `Tell the agent what to change…`,
 } as const
 
 export interface AskOption {
@@ -47,7 +46,14 @@ export interface AskOption {
   description?: string
   /** The free-text row: picking it opens the inline field. */
   freeText?: boolean
+  /** EXP-1280: inert for now (a plan's approve while an answer is missing). */
+  disabled?: boolean
 }
+
+/** THE option row's box (EXP-850 §13: a ROW, radius.md, never a capsule)
+ *  and its picked state; the rich plan card's option list shares them. */
+export const ASK_OPTION_ROW_CLASS = `h-auto min-h-8 w-full justify-start whitespace-normal rounded-md py-1.5 text-left text-xs`
+export const ASK_OPTION_PICKED_CLASS = `border-glass-stroke-active bg-glass-active`
 
 /** Whether picking `index` opens the inline field instead of answering: a
  *  free-text row, or a plan's reject (its LAST option). */
@@ -151,7 +157,7 @@ export function AskAnsweredLine({
         <CheckIcon className="mt-0.5 size-3.5 shrink-0 text-emerald-500" />
       )}
       <span className="whitespace-pre-wrap break-words font-medium text-foreground/90">
-        {dismissed ? ASK_CARD_COPY.dismissed : (answer ?? ASK_CARD_COPY.answered)}
+        {dismissed ? ASK_CARD_COPY.dismissed : (answer ?? PLAN_CARD_COPY.answered)}
       </span>
     </div>
   )
@@ -275,7 +281,7 @@ export function AskPrompt({
     options.filter((o) => keys.includes(o.key)).map((o) => o.label)
 
   const choose = (option: AskOption, index: number) => {
-    if (!open) return
+    if (!open || option.disabled) return
     // A row that opens the field (free text, a plan's reject) does so in a
     // multi-select too: its key never joins the picks.
     if (askOpensField(item, index)) {
@@ -364,7 +370,7 @@ export function AskPrompt({
     return (
       <div className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
         <LoadingIcon className="size-3 shrink-0 animate-spin" />
-        <span className="shrink-0">{ASK_CARD_COPY.answering}</span>
+        <span className="shrink-0">{PLAN_CARD_COPY.answering}</span>
         {locked.labels.length > 0 && (
           <span className="truncate font-medium text-foreground/80">{locked.labels.join(`, `)}</span>
         )}
@@ -403,10 +409,10 @@ export function AskPrompt({
                 variant={primary ? `default` : `outline`}
                 size="sm"
                 data-testid="ask-option"
+                disabled={option.disabled}
                 className={cn(
-                  // EXP-850 §13: an option is a ROW (radius.md), never a capsule.
-                  `h-auto min-h-8 w-full justify-start whitespace-normal rounded-md py-1.5 text-left text-xs`,
-                  !primary && (selected || fieldOpen) && `border-glass-stroke-active bg-glass-active`
+                  ASK_OPTION_ROW_CLASS,
+                  !primary && (selected || fieldOpen) && ASK_OPTION_PICKED_CLASS
                 )}
                 aria-pressed={multiSelect ? selected : undefined}
                 aria-expanded={askOpensField(item, index) ? fieldOpen : undefined}
@@ -449,7 +455,7 @@ export function AskPrompt({
                 <AskInlineField
                   placeholder={
                     planMode
-                      ? ASK_CARD_COPY.planFeedbackPlaceholder
+                      ? ASK_DOCK_COPY.feedbackPlaceholder
                       : ASK_CARD_COPY.freeTextPlaceholder
                   }
                   allowEmpty={planMode}

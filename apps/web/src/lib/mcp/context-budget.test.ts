@@ -1,3 +1,4 @@
+import { PLAN_CARD_COPY } from "@exp/domain-contract/plan-card"
 import { expect, it, vi } from "vitest"
 import { existsSync, readFileSync } from "node:fs"
 import { dirname, join } from "node:path"
@@ -233,6 +234,11 @@ it(`keeps the MCP server instructions self-contained and in budget`, () => {
     `exponential_sessions_end ends this session; call it only when the person asks you to end the session.`
   )
   expect(person).not.toContain(`This session is unattended`)
+  // EXP-1280: only a planning session is told it is in plan mode (the
+  // fixture's gate sentence); every session gets the ask.
+  expect(MCP_SERVER_INSTRUCTIONS).toContain(PLAN_CARD_COPY.planModeGate)
+  expect(person).not.toContain(PLAN_CARD_COPY.planModeGate)
+  expect(person).toContain(`exponential_sessions_ask`)
   expect(MCP_SERVER_INSTRUCTIONS).toContain(`exponential_sessions_end LAST`)
   expect(MCP_SERVER_INSTRUCTIONS).not.toContain(`only when the person asks`)
   // A team agent never ends and writes no Guide of its own.

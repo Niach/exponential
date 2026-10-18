@@ -4,6 +4,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.api.AnswerInput
+import kotlinx.serialization.json.JsonObject
 import com.exponential.app.data.api.IssueImagesApi
 import com.exponential.app.data.api.IssuesApi
 import com.exponential.app.data.api.PullRequestsApi
@@ -219,10 +220,26 @@ class ThreadViewModel @Inject constructor(
         run("start", "the session") { sender.send(SessionsSendInput.child(parentId, deviceId, text)) }
 
     /** Answer a `question` card ([answer]: an option or free text) in place;
-     *  [settled] = whether the call went through. */
-    fun answer(messageId: String, answer: String, settled: (Boolean) -> Unit = {}) =
+     *  EXP-1280: [answers] = the picked labels (the rich card; [answer] = them
+     *  joined, the compat string), [surfaceData] = the inline surface's data
+     *  model. [settled] = whether the call went through. */
+    fun answer(
+        messageId: String,
+        answer: String,
+        settled: (Boolean) -> Unit = {},
+        answers: List<String>? = null,
+        surfaceData: JsonObject? = null,
+    ) =
         run("answer", "the question", settled = settled) { accountId ->
-            sessionsApi.answer(accountId, AnswerInput(messageId = messageId, answer = answer))
+            sessionsApi.answer(
+                accountId,
+                AnswerInput(
+                    messageId = messageId,
+                    answer = answer,
+                    answers = answers?.let(AnswerInput::questionAnswers),
+                    surfaceData = surfaceData,
+                ),
+            )
         }
 
     // ── EXP-1323: read marks, suggested tasks, the live tail ────────────────
@@ -338,6 +355,8 @@ class ThreadViewModel @Inject constructor(
         fresh: Boolean = false,
         feedback: String? = null,
         settled: (Boolean) -> Unit = {},
+        answers: Map<String, List<String>>? = null,
+        surfaceData: JsonObject? = null,
     ) =
         run("answer", "the plan", settled = settled) { accountId ->
             sessionsApi.answer(
@@ -348,6 +367,9 @@ class ThreadViewModel @Inject constructor(
                     // ask-dock.json: only an approval starts fresh.
                     fresh = if (approved && fresh) true else null,
                     feedback = feedback?.takeIf { it.isNotBlank() },
+                    // EXP-1280: the questions' picks (empty ones left out).
+                    answers = answers?.filterValues { it.isNotEmpty() }?.takeIf { it.isNotEmpty() }?.let(AnswerInput::planAnswers),
+                    surfaceData = surfaceData,
                 ),
             )
         }

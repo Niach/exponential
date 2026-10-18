@@ -27,3 +27,9 @@ include(":app")
 // convergence: the app's generic composables wrap them).
 include(":ui-compose-primitives")
 project(":ui-compose-primitives").projectDir = file("../../packages/exponential-ui-compose/primitives")
+
+// EXP-1280: the Compose painter itself (the plan card's inline Exponential UI
+// surface): the UniFFI core rides as `libexponential_ui_ffi.so` (built by
+// apps/desktop/crates/exponential-ui-ffi/build-android.sh, gitignored) + JNA.
+include(":ui-compose")
+project(":ui-compose").projectDir = file("../../packages/exponential-ui-compose/ui-compose")

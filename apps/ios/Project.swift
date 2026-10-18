@@ -1,3 +1,4 @@
+import Foundation
 import ProjectDescription
 
 let sharedSources: SourceFilesList = ["Exponential/**"]
@@ -22,13 +23,34 @@ let stagingResources: ResourceFileElements = [
     "Firebase-Staging/GoogleService-Info.plist",
     "Exponential/PrivacyInfo.xcprivacy",
 ]
+// EXP-1280: the Exponential UI painter (`ExponentialUI`, the SDK's SwiftUI
+// renderer over the Rust core) paints an agent's inline surface in the plan /
+// question card. Its UniFFI core ships as `ExponentialUIFFI.xcframework`
+// (gitignored; `bash apps/desktop/crates/exponential-ui-ffi/build-ios.sh`
+// writes it), and the SDK's Package.swift declares the product only when the
+// xcframework exists, so the app links it only then. Without it the card
+// draws the surface's placeholder frame (`canImport(ExponentialUI)`).
+let exponentialUiFfiPath = URL(fileURLWithPath: #filePath)
+    .deletingLastPathComponent()
+    .appendingPathComponent("../../packages/exponential-ui-swift/Binaries/ExponentialUIFFI.xcframework")
+    .standardizedFileURL.path
+let hasExponentialUi = FileManager.default.fileExists(atPath: exponentialUiFfiPath)
+let surfaceDependencies: [TargetDependency] = hasExponentialUi ? [.external(name: "ExponentialUI")] : []
+// Tuist vends the SwiftPM `ExponentialUI` target as a static
+// `ExponentialUIWrapper.framework` whose module is `ExponentialUI`: a
+// framework search finds modules by FRAMEWORK name, so the app adds its
+// Modules directory to the Swift include path.
+let surfaceSettings: SettingsDictionary = hasExponentialUi
+    ? ["SWIFT_INCLUDE_PATHS": "$(inherited) $(BUILT_PRODUCTS_DIR)/ExponentialUIWrapper.framework/Modules"]
+    : [:]
+
 let sharedDependencies: [TargetDependency] = [
     .external(name: "GRDB"),
     .external(name: "FirebaseCore"),
     .external(name: "FirebaseMessaging"),
     .external(name: "cmark-gfm"),
     .external(name: "cmark-gfm-extensions"),
-]
+] + surfaceDependencies
 
 // ExpCore: iOS(+iPad) data/sync/domain layer. Foundation/GRDB/Security/
 // CryptoKit/os only — NO cmark/MarkdownUI/Firebase/SwiftUI.
@@ -223,7 +245,7 @@ let project = Project(
             // Exponential.entitlements) must not inherit.
             entitlements: "ExponentialApp.entitlements",
             dependencies: sharedDependencies + [.target(name: "ExpCore"), .target(name: "ExpUI"), .target(name: "ShareExtension")],
-            settings: .settings(base: baseSettings)
+            settings: .settings(base: baseSettings.merging(surfaceSettings) { _, new in new })
         ),
         .target(
             name: "Exponential-Staging",
@@ -240,7 +262,7 @@ let project = Project(
             // App-only entitlements (EXP-92) — see the production target.
             entitlements: "ExponentialAppStaging.entitlements",
             dependencies: sharedDependencies + [.target(name: "ExpCore"), .target(name: "ExpUI"), .target(name: "ShareExtension-Staging")],
-            settings: .settings(base: baseSettings.merging([
+            settings: .settings(base: baseSettings.merging(surfaceSettings) { _, new in new }.merging([
                 "SWIFT_ACTIVE_COMPILATION_CONDITIONS": "$(inherited) STAGING",
             ]) { _, new in new })
         ),

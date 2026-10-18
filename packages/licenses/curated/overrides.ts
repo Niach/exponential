@@ -164,6 +164,21 @@ export const LICENCE_OVERRIDES: LicenceOverride[] = [
   // consults these entries by `group:artifact` instead of failing.
   {
     scope: `android`,
+    name: `net.java.dev.jna:jna`,
+    declared: `LGPL-2.1-or-later OR Apache-2.0 (Apache-2.0 elected)`,
+    licenses: [`Apache-2.0`],
+    useTemplate: true,
+    copyright: [`Copyright (c) 2007 Timothy Wall, All Rights Reserved`],
+    reason:
+      `Checked 2026-10-17 (EXP-1280: the app links the Exponential UI Compose ` +
+      `painter, whose AAR loads the Rust core through JNA 5.17.0). The POM ` +
+      `declares two <license> elements, LGPL-2.1-or-later and Apache-2.0, and ` +
+      `the project's LICENSE file states the dual choice; docs/third-party-licences.md ` +
+      `elects Apache-2.0 for every client that ships JNA, so the notice prints the ` +
+      `Apache-2.0 body alone.`,
+  },
+  {
+    scope: `android`,
     name: `com.google.guava:failureaccess`,
     declared: `Apache-2.0`,
     licenses: [`Apache-2.0`],

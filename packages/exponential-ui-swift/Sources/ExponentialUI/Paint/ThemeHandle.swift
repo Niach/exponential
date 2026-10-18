@@ -167,6 +167,7 @@ public final class ThemeHandle: @unchecked Sendable {
         t.primary = color("primary", mode: mode) ?? t.primary
         t.primaryForeground = color("primaryForeground", mode: mode) ?? t.primaryForeground
         t.accent = color("accent", mode: mode) ?? t.accent
+        t.secondary = color("secondary", mode: mode) ?? t.secondary
         t.destructive = color("destructive", mode: mode) ?? t.destructive
         t.success = color("success", mode: mode) ?? t.success
         t.warning = color("warning", mode: mode) ?? t.warning

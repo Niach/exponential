@@ -26,8 +26,13 @@ fn plan(id: &str, session: &str, text: &str) -> SessionThreadRow {
         id: id.to_string(),
         session_id: session.to_string(),
         plan: text.to_string(),
+        questions: Vec::new(),
+        surface: None,
         decision: None,
         fresh: false,
+        answers: None,
+        feedback: None,
+        surface_data: None,
     }
 }
 
@@ -38,10 +43,14 @@ fn question(id: &str, session: &str) -> SessionThreadRow {
         question: QUESTION.to_string(),
         options: ["One PR", "Split them"]
             .into_iter()
-            .map(|label| QuestionOption { label: label.to_string(), description: None })
+            .map(|label| QuestionOption { label: label.to_string(), description: None, attachment_id: None })
             .collect(),
         custom: true,
+        multi: false,
+        surface: None,
         answer: None,
+        answers: None,
+        surface_data: None,
         answered: false,
     }
 }

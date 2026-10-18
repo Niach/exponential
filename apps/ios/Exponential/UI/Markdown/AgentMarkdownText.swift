@@ -42,6 +42,10 @@ struct AgentMarkdownText: View {
     /// Display-only parse deviations — safe here, nothing serializes back.
     let options: MarkdownParseOptions
     let imageMaxHeight: CGFloat?
+    /// EXP-1280: the image blocks' radius + hairline (the plan card's inline
+    /// picture); defaults = the transcript's.
+    let imageCornerRadius: CGFloat
+    let imageStroke: CGFloat?
     /// Chat bubbles hug their text; full-width prose does not.
     let hugsWidth: Bool
     /// EXP-698: display-only palette deviations. The chat feed is the ONE
@@ -86,6 +90,8 @@ struct AgentMarkdownText: View {
         context: AgentMarkdownContext? = nil,
         options: MarkdownParseOptions = [],
         imageMaxHeight: CGFloat? = 280,
+        imageCornerRadius: CGFloat = 8,
+        imageStroke: CGFloat? = nil,
         hugsWidth: Bool = false,
         overrides: MarkdownStyle.Overrides = AgentMarkdownText.chatCodePalette
     ) {
@@ -93,6 +99,8 @@ struct AgentMarkdownText: View {
         self.context = context
         self.options = options
         self.imageMaxHeight = imageMaxHeight
+        self.imageCornerRadius = imageCornerRadius
+        self.imageStroke = imageStroke
         self.hugsWidth = hugsWidth
         self.overrides = overrides
         // EXP-582: a LazyVStack drops a row's @State the moment it scrolls
@@ -215,6 +223,8 @@ struct AgentMarkdownText: View {
             onIssueRefTap: context?.issueRefs?.onOpen,
             isReadOnly: true,
             imageMaxHeight: imageMaxHeight,
+            imageCornerRadius: imageCornerRadius,
+            imageStroke: imageStroke,
             hugsContentWidth: hugsWidth
         )
         .environment(\.markdownLinkHandler, linkHandler)

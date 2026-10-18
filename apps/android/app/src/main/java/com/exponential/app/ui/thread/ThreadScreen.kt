@@ -218,9 +218,11 @@ fun ThreadScreen(
     val askPending = remember(view, sessionName) {
         view?.let { v -> AskDock.threadPendingAsks(v.rows, sessionName) }.orEmpty()
     }
-    val onAnswer: ThreadAnswer = { id, answer, settled -> viewModel.answer(id, answer, settled) }
-    val onDecidePlan: ThreadPlanDecision = { id, approved, fresh, feedback, settled ->
-        viewModel.decidePlan(id, approved, fresh, feedback, settled)
+    val onAnswer: ThreadAnswer = { id, answer, settled ->
+        viewModel.answer(id, answer.answer, settled, answer.answers, answer.surfaceData)
+    }
+    val onDecidePlan: ThreadPlanDecision = { id, d, settled ->
+        viewModel.decidePlan(id, d.approved, d.fresh, d.feedback, settled, d.answers, d.surfaceData)
     }
 
     val hazeState = rememberHazeState()

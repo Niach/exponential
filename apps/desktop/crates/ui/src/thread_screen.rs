@@ -48,14 +48,13 @@ use gpui::{
 use gpui_component::{
     button::ButtonVariants as _,
     h_flex,
-    input::{InputEvent, InputState},
     v_flex, ActiveTheme as _, Icon, Sizable as _,
 };
 use sync::Store;
 
 use domain::rows::{Issue, MessageRow, PullRequestRow, SessionIssueRow, SessionRow};
 use domain::session_results::SessionResultEntry;
-use domain::session_tree::{QuestionOption, SessionThreadRow, SessionThreadView, ThreadTab, THREAD, THREADS_LIST};
+use domain::session_tree::{SessionThreadRow, SessionThreadView, ThreadTab, THREAD, THREADS_LIST};
 
 use crate::controls::PointerContextMenuExt as _;
 use crate::controls::WebControl as _;
@@ -250,7 +249,7 @@ struct AnsweringCards(HashSet<String>);
 impl gpui::Global for AnsweringCards {}
 
 /// Whether `message_id`'s answer is already on its way.
-fn answering(message_id: &str, cx: &App) -> bool {
+pub(crate) fn answering(message_id: &str, cx: &App) -> bool {
     cx.try_global::<AnsweringCards>()
         .is_some_and(|cards| cards.0.contains(message_id))
 }
@@ -873,107 +872,8 @@ pub(crate) fn muted_line(glyph: crate::icons::ExpIcon, text: String, cx: &App) -
         .into_any_element()
 }
 
-/// The free-text row a thread question card adds under its options (the
-/// card's options never carry it; the session view reads the agent's own
-/// row, claude's `Type something.`).
-pub(crate) const FREE_TEXT_LABEL: &str = "Type something.";
-/// A plan card's heading (the session view's).
-pub(crate) const PLAN_HEADING: &str = "Plan ready";
-
-/// The one inline field open on a thread card: a question's free-text row
-/// or a plan's Reject note (EXP-820, the session view's rule).
-struct CardInlineState {
-    message_id: String,
-    plan_reject: bool,
-    state: Entity<InputState>,
-    _subscription: Subscription,
-}
-
-#[derive(Default)]
-struct CardInline(Option<CardInlineState>);
-
-impl gpui::Global for CardInline {}
-
-fn card_inline_open(message_id: &str, cx: &App) -> Option<(bool, Entity<InputState>)> {
-    cx.try_global::<CardInline>()?
-        .0
-        .as_ref()
-        .filter(|open| open.message_id == message_id)
-        .map(|open| (open.plan_reject, open.state.clone()))
-}
-
-/// Open the inline field on `message_id`'s free-text row (or its plan
-/// Reject), focused; Enter sends it.
-fn open_card_inline(message_id: &str, plan_reject: bool, window: &mut Window, cx: &mut App) {
-    if card_inline_open(message_id, cx).is_some_and(|(open_reject, _)| open_reject == plan_reject) {
-        return;
-    }
-    let placeholder = if plan_reject {
-        crate::steer_viewer::PLAN_REJECT_PLACEHOLDER
-    } else {
-        crate::steer_viewer::FREE_TEXT_PLACEHOLDER
-    };
-    let state = cx.new(|cx| InputState::new(window, cx).placeholder(placeholder));
-    let subscription = cx.subscribe(&state, |_, event: &InputEvent, cx| {
-        if let InputEvent::PressEnter { shift: false, .. } = event {
-            send_card_inline(cx);
-        }
-    });
-    state.update(cx, |state, cx| state.focus(window, cx));
-    cx.set_global(CardInline(Some(CardInlineState {
-        message_id: message_id.to_string(),
-        plan_reject,
-        state,
-        _subscription: subscription,
-    })));
-    cx.refresh_windows();
-}
-
-/// Send the open inline field: a question's typed answer (needs text), a
-/// plan's reject with its note (an empty note is a plain reject).
-fn send_card_inline(cx: &mut App) {
-    let Some(open) = cx.try_global::<CardInline>().and_then(|inline| inline.0.as_ref()) else {
-        return;
-    };
-    let text = open.state.read(cx).value().trim().to_string();
-    let input = if open.plan_reject {
-        api::sessions::AnswerInput {
-            message_id: open.message_id.clone(),
-            decision: Some("rejected".to_string()),
-            feedback: (!text.is_empty()).then_some(text),
-            ..Default::default()
-        }
-    } else if text.is_empty() {
-        return;
-    } else {
-        api::sessions::AnswerInput {
-            message_id: open.message_id.clone(),
-            answer: Some(text),
-            ..Default::default()
-        }
-    };
-    cx.set_global(CardInline(None));
-    answer_card(input, cx);
-}
-
-/// The open inline field under its row: the glass field + the round Send.
-fn card_inline_field(message_id: &str, state: &Entity<InputState>, plan_reject: bool, window: &Window, cx: &App) -> AnyElement {
-    let empty = state.read(cx).value().trim().is_empty();
-    let send = crate::composer::composer_submit_kind(
-        SharedString::from(format!("thread-card-send-{message_id}")),
-        crate::composer::SubmitKind::Send,
-        !plan_reject && empty,
-        cx,
-    )
-    .on_click(|_, _, cx| {
-        cx.stop_propagation();
-        send_card_inline(cx);
-    });
-    crate::steer_viewer::ask_inline_field(state, send, window, cx).into_any_element()
-}
-
-/// `Answering…` while the card's answer is on its way.
-fn card_answering(cx: &App) -> AnyElement {
+/// `plan-card.json` `copy.answering` while the card's answer is on its way.
+pub(crate) fn card_answering(cx: &App) -> AnyElement {
     h_flex()
         .gap_1p5()
         .items_center()
@@ -981,7 +881,7 @@ fn card_answering(cx: &App) -> AnyElement {
         .text_xs()
         .text_color(cx.theme().muted_foreground)
         .child(gpui_component::spinner::Spinner::new().xsmall())
-        .child("Answering…")
+        .child(SharedString::from(domain::plan_card::copy().answering.clone()))
         .into_any_element()
 }
 
@@ -994,162 +894,116 @@ pub(crate) struct CardChrome {
     pub back: Option<AnyElement>,
 }
 
-/// A card's body, capped inside the dock.
-fn card_body(id: &str, body: gpui::Div, chrome: &CardChrome, window: &Window) -> AnyElement {
-    if chrome.docked {
-        crate::ask_dock::dock_body(SharedString::from(format!("thread-dock-body-{id}")), body, window)
-            .into_any_element()
+/// A card's column: the markdown body and the rich content (surface,
+/// questions; EXP-1280), capped and scrolling inside THE ask dock, then
+/// the controls (decision row, Answer, the closed lines) below.
+fn card_column(id: &str, body: MarkdownView, content: Vec<AnyElement>, controls: AnyElement, chrome: &CardChrome, window: &Window, cx: &App) -> gpui::Div {
+    let body = v_flex()
+        .w_full()
+        .min_w_0()
+        .child(crate::steer_viewer::ask_body_text(cx).child(body))
+        .children(content);
+    let body = if chrome.docked {
+        crate::ask_dock::dock_body(SharedString::from(format!("thread-dock-body-{id}")), body, window).into_any_element()
     } else {
         body.into_any_element()
-    }
+    };
+    v_flex().w_full().min_w_0().child(body).child(controls)
 }
 
-/// EXP-1316 — a question card = THE session view's card: the question over
-/// its numbered option rows and (`custom`) the free-text row that opens an
-/// inline field; once answered, CLOSED (the check + the chosen answer).
-#[allow(clippy::too_many_arguments)] // one row's facts
+/// EXP-1316 → EXP-1280 — a question card = THE card ×4: the question, the
+/// inline surface, its options (THE option rows, or picture tiles; several
+/// picks when `multi`), the free-text row (`custom`), the Answer button;
+/// once answered, CLOSED (the picks highlighted, the answer line).
 pub(crate) fn question_card(
-    message_id: &str,
     question: MarkdownView,
-    options: &[QuestionOption],
-    custom: bool,
-    answer: Option<&str>,
-    answered: bool,
+    facts: crate::plan_card::QuestionFacts,
+    images: &Entity<ImageCache>,
     chrome: CardChrome,
     window: &Window,
     cx: &mut App,
 ) -> AnyElement {
-    let body = card_body(message_id, crate::steer_viewer::ask_body_text(cx).child(question), &chrome, window);
-    let mut column = v_flex().w_full().min_w_0().child(body);
-    if answered {
-        column = column.child(crate::steer_viewer::ask_resolved_line(answer, false, cx));
-    } else if answering(message_id, cx) {
-        column = column.child(card_answering(cx));
-    } else {
-        let inline = card_inline_open(message_id, cx).filter(|(plan_reject, _)| !plan_reject);
-        let mut rows = v_flex().mt_2().w_full().min_w_0().gap_1();
-        for (index, option) in options.iter().enumerate() {
-            let id = message_id.to_string();
-            let value = option.label.clone();
-            rows = rows.child(
-                crate::steer_viewer::ask_option_button(
-                    SharedString::from(format!("thread-question-{message_id}-{index}")),
-                    option.label.clone(),
-                    option.description.clone(),
-                    false,
-                    false,
-                    false,
-                    index,
-                    cx,
-                )
-                .on_click(move |_, _, cx| {
-                    cx.stop_propagation();
-                    answer_card(
-                        api::sessions::AnswerInput {
-                            message_id: id.clone(),
-                            answer: Some(value.clone()),
-                            ..Default::default()
-                        },
-                        cx,
-                    );
-                }),
-            );
-        }
-        if custom {
-            let id = message_id.to_string();
-            rows = rows.child(
-                crate::steer_viewer::ask_option_button(
-                    SharedString::from(format!("thread-question-{message_id}-custom")),
-                    FREE_TEXT_LABEL.to_string(),
-                    None,
-                    false,
-                    inline.is_some(),
-                    false,
-                    options.len(),
-                    cx,
-                )
-                .on_click(move |_, window, cx| {
-                    cx.stop_propagation();
-                    open_card_inline(&id, false, window, cx);
-                }),
-            );
-            if let Some((_, state)) = &inline {
-                rows = rows.child(card_inline_field(message_id, state, false, window, cx));
-            }
-        }
-        column = column.child(rows);
-    }
-    crate::steer_viewer::ask_card_chrome(false, None, None, chrome.back, column, cx).into_any_element()
+    let (content, controls) = crate::plan_card::question_parts(&facts, images, window, cx);
+    let column = card_column(facts.message_id, question, content, controls, &chrome, window, cx);
+    crate::steer_viewer::ask_card_chrome(false, None, None, chrome.back, column, cx)
+        .id(SharedString::from(format!("{}-{}", domain::plan_card::test_ids().card, facts.message_id)))
+        .into_any_element()
 }
 
-/// EXP-1316 — a plan card = THE plan card ×4: `Plan ready`, the plan, THE
-/// options (`fixtures/ask-dock.json` `planOptions`: Yes (primary) / Yes,
-/// and start with a fresh context / No, keep planning, which opens the note
-/// field); once decided, CLOSED (the check + `planDecisionLabel`).
-#[allow(clippy::too_many_arguments)] // one row's facts
+/// EXP-1316 → EXP-1280 — a plan card = THE plan card ×4: `Plan ready`, the
+/// plan (pictures inline; a pending `upload:` embed renders nothing), the
+/// inline surface, one block per question, THE options
+/// (`fixtures/ask-dock.json` `planOptions`; approving waits on every
+/// question) + the feedback field; once decided, CLOSED (the picks,
+/// `planDecisionLabel`, the feedback).
 pub(crate) fn plan_card(
-    message_id: &str,
     plan: MarkdownView,
-    decision: Option<&str>,
-    fresh: bool,
+    facts: crate::plan_card::PlanFacts,
+    images: &Entity<ImageCache>,
     chrome: CardChrome,
     window: &Window,
     cx: &mut App,
 ) -> AnyElement {
-    let body = card_body(message_id, crate::steer_viewer::ask_body_text(cx).child(plan), &chrome, window);
-    let mut column = v_flex().w_full().min_w_0().child(body);
-    match decision {
-        Some(decision) => {
-            let label = domain::ask_dock::plan_decision_label(decision, fresh);
-            column = column.child(crate::steer_viewer::ask_resolved_line(Some(&label), false, cx));
-        }
-        None if answering(message_id, cx) => column = column.child(card_answering(cx)),
-        None => {
-            let inline = card_inline_open(message_id, cx).filter(|(plan_reject, _)| *plan_reject);
-            let mut rows = v_flex().mt_2().w_full().min_w_0().gap_1();
-            for (index, option) in domain::ask_dock::plan_options().iter().enumerate() {
-                let reject = option.decision == "rejected";
-                let id = message_id.to_string();
-                let fresh = option.fresh;
-                rows = rows.child(
-                    crate::steer_viewer::ask_option_button(
-                        SharedString::from(format!("thread-plan-{message_id}-{}", option.key)),
-                        option.label.clone(),
-                        option.description.clone(),
-                        index == 0,
-                        reject && inline.is_some(),
-                        false,
-                        index,
-                        cx,
-                    )
-                    .on_click(move |_, window, cx| {
-                        cx.stop_propagation();
-                        if reject {
-                            open_card_inline(&id, true, window, cx);
-                            return;
-                        }
-                        answer_card(
-                            api::sessions::AnswerInput {
-                                message_id: id.clone(),
-                                decision: Some("approved".to_string()),
-                                fresh: fresh.then_some(true),
-                                ..Default::default()
-                            },
-                            cx,
-                        );
-                    }),
-                );
-                if reject {
-                    if let Some((_, state)) = &inline {
-                        rows = rows.child(card_inline_field(message_id, state, true, window, cx));
-                    }
-                }
-            }
-            column = column.child(rows);
-        }
-    }
-    crate::steer_viewer::ask_card_chrome(true, Some(SharedString::from(PLAN_HEADING)), None, chrome.back, column, cx)
+    let (content, controls) = crate::plan_card::plan_parts(&facts, images, window, cx);
+    let column = card_column(facts.message_id, plan, content, controls, &chrome, window, cx);
+    crate::steer_viewer::ask_card_chrome(true, Some(SharedString::from(domain::ask_dock::ASK_DOCK.copy.plan_ready.clone())), None, chrome.back, column, cx)
+        .id(SharedString::from(format!("{}-{}", domain::plan_card::test_ids().card, facts.message_id)))
         .into_any_element()
+}
+
+/// A `question` / `plan` row as its card (the Conversation's, THE dock's,
+/// the session view's tool-posted one); any other row = `None`.
+pub(crate) fn ask_row_card(
+    row: &SessionThreadRow,
+    text: &ThreadText,
+    images: &Entity<ImageCache>,
+    chrome: CardChrome,
+    window: &Window,
+    cx: &mut App,
+) -> Option<AnyElement> {
+    Some(match row {
+        SessionThreadRow::Plan { id, plan, questions, surface, decision, fresh, answers, feedback, surface_data, .. } => plan_card(
+            message_markdown(
+                SharedString::from(format!("thread-plan-{id}")),
+                &crate::plan_card::strip_pending_uploads(plan),
+                text,
+                images,
+            ),
+            crate::plan_card::PlanFacts {
+                message_id: id,
+                questions,
+                surface: surface.as_ref(),
+                decision: decision.as_deref(),
+                fresh: *fresh,
+                answers: answers.as_ref(),
+                feedback: feedback.as_deref(),
+                surface_data: surface_data.as_ref(),
+            },
+            images,
+            chrome,
+            window,
+            cx,
+        ),
+        SessionThreadRow::Question { id, question, options, custom, multi, surface, answer, answers, surface_data, answered, .. } => question_card(
+            message_markdown(SharedString::from(format!("thread-question-{id}")), question, text, images),
+            crate::plan_card::QuestionFacts {
+                message_id: id,
+                options,
+                multi: *multi,
+                custom: *custom,
+                surface: surface.as_ref(),
+                answer: answer.as_deref(),
+                answers: answers.as_deref(),
+                surface_data: surface_data.as_ref(),
+                answered: *answered,
+            },
+            images,
+            chrome,
+            window,
+            cx,
+        ),
+        _ => return None,
+    })
 }
 
 /// THE ask dock in a root's Conversation (a thread, an agent channel;
@@ -1229,29 +1083,7 @@ fn docked_card(
     window: &Window,
     cx: &mut App,
 ) -> Option<AnyElement> {
-    Some(match row {
-        SessionThreadRow::Plan { id, plan, decision, fresh, .. } => plan_card(
-            id,
-            message_markdown(SharedString::from(format!("thread-plan-{id}")), plan, text, images),
-            decision.as_deref(),
-            *fresh,
-            chrome,
-            window,
-            cx,
-        ),
-        SessionThreadRow::Question { id, question, options, custom, answer, answered, .. } => question_card(
-            id,
-            message_markdown(SharedString::from(format!("thread-question-{id}")), question, text, images),
-            options,
-            *custom,
-            answer.as_deref(),
-            *answered,
-            chrome,
-            window,
-            cx,
-        ),
-        _ => return None,
-    })
+    ask_row_card(row, text, images, chrome, window, cx)
 }
 
 /// A picture card as the Guide's tile (a click opens the lightbox).
@@ -1307,34 +1139,9 @@ pub(crate) fn card_row(
                 cx,
             )
         }
-        SessionThreadRow::Question {
-            id,
-            question,
-            options,
-            custom,
-            answer,
-            answered,
-            ..
-        } => question_card(
-            id,
-            message_markdown(SharedString::from(format!("thread-question-{id}")), question, text, images),
-            options,
-            *custom,
-            answer.as_deref(),
-            *answered,
-            CardChrome::default(),
-            window,
-            cx,
-        ),
-        SessionThreadRow::Plan { id, plan, decision, fresh, .. } => plan_card(
-            id,
-            message_markdown(SharedString::from(format!("thread-plan-{id}")), plan, text, images),
-            decision.as_deref(),
-            *fresh,
-            CardChrome::default(),
-            window,
-            cx,
-        ),
+        SessionThreadRow::Question { .. } | SessionThreadRow::Plan { .. } => {
+            return ask_row_card(row, text, images, CardChrome::default(), window, cx);
+        }
         SessionThreadRow::Subagent { title, status, .. } => muted_line(
             registry::CODING_SUBAGENT,
             [title.as_str(), status.as_str()]

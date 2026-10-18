@@ -8,11 +8,11 @@ import SwiftUI
 /// card (a workflow mid-review, a task list, a subagent), the Script card and
 /// the Comment card, each from the REAL view over the shared models. Capture
 /// only: the styleguide suite opens one with `-uiTestingStyleguide
-/// <work-card|script-card|comment-call-card|…|ask-dock>` (`sg_<name>`).
+/// <work-card|script-card|comment-call-card|…|ask-dock|plan-card>` (`sg_<name>`).
 struct ThreadCardsScreen: View {
     let kind: String
 
-    static let kinds: Set<String> = ["work-card", "script-card", "comment-call-card", "trace", "code-block", "thread-strip", "ask-dock"]
+    static let kinds: Set<String> = ["work-card", "script-card", "comment-call-card", "trace", "code-block", "thread-strip", "ask-dock", "plan-card"]
 
     var body: some View {
         ZStack {
@@ -26,6 +26,7 @@ struct ThreadCardsScreen: View {
                     case "code-block": codeBlockSpecimens
                     case "thread-strip": ThreadStripSpecimens()
                     case "ask-dock": AskDockSpecimens()
+                    case "plan-card": PlanCardSpecimens()
                     default: workCards
                     }
                 }
@@ -380,21 +381,20 @@ private struct AskDockSpecimens: View {
     ].joined(separator: "\n")
 
     private static let single: [ThreadRow] = [
-        .plan(id: "p1", sessionId: "c1", plan: longPlan, decision: nil, fresh: false),
+        .plan(ThreadPlanRow(id: "p1", sessionId: "c1", plan: longPlan)),
     ]
 
     private static let stack: [ThreadRow] = [
-        .plan(id: "p1", sessionId: "c1", plan: longPlan, decision: nil, fresh: false),
-        .plan(
+        .plan(ThreadPlanRow(id: "p1", sessionId: "c1", plan: longPlan)),
+        .plan(ThreadPlanRow(
             id: "p2", sessionId: "c2",
-            plan: "1. Group the thread list by state\n2. Drop the per-row counters",
-            decision: nil, fresh: false
-        ),
-        .question(
+            plan: "1. Group the thread list by state\n2. Drop the per-row counters"
+        )),
+        .question(ThreadQuestionRow(
             id: "q1", sessionId: "c3", question: "Ship both fixes in one PR, or split them?",
             options: [TreeQuestionOption(label: "One PR"), TreeQuestionOption(label: "Split them")],
-            custom: true, answer: nil, answered: false
-        ),
+            custom: true, answered: false
+        )),
     ]
 
     private static let names = ["c1": "Ask dock", "c2": "Thread list", "c3": "Dock polish"]
@@ -421,6 +421,161 @@ private struct AskDockSpecimens: View {
                         bodyMaxHeight: cap
                     )
                 }
+            }
+        }
+    }
+}
+
+/// EXP-1280: THE rich plan / question card (`sg_plan-card`, web styleguide
+/// `plan-card`, the IDE's `styleguide:plan-card`): session-thread.json's case
+/// "EXP-1280: a rich plan card…" through the REAL row model
+/// (`ThreadRow.askCard`) and `ThreadAskCard`: the pending plan (a picture in
+/// the body, the inline surface, a picture-tile question + a multiple one),
+/// the answered question card (several picks, closed) and the approved plan
+/// with its feedback.
+private struct PlanCardSpecimens: View {
+    private static let pending = #"""
+    {"kind":"plan","plan":"# Plan\n\n1. Lift the partition\n\n![before](/api/attachments/att-1)\n\n![after](upload:after)",
+     "pictures":[{"label":"before","attachmentId":"att-1","width":1440,"height":900,"caption":"Before"},
+                 {"label":"after","attachmentId":null,"width":null,"height":null,"caption":null},
+                 {"label":"two","attachmentId":"att-2","width":800,"height":500},
+                 {"label":"one","attachmentId":null,"width":null,"height":null}],
+     "questions":[{"id":"layout","prompt":"Which layout?","multi":false,"custom":false,
+                   "options":[{"label":"Two columns","description":"Pictures beside the text","picture":"two"},
+                              {"label":"One column","picture":"one"},{"label":"Neither"}]},
+                  {"id":"platforms","prompt":"Platforms","multi":true,
+                   "options":[{"label":"iOS"},{"label":"Android","description":""}]},
+                  {"id":"broken","options":[]},"junk"],
+     "surface":{"root":{"id":"s","component":"Stack","props":{"direction":"vertical","gap":"sm"},
+                        "children":[{"id":"t","component":"Text","props":{"text":"Pick the accent"}},
+                                    {"id":"c","component":"ChoiceTiles","props":{"name":"accent",
+                                     "options":[{"label":"Blue","value":"blue"},{"label":"Green","value":"green"}],
+                                     "value":{"path":"/accent"}}}]},
+                "data":{"accent":"blue"}},
+     "decision":null,"fresh":null,"feedback":null,"answers":null,"surfaceData":null}
+    """#
+
+    private static let answered = #"""
+    {"kind":"question","question":"Which platforms first?","options":["Web","iOS","Android"],
+     "optionDescriptions":["The styleguide first",null,""],"optionPictures":["web",null,"ghost"],
+     "pictures":[{"label":"web","attachmentId":"att-3","width":1200,"height":750}],
+     "multi":true,"custom":false,"surface":null,"answer":"Web, Android","answers":["Web","Android"],
+     "surfaceData":{"size":"lg"}}
+    """#
+
+    private static let approved = #"""
+    {"kind":"plan","plan":"1. Old","decision":"approved","fresh":false,"feedback":"Go.",
+     "answers":{"q":["Yes",7]},
+     "questions":[{"id":"q","prompt":"Go?","multi":false,"custom":true,"options":[{"label":"Yes"}]}],
+     "surface":{"nope":true}}
+    """#
+
+    private static func row(
+        _ id: String, _ card: String, createdAt: String, answeredAt: String?, consumedAt: String?
+    ) -> ThreadRow? {
+        ThreadRow.askCard(TreeMessage(
+            id: id,
+            sessionId: "r2",
+            authorKind: "agent",
+            authorId: nil,
+            body: "",
+            card: TreeMessageCard.parse(card),
+            answeredAt: answeredAt,
+            consumedAt: consumedAt,
+            createdAt: createdAt,
+            authorSessionId: nil
+        ))
+    }
+
+    @Environment(AppDependencies.self) private var deps
+    @Environment(\.accountId) private var accountId
+
+    var body: some View {
+        let _ = Self.seedPictures(baseURL: deps.auth.instanceBaseURL(forAccountId: accountId))
+        VStack(alignment: .leading, spacing: 24) {
+            section(
+                PlanCard.Copy.Specimen.pending,
+                Self.row("n1", Self.pending, createdAt: "2026-10-13T10:01:00.000Z", answeredAt: nil, consumedAt: nil)
+            )
+            section(
+                PlanCard.Copy.Specimen.answered,
+                Self.row(
+                    "n2", Self.answered, createdAt: "2026-10-13T10:02:00.000Z",
+                    answeredAt: "2026-10-13T10:03:00.000Z", consumedAt: "2026-10-13T10:03:05.000Z"
+                )
+            )
+            section(
+                PlanCard.Copy.Specimen.approved,
+                Self.row(
+                    "n3", Self.approved, createdAt: "2026-10-13T10:04:00.000Z",
+                    answeredAt: "2026-10-13T10:04:00.000Z", consumedAt: "2026-10-13T10:04:00.000Z"
+                )
+            )
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier(PlanCard.TestIds.card)
+    }
+
+    // MARK: - Stand-in pictures (THE palette ×4)
+
+    /// web `plan-card-specimen.tsx` `TONES` (desktop + Android draw the same):
+    /// one diagonal gradient per attachment id, a 35% white bar, a 12% white
+    /// panel, 800×500.
+    private static let tones: [(id: String, from: UInt32, to: UInt32)] = [
+        ("att-1", 0x3F3F46, 0x52525B),
+        ("att-2", 0x1E3A5F, 0x3B82F6),
+        ("att-3", 0x14532D, 0x22C55E),
+    ]
+
+    /// Seeds the markdown image cache under the exact keys the loader reads
+    /// (`AttachmentURL.resolve`: the relative path signed out, else the
+    /// instance's absolute url), so the body's picture and the tiles
+    /// (`PlanCardPicture`) paint without a network.
+    private static func seedPictures(baseURL: URL?) {
+        for tone in tones {
+            let path = "/api/attachments/\(tone.id)"
+            let keys = Set([path, AttachmentURL.resolve(path, baseURL: baseURL)?.absoluteString].compactMap { $0 })
+            guard keys.contains(where: { MarkdownImageCache.shared.image(for: $0) == nil }) else { continue }
+            let image = standIn(from: tone.from, to: tone.to)
+            for key in keys { MarkdownImageCache.shared.store(image, for: key) }
+        }
+    }
+
+    private static func standIn(from: UInt32, to: UInt32) -> UIImage {
+        let size = CGSize(width: 800, height: 500)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = true
+        return UIGraphicsImageRenderer(size: size, format: format).image { context in
+            let cg = context.cgContext
+            let colors = [uiColor(from).cgColor, uiColor(to).cgColor] as CFArray
+            if let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: colors, locations: [0, 1]) {
+                cg.drawLinearGradient(gradient, start: .zero, end: CGPoint(x: size.width, y: size.height), options: [])
+            }
+            UIColor.white.withAlphaComponent(0.35).setFill()
+            UIBezierPath(roundedRect: CGRect(x: 48, y: 48, width: 320, height: 28), cornerRadius: 6).fill()
+            UIColor.white.withAlphaComponent(0.12).setFill()
+            UIBezierPath(roundedRect: CGRect(x: 48, y: 100, width: 704, height: 352), cornerRadius: 12).fill()
+        }
+    }
+
+    private static func uiColor(_ hex: UInt32) -> UIColor {
+        UIColor(
+            red: CGFloat((hex >> 16) & 0xFF) / 255,
+            green: CGFloat((hex >> 8) & 0xFF) / 255,
+            blue: CGFloat(hex & 0xFF) / 255,
+            alpha: 1
+        )
+    }
+
+    @ViewBuilder
+    private func section(_ title: String, _ row: ThreadRow?) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+            if let row {
+                ThreadAskCard(row: row)
             }
         }
     }

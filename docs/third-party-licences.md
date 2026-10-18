@@ -371,11 +371,10 @@ LGPL-2.1-or-later / Apache-2.0; we elect Apache-2.0) and, for Video /
 AudioPlayer playback (VAPP-103), AndroidX Media3 1.11.1
 (`media3-exoplayer` + `media3-ui`, Apache-2.0, the same line the Android
 app already ships and inventories); Robolectric and
-Roborazzi are test-only. The Exponential Android app links only
-`:ui-compose-primitives` (pure Compose, the app's own BOM), so neither JNA nor
-the `.so` reaches its `NOTICES.txt` inventory until VAPP-91 links the painter;
-that run re-runs `collect:android`, which then picks JNA up from the app's
-licence report.
+Roborazzi are test-only. Since EXP-1280 (the plan card's inline surface) the
+Exponential Android app links the painter (`:ui-compose`) itself, so JNA and
+the `.so` are in its `NOTICES.txt` inventory (`collect:android` picks JNA up
+from the app's licence report).
 **When a native painter (VAPP-88/89/90) bundles the catalog JSON or the
 built-in themes into iOS, Android or the desktop app, add that client to the
 two rows' `clients` and regenerate the notices** — the same rule as the

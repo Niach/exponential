@@ -23,8 +23,11 @@
 //! - The argv keeps `--settings <claude-hooks/<pid>/<sid>.settings.json>`:
 //!   that path in the process command line is the reaper's only way to find
 //!   an escaped claude (EXP-300), and the file pins auto mode OFF (EXP-1124:
-//!   plan mode otherwise inherits a user `defaultMode: auto` and routes every
-//!   tool call through the classifier, never reaching `can_use_tool`).
+//!   a user `defaultMode: auto` otherwise routes every tool call through the
+//!   classifier, never reaching `can_use_tool`).
+//! - EXP-1280: plan mode is Exponential's, never the CLI's: the CLI always
+//!   runs `bypassPermissions`, [`State::mode`] is Exponential's flag (the
+//!   Plan chip's `currentMode`), and an `ExitPlanMode` is a plain allow.
 //! - Nothing raw reaches the wire from here. The relay-facing derivation,
 //!   redaction and caps live in the engine's mapper; this adapter's job is to
 //!   produce HONEST ACP updates, including rebuilding `Read` results from
@@ -43,9 +46,9 @@ use agent_client_protocol::schema::v1::{
     ElicitationPropertySchema, ElicitationSchema, ElicitationSessionScope, EnumOption, Implementation,
     InitializeRequest, InitializeResponse, ListSessionsRequest, ListSessionsResponse,
     LoadSessionRequest, LoadSessionResponse, MessageId, MultiSelectPropertySchema, NewSessionRequest,
-    NewSessionResponse, PermissionOption, PermissionOptionId, PermissionOptionKind, Plan, PlanEntry,
+    NewSessionResponse, Plan, PlanEntry,
     PlanEntryPriority, PlanEntryStatus, PromptCapabilities, PromptRequest, PromptResponse,
-    RequestPermissionOutcome, RequestPermissionRequest, ResumeSessionRequest,
+    ResumeSessionRequest,
     ResumeSessionResponse, SessionCapabilities, SessionConfigId, SessionConfigOption,
     SessionConfigOptionCategory, SessionConfigOptionValue, SessionConfigSelectOption, SessionId,
     SessionInfo, SessionInfoUpdate, SessionListCapabilities, SessionMode, SessionModeId, SessionModeState,
@@ -63,8 +66,8 @@ use serde_json::{json, Map, Value};
 
 use super::claude_wire::{self as wire, ClaudeArgs, ClaudeOut, McpConfig, SystemSubtype, TurnOutcome};
 use super::AdapterSpec;
-use crate::host::{CANCEL_QUEUED_META_KEY, NATIVE_SESSION_META_KEY};
-use crate::mapper::{API_ERROR_META_KEY, PERMISSION_OPTION_DESCRIPTION_META, RATE_LIMIT_META_KEY};
+use crate::host::{CANCEL_QUEUED_META_KEY, FRESH_CONTEXT_META_KEY, NATIVE_SESSION_META_KEY};
+use crate::mapper::{API_ERROR_META_KEY, RATE_LIMIT_META_KEY};
 use crate::session::{EngineError, ResumeHandle};
 use crate::transport::{spawn_lines, ChildLines, StderrPolicy};
 
@@ -135,10 +138,6 @@ const TASK_MAX_LIFETIME: Duration = Duration::from_secs(600);
 /// milliseconds of the notification; this only bounds a CLI that decided not
 /// to continue and never said `idle` either.
 const ANTICIPATED_CONTINUATION_GRACE: Duration = Duration::from_secs(30);
-
-/// The re-prompt that carries a plan into a fresh context after the user
-/// picked one of the "clear context" plan options.
-const PLAN_RESTART_PROMPT: &str = "Implement the following plan:";
 
 /// EXP-905: when a turn re-reads the transcript for the conversation's name
 /// besides its end — claude writes the `ai-title` line in the background soon
@@ -581,6 +580,8 @@ struct State {
     ultracode: bool,
     fast: bool,
     fast_supported: bool,
+    /// EXP-1280: Exponential's plan flag as an ACP mode id (`plan` |
+    /// `bypassPermissions`), never sent to the CLI.
     mode: String,
     commands: Vec<wire::CommandRow>,
     /// The catalog as the CLI reported it, kept because the terminal-only
@@ -640,11 +641,6 @@ struct State {
     /// summing per id would double it). Reset at every prompt.
     turn_thinking_tokens: u64,
     turn_message_tokens: HashMap<String, u64>,
-    /// EXP-853 rule 2: the last EXPLICIT mode change (a plan approval, a
-    /// steered `set_mode`, the `EnterPlanMode` hook) and when it landed. An
-    /// `init` that contradicts it inside [`MODE_ANNOUNCE_GRACE`] is the CLI
-    /// re-announcing a mode it has not applied yet, and is dropped.
-    explicit_mode: Option<(String, Instant)>,
     /// Bumped by every `session/prompt`. Tags the tasks a turn spawns so a
     /// stale one cannot defer a later turn (EXP-780).
     turn_seq: u64,
@@ -653,16 +649,12 @@ struct State {
     plan_tasks: BTreeMap<String, PlanTask>,
     delivered_text: bool,
     local_only_command: bool,
-    /// The plan a "clear context" approval is waiting to re-prompt with.
-    pending_plan_restart: Option<PlanRestart>,
-    /// EXP-954: the newest `plans/*.md` the agent wrote — the plan an
-    /// `ExitPlanMode` with no `plan` input is approving.
-    plan_file: Option<PlanFile>,
-    /// Set while the `/clear` the restart injects has not reported its own
-    /// `result` yet. Discriminated by output tokens rather than by counting
-    /// results: a local command does no model work, so a result with tokens is
-    /// always the plan turn and settles even when a future CLI stops
-    /// answering `/clear` at all.
+    /// Set while the `/clear` a FRESH prompt injects (EXP-1280: a plan
+    /// approved "in a fresh context", [`FRESH_CONTEXT_META_KEY`]) has not
+    /// reported its own `result` yet. Discriminated by output tokens rather
+    /// than by counting results: a local command does no model work, so a
+    /// result with tokens is always the real turn and settles even when a
+    /// future CLI stops answering `/clear` at all.
     skip_local_command_result: bool,
     cancelled: bool,
     /// Bumped by every cancel. A `session/prompt` records the epoch when its
@@ -1092,38 +1084,10 @@ fn workflow_card_name(workflow_name: Option<&str>, description: Option<&str>) ->
 /// immediately regardless.
 const WORKFLOW_PUBLISH_INTERVAL: Duration = Duration::from_millis(1000);
 
-/// EXP-853 rule 2: how long an EXPLICIT mode change outranks the mode the CLI
-/// re-announces on every turn `init`. Past it the CLI's word is the truth.
-const MODE_ANNOUNCE_GRACE: Duration = Duration::from_secs(10);
-
-/// The RUN-scoped override of [`MODE_ANNOUNCE_GRACE`], in milliseconds. Read
-/// off this session's own spawn env — never the process environment — so the
-/// `plan-stuck` fixture can exercise the past-the-window half of rule 2
-/// without a ten-second sleep, and so one test can never change another's
-/// clock. Absent (every real launch) = the constant above.
-const MODE_ANNOUNCE_GRACE_ENV: &str = "EXP_MODE_ANNOUNCE_GRACE_MS";
-
 struct PlanTask {
     subject: String,
     status: String,
     active_form: Option<String>,
-}
-
-struct PlanRestart {
-    plan: String,
-    mode: String,
-}
-
-/// EXP-954: the plan file the CLI wrote last. The current claude writes its
-/// plan to `{CLAUDE_CONFIG_DIR}/plans/<slug>.md` with an ordinary `Write` and
-/// then raises `ExitPlanMode` with an EMPTY input, so the plan markdown the
-/// approval card shows has to come from here.
-struct PlanFile {
-    path: PathBuf,
-    /// The `content` the `Write` call carried, when the stream held it (a
-    /// resumed conversation replays no tool input, so the file is read from
-    /// disk instead).
-    text: Option<String>,
 }
 
 impl ClaudeSession {
@@ -1145,11 +1109,7 @@ impl ClaudeSession {
             model: options.model.trim().to_string(),
             effort: (!options.effort.trim().is_empty()).then(|| options.effort.trim().to_string()),
             ultracode: options.ultracode,
-            mode: if options.plan_mode {
-                "plan".to_string()
-            } else {
-                "bypassPermissions".to_string()
-            },
+            mode: if options.plan_mode { super::PLAN_MODE_ID } else { super::BUILD_MODE_ID }.to_string(),
             // EXP-1051: the launcher only fills this on a NATIVE resume — a
             // fresh run has no conversation to carry a base from.
             carried_base: spec.context_layers.carried_base.clone(),
@@ -1332,7 +1292,6 @@ impl ClaudeSession {
         } else {
             state.effort.clone()
         };
-        let mode = state.mode.clone();
         let disallow_ask = !state.client_supports_form_elicitation;
         let native = state.native_session_id.clone();
         drop(state);
@@ -1394,12 +1353,10 @@ impl ClaudeSession {
             effort: effort.as_deref(),
             // ALWAYS pinned (measured): with the flag absent the CLI takes the
             // user's own settings default and an `auto` machine never asks.
-            permission_mode: Some(wire::argv_permission_mode(&mode)),
-            // EXP-772: ALWAYS. Permissions are bypassed in every mode, plan
-            // included — a plan launch keeps `--permission-mode plan` for the
-            // planning behaviour, and the mode switch the plan approval makes
-            // ("bypassPermissions") is only accepted when the flag was there
-            // at spawn.
+            // EXP-1280: always `bypassPermissions` — plan mode is
+            // Exponential's ([`State::mode`] is our flag, never the CLI's).
+            permission_mode: Some(wire::argv_permission_mode(super::BUILD_MODE_ID)),
+            // EXP-772: ALWAYS. Permissions are bypassed in every mode.
             allow_dangerous: true,
             session_id: Some(pin.as_str()),
             resume: resume.as_deref(),
@@ -1592,9 +1549,24 @@ impl ClaudeSession {
 
         self.start(cx, resume.as_deref()).await?;
 
+        // EXP-1280: a prompt asked for a FRESH context (a plan approved "in a
+        // fresh context") clears the conversation first — between turns
+        // only: mid-turn the running turn would swallow the reset.
+        let fresh = request
+            .meta
+            .as_ref()
+            .and_then(|meta| meta.get(FRESH_CONTEXT_META_KEY))
+            .and_then(Value::as_bool)
+            == Some(true);
         let (tx, rx) = flume::bounded(1);
+        let clear_first;
         {
             let mut state = self.lock();
+            clear_first = fresh && state.turns.is_empty() && !state.continuation_running;
+            if clear_first {
+                // The `/clear` reports a `result` of its own: not this turn's.
+                state.skip_local_command_result = true;
+            }
             // A cancel between this prompt's dispatch and here already applies
             // to it; anything older does not.
             state.cancelled = state.cancel_epoch != epoch;
@@ -1611,6 +1583,9 @@ impl ClaudeSession {
             // that landed before it is answered in it.
             state.notification_pending = false;
             state.turns.push_back(tx);
+        }
+        if clear_first {
+            self.inject_prompt(cx, "/clear");
         }
         self.send(claude_user_message(&request.prompt, &text))?;
         // EXP-758: a cancel that raced this turn's lazy spawn had no child to
@@ -1852,12 +1827,13 @@ impl ClaudeSession {
         SessionModeState::new(SessionModeId::new(current), available_modes())
     }
 
+    /// EXP-1280: plan mode is Exponential's flag, never the CLI's: the
+    /// switch is local (no `set_permission_mode` — the CLI stays in
+    /// `bypassPermissions`), published as the mode + a fresh `config_state`
+    /// so the Plan chip ×4 follows. The host steers the agent the one line
+    /// that says so (`host::plan_mode_on_line`).
     async fn set_mode(self: &Arc<Self>, cx: &ConnectionTo<Client>, mode: &str) -> Result<(), Error> {
         let mode = clamp_mode(mode);
-        self.control_request(wire::set_permission_mode(&mode)).await?;
-        // EXP-853 rule 2: an explicit switch outranks the CLI's next init
-        // announcement for `MODE_ANNOUNCE_GRACE`.
-        self.note_explicit_mode(&mode);
         self.lock().mode = mode.clone();
         self.notify(
             cx,
@@ -2296,26 +2272,6 @@ impl ClaudeSession {
         self.notify_meta(cx, SessionUpdate::SessionInfoUpdate(SessionInfoUpdate::new()), meta);
     }
 
-    /// EXP-853 rule 2: record an EXPLICIT mode change (an approval, a steered
-    /// `set_mode`, the `EnterPlanMode` hook) so the CLI's next `init`
-    /// announcement cannot walk it back inside the grace window.
-    fn note_explicit_mode(&self, mode: &str) {
-        self.lock().explicit_mode = Some((mode.to_string(), Instant::now()));
-    }
-
-    /// How long this run's explicit mode outranks the CLI's announcement
-    /// ([`MODE_ANNOUNCE_GRACE`], or the run-scoped override).
-    fn mode_announce_grace(&self) -> Duration {
-        self.spec
-            .spawn
-            .env
-            .iter()
-            .find(|(key, _)| key == MODE_ANNOUNCE_GRACE_ENV)
-            .and_then(|(_, value)| value.parse::<u64>().ok())
-            .map(Duration::from_millis)
-            .unwrap_or(MODE_ANNOUNCE_GRACE)
-    }
-
     /// EXP-784: claude's session id changed mid-run (a `/clear`). Rides a
     /// no-op `session_info_update` the mapper ignores; the host reads the
     /// `_meta` and re-records the run's `agent_native_session_id`.
@@ -2659,42 +2615,9 @@ impl ClaudeSession {
                     state.model = system.model.clone();
                     state.context_window.infer(&system.model);
                 }
-                // EXP-853 rule 2: the CLI re-announces `permissionMode` on
-                // every turn init, and an approval it has not applied yet
-                // announces the OLD mode — which flipped the Plan chip back
-                // and forth. An announcement that CONTRADICTS an explicit
-                // change inside `MODE_ANNOUNCE_GRACE` is dropped; past the
-                // window the CLI's word is the truth and is published.
-                let grace = self.mode_announce_grace();
-                let announced = init_mode(system.permission_mode.as_deref(), &state.mode);
-                let stale = match (&announced, &state.explicit_mode) {
-                    (Some(announced), Some((explicit, at))) => {
-                        announced != explicit && at.elapsed() < grace
-                    }
-                    _ => false,
-                };
-                if stale {
-                    log::debug!(
-                        "engine: claude init announced mode {:?} against the explicit {:?} set {}ms ago — dropped",
-                        system.permission_mode,
-                        state.explicit_mode.as_ref().map(|(mode, _)| mode),
-                        state
-                            .explicit_mode
-                            .as_ref()
-                            .map(|(_, at)| at.elapsed().as_millis())
-                            .unwrap_or(0),
-                    );
-                }
-                let mode_changed = match announced.filter(|_| !stale) {
-                    Some(mode) => {
-                        // The CLI agrees with us now (or won): the explicit
-                        // record has done its job.
-                        state.explicit_mode = None;
-                        state.mode = mode;
-                        true
-                    }
-                    None => false,
-                };
+                // EXP-1280: `permissionMode` is always `bypassPermissions`
+                // (plan mode is Exponential's flag, [`State::mode`]), so the
+                // init's announcement is never adopted.
                 state.terminal_commands = system
                     .extra
                     .get("terminal_slash_commands")
@@ -2746,15 +2669,6 @@ impl ClaudeSession {
                 }
                 self.publish_commands(cx);
                 self.publish_config(cx);
-                if mode_changed {
-                    let mode = self.lock().mode.clone();
-                    self.notify(
-                        cx,
-                        SessionUpdate::CurrentModeUpdate(CurrentModeUpdate::new(
-                            SessionModeId::new(mode),
-                        )),
-                    );
-                }
             }
             SystemSubtype::Status => {
                 if system.status.as_deref() == Some("compacting") {
@@ -3551,7 +3465,6 @@ impl ClaudeSession {
         let Some(id) = block.get("id").and_then(Value::as_str) else { return };
         let name = block.get("name").and_then(Value::as_str).unwrap_or_default().to_string();
         let input = block.get("input").cloned().unwrap_or(Value::Null);
-        self.remember_plan_file(&name, &input);
 
         // TodoWrite IS the plan lane, and the Task* tools render as plan
         // entries when their results arrive — neither surfaces a tool call.
@@ -3851,7 +3764,7 @@ impl ClaudeSession {
     /// EXP-1051: whether the message now arriving is a REQUEST of this
     /// conversation whose reported input is the conversation's own prefix.
     /// A subagent runs in a context of its own; a `<synthetic>` frame is
-    /// claude's limit notice rather than a request; the `/clear` a plan
+    /// claude's limit notice rather than a request; the `/clear` a fresh
     /// restart injects carries an empty prefix that would freeze the bar at
     /// nothing; and a replayed transcript is the PREVIOUS run's numbers.
     fn measurable_request(&self, parent: Option<&str>, model: Option<&str>) -> bool {
@@ -3929,15 +3842,6 @@ impl ClaudeSession {
             self.merge_usage(cx, &result.usage, result.total_cost_usd);
         }
 
-        // A "clear context" plan approval interrupted this turn on purpose:
-        // the same ACP turn continues on a fresh conversation instead of
-        // settling here.
-        let restart = self.lock().pending_plan_restart.take();
-        if let Some(restart) = restart {
-            self.restart_with_plan(cx, restart);
-            return;
-        }
-
         let output_tokens =
             result.usage.get("output_tokens").and_then(Value::as_u64).unwrap_or(0);
         {
@@ -3945,7 +3849,7 @@ impl ClaudeSession {
             if state.skip_local_command_result {
                 state.skip_local_command_result = false;
                 if output_tokens == 0 {
-                    // The `/clear` turn the restart injected: it ends a turn
+                    // The `/clear` a fresh prompt injected: it ends a turn
                     // the client never asked for.
                     return;
                 }
@@ -4063,40 +3967,7 @@ impl ClaudeSession {
         self.close_reopened_turn(cx, &state);
     }
 
-    /// Continue the accepted plan in a fresh context: clear the conversation,
-    /// switch to the mode the user picked, and re-prompt with the plan. The
-    /// upstream restarts its whole query for this; `/clear` is the same reset
-    /// without discarding the process (and, if a future CLI drops it, the
-    /// plan is still re-prompted — the context simply is not cleared).
-    fn restart_with_plan(self: &Arc<Self>, cx: &ConnectionTo<Client>, restart: PlanRestart) {
-        let session = self.clone();
-        let mode = restart.mode.clone();
-        let plan = restart.plan.clone();
-        let injected = cx.clone();
-        let _ = cx.spawn(async move {
-            if let Err(error) = session.control_request(wire::set_permission_mode(&mode)).await {
-                log::warn!("engine: claude plan-mode switch failed: {error}");
-            }
-            session.note_explicit_mode(&mode);
-            {
-                let mut state = session.lock();
-                state.mode = mode.clone();
-                state.skip_local_command_result = true;
-            }
-            session.inject_prompt(&injected, "/clear");
-            let prompt = format!("{PLAN_RESTART_PROMPT}\n\n{plan}");
-            session.inject_prompt(&injected, &prompt);
-            Ok(())
-        });
-        self.notify(
-            cx,
-            SessionUpdate::CurrentModeUpdate(CurrentModeUpdate::new(SessionModeId::new(
-                restart.mode,
-            ))),
-        );
-    }
-
-    /// Send a prompt the ADAPTER composed (`/clear`, the plan hand-off), not
+    /// Send a prompt the ADAPTER composed (a fresh context's `/clear`), not
     /// the user. EXP-772: the CLI replays every user turn, so the mapper is
     /// told to arm its echo dedupe first and publishes no bubble for either
     /// the injection or its replay.
@@ -4157,20 +4028,19 @@ impl ClaudeSession {
     ) {
         let tool_use_id = request.tool_use_id.clone().unwrap_or_else(|| request_id.clone());
         let answer = if request.is_ask_user_question() {
-            PermissionAnswer::plain(self.ask_user_question(cx, &request, &tool_use_id).await)
-        } else if request.is_exit_plan_mode() {
-            self.request_permission(cx, &request, &tool_use_id).await
+            self.ask_user_question(cx, &request, &tool_use_id).await
         } else {
             // EXP-772: permissions are bypassed in EVERY mode, so the only
-            // two dialogs left are the plan approval and a question the model
-            // asked. Everything else is allowed here, without a card: the CLI
-            // still asks under a safety check, and a card the user cannot
+            // dialog left is a question the model asked (EXP-1280: plan mode
+            // is Exponential's, so an `ExitPlanMode` is a plain allow too).
+            // Everything else is allowed here, without a card: the CLI still
+            // asks under a safety check, and a card the user cannot
             // meaningfully refuse is just a stall.
             log::debug!(
                 "engine: claude auto-allowing {} (permissions bypassed)",
                 request.tool_name
             );
-            PermissionAnswer::plain(wire::permission_allow(&tool_use_id, request.input.clone()))
+            wire::permission_allow(&tool_use_id, request.input.clone())
         };
         // The CLI cancelled this request while we were asking: answering it
         // now would be answering a request that no longer exists.
@@ -4183,229 +4053,10 @@ impl ClaudeSession {
             log::debug!("engine: claude abandoned control request {request_id}; not answering");
             return;
         }
-        // The answer's SIDE EFFECTS (a mode switch, an armed plan restart)
-        // land only once the response is actually on the wire: an aborted or
-        // unwritable request must not clear the plan or start a build turn.
-        match self.send(wire::control_response_success(&request_id, answer.response)) {
-            Ok(()) => {
-                log::debug!("engine: answered claude control request {request_id}");
-                self.apply_permission_effects(cx, answer.effects);
-            }
+        match self.send(wire::control_response_success(&request_id, answer)) {
+            Ok(()) => log::debug!("engine: answered claude control request {request_id}"),
             Err(error) => log::warn!("engine: claude control response {request_id} failed: {error}"),
         }
-    }
-
-    /// Fold a permission answer's effects into the session: the mode switch is
-    /// published as a `CurrentModeUpdate` plus a fresh `config_state`, exactly
-    /// like a steered `session/set_mode`, so the client's Plan/Build toggle
-    /// follows a plan approval instead of staying stuck on Plan.
-    fn apply_permission_effects(
-        self: &Arc<Self>,
-        cx: &ConnectionTo<Client>,
-        effects: PermissionEffects,
-    ) {
-        let switched = {
-            let mut state = self.lock();
-            take_permission_effects(&mut state, effects)
-        };
-        if let Some(mode) = switched {
-            // EXP-853 rule 3: the approval's own `updatedPermissions` does not
-            // stop the CLI re-announcing the OLD mode on its next init, so the
-            // engine ALSO sets it explicitly (idempotent). Spawned rather than
-            // awaited: this runs on the control-answer path, and the request
-            // must not gate the notification the client is waiting for.
-            self.note_explicit_mode(&mode);
-            let session = self.clone();
-            let requested = mode.clone();
-            let _ = cx.spawn(async move {
-                if let Err(error) =
-                    session.control_request(wire::set_permission_mode(&requested)).await
-                {
-                    log::warn!("engine: claude plan-approval mode switch failed: {error}");
-                }
-                Ok(())
-            });
-            self.notify(
-                cx,
-                SessionUpdate::CurrentModeUpdate(CurrentModeUpdate::new(SessionModeId::new(mode))),
-            );
-            self.publish_config(cx);
-        }
-    }
-
-    /// EXP-954: remember a `Write` into a `plans/*.md` file — the plan the
-    /// `ExitPlanMode` that follows it is asking about. The newest one wins;
-    /// nothing else about the call is touched (it still surfaces as an
-    /// ordinary tool card).
-    fn remember_plan_file(&self, name: &str, input: &Value) {
-        if name != "Write" {
-            return;
-        }
-        let Some(path) = input.get("file_path").and_then(Value::as_str) else { return };
-        let path = PathBuf::from(path);
-        if !is_plan_file(&path) {
-            return;
-        }
-        let text = input
-            .get("content")
-            .and_then(Value::as_str)
-            .filter(|content| !content.trim().is_empty())
-            .map(str::to_string);
-        self.lock().plan_file = Some(PlanFile { path, text });
-    }
-
-    /// EXP-954: the plan markdown for an `ExitPlanMode` whose input carries
-    /// none — the content of the plan file the agent just wrote, read off
-    /// disk when the stream never held it (a resumed conversation). `None`
-    /// when this session has seen no plan file at all: the card then reads
-    /// as it did before, title only.
-    fn recovered_plan(&self, input: &Value) -> Option<String> {
-        let has_plan = input
-            .get("plan")
-            .and_then(Value::as_str)
-            .is_some_and(|plan| !plan.trim().is_empty());
-        if has_plan {
-            return None;
-        }
-        let (path, text) = {
-            let state = self.lock();
-            let file = state.plan_file.as_ref()?;
-            (file.path.clone(), file.text.clone())
-        };
-        let plan = match text {
-            Some(text) => text,
-            None => std::fs::read_to_string(&path).ok()?,
-        };
-        (!plan.trim().is_empty()).then_some(plan)
-    }
-
-    async fn request_permission(
-        self: &Arc<Self>,
-        cx: &ConnectionTo<Client>,
-        request: &wire::ControlReq,
-        tool_use_id: &str,
-    ) -> PermissionAnswer {
-        let exit_plan = request.is_exit_plan_mode();
-        // EXP-954: an ExitPlanMode with an EMPTY input is the current CLI
-        // approving the plan FILE it wrote a moment ago. Patch the recovered
-        // markdown into the request once, here: the card body, the
-        // fresh-context option and the re-prompt a clear-context approval
-        // sends all read the plan from this one place.
-        let patched = exit_plan
-            .then(|| self.recovered_plan(&request.input))
-            .flatten()
-            .map(|plan| {
-                let mut patched = request.clone();
-                patched.input = with_plan(&request.input, plan);
-                patched
-            });
-        let request = patched.as_ref().unwrap_or(request);
-        let info = tool_info(&request.tool_name, &request.input, self.cwd());
-        let options = if exit_plan {
-            exit_plan_options(&request.input)
-        } else {
-            permission_options(request)
-        };
-        // The upstream hard-codes this title for the plan approval, and all
-        // four clients key their "Plan ready" card on the switch_mode kind
-        // plus the plan markdown the tool call carries as content.
-        let title = if exit_plan { "Ready to code?".to_string() } else { info.title.clone() };
-        let fields = ToolCallUpdateFields::new()
-            .title(title)
-            .kind(info.kind)
-            .status(ToolCallStatus::Pending)
-            .content(info.content)
-            .locations(info.locations)
-            .raw_input(request.input.clone());
-        let mut tool_call = ToolCallUpdate::new(ToolCallId::new(tool_use_id), fields);
-        let mut meta = Map::new();
-        // `decision_reason_type` says WHY the CLI is asking under a mode that
-        // normally would not (`safetyCheck` is the bypass-immune one).
-        if let Some(description) = request.description.clone().or_else(|| {
-            request.decision_reason_type.clone().map(|reason| format!("Reason: {reason}"))
-        }) {
-            meta.insert(
-                "permission".to_string(),
-                json!({ "version": 1, "description": description }),
-            );
-        }
-        // A permission raised INSIDE a subagent belongs to that subagent's
-        // card, exactly like the chunks and tool calls around it.
-        if let Some(parent) = self.subagent_parent(request.agent_id.as_deref()) {
-            meta.insert(PARENT_TOOL_CALL_META_KEY.to_string(), json!(parent));
-        }
-        if !meta.is_empty() {
-            tool_call = tool_call.meta(meta);
-        }
-        self.await_permission(cx, tool_call, options, request, tool_use_id).await
-    }
-
-    /// The tool call that spawned the subagent a `can_use_tool` was raised
-    /// inside, or `None` for the main thread. `agent_id` IS the `task_id` of
-    /// an earlier `system/task_started` (EXP-753, measured against the CLI),
-    /// so the lookup is exact.
-    ///
-    /// NO `agent_id` at all is the MAIN thread — every main-thread
-    /// `can_use_tool` the fixtures recorded omits the field — so it resolves
-    /// to `None` without guessing: guessing there nests a main-thread
-    /// permission under a background subagent's card. The fallback covers only
-    /// a CLI that sends an id we cannot resolve: a FOREGROUND Task the model
-    /// waits on holds the main thread, so the ONE live foreground task is the
-    /// only thing that can be asking — with two live there is nothing to
-    /// distinguish them, so it attributes to neither, and a BACKGROUNDED task
-    /// never qualifies because the main thread runs on beside it.
-    fn subagent_parent(&self, agent_id: Option<&str>) -> Option<String> {
-        let agent_id = agent_id?;
-        let state = self.lock();
-        if let Some(parent) = state.tasks.get(agent_id).and_then(|task| task.tool_use_id.clone()) {
-            return Some(parent);
-        }
-        let mut live = state.tasks.values().filter(|task| task.live && !task.backgrounded);
-        let only = live.next()?;
-        if live.next().is_some() {
-            return None;
-        }
-        only.tool_use_id.clone()
-    }
-
-    async fn await_permission(
-        self: &Arc<Self>,
-        cx: &ConnectionTo<Client>,
-        tool_call: ToolCallUpdate,
-        options: Vec<PermissionOption>,
-        request: &wire::ControlReq,
-        tool_use_id: &str,
-    ) -> PermissionAnswer {
-        let outcome = cx
-            .send_request(RequestPermissionRequest::new(
-                self.session_id.clone(),
-                tool_call,
-                options,
-            ))
-            .block_task()
-            .await;
-        let selected = match outcome {
-            Ok(response) => match response.outcome {
-                RequestPermissionOutcome::Selected(selected) => {
-                    Some(selected.option_id.0.to_string())
-                }
-                // The ACP cancellation contract: the client answers every
-                // pending permission with `Cancelled` on session/cancel.
-                _ => None,
-            },
-            Err(error) => {
-                log::warn!("engine: claude permission request failed: {error}");
-                None
-            }
-        };
-        let Some(selected) = selected else {
-            return PermissionAnswer::plain(wire::permission_deny(
-                tool_use_id,
-                "Cancelled by the user",
-                false,
-            ));
-        };
-        permission_answer(&selected, request, tool_use_id)
     }
 
     async fn ask_user_question(
@@ -4500,23 +4151,10 @@ impl ClaudeSession {
     }
 
     /// `PostToolUse` for Edit/Write carries the REAL `structuredPatch` — which
-    /// is exactly why those tools' `tool_result` renders nothing. It also
-    /// carries the EnterPlanMode edge, the only signal that the CLI itself
-    /// switched into plan mode.
+    /// is exactly why those tools' `tool_result` renders nothing. (EXP-1280:
+    /// its `EnterPlanMode` edge is ignored — plan mode is Exponential's flag,
+    /// never the CLI's.)
     fn on_post_tool_use(self: &Arc<Self>, cx: &ConnectionTo<Client>, input: &wire::HookInput) {
-        if input.tool_name == "EnterPlanMode" {
-            // EXP-853 rule 2: the CLI's own switch INTO plan is explicit too.
-            self.note_explicit_mode("plan");
-            self.lock().mode = "plan".to_string();
-            self.notify(
-                cx,
-                SessionUpdate::CurrentModeUpdate(CurrentModeUpdate::new(SessionModeId::new(
-                    "plan",
-                ))),
-            );
-            self.publish_config(cx);
-            return;
-        }
         if !matches!(input.tool_name.as_str(), "Edit" | "Write") {
             return;
         }
@@ -4667,9 +4305,6 @@ impl ClaudeSession {
 // pure helpers
 // ---------------------------------------------------------------------------
 
-/// EXP-772: plan on, plan off. Permissions are bypassed in every mode, so
-/// `default`/`acceptEdits`/`auto` differ in nothing a user can see and are
-/// never offered; `dontAsk` was never offered either.
 /// EXP-831: the wall clock the rate-limit notice's `resets_at` is compared
 /// against (unix ms, the slot's own unit).
 fn now_unix_millis() -> i64 {
@@ -4679,36 +4314,26 @@ fn now_unix_millis() -> i64 {
         .unwrap_or_default()
 }
 
+/// EXP-772/EXP-1280: plan on, plan off — Exponential's flag (the CLI always
+/// runs full access), the same pair codex advertises.
 fn available_modes() -> Vec<SessionMode> {
     vec![
-        SessionMode::new(SessionModeId::new("plan"), "Plan")
+        SessionMode::new(SessionModeId::new(super::PLAN_MODE_ID), "Plan")
             .description("Create a plan before making changes"),
-        SessionMode::new(SessionModeId::new("bypassPermissions"), "Build")
+        SessionMode::new(SessionModeId::new(super::BUILD_MODE_ID), "Build")
             .description("Make the changes"),
     ]
 }
 
 /// EXP-772: the only steerable modes are `plan` and `bypassPermissions`.
-/// Anything else (an older publisher's `default`, `acceptEdits`, `auto`, or
-/// whatever the CLI reports it launched in) means "stop planning", so it lands
-/// on `bypassPermissions` rather than a mode [`available_modes`] never offers
-/// and no client can render.
+/// Anything else (an older publisher's `default`, `acceptEdits`, `auto`)
+/// means "stop planning", so it lands on `bypassPermissions` rather than a
+/// mode [`available_modes`] never offers and no client can render.
 fn clamp_mode(mode: &str) -> String {
     match mode {
-        "plan" => "plan".to_string(),
-        _ => "bypassPermissions".to_string(),
+        super::PLAN_MODE_ID => super::PLAN_MODE_ID.to_string(),
+        _ => super::BUILD_MODE_ID.to_string(),
     }
-}
-
-/// The mode a `system/init` frame adopts, or `None` to keep the current one.
-/// The CLI reports its OWN spelling (`acceptEdits` after a `--permission-mode`
-/// launch), which goes through the same clamp as a steered switch: state.mode
-/// feeds `mode_state`, and a value outside `available_modes` strands the
-/// client's Plan/Build toggle.
-fn init_mode(reported: Option<&str>, current: &str) -> Option<String> {
-    let reported = reported.filter(|mode| !mode.is_empty())?;
-    let clamped = clamp_mode(reported);
-    (clamped != current).then_some(clamped)
 }
 
 fn plan_status(status: &str) -> PlanEntryStatus {
@@ -5396,270 +5021,6 @@ fn diff_from_hook(response: &Value) -> (Vec<ToolCallContent>, Vec<ToolCallLocati
         }
     }
     (content, locations)
-}
-
-/// The permission option builders (`permissions/options/*.js`), reduced to the
-/// three shapes the CLI's own suggestions support: allow once, allow with the
-/// suggested rule bundle, reject. The skill/web-fetch/mcp variants all reduce
-/// to "allow with updates" with a tool-specific label.
-fn permission_options(request: &wire::ControlReq) -> Vec<PermissionOption> {
-    let mut options = vec![PermissionOption::new(
-        PermissionOptionId::new("allow-once"),
-        "Yes",
-        PermissionOptionKind::AllowOnce,
-    )];
-    let label = match request.tool_name.as_str() {
-        "Skill" => request
-            .input
-            .get("skill")
-            .and_then(Value::as_str)
-            .map(|skill| format!("Yes, and don't ask again for {skill}")),
-        "WebFetch" => request
-            .input
-            .get("url")
-            .and_then(Value::as_str)
-            .and_then(host_of)
-            .map(|host| format!("Yes, and don't ask again for {host}")),
-        tool if !tool.is_empty() => Some(format!("Yes, and don't ask again for {tool} commands")),
-        _ => None,
-    };
-    let suggestions = request
-        .permission_suggestions
-        .as_array()
-        .map(|updates| !updates.is_empty())
-        .unwrap_or(false);
-    if let (true, Some(label)) = (suggestions, label) {
-        options.push(PermissionOption::new(
-            PermissionOptionId::new("allow-with-updates"),
-            label,
-            PermissionOptionKind::AllowAlways,
-        ));
-    }
-    options.push(PermissionOption::new(
-        PermissionOptionId::new("reject"),
-        "No",
-        PermissionOptionKind::RejectOnce,
-    ));
-    options
-}
-
-fn host_of(url: &str) -> Option<String> {
-    let rest = url.split_once("://")?.1;
-    let host = rest.split(['/', '?', '#']).next()?;
-    let host = host.rsplit('@').next()?;
-    let host = host.split(':').next()?;
-    (!host.is_empty()).then(|| host.to_string())
-}
-
-/// A picked permission option: the control response to write, plus what that
-/// answer CHANGES once it is on the wire.
-struct PermissionAnswer {
-    response: Value,
-    effects: PermissionEffects,
-}
-
-/// What a permission answer does BESIDES answering. Held apart from the
-/// response because a request the CLI cancelled while its card was open is
-/// never answered at all: arming a plan restart for one of those cleared the
-/// context and ran a build turn for an approval that no longer existed.
-#[derive(Default)]
-struct PermissionEffects {
-    /// The session mode the answer switches into.
-    mode: Option<String>,
-    /// The accepted plan to re-prompt in a fresh context.
-    plan_restart: Option<PlanRestart>,
-}
-
-impl PermissionAnswer {
-    /// An answer that changes nothing.
-    fn plain(response: Value) -> PermissionAnswer {
-        PermissionAnswer {
-            response,
-            effects: PermissionEffects::default(),
-        }
-    }
-}
-
-/// Fold an answered permission's effects into the session state. Returns the
-/// mode the client has to be told about, if it moved.
-fn take_permission_effects(state: &mut State, effects: PermissionEffects) -> Option<String> {
-    if let Some(restart) = effects.plan_restart {
-        state.pending_plan_restart = Some(restart);
-    }
-    let mode = effects.mode?;
-    state.mode = mode.clone();
-    Some(mode)
-}
-
-/// The control response for the option the user picked. PURE by design: every
-/// consequence rides [`PermissionEffects`], so nothing has happened yet if the
-/// response never reaches the CLI.
-fn permission_answer(
-    option_id: &str,
-    request: &wire::ControlReq,
-    tool_use_id: &str,
-) -> PermissionAnswer {
-    if request.is_exit_plan_mode() {
-        if let Some(mode) = exit_plan_clear_context_mode(option_id) {
-            // NOT an allow: allowing would run ExitPlanMode in the old
-            // context before the hand-off. The interrupt is consumed by
-            // `on_result`, which re-prompts the plan in a fresh context.
-            let plan = request
-                .input
-                .get("plan")
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .to_string();
-            return PermissionAnswer {
-                response: wire::permission_deny(
-                    tool_use_id,
-                    "User accepted the plan and requested a fresh context",
-                    true,
-                ),
-                effects: PermissionEffects {
-                    mode: None,
-                    plan_restart: Some(PlanRestart {
-                        plan,
-                        mode: mode.to_string(),
-                    }),
-                },
-            };
-        }
-        if let Some(mode) = exit_plan_mode(option_id) {
-            let mut allow = wire::permission_allow(tool_use_id, request.input.clone());
-            allow["updatedPermissions"] =
-                json!([{ "type": "setMode", "mode": mode, "destination": "session" }]);
-            if mode != "default" {
-                allow["decisionClassification"] = json!("user_permanent");
-            }
-            return PermissionAnswer {
-                response: allow,
-                effects: PermissionEffects {
-                    // Clamped like a steered switch: the toggle the approval
-                    // moves is the one `available_modes` advertises.
-                    mode: Some(clamp_mode(mode)),
-                    plan_restart: None,
-                },
-            };
-        }
-        if option_id == "reject" {
-            // A plain deny lets claude keep planning; the interrupt stops
-            // this turn so the user can steer instead.
-            return PermissionAnswer::plain(wire::permission_deny(
-                tool_use_id,
-                "User chose to keep planning",
-                true,
-            ));
-        }
-    }
-    let response = match option_id {
-        "allow-once" => wire::permission_allow(tool_use_id, request.input.clone()),
-        "allow-with-updates" => {
-            let mut allow = wire::permission_allow(tool_use_id, request.input.clone());
-            if let Some(updates) = request.permission_suggestions.as_array() {
-                allow["updatedPermissions"] = json!(updates);
-                allow["decisionClassification"] = json!("user_permanent");
-            }
-            allow
-        }
-        "reject" => wire::permission_deny(tool_use_id, "User refused permission to run tool", false),
-        other => {
-            log::warn!("engine: claude permission option {other} is not one we offered");
-            wire::permission_deny(tool_use_id, "User refused permission to run tool", false)
-        }
-    };
-    PermissionAnswer::plain(response)
-}
-
-/// EXP-954: does this path name a plan the CLI wrote for itself — any
-/// `**/plans/<name>.md` (the current claude puts them under
-/// `{CLAUDE_CONFIG_DIR}/plans/`, which a per-account profile moves)?
-fn is_plan_file(path: &Path) -> bool {
-    let md = path
-        .extension()
-        .is_some_and(|extension| extension.eq_ignore_ascii_case("md"));
-    let in_plans = path
-        .parent()
-        .and_then(Path::file_name)
-        .is_some_and(|dir| dir == "plans");
-    md && in_plans
-}
-
-/// EXP-954: the ExitPlanMode input with the recovered plan written into it,
-/// so everything downstream sees the request the CLI used to send.
-fn with_plan(input: &Value, plan: String) -> Value {
-    let mut object = match input {
-        Value::Object(object) => object.clone(),
-        _ => Map::new(),
-    };
-    object.insert("plan".to_string(), Value::String(plan));
-    Value::Object(object)
-}
-
-/// The plan-approval menu. EXP-772: permissions are bypassed in every mode,
-/// so "manually approve edits" is no longer an answer that means anything —
-/// what is left is code it, code it in a FRESH context (only when there is a
-/// plan to carry), or keep planning. EXP-788: the plain "Yes" is FIRST (every
-/// client promotes index 0 as the primary), the fresh-context variant second,
-/// and "No, keep planning" LAST, carrying a description that says what it
-/// does — it is a deny that sends the next message back to planning.
-fn exit_plan_options(input: &Value) -> Vec<PermissionOption> {
-    let plan = input.get("plan").and_then(Value::as_str).unwrap_or_default();
-    let mut options = vec![PermissionOption::new(
-        PermissionOptionId::new("exit-plan-bypass"),
-        "Yes",
-        PermissionOptionKind::AllowAlways,
-    )];
-    if !plan.trim().is_empty() {
-        options.push(PermissionOption::new(
-            PermissionOptionId::new("exit-plan-clear-bypass"),
-            "Yes, and start with a fresh context",
-            PermissionOptionKind::AllowAlways,
-        ));
-    }
-    options.push(
-        PermissionOption::new(
-            PermissionOptionId::new("reject"),
-            "No, keep planning",
-            PermissionOptionKind::RejectOnce,
-        )
-        .meta(option_description("Sends your next message back to planning")),
-    );
-    options
-}
-
-/// ACP's `PermissionOption` has no description of its own; the mapper reads
-/// the option's second line from `_meta` under
-/// [`PERMISSION_OPTION_DESCRIPTION_META`] and publishes it as
-/// `QuestionOption.description`.
-fn option_description(text: &str) -> Map<String, Value> {
-    let mut meta = Map::new();
-    meta.insert(
-        PERMISSION_OPTION_DESCRIPTION_META.to_string(),
-        Value::String(text.to_string()),
-    );
-    meta
-}
-
-/// The mode a plan option approves into, or `None` when it is a clear-context
-/// option (which denies and re-prompts instead).
-fn exit_plan_mode(option_id: &str) -> Option<&'static str> {
-    match option_id {
-        "exit-plan-auto" => Some("auto"),
-        "exit-plan-bypass" => Some("bypassPermissions"),
-        "exit-plan-accept-edits" => Some("acceptEdits"),
-        "exit-plan-default" => Some("default"),
-        _ => None,
-    }
-}
-
-fn exit_plan_clear_context_mode(option_id: &str) -> Option<&'static str> {
-    match option_id {
-        "exit-plan-clear-auto" => Some("auto"),
-        "exit-plan-clear-bypass" => Some("bypassPermissions"),
-        "exit-plan-clear-accept-edits" => Some("acceptEdits"),
-        _ => None,
-    }
 }
 
 struct AskQuestion {
@@ -6983,170 +6344,6 @@ mod tests {
         window.report(ContextWindowReport { window: 200_000, exact: true });
         window.switch_model("claude-opus-5[1m]");
         assert_eq!(window.size(), 1_000_000);
-    }
-
-    /// EXP-772: approving a plan means coding it, in this context or a fresh
-    /// one — every answer lands on `bypassPermissions`. EXP-788: the plain
-    /// "Yes" is index 0 (the primary on every client), the reject is last and
-    /// explains itself.
-    #[test]
-    fn the_plan_menu_offers_the_plain_yes_first() {
-        let options = exit_plan_options(&json!({ "plan": "# Plan" }));
-        let ids: Vec<String> =
-            options.iter().map(|option| option.option_id.0.to_string()).collect();
-        assert_eq!(
-            ids,
-            vec![
-                "exit-plan-bypass".to_string(),
-                "exit-plan-clear-bypass".to_string(),
-                "reject".to_string(),
-            ]
-        );
-        let labels: Vec<&str> = options.iter().map(|option| option.name.as_str()).collect();
-        assert_eq!(
-            labels,
-            vec!["Yes", "Yes, and start with a fresh context", "No, keep planning"]
-        );
-        let reject = options.last().expect("the reject option");
-        assert_eq!(
-            reject
-                .meta
-                .as_ref()
-                .and_then(|meta| meta.get(PERMISSION_OPTION_DESCRIPTION_META))
-                .and_then(Value::as_str),
-            Some("Sends your next message back to planning")
-        );
-        assert!(options[0].meta.is_none());
-        // A plan-less approval has nothing to carry into a fresh context.
-        let ids: Vec<String> = exit_plan_options(&json!({}))
-            .iter()
-            .map(|option| option.option_id.0.to_string())
-            .collect();
-        assert_eq!(ids, vec!["exit-plan-bypass".to_string(), "reject".to_string()]);
-        // The clear-context option DENIES with an interrupt; it never allows.
-        assert_eq!(
-            exit_plan_clear_context_mode("exit-plan-clear-bypass"),
-            Some("bypassPermissions")
-        );
-        assert_eq!(exit_plan_mode("exit-plan-clear-bypass"), None);
-        assert_eq!(exit_plan_mode("exit-plan-bypass"), Some("bypassPermissions"));
-    }
-
-    fn exit_plan_request() -> wire::ControlReq {
-        wire::ControlReq {
-            subtype: "can_use_tool".into(),
-            tool_name: "ExitPlanMode".into(),
-            input: json!({ "plan": "# Plan\n\n1. Do the thing" }),
-            ..wire::ControlReq::default()
-        }
-    }
-
-    /// Approving a plan with "Yes" moves the session to Build: the state has
-    /// to move WITH the CLI, and the client is told, or its Plan/Build toggle
-    /// stays stuck on Plan for the rest of the run.
-    #[test]
-    fn a_plan_approval_switches_the_mode_and_announces_it() {
-        let request = exit_plan_request();
-        let answer = permission_answer("exit-plan-bypass", &request, "toolu_1");
-        assert_eq!(answer.response["behavior"], json!("allow"));
-        assert_eq!(
-            answer.response["updatedPermissions"][0]["mode"],
-            json!("bypassPermissions")
-        );
-        assert_eq!(answer.effects.mode.as_deref(), Some("bypassPermissions"));
-
-        // Folding the effects in moves the state and yields the mode to
-        // announce as a `CurrentModeUpdate` + a fresh `config_state`.
-        let mut state = State { mode: "plan".to_string(), ..State::default() };
-        let announced = take_permission_effects(&mut state, answer.effects);
-        assert_eq!(announced.as_deref(), Some("bypassPermissions"));
-        assert_eq!(state.mode, "bypassPermissions");
-        assert!(state.pending_plan_restart.is_none());
-
-        // Keeping the plan changes nothing.
-        let keep = permission_answer("reject", &request, "toolu_1");
-        let mut state = State { mode: "plan".to_string(), ..State::default() };
-        assert_eq!(take_permission_effects(&mut state, keep.effects), None);
-        assert_eq!(state.mode, "plan");
-    }
-
-    /// A CANCELLED plan approval is never answered, so it must not arm the
-    /// restart either: it used to `/clear` the context and run a build turn
-    /// for an approval the CLI had already abandoned.
-    #[test]
-    fn a_cancelled_plan_approval_arms_no_restart() {
-        let request = exit_plan_request();
-        let answer = permission_answer("exit-plan-clear-bypass", &request, "toolu_1");
-        // Computing the answer touches no state at all.
-        assert_eq!(answer.response["behavior"], json!("deny"));
-        assert!(answer.effects.plan_restart.is_some());
-
-        // `answer_can_use_tool` takes the abort BEFORE it writes anything, and
-        // the effects ride the write.
-        let mut state = State::default();
-        state.answering.insert("req-1".to_string());
-        state.aborted_requests.insert("req-1".to_string());
-        state.answering.remove("req-1");
-        let aborted = state.aborted_requests.remove("req-1");
-        assert!(aborted);
-        if !aborted {
-            take_permission_effects(&mut state, answer.effects);
-        }
-        assert!(state.pending_plan_restart.is_none(), "the abandoned plan armed a restart");
-
-        // The same answer on a request that WAS written arms it.
-        let answer = permission_answer("exit-plan-clear-bypass", &request, "toolu_1");
-        let mut state = State::default();
-        assert_eq!(take_permission_effects(&mut state, answer.effects), None);
-        let restart = state.pending_plan_restart.expect("the accepted plan is armed");
-        assert_eq!(restart.mode, "bypassPermissions");
-        assert!(restart.plan.starts_with("# Plan"));
-    }
-
-    /// `system/init` reports the mode the CLI actually launched in, in its own
-    /// spelling: it goes through the same clamp a steered switch does, since
-    /// `available_modes` only ever offers `plan` and `bypassPermissions`.
-    #[test]
-    fn the_init_frame_mode_is_clamped_to_the_offered_ones() {
-        let offered: Vec<String> =
-            available_modes().iter().map(|mode| mode.id.0.to_string()).collect();
-        for reported in ["acceptEdits", "default", "auto", "dontAsk", "bypassPermissions"] {
-            let adopted = init_mode(Some(reported), "plan").expect("a change off plan");
-            assert_eq!(adopted, "bypassPermissions", "{reported}");
-            assert!(offered.contains(&adopted));
-        }
-        // Plan is adopted as itself.
-        assert_eq!(init_mode(Some("plan"), "bypassPermissions").as_deref(), Some("plan"));
-        // Nothing to adopt: no frame value, an empty one, or one that clamps
-        // to the mode already current.
-        assert_eq!(init_mode(None, "plan"), None);
-        assert_eq!(init_mode(Some(""), "plan"), None);
-        assert_eq!(init_mode(Some("acceptEdits"), "bypassPermissions"), None);
-    }
-
-    #[test]
-    fn a_permission_offers_dont_ask_again_only_with_a_suggestion() {
-        let request = wire::ControlReq {
-            subtype: "can_use_tool".into(),
-            tool_name: "Bash".into(),
-            permission_suggestions: json!([{ "type": "addRules" }]),
-            ..wire::ControlReq::default()
-        };
-        let ids: Vec<String> = permission_options(&request)
-            .iter()
-            .map(|option| option.option_id.0.to_string())
-            .collect();
-        assert_eq!(ids, vec!["allow-once", "allow-with-updates", "reject"]);
-
-        let bare = wire::ControlReq {
-            subtype: "can_use_tool".into(),
-            tool_name: "Bash".into(),
-            ..wire::ControlReq::default()
-        };
-        let ids: Vec<String> =
-            permission_options(&bare).iter().map(|option| option.option_id.0.to_string()).collect();
-        assert_eq!(ids, vec!["allow-once", "reject"]);
-        assert_eq!(host_of("https://example.com/a?b").as_deref(), Some("example.com"));
     }
 
     #[test]

@@ -48,6 +48,8 @@ enum class ThreadCardsKind(val testId: String) {
     /** EXP-1323: the suggested tasks card in every state, a report line and
      *  a session card with its live caption. */
     Suggestions("thread-suggestions-screen"),
+    /** EXP-1280: THE rich plan / question card (plan-card.json, shot sg_plan-card). */
+    PlanCard("plan-card-screen"),
 }
 
 /**
@@ -75,6 +77,7 @@ fun ThreadCardsScreen(kind: ThreadCardsKind) {
                     ThreadCardsKind.Script -> ScriptCardSpecimens()
                     ThreadCardsKind.Comment -> CommentCardSpecimens()
                     ThreadCardsKind.Suggestions -> SuggestionsSpecimens()
+                    ThreadCardsKind.PlanCard -> PlanCardSpecimens()
                 }
             }
         }

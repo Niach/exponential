@@ -924,3 +924,40 @@ fn a_pending_button_never_narrows(cx: &mut TestAppContext) {
     let go = view.read_with(cx, |v, _| v.surface().last_frame(v.index_of("long").unwrap()).unwrap().h);
     assert!(long > go * 2.0, "the pending word fits: {long}");
 }
+
+/// EXP-1280: ChoiceTiles (a11y.json): one roving stop on the picked tile,
+/// arrows move it (a single pick follows), Space toggles a multiple's
+/// focused tile; every tile wears a picture once any option has one.
+#[gpui::test]
+fn choice_tiles_rove_pick_and_toggle(cx: &mut TestAppContext) {
+    let tree = json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "gap": 12, "padding": 16, "width": 420}, "children": [
+        {"id": "one", "component": "ChoiceTiles", "props": {"name": "one", "options": [
+            {"label": "Two columns", "value": "two", "description": "Pictures beside", "image": "https://example.com/two.png"},
+            {"label": "One column", "value": "one"}
+        ], "value": "two"}},
+        {"id": "many", "component": "ChoiceTiles", "props": {"name": "many", "type": "multiple", "options": [
+            {"label": "iOS", "value": "ios"}, {"label": "Android", "value": "android"}, {"label": "Web", "value": "web"}
+        ], "value": "ios"}}
+    ]});
+    let (view, _log, cx) = surface(cx, tree, false);
+    let exists = |view: &Entity<SurfaceView>, cx: &mut VisualTestContext, id: &str| view.read_with(cx, |v, _| v.index_of(id).is_some());
+    assert!(exists(&view, cx, "one.picture.0") && exists(&view, cx, "one.picture.1"), "a picture row keeps one height");
+    assert!(!exists(&view, cx, "many.picture.0"), "text-only tiles carry no picture");
+    let frame = |view: &Entity<SurfaceView>, cx: &mut VisualTestContext, id: &str| view.read_with(cx, |v, _| v.frame(v.index_of(id).unwrap()).unwrap());
+    let (a, b) = (frame(&view, cx, "one.picture.0"), frame(&view, cx, "one.picture.1"));
+    assert!(a.w > 0.0 && (a.w / a.h - 1.6).abs() < 0.05, "picture aspect 1.6: {a:?}");
+    assert_eq!((a.h, a.y), (b.h, b.y), "the tiles of a row line up");
+    assert_eq!(tab(&view, cx).as_deref(), Some("one.tile.0"), "the picked tile is the stop");
+    assert!(states(&view, cx, "one.tile.0").contains(&"selected".to_string()));
+    assert!(key(&view, cx, "right"));
+    assert_eq!(focused(&view, cx).as_deref(), Some("one.tile.1"));
+    assert!(states(&view, cx, "one.tile.1").contains(&"selected".to_string()), "a single pick follows the focus");
+    assert!(!states(&view, cx, "one.tile.0").contains(&"selected".to_string()));
+    assert_eq!(tab(&view, cx).as_deref(), Some("many.tile.0"));
+    assert!(key(&view, cx, "right"));
+    assert_eq!(focused(&view, cx).as_deref(), Some("many.tile.1"));
+    assert!(!states(&view, cx, "many.tile.1").contains(&"selected".to_string()), "a multiple only moves");
+    assert!(key(&view, cx, "space"));
+    assert!(states(&view, cx, "many.tile.1").contains(&"selected".to_string()), "Space toggles");
+    assert!(states(&view, cx, "many.tile.0").contains(&"selected".to_string()), "the other pick stays");
+}

@@ -309,6 +309,28 @@ impl CachedImage {
         self.0.encoded.clone()
     }
 
+    /// The picture's pixel size: the decoded one, else the encoded header's.
+    pub(crate) fn decoded_size(&self) -> Option<(f32, f32)> {
+        match &*self
+            .0
+            .decode
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+        {
+            DecodeState::Done(Ok(image)) => {
+                let size = image.size(0);
+                Some((size.width.0 as f32, size.height.0 as f32))
+            }
+            // Not decoded yet: the encoded header's size.
+            _ => image::ImageReader::new(std::io::Cursor::new(self.0.encoded.bytes()))
+                .with_guessed_format()
+                .ok()?
+                .into_dimensions()
+                .ok()
+                .map(|(width, height)| (width as f32, height as f32)),
+        }
+    }
+
     #[cfg(test)]
     fn decoded(&self) -> Option<Arc<RenderImage>> {
         match &*self
@@ -686,9 +708,14 @@ fn render_image_slot(
     url: &str,
     alt: &str,
     hooks: Option<EditorImageHooks>,
+    chat: bool,
     cx: &mut App,
 ) -> gpui::AnyElement {
     let fetch_url = image_url::strip_query(url).to_string();
+    // EXP-1280: a CHAT picture (the steer feed, THE plan / question card) =
+    // the full content width at its own aspect, `plan-card.json`
+    // `card.pictureRadius` inside a `card.pictureStroke` card stroke.
+    let chat_picture = chat.then(domain::plan_card::card);
     let slot = images
         .map(|images| images.update(cx, |cache, cx| cache.slot(&fetch_url, cx)))
         .unwrap_or_else(|| ImageSlot::Failed(std::time::Instant::now()));
@@ -705,11 +732,32 @@ fn render_image_slot(
                         .then(|| image_url::width_param_from_src(url))
                         .flatten()
                 });
-            let rendered = img(image)
-                .when_some(display_width, |el, width| el.w(px(width)))
-                .max_w_full()
-                .object_fit(gpui::ObjectFit::ScaleDown)
-                .rounded(px(4.));
+            // The chat picture's aspect: the synced row's probed size, else
+            // the decoded picture's.
+            let aspect = chat_picture
+                .and_then(|_| attachment_natural_size(&fetch_url, cx).or_else(|| image.decoded_size()))
+                .filter(|(w, h)| *w > 0. && *h > 0.)
+                .map(|(w, h)| w / h);
+            // gpui's `img` gives a FRACTION width its natural height, so the
+            // chat picture's box carries the aspect and the image fills it.
+            let rendered = match (chat_picture, aspect) {
+                (Some(card), Some(aspect)) => div()
+                    .w_full()
+                    .aspect_ratio(aspect)
+                    .child(
+                        img(image)
+                            .size_full()
+                            .object_fit(gpui::ObjectFit::Cover)
+                            .rounded(px(card.picture_radius)),
+                    )
+                    .into_any_element(),
+                (chat_picture, _) => img(image)
+                    .when_some(display_width, |el, width| el.w(px(width)))
+                    .max_w_full()
+                    .object_fit(gpui::ObjectFit::ScaleDown)
+                    .rounded(px(chat_picture.map_or(4., |card| card.picture_radius)))
+                    .into_any_element(),
+            };
             // Click-to-open (EXP-33): an in-app lightbox over the shared
             // [`ImageCache`] — never the web browser. The preview itself
             // carries the "Open in browser" affordance; always full size
@@ -725,6 +773,7 @@ fn render_image_slot(
                 // path (gpui element ids are hierarchical).
                 div()
                     .id("md-image-open")
+                    .when(chat_picture.is_some(), |el| el.w_full())
                     .cursor_pointer()
                     .on_click(move |_, window, cx| {
                         // In the blurred-editor preview a bubbling click
@@ -755,6 +804,13 @@ fn render_image_slot(
                 .id(id.into())
                 .relative()
                 .max_w_full()
+                .when_some(chat_picture, |el, card| {
+                    el.w_full()
+                        .overflow_hidden()
+                        .rounded(px(card.picture_radius))
+                        .border(px(card.picture_stroke))
+                        .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
+                })
                 .group(group_name.clone())
                 .child(clickable);
             if let Some(hooks) = &hooks {
@@ -2326,6 +2382,7 @@ impl MarkdownEditor {
                         url,
                         alt,
                         Some(hooks),
+                        false,
                         cx,
                     ));
                 }
@@ -2846,6 +2903,7 @@ impl gpui::RenderOnce for MarkdownView {
                         url,
                         alt,
                         None,
+                        self.chat,
                         cx,
                     ));
                 }
@@ -3431,6 +3489,23 @@ fn render_view_line(
 
     // Wrap with block-level styling + list gutter.
     let content: gpui::AnyElement = match attrs.kind {
+        // EXP-1280: the CHAT rhythm's headings = web `.tiptap-chat` (weight
+        // 600, h1 = `plan-card.json` `card.headingScale` × the body token);
+        // documents keep their own scale.
+        BlockKind::Heading if view.chat => {
+            let el = div()
+                .font_weight(FontWeight::SEMIBOLD)
+                .w_full()
+                .child(text_element);
+            match attrs.heading_level {
+                1 => el.text_size(px(
+                    theme::tokens::transcript::BODY_SIZE * domain::plan_card::card().heading_scale,
+                )),
+                2 => el.text_lg(),
+                _ => el.text_base(),
+            }
+            .into_any_element()
+        }
         BlockKind::Heading => {
             let el = div()
                 .font_weight(FontWeight::BOLD)
@@ -3455,7 +3530,16 @@ fn render_view_line(
             .child(div().flex_1().min_w_0().child(text_element))
             .into_any_element(),
         BlockKind::ListItem => {
-            let indent = px(12. * attrs.list_depth as f32);
+            // EXP-1280: a chat list's text sits at `card.listIndent` (web
+            // `padding-left: 1.5rem`, the fixture's px at the web's 16px rem)
+            // per depth, its marker inside that gutter; checklists and
+            // documents keep the compact gutter.
+            let chat_indent = (view.chat && attrs.list_type != Some(ListType::Checklist))
+                .then(|| gpui::rems(domain::plan_card::card().list_indent / 16.));
+            let indent = match chat_indent {
+                Some(step) => (step * attrs.list_depth as f32).into(),
+                None => gpui::DefiniteLength::from(px(12. * attrs.list_depth as f32)),
+            };
             let gutter: gpui::AnyElement = match attrs.list_type {
                 Some(ListType::Checklist) => {
                     let checked = attrs.checked;
@@ -3504,9 +3588,18 @@ fn render_view_line(
             h_flex()
                 .w_full()
                 .items_start()
-                .gap_2()
+                .when(chat_indent.is_none(), |row| row.gap_2())
                 .pl(indent)
-                .child(div().flex_shrink_0().child(gutter))
+                .child(match chat_indent {
+                    Some(step) => h_flex()
+                        .w(step)
+                        .flex_shrink_0()
+                        .justify_end()
+                        .pr_2()
+                        .child(gutter)
+                        .into_any_element(),
+                    None => div().flex_shrink_0().child(gutter).into_any_element(),
+                })
                 // min_w_0: without it the item's automatic min-width is the
                 // unwrapped line width, so long list lines never wrapped and
                 // were clipped under the properties panel (EXP-204).

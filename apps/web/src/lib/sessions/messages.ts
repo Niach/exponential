@@ -1,4 +1,4 @@
-import { eq, isNotNull, or, type SQL } from "drizzle-orm"
+import { and, eq, isNotNull, ne, or, sql, type SQL } from "drizzle-orm"
 import type { MessageAuthorKind, MessageCard } from "@exp/db-schema/domain"
 import { messages, sessions, type Session } from "@/db/schema"
 import type { Tx } from "@/lib/sessions/tx"
@@ -123,7 +123,43 @@ export function postSessionInput(
 
 /** EXP-1323: THE pending-input predicate (the device feeds these, `consume`
  *  stamps them): a person's message, or another session's input. An
- *  agent's own turn reply carries no `author_session_id` and never waits. */
+ *  agent's own turn reply carries no `author_session_id` and never waits;
+ *  EXP-1280: neither does a card the session posted on ITSELF (its
+ *  `author_session_id` = its own id; `answeredOwnCard` once answered). */
 export function pendingInput(): SQL {
-  return or(eq(messages.authorKind, `user`), isNotNull(messages.authorSessionId))!
+  return or(
+    eq(messages.authorKind, `user`),
+    and(isNotNull(messages.authorSessionId), ne(messages.authorSessionId, messages.sessionId))
+  )!
+}
+
+/** EXP-1280: the session's own plan/question card (`postOwnAskCard`) once a
+ *  person answered it: the device delivers the answer text, then consumes it. */
+export function answeredOwnCard(): SQL {
+  return and(
+    eq(messages.authorSessionId, messages.sessionId),
+    isNotNull(messages.answeredAt),
+    sql`${messages.card}->>'kind' IN ('question', 'plan')`
+  )!
+}
+
+/** EXP-1280: a card the session posts on ITSELF over MCP (`plan_propose`,
+ *  `sessions_ask`): agent-authored, `author_session_id` = the session,
+ *  `consumed_at` NULL until the device delivers the person's answer, and the
+ *  session waits on a person (`needs_input`) in the same transaction. */
+export async function postOwnAskCard(
+  tx: Tx,
+  session: SessionMirror,
+  card: MessageCard
+): Promise<string> {
+  const messageId = await insertMessage(tx, session, {
+    authorKind: `agent`,
+    authorSessionId: session.id,
+    card,
+  })
+  await tx
+    .update(sessions)
+    .set({ needsInput: true, updatedAt: new Date() })
+    .where(eq(sessions.id, session.id))
+  return messageId
 }

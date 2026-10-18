@@ -222,9 +222,9 @@ pub fn defaults_wire(settings: &Settings) -> DefaultsPatch {
                 ultracode: agent
                     .supports_ultracode()
                     .then_some(settings.claude_ultracode),
-                plan_mode: agent
-                    .supports_plan_mode()
-                    .then_some(settings.plan_mode_for(agent)),
+                // The plan-mode DEFAULT is a claude setting (codex keeps its
+                // composer pick only).
+                plan_mode: (agent == CodingAgent::Claude).then_some(settings.plan_mode_for(agent)),
                 auto_rotate_accounts: (agent == CodingAgent::Claude)
                     .then_some(settings.auto_rotate_accounts),
             },

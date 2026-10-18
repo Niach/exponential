@@ -382,7 +382,7 @@ fn runner_options(row: &SessionRow, base: &LaunchOptions, settings: &Settings) -
             options.effort = normalized;
         }
     }
-    options.plan_mode = row.plan_mode && agent.supports_plan_mode();
+    options.plan_mode = row.plan_mode;
     options.ultracode = row.ultracode && agent.supports_ultracode();
     options.computer_use = Some(row.computer_use);
     if let Some(account) = picked(&row.account) {
@@ -820,11 +820,10 @@ pub struct PreparedLaunch {
     /// it to keep permission-flavored
     /// notifications from becoming "blocked on approval" cards.
     pub bypass_permissions: bool,
-    /// EXP-529: the spawn launched into plan mode (claude `--permission-mode
-    /// plan`) — mutually exclusive with
-    /// `bypass_permissions` by the derivation above. The activity emitter
-    /// stamps it into the launch narration so remote viewers can tell the
-    /// run's effective permission posture.
+    /// EXP-529: the spawn launched into plan mode. EXP-1280: Exponential's
+    /// plan mode (the engine's flag), never a CLI permission mode, so it
+    /// rides NEXT TO `bypass_permissions` (always on). The activity emitter
+    /// stamps it into the launch narration.
     pub plan_mode: bool,
     /// EXP-383: which agent CLI the spawn runs. The steer wiring picks the
     /// matching activity emitter (claude transcript tail / codex rollout
@@ -926,15 +925,11 @@ fn path_segment(id: &str) -> Option<String> {
 
 /// EXP-1124: the flag-settings layer every ACP claude spawn carries. Flag
 /// settings outrank the user's, and a user `defaultMode: auto` otherwise
-/// leaks into PLAN runs: claude's plan mode takes auto-mode semantics
-/// whenever auto is available (`useAutoModeDuringPlan`, default true), so
-/// every non-read-only tool call went to the server-side classifier and,
-/// with it failing, was refused before `can_use_tool` ever reached the
-/// adapter. Exponential only ever runs `plan` / `bypassPermissions`
-/// (`clamp_mode`), so auto is disabled outright. Both keys measured present
-/// in claude 2.1.282.
-pub const CLAUDE_FLAG_SETTINGS: &str =
-    r#"{"permissions":{"disableAutoMode":"disable"},"useAutoModeDuringPlan":false}"#;
+/// routes tool calls through the server-side classifier before
+/// `can_use_tool` ever reaches the adapter, so auto is disabled outright.
+/// EXP-1280: the CLI only ever runs `bypassPermissions` (plan mode is
+/// Exponential's), so `useAutoModeDuringPlan` is gone.
+pub const CLAUDE_FLAG_SETTINGS: &str = r#"{"permissions":{"disableAutoMode":"disable"}}"#;
 
 /// EXP-746: the claude `--settings` file ([`CLAUDE_FLAG_SETTINGS`], EXP-1124)
 /// at a per-pid path. It wires no hooks (the engine reads `session/update`
@@ -1869,7 +1864,7 @@ fn prepare_session(
             mcp_secrets: McpSecrets::new(team_mcp.secret_values()),
         },
         seed_message_id: None,
-        bypass_permissions: !options.plan_mode,
+        bypass_permissions: true,
         plan_mode: options.plan_mode,
         agent,
         claude_session_id: None,
@@ -2018,11 +2013,13 @@ fn prepare_resume(
             Some(_) => row.ultracode && agent.supports_ultracode(),
             None => record.ultracode,
         } && !dispatch,
-        // The plan already happened in the run being continued — unless a
-        // reconfigure carries the plan mode the run was in (EXP-1334).
-        plan_mode: reconfigure.is_some_and(|reconfigure| reconfigure.plan_mode)
-            && agent.supports_plan_mode()
-            && !dispatch,
+        // EXP-1280: plan mode is the engine's flag, so a resume re-enters it
+        // as the row says (still planning = not approved yet) — a
+        // reconfigure carries the mode the live run was in (EXP-1334).
+        plan_mode: match reconfigure {
+            Some(reconfigure) => reconfigure.plan_mode,
+            None => row.plan_mode,
+        } && !dispatch,
         // EXP-981: the run registry keeps no subagent pin, so a resume runs
         // claude's subagents on this machine's subagent model.
         subagent_model: deps.settings.subagent_model_for(agent).to_string(),
@@ -2502,7 +2499,7 @@ fn prepare_resume(
             mcp_secrets: McpSecrets::new(team_mcp.secret_values()),
         },
         seed_message_id: resume.message_id.clone(),
-        bypass_permissions: !options.plan_mode,
+        bypass_permissions: true,
         plan_mode: options.plan_mode,
         agent,
         claude_session_id: None,
@@ -3132,7 +3129,7 @@ mod tests {
         let settings: serde_json::Value =
             serde_json::from_str(CLAUDE_FLAG_SETTINGS).expect("valid json");
         assert_eq!(settings["permissions"]["disableAutoMode"], "disable");
-        assert_eq!(settings["useAutoModeDuringPlan"], false);
+        assert!(settings.get("useAutoModeDuringPlan").is_none(), "EXP-1280: no CLI plan mode");
     }
 
     /// EXP-761: claude caps a long cwd's project dir name (~200 chars) and
@@ -3540,8 +3537,8 @@ mod tests {
         assert_eq!(options.computer_use, Some(false));
         assert_eq!(options.account.as_deref(), Some("host-profile"));
 
-        // Another agent starts from ITS defaults; codex never carries plan
-        // mode or ultracode.
+        // Another agent starts from ITS defaults; codex never carries
+        // ultracode (EXP-1280: plan mode is every agent's, the row's pick).
         let mut codex = row("s-3", None);
         codex.cli = Some("codex".to_string());
         codex.model = Some("gpt-5.6-sol".to_string());
@@ -3549,7 +3546,8 @@ mod tests {
         let options = session_launch_options(&codex, &base_options(), &deps.settings);
         assert_eq!(options.agent, CodingAgent::Codex);
         assert_eq!(options.model, "gpt-5.6-sol");
-        assert!(!options.plan_mode && !options.ultracode);
+        assert!(!options.ultracode);
+        assert_eq!(options.plan_mode, codex.plan_mode);
     }
 
     // ---- the fresh session happy path ----
@@ -3593,7 +3591,8 @@ mod tests {
         assert_eq!(seed_prompt(&prepared), BRIEF);
         assert_eq!(prepared.acp.options.model, "fable");
         assert!(prepared.acp.options.plan_mode, "the row's pick");
-        assert!(!prepared.bypass_permissions);
+        // EXP-1280: plan mode is Exponential's flag; the CLI always bypasses.
+        assert!(prepared.bypass_permissions && prepared.plan_mode);
         assert!(prepared.acp.resume.is_none());
 
         let seen = worktrees.seen.lock().unwrap().clone();

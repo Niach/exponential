@@ -24,8 +24,13 @@ const plan = (id: string, text: string, sessionId: string): ThreadRow => ({
   id,
   sessionId,
   plan: text,
+  questions: [],
+  surface: null,
   decision: null,
   fresh: false,
+  answers: null,
+  feedback: null,
+  surfaceData: null,
 })
 
 const STACK: ThreadRow[] = [
@@ -37,11 +42,15 @@ const STACK: ThreadRow[] = [
     sessionId: `c`,
     question: `Ship both fixes in one PR, or split them?`,
     options: [
-      { label: `One PR`, description: null },
-      { label: `Split them`, description: null },
+      { label: `One PR`, description: null, attachmentId: null },
+      { label: `Split them`, description: null, attachmentId: null },
     ],
     custom: true,
+    multi: false,
+    surface: null,
     answer: null,
+    answers: null,
+    surfaceData: null,
     answered: false,
   },
 ]

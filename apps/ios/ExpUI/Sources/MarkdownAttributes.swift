@@ -1,3 +1,4 @@
+import ExpCore
 import Foundation
 import SwiftUI
 import UIKit
@@ -168,7 +169,7 @@ public enum MarkdownStyle {
         #endif
     }
 
-    /// EXP-787: `bodySize` scales the whole ladder with the body, so a
+    /// EXP-787: `bodySize` scales the ladder with the body, so a
     /// transcript heading stays proportional instead of towering over 14pt
     /// prose — and the result then goes through `UIFontMetrics` like the body
     /// does, so headings keep Dynamic Type too.
@@ -178,8 +179,13 @@ public enum MarkdownStyle {
             let size = level >= 1 && level <= 6 ? sizes[level] : bodyFont.pointSize
             return PlatformFont.systemFont(ofSize: size, weight: .semibold)
         }
+        // EXP-1280 (plan-card.json `card.headingScale`, ×4): the display
+        // render's h1 = 1.2 × its body at weight 600; the rest of the ladder
+        // keeps its proportion to the body.
         let scale = bodySize / defaultBodyPointSize
-        let size = level >= 1 && level <= 6 ? sizes[level] * scale : bodySize
+        let size: CGFloat = level == 1
+            ? bodySize * CGFloat(PlanCard.Card.headingScale)
+            : (level >= 2 && level <= 6 ? sizes[level] * scale : bodySize)
         let font = PlatformFont.systemFont(ofSize: size, weight: .semibold)
         #if canImport(UIKit)
         return UIFontMetrics(forTextStyle: .body).scaledFont(for: font)

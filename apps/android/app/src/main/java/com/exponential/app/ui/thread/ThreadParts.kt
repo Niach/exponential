@@ -143,12 +143,14 @@ fun threadTabKey(tab: SessionTree.ThreadTab): String = when (tab) {
     is SessionTree.ThreadTab.Guide -> "guide"
 }
 
-/** A `question` answer: (message id, answer, settled(ok)). */
-typealias ThreadAnswer = (messageId: String, answer: String, settled: (Boolean) -> Unit) -> Unit
+/** A `question` answer: (message id, the answer, settled(ok)); EXP-1280
+ *  [AskAnswer] carries the picked labels + the surface's data model. */
+typealias ThreadAnswer = (messageId: String, answer: AskAnswer, settled: (Boolean) -> Unit) -> Unit
 
-/** A `plan` decision: (message id, approved, fresh, feedback, settled(ok));
- *  [fresh] = "Yes, and start with a fresh context" (ask-dock.json). */
-typealias ThreadPlanDecision = (messageId: String, approved: Boolean, fresh: Boolean, feedback: String?, settled: (Boolean) -> Unit) -> Unit
+/** A `plan` decision: (message id, the decision, settled(ok)); [PlanAnswer]
+ *  = approved + fresh ("Yes, and start with a fresh context", ask-dock.json)
+ *  + feedback + EXP-1280 the questions' picks and the surface's data model. */
+typealias ThreadPlanDecision = (messageId: String, decision: PlanAnswer, settled: (Boolean) -> Unit) -> Unit
 
 private val Muted: Color @Composable get() = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
 private val Secondary: Color @Composable get() = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
@@ -1269,69 +1271,16 @@ private fun UnqueueButton(onUnqueue: () -> Unit) {
 }
 
 /**
- * EXP-1316 ONE card ×4: a `question` or `plan` row is THE session view's card
- * ([QuestionCard]) over the row's data, answered through `sessions.answer`:
- * a question's options plus the free-text row (`custom`), a plan's options =
- * ask-dock.json `planOptions` (Yes · Yes, and start with a fresh context ·
- * No, keep planning, the last opening the feedback field). An answered row
- * renders closed (the answer / `planDecisionLabel` shown); the card locks
- * while the answer is in flight and stays locked until the synced row flips.
+ * EXP-1316 ONE card ×4, EXP-1280 the RICH card (plan-card.json): a
+ * `question` or `plan` row is [PlanAskCard] over the row's data, answered
+ * through `sessions.answer` (the picks + the surface's data model). An
+ * answered row renders closed; the card locks while the answer is in flight
+ * and stays locked until the synced row flips.
  */
 @Composable
 fun ThreadAskCard(row: SessionTree.ThreadRow, onAnswer: ThreadAnswer, onDecidePlan: ThreadPlanDecision) {
-    var state by remember(row.id) { mutableStateOf<AnswerState?>(null) }
-    val settle: (Boolean) -> Unit = { ok -> state = if (ok) AnswerState.Acked else null }
-    val item = when (row) {
-        is SessionTree.ThreadRow.Question -> AgentFeedItem.Question(
-            id = row.id.hashCode().toLong(),
-            text = row.question,
-            // Keyed `index:label` like web — two identical labels stay two rows;
-            // the answer still names the option by its label (below).
-            options = row.options.mapIndexed { index, option ->
-                QuestionOption(label = option.label, key = "$index:${option.label}", description = option.description)
-            },
-            multiSelect = false,
-            resolved = row.answered,
-            answer = row.answer,
-            wireId = row.id,
-        ).let { if (row.custom) it.withFreeTextRow() else it }
-        is SessionTree.ThreadRow.Plan -> AgentFeedItem.Question(
-            id = row.id.hashCode().toLong(),
-            text = row.plan,
-            options = AskDock.PLAN_OPTIONS.map { QuestionOption(it.label, it.key, description = it.description) },
-            multiSelect = false,
-            planMode = true,
-            resolved = row.decision != null,
-            answer = row.decision?.let { AskDock.planDecisionLabel(it, row.fresh) },
-            wireId = row.id,
-        )
-        else -> return
-    }
     Box(Modifier.testTag(if (row is SessionTree.ThreadRow.Plan) "thread-plan-card" else "thread-question-card")) {
-        QuestionCard(
-            item = item,
-            active = !item.resolved,
-            answerEnabled = true,
-            state = state.takeUnless { item.resolved },
-            stepLabel = null,
-            onAnswer = { keys, text ->
-                state = AnswerState.Sending
-                val key = keys.firstOrNull()
-                if (row is SessionTree.ThreadRow.Plan) {
-                    val option = AskDock.PLAN_OPTIONS.firstOrNull { it.key == key }
-                    onDecidePlan(row.id, option?.decision != "rejected", option?.fresh == true, null, settle)
-                } else {
-                    val answer = text?.takeIf { it.isNotBlank() }
-                        ?: item.options.firstOrNull { it.key == key }?.label
-                        ?: key.orEmpty()
-                    onAnswer(row.id, answer, settle)
-                }
-            },
-            onPlanFollowUp = { _, feedback ->
-                state = AnswerState.Sending
-                onDecidePlan(row.id, false, false, feedback, settle)
-            },
-        )
+        PlanAskCard(row, onAnswer, onDecidePlan)
     }
 }
 

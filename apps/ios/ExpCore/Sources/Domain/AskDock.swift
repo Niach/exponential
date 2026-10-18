@@ -110,7 +110,7 @@ public enum AskDock {
 
     /// THE plan card's options ×4 (the claude adapter's ExitPlanMode menu):
     /// Yes (primary) · Yes, and start with a fresh context · No, keep
-    /// planning (opens the feedback field).
+    /// planning (the feedback field rides any decision).
     public static let planOptions: [PlanOption] = [
         PlanOption(key: "approve", label: "Yes", description: nil, decision: "approved", fresh: false),
         PlanOption(
@@ -119,7 +119,7 @@ public enum AskDock {
         ),
         PlanOption(
             key: "reject", label: "No, keep planning",
-            description: "Sends your next message back to planning", decision: "rejected", fresh: false
+            description: "Your feedback goes back with it", decision: "rejected", fresh: false
         ),
     ]
 
@@ -216,13 +216,14 @@ public enum AskDock {
         var pending: [Pending] = []
         for (index, row) in rows.enumerated() {
             switch row {
-            case let .plan(id, sessionId, plan, decision, _) where decision == nil:
+            case let .plan(card) where card.decision == nil:
                 pending.append(Pending(
-                    id: id, kind: .plan, text: plan, sessionName: sessionName(sessionId), createdAt: Double(index)
+                    id: card.id, kind: .plan, text: card.plan, sessionName: sessionName(card.sessionId),
+                    createdAt: Double(index)
                 ))
-            case let .question(id, sessionId, question, _, _, _, answered) where !answered:
+            case let .question(card) where !card.answered:
                 pending.append(Pending(
-                    id: id, kind: .question, text: question, sessionName: sessionName(sessionId),
+                    id: card.id, kind: .question, text: card.question, sessionName: sessionName(card.sessionId),
                     createdAt: Double(index)
                 ))
             default:
