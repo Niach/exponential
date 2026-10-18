@@ -1,5 +1,6 @@
 import { useMemo, type ReactNode } from "react"
 import fixture from "@exp/domain-contract/fixtures/session-thread.json"
+import { PLAN_CARD_COPY, PLAN_CARD_GEOMETRY } from "@exp/domain-contract/plan-card"
 import { buildSessionThread } from "@exp/domain-contract/session-tree"
 import { ThreadConversation } from "./session-thread-view"
 
@@ -13,7 +14,8 @@ import { ThreadConversation } from "./session-thread-view"
 
 const RICH_CASE = `EXP-1280: a rich plan card`
 
-/** Stand-in pictures: one quiet tone per attachment id. */
+/** Stand-in pictures = THE palette ×4 (iOS/Android/desktop specimens draw the
+ *  same): one gradient per attachment id, a 35% white bar, a 12% white panel. */
 const TONES: Record<string, [string, string]> = {
   "att-1": [`#3f3f46`, `#52525b`],
   "att-2": [`#1e3a5f`, `#3b82f6`],
@@ -29,8 +31,11 @@ export function planCardStandIn(attachmentId: string): string {
 
 const ATTACHMENT = /^!\[([^\]]*)\]\(\/api\/attachments\/([^)\s]+)\)$/
 
-/** A specimen-sized stand-in for the app's GFM renderer: a heading reads
- *  medium, an attachment embed paints its stand-in picture. */
+/** A specimen-sized stand-in for the app's GFM renderer (`.tiptap-chat`):
+ *  a heading = `card.headingScale` × the body at weight 600, an attachment
+ *  embed paints its stand-in picture like the app's inline image (full
+ *  content width at its aspect, `card.pictureRadius` + `card.pictureStroke`,
+ *  no max height). */
 const text = (body: string): ReactNode => (
   <div className="flex flex-col gap-1">
     {body.split(`\n`).map((line, index) => {
@@ -43,13 +48,23 @@ const text = (body: string): ReactNode => (
             key={index}
             src={planCardStandIn(picture[2]!)}
             alt={picture[1]}
-            className="my-1 h-auto max-h-48 w-auto max-w-full rounded-lg border border-glass-stroke-card"
+            width={800}
+            height={500}
+            className="my-1 block h-auto w-full border-solid border-glass-stroke-card"
+            style={{
+              borderRadius: PLAN_CARD_GEOMETRY.pictureRadius,
+              borderWidth: PLAN_CARD_GEOMETRY.pictureStroke,
+            }}
           />
         )
       }
       if (trimmed.startsWith(`#`)) {
         return (
-          <p key={index} className="font-medium">
+          <p
+            key={index}
+            className="font-semibold"
+            style={{ fontSize: `${PLAN_CARD_GEOMETRY.headingScale}em` }}
+          >
             {trimmed.replace(/^#+\s*/, ``)}
           </p>
         )
@@ -78,7 +93,7 @@ export function PlanCardSpecimen() {
   const row = (id: string) => rows.filter((r) => r.id === id)
   return (
     <div data-testid="plan-card-specimen" className="flex max-w-2xl flex-col gap-6 text-sm">
-      <Case label="A plan waiting on you: pictures, a surface, two questions">
+      <Case label={PLAN_CARD_COPY.specimen.pending}>
         <ThreadConversation
           rows={row(`n1`)}
           renderText={text}
@@ -87,10 +102,10 @@ export function PlanCardSpecimen() {
           onDecide={noop}
         />
       </Case>
-      <Case label="A question answered with several picks">
+      <Case label={PLAN_CARD_COPY.specimen.answered}>
         <ThreadConversation rows={row(`n2`)} renderText={text} attachmentSrc={planCardStandIn} />
       </Case>
-      <Case label="An approved plan">
+      <Case label={PLAN_CARD_COPY.specimen.approved}>
         <ThreadConversation rows={row(`n3`)} renderText={text} attachmentSrc={planCardStandIn} />
       </Case>
     </div>

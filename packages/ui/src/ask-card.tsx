@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useRef, useState, type HTMLAttributes, type ReactNode } from "react"
 import { ASK_DOCK_COPY, ASK_DOCK_TEST_IDS } from "@exp/domain-contract/ask-dock"
+import { PLAN_CARD_COPY } from "@exp/domain-contract/plan-card"
 import { Button } from "./button"
 import { cn } from "./cn"
 import { Composer, ComposerSubmit } from "./composer"
@@ -26,19 +27,17 @@ const CheckIcon = conceptIcon(`ui-check`)
 const CloseIcon = conceptIcon(`ui-close`)
 const BackIcon = conceptIcon(`ui-back`)
 
-/** The card's words ×web (hand-mirrored ×4 with the steer views). */
+/** The generic ask card's own words ×web (hand-mirrored ×4 with the steer
+ *  views). The plan / question card's copy lives in the fixtures:
+ *  `ASK_DOCK_COPY` (planReady, question, feedbackPlaceholder) and
+ *  `PLAN_CARD_COPY` (answered, answering). */
 export const ASK_CARD_COPY = {
-  planReady: `Plan ready`,
-  question: `Question`,
-  answering: `Answering…`,
-  answered: `Answered`,
   dismissed: `Dismissed`,
   submit: `Submit`,
   submitAnswers: `Submit answers`,
   /** The free-text row a thread question offers (claude's synthetic row). */
   freeTextRow: `Type something.`,
   freeTextPlaceholder: `Type your answer…`,
-  planFeedbackPlaceholder: `Tell the agent what to change…`,
 } as const
 
 export interface AskOption {
@@ -158,7 +157,7 @@ export function AskAnsweredLine({
         <CheckIcon className="mt-0.5 size-3.5 shrink-0 text-emerald-500" />
       )}
       <span className="whitespace-pre-wrap break-words font-medium text-foreground/90">
-        {dismissed ? ASK_CARD_COPY.dismissed : (answer ?? ASK_CARD_COPY.answered)}
+        {dismissed ? ASK_CARD_COPY.dismissed : (answer ?? PLAN_CARD_COPY.answered)}
       </span>
     </div>
   )
@@ -371,7 +370,7 @@ export function AskPrompt({
     return (
       <div className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
         <LoadingIcon className="size-3 shrink-0 animate-spin" />
-        <span className="shrink-0">{ASK_CARD_COPY.answering}</span>
+        <span className="shrink-0">{PLAN_CARD_COPY.answering}</span>
         {locked.labels.length > 0 && (
           <span className="truncate font-medium text-foreground/80">{locked.labels.join(`, `)}</span>
         )}
@@ -456,7 +455,7 @@ export function AskPrompt({
                 <AskInlineField
                   placeholder={
                     planMode
-                      ? ASK_CARD_COPY.planFeedbackPlaceholder
+                      ? ASK_DOCK_COPY.feedbackPlaceholder
                       : ASK_CARD_COPY.freeTextPlaceholder
                   }
                   allowEmpty={planMode}

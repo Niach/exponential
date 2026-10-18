@@ -2,6 +2,7 @@ import { useState } from "react"
 import { fireEvent, render, screen } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 import { ASK_CARD_COPY, AskPrompt, type AskOption } from "./ask-card"
+import { PLAN_CARD_COPY } from "@exp/domain-contract/plan-card"
 
 // EXP-1316 (1m): the question / plan card's interactive half.
 const OPTIONS: AskOption[] = [
@@ -61,7 +62,7 @@ describe(`AskPrompt`, () => {
     const field = screen.getByTestId(`ask-inline-field`) as HTMLTextAreaElement
     fireEvent.change(field, { target: { value: `half typed` } })
     fireEvent.keyDown(field, { key: `Enter` })
-    expect(screen.getByText(ASK_CARD_COPY.answering)).toBeTruthy()
+    expect(screen.getByText(PLAN_CARD_COPY.answering)).toBeTruthy()
     expect(screen.queryByTestId(`ask-inline-field`)).toBeNull()
     fireEvent.click(screen.getByText(`fail`))
     expect((screen.getByTestId(`ask-inline-field`) as HTMLTextAreaElement).value).toBe(`half typed`)

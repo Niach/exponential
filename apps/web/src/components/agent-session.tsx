@@ -1,4 +1,5 @@
-import { askDock } from "@exp/domain-contract/ask-dock"
+import { ASK_DOCK_COPY, askDock } from "@exp/domain-contract/ask-dock"
+import { PLAN_CARD_COPY } from "@exp/domain-contract/plan-card"
 import type { ReactNode } from "react"
 import {
   createContext,
@@ -2177,7 +2178,7 @@ function QuestionCard({
   const clampable = !plan && !docked && clamp.clampable
   const { expanded, setExpanded } = clamp
   return (
-    <AskCard plan={plan} label={plan ? ASK_CARD_COPY.planReady : item.header}>
+    <AskCard plan={plan} label={plan ? ASK_DOCK_COPY.planReady : item.header}>
       <>
         <BodyCap docked={docked}>
           {plan ? (
@@ -2405,7 +2406,7 @@ function AnsweredStepRow({
         {text}
       </span>
       <span className="max-w-[50%] shrink-0 truncate font-medium text-foreground/90">
-        {dismissed ? `Dismissed` : (answer ?? `Answered`)}
+        {dismissed ? ASK_CARD_COPY.dismissed : (answer ?? PLAN_CARD_COPY.answered)}
       </span>
     </>
   )

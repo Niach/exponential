@@ -1,5 +1,6 @@
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react"
 import {
+  ASK_DOCK_BODY_MAX_HEIGHT_FRACTION,
   ASK_DOCK_STACK_GAP,
   ASK_DOCK_TEST_IDS,
   type AskDockRow,
@@ -117,7 +118,12 @@ export function AskDockStackCard({ row, onOpen }: { row: AskDockRow; onOpen: () 
  *  `bodyMaxHeightFraction` of the viewport and scrolls inside. */
 export function AskDockBody({ children, className }: { children: ReactNode; className?: string }) {
   return (
-    <div className={cn(`max-h-[40vh] overflow-y-auto overscroll-contain`, className)}>{children}</div>
+    <div
+      className={cn(`overflow-y-auto overscroll-contain`, className)}
+      style={{ maxHeight: `${ASK_DOCK_BODY_MAX_HEIGHT_FRACTION * 100}vh` }}
+    >
+      {children}
+    </div>
   )
 }
 

@@ -27,6 +27,9 @@ export interface McpToolGates {
   unattended: boolean
   /** That session's root is a team agent (it never ends). Wording only. */
   agent: boolean
+  /** EXP-1280: that session is still planning (`sessions.plan_mode`), so the
+   * instructions carry the plan-mode gate. Wording only. */
+  planMode?: boolean
 }
 
 /** The worst-case surface — the default `registerExponentialTools` takes, so
@@ -36,6 +39,7 @@ export const ALL_MCP_TOOL_GATES: McpToolGates = {
   inSession: true,
   unattended: true,
   agent: false,
+  planMode: true,
 }
 
 const CLOSED: McpToolGates = { inSession: false, unattended: false, agent: false }
@@ -58,6 +62,7 @@ export async function resolveMcpToolGates(
       parentId: sessions.parentId,
       rootKind: root.kind,
       rootSpawnedBy: root.spawnedBySessionId,
+      planMode: sessions.planMode,
     })
     .from(sessions)
     .leftJoin(root, eq(root.id, sessions.rootId))
@@ -69,5 +74,6 @@ export async function resolveMcpToolGates(
     inSession: true,
     unattended: row.parentId !== null || row.rootSpawnedBy != null,
     agent: row.rootKind === `agent`,
+    planMode: row.planMode === true,
   }
 }

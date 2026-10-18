@@ -10,21 +10,7 @@ import { cn } from "./cn"
 // stop and the keys of catalog/a11y.json `ChoiceTiles`. The eUI native
 // (`natives/choice-tiles.tsx`) dresses it with the theme's recipe classes;
 // `ChoiceTiles` below dresses it with the app's Tailwind tokens at the SAME
-// geometry (`CHOICE_TILES`, = packages/domain-contract/fixtures/plan-card.json
-// `tiles` and the exponential theme's ChoiceTiles recipes), so the plan card
-// and an agent's surface draw the same tile.
-
-/** The tile geometry (plan-card.json `tiles`; the eUI recipes resolve to it
- *  under the exponential theme). */
-export const CHOICE_TILES = {
-  columns: 2,
-  gap: 8,
-  pictureAspect: 1.6,
-  radius: 10,
-  pictureRadius: 6,
-  selectedRing: 2,
-  padding: 8,
-} as const
+// geometry, so the plan card and an agent's surface draw the same tile.
 
 export interface ChoiceTileOption {
   value: string
@@ -38,7 +24,7 @@ export interface ChoiceTileOption {
 
 /** `columns` clamped to 1–4 (default 2). */
 export function choiceColumns(columns: unknown): number {
-  const n = typeof columns === `number` && Number.isFinite(columns) ? Math.round(columns) : CHOICE_TILES.columns
+  const n = typeof columns === `number` && Number.isFinite(columns) ? Math.round(columns) : 2
   return Math.min(4, Math.max(1, n))
 }
 
@@ -201,8 +187,16 @@ export interface ChoiceTilesProps {
   dir?: `ltr` | `rtl`
 }
 
-const TILE = `flex min-w-0 cursor-pointer flex-col gap-1 rounded-[10px] border border-border bg-card p-2 text-start outline-none transition-colors hover:bg-secondary focus-visible:border-ring disabled:cursor-not-allowed disabled:opacity-50`
-const TILE_SELECTED = `border-2 border-primary bg-accent p-[7px] hover:bg-accent`
+// The tile in PX, never rem steps (the app's desktop rem is 18.5px, which
+// would inflate them): THE ChoiceTiles recipe = the exponential theme's
+// recipes.ChoiceTiles = packages/domain-contract/fixtures/plan-card.json
+// `tiles` (the SDK imports nothing from the app, so the numbers are copied
+// here): padding 8 (7 when selected, under the 2px `selectedRing`), `gap` 8
+// between tiles, `radius` 10, `pictureRadius` 6 at `pictureAspect` 1.6,
+// `stroke` 1, `placeholderGlyph` 20 at 0.6, `labelGap` 4 picture→label and
+// label→description, `inertOpacity` 0.5. Text stays the sm/xs steps.
+const TILE = `flex min-w-0 cursor-pointer flex-col gap-[4px] rounded-[10px] border-[1px] border-border bg-card p-[8px] text-start outline-none transition-colors hover:bg-secondary focus-visible:border-ring disabled:cursor-not-allowed disabled:opacity-50`
+const TILE_SELECTED = `border-[2px] border-primary bg-accent p-[7px] hover:bg-accent`
 const TILE_INVALID = `border-destructive`
 const PICTURE = `relative flex aspect-[1.6] w-full shrink-0 items-center justify-center overflow-hidden rounded-[6px] bg-muted text-muted-foreground`
 
@@ -211,7 +205,7 @@ const PICTURE = `relative flex aspect-[1.6] w-full shrink-0 items-center justify
 function ChoiceTiles({ options, value, multiple = false, columns, disabled = false, invalid = false, onChange, renderImage, className, dir, ...rest }: ChoiceTilesProps) {
   const picked = choiceValues(value, multiple)
   const image = (src: string | null, label: string) =>
-    src ? (renderImage ? renderImage(src, label) : <img src={src} alt={label} loading="lazy" decoding="async" className="absolute inset-0 size-full object-cover" />) : <ImageIcon className="size-5 opacity-60" />
+    src ? (renderImage ? renderImage(src, label) : <img src={src} alt={label} loading="lazy" decoding="async" className="absolute inset-0 size-full object-cover" />) : <ImageIcon className="size-[20px] opacity-60" />
   return (
     <ChoiceTilesFrame
       options={options}
@@ -222,7 +216,7 @@ function ChoiceTiles({ options, value, multiple = false, columns, disabled = fal
       invalid={invalid}
       dir={dir}
       onPick={(next) => onChange?.(multiple ? next : (next[0] ?? ``))}
-      rootProps={{ "data-slot": `choice-tiles`, className: cn(`gap-2`, className), "aria-label": rest[`aria-label`], "aria-labelledby": rest[`aria-labelledby`], "data-testid": rest[`data-testid`] }}
+      rootProps={{ "data-slot": `choice-tiles`, className: cn(`gap-[8px]`, className), "aria-label": rest[`aria-label`], "aria-labelledby": rest[`aria-labelledby`], "data-testid": rest[`data-testid`] }}
       tileProps={(s) => ({ "data-slot": `choice-tile`, className: cn(TILE, s.selected && TILE_SELECTED, invalid && !s.selected && TILE_INVALID) })}
       pictureProps={() => ({ "data-slot": `choice-tile-picture`, className: PICTURE })}
       labelProps={() => ({ className: `min-w-0 text-sm leading-5 font-medium text-foreground` })}

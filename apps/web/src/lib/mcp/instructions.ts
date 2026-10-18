@@ -17,6 +17,8 @@
 // instance has a feedback widget, i.e. cloud) — `reportBug` is per-instance,
 // not per-caller, so it is a plain flag next to the gates.
 
+import { PLAN_CARD_COPY } from "@exp/domain-contract/plan-card"
+
 export function mcpServerInstructions(gates: {
   /** The caller runs inside a session of its own. */
   inSession: boolean
@@ -24,6 +26,8 @@ export function mcpServerInstructions(gates: {
   unattended: boolean
   /** That session's root is a team agent. */
   agent: boolean
+  /** EXP-1280: that session is still planning (`sessions.plan_mode`). */
+  planMode?: boolean
   reportBug: boolean
 }): string {
   const paragraphs = [
@@ -37,7 +41,7 @@ export function mcpServerInstructions(gates: {
   ]
   if (gates.reportBug) {
     paragraphs.push(
-      `When Exponential ITSELF misbehaves (a tool result contradicting its docs, a dropped start, a sync glitch), file it with exponential_report_bug. It reaches Exponential's developers, not the user's project.`
+      `When Exponential ITSELF misbehaves (a tool contradicting its docs, a dropped start, a sync glitch), file it with exponential_report_bug. It reaches Exponential's developers, not the user's project.`
     )
   }
   if (gates.inSession && gates.agent) {
@@ -47,7 +51,7 @@ export function mcpServerInstructions(gates: {
   }
   if (gates.inSession && !gates.agent && gates.unattended) {
     paragraphs.push(
-      `This session is unattended (another session started it). Finish with exponential_sessions_end LAST, worktree clean: its summary (finished, stopped for a human, or changed nothing) is your final message and your parent's report. Never wait for replies; a question only your starter can answer goes to your parent session with exponential_sessions_send, then stop.`
+      `This session is unattended (another session started it). Finish with exponential_sessions_end LAST, worktree clean: its summary (finished, stopped for a human, or changed nothing) is your final message and your parent's report. Never wait for replies; a question only your starter can answer goes to your parent via exponential_sessions_send, then stop.`
     )
   }
   if (gates.inSession && !gates.agent && !gates.unattended) {
@@ -55,11 +59,12 @@ export function mcpServerInstructions(gates: {
       `exponential_sessions_end ends this session; call it only when the person asks you to end the session.`
     )
   }
-  // EXP-1280: plan mode is Exponential's (a card + the pr_open gate).
+  // EXP-1280: plan mode is Exponential's (a card + the pr_open gate): a
+  // planning session gets THE gate sentence (plan-card.json `planModeGate`,
+  // the device's plan-mode line says the same), every session the ask.
   if (gates.inSession) {
-    paragraphs.push(
-      `Plan mode: post the plan with exponential_plan_propose, then stop. Ask a person a choice with exponential_sessions_ask.`
-    )
+    const ask = `Ask a person with exponential_sessions_ask.`
+    paragraphs.push(gates.planMode === true ? `${PLAN_CARD_COPY.planModeGate} ${ask}` : ask)
   }
   // EXP-879/1251: LAST, so it is what a truncating client keeps least — but
   // present, because a session never asked for its Guide never writes one.
@@ -76,5 +81,6 @@ export const MCP_SERVER_INSTRUCTIONS = mcpServerInstructions({
   inSession: true,
   unattended: true,
   agent: false,
+  planMode: true,
   reportBug: true,
 })

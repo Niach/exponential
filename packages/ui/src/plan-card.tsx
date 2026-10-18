@@ -5,6 +5,7 @@ import { SEMANTIC_ICONS, type IconConcept, type IconName } from "@exp/icons"
 import {
   optionRows,
   PLAN_CARD_COPY,
+  PLAN_CARD_GEOMETRY,
   PLAN_CARD_TEST_IDS,
   PLAN_CARD_TILES,
   PLAN_CARD_UPLOAD_SCHEME,
@@ -36,6 +37,14 @@ import { Input } from "./input"
 //
 // The pure helpers mirror the desktop's (`strip_pending_uploads`,
 // `toggle_pick`, `question_answer`, `closed_picks`).
+//
+// Geometry = plan-card.json `card` (`PLAN_CARD_GEOMETRY`) and `tiles` (THE
+// ChoiceTiles recipe). The surface frame and the tiles are PX (the fixture's
+// numbers, never inflated by the desktop's 18.5px rem); the rhythm below is
+// the Tailwind step equal to the number at the 16px rem, like the rest of
+// the app: `blockGap` 12 = mt-3, `blockInnerGap` 2 = the caption's mt-0.5,
+// `optionsGap` 6 = the options' mt-1.5 under it, `rowMinHeight` 32 = min-h-8
+// / h-8, `rowRadius` 10 = rounded-md, `surfaceLabelGap` 6 = gap-1.5.
 
 const CheckIcon = conceptIcon(`ui-check`)
 const SelectedIcon = conceptIcon(`ui-selected`)
@@ -152,9 +161,10 @@ export function PlanCardSurface({
         inert={disabled || undefined}
         aria-disabled={disabled || undefined}
         className={cn(
-          `overflow-hidden rounded-lg border border-glass-stroke-card bg-background/40 p-3`,
+          `overflow-hidden border border-glass-stroke-card bg-background/40`,
           disabled && `opacity-80`
         )}
+        style={{ borderRadius: PLAN_CARD_GEOMETRY.surfaceRadius, padding: PLAN_CARD_GEOMETRY.surfacePadding }}
       >
         <ExponentialSurface surface={state} host={host} theme={DEFAULT_THEME_ID} mode={documentMode()} />
       </div>
@@ -218,9 +228,10 @@ export function PlanCardOptions({
               data-testid={PLAN_CARD_TEST_IDS.option}
               data-picked={selected || undefined}
               className={cn(
-                `flex min-h-7 items-center gap-1.5 rounded-md border border-transparent px-3 py-1 text-xs`,
-                selected ? cn(ASK_OPTION_PICKED_CLASS, `text-foreground`) : `text-muted-foreground/70`
+                `flex min-h-8 items-center gap-1.5 rounded-md border border-transparent px-3 py-1.5 text-xs`,
+                selected ? cn(ASK_OPTION_PICKED_CLASS, `text-foreground`) : `text-muted-foreground`
               )}
+              style={selected ? undefined : { opacity: PLAN_CARD_GEOMETRY.inertOpacity }}
             >
               <span className="flex size-3.5 shrink-0 items-center justify-center">
                 {selected && <CheckIcon className="size-3.5 text-emerald-500" />}
@@ -310,9 +321,11 @@ export function PlanCardQuestionBlock({
   closedFree?: ReactNode
 }) {
   return (
-    <div data-testid={PLAN_CARD_TEST_IDS.question} data-question={question.id} className="mt-3 flex flex-col gap-0.5">
+    <div data-testid={PLAN_CARD_TEST_IDS.question} data-question={question.id} className="mt-3 flex flex-col">
       <div className="text-xs font-semibold text-foreground">{question.prompt}</div>
-      <PlanCardCaption>{question.multi ? PLAN_CARD_COPY.chooseAny : PLAN_CARD_COPY.chooseOne}</PlanCardCaption>
+      <div className="mt-0.5">
+        <PlanCardCaption>{question.multi ? PLAN_CARD_COPY.chooseAny : PLAN_CARD_COPY.chooseOne}</PlanCardCaption>
+      </div>
       <PlanCardOptions
         options={question.options}
         multi={question.multi}

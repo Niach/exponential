@@ -21,6 +21,7 @@ import {
   type ThreadStripLayout,
 } from "@exp/domain-contract/session-tree"
 import {
+  ASK_DOCK_COPY,
   askDock,
   PLAN_OPTIONS,
   planDecisionLabel,
@@ -28,7 +29,7 @@ import {
 } from "@exp/domain-contract/ask-dock"
 import { AgentRunMark, type RunMarkState } from "./agent-brand-mark"
 import { answerIssue, joinAnswers, PLAN_CARD_COPY, PLAN_CARD_TEST_IDS } from "@exp/domain-contract/plan-card"
-import { ASK_CARD_COPY, AskAnsweredLine, AskCard, AskPrompt, type AskOption } from "./ask-card"
+import { AskAnsweredLine, AskCard, AskPrompt, type AskOption } from "./ask-card"
 import { Composer } from "./composer"
 import {
   closedPicks,
@@ -1469,7 +1470,7 @@ function ThreadPlanCard({
   return (
     <AskCard
       plan
-      label={ASK_CARD_COPY.planReady}
+      label={ASK_DOCK_COPY.planReady}
       onBack={onBack}
       data-slot="thread-plan"
       data-testid={PLAN_CARD_TEST_IDS.card}
@@ -1529,7 +1530,7 @@ function ThreadPlanCard({
           <Textarea
             value={feedback}
             onChange={(event) => setFeedback(event.target.value)}
-            placeholder={ASK_CARD_COPY.planFeedbackPlaceholder}
+            placeholder={ASK_DOCK_COPY.feedbackPlaceholder}
             aria-label={PLAN_CARD_COPY.feedback}
             rows={1}
             data-testid={PLAN_CARD_TEST_IDS.feedback}
@@ -1539,7 +1540,7 @@ function ThreadPlanCard({
       </AskPrompt>
       {decided && row.feedback && (
         <div data-testid={PLAN_CARD_TEST_IDS.feedback} className="mt-1 text-xs text-muted-foreground">
-          {`${PLAN_CARD_COPY.feedback}: ${row.feedback}`}
+          {PLAN_CARD_COPY.feedbackLine.replace(`{feedback}`, () => row.feedback ?? ``)}
         </div>
       )}
     </AskCard>
