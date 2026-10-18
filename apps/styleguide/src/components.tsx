@@ -2548,7 +2548,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `guide-picture-viewer`,
     title: `Guide picture viewer`,
     kind: `Surfaces`,
-    blurb: `EXP-1283: tapping a picture in a thread's Guide opens it next to what it shows. Wide (web md+, the IDE): the lightbox in its PANEL mode, the picture large on the left (fit), a fixed 360 px panel on the right: the topic, the picture's label as a pill, the topic's GFM text, then ‹ n / N › through every Guide picture in the Guide's order (Summary first, no wrap), × top right; ←/→ step, Esc closes. Phones: a full-screen page, the picture on top, the same panel below it, a swipe steps. Model = guideViewer() (fixture session-results.json viewer ×4). The dialog is a portal, so the island lays its two halves out in place.`,
+    blurb: `EXP-1283: tapping a picture in a thread's Guide opens it next to what it shows. Wide (web md+, the IDE): the picture large on the left (fit), a fixed 360 px panel on the right: the topic, the picture's label as a pill, the topic's GFM text, then ‹ n / N › through every Guide picture in the Guide's order (Summary first, no wrap); ←/→ step, Esc closes. Web = the lightbox in its PANEL mode, × top right; the IDE (EXP-1348) = a native dialog window titled Guide, movable and resizable down to 720×440, whose titlebar is its one close control (no in-content ×). Phones: a full-screen page, the picture on top, the same panel below it, a swipe steps. Model = guideViewer() (fixture session-results.json viewer ×4). The dialog is a portal, so the island lays its two halves out in place.`,
     status: {
       web: ok(
         `GuidePictureViewer / GuidePictureViewerPanel`,
