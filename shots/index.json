@@ -3398,9 +3398,9 @@
       "desktop": {
         "file": "shots/plan-card/desktop.webp",
         "width": 1800,
-        "height": 1626,
-        "bytes": 51898,
-        "sha256": "a7fefa87a8eda3dead11ab6299c7bb855015daa98dc1e25635f78d88980185e5"
+        "height": 1126,
+        "bytes": 37126,
+        "sha256": "3434a836afb395eb9d2891a9bba419d531e1fa217dc48dfe6ecde849d20e59c8"
       },
       "ios": {
         "file": "shots/plan-card/ios.webp",
