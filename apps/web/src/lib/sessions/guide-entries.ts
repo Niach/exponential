@@ -28,6 +28,25 @@ export function ownedBy(sessionId: string): GuideEntryFilter {
   return (row) => !row?.sessionId || row.sessionId === sessionId
 }
 
+/** EXP-1351: a REMOVE reaches the caller's whole subtree, so the root can
+ *  clear what an ended child filed; never a sibling's or an ancestor's. */
+export function ownedBySubtree(
+  sessionId: string,
+  tree: readonly { id: string; parentId: string | null }[]
+): GuideEntryFilter {
+  const ids = new Set([sessionId])
+  for (let grew = true; grew; ) {
+    grew = false
+    for (const row of tree) {
+      if (row.parentId && ids.has(row.parentId) && !ids.has(row.id)) {
+        ids.add(row.id)
+        grew = true
+      }
+    }
+  }
+  return (row) => !row?.sessionId || ids.has(row.sessionId)
+}
+
 /** A text entry = the topic's report (label + attachmentId null). */
 export function isTextEntry(row: GuideEntry | null | undefined): boolean {
   return !!row && typeof row.text === `string` && !row.attachmentId

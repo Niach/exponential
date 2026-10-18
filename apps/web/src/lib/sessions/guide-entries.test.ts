@@ -11,6 +11,7 @@ import {
   missingGuideFiles,
   nextShowLabel,
   ownedBy,
+  ownedBySubtree,
   removeGuideEntries,
   stampUntaggedGuideEntries,
   upsertGuidePicture,
@@ -120,6 +121,25 @@ describe(`pictures and removal`, () => {
     const whole = removeGuideEntries(guide, { topic: `UI` }, ownedBy(A))
     expect(whole.removedAttachmentIds).toEqual([`a1`, `a2`])
     expect(whole.results).toEqual([pic(`UI`, `x`, `b1`, B)])
+  })
+
+  it(`EXP-1351: a remove reaches the caller's subtree, never a sibling's or parent's`, () => {
+    const tree = [
+      { id: A, parentId: null },
+      { id: B, parentId: A },
+      { id: `grandchild`, parentId: B },
+      { id: `sibling`, parentId: A },
+    ]
+    const guide = [
+      pic(`UI`, `web`, `a1`),
+      pic(`UI`, `web`, `b1`, B),
+      pic(`UI`, `web`, `g1`, `grandchild`),
+      pic(`UI`, `web`, `s1`, `sibling`),
+    ]
+    const fromRoot = removeGuideEntries(guide, { topic: `UI`, label: `web` }, ownedBySubtree(A, tree))
+    expect(fromRoot.removedAttachmentIds).toEqual([`a1`, `b1`, `g1`, `s1`])
+    const fromChild = removeGuideEntries(guide, { topic: `UI`, label: `web` }, ownedBySubtree(B, tree))
+    expect(fromChild.removedAttachmentIds).toEqual([`b1`, `g1`])
   })
 
   it(`summarizes, labels shows, lists attachment ids`, () => {

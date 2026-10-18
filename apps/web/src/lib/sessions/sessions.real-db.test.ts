@@ -185,7 +185,7 @@ describe.skipIf(!ready.ok)(`sessions.send — a new root`, () => {
     const w = await world()
     await expect(
       sendSession({ userId: w.mate, input: { teamId: w.teamId, deviceId: w.deviceId, text: `x` } })
-    ).rejects.toMatchObject({ code: `PRECONDITION_FAILED` })
+    ).rejects.toMatchObject({ code: `NOT_FOUND` })
     await expect(
       sendSession({
         userId: w.owner,
@@ -665,6 +665,47 @@ describe.skipIf(!ready.ok)(`thread issues, the Guide and the trigger mirrors`, (
     await expect(
       writeGuide({ userId: w.mate, sessionId: root.sessionId, topic: `T`, text: `nope` })
     ).rejects.toMatchObject({ code: `NOT_FOUND` })
+  })
+
+  it(`EXP-1351: the root removes an ended child's Guide entries; a no-match remove fails`, async () => {
+    const w = await world()
+    const root = await sendSession({ userId: w.owner, input: { teamId: w.teamId, deviceId: w.deviceId, text: `r` } })
+    const child = await sendSession({ userId: w.owner, input: { parentId: root.sessionId, text: `c` } })
+    await writeGuide({ userId: w.owner, sessionId: root.sessionId, topic: `Summary`, text: `Root did X.` })
+    await writeGuide({ userId: w.owner, sessionId: child.sessionId, topic: `UI`, text: `Child did Y.` })
+    const picture = {
+      topic: `UI`,
+      label: `web: old specimen`,
+      attachmentId: null,
+      width: 10,
+      height: 10,
+      text: null,
+      at: Date.now(),
+      sessionId: child.sessionId,
+    }
+    await db
+      .update(sessions)
+      .set({ guide: [...(await row(root.sessionId)).guide!, picture] })
+      .where(eq(sessions.id, root.sessionId))
+    await db.update(sessions).set({ status: `ended` }).where(eq(sessions.id, child.sessionId))
+
+    // A child never reaches its parent's entries.
+    await expect(
+      writeGuide({ userId: w.owner, sessionId: child.sessionId, topic: `Summary`, remove: true })
+    ).rejects.toMatchObject({ code: `NOT_FOUND` })
+    await writeGuide({ userId: w.owner, sessionId: root.sessionId, topic: `UI`, label: `web: old specimen`, remove: true })
+    expect((await row(root.sessionId)).guide!.map((e) => [e.topic, e.label])).toEqual([
+      [`Summary`, null],
+      [`UI`, null],
+    ])
+    await writeGuide({ userId: w.owner, sessionId: root.sessionId, topic: `UI`, remove: true })
+    expect((await row(root.sessionId)).guide).toHaveLength(1)
+
+    const before = (await row(root.sessionId)).guide
+    await expect(
+      writeGuide({ userId: w.owner, sessionId: root.sessionId, topic: `UI`, label: `gone`, remove: true })
+    ).rejects.toMatchObject({ code: `NOT_FOUND`, message: expect.stringContaining(`label "gone"`) })
+    expect((await row(root.sessionId)).guide).toEqual(before)
   })
 })
 
