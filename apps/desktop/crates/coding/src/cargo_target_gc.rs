@@ -18,9 +18,11 @@
 //! treats a missing output or fingerprint as stale and rebuilds that unit, so
 //! the worst case is a partial cold build.
 
+use std::collections::HashMap;
 use std::fs::{self, File, OpenOptions};
 use std::path::{Path, PathBuf};
-use std::time::{Duration, SystemTime};
+use std::sync::Mutex;
+use std::time::{Duration, Instant, SystemTime};
 
 use crate::git_worktree::shared_cargo_target_dir;
 
@@ -55,6 +57,45 @@ pub fn sweep(clone: &Path) -> SweepReport {
         MAX_AGE,
         SystemTime::now(),
     )
+}
+
+/// How often one clone's shared cargo target is size-walked: the walk is too
+/// heavy for the cadences the callers ride (desktop AutoSync, CLI daemon).
+pub const INTERVAL: Duration = Duration::from_secs(60 * 60);
+
+/// Per-clone "last swept" clock behind [`sweep_if_due`].
+#[derive(Debug, Default)]
+pub struct SweepThrottle {
+    last_run: HashMap<PathBuf, Instant>,
+}
+
+impl SweepThrottle {
+    /// Whether `clone` is due at `now`; a due clone is stamped `now`.
+    pub fn due(&mut self, clone: &Path, now: Instant) -> bool {
+        if self
+            .last_run
+            .get(clone)
+            .is_some_and(|at| now.saturating_duration_since(*at) < INTERVAL)
+        {
+            return false;
+        }
+        self.last_run.insert(clone.to_path_buf(), now);
+        true
+    }
+}
+
+/// [`sweep`] at most once per [`INTERVAL`] per clone in this process
+/// (`None` = not due). The desktop's AutoSync prune and the CLI daemon both
+/// call this.
+pub fn sweep_if_due(clone: &Path) -> Option<SweepReport> {
+    static THROTTLE: Mutex<Option<SweepThrottle>> = Mutex::new(None);
+    {
+        let mut guard = THROTTLE.lock().unwrap_or_else(|poison| poison.into_inner());
+        if !guard.get_or_insert_with(SweepThrottle::default).due(clone, Instant::now()) {
+            return None;
+        }
+    }
+    Some(sweep(clone))
 }
 
 /// [`sweep`] over an explicit target dir, budget, age and clock.
@@ -311,5 +352,29 @@ mod tests {
             .unwrap_or(BUDGET_BYTES);
         println!("{:?}", sweep_with(&target, budget, MAX_AGE, SystemTime::now()));
         println!("after: {}", tree_size(&target));
+    }
+
+    #[test]
+    fn throttle_sweeps_each_clone_once_per_interval() {
+        let mut throttle = SweepThrottle::default();
+        let start = Instant::now();
+        let a = Path::new("/repos/acme/web");
+        let b = Path::new("/repos/acme/api");
+        assert!(throttle.due(a, start));
+        assert!(!throttle.due(a, start + Duration::from_secs(60)));
+        assert!(!throttle.due(a, start + INTERVAL - Duration::from_secs(1)));
+        // Another clone keeps its own clock.
+        assert!(throttle.due(b, start + Duration::from_secs(60)));
+        assert!(throttle.due(a, start + INTERVAL));
+        assert!(!throttle.due(a, start + INTERVAL + Duration::from_secs(1)));
+    }
+
+    #[test]
+    fn sweep_if_due_runs_once_then_waits() {
+        let dir = temp_dir("due");
+        let clone = dir.0.join("acme").join("web");
+        fs::create_dir_all(&clone).unwrap();
+        assert_eq!(sweep_if_due(&clone), Some(SweepReport::default()));
+        assert_eq!(sweep_if_due(&clone), None);
     }
 }
