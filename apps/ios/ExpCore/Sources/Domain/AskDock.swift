@@ -110,7 +110,7 @@ public enum AskDock {
 
     /// THE plan card's options ×4 (the claude adapter's ExitPlanMode menu):
     /// Yes (primary) · Yes, and start with a fresh context · No, keep
-    /// planning (opens the feedback field).
+    /// planning (the feedback field rides any decision).
     public static let planOptions: [PlanOption] = [
         PlanOption(key: "approve", label: "Yes", description: nil, decision: "approved", fresh: false),
         PlanOption(
@@ -119,7 +119,7 @@ public enum AskDock {
         ),
         PlanOption(
             key: "reject", label: "No, keep planning",
-            description: "Sends your next message back to planning", decision: "rejected", fresh: false
+            description: "Your feedback goes back with it", decision: "rejected", fresh: false
         ),
     ]
 

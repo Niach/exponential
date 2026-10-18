@@ -1,3 +1,4 @@
+import ExpCore
 import SwiftUI
 internal import ExponentialUIPrimitives
 
@@ -20,11 +21,11 @@ public struct GlassChoiceTile: Equatable, Sendable {
 
 /// EXP-1280: THE picture choice of the plan / question card (fixtures
 /// `plan-card.json` `tiles` ×4) — the Exponential UI SDK's `ChoiceTiles`
-/// primitive (the eUI core `ChoiceTiles` painter's look) on the glass
-/// tokens: the row fill, the card hairline, a picked tile = the active fill
-/// with the `selectedRing` primary ring; `columns` per row (phones
-/// `phoneColumns`), `radius` 10, `gap` 8, `padding` 8, pictures at
-/// `pictureAspect` 1.6.
+/// primitive at its own recipe look (type, stroke, placeholder, gaps, the
+/// selected ring) painted with the glass tokens as the theme's: card = the
+/// row fill, secondary (hover) = the card fill, accent (selected) = the
+/// active fill, border = the card hairline, the primary ring. The app passes only the columns
+/// (phones `phoneColumns`), the attachment loader and the fixture geometry.
 public struct GlassChoiceTiles<Picture: View>: View {
     let tiles: [GlassChoiceTile]
     let selected: Set<Int>
@@ -39,7 +40,7 @@ public struct GlassChoiceTiles<Picture: View>: View {
         selected: Set<Int>,
         multiple: Bool,
         enabled: Bool = true,
-        columns: Int = 2,
+        columns: Int = PlanCard.Tiles.columns,
         onToggle: @escaping (Int) -> Void,
         @ViewBuilder picture: @escaping (Int) -> Picture
     ) {
@@ -53,6 +54,7 @@ public struct GlassChoiceTiles<Picture: View>: View {
     }
 
     public var body: some View {
+        let style = Self.style(columns: columns)
         ChoiceTiles(
             tiles.map {
                 ChoiceTile(label: $0.label, description: $0.description, hasPicture: $0.hasPicture, identifier: $0.identifier)
@@ -60,30 +62,43 @@ public struct GlassChoiceTiles<Picture: View>: View {
             selected: selected,
             multiple: multiple,
             enabled: enabled,
-            style: Self.style(columns: columns),
+            style: style,
             onToggle: onToggle,
             picture: picture,
             placeholder: {
-                AppIcon(AppIcons.editorImage, size: 18)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                AppIcon(AppIcons.editorImage, size: style.placeholderGlyph)
             }
         )
     }
 
-    /// The SDK style on the glass tokens.
+    /// The glass tokens as the SDK theme.
+    static var tokens: PrimitiveTokens { PrimitiveTokens(
+        foreground: .white,
+        mutedForeground: .white.opacity(TextOpacity.tertiary),
+        card: GlassTokens.fillRow,
+        muted: Color.white.opacity(0.06),
+        border: GlassTokens.strokeCard,
+        primary: DesignTokens.Palette.primary,
+        accent: GlassTokens.fillActive,
+        secondary: GlassTokens.fillCard,
+        hairline: CGFloat(PlanCard.Tiles.stroke)
+    ) }
+
+    /// The SDK's recipe style on the glass tokens at the fixture geometry.
     static func style(columns: Int) -> ChoiceTilesStyle {
-        ChoiceTilesStyle(
-            columns: columns,
-            tileFill: GlassTokens.fillRow,
-            tileFillSelected: GlassTokens.fillActive,
-            stroke: GlassTokens.strokeCard,
-            strokeWidth: GlassTokens.hairline,
-            accent: DesignTokens.Palette.primary,
-            pictureFill: Color.white.opacity(0.06),
-            label: .white,
-            description: .white.opacity(TextOpacity.tertiary),
-            labelFont: .caption.weight(.medium),
-            descriptionFont: .caption2
-        )
+        var style = ChoiceTilesStyle.default(tokens)
+        style.columns = columns
+        style.gap = PlanCard.Tiles.gap
+        style.radius = PlanCard.Tiles.radius
+        style.padding = PlanCard.Tiles.padding
+        style.pictureAspect = PlanCard.Tiles.pictureAspect
+        style.pictureRadius = PlanCard.Tiles.pictureRadius
+        style.selectedRing = PlanCard.Tiles.selectedRing
+        style.strokeWidth = PlanCard.Tiles.stroke
+        style.labelGap = PlanCard.Tiles.labelGap
+        style.descriptionGap = PlanCard.Tiles.labelGap
+        style.placeholderGlyph = PlanCard.Tiles.placeholderGlyph
+        style.inertOpacity = PlanCard.Tiles.inertOpacity
+        return style
     }
 }

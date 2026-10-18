@@ -630,14 +630,15 @@ struct ThreadCardAnswer {
 /// (EXP-1316; EXP-1334: a CHILD's own ask lands here too, answered by message
 /// id straight back to it), drawn inline once answered (closed) and as THE
 /// ask dock's big card while it waits (`caption` / `onBack` /
-/// `bodyMaxHeight`). A question offers its options AND the free-text answer
-/// (`withFreeTextRow`, ×4; the typed text IS the answer) unless the card says
-/// `custom: false`; a plan offers `AskDock.planOptions` and a decided one
+/// `bodyMaxHeight`). A question offers its options AND THE `custom` field
+/// (`copy.custom`, the typed text IS the answer) unless the card says
+/// `custom: false`, answered with ONE Answer button; a plan offers
+/// `AskDock.planOptions` and a decided one
 /// names `planDecisionLabel`. EXP-1280 (plan-card.json): the rich card adds
 /// the inline surface and the question blocks under the body
 /// (`PlanCardForm.swift`); approving waits until every question is answered
-/// (`PlanCard.answerIssue`), a question with pictures answers through its
-/// tiles, and the answer carries `answers` + `surfaceData`.
+/// (`PlanCard.answerIssue`), and the answer carries `answers` +
+/// `surfaceData`.
 struct ThreadAskCard: View {
     let row: ThreadRow
     var canAnswer = true
@@ -667,21 +668,18 @@ struct ThreadAskCard: View {
 
     @ViewBuilder
     private func questionCard(_ card: ThreadQuestionRow) -> some View {
-        let tiles = PlanCard.optionRows(card.options) == .tiles
-        let base = AgentQuestion(
+        // EXP-1280 (×4): the options are THE card's option rows (text) or its
+        // tiles (pictures), the `custom` field right under them and ONE
+        // Answer button; nothing answers on a row tap.
+        let question = AgentQuestion(
             id: 0,
             wireId: card.id,
-            text: card.question,
-            // Keyed `index:label` like web — two identical labels stay two
-            // rows; the answer names the option by its label (below).
-            options: card.options.enumerated().map { index, option in
-                AgentQuestionOption(label: option.label, key: "\(index):\(option.label)", description: option.description)
-            },
+            text: PlanCard.renderableMarkdown(card.question),
+            options: [],
             multiSelect: card.multi,
             resolved: card.answered,
             answers: card.answered ? [PlanCard.joinAnswers(card.picked)].filter { !$0.isEmpty } : []
         )
-        let question = card.custom && !tiles ? base.withFreeTextRow() : base
         QuestionCard(
             question: question,
             active: !card.answered,
@@ -689,59 +687,69 @@ struct ThreadAskCard: View {
             locked: answeringId == card.id,
             pending: answeringId == card.id,
             failed: false,
-            onAnswer: { keys, text in
-                let typed = text?.trimmingCharacters(in: .whitespacesAndNewlines)
-                let labels = keys.compactMap { key -> String? in
-                    guard let option = question.options.first(where: { $0.key == key }) else { return nil }
-                    if option.freeText { return typed?.isEmpty == false ? typed : nil }
-                    return option.label
-                }
-                submitQuestion(card, labels: labels)
-            },
+            onAnswer: { _, _ in },
             markdownContext: markdownContext,
             caption: caption,
             onBack: onBack,
             bodyMaxHeight: bodyMaxHeight,
-            form: questionForm(card, tiles: tiles),
-            hidesOptions: tiles
+            form: questionForm(card),
+            hidesOptions: true,
+            hidesResolution: Self.formShowsAnswer(card),
+            richBody: true,
+            formGap: card.surface != nil ? PlanCard.Card.blockGap : PlanCard.Card.optionsGap
         )
     }
 
-    /// A question card's form: its surface, and (pictures) the tiles + the
-    /// `custom` row + the Answer button.
-    private func questionForm(_ card: ThreadQuestionRow, tiles: Bool) -> AnyView? {
-        guard card.surface != nil || tiles else { return nil }
+    /// `copy.answer` = a small primary button this far under the options
+    /// (web `mt-2`), never full width.
+    private static let answerGap: CGFloat = 8
+
+    /// A closed question card's answer reads in its own rows (the picks, a
+    /// typed answer as a picked row) — no resolution line then.
+    private static func formShowsAnswer(_ card: ThreadQuestionRow) -> Bool {
+        let picked = card.picked
+        guard !picked.isEmpty else { return false }
+        return card.custom || picked.allSatisfy { label in card.options.contains { $0.label == label } }
+    }
+
+    /// A question card's form: its surface, the options (rows or tiles) +
+    /// the `custom` field, and the Answer button (small, primary, leading).
+    private func questionForm(_ card: ThreadQuestionRow) -> AnyView {
         let editable = canAnswer && !card.answered
         let picked = card.answered ? card.picked : draft.answer("")
-        return AnyView(VStack(alignment: .leading, spacing: 10) {
+        let busy = answeringId == card.id
+        return AnyView(VStack(alignment: .leading, spacing: Self.answerGap) {
             if let surface = card.surface {
                 PlanCardSurfaceView(surface: surface, handle: draft.surface, editable: editable)
+                    .padding(.bottom, PlanCard.Card.blockGap - Self.answerGap)
             }
-            if tiles {
+            if !card.options.isEmpty || card.custom {
                 PlanCardQuestionBlock(
                     questionId: "",
                     prompt: nil,
+                    caption: card.multi && !card.answered && !card.options.isEmpty ? PlanCard.Copy.chooseAny : nil,
                     multi: card.multi,
                     custom: card.custom,
                     options: card.options,
                     picked: picked,
-                    editable: editable,
+                    editable: editable && !busy,
                     customText: Binding(get: { draft.custom[""] ?? "" }, set: { draft.custom[""] = $0 }),
                     onToggle: { draft.toggle("", label: $0, multi: card.multi) },
                     onType: { draft.type("", text: $0, multi: card.multi) }
                 )
-                if editable {
-                    let issue = PlanCard.answerIssue(
-                        options: card.options.map(\.label), multi: card.multi, custom: card.custom,
-                        input: PlanCard.AnswerInput(labels: draft.answer(""))
-                    )
-                    GlassPill(
-                        PlanCard.Copy.answer,
-                        mode: .action { submitQuestion(card, labels: draft.answer("")) },
-                        primary: true,
-                        enabled: issue == nil && answeringId != card.id
-                    )
-                }
+            }
+            if editable, !busy {
+                let issue = PlanCard.answerIssue(
+                    options: card.options.map(\.label), multi: card.multi, custom: card.custom,
+                    input: PlanCard.AnswerInput(labels: draft.answer(""))
+                )
+                GlassPill(
+                    PlanCard.Copy.answer,
+                    mode: .action { submitQuestion(card, labels: draft.answer("")) },
+                    primary: true,
+                    enabled: issue == nil
+                )
+                .accessibilityIdentifier("thread-question-answer")
             }
         })
     }
@@ -793,6 +801,7 @@ struct ThreadAskCard: View {
             form: planForm(card),
             approveIssue: issue.map(PlanCard.Copy.issue),
             resolutionNote: card.feedback,
+            richBody: true,
             feedback: $draft.feedback
         )
     }
@@ -801,7 +810,7 @@ struct ThreadAskCard: View {
     private func planForm(_ card: ThreadPlanRow) -> AnyView? {
         guard card.surface != nil || !card.questions.isEmpty else { return nil }
         let editable = canAnswer && card.decision == nil
-        return AnyView(VStack(alignment: .leading, spacing: 12) {
+        return AnyView(VStack(alignment: .leading, spacing: PlanCard.Card.blockGap) {
             if let surface = card.surface {
                 PlanCardSurfaceView(surface: surface, handle: draft.surface, editable: editable)
             }
@@ -809,6 +818,7 @@ struct ThreadAskCard: View {
                 PlanCardQuestionBlock(
                     questionId: question.id,
                     prompt: question.prompt,
+                    caption: question.multi ? PlanCard.Copy.chooseAny : PlanCard.Copy.chooseOne,
                     multi: question.multi,
                     custom: question.custom,
                     options: question.options,

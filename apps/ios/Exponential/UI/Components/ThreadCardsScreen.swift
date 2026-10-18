@@ -470,7 +470,9 @@ private struct PlanCardSpecimens: View {
      "surface":{"nope":true}}
     """#
 
-    private static func row(_ id: String, _ card: String, answeredAt: String?) -> ThreadRow? {
+    private static func row(
+        _ id: String, _ card: String, createdAt: String, answeredAt: String?, consumedAt: String?
+    ) -> ThreadRow? {
         ThreadRow.askCard(TreeMessage(
             id: id,
             sessionId: "r2",
@@ -479,20 +481,91 @@ private struct PlanCardSpecimens: View {
             body: "",
             card: TreeMessageCard.parse(card),
             answeredAt: answeredAt,
-            consumedAt: answeredAt,
-            createdAt: "2026-10-13T10:01:00.000Z",
+            consumedAt: consumedAt,
+            createdAt: createdAt,
             authorSessionId: nil
         ))
     }
 
+    @Environment(AppDependencies.self) private var deps
+    @Environment(\.accountId) private var accountId
+
     var body: some View {
+        let _ = Self.seedPictures(baseURL: deps.auth.instanceBaseURL(forAccountId: accountId))
         VStack(alignment: .leading, spacing: 24) {
-            section("A plan waiting on you", Self.row("n1", Self.pending, answeredAt: nil))
-            section("Answered: several picks", Self.row("n2", Self.answered, answeredAt: "2026-10-13T10:03:00.000Z"))
-            section("Approved with feedback", Self.row("n3", Self.approved, answeredAt: "2026-10-13T10:04:00.000Z"))
+            section(
+                PlanCard.Copy.Specimen.pending,
+                Self.row("n1", Self.pending, createdAt: "2026-10-13T10:01:00.000Z", answeredAt: nil, consumedAt: nil)
+            )
+            section(
+                PlanCard.Copy.Specimen.answered,
+                Self.row(
+                    "n2", Self.answered, createdAt: "2026-10-13T10:02:00.000Z",
+                    answeredAt: "2026-10-13T10:03:00.000Z", consumedAt: "2026-10-13T10:03:05.000Z"
+                )
+            )
+            section(
+                PlanCard.Copy.Specimen.approved,
+                Self.row(
+                    "n3", Self.approved, createdAt: "2026-10-13T10:04:00.000Z",
+                    answeredAt: "2026-10-13T10:04:00.000Z", consumedAt: "2026-10-13T10:04:00.000Z"
+                )
+            )
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(PlanCard.TestIds.card)
+    }
+
+    // MARK: - Stand-in pictures (THE palette ×4)
+
+    /// web `plan-card-specimen.tsx` `TONES` (desktop + Android draw the same):
+    /// one diagonal gradient per attachment id, a 35% white bar, a 12% white
+    /// panel, 800×500.
+    private static let tones: [(id: String, from: UInt32, to: UInt32)] = [
+        ("att-1", 0x3F3F46, 0x52525B),
+        ("att-2", 0x1E3A5F, 0x3B82F6),
+        ("att-3", 0x14532D, 0x22C55E),
+    ]
+
+    /// Seeds the markdown image cache under the exact keys the loader reads
+    /// (`AttachmentURL.resolve`: the relative path signed out, else the
+    /// instance's absolute url), so the body's picture and the tiles
+    /// (`PlanCardPicture`) paint without a network.
+    private static func seedPictures(baseURL: URL?) {
+        for tone in tones {
+            let path = "/api/attachments/\(tone.id)"
+            let keys = Set([path, AttachmentURL.resolve(path, baseURL: baseURL)?.absoluteString].compactMap { $0 })
+            guard keys.contains(where: { MarkdownImageCache.shared.image(for: $0) == nil }) else { continue }
+            let image = standIn(from: tone.from, to: tone.to)
+            for key in keys { MarkdownImageCache.shared.store(image, for: key) }
+        }
+    }
+
+    private static func standIn(from: UInt32, to: UInt32) -> UIImage {
+        let size = CGSize(width: 800, height: 500)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = true
+        return UIGraphicsImageRenderer(size: size, format: format).image { context in
+            let cg = context.cgContext
+            let colors = [uiColor(from).cgColor, uiColor(to).cgColor] as CFArray
+            if let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: colors, locations: [0, 1]) {
+                cg.drawLinearGradient(gradient, start: .zero, end: CGPoint(x: size.width, y: size.height), options: [])
+            }
+            UIColor.white.withAlphaComponent(0.35).setFill()
+            UIBezierPath(roundedRect: CGRect(x: 48, y: 48, width: 320, height: 28), cornerRadius: 6).fill()
+            UIColor.white.withAlphaComponent(0.12).setFill()
+            UIBezierPath(roundedRect: CGRect(x: 48, y: 100, width: 704, height: 352), cornerRadius: 12).fill()
+        }
+    }
+
+    private static func uiColor(_ hex: UInt32) -> UIColor {
+        UIColor(
+            red: CGFloat((hex >> 16) & 0xFF) / 255,
+            green: CGFloat((hex >> 8) & 0xFF) / 255,
+            blue: CGFloat(hex & 0xFF) / 255,
+            alpha: 1
+        )
     }
 
     @ViewBuilder

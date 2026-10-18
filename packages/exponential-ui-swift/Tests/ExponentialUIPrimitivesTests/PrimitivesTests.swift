@@ -164,6 +164,21 @@ final class ChoiceTilesStyleTests: XCTestCase {
         XCTAssertEqual(Double(style.padding), tiles["padding"])
         XCTAssertEqual(Double(style.pictureAspect), tiles["pictureAspect"])
         XCTAssertEqual(Double(style.selectedRing), tiles["selectedRing"])
+        XCTAssertEqual(Double(style.pictureRadius), tiles["pictureRadius"])
+        XCTAssertEqual(Double(style.strokeWidth), tiles["stroke"])
+        XCTAssertEqual(Double(style.placeholderGlyph), tiles["placeholderGlyph"])
+        XCTAssertEqual(Double(style.labelGap), tiles["labelGap"])
+        XCTAssertEqual(Double(style.descriptionGap), tiles["labelGap"])
+        XCTAssertEqual(style.inertOpacity, tiles["inertOpacity"])
+        XCTAssertEqual(style.placeholderOpacity, 0.6)
+        XCTAssertEqual(style.labelFont, .system(size: 14, weight: .medium))
+        XCTAssertEqual(style.descriptionFont, .system(size: 12))
+        // The recipe's fills ride the theme tokens.
+        let tokens = PrimitiveTokens(card: .red, accent: .green, secondary: .blue)
+        let themed = ChoiceTilesStyle.default(tokens)
+        XCTAssertEqual(themed.tileFill, .red)
+        XCTAssertEqual(themed.tileFillSelected, .green)
+        XCTAssertEqual(themed.tileFillHover, .blue)
         XCTAssertEqual(ChoiceTilesStyle.default(PrimitiveTokens()).radius, style.radius)
     }
 }

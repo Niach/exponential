@@ -1454,7 +1454,7 @@ public enum AgentFeed {
 
     /// EXP-820: the key of a plan card's reject row — the ONE option that
     /// expands into the inline feedback field. "No, keep planning" is last by
-    /// contract ("Sends your next message back to planning"); `reject` is its
+    /// contract ("Your feedback goes back with it"); `reject` is its
     /// wire id whenever the engine named one. nil for a non-plan or an
     /// option-less card.
     public static func planRejectKey(for question: AgentQuestion) -> String? {

@@ -443,6 +443,8 @@ public struct GlassTextField<Leading: View, Trailing: View>: View {
     var bordered: Bool = true
     var horizontalPadding: CGFloat = 12
     var verticalPadding: CGFloat = 12
+    /// The box's minimum height (padding included); nil = the content's.
+    var minHeight: CGFloat? = nil
     /// Applied directly to the field so XCUITest `textFields[id]` queries keep
     /// resolving (an identifier on the container lands on the wrong element).
     var accessibilityIdentifier: String = ""
@@ -459,6 +461,7 @@ public struct GlassTextField<Leading: View, Trailing: View>: View {
         bordered: Bool = true,
         horizontalPadding: CGFloat = 12,
         verticalPadding: CGFloat = 12,
+        minHeight: CGFloat? = nil,
         accessibilityIdentifier: String = "",
         @ViewBuilder leading: () -> Leading,
         @ViewBuilder trailing: () -> Trailing
@@ -470,6 +473,7 @@ public struct GlassTextField<Leading: View, Trailing: View>: View {
         self.bordered = bordered
         self.horizontalPadding = horizontalPadding
         self.verticalPadding = verticalPadding
+        self.minHeight = minHeight
         self.accessibilityIdentifier = accessibilityIdentifier
         self.leading = leading()
         self.trailing = trailing()
@@ -489,6 +493,8 @@ public struct GlassTextField<Leading: View, Trailing: View>: View {
             shows: bordered,
             horizontalPadding: horizontalPadding,
             verticalPadding: verticalPadding,
+            minHeight: minHeight,
+            alignment: lines == nil ? .leading : .topLeading,
             focused: focused
         ))
     }
@@ -519,6 +525,8 @@ public struct GlassTextField<Leading: View, Trailing: View>: View {
         let shows: Bool
         let horizontalPadding: CGFloat
         let verticalPadding: CGFloat
+        let minHeight: CGFloat?
+        let alignment: Alignment
         let focused: Bool
 
         func body(content: Content) -> some View {
@@ -527,6 +535,7 @@ public struct GlassTextField<Leading: View, Trailing: View>: View {
                 content
                     .padding(.horizontal, horizontalPadding)
                     .padding(.vertical, verticalPadding)
+                    .frame(minHeight: minHeight, alignment: alignment)
                     .fieldChrome(
                         fill: GlassTokens.fillCard,
                         stroke: GlassTokens.strokeCard,
@@ -552,6 +561,7 @@ extension GlassTextField where Leading == EmptyView, Trailing == EmptyView {
         bordered: Bool = true,
         horizontalPadding: CGFloat = 12,
         verticalPadding: CGFloat = 12,
+        minHeight: CGFloat? = nil,
         accessibilityIdentifier: String = ""
     ) {
         self.init(
@@ -562,6 +572,7 @@ extension GlassTextField where Leading == EmptyView, Trailing == EmptyView {
             bordered: bordered,
             horizontalPadding: horizontalPadding,
             verticalPadding: verticalPadding,
+            minHeight: minHeight,
             accessibilityIdentifier: accessibilityIdentifier
         ) { EmptyView() } trailing: { EmptyView() }
     }

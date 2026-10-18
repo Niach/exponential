@@ -732,7 +732,18 @@ private func renderNodeToBlocks(_ node: UnsafeMutablePointer<cmark_node>, collec
         prefixAttrs[.markdownListType] = listType
         prefixAttrs[.markdownListItemIndex] = ordered ? index : 0
         prefixAttrs[.markdownListDepth] = depth
-        collector.currentText.append(NSAttributedString(string: prefix, attributes: prefixAttrs))
+        let prefixText = NSMutableAttributedString(string: prefix, attributes: prefixAttrs)
+        // EXP-1280 (plan-card.json `card.listIndent` 24, ×4): a display render
+        // (the chat's own measure) starts the item's FIRST line where its
+        // wrapped lines start, the marker kerned out to the indent.
+        if context.overrides.bodySize != nil, let font = prefixAttrs[.font] as? PlatformFont {
+            let width = (prefix as NSString).size(withAttributes: [.font: font]).width
+            let gap = (indent - paragraphStyle.firstLineHeadIndent) - width
+            if gap > 0 {
+                prefixText.addAttribute(.kern, value: gap, range: NSRange(location: prefixText.length - 1, length: 1))
+            }
+        }
+        collector.currentText.append(prefixText)
         context.pushStyle(extra: [
             .paragraphStyle: paragraphStyle,
             .markdownListType: listType,

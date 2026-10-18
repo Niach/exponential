@@ -857,7 +857,9 @@ struct ThreadScreen: View {
                 )
             } catch {
                 toaster.error(
-                    FeedbackStates.Errors.title(verb: "send", thing: "the answer"),
+                    FeedbackStates.Errors.title(
+                        verb: "answer", thing: card.decision == nil ? "the question" : "the plan"
+                    ),
                     description: error.userFacingMessage
                 )
             }

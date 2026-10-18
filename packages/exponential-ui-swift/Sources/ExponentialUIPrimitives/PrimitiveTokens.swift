@@ -16,6 +16,8 @@ public struct PrimitiveTokens: Sendable, Equatable {
     public var primary: Color
     public var primaryForeground: Color
     public var accent: Color
+    /// The secondary fill (a hovered tile).
+    public var secondary: Color
     public var destructive: Color
     public var success: Color
     public var warning: Color
@@ -45,6 +47,7 @@ public struct PrimitiveTokens: Sendable, Equatable {
         primary: Color = .accentColor,
         primaryForeground: Color = .white,
         accent: Color = Color.gray.opacity(0.2),
+        secondary: Color = Color.gray.opacity(0.12),
         destructive: Color = .red,
         success: Color = .green,
         warning: Color = .orange,
@@ -70,6 +73,7 @@ public struct PrimitiveTokens: Sendable, Equatable {
         self.primary = primary
         self.primaryForeground = primaryForeground
         self.accent = accent
+        self.secondary = secondary
         self.destructive = destructive
         self.success = success
         self.warning = warning

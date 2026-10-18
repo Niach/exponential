@@ -18,6 +18,22 @@ public enum PlanCard {
         public static let custom = "Other…"
         public static let surface = "Preview"
         public static let answer = "Answer"
+        /// A closed card's caption / an in-flight answer's (ONE string ×4).
+        public static let answered = "Answered"
+        public static let answering = "Answering…"
+        /// `copy.feedbackLine`: an answered plan's feedback on ONE line.
+        public static let feedbackLine = "Feedback: {feedback}"
+
+        public static func feedbackLine(_ text: String) -> String {
+            feedbackLine.replacingOccurrences(of: "{feedback}", with: text)
+        }
+
+        /// `copy.specimen`: the styleguide entry's three captions ×4.
+        public enum Specimen {
+            public static let pending = "A plan waiting on you: pictures, a surface, two questions"
+            public static let answered = "A question answered with several picks"
+            public static let approved = "An approved plan"
+        }
 
         /// `copy.answerIssues`, keyed by `AnswerIssue`.
         public static func issue(_ issue: AnswerIssue) -> String {
@@ -50,6 +66,41 @@ public enum PlanCard {
         public static let radius: Double = 10
         public static let selectedRing: Double = 2
         public static let padding: Double = 8
+        public static let pictureRadius: Double = 6
+        /// The tile's border width.
+        public static let stroke: Double = 1
+        /// The `editor-image` placeholder glyph (at 0.6).
+        public static let placeholderGlyph: Double = 20
+        /// Picture → label and label → description.
+        public static let labelGap: Double = 4
+        /// A closed card's unpicked tiles.
+        public static let inertOpacity: Double = 0.5
+    }
+
+    /// The rest of the card's geometry (pt; plan-card.json `card`).
+    public enum Card {
+        /// The body's inline picture: radius + stroke, full content width at
+        /// the probed aspect, no max height.
+        public static let pictureRadius: Double = 12
+        public static let pictureStroke: Double = 1
+        /// The inline surface's frame under its `copy.surface` label.
+        public static let surfaceRadius: Double = 12
+        public static let surfacePadding: Double = 12
+        public static let surfaceLabelGap: Double = 6
+        /// Question blocks apart; prompt → caption; caption → options.
+        public static let blockGap: Double = 12
+        public static let blockInnerGap: Double = 2
+        public static let optionsGap: Double = 6
+        /// THE option row (and the `custom` field's height).
+        public static let rowMinHeight: Double = 32
+        public static let rowRadius: Double = 10
+        /// The plan's feedback field.
+        public static let fieldMinHeight: Double = 36
+        /// A closed card's unpicked rows.
+        public static let inertOpacity: Double = 0.5
+        /// The chat markdown: list text indent, h1 = `headingScale` × body.
+        public static let listIndent: Double = 24
+        public static let headingScale: Double = 1.2
     }
 
     /// An embed whose upload has not landed yet (`![alt](upload:<label>)`)

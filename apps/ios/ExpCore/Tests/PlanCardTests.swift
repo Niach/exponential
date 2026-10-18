@@ -36,6 +36,16 @@ final class PlanCardTests: XCTestCase {
         XCTAssertEqual(copy["custom"] as? String, PlanCard.Copy.custom)
         XCTAssertEqual(copy["surface"] as? String, PlanCard.Copy.surface)
         XCTAssertEqual(copy["answer"] as? String, PlanCard.Copy.answer)
+        XCTAssertEqual(copy["answered"] as? String, PlanCard.Copy.answered)
+        XCTAssertEqual(copy["answering"] as? String, PlanCard.Copy.answering)
+        XCTAssertEqual(copy["feedbackLine"] as? String, PlanCard.Copy.feedbackLine)
+        XCTAssertEqual(PlanCard.Copy.feedbackLine("Keep it short"), "Feedback: Keep it short")
+        let specimen = try XCTUnwrap(copy["specimen"] as? [String: String])
+        XCTAssertEqual(specimen, [
+            "pending": PlanCard.Copy.Specimen.pending,
+            "answered": PlanCard.Copy.Specimen.answered,
+            "approved": PlanCard.Copy.Specimen.approved,
+        ])
         let issues = try XCTUnwrap(copy["answerIssues"] as? [String: String])
         XCTAssertEqual(Set(issues.keys), Set(PlanCard.AnswerIssue.allCases.map(\.rawValue)))
         for issue in PlanCard.AnswerIssue.allCases {
@@ -54,14 +64,48 @@ final class PlanCardTests: XCTestCase {
             "issue": PlanCard.TestIds.issue,
         ])
 
+        // Every key of `tiles` and `card`, both ways (a new fixture key
+        // without a mirror fails here).
         let tiles = try XCTUnwrap(fixture["tiles"] as? [String: Double])
-        XCTAssertEqual(tiles["columns"], Double(PlanCard.Tiles.columns))
-        XCTAssertEqual(tiles["phoneColumns"], Double(PlanCard.Tiles.phoneColumns))
-        XCTAssertEqual(tiles["gap"], PlanCard.Tiles.gap)
-        XCTAssertEqual(tiles["pictureAspect"], PlanCard.Tiles.pictureAspect)
-        XCTAssertEqual(tiles["radius"], PlanCard.Tiles.radius)
-        XCTAssertEqual(tiles["selectedRing"], PlanCard.Tiles.selectedRing)
-        XCTAssertEqual(tiles["padding"], PlanCard.Tiles.padding)
+        let tileMirror: [String: Double] = [
+            "columns": Double(PlanCard.Tiles.columns),
+            "phoneColumns": Double(PlanCard.Tiles.phoneColumns),
+            "gap": PlanCard.Tiles.gap,
+            "pictureAspect": PlanCard.Tiles.pictureAspect,
+            "radius": PlanCard.Tiles.radius,
+            "selectedRing": PlanCard.Tiles.selectedRing,
+            "padding": PlanCard.Tiles.padding,
+            "pictureRadius": PlanCard.Tiles.pictureRadius,
+            "stroke": PlanCard.Tiles.stroke,
+            "placeholderGlyph": PlanCard.Tiles.placeholderGlyph,
+            "labelGap": PlanCard.Tiles.labelGap,
+            "inertOpacity": PlanCard.Tiles.inertOpacity,
+        ]
+        XCTAssertEqual(Set(tiles.keys), Set(tileMirror.keys))
+        for (key, value) in tiles {
+            XCTAssertEqual(tileMirror[key], value, "tiles.\(key)")
+        }
+        let card = try XCTUnwrap(fixture["card"] as? [String: Double])
+        let cardMirror: [String: Double] = [
+            "pictureRadius": PlanCard.Card.pictureRadius,
+            "pictureStroke": PlanCard.Card.pictureStroke,
+            "surfaceRadius": PlanCard.Card.surfaceRadius,
+            "surfacePadding": PlanCard.Card.surfacePadding,
+            "surfaceLabelGap": PlanCard.Card.surfaceLabelGap,
+            "blockGap": PlanCard.Card.blockGap,
+            "blockInnerGap": PlanCard.Card.blockInnerGap,
+            "optionsGap": PlanCard.Card.optionsGap,
+            "rowMinHeight": PlanCard.Card.rowMinHeight,
+            "rowRadius": PlanCard.Card.rowRadius,
+            "fieldMinHeight": PlanCard.Card.fieldMinHeight,
+            "inertOpacity": PlanCard.Card.inertOpacity,
+            "listIndent": PlanCard.Card.listIndent,
+            "headingScale": PlanCard.Card.headingScale,
+        ]
+        XCTAssertEqual(Set(card.keys), Set(cardMirror.keys))
+        for (key, value) in card {
+            XCTAssertEqual(cardMirror[key], value, "card.\(key)")
+        }
         XCTAssertEqual(fixture["uploadScheme"] as? String, PlanCard.uploadScheme)
     }
 

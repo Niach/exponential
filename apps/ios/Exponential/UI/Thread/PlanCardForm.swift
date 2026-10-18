@@ -13,8 +13,9 @@ import ExponentialUI
 // decision rows stay THE card): the inline surface, then one block per
 // question = the prompt (strong), `chooseOne` / `chooseAny`, the options as
 // THE option rows (text only) or as picture TILES (`GlassChoiceTiles`, the
-// eUI `ChoiceTiles` primitive), and the `custom` free-text row. Answered =
-// closed: the picks stay highlighted, everything inert.
+// eUI `ChoiceTiles` primitive), and the `custom` free-text field. Answered =
+// closed: the picks highlighted, the rest inert. Every number comes from
+// `PlanCard.Card` / `PlanCard.Tiles` (the ONE look ×4).
 
 /// The person's in-progress answer to one rich card: the picked labels and
 /// the typed `custom` text per question (a question card's own form uses the
@@ -66,13 +67,18 @@ final class PlanCardDraft {
     }
 }
 
-/// One question block (a plan's question, or a question card's tiles):
+/// One question block (a plan's question, or a question card's options):
 /// `editable` = the card still waits on this reader; `picked` = the labels
-/// shown picked (the draft's, or the stamped answers once closed).
+/// shown picked (the draft's, or the stamped answers once closed). The
+/// prompt `xs` semibold, the choose caption `2xs` muted `blockInnerGap`
+/// under it, the options `optionsGap` under that, then THE `custom` field.
 struct PlanCardQuestionBlock: View {
     let questionId: String
     /// nil = no prompt line (a question card's prompt is the card body).
     let prompt: String?
+    /// The choose caption (a plan's question: always; a question card: only
+    /// "Choose any" while a multi waits). nil = none.
+    let caption: String?
     let multi: Bool
     let custom: Bool
     let options: [TreeQuestionOption]
@@ -85,21 +91,25 @@ struct PlanCardQuestionBlock: View {
     @Environment(\.horizontalSizeClass) private var sizeClass
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            VStack(alignment: .leading, spacing: 2) {
-                if let prompt, !prompt.isEmpty {
-                    Text(prompt)
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.white)
-                        .fixedSize(horizontal: false, vertical: true)
+        VStack(alignment: .leading, spacing: PlanCard.Card.optionsGap) {
+            if (prompt?.isEmpty == false) || caption != nil {
+                VStack(alignment: .leading, spacing: PlanCard.Card.blockInnerGap) {
+                    if let prompt, !prompt.isEmpty {
+                        Text(prompt)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    if let caption {
+                        Text(caption)
+                            .font(.caption2)
+                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                    }
                 }
-                Text(multi ? PlanCard.Copy.chooseAny : PlanCard.Copy.chooseOne)
-                    .font(.caption2)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             }
             switch PlanCard.optionRows(options) {
             case .list:
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: PlanCard.Tiles.labelGap) {
                     ForEach(Array(options.enumerated()), id: \.offset) { index, option in
                         PlanCardOptionRow(
                             option: option,
@@ -140,23 +150,17 @@ struct PlanCardQuestionBlock: View {
         .accessibilityIdentifier(PlanCard.TestIds.question)
     }
 
-    /// `copy.custom` = the free-text row: a glass field while answerable;
+    /// `copy.custom` = THE free-text field: single line, a row's height;
     /// closed, a typed answer (a pick that is no option) reads as a picked row.
     @ViewBuilder
     private var customRow: some View {
         if editable {
-            GlassTextField(
-                PlanCard.Copy.custom,
+            PlanCardField(
+                placeholder: PlanCard.Copy.custom,
                 text: Binding(get: { customText }, set: { onType($0) }),
-                lines: 1...4,
-                verticalPadding: 6,
-                accessibilityIdentifier: PlanCard.TestIds.custom
-            ) {
-                EmptyView()
-            } trailing: {
-                EmptyView()
-            }
-            .font(.caption)
+                multiline: false,
+                identifier: PlanCard.TestIds.custom
+            )
         } else if let typed = picked.first(where: { label in !options.contains { $0.label == label } }) {
             PlanCardOptionRow(
                 option: TreeQuestionOption(label: typed),
@@ -169,9 +173,33 @@ struct PlanCardQuestionBlock: View {
     }
 }
 
-/// THE option row of the rich card (the question card's rows: the label
-/// over its description, a check glyph when picked; a multiple choice wears
-/// its checkbox). Inert once the card is answered.
+/// THE card's plain field (plan-card.json): the `custom` answer (single
+/// line, `rowMinHeight`) and the plan's feedback (multi-line,
+/// `fieldMinHeight`), `xs` type.
+struct PlanCardField: View {
+    let placeholder: String
+    @Binding var text: String
+    let multiline: Bool
+    let identifier: String
+
+    var body: some View {
+        GlassTextField(
+            placeholder,
+            text: $text,
+            lines: multiline ? 1...5 : nil,
+            verticalPadding: PlanCard.Card.optionsGap,
+            minHeight: multiline ? PlanCard.Card.fieldMinHeight : PlanCard.Card.rowMinHeight,
+            accessibilityIdentifier: identifier
+        )
+        .font(.caption)
+    }
+}
+
+/// THE option row of the rich card. Open: the label over its description in
+/// a glass row, a single choice's pick = a TRAILING check, a multiple
+/// choice's = the LEADING selected / unselected glyph (no check). Closed: no
+/// fill, a leading emerald check on the picks, the rest muted at
+/// `inertOpacity`.
 struct PlanCardOptionRow: View {
     let option: TreeQuestionOption
     let picked: Bool
@@ -179,14 +207,28 @@ struct PlanCardOptionRow: View {
     let editable: Bool
     let onTap: () -> Void
 
+    private static let glyph: CGFloat = 14
+
     var body: some View {
-        let shape = RoundedRectangle(cornerRadius: GlassTokens.rowRadius)
-        let row = HStack(alignment: .center, spacing: 8) {
+        if editable {
+            Button(action: onTap) { openRow }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(picked ? [.isSelected] : [])
+        } else {
+            closedRow
+                .accessibilityElement(children: .combine)
+                .accessibilityAddTraits(picked ? [.isSelected] : [])
+        }
+    }
+
+    private var openRow: some View {
+        let shape = RoundedRectangle(cornerRadius: PlanCard.Card.rowRadius)
+        return HStack(alignment: .center, spacing: 6) {
             if multi {
-                AppIcon(picked ? AppIcons.uiSelected : AppIcons.uiUnselected, size: 13)
+                AppIcon(picked ? AppIcons.uiSelected : AppIcons.uiUnselected, size: Self.glyph)
                     .foregroundStyle(.white.opacity(picked ? TextOpacity.primary : TextOpacity.tertiary))
             }
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: PlanCard.Card.blockInnerGap) {
                 Text(option.label)
                     .font(.caption.weight(.medium))
                     .foregroundStyle(.white)
@@ -200,28 +242,43 @@ struct PlanCardOptionRow: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             if picked, !multi {
-                AppIcon(AppIcons.uiCheck, size: 12)
-                    .foregroundStyle(DesignTokens.Palette.primary)
+                AppIcon(AppIcons.uiCheck, size: Self.glyph)
+                    .foregroundStyle(.white)
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
-        .frame(minHeight: 32)
+        .padding(.horizontal, PlanCard.Card.blockGap)
+        .padding(.vertical, PlanCard.Card.optionsGap)
+        .frame(minHeight: PlanCard.Card.rowMinHeight)
         .contentShape(Rectangle())
         .background(picked ? GlassTokens.fillActive : GlassTokens.fillRow, in: shape)
         .overlay(
             shape.stroke(picked ? GlassTokens.strokeActive : GlassTokens.strokeCard, lineWidth: GlassTokens.hairline)
         )
-        .opacity(editable || picked ? 1 : 0.6)
-        if editable {
-            Button(action: onTap) { row }
-                .buttonStyle(.plain)
-                .accessibilityAddTraits(picked ? [.isSelected] : [])
-        } else {
-            row
-                .accessibilityElement(children: .combine)
-                .accessibilityAddTraits(picked ? [.isSelected] : [])
+    }
+
+    private var closedShape: RoundedRectangle { RoundedRectangle(cornerRadius: PlanCard.Card.rowRadius) }
+
+    private var closedRow: some View {
+        HStack(alignment: .center, spacing: 6) {
+            ZStack {
+                if picked {
+                    AppIcon(AppIcons.uiCheck, size: Self.glyph)
+                        .foregroundStyle(DesignTokens.Semantic.green)
+                }
+            }
+            .frame(width: Self.glyph, height: Self.glyph)
+            Text(option.label)
+                .font(.caption)
+                .foregroundStyle(.white.opacity(picked ? TextOpacity.primary : PlanCard.Card.inertOpacity))
+                .multilineTextAlignment(.leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .padding(.horizontal, PlanCard.Card.blockGap)
+        .padding(.vertical, PlanCard.Card.optionsGap)
+        .frame(minHeight: PlanCard.Card.rowMinHeight)
+        // The picks keep the open row's picked fill + stroke; the rest none.
+        .background(picked ? GlassTokens.fillActive : Color.clear, in: closedShape)
+        .overlay(closedShape.stroke(picked ? GlassTokens.strokeActive : Color.clear, lineWidth: GlassTokens.hairline))
     }
 }
 
@@ -297,17 +354,20 @@ struct PlanCardSurfaceView: View {
     let editable: Bool
 
     var body: some View {
-        let shape = RoundedRectangle(cornerRadius: GlassTokens.rowRadius)
-        VStack(alignment: .leading, spacing: 6) {
+        // The `copy.surface` label ABOVE its frame (web `PlanCardSurface`).
+        let shape = RoundedRectangle(cornerRadius: PlanCard.Card.surfaceRadius)
+        VStack(alignment: .leading, spacing: PlanCard.Card.surfaceLabelGap) {
             Text(PlanCard.Copy.surface)
                 .font(.caption2.weight(.medium))
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             content
+                .padding(PlanCard.Card.surfacePadding)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(GlassTokens.fillRow, in: shape)
+                .clipShape(shape)
+                .overlay(shape.strokeBorder(GlassTokens.strokeCard, lineWidth: PlanCard.Card.pictureStroke))
         }
-        .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(GlassTokens.fillRow, in: shape)
-        .overlay(shape.stroke(GlassTokens.strokeCard, lineWidth: GlassTokens.hairline))
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(PlanCard.TestIds.surface)
     }
