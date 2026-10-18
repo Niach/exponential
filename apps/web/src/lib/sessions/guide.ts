@@ -17,6 +17,7 @@ import {
   isTextEntry,
   nextShowLabel,
   ownedBy,
+  ownedBySubtree,
   removeGuideEntries,
   stampUntaggedGuideEntries,
   upsertGuidePicture,
@@ -40,7 +41,8 @@ import { syncPullRequestBodies } from "@/lib/pull-requests"
 // write). Every write is a jsonb read-modify-write under `FOR UPDATE` on the
 // ROOT row, so two sessions of the tree writing at once never lose one
 // another's entry. Entries are stamped with their writer (`sessionId`) + the
-// write time (`at`); a writer replaces/removes only its own (guide-entries).
+// write time (`at`); a writer replaces only its own, removes its subtree's
+// (EXP-1351), and a remove that matches nothing fails (guide-entries).
 // Pictures are owner-less team `attachments` rows a Guide entry references
 // by id (the orphan sweep keeps every id some Guide names).
 
@@ -190,11 +192,19 @@ export async function writeGuide(args: {
     let next: GuideEntry[]
     let removed: string[] = []
     if (args.remove) {
-      const removal = removeGuideEntries(
-        lock.guide,
-        { topic, label: args.label ?? null, text: args.text === `` },
-        owns
-      )
+      const tree = await tx
+        .select({ id: sessions.id, parentId: sessions.parentId })
+        .from(sessions)
+        .where(eq(sessions.rootId, lock.rootId))
+      const target = { topic, label: args.label?.trim() || null, text: args.text === `` }
+      const removal = removeGuideEntries(lock.guide, target, ownedBySubtree(session.id, tree))
+      if (removal.results.length === (lock.guide ?? []).length) {
+        const what = target.text ? ` text` : target.label ? ` label "${target.label}"` : ``
+        throw new TRPCError({
+          code: `NOT_FOUND`,
+          message: `Nothing in this thread's Guide matched topic "${topic}"${what} written by this session or its children`,
+        })
+      }
       next = removal.results
       removed = removal.removedAttachmentIds
     } else {
