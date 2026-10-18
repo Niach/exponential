@@ -46,6 +46,17 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-10-19-cli-cargo-target-gc",
+    date: "2026-10-19",
+    title: "Command line devices keep the shared build cache bounded",
+    summary: "Devices running only the exponential command line daemon now trim a repository's shared Rust build cache once it grows past 20 GiB, like the desktop app already does.",
+    body: r#"- **Same rule as the desktop**: once a repository's shared cargo build cache passes 20 GiB, build units untouched for three days are evicted, plus examples and incremental data.
+- **Safe while you build**: a running build keeps its profile untouched, built binaries are never removed, and each repository is checked at most once an hour."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_62: ChangelogEntry = ChangelogEntry {
     id: "2026-10-18-follow-up-in-progress",
     date: "2026-10-18",
     title: "Follow-up work moves an issue back to In Progress",

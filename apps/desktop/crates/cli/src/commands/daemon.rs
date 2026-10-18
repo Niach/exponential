@@ -50,6 +50,9 @@ const GATED_UPDATE_RETRY: Duration = Duration::from_secs(5 * 60);
 /// running) for this long, the daemon ends them and applies the update;
 /// repo-backed runs stay resumable. The web's "Update now" skips the wait.
 pub const UPDATE_IDLE_GRACE: Duration = Duration::from_secs(2 * 60 * 60);
+/// EXP-1353: how often the loop offers every clone to the shared cargo
+/// target GC (its own throttle walks each at most once an hour).
+const CARGO_TARGET_GC_BEAT: Duration = Duration::from_secs(5 * 60);
 const DOCTOR_RECHECK: Duration = Duration::from_secs(5 * 60);
 /// EXP-414: a changed agent advertisement is only ACTED on once a second
 /// probe agrees ([`advert_transition`]) — this is the shortened recheck that
@@ -493,6 +496,10 @@ fn run_daemon(args: &[String]) -> CommandResult {
         holds: HoldLog::default(),
         last_beat: Instant::now(),
     };
+    // EXP-1353: the desktop sweeps on its AutoSync prune; the daemon has no
+    // trunk sync, so it offers its clones here. `None` = the first beat.
+    let mut last_cargo_gc: Option<Instant> = None;
+    let cargo_gc_running = Arc::new(AtomicBool::new(false));
     while !shutdown_requested() {
         // The 1 Hz loop: starts and messages arrive on the worker (shape
         // deltas), never here.
@@ -587,6 +594,20 @@ fn run_daemon(args: &[String]) -> CommandResult {
         }
         // EXP-1005: walled runs rotate to another account between turns.
         rotation.tick(&doctor);
+        // EXP-1353: the size walk can take seconds — never on this loop nor
+        // the serialized device worker; one sweep thread at a time.
+        if last_cargo_gc.is_none_or(|at| at.elapsed() >= CARGO_TARGET_GC_BEAT)
+            && !cargo_gc_running.swap(true, Ordering::SeqCst)
+        {
+            last_cargo_gc = Some(Instant::now());
+            let repos_root = coding::Settings::load(&coding::Settings::default_path(&ctx.data_dir))
+                .repos_root_path();
+            let running = Arc::clone(&cargo_gc_running);
+            std::thread::spawn(move || {
+                sweep_cargo_targets(&repos_root);
+                running.store(false, Ordering::SeqCst);
+            });
+        }
         let live_now = lock_sessions(&sessions).len();
         let session_change = reported_sessions != Some(live_now);
         if session_change {
@@ -2193,6 +2214,29 @@ fn run_device_command(
     }
 }
 
+/// EXP-1353: offer every clone under `repos_root` to the shared cargo target
+/// GC (`coding::cargo_target_gc`, throttled per clone). Returns the clones
+/// actually walked.
+fn sweep_cargo_targets(repos_root: &Path) -> Vec<String> {
+    let mut walked = Vec::new();
+    for clone in coding::scan_clones(repos_root) {
+        let Some(report) = coding::cargo_target_gc::sweep_if_due(&clone.path) else {
+            continue;
+        };
+        if report.bytes_freed > 0 || !report.skipped_locked.is_empty() {
+            log::info!(
+                "cargo-target gc {}: freed {} of {} bytes, skipped locked {:?}",
+                clone.full_name,
+                report.bytes_freed,
+                report.bytes_before,
+                report.skipped_locked,
+            );
+        }
+        walked.push(clone.full_name);
+    }
+    walked
+}
+
 /// Scan + report the worktree inventory when its fingerprint moved.
 fn report_worktrees(
     ctx: &Ctx,
@@ -3631,6 +3675,27 @@ fn status(args: &[String]) -> CommandResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// EXP-1353: the daemon offers every clone to the shared GC, and the
+    /// shared throttle keeps a second pass within the hour from re-walking.
+    #[test]
+    fn sweep_cargo_targets_walks_each_clone_once_per_interval() {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("exp-cli-gc-{}-{nanos}", std::process::id()));
+        for name in ["acme/web", "acme/api"] {
+            std::fs::create_dir_all(root.join(name).join(".git")).unwrap();
+        }
+        // A bare sibling is no clone.
+        std::fs::create_dir_all(root.join("acme/web.cargo-target")).unwrap();
+        let first = sweep_cargo_targets(&root);
+        let second = sweep_cargo_targets(&root);
+        let _ = std::fs::remove_dir_all(&root);
+        assert_eq!(first, vec!["acme/api".to_string(), "acme/web".to_string()]);
+        assert!(second.is_empty());
+    }
 
     fn advert(agents: &[&str]) -> coding::AgentAdvertisement {
         coding::AgentAdvertisement {

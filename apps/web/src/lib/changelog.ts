@@ -25,6 +25,14 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-10-19-cli-cargo-target-gc`,
+    date: `2026-10-19`,
+    title: `Command line devices keep the shared build cache bounded`,
+    summary: `Devices running only the exponential command line daemon now trim a repository's shared Rust build cache once it grows past 20 GiB, like the desktop app already does.`,
+    body: `- **Same rule as the desktop**: once a repository's shared cargo build cache passes 20 GiB, build units untouched for three days are evicted, plus examples and incremental data.
+- **Safe while you build**: a running build keeps its profile untouched, built binaries are never removed, and each repository is checked at most once an hour.`,
+  },
+  {
     id: `2026-10-18-follow-up-in-progress`,
     date: `2026-10-18`,
     title: `Follow-up work moves an issue back to In Progress`,
