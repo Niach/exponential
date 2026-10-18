@@ -70,9 +70,9 @@ async function failMove(
       .update(sessions)
       .set({ moveToDeviceId: null, handoff: null, caption: null, updatedAt: new Date() })
       .where(eq(sessions.id, sessionId))
-    const text = reason?.trim()
-      ? `Couldn't move the session: ${reason.trim().slice(0, 500)}`
-      : `Couldn't move the session`
+    // A daemon may already say "Couldn't move the session: …": never twice.
+    const why = reason?.trim().replace(/^Couldn't move the session:?\s*/i, ``) ?? ``
+    const text = why ? `Couldn't move the session: ${why.slice(0, 500)}` : `Couldn't move the session`
     await postMovedMessage(tx, row, text)
     return { txid, storageKeys: blob ? [blob.storageKey] : [] }
   })

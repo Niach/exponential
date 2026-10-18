@@ -1,6 +1,7 @@
-- Thread-Kopf: nichts scrollt mehr, Issues und Sessions klappen bei Platzmangel zu "+N" zusammen, und Unter-Issues und tiefere Sessions öffnen sich mit einem Tippen
-- Issue verknüpfen: das "+" neben Conversation bietet Link an issue und New issue
-- Unter-Sessions: Fragen und Pläne einer Unter-Session erscheinen in der Unterhaltung des Threads und werden direkt dort beantwortet
-- Ein Eingabefeld: der Thread, eine Session und ein neuer Start teilen sich ein Eingabefeld, "Type / for commands", mit Bild, Datei, # und Emoji im Feld
-- Optionen während der Session: der Plan-Modus wechselt sofort, und Aufwand, Computer Use und MCP-Server gelten ab der nächsten Nachricht
-- Issue-Status: ein verknüpftes Issue wechselt zu In progress, und ein Pull Request setzt es auf In review und nach dem Merge auf Done
+- Session auf ein anderes Gerät verschieben: der Device-Pin in den Optionen einer Session verschiebt eine laufende Session samt Worktree und Unterhaltung auf ein anderes deiner Online-Geräte
+- Sessions benennen sich selbst: jede Session, jeder Tab und jede Zeile zeigt einen echten Namen, nie "Session 2", und der Dispatcher eines Threads bündelt zusammengehörige Issues in einer Session
+- Fragen und Pläne ersetzen das Eingabefeld: eine wartende Frage oder ein Plan steht dort, wo das Eingabefeld war, in einer Session wie in einem Thread, und mehrere stapeln sich und öffnen sich nacheinander
+- Die Session-Seite liegt in ihrem Thread: wische zwischen Conversation, Issues, Sessions und dem Guide, mit einem Stop im Kopf, der wartende Nachrichten zurück ins Eingabefeld gibt
+- Thread-Zeilen verlieren das Privat-Schloss und das Wort "merged", der Threads-Tab trägt den Live-Punkt, und der Inbox-Tab zeigt einen Punkt, solange du Entwürfe hast
+- Ein wieder geöffneter Entwurf speichert und schließt sich ohne Nachfrage
+- Korrekturen aus dem Review: ein zweites Tippen auf Back schließt einen Entwurf nicht mehr, während er speichert, der Inbox-Punkt zählt die Entwürfe des aktuellen Teams, und angezeigt wird die neueste wartende Karte

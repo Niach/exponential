@@ -1,6 +1,7 @@
-- Thread header: nothing scrolls any more, issues and sessions fold into "+N" when space runs out, and sub-issues and deeper sessions open with a tap
-- Link an issue: the "+" next to Conversation offers Link an issue and New issue
-- Sub-sessions: a sub-session's questions and plans show up in the thread's conversation and are answered right there
-- One composer: the thread, a session and a new start share one composer, "Type / for commands", with image, file, # and emoji in the box
-- Options mid-session: plan mode switches at once, and effort, computer use and MCP servers apply from the next message
-- Issue status: linking an issue moves it to In progress, and a pull request moves it to In review and, once merged, to Done
+- Move a session to another device: the Device pin in a session's options moves a running session, with its worktree and conversation, to another of your online devices
+- Sessions name themselves: every session, tab and row shows a real name, never "Session 2", and a thread's dispatcher groups related issues into one session
+- Questions and plans take the composer's place: a waiting question or plan sits where the composer was, in a session and in a thread alike, and several stack up and open one at a time
+- The session page lives inside its thread: swipe between Conversation, issues, sessions and the Guide, with one Stop in the header that hands queued messages back to the composer
+- Thread rows drop the private lock and the merged word, the Threads tab carries the live dot, and the Inbox tab shows a dot while you have drafts
+- A reopened draft saves and leaves without asking
+- Review fixes: a second tap on Back no longer closes a draft while it saves, the Inbox dot counts the current team's drafts, and the newest waiting card is the one shown

@@ -1,6 +1,7 @@
-- Zaglavlje niti: ništa se više ne pomiče, issues i sessions sklapaju se u "+N" kad ponestane mjesta, a pod-issues i dublje sessions otvaraju se dodirom
-- Povezivanje issuea: "+" pokraj Conversation nudi Link an issue i New issue
-- Pod-sessions: pitanja i planovi pod-sessiona pojavljuju se u razgovoru niti i odgovara se na njih upravo tamo
-- Jedno polje za pisanje: nit, session i novi početak dijele jedno polje, "Type / for commands", sa slikom, datotekom, # i emojijem u polju
-- Opcije tijekom sessiona: Plan način mijenja se odmah, a trud, computer use i MCP poslužitelji vrijede od sljedeće poruke
-- Status issuea: povezivanje issuea premješta ga u In progress, a pull request u In review i, nakon spajanja, u Done
+- Premjesti session na drugi uređaj: Device pribadača u opcijama sessiona premješta aktivni session, s njegovim worktreeom i razgovorom, na drugi tvoj uređaj koji je online
+- Sessions se sami imenuju: svaki session, kartica i redak prikazuje pravo ime, nikad "Session 2", a dispatcher niti grupira povezane issues u jedan session
+- Pitanja i planovi zauzimaju mjesto polja za pisanje: pitanje ili plan na čekanju stoji gdje je bilo polje, i u sessionu i u niti, a više njih slaže se i otvara jedno po jedno
+- Stranica sessiona živi unutar svoje niti: prelazi između Conversation, issues, sessions i Guide, s jednim Stop u zaglavlju koji vraća poruke iz reda u polje za pisanje
+- Retci niti gube privatni lokot i riječ "merged", kartica Threads nosi živu točku, a kartica Inbox prikazuje točku dok imaš skice
+- Ponovno otvorena skica sprema se i zatvara bez pitanja
+- Ispravci iz reviewa: drugi dodir na Back više ne zatvara skicu dok se sprema, točka Inbox broji skice trenutnog tima, a prikazuje se najnovija kartica na čekanju

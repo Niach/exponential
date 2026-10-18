@@ -53,9 +53,11 @@ final class SessionListsModel {
         SessionTree.threadsUnread(groups)
     }
 
-    /// The Threads tab's amber dot: a thread or an agent waits on a person.
+    /// The Threads tab's amber dot: a thread waits on a person (the
+    /// Needs-you group). Agents have their own rail rows, so they never
+    /// light it (web/Android parity, EXP-1327).
     var needsYou: Bool {
-        groups.contains { $0.key == .needsYou } || agents.contains(where: \.needsYou)
+        groups.contains { $0.key == .needsYou }
     }
 
     /// (Re)binds to an account's pool; a no-op while already bound to it.

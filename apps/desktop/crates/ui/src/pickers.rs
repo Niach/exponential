@@ -496,9 +496,6 @@ mod tests {
                     continue;
                 }
                 let source = std::fs::read_to_string(&path).expect("a source file reads");
-                if source.contains("single_select_menu(") {
-                    continue;
-                }
                 let lines: Vec<&str> = source.lines().collect();
                 for (at, line) in lines.iter().enumerate() {
                     if !line.contains(".checked(") {
@@ -506,6 +503,13 @@ mod tests {
                     }
                     let window = &lines[at.saturating_sub(8)..=at];
                     if window.iter().any(|line| TOGGLES.iter().any(|toggle| line.contains(toggle))) {
+                        continue;
+                    }
+                    // A check built through `single_select_menu` — judged per
+                    // CALL SITE (the enclosing 40 lines), never per file: one
+                    // compliant menu must not vouch for the whole file.
+                    let enclosing = &lines[at.saturating_sub(40)..(at + 40).min(lines.len())];
+                    if enclosing.iter().any(|line| line.contains("single_select_menu(")) {
                         continue;
                     }
                     offenders.push(format!(

@@ -213,8 +213,10 @@ struct IssueDraftPageView: View {
                     .contentShape(Circle().inset(by: -GlassMenuTokens.triggerHitInset))
             }
             .buttonStyle(.plain)
-            // A close mid-create would race the draft against the issue.
-            .disabled(vm.creating)
+            // A close mid-create would race the draft against the issue; a
+            // second Back during a Create/Keep answer would close the page
+            // under the in-flight save (EXP-1272: a failed save = lost edit).
+            .disabled(vm.creating || leaveAnswerInFlight)
             .accessibilityLabel("Back")
         }
         ToolbarItem(placement: .topBarTrailing) {
@@ -234,14 +236,19 @@ struct IssueDraftPageView: View {
 
     /// Hold `held` behind the leave dialog when the draft has content; false
     /// = nothing to ask, the caller goes now. Nothing is held while a Create
-    /// is in flight (`vm.prompt` is `.none`) or a Create/Keep answer runs:
-    /// that navigation goes now, and the answer, landing off screen, drops
-    /// its own held one instead of replaying it.
+    /// is in flight (`vm.prompt` is `.none`): that navigation goes now.
+    /// While a Create/Keep answer runs, a second navigation is SWALLOWED
+    /// (held and dropped): letting it go would close the page under the
+    /// in-flight save, and a failed save would lose the edit (EXP-1272);
+    /// the answer continues its own held navigation when it lands.
     /// EXP-1272: a reopened draft is never asked: it runs Keep's save-then-
     /// continue at once (a failed save stays with the save error, as Keep
     /// does). Back and every navigator-driven change come through here.
     private func hold(_ held: IssueDraftLeaveGuard.Held) -> Bool {
-        guard !leaveAnswerInFlight else { return false }
+        guard !leaveAnswerInFlight else {
+            held.dropped()
+            return true
+        }
         switch vm.prompt(for: .leave) {
         case .none:
             return false

@@ -331,27 +331,6 @@ export const sessionsRouter = router({
       return { txid }
     }),
 
-  // COMPAT (EXP-1316): delete once CLIENT_MIN_VERSION_ANDROID >= 0.14.62 AND
-  // CLIENT_MIN_VERSION_DESKTOP/_CLI >= 0.14.70. Android <= 0.14.61 and
-  // desktop <= 0.14.69 rename a thread by hand through this procedure. The
-  // stored `sessions.title` ranks BELOW the agent/action/issue names in the
-  // contract's threadTitle ladder, so the write is harmless.
-  setTitle: authedProcedure
-    .input(z.object({ sessionId: uuid, title: z.string().trim().max(255).nullable() }))
-    .mutation(async ({ ctx, input }): Promise<{ txid: number }> => {
-      const userId = ctx.session.user.id
-      const session = await loadSessionForUser(userId, input.sessionId)
-      await assertCanSteer(userId, session)
-      return ctx.db.transaction(async (tx) => {
-        const txid = await generateTxId(tx)
-        await tx
-          .update(sessions)
-          .set({ title: input.title || null, updatedAt: new Date() })
-          .where(eq(sessions.id, session.id))
-        return { txid }
-      })
-    }),
-
   /** Link issues to a thread (always lands on the ROOT; the header "+"). */
   linkIssues: authedProcedure
     .input(z.object({ sessionId: uuid, issueIds: z.array(uuid).min(1).max(30) }))
@@ -420,12 +399,31 @@ export const sessionsRouter = router({
    *  closes too. Same card shape and auth as `answer`; idempotent (an
    *  answered card = ok, never CONFLICT). Enqueues nothing: the engine
    *  already resolved the question, so it left the engine's open cards and
-   *  the device's pickup never feeds it again. */
+   *  the device's pickup never feeds it again. Ask dock F1: a FRESH approval
+   *  the device could not honour (it ran on in place) comes back as a plain
+   *  approval and downgrades the stored card's `fresh` — never the reverse. */
   resolveCard: authedProcedure
     .input(cardAnswerInput)
     .mutation(async ({ ctx, input }): Promise<{ ok: true; txid?: number }> => {
       const { message, session, card } = await loadCardForAnswer(ctx.db, ctx.session.user.id, input)
-      if (message.answeredAt) return { ok: true }
+      if (message.answeredAt) {
+        const stored = message.card as MessageCard | null
+        const downgrade =
+          stored?.kind === `plan` &&
+          stored.fresh === true &&
+          input.decision === `approved` &&
+          input.fresh !== true
+        if (!downgrade) return { ok: true }
+        const txid = await ctx.db.transaction(async (tx) => {
+          const txid = await generateTxId(tx)
+          await tx
+            .update(messages)
+            .set({ card: { ...stored, fresh: false }, updatedAt: new Date() })
+            .where(eq(messages.id, message.id))
+          return txid
+        })
+        return { ok: true, txid }
+      }
       const result = await stampAnsweredCard(ctx.db, message.id, session.id, card)
       return result.claimed ? { ok: true, txid: result.txid } : { ok: true }
     }),
@@ -623,9 +621,11 @@ export const sessionsRouter = router({
     .mutation(async ({ ctx, input }) => {
       const session = await loadSessionForUser(ctx.session.user.id, input.sessionId)
       assertDeviceHost(ctx.session.user.id, session)
+      // CONFLICT (not FORBIDDEN): the daemon's `claim_lost` treats 404/409
+      // as "moved away", anything else as a start failure it posts about.
       if (input.deviceId !== undefined && input.deviceId !== session.deviceId) {
         throw new TRPCError({
-          code: `FORBIDDEN`,
+          code: `CONFLICT`,
           message: `This session runs on another device`,
         })
       }

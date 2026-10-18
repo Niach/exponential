@@ -1,6 +1,7 @@
-- Trådhuvud: inget rullar längre, issues och sessioner fälls ihop till "+N" när platsen tar slut, och under-issues och djupare sessioner öppnas med ett tryck
-- Länka ett issue: "+" bredvid Conversation erbjuder Link an issue och New issue
-- Undersessioner: en undersessions frågor och planer visas i trådens konversation och besvaras direkt där
-- Ett skrivfält: tråden, en session och en ny start delar ett fält, "Type / for commands", med bild, fil, # och emoji i fältet
-- Alternativ mitt i en session: Plan-läget byts direkt, och insats, computer use och MCP-servrar gäller från nästa meddelande
-- Issue-status: ett länkat issue flyttas till In progress, och en pull request flyttar det till In review och, när den är mergad, till Done
+- Flytta en session till en annan enhet: Device-nålen i en sessions alternativ flyttar en pågående session med worktree och konversation till en annan av dina enheter som är online
+- Sessioner namnger sig själva: varje session, flik och rad visar ett riktigt namn, aldrig "Session 2", och trådens dispatcher samlar relaterade issues i en session
+- Frågor och planer tar skrivfältets plats: en väntande fråga eller plan står där skrivfältet var, i en session och i en tråd, och flera staplas och öppnas en i taget
+- Sessionssidan bor i sin tråd: svep mellan Conversation, issues, sessioner och Guide, med ett Stop i huvudet som lämnar köade meddelanden tillbaka till skrivfältet
+- Trådrader tappar det privata låset och ordet "merged", Threads-fliken bär live-pricken, och Inbox-fliken visar en prick så länge du har utkast
+- Ett återöppnat utkast sparas och stängs utan att fråga
+- Rättelser från granskningen: ett andra tryck på Back stänger inte längre ett utkast medan det sparas, Inbox-pricken räknar det aktuella teamets utkast, och det senaste väntande kortet är det som visas

@@ -1,0 +1,6 @@
+Move a session to another device: the Device pin moves a running session, with its worktree and conversation, to another online device.
+Sessions name themselves: every session, tab and row shows a real name; the dispatcher groups related issues into one session.
+Questions and plans take the composer's place and stack up when several wait.
+The session page lives inside its thread, with one Stop in the header.
+Thread rows drop the lock and the merged word; the Threads tab carries the live dot; Inbox shows a dot for drafts.
+Review fixes: Stop hands queued text back to the composer; the Inbox dot counts the current team's drafts.

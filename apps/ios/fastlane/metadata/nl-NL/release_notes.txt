@@ -1,6 +1,7 @@
-- Threadkop: niets scrolt meer, issues en sessies klappen samen tot "+N" als de ruimte op is, en sub-issues en diepere sessies openen met een tik
-- Issue koppelen: de "+" naast Conversation biedt Link an issue en New issue
-- Subsessies: vragen en plannen van een subsessie verschijnen in het gesprek van de thread en worden daar beantwoord
-- Eén invoerveld: de thread, een sessie en een nieuwe start delen één veld, "Type / for commands", met afbeelding, bestand, # en emoji in het veld
-- Opties tijdens een sessie: de Plan-modus wisselt meteen, en inspanning, computer use en MCP-servers gelden vanaf het volgende bericht
-- Issuestatus: een gekoppeld issue gaat naar In progress, en een pull request zet het op In review en, na de merge, op Done
+- Sessie naar een ander apparaat verplaatsen: de Device-pin in de opties van een sessie verplaatst een lopende sessie, met worktree en gesprek, naar een ander online apparaat van je
+- Sessies geven zichzelf een naam: elke sessie, tab en rij toont een echte naam, nooit "Session 2", en de dispatcher van een thread bundelt verwante issues in één sessie
+- Vragen en plannen nemen de plek van het invoerveld in: een wachtende vraag of plan staat waar het invoerveld was, in een sessie en in een thread, en meerdere stapelen zich op en openen één voor één
+- De sessiepagina woont in haar thread: swipe tussen Conversation, issues, sessies en de Guide, met één Stop in de kop die berichten in de wachtrij teruggeeft aan het invoerveld
+- Threadrijen verliezen het privéslot en het woord "merged", de Threads-tab draagt de live-stip, en de Inbox-tab toont een stip zolang je concepten hebt
+- Een heropend concept wordt opgeslagen en sluit zonder te vragen
+- Fixes uit de review: een tweede tik op Back sluit een concept niet meer terwijl het opslaat, de Inbox-stip telt de concepten van het huidige team, en de nieuwste wachtende kaart is de getoonde

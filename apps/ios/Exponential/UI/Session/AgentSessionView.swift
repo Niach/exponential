@@ -1086,13 +1086,14 @@ struct AgentSessionView: View {
     }
 
     /// THE ask dock (fixtures/ask-dock.json): the ONE card waiting on this
-    /// steerer (the oldest still-active question / ask) — what leaves the
-    /// transcript for the composer's slot. nil while nothing waits or this
-    /// client may not answer (a read-only viewer keeps it inline).
+    /// steerer (the NEWEST still-active question / ask, as web, desktop and
+    /// Android dock it) — what leaves the transcript for the composer's
+    /// slot. nil while nothing waits or this client may not answer (a
+    /// read-only viewer keeps it inline).
     private func dockedRow(_ model: AgentSessionModel) -> AgentFeedRow? {
         guard model.cardPending, canAnswer else { return nil }
         let active = model.activeQuestionIds
-        return model.rows.first { row in
+        return model.rows.last { row in
             switch row {
             case let .ask(group): group.questions.contains { active.contains($0.id) }
             case let .single(item): item.question.map { active.contains($0.id) } ?? false

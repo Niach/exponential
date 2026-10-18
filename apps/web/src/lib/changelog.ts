@@ -25,6 +25,20 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-10-19-release-train-pre-cleanup`,
+    date: `2026-10-19`,
+    title: `Release 2026-10-19: sessions with real names, the Ask dock and plan card, moving a session between devices, and the review fixes`,
+    summary: `Every session carries a real name on every device, a waiting question or plan takes the composer's place, a running session moves to another of your devices with its worktree, quick replies sit above the composer, and the release review fixed what those changes left open on older apps.`,
+    body: `- **Sessions name themselves**: every session, tab and row shows a real name instead of "Session 2", and a thread's dispatcher groups related issues into one session, on web, IDE, iPhone and Android.
+- **Ask dock and plan card**: a waiting question or plan sits where the composer was, several stack up and open one at a time, and a plan reads as one rich card with pictures, choice questions and an inline Exponential UI surface, answered in the card on every platform.
+- **Move a session**: the Device pin in a session's options moves a running session, with its worktree and conversation, to another of your online devices; the source keeps its worktree and branch as the recovery point until the move is fully restored.
+- **Quick replies**: short answers the agent suggests sit above the composer and send with one tap.
+- **Threads**: thread rows drop the private lock and the merged word, the Threads tab carries the live dot, the Inbox tab shows a dot while you have drafts on phones, and the session page lives inside its thread with one Stop in the header that hands queued messages back to the composer.
+- **Issues and pull requests**: follow-up work moves an issue back to In Progress and its end returns it to In Review, issue-targeted PR tools resolve to the issue's own PR, and a Guide remove reaches the caller's subtree.
+- **Accounts**: switching accounts keeps the model, shows itself in the session, and names accounts by email.
+- **Review fixes**: REVIEW_FIXES_PLACEHOLDER`,
+  },
+  {
     id: `2026-10-19-cli-cargo-target-gc`,
     date: `2026-10-19`,
     title: `Command line devices keep the shared build cache bounded`,

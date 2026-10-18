@@ -36,6 +36,9 @@ public enum SessionDeviceMove {
     public static let reasonOffline = "This device is offline."
     public static let reasonVisibility = "This device is shared differently, so the session can't move here."
     public static let reasonNoLogin = "This device has no signed-in login for this agent."
+    /// The target runs a build too old to receive a session (web
+    /// `REASON_UPDATE`).
+    public static let reasonUpdate = "This device needs an update to receive sessions."
 
     /// `Moving to <device>…`.
     public static func movingLabel(_ device: String) -> String {
@@ -98,7 +101,10 @@ public enum SessionDeviceMove {
 
     /// The launch composer's devices for the session's team (own +
     /// team-shared, in its order), the current one selected and never
-    /// refused, every other carrying its refusal.
+    /// refused, every other carrying its refusal. The current device is
+    /// ALWAYS listed (web `sessionDeviceMoveRows`): when the list lacks it
+    /// (a shared session on a teammate's unshared box), a bare row named
+    /// by its id leads, so a pending move still has a row to cancel on.
     public static func rows(
         devices: [SteerDevice],
         currentDeviceId: String,
@@ -106,7 +112,7 @@ public enum SessionDeviceMove {
         sessionShared: Bool,
         agent: String?
     ) -> [Row] {
-        devices.map { device in
+        var rows = devices.map { device in
             let current = device.deviceId == currentDeviceId
             return Row(
                 device: device,
@@ -119,6 +125,17 @@ public enum SessionDeviceMove {
                 )
             )
         }
+        if !currentDeviceId.isEmpty, !rows.contains(where: \.current) {
+            rows.insert(
+                Row(
+                    device: SteerDevice(deviceId: currentDeviceId, deviceLabel: currentDeviceId),
+                    current: true,
+                    blockedReason: nil
+                ),
+                at: 0
+            )
+        }
+        return rows
     }
 
     /// The pin's text: the current device's name, or `Moving to <target>…`

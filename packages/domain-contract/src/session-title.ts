@@ -106,12 +106,15 @@ export function firstPrompt(
 function issueLabel(issues: readonly TitleIssue[]): string {
   const { titles, titleMax } = SESSION_TITLE_COPY
   const first = issues[0]
+  // Function replacers: a title holding `$&`, `$$`, `` $` `` or `$'` lands
+  // LITERALLY, as the natives insert it (`String.replace` would expand it).
   const template = (issues.length > 1 ? titles.issues : titles.issue)
-    .replace(`{identifier}`, first.identifier)
-    .replace(`{more}`, String(issues.length - 1))
+    .replace(`{identifier}`, () => first.identifier)
+    .replace(`{more}`, () => String(issues.length - 1))
   const title = first.title.trim()
   const room = titleMax - template.replace(`{title}`, ``).length
-  return template.replace(`{title}`, clip(title, Math.max(1, room)))
+  const clipped = clip(title, Math.max(1, room))
+  return template.replace(`{title}`, () => clipped)
 }
 
 /** THE display title (fixture `session-title.json` rungs). */
@@ -126,7 +129,7 @@ export function sessionTitle(
   const own = sessionIssues(session, links, issues)
   if (own.length > 0) return issueLabel(own)
   const action = session.actionName?.trim()
-  if (action) return SESSION_TITLE_COPY.titles.action.replace(`{action}`, action)
+  if (action) return SESSION_TITLE_COPY.titles.action.replace(`{action}`, () => action)
   const prompt = firstPrompt(session.id, messages)
   return prompt ? clip(prompt, SESSION_TITLE_COPY.titleMax) : SESSION_TITLE_COPY.untitled
 }

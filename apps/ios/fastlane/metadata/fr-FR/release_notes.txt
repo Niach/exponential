@@ -1,6 +1,7 @@
-- En-tête du fil : plus rien ne défile, les issues et les sessions se replient en "+N" quand la place manque, et les sous-issues et sessions plus profondes s'ouvrent d'un toucher
-- Lier un issue : le "+" à côté de Conversation propose Link an issue et New issue
-- Sous-sessions : les questions et les plans d'une sous-session apparaissent dans la conversation du fil et se règlent sur place
-- Un seul champ de saisie : le fil, une session et un nouveau départ partagent un champ, "Type / for commands", avec image, fichier, # et emoji dans le champ
-- Options en cours de session : le mode Plan bascule aussitôt, et l'effort, computer use et les serveurs MCP s'appliquent dès le message suivant
-- Statut de l'issue : lier un issue le passe en In progress, et une pull request le passe en In review puis, une fois fusionnée, en Done
+- Déplacer une session vers un autre appareil : l'épingle Device dans les options d'une session déplace une session en cours, avec son worktree et sa conversation, vers un autre de vos appareils en ligne
+- Les sessions se nomment toutes seules : chaque session, onglet et ligne affiche un vrai nom, jamais "Session 2", et le dispatcher d'un fil regroupe les issues liées dans une seule session
+- Questions et plans prennent la place du champ de saisie : une question ou un plan en attente s'affiche là où était le champ, dans une session comme dans un fil, et plusieurs s'empilent et s'ouvrent un par un
+- La page de session vit dans son fil : balayez entre Conversation, issues, sessions et le Guide, avec un seul Stop dans l'en-tête qui renvoie les messages en file au champ de saisie
+- Les lignes de fil perdent le cadenas privé et le mot "merged", l'onglet Threads porte le point en direct, et l'onglet Inbox affiche un point tant que vous avez des brouillons
+- Un brouillon rouvert s'enregistre et se ferme sans rien demander
+- Corrections issues de la revue : un second toucher sur Back ne ferme plus un brouillon pendant son enregistrement, le point Inbox compte les brouillons de l'équipe actuelle, et la carte en attente la plus récente est celle affichée

@@ -782,12 +782,14 @@ pub struct SessionRow {
 
 impl SessionRow {
     /// EXP-1252: the device a pending move takes this session to (`None` =
-    /// none pending, or a blank / same-device value).
+    /// none pending, or a blank value). A target naming the CURRENT device
+    /// still reads as a move, as on web/iOS/Android (`Moving to <current>…`
+    /// until the server clears it).
     pub fn moving_to(&self) -> Option<&str> {
         self.move_to_device_id
             .as_deref()
             .map(str::trim)
-            .filter(|target| !target.is_empty() && Some(*target) != self.device_id.as_deref())
+            .filter(|target| !target.is_empty())
     }
 
     /// A tree root (no parent).

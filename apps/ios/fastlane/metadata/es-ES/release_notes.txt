@@ -1,6 +1,7 @@
-- Cabecera del hilo: ya no se desplaza nada, los issues y las sesiones se pliegan en "+N" cuando falta espacio, y los sub-issues y las sesiones más profundas se abren con un toque
-- Vincular un issue: el "+" junto a Conversation ofrece Link an issue y New issue
-- Sub-sesiones: las preguntas y los planes de una sub-sesión aparecen en la conversación del hilo y se responden ahí mismo
-- Un solo editor: el hilo, una sesión y un nuevo inicio comparten un editor, "Type / for commands", con imagen, archivo, # y emoji en el cuadro
-- Opciones a mitad de sesión: el modo Plan cambia al instante, y el esfuerzo, computer use y los servidores MCP se aplican desde el siguiente mensaje
-- Estado del issue: vincular un issue lo pasa a In progress, y un pull request lo pasa a In review y, una vez fusionado, a Done
+- Mover una sesión a otro dispositivo: el pin Device en las opciones de una sesión mueve una sesión en curso, con su worktree y su conversación, a otro de tus dispositivos en línea
+- Las sesiones se nombran solas: cada sesión, pestaña y fila muestra un nombre real, nunca "Session 2", y el dispatcher de un hilo agrupa los issues relacionados en una sola sesión
+- Preguntas y planes ocupan el lugar del editor: una pregunta o un plan pendiente aparece donde estaba el editor, tanto en una sesión como en un hilo, y varios se apilan y se abren de uno en uno
+- La página de sesión vive dentro de su hilo: desliza entre Conversation, issues, sesiones y el Guide, con un único Stop en la cabecera que devuelve los mensajes en cola al editor
+- Las filas de hilos pierden el candado privado y la palabra "merged", la pestaña Threads lleva el punto en directo, y la pestaña Inbox muestra un punto mientras tengas borradores
+- Un borrador reabierto se guarda y se cierra sin preguntar
+- Correcciones de la revisión: un segundo toque en Back ya no cierra un borrador mientras se guarda, el punto de Inbox cuenta los borradores del equipo actual, y se muestra la tarjeta pendiente más reciente

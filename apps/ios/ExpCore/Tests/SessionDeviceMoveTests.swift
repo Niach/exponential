@@ -40,6 +40,7 @@ final class SessionDeviceMoveTests: XCTestCase {
             "This device is shared differently, so the session can't move here."
         )
         XCTAssertEqual(SessionDeviceMove.reasonNoLogin, "This device has no signed-in login for this agent.")
+        XCTAssertEqual(SessionDeviceMove.reasonUpdate, "This device needs an update to receive sessions.")
         XCTAssertEqual(SessionDeviceMove.failureToast, "Couldn't move the session")
     }
 
@@ -86,6 +87,31 @@ final class SessionDeviceMoveTests: XCTestCase {
         XCTAssertEqual(rows.map(\.device.deviceId), ["here", "there", "cold"])
         XCTAssertEqual(rows.map(\.current), [true, false, false])
         XCTAssertEqual(rows.map(\.blockedReason), [nil, nil, SessionDeviceMove.reasonOffline])
+    }
+
+    /// A shared session running on a teammate's UNSHARED box: its device is
+    /// not in the list, so a bare current row (named by its id, never
+    /// refused) leads — the row a pending move is cancelled on.
+    func testRowsSynthesiseTheMissingCurrentDevice() {
+        let rows = SessionDeviceMove.rows(
+            devices: [device("there"), device("cold", online: false)],
+            currentDeviceId: "ghost",
+            sessionTeamId: "t1",
+            sessionShared: false,
+            agent: "claude"
+        )
+        XCTAssertEqual(rows.map(\.device.deviceId), ["ghost", "there", "cold"])
+        XCTAssertEqual(rows.map(\.device.deviceLabel), ["ghost", "there", "cold"])
+        XCTAssertEqual(rows.map(\.current), [true, false, false])
+        XCTAssertEqual(rows.map(\.blockedReason), [nil, nil, SessionDeviceMove.reasonOffline])
+        XCTAssertNil(rows[0].device.kind)
+        XCTAssertNil(rows[0].device.icon)
+        // No current device at all = nothing to synthesise.
+        let none = SessionDeviceMove.rows(
+            devices: [device("there")], currentDeviceId: "", sessionTeamId: "t1", sessionShared: false, agent: nil
+        )
+        XCTAssertEqual(none.map(\.device.deviceId), ["there"])
+        XCTAssertEqual(none.map(\.current), [false])
     }
 
     func testPinLabel() {

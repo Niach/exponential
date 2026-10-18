@@ -1,6 +1,7 @@
-- Hlavička vlákna: už nič neroluje, issues a sessions sa pri nedostatku miesta zložia do "+N" a pod-issues a hlbšie sessions otvoríte ťuknutím
-- Prepojenie issue: "+" vedľa Conversation ponúka Link an issue a New issue
-- Pod-sessions: otázky a plány pod-session sa zobrazia v konverzácii vlákna a odpoviete na ne priamo tam
-- Jedno pole na písanie: vlákno, session aj nový štart zdieľajú jedno pole, "Type / for commands", s obrázkom, súborom, # a emoji priamo v poli
-- Možnosti počas session: režim Plan sa prepne okamžite a úsilie, computer use a MCP servery platia od ďalšej správy
-- Stav issue: prepojené issue prejde do In progress a pull request ho posunie do In review a po zlúčení do Done
+- Presun session na iné zariadenie: Device pin v možnostiach session presunie bežiacu session aj s worktree a konverzáciou na iné vaše online zariadenie
+- Sessions sa pomenujú samy: každá session, záložka aj riadok ukazuje skutočný názov, nikdy "Session 2", a dispatcher vlákna zoskupí súvisiace issues do jednej session
+- Otázky a plány nahradia pole na písanie: čakajúca otázka alebo plán sa zobrazí tam, kde bolo pole, v session aj vo vlákne, a viacero sa zoradí a otvárajú sa postupne
+- Stránka session žije vo svojom vlákne: prechádzajte medzi Conversation, issues, sessions a Guide, s jedným Stop v hlavičke, ktoré vráti správy v rade do poľa na písanie
+- Riadky vlákien už nemajú zámok súkromia ani slovo "merged", záložka Threads nesie živú bodku a záložka Inbox ukazuje bodku, kým máte koncepty
+- Znovu otvorený koncept sa uloží a zavrie bez pýtania
+- Opravy z review: druhé ťuknutie na Back už nezavrie koncept počas ukladania, bodka Inbox počíta koncepty aktuálneho tímu a zobrazí sa najnovšia čakajúca karta

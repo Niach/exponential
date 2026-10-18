@@ -7965,16 +7965,6 @@ impl SteerSessionView {
         .into_any_element()
     }
 
-    /// EXP-877 — the model the run is on, off `config_state.options[model]`
-    /// (the engine publishes the VALUE; there is no menu on the wire).
-    ///
-    /// Claude gets a PICKER, and picking sends `/model <alias>` to the agent
-    /// as a message: that prompt is how the CLI switches, so it queues
-    /// mid-turn like anything else and the republished `config_state` is the
-    /// confirmation. Nothing is written optimistically — a pick the CLI
-    /// refuses must not leave the footer lying. Codex's is a plain label.
-    /// Before the run publishes a `model` option (or with no live relay at
-    /// all) the pin reads [`crate::composer::session_fallback_model`].
     /// EXP-1252 — the Device pin before the model: the session's device; a
     /// pick moves the session there (`sessions.send{sessionId, deviceId}`).
     /// None on a replay (a transcript has nowhere to move).
@@ -7991,6 +7981,16 @@ impl SteerSessionView {
         )
     }
 
+    /// EXP-877 — the model the run is on, off `config_state.options[model]`
+    /// (the engine publishes the VALUE; there is no menu on the wire).
+    ///
+    /// Claude gets a PICKER, and picking sends `/model <alias>` to the agent
+    /// as a message: that prompt is how the CLI switches, so it queues
+    /// mid-turn like anything else and the republished `config_state` is the
+    /// confirmation. Nothing is written optimistically — a pick the CLI
+    /// refuses must not leave the footer lying. Codex's is a plain label.
+    /// Before the run publishes a `model` option (or with no live relay at
+    /// all) the pin reads [`crate::composer::session_fallback_model`].
     fn render_model_pin(&self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
         // The model in force (the relay's `config_state`), else the row's /
         // device's pick (web `sessionModel(config) ?? fallback`): a thread
