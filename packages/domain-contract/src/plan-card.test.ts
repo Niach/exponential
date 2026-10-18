@@ -27,4 +27,19 @@ describe(`plan-card.json`, () => {
   test(`the copy names every answer issue`, () => {
     expect(Object.keys(fixture.copy.answerIssues).sort()).toEqual([`decision`, `missing`, `multi`, `unknown`])
   })
+
+  test(`the copy names the specimen's three cards and the card's states`, () => {
+    expect(Object.keys(fixture.copy.specimen).sort()).toEqual([`answered`, `approved`, `pending`])
+    expect(fixture.copy.feedbackLine).toContain(`{feedback}`)
+    expect(fixture.copy.answered).not.toBe(fixture.copy.answering)
+  })
+
+  test(`the one look ×4: every tile and card number is positive`, () => {
+    for (const [key, value] of [...Object.entries(fixture.tiles), ...Object.entries(fixture.card)]) {
+      expect(typeof value, key).toBe(`number`)
+      expect(value, key).toBeGreaterThan(0)
+    }
+    expect(fixture.tiles.inertOpacity).toBe(fixture.card.inertOpacity)
+    expect(fixture.tiles.pictureRadius).toBeLessThan(fixture.tiles.radius)
+  })
 })

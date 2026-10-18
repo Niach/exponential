@@ -151,7 +151,7 @@ describe(`ThreadConversation`, () => {
     expect([...options].map((o) => o.firstElementChild?.textContent ?? o.textContent)).toEqual([
       `Yes`,
       `Yes, and start with a fresh context`,
-      `No, keep planningSends your next message back to planning`,
+      `No, keep planningYour feedback goes back with it`,
     ])
     fireEvent.click(options[1]!)
     expect(onDecide).toHaveBeenCalledWith(`p1`, { decision: `approved`, fresh: true })

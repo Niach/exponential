@@ -40,7 +40,7 @@
     {
       "key": "reject",
       "label": "No, keep planning",
-      "description": "Sends your next message back to planning",
+      "description": "Your feedback goes back with it",
       "decision": "rejected",
       "fresh": false
     }

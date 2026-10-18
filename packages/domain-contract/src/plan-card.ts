@@ -9,6 +9,8 @@ import contractJson from "../contract.json" with { type: "json" }
 export const PLAN_CARD_COPY = fixture.copy
 export const PLAN_CARD_TEST_IDS = fixture.testIds
 export const PLAN_CARD_TILES = fixture.tiles
+/** EXP-1280 one look ×4: the card's geometry beyond the tiles (`card`). */
+export const PLAN_CARD_GEOMETRY = fixture.card
 export const PLAN_CARD_ANSWER_TEXT = fixture.answerText
 export const PLAN_CARD_UPLOAD_SCHEME = fixture.uploadScheme
 export const PLAN_CARD_CAPS = contractJson.planCard
