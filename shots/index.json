@@ -3392,8 +3392,8 @@
         "file": "shots/plan-card/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 18364,
-        "sha256": "203dc48c0ac8a31f1b2f6d620c8f8285d9bff9beb14f3a6e600e7e9e258ac615"
+        "bytes": 22968,
+        "sha256": "8e08357dc2e4b1fb77383a985742611901aba8cda754c3ca5b2c4b8729b30a1a"
       },
       "desktop": {
         "file": "shots/plan-card/desktop.webp",
@@ -3406,8 +3406,8 @@
         "file": "shots/plan-card/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 19500,
-        "sha256": "d540e1fb9d82dbe9e35664420dbb99cd86132043982fe7f488acc0c31cd0e6ec"
+        "bytes": 23492,
+        "sha256": "84581f91accaf9934c92dc41b5163b36b5c48b52712ad8ea0a91096dcda70dd5"
       },
       "web": {
         "file": "shots/plan-card/web.webp",
