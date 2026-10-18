@@ -4756,7 +4756,7 @@
       "group": "coding",
       "title": "Plan card",
       "blurb": "THE rich plan / question card ×4 (EXP-1280, plan-card.json): plan mode posts ONE card through exponential_plan_propose: the markdown with pictures, the agent's Exponential UI surface in its Preview frame, one block per question (THE option rows, or picture tiles once any option has a picture; Choose one / Choose any; Other…), THE plan options + the feedback field, approving only once every question is answered. Answered = closed: the picks highlighted, the decision and the feedback.",
-      "order": 24,
+      "order": 25,
       "web": {
         "route": "/t/$teamSlug/agent?dev=plan-card",
         "anchor": {
