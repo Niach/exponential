@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNotNull, ne, sql } from "drizzle-orm"
+import { and, desc, eq, inArray, isNotNull, ne, notInArray, or, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
 import {
   boards,
@@ -10,6 +10,7 @@ import {
   pullRequests,
   repositories,
   sessionIssues,
+  sessions,
   teams,
 } from "@/db/schema"
 import {
@@ -127,17 +128,22 @@ export async function findIssueIdByBranch(
 // an issue to a thread STARTS it (`started`: a not-yet-started issue moves to
 // the builtin In Progress; no team toggle exists for it). Explicit human
 // resolutions (cancelled/duplicate) and already-reached targets are never
-// overridden, so every writer stays idempotent.
+// overridden, so every writer stays idempotent. EXP-1350: follow-up work in
+// the thread (`resumed`) takes an In Review issue back to the builtin In
+// Progress; when that work ends with the PR still live, `opened` re-applies.
 const STARTED_FROM_STATUSES = new Set([`backlog`])
+const RESUMED_FROM_STATUSES = new Set([`in_review`])
 const OPENED_FROM_STATUSES = new Set([`backlog`, `in_progress`])
 const MERGED_FROM_STATUSES = new Set([`backlog`, `in_progress`, `in_review`])
 
 export type PrAutomationEvent = `opened` | `merged`
-/** EXP-1334: the PR events plus a thread link's `started`. */
-export type IssueAutomationEvent = PrAutomationEvent | `started`
+/** EXP-1334: the PR events plus a thread link's `started`; EXP-1350:
+ *  follow-up work's `resumed`. */
+export type IssueAutomationEvent = PrAutomationEvent | `started` | `resumed`
 
 const ELIGIBLE_FROM: Record<IssueAutomationEvent, Set<string>> = {
   started: STARTED_FROM_STATUSES,
+  resumed: RESUMED_FROM_STATUSES,
   opened: OPENED_FROM_STATUSES,
   merged: MERGED_FROM_STATUSES,
 }
@@ -148,6 +154,7 @@ export const PR_AUTOMATION_DEFAULT_KEY: Record<
   `in_progress` | `in_review` | `done`
 > = {
   started: `in_progress`,
+  resumed: `in_progress`,
   opened: `in_review`,
   merged: `done`,
 }
@@ -188,7 +195,9 @@ type AutomationTarget = {
 export type ResolvedAutomation = { enabled: boolean; target: AutomationTarget | null }
 
 /** The team's switch + target row for an event (EXP-319; `started` has no
- *  team setting: always on, the builtin In Progress). */
+ *  team setting: always on, the builtin In Progress). EXP-1350: `resumed`
+ *  rides the PR-open switch (only `opened` ever undoes it) and always
+ *  targets the builtin In Progress. */
 async function resolveAutomationTarget(
   tx: Tx,
   teamId: string,
@@ -197,6 +206,7 @@ async function resolveAutomationTarget(
   let enabled = true
   let configuredStatusId: string | null = null
   if (event !== `started`) {
+    const opened = event !== `merged`
     const [teamConfig] = await tx
       .select({
         prOpenedStatusId: teams.prOpenedStatusId,
@@ -207,11 +217,11 @@ async function resolveAutomationTarget(
       .from(teams)
       .where(eq(teams.id, teamId))
       .limit(1)
-    enabled =
-      (event === `opened` ? teamConfig?.prOpenedAutomation : teamConfig?.prMergedAutomation) ??
-      true
+    enabled = (opened ? teamConfig?.prOpenedAutomation : teamConfig?.prMergedAutomation) ?? true
     configuredStatusId =
-      (event === `opened` ? teamConfig?.prOpenedStatusId : teamConfig?.prMergedStatusId) ?? null
+      event === `resumed`
+        ? null
+        : ((opened ? teamConfig?.prOpenedStatusId : teamConfig?.prMergedStatusId) ?? null)
   }
   if (!enabled) return { enabled, target: null }
   const targetColumns = {
@@ -263,6 +273,9 @@ export async function applyPrLifecycleStatusInTx(
     /** The event's automation when the caller already resolved it (a batch
      *  moving many issues resolves the team's target once). */
     automation?: ResolvedAutomation
+    /** Extra keys on the status_changed payload (EXP-1350: `resumed`'s
+     *  event + thread, read back by the re-apply). */
+    payloadExtra?: Record<string, unknown>
   }
 ): Promise<boolean> {
   const { enabled: automationEnabled, target } =
@@ -316,6 +329,7 @@ export async function applyPrLifecycleStatusInTx(
       toStatusId: target?.id ?? null,
       fromName: fromRow?.fromName ?? null,
       toName: target?.name ?? null,
+      ...opts.payloadExtra,
       automation: true,
     },
   })
@@ -353,6 +367,157 @@ export async function applyIssuesStartedInTx(
     if (applied) moved.push(row.id)
   }
   return moved
+}
+
+// ── follow-up work (EXP-1350) ───────────────────────────────────────────────
+
+/** Each issue's newest status_changed payload (none = no key). */
+async function lastStatusChangesInTx(
+  tx: Tx,
+  issueIds: string[]
+): Promise<Map<string, Record<string, unknown> | null>> {
+  const map = new Map<string, Record<string, unknown> | null>()
+  if (issueIds.length === 0) return map
+  const rows = await tx
+    .selectDistinctOn([issueEvents.issueId], {
+      issueId: issueEvents.issueId,
+      payload: issueEvents.payload,
+    })
+    .from(issueEvents)
+    .where(and(inArray(issueEvents.issueId, issueIds), eq(issueEvents.type, `status_changed`)))
+    .orderBy(issueEvents.issueId, desc(issueEvents.createdAt), desc(issueEvents.id))
+  for (const row of rows) map.set(row.issueId, (row.payload as Record<string, unknown> | null) ?? null)
+  return map
+}
+
+/** The issues among `issueIds` linked to a live PR. */
+async function withLivePrInTx(tx: Tx, issueIds: string[]): Promise<Set<string>> {
+  if (issueIds.length === 0) return new Set()
+  const rows = await tx
+    .selectDistinct({ issueId: pullRequestIssues.issueId })
+    .from(pullRequestIssues)
+    .innerJoin(pullRequests, eq(pullRequests.id, pullRequestIssues.pullRequestId))
+    .where(
+      and(
+        inArray(pullRequestIssues.issueId, issueIds),
+        inArray(pullRequests.state, [...LIVE_PR_STATES])
+      )
+    )
+  return new Set(rows.map((row) => row.issueId))
+}
+
+/**
+ * EXP-1350: follow-up work started in a thread (a child, a message to a work
+ * session): its In Review issues go back to the builtin In Progress. Only an
+ * issue the AUTOMATION parked there (its last status change carries the
+ * flag: a person's In Review is never overridden) with a live PR moves; the
+ * event names the thread so its end can undo exactly this move.
+ */
+export async function applyIssuesResumedInTx(
+  tx: Tx,
+  opts: {
+    teamId: string
+    rootSessionId: string
+    issueIds: string[]
+    actorUserId: string | null
+    origin?: IssueEventOrigin
+  }
+): Promise<string[]> {
+  const ids = [...new Set(opts.issueIds)]
+  if (ids.length === 0) return []
+  const rows = await tx
+    .select({ id: issues.id, status: issues.status })
+    .from(issues)
+    .where(
+      and(inArray(issues.id, ids), eq(issues.teamId, opts.teamId), eq(issues.status, `in_review`))
+    )
+  if (rows.length === 0) return []
+  const automation = await resolveAutomationTarget(tx, opts.teamId, `resumed`)
+  if (!automation.enabled) return []
+  const last = await lastStatusChangesInTx(tx, rows.map((row) => row.id))
+  const live = await withLivePrInTx(tx, rows.map((row) => row.id))
+  const moved: string[] = []
+  for (const row of rows) {
+    if (last.get(row.id)?.automation !== true || !live.has(row.id)) continue
+    const applied = await applyPrLifecycleStatusInTx(tx, {
+      issueId: row.id,
+      teamId: opts.teamId,
+      actorUserId: opts.actorUserId,
+      currentStatus: row.status,
+      event: `resumed`,
+      automation,
+      payloadExtra: { event: `resumed`, rootSessionId: opts.rootSessionId },
+      ...(opts.origin ? { origin: opts.origin } : {}),
+    })
+    if (applied) moved.push(row.id)
+  }
+  return moved
+}
+
+/**
+ * EXP-1350: the thread's follow-up work stopped (a child ended or went idle):
+ * once NO other work session of the tree still works (queued, running or
+ * busy, or holding an unread message; dispatchers and asides never
+ * count), every issue THIS
+ * thread's `resumed` moved, still sitting in In Progress with its PR live,
+ * takes the PR-open automation again (parents keep waiting for their
+ * sub-issues). A person's move in between is newer than the event and wins.
+ */
+export async function reapplyOpenedAfterWorkInTx(
+  tx: Tx,
+  opts: { rootSessionId: string; stoppedIds: string[]; actorUserId: string | null }
+): Promise<string[]> {
+  const [root] = await tx
+    .select({ id: sessions.id, teamId: sessions.teamId })
+    .from(sessions)
+    .where(eq(sessions.id, opts.rootSessionId))
+    .limit(1)
+  if (!root) return []
+  const [working] = await tx
+    .select({ id: sessions.id })
+    .from(sessions)
+    .where(
+      and(
+        eq(sessions.rootId, root.id),
+        ne(sessions.id, root.id),
+        eq(sessions.aside, false),
+        eq(sessions.dispatch, false),
+        ne(sessions.status, `ended`),
+        ...(opts.stoppedIds.length ? [notInArray(sessions.id, opts.stoppedIds)] : []),
+        or(
+          inArray(sessions.status, [`queued`, `running`]),
+          eq(sessions.busy, true),
+          // A message it has not read yet: it is about to work.
+          sql`EXISTS (SELECT 1 FROM messages m WHERE m.session_id = ${sessions.id} AND m.consumed_at IS NULL)`
+        )
+      )
+    )
+    .limit(1)
+  if (working) return []
+  const linked = await tx
+    .select({ id: issues.id })
+    .from(sessionIssues)
+    .innerJoin(issues, eq(issues.id, sessionIssues.issueId))
+    .where(and(eq(sessionIssues.sessionId, root.id), eq(issues.status, `in_progress`)))
+  const ids = linked.map((row) => row.id)
+  if (ids.length === 0) return []
+  const last = await lastStatusChangesInTx(tx, ids)
+  const live = await withLivePrInTx(tx, ids)
+  const resumed = ids.filter((id) => {
+    const payload = last.get(id)
+    return (
+      payload?.automation === true &&
+      payload.event === `resumed` &&
+      payload.rootSessionId === root.id &&
+      live.has(id)
+    )
+  })
+  return applyPrEventToIssuesInTx(tx, {
+    teamId: root.teamId,
+    issueIds: resumed,
+    event: `opened`,
+    actorUserId: opts.actorUserId,
+  })
 }
 
 // ── the issue tree + the PR tree (EXP-1334) ─────────────────────────────────

@@ -53,6 +53,7 @@ import {
 import {
   endSession,
   postReportToParent,
+  settleFollowUpIssuesInTx,
   relayKillSessionsBestEffort,
   stopSession,
 } from "@/lib/sessions/lifecycle"
@@ -767,6 +768,11 @@ export const sessionsRouter = router({
         // to its parent like an explicit End (once: only when THIS report
         // flipped the row).
         if (ending && updated.length > 0) await postReportToParent(tx, session)
+        // EXP-1350: a work child's turn ended (or it did): its follow-up's
+        // issues may go back to In Review.
+        if (updated.length > 0 && turnEnded && session.parentId !== null && !session.dispatch) {
+          await settleFollowUpIssuesInTx(tx, session, [session.id], session.userId)
+        }
         return txid
       })
       if (newlyBlocked) void notifySessionBlocked(session.id, blocked!)

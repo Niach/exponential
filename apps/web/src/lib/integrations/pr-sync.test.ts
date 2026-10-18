@@ -87,6 +87,49 @@ describe(`planPrAutomationTransition`, () => {
     ).toEqual({ status: `done`, statusId: `s-done` })
   })
 
+  it(`resumed takes an In Review issue back to In Progress, nothing else`, () => {
+    const builtinInProgress = {
+      id: `s-in-progress`,
+      builtinKey: `in_progress`,
+      category: `started` as const,
+    }
+    expect(
+      planPrAutomationTransition({
+        event: `resumed`,
+        automationEnabled: true,
+        current: { status: `in_review`, statusId: `s-in-review` },
+        target: builtinInProgress,
+      })
+    ).toEqual({ status: `in_progress`, statusId: `s-in-progress` })
+    for (const status of [`backlog`, `in_progress`, `done`, `cancelled`, `duplicate`]) {
+      expect(
+        planPrAutomationTransition({
+          event: `resumed`,
+          automationEnabled: true,
+          current: { status, statusId: null },
+          target: builtinInProgress,
+        })
+      ).toBeNull()
+    }
+    expect(
+      planPrAutomationTransition({
+        event: `resumed`,
+        automationEnabled: false,
+        current: { status: `in_review`, statusId: `s-in-review` },
+        target: builtinInProgress,
+      })
+    ).toBeNull()
+    // No builtin row: the bare anchor, status_id resolved by the trigger.
+    expect(
+      planPrAutomationTransition({
+        event: `resumed`,
+        automationEnabled: true,
+        current: { status: `in_review`, statusId: null },
+        target: null,
+      })
+    ).toEqual({ status: `in_progress` })
+  })
+
   it(`does nothing when the team disabled the automation`, () => {
     expect(
       planPrAutomationTransition({

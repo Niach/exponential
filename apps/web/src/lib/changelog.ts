@@ -25,6 +25,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-10-18-follow-up-in-progress`,
+    date: `2026-10-18`,
+    title: `Follow-up work moves an issue back to In Progress`,
+    summary: `When a session starts follow-up work on an issue in review, the issue moves back to In Progress, and returns to In Review once the work ends with its pull request still open.`,
+    body: `- **Back to In Progress**: a new sub-session, or a message to a working sub-session, in a thread whose pull request is open moves its In Review issues back to In Progress.
+- **Back to In Review**: once no session in the thread is still working and the pull request is still open, the issue returns to In Review on its own.
+- **Your status wins**: an issue you set by hand is never moved, and a status you change while the work runs stays where you put it.
+- **Same switch**: a team that turned off the pull request opened automation gets neither move.`,
+  },
+  {
     id: `2026-10-17-quick-replies`,
     date: `2026-10-17`,
     title: `Quick replies above the composer`,
