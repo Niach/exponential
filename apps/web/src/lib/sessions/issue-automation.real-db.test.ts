@@ -44,7 +44,14 @@ if (!ready.ok) console.info(`[issue-automation.real-db] skipped: ${ready.reason}
 const { sendSession } = await import(`@/lib/sessions/send`)
 const { linkIssues, manualLinkText } = await import(`@/lib/sessions/issues`)
 const { prDefaultIssueIds } = await import(`@/lib/sessions/pr-issues`)
-const { applyPullRequestBase, applyPullRequestMerged, loadPullRequest, recordPullRequestOpened } = await import(
+const { endSession, settleFollowUpIssuesInTx } = await import(`@/lib/sessions/lifecycle`)
+const {
+  applyPullRequestBase,
+  applyPullRequestClosed,
+  applyPullRequestMerged,
+  loadPullRequest,
+  recordPullRequestOpened,
+} = await import(
   `@/lib/integrations/pr-sync`
 )
 
@@ -295,5 +302,116 @@ describe.skipIf(!ready.ok)(`EXP-1334 status automation`, () => {
     await applyPullRequestMerged({ pullRequestId: pr.id, actorUserId: w.owner })
     expect(await w.status(parent.id)).toMatchObject({ status: `done` })
     expect(await w.status(child.id)).toMatchObject({ status: `done` })
+  })
+})
+
+describe.skipIf(!ready.ok)(`EXP-1350 follow-up work`, () => {
+  /** A person sets the status by hand (issues.update writes no flag). */
+  const setByHand = async (issueId: string, status: `in_review` | `in_progress` | `backlog`) => {
+    await db.update(issues).set({ status, statusId: null }).where(eq(issues.id, issueId))
+    await db.execute(sql`
+      INSERT INTO issue_events (issue_id, team_id, board_id, type, payload, created_at, updated_at)
+      SELECT id, team_id, board_id, 'status_changed', '{"fromName": null, "toName": null}'::jsonb,
+        clock_timestamp(), clock_timestamp()
+      FROM issues WHERE id = ${issueId}
+    `)
+  }
+  const child = async (w: Awaited<ReturnType<typeof world>>, parentId: string, text = `follow up`) =>
+    (await sendSession({ userId: w.owner, input: { parentId, text } })).sessionId
+  const end = (w: Awaited<ReturnType<typeof world>>, sessionId: string) =>
+    endSession({ userId: w.owner, sessionId, summary: `done` })
+  const reviewing = async (w: Awaited<ReturnType<typeof world>>) => {
+    const issue = await w.issue(`Follow-up target`)
+    const rootId = await w.thread([issue.id])
+    const pr = await w.openPr({ rootId, head: `exp/${issue.identifier}`, issueIds: [issue.id] })
+    expect(await w.status(issue.id)).toMatchObject({ status: `in_review` })
+    return { issue, rootId, pr }
+  }
+
+  it(`a child moves In Review back to In Progress and its end with the PR open returns it`, async () => {
+    const w = await world()
+    const { issue, rootId } = await reviewing(w)
+    const a = await child(w, rootId)
+    expect(await w.status(issue.id)).toEqual({ status: `in_progress`, builtinKey: `in_progress` })
+    const events = await db
+      .select({ payload: issueEvents.payload })
+      .from(issueEvents)
+      .where(and(eq(issueEvents.issueId, issue.id), eq(issueEvents.type, `status_changed`)))
+    expect(events.map((row) => row.payload)).toContainEqual(
+      expect.objectContaining({ automation: true, event: `resumed`, rootSessionId: rootId, toName: `In Progress` })
+    )
+    await end(w, a)
+    expect(await w.status(issue.id)).toEqual({ status: `in_review`, builtinKey: `in_review` })
+  })
+
+  it(`a hand-set In Review stays when follow-up work starts`, async () => {
+    const w = await world()
+    const { issue, rootId } = await reviewing(w)
+    await setByHand(issue.id, `in_review`)
+    await child(w, rootId)
+    expect(await w.status(issue.id)).toMatchObject({ status: `in_review` })
+  })
+
+  it(`a person's move while the child works wins over its end`, async () => {
+    const w = await world()
+    const { issue, rootId } = await reviewing(w)
+    const a = await child(w, rootId)
+    expect(await w.status(issue.id)).toMatchObject({ status: `in_progress` })
+    await setByHand(issue.id, `in_progress`)
+    await end(w, a)
+    expect(await w.status(issue.id)).toMatchObject({ status: `in_progress` })
+  })
+
+  it(`only the last working child's end returns it to In Review`, async () => {
+    const w = await world()
+    const { issue, rootId } = await reviewing(w)
+    const a = await child(w, rootId, `one`)
+    const b = await child(w, rootId, `two`)
+    await end(w, a)
+    expect(await w.status(issue.id)).toMatchObject({ status: `in_progress` })
+    await end(w, b)
+    expect(await w.status(issue.id)).toMatchObject({ status: `in_review` })
+  })
+
+  it(`no PR left live: the end leaves it In Progress`, async () => {
+    const w = await world()
+    const { issue, rootId, pr } = await reviewing(w)
+    const a = await child(w, rootId)
+    await applyPullRequestClosed({ pullRequestId: pr.id })
+    await end(w, a)
+    expect(await w.status(issue.id)).toMatchObject({ status: `in_progress` })
+  })
+
+  it(`a dispatcher message never moves it; a message into an idle work child does, its turn end returns it`, async () => {
+    const w = await world()
+    const { issue, rootId } = await reviewing(w)
+    await sendSession({ userId: w.owner, input: { sessionId: rootId, text: `status?` } })
+    expect(await w.status(issue.id)).toMatchObject({ status: `in_review` })
+
+    const a = await child(w, rootId)
+    // The device ran the child: its turn is over (idle, message read).
+    const settle = async () => {
+      await db.execute(sql`UPDATE messages SET consumed_at = now() WHERE session_id = ${a}`)
+      await db.execute(sql`UPDATE sessions SET status = 'idle', busy = false WHERE id = ${a}`)
+      const [row] = await db.execute(sql`SELECT root_id FROM sessions WHERE id = ${a}`).then((r) => r.rows)
+      await db.transaction((tx) =>
+        settleFollowUpIssuesInTx(tx, { rootId: (row as { root_id: string }).root_id }, [a], w.owner)
+      )
+    }
+    await settle()
+    expect(await w.status(issue.id)).toMatchObject({ status: `in_review` })
+
+    await sendSession({ userId: w.owner, input: { sessionId: a, text: `one more thing` } })
+    expect(await w.status(issue.id)).toMatchObject({ status: `in_progress` })
+    await settle()
+    expect(await w.status(issue.id)).toMatchObject({ status: `in_review` })
+  })
+
+  it(`a team without PR-open automation never moves it back`, async () => {
+    const w = await world()
+    const { issue, rootId } = await reviewing(w)
+    await db.update(teams).set({ prOpenedAutomation: false }).where(eq(teams.id, w.teamId))
+    await child(w, rootId)
+    expect(await w.status(issue.id)).toMatchObject({ status: `in_review` })
   })
 })

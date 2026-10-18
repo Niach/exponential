@@ -14,6 +14,7 @@ import {
   relayPostKill,
 } from "@/lib/steer"
 import { reportSchedulerRun } from "@/lib/metrics/registry"
+import { reapplyOpenedAfterWorkInTx } from "@/lib/integrations/pr-sync"
 
 // EXP-1291: the session lifecycle — queued → running ⇄ idle → ended.
 // Merging ends nothing any more; a session ends only explicitly (End, the
@@ -127,6 +128,19 @@ export async function postReportToParent(
   })
 }
 
+/** EXP-1350: work in a thread stopped (ended, or a work child's turn is
+ *  over): issues its follow-up took back to In Progress return to the
+ *  PR-open target once nothing else in the tree works and the PR is live. */
+export async function settleFollowUpIssuesInTx(
+  tx: Tx,
+  stopped: Pick<Session, `rootId`>,
+  stoppedIds: string[],
+  actorUserId: string | null
+): Promise<void> {
+  if (stoppedIds.length === 0) return
+  await reapplyOpenedAfterWorkInTx(tx, { rootSessionId: stopped.rootId, stoppedIds, actorUserId })
+}
+
 /** Whether the session's host device heartbeat within the contract's
  *  online window (`devices.last_seen_at`). */
 export async function sessionDeviceOnline(
@@ -167,6 +181,7 @@ export async function stopSession(args: {
     // never ends a session that already ran.
     if (session.status === `queued` && !session.startedAt && !isPersistent(session)) {
       const ended = await markEnded(tx, [session.id])
+      await settleFollowUpIssuesInTx(tx, session, ended, args.userId)
       if (ended.length) {
         await postSystemCard(tx, session, {
           kind: `event`,
@@ -212,6 +227,7 @@ export async function endSession(args: {
       await postAgentMessage(tx, session, args.summary.trim())
     }
     const endedIds = await markEnded(tx, await liveSubtreeIds(tx, session))
+    await settleFollowUpIssuesInTx(tx, session, endedIds, args.userId)
     if (endedIds.includes(session.id)) {
       await postSystemCard(tx, session, {
         kind: `event`,

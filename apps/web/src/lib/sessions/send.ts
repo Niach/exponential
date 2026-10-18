@@ -56,6 +56,7 @@ import { asideTitle } from "@/lib/sessions/caption"
 import { buildAttachmentUrl, isAcceptedImageContentType } from "@/lib/storage/issue-attachments"
 import { getSteerRelayConfig, relayPostNudge } from "@/lib/steer"
 import { fireAndForgetSessionMessageNotify } from "@/lib/integrations/notifications"
+import { applyIssuesResumedInTx } from "@/lib/integrations/pr-sync"
 
 // EXP-1291: `sessions.send` — THE entrypoint (tRPC `sessions.send` and MCP
 // `exponential_sessions_send` both land here). Three forms, one shape:
@@ -341,6 +342,32 @@ async function assertTreeRoom(tx: Tx, rootId: string, depth: number) {
   }
 }
 
+/**
+ * EXP-1350: real follow-up work starts in `session` (a new child, a message
+ * into a work session): its In Review issues go back to In Progress. Its
+ * issues = the ones assigned to it, else every issue of its thread. A
+ * dispatcher (it answers, never works), an aside and an agent never count.
+ */
+async function resumeIssuesForWorkInTx(
+  tx: Tx,
+  session: Pick<Session, `id` | `rootId` | `teamId` | `parentId` | `dispatch` | `aside` | `kind`>,
+  actorUserId: string
+): Promise<void> {
+  if (session.parentId === null || session.dispatch || session.aside || isPersistent(session)) return
+  const linked = await tx
+    .select({ issueId: sessionIssues.issueId, assigned: sessionIssues.assignedSessionId })
+    .from(sessionIssues)
+    .where(eq(sessionIssues.sessionId, session.rootId))
+  const own = linked.filter((row) => row.assigned === session.id)
+  const issueIds = (own.length ? own : linked).map((row) => row.issueId)
+  await applyIssuesResumedInTx(tx, {
+    teamId: session.teamId,
+    rootSessionId: session.rootId,
+    issueIds,
+    actorUserId,
+  })
+}
+
 async function insertSession(tx: Tx, values: SessionInsert & { id: string }): Promise<Session> {
   const [row] = await tx.insert(sessions).values(values).returning()
   return row!
@@ -582,6 +609,7 @@ async function messageSession(
         })
       }
       const messageId = await postSendMessage(tx, target, input, userId, uploaderIds, from)
+      if (messageId) await resumeIssuesForWorkInTx(tx, target, userId)
       await extras.within?.(tx, { sessionId: target.id, messageId, rootId: target.rootId })
       return { sessionId: target.id, messageId, status: target.status, txid, queued }
     })
@@ -666,6 +694,7 @@ async function messageSession(
       caller ? { sessionId: caller.id, asSession: false } : null
     )
     await postSystemCard(tx, endedChild ? parentId : root, { kind: `session`, sessionId: child.id })
+    await resumeIssuesForWorkInTx(tx, child, userId)
     await extras.within?.(tx, { sessionId: child.id, messageId, rootId: root.id })
     return {
       sessionId: child.id,
@@ -764,6 +793,7 @@ async function startChild(
       caller ? { sessionId: caller.id, asSession: false } : null
     )
     await postSystemCard(tx, parent, { kind: `session`, sessionId: child.id })
+    await resumeIssuesForWorkInTx(tx, child, userId)
     await extras.within?.(tx, { sessionId: child.id, messageId, rootId: root.id })
     return {
       sessionId: child.id,
