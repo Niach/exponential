@@ -117,10 +117,10 @@ final class StyleguideScreenshots: XCTestCase {
     /// APP-5 — the showcase issue: the only one the seed gives a comment thread
     /// (four comments, incl. an `@mention` + `#APP-2` issue ref).
     private static let showcaseTitle = "Reduce cold start below 800 ms"
-    /// EXP-1316: the cold-start thread (DEMO_THREAD_ID) is titled off its
-    /// linked issues (APP-5, APP-10, FB-3): `Implement APP-5 + 2`, never the
-    /// issue title, and its rows carry no identifier slot.
-    private static let coldStartThreadTitle = "Implement APP-5 + 2"
+    /// EXP-1341: the cold-start thread (DEMO_THREAD_ID) is titled off its
+    /// linked issues (APP-5, APP-10, FB-3), session-title.json `titles.issues`:
+    /// `#APP-5 Reduce cold start below 800 ms + 2`; matched on the issue title.
+    private static let coldStartThreadTitle = "Reduce cold start below 800 ms"
     /// First comment on APP-5, plain text before any markdown decoration.
     private static let showcaseCommentFragment = "Profiled on a mid-range device"
     /// Assigned to the demo user, so it is on My Issues.
@@ -654,6 +654,24 @@ final class StyleguideScreenshots: XCTestCase {
             expect(app.staticTexts[Self.batchGuideSection], within: Wait.sync, "APP-15's thread drew no seeded Guide")
             expect(app.buttons["Merge stack"], within: Wait.sync, "APP-15's Guide drew no Merge stack capsule")
             snapshot("sg_guide", settle: 2)
+            // Thread → issue → board.
+            goBack(app)
+            goBack(app)
+            settle(1)
+        }
+
+        // ── sg_thread-replies: the quick replies (EXP-1211) ──────────────────
+        // APP-15's thread again, left on its Conversation: the seeded
+        // `replies` card's row over the composer capsule.
+        if ScreenshotShots.isWanted("sg_thread-replies") {
+            openIssue(app, title: Self.batchGuideTitle)
+            let threadChip = anyElement(app, identified: "issue-thread-chip")
+            _ = scrollUntilVisible(app, threadChip)
+            expect(threadChip, within: Wait.sync, "APP-15 sits in no thread — reseed with `bun run seed:screenshots`")
+            threadChip.tap()
+            let replies = anyElement(app, identified: "thread-replies")
+            expect(replies, within: Wait.sync, "APP-15's thread drew no quick replies — reseed with `bun run seed:screenshots`")
+            snapshot("sg_thread-replies", settle: 2)
             // Thread → issue → board.
             goBack(app)
             goBack(app)

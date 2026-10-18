@@ -69,7 +69,9 @@ struct SessionComposerReplies: View {
     }
 
     var body: some View {
-        Group {
+        // A real container, never a `Group`: an empty Group is no view, so
+        // the observing `.task` below would never start.
+        VStack(spacing: 0) {
             if let replies {
                 ComposerRepliesRow(
                     replies: replies,
