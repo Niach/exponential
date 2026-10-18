@@ -1,5 +1,27 @@
 package com.exponential.app.ui.thread
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
+import at.exponential.ui.primitives.LocalPrimitiveTokens
+import at.exponential.ui.primitives.fieldChrome
+import com.exponential.app.ui.markdown.LocalInlineCodeStyle
+import com.exponential.app.ui.markdown.LocalMarkdownBodyStyle
+import com.exponential.app.ui.markdown.MdStyle
+import com.exponential.app.ui.session.TranscriptBodyStyle
+import com.exponential.app.ui.theme.AppPrimitiveTokens
+import com.exponential.app.ui.theme.DesignTokens
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -38,7 +60,6 @@ import com.exponential.app.domain.PlanCard
 import com.exponential.app.domain.QuestionOption
 import com.exponential.app.domain.SessionTree
 import com.exponential.app.domain.locksCard
-import com.exponential.app.ui.components.GlassTextField
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.markdown.MarkdownView
 import com.exponential.app.ui.session.AnsweredRow
@@ -46,7 +67,6 @@ import com.exponential.app.ui.session.AskCard
 import com.exponential.app.ui.session.LocalAskDockCard
 import com.exponential.app.ui.session.QuestionOptionButton
 import com.exponential.app.ui.theme.GlassTokens
-import com.exponential.app.ui.theme.TextEmphasis
 import kotlinx.serialization.json.JsonObject
 
 /** EXP-1280: a question card's answer — [answer] = the compat string (the
@@ -82,16 +102,18 @@ private const val QUESTION_CARD_ID = "question"
 
 /**
  * THE plan / question card ×4 (fixtures/plan-card.json; web
- * `ThreadPlanCard` / `ThreadQuestionCard`): the AskCard header, the markdown
- * body (pictures inline; a still-uploading `upload:` image renders nothing),
- * the inline surface, one block per question (prompt + Choose one / Choose
- * any + THE option rows, or picture TILES once any option has a picture, +
- * the `Other…` free-text row), then a plan's decision rows (ask-dock.json
- * `planOptions`) + the feedback field, or a question's Answer button.
- * Approving waits for every question ([PlanCard.answerIssue] = missing);
- * rejecting never does. ANSWERED = closed: the picks stay highlighted, the
- * rest inert, the decision + feedback shown. Answers go out through
- * `sessions.answer` with `answers` + `surfaceData`.
+ * `ThreadPlanCard` / `ThreadQuestionCard`): the AskCard header (a plan's
+ * "Plan ready"; a question carries only its glyph), the markdown body at the
+ * chat measure (pictures inline; a still-uploading `upload:` image renders
+ * nothing), the inline surface, one block per question (prompt + Choose one
+ * / Choose any + THE option rows, or picture TILES once any option has a
+ * picture, + THE `Other…` field), then a plan's decision rows (ask-dock.json
+ * `planOptions`), the issue line and the feedback field, or a question's
+ * small Answer button. Approving waits for every question
+ * ([PlanCard.answerIssue]); rejecting never does. ANSWERED = closed: the
+ * picks keep an emerald check, the rest inert, the decision + ONE feedback
+ * line. Answers go out through `sessions.answer` with `answers` +
+ * `surfaceData`. Geometry = [PlanCard.Look] / [PlanCard.Tiles].
  */
 @Composable
 internal fun PlanAskCard(
@@ -124,16 +146,17 @@ internal fun PlanAskCard(
         } ?: emptyMap()
     }
     val picks = remember(row.id) { mutableStateMapOf<String, Set<String>>() }
-    val customOpen = remember(row.id) { mutableStateMapOf<String, Boolean>() }
     val customText = remember(row.id) { mutableStateMapOf<String, String>() }
     var feedback by remember(row.id) { mutableStateOf("") }
     val surfaceHandle = remember(row.id) { CardSurfaceHandle() }
 
-    /** A block's answer now: its picks in option order, + the typed text. */
+    /** A block's answer now (web `questionAnswer`): its picks in option
+     *  order; typed text joins a multi's picks and replaces a single's. */
     fun answerOf(block: ChoiceBlock): List<String> {
         val picked = block.options.map { it.label }.filter { it in picks[block.id].orEmpty() }
-        val typed = customText[block.id]?.trim()?.takeIf { customOpen[block.id] == true && it.isNotEmpty() }
-        return picked + listOfNotNull(typed)
+        val typed = customText[block.id]?.trim()?.takeIf { block.custom && it.isNotEmpty() }
+            ?: return picked
+        return if (block.multi) picked + typed else listOf(typed)
     }
 
     fun toggle(block: ChoiceBlock, label: String) {
@@ -143,45 +166,60 @@ internal fun PlanAskCard(
             block.multi -> current + label
             else -> setOf(label)
         }
-        // One answer unless multi: a pick closes the free-text row.
-        if (!block.multi) customOpen[block.id] = false
     }
 
     val docked = LocalAskDockCard.current
     AskCard(
         plan = plan != null,
-        heading = if (plan != null) AskDock.Copy.PLAN_READY else AskDock.Copy.QUESTION,
+        // Only a plan carries a header; a question card is its glyph alone.
+        heading = if (plan != null) AskDock.Copy.PLAN_READY else null,
         meta = null,
         modifier = modifier.testTag(PlanCard.TestIds.CARD),
         onBack = docked?.onBack,
     ) {
         val body = @Composable {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                MarkdownView(PlanCard.withoutPendingUploads(plan?.plan ?: question!!.question))
-                val surface: CardSurface? = plan?.surface ?: question?.surface
-                if (surface != null) CardSurfaceView(surface, surfaceHandle, inert = !live)
-                blocks.forEach { block ->
-                    if (plan == null && block.options.isEmpty() && !block.custom) return@forEach
-                    ChoiceBlockView(
-                        block = block,
-                        picked = if (answered) recorded[block.id].orEmpty().toSet() else picks[block.id].orEmpty(),
-                        typed = if (answered) {
-                            recorded[block.id].orEmpty().firstOrNull { label -> block.options.none { it.label == label } }
-                        } else {
-                            null
-                        },
-                        answered = answered,
-                        enabled = live,
-                        customOpen = customOpen[block.id] == true,
-                        customText = customText[block.id].orEmpty(),
-                        onToggle = { toggle(block, it) },
-                        onCustomOpen = {
-                            val open = customOpen[block.id] != true
-                            customOpen[block.id] = open
-                            if (open && !block.multi) picks[block.id] = emptySet()
-                        },
-                        onCustomText = { customText[block.id] = it },
-                    )
+            // The chat measure (14sp, h1 = `card.headingScale` × it), not
+            // the 17sp document body an issue description uses.
+            CompositionLocalProvider(
+                LocalMarkdownBodyStyle provides TranscriptBodyStyle,
+                LocalInlineCodeStyle provides MdStyle.Chat,
+            ) {
+                Column(Modifier.fillMaxWidth()) {
+                    MarkdownView(PlanCard.withoutPendingUploads(plan?.plan ?: question!!.question))
+                    val surface: CardSurface? = plan?.surface ?: question?.surface
+                    if (surface != null) {
+                        CardSurfaceView(
+                            surface,
+                            surfaceHandle,
+                            inert = !live,
+                            modifier = Modifier.padding(top = PlanCard.Look.BLOCK_GAP.dp),
+                        )
+                    }
+                    blocks.forEach { block ->
+                        if (plan == null && block.options.isEmpty() && !block.custom) return@forEach
+                        ChoiceBlockView(
+                            block = block,
+                            // A plan question always names its rule; a question
+                            // card only says "Choose any" while it takes several.
+                            caption = when {
+                                plan != null -> if (block.multi) PlanCard.Copy.CHOOSE_ANY else PlanCard.Copy.CHOOSE_ONE
+                                block.multi && !answered && block.options.isNotEmpty() -> PlanCard.Copy.CHOOSE_ANY
+                                else -> null
+                            },
+                            picked = if (answered) recorded[block.id].orEmpty().toSet() else picks[block.id].orEmpty(),
+                            typed = if (answered) {
+                                recorded[block.id].orEmpty().filter { label -> block.options.none { it.label == label } }
+                                    .takeIf { it.isNotEmpty() }?.let(PlanCard::joinAnswers)
+                            } else {
+                                null
+                            },
+                            answered = answered,
+                            enabled = live,
+                            customText = customText[block.id].orEmpty(),
+                            onToggle = { toggle(block, it) },
+                            onCustomText = { customText[block.id] = it },
+                        )
+                    }
                 }
             }
         }
@@ -192,19 +230,23 @@ internal fun PlanAskCard(
         }
 
         if (answered) {
-            Column(Modifier.padding(top = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                if (plan != null) {
+            if (plan != null) {
+                Column(Modifier.padding(top = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     AnsweredRow(AskDock.planDecisionLabel(plan.decision!!, plan.fresh))
                     plan.feedback?.let {
                         Text(
-                            "${PlanCard.Copy.FEEDBACK}: $it",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                            PlanCard.Copy.feedbackLine(it),
+                            modifier = Modifier.testTag(PlanCard.TestIds.FEEDBACK),
+                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Normal),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                         )
                     }
-                } else {
-                    AnsweredRow(question!!.answer)
                 }
+            } else if (recorded[QUESTION_CARD_ID].isNullOrEmpty()) {
+                // Nothing recorded to highlight: the bare resolution line.
+                Box(Modifier.padding(top = 4.dp)) { AnsweredRow(question!!.answer) }
             }
         } else if (plan != null) {
             val answers = blocks.associate { it.id to answerOf(it) }
@@ -212,48 +254,58 @@ internal fun PlanAskCard(
                 PlanCard.Card.Plan(plan.questions),
                 PlanCard.Input(decision = "approved", planAnswers = answers),
             )
-            Column(Modifier.fillMaxWidth().padding(top = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                AskDock.PLAN_OPTIONS.forEachIndexed { index, option ->
-                    val approve = option.decision == "approved"
-                    QuestionOptionButton(
-                        option = QuestionOption(option.label, option.key, description = option.description),
-                        ordinal = index + 1,
-                        primary = index == 0 && issue == null,
-                        selected = false,
-                        checked = null,
-                        enabled = live && (!approve || issue == null),
-                        dimmed = locked || (approve && issue != null),
-                        onClick = {
-                            state = AnswerState.Sending
-                            onDecidePlan(
-                                plan.id,
-                                PlanAnswer(
-                                    approved = approve,
-                                    fresh = option.fresh,
-                                    feedback = feedback.trim().takeIf { it.isNotEmpty() },
-                                    answers = answers.filterValues { it.isNotEmpty() }.takeIf { it.isNotEmpty() },
-                                    surfaceData = surfaceHandle.snapshot(),
-                                ),
-                                settle,
-                            )
-                        },
-                    )
+            Column(Modifier.fillMaxWidth().padding(top = 4.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    AskDock.PLAN_OPTIONS.forEachIndexed { index, option ->
+                        val approve = option.decision == "approved"
+                        QuestionOptionButton(
+                            option = QuestionOption(option.label, option.key, description = option.description),
+                            ordinal = index + 1,
+                            // A blocked "Yes" keeps its fill, dimmed.
+                            primary = index == 0,
+                            selected = false,
+                            checked = null,
+                            enabled = live && (!approve || issue == null),
+                            dimmed = locked || (approve && issue != null),
+                            onClick = {
+                                state = AnswerState.Sending
+                                onDecidePlan(
+                                    plan.id,
+                                    PlanAnswer(
+                                        approved = approve,
+                                        fresh = option.fresh,
+                                        feedback = feedback.trim().takeIf { it.isNotEmpty() },
+                                        answers = answers.filterValues { it.isNotEmpty() }.takeIf { it.isNotEmpty() },
+                                        surfaceData = surfaceHandle.snapshot(),
+                                    ),
+                                    settle,
+                                )
+                            },
+                        )
+                    }
                 }
-                if (issue == PlanCard.AnswerIssue.Missing) {
+                if (issue != null) {
                     Text(
                         issue.text,
-                        modifier = Modifier.testTag(PlanCard.TestIds.ISSUE),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                        modifier = Modifier
+                            .padding(top = PlanCard.Look.OPTIONS_GAP.dp)
+                            .testTag(PlanCard.TestIds.ISSUE),
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Normal),
+                        // The warning paint ×4 (web `text-yellow-400`).
+                        color = DesignTokens.Semantic.Yellow,
                     )
                 }
-                GlassTextField(
+                CardTextField(
                     value = feedback,
                     onValueChange = { feedback = it },
-                    modifier = Modifier.fillMaxWidth().testTag(PlanCard.TestIds.FEEDBACK),
                     placeholder = AskDock.Copy.FEEDBACK_PLACEHOLDER,
                     enabled = live,
-                    maxLines = 4,
+                    singleLine = false,
+                    minHeight = PlanCard.Look.FIELD_MIN_HEIGHT.dp,
+                    textStyle = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier
+                        .padding(top = 8.dp)
+                        .testTag(PlanCard.TestIds.FEEDBACK),
                 )
             }
         } else {
@@ -263,15 +315,11 @@ internal fun PlanAskCard(
                 PlanCard.Card.Question(block.options.map { it.label }, block.multi, block.custom),
                 PlanCard.Input(answers = labels),
             )
-            Box(Modifier.fillMaxWidth().padding(top = 4.dp)) {
-                QuestionOptionButton(
-                    option = QuestionOption(PlanCard.Copy.ANSWER, "answer"),
-                    ordinal = 0,
-                    primary = issue == null,
-                    selected = false,
-                    checked = null,
+            if (!locked) {
+                CardAnswerButton(
+                    label = PlanCard.Copy.ANSWER,
                     enabled = live && issue == null,
-                    dimmed = locked,
+                    modifier = Modifier.padding(top = 8.dp).testTag("thread-question-answer"),
                     onClick = {
                         state = AnswerState.Sending
                         onAnswer(
@@ -284,38 +332,52 @@ internal fun PlanAskCard(
             }
         }
         if (locked && !answered) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                if (state == AnswerState.Sending) {
-                    CircularProgressIndicator(modifier = Modifier.size(12.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onSurface)
-                }
+            Row(
+                modifier = Modifier.padding(top = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                CircularProgressIndicator(modifier = Modifier.size(12.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onSurface)
                 Text(
-                    if (state == AnswerState.Sending) "Sending your answer…" else "Answer sent. Waiting for the agent.",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                    PlanCard.Copy.ANSWERING,
+                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Normal),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }
     }
 }
 
-/** One question: prompt (strong) + Choose one / Choose any, the options as
- *  THE option rows or as picture tiles, + the `Other…` row. */
+/** One question (web `PlanCardQuestionBlock`): the prompt (`xs` semibold),
+ *  the choose [caption] (`2xs` muted, `blockInnerGap` under it), the options
+ *  `optionsGap` under that as THE option rows or picture tiles, then THE
+ *  `Other…` field; closed = the picks + a typed answer's line. */
 @Composable
 private fun ChoiceBlockView(
     block: ChoiceBlock,
+    caption: String?,
     picked: Set<String>,
     typed: String?,
     answered: Boolean,
     enabled: Boolean,
-    customOpen: Boolean,
     customText: String,
     onToggle: (String) -> Unit,
-    onCustomOpen: () -> Unit,
     onCustomText: (String) -> Unit,
 ) {
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant
     Column(
-        modifier = Modifier.fillMaxWidth().testTag(PlanCard.TestIds.QUESTION),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            // A plan question = `blockGap` under what precedes it; a question
+            // card's own options hang off its body (web `mt-2` caption).
+            .padding(
+                top = when {
+                    block.prompt != null -> PlanCard.Look.BLOCK_GAP.dp
+                    caption != null -> 8.dp
+                    else -> 0.dp
+                },
+            )
+            .testTag(PlanCard.TestIds.QUESTION),
     ) {
         if (block.prompt != null) {
             Text(
@@ -324,72 +386,133 @@ private fun ChoiceBlockView(
                 color = MaterialTheme.colorScheme.onSurface,
             )
         }
-        Text(
-            if (block.multi) PlanCard.Copy.CHOOSE_ANY else PlanCard.Copy.CHOOSE_ONE,
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-        )
-        when (PlanCard.optionRows(block.options)) {
-            PlanCard.OptionRows.List -> block.options.forEachIndexed { index, option ->
-                val on = option.label in picked
-                Box(Modifier.testTag(PlanCard.TestIds.OPTION)) {
-                    QuestionOptionButton(
-                        option = QuestionOption(option.label, "$index:${option.label}", description = option.description),
-                        // The number keys belong to the decision rows.
-                        ordinal = 0,
-                        primary = false,
-                        selected = on,
-                        checked = if (block.multi) on else on.takeIf { it },
-                        enabled = enabled,
-                        dimmed = answered && !on,
-                        onClick = { onToggle(option.label) },
-                    )
+        if (caption != null) {
+            Text(
+                caption,
+                modifier = Modifier.padding(top = if (block.prompt != null) PlanCard.Look.BLOCK_INNER_GAP.dp else 0.dp),
+                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Normal),
+                color = muted,
+            )
+        }
+        if (block.options.isNotEmpty()) {
+            Box(Modifier.padding(top = PlanCard.Look.OPTIONS_GAP.dp)) {
+                when (PlanCard.optionRows(block.options)) {
+                    PlanCard.OptionRows.List -> Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        block.options.forEachIndexed { index, option ->
+                            val on = option.label in picked
+                            Box(Modifier.testTag(PlanCard.TestIds.OPTION)) {
+                                QuestionOptionButton(
+                                    option = QuestionOption(option.label, "$index:${option.label}", description = option.description),
+                                    // The number keys belong to the decision rows.
+                                    ordinal = 0,
+                                    primary = false,
+                                    selected = on,
+                                    // Multi = the leading selected/unselected
+                                    // glyph; single = the trailing check.
+                                    checked = if (block.multi) on else null,
+                                    enabled = enabled,
+                                    dimmed = false,
+                                    onClick = { onToggle(option.label) },
+                                    trailingCheck = !answered && !block.multi && on,
+                                    closed = if (answered) on else null,
+                                )
+                            }
+                        }
+                    }
+                    PlanCard.OptionRows.Tiles -> PlanCardTiles(block, picked, answered, enabled, onToggle)
                 }
             }
-            PlanCard.OptionRows.Tiles -> PlanCardTiles(block, picked, answered, enabled, onToggle)
         }
         if (answered) {
-            if (typed != null) {
-                QuestionOptionButton(
-                    option = QuestionOption(typed, "custom"),
-                    ordinal = 0,
-                    primary = false,
-                    selected = true,
-                    checked = true,
-                    enabled = false,
-                    dimmed = false,
-                    onClick = {},
-                )
-            }
+            if (typed != null) Box(Modifier.padding(top = 4.dp)) { AnsweredRow(typed) }
         } else if (block.custom) {
-            Box(Modifier.testTag(PlanCard.TestIds.CUSTOM)) {
-                QuestionOptionButton(
-                    option = QuestionOption(PlanCard.Copy.CUSTOM, "custom", freeText = true),
-                    ordinal = 0,
-                    primary = false,
-                    selected = customOpen,
-                    checked = if (block.multi) customOpen else customOpen.takeIf { it },
-                    enabled = enabled,
-                    dimmed = false,
-                    onClick = onCustomOpen,
-                )
-            }
-            if (customOpen) {
-                GlassTextField(
-                    value = customText,
-                    onValueChange = onCustomText,
-                    modifier = Modifier.fillMaxWidth(),
-                    placeholder = com.exponential.app.domain.FREE_TEXT_ANSWER_PLACEHOLDER,
-                    enabled = enabled,
-                    maxLines = 4,
-                )
-            }
+            CardTextField(
+                value = customText,
+                onValueChange = onCustomText,
+                placeholder = PlanCard.Copy.CUSTOM,
+                enabled = enabled,
+                singleLine = true,
+                minHeight = PlanCard.Look.ROW_MIN_HEIGHT.dp,
+                textStyle = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(top = 4.dp).testTag(PlanCard.TestIds.CUSTOM),
+            )
         }
     }
 }
 
-/** The options as picture tiles: THE `ChoiceTiles` primitive in the
- *  plan-card.json geometry (phones: `tiles.phoneColumns`). */
+/** THE card's input (web `Input` / the feedback `Textarea`): a plain field
+ *  in the SDK field chrome at [minHeight]; the `Other…` field is single
+ *  line at `rowMinHeight`, the feedback multi-line at `fieldMinHeight`. */
+@Composable
+private fun CardTextField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    placeholder: String,
+    enabled: Boolean,
+    singleLine: Boolean,
+    minHeight: Dp,
+    textStyle: TextStyle,
+    modifier: Modifier = Modifier,
+) {
+    val interaction = remember { MutableInteractionSource() }
+    val focused by interaction.collectIsFocusedAsState()
+    val color = MaterialTheme.colorScheme.onSurface
+    BasicTextField(
+        value = value,
+        onValueChange = onValueChange,
+        enabled = enabled,
+        singleLine = singleLine,
+        maxLines = if (singleLine) 1 else 6,
+        textStyle = textStyle.copy(color = color),
+        cursorBrush = SolidColor(color),
+        interactionSource = interaction,
+        modifier = modifier
+            .fillMaxWidth()
+            .fieldChrome(
+                AppPrimitiveTokens,
+                focused = focused,
+                radius = PlanCard.Look.ROW_RADIUS.dp,
+                fill = GlassTokens.CardFill,
+                stroke = GlassTokens.StrokeCard,
+                focusedStroke = GlassTokens.StrokeActive,
+                strokeWidth = GlassTokens.Hairline,
+            ),
+        decorationBox = { inner ->
+            Box(
+                Modifier.heightIn(min = minHeight).padding(horizontal = 12.dp, vertical = 6.dp),
+                contentAlignment = if (singleLine) Alignment.CenterStart else Alignment.TopStart,
+            ) {
+                if (value.isEmpty()) {
+                    Text(placeholder, style = textStyle, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                inner()
+            }
+        },
+    )
+}
+
+/** A question card's Answer (web `Button size="sm"`): small, primary ALWAYS,
+ *  left-aligned; an answer issue dims it to `inertOpacity`. */
+@Composable
+private fun CardAnswerButton(label: String, enabled: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val shape = RoundedCornerShape(PlanCard.Look.ROW_RADIUS.dp)
+    Box(
+        modifier = modifier
+            .alpha(if (enabled) 1f else PlanCard.Look.INERT_OPACITY)
+            .clip(shape)
+            .background(MaterialTheme.colorScheme.primary, shape)
+            .then(if (enabled) Modifier.clickable(role = Role.Button, onClick = onClick) else Modifier)
+            .heightIn(min = PlanCard.Look.ROW_MIN_HEIGHT.dp)
+            .padding(horizontal = 12.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onPrimary)
+    }
+}
+
+/** The options as picture tiles: THE `ChoiceTiles` primitive (the eUI
+ *  recipe on the app's theme tokens) at the plan-card.json `tiles` numbers
+ *  (phones: `tiles.phoneColumns`). */
 @Composable
 private fun PlanCardTiles(
     block: ChoiceBlock,
@@ -398,22 +521,19 @@ private fun PlanCardTiles(
     enabled: Boolean,
     onToggle: (String) -> Unit,
 ) {
-    val onSurface = MaterialTheme.colorScheme.onSurface
-    val style = ChoiceTilesStyle(
+    val tokens = LocalPrimitiveTokens.current
+    val style = ChoiceTilesStyle.default(tokens).copy(
         columns = PlanCard.Tiles.PHONE_COLUMNS,
         gap = PlanCard.Tiles.GAP.dp,
         radius = PlanCard.Tiles.RADIUS.dp,
         padding = PlanCard.Tiles.PADDING.dp,
         pictureAspect = PlanCard.Tiles.PICTURE_ASPECT,
+        pictureRadius = PlanCard.Tiles.PICTURE_RADIUS.dp,
         selectedRing = PlanCard.Tiles.SELECTED_RING.dp,
-        tileFill = GlassTokens.RowFill,
-        tileFillSelected = GlassTokens.RowFillActive,
-        stroke = GlassTokens.StrokeCard,
-        strokeWidth = GlassTokens.Hairline,
-        accent = MaterialTheme.colorScheme.primary,
-        pictureFill = GlassTokens.RowFill,
-        label = onSurface,
-        description = onSurface.copy(alpha = TextEmphasis.Tertiary),
+        pictureGap = PlanCard.Tiles.LABEL_GAP.dp,
+        descriptionGap = PlanCard.Tiles.LABEL_GAP.dp,
+        placeholderGlyph = PlanCard.Tiles.PLACEHOLDER_GLYPH.dp,
+        inertOpacity = PlanCard.Tiles.INERT_OPACITY,
     )
     ChoiceTiles(
         tiles = block.options.map { option ->
@@ -443,8 +563,8 @@ private fun PlanCardTiles(
             Icon(
                 ExpIcons.editorImage,
                 contentDescription = null,
-                modifier = Modifier.size(20.dp),
-                tint = onSurface.copy(alpha = TextEmphasis.Tertiary),
+                modifier = Modifier.fillMaxSize(),
+                tint = tokens.mutedForeground,
             )
         },
     )

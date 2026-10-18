@@ -7,7 +7,6 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.double
-import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -86,6 +85,19 @@ class PlanCardTest {
         assertEquals(copy.str("custom"), PlanCard.Copy.CUSTOM)
         assertEquals(copy.str("surface"), PlanCard.Copy.SURFACE)
         assertEquals(copy.str("answer"), PlanCard.Copy.ANSWER)
+        assertEquals(copy.str("answered"), PlanCard.Copy.ANSWERED)
+        assertEquals(copy.str("answering"), PlanCard.Copy.ANSWERING)
+        assertEquals(copy.str("feedbackLine"), PlanCard.Copy.FEEDBACK_LINE)
+        assertEquals("Feedback: Go.", PlanCard.Copy.feedbackLine("Go."))
+        val specimen = copy.getValue("specimen").jsonObject
+        assertEquals(
+            specimen.mapValues { it.value.jsonPrimitive.content },
+            mapOf(
+                "pending" to PlanCard.Copy.SPECIMEN_PENDING,
+                "answered" to PlanCard.Copy.SPECIMEN_ANSWERED,
+                "approved" to PlanCard.Copy.SPECIMEN_APPROVED,
+            ),
+        )
         val issues = copy.getValue("answerIssues").jsonObject
         for (issue in PlanCard.AnswerIssue.entries) assertEquals(issues.str(issue.wire), issue.text)
         assertEquals(issues.keys, PlanCard.AnswerIssue.entries.map { it.wire }.toSet())
@@ -103,15 +115,51 @@ class PlanCardTest {
                 "issue" to PlanCard.TestIds.ISSUE,
             ),
         )
-        val tiles = fixture.getValue("tiles").jsonObject
-        assertEquals(tiles.getValue("columns").jsonPrimitive.int, PlanCard.Tiles.COLUMNS)
-        assertEquals(tiles.getValue("phoneColumns").jsonPrimitive.int, PlanCard.Tiles.PHONE_COLUMNS)
-        assertEquals(tiles.getValue("gap").jsonPrimitive.int, PlanCard.Tiles.GAP)
-        assertEquals(tiles.getValue("pictureAspect").jsonPrimitive.double.toFloat(), PlanCard.Tiles.PICTURE_ASPECT, 0f)
-        assertEquals(tiles.getValue("radius").jsonPrimitive.int, PlanCard.Tiles.RADIUS)
-        assertEquals(tiles.getValue("selectedRing").jsonPrimitive.int, PlanCard.Tiles.SELECTED_RING)
-        assertEquals(tiles.getValue("padding").jsonPrimitive.int, PlanCard.Tiles.PADDING)
+        assertNumbers(
+            fixture.getValue("tiles").jsonObject,
+            mapOf(
+                "columns" to PlanCard.Tiles.COLUMNS,
+                "phoneColumns" to PlanCard.Tiles.PHONE_COLUMNS,
+                "gap" to PlanCard.Tiles.GAP,
+                "pictureAspect" to PlanCard.Tiles.PICTURE_ASPECT,
+                "radius" to PlanCard.Tiles.RADIUS,
+                "selectedRing" to PlanCard.Tiles.SELECTED_RING,
+                "padding" to PlanCard.Tiles.PADDING,
+                "pictureRadius" to PlanCard.Tiles.PICTURE_RADIUS,
+                "stroke" to PlanCard.Tiles.STROKE,
+                "placeholderGlyph" to PlanCard.Tiles.PLACEHOLDER_GLYPH,
+                "labelGap" to PlanCard.Tiles.LABEL_GAP,
+                "inertOpacity" to PlanCard.Tiles.INERT_OPACITY,
+            ),
+        )
+        assertNumbers(
+            fixture.getValue("card").jsonObject,
+            mapOf(
+                "pictureRadius" to PlanCard.Look.PICTURE_RADIUS,
+                "pictureStroke" to PlanCard.Look.PICTURE_STROKE,
+                "surfaceRadius" to PlanCard.Look.SURFACE_RADIUS,
+                "surfacePadding" to PlanCard.Look.SURFACE_PADDING,
+                "surfaceLabelGap" to PlanCard.Look.SURFACE_LABEL_GAP,
+                "blockGap" to PlanCard.Look.BLOCK_GAP,
+                "blockInnerGap" to PlanCard.Look.BLOCK_INNER_GAP,
+                "optionsGap" to PlanCard.Look.OPTIONS_GAP,
+                "rowMinHeight" to PlanCard.Look.ROW_MIN_HEIGHT,
+                "rowRadius" to PlanCard.Look.ROW_RADIUS,
+                "fieldMinHeight" to PlanCard.Look.FIELD_MIN_HEIGHT,
+                "inertOpacity" to PlanCard.Look.INERT_OPACITY,
+                "listIndent" to PlanCard.Look.LIST_INDENT,
+                "headingScale" to PlanCard.Look.HEADING_SCALE,
+            ),
+        )
         assertEquals(fixture.str("uploadScheme"), PlanCard.UPLOAD_SCHEME)
+    }
+
+    /** Every key of the fixture object has a mirror, and each equals it. */
+    private fun assertNumbers(json: JsonObject, mirror: Map<String, Number>) {
+        assertEquals(json.keys, mirror.keys)
+        for ((key, value) in json) {
+            assertEquals(key, value.jsonPrimitive.double, mirror.getValue(key).toDouble(), 1e-6)
+        }
     }
 
     @Test

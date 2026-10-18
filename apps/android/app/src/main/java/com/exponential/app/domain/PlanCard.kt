@@ -28,10 +28,19 @@ object PlanCard {
         const val CUSTOM = "Other…"
         const val SURFACE = "Preview"
         const val ANSWER = "Answer"
+        const val ANSWERED = "Answered"
+        const val ANSWERING = "Answering…"
+        const val FEEDBACK_LINE = "Feedback: {feedback}"
+        const val SPECIMEN_PENDING = "A plan waiting on you: pictures, a surface, two questions"
+        const val SPECIMEN_ANSWERED = "A question answered with several picks"
+        const val SPECIMEN_APPROVED = "An approved plan"
         const val ISSUE_DECISION = "Pick a decision"
         const val ISSUE_MISSING = "Answer every question to approve"
         const val ISSUE_MULTI = "This question takes one answer"
         const val ISSUE_UNKNOWN = "Pick one of the options"
+
+        /** The answered card's ONE feedback line. */
+        fun feedbackLine(text: String): String = FEEDBACK_LINE.replace("{feedback}", text)
     }
 
     object TestIds {
@@ -54,6 +63,29 @@ object PlanCard {
         const val RADIUS = 10
         const val SELECTED_RING = 2
         const val PADDING = 8
+        const val PICTURE_RADIUS = 6
+        const val STROKE = 1
+        const val PLACEHOLDER_GLYPH = 20
+        const val LABEL_GAP = 4
+        const val INERT_OPACITY = 0.5f
+    }
+
+    /** The rest of the card's ONE look (dp; fixture `card`). */
+    object Look {
+        const val PICTURE_RADIUS = 12
+        const val PICTURE_STROKE = 1
+        const val SURFACE_RADIUS = 12
+        const val SURFACE_PADDING = 12
+        const val SURFACE_LABEL_GAP = 6
+        const val BLOCK_GAP = 12
+        const val BLOCK_INNER_GAP = 2
+        const val OPTIONS_GAP = 6
+        const val ROW_MIN_HEIGHT = 32
+        const val ROW_RADIUS = 10
+        const val FIELD_MIN_HEIGHT = 36
+        const val INERT_OPACITY = 0.5f
+        const val LIST_INDENT = 24
+        const val HEADING_SCALE = 1.2f
     }
 
     const val UPLOAD_SCHEME = "upload:"

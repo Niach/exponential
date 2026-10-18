@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.selection.toggleable
@@ -35,9 +36,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 /**
- * The look of [ChoiceTiles] (EXP-1280, the eUI core `ChoiceTiles` recipe and
- * `plan-card.json` `tiles` ×4): radius 10, gap 8, picture aspect 1.6 (w/h),
- * padding 8, a 2 accent ring on a picked tile, label over a muted description.
+ * The look of [ChoiceTiles] (EXP-1280) = the eUI core `ChoiceTiles` recipe
+ * (`neutral.theme.json`) and `plan-card.json` `tiles` ×4: radius 10, gap 8,
+ * picture aspect 1.6 (w/h) at its OWN [pictureRadius] 6, padding 8 inside a
+ * 1 [strokeWidth] border (7 under the 2 [selectedRing] of a picked tile, so
+ * the content never moves), the placeholder glyph 20 at 0.6, picture→label
+ * and label→description 4, label `sm` (14) medium, description `xs` (12)
+ * muted, an inert tile at 0.5. Fills = the theme: `card`, `accent` picked,
+ * `muted` behind the picture (touch has no hover state).
  */
 @Immutable
 data class ChoiceTilesStyle(
@@ -47,27 +53,37 @@ data class ChoiceTilesStyle(
     val padding: Dp = 8.dp,
     /** The picture's width / height. */
     val pictureAspect: Float = 1.6f,
+    /** The picture's corner radius (its own, not derived from [radius]). */
+    val pictureRadius: Dp = 6.dp,
     val selectedRing: Dp = 2.dp,
-    val tileFill: Color = Color.Gray.copy(alpha = 0.08f),
-    val tileFillSelected: Color = Color.Gray.copy(alpha = 0.16f),
+    val tileFill: Color = Color.Transparent,
+    val tileFillSelected: Color = Color.Gray.copy(alpha = 0.2f),
     val stroke: Color = Color.Gray.copy(alpha = 0.3f),
     val strokeWidth: Dp = 1.dp,
     val accent: Color = Color(0xFF007AFF),
     val pictureFill: Color = Color.Gray.copy(alpha = 0.15f),
     val label: Color = Color(0xFF1C1C1E),
     val description: Color = Color(0xFF8E8E93),
-    val labelSize: TextUnit = 13.sp,
+    val labelSize: TextUnit = 14.sp,
+    val labelLineHeight: TextUnit = 20.sp,
     val descriptionSize: TextUnit = 12.sp,
+    val descriptionLineHeight: TextUnit = 16.sp,
     /** The gap between the picture and the label. */
-    val pictureGap: Dp = 6.dp,
+    val pictureGap: Dp = 4.dp,
+    /** The gap between the label and the description. */
+    val descriptionGap: Dp = 4.dp,
+    /** The placeholder slot's size and opacity (a tile without a picture). */
+    val placeholderGlyph: Dp = 20.dp,
+    val placeholderOpacity: Float = 0.6f,
+    /** A disabled, unpicked tile (a closed card's rest). */
+    val inertOpacity: Float = 0.5f,
 ) {
     companion object {
-        /** The control on [tokens]: muted tiles, border hairlines, the primary ring. */
+        /** The control on [tokens]: card tiles, the border, the accent pick + primary ring. */
         fun default(tokens: PrimitiveTokens): ChoiceTilesStyle = ChoiceTilesStyle(
-            tileFill = tokens.muted.copy(alpha = tokens.muted.alpha * 0.5f),
+            tileFill = tokens.card,
             tileFillSelected = tokens.accent,
             stroke = tokens.border,
-            strokeWidth = tokens.hairline,
             accent = tokens.primary,
             pictureFill = tokens.muted,
             label = tokens.foreground,
@@ -90,7 +106,7 @@ data class ChoiceTile(
 /**
  * The picture choice (EXP-1280; eUI core `ChoiceTiles`): a grid of
  * `style.columns` equal tiles, each = the picture (`pictureAspect`, cropped,
- * the tile's radius less its padding) over the label and the muted
+ * `pictureRadius`) over the label and the muted
  * description; a picked tile wears the `selectedRing` accent ring. Single
  * ([multiple] false: radios) or several picks (checkboxes); [onToggle] gets
  * the option's index. A tile whose option has no picture keeps the frame
@@ -127,6 +143,7 @@ fun ChoiceTiles(
                         multiple = multiple,
                         enabled = enabled && !tile.disabled,
                         showPicture = anyPicture,
+                        hasPicture = tile.hasPicture,
                         style = style,
                         onClick = { onToggle(index) },
                         picture = { if (tile.hasPicture) picture(index) else placeholder() },
@@ -146,13 +163,21 @@ private fun ChoiceTileView(
     multiple: Boolean,
     enabled: Boolean,
     showPicture: Boolean,
+    hasPicture: Boolean,
     style: ChoiceTilesStyle,
     onClick: () -> Unit,
     picture: @Composable () -> Unit,
     modifier: Modifier,
 ) {
     val shape = RoundedCornerShape(style.radius)
-    val inner = RoundedCornerShape((style.radius - style.padding / 2).coerceAtLeast(2.dp))
+    val inner = RoundedCornerShape(style.pictureRadius)
+    // CSS box: the border takes room. Unpicked = stroke + padding, picked =
+    // the ring + (padding less the ring's extra width): the same inset.
+    val inset = if (picked) {
+        style.selectedRing + (style.padding - (style.selectedRing - style.strokeWidth)).coerceAtLeast(0.dp)
+    } else {
+        style.strokeWidth + style.padding
+    }
     val press = if (multiple) {
         Modifier.toggleable(value = picked, enabled = enabled, role = Role.Checkbox, onValueChange = { onClick() })
     } else {
@@ -161,7 +186,7 @@ private fun ChoiceTileView(
     Column(
         modifier = modifier
             .then(if (tile.testTag != null) Modifier.testTag(tile.testTag) else Modifier)
-            .alpha(if (enabled || picked) 1f else 0.6f)
+            .alpha(if (enabled || picked) 1f else style.inertOpacity)
             .clip(shape)
             .background(if (picked) style.tileFillSelected else style.tileFill, shape)
             .border(
@@ -170,7 +195,7 @@ private fun ChoiceTileView(
                 shape,
             )
             .then(press)
-            .padding(style.padding),
+            .padding(inset),
         verticalArrangement = Arrangement.Top,
     ) {
         if (showPicture) {
@@ -181,18 +206,36 @@ private fun ChoiceTileView(
                     .clip(inner)
                     .background(style.pictureFill, inner),
                 contentAlignment = Alignment.Center,
-            ) { picture() }
+            ) {
+                if (hasPicture) {
+                    picture()
+                } else {
+                    Box(
+                        Modifier.size(style.placeholderGlyph).alpha(style.placeholderOpacity),
+                        contentAlignment = Alignment.Center,
+                    ) { picture() }
+                }
+            }
             Spacer(Modifier.height(style.pictureGap))
         }
         BasicText(
             tile.label,
-            style = TextStyle(fontSize = style.labelSize, fontWeight = FontWeight.Medium, color = style.label),
+            style = TextStyle(
+                fontSize = style.labelSize,
+                lineHeight = style.labelLineHeight,
+                fontWeight = FontWeight.Medium,
+                color = style.label,
+            ),
         )
         tile.description?.takeIf { it.isNotEmpty() }?.let { description ->
             BasicText(
                 description,
-                modifier = Modifier.padding(top = 2.dp),
-                style = TextStyle(fontSize = style.descriptionSize, color = style.description),
+                modifier = Modifier.padding(top = style.descriptionGap),
+                style = TextStyle(
+                    fontSize = style.descriptionSize,
+                    lineHeight = style.descriptionLineHeight,
+                    color = style.description,
+                ),
             )
         }
     }

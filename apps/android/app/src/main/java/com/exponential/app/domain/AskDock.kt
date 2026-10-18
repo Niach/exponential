@@ -85,11 +85,11 @@ object AskDock {
     )
 
     /** THE plan card's options ×4: Yes · Yes, and start with a fresh context
-     *  · No, keep planning (the last opens the feedback field). */
+     *  · No, keep planning (the feedback field rides any decision). */
     val PLAN_OPTIONS: List<PlanOption> = listOf(
         PlanOption("approve", "Yes", null, "approved", false),
         PlanOption("approve-fresh", "Yes, and start with a fresh context", null, "approved", true),
-        PlanOption("reject", "No, keep planning", "Sends your next message back to planning", "rejected", false),
+        PlanOption("reject", "No, keep planning", "Your feedback goes back with it", "rejected", false),
     )
 
     /** The option a decided plan card names as its answer. */

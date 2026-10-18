@@ -1,7 +1,10 @@
 package com.exponential.app.ui.thread
 
 import android.content.Context
+import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -11,10 +14,12 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import at.exponential.ui.compose.ExponentialSurface
 import at.exponential.ui.host.HostPlugin
@@ -93,8 +98,9 @@ private fun cardHost(context: Context): HostPlugin {
 }
 
 /**
- * The surface in its own frame (full card width, `plan-card-surface`). A
- * surface the core refuses paints the [PlanCard.Copy.SURFACE] frame alone.
+ * The surface in its own frame (full card width, `plan-card-surface`) under
+ * the [PlanCard.Copy.SURFACE] label. A surface the core refuses paints the
+ * label over an empty frame.
  * [inert] = an answered card: taps never reach the surface.
  */
 @Composable
@@ -120,23 +126,29 @@ fun CardSurfaceView(
         }.getOrNull()
     }
     handle.model = model
-    val shape = RoundedCornerShape(GlassTokens.RowRadius)
-    Box(
-        modifier = modifier
-            .fillMaxWidth()
-            .border(GlassTokens.Hairline, GlassTokens.StrokeCard, shape)
-            .padding(8.dp)
-            .testTag(PlanCard.TestIds.SURFACE)
-            .then(if (inert) Modifier.blockTouches() else Modifier),
+    // plan-card.json `card` (web `PlanCardSurface`): the "Preview" label
+    // ABOVE the frame, `surfaceLabelGap` apart; the frame = the row fill
+    // inside a 1dp stroke-card border, `surfaceRadius`, `surfacePadding`.
+    val shape = RoundedCornerShape(PlanCard.Look.SURFACE_RADIUS.dp)
+    Column(
+        modifier = modifier.fillMaxWidth().testTag(PlanCard.TestIds.SURFACE),
+        verticalArrangement = Arrangement.spacedBy(PlanCard.Look.SURFACE_LABEL_GAP.dp),
     ) {
-        if (model != null) {
-            ExponentialSurface(model)
-        } else {
-            Text(
-                PlanCard.Copy.SURFACE,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-            )
+        Text(
+            PlanCard.Copy.SURFACE,
+            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Medium),
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+        )
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(shape)
+                .background(GlassTokens.RowFill, shape)
+                .border(PlanCard.Look.PICTURE_STROKE.dp, GlassTokens.StrokeCard, shape)
+                .padding(PlanCard.Look.SURFACE_PADDING.dp)
+                .then(if (inert) Modifier.blockTouches() else Modifier),
+        ) {
+            if (model != null) ExponentialSurface(model)
         }
     }
 }
