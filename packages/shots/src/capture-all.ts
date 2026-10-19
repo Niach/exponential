@@ -51,6 +51,7 @@ import {
   resolveAndroidSdk,
   specimenState,
   type AndroidSdk,
+  type FfiAbi,
 } from "./android.ts"
 import { baselineSkipNote, scopeSince, storeBaseline, type AffectedScope } from "./affected.ts"
 import {
@@ -600,7 +601,11 @@ async function preflight(options: Options, scope: Scope): Promise<Check[]> {
       ok,
       detail: ok ? undefined : `missing — the Compose painter's example app has not landed`,
     })
-    // EXP-1264: the lane builds the mobile FFI and the example with gradle; both
+  }
+
+  if (packageViews(scope, `android`).length > 0 || laneViews(scope, `android`).length > 0) {
+    // EXP-1264/1354: every android lane builds the mobile FFI (the example's
+    // AAR and the app's `:ui-compose` bundle it) and its apk with gradle; both
     // need the SDK (+ its NDK) and cargo.
     const sdk = androidSdk()
     checks.push({
@@ -620,7 +625,7 @@ async function preflight(options: Options, scope: Scope): Promise<Check[]> {
     checks.push({
       label: `cargo (mobile FFI build)`,
       ok: cargo,
-      detail: cargo ? undefined : `not on PATH — install rustup; the lane runs ${PACKAGE_ANDROID.ffiScript}`,
+      detail: cargo ? undefined : `not on PATH — install rustup; the android lanes run ${ANDROID_FFI.script}`,
     })
   }
 
@@ -995,13 +1000,19 @@ const PACKAGE_ANDROID = {
   apk: `packages/exponential-ui-compose/example/build/outputs/apk/release/example-release.apk`,
   appId: `at.exponential.ui.kitchensink`,
   activity: `at.exponential.ui.kitchensink/.MainActivity`,
-  /** EXP-1264: the FFI the AAR bundles, built per run for the device's ABI. */
-  ffiScript: `apps/desktop/crates/exponential-ui-ffi/build-android.sh`,
-  ffiJniLibs: `apps/desktop/crates/exponential-ui-ffi/out/jniLibs`,
   /** How long a launch may take to log its first layout pass. */
   readyTimeoutMs: 20_000,
   settleMs: 3_000,
 } as const
+
+/** EXP-1264: the FFI the Compose painter's AAR bundles, built per run for the device's ABI. */
+const ANDROID_FFI = {
+  script: `apps/desktop/crates/exponential-ui-ffi/build-android.sh`,
+  jniLibs: `apps/desktop/crates/exponential-ui-ffi/out/jniLibs`,
+} as const
+
+/** The app lanes' apk (fastlane `build_capture_apks`): it must carry the FFI too (EXP-1354). */
+const APP_ANDROID_APK = `apps/android/app/build/outputs/apk/production/debug/app-production-debug.apk`
 
 /** The Android SDK the app lane's gradle sees (`apps/android/local.properties` first). */
 function androidSdk(): AndroidSdk | undefined {
@@ -1024,6 +1035,41 @@ async function adbDevices(): Promise<string[]> {
     .map((line) => line.trim())
     .filter((line) => /\tdevice$/.test(line))
     .map((line) => line.split(`\t`)[0] ?? ``)
+}
+
+/**
+ * EXP-1354: build the mobile FFI (`build-android.sh`, only the attached
+ * device's ABI, the committed Kotlin binding kept) and check the `.so` landed
+ * in the crate's `out/jniLibs/<abi>`. Every android lane needs it: the package
+ * example's AAR and the app's `:ui-compose` (the plan card's inline surface)
+ * both bundle that folder, and an apk without it paints an EMPTY surface frame
+ * (or, for the example, dies in `dlopen`). ONCE per run: the lanes share the
+ * device, so they share its ABI.
+ */
+let androidFfi: Promise<{ abi: FfiAbi } | { error: string }> | undefined
+function buildAndroidFfi(sdk: AndroidSdk): Promise<{ abi: FfiAbi } | { error: string }> {
+  androidFfi ??= (async () => {
+    const root = repoRoot()
+    const adb = (args: string[]) => run({ cmd: [`adb`, ...args], cwd: root, timeoutMs: 120_000 })
+    const abilist = await adb([`shell`, `getprop`, `ro.product.cpu.abilist`])
+    const abi = deviceFfiAbi(abilist.stdout) ?? deviceFfiAbi((await adb([`shell`, `getprop`, `ro.product.cpu.abi`])).stdout)
+    if (!abi) return { error: `the device's ABIs (${abilist.stdout.trim() || `unknown`}) are none of ${FFI_ABIS.join(`, `)}` }
+    const ffi = await run({
+      cmd: [`bash`, ANDROID_FFI.script],
+      cwd: root,
+      env: { ANDROID_HOME: sdk.path, ABIS: abi, SKIP_BINDINGS: `1` },
+      stream: true,
+      label: `[android:ffi]`,
+      timeoutMs: 45 * 60_000,
+    })
+    if (ffi.code !== 0) return { error: `mobile FFI build (${ANDROID_FFI.script}) exited ${ffi.code}` }
+    const so = join(root, ANDROID_FFI.jniLibs, abi, `libexponential_ui_ffi.so`)
+    if (!existsSync(so) || statSync(so).size === 0) {
+      return { error: `mobile FFI built, but ${ANDROID_FFI.jniLibs}/${abi}/libexponential_ui_ffi.so is missing` }
+    }
+    return { abi }
+  })()
+  return androidFfi
 }
 
 /**
@@ -1065,25 +1111,11 @@ async function capturePackageAndroid(views: string[], outcomes: LaneOutcome[]): 
   }
   console.log(`  Android SDK: ${sdk.path} (${sdk.source})`)
 
-  const abilist = await adb([`shell`, `getprop`, `ro.product.cpu.abilist`])
-  const abi = deviceFfiAbi(abilist.stdout) ?? deviceFfiAbi((await adb([`shell`, `getprop`, `ro.product.cpu.abi`])).stdout)
-  if (!abi) return void fail(`the device's ABIs (${abilist.stdout.trim() || `unknown`}) are none of ${FFI_ABIS.join(`, `)}`)
+  const ffi = await buildAndroidFfi(sdk)
+  if (`error` in ffi) return void fail(ffi.error)
+  const { abi } = ffi
 
   const env = { ANDROID_HOME: sdk.path }
-  const ffi = await run({
-    cmd: [`bash`, PACKAGE_ANDROID.ffiScript],
-    cwd: root,
-    env: { ...env, ABIS: abi, SKIP_BINDINGS: `1` },
-    stream: true,
-    label: `[android:ffi]`,
-    timeoutMs: 45 * 60_000,
-  })
-  if (ffi.code !== 0) return void fail(`mobile FFI build (${PACKAGE_ANDROID.ffiScript}) exited ${ffi.code}`)
-  const so = join(root, PACKAGE_ANDROID.ffiJniLibs, abi, `libexponential_ui_ffi.so`)
-  if (!existsSync(so) || statSync(so).size === 0) {
-    return void fail(`mobile FFI built, but ${PACKAGE_ANDROID.ffiJniLibs}/${abi}/libexponential_ui_ffi.so is missing`)
-  }
-
   const build = await run({
     cmd: [`./gradlew`, PACKAGE_ANDROID.task],
     cwd: join(root, PACKAGE_ANDROID.project),
@@ -1918,7 +1950,25 @@ function buildLanes(
             await waitForAndroidBoot()
             autofill = await disableAndroidAutofill()
             demoMode = await enableAndroidDemoMode()
+            // EXP-1354: the app links `:ui-compose`; without the FFI in its apk
+            // the plan card's inline surface paints an empty frame.
+            const sdk = androidSdk()
+            const ffi = sdk ? await buildAndroidFfi(sdk) : { error: `no Android SDK — set sdk.dir in apps/android/local.properties or ANDROID_HOME` }
+            if (`error` in ffi) {
+              outcomes.push({ platform, ok: false, detail: ffi.error, failedViews: views })
+              return
+            }
             await captureFastlane(platform, lane, outcomes, scope, scoped)
+            const apk = join(repoRoot(), APP_ANDROID_APK)
+            const listing = existsSync(apk) ? await run({ cmd: [`unzip`, `-l`, apk], timeoutMs: 60_000 }) : undefined
+            if (listing && !apkListingHasFfi(listing.stdout, ffi.abi)) {
+              outcomes.push({
+                platform,
+                ok: false,
+                detail: `${APP_ANDROID_APK} carries no ${apkLibPath(ffi.abi)} — its Exponential UI surfaces painted empty`,
+                failedViews: views,
+              })
+            }
           } finally {
             await restoreAndroidStatusBar(demoMode)
             await restoreAndroidAutofill(autofill)

@@ -28,6 +28,9 @@ default_platform(:android)
 # - SCREENGRAB_SKIP_BUILD=1 skips the gradle step: two lanes building the same
 #   module at once would fight over app/build/. Build ONCE first:
 #     ./gradlew :app:assembleProductionDebug :app:assembleProductionDebugAndroidTest
+# - EXP-1354: the apk bundles the Exponential UI FFI only if it was built first
+#   (`ABIS=arm64-v8a SKIP_BINDINGS=1 bash apps/desktop/crates/exponential-ui-ffi/build-android.sh`;
+#   `bun run shots` does it); without it the plan card's surface paints empty.
 # - output dirs are per lane already (screenshots-raw/, styleguide-screenshots/).
 #
 # Concurrent invocation (from apps/android, one process each; two emulators,
