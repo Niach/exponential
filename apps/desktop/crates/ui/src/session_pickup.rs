@@ -104,7 +104,7 @@ fn install_answer_tap(live: &Arc<pickup::LiveRegistry>, cx: &mut App) {
     let (resolved, inbox) = flume::unbounded::<api::sessions::AnswerInput>();
     let registry = Arc::clone(live);
     steer::answer_tap::add_answer_tap(Arc::new(move |session_id, resolution| {
-        if let Some(input) = registry.resolve_card_input(
+        if let Some(mut input) = registry.resolve_card_input(
             session_id,
             &resolution.question_id,
             resolution.answer.clone(),
@@ -112,6 +112,9 @@ fn install_answer_tap(live: &Arc<pickup::LiveRegistry>, cx: &mut App) {
             resolution.fresh,
             resolution.feedback.clone(),
         ) {
+            // EXP-1280: a multi-select's picks ride `answers` too — the
+            // closed card highlights off them.
+            input.answers = resolution.answers.as_ref().map(|labels| serde_json::json!(labels));
             let _ = resolved.send(input);
         }
     }));
@@ -164,7 +167,9 @@ fn run_pass(cx: &mut App) {
     let all_sessions: Vec<SessionRow> = collections.sessions.read(cx).iter().cloned().collect();
     let sessions: Vec<SessionRow> = all_sessions
         .iter()
-        .filter(|row| row.device_id.as_deref() == Some(device_id.as_str()) || live_ids.contains(&row.id))
+        .filter(|row| {
+            row.device_id.as_deref() == Some(device_id.as_str()) || live_ids.contains(&row.id)
+        })
         .cloned()
         .collect();
     let hosted: HashSet<&str> = sessions.iter().map(|row| row.id.as_str()).collect();

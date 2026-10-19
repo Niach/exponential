@@ -498,7 +498,11 @@ mod tests {
                 let source = std::fs::read_to_string(&path).expect("a source file reads");
                 let lines: Vec<&str> = source.lines().collect();
                 for (at, line) in lines.iter().enumerate() {
-                    if !line.contains(".checked(") {
+                    // Comments and this scan's own quoted needle are no rows.
+                    if !line.contains(".checked(")
+                        || line.trim_start().starts_with("//")
+                        || line.contains(concat!('"', ".checked(", '"'))
+                    {
                         continue;
                     }
                     let window = &lines[at.saturating_sub(8)..=at];
@@ -506,10 +510,24 @@ mod tests {
                         continue;
                     }
                     // A check built through `single_select_menu` — judged per
-                    // CALL SITE (the enclosing 40 lines), never per file: one
-                    // compliant menu must not vouch for the whole file.
-                    let enclosing = &lines[at.saturating_sub(40)..(at + 40).min(lines.len())];
-                    if enclosing.iter().any(|line| line.contains("single_select_menu(")) {
+                    // ENCLOSING FUNCTION, never per file: one compliant menu
+                    // must not vouch for the whole file. A row builder (a fn
+                    // returning `PopupMenuItem`) is judged at its caller.
+                    let is_fn = |line: &str| {
+                        let line = line.trim_start();
+                        line.starts_with("fn ")
+                            || line.starts_with("pub fn ")
+                            || line.starts_with("pub(crate) fn ")
+                    };
+                    let start = (0..=at).rev().find(|&i| is_fn(lines[i])).unwrap_or(0);
+                    // The signature runs through the line that opens the body.
+                    let body_opens =
+                        lines[start..=at].iter().position(|line| line.contains('{')).unwrap_or(0);
+                    let signature = lines[start..=start + body_opens].join(" ");
+                    if signature.contains("-> PopupMenuItem") {
+                        continue;
+                    }
+                    if lines[start..=at].iter().any(|line| line.contains("single_select_menu(")) {
                         continue;
                     }
                     offenders.push(format!(

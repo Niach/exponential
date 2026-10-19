@@ -657,10 +657,21 @@ fn an_earlier_step_can_be_re_answered_until_the_form_submits() {
     let again = answer("ask-1#0", &["rewrite"], None);
     assert_eq!(
         mapper.on_answer(&mapper.ask_key(&again), &again, &mut revised),
-        engine::AnswerDecision::Elicitation { fields: json!({"approach": "rewrite"}), submit: false }
+        engine::AnswerDecision::Elicitation {
+            fields: json!({"approach": "rewrite"}),
+            submit: false
+        }
     );
-    let events: Vec<Value> = revised.wire.iter().map(|event| serde_json::to_value(event).unwrap()).collect();
-    assert_eq!(events.len(), 2, "ack + the re-resolution, no new step: {events:?}");
+    let events: Vec<Value> = revised
+        .wire
+        .iter()
+        .map(|event| serde_json::to_value(event).unwrap())
+        .collect();
+    assert_eq!(
+        events.len(),
+        2,
+        "ack + the re-resolution, no new step: {events:?}"
+    );
     assert_eq!(events[0]["kind"], "answer_ack");
     assert_eq!(events[0]["id"], "ask-1#0");
     assert_eq!(events[1]["kind"], "question_resolved");
@@ -1169,6 +1180,42 @@ fn a_resend_after_a_stop_is_one_row_whatever_replays() {
     feed(&mut mapper, "cancel_replay.jsonl", &mut out);
     mapper.on_stop(StopReason::EndTurn, &mut out);
     assert_eq!(rows_of(&out, MID_TURN), 1);
+}
+
+/// The resend's echo expired (a burst of prompts behind it) before the CLI
+/// replayed it: the cancelled entry still swallows that one replay — and is
+/// spent by it. A turn ending in another Stop keeps the table, but the
+/// spent entry is gone, so the same text after the agent answered (a person
+/// repeating themselves) is a new row, not a swallow.
+#[test]
+fn a_resends_stale_cancelled_entry_is_spent_by_its_first_replay() {
+    let mut mapper = mapper();
+    let mut out = MapOut::default();
+    feed(&mut mapper, "cancel_turn.jsonl", &mut out);
+    mapper.on_prompt_sent(MID_TURN, MID_TURN, "q-1");
+    mapper.forget_deliveries();
+    mapper.on_stop(StopReason::Cancelled, &mut out);
+    mapper.on_prompt(MID_TURN, &mut out);
+    // More prompts than the echo window keeps: the resend's echo is gone.
+    for step in 0..16 {
+        mapper.on_prompt(&format!("and step {step}"), &mut out);
+    }
+    feed(&mut mapper, "cancel_replay.jsonl", &mut out);
+    mapper.on_stop(StopReason::Cancelled, &mut out);
+    assert_eq!(
+        rows_of(&out, MID_TURN),
+        1,
+        "the late replay of the resend is no second row"
+    );
+    // The agent answered; the same text again is a new message.
+    feed(&mut mapper, "cancel_turn.jsonl", &mut out);
+    feed(&mut mapper, "cancel_replay.jsonl", &mut out);
+    mapper.on_stop(StopReason::EndTurn, &mut out);
+    assert_eq!(
+        rows_of(&out, MID_TURN),
+        2,
+        "a spent entry never swallows a later message"
+    );
 }
 
 /// The defensive rule: a replay byte-identical to the previous user row,

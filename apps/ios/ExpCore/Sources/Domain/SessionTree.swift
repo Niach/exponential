@@ -816,9 +816,19 @@ public struct ThreadQuestionRow: Equatable, Sendable, Identifiable {
         self.answered = answered
     }
 
-    /// The labels shown picked: `answers`, else the legacy `answer`.
+    /// The labels shown picked (web `closedPicks`): `answers`, else a legacy
+    /// `answer` that names an option. A bare answer that is no option (free
+    /// text, or an old joined multi answer "A, B") highlights nothing and
+    /// reads as the answer line (`closedAnswerLine`).
     public var picked: [String] {
-        if let answers, !answers.isEmpty { return answers }
+        PlanCard.closedPicks(options: options, answer: answer, answers: answers)
+    }
+
+    /// A closed card's resolution line: the picks that are no option (a typed
+    /// answer), else — with nothing picked — the legacy `answer` itself.
+    public var closedAnswerLine: [String] {
+        let picks = picked
+        if !picks.isEmpty { return picks.filter { pick in !options.contains { $0.label == pick } } }
         if let answer, !answer.isEmpty { return [answer] }
         return []
     }

@@ -233,6 +233,41 @@ public enum AskDock {
         return pending
     }
 
+    /// EXP-1280: the Exponential tools that post a card (`plan_propose`,
+    /// `sessions_ask`; web `CARD_TOOLS`).
+    public static let cardTools: Set<String> = ["plan_propose", "sessions_ask"]
+
+    /// Where the session view paints each tool-posted card (web
+    /// `anchorToolCards`): right after the settled call that posted it. Calls
+    /// and cards pair from the NEWEST back (the transcript may start
+    /// mid-history; a failed call posted nothing); a card with no call on
+    /// screen = `unanchored` (it predates the window). `cardIds` oldest first;
+    /// `anchors` keys = feed item ids, each list oldest first.
+    public static func anchorToolCards(
+        feed: [AgentFeedItem], cardIds: [String]
+    ) -> (anchors: [Int: [String]], unanchored: [String]) {
+        let calls: [Int] = feed.compactMap { item in
+            guard case let .tool(id, name, _, _, _, _, settled, failed, _, _, _, _, _) = item,
+                  settled, !failed,
+                  let display = ExpToolDisplay.resolve(toolName: name),
+                  cardTools.contains(display.row)
+            else { return nil }
+            return id
+        }
+        var anchors: [Int: [String]] = [:]
+        var unanchored: [String] = []
+        for k in 0..<cardIds.count {
+            let card = cardIds[cardIds.count - 1 - k]
+            let callIndex = calls.count - 1 - k
+            guard callIndex >= 0 else {
+                unanchored.insert(card, at: 0)
+                continue
+            }
+            anchors[calls[callIndex], default: []].insert(card, at: 0)
+        }
+        return (anchors, unanchored)
+    }
+
     /// A thread's card captions: each session TAB's name (nested ones
     /// included); the root (no tab) = nil.
     public static func threadSessionNames(_ tabs: [ThreadTab]) -> (String) -> String? {

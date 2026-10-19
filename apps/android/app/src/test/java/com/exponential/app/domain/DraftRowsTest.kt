@@ -111,4 +111,18 @@ class DraftRowsTest {
             resolveDraftRows(emptyList(), listOf(board("b1")), emptyMap()).isEmpty(),
         )
     }
+
+    // EXP-1272 parity: the dot and the Drafts list show the ACTIVE team's
+    // drafts (web `useTeamDrafts(teamId)`); no active team = none at all.
+    @Test
+    fun `only the active team's drafts surface`() {
+        val drafts = listOf(
+            draft("d1"),
+            draft("d2").copy(teamId = "team-2", boardId = "b2"),
+        )
+        assertEquals(listOf("d1"), activeTeamDrafts(drafts, "team-1").map { it.id })
+        assertEquals(listOf("d2"), activeTeamDrafts(drafts, "team-2").map { it.id })
+        assertTrue(activeTeamDrafts(drafts, null).isEmpty())
+        assertTrue(activeTeamDrafts(drafts, "team-3").isEmpty())
+    }
 }

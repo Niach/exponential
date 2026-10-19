@@ -110,6 +110,59 @@ describe(`pickPrIssues: EXP-1341 assignment`, () => {
     const mixed = [link(`i-0`, `EXP-0`), assigned(`i-3`, `EXP-3`, `b`)]
     expect(pickPrIssues({ rootId: `root`, sessionId: `a`, links: mixed, tree, startText: `` })).toEqual([`i-0`])
   })
+
+  it(`an assigned link belongs to its assignee alone: forwarded work leaves the forwarder's share`, () => {
+    // a1 (in a's subtree) linked EXP-5 and forwarded it to b: it is b's.
+    const forwarded = { ...link(`i-5`, `EXP-5`, `a1`), assignedSessionId: `b` }
+    const links = [link(`i-2`, `EXP-2`, `a1`), forwarded]
+    expect(
+      pickPrIssues({
+        rootId: `root`,
+        sessionId: `a`,
+        links,
+        tree,
+        startText: ``,
+      })
+    ).toEqual([`i-2`])
+    expect(
+      pickPrIssues({
+        rootId: `root`,
+        sessionId: `a1`,
+        links,
+        tree,
+        startText: ``,
+      })
+    ).toEqual([`i-2`])
+    expect(
+      pickPrIssues({
+        rootId: `root`,
+        sessionId: `b`,
+        links,
+        tree,
+        startText: ``,
+      })
+    ).toEqual([`i-5`])
+    // Even named in a's start message, the assignment wins.
+    expect(
+      pickPrIssues({
+        rootId: `root`,
+        sessionId: `a`,
+        links,
+        tree,
+        startText: `Fix #EXP-5`,
+      })
+    ).toEqual([`i-2`])
+    // Nor does b's fallback hand it back: a's subtree assigned, b owns it.
+    expect(
+      pickPrIssues({
+        rootId: `root`,
+        sessionId: `a`,
+        links: [forwarded],
+        tree,
+        startText: ``,
+      })
+    ).toEqual([])
+  })
 })
 
 describe(`subtreeOf`, () => {

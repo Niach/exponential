@@ -68,7 +68,7 @@ import { deviceCollection, messageCollection } from "@/lib/collections"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import type { SessionRow } from "@/lib/session-tree"
 import { trpc } from "@/lib/trpc-client"
-import { stopSessionTurn } from "@/lib/session-stop"
+import { onStopRetraction, stopSessionTurn } from "@/lib/session-stop"
 import { cn } from "@/lib/utils"
 
 // EXP-1293 Threads v2: THE reply box ×4 = the home's composer box (the
@@ -207,13 +207,42 @@ export function SessionComposer({
   const quick = useComposerReplies(sessionId)
   // EXP-1342: a Stop (here or the header's) hands the unread messages' text
   // back through the session store's draft: it lands in THIS field, after a
-  // draft in progress, and the store's copy is cleared.
+  // draft in progress, and the store's copy is cleared. What was merged is
+  // remembered (the text handed out, the field before and after it) so a
+  // REFUSED Stop can take exactly that back out: the device still holds
+  // the queue, and the text must not stay here too (it would go twice).
   const restored = useSyncExternalStore(store.subscribe, store.getDraftSnapshot).text
+  const textRef = useRef(text)
+  textRef.current = text
+  const heldRef = useRef<{
+    held: string
+    before: string
+    after: string
+  } | null>(null)
   useEffect(() => {
     if (!restored) return
     const held = store.takeDraftText()
-    if (held) setText((current) => mergeHeldIntoDraft(current, [held]))
+    if (!held) return
+    const before = textRef.current
+    const after = mergeHeldIntoDraft(before, [held])
+    heldRef.current = { held, before, after }
+    textRef.current = after
+    setText(after)
   }, [store, restored])
+  useEffect(
+    () =>
+      onStopRetraction(sessionId, (held) => {
+        const last = heldRef.current
+        if (!last || last.held !== held) return false
+        heldRef.current = null
+        // Typed over since: the person's edit stays.
+        if (textRef.current !== last.after) return false
+        textRef.current = last.before
+        setText(last.before)
+        return true
+      }),
+    [sessionId]
+  )
   const agent = row?.cli ?? `claude`
   const options = useSessionComposerOptions({ teamId, sessionId, row, agent })
   // The `/` menu: the contract catalog for this agent, then the agent's own
@@ -324,6 +353,8 @@ export function SessionComposer({
       })
       for (const entry of files) if (entry.previewUrl) URL.revokeObjectURL(entry.previewUrl)
       setText(``)
+      // Sent: nothing of a Stop's text is left here to take back.
+      heldRef.current = null
       setFiles([])
       // A message to a live session writes only a `messages` row: free the
       // composer now, then wait (bounded) for that row to sync.

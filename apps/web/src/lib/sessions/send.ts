@@ -1,6 +1,6 @@
 import { PERSISTENT_KINDS, isPersistent } from "@exp/domain-contract/session-kind"
 import { TRPCError } from "@trpc/server"
-import { and, eq, inArray, isNull, ne, sql } from "drizzle-orm"
+import { and, eq, inArray, isNotNull, isNull, ne, sql } from "drizzle-orm"
 import type { z } from "zod"
 import {
   SESSION_TREE_MAX_DEPTH,
@@ -117,8 +117,10 @@ export async function resolveSessionDevice(
     if (!(await getTeamMember(row.userId, teamId))) continue
     return { shared: true, hostUserId: row.userId, ownerId: row.userId }
   }
+  // NOT_FOUND, before anything else is looked at: a machine the caller may
+  // not see is never described (not its version, not whether it is online).
   throw new TRPCError({
-    code: `PRECONDITION_FAILED`,
+    code: `NOT_FOUND`,
     message: `This device is not yours and not shared with the team`,
   })
 }
@@ -348,8 +350,10 @@ async function assertTreeRoom(tx: Tx, rootId: string, depth: number) {
 /**
  * EXP-1350: real follow-up work starts in `session` (a new child, a message
  * into a work session): its In Review issues go back to In Progress. Its
- * issues = the ones assigned to it, else every issue of its thread. A
- * dispatcher (it answers, never works), an aside and an agent never count.
+ * issues = the ones assigned to it, else the thread's UNASSIGNED ones (an
+ * issue the dispatcher handed to another child is that child's work: its
+ * turn, not this one's, moves it). A dispatcher (it answers, never works),
+ * an aside and an agent never count.
  */
 async function resumeIssuesForWorkInTx(
   tx: Tx,
@@ -362,7 +366,8 @@ async function resumeIssuesForWorkInTx(
     .from(sessionIssues)
     .where(eq(sessionIssues.sessionId, session.rootId))
   const own = linked.filter((row) => row.assigned === session.id)
-  const issueIds = (own.length ? own : linked).map((row) => row.issueId)
+  const unassigned = linked.filter((row) => row.assigned === null)
+  const issueIds = (own.length ? own : unassigned).map((row) => row.issueId)
   await applyIssuesResumedInTx(tx, {
     teamId: session.teamId,
     rootSessionId: session.rootId,
@@ -503,24 +508,55 @@ function moveRaced(): never {
   throw new TRPCError({ code: `CONFLICT`, message: `The session just started; try again.` })
 }
 
+/** The move changed under the plan (a handoff committed or failed, or the
+ *  row left the device the plan was made for). */
+function moveMoved(): never {
+  throw new TRPCError({
+    code: `CONFLICT`,
+    message: `The move changed; try again.`,
+  })
+}
+
 /** Writes a move plan inside the send's transaction; returns the device to
  *  nudge (the SOURCE for a request or cancel, the target for a direct move).
- *  The writes are guarded on the status the plan was made for: a row the
- *  device claimed or ended since the read is CONFLICT, never re-targeted. */
+ *  The plan was made from a snapshot: the row is re-read under lock here and
+ *  the package (`handoff.blob`) comes from THAT row, never the snapshot — a
+ *  `PUT …/handoff` or a `sessions.handoff` committing between the read and
+ *  this transaction would otherwise be dropped or re-stamped onto the row
+ *  queued on its target. The writes are guarded on the device and the
+ *  status the plan was made for: a row the device claimed or ended since
+ *  the read is CONFLICT, never re-targeted; so is one that moved away. */
 export async function applyMove(
   tx: Tx,
   session: Session,
   move: MovePlan,
   requestedBy: string
 ): Promise<SendOutcome[`queued`]> {
+  if (move.kind === `none`) return null
   const now = new Date()
-  const blob = session.handoff?.blob ?? null
   const source = { ownerId: sessionDeviceOwner(session), deviceId: session.deviceId }
+  const [row] = await tx
+    .select({
+      deviceId: sessions.deviceId,
+      status: sessions.status,
+      moveToDeviceId: sessions.moveToDeviceId,
+      handoff: sessions.handoff,
+    })
+    .from(sessions)
+    .where(eq(sessions.id, session.id))
+    .limit(1)
+    .for(`update`)
+  if (!row)
+    throw new TRPCError({ code: `NOT_FOUND`, message: `Session not found` })
+  if (row.deviceId !== session.deviceId) moveMoved()
+  if (row.status === `ended`) moveRaced()
+  const blob = row.handoff?.blob ?? null
+  const onSource = eq(sessions.deviceId, session.deviceId)
   switch (move.kind) {
-    case `none`:
-      return null
-    case `cancel`:
-      await tx
+    case `cancel`: {
+      // The move already completed (or was cancelled) under the plan.
+      if (!row.moveToDeviceId) moveMoved()
+      const updated = await tx
         .update(sessions)
         .set({
           moveToDeviceId: null,
@@ -529,8 +565,17 @@ export async function applyMove(
           caption: null,
           updatedAt: now,
         })
-        .where(eq(sessions.id, session.id))
+        .where(
+          and(
+            eq(sessions.id, session.id),
+            onSource,
+            isNotNull(sessions.moveToDeviceId)
+          )
+        )
+        .returning({ id: sessions.id })
+      if (updated.length === 0) moveMoved()
       return source
+    }
     case `request`: {
       const updated = await tx
         .update(sessions)
@@ -548,18 +593,25 @@ export async function applyMove(
           caption: movingCaption(move.target.name),
           updatedAt: now,
         })
-        .where(and(eq(sessions.id, session.id), ne(sessions.status, `ended`)))
+        .where(
+          and(
+            eq(sessions.id, session.id),
+            onSource,
+            ne(sessions.status, `ended`)
+          )
+        )
         .returning({ id: sessions.id })
       if (updated.length === 0) moveRaced()
       return source
     }
     case `direct`: {
+      // Only a row still QUEUED re-targets: one the device claimed between
+      // the read and this transaction has a run to hand off.
+      if (row.status !== `queued`) moveRaced()
       const from = deviceName(
         await loadDeviceRow(session.deviceId, sessionDeviceOwner(session)),
         session.deviceId
       )
-      // Only a row still QUEUED re-targets: one the device claimed between
-      // the read and this transaction has a run to hand off.
       const updated = await tx
         .update(sessions)
         .set({
@@ -571,7 +623,13 @@ export async function applyMove(
           caption: null,
           updatedAt: now,
         })
-        .where(and(eq(sessions.id, session.id), eq(sessions.status, `queued`)))
+        .where(
+          and(
+            eq(sessions.id, session.id),
+            onSource,
+            eq(sessions.status, `queued`)
+          )
+        )
         .returning({ id: sessions.id })
       if (updated.length === 0) moveRaced()
       await postMovedMessage(tx, session, movedText(from, move.target.name))

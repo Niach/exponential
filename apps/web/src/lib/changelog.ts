@@ -36,7 +36,7 @@ export const CHANGELOG: ChangelogEntry[] = [
 - **Threads**: thread rows drop the private lock and the merged word, the Threads tab carries the live dot, the Inbox tab shows a dot while you have drafts on phones, and the session page lives inside its thread with one Stop in the header that hands queued messages back to the composer.
 - **Issues and pull requests**: follow-up work moves an issue back to In Progress and its end returns it to In Review, issue-targeted PR tools resolve to the issue's own PR, and a Guide remove reaches the caller's subtree.
 - **Accounts**: switching accounts keeps the model, shows itself in the session, and names accounts by email.
-- **Review fixes**: REVIEW_FIXES_PLACEHOLDER`,
+- **Review fixes**: a move keeps the source's worktree and branch until the target has restored it, a re-targeted or cancelled move never loses the uploaded package, a plan approved with a fresh context starts fresh even after the daemon restarted, a refused Stop puts the queued text back exactly once, the session transcript on iPhone shows the agent's own plan and question cards, a plan card's links and media open nothing, moving to a device on an older build is refused with an update note on every platform, and an agent on an older desktop build asks inline instead of posting a card it could never see answered.`,
   },
   {
     id: `2026-10-19-cli-cargo-target-gc`,

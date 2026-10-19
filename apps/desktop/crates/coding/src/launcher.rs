@@ -40,10 +40,6 @@ use crate::argv::{
     MCP_SESSION_ID_ENV, MCP_TOKEN_ENV,
 };
 use crate::context_layout::{self, CarriedBase, ContextLayers};
-use crate::mcp_servers::ResolvedMcp;
-use crate::run_cleanup::RunCleanup;
-use crate::run_registry::{launch_extra, RunKind, RunRecord};
-use domain::rows::SessionRow;
 use crate::doctor::{run_doctor, ToolCheck};
 use crate::git_credentials;
 use crate::git_worktree::{
@@ -51,7 +47,11 @@ use crate::git_worktree::{
     shared_cargo_target_dir, GitError, TokenUrl,
 };
 use crate::mcp_json::write_mcp_json;
+use crate::mcp_servers::ResolvedMcp;
+use crate::run_cleanup::RunCleanup;
+use crate::run_registry::{launch_extra, RunKind, RunRecord};
 use crate::settings::Settings;
+use domain::rows::SessionRow;
 
 /// EXP-511: the per-worktree scratch dir the steer publisher downloads a
 /// steered message's image attachments into, so the agent reads a FILE instead
@@ -440,6 +440,12 @@ pub struct ResumeRun {
     /// re-made on the branch first) and imports claude's transcript into
     /// the profile it resumes on; the system append names the move.
     pub handoff: Option<crate::handoff::HandoffImport>,
+    /// EXP-1280: `true` = the waking message is a plan approved "in a fresh
+    /// context" (`card.fresh`): the run starts a NEW conversation seeded
+    /// with `prompt` instead of reopening the recorded one — what a live
+    /// engine's `/clear` does, for a session whose engine is gone (a daemon
+    /// restart while the card waited).
+    pub fresh: bool,
 }
 
 /// EXP-1334: what a reconfigure resume carries beyond the row.
@@ -702,10 +708,9 @@ impl DisabledReason {
     pub fn message(&self) -> String {
         match self {
             DisabledReason::GithubAppMissing { message, .. } => message.clone(),
-            DisabledReason::DoctorFailed(check) => check
-                .error
-                .clone()
-                .unwrap_or_else(|| format!("{} is not available", check.tool)),
+            DisabledReason::DoctorFailed(check) => {
+                check.error.clone().unwrap_or_else(|| format!("{} is not available", check.tool))
+            }
             DisabledReason::TokenDenied { message } => message.clone(),
             DisabledReason::AccountSwitchRefused { message } => message.clone(),
             DisabledReason::AcpUnavailable { label, note } => match note {
@@ -912,13 +917,7 @@ fn mcp_url(base_url: &str) -> String {
 fn path_segment(id: &str) -> Option<String> {
     let segment: String = id
         .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
-                c
-            } else {
-                '_'
-            }
-        })
+        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
         .collect();
     (!segment.is_empty()).then_some(segment)
 }
@@ -1338,10 +1337,9 @@ fn apply_mcp_server_env(spawn: SpawnSpec, resolved: &ResolvedMcp) -> SpawnSpec {
 /// The shared 412/401/403 mapping for `repositories.installationToken`.
 fn token_error_reason(err: ApiError, full_name: &str) -> Result<DisabledReason, CodingError> {
     match err {
-        ApiError::Http { status: 412, message } => Ok(DisabledReason::GithubAppMissing {
-            full_name: full_name.to_string(),
-            message,
-        }),
+        ApiError::Http { status: 412, message } => {
+            Ok(DisabledReason::GithubAppMissing { full_name: full_name.to_string(), message })
+        }
         ApiError::Http { status: status @ (401 | 403), message } => {
             Ok(DisabledReason::TokenDenied {
                 message: format!("{message} (HTTP {status})"),
@@ -2206,8 +2204,12 @@ fn prepare_resume(
                 .ok_or_else(|| "no claude projects dir".to_string())
                 .and_then(|root| crate::handoff::import_native(&root, &cwd, import))
             {
-                Ok(path) => log::info!("resume {session_id}: transcript imported to {}", path.display()),
-                Err(err) => log::warn!("resume {session_id}: transcript not imported ({err}): a fresh conversation"),
+                Ok(path) => {
+                    log::info!("resume {session_id}: transcript imported to {}", path.display())
+                }
+                Err(err) => log::warn!(
+                    "resume {session_id}: transcript not imported ({err}): a fresh conversation"
+                ),
             }
         }
     }
@@ -2232,7 +2234,11 @@ fn prepare_resume(
         Some(agent),
         recorded_account.as_deref(),
     );
-    let claude_resume_id = (marker_allows_resume && agent == CodingAgent::Claude)
+    // EXP-1280: a fresh-context approval reopens nothing — the transcript
+    // stays where it is, the new conversation starts from the brief and the
+    // plan (the live path's `/clear`).
+    let fresh = resume.fresh;
+    let claude_resume_id = (marker_allows_resume && agent == CodingAgent::Claude && !fresh)
         .then(|| {
             record
                 .claude_session_id
@@ -2252,7 +2258,7 @@ fn prepare_resume(
                 })
         })
         .flatten();
-    let codex_resume_id = (marker_allows_resume && agent == CodingAgent::Codex)
+    let codex_resume_id = (marker_allows_resume && agent == CodingAgent::Codex && !fresh)
         .then(|| {
             acp_native.clone().or_else(|| {
                 deps.codex_sessions_root
@@ -2271,10 +2277,9 @@ fn prepare_resume(
     // EXP-746 (D8): an ACP run's surviving conversation is its recorded ACP
     // session id — `session/load` replays the WHOLE thread, so it is as
     // native a resume as the handles above.
-    let acp_resume_id = record.acp_session_id.clone().filter(|_| record.is_acp());
-    let native_resume = acp_resume_id.is_some()
-        || claude_resume_id.is_some()
-        || codex_resume_id.is_some();
+    let acp_resume_id = record.acp_session_id.clone().filter(|_| record.is_acp() && !fresh);
+    let native_resume =
+        acp_resume_id.is_some() || claude_resume_id.is_some() || codex_resume_id.is_some();
 
     // Step 4 — the first turn. A native resume sends the message verbatim;
     // a conversation that did not survive starts over from the brief with
@@ -3484,9 +3489,16 @@ mod tests {
         let mut thread = row("s-1", None);
         assert_eq!(session_label(&thread, &["EXP-42".to_string()], brief), "Code review");
         thread.title = None;
-        assert_eq!(session_label(&thread, &["EXP-42".to_string()], brief), "#EXP-42 Cold start is slow");
         assert_eq!(
-            session_label(&thread, &["EXP-42".to_string(), "EXP-43".to_string(), "EXP-44".to_string()], brief),
+            session_label(&thread, &["EXP-42".to_string()], brief),
+            "#EXP-42 Cold start is slow"
+        );
+        assert_eq!(
+            session_label(
+                &thread,
+                &["EXP-42".to_string(), "EXP-43".to_string(), "EXP-44".to_string()],
+                brief
+            ),
             "#EXP-42 Cold start is slow + 2"
         );
         // An issue the brief does not title reads by its identifier alone.
@@ -4299,6 +4311,7 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
             message_id: None,
             reconfigure: None,
             handoff: None,
+            fresh: false,
         });
         assert_eq!(last_used_stamp(&PrepareRequest::Session(resumed), &options(None)), None);
     }
@@ -4525,6 +4538,7 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
             message_id: Some("msg-1".to_string()),
             reconfigure: None,
             handoff: None,
+            fresh: false,
         });
         req
     }
@@ -4634,6 +4648,29 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
         assert_eq!(prepared.acp.prompt.as_deref(), Some(MESSAGE));
         let record = crate::run_registry::get(&dir.0, "sess-old").expect("record");
         assert_eq!(record.claude_session_id.as_deref(), Some("claude-1"));
+    }
+
+    /// EXP-1280: a plan approved "in a fresh context" waking a session with
+    /// no engine (a daemon restart) starts a NEW conversation — the
+    /// recorded transcript is not reopened, the brief and the approval seed
+    /// it — instead of silently keeping the old context.
+    #[cfg(unix)]
+    #[test]
+    fn a_fresh_approval_resume_starts_a_new_conversation() {
+        let dir = temp_dir("resume-fresh");
+        let base = canned_server(vec![(200, RESOLVE_NONE.to_string())]);
+        let mut deps = make_deps(&base, &dir.0, fake_worktrees(&dir.0.join("unused")));
+        deps.settings.claude_path = acp_ready_claude_stub(&dir.0).to_string_lossy().into_owned();
+        seed_transcript(&dir.0, &mut deps, "claude-1");
+        let mut req = resume_request(resume_record(&dir.0, "sess-old"));
+        req.resume.as_mut().unwrap().fresh = true;
+
+        let prepared = ready(launch(req, &deps));
+        assert_eq!(prepared.acp.resume, None, "no reopen: a fresh conversation");
+        let prompt = prepared.acp.prompt.as_deref().unwrap_or_default();
+        assert!(prompt.ends_with(MESSAGE), "{prompt}");
+        assert!(prompt.len() > MESSAGE.len(), "seeded from the brief too: {prompt}");
+        assert_eq!(prepared.seed_message_id.as_deref(), Some("msg-1"));
     }
 
     /// EXP-1330: a `/btw` aside resumes with NO MCP servers — the team pick
@@ -5130,7 +5167,9 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
         crate::test_support::sign_in_profile(&dir.0, CodingAgent::Claude, &work.id);
         match prepare_agent_shell(&agent_shell_request(None), &deps) {
             Err(CodingError::Api(ApiError::Transport { .. })) => {}
-            other => panic!("expected the launch to pass the gate and reach the network, got {other:?}"),
+            other => {
+                panic!("expected the launch to pass the gate and reach the network, got {other:?}")
+            }
         }
     }
 }

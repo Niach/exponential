@@ -418,7 +418,17 @@ pub fn stable_json(value: &Value) -> String {
             format!("{{{body}}}")
         }
         Value::Number(number) => match number.as_f64() {
-            Some(f) if number.is_f64() && f.fract() == 0.0 && f.abs() < 1e21 => format!("{}", f as i64),
+            // JS `String(n)`: an integral float below 1e21 prints its digits
+            // (`2.0` → `2`, `1e20` → `100000000000000000000`, `-0` → `0`) —
+            // through the float's own text, never an `i64` (which saturates
+            // past ~9.22e18).
+            Some(f) if number.is_f64() && f.fract() == 0.0 && f.abs() < 1e21 => {
+                if f == 0.0 {
+                    "0".to_string()
+                } else {
+                    format!("{f}")
+                }
+            }
             _ => number.to_string(),
         },
         other => other.to_string(),
@@ -631,5 +641,13 @@ mod tests {
     fn stable_json_sorts_every_depth() {
         let value: Value = serde_json::from_str(r#"{"b":[{"z":1,"a":2.0}],"a":"x\"y","c":null}"#).unwrap();
         assert_eq!(stable_json(&value), r#"{"a":"x\"y","b":[{"a":2,"z":1}],"c":null}"#);
+    }
+
+    /// An integral float prints like JS `String(n)` up to 1e21 — including
+    /// the whole numbers past `i64::MAX` (~9.22e18) that a cast saturated.
+    #[test]
+    fn stable_json_prints_integral_floats_like_js() {
+        let value: Value = serde_json::from_str("[2.0, -3.0, 9300000000000000000.0, 1e20, -1e20, -0.0, 1.5, 7]").unwrap();
+        assert_eq!(stable_json(&value), "[2,-3,9300000000000000000,100000000000000000000,-100000000000000000000,0,1.5,7]");
     }
 }

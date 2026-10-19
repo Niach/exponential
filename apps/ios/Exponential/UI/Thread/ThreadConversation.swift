@@ -678,7 +678,11 @@ struct ThreadAskCard: View {
             options: [],
             multiSelect: card.multi,
             resolved: card.answered,
-            answers: card.answered ? [PlanCard.joinAnswers(card.picked)].filter { !$0.isEmpty } : []
+            // The resolution line (drawn only when the form's rows do not
+            // already show the answer): a typed answer, else a legacy bare
+            // `answer` that names no option (an old joined "A, B") —
+            // `closedAnswerLine`.
+            answers: card.answered ? [PlanCard.joinAnswers(card.closedAnswerLine)].filter { !$0.isEmpty } : []
         )
         QuestionCard(
             question: question,
@@ -720,8 +724,13 @@ struct ThreadAskCard: View {
         let busy = answeringId == card.id
         return AnyView(VStack(alignment: .leading, spacing: Self.answerGap) {
             if let surface = card.surface {
-                PlanCardSurfaceView(surface: surface, handle: draft.surface, editable: editable)
-                    .padding(.bottom, PlanCard.Card.blockGap - Self.answerGap)
+                // Closed: the person's stamped `surfaceData` over the agent's
+                // initial values (web `data={row.surfaceData}`).
+                PlanCardSurfaceView(
+                    surface: surface, handle: draft.surface, editable: editable,
+                    data: card.answered ? card.surfaceData : nil
+                )
+                .padding(.bottom, PlanCard.Card.blockGap - Self.answerGap)
             }
             if !card.options.isEmpty || card.custom {
                 PlanCardQuestionBlock(
@@ -734,7 +743,7 @@ struct ThreadAskCard: View {
                     picked: picked,
                     editable: editable && !busy,
                     customText: Binding(get: { draft.custom[""] ?? "" }, set: { draft.custom[""] = $0 }),
-                    onToggle: { draft.toggle("", label: $0, multi: card.multi) },
+                    onToggle: { draft.toggle("", label: $0, multi: card.multi, order: card.options.map(\.label)) },
                     onType: { draft.type("", text: $0, multi: card.multi) }
                 )
             }
@@ -812,7 +821,12 @@ struct ThreadAskCard: View {
         let editable = canAnswer && card.decision == nil
         return AnyView(VStack(alignment: .leading, spacing: PlanCard.Card.blockGap) {
             if let surface = card.surface {
-                PlanCardSurfaceView(surface: surface, handle: draft.surface, editable: editable)
+                // Decided: the person's stamped `surfaceData` over the
+                // agent's initial values (web `data={row.surfaceData}`).
+                PlanCardSurfaceView(
+                    surface: surface, handle: draft.surface, editable: editable,
+                    data: card.decision != nil ? card.surfaceData : nil
+                )
             }
             ForEach(card.questions) { question in
                 PlanCardQuestionBlock(
@@ -828,7 +842,9 @@ struct ThreadAskCard: View {
                         get: { draft.custom[question.id] ?? "" },
                         set: { draft.custom[question.id] = $0 }
                     ),
-                    onToggle: { draft.toggle(question.id, label: $0, multi: question.multi) },
+                    onToggle: {
+                        draft.toggle(question.id, label: $0, multi: question.multi, order: question.options.map(\.label))
+                    },
                     onType: { draft.type(question.id, text: $0, multi: question.multi) }
                 )
             }

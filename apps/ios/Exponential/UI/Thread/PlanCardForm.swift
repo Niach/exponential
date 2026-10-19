@@ -30,21 +30,17 @@ final class PlanCardDraft {
     @ObservationIgnored let surface = PlanCardSurfaceHandle()
 
     /// A tap on an option: a single choice picks it (the typed text yields),
-    /// a multiple one toggles it.
-    func toggle(_ questionId: String, label: String, multi: Bool) {
-        var current = picks[questionId] ?? []
-        if multi {
-            if let index = current.firstIndex(of: label) { current.remove(at: index) } else { current.append(label) }
-        } else {
-            current = current == [label] ? [] : [label]
-            custom[questionId] = ""
-        }
-        picks[questionId] = current
+    /// a multiple one toggles it — the picks kept in OPTION order (`order` =
+    /// the card's labels; `PlanCard.togglePick`, web `togglePick`).
+    func toggle(_ questionId: String, label: String, multi: Bool, order: [String]) {
+        picks[questionId] = PlanCard.togglePick(picks[questionId] ?? [], label: label, multi: multi, order: order)
+        if !multi { custom[questionId] = "" }
     }
 
-    /// Typing the `custom` answer: a single choice drops its pick.
+    /// Typing the `custom` answer: capped at `PlanCard.labelMax` (the
+    /// server's label limit); a single choice drops its pick.
     func type(_ questionId: String, text: String, multi: Bool) {
-        custom[questionId] = text
+        custom[questionId] = String(text.prefix(PlanCard.labelMax))
         if !multi, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { picks[questionId] = [] }
     }
 
@@ -150,17 +146,30 @@ struct PlanCardQuestionBlock: View {
         .accessibilityIdentifier(PlanCard.TestIds.question)
     }
 
-    /// `copy.custom` = THE free-text field: single line, a row's height;
+    /// The typed answer's count reads under the field once it nears the
+    /// server's cap (`PlanCard.labelMax`), so the hard stop never surprises.
+    private static let limitNoticeFrom = PlanCard.labelMax - 100
+
+    /// `copy.custom` = THE free-text field: single line, a row's height,
+    /// capped at `PlanCard.labelMax` (the count shown near the limit);
     /// closed, a typed answer (a pick that is no option) reads as a picked row.
     @ViewBuilder
     private var customRow: some View {
         if editable {
-            PlanCardField(
-                placeholder: PlanCard.Copy.custom,
-                text: Binding(get: { customText }, set: { onType($0) }),
-                multiline: false,
-                identifier: PlanCard.TestIds.custom
-            )
+            VStack(alignment: .trailing, spacing: PlanCard.Card.blockInnerGap) {
+                PlanCardField(
+                    placeholder: PlanCard.Copy.custom,
+                    text: Binding(get: { customText }, set: { onType($0) }),
+                    multiline: false,
+                    identifier: PlanCard.TestIds.custom
+                )
+                if customText.count >= Self.limitNoticeFrom {
+                    Text("\(customText.count)/\(PlanCard.labelMax)")
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                        .accessibilityIdentifier("\(PlanCard.TestIds.custom)-limit")
+                }
+            }
         } else if let typed = picked.first(where: { label in !options.contains { $0.label == label } }) {
             PlanCardOptionRow(
                 option: TreeQuestionOption(label: typed),
@@ -343,15 +352,20 @@ final class PlanCardSurfaceHandle {
 
 /// The agent-authored Exponential UI core surface, full card width in its own
 /// frame (`plan-card-surface`): the real renderer with a card host (no
-/// transport: actions go nowhere, host functions are denied, so only the
-/// core's `set` runs; media = `/api/attachments/*` through the instance with
-/// the account's auth, else https). Without the painter linked: the frame
-/// reading `copy.surface`.
+/// transport: actions and inputs reach nobody, host functions are no-ops, so
+/// only the core's `set` runs; links open NOTHING — a tap on a `Link` or a
+/// markdown link in an agent-authored surface must never leave the app;
+/// media = `/api/attachments/*` through the instance with the account's auth,
+/// else https). Without the painter linked: the frame reading `copy.surface`.
 struct PlanCardSurfaceView: View {
     let surface: CardSurface
     let handle: PlanCardSurfaceHandle
     /// Answered = closed: the surface paints its data but takes no input.
     let editable: Bool
+    /// An answered card's stored `surfaceData` (the data model as the person
+    /// answered it), applied OVER `surface.data` (web `PlanCardSurface`'s
+    /// `data`). nil = the agent's initial values.
+    var data: CardJSON? = nil
 
     var body: some View {
         // The `copy.surface` label ABOVE its frame (web `PlanCardSurface`).
@@ -375,7 +389,7 @@ struct PlanCardSurfaceView: View {
     @ViewBuilder
     private var content: some View {
         #if canImport(ExponentialUI)
-        PlanCardLiveSurface(surface: surface, handle: handle)
+        PlanCardLiveSurface(surface: surface, data: data, handle: handle)
             .allowsHitTesting(editable)
         #else
         EmptyView()
@@ -385,15 +399,20 @@ struct PlanCardSurfaceView: View {
 
 #if canImport(ExponentialUI)
 /// The live renderer: one `SurfaceModel` per card, fed the NestedNode root and
-/// the initial data model once.
+/// the initial data model once (`surface.data`, then the stamped `data`).
 private struct PlanCardLiveSurface: View {
     let surface: CardSurface
+    let data: CardJSON?
     let handle: PlanCardSurfaceHandle
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
     @State private var model: SurfaceModel?
     @State private var failed = false
+
+    /// Rebuild when the root OR the stamped data changes (a card closing
+    /// brings the person's values with it).
+    private var buildKey: String { surface.rootJSON + "\u{0}" + (data?.compactString ?? "") }
 
     var body: some View {
         Group {
@@ -405,7 +424,7 @@ private struct PlanCardLiveSurface: View {
                 Color.clear.frame(height: 1)
             }
         }
-        .task(id: surface.rootJSON) { build() }
+        .task(id: buildKey) { build() }
     }
 
     private func build() {
@@ -421,7 +440,11 @@ private struct PlanCardLiveSurface: View {
                 host: host
             )
             try next.setNested(json: surface.rootJSON)
-            for (key, value) in surface.data?.objectValue ?? [:] {
+            // The agent's initial values, then the person's stamped ones over
+            // them (web: `{ ...surface.data, ...data }`).
+            let initial = surface.data?.objectValue ?? [:]
+            let stamped = data?.objectValue ?? [:]
+            for (key, value) in initial.merging(stamped, uniquingKeysWith: { _, person in person }) {
                 let pointer = "/" + key.replacingOccurrences(of: "~", with: "~0").replacingOccurrences(of: "/", with: "~1")
                 next.setData(path: pointer, value: JSONValue.parse(value.compactString))
             }
@@ -433,8 +456,12 @@ private struct PlanCardLiveSurface: View {
     }
 }
 
-/// The card's host plugin: no transport, no host functions; media and links
-/// resolve against the instance, attachments load with the account's auth.
+/// The card's host plugin: no transport, no host functions, and NO link
+/// opening; media resolves against the instance, attachments load with the
+/// account's auth. The sandbox is the point: an agent-authored surface
+/// (`plan_propose` / `sessions_ask`) may paint anything, so it must not be
+/// able to send the person anywhere with one tap (web `cardHost`:
+/// `openUrl: () => {}`).
 @MainActor
 private final class PlanCardSurfaceHost: HostPlugin {
     let baseURL: URL?
@@ -446,6 +473,12 @@ private final class PlanCardSurfaceHost: HostPlugin {
         self.accountId = accountId
         self.httpClient = httpClient
     }
+
+    /// Links open nothing. The protocol's default would hand any
+    /// policy-allowed href (https, or a relative path resolved against the
+    /// instance = a universal link) to `UIApplication.open` — overriding it
+    /// here is what keeps the surface sandboxed.
+    func openUrl(_ url: String) {}
 
     private var base: String? {
         baseURL.map { $0.absoluteString.hasSuffix("/") ? String($0.absoluteString.dropLast()) : $0.absoluteString }

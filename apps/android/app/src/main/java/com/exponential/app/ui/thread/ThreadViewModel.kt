@@ -14,6 +14,7 @@ import com.exponential.app.data.api.StartSuggestionInput
 import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.data.steer.SteerConnection
 import com.exponential.app.data.steer.SteerConnectionStore
+import com.exponential.app.data.steer.stopHandingBackQueue
 import com.exponential.app.domain.ActivityFeedState
 import com.exponential.app.ui.steer.steerDeviceFlow
 import com.exponential.app.data.api.trpcErrorMessage
@@ -377,8 +378,13 @@ class ThreadViewModel @Inject constructor(
     /** Revoke one of my queued messages (the queue bar's ✕). */
     fun unqueue(messageId: String) = run("remove", "the message") { sessionsApi.unqueue(it, messageId) }
 
-    /** Stop a session's current turn (it stays live). */
-    fun stop(sessionId: String = rootId) = run("stop", "the session") { sessionsApi.stop(it, sessionId) }
+    /** Stop a session's current turn (it stays live). EXP-1342: the shown
+     *  page's queued messages go back into its composer first, as the
+     *  composer's own Stop does ([SteerConnection.interrupt]); the page's
+     *  connection is the store's, shared with the session view. */
+    fun stop(sessionId: String = rootId) = run("stop", "the session") { accountId ->
+        stopHandingBackQueue(steerStore.peek(sessionId)) { sessionsApi.stop(accountId, sessionId) }
+    }
 
     /** End a session (the ROOT ends the whole tree; agents refuse). */
     fun end(sessionId: String = rootId) = run("end", "the session") { sessionsApi.end(it, sessionId) }

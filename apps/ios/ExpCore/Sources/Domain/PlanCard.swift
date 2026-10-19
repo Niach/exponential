@@ -107,6 +107,36 @@ public enum PlanCard {
     /// renders nothing.
     public static let uploadScheme = "upload:"
 
+    /// The longest label an answer may carry (the server's
+    /// `PLAN_CARD_LABEL_MAX`, `packages/db-schema/src/domain.ts`): a typed
+    /// `custom` answer is capped here so it never fails the wire schema.
+    public static let labelMax = 500
+
+    /// A press on `label` (web `togglePick`): a single choice picks it (again
+    /// = unpicks), a multiple one toggles it, the picks kept in OPTION order
+    /// (`order` = the labels as the card lists them; an unknown pick sorts
+    /// last, in pick order).
+    public static func togglePick(_ picked: [String], label: String, multi: Bool, order: [String]) -> [String] {
+        if !multi { return picked.contains(label) ? [] : [label] }
+        let next = picked.contains(label) ? picked.filter { $0 != label } : picked + [label]
+        let rank = { (pick: String) -> Int in order.firstIndex(of: pick) ?? Int.max }
+        return next.enumerated()
+            .sorted { a, b in
+                let ra = rank(a.element), rb = rank(b.element)
+                return ra != rb ? ra < rb : a.offset < b.offset
+            }
+            .map(\.element)
+    }
+
+    /// A closed question card's picks (web `closedPicks`): `answers`, else a
+    /// legacy bare `answer` that names an option (a free answer, or an old
+    /// joined multi answer "A, B", is no pick — it reads as the answer line).
+    public static func closedPicks(options: [TreeQuestionOption], answer: String?, answers: [String]?) -> [String] {
+        if let answers { return answers }
+        if let answer, options.contains(where: { $0.label == answer }) { return [answer] }
+        return []
+    }
+
     /// Why an answer cannot be sent (nil = fine).
     public enum AnswerIssue: String, Equatable, Sendable, CaseIterable {
         case decision, missing, multi, unknown

@@ -476,6 +476,7 @@ struct GuideViewer {
     images: Entity<ImageCache>,
     focus_handle: gpui::FocusHandle,
     _images_changed: Subscription,
+    _activation: Subscription,
 }
 
 impl GuideViewer {
@@ -489,12 +490,22 @@ impl GuideViewer {
         let images_changed = cx.observe(&images, |_, _, cx| cx.notify());
         let focus_handle = cx.focus_handle();
         window.focus(&focus_handle, cx);
+        // EXP-1348: a native-chrome dialog window loses the focus claimed
+        // above as it becomes key (the shell then takes it), which left ←/→
+        // dead: take it back on that edge — once per activation, never per
+        // frame — whenever nothing inside the viewer holds it.
+        let activation = cx.observe_window_activation(window, |this, window, cx| {
+            if window.is_window_active() && !this.focus_handle.contains_focused(window, cx) {
+                window.focus(&this.focus_handle, cx);
+            }
+        });
         Self {
             source,
             attachment_id,
             images,
             focus_handle,
             _images_changed: images_changed,
+            _activation: activation,
         }
     }
 
@@ -531,7 +542,9 @@ impl GuideViewer {
                     .into_any_element()
             }
             ImageSlot::Loading => crate::feedback::skeleton_block("guide-viewer-loading", 80., cx),
-            ImageSlot::Failed(_) | ImageSlot::Unrenderable => placeholder_box("Image unavailable", cx),
+            ImageSlot::Failed(_) | ImageSlot::Unrenderable => {
+                placeholder_box("Image unavailable", cx)
+            }
         }
     }
 }
@@ -545,12 +558,6 @@ impl gpui::Focusable for GuideViewer {
 impl Render for GuideViewer {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         use gpui::{InteractiveElement as _, StatefulInteractiveElement as _};
-        // EXP-1348: a native-chrome dialog window loses the focus claimed in
-        // `new` as it becomes key (the shell then takes it), which left ←/→
-        // dead; hold it whenever nothing inside the viewer does.
-        if !self.focus_handle.contains_focused(window, cx) {
-            window.focus(&self.focus_handle, cx);
-        }
         let Some(state) = self.state() else {
             return div().size_full().into_any_element();
         };

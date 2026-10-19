@@ -4,11 +4,13 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.api.IssueDraftsApi
 import com.exponential.app.data.api.trpcErrorMessage
+import com.exponential.app.data.TeamSelection
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.domain.DraftRow
 import com.exponential.app.domain.IssueStatusResolver
+import com.exponential.app.domain.activeTeamDrafts
 import com.exponential.app.domain.resolveDraftRows
 import com.exponential.app.ui.components.FailedAction
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -24,9 +26,10 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 /**
- * The "Drafts" section of My Work (EXP-878): every unsent issue draft on the
- * active account, newest-edited first. ACCOUNT-WIDE, not team-scoped — a draft
- * is personal, and each row names the board it will be filed on — which is also
+ * The "Drafts" section of My Work (EXP-878): the ACTIVE team's unsent issue
+ * drafts on the active account, newest-edited first (web's Drafts page,
+ * `useTeamDrafts(teamId)`; the Inbox dot counts the same rows). A draft is
+ * personal and each row names the board it will be filed on — which is also
  * why the join drops a draft whose board no longer resolves locally.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -35,6 +38,7 @@ class DraftsViewModel @Inject constructor(
     private val holder: DatabaseHolder,
     private val auth: AuthRepository,
     private val issueDraftsApi: IssueDraftsApi,
+    private val teamSelection: TeamSelection,
 ) : ViewModel() {
 
     val drafts: StateFlow<List<DraftRow>> = accountDatabaseFlow(auth, holder)
@@ -47,9 +51,10 @@ class DraftsViewModel @Inject constructor(
                     db.boardDao().observeAll(),
                     db.issueStatusDao().observeAll(),
                     db.teamDao().observeAll(),
-                ) { drafts, boards, statuses, teams ->
+                    teamSelection.selectedId,
+                ) { drafts, boards, statuses, teams, teamId ->
                     resolveDraftRows(
-                        drafts = drafts,
+                        drafts = activeTeamDrafts(drafts, teamId),
                         boards = boards,
                         statusesByTeam = statuses
                             .groupBy { it.teamId }

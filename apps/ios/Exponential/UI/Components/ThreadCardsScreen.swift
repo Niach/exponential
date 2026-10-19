@@ -357,10 +357,10 @@ private struct ThreadStripSpecimens: View {
     /// machine (refused: shared differently) and an offline one.
     private static func devicePin(moveTo: String?) -> SessionDevicePin {
         let devices = [
-            SteerDevice(deviceId: "laptop", deviceLabel: "MacBook Pro", agents: ["claude"], kind: "desktop", online: true),
-            SteerDevice(deviceId: "studio", deviceLabel: "Mac Studio", agents: ["claude"], kind: "desktop", online: true),
-            SteerDevice(deviceId: "build", deviceLabel: "Build server", agents: ["claude"], kind: "server", online: true, sharedTeamIds: ["t1"]),
-            SteerDevice(deviceId: "mini", deviceLabel: "Mac mini", agents: ["claude"], kind: "desktop", online: false),
+            SteerDevice(deviceId: "laptop", deviceLabel: "MacBook Pro", agents: ["claude"], kind: "desktop", online: true, version: "0.14.73"),
+            SteerDevice(deviceId: "studio", deviceLabel: "Mac Studio", agents: ["claude"], kind: "desktop", online: true, version: "0.14.73"),
+            SteerDevice(deviceId: "build", deviceLabel: "Build server", agents: ["claude"], kind: "server", online: true, version: "0.14.73", sharedTeamIds: ["t1"]),
+            SteerDevice(deviceId: "mini", deviceLabel: "Mac mini", agents: ["claude"], kind: "desktop", online: false, version: "0.14.73"),
         ]
         let rows = SessionDeviceMove.rows(
             devices: devices, currentDeviceId: "laptop", sessionTeamId: "t1", sessionShared: false, agent: "claude"

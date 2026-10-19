@@ -218,10 +218,12 @@ fn draft_mut<'a>(message_id: &str, cx: &'a mut App) -> &'a mut CardDraft {
     cx.default_global::<CardDrafts>().0.entry(message_id.to_string()).or_default()
 }
 
-/// A sent card's draft goes (its fields, its surface view): the card is
-/// `Answering…`, then closed. Never at render time: two views of one id
-/// must not fight over it.
-fn drop_draft(message_id: &str, cx: &mut App) {
+/// A sent card's draft goes (its fields, its surface view) once its answer
+/// LANDED ([`crate::thread_screen::answer_card`]'s success): the card is
+/// `Answering…` with its picks still in it, then closed — a refusal (409,
+/// 400, the network) re-opens it with everything intact. Never at render
+/// time: two views of one id must not fight over it.
+pub(crate) fn drop_draft(message_id: &str, cx: &mut App) {
     if cx.try_global::<CardDrafts>().is_some_and(|drafts| drafts.0.contains_key(message_id)) {
         cx.default_global::<CardDrafts>().0.remove(message_id);
     }
@@ -407,6 +409,17 @@ impl HostPlugin for CardSurfaceHost {
     }
 
     fn open_url(&self, _url: &str, _cx: &mut App) {}
+
+    /// Sandbox: a `Video` / `AudioPlayer` press plays nothing — web's host
+    /// is inert too. The default would hand an agent-authored attachment
+    /// (fetched with the bearer token) to the system opener.
+    fn open_media_file(&self, _path: &std::path::Path, _cx: &mut App) {}
+
+    /// Sandbox: a `FileUpload` never opens the native picker — handled,
+    /// with nothing picked (web's inert host).
+    fn pick_files(&self, _request: &exponential_ui_gpui::host::FilePickRequest, _cx: &mut App) -> bool {
+        true
+    }
 }
 
 fn surface_view(message_id: &str, surface: &CardSurface, window: &mut Window, cx: &mut App) -> Option<Entity<SurfaceView>> {
@@ -875,7 +888,6 @@ fn send_plan(message_id: &str, decision: &str, fresh: bool, questions: &[PlanQue
         surface_data: surface_data(message_id, surface, cx),
         ..Default::default()
     };
-    drop_draft(message_id, cx);
     crate::thread_screen::answer_card(input, cx);
 }
 
@@ -997,7 +1009,6 @@ fn answer_button(facts: &QuestionFacts, cx: &mut App) -> AnyElement {
                         surface_data: surface_data(&id, surface.as_ref(), cx),
                         ..Default::default()
                     };
-                    drop_draft(&id, cx);
                     crate::thread_screen::answer_card(input, cx);
                 }),
         )
@@ -1007,6 +1018,23 @@ fn answer_button(facts: &QuestionFacts, cx: &mut App) -> AnyElement {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Sandbox: the card's host plays no media and opens no picker (web's
+    /// inert host) — a `Video` / `AudioPlayer` press and a `FileUpload`
+    /// do nothing.
+    #[gpui::test]
+    async fn the_card_host_is_inert_for_media_and_uploads(cx: &mut gpui::TestAppContext) {
+        let host = CardSurfaceHost { instance: None, token: None };
+        let request = exponential_ui_gpui::host::FilePickRequest {
+            surface_id: "s".into(),
+            component_id: "upload".into(),
+            accept: None,
+            multiple: false,
+        };
+        let handled = cx.update(|cx| host.pick_files(&request, cx));
+        assert!(handled, "handled with nothing picked: the native picker never opens");
+        cx.update(|cx| host.open_media_file(std::path::Path::new("/tmp/never-opened.mp4"), cx));
+    }
 
     fn option(label: &str, attachment: Option<&str>) -> QuestionOption {
         QuestionOption {

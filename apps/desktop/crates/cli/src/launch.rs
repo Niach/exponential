@@ -15,8 +15,8 @@ use std::time::{Duration, Instant};
 use anyhow::{anyhow, bail, Context as _};
 use api::mcp_tools::{self, RemoteSession, SessionsSendInput};
 use coding::pickup::{ClaimLock, LaunchQueued, LiveEngine, LiveRegistry, PickupDeps};
-use domain::rows::SessionRow;
 use coding::{CodingDeps, GitWorktrees, LaunchOptions};
+use domain::rows::SessionRow;
 use serde::Deserialize;
 
 use crate::context::Ctx;
@@ -484,9 +484,9 @@ fn note_foreground_switch(refused: &mut Option<String>, account: &str) -> bool {
 fn poll_for_end(ctx: &Ctx, deps: &PickupDeps, session_id: &str) {
     match mcp_tools::sessions_get(&ctx.trpc, session_id) {
         Ok(tree)
-            if tree.session(session_id).is_some_and(|remote| {
-                remote.status == domain::contract::SESSION_STATUS_ENDED
-            }) =>
+            if tree
+                .session(session_id)
+                .is_some_and(|remote| remote.status == domain::contract::SESSION_STATUS_ENDED) =>
         {
             log::info!("session {session_id} was ended — stopping it");
             let kill = coding::pickup::PickupAction::Kill { session_id: session_id.to_string() };
@@ -591,7 +591,7 @@ pub fn answer_tapped_registry(trpc: Arc<api::TrpcClient>) -> Arc<LiveRegistry> {
     let live = Arc::new(LiveRegistry::default());
     let registry = Arc::clone(&live);
     steer::answer_tap::add_answer_tap(Arc::new(move |session_id, resolution| {
-        if let Some(input) = registry.resolve_card_input(
+        if let Some(mut input) = registry.resolve_card_input(
             session_id,
             &resolution.question_id,
             resolution.answer.clone(),
@@ -599,6 +599,9 @@ pub fn answer_tapped_registry(trpc: Arc<api::TrpcClient>) -> Arc<LiveRegistry> {
             resolution.fresh,
             resolution.feedback.clone(),
         ) {
+            // EXP-1280: a multi-select's picks ride `answers` too — the
+            // closed card highlights off them (the IDE's tap does the same).
+            input.answers = resolution.answers.as_ref().map(|labels| serde_json::json!(labels));
             coding::pickup::write_back_card(Arc::clone(&trpc), input);
         }
     }));

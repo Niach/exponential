@@ -1381,18 +1381,30 @@ class SteerConnection internal constructor(
         scope.launch {
             runCatching { socket.send("""{"t":"interrupt"}""") }
         }
-        // EXP-873: a Stop drops every message the agent has not read yet
-        // (the queue bar, held and sent alike — the CLI's own
-        // `cancel_queued`), so their text goes back into the composer, in
-        // order, instead of vanishing; the device's empty `queue` event
-        // confirms. A draft in progress keeps its place, the queued text
-        // lands after a blank line (web parity).
+        restoreQueueToDraft()
+    }
+
+    /**
+     * EXP-873 / EXP-1342: a Stop drops every message the agent has not read
+     * yet (the queue bar, held and sent alike — the CLI's own
+     * `cancel_queued`), so their text goes back into the composer, in order,
+     * instead of vanishing; the device's empty `queue` event confirms. A draft
+     * in progress keeps its place, the queued text lands after a blank line
+     * (web `noteStopped`, iOS `restoreQueueToDraft`).
+     *
+     * Needs no socket: EVERY Stop takes the queue back — [interrupt] over the
+     * relay, and the `sessions.stop` paths (the thread header's Stop, the
+     * composer's Stop while disconnected) that never send a frame.
+     * Returns whether anything was handed back, so a failed stop can put the
+     * draft back the way it was.
+     */
+    fun restoreQueueToDraft(): Boolean {
         val current = _activity.value
-        if (current.queue.isNotEmpty()) {
-            val held = current.queue.joinToString("\n") { it.text }
-            _activity.value = current.clearQueue()
-            _draft.value = if (_draft.value.isBlank()) held else "${_draft.value}\n\n$held"
-        }
+        if (current.queue.isEmpty()) return false
+        val held = current.queue.joinToString("\n") { it.text }
+        _activity.value = current.clearQueue()
+        _draft.value = if (_draft.value.isBlank()) held else "${_draft.value}\n\n$held"
+        return true
     }
 
     /**

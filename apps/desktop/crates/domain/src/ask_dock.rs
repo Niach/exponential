@@ -84,12 +84,6 @@ pub fn plan_options() -> &'static [PlanOption] {
     &ASK_DOCK.plan_options
 }
 
-/// The claude adapter's ExitPlanMode "Yes, and start with a fresh context"
-/// option key (engine `adapters::claude` `exit_plan_options`): a plan card
-/// answered `fresh: true` picks it, and a session-view pick of it writes the
-/// thread card back `fresh: true`.
-pub const FRESH_PLAN_OPTION_KEY: &str = "exit-plan-clear-bypass";
-
 /// The big card's body cap, a fraction of the window height.
 pub fn body_max_height_fraction() -> f32 {
     ASK_DOCK.body_max_height_fraction

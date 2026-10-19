@@ -40,16 +40,12 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use gpui::{
-    div, prelude::FluentBuilder as _, px, Animation, AnimationExt as _, AnyElement, App,
-    AppContext as _, ClickEvent, Entity, FocusHandle, FollowMode, Focusable, FontWeight,
-    InteractiveElement as _, IntoElement, ListAlignment, ListState, ParentElement, Render, SharedString,
-    StatefulInteractiveElement as _, Styled, Subscription, Task, Window,
+    div, prelude::FluentBuilder as _, px, Animation, AnimationExt as _, AnyElement, App, AppContext as _, ClickEvent,
+    Entity, FocusHandle, Focusable, FollowMode, FontWeight, InteractiveElement as _, IntoElement, ListAlignment,
+    ListState, ParentElement, Render, SharedString, StatefulInteractiveElement as _, Styled, Subscription, Task,
+    Window,
 };
-use gpui_component::{
-    button::ButtonVariants as _,
-    h_flex,
-    v_flex, ActiveTheme as _, Icon, Sizable as _,
-};
+use gpui_component::{button::ButtonVariants as _, h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _};
 use sync::Store;
 
 use domain::rows::{Issue, MessageRow, PullRequestRow, SessionIssueRow, SessionRow};
@@ -61,9 +57,9 @@ use crate::controls::WebControl as _;
 use crate::controls::WebText as _;
 use crate::icons::registry;
 use crate::markdown::{ImageCache, IssueChipCache, MarkdownView, RefResolver};
-use crate::transcript_rows::{plan_list_sync, ListOp, RowKey, WORKING_ROW_ID};
 use crate::navigation::Screen;
 use crate::session_results::GuidePage;
+use crate::transcript_rows::{plan_list_sync, ListOp, RowKey, WORKING_ROW_ID};
 
 /// The menu copy.
 pub(crate) const LINK_ISSUE_LABEL: &str = "Link an issue";
@@ -229,16 +225,12 @@ fn background_write<T: Send + 'static>(
 
 /// `sessions.linkIssues({sessionId: root, issueIds: [issue]})`.
 pub(crate) fn link_issue(root_id: String, issue_id: String, cx: &mut App) {
-    background_write("link", "the issue", cx, move |trpc| {
-        api::sessions::link_issues(trpc, &root_id, &[issue_id])
-    });
+    background_write("link", "the issue", cx, move |trpc| api::sessions::link_issues(trpc, &root_id, &[issue_id]));
 }
 
 /// `sessions.unlinkIssue({sessionId: root, issueId})`.
 pub(crate) fn unlink_issue(root_id: String, issue_id: String, cx: &mut App) {
-    background_write("unlink", "the issue", cx, move |trpc| {
-        api::sessions::unlink_issue(trpc, &root_id, &issue_id)
-    });
+    background_write("unlink", "the issue", cx, move |trpc| api::sessions::unlink_issue(trpc, &root_id, &issue_id));
 }
 
 /// Cards whose answer is on its way (or landed before `answered_at`
@@ -268,17 +260,21 @@ pub(crate) fn answer_card(input: api::sessions::AnswerInput, cx: &mut App) {
         return;
     };
     cx.spawn(async move |cx| {
-        let result = cx
-            .background_executor()
-            .spawn(async move { api::sessions::answer(&trpc, &input) })
-            .await;
-        if let Err(err) = result {
-            log::warn!("[thread] answer the question failed: {err}");
-            cx.update(|cx| {
-                cx.default_global::<AnsweringCards>().0.remove(&message_id);
-                cx.refresh_windows();
-                crate::action_error::failed_action_err("answer", "the question", &err, cx);
-            });
+        let result = cx.background_executor().spawn(async move { api::sessions::answer(&trpc, &input) }).await;
+        match result {
+            // The draft goes only now: a refusal (409, 400, the network)
+            // re-opens the card with its picks and text intact.
+            Ok(_) => {
+                cx.update(|cx| crate::plan_card::drop_draft(&message_id, cx));
+            }
+            Err(err) => {
+                log::warn!("[thread] answer the question failed: {err}");
+                cx.update(|cx| {
+                    cx.default_global::<AnsweringCards>().0.remove(&message_id);
+                    cx.refresh_windows();
+                    crate::action_error::failed_action_err("answer", "the question", &err, cx);
+                });
+            }
         }
     })
     .detach();
@@ -286,9 +282,7 @@ pub(crate) fn answer_card(input: api::sessions::AnswerInput, cx: &mut App) {
 
 /// `sessions.unqueue` — take back a message the device has not consumed.
 pub(crate) fn unqueue_message(message_id: String, cx: &mut App) {
-    background_write("remove", "the message", cx, move |trpc| {
-        api::sessions::unqueue(trpc, &message_id)
-    });
+    background_write("remove", "the message", cx, move |trpc| api::sessions::unqueue(trpc, &message_id));
 }
 
 /// A session card was clicked: another ROOT thread (an agent channel's
@@ -774,9 +768,7 @@ pub(crate) fn unqueue_button(
     div()
         .id(id.clone())
         .flex_shrink_0()
-        .tooltip(|window, cx| {
-            gpui_component::tooltip::Tooltip::new(steer::feed::QUEUE_REMOVE_LABEL).build(window, cx)
-        })
+        .tooltip(|window, cx| gpui_component::tooltip::Tooltip::new(steer::feed::QUEUE_REMOVE_LABEL).build(window, cx))
         .child(
             crate::controls::ghost_icon_button(
                 SharedString::from(format!("{id}-x")),
@@ -801,9 +793,7 @@ pub(crate) fn user_bubble(
     let muted = cx.theme().muted_foreground;
     let unqueue_id = id.to_string();
     let unqueue = unqueue_offered(queued, own).then(|| {
-        unqueue_button("thread-unqueue", id, queued, cx, move |_, _, cx| {
-            unqueue_message(unqueue_id.clone(), cx)
-        })
+        unqueue_button("thread-unqueue", id, queued, cx, move |_, _, cx| unqueue_message(unqueue_id.clone(), cx))
     });
     let caption_row = h_flex()
         .gap_1()
@@ -811,9 +801,7 @@ pub(crate) fn user_bubble(
         .text_2xs()
         .text_color(muted)
         .when(!caption.is_empty(), |row| row.child(SharedString::from(caption)))
-        .when(queued, |row| {
-            row.child(SharedString::from(format!("· {QUEUED_WORD}")))
-        })
+        .when(queued, |row| row.child(SharedString::from(format!("· {QUEUED_WORD}"))))
         .children(unqueue);
     v_flex()
         .w_full()
@@ -1151,22 +1139,14 @@ pub(crate) fn card_row(
                 .join(" · "),
             cx,
         ),
-        SessionThreadRow::Picture {
-            id,
-            attachment_id,
-            width,
-            height,
-            caption,
-        } => picture_row(id, attachment_id, *width, *height, caption.as_deref(), images, cx),
+        SessionThreadRow::Picture { id, attachment_id, width, height, caption } => {
+            picture_row(id, attachment_id, *width, *height, caption.as_deref(), images, cx)
+        }
         SessionThreadRow::Event { text, .. } => muted_line(registry::EVENT_STATUS_CHANGED, text.clone(), cx),
         SessionThreadRow::Report { id, session_id, text, .. } => report_line(id, session_id, text, root_id, cx),
-        SessionThreadRow::Suggestions {
-            id,
-            header,
-            start_all,
-            items,
-            ..
-        } => suggestions_card(id, header, *start_all, items, root_id, team_id, cx),
+        SessionThreadRow::Suggestions { id, header, start_all, items, .. } => {
+            suggestions_card(id, header, *start_all, items, root_id, team_id, cx)
+        }
     })
 }
 
@@ -1581,19 +1561,28 @@ fn suggestion_menu(
             let (message_id, item_id) = (model_message.clone(), model_item.clone());
             let label = crate::steer_viewer::model_label(model);
             let model = model.to_string();
-            sub = sub.item(pointer_menu_item(None, label, |_| None, move |_, cx| {
-                start_suggestion(&message_id, &item_id, false, None, Some(model.clone()), cx)
-            }));
+            sub = sub.item(pointer_menu_item(
+                None,
+                label,
+                |_| None,
+                move |_, cx| start_suggestion(&message_id, &item_id, false, None, Some(model.clone()), cx),
+            ));
         }
         sub
     })
     .separator()
-    .item(pointer_menu_item(None, copy.file.clone(), |_| None, move |_, cx| {
-        file_suggestion(file_message.clone(), file_item.clone(), cx)
-    }))
-    .item(pointer_menu_item(None, copy.dismiss.clone(), |_| None, move |_, cx| {
-        dismiss_suggestion(dismiss_message.clone(), dismiss_item.clone(), cx)
-    }))
+    .item(pointer_menu_item(
+        None,
+        copy.file.clone(),
+        |_| None,
+        move |_, cx| file_suggestion(file_message.clone(), file_item.clone(), cx),
+    ))
+    .item(pointer_menu_item(
+        None,
+        copy.dismiss.clone(),
+        |_| None,
+        move |_, cx| dismiss_suggestion(dismiss_message.clone(), dismiss_item.clone(), cx),
+    ))
 }
 
 // ---------------------------------------------------------------------------
@@ -1644,9 +1633,8 @@ fn issue_thread_chip(index: usize, root: &SessionRow, cx: &App) -> AnyElement {
     use crate::surface::{glass_pill, PillMode, PillSize};
     let tree = crate::session_data::tree_of_root(&root.id, cx);
     let live = tree.iter().filter(|session| !session.is_ended());
-    let (busy, needs_you) = live.fold((false, false), |(busy, needs), session| {
-        (busy || session.busy, needs || session.needs_input)
-    });
+    let (busy, needs_you) =
+        live.fold((false, false), |(busy, needs), session| (busy || session.busy, needs || session.needs_input));
     let title = crate::session_data::session_title_of(&root.id, cx).unwrap_or_else(|| THREAD.copy.untitled.clone());
     let root_id = root.id.clone();
     glass_pill(("issue-thread-chip", index), PillSize::Sm, PillMode::Action, cx)
@@ -1776,10 +1764,9 @@ const SESSION_CHIP_PART_MAX_W: f32 = 110.;
 /// The open nested item of a chip (`<chip> › <open one>`).
 fn open_nested(tab: &ThreadTab, open: &StripPick) -> Option<String> {
     match (tab, open) {
-        (ThreadTab::Issue { nested, .. }, StripPick::Issue(id)) => nested
-            .iter()
-            .find(|item| item.issue_id == *id)
-            .map(|item| item.identifier.clone()),
+        (ThreadTab::Issue { nested, .. }, StripPick::Issue(id)) => {
+            nested.iter().find(|item| item.issue_id == *id).map(|item| item.identifier.clone())
+        }
         (ThreadTab::Session { nested, .. }, StripPick::Session(id)) => {
             nested.iter().find(|item| item.session_id == *id).map(|item| item.name.clone())
         }
@@ -1870,18 +1857,11 @@ fn subtree_of(tab: &ThreadTab, spec: &ThreadStrip) -> Vec<(SubtreeItem, usize)> 
         } => std::iter::once((issue(issue_id, identifier), 0))
             .chain(nested.iter().map(|item| (issue(&item.issue_id, &item.identifier), item.depth)))
             .collect(),
-        ThreadTab::Session {
-            session_id,
-            name,
-            mark_state,
-            nested,
-        } => std::iter::once((session(session_id, name, *mark_state), 0))
-            .chain(
-                nested
-                    .iter()
-                    .map(|item| (session(&item.session_id, &item.name, item.mark_state), item.depth)),
-            )
-            .collect(),
+        ThreadTab::Session { session_id, name, mark_state, nested } => {
+            std::iter::once((session(session_id, name, *mark_state), 0))
+                .chain(nested.iter().map(|item| (session(&item.session_id, &item.name, item.mark_state), item.depth)))
+                .collect()
+        }
         _ => Vec::new(),
     }
 }
@@ -1900,28 +1880,25 @@ fn subtree_row(item: &SubtreeItem, guides: &domain::tree_guides::Guides, active:
         .pl(px(INDENT * guides.depth() as f32))
         .children(crate::tree_guides::guide_layer(guides, 0., 0.));
     row = match item {
-        SubtreeItem::Issue {
-            identifier, title, status, ..
-        } => {
-            row.child(issue_glyph(status.as_ref(), cx))
-                .child(
-                    div()
-                        .flex_shrink_0()
-                        .text_xs()
-                        .font_family(theme::terminal::FONT_FAMILY)
-                        .text_color(theme.muted_foreground)
-                        .child(SharedString::from(identifier.clone())),
-                )
-                .child(
-                    div()
-                        .flex_shrink_0()
-                        .max_w(px(320.))
-                        .truncate()
-                        .text_sm()
-                        .text_color(theme.foreground)
-                        .child(SharedString::from(title.clone())),
-                )
-        }
+        SubtreeItem::Issue { identifier, title, status, .. } => row
+            .child(issue_glyph(status.as_ref(), cx))
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .text_xs()
+                    .font_family(theme::terminal::FONT_FAMILY)
+                    .text_color(theme.muted_foreground)
+                    .child(SharedString::from(identifier.clone())),
+            )
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .max_w(px(320.))
+                    .truncate()
+                    .text_sm()
+                    .text_color(theme.foreground)
+                    .child(SharedString::from(title.clone())),
+            ),
         SubtreeItem::Session { name, state, cli, .. } => {
             let word_color = match state {
                 domain::session_tree::SessionState::NeedsYou | domain::session_tree::SessionState::Blocked => {
@@ -1948,12 +1925,8 @@ fn subtree_row(item: &SubtreeItem, guides: &domain::tree_guides::Guides, active:
                 )
         }
     };
-    let check = active.then(|| {
-        Icon::new(registry::UI_CHECK)
-            .size(px(14.))
-            .text_color(theme.foreground)
-            .into_any_element()
-    });
+    let check =
+        active.then(|| Icon::new(registry::UI_CHECK).size(px(14.)).text_color(theme.foreground).into_any_element());
     crate::controls::pointer_row_fill(
         h_flex()
             .flex_1()
@@ -2078,11 +2051,7 @@ pub(crate) fn shrink_session_chips(
         return caps;
     }
     let mut order: Vec<usize> = (0..widths.len()).collect();
-    order.sort_by(|a, b| {
-        (Some(*b) == active)
-            .cmp(&(Some(*a) == active))
-            .then(widths[*b].total_cmp(&widths[*a]))
-    });
+    order.sort_by(|a, b| (Some(*b) == active).cmp(&(Some(*a) == active)).then(widths[*b].total_cmp(&widths[*a])));
     for index in order {
         if excess <= 0. {
             break;
@@ -2532,18 +2501,25 @@ struct ConversationRows {
     tail: bool,
     /// What the list was last told.
     keys: Vec<RowKey>,
-    /// The inputs the projection was built from (model generation, may
-    /// message, tail shown).
-    synced: Option<(u64, bool, bool)>,
+    /// The inputs the projection was built from (model generation, chip
+    /// generation, may message, tail shown).
+    synced: Option<(u64, u64, bool, bool)>,
 }
 
 /// EXP-1346: a Conversation row's content identity (its measured height
-/// moves with it): the row itself plus a message's timestamp (its caption).
-fn conversation_fingerprint(row: &SessionThreadRow, at: Option<&str>) -> u64 {
+/// moves with it): the row itself plus a message's timestamp (its caption)
+/// and, for a row that may render an issue pill (a `#` in its text), the
+/// chip generation — a pill's title comes from the issue, not the row, and
+/// a retitled pill wraps differently.
+fn conversation_fingerprint(row: &SessionThreadRow, at: Option<&str>, chip_gen: u64) -> u64 {
     use std::hash::{Hash as _, Hasher as _};
     let mut hasher = std::hash::DefaultHasher::new();
-    serde_json::to_string(row).unwrap_or_default().hash(&mut hasher);
+    let json = serde_json::to_string(row).unwrap_or_default();
+    json.hash(&mut hasher);
     at.hash(&mut hasher);
+    if json.contains('#') {
+        chip_gen.hash(&mut hasher);
+    }
     hasher.finish()
 }
 
@@ -2563,6 +2539,10 @@ pub(crate) struct ThreadScreenView {
     model: Option<Rc<ThreadModel>>,
     /// Bumped on every [`Self::refresh`]: what [`Self::sync_list`] diffs on.
     model_gen: u64,
+    /// Bumped whenever [`Self::chip_cache`] is cleared (an issue or a status
+    /// changed): the pills' titles moved, so the rows showing them
+    /// re-measure ([`conversation_fingerprint`]).
+    chip_gen: u64,
     /// The issue child's detail view (built on first show, re-pointed).
     issue_view: Option<Entity<crate::issue_detail::IssueDetailView>>,
     guide: GuideState,
@@ -2632,10 +2612,12 @@ impl ThreadScreenView {
             subscriptions.push(cx.observe(&collections.pull_requests, |this, _, cx| this.refresh(cx)));
             subscriptions.push(cx.observe(&collections.issues, |this, _, cx| {
                 this.chip_cache.borrow_mut().clear();
+                this.chip_gen = this.chip_gen.wrapping_add(1);
                 this.refresh(cx);
             }));
             subscriptions.push(cx.observe(&collections.issue_statuses, |this, _, cx| {
                 this.chip_cache.borrow_mut().clear();
+                this.chip_gen = this.chip_gen.wrapping_add(1);
                 cx.notify();
             }));
         }
@@ -2659,6 +2641,7 @@ impl ThreadScreenView {
             child: ThreadChildSel::Conversation,
             model: None,
             model_gen: 0,
+            chip_gen: 0,
             issue_view: None,
             guide: GuideState::default(),
             images,
@@ -3066,7 +3049,7 @@ impl ThreadScreenView {
     /// with a content fingerprint, so an append is one splice and a row
     /// that changed (or slid under another) re-measures.
     fn sync_list(&mut self, model: &ThreadModel, may_message: bool) {
-        let inputs = (self.model_gen, may_message, self.tail.is_some());
+        let inputs = (self.model_gen, self.chip_gen, may_message, self.tail.is_some());
         if self.conv.synced == Some(inputs) {
             return;
         }
@@ -3085,6 +3068,7 @@ impl ThreadScreenView {
             .map(|(index, _)| index)
             .collect();
         self.conv.tail = self.tail.is_some();
+        let chip_gen = self.chip_gen;
         let mut keys: Vec<RowKey> = self
             .conv
             .rows
@@ -3098,10 +3082,7 @@ impl ThreadScreenView {
                     }
                     _ => None,
                 };
-                RowKey {
-                    id: position as u64,
-                    fingerprint: conversation_fingerprint(row, at),
-                }
+                RowKey { id: position as u64, fingerprint: conversation_fingerprint(row, at, chip_gen) }
             })
             .collect();
         if self.conv.tail {
@@ -3282,9 +3263,7 @@ impl ThreadScreenView {
                 .or_else(|| crate::session_results::guide_page_view(&groups, &diff, GuidePage::All, false));
             if let Some(page_view) = page_view {
                 let filtered = page != GuidePage::All;
-                view.update(cx, |view, cx| {
-                    view.set_paths(filtered.then(|| page_view.paths.clone()), cx)
-                });
+                view.update(cx, |view, cx| view.set_paths(filtered.then(|| page_view.paths.clone()), cx));
                 let this = cx.entity().downgrade();
                 let back = crate::session_results::guide_page_header(
                     &page_view,
@@ -3411,30 +3390,25 @@ impl Render for ThreadScreenView {
             // The sessions synced, this root is not among them, and the
             // grace passed (deleted, a lost membership, a foreign id).
             if thread_not_found(ready, false, self.opened_at.elapsed()) {
-                return v_flex()
-                    .size_full()
-                    .px_4()
-                    .items_center()
-                    .justify_center()
+                return v_flex().size_full().px_4().items_center().justify_center().child(
+                    crate::controls::empty_state(
+                        Icon::new(registry::WORK_FACES),
+                        crate::empty_state_copy::THREAD_NOT_FOUND,
+                        Some(crate::empty_state_copy::THREAD_NOT_FOUND_DESCRIPTION.into()),
+                        cx,
+                    )
                     .child(
-                        crate::controls::empty_state(
-                            Icon::new(registry::WORK_FACES),
-                            crate::empty_state_copy::THREAD_NOT_FOUND,
-                            Some(crate::empty_state_copy::THREAD_NOT_FOUND_DESCRIPTION.into()),
-                            cx,
-                        )
-                        .child(
-                            crate::controls::empty_state_actions().child(
-                                gpui_component::button::Button::new("thread-not-found-agent")
-                                    .primary()
-                                    .web_sm()
-                                    .label(crate::empty_state_copy::THREAD_NOT_FOUND_ACTION)
-                                    .on_click(|_, window, cx| {
-                                        crate::navigation::navigate(window, cx, Screen::Home);
-                                    }),
-                            ),
+                        crate::controls::empty_state_actions().child(
+                            gpui_component::button::Button::new("thread-not-found-agent")
+                                .primary()
+                                .web_sm()
+                                .label(crate::empty_state_copy::THREAD_NOT_FOUND_ACTION)
+                                .on_click(|_, window, cx| {
+                                    crate::navigation::navigate(window, cx, Screen::Home);
+                                }),
                         ),
-                    );
+                    ),
+                );
             }
             // Skeletons, never "Loading…" (feedback-states.json).
             return v_flex()

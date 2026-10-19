@@ -59,6 +59,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use exponential_ui_gpui::controls::{SteppedAnimationExt as _, SMOOTH_STEP};
 use gpui::{
     bounce, div, ease_in_out, list, prelude::FluentBuilder as _, px, relative,
     AnyElement, App, AppContext as _, ClickEvent, ElementId, Entity, FocusHandle,
@@ -66,7 +67,6 @@ use gpui::{
     ParentElement as _, Pixels, Render, ScrollHandle, SharedString,
     StatefulInteractiveElement as _, Styled, Subscription, Task, Window,
 };
-use exponential_ui_gpui::controls::{SteppedAnimationExt as _, SMOOTH_STEP};
 use gpui_component::{
     button::{Button, ButtonVariant, ButtonVariants as _},
     h_flex,
@@ -88,17 +88,13 @@ use steer::{
 };
 use theme::tokens::transcript;
 
-use crate::controls::{
-    text_button, TextButtonVariant, WebText as _,
-};
+use crate::composer_images::{self, PendingImages};
+use crate::controls::{text_button, TextButtonVariant, WebText as _};
 use crate::icons::registry;
+use crate::native_dialog::{self, AlertSpec};
 use crate::slash_commands;
 use crate::trace::{trace_collapsible, trace_content, trace_line, trace_link, trace_stack, TraceLine, TraceSize};
-use crate::composer_images::{self, PendingImages};
-use crate::native_dialog::{self, AlertSpec};
-use crate::transcript_rows::{
-    self, facet, plan_list_sync, ItemFacets, ListOp, RowKey, ORPHAN_ROW_BASE,
-};
+use crate::transcript_rows::{self, facet, plan_list_sync, ItemFacets, ListOp, RowKey, ORPHAN_ROW_BASE};
 
 /// EXP-1228: the transcript menu's Copy row — copies the window text
 /// selection exactly like ⌘C/Ctrl+C does over the transcript. EXP-1266: the
@@ -268,9 +264,7 @@ impl FeedSource {
     fn handle(&self) -> Option<&ViewerHandle> {
         match self {
             FeedSource::Remote { handle } => handle.as_ref(),
-            FeedSource::Local { .. } | FeedSource::Replay { .. } | FeedSource::Journal { .. } => {
-                None
-            }
+            FeedSource::Local { .. } | FeedSource::Replay { .. } | FeedSource::Journal { .. } => None,
         }
     }
 
@@ -289,9 +283,7 @@ impl FeedSource {
     fn steerable_session(&self) -> Option<&engine::EngineSession> {
         match self {
             FeedSource::Local { session } => Some(session),
-            FeedSource::Replay { .. } | FeedSource::Remote { .. } | FeedSource::Journal { .. } => {
-                None
-            }
+            FeedSource::Replay { .. } | FeedSource::Remote { .. } | FeedSource::Journal { .. } => None,
         }
     }
 
@@ -931,11 +923,8 @@ impl SteerSessionView {
     /// chip memo; a transcript full of `EXP-nnn` tokens used to build a
     /// fresh resolver per prose body and re-scan the team's issues per token.
     fn ref_resolver(&self, cx: &App) -> Option<crate::markdown::RefResolver> {
-        self.ref_team_id(cx).map(|team_id| {
-            crate::markdown::RefResolver::from_store(team_id)
-                .bare(true)
-                .memoized(self.chip_cache.clone())
-        })
+        self.ref_team_id(cx)
+            .map(|team_id| crate::markdown::RefResolver::from_store(team_id).bare(true).memoized(self.chip_cache.clone()))
     }
 
     /// EXP-760: hang the feed's bare-mode chip resolver (and the in-app
@@ -1139,12 +1128,7 @@ impl SteerSessionView {
         // borrow-free (`items()` and `picked` are disjoint fields) and without
         // allocating a set: a transcript holds a handful of question cards.
         let items = self.feed.items();
-        self.picked.retain(|key, _| {
-            items.iter().any(|item| {
-                item.question()
-                    .is_some_and(|card| card.question_id == *key)
-            })
-        });
+        self.picked.retain(|key, _| items.iter().any(|item| item.question().is_some_and(|card| card.question_id == *key)));
         self.extras.prune_before(first);
         self.edit_memo.prune_before(first);
     }
@@ -1288,13 +1272,9 @@ impl SteerSessionView {
         // its own card inside a lane exactly as it is in the main transcript.
         let held = self.feed.workflow_ids();
         match focus.as_deref() {
-            Some(subagent_id) => steer::feed::group_subagent_row_specs_into(
-                self.feed.items(),
-                start,
-                subagent_id,
-                &held,
-                &mut self.rows,
-            ),
+            Some(subagent_id) => {
+                steer::feed::group_subagent_row_specs_into(self.feed.items(), start, subagent_id, &held, &mut self.rows)
+            }
             None => {
                 self.rows.clear();
                 self.feed.row_specs_from_into(start, &mut self.rows);
@@ -2032,9 +2012,9 @@ impl SteerSessionView {
             // A replay (and a journal read) is history: its questions were
             // answered — or dropped — when the run happened.
             FeedSource::Replay { .. } | FeedSource::Journal { .. } => false,
-            FeedSource::Remote { handle } => handle.as_ref().is_some_and(|handle| {
-                handle.send_answer(question_id, card.ask_id.as_deref(), &keys, text.as_deref())
-            }),
+            FeedSource::Remote { handle } => handle
+                .as_ref()
+                .is_some_and(|handle| handle.send_answer(question_id, card.ask_id.as_deref(), &keys, text.as_deref())),
         };
         if !sent {
             self.notice = Some(SharedString::from(NOT_CONNECTED));
@@ -2078,29 +2058,11 @@ impl SteerSessionView {
     }
 
     /// EXP-1294 — the `messages` row behind a pending card: this session's
-    /// newest UNANSWERED `question` (or, for a plan picker, `plan`) card,
-    /// preferring the one whose text is the card's. `None` = no row carries
-    /// it (yet), and the live layer answers.
+    /// unanswered card row carrying the card's wire id ([`card_row_id`]).
+    /// `None` = no row carries it (yet), and the live layer answers.
     fn card_message_id(&self, card: &steer::feed::QuestionCard, cx: &App) -> Option<String> {
-        let (kind, field) = if card.plan_mode {
-            ("plan", "plan")
-        } else {
-            ("question", "question")
-        };
         let messages = crate::session_data::messages_of_session(&self.session_id, cx);
-        let open: Vec<&domain::rows::MessageRow> = messages
-            .iter()
-            .filter(|message| message.card_kind() == Some(kind) && message.answered_at.is_none())
-            .collect();
-        let same_text = open.iter().rev().find(|message| {
-            message
-                .card
-                .as_ref()
-                .and_then(|card| card.get(field))
-                .and_then(serde_json::Value::as_str)
-                .is_some_and(|text| text.trim() == card.text.trim())
-        });
-        same_text.or(open.last()).map(|message| message.id.clone())
+        card_row_id(&messages, &card.question_id)
     }
 
     /// EXP-1294 — `sessions.answer` for a card's row. The card locks at once
@@ -2212,10 +2174,7 @@ impl SteerSessionView {
             .feed
             .items()
             .iter()
-            .filter(|item| {
-                item.question()
-                    .is_some_and(|card| card.ask_id.as_deref() == Some(ask_id))
-            })
+            .filter(|item| item.question().is_some_and(|card| card.ask_id.as_deref() == Some(ask_id)))
             .collect();
         ask_complete(&items)
     }
@@ -2475,23 +2434,14 @@ impl SteerSessionView {
             return;
         }
         let state = cx.new(|cx| InputState::new(window, cx).placeholder(placeholder));
-        let subscription = cx.subscribe_in(
-            &state,
-            window,
-            |this, _, event: &InputEvent, window, cx| match event {
-                InputEvent::PressEnter { shift: false, .. } => this.send_inline(window, cx),
-                // The Send button's enabled state follows the draft.
-                InputEvent::Change => cx.notify(),
-                _ => {}
-            },
-        );
-        state.update(cx, |state, cx| state.focus(window, cx));
-        self.inline = Some(InlineAnswer {
-            item: item_id,
-            option_key,
-            state,
-            _subscription: subscription,
+        let subscription = cx.subscribe_in(&state, window, |this, _, event: &InputEvent, window, cx| match event {
+            InputEvent::PressEnter { shift: false, .. } => this.send_inline(window, cx),
+            // The Send button's enabled state follows the draft.
+            InputEvent::Change => cx.notify(),
+            _ => {}
         });
+        state.update(cx, |state, cx| state.focus(window, cx));
+        self.inline = Some(InlineAnswer { item: item_id, option_key, state, _subscription: subscription });
         cx.notify();
     }
 
@@ -2609,7 +2559,7 @@ impl SteerSessionView {
         // EXP-820 → THE ask dock (ask-dock.json ×4): the waiting card takes
         // the composer's place — free text is typed in the card, and a
         // message would only race the answer.
-        !self.dock_view().composer_hidden && self.tool_card.is_none()
+        !self.dock_view().composer_hidden
     }
 
     /// EXP-1280: the newest unanswered TOOL-posted card of this session
@@ -2626,29 +2576,29 @@ impl SteerSessionView {
             .flatten();
     }
 
-    /// THE ask dock over this session's ONE answerable card
-    /// ([`Self::dock_card_id`]; caption none).
+    /// THE ask dock over this session's waiting cards: the engine's
+    /// ([`Self::dock_card_id`]) and a tool-posted one ([`Self::tool_card`]),
+    /// stacked as the contract stacks a thread's (ask-dock.json ×4) when
+    /// both wait — the tool card first (it waited before the engine asked);
+    /// captions none. A compact card grows on a click, the back arrow
+    /// returns to the stack ([`Self::ask_dock`]).
     fn dock_view(&self) -> domain::ask_dock::AskDockView {
-        let pending: Vec<domain::ask_dock::AskDockPending> = self
-            .dock_card_id()
-            .and_then(|id| self.feed.items().iter().find(|item| item.id == id))
-            .and_then(|item| {
-                let card = item.question()?;
-                Some(domain::ask_dock::AskDockPending {
-                    id: item.id.to_string(),
-                    kind: if card.plan_mode {
-                        domain::ask_dock::AskDockKind::Plan
-                    } else {
-                        domain::ask_dock::AskDockKind::Question
-                    },
-                    text: card.text.clone(),
-                    session_name: None,
-                    created_at: 0,
-                })
+        let mut pending: Vec<domain::ask_dock::AskDockPending> = Vec::new();
+        if let Some(tool) = self.tool_card.as_ref().and_then(|row| tool_card_pending(row, 0)) {
+            pending.push(tool);
+        }
+        let engine = self.dock_card_id().and_then(|id| self.feed.items().iter().find(|item| item.id == id)).and_then(|item| {
+            let card = item.question()?;
+            Some(domain::ask_dock::AskDockPending {
+                id: item.id.to_string(),
+                kind: if card.plan_mode { domain::ask_dock::AskDockKind::Plan } else { domain::ask_dock::AskDockKind::Question },
+                text: card.text.clone(),
+                session_name: None,
+                created_at: 1,
             })
-            .into_iter()
-            .collect();
-        domain::ask_dock::ask_dock(&pending, None)
+        });
+        pending.extend(engine);
+        domain::ask_dock::ask_dock(&pending, self.ask_dock.focused())
     }
 
     /// The card THE ask dock holds: the newest unresolved card on a live,
@@ -3273,9 +3223,7 @@ impl SteerSessionView {
                 this.sending = false;
                 match result {
                     Ok(_) => this.clear_draft(window, cx),
-                    Err(err) => {
-                        crate::action_error::failed_action_err("send", "the message", &err, cx)
-                    }
+                    Err(err) => crate::action_error::failed_action_err("send", "the message", &err, cx),
                 }
                 cx.notify();
             });
@@ -3336,9 +3284,7 @@ impl SteerSessionView {
                 .spawn(async move { api::sessions::send(&trpc, &input) })
                 .await;
             if let Err(err) = result {
-                let _ = cx.update(|cx| {
-                    crate::action_error::failed_action_err("change", "the model", &err, cx)
-                });
+                let _ = cx.update(|cx| crate::action_error::failed_action_err("change", "the model", &err, cx));
             }
         })
         .detach();
@@ -3384,9 +3330,7 @@ impl SteerSessionView {
     /// Attach files (and the "+" menu's "Add file or image"): the native
     /// prompt with NO type filter, like web's any-file input.
     fn pick_files(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        composer_images::pick_attachment_files(window, cx, |this, read, window, cx| {
-            this.stage_images(read, window, cx)
-        });
+        composer_images::pick_attachment_files(window, cx, |this, read, window, cx| this.stage_images(read, window, cx));
     }
 
     /// EXP-1334 — Add image: the same native prompt kept to the accepted
@@ -3581,9 +3525,7 @@ pub(crate) fn ended_banner(outcome: Option<&str>) -> Option<String> {
 /// must never erase the reason the first one carried.
 pub(crate) fn merge_ended_phase(current: &ViewerPhase, next: ViewerPhase) -> ViewerPhase {
     match (current, &next) {
-        (ViewerPhase::Ended { outcome: Some(_) }, ViewerPhase::Ended { outcome: None }) => {
-            current.clone()
-        }
+        (ViewerPhase::Ended { outcome: Some(_) }, ViewerPhase::Ended { outcome: None }) => current.clone(),
         _ => next,
     }
 }
@@ -3929,6 +3871,37 @@ pub(crate) fn ask_complete(items: &[&FeedItem]) -> bool {
     total <= 1 && !numbered.is_empty() && numbered.iter().all(|card| card.resolved)
 }
 
+/// EXP-1280: a tool-posted card row as THE ask dock's pending entry
+/// (`created_at` = its stack position: the dock sorts by it).
+fn tool_card_pending(row: &domain::session_tree::SessionThreadRow, created_at: i64) -> Option<domain::ask_dock::AskDockPending> {
+    use domain::session_tree::SessionThreadRow;
+    let (kind, text) = match row {
+        SessionThreadRow::Plan { plan, .. } => (domain::ask_dock::AskDockKind::Plan, plan.clone()),
+        SessionThreadRow::Question { question, .. } => (domain::ask_dock::AskDockKind::Question, question.clone()),
+        _ => return None,
+    };
+    Some(domain::ask_dock::AskDockPending { id: row.id().to_string(), kind, text, session_name: None, created_at })
+}
+
+/// EXP-1294 — the unanswered `question` / `plan` row whose `questionId` is
+/// `question_id` (the newest, should a re-emission have posted two). Only
+/// that: an engine ask with no row yet, while an agent's
+/// `exponential_sessions_ask` card (no `questionId`) waits, used to fall
+/// back onto the newest open card of its kind and stamp the engine's
+/// answer into the tool card.
+fn card_row_id(messages: &[domain::rows::MessageRow], question_id: &str) -> Option<String> {
+    messages
+        .iter()
+        .rev()
+        .find(|message| {
+            message.answered_at.is_none()
+                && matches!(message.card_kind(), Some("question") | Some("plan"))
+                && message.card.as_ref().and_then(|card| card.get("questionId")).and_then(serde_json::Value::as_str)
+                    == Some(question_id)
+        })
+        .map(|message| message.id.clone())
+}
+
 /// EXP-820 — a plan card's LAST option is its reject ("No, keep planning"),
 /// the one whose inline text is a change request.
 fn is_plan_reject(card: &steer::feed::QuestionCard, index: usize) -> bool {
@@ -3954,15 +3927,14 @@ fn card_answer_input(
                 .position(|option| &option.key == key)
                 .is_some_and(|index| is_plan_reject(card, index))
         });
-        // ask-dock.json `planOptions`: the fresh-context pick closes the
-        // thread card `fresh: true` (its "Yes, and start with a fresh
-        // context" label).
-        let fresh = !rejected && keys.iter().any(|key| key == domain::ask_dock::FRESH_PLAN_OPTION_KEY);
+        // The engine's plan picker has no fresh-context option (an
+        // ExitPlanMode is a plain allow): a session-view approval is never
+        // `fresh`.
         return api::sessions::AnswerInput {
             message_id,
             answer: None,
             decision: Some(if rejected { "rejected" } else { "approved" }.to_string()),
-            fresh: fresh.then_some(true),
+            fresh: None,
             feedback: feedback.filter(|_| rejected),
             ..Default::default()
         };
@@ -4166,13 +4138,8 @@ pub(crate) fn ask_choice_button(
         };
         Icon::new(glyph).xsmall().flex_shrink_0().text_color(color).into_any_element()
     });
-    let check = (picked && !multi).then(|| {
-        Icon::new(registry::UI_CHECK)
-            .xsmall()
-            .flex_shrink_0()
-            .text_color(cx.theme().foreground)
-            .into_any_element()
-    });
+    let check = (picked && !multi)
+        .then(|| Icon::new(registry::UI_CHECK).xsmall().flex_shrink_0().text_color(cx.theme().foreground).into_any_element());
     ask_option_button_trailing(id, label, description, false, picked, false, leading, check, cx)
 }
 
@@ -4189,86 +4156,77 @@ fn ask_option_button_trailing(
     trailing: Option<AnyElement>,
     cx: &App,
 ) -> Button {
-        let muted = cx.theme().muted_foreground;
-        let label_color = if primary {
-            cx.theme().primary_foreground
-        } else {
-            cx.theme().foreground
-        };
-        let mut button = Button::new(id)
-            .cursor_pointer()
-            .w_full()
-            .h_auto()
-            .min_h(px(domain::plan_card::card().row_min_height))
-            .px_3()
-            .py_1p5()
-            .rounded(px(domain::plan_card::card().row_radius));
-        button = if primary {
-            button.with_variant(ButtonVariant::Primary)
-        } else if picked {
-            let fill = theme::tokens::glass::FILL_ACTIVE.to_hsla();
-            // Hover/pressed step one rung up the same white ladder.
-            let raised = theme::tokens::glass::STROKE_ACTIVE.to_hsla();
-            button
-                .custom(
-                    gpui_component::button::ButtonCustomVariant::new(cx)
-                        .color(fill)
-                        .hover(raised)
-                        .active(raised)
-                        .foreground(cx.theme().foreground),
-                )
-                .border_color(theme::tokens::glass::STROKE_ACTIVE.to_hsla())
-        } else {
-            button.outline()
-        };
-        if highlighted {
-            button = button.border_color(theme::tokens::glass::STROKE_STRONG.to_hsla());
-        }
-        let description = description.filter(|text| !text.trim().is_empty());
+    let muted = cx.theme().muted_foreground;
+    let label_color = if primary { cx.theme().primary_foreground } else { cx.theme().foreground };
+    let mut button = Button::new(id)
+        .cursor_pointer()
+        .w_full()
+        .h_auto()
+        .min_h(px(domain::plan_card::card().row_min_height))
+        .px_3()
+        .py_1p5()
+        .rounded(px(domain::plan_card::card().row_radius));
+    button = if primary {
+        button.with_variant(ButtonVariant::Primary)
+    } else if picked {
+        let fill = theme::tokens::glass::FILL_ACTIVE.to_hsla();
+        // Hover/pressed step one rung up the same white ladder.
+        let raised = theme::tokens::glass::STROKE_ACTIVE.to_hsla();
         button
-            .child(
-                // EXP-1191: web — the label column, then the key chip at
-                // the RIGHT end of the row.
-                h_flex()
-                    .w_full()
-                    .min_w_0()
-                    .gap_2()
-                    .items_center()
-                    .children(leading)
-                    .child(
-                        v_flex()
-                            .flex_1()
-                            .min_w_0()
-                            .items_start()
-                            .gap_0p5()
-                            .child(
-                                div()
-                                    .w_full()
-                                    .min_w_0()
-                                    .text_left()
-                                    .text_xs()
-                                    .font_weight(gpui::FontWeight::MEDIUM)
-                                    .text_color(label_color)
-                                    .child(SharedString::from(label)),
-                            )
-                            .when_some(description, |this, description| {
-                                this.child(
-                                    div()
-                                        .w_full()
-                                        .min_w_0()
-                                        .text_left()
-                                        .text_2xs()
-                                        .text_color(if primary {
-                                            label_color.opacity(0.8)
-                                        } else {
-                                            muted
-                                        })
-                                        .child(SharedString::from(description)),
-                                )
-                            }),
-                    )
-                    .children(trailing),
+            .custom(
+                gpui_component::button::ButtonCustomVariant::new(cx)
+                    .color(fill)
+                    .hover(raised)
+                    .active(raised)
+                    .foreground(cx.theme().foreground),
             )
+            .border_color(theme::tokens::glass::STROKE_ACTIVE.to_hsla())
+    } else {
+        button.outline()
+    };
+    if highlighted {
+        button = button.border_color(theme::tokens::glass::STROKE_STRONG.to_hsla());
+    }
+    let description = description.filter(|text| !text.trim().is_empty());
+    button.child(
+        // EXP-1191: web — the label column, then the key chip at
+        // the RIGHT end of the row.
+        h_flex()
+            .w_full()
+            .min_w_0()
+            .gap_2()
+            .items_center()
+            .children(leading)
+            .child(
+                v_flex()
+                    .flex_1()
+                    .min_w_0()
+                    .items_start()
+                    .gap_0p5()
+                    .child(
+                        div()
+                            .w_full()
+                            .min_w_0()
+                            .text_left()
+                            .text_xs()
+                            .font_weight(gpui::FontWeight::MEDIUM)
+                            .text_color(label_color)
+                            .child(SharedString::from(label)),
+                    )
+                    .when_some(description, |this, description| {
+                        this.child(
+                            div()
+                                .w_full()
+                                .min_w_0()
+                                .text_left()
+                                .text_2xs()
+                                .text_color(if primary { label_color.opacity(0.8) } else { muted })
+                                .child(SharedString::from(description)),
+                        )
+                    }),
+            )
+            .children(trailing),
+    )
 }
 
 /// EXP-1316 — THE card's closed line: the check (or ×) and the chosen
@@ -4503,15 +4461,9 @@ impl SteerSessionView {
                     div()
                         .text_sm()
                         .text_color(muted)
-                        .child(SharedString::from(paused_title(
-                            device.label.as_deref(),
-                        )))
+                        .child(SharedString::from(paused_title(device.label.as_deref())))
                         .into_any_element(),
-                    div()
-                        .text_xs()
-                        .text_color(muted.opacity(0.7))
-                        .child(PAUSED_BODY)
-                        .into_any_element(),
+                    div().text_xs().text_color(muted.opacity(0.7)).child(PAUSED_BODY).into_any_element(),
                 ])
             } else if matches!(
                 self.phase,
@@ -4699,13 +4651,9 @@ impl SteerSessionView {
             FeedRow::Edits { id, items } => self.render_edits_card(*id, items, cx),
             // EXP-948: a run of the SAME Exponential tool is its own captioned
             // row — our work is never folded away as "N other tools".
-            FeedRow::ExpRun { id, items } => {
-                self.render_exp_tool_run(*id, items, live_tail, window, cx)
-            }
+            FeedRow::ExpRun { id, items } => self.render_exp_tool_run(*id, items, live_tail, window, cx),
             FeedRow::Ask { id, items, .. } => self.render_ask(*id, items, active, false, window, cx),
-            FeedRow::Subagent { id, items, .. } => {
-                self.render_subagent(*id, items, window, cx)
-            }
+            FeedRow::Subagent { id, items, .. } => self.render_subagent(*id, items, window, cx),
         }
     }
 
@@ -4733,11 +4681,9 @@ impl SteerSessionView {
     ) -> AnyElement {
         let muted = cx.theme().muted_foreground;
         match &item.kind {
-            FeedKind::Narration { text, .. } => self.render_narration(
-                SharedString::from(format!("steer-narration-{}", item.id)),
-                text.clone(),
-                cx,
-            ),
+            FeedKind::Narration { text, .. } => {
+                self.render_narration(SharedString::from(format!("steer-narration-{}", item.id)), text.clone(), cx)
+            }
             // EXP-724: a message that IS a catalog command reads as a
             // compact pill, not a chat bubble — the agent was steered, not
             // spoken to.
@@ -4758,29 +4704,18 @@ impl SteerSessionView {
                             cx,
                         )
                         .max_w_full()
-                            .child(
-                                Icon::new(registry::CODING_COMMAND)
-                                    .xsmall()
-                                    .text_color(muted.opacity(0.7)),
+                        .child(Icon::new(registry::CODING_COMMAND).xsmall().text_color(muted.opacity(0.7)))
+                        .child(
+                            div()
+                                .flex_shrink_0()
+                                .font_family(theme::terminal::FONT_FAMILY)
+                                .child(SharedString::from(format!("/{}", parsed.command.name))),
+                        )
+                        .when(!parsed.args.is_empty(), |this| {
+                            this.child(
+                                div().min_w_0().truncate().text_color(muted).child(SharedString::from(parsed.args.clone())),
                             )
-                            .child(
-                                div()
-                                    .flex_shrink_0()
-                                    .font_family(theme::terminal::FONT_FAMILY)
-                                    .child(SharedString::from(format!(
-                                        "/{}",
-                                        parsed.command.name
-                                    ))),
-                            )
-                            .when(!parsed.args.is_empty(), |this| {
-                                this.child(
-                                    div()
-                                        .min_w_0()
-                                        .truncate()
-                                        .text_color(muted)
-                                        .child(SharedString::from(parsed.args.clone())),
-                                )
-                            }),
+                        }),
                     )
                     .into_any_element()
             }
@@ -4959,19 +4894,9 @@ impl SteerSessionView {
             .items_start()
             .text_xs()
             .child(
-                div().mt(px(2.)).flex_shrink_0().child(
-                    Icon::new(registry::UI_WARNING)
-                        .xsmall()
-                        .text_color(danger.opacity(0.7)),
-                ),
+                div().mt(px(2.)).flex_shrink_0().child(Icon::new(registry::UI_WARNING).xsmall().text_color(danger.opacity(0.7))),
             )
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .text_color(muted)
-                    .child(SharedString::from(message.trim_end().to_string())),
-            )
+            .child(div().flex_1().min_w_0().text_color(muted).child(SharedString::from(message.trim_end().to_string())))
             .when_some(caption, |this, caption| {
                 this.child(
                     div()
@@ -5087,9 +5012,7 @@ impl SteerSessionView {
                 .w_full()
                 .min_w_0()
                 .gap_1()
-                .when(!rest.is_empty(), |this| {
-                    this.child(self.render_user_message(id, &rest, cx))
-                })
+                .when(!rest.is_empty(), |this| this.child(self.render_user_message(id, &rest, cx)))
                 .child(chips)
                 .into_any_element();
         }
@@ -5120,9 +5043,7 @@ impl SteerSessionView {
             let mut row = h_flex().w_full().min_w_0().flex_wrap().items_center().gap_1();
             for (index, run) in runs.into_iter().enumerate() {
                 row = match run {
-                    MarkerSegment::Text(body) => {
-                        row.child(div().min_w_0().child(SharedString::from(body)))
-                    }
+                    MarkerSegment::Text(body) => row.child(div().min_w_0().child(SharedString::from(body))),
                     MarkerSegment::Marker(number) => {
                         // In range by construction — `split_image_markers`
                         // folded every other number back into the prose.
@@ -5508,9 +5429,10 @@ impl SteerSessionView {
             .and_then(|collections| collections.comments.read(cx).get(&comment_ref.id).cloned());
         let author = match comment.as_ref() {
             Some(comment) => {
-                let user = comment.author_id.as_deref().and_then(|author_id| {
-                    collections.as_ref()?.users.read(cx).get(author_id).cloned()
-                });
+                let user = comment
+                    .author_id
+                    .as_deref()
+                    .and_then(|author_id| collections.as_ref()?.users.read(cx).get(author_id).cloned());
                 Some(crate::comments::thread_comment_author(comment, user.as_ref()))
             }
             // Not synced here yet: the run's owner, whose key posted it.
@@ -5624,13 +5546,9 @@ impl SteerSessionView {
             .iter()
             .map(|item| {
                 let (detail, diff, settled, failed) = match &item.kind {
-                    FeedKind::Tool {
-                        detail,
-                        diff,
-                        settled,
-                        failed,
-                        ..
-                    } => (detail.as_deref(), diff.as_deref(), *settled, *failed),
+                    FeedKind::Tool { detail, diff, settled, failed, .. } => {
+                        (detail.as_deref(), diff.as_deref(), *settled, *failed)
+                    }
                     _ => (None, None, true, false),
                 };
                 domain::edit_card::EditCardMember {
@@ -5906,9 +5824,7 @@ impl SteerSessionView {
         let element = match items.iter().find_map(|item| item.subagent_id().map(str::to_string)) {
             Some(subagent_id) => trace_link(
                 line.chevron(true),
-                cx.listener(move |this, _: &ClickEvent, window, cx| {
-                    this.open_lane(subagent_id.clone(), window, cx)
-                }),
+                cx.listener(move |this, _: &ClickEvent, window, cx| this.open_lane(subagent_id.clone(), window, cx)),
                 window,
                 cx,
             ),
@@ -6121,9 +6037,7 @@ impl SteerSessionView {
                     .map(|item| {
                         let status = match item.state {
                             TaskQueueItemState::Running => Some(steer::trace::TraceStatus::Running),
-                            TaskQueueItemState::Pending | TaskQueueItemState::Done => {
-                                Some(steer::trace::TraceStatus::Pending)
-                            }
+                            TaskQueueItemState::Pending | TaskQueueItemState::Done => Some(steer::trace::TraceStatus::Pending),
                         };
                         trace_line(
                             TraceLine::new(
@@ -6375,40 +6289,21 @@ impl SteerSessionView {
             .filter(|id| items.iter().any(|item| item.id == *id));
         let answered: Vec<&&FeedItem> = items
             .iter()
-            .filter(|item| {
-                item.question().is_some_and(|card| card.resolved) || self.is_answer_locked(item)
-            })
+            .filter(|item| item.question().is_some_and(|card| card.resolved) || self.is_answer_locked(item))
             .collect();
-        let current = items.iter().find(|item| {
-            !item.question().is_some_and(|card| card.resolved) && !self.is_answer_locked(item)
-        });
-        let numbered: Vec<&&FeedItem> = items
-            .iter()
-            .filter(|item| item.question().and_then(|card| card.index).is_some())
-            .collect();
-        let total = numbered
-            .first()
-            .and_then(|item| item.question().and_then(|card| card.total))
-            .unwrap_or(numbered.len() as u32);
-        let submit_step = current
-            .map(|item| item.question().and_then(|card| card.index).is_none())
-            .unwrap_or(false);
+        let current =
+            items.iter().find(|item| !item.question().is_some_and(|card| card.resolved) && !self.is_answer_locked(item));
+        let numbered: Vec<&&FeedItem> =
+            items.iter().filter(|item| item.question().and_then(|card| card.index).is_some()).collect();
+        let total =
+            numbered.first().and_then(|item| item.question().and_then(|card| card.total)).unwrap_or(numbered.len() as u32);
+        let submit_step = current.map(|item| item.question().and_then(|card| card.index).is_none()).unwrap_or(false);
         let header = current
             .and_then(|item| item.question().and_then(|card| card.header.clone()))
             .or_else(|| items.first().and_then(|item| item.question().and_then(|card| card.header.clone())))
-            .unwrap_or_else(|| {
-                if submit_step {
-                    "Review answers".to_string()
-                } else {
-                    "Question".to_string()
-                }
-            });
-        let counter = ask_counter(
-            current
-                .filter(|_| !submit_step)
-                .and_then(|item| item.question().and_then(|card| card.index)),
-            total,
-        );
+            .unwrap_or_else(|| if submit_step { "Review answers".to_string() } else { "Question".to_string() });
+        let counter =
+            ask_counter(current.filter(|_| !submit_step).and_then(|item| item.question().and_then(|card| card.index)), total);
 
         // EXP-698/1191: the stepper wears the SAME card as `render_question`
         // (web `AskCard`): the glyph beside one column of steps.
@@ -6601,19 +6496,12 @@ impl SteerSessionView {
                         card.map(|card| card.text.clone()).unwrap_or_default(),
                     )),
             )
-            .child(
-                div()
-                    .max_w(px(200.))
-                    .truncate()
-                    .child(SharedString::from(if dismissed {
-                        "Dismissed".to_string()
-                    } else {
-                        answer
-                    })),
-            )
-            .when(editable, |this| {
-                this.child(Icon::new(registry::UI_EDIT).xsmall().text_color(muted))
-            })
+            .child(div().max_w(px(200.)).truncate().child(SharedString::from(if dismissed {
+                "Dismissed".to_string()
+            } else {
+                answer
+            })))
+            .when(editable, |this| this.child(Icon::new(registry::UI_EDIT).xsmall().text_color(muted)))
             .into_any_element()
     }
 
@@ -7138,32 +7026,27 @@ impl SteerSessionView {
         Some(
             // Pushed to the row's right edge. The wrapper carries it: a
             // Popover's own style paints its CONTENT panel, not the trigger.
-            div().ml_auto().flex_shrink_0().child(
-            gpui_component::popover::Popover::new("steer-switch-account")
-                .p_2()
-                // The web `<Pill size="sm" mode="action" primary>`: the
-                // surface's PRIMARY pill recipe (a `Button`, so it stays a
-                // `Selectable` popover trigger).
-                .trigger(
-                    crate::surface::glass_pill_button_primary(
-                        "steer-switch-account-trigger",
-                        crate::surface::PillSize::Sm,
-                    )
-                    .cursor_pointer()
-                    .icon(
-                        Icon::new(registry::UI_SWAP)
-                            .xsmall()
-                            .text_color(cx.theme().primary_foreground),
-                    )
-                    .label(crate::account_switch::WALL_SWITCH_LABEL),
+            div()
+                .ml_auto()
+                .flex_shrink_0()
+                .child(
+                    gpui_component::popover::Popover::new("steer-switch-account")
+                        .p_2()
+                        // The web `<Pill size="sm" mode="action" primary>`: the
+                        // surface's PRIMARY pill recipe (a `Button`, so it stays a
+                        // `Selectable` popover trigger).
+                        .trigger(
+                            crate::surface::glass_pill_button_primary(
+                                "steer-switch-account-trigger",
+                                crate::surface::PillSize::Sm,
+                            )
+                            .cursor_pointer()
+                            .icon(Icon::new(registry::UI_SWAP).xsmall().text_color(cx.theme().primary_foreground))
+                            .label(crate::account_switch::WALL_SWITCH_LABEL),
+                        )
+                        .content(move |_, _window, cx| context.render(cx).unwrap_or_else(|| gpui::Empty.into_any_element())),
                 )
-                .content(move |_, _window, cx| {
-                    context
-                        .render(cx)
-                        .unwrap_or_else(|| gpui::Empty.into_any_element())
-                }),
-            )
-            .into_any_element(),
+                .into_any_element(),
         )
     }
 
@@ -7197,18 +7080,14 @@ impl SteerSessionView {
             // ended." said nothing the header's status did not already say,
             // and it sat over every transcript anybody ever reopened. A real
             // FAILURE still gets its line, because that one carries why.
-            ViewerPhase::Ended { outcome } => {
-                banners.extend(ended_banner(outcome.as_deref()).map(banner))
+            ViewerPhase::Ended { outcome } => banners.extend(ended_banner(outcome.as_deref()).map(banner)),
+            ViewerPhase::Unauthorized { detail } => {
+                banners.push(banner(detail.clone().unwrap_or_else(|| STEER_UNAVAILABLE_DETAIL.to_string())))
             }
-            ViewerPhase::Unauthorized { detail } => banners.push(banner(
-                detail
-                    .clone()
-                    .unwrap_or_else(|| STEER_UNAVAILABLE_DETAIL.to_string()),
-            )),
             ViewerPhase::Reconnecting => banners.push(banner("Connection lost.".to_string())),
-            ViewerPhase::Starting if !self.feed.is_empty() => banners.push(banner(
-                "The agent is starting. Waiting for the live stream…".to_string(),
-            )),
+            ViewerPhase::Starting if !self.feed.is_empty() => {
+                banners.push(banner("The agent is starting. Waiting for the live stream…".to_string()))
+            }
             _ => {}
         }
         if paused && !self.feed.is_empty() {
@@ -7431,58 +7310,78 @@ impl SteerSessionView {
         )
     }
 
-    /// THE ask dock (ask-dock.json ×4): the ONE answerable card's row
-    /// ([`Self::docked`]) as the big card in the composer's slot.
+    /// THE ask dock (ask-dock.json ×4) in the composer's slot: the ONE
+    /// waiting card as the big card — the engine's row ([`Self::docked`])
+    /// or the tool-posted card ([`Self::render_tool_card`]) — or, when both
+    /// wait, the stack of compact cards (a click grows one; its back arrow
+    /// returns to the stack).
     fn render_dock(&mut self, window: &Window, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
-        let Some(spec) = self.docked.clone() else {
-            return self.render_tool_card_dock(window, cx);
-        };
         let view = self.dock_view();
         if !crate::ask_dock::shows(&view) {
             return None;
         }
-        let content = {
-            let row = spec.resolve(self.feed.items());
-            let active = self.active.clone();
-            match &row {
-                FeedRow::Single(item) => self.render_question(item, &active, true, window, cx),
-                FeedRow::Ask { id, items, .. } => self.render_ask(*id, items, &active, true, window, cx),
-                _ => return None,
+        let this = cx.entity().downgrade();
+        let content = match view.card_id.as_deref() {
+            Some(card_id) => {
+                let back = view.back.then(|| {
+                    let this = this.clone();
+                    crate::ask_dock::back_button("steer-ask-dock-back", move |_, _, cx| {
+                        let _ = this.update(cx, |this, cx| {
+                            this.ask_dock.back();
+                            cx.notify();
+                        });
+                    })
+                });
+                if self.tool_card.as_ref().is_some_and(|row| row.id() == card_id) {
+                    self.render_tool_card(back, window, cx)?
+                } else {
+                    let spec = self.docked.clone()?;
+                    let row = spec.resolve(self.feed.items());
+                    let active = self.active.clone();
+                    let card = match &row {
+                        FeedRow::Single(item) => self.render_question(item, &active, true, window, cx),
+                        FeedRow::Ask { id, items, .. } => self.render_ask(*id, items, &active, true, window, cx),
+                        _ => return None,
+                    };
+                    match back {
+                        Some(back) => v_flex().w_full().min_w_0().gap_1().child(back).child(card).into_any_element(),
+                        None => card,
+                    }
+                }
             }
+            None => crate::ask_dock::stack(
+                &view.rows,
+                std::rc::Rc::new(move |id: &str, _: &mut Window, cx: &mut App| {
+                    let _ = this.update(cx, |this, cx| {
+                        this.ask_dock.focus(id);
+                        cx.notify();
+                    });
+                }),
+                cx,
+            ),
         };
         let dock = crate::ask_dock::dock(&mut self.ask_dock, &view, content, window);
         Some(div().w_full().flex_shrink_0().py_2().child(work_column_row(dock)).into_any_element())
     }
 
-    /// EXP-1280: THE ask dock over a TOOL-posted card ([`Self::tool_card`]):
-    /// the thread's rich card (`thread_screen::ask_row_card`) in the
-    /// composer's slot.
-    fn render_tool_card_dock(&mut self, window: &Window, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
+    /// EXP-1280: the TOOL-posted card ([`Self::tool_card`]) as the dock's
+    /// big card: the thread's rich card (`thread_screen::ask_row_card`).
+    fn render_tool_card(
+        &mut self,
+        back: Option<AnyElement>,
+        window: &Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> Option<AnyElement> {
         let row = self.tool_card.clone()?;
-        let (kind, text) = match &row {
-            domain::session_tree::SessionThreadRow::Plan { plan, .. } => (domain::ask_dock::AskDockKind::Plan, plan.clone()),
-            domain::session_tree::SessionThreadRow::Question { question, .. } => (domain::ask_dock::AskDockKind::Question, question.clone()),
-            _ => return None,
-        };
-        let pending = [domain::ask_dock::AskDockPending {
-            id: row.id().to_string(),
-            kind,
-            text,
-            session_name: None,
-            created_at: 0,
-        }];
-        let view = domain::ask_dock::ask_dock(&pending, None);
         let images = self.images.clone();
-        let content = crate::thread_screen::ask_row_card(
+        crate::thread_screen::ask_row_card(
             &row,
             &crate::thread_screen::ThreadText::default(),
             &images,
-            crate::thread_screen::CardChrome { docked: true, back: None },
+            crate::thread_screen::CardChrome { docked: true, back },
             window,
             cx,
-        )?;
-        let dock = crate::ask_dock::dock(&mut self.ask_dock, &view, content, window);
-        Some(div().w_full().flex_shrink_0().py_2().child(work_column_row(dock)).into_any_element())
+        )
     }
 
     /// The composer's bottom stack — a notice, THE composer box — for a
@@ -7895,15 +7794,7 @@ impl SteerSessionView {
                     Row::Ultracode.icon(),
                     "Ultracode",
                     ultracode,
-                    move |on, _, cx| {
-                        configure(
-                            api::sessions::ConfigureInput {
-                                ultracode: Some(on),
-                                ..base()
-                            },
-                            cx,
-                        )
-                    },
+                    move |on, _, cx| configure(api::sessions::ConfigureInput { ultracode: Some(on), ..base() }, cx),
                 ));
             }
             menu = menu.separator();
@@ -7950,15 +7841,7 @@ impl SteerSessionView {
                 Row::ComputerUse.icon(),
                 "Computer use",
                 computer_use,
-                move |on, _, cx| {
-                    configure(
-                        api::sessions::ConfigureInput {
-                            computer_use: Some(on),
-                            ..base()
-                        },
-                        cx,
-                    )
-                },
+                move |on, _, cx| configure(api::sessions::ConfigureInput { computer_use: Some(on), ..base() }, cx),
             ))
         })
         .anchor(gpui::Anchor::BottomLeft)
@@ -8025,13 +7908,12 @@ impl SteerSessionView {
         // the toggle flips the field and notifies, which rebuilds the popover
         // with the rest of this view's tree.
         let view = cx.entity();
-        let on_toggle_legend: std::rc::Rc<dyn Fn(&mut Window, &mut gpui::App)> =
-            std::rc::Rc::new(move |_window, cx| {
-                view.update(cx, |view, cx| {
-                    view.context_legend_open = !view.context_legend_open;
-                    cx.notify();
-                });
+        let on_toggle_legend: std::rc::Rc<dyn Fn(&mut Window, &mut gpui::App)> = std::rc::Rc::new(move |_window, cx| {
+            view.update(cx, |view, cx| {
+                view.context_legend_open = !view.context_legend_open;
+                cx.notify();
             });
+        });
         crate::composer::session_context_ring(
             crate::composer::ContextRingProps {
                 id: self.composer_ids.context.clone(),
@@ -8255,9 +8137,7 @@ pub(crate) fn refresh_run_usage(
     let now_epoch = chrono::Utc::now().timestamp();
     let Some(row) = crate::usage_bar::device_profile_rows(cx)
         .into_iter()
-        .find(|row| {
-            row.device_id == device_id && row.agent == agent.id() && row.profile_id == profile
-        })
+        .find(|row| row.device_id == device_id && row.agent == agent.id() && row.profile_id == profile)
     else {
         return;
     };
@@ -8696,9 +8576,7 @@ fn exp_entity_chip_row(id: FeedItemId, refs: &[steer::EntityRef], cx: &mut App) 
             chip = chip.hover_card(key);
         }
         if let Some(target) = crate::entity_preview::entity_target(&r#ref.kind, &r#ref.id, cx) {
-            chip = chip.on_click(move |_, window, cx| {
-                crate::entity_preview::open_target(target.clone(), window, cx)
-            });
+            chip = chip.on_click(move |_, window, cx| crate::entity_preview::open_target(target.clone(), window, cx));
         }
         row = row.child(chip);
     }
@@ -8980,6 +8858,55 @@ mod tests {
     }
 
     use super::*;
+
+    /// EXP-1294 rfix: a card's row is the one carrying ITS question id —
+    /// never the newest open card of its kind (an agent's tool-posted ask
+    /// waiting beside an engine ask that has no row yet).
+    #[test]
+    fn a_cards_row_is_the_one_with_its_question_id_never_the_newest_open_card() {
+        let row = |id: &str, card: serde_json::Value, answered: bool| domain::rows::MessageRow {
+            id: id.into(),
+            card: Some(card),
+            answered_at: answered.then(|| "2026-10-19T00:00:00Z".to_string()),
+            ..Default::default()
+        };
+        let messages = vec![
+            row("m-engine", serde_json::json!({"kind": "question", "question": "Which?", "questionId": "q-1"}), false),
+            row("m-tool", serde_json::json!({"kind": "question", "question": "Ship?", "options": ["Yes"]}), false),
+        ];
+        assert_eq!(card_row_id(&messages, "q-1").as_deref(), Some("m-engine"));
+        // The engine's next ask has no row yet: nobody's row (the live
+        // layer answers), never the tool card's.
+        assert_eq!(card_row_id(&messages, "q-2"), None);
+        // An answered row is never answered again; a re-emitted id takes
+        // the newest open row, whichever kind.
+        let messages = vec![
+            row("m-old", serde_json::json!({"kind": "question", "question": "Which?", "questionId": "q-1"}), true),
+            row("m-new", serde_json::json!({"kind": "plan", "plan": "# Plan", "questionId": "q-1"}), false),
+            row("m-text", serde_json::json!({"kind": "text", "questionId": "q-1"}), false),
+        ];
+        assert_eq!(card_row_id(&messages, "q-1").as_deref(), Some("m-new"));
+        assert_eq!(card_row_id(&messages[..1], "q-1"), None);
+    }
+
+    /// EXP-1280: the session view's dock lists a tool-posted card as the
+    /// contract's pending entry; a non-card row is none.
+    #[test]
+    fn a_tool_card_is_a_pending_entry_of_the_dock() {
+        let message = domain::rows::MessageRow {
+            id: "m-1".into(),
+            session_id: "s-1".into(),
+            card: Some(serde_json::json!({"kind": "question", "question": "Ship it?", "options": ["Yes", "No"]})),
+            ..Default::default()
+        };
+        assert!(domain::session_tree::is_tool_card(&message), "no questionId: an agent's card");
+        let question = domain::session_tree::ask_card_row(&message).expect("a question row");
+        let pending = tool_card_pending(&question, 0).expect("a question card is pending");
+        assert_eq!(pending.id, "m-1");
+        assert_eq!(pending.kind, domain::ask_dock::AskDockKind::Question);
+        assert_eq!(pending.text, "Ship it?");
+        assert_eq!(pending.created_at, 0);
+    }
 
     // ── A session tab that exists at boot dials once an account is active ──
 
@@ -9673,16 +9600,9 @@ mod tests {
         );
         assert_eq!(reject.decision.as_deref(), Some("rejected"));
         assert_eq!(reject.feedback.as_deref(), Some("smaller steps"));
-        assert_eq!(approve.fresh, None);
-        let fresh_key = domain::ask_dock::FRESH_PLAN_OPTION_KEY.to_string();
-        let fresh = card_answer_input(&plan, "m-1".into(), &[fresh_key], &[], None, None);
-        assert_eq!(fresh.decision.as_deref(), Some("approved"));
-        assert_eq!(fresh.fresh, Some(true), "the fresh-context pick closes the card fresh");
+        assert_eq!(approve.fresh, None, "the engine's picker has no fresh-context option");
 
-        let question = steer::QuestionCard {
-            options: vec![option("A", false), option("B", false)],
-            ..Default::default()
-        };
+        let question = steer::QuestionCard { options: vec![option("A", false), option("B", false)], ..Default::default() };
         let picks = card_answer_input(&question, "m-2".into(), &[], &["A".into(), "B".into()], None, None);
         assert_eq!(picks.answer.as_deref(), Some("A, B"));
         assert_eq!(picks.decision, None);

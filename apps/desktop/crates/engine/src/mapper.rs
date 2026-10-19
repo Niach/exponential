@@ -47,7 +47,7 @@ use agent_client_protocol::schema::v1::{
 };
 use serde_json::{Map, Value};
 use steer::activity::{
-    ANSWERS_MAX, ANSWER_MAX, AGENT_TYPE_MAX, ID_MAX, NARRATION_MAX, OPTION_DESCRIPTION_MAX,
+    AGENT_TYPE_MAX, ANSWERS_MAX, ANSWER_MAX, ID_MAX, NARRATION_MAX, OPTION_DESCRIPTION_MAX,
     OPTION_LABEL_MAX, QUESTION_HEADER_MAX, QUESTION_TEXT_MAX, TOOL_DETAIL_MAX, TOOL_NAME_MAX,
 };
 use steer::frames::CompactionPhase;
@@ -431,6 +431,10 @@ struct PendingDelivery {
     id: String,
     agent_text: String,
     announce: String,
+    /// EXP-1342 rfix: a cancelled entry whose text the person sent AGAIN
+    /// (`on_prompt` armed its echo): spent by the first replay it swallows,
+    /// never kept alive past it.
+    resent: bool,
 }
 
 impl PendingDelivery {
@@ -1980,6 +1984,16 @@ impl Mapper {
         }
         self.flush_all(out);
         self.arm_echo(text);
+        // EXP-1342 rfix: the person resends a text a Stop settled. Its echo
+        // is armed now, so the cancelled entry has one swallow left — the
+        // replay that lands after the echo expired under a burst of prompts
+        // — and goes with it, never persisting (a turn that ends in another
+        // Stop keeps the table) to swallow a later genuine message.
+        for cancelled in
+            self.cancelled_deliveries.iter_mut().filter(|cancelled| cancelled.matches(text.trim()))
+        {
+            cancelled.resent = true;
+        }
         self.last_user_row = Some(vec![text.trim().to_string()]);
         let text = self.clean(text, NARRATION_MAX);
         emit(out, ActivityEvent::user_message(text), None);
@@ -2040,6 +2054,7 @@ impl Mapper {
             id: id.to_string(),
             agent_text: agent_text.trim().to_string(),
             announce: announce.to_string(),
+            resent: false,
         });
         while self.pending_deliveries.len() > steer::QUEUE_MAX {
             self.pending_deliveries.pop_front();
@@ -2135,11 +2150,14 @@ impl Mapper {
             // row, or handed back to the composer — never renders (again).
             // Not retired on a match: the CLI may replay it once more when
             // the next turn dequeues it; the next completed turn forgets.
-            if self
-                .cancelled_deliveries
-                .iter()
-                .any(|sent| sent.matches(text.trim()))
+            // Unless the person resent it (`resent`): then the first
+            // match spends the entry.
+            if let Some(at) =
+                self.cancelled_deliveries.iter().position(|sent| sent.matches(text.trim()))
             {
+                if self.cancelled_deliveries[at].resent {
+                    self.cancelled_deliveries.remove(at);
+                }
                 return;
             }
             // EXP-1342: the same message played back twice in a row, with
@@ -2339,8 +2357,9 @@ impl Mapper {
             // (or titles the call only then) still gets it retained. EXP-1279:
             // a script's input streams in, so a later one naming the script
             // replaces an earlier one that did not.
-            let script_missing =
-                || state.raw_input.as_ref().and_then(script_source).is_none() && is_script_tool(&title);
+            let script_missing = || {
+                state.raw_input.as_ref().and_then(script_source).is_none() && is_script_tool(&title)
+            };
             if state.raw_input.is_none() || script_missing() {
                 if let Some(input) = exp_tool_input(&title, raw_input.as_ref()) {
                     state.raw_input = Some(input);
@@ -3009,21 +3028,23 @@ impl Mapper {
                     _ => None,
                 },
             );
-        out.blocked = Some(wall.then(|| steer::SessionBlocked {
-            kind: steer::activity::BLOCKED_KIND_RATE_LIMIT.to_string(),
-            agent: self.config.agent.id().to_string(),
-            // FEED-34: the window the producer named for this reset (claude:
-            // its `rateLimitType`), so `window` and `resetsAt` describe the
-            // same window. `session` stays the fallback for a producer that
-            // names none — claude's 5h credit frame is the wall a run
-            // actually hits.
-            window: window
-                .map(str::trim)
-                .filter(|window| !window.is_empty())
-                .unwrap_or(steer::activity::BLOCKED_WINDOW_SESSION)
-                .to_string(),
-            resets_at: resets_at.and_then(steer::iso_from_unix_millis),
-            since: coding::agent_accounts::now_iso(),
+        out.blocked = Some(wall.then(|| {
+            steer::SessionBlocked {
+                kind: steer::activity::BLOCKED_KIND_RATE_LIMIT.to_string(),
+                agent: self.config.agent.id().to_string(),
+                // FEED-34: the window the producer named for this reset (claude:
+                // its `rateLimitType`), so `window` and `resetsAt` describe the
+                // same window. `session` stays the fallback for a producer that
+                // names none — claude's 5h credit frame is the wall a run
+                // actually hits.
+                window: window
+                    .map(str::trim)
+                    .filter(|window| !window.is_empty())
+                    .unwrap_or(steer::activity::BLOCKED_WINDOW_SESSION)
+                    .to_string(),
+                resets_at: resets_at.and_then(steer::iso_from_unix_millis),
+                since: coding::agent_accounts::now_iso(),
+            }
         }));
         emit(out, event, None);
     }
@@ -3600,11 +3621,9 @@ fn multi_select_options(
 ) -> Vec<(String, String)> {
     use agent_client_protocol::schema::v1::MultiSelectItems;
     match items {
-        MultiSelectItems::String(items) => items
-            .values
-            .iter()
-            .map(|value| (value.clone(), value.clone()))
-            .collect(),
+        MultiSelectItems::String(items) => {
+            items.values.iter().map(|value| (value.clone(), value.clone())).collect()
+        }
         MultiSelectItems::Titled(items) => items
             .options
             .iter()
@@ -4365,7 +4384,9 @@ mod tests {
         let texts: Vec<String> = out
             .wire
             .iter()
-            .filter_map(|event| serde_json::to_value(event).unwrap()["text"].as_str().map(str::to_string))
+            .filter_map(|event| {
+                serde_json::to_value(event).unwrap()["text"].as_str().map(str::to_string)
+            })
             .collect();
         assert_eq!(texts, vec!["fix the login bug", "On it."]);
         // The chain of thought stays local.
@@ -5490,7 +5511,9 @@ mod tests {
         let kinds = |out: &MapOut| -> Vec<String> {
             out.wire
                 .iter()
-                .map(|event| serde_json::to_value(event).unwrap()["kind"].as_str().unwrap().to_string())
+                .map(|event| {
+                    serde_json::to_value(event).unwrap()["kind"].as_str().unwrap().to_string()
+                })
                 .collect()
         };
         let mut mapper = mapper();
@@ -5763,9 +5786,7 @@ mod tests {
     #[test]
     fn background_tasks_carry_their_first_sight() {
         let mut mapper = mapper();
-        let task = |id: &str, description: &str| {
-            serde_json::json!({ "id": id, "kind": "shell", "description": description })
-        };
+        let task = |id: &str, description: &str| serde_json::json!({ "id": id, "kind": "shell", "description": description });
         let mut out = MapOut::default();
         mapper.emit_background_tasks(serde_json::json!([task("b1", "one")]), &mut out);
         let first = match out.wire.last() {
@@ -6043,7 +6064,12 @@ mod tests {
         let local = out
             .local
             .iter()
-            .filter(|event| matches!(event, LocalFeedEvent::Activity { event: ActivityEvent::RateLimit { .. }, .. }))
+            .filter(|event| {
+                matches!(
+                    event,
+                    LocalFeedEvent::Activity { event: ActivityEvent::RateLimit { .. }, .. }
+                )
+            })
             .count();
         assert_eq!(local, 3);
     }
@@ -6299,9 +6325,7 @@ mod exp850_tests {
     #[test]
     fn the_workflow_dedupe_map_is_capped_at_the_journal_cap() {
         let mut mapper = mapper();
-        let card = |id: &str| {
-            json!({ "id": id, "name": "wire-probe", "status": "running", "phases": [], "agents": [] })
-        };
+        let card = |id: &str| json!({ "id": id, "name": "wire-probe", "status": "running", "phases": [], "agents": [] });
         let total = steer::journal::JOURNAL_WORKFLOW_CAP + 4;
         for index in 0..total {
             let mut out = MapOut::default();
@@ -6475,8 +6499,8 @@ mod exp850_tests {
 mod exp1224_tests {
     use super::*;
     use agent_client_protocol::schema::v1::{
-        SessionId, SessionInfoUpdate, SessionNotification, ToolCall as AcpToolCall, ToolCallId,
-        TextContent, UsageUpdate,
+        SessionId, SessionInfoUpdate, SessionNotification, TextContent, ToolCall as AcpToolCall,
+        ToolCallId, UsageUpdate,
     };
     use serde_json::json;
 

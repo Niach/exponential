@@ -1221,7 +1221,7 @@ describe.skipIf(!ready.ok)(`EXP-1323: reports, asides, reads and suggestions`, a
       code: `CONFLICT`,
     })
   })
-})
+  })
 
 
 // ── EXP-1252: moving a session to another device (+ #FEED-84 / #FEED-85) ────
@@ -1576,6 +1576,190 @@ describe.skipIf(!ready.ok)(`EXP-1252: moving a session to another device`, async
       account: null,
     })
   })
+
+    it(`moved without a package is refused; the move stays pending for the upload`, async () => {
+      const w = await moveWorld()
+      await sendSession({
+        userId: w.owner,
+        input: { sessionId: w.sessionId, deviceId: w.target },
+      })
+      await expect(
+        caller(w.owner).handoff({
+          sessionId: w.sessionId,
+          deviceId: w.deviceId,
+          outcome: `moved`,
+        })
+      ).rejects.toMatchObject({ code: `PRECONDITION_FAILED` })
+      expect(await row(w.sessionId)).toMatchObject({
+        deviceId: w.deviceId,
+        moveToDeviceId: w.target,
+        status: `running`,
+      })
+      await putHandoffBlob(
+        w.owner,
+        w.sessionId,
+        new Request(`http://x.test`, {
+          method: `PUT`,
+          body: new Uint8Array([31, 139, 8]),
+        })
+      )
+      await caller(w.owner).handoff({
+        sessionId: w.sessionId,
+        deviceId: w.deviceId,
+        outcome: `moved`,
+      })
+      expect(await row(w.sessionId)).toMatchObject({
+        deviceId: w.target,
+        status: `queued`,
+        moveToDeviceId: null,
+      })
+    })
+
+    it(`a move planned on a snapshot the handoff outran is CONFLICT; the moved row is untouched`, async () => {
+      const { applyMove } = await import(`@/lib/sessions/send`)
+      const w = await moveWorld()
+      const third = `dev-c-${id8()}`
+      await db.insert(devices).values({
+        userId: w.owner,
+        deviceId: third,
+        label: `c-box`,
+        kind: `desktop`,
+        version: `0.14.73`,
+        agentAccounts: signedIn(`pc`, `me@move.test`),
+      })
+      await sendSession({
+        userId: w.owner,
+        input: { sessionId: w.sessionId, deviceId: w.target },
+      })
+      await putHandoffBlob(
+        w.owner,
+        w.sessionId,
+        new Request(`http://x.test`, {
+          method: `PUT`,
+          body: new Uint8Array([31, 139, 8]),
+        })
+      )
+      // A re-target to C (and a cancel) are planned from THIS snapshot: on A,
+      // moving to B, the package up…
+      const stale = await loadSessionForUser(w.owner, w.sessionId)
+      // …while the source's handoff commits first: the row is queued on B.
+      await caller(w.owner).handoff({
+        sessionId: w.sessionId,
+        deviceId: w.deviceId,
+        outcome: `moved`,
+      })
+      const moved = await row(w.sessionId)
+      expect(moved).toMatchObject({
+        deviceId: w.target,
+        status: `queued`,
+        moveToDeviceId: null,
+      })
+      expect(moved.handoff).toMatchObject({
+        request: null,
+        blob: { fromDeviceId: w.deviceId },
+      })
+      const target = {
+        deviceId: third,
+        name: `c-box`,
+        hostUserId: null,
+        ownerId: w.owner,
+        account: null,
+      }
+      // Unguarded, the request would land `moveToDeviceId = C` with no
+      // package on the row B is about to claim.
+      await expect(
+        db.transaction((tx) =>
+          applyMove(tx, stale, { kind: `request`, target }, w.owner)
+        )
+      ).rejects.toMatchObject({
+        code: `CONFLICT`,
+        message: `The move changed; try again.`,
+      })
+      await expect(
+        db.transaction((tx) =>
+          applyMove(tx, stale, { kind: `cancel` }, w.owner)
+        )
+      ).rejects.toMatchObject({ code: `CONFLICT` })
+      expect(await row(w.sessionId)).toEqual(moved)
+    })
+
+    it(`a cancel planned before the package landed keeps the package`, async () => {
+      const { applyMove } = await import(`@/lib/sessions/send`)
+      const w = await moveWorld()
+      await sendSession({
+        userId: w.owner,
+        input: { sessionId: w.sessionId, deviceId: w.target },
+      })
+      const stale = await loadSessionForUser(w.owner, w.sessionId)
+      expect(stale.handoff?.blob).toBeNull()
+      await putHandoffBlob(
+        w.owner,
+        w.sessionId,
+        new Request(`http://x.test`, {
+          method: `PUT`,
+          body: new Uint8Array([31, 139, 8]),
+        })
+      )
+      const blob = (await row(w.sessionId)).handoff!.blob!
+      const nudge = await db.transaction((tx) =>
+        applyMove(tx, stale, { kind: `cancel` }, w.owner)
+      )
+      expect(nudge).toEqual({ ownerId: w.owner, deviceId: w.deviceId })
+      const cancelled = await row(w.sessionId)
+      expect(cancelled).toMatchObject({
+        deviceId: w.deviceId,
+        moveToDeviceId: null,
+        caption: null,
+      })
+      // The upload that raced the cancel stays for the sweep, never dropped.
+      expect(cancelled.handoff).toEqual({ request: null, blob })
+    })
+
+    it(`a claim guards the device it read the row on: a re-target in between is CONFLICT (claim_lost)`, async () => {
+      const w = await moveWorld()
+      const fresh = await sendSession({
+        userId: w.owner,
+        input: {
+          teamId: w.teamId,
+          deviceId: w.deviceId,
+          cli: `claude`,
+          text: `not yet`,
+        },
+      })
+      // The daemon's claim reads the row on A; a person's direct re-target to
+      // B commits before its write.
+      const raced = sessionsRouter.createCaller({
+        session: { user: { id: w.owner } },
+        request: new Request(`http://x.test`),
+        db: {
+          transaction: async (fn: Parameters<typeof db.transaction>[0]) => {
+            await sendSession({
+              userId: w.owner,
+              input: { sessionId: fresh.sessionId, deviceId: w.target },
+            })
+            return db.transaction(fn)
+          },
+        },
+      } as never)
+      // A 0.14.72 daemon sends no `deviceId`: the snapshot's device stands in.
+      await expect(
+        raced.claim({ sessionId: fresh.sessionId })
+      ).rejects.toMatchObject({ code: `CONFLICT` })
+      expect(await row(fresh.sessionId)).toMatchObject({
+        deviceId: w.target,
+        status: `queued`,
+        startedAt: null,
+      })
+      // B's claim takes it.
+      await caller(w.owner).claim({
+        sessionId: fresh.sessionId,
+        deviceId: w.target,
+      })
+      expect(await row(fresh.sessionId)).toMatchObject({
+        deviceId: w.target,
+        status: `running`,
+      })
+    })
 
   it(`#FEED-84: an ended CHILD continues as its sibling with its branch, title and issues`, async () => {
     const w = await world()
