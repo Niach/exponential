@@ -71,7 +71,7 @@ fn cua_master(name: &str, device_use: i32) -> Option<Master> {
 
 /// Whether this process talks to an X server directly (the MPX path); under
 /// a Wayland compositor cua injects through libei and owns no master pointer.
-fn on_x11() -> bool {
+pub(crate) fn on_x11() -> bool {
     std::env::var_os("DISPLAY").is_some() && std::env::var_os("WAYLAND_DISPLAY").is_none()
 }
 

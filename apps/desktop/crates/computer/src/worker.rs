@@ -145,6 +145,27 @@ fn run(generation: String, ready: Option<std::sync::mpsc::SyncSender<bool>>) -> 
 #[cfg(feature = "cua")]
 const WRITER_DRAIN: Duration = Duration::from_secs(2);
 
+/// EXP-1273: the agent cursor cua draws (a themed arrow with the run's badge
+/// that glides to every target and rings every click) is a full-desktop
+/// override-redirect window the overlay re-raises above every other window
+/// every 80 ms. On X11 that is a second pointer over the person's own
+/// foreground windows, whatever is stacked above the target: a translucent
+/// arrow where the compositor blends it, the tile's bounds as an opaque
+/// flickering rectangle where nothing does (an unredirected fullscreen
+/// window, the overlay's own root-sampling fallback). Background input has
+/// no use for it, so on X11 the worker runs without it: no overlay window
+/// exists, no call waits for a glide. Wayland draws it through the
+/// compositor and macOS through its own transparent window: both keep it.
+#[cfg(feature = "cua")]
+fn cursor_config() -> cursor_overlay::CursorConfig {
+    let mut cursor = cursor_overlay::CursorConfig::default();
+    #[cfg(target_os = "linux")]
+    {
+        cursor.enabled = !crate::park::on_x11();
+    }
+    cursor
+}
+
 /// `ready` is told once (true = the runtime stands, false = it never will).
 #[cfg(feature = "cua")]
 struct Ready(Option<std::sync::mpsc::SyncSender<bool>>);
@@ -209,7 +230,7 @@ async fn serve(
     let driver = match CuaDriver::try_create_configured_for_host(
         options.configured_driver,
         DriverHostOptions {
-            cursor: cursor_overlay::CursorConfig::default(),
+            cursor: cursor_config(),
             // The host shows readiness and asks the OS; the runtime only
             // reports.
             host_owns_permission_ux: true,
