@@ -12,8 +12,9 @@
 //! 3. it packs a tar.gz ([`build_package`]): [`MANIFEST`], the steer
 //!    [`JOURNAL`], claude's [`NATIVE`] transcript and the workspace — a
 //!    repo worktree as a `git bundle` of `HEAD` past `origin/<base>`
-//!    ([`BUNDLE`]), `git diff --binary HEAD` ([`DIFF`]) and the untracked,
-//!    non-ignored files ([`UNTRACKED`]); a repo-less scratch dir whole
+//!    ([`BUNDLE`]), `git diff --binary HEAD` ([`DIFF`]), the staged
+//!    `git diff --cached` ([`INDEX`]) and the untracked, non-ignored files
+//!    ([`UNTRACKED`]); a repo-less scratch dir whole
 //!    ([`SCRATCH`]). Over [`api::session_device::HANDOFF_MAX_BYTES`] the
 //!    transcript goes first, then the journal; a workspace that alone is too
 //!    big fails the move (work is never dropped);
@@ -57,9 +58,12 @@ pub const JOURNAL: &str = "journal.jsonl";
 pub const NATIVE: &str = "native.jsonl";
 pub const BUNDLE: &str = "worktree.bundle";
 pub const DIFF: &str = "worktree.diff";
+/// EXP-1355: the staged half, `git diff --cached --binary HEAD`, applied to
+/// the index only after [`DIFF`] restored the files.
+pub const INDEX: &str = "index.diff";
 pub const UNTRACKED: &str = "untracked.tar";
 pub const SCRATCH: &str = "scratch.tar";
-const ENTRIES: [&str; 7] = [MANIFEST, JOURNAL, NATIVE, BUNDLE, DIFF, UNTRACKED, SCRATCH];
+const ENTRIES: [&str; 8] = [MANIFEST, JOURNAL, NATIVE, BUNDLE, DIFF, INDEX, UNTRACKED, SCRATCH];
 
 /// `{data_dir}/handoffs/` — downloaded packages and the pending-cleanup list.
 pub const HANDOFFS_DIR: &str = "handoffs";
@@ -157,6 +161,11 @@ pub struct Manifest {
     /// detached checkout, re-made on the target (nothing of it travels).
     #[serde(default)]
     pub dispatch: bool,
+    /// EXP-1355: person messages the source's engine was handed but could
+    /// not report consumed (`RunRecord::pending_consumes`): the target
+    /// consumes them, never delivers them again.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pending_consumes: Vec<String>,
 }
 
 /// Why a package was not made.
@@ -233,6 +242,7 @@ pub fn build_package(source: &PackageSource, cap: u64) -> Result<Package, Packag
         manifest.title = record.title.clone();
         manifest.issues = record.issues.clone();
         manifest.dispatch = record.is_dispatch();
+        manifest.pending_consumes = record.pending_consumes();
         if record.clone.is_some() && record.branch.is_some() && !record.is_dispatch() {
             if record.cwd.join(".git").exists() {
                 manifest.workspace = WorkspaceKind::Repo;
@@ -273,7 +283,8 @@ pub fn build_package(source: &PackageSource, cap: u64) -> Result<Package, Packag
 }
 
 /// The repo half of a package: `HEAD` (bundled past `origin/<base>` when
-/// ahead of it), the uncommitted diff and the untracked, non-ignored files.
+/// ahead of it), the uncommitted diff, its staged half and the untracked,
+/// non-ignored files.
 fn pack_repo(
     cwd: &Path,
     base_branch: Option<&str>,
@@ -323,6 +334,10 @@ fn pack_repo(
     let diff = git(&["diff", "--binary", "HEAD"])?;
     if !diff.is_empty() {
         parts.push((DIFF, diff));
+    }
+    let staged = git(&["diff", "--cached", "--binary", "HEAD"])?;
+    if !staged.is_empty() {
+        parts.push((INDEX, staged));
     }
     let listed = git(&["ls-files", "--others", "--exclude-standard", "-z"])?;
     let files: Vec<String> = listed
@@ -527,7 +542,8 @@ pub fn package_dir(data_dir: &Path, session_id: &str) -> Option<PathBuf> {
 /// Restore a repo worktree at `cwd` (already created on the branch by the
 /// launcher, from `origin/<base>`): fetch the bundle's `HEAD` (after a
 /// best-effort fetch of the base, its prerequisite) and move the branch to
-/// it, apply the uncommitted diff, unpack the untracked files. With no
+/// it, apply the uncommitted diff, stage its staged half (EXP-1355: the
+/// index as the source left it), unpack the untracked files. With no
 /// bundle the branch moves to the recorded `HEAD` when this clone has it.
 pub fn restore_repo(cwd: &Path, import: &HandoffImport) -> Result<(), String> {
     let manifest = &import.manifest;
@@ -557,6 +573,11 @@ pub fn restore_repo(cwd: &Path, import: &HandoffImport) -> Result<(), String> {
     if diff.is_file() {
         let diff = diff.to_string_lossy().into_owned();
         git(&["apply", "--binary", "--whitespace=nowarn", &diff])?;
+    }
+    let staged = import.dir.join(INDEX);
+    if staged.is_file() {
+        let staged = staged.to_string_lossy().into_owned();
+        git(&["apply", "--cached", "--binary", "--whitespace=nowarn", &staged])?;
     }
     let untracked = import.dir.join(UNTRACKED);
     if untracked.is_file() {
@@ -816,6 +837,7 @@ pub fn target_record(
             .extra
             .insert(crate::run_registry::DISPATCH_KEY.to_string(), serde_json::Value::Bool(true));
     }
+    record.set_pending_consumes(&manifest.pending_consumes);
     record.set_account(row.account.as_deref());
     record.set_honored_row_account(row.account.as_deref());
     Some(record)
@@ -1128,25 +1150,30 @@ mod tests {
         git(wt, &["commit", "-m", "unpushed"]);
         std::fs::write(wt.join("a.txt"), "one\nstaged\n").unwrap();
         git(wt, &["add", "a.txt"]);
+        // EXP-1355: staged AND unstaged on one file.
+        std::fs::write(wt.join("a.txt"), "one\nstaged\nunstaged\n").unwrap();
         std::fs::write(wt.join("b.txt"), "committed\nunstaged\n").unwrap();
         std::fs::write(wt.join("bin.dat"), [0u8, 159, 146, 150, 255]).unwrap();
         git(wt, &["add", "bin.dat"]);
         std::fs::create_dir_all(wt.join("new/dir")).unwrap();
         std::fs::write(wt.join("new/dir/c.txt"), "untracked\n").unwrap();
         std::fs::write(wt.join("ignored.log"), "never\n").unwrap();
-        let source = PackageSource {
-            session_id: "s1".to_string(),
-            record: Some(record(wt, Some(repos.root.join("source")), Some("exp/s1"))),
-            ..PackageSource::default()
-        };
+        let mut owed = record(wt, Some(repos.root.join("source")), Some("exp/s1"));
+        owed.set_pending_consumes(&["m1".to_string()]);
+        let source = PackageSource { session_id: "s1".to_string(), record: Some(owed), ..PackageSource::default() };
         let package = build_package(&source, 64 * 1024 * 1024).unwrap();
         assert_eq!(package.manifest.workspace, WorkspaceKind::Repo);
         assert!(package.manifest.bundle);
+        assert_eq!(package.manifest.pending_consumes, vec!["m1".to_string()]);
         assert_eq!(package.manifest.native_session_id.as_deref(), Some("native-1"));
 
         let target = restore_on_target(&repos, &package);
         assert_eq!(git(&target, &["rev-parse", "HEAD"]), git(wt, &["rev-parse", "HEAD"]));
-        assert_eq!(std::fs::read_to_string(target.join("a.txt")).unwrap(), "one\nstaged\n");
+        assert_eq!(std::fs::read_to_string(target.join("a.txt")).unwrap(), "one\nstaged\nunstaged\n");
+        // EXP-1355: the index comes back as the source left it.
+        assert_eq!(git(&target, &["status", "--porcelain"]), git(wt, &["status", "--porcelain"]));
+        assert_eq!(git(&target, &["diff", "--cached", "--binary"]), git(wt, &["diff", "--cached", "--binary"]));
+        assert_eq!(git(&target, &["show", ":a.txt"]), "one\nstaged");
         assert_eq!(std::fs::read_to_string(target.join("b.txt")).unwrap(), "committed\nunstaged\n");
         assert_eq!(std::fs::read(target.join("bin.dat")).unwrap(), vec![0u8, 159, 146, 150, 255]);
         assert_eq!(std::fs::read_to_string(target.join("new/dir/c.txt")).unwrap(), "untracked\n");
@@ -1531,6 +1558,11 @@ mod tests {
         assert_eq!(record.account().as_deref(), Some("prof-b"));
         assert_eq!(record.model, "sonnet");
         assert!(record.workspace_reclaimed());
+        assert!(record.pending_consumes().is_empty());
+        // EXP-1355: the source's owed consumes travel with the record.
+        let owed = Manifest { pending_consumes: vec!["m1".to_string()], ..manifest.clone() };
+        let record = target_record(&row, &owed, Path::new("/data"), Path::new("/repos"), "acct").unwrap();
+        assert_eq!(record.pending_consumes(), vec!["m1".to_string()]);
         let scratch = target_record(
             &row,
             &Manifest { workspace: WorkspaceKind::Scratch, native: false, ..manifest },
