@@ -126,9 +126,11 @@ pub fn turn_started(session_id: &str) {
 }
 
 /// What the host does when the person's Esc aborts `session_id`'s computer
-/// use: the engine's Cancel of the running turn.
+/// use: the engine's Cancel of the running turn. A run's grant precedes its
+/// engine, so an endpoint that is not up yet has no run to hook: nothing
+/// starts here.
 pub fn on_abort(session_id: &str, hook: Arc<dyn Fn() + Send + Sync>) {
-    if let Ok(live) = live() {
+    if let Some(Ok(live)) = LIVE.get() {
         live.host.set_hook(session_id, hook);
     }
 }
