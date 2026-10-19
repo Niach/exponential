@@ -1356,6 +1356,14 @@ impl LiveRegistry {
             .insert(session_id.to_string(), pending.iter().map(|m| m.id.clone()).collect());
     }
 
+    /// EXP-1355: mark `ids` consuming with no pending rows at hand (a moved
+    /// session's owed consumes, before its messages sync); returns the ones
+    /// newly marked, for [`settle_owed`].
+    fn mark_consuming(&self, ids: &[String]) -> Vec<String> {
+        let mut consuming = locked(&self.consuming);
+        ids.iter().filter(|id| consuming.insert((*id).clone())).cloned().collect()
+    }
+
     /// Take the ids the pickup consumes itself out of `pending`: `owed`
     /// (handed by a previous engine that ended before its consume landed),
     /// plus any already being consumed. Returns the ids newly marked
@@ -1597,9 +1605,26 @@ pub fn launch_queued(row: &SessionRow, deps: &PickupDeps) -> Result<LaunchQueued
     };
     // EXP-1252: the session MOVED here — its package waits on the server.
     let moved_in = brief.handoff.clone().filter(|_| !row.aside);
+    // EXP-1355: the unpacked package goes however this launch ends (a
+    // failed download or restore, the fresh-launch fallback, a refusal); the
+    // server keeps the package until `handoffDone`, the source its worktree
+    // until the restore marker.
+    let _unpacked = moved_in
+        .as_ref()
+        .and_then(|_| crate::handoff::package_dir(&deps.coding.data_dir, &row.id))
+        .map(UnpackedPackage);
     let handoff = match &moved_in {
         Some(info) => match receive_handoff(row, info, deps) {
-            Ok(received) => received,
+            Ok(received) => {
+                // EXP-1355: what the source's engine was handed but could not
+                // report consumed is consumed here, never delivered again —
+                // whether the restore lands or falls back.
+                if let Some((record, _)) = &received {
+                    let owed = deps.live.mark_consuming(&record.pending_consumes());
+                    settle_owed(deps, &row.id, owed);
+                }
+                received
+            }
             Err(err) if transient(&err) => {
                 return Err(gave_up(format!("Couldn't fetch this session's move: {err}")));
             }
@@ -1755,14 +1780,25 @@ fn receive_handoff(
 
 /// EXP-1252: the moved session runs here — the server drops the package
 /// (`sessions.handoffDone`) and stamps the synced restore marker the source
-/// waits on before removing its worktree (EXP-1349), this machine drops its
-/// unpacked copy. Best-effort: a lost call leaves the source's copy intact.
+/// waits on before removing its worktree (EXP-1349). Best-effort: a lost
+/// call leaves the source's copy intact.
 fn finish_handoff(session_id: &str, deps: &PickupDeps) {
     if let Err(err) = session_device::handoff_done(&deps.coding.trpc, session_id) {
         log::warn!("pickup: handoff of {session_id} not marked done: {err}");
     }
-    if let Some(dir) = crate::handoff::package_dir(&deps.coding.data_dir, session_id) {
-        let _ = std::fs::remove_dir_all(dir);
+}
+
+/// EXP-1355: `{data_dir}/handoffs/<id>/`, removed when the launch that
+/// unpacked it returns (the restore read everything it needed by then).
+struct UnpackedPackage(std::path::PathBuf);
+
+impl Drop for UnpackedPackage {
+    fn drop(&mut self) {
+        if let Err(err) = std::fs::remove_dir_all(&self.0) {
+            if err.kind() != std::io::ErrorKind::NotFound {
+                log::warn!("pickup: unpacked package {} not removed: {err}", self.0.display());
+            }
+        }
     }
 }
 
@@ -5454,6 +5490,69 @@ mod tests {
         let record = crate::run_registry::get(&dir.0, "sess-1").expect("the target records the run");
         assert_eq!(record.cwd, cwd);
         assert!(!crate::handoff::package_dir(&dir.0, "sess-1").unwrap().exists(), "the unpacked copy goes");
+    }
+
+    /// EXP-1355: a package that does not restore leaves nothing unpacked
+    /// behind; the session starts afresh with the move named.
+    #[test]
+    fn a_failed_restore_removes_the_unpacked_package() {
+        let dir = temp_dir("pickup-moved-bad");
+        let brief = r#"{"result":{"data":{"brief":"Review the login page.","handoff":{"sizeBytes":10,"fromDeviceId":"dev-0","fromDeviceName":"Laptop"}}}}"#;
+        let (base, requests) = crate::test_support::canned_server_bytes(vec![
+            (200, CLAIM_OK.as_bytes().to_vec()),
+            (200, brief.as_bytes().to_vec()),
+            (200, b"not a package".to_vec()),
+            (200, REPLY_OK.as_bytes().to_vec()),
+            (200, RESOLVE_NONE.as_bytes().to_vec()),
+        ]);
+        let host = host(&base, &dir.0, |_| {});
+        let mut row = session("sess-1", "queued", DEV, "2026-10-01T00:00:00Z");
+        row.root_id = Some("root-1".to_string());
+        assert!(matches!(launch_queued(&row, &host.deps).unwrap(), LaunchQueued::Launched { .. }));
+        let called = procedures(&requests);
+        assert!(called.contains(&"sessions.reply".to_string()), "{called:?}");
+        assert!(!called.contains(&"sessions.handoffDone".to_string()), "nothing was restored: {called:?}");
+        assert!(!crate::handoff::package_dir(&dir.0, "sess-1").unwrap().exists(), "the unpacked copy goes");
+        let prompt = host.spawned.lock().unwrap()[0].prompt.clone().unwrap();
+        assert!(prompt.contains("moved here from Laptop"), "{prompt}");
+    }
+
+    /// EXP-1355: a message the source's engine was handed but could not
+    /// report consumed is consumed by the target, never delivered again.
+    #[test]
+    fn a_moved_sessions_owed_consume_is_settled_not_redelivered() {
+        let src = temp_dir("pickup-moved-owed-src");
+        let mut rec = record(&src.0, "sess-1");
+        rec.cwd = src.0.join("scratch-src");
+        rec.set_pending_consumes(&["m1".to_string()]);
+        std::fs::create_dir_all(&rec.cwd).unwrap();
+        let package = crate::handoff::build_package(
+            &crate::handoff::PackageSource { session_id: "sess-1".to_string(), record: Some(rec), journal: None, native: None },
+            1 << 20,
+        )
+        .unwrap();
+
+        let dir = temp_dir("pickup-moved-owed");
+        let brief = r#"{"result":{"data":{"brief":"Review the login page.","handoff":{"sizeBytes":10,"fromDeviceId":"dev-0","fromDeviceName":"Laptop"}}}}"#;
+        // After the download the consume races resolveForLaunch and
+        // handoffDone; both of those ignore their bodies.
+        let (base, requests) = crate::test_support::canned_server_bytes(vec![
+            (200, CLAIM_OK.as_bytes().to_vec()),
+            (200, brief.as_bytes().to_vec()),
+            (200, package.bytes.clone()),
+            (200, RESOLVE_NONE.as_bytes().to_vec()),
+            (200, RESOLVE_NONE.as_bytes().to_vec()),
+            (200, RESOLVE_NONE.as_bytes().to_vec()),
+        ]);
+        let host = host(&base, &dir.0, |_| {});
+        let mut row = session("sess-1", "queued", DEV, "2026-10-01T00:00:00Z");
+        row.root_id = Some("root-1".to_string());
+        assert!(matches!(launch_queued(&row, &host.deps).unwrap(), LaunchQueued::Launched { .. }));
+        assert!(wait_for(&requests, "sessions.consume"));
+        // The owed message syncs in still pending: never handed again.
+        let rows = vec![message("m1", "sess-1", "2026-10-02T00:00:01Z")];
+        assert!(deliver_messages("sess-1", &rows, &host.deps).unwrap().is_empty());
+        assert_eq!(host.spawned.lock().unwrap().len(), 1);
     }
 
     #[test]
