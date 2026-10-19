@@ -795,9 +795,8 @@ class StyleguideScreenshotsTest {
         flow.waitFor(hasTestTag("agent-feed-question"), NETWORK_TIMEOUT)
         flow.settle(longer = true)
         flow.screenshot("sg_session")
-        // Session → thread → Threads.
-        Espresso.pressBack()
-        flow.waitFor(hasTestTag(SessionTree.ThreadCopy.TEST_ID_CONVERSATION), NAV_TIMEOUT)
+        // Session → Threads: the session page is a page OF the thread (its
+        // strip stays on screen), so one Back leaves the thread.
         Espresso.pressBack()
         flow.waitFor(hasTestTag(SessionTree.ListCopy.TEST_ID_LIST), NAV_TIMEOUT)
         flow.settle(longer = true)

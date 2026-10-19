@@ -210,9 +210,8 @@ class StoreScreenshotsTest {
         flow.waitFor(hasText(FEED_QUESTION_FRAGMENT, substring = true), NETWORK_TIMEOUT)
         flow.settle(longer = true)
         flow.screenshot("4_steering", popRects = true)
-        // Session → thread → issue → board.
-        Espresso.pressBack()
-        flow.waitFor(hasTestTag("thread-tabs"), NAV_TIMEOUT)
+        // Session → issue → board: the session page is a page OF the thread
+        // (its strip stays on screen), so one Back leaves the thread.
         Espresso.pressBack()
         flow.waitForGone(hasTestTag("thread-tabs"), NAV_TIMEOUT)
         composeRule.onNode(hasContentDescription("Back")).performClick()

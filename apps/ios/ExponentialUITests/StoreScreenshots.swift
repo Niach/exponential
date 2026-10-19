@@ -170,8 +170,9 @@ final class StoreScreenshots: XCTestCase {
         // the circle offers the start action — which PUSHES the home
         // composer with the issue chipped. The circle needs an online desktop:
         // without one it shows a notice instead of navigating. Session →
-        // thread → issue → board.
-        goBack(app)
+        // thread → issue → board. The session page is a page OF the thread
+        // (its strip stays on screen), so one Back pops both; a third Back
+        // would land on the board header's switcher sheet.
         goBack(app)
         goBack(app)
         expect(showcaseRowTitle, within: Wait.nav, "Did not return to the board")
