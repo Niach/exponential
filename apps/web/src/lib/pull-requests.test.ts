@@ -7,6 +7,7 @@ import { TRPCError } from "@trpc/server"
 
 const h = vi.hoisted(() => {
   const selectQueue: unknown[][] = []
+  const deleteRows: unknown[][] = []
   const chain = () => {
     const rows = selectQueue.shift() ?? []
     const builder: Record<string, unknown> = {}
@@ -18,9 +19,11 @@ const h = vi.hoisted(() => {
   }
   return {
     selectQueue,
+    deleteRows,
     db: {
       select: vi.fn(chain),
       update: vi.fn(() => ({ set: () => ({ where: async () => {} }) })),
+      delete: vi.fn(() => ({ where: () => ({ returning: async () => deleteRows.shift() ?? [] }) })),
     },
   }
 })
@@ -135,6 +138,7 @@ import {
   pullRequestFiles,
   resolvePullRequest,
   syncPullRequestBodies,
+  unlinkPullRequestIssue,
 } from "@/lib/pull-requests"
 
 const REPO = {
@@ -192,6 +196,7 @@ const pr = (over: Record<string, unknown> = {}) => ({
 beforeEach(() => {
   vi.clearAllMocks()
   h.selectQueue.length = 0
+  h.deleteRows.length = 0
   _clearPrActorClaims()
   vi.mocked(loadSessionForUser).mockResolvedValue(SESSION as never)
   vi.mocked(sync.recordPullRequestOpened).mockImplementation(async (args) => ({
@@ -571,6 +576,27 @@ describe(`closePullRequest / pullRequestFiles`, () => {
     await expect(pullRequestFiles({ userId: `u-1`, pullRequestId: `pr-1` })).resolves.toEqual({
       files: [{ path: `a.ts`, additions: 2, deletions: 1, patch: `@@` }],
     })
+  })
+})
+
+describe(`unlinkPullRequestIssue`, () => {
+  it(`deletes the one pull_request_issues row and says whether it existed`, async () => {
+    h.deleteRows.push([{ issueId: `issue-2` }], [])
+    await expect(
+      unlinkPullRequestIssue({ userId: `u-1`, pullRequestId: `pr-1`, issueId: `issue-2` })
+    ).resolves.toEqual({ unlinked: true })
+    await expect(
+      unlinkPullRequestIssue({ userId: `u-1`, pullRequestId: `pr-1`, issueId: `issue-2` })
+    ).resolves.toEqual({ unlinked: false })
+    expect(h.db.delete).toHaveBeenCalledTimes(2)
+  })
+
+  it(`a foreign team's PR is NOT_FOUND and deletes nothing`, async () => {
+    vi.mocked(resolveTeamAccess).mockRejectedValueOnce(new Error(`no`))
+    await expect(
+      unlinkPullRequestIssue({ userId: `u-1`, pullRequestId: `pr-1`, issueId: `issue-2` })
+    ).rejects.toMatchObject({ code: `NOT_FOUND` })
+    expect(h.db.delete).not.toHaveBeenCalled()
   })
 })
 

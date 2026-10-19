@@ -150,6 +150,7 @@ import {
   pullRequestFiles,
   resolvePullRequest,
   retargetPullRequest,
+  unlinkPullRequestIssue,
   updatePullRequest,
 } from "@/lib/pull-requests"
 import { err, ok } from "./helpers"
@@ -2844,6 +2845,33 @@ export function registerExponentialTools(
           ...(draft !== undefined ? { draft } : {}),
         })
         return ok({ ...prRef(pr), ...(isRecord(result) ? result : {}) })
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  server.registerTool(
+    `exponential_pr_unlink`,
+    {
+      description: `Unlink one issue (UUID or identifier) from a PR; its status stays as is. Name the PR by pullRequestId or repositoryId + prNumber; default = your session's newest open PR.`,
+      inputSchema: strictInput({
+        pullRequestId: prSelector.pullRequestId,
+        repositoryId: prSelector.repositoryId,
+        prNumber: prSelector.prNumber,
+        issueId: z.string().min(1),
+      }),
+    },
+    async ({ issueId: ref, ...selector }) => {
+      try {
+        const { pr } = await selectPr(selector)
+        const [issueId] = await resolveTeamIssues([ref], pr.teamId)
+        const result = await unlinkPullRequestIssue({
+          userId: user.id,
+          pullRequestId: pr.id,
+          issueId: issueId!,
+        })
+        return ok({ ...prRef(pr), issueId, ...result })
       } catch (e) {
         return err(e)
       }

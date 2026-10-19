@@ -1137,6 +1137,17 @@
         "result": "pr"
       },
       {
+        "name": "pr_unlink",
+        "title": "Unlink issue from pull request",
+        "blurb": "Detaches an issue from a pull request.",
+        "progressive": "Unlinking issue from pull request",
+        "done": "Unlinked issue from pull request",
+        "progressiveMany": "Unlinking {n} issues from pull requests",
+        "doneMany": "Unlinked {n} issues from pull requests",
+        "subjectKey": "issueId",
+        "result": "pr"
+      },
+      {
         "name": "pr_update",
         "title": "Update pull request",
         "blurb": "Rewrites the title or description of an open pull request.",
@@ -1494,6 +1505,7 @@
       { "name": "pr_merge", "refs": "issue@$issueId" },
       { "name": "pr_open", "refs": "issue@$issueId issue@$issueIds[]" },
       { "name": "pr_retarget", "refs": "issue@$issueId" },
+      { "name": "pr_unlink", "refs": "issue@$issueId" },
       { "name": "pr_update", "refs": "issue@$issueId" },
       { "name": "report_bug", "refs": "issue@" },
       { "name": "repositories_add", "refs": "repository@" },
