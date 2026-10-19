@@ -50,6 +50,7 @@ describe(`shape column allowlists`, () => {
 describe(`sessions allowlist`, () => {
   it(`syncs a pending move, never the server-only handoff`, () => {
     expect(SESSION_COLUMNS).toContain(`move_to_device_id`)
+    expect(SESSION_COLUMNS).toContain(`handoff_restored_at`)
     expect(SESSION_COLUMNS).not.toContain(`handoff`)
     expect(SESSION_COLUMNS).not.toContain(`host_user_id`)
   })

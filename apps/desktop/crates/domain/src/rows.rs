@@ -774,6 +774,11 @@ pub struct SessionRow {
     /// `None` = no move pending.
     #[serde(default)]
     pub move_to_device_id: Option<String>,
+    /// EXP-1349: when the target restored a moved session's package
+    /// (`sessions.handoffDone`); `None` = no restore since the last move.
+    /// The source removes its worktree only once this is set.
+    #[serde(default)]
+    pub handoff_restored_at: Option<String>,
     #[serde(default)]
     pub created_at: Option<String>,
     #[serde(default)]
@@ -790,6 +795,12 @@ impl SessionRow {
             .as_deref()
             .map(str::trim)
             .filter(|target| !target.is_empty())
+    }
+
+    /// EXP-1349: the current host restored the moved package (a blank
+    /// value reads as not restored).
+    pub fn handoff_restored(&self) -> bool {
+        self.handoff_restored_at.as_deref().is_some_and(|at| !at.trim().is_empty())
     }
 
     /// A tree root (no parent).

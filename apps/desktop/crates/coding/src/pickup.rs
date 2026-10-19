@@ -384,9 +384,10 @@ pub enum PickupAction {
     /// [`RELEASED_OUTCOME`] — it writes nothing to the row (one writer).
     Release { session_id: String },
     /// EXP-1252: a session handed off from here whose row shows the target
-    /// claimed it ([`crate::handoff::cleanups_due`], appended by the hosts):
-    /// settle its local copy ([`crate::handoff::cleanup`] — EXP-1349: the
-    /// run record goes, the workspace stays as the recovery point).
+    /// claimed or restored it ([`crate::handoff::cleanups_due`], appended by
+    /// the hosts): settle its local copy ([`crate::handoff::cleanup`] —
+    /// EXP-1349: the claim drops the run record, only the synced restore
+    /// marker removes the workspace).
     Cleanup { session_id: String },
 }
 
@@ -1753,7 +1754,9 @@ fn receive_handoff(
 }
 
 /// EXP-1252: the moved session runs here — the server drops the package
-/// (`sessions.handoffDone`), this machine its unpacked copy. Best-effort.
+/// (`sessions.handoffDone`) and stamps the synced restore marker the source
+/// waits on before removing its worktree (EXP-1349), this machine drops its
+/// unpacked copy. Best-effort: a lost call leaves the source's copy intact.
 fn finish_handoff(session_id: &str, deps: &PickupDeps) {
     if let Err(err) = session_device::handoff_done(&deps.coding.trpc, session_id) {
         log::warn!("pickup: handoff of {session_id} not marked done: {err}");
@@ -2212,6 +2215,7 @@ pub fn hand_off(row: &SessionRow, deps: &PickupDeps) -> Result<HandedOff, String
                 branch: record.branch.clone().filter(|_| workspace == crate::handoff::WorkspaceKind::Repo),
                 native: source.native.clone(),
                 native_packaged: package.manifest.native,
+                ..Default::default()
             },
         );
     }
@@ -5340,11 +5344,19 @@ mod tests {
             vec![PickupAction::Cleanup { session_id: "sess-1".to_string() }]
         );
         execute(&PickupAction::Cleanup { session_id: "sess-1".to_string() }, &host.deps).unwrap();
-        // EXP-1349: the run record and the pending entry go; the scratch
-        // dir stays as the recovery point (the target's claim is no proof
-        // it restored the package).
+        // EXP-1349: the claim drops the run record only; the scratch dir
+        // stays until the target restored the package.
         assert!(rec.cwd.join("notes.md").is_file(), "the workspace is kept");
         assert!(crate::run_registry::get(&dir.0, "sess-1").is_none());
+        assert_eq!(crate::handoff::moved_away(&dir.0).len(), 1, "waits for the restore");
+        assert!(cleanup_actions(&dir.0, DEV, std::slice::from_ref(&claimed)).is_empty());
+        let mut restored = claimed.clone();
+        restored.handoff_restored_at = Some("2026-10-19T10:00:00Z".to_string());
+        assert_eq!(
+            cleanup_actions(&dir.0, DEV, std::slice::from_ref(&restored)),
+            vec![PickupAction::Cleanup { session_id: "sess-1".to_string() }]
+        );
+        execute(&PickupAction::Cleanup { session_id: "sess-1".to_string() }, &host.deps).unwrap();
         assert!(crate::handoff::moved_away(&dir.0).is_empty());
     }
 

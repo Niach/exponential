@@ -1767,6 +1767,10 @@ export const sessions = pgTable(
     moveToDeviceId: varchar(`move_to_device_id`, { length: 128 }),
     // SERVER-ONLY (EXP-1252): the move request + the uploaded handoff package.
     handoff: jsonb().$type<SessionHandoff>(),
+    // EXP-1349: the target restored the moved package (synced; stamped by
+    // `sessions.handoffDone`, cleared by the next `handoff{moved}` and by a
+    // failed move). The SOURCE removes its worktree only once it is set.
+    handoffRestoredAt: timestamp(`handoff_restored_at`, { withTimezone: true }),
     // ── state ──
     status: sessionStatusEnum().notNull().default(`queued`),
     // Device-written turn state (EXP-848): the ONLY list-spinner input ×4.

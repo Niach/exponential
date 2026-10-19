@@ -411,6 +411,9 @@ pub const SHAPES: [ShapeSpec; 26] = [
             // EXP-1252: a pending move's target device (the `handoff` jsonb
             // stays server-only).
             "move_to_device_id",
+            // EXP-1349: the target restored the move (the source's
+            // worktree cleanup gate).
+            "handoff_restored_at",
             "status",
             "busy",
             "needs_input",
@@ -1071,13 +1074,13 @@ mod tests {
     fn the_session_tree_shapes_match_the_proxies() {
         let sessions = shape_by_name("sessions").unwrap();
         assert_eq!(sessions.path, "/api/shapes/sessions");
-        assert_eq!(sessions.columns.len(), 42);
+        assert_eq!(sessions.columns.len(), 43);
         for column in [
             "parent_id", "root_id", "kind", "status", "busy", "needs_input", "shared", "guide", "triggers",
             // EXP-1323: the live status line + a `/btw` aside child.
             "caption", "aside",
-            // EXP-1252: a pending move's target.
-            "move_to_device_id",
+            // EXP-1252: a pending move's target; EXP-1349: its restore.
+            "move_to_device_id", "handoff_restored_at",
         ] {
             assert!(sessions.columns.contains(&column), "sessions needs {column}");
         }
