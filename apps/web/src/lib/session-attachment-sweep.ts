@@ -18,6 +18,7 @@ import { db } from "@/db/connection"
 import { deleteStorageObjectsViaBun } from "@/lib/storage/bun-s3-cleanup"
 import { collectAttachmentStorageKeys } from "@/lib/storage/issue-attachments"
 import { reportSchedulerRun } from "@/lib/metrics/registry"
+import { postMovedMessage } from "@/lib/sessions/messages"
 
 type Tx = Parameters<Parameters<(typeof db)[`transaction`]>[0]>[0]
 
@@ -80,19 +81,49 @@ export async function reclaimOrphanSessionAttachmentsInTx(
 
 /** EXP-1252: a week-old handoff package (`sessions.handoff.blob`) nobody
  *  restored (a target that never came back, a cancelled move's upload) is
- *  dropped from its row; the keys come back for the S3 delete. */
+ *  dropped from its row; the keys come back for the S3 delete. EXP-1349: a
+ *  move still PENDING (`move_to_device_id` set: the source never reported
+ *  it) is never just stripped of its package: the move expires instead
+ *  (cleared, the failure line posted) and the session stays on its source,
+ *  whose worktree never left. */
 export const HANDOFF_BLOB_RETENTION_MS = 7 * 24 * 60 * 60 * 1000
+
+/** The Conversation line of a move the sweep expired. */
+export const EXPIRED_MOVE_TEXT = `Couldn't move the session: the move did not finish within a week`
 
 export async function reclaimStaleHandoffBlobsInTx(
   tx: Tx,
   cutoff: Date
-): Promise<{ storageKeys: string[] }> {
+): Promise<{ storageKeys: string[]; expiredMoves: number }> {
+  const expired = await tx.execute(sql`
+    WITH stale AS (
+      SELECT id, handoff->'blob'->>'storageKey' AS storage_key
+      FROM sessions
+      WHERE jsonb_typeof(handoff->'blob') = 'object'
+        AND (handoff->'blob'->>'uploadedAt')::timestamptz <= ${cutoff}
+        AND move_to_device_id IS NOT NULL
+      LIMIT ${MAX_BATCH}
+      FOR UPDATE
+    )
+    UPDATE sessions s
+    SET move_to_device_id = NULL,
+      handoff = NULL,
+      handoff_restored_at = NULL,
+      caption = NULL,
+      updated_at = now()
+    FROM stale
+    WHERE s.id = stale.id
+    RETURNING s.id, stale.storage_key
+  `)
+  const expiredRows = expired.rows as Array<{ id: string; storage_key: string | null }>
+  for (const row of expiredRows) await postMovedMessage(tx, row.id, EXPIRED_MOVE_TEXT)
   const updated = await tx.execute(sql`
     WITH stale AS (
       SELECT id, handoff->'blob'->>'storageKey' AS storage_key
       FROM sessions
       WHERE jsonb_typeof(handoff->'blob') = 'object'
         AND (handoff->'blob'->>'uploadedAt')::timestamptz <= ${cutoff}
+        AND move_to_device_id IS NULL
       LIMIT ${MAX_BATCH}
       FOR UPDATE
     )
@@ -107,10 +138,13 @@ export async function reclaimStaleHandoffBlobsInTx(
     WHERE s.id = stale.id
     RETURNING stale.storage_key
   `)
-  const storageKeys = (updated.rows as Array<{ storage_key: string | null }>)
+  const storageKeys = [
+    ...expiredRows,
+    ...(updated.rows as Array<{ storage_key: string | null }>),
+  ]
     .map((row) => row.storage_key)
     .filter((key): key is string => !!key)
-  return { storageKeys }
+  return { storageKeys, expiredMoves: expiredRows.length }
 }
 
 export async function runSessionAttachmentSweep(

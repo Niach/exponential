@@ -22,8 +22,10 @@ import { getSteerRelayConfig, relayPostNudge } from "@/lib/steer"
 // (`sessions.handoff`): `moved` re-stamps the row onto the target (queued,
 // its messages still pending), `failed` clears the move and the session
 // stays put. The TARGET reads the package (`GET`, `sessions.brief.handoff`)
-// and calls `sessions.handoffDone` once restored: the blob goes. Packages
-// never outlive a week (the session attachment sweep).
+// and calls `sessions.handoffDone` once restored: the blob goes and the
+// synced `handoff_restored_at` tells the source it may drop its worktree
+// (EXP-1349: never on the target's claim alone). Packages never outlive a
+// week (the session attachment sweep; a move still pending expires).
 
 export const handoffStorageKey = (sessionId: string) =>
   `session-handoffs/${sessionId}/${crypto.randomUUID()}.tar.gz`
@@ -68,7 +70,13 @@ async function failMove(
     const blob = row.handoff?.blob
     await tx
       .update(sessions)
-      .set({ moveToDeviceId: null, handoff: null, caption: null, updatedAt: new Date() })
+      .set({
+        moveToDeviceId: null,
+        handoff: null,
+        handoffRestoredAt: null,
+        caption: null,
+        updatedAt: new Date(),
+      })
       .where(eq(sessions.id, sessionId))
     // A daemon may already say "Couldn't move the session: …": never twice.
     const why = reason?.trim().replace(/^Couldn't move the session:?\s*/i, ``) ?? ``
@@ -146,6 +154,8 @@ export async function completeHandoff(args: {
         caption: null,
         moveToDeviceId: null,
         handoff,
+        // EXP-1349: the source keeps its worktree until the target restores.
+        handoffRestoredAt: null,
         updatedAt: new Date(),
       })
       .where(eq(sessions.id, session.id))
@@ -157,7 +167,8 @@ export async function completeHandoff(args: {
   return { txid }
 }
 
-/** `sessions.handoffDone`: the target restored the package; it goes. */
+/** `sessions.handoffDone`: the target restored the package; it goes and the
+ *  restore marker lands (a retry after the blob went keeps the marker). */
 export async function finishHandoff(args: {
   userId: string
   sessionId: string
@@ -172,7 +183,11 @@ export async function finishHandoff(args: {
     const request = row.handoff?.request ?? null
     await tx
       .update(sessions)
-      .set({ handoff: request ? { request, blob: null } : null, updatedAt: new Date() })
+      .set({
+        handoff: request ? { request, blob: null } : null,
+        ...(blob ? { handoffRestoredAt: new Date() } : {}),
+        updatedAt: new Date(),
+      })
       .where(eq(sessions.id, session.id))
     return { txid, storageKeys: blob ? [blob.storageKey] : [] }
   })

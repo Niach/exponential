@@ -33,6 +33,8 @@ export const SESSION_COLUMNS = [
   // EXP-1252: a pending move's target device (the `handoff` jsonb stays
   // server-only).
   `move_to_device_id`,
+  // EXP-1349: the target restored the move (the source's cleanup gate).
+  `handoff_restored_at`,
   `status`,
   `busy`,
   `needs_input`,

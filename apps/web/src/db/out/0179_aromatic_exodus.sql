@@ -1,0 +1,1 @@
+ALTER TABLE "sessions" ADD COLUMN "handoff_restored_at" timestamp with time zone;

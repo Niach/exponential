@@ -15,7 +15,7 @@ import {
   teamMembers,
   teams,
 } from "@/db/schema"
-import { probeRealDb } from "@/test/real-db"
+import { inRollback, probeRealDb } from "@/test/real-db"
 
 // EXP-1291: the session tree's core against the REAL migrated Postgres —
 // sessions.send's three forms, visibility, the tree caps, lifecycle, the
@@ -1493,6 +1493,8 @@ describe.skipIf(!ready.ok)(`EXP-1252: moving a session to another device`, async
     })
     expect(moved.startedAt).not.toBeNull()
     expect(moved.handoff).toMatchObject({ request: null, blob: { storageKey: blob!.storageKey } })
+    // EXP-1349: no restore yet: the source keeps its worktree.
+    expect(moved.handoffRestoredAt).toBeNull()
     const system = await db
       .select()
       .from(messages)
@@ -1514,6 +1516,8 @@ describe.skipIf(!ready.ok)(`EXP-1252: moving a session to another device`, async
     expect((await row(w.sessionId)).status).toBe(`queued`)
     await host.claim({ sessionId: w.sessionId, deviceId: w.target })
     expect((await row(w.sessionId)).status).toBe(`running`)
+    // The claim is no restore: the marker waits for `handoffDone`.
+    expect((await row(w.sessionId)).handoffRestoredAt).toBeNull()
     const [pending] = await db.select().from(messages).where(eq(messages.id, waiting.messageId!))
     expect(pending!.consumedAt).toBeNull()
 
@@ -1522,6 +1526,11 @@ describe.skipIf(!ready.ok)(`EXP-1252: moving a session to another device`, async
     expect(got.headers.get(`content-type`)).toBe(`application/gzip`)
     await host.handoffDone({ sessionId: w.sessionId })
     expect((await row(w.sessionId)).handoff).toBeNull()
+    const restoredAt = (await row(w.sessionId)).handoffRestoredAt
+    expect(restoredAt).not.toBeNull()
+    // A retry (the blob gone) keeps the marker.
+    await host.handoffDone({ sessionId: w.sessionId })
+    expect((await row(w.sessionId)).handoffRestoredAt).toEqual(restoredAt)
     expect(storage.deleted).toContain(blob!.storageKey)
     expect((await getHandoffBlob(w.owner, w.sessionId)).status).toBe(404)
     // No move pending: the upload is refused.
@@ -1574,6 +1583,44 @@ describe.skipIf(!ready.ok)(`EXP-1252: moving a session to another device`, async
       status: `queued`,
       // No login picked at the start: the target settles on its own.
       account: null,
+    })
+  })
+
+  it(`EXP-1349: a failed move clears the restore marker; the sweep expires a week-old pending move`, async () => {
+    const { reclaimStaleHandoffBlobsInTx, EXPIRED_MOVE_TEXT } = await import(`@/lib/session-attachment-sweep`)
+    const w = await moveWorld()
+    // A marker left by an earlier move into this device.
+    await db.update(sessions).set({ handoffRestoredAt: new Date() }).where(eq(sessions.id, w.sessionId))
+    await sendSession({ userId: w.owner, input: { sessionId: w.sessionId, deviceId: w.target } })
+    await caller(w.owner).handoff({ sessionId: w.sessionId, deviceId: w.deviceId, outcome: `failed` })
+    expect((await row(w.sessionId)).handoffRestoredAt).toBeNull()
+
+    // A pending move whose package sat a week (the source never reported).
+    await sendSession({ userId: w.owner, input: { sessionId: w.sessionId, deviceId: w.target } })
+    const put = await putHandoffBlob(
+      w.owner,
+      w.sessionId,
+      new Request(`http://x.test`, { method: `PUT`, body: new Uint8Array([31, 139, 8]) })
+    )
+    expect(put.status).toBe(201)
+    const key = (await row(w.sessionId)).handoff!.blob!.storageKey
+    // Rolled back: the cutoff reaches every package in the shared dev DB.
+    await inRollback(async (tx) => {
+      const swept = await reclaimStaleHandoffBlobsInTx(tx, new Date(Date.now() + 60_000))
+      expect(swept.storageKeys).toContain(key)
+      expect(swept.expiredMoves).toBeGreaterThanOrEqual(1)
+      const [expired] = await tx.select().from(sessions).where(eq(sessions.id, w.sessionId))
+      expect(expired).toMatchObject({
+        deviceId: w.deviceId,
+        moveToDeviceId: null,
+        handoff: null,
+        caption: null,
+      })
+      const system = await tx
+        .select()
+        .from(messages)
+        .where(and(eq(messages.sessionId, w.sessionId), eq(messages.authorKind, `system`)))
+      expect(system.map((m) => m.body)).toContain(EXPIRED_MOVE_TEXT)
     })
   })
 
