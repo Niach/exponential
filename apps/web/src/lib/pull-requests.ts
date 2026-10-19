@@ -812,6 +812,21 @@ export async function updatePullRequest(args: {
   }
 }
 
+/** Detach one issue from a PR (a mislinked `pull_request_issues` row), in
+ *  any PR state. The issue's status stays a human decision. */
+export async function unlinkPullRequestIssue(args: {
+  userId: string
+  pullRequestId: string
+  issueId: string
+}): Promise<{ unlinked: boolean }> {
+  const pr = await resolvePullRequest({ userId: args.userId, pullRequestId: args.pullRequestId })
+  const deleted = await db
+    .delete(pullRequestIssues)
+    .where(and(eq(pullRequestIssues.pullRequestId, pr.id), eq(pullRequestIssues.issueId, args.issueId)))
+    .returning({ issueId: pullRequestIssues.issueId })
+  return { unlinked: deleted.length > 0 }
+}
+
 /** Close a live PR WITHOUT merging (the Reviews "reject" path). Issue
  *  statuses stay a human decision. */
 export async function closePullRequest(args: { userId: string; pullRequestId: string }): Promise<void> {

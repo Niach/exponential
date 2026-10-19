@@ -157,6 +157,7 @@ const h = vi.hoisted(() => {
     closePullRequestTx: vi.fn(),
     retargetPullRequest: vi.fn(),
     updatePullRequest: vi.fn(),
+    unlinkPullRequestIssue: vi.fn(),
     pullRequestFiles: vi.fn(),
   }
 
@@ -2570,6 +2571,34 @@ describe(`pull request tools (EXP-1291)`, () => {
       userId: USER.id,
       pullRequestId: PR_ID,
       draft: false,
+    })
+  })
+
+  it(`pr_unlink names the PR by number and the issue by identifier, never as a PR selector`, async () => {
+    dbRows.current = [{ id: UUID }]
+    prs.unlinkPullRequestIssue.mockResolvedValue({ unlinked: true })
+    const result = await tool(`exponential_pr_unlink`)({
+      repositoryId: REPO,
+      prNumber: 7,
+      issueId: `EXP-12`,
+    })
+    expect(parseOk(result)).toEqual({
+      pullRequestId: PR_ID,
+      number: 7,
+      url: PR.url,
+      issueId: UUID,
+      unlinked: true,
+    })
+    expect(prs.resolvePullRequest).toHaveBeenLastCalledWith({
+      userId: USER.id,
+      repositoryId: REPO,
+      number: 7,
+      callerSessionId: null,
+    })
+    expect(prs.unlinkPullRequestIssue).toHaveBeenCalledWith({
+      userId: USER.id,
+      pullRequestId: PR_ID,
+      issueId: UUID,
     })
   })
 

@@ -177,6 +177,7 @@ describe(`identifier acceptance (EXP-707 theme A)`, () => {
     [`exponential_pr_retarget`, `issueId`],
     [`exponential_pr_update`, `issueId`],
     [`exponential_pr_files`, `issueId`],
+    [`exponential_pr_unlink`, `issueId`],
     [`exponential_attachments_upload`, `issueId`],
     // EXP-1291
     [`exponential_sessions_unlink`, `issueId`],
