@@ -199,13 +199,16 @@ fun IssueDraftScreen(
     BackHandler(enabled = true) { leave() }
     // Every other way out (a push tap, a share, a deep link) asks AppNavHost's
     // guard, which hands it here while the draft has content: held for the
-    // prompt, or (EXP-1272, reopened) kept first and then continued.
+    // prompt, or (EXP-1272, reopened) kept first and then continued. While a
+    // Keep save runs, every navigation is SWALLOWED like Back is (iOS
+    // `IssueDraftPageView.hold`): letting it go would close the page under
+    // the in-flight save, and a failed save would lose the edit; the save
+    // continues its own held navigation when it lands.
     val leaveGuard = LocalLeaveGuard.current
-    val currentPrompt by rememberUpdatedState(
-        if (keeping) IssueDraftPage.Prompt.None else prompt(),
-    )
+    val currentPrompt by rememberUpdatedState(prompt())
     DisposableEffect(leaveGuard) {
         val unregister = leaveGuard?.register { proceed ->
+            if (keeping) return@register true
             when (currentPrompt) {
                 IssueDraftPage.Prompt.Leave -> heldLeave = proceed
                 IssueDraftPage.Prompt.Keep -> keepThen(proceed)

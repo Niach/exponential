@@ -985,9 +985,14 @@ final class StyleguideScreenshots: XCTestCase {
         expect(sessionCard, within: Wait.nav, "The cold-start thread drew no \"\(Self.sessionTitle)\" card")
         sessionCard.tap()
         // THE ask dock: the card takes the composer's slot once the relay
-        // feed is live and answerable; give the session that beat before
-        // querying (the query alone timed out while the feed settled).
-        sleep(12)
+        // feed is live and answerable. Poll the dock itself (`ask-dock`,
+        // fixtures/ask-dock.json) over the first-sync wait while the feed
+        // settles, then the question card inside it.
+        expect(
+            anyElement(app, identified: "ask-dock"),
+            within: Wait.firstSync,
+            "The session drew no ask dock — is `bun run screenshots:desktop` publishing its feed?"
+        )
         expect(
             anyElement(app, identified: "agent-feed-question"),
             within: Wait.network,

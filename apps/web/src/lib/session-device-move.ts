@@ -14,6 +14,7 @@
 // `session-device-move.test.ts` locks them against the native sources.
 import { isPersistent } from "@exp/domain-contract/session-kind"
 import { flattenAccounts } from "@/lib/accounts/account-option"
+import { parseVersionTuple } from "@/lib/client-version"
 import type { SteerDevice } from "@/lib/steer-devices"
 
 export { canSteerSession } from "@/lib/session-account-switch"
@@ -39,6 +40,21 @@ export const REASON_ASIDE = `An aside stays on its parent's device.`
 export const REASON_OFFLINE = `This device is offline.`
 export const REASON_VISIBILITY = `This device is shared differently, so the session can't move here.`
 export const REASON_NO_LOGIN = `This device has no signed-in login for this agent.`
+export const REASON_UPDATE = `This device needs an update to receive sessions.`
+
+/** The first desktop/CLI build that receives a handoff (the server's
+ *  `MOVE_MIN_VERSION`); an unreported version = an old build. */
+export const MOVE_MIN_VERSION: readonly [number, number, number] = [0, 14, 73]
+
+export function deviceCanReceiveSession(version: string | null | undefined): boolean {
+  if (!version) return false
+  const have = parseVersionTuple(version)
+  if (!have) return false
+  for (let i = 0; i < 3; i++) {
+    if (have[i]! !== MOVE_MIN_VERSION[i]!) return have[i]! > MOVE_MIN_VERSION[i]!
+  }
+  return true
+}
 
 export function movingLabel(deviceName: string): string {
   return MOVING_LABEL.replace(`{device}`, deviceName)
@@ -91,14 +107,16 @@ export function deviceMoveAgent(
 }
 
 /** One target's refusal, or null = movable. ORDER ×4: offline, visibility,
- *  no login (no signed-in login of the session's agent there). */
+ *  update (a build before `MOVE_MIN_VERSION`), no login (no signed-in login
+ *  of the session's agent there). */
 export function deviceMoveTargetReason(
-  device: Pick<SteerDevice, `online` | `sharedTeamIds` | `agentAccounts`>,
+  device: Pick<SteerDevice, `online` | `sharedTeamIds` | `agentAccounts` | `version`>,
   session: { teamId: string; shared: boolean; agent: string }
 ): string | null {
   if (device.online === false) return REASON_OFFLINE
   if (deviceSharedWithTeam(device, session.teamId) !== session.shared)
     return REASON_VISIBILITY
+  if (!deviceCanReceiveSession(device.version)) return REASON_UPDATE
   const signedIn = flattenAccounts(device).some((option) => option.agent === session.agent)
   if (!signedIn) return REASON_NO_LOGIN
   return null

@@ -190,10 +190,19 @@ export async function stopSession(args: {
         })
       }
     } else if (ghost) {
-      await tx
+      const idled = await tx
         .update(sessions)
         .set({ status: `idle`, busy: false, updatedAt: new Date() })
         .where(and(eq(sessions.id, session.id), ne(sessions.status, `ended`)))
+        .returning({ id: sessions.id })
+      // EXP-1350: its turn is over like any other: the issues its follow-up
+      // took back to In Progress return once nothing else works.
+      await settleFollowUpIssuesInTx(
+        tx,
+        session,
+        idled.map((row) => row.id),
+        args.userId
+      )
     } else {
       await tx.update(sessions).set({ updatedAt: new Date() }).where(eq(sessions.id, session.id))
     }
@@ -268,11 +277,31 @@ export async function endForeignHostedSessions(
           ...(deviceId ? [eq(sessions.deviceId, deviceId)] : [])
         )
       )
-      .returning({ id: sessions.id })
+      .returning({ id: sessions.id, rootId: sessions.rootId })
+    // EXP-1350: an end is an end, whoever caused it: the issues a work
+    // child's follow-up took back to In Progress return per thread.
+    await settleStoppedByThreadInTx(tx, ended)
     return ended.map((row) => row.id)
   })
   await relayKillSessionsBestEffort(endedIds)
   return endedIds
+}
+
+/** `settleFollowUpIssuesInTx` once per thread of the stopped rows (an
+ *  automation, no actor). */
+async function settleStoppedByThreadInTx(
+  tx: Tx,
+  stopped: ReadonlyArray<{ id: string; rootId: string }>
+): Promise<void> {
+  const byRoot = new Map<string, string[]>()
+  for (const row of stopped) {
+    const ids = byRoot.get(row.rootId) ?? []
+    ids.push(row.id)
+    byRoot.set(row.rootId, ids)
+  }
+  for (const [rootId, ids] of byRoot) {
+    await settleFollowUpIssuesInTx(tx, { rootId }, ids, null)
+  }
 }
 
 /**
@@ -319,20 +348,31 @@ const SWEEP_INTERVAL_MS = 10 * 60 * 1000
  *  idle row's stale `busy` clears too (#FEED-85: a spinner nobody stops). */
 export async function sweepStaleSessions(now: Date = new Date()): Promise<number> {
   const cutoff = new Date(now.getTime() - STALE_DEVICE_MS)
-  const result = await db.execute(sql`
-    UPDATE sessions s
-    SET status = 'idle', busy = false, updated_at = now()
-    WHERE (s.status = 'running' OR (s.status = 'idle' AND s.busy))
-      AND s.updated_at < ${cutoff}
-      AND NOT EXISTS (
-        SELECT 1 FROM devices d
-        WHERE d.device_id = s.device_id
-          AND d.user_id = coalesce(s.host_user_id, s.user_id)
-          AND d.last_seen_at > ${cutoff}
-      )
-    RETURNING s.id
-  `)
-  return result.rows.length
+  return db.transaction(async (tx) => {
+    const result = await tx.execute(sql`
+      UPDATE sessions s
+      SET status = 'idle', busy = false, updated_at = now()
+      WHERE (s.status = 'running' OR (s.status = 'idle' AND s.busy))
+        AND s.updated_at < ${cutoff}
+        AND NOT EXISTS (
+          SELECT 1 FROM devices d
+          WHERE d.device_id = s.device_id
+            AND d.user_id = coalesce(s.host_user_id, s.user_id)
+            AND d.last_seen_at > ${cutoff}
+        )
+      RETURNING s.id, s.root_id
+    `)
+    const idled = (result.rows as Array<{ id: string; root_id: string }>).map(
+      (row) => ({
+        id: row.id,
+        rootId: row.root_id,
+      })
+    )
+    // EXP-1350: a work child idled here never reports its turn's end: the
+    // issues its follow-up took back to In Progress would stay there.
+    await settleStoppedByThreadInTx(tx, idled)
+    return idled.length
+  })
 }
 
 let sweepStarted = false

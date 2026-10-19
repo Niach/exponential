@@ -155,6 +155,16 @@
         ]
       },
       "expected": "Untitled"
+    },
+    {
+      "name": "a title's replacement patterns ($&, $$, $`, $') land literally",
+      "input": {
+        "session": { "id": "s1", "rootId": "s1", "name": null, "title": null, "actionName": null },
+        "links": [{ "sessionId": "s1", "issueId": "i1", "sortOrder": 1, "assignedSessionId": null }],
+        "issues": [{ "id": "i1", "identifier": "APP-7", "title": "Escape $& and $$ and $` and $' in titles" }],
+        "messages": []
+      },
+      "expected": "#APP-7 Escape $& and $$ and $` and $' in titles"
     }
   ]
 }

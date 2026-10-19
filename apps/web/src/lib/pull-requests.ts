@@ -451,7 +451,7 @@ export function pickIssuePullRequest(
     `PRECONDITION_FAILED`,
     `This issue has ${focused.length} open pull requests (${focused
       .map((c) => `#${c.pr.number} ${c.pr.url}`)
-      .join(`, `)}). Name one with repositoryId + prNumber.`
+      .join(`, `)}). Name one with repositoryId + prNumber or pullRequestId.`
   )
 }
 

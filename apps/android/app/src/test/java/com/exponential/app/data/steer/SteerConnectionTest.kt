@@ -989,6 +989,58 @@ class SteerConnectionTest {
         }
     }
 
+    // EXP-1342 ("one message on Stop" ×4): a `sessions.stop` that bypasses
+    // the relay (the thread header's Stop, the composer's Stop while
+    // disconnected) hands the queue back to the draft FIRST, exactly as the
+    // interrupt frame does — and puts the draft back the way it was when the
+    // stop itself is refused (web `stopSessionTurn`). No connection = no
+    // queue bar = the stop runs alone.
+    @Test
+    fun stopHandingBackQueueTakesTheQueueFirstAndRestoresTheDraftOnFailure() = runBlocking {
+        val transport = FakeTransport()
+        val connection = connection(transport, stagingTimings)
+        try {
+            val socket = liveWithFeed(transport, connection)
+            val queueFrame = """{"t":"activity","event":{"kind":"queue","messages":""" +
+                """[{"id":"m1","text":"one","sent":true},{"id":"m2","text":"two"}]}}"""
+            socket.emit(queueFrame)
+            waitUntil("the queue slot") { connection.activity.value.queue.size == 2 }
+            connection.setDraft("typing")
+
+            // The hand-back lands before the stop call runs, in order, after
+            // a blank line; no interrupt frame goes over the socket.
+            var draftWhenStopped: String? = null
+            stopHandingBackQueue(connection) { draftWhenStopped = connection.draft.value }
+            assertEquals("typing\n\none\ntwo", draftWhenStopped)
+            assertEquals("typing\n\none\ntwo", connection.draft.value)
+            assertTrue(connection.activity.value.queue.isEmpty())
+            assertFalse(socket.sent.any { it.contains(""""t":"interrupt"""") })
+
+            // A refused stop: the draft goes back to what it was (the device
+            // still holds the queue; its next `queue` frame repaints the bar).
+            connection.setDraft("again")
+            socket.emit(queueFrame)
+            waitUntil("the queue slot again") { connection.activity.value.queue.size == 2 }
+            val refused = runCatching {
+                stopHandingBackQueue(connection) { throw IllegalStateException("REFUSED") }
+            }.exceptionOrNull()
+            assertEquals("REFUSED", refused?.message)
+            assertEquals("again", connection.draft.value)
+
+            // Nothing queued: a failing stop leaves a draft in progress alone.
+            connection.setDraft("alone")
+            runCatching { stopHandingBackQueue(connection) { throw IllegalStateException("x") } }
+            assertEquals("alone", connection.draft.value)
+
+            // No screen holds the session: the stop simply runs.
+            var ran = false
+            stopHandingBackQueue(null) { ran = true }
+            assertTrue(ran)
+        } finally {
+            connection.close()
+        }
+    }
+
     // ── EXP-861: the device's message queue ─────────────────────────────
 
     @Test

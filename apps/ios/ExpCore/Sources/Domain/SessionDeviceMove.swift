@@ -36,6 +36,9 @@ public enum SessionDeviceMove {
     public static let reasonOffline = "This device is offline."
     public static let reasonVisibility = "This device is shared differently, so the session can't move here."
     public static let reasonNoLogin = "This device has no signed-in login for this agent."
+    /// The target runs a build too old to receive a session (web
+    /// `REASON_UPDATE`).
+    public static let reasonUpdate = "This device needs an update to receive sessions."
 
     /// `Moving to <device>…`.
     public static func movingLabel(_ device: String) -> String {
@@ -62,9 +65,43 @@ public enum SessionDeviceMove {
         device.sharedTeamIds.contains(teamId)
     }
 
-    /// One target's refusal, or nil = movable. Order ×4: offline,
-    /// visibility, no-login. `agent` = the session's agent (nil skips the
-    /// login check).
+    /// The first desktop/CLI build that receives a handoff (the server's
+    /// `MOVE_MIN_VERSION`, web `lib/sessions/move.ts`).
+    public static let moveMinVersion = (0, 14, 73)
+
+    /// Whether a device's reported marketing version is at least
+    /// `moveMinVersion` (web `deviceCanReceiveSession`): an unreported or
+    /// unparsable version = an old build. `major.minor.patch` with any
+    /// `-`/`+` suffix ignored, missing segments 0 (web `parseVersionTuple`).
+    public static func canReceiveSession(version: String?) -> Bool {
+        guard let version, let have = parseVersionTuple(version) else { return false }
+        let want = [moveMinVersion.0, moveMinVersion.1, moveMinVersion.2]
+        for index in 0..<3 where have[index] != want[index] {
+            return have[index] > want[index]
+        }
+        return true
+    }
+
+    /// `major.minor.patch` off a marketing version (web `parseVersionTuple`):
+    /// the part before the first `-`/`+`, split on `.`; a segment counts only
+    /// when it is ASCII digits (else 0), and no numeric major = nil.
+    static func parseVersionTuple(_ version: String) -> [Int]? {
+        let core = version.prefix { $0 != "-" && $0 != "+" }
+        let parts = core.split(separator: ".", omittingEmptySubsequences: false)
+        let number = { (index: Int) -> Int? in
+            guard parts.indices.contains(index) else { return nil }
+            let part = parts[index]
+            guard !part.isEmpty, part.allSatisfy({ $0.isASCII && $0.isNumber }) else { return nil }
+            return Int(part)
+        }
+        guard let major = number(0) else { return nil }
+        return [major, number(1) ?? 0, number(2) ?? 0]
+    }
+
+    /// One target's refusal, or nil = movable. Order ×4 (web
+    /// `deviceMoveTargetReason`): offline, visibility, update (a build before
+    /// `moveMinVersion`), no-login. `agent` = the session's agent (nil skips
+    /// the login check).
     public static func rowBlockedReason(
         _ device: SteerDevice,
         sessionTeamId: String,
@@ -73,6 +110,7 @@ public enum SessionDeviceMove {
     ) -> String? {
         if !device.isOnline { return reasonOffline }
         if sessionShared != sharedWithTeam(device, teamId: sessionTeamId) { return reasonVisibility }
+        if !canReceiveSession(version: device.version) { return reasonUpdate }
         if let agent, !agent.isEmpty, !device.agentIds.contains(agent) { return reasonNoLogin }
         return nil
     }
@@ -98,7 +136,10 @@ public enum SessionDeviceMove {
 
     /// The launch composer's devices for the session's team (own +
     /// team-shared, in its order), the current one selected and never
-    /// refused, every other carrying its refusal.
+    /// refused, every other carrying its refusal. The current device is
+    /// ALWAYS listed (web `sessionDeviceMoveRows`): when the list lacks it
+    /// (a shared session on a teammate's unshared box), a bare row named
+    /// by its id leads, so a pending move still has a row to cancel on.
     public static func rows(
         devices: [SteerDevice],
         currentDeviceId: String,
@@ -106,7 +147,7 @@ public enum SessionDeviceMove {
         sessionShared: Bool,
         agent: String?
     ) -> [Row] {
-        devices.map { device in
+        var rows = devices.map { device in
             let current = device.deviceId == currentDeviceId
             return Row(
                 device: device,
@@ -119,6 +160,17 @@ public enum SessionDeviceMove {
                 )
             )
         }
+        if !currentDeviceId.isEmpty, !rows.contains(where: \.current) {
+            rows.insert(
+                Row(
+                    device: SteerDevice(deviceId: currentDeviceId, deviceLabel: currentDeviceId),
+                    current: true,
+                    blockedReason: nil
+                ),
+                at: 0
+            )
+        }
+        return rows
     }
 
     /// The pin's text: the current device's name, or `Moving to <target>…`

@@ -162,6 +162,52 @@ final class PlanCardTests: XCTestCase {
         }
     }
 
+    /// Web `togglePick` (`plan-card.test.tsx`): a single choice picks /
+    /// unpicks, a multi toggles and keeps OPTION order whatever the tap order.
+    func testTogglePickKeepsOptionOrder() {
+        let order = ["a", "b", "c"]
+        XCTAssertEqual(PlanCard.togglePick([], label: "a", multi: false, order: order), ["a"])
+        XCTAssertEqual(PlanCard.togglePick(["a"], label: "b", multi: false, order: order), ["b"])
+        XCTAssertEqual(PlanCard.togglePick(["a"], label: "a", multi: false, order: order), [])
+        XCTAssertEqual(PlanCard.togglePick(["b"], label: "a", multi: true, order: order), ["a", "b"])
+        XCTAssertEqual(PlanCard.togglePick(["a", "b"], label: "a", multi: true, order: order), ["b"])
+        XCTAssertEqual(PlanCard.togglePick(["c", "a"], label: "b", multi: true, order: order), ["a", "b", "c"])
+        // A pick that is no option sorts last, in pick order.
+        XCTAssertEqual(PlanCard.togglePick(["zz", "yy"], label: "b", multi: true, order: order), ["b", "zz", "yy"])
+    }
+
+    /// Web `closedPicks`: `answers` wins; a legacy bare `answer` is a pick
+    /// only when it names an option, so an old joined multi answer "A, B" (or
+    /// a free answer) highlights nothing and reads as the answer line.
+    func testClosedPicksAndTheAnswerLine() {
+        let options = [TreeQuestionOption(label: "A"), TreeQuestionOption(label: "B")]
+        XCTAssertEqual(PlanCard.closedPicks(options: options, answer: "A, B", answers: ["A", "B"]), ["A", "B"])
+        XCTAssertEqual(PlanCard.closedPicks(options: options, answer: "B", answers: nil), ["B"])
+        XCTAssertEqual(PlanCard.closedPicks(options: options, answer: "A, B", answers: nil), [])
+        XCTAssertEqual(PlanCard.closedPicks(options: options, answer: "free", answers: nil), [])
+        XCTAssertEqual(PlanCard.closedPicks(options: options, answer: nil, answers: nil), [])
+
+        let row = { (answer: String?, answers: [String]?) in
+            ThreadQuestionRow(
+                id: "m1", sessionId: "s1", question: "Which?", options: options, multi: true,
+                answer: answer, answers: answers, answered: true
+            )
+        }
+        XCTAssertEqual(row("A, B", ["A", "B"]).picked, ["A", "B"])
+        XCTAssertEqual(row("A, B", ["A", "B"]).closedAnswerLine, [])
+        XCTAssertEqual(row("B", nil).picked, ["B"])
+        XCTAssertEqual(row("B", nil).closedAnswerLine, [])
+        XCTAssertEqual(row("A, B", nil).picked, [])
+        XCTAssertEqual(row("A, B", nil).closedAnswerLine, ["A, B"])
+        XCTAssertEqual(row("typed", ["A", "typed"]).picked, ["A", "typed"])
+        XCTAssertEqual(row("typed", ["A", "typed"]).closedAnswerLine, ["typed"])
+        XCTAssertEqual(row(nil, nil).closedAnswerLine, [])
+    }
+
+    func testLabelMaxIsTheServerCap() {
+        XCTAssertEqual(PlanCard.labelMax, 500)
+    }
+
     func testUnresolvedUploadsRenderNothing() {
         XCTAssertEqual(
             PlanCard.renderableMarkdown("Before\n\n![b](/api/attachments/a1)\n\n![a](upload:after)"),

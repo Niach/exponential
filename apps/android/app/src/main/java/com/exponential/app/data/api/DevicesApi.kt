@@ -413,8 +413,9 @@ fun deviceUpdateAvailable(version: String?, latest: String?): Boolean {
 
 // `major[.minor[.patch]]` with any `-rc1`/`+build` suffix stripped, missing
 // components read as 0 — the web `parseVersionTuple` rules, so both clients
-// hint on exactly the same version pairs.
-private fun parseVersionTuple(version: String?): List<Int>? {
+// hint on exactly the same version pairs (and refuse the same move targets:
+// `SessionDeviceMove.canReceiveSession`).
+internal fun parseVersionTuple(version: String?): List<Int>? {
     val core = version?.trim()?.takeWhile { it != '-' && it != '+' } ?: return null
     val parts = core.split(".")
     val major = parts.getOrNull(0)?.toIntOrNull() ?: return null

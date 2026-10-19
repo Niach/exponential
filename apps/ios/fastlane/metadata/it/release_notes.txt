@@ -1,6 +1,7 @@
-- Intestazione del thread: niente scorre più, issue e sessioni si raccolgono in "+N" quando manca spazio, e sotto-issue e sessioni più profonde si aprono con un tocco
-- Collega un issue: il "+" accanto a Conversation offre Link an issue e New issue
-- Sotto-sessioni: domande e piani di una sotto-sessione compaiono nella conversazione del thread e trovano risposta lì
-- Un solo campo: il thread, una sessione e un nuovo avvio condividono un campo, "Type / for commands", con immagine, file, # ed emoji nel riquadro
-- Opzioni durante la sessione: la modalità Plan cambia subito, mentre impegno, computer use e server MCP valgono dal messaggio successivo
-- Stato dell'issue: collegare un issue lo porta a In progress, e una pull request lo porta a In review e, una volta unita, a Done
+- Sposta una sessione su un altro dispositivo: il pin Device nelle opzioni di una sessione sposta una sessione in corso, con worktree e conversazione, su un altro dei tuoi dispositivi online
+- Le sessioni si danno un nome da sole: ogni sessione, scheda e riga mostra un nome vero, mai "Session 2", e il dispatcher di un thread raggruppa gli issue correlati in un'unica sessione
+- Domande e piani prendono il posto del campo: una domanda o un piano in attesa compare dove c'era il campo, sia in una sessione sia in un thread, e più elementi si impilano e si aprono uno alla volta
+- La pagina della sessione vive nel suo thread: scorri tra Conversation, issue, sessioni e la Guide, con un solo Stop nell'intestazione che riporta i messaggi in coda nel campo
+- Le righe dei thread perdono il lucchetto privato e la parola "merged", la scheda Threads porta il punto live, e la scheda Inbox mostra un punto finché hai bozze
+- Una bozza riaperta si salva e si chiude senza chiedere
+- Correzioni dalla revisione: un secondo tocco su Back non chiude più una bozza mentre si salva, il punto di Inbox conta le bozze del team attuale, e viene mostrata la scheda in attesa più recente

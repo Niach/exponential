@@ -12,7 +12,9 @@ import { extractIssueRefs } from "@/lib/issue-refs"
 // no share takes the root issues no OTHER work session's subtree linked (the
 // thread's start issues, the dispatcher's own links), so the one session
 // doing the work keeps them when a review or fix-up child sits beside it.
-// Done work (an issue a merged PR closed) is never re-linked.
+// An ASSIGNED link belongs to its assignee alone: forwarded work (added by
+// A, assigned to B) never lands on both PRs. Done work (an issue a merged
+// PR closed) is never re-linked.
 
 type Reader = Pick<typeof db, `select`>
 
@@ -53,11 +55,11 @@ export function pickPrIssues(opts: {
   const subtree = subtreeOf(opts.tree, opts.sessionId)
   const named = new Set(extractIssueRefs(opts.startText ?? ``))
   const share = opts.links
-    .filter(
-      (link) =>
-        (link.assignedSessionId && subtree.has(link.assignedSessionId)) ||
-        (link.addedBySessionId && subtree.has(link.addedBySessionId)) ||
-        named.has(link.identifier.toUpperCase())
+    .filter((link) =>
+      link.assignedSessionId
+        ? subtree.has(link.assignedSessionId)
+        : (link.addedBySessionId && subtree.has(link.addedBySessionId)) ||
+          named.has(link.identifier.toUpperCase())
     )
     .map((link) => link.issueId)
   if (share.length > 0) return share
@@ -75,10 +77,10 @@ export function pickPrIssues(opts: {
     for (const id of subtreeOf(opts.tree, worker.id)) owned.add(id)
   }
   return opts.links
-    .filter(
-      (link) =>
-        (!link.addedBySessionId || !owned.has(link.addedBySessionId)) &&
-        (!link.assignedSessionId || !owned.has(link.assignedSessionId))
+    .filter((link) =>
+      link.assignedSessionId
+        ? !owned.has(link.assignedSessionId)
+        : !link.addedBySessionId || !owned.has(link.addedBySessionId)
     )
     .map((link) => link.issueId)
 }

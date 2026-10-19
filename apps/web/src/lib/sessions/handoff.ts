@@ -70,9 +70,9 @@ async function failMove(
       .update(sessions)
       .set({ moveToDeviceId: null, handoff: null, caption: null, updatedAt: new Date() })
       .where(eq(sessions.id, sessionId))
-    const text = reason?.trim()
-      ? `Couldn't move the session: ${reason.trim().slice(0, 500)}`
-      : `Couldn't move the session`
+    // A daemon may already say "Couldn't move the session: …": never twice.
+    const why = reason?.trim().replace(/^Couldn't move the session:?\s*/i, ``) ?? ``
+    const text = why ? `Couldn't move the session: ${why.slice(0, 500)}` : `Couldn't move the session`
     await postMovedMessage(tx, row, text)
     return { txid, storageKeys: blob ? [blob.storageKey] : [] }
   })
@@ -123,9 +123,16 @@ export async function completeHandoff(args: {
     if (row.moveToDeviceId !== targetId || row.deviceId !== session.deviceId) {
       throw new TRPCError({ code: `CONFLICT`, message: `The move changed; the session stays here` })
     }
-    const handoff: SessionHandoff | null = row.handoff?.blob
-      ? { request: null, blob: row.handoff.blob }
-      : null
+    // `moved` means the package is up (`PUT …/handoff` first): without it
+    // the target would restore nothing and launch the row fresh. The move
+    // stays pending for the upload.
+    if (!row.handoff?.blob) {
+      throw new TRPCError({
+        code: `PRECONDITION_FAILED`,
+        message: `Upload the handoff package before reporting the move`,
+      })
+    }
+    const handoff: SessionHandoff = { request: null, blob: row.handoff.blob }
     await tx
       .update(sessions)
       .set({

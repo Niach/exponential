@@ -78,6 +78,7 @@ describe(`resolveMcpToolGates`, () => {
       unattended: false,
       agent: false,
       planMode: false,
+      cards: true,
     })
     // One indexed select, keyed on the header's id.
     expect(h.db.select).toHaveBeenCalledTimes(1)
@@ -106,7 +107,27 @@ describe(`resolveMcpToolGates`, () => {
       unattended: false,
       agent: true,
       planMode: false,
+      cards: true,
     })
+  })
+
+  // EXP-1280: a host below 0.14.73 cannot feed the session's own cards back.
+  it(`drops the card tools for a host that cannot deliver their answer`, async () => {
+    const row = {
+      userId: `u`,
+      hostUserId: null,
+      parentId: null,
+      rootKind: `thread`,
+      rootSpawnedBy: null,
+      planMode: false,
+    }
+    h.dbRows.current = [{ ...row, hostVersion: `0.14.72` }]
+    expect((await resolveMcpToolGates(`u`, FULL_ACCESS, RUN)).cards).toBe(false)
+    h.dbRows.current = [{ ...row, hostVersion: `0.14.73` }]
+    expect((await resolveMcpToolGates(`u`, FULL_ACCESS, RUN)).cards).toBe(true)
+    // Unreported fails open (the client-version rule).
+    h.dbRows.current = [{ ...row, hostVersion: null }]
+    expect((await resolveMcpToolGates(`u`, FULL_ACCESS, RUN)).cards).toBe(true)
   })
 
   it(`flags a session that is still planning`, async () => {

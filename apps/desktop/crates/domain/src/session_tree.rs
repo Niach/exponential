@@ -195,9 +195,11 @@ pub struct ThreadsListCopy {
     pub words: ThreadRowWords,
 }
 
-/// `threads-list.json` `copy.words`.
+/// `threads-list.json` `copy.words`. `deny_unknown_fields`: a word key
+/// re-added to the fixture must fail here as it does on iOS/Android, which
+/// assert the key set.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ThreadRowWords {
     pub stack: String,
     pub ready_to_merge: String,
@@ -2092,6 +2094,16 @@ mod tests {
         assert_eq!(THREADS_LIST.copy.title, "Threads");
         assert_eq!(ThreadsListKey::Recent.title(), "Recent");
         assert_eq!(THREADS_LIST.agent_defaults.icon, "bot");
+    }
+
+    /// The fixture's `copy.words` key set IS the struct's: an extra key
+    /// (one re-added to the fixture) fails to parse, as on iOS/Android.
+    #[test]
+    fn thread_row_words_refuse_unknown_keys() {
+        let mut words = fixture(THREADS_LIST_JSON)["copy"]["words"].clone();
+        assert!(serde_json::from_value::<ThreadRowWords>(words.clone()).is_ok());
+        words["merged"] = Value::String("merged".into());
+        assert!(serde_json::from_value::<ThreadRowWords>(words).is_err());
     }
 
     #[test]

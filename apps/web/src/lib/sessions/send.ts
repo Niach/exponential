@@ -1,6 +1,6 @@
 import { PERSISTENT_KINDS, isPersistent } from "@exp/domain-contract/session-kind"
 import { TRPCError } from "@trpc/server"
-import { and, eq, inArray, isNull, ne, sql } from "drizzle-orm"
+import { and, eq, inArray, isNotNull, isNull, ne, sql } from "drizzle-orm"
 import type { z } from "zod"
 import {
   SESSION_TREE_MAX_DEPTH,
@@ -44,13 +44,16 @@ import {
 } from "@/lib/sessions/messages"
 import {
   assertMovable,
+  deviceCanHandoff,
   deviceName,
   loadDeviceRow,
+  MOVE_COPY,
   movedText,
   movingCaption,
   resolveMoveTarget,
   type MoveTarget,
 } from "@/lib/sessions/move"
+import { sessionDeviceOnline } from "@/lib/sessions/lifecycle"
 import type { Tx } from "@/lib/sessions/tx"
 import { asideTitle } from "@/lib/sessions/caption"
 import { buildAttachmentUrl, isAcceptedImageContentType } from "@/lib/storage/issue-attachments"
@@ -114,8 +117,10 @@ export async function resolveSessionDevice(
     if (!(await getTeamMember(row.userId, teamId))) continue
     return { shared: true, hostUserId: row.userId, ownerId: row.userId }
   }
+  // NOT_FOUND, before anything else is looked at: a machine the caller may
+  // not see is never described (not its version, not whether it is online).
   throw new TRPCError({
-    code: `PRECONDITION_FAILED`,
+    code: `NOT_FOUND`,
     message: `This device is not yours and not shared with the team`,
   })
 }
@@ -345,8 +350,10 @@ async function assertTreeRoom(tx: Tx, rootId: string, depth: number) {
 /**
  * EXP-1350: real follow-up work starts in `session` (a new child, a message
  * into a work session): its In Review issues go back to In Progress. Its
- * issues = the ones assigned to it, else every issue of its thread. A
- * dispatcher (it answers, never works), an aside and an agent never count.
+ * issues = the ones assigned to it, else the thread's UNASSIGNED ones (an
+ * issue the dispatcher handed to another child is that child's work: its
+ * turn, not this one's, moves it). A dispatcher (it answers, never works),
+ * an aside and an agent never count.
  */
 async function resumeIssuesForWorkInTx(
   tx: Tx,
@@ -359,7 +366,8 @@ async function resumeIssuesForWorkInTx(
     .from(sessionIssues)
     .where(eq(sessionIssues.sessionId, session.rootId))
   const own = linked.filter((row) => row.assigned === session.id)
-  const issueIds = (own.length ? own : linked).map((row) => row.issueId)
+  const unassigned = linked.filter((row) => row.assigned === null)
+  const issueIds = (own.length ? own : unassigned).map((row) => row.issueId)
   await applyIssuesResumedInTx(tx, {
     teamId: session.teamId,
     rootSessionId: session.rootId,
@@ -457,8 +465,11 @@ export async function effectiveCli(
 /** EXP-1252: what a message's `deviceId` asks for. `none` = no device, or
  *  the current one with no move pending (harmless); `cancel` = the current
  *  device while a move is pending; `request` = move a run that started;
- *  `direct` = a session that never started simply re-targets (nothing to
- *  hand off). Refusals: agent, aside, ended, then the target's own. */
+ *  `direct` = a QUEUED session simply re-targets (nothing to hand off: a
+ *  re-queued row's package travels with it). An ENDED thread's `deviceId`
+ *  is ignored: the message continues it (a new child) on its own device.
+ *  Refusals: agent, aside, then the target's own, then the source's (a
+ *  request needs the source online and on a handoff-capable build). */
 type MovePlan =
   | { kind: `none` }
   | { kind: `cancel` }
@@ -471,34 +482,81 @@ async function planMove(
   const deviceId = input.deviceId
   if (deviceId === undefined) return { kind: `none` }
   if (deviceId === session.deviceId && !session.moveToDeviceId) return { kind: `none` }
+  if (session.status === `ended` && !isPersistent(session)) return { kind: `none` }
   assertMovable(session)
   if (deviceId === session.deviceId) return { kind: `cancel` }
   const target = await resolveMoveTarget(session, deviceId, {
     account: input.account ?? null,
     requireOnline: true,
   })
-  return {
-    kind: session.status === `queued` && !session.startedAt ? `direct` : `request`,
-    target,
+  const kind = session.status === `queued` ? `direct` : `request`
+  if (kind === `request`) {
+    // The source hands the row over itself: it has to be there to do it.
+    if (!(await sessionDeviceOnline(session))) {
+      throw new TRPCError({ code: `PRECONDITION_FAILED`, message: MOVE_COPY.sourceOffline })
+    }
+    const source = await loadDeviceRow(session.deviceId, sessionDeviceOwner(session))
+    if (!deviceCanHandoff(source?.version)) {
+      throw new TRPCError({ code: `PRECONDITION_FAILED`, message: MOVE_COPY.sourceUpdate })
+    }
   }
+  return { kind, target }
+}
+
+/** The row changed under the plan (a claim or an end raced the send). */
+function moveRaced(): never {
+  throw new TRPCError({ code: `CONFLICT`, message: `The session just started; try again.` })
+}
+
+/** The move changed under the plan (a handoff committed or failed, or the
+ *  row left the device the plan was made for). */
+function moveMoved(): never {
+  throw new TRPCError({
+    code: `CONFLICT`,
+    message: `The move changed; try again.`,
+  })
 }
 
 /** Writes a move plan inside the send's transaction; returns the device to
- *  nudge (the SOURCE for a request or cancel, the target for a direct move). */
-async function applyMove(
+ *  nudge (the SOURCE for a request or cancel, the target for a direct move).
+ *  The plan was made from a snapshot: the row is re-read under lock here and
+ *  the package (`handoff.blob`) comes from THAT row, never the snapshot — a
+ *  `PUT …/handoff` or a `sessions.handoff` committing between the read and
+ *  this transaction would otherwise be dropped or re-stamped onto the row
+ *  queued on its target. The writes are guarded on the device and the
+ *  status the plan was made for: a row the device claimed or ended since
+ *  the read is CONFLICT, never re-targeted; so is one that moved away. */
+export async function applyMove(
   tx: Tx,
   session: Session,
   move: MovePlan,
   requestedBy: string
 ): Promise<SendOutcome[`queued`]> {
+  if (move.kind === `none`) return null
   const now = new Date()
-  const blob = session.handoff?.blob ?? null
   const source = { ownerId: sessionDeviceOwner(session), deviceId: session.deviceId }
+  const [row] = await tx
+    .select({
+      deviceId: sessions.deviceId,
+      status: sessions.status,
+      moveToDeviceId: sessions.moveToDeviceId,
+      handoff: sessions.handoff,
+    })
+    .from(sessions)
+    .where(eq(sessions.id, session.id))
+    .limit(1)
+    .for(`update`)
+  if (!row)
+    throw new TRPCError({ code: `NOT_FOUND`, message: `Session not found` })
+  if (row.deviceId !== session.deviceId) moveMoved()
+  if (row.status === `ended`) moveRaced()
+  const blob = row.handoff?.blob ?? null
+  const onSource = eq(sessions.deviceId, session.deviceId)
   switch (move.kind) {
-    case `none`:
-      return null
-    case `cancel`:
-      await tx
+    case `cancel`: {
+      // The move already completed (or was cancelled) under the plan.
+      if (!row.moveToDeviceId) moveMoved()
+      const updated = await tx
         .update(sessions)
         .set({
           moveToDeviceId: null,
@@ -507,10 +565,19 @@ async function applyMove(
           caption: null,
           updatedAt: now,
         })
-        .where(eq(sessions.id, session.id))
+        .where(
+          and(
+            eq(sessions.id, session.id),
+            onSource,
+            isNotNull(sessions.moveToDeviceId)
+          )
+        )
+        .returning({ id: sessions.id })
+      if (updated.length === 0) moveMoved()
       return source
-    case `request`:
-      await tx
+    }
+    case `request`: {
+      const updated = await tx
         .update(sessions)
         .set({
           moveToDeviceId: move.target.deviceId,
@@ -526,14 +593,26 @@ async function applyMove(
           caption: movingCaption(move.target.name),
           updatedAt: now,
         })
-        .where(eq(sessions.id, session.id))
+        .where(
+          and(
+            eq(sessions.id, session.id),
+            onSource,
+            ne(sessions.status, `ended`)
+          )
+        )
+        .returning({ id: sessions.id })
+      if (updated.length === 0) moveRaced()
       return source
+    }
     case `direct`: {
+      // Only a row still QUEUED re-targets: one the device claimed between
+      // the read and this transaction has a run to hand off.
+      if (row.status !== `queued`) moveRaced()
       const from = deviceName(
         await loadDeviceRow(session.deviceId, sessionDeviceOwner(session)),
         session.deviceId
       )
-      await tx
+      const updated = await tx
         .update(sessions)
         .set({
           deviceId: move.target.deviceId,
@@ -544,7 +623,15 @@ async function applyMove(
           caption: null,
           updatedAt: now,
         })
-        .where(eq(sessions.id, session.id))
+        .where(
+          and(
+            eq(sessions.id, session.id),
+            onSource,
+            eq(sessions.status, `queued`)
+          )
+        )
+        .returning({ id: sessions.id })
+      if (updated.length === 0) moveRaced()
       await postMovedMessage(tx, session, movedText(from, move.target.name))
       return { ownerId: move.target.ownerId, deviceId: move.target.deviceId }
     }

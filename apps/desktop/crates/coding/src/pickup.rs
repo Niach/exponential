@@ -214,14 +214,23 @@ pub fn options_delta(row: &SessionRow, launched: &LaunchedOptions) -> OptionsDel
 /// [`PickupAction::Switch`] with an empty `account`): a plan-mode move at
 /// once; a restart, or an MCP re-check of an idle row, only with a turn to
 /// carry it (`has_messages`) — options apply at the NEXT turn, never
-/// interrupting one. EXP-1280: `approving` = an approved plan card of this
-/// session is being delivered this pass ([`PickupAction::DeliverAnswer`]):
-/// the server's own `plan_mode=false` flip is that approval, which leaves
-/// plan mode silently — never a person's switch.
-fn reconfigure_due(row: &SessionRow, view: &LiveView, has_messages: bool, approving: bool) -> bool {
-    let Some(launched) = &view.options else { return false };
+/// interrupting one. EXP-1280: `plan_card` = an approved plan card of this
+/// session is being delivered this pass ([`PickupAction::DeliverAnswer`]),
+/// or one of its own plan cards is still open — unanswered, or answered
+/// and not handed yet ([`is_open_own_plan_card`]): the server's own
+/// `plan_mode=false` flip is (or is about to be) that approval, which
+/// leaves plan mode silently — never a person's switch. The session row
+/// and the card reach the device through separate shapes, so the flipped
+/// row may land a pass before the answered card: an off-flip waits for the
+/// card rather than steer "Plan mode is off: go ahead." as a turn of its own
+/// (the agent would build without the answers, and the approval arriving
+/// next would find a turn running).
+fn reconfigure_due(row: &SessionRow, view: &LiveView, has_messages: bool, plan_card: bool) -> bool {
+    let Some(launched) = &view.options else {
+        return false;
+    };
     let delta = options_delta(row, launched);
-    delta.plan_mode.is_some_and(|on| on || !approving)
+    delta.plan_mode.is_some_and(|on| on || !plan_card)
         || delta.model.is_some()
         || (!row.dispatch && agent_model_move(view).is_some())
         || (has_messages && (delta.restart || (delta.mcp_due && !row.busy)))
@@ -376,7 +385,8 @@ pub enum PickupAction {
     Release { session_id: String },
     /// EXP-1252: a session handed off from here whose row shows the target
     /// claimed it ([`crate::handoff::cleanups_due`], appended by the hosts):
-    /// remove its local copy ([`crate::handoff::cleanup`]).
+    /// settle its local copy ([`crate::handoff::cleanup`] — EXP-1349: the
+    /// run record goes, the workspace stays as the recovery point).
     Cleanup { session_id: String },
 }
 
@@ -512,7 +522,7 @@ pub fn plan(input: PickupInput<'_>) -> Vec<PickupAction> {
         {
             continue;
         }
-        if row.moving_to().is_some() && !row.status_is(SESSION_STATUS_ENDED) {
+        if moving_elsewhere(row, input.device_id) && !row.status_is(SESSION_STATUS_ENDED) {
             // EXP-1252: a move is pending — no launch, resume or revive
             // here; the session is packed as it lies.
             starts.push((row, PickupAction::Handoff { session: row.clone() }));
@@ -560,7 +570,7 @@ pub fn plan(input: PickupInput<'_>) -> Vec<PickupAction> {
         // EXP-1252: a move is pending — the engine finishes what it has,
         // gets nothing new (the messages wait on the server for the target),
         // and cards still answer.
-        let moving = rows.get(session_id).copied().filter(|row| row.moving_to().is_some());
+        let moving = rows.get(session_id).copied().filter(|row| moving_elsewhere(row, input.device_id));
         let fresh: Vec<&MessageRow> = pending
             .get(session_id)
             .filter(|_| moving.is_none())
@@ -579,14 +589,20 @@ pub fn plan(input: PickupInput<'_>) -> Vec<PickupAction> {
                     .collect()
             })
             .unwrap_or_default();
-        let approving = cards.iter().any(|m| m.card.as_ref().is_some_and(card_approved));
-        let switch = rows.get(session_id).and_then(|row| {
-            switch_target(row, view, !fresh.is_empty()).map(|account| (*row, account))
-        });
+        // EXP-1280: an approval delivered this pass, or an own plan card
+        // still open (unanswered, or answered and not handed): the row's
+        // off-flip is the server's, never a person's — and may land first.
+        let plan_card = cards.iter().any(|m| m.card.as_ref().is_some_and(card_approved))
+            || input
+                .messages
+                .iter()
+                .any(|m| m.session_id == session_id && is_open_own_plan_card(m) && !view.handed.contains(&m.id));
+        let switch =
+            rows.get(session_id).and_then(|row| switch_target(row, view, !fresh.is_empty()).map(|account| (*row, account)));
         // EXP-1334: else the row's options moved past the engine's.
         let switch = switch.or_else(|| {
             rows.get(session_id)
-                .filter(|row| reconfigure_due(row, view, !fresh.is_empty(), approving))
+                .filter(|row| reconfigure_due(row, view, !fresh.is_empty(), plan_card))
                 .map(|row| (*row, String::new()))
         });
         if let Some(row) = moving {
@@ -628,9 +644,7 @@ pub fn plan(input: PickupInput<'_>) -> Vec<PickupAction> {
                     message_id: row.id.clone(),
                     text: row.body.clone().unwrap_or_default(),
                     approved: card.is_some_and(card_approved),
-                    fresh: card.is_some_and(|card| {
-                        card_approved(card) && card.get("fresh").and_then(serde_json::Value::as_bool) == Some(true)
-                    }),
+                    fresh: card.is_some_and(card_fresh),
                 },
             ));
         }
@@ -737,6 +751,35 @@ pub fn answered_card_text(message: &MessageRow) -> String {
 fn card_approved(card: &serde_json::Value) -> bool {
     card.get("kind").and_then(serde_json::Value::as_str) == Some("plan")
         && card.get("decision").and_then(serde_json::Value::as_str) == Some("approved")
+}
+
+/// EXP-1280: a plan card approved "in a fresh context" (`card.fresh`).
+fn card_fresh(card: &serde_json::Value) -> bool {
+    card_approved(card) && card.get("fresh").and_then(serde_json::Value::as_bool) == Some(true)
+}
+
+/// EXP-1280: a plan card the session posted ITSELF (`exponential_plan_propose`,
+/// the [`is_answered_tool_card`] shape) that the device has not consumed —
+/// unanswered, or answered and not yet delivered. While one is open the
+/// server's `plan_mode=false` flip belongs to its approval
+/// ([`reconfigure_due`]).
+fn is_open_own_plan_card(message: &MessageRow) -> bool {
+    let Some(card) = message.card.as_ref() else {
+        return false;
+    };
+    message.card_kind() == Some("plan")
+        && message.consumed_at.as_deref().is_none_or(str::is_empty)
+        && message.author_session_id.as_deref() == Some(message.session_id.as_str())
+        && card.get("questionId").and_then(serde_json::Value::as_str).is_none_or(str::is_empty)
+}
+
+/// EXP-1252: the row's pending move takes it to ANOTHER device. A target
+/// naming the current device still reads as a move on every client
+/// ([`SessionRow::moving_to`]: `Moving to <current>…` until the server
+/// clears it) but is none for the host — it would kill its own engine and
+/// hand the session off to itself.
+fn moving_elsewhere(row: &SessionRow, device_id: &str) -> bool {
+    row.moving_to().is_some_and(|target| target != device_id)
 }
 
 /// EXP-1329: the text a pending input reaches the agent as. A person's
@@ -1029,9 +1072,7 @@ impl LiveRegistry {
         let now = std::time::Instant::now();
         locked(&self.revives)
             .iter()
-            .filter(|(_, state)| {
-                state.settled || state.attempts >= MAX_LAUNCH_ATTEMPTS || now < state.not_before
-            })
+            .filter(|(_, state)| state.settled || state.attempts >= MAX_LAUNCH_ATTEMPTS || now < state.not_before)
             .map(|(id, _)| id.clone())
             .collect()
     }
@@ -1608,6 +1649,7 @@ pub fn launch_queued(row: &SessionRow, deps: &PickupDeps) -> Result<LaunchQueued
                 message_id: None,
                 reconfigure: None,
                 handoff: Some(import),
+                fresh: false,
             }),
             device_label: deps.device_label.clone(),
             options: deps.options.clone(),
@@ -1655,9 +1697,7 @@ pub fn launch_queued(row: &SessionRow, deps: &PickupDeps) -> Result<LaunchQueued
             refuse(row.is_persistent(), &row.id, &reason, false, deps);
             Ok(LaunchQueued::Disabled { reason })
         }
-        Err(err) if prepare_transient(&err) => {
-            Err(gave_up(format!("Couldn't start this session: {err}")))
-        }
+        Err(err) if prepare_transient(&err) => Err(gave_up(format!("Couldn't start this session: {err}"))),
         Err(err) => {
             deps.live.settle(&row.id);
             let reason = format!("Couldn't start this session: {err}");
@@ -1809,11 +1849,7 @@ fn deliver(
     let row = match (row, &record) {
         (Some(row), _) => row.clone(),
         (None, Some(record)) => row_from_record(record, &deps.device_id),
-        (None, None) => {
-            return Err(format!(
-                "session {session_id} has no engine and no run record on this device"
-            ))
-        }
+        (None, None) => return Err(format!("session {session_id} has no engine and no run record on this device")),
     };
     // A transient failure here leaves everything as it was: the next pass
     // tries again.
@@ -1826,12 +1862,17 @@ fn deliver(
     if identifiers.is_empty() {
         identifiers = record.as_ref().map(|r| r.issues.clone()).unwrap_or_default();
     }
+    // EXP-1280: a plan approved "in a fresh context" waking the session
+    // starts a NEW conversation (what the live path's `/clear` does) — the
+    // stored card says `fresh: true`, and so is the run it wakes.
+    let fresh = is_answered_tool_card(first) && first.card.as_ref().is_some_and(card_fresh);
     let mut resume = record.map(|record| ResumeRun {
         record,
         prompt: first.body.clone().unwrap_or_default(),
         message_id: Some(first.id.clone()),
         reconfigure: None,
         handoff: None,
+        fresh,
     });
     let seeded = resume.is_some();
     let mut options = deps.options.clone();
@@ -1943,6 +1984,7 @@ pub fn revive_session(row: &SessionRow, deps: &PickupDeps) -> Result<(), String>
             message_id: None,
             reconfigure: None,
             handoff: None,
+            fresh: false,
         }),
         device_label: deps.device_label.clone(),
         options: deps.options.clone(),
@@ -1974,13 +2016,9 @@ pub fn revive_session(row: &SessionRow, deps: &PickupDeps) -> Result<(), String>
 pub fn execute(action: &PickupAction, deps: &PickupDeps) -> Result<(), String> {
     match action {
         PickupAction::Launch { session } => launch_queued(session, deps).map(|_| ()),
-        PickupAction::Resume { session, message } => {
-            resume_session(session, std::slice::from_ref(message), deps).map(|_| ())
-        }
+        PickupAction::Resume { session, message } => resume_session(session, std::slice::from_ref(message), deps).map(|_| ()),
         PickupAction::Revive { session } => revive_session(session, deps),
-        PickupAction::Deliver { session_id, messages } => {
-            deliver_messages(session_id, messages, deps).map(|_| ())
-        }
+        PickupAction::Deliver { session_id, messages } => deliver_messages(session_id, messages, deps).map(|_| ()),
         PickupAction::Revoke { session_id, message_id } => {
             if let Some(engine) = deps.live.get(session_id) {
                 engine.unqueue(message_id);
@@ -2073,7 +2111,9 @@ const RELEASE_STOP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs
 /// its engine revives on the next message.
 pub fn hand_off(row: &SessionRow, deps: &PickupDeps) -> Result<HandedOff, String> {
     let session_id = row.id.as_str();
-    if row.moving_to().is_none() || !row.on_device(&deps.device_id) {
+    // A "move" to this very device is none ([`moving_elsewhere`]): the
+    // engine stays, nothing is packed.
+    if !moving_elsewhere(row, &deps.device_id) || !row.on_device(&deps.device_id) {
         locked(&deps.live.handoff_waits).remove(session_id);
         return Ok(HandedOff::NotMoving);
     }
@@ -2171,6 +2211,7 @@ pub fn hand_off(row: &SessionRow, deps: &PickupDeps) -> Result<HandedOff, String
                 clone: record.clone.clone().filter(|_| workspace == crate::handoff::WorkspaceKind::Repo),
                 branch: record.branch.clone().filter(|_| workspace == crate::handoff::WorkspaceKind::Repo),
                 native: source.native.clone(),
+                native_packaged: package.manifest.native,
             },
         );
     }
@@ -2445,8 +2486,8 @@ pub fn switch_session(
     let model = if row.dispatch { None } else { honored_model(&*engine, delta.model.clone(), prior.clone()) };
     let mut launch_row = row.clone();
     // Cleared on every way out but a landed move (that run's turn edges
-    // take over).
-    let mut switching = SwitchingShown { trpc: account_moves.then_some(&*deps.coding.trpc), session_id };
+    // take over); the wall the row carried comes back with it.
+    let mut switching = SwitchingShown { trpc: account_moves.then_some(&*deps.coding.trpc), session_id, blocked: row_wall(row) };
     if let Some(model) = &model {
         launch_row.model = Some(model.clone());
         record_model(deps, session_id, model);
@@ -2512,6 +2553,7 @@ pub fn switch_session(
         message_id: seed.map(|m| m.id.clone()),
         reconfigure,
         handoff: None,
+        fresh: false,
     };
     let mut options = deps.options.clone();
     // EXP-849: a named account on a resume IS the switch; `None` keeps the
@@ -2564,18 +2606,39 @@ pub fn switch_session(
     }
 }
 
-/// EXP-1281: a shown [`report_switching`] still owed its clear.
+/// EXP-1281: a shown [`report_switching`] still owed its clear — and the
+/// usage wall it lifted off the row, owed back on a switch that led
+/// nowhere.
 struct SwitchingShown<'a> {
     trpc: Option<&'a api::trpc::TrpcClient>,
     session_id: &'a str,
+    blocked: Option<session_device::BlockedInput>,
 }
 
 impl Drop for SwitchingShown<'_> {
     fn drop(&mut self) {
         if let Some(trpc) = self.trpc.take() {
-            report_switch_settled(trpc, self.session_id);
+            report_switch_settled(trpc, self.session_id, self.blocked.take());
         }
     }
+}
+
+/// EXP-804: the usage wall `row` carries (`sessions.blocked`, the server's
+/// `codingSessionBlockedSchema`), in `sessions.report` terms; `None` = no
+/// wall. Marked `handled`: the server already ran its notification verdict
+/// on this very wall when the device first reported it, so putting it back
+/// is never a NEW wall (no second push).
+fn row_wall(row: &SessionRow) -> Option<session_device::BlockedInput> {
+    let wall = row.blocked.as_ref().filter(|wall| wall.is_object())?;
+    let text = |key: &str| wall.get(key).and_then(serde_json::Value::as_str).unwrap_or_default().to_string();
+    Some(session_device::BlockedInput {
+        kind: text("kind"),
+        agent: text("agent"),
+        window: text("window"),
+        resets_at: wall.get("resetsAt").and_then(serde_json::Value::as_str).map(str::to_string),
+        since: text("since"),
+        handled: Some(true),
+    })
 }
 
 /// EXP-1281: the caption a session wears while it moves to another login —
@@ -2630,11 +2693,15 @@ pub fn report_caption_via(trpc: &api::trpc::TrpcClient, session_id: &str, captio
 }
 
 /// EXP-1281: clear a [`report_switching`] that led nowhere (no target, a
-/// failed switch): not busy, no caption. Best-effort.
-pub fn report_switch_settled(trpc: &api::trpc::TrpcClient, session_id: &str) {
+/// failed switch): not busy, no caption — and the wall the switching state
+/// lifted (`blocked`, as the row carried it) put back, else a walled run
+/// that stays on its login shows no "Usage limit" and its engine's next
+/// `blocked` report reads as a brand-new wall (another push). Best-effort.
+pub fn report_switch_settled(trpc: &api::trpc::TrpcClient, session_id: &str, blocked: Option<session_device::BlockedInput>) {
     let report = session_device::SessionReport {
         busy: Some(false),
         caption: Some(None),
+        blocked: blocked.map(Some),
         ..session_device::SessionReport::default()
     };
     if let Err(err) = session_device::report(trpc, session_id, &report) {
@@ -2840,11 +2907,11 @@ mod tests {
     use super::*;
     use crate::agent::CodingAgent;
     use crate::run_registry::RunKind;
-    use domain::contract::SESSION_KIND_AGENT;
     use crate::test_support::{
         canned_server, canned_server_recording, make_deps, temp_dir, FakeWorktrees, REPORT_OK,
         RESOLVE_NONE,
     };
+    use domain::contract::SESSION_KIND_AGENT;
     use std::path::Path;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::{Arc, Mutex};
@@ -4435,6 +4502,52 @@ mod tests {
         assert_eq!(requests.lock().unwrap().len(), 5);
     }
 
+    /// EXP-804: the switching state lifts the row's usage wall (the cards
+    /// spin while the run moves off the walled login); a switch that leads
+    /// nowhere puts the wall back with its clear — marked `handled`, so the
+    /// server counts no new wall — else the run that stays on its login
+    /// shows no "Usage limit" and its engine's next `blocked` report reads
+    /// as a brand-new wall (another push, every time).
+    #[test]
+    fn a_refused_switch_puts_the_lifted_wall_back() {
+        let dir = temp_dir("pickup-switch-walled");
+        let (base, requests) = canned_server_recording(vec![
+            (200, REPORT_OK.to_string()),
+            (200, BRIEF_OK.to_string()),
+            (200, REPLY_OK.to_string()),
+            (200, REPORT_OK.to_string()),
+            (200, REPORT_OK.to_string()),
+        ]);
+        let host = host(&base, &dir.0, |coding| coding.acp_available = false);
+        let target = crate::agent_profiles::create(&dir.0, CodingAgent::Claude).unwrap();
+        let mut on_a = record(&dir.0, "sess-1");
+        on_a.set_account(Some(crate::test_support::TEST_PROFILE));
+        crate::run_registry::record(&dir.0, on_a);
+        host.deps.live.insert_for("sess-1", host.engine.clone(), None, Some(crate::test_support::TEST_PROFILE.to_string()));
+        let wall = serde_json::json!({
+            "kind": "rate_limit", "agent": "claude", "window": "weekly",
+            "resetsAt": "2026-10-03T00:00:00Z", "since": "2026-10-02T00:00:00Z",
+        });
+        let row = SessionRow { blocked: Some(wall), ..on_account(session("sess-1", "idle", DEV, "t"), &target.id) };
+        let pending = vec![message("m1", "sess-1", "2026-10-02T00:00:01Z")];
+        assert!(matches!(switch_session(&row, &target.id, None, &pending, &host.deps), Ok(Switched::Refused(_))));
+        let shown = requests.lock().unwrap()[0].clone();
+        assert!(shown.contains(r#""blocked":null"#), "lifted while it moves: {shown}");
+        let settled = requests.lock().unwrap()[4].clone();
+        assert!(
+            settled.ends_with(
+                r#"{"sessionId":"sess-1","busy":false,"blocked":{"kind":"rate_limit","agent":"claude","window":"weekly","resetsAt":"2026-10-03T00:00:00Z","since":"2026-10-02T00:00:00Z","handled":true},"caption":null}"#
+            ),
+            "{settled}"
+        );
+        // An unwalled row (or a cleared wall) has nothing to put back.
+        assert_eq!(row_wall(&session("sess-1", "idle", DEV, "t")), None);
+        assert_eq!(row_wall(&SessionRow { blocked: Some(serde_json::Value::Null), ..row.clone() }), None);
+        let stampless = SessionRow { blocked: Some(serde_json::json!({"kind": "rate_limit"})), ..row };
+        let back = row_wall(&stampless).expect("a wall");
+        assert_eq!((back.kind.as_str(), back.resets_at, back.handled), ("rate_limit", None, Some(true)));
+    }
+
     /// A row whose account moved while no engine ran here wakes ON it; a
     /// record that honors the row's account wakes on its recorded login.
     #[test]
@@ -4845,6 +4958,54 @@ mod tests {
         ));
     }
 
+    /// EXP-1280: the session row and the card reach the device through
+    /// separate shapes. A row already flipped `plan_mode=false` while the
+    /// session's own plan card is still unanswered (or answered and not
+    /// handed yet) is the server's approval on its way, never a person's
+    /// switch: no Switch (no "Plan mode is off: go ahead." turn of its own),
+    /// and the answered card arriving next is delivered as the approval. A
+    /// question card, a consumed card or an engine's card holds nothing; an
+    /// ON-flip is a person's even with a plan card open.
+    #[test]
+    fn a_plan_mode_off_flip_waits_for_the_plan_card_it_belongs_to() {
+        let planning = SessionRow { plan_mode: true, ..session("sess-1", "idle", DEV, "t") };
+        let flipped = SessionRow { plan_mode: false, ..planning.clone() };
+        let view = LiveView { options: Some(LaunchedOptions::of(&planning, Some(Vec::new()))), ..LiveView::default() };
+        let mut open = tool_card("p1", "sess-1", serde_json::json!({"kind": "plan", "plan": "1. One"}));
+        open.answered_at = None;
+        // The flipped row lands first: held, nothing steered.
+        let first = Pass::new(vec![flipped.clone()], vec![open.clone()]).live("sess-1", view.clone()).run();
+        assert!(first.is_empty(), "held for the card: {first:?}");
+        // The card lands answered: the approval, delivered silently.
+        let next =
+            Pass::new(vec![flipped.clone()], vec![tool_card("p1", "sess-1", approved_plan())]).live("sess-1", view.clone()).run();
+        assert!(matches!(next.as_slice(), [PickupAction::DeliverAnswer { approved: true, .. }]), "{next:?}");
+        // A rejection not handed yet holds it too: the row is no person's
+        // word until the card is consumed.
+        let rejected = tool_card(
+            "p1",
+            "sess-1",
+            serde_json::json!({"kind": "plan", "plan": "1.", "decision": "rejected", "feedback": "Smaller."}),
+        );
+        let held = Pass::new(vec![flipped.clone()], vec![rejected]).live("sess-1", view.clone()).run();
+        assert!(matches!(held.as_slice(), [PickupAction::DeliverAnswer { approved: false, .. }]), "{held:?}");
+        // No open plan card of its own: a person's switch, as before.
+        let mut question =
+            tool_card("q1", "sess-1", serde_json::json!({"kind": "question", "question": "Which?", "options": ["a"]}));
+        question.answered_at = None;
+        let mut engines = open.clone();
+        engines.id = "e1".to_string();
+        engines.card.as_mut().unwrap()["questionId"] = serde_json::json!("q-9");
+        let switched =
+            Pass::new(vec![flipped.clone()], vec![question, consumed(open.clone()), engines]).live("sess-1", view.clone()).run();
+        assert!(matches!(switched.as_slice(), [PickupAction::Switch { account, .. }] if account.is_empty()), "{switched:?}");
+        // An ON-flip goes through with the card open.
+        let mut off = view.clone();
+        off.options.as_mut().unwrap().plan_mode = false;
+        let on = Pass::new(vec![planning.clone()], vec![open]).live("sess-1", off).run();
+        assert!(matches!(on.as_slice(), [PickupAction::Switch { account, .. }] if account.is_empty()), "{on:?}");
+    }
+
     /// EXP-1280: an answered tool card whose session has no engine here (the
     /// host restarted while the card waited) wakes it: a Resume seeded with
     /// the answer text.
@@ -5028,6 +5189,26 @@ mod tests {
         assert!(matches!(&actions[1], PickupAction::Answer { message_id, .. } if message_id == "c1"));
     }
 
+    /// A "move" whose target is this very device is none
+    /// ([`SessionRow::moving_to`] keeps reading it as one, for the clients'
+    /// `Moving to…` label): a live engine keeps its deliveries and is never
+    /// released or packed, and [`hand_off`] finds nothing to do.
+    #[test]
+    fn a_move_to_this_device_is_no_move() {
+        let row = moving(session("sess-1", "running", DEV, "t"), DEV);
+        let actions =
+            Pass::new(vec![row.clone()], vec![message("m1", "sess-1", "2026-10-02T00:00:01Z")]).live("sess-1", handed(&[])).run();
+        assert!(matches!(actions.as_slice(), [PickupAction::Deliver { .. }]), "{actions:?}");
+        let dir = temp_dir("pickup-handoff-self");
+        let (base, requests) = canned_server_recording(vec![]);
+        let host = host(&base, &dir.0, |_| {});
+        let engine = Arc::new(FakeEngine::default());
+        host.deps.live.insert("sess-1", engine.clone(), None);
+        assert_eq!(hand_off(&row, &host.deps).unwrap(), HandedOff::NotMoving);
+        assert_eq!(*engine.killed.lock().unwrap(), None, "its own engine stays");
+        assert!(requests.lock().unwrap().is_empty());
+    }
+
     #[test]
     fn an_engineless_moving_row_is_handed_off_not_resumed_launched_or_revived() {
         let rows = vec![
@@ -5159,8 +5340,12 @@ mod tests {
             vec![PickupAction::Cleanup { session_id: "sess-1".to_string() }]
         );
         execute(&PickupAction::Cleanup { session_id: "sess-1".to_string() }, &host.deps).unwrap();
-        assert!(!rec.cwd.exists());
+        // EXP-1349: the run record and the pending entry go; the scratch
+        // dir stays as the recovery point (the target's claim is no proof
+        // it restored the package).
+        assert!(rec.cwd.join("notes.md").is_file(), "the workspace is kept");
         assert!(crate::run_registry::get(&dir.0, "sess-1").is_none());
+        assert!(crate::handoff::moved_away(&dir.0).is_empty());
     }
 
     #[test]

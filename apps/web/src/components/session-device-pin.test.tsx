@@ -30,6 +30,9 @@ const deviceRow = (over: Record<string, unknown>) => ({
   acpAgents: null,
   sharedTeamIds: [],
   lastSeenAt: new Date(),
+  // The first handoff-capable build (`MOVE_MIN_VERSION`): a target before
+  // it reads REASON_UPDATE.
+  version: `0.14.73`,
   activeSessions: 0,
   ...over,
 })

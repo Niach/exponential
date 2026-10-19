@@ -1,6 +1,7 @@
-- Ketjun otsikko: mikään ei enää vierity, issuet ja sessiot taittuvat "+N":ksi tilan loppuessa, ja ali-issuet ja syvemmät sessiot avautuvat napautuksella
-- Issuen linkitys: "+" Conversationin vieressä tarjoaa Link an issue ja New issue
-- Alisessiot: alisession kysymykset ja suunnitelmat näkyvät ketjun keskustelussa ja niihin vastataan suoraan siellä
-- Yksi kirjoituskenttä: ketju, sessio ja uusi aloitus jakavat yhden kentän, "Type / for commands", jossa on kuva, tiedosto, # ja emoji
-- Asetukset kesken session: Plan-tila vaihtuu heti, ja työmäärä, computer use ja MCP-palvelimet pätevät seuraavasta viestistä alkaen
-- Issuen tila: linkitetty issue siirtyy tilaan In progress, ja pull request siirtää sen tilaan In review ja yhdistämisen jälkeen tilaan Done
+- Siirrä sessio toiselle laitteelle: session asetusten Device-nasta siirtää käynnissä olevan session worktreen ja keskustelun kanssa toiselle verkossa olevalle laitteellesi
+- Sessiot nimeävät itsensä: jokainen sessio, välilehti ja rivi näyttää oikean nimen, ei koskaan "Session 2", ja ketjun dispatcher kokoaa toisiinsa liittyvät issuet yhteen sessioon
+- Kysymykset ja suunnitelmat tulevat kirjoituskentän paikalle: odottava kysymys tai suunnitelma näkyy siinä, missä kenttä oli, niin sessiossa kuin ketjussa, ja useampi pinoutuu ja avautuu yksi kerrallaan
+- Session sivu asuu ketjunsa sisällä: pyyhkäise Conversationin, issueiden, sessioiden ja Guiden välillä, ja otsikon yksi Stop palauttaa jonossa olevat viestit kirjoituskenttään
+- Ketjurivit menettävät yksityisyyden lukon ja sanan "merged", Threads-välilehti kantaa live-pistettä, ja Inbox-välilehti näyttää pisteen, kun sinulla on luonnoksia
+- Uudelleen avattu luonnos tallentuu ja sulkeutuu kysymättä
+- Korjauksia katselmoinnista: toinen napautus Backiin ei enää sulje luonnosta tallennuksen aikana, Inbox-piste laskee nykyisen tiimin luonnokset, ja näkyvissä on uusin odottava kortti

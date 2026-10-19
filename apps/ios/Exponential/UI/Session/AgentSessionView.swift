@@ -735,6 +735,17 @@ struct AgentSessionView: View {
                             // composer's slot (`bottomBand`).
                             let docked = dockedRow(model)?.id
                             let rows = model.rows.filter { $0.id != docked }
+                            // EXP-1280: the tool-posted cards NOT in the dock
+                            // draw inline — each after the call that posted
+                            // it, the ones older than the window up top — so
+                            // a tool plan waiting beside a relay question,
+                            // and every answered one, stays in the history
+                            // (web `renderToolCards`).
+                            let toolCardAnchors = AskDock.anchorToolCards(
+                                feed: model.feed, cardIds: toolAsks.map(\.id)
+                            )
+                            let dockedToolIds = dockedToolCardIds(model)
+                            inlineToolCards(toolCardAnchors.unanchored, docked: dockedToolIds, model: model)
                             // EXP-787: every row's space above it comes from
                             // the shared gap ladder, keyed on the row BEFORE
                             // it — the rows themselves carry no outer margin
@@ -746,6 +757,11 @@ struct AgentSessionView: View {
                                         prev: index == 0 ? nil : rows[index - 1].rowClass,
                                         cur: row.rowClass
                                     )))
+                                inlineToolCards(
+                                    Self.rowItemIds(row).flatMap { toolCardAnchors.anchors[$0] ?? [] },
+                                    docked: dockedToolIds,
+                                    model: model
+                                )
                             }
                             // EXP-389: the agent-is-busy footer. EXP-848: the
                             // model's ONE working predicate — it used to read a
@@ -1086,13 +1102,14 @@ struct AgentSessionView: View {
     }
 
     /// THE ask dock (fixtures/ask-dock.json): the ONE card waiting on this
-    /// steerer (the oldest still-active question / ask) — what leaves the
-    /// transcript for the composer's slot. nil while nothing waits or this
-    /// client may not answer (a read-only viewer keeps it inline).
+    /// steerer (the NEWEST still-active question / ask, as web, desktop and
+    /// Android dock it) — what leaves the transcript for the composer's
+    /// slot. nil while nothing waits or this client may not answer (a
+    /// read-only viewer keeps it inline).
     private func dockedRow(_ model: AgentSessionModel) -> AgentFeedRow? {
         guard model.cardPending, canAnswer else { return nil }
         let active = model.activeQuestionIds
-        return model.rows.first { row in
+        return model.rows.last { row in
             switch row {
             case let .ask(group): group.questions.contains { active.contains($0.id) }
             case let .single(item): item.question.map { active.contains($0.id) } ?? false
@@ -1106,6 +1123,46 @@ struct AgentSessionView: View {
     private func pendingToolAsks(_ model: AgentSessionModel) -> [AskDock.Pending] {
         guard model.mayPost, !model.sessionEnded else { return [] }
         return AskDock.threadPendingAsks(toolAsks) { _ in nil }
+    }
+
+    /// EXP-1280: the tool-posted cards THE ask dock holds right now — the
+    /// waiting ones, only while no relay ask is docked (web
+    /// `dockedToolCards`). Every other tool card draws inline.
+    private func dockedToolCardIds(_ model: AgentSessionModel) -> Set<String> {
+        guard dockedRow(model) == nil else { return [] }
+        return Set(pendingToolAsks(model).map(\.id))
+    }
+
+    /// The feed item ids a transcript row draws (web `rowItemIds`): where a
+    /// tool-posted card anchors.
+    private static func rowItemIds(_ row: AgentFeedRow) -> [Int] {
+        switch row {
+        case let .single(item): [item.id]
+        case let .toolRun(items), let .edits(items), let .expRun(items): items.map(\.id)
+        case .subagentRun, .ask: []
+        }
+    }
+
+    /// EXP-1280: the tool-posted cards with these message ids, inline as
+    /// THE thread card (`ThreadAskCard`): a waiting one answerable by a
+    /// viewer who may post, an answered one closed with its picks. The
+    /// docked ones are skipped (they sit in the composer's slot).
+    @ViewBuilder
+    private func inlineToolCards(_ ids: [String], docked: Set<String>, model: AgentSessionModel) -> some View {
+        let canAnswerCards = model.mayPost && !model.sessionEnded
+        ForEach(ids.filter { !docked.contains($0) }, id: \.self) { id in
+            if let row = toolAsks.first(where: { $0.id == id }) {
+                ThreadAskCard(
+                    row: row,
+                    canAnswer: canAnswerCards,
+                    answeringId: toolAnsweringId,
+                    markdownContext: markdownContext,
+                    onSubmit: submitToolAnswer
+                )
+                .padding(.top, DesignTokens.Transcript.gapBlock)
+                .accessibilityIdentifier("session-tool-card")
+            }
+        }
     }
 
     /// EXP-1280: observe this session's own synced card messages; keep the

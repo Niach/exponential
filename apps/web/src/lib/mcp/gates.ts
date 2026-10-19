@@ -13,10 +13,12 @@
 // child, or a root another session spawned) closes out with
 // `exponential_sessions_end` LAST, an attended one only when asked, and a
 // team agent (its root is `kind = agent`) never ends.
-import { eq } from "drizzle-orm"
+import { and, eq, sql } from "drizzle-orm"
 import { alias } from "drizzle-orm/pg-core"
 import { db } from "@/db/connection"
-import { sessions } from "@/db/schema"
+import { devices, sessions } from "@/db/schema"
+import { parseVersionTuple } from "@/lib/client-version"
+import { deviceCanHandoff } from "@/lib/sessions/move"
 import type { McpAccess } from "./scope"
 
 export interface McpToolGates {
@@ -30,6 +32,21 @@ export interface McpToolGates {
   /** EXP-1280: that session is still planning (`sessions.plan_mode`), so the
    * instructions carry the plan-mode gate. Wording only. */
   planMode?: boolean
+  /** EXP-1280: that session's host device feeds a card the session posts on
+   * ITSELF back as its next message (`hostFeedsOwnCards`). False drops the
+   * registration of `exponential_plan_propose` / `exponential_sessions_ask`
+   * and their instructions sentence. Absent = true. */
+  cards?: boolean
+}
+
+/** EXP-1280: a desktop/CLI before 0.14.73 (`MOVE_MIN_VERSION`, the same
+ * build train) feeds a session only its pending inputs and open cards: a
+ * card the session authored itself is neither, so an agent that posts one
+ * and ends its turn waits forever. Its host's reported version decides; an
+ * unreported or unparseable one fails OPEN (the client-version rule). */
+export function hostFeedsOwnCards(version: string | null | undefined): boolean {
+  if (!version || !parseVersionTuple(version)) return true
+  return deviceCanHandoff(version)
 }
 
 /** The worst-case surface — the default `registerExponentialTools` takes, so
@@ -40,6 +57,7 @@ export const ALL_MCP_TOOL_GATES: McpToolGates = {
   unattended: true,
   agent: false,
   planMode: true,
+  cards: true,
 }
 
 const CLOSED: McpToolGates = { inSession: false, unattended: false, agent: false }
@@ -55,6 +73,9 @@ export async function resolveMcpToolGates(
 ): Promise<McpToolGates> {
   if (!sessionId) return CLOSED
   const root = alias(sessions, `root`)
+  // The host device's row (devices are per (user, deviceId)): its reported
+  // version says whether it feeds the session's own cards (`cards`).
+  const host = alias(devices, `host`)
   const [row] = await db
     .select({
       userId: sessions.userId,
@@ -63,9 +84,20 @@ export async function resolveMcpToolGates(
       rootKind: root.kind,
       rootSpawnedBy: root.spawnedBySessionId,
       planMode: sessions.planMode,
+      hostVersion: host.version,
     })
     .from(sessions)
     .leftJoin(root, eq(root.id, sessions.rootId))
+    .leftJoin(
+      host,
+      and(
+        eq(host.deviceId, sessions.deviceId),
+        eq(
+          host.userId,
+          sql`coalesce(${sessions.hostUserId}, ${sessions.userId})`
+        )
+      )
+    )
     .where(eq(sessions.id, sessionId))
     .limit(1)
   if (!row) return CLOSED
@@ -75,5 +107,6 @@ export async function resolveMcpToolGates(
     unattended: row.parentId !== null || row.rootSpawnedBy != null,
     agent: row.rootKind === `agent`,
     planMode: row.planMode === true,
+    cards: hostFeedsOwnCards(row.hostVersion),
   }
 }

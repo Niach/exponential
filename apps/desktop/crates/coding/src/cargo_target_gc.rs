@@ -8,15 +8,22 @@
 //! them) are already reclaimed by [`crate::prune`]; this sweep bounds the one
 //! cache the prune never touches.
 //!
-//! The rule: only when the whole dir is over [`BUDGET_BYTES`], and per
+//! The rule: only when the whole dir is over [`BUDGET_BYTES`], evict — per
 //! profile dir (`debug`, `release`, `<triple>/release`, …) only while WE hold
 //! its `.cargo-lock` (the flock cargo itself takes; a running build skips the
-//! profile, a build starting mid-sweep waits for us), delete
-//! `deps/`, `build/` and `.fingerprint/` entries last written more than
-//! [`MAX_AGE`] ago plus all of `examples/` and `incremental/`. Top-level
-//! artifacts (the binaries shots and the IDE run) are never touched. Cargo
-//! treats a missing output or fingerprint as stale and rebuilds that unit, so
-//! the worst case is a partial cold build.
+//! profile, a build starting mid-eviction waits for us) — all of
+//! `incremental/` and `examples/` first, then `deps/`, `build/` and
+//! `.fingerprint/` entries last written more than [`MAX_AGE`] ago, OLDEST
+//! FIRST, and only until the dir is back under budget. Stable cargo never
+//! bumps an mtime on reuse (a dep compiled once stays "old" for ever), so an
+//! age cut alone would throw out the whole stable dependency set every sweep
+//! and force a near-full rebuild each time: the budget is the stop, the age
+//! only an order. The walk (minutes on a big target) happens BEFORE the
+//! profile lock is taken; each candidate's mtime is re-read under the lock
+//! (a build that just reused it is left alone). Top-level artifacts (the
+//! binaries shots and the IDE run) are never touched. Cargo treats a missing
+//! output or fingerprint as stale and rebuilds that unit, so the worst case
+//! is a partial cold build.
 
 use std::collections::HashMap;
 use std::fs::{self, File, OpenOptions};
@@ -29,13 +36,15 @@ use crate::git_worktree::shared_cargo_target_dir;
 /// Sweep only once the shared target holds more than this.
 pub const BUDGET_BYTES: u64 = 20 * 1024 * 1024 * 1024;
 
-/// Units last compiled longer ago than this are evicted.
+/// Units last compiled longer ago than this may be evicted (oldest first,
+/// until the budget is met).
 pub const MAX_AGE: Duration = Duration::from_secs(3 * 24 * 60 * 60);
 
 /// Per-profile subdirs whose stale entries are evicted.
 const AGED_DIRS: [&str; 3] = ["deps", "build", ".fingerprint"];
 
-/// Per-profile subdirs dropped whole (rebuilt on demand).
+/// Per-profile subdirs dropped whole (rebuilt on demand), before any aged
+/// unit.
 const DROPPED_DIRS: [&str; 2] = ["examples", "incremental"];
 
 /// Outcome of one sweep.
@@ -51,12 +60,15 @@ pub struct SweepReport {
 
 /// Sweep the clone's shared cargo target with the default budget and age.
 pub fn sweep(clone: &Path) -> SweepReport {
-    sweep_with(
-        &shared_cargo_target_dir(clone),
-        BUDGET_BYTES,
-        MAX_AGE,
-        SystemTime::now(),
-    )
+    sweep_with(&shared_cargo_target_dir(clone), BUDGET_BYTES, MAX_AGE, SystemTime::now())
+}
+
+/// One thing the sweep may evict, found BEFORE any lock is taken.
+struct Candidate {
+    profile: PathBuf,
+    path: PathBuf,
+    /// `None` = a dropped dir (goes first, never re-checked).
+    mtime: Option<SystemTime>,
 }
 
 /// How often one clone's shared cargo target is size-walked: the walk is too
@@ -110,28 +122,52 @@ pub fn sweep_with(target: &Path, budget: u64, max_age: Duration, now: SystemTime
         return report;
     }
     let cutoff = now.checked_sub(max_age).unwrap_or(SystemTime::UNIX_EPOCH);
+    // The walk, lock-free: a build may start or finish meanwhile, which the
+    // per-candidate re-check under the lock below absorbs.
+    let mut candidates = Vec::new();
     for profile in profile_dirs(target) {
-        let Some(_lock) = try_lock_profile(&profile) else {
-            report.skipped_locked.push(profile);
-            continue;
-        };
+        for name in DROPPED_DIRS {
+            let path = profile.join(name);
+            if path.symlink_metadata().is_ok() {
+                candidates.push(Candidate { profile: profile.clone(), path, mtime: None });
+            }
+        }
         for name in AGED_DIRS {
             let Ok(entries) = fs::read_dir(profile.join(name)) else {
                 continue;
             };
             for entry in entries.flatten() {
                 let path = entry.path();
-                if newest_mtime(&path).is_some_and(|mtime| mtime < cutoff) {
-                    report.bytes_freed += remove(&path);
+                if let Some(mtime) = newest_mtime(&path).filter(|mtime| *mtime < cutoff) {
+                    candidates.push(Candidate { profile: profile.clone(), path, mtime: Some(mtime) });
                 }
             }
         }
-        for name in DROPPED_DIRS {
-            let path = profile.join(name);
-            if path.symlink_metadata().is_ok() {
-                report.bytes_freed += remove(&path);
-            }
+    }
+    // Dropped dirs first, then the least recently compiled unit first; the
+    // path breaks ties so a sweep is reproducible.
+    candidates.sort_by(|a, b| (a.mtime, &a.path).cmp(&(b.mtime, &b.path)));
+    let mut locks: HashMap<PathBuf, Option<File>> = HashMap::new();
+    for candidate in candidates {
+        if report.bytes_before - report.bytes_freed <= budget {
+            break;
         }
+        let lock = locks.entry(candidate.profile.clone()).or_insert_with(|| {
+            let lock = try_lock_profile(&candidate.profile);
+            if lock.is_none() {
+                report.skipped_locked.push(candidate.profile.clone());
+            }
+            lock
+        });
+        if lock.is_none() {
+            continue;
+        }
+        // Under the lock: a unit a build reused or rewrote since the walk
+        // (its mtime moved past the cut, or it is gone) stays.
+        if candidate.mtime.is_some() && !newest_mtime(&candidate.path).is_some_and(|mtime| mtime < cutoff) {
+            continue;
+        }
+        report.bytes_freed += remove(&candidate.path);
     }
     report
 }
@@ -262,8 +298,9 @@ mod tests {
         File::open(path).unwrap().set_modified(when).unwrap();
     }
 
-    /// A target with a `debug` profile: old + fresh deps, an old fingerprint
-    /// dir, examples, and a top-level binary.
+    /// A target with a `debug` profile: old (10 days) + older (12 days) +
+    /// fresh deps, an old fingerprint dir, examples, incremental, and a
+    /// top-level binary. 540 bytes in all.
     fn seed(root: &Path) -> PathBuf {
         let target = root.join("repo.cargo-target");
         write(&target.join("CACHEDIR.TAG"), 10);
@@ -271,11 +308,14 @@ mod tests {
         write(&debug.join(".cargo-lock"), 0);
         write(&debug.join("exp-desktop"), 100);
         write(&debug.join("deps/libold-aaaa.rlib"), 100);
+        write(&debug.join("deps/libolder-cccc.rlib"), 100);
         write(&debug.join("deps/libfresh-bbbb.rlib"), 100);
         write(&debug.join(".fingerprint/old-aaaa/lib-old"), 10);
         write(&debug.join("examples/sample"), 100);
+        write(&debug.join("incremental/exp-1/s-1"), 20);
         age(&debug.join("exp-desktop"), 30);
         age(&debug.join("deps/libold-aaaa.rlib"), 10);
+        age(&debug.join("deps/libolder-cccc.rlib"), 12);
         age(&debug.join(".fingerprint/old-aaaa/lib-old"), 10);
         age(&debug.join(".fingerprint/old-aaaa"), 10);
         target
@@ -299,6 +339,7 @@ mod tests {
         assert_eq!(report.bytes_freed, 0);
         assert!(target.join("debug/deps/libold-aaaa.rlib").exists());
         assert!(target.join("debug/examples/sample").exists());
+        assert!(target.join("debug/incremental/exp-1/s-1").exists());
     }
 
     #[test]
@@ -306,12 +347,40 @@ mod tests {
         let tmp = temp_dir("over");
         let target = seed(&tmp.0);
         let report = sweep_with(&target, 0, MAX_AGE, SystemTime::now());
-        assert_eq!(report.bytes_freed, 100 + 10 + 100);
+        assert_eq!(report.bytes_before, 540);
+        assert_eq!(report.bytes_freed, 100 + 100 + 10 + 100 + 20);
         assert!(!target.join("debug/deps/libold-aaaa.rlib").exists());
+        assert!(!target.join("debug/deps/libolder-cccc.rlib").exists());
         assert!(!target.join("debug/.fingerprint/old-aaaa").exists());
         assert!(!target.join("debug/examples").exists());
+        assert!(!target.join("debug/incremental").exists());
         assert!(target.join("debug/deps/libfresh-bbbb.rlib").exists());
         assert!(target.join("debug/exp-desktop").exists());
+    }
+
+    /// Stable cargo never bumps an mtime on reuse: over budget, the sweep
+    /// drops `incremental/` and `examples/` first, then the LEAST recently
+    /// compiled units, and stops as soon as the dir is back under budget —
+    /// never the whole stale dependency set.
+    #[test]
+    fn eviction_goes_oldest_first_and_stops_at_the_budget() {
+        let tmp = temp_dir("budget");
+        let target = seed(&tmp.0);
+        // 540 - 120 (dropped dirs) - 100 (the 12-day dep) = 320.
+        let report = sweep_with(&target, 320, MAX_AGE, SystemTime::now());
+        assert_eq!(report.bytes_freed, 120 + 100);
+        assert!(!target.join("debug/examples").exists());
+        assert!(!target.join("debug/incremental").exists());
+        assert!(!target.join("debug/deps/libolder-cccc.rlib").exists());
+        assert!(target.join("debug/deps/libold-aaaa.rlib").exists(), "10 days: under budget before its turn");
+        assert!(target.join("debug/.fingerprint/old-aaaa").exists());
+        assert!(target.join("debug/deps/libfresh-bbbb.rlib").exists());
+        // Dropped dirs alone meet a budget just under the total: no unit goes.
+        let tmp = temp_dir("budget-dropped");
+        let target = seed(&tmp.0);
+        let report = sweep_with(&target, 420, MAX_AGE, SystemTime::now());
+        assert_eq!(report.bytes_freed, 120);
+        assert!(target.join("debug/deps/libolder-cccc.rlib").exists());
     }
 
     #[test]

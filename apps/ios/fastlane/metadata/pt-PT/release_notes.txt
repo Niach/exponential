@@ -1,6 +1,7 @@
-- Cabeçalho do tópico: já nada desliza, os issues e as sessões recolhem-se em "+N" quando falta espaço, e os sub-issues e sessões mais profundas abrem com um toque
-- Ligar um issue: o "+" junto a Conversation oferece Link an issue e New issue
-- Sub-sessões: as perguntas e os planos de uma sub-sessão aparecem na conversa do tópico e são respondidos aí mesmo
-- Um só campo: o tópico, uma sessão e um novo início partilham um campo, "Type / for commands", com imagem, ficheiro, # e emoji na caixa
-- Opções a meio da sessão: o modo Plan muda de imediato, e o esforço, computer use e os servidores MCP aplicam-se a partir da mensagem seguinte
-- Estado do issue: ligar um issue passa-o para In progress, e um pull request passa-o para In review e, depois de integrado, para Done
+- Mover uma sessão para outro dispositivo: o pin Device nas opções de uma sessão move uma sessão em curso, com o seu worktree e conversa, para outro dos seus dispositivos online
+- As sessões dão nome a si próprias: cada sessão, separador e linha mostra um nome real, nunca "Session 2", e o dispatcher de um tópico agrupa issues relacionados numa só sessão
+- Perguntas e planos ocupam o lugar do campo: uma pergunta ou plano pendente fica onde estava o campo, numa sessão e num tópico, e vários empilham-se e abrem um de cada vez
+- A página da sessão vive dentro do seu tópico: deslize entre Conversation, issues, sessões e o Guide, com um único Stop no cabeçalho que devolve as mensagens em fila ao campo
+- As linhas de tópicos perdem o cadeado privado e a palavra "merged", o separador Threads tem o ponto ao vivo, e o separador Inbox mostra um ponto enquanto tiver rascunhos
+- Um rascunho reaberto guarda e fecha sem perguntar
+- Correções da revisão: um segundo toque em Back já não fecha um rascunho enquanto guarda, o ponto da Inbox conta os rascunhos da equipa atual, e o cartão pendente mais recente é o que aparece

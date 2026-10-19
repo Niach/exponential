@@ -4,6 +4,7 @@ import { isPersistent } from "@exp/domain-contract/session-kind"
 import { db } from "@/db/connection"
 import { devices, type Device, type Session } from "@/db/schema"
 import { carriedAccountOption, flattenAccounts } from "@/lib/accounts/account-option"
+import { parseVersionTuple } from "@/lib/client-version"
 import { sessionDeviceOwner } from "@/lib/sessions/access"
 import { effectiveCli, resolveSessionDevice } from "@/lib/sessions/send"
 import { deviceRowIsOnline } from "@/lib/steer-devices"
@@ -23,14 +24,41 @@ export const MOVE_COPY = {
   offline: `This device is offline.`,
   visibility: `This device is shared differently, so the session can't move here.`,
   noLogin: `This device has no signed-in login for this agent.`,
+  update: `This device needs an update to receive sessions.`,
+  sourceOffline: `This session's device is offline.`,
+  sourceUpdate: `This session's device needs an update to move it.`,
 } as const
+
+/** The first desktop/CLI that hands a session off (`brief.handoff`,
+ *  `sessions.handoff`): an older build as the TARGET would launch the moved
+ *  row fresh, as the SOURCE never hand it over. */
+export const MOVE_MIN_VERSION: readonly [number, number, number] = [0, 14, 73]
+
+/** The device's reported version is at least `MOVE_MIN_VERSION` (an
+ *  unreported one = an old build). */
+export function deviceCanHandoff(version: string | null | undefined): boolean {
+  if (!version) return false
+  const have = parseVersionTuple(version)
+  if (!have) return false
+  for (let i = 0; i < 3; i++) {
+    if (have[i]! !== MOVE_MIN_VERSION[i]!) return have[i]! > MOVE_MIN_VERSION[i]!
+  }
+  return true
+}
 
 export const movingCaption = (device: string) => `Moving to ${device}…`
 export const movedText = (from: string, to: string) => `Moved from ${from} to ${to}`
 
 type DeviceRow = Pick<
   Device,
-  `deviceId` | `label` | `userId` | `lastSeenAt` | `agentAccounts` | `agentUsage` | `launchDefaults`
+  | `deviceId`
+  | `label`
+  | `userId`
+  | `lastSeenAt`
+  | `version`
+  | `agentAccounts`
+  | `agentUsage`
+  | `launchDefaults`
 >
 
 /** ONE machine's devices row (devices are per (user, deviceId)). */
@@ -41,6 +69,7 @@ export async function loadDeviceRow(deviceId: string, ownerId: string): Promise<
       label: devices.label,
       userId: devices.userId,
       lastSeenAt: devices.lastSeenAt,
+      version: devices.version,
       agentAccounts: devices.agentAccounts,
       agentUsage: devices.agentUsage,
       launchDefaults: devices.launchDefaults,
@@ -87,7 +116,8 @@ export interface MoveTarget {
  * The target of a move: visible to the session's STARTER exactly like a new
  * session's device (own, or shared with the team; `hostUserId` relative to
  * the starter), the SAME visibility (`shared`) as the session, online (when
- * `requireOnline`), and signed in for the session's agent. `account` = an
+ * `requireOnline`), on a handoff-capable build (`MOVE_MIN_VERSION`) and
+ * signed in for the session's agent. `account` = an
  * explicit pick (must be a signed-in login of that agent there), else the
  * source's login carried by email (`carriedAccountOption`), else null.
  */
@@ -111,6 +141,9 @@ export async function resolveMoveTarget(
   }
   if (opts.requireOnline && !deviceRowIsOnline(row.lastSeenAt, opts.now ?? new Date())) {
     throw new TRPCError({ code: `PRECONDITION_FAILED`, message: MOVE_COPY.offline })
+  }
+  if (!deviceCanHandoff(row.version)) {
+    throw new TRPCError({ code: `PRECONDITION_FAILED`, message: MOVE_COPY.update })
   }
   const agent = await sessionAgent(session)
   const options = flattenAccounts(row).filter((option) => option.agent === agent)

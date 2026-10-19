@@ -28,6 +28,11 @@ export function mcpServerInstructions(gates: {
   agent: boolean
   /** EXP-1280: that session is still planning (`sessions.plan_mode`). */
   planMode?: boolean
+  /** EXP-1280: that session's host feeds its own cards back (a desktop/CLI
+   *  from 0.14.73; `hostFeedsOwnCards` in gates.ts). False = the ask tools
+   *  are not registered, so neither the ask nor the plan-mode gate is said.
+   *  Absent = true. */
+  cards?: boolean
   reportBug: boolean
 }): string {
   const paragraphs = [
@@ -61,8 +66,9 @@ export function mcpServerInstructions(gates: {
   }
   // EXP-1280: plan mode is Exponential's (a card + the pr_open gate): a
   // planning session gets THE gate sentence (plan-card.json `planModeGate`,
-  // the device's plan-mode line says the same), every session the ask.
-  if (gates.inSession) {
+  // the device's plan-mode line says the same), every session the ask —
+  // unless the host cannot feed a card's answer back (`cards === false`).
+  if (gates.inSession && gates.cards !== false) {
     const ask = `Ask a person with exponential_sessions_ask.`
     paragraphs.push(gates.planMode === true ? `${PLAN_CARD_COPY.planModeGate} ${ask}` : ask)
   }

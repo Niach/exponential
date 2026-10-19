@@ -26,6 +26,7 @@ import {
   REASON_NO_LOGIN,
   REASON_OFFLINE,
   REASON_STEER,
+  REASON_UPDATE,
   REASON_VISIBILITY,
   sessionDeviceMoveRows,
 } from "@/lib/session-device-move"
@@ -46,6 +47,7 @@ const SHARED = [
   REASON_ASIDE,
   REASON_OFFLINE,
   REASON_VISIBILITY,
+  REASON_UPDATE,
   REASON_NO_LOGIN,
   MOVE_FAILED_TOAST,
 ]
@@ -83,6 +85,8 @@ const device = (
     deviceLabel: `Mac`,
     online: true,
     sharedTeamIds: [],
+    // The first handoff-capable build (`MOVE_MIN_VERSION`).
+    version: `0.14.73`,
     agentAccounts: logins(...agents),
     ...rest,
   }
@@ -128,18 +132,40 @@ describe(`deviceMoveTargetReason`, () => {
   it(`refuses in the ×4 order: offline, visibility, no login`, () => {
     expect(
       deviceMoveTargetReason(
-        device({ online: false, sharedTeamIds: [TEAM], logins: [] }),
+        device({
+          online: false,
+          sharedTeamIds: [TEAM],
+          version: null,
+          logins: [],
+        }),
         session()
       )
     ).toBe(REASON_OFFLINE)
     expect(
-      deviceMoveTargetReason(device({ sharedTeamIds: [TEAM], logins: [] }), session())
+      deviceMoveTargetReason(
+        device({ sharedTeamIds: [TEAM], version: null, logins: [] }),
+        session()
+      )
     ).toBe(REASON_VISIBILITY)
     expect(deviceMoveTargetReason(device(), session({ shared: true }))).toBe(
       REASON_VISIBILITY
     )
     expect(
       deviceMoveTargetReason(device({ sharedTeamIds: [`other-team`] }), session())
+    ).toBeNull()
+    // A build before the first handoff-capable one (an unreported version
+    // is an old build) is refused before its logins are looked at.
+    expect(
+      deviceMoveTargetReason(
+        device({ version: `0.14.72`, logins: [] }),
+        session()
+      )
+    ).toBe(REASON_UPDATE)
+    expect(
+      deviceMoveTargetReason(device({ version: null, logins: [] }), session())
+    ).toBe(REASON_UPDATE)
+    expect(
+      deviceMoveTargetReason(device({ version: `0.15.0` }), session())
     ).toBeNull()
     expect(deviceMoveTargetReason(device({ logins: [`codex`] }), session())).toBe(
       REASON_NO_LOGIN
@@ -169,6 +195,7 @@ describe(`sessionDeviceMoveRows`, () => {
       sharedTeamIds: [TEAM],
       owner: { id: `u2`, name: `Ada` },
     }),
+    device({ deviceId: `stale`, deviceLabel: `Stale`, version: `0.14.72` }),
   ]
 
   it(`lists every machine, the current one selected and never refused`, () => {
@@ -182,6 +209,7 @@ describe(`sessionDeviceMoveRows`, () => {
       [`box`, `Box`, false, null],
       [`old`, `Old`, false, REASON_OFFLINE],
       [`srv`, `Build — Ada`, false, REASON_VISIBILITY],
+      [`stale`, `Stale`, false, REASON_UPDATE],
     ])
   })
 

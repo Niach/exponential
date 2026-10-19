@@ -186,4 +186,25 @@ final class AskDockTests: XCTestCase {
             }
         }
     }
+
+    /// EXP-1280 (web `anchorToolCards`): a tool-posted card sits after the
+    /// settled `plan_propose` / `sessions_ask` call that posted it, pairing
+    /// from the newest back; a failed or running call posted nothing; a card
+    /// older than the window is unanchored.
+    func testAnchorToolCardsPairsNewestBack() {
+        let feed: [AgentFeedItem] = [
+            .tool(id: 1, name: "mcp__exponential__exponential_sessions_ask", detail: nil, subagentId: nil, settled: true),
+            .tool(id: 2, name: "Edit", detail: "a.ts", subagentId: nil, settled: true),
+            .tool(id: 3, name: "exponential_plan_propose", detail: nil, subagentId: nil, settled: true, failed: true),
+            .tool(id: 4, name: "exponential_plan_propose", detail: nil, subagentId: nil, settled: true),
+            .tool(id: 5, name: "exponential_sessions_ask", detail: nil, subagentId: nil, settled: false),
+        ]
+        let paired = AskDock.anchorToolCards(feed: feed, cardIds: ["m-old", "m-1", "m-4"])
+        XCTAssertEqual(paired.anchors, [1: ["m-1"], 4: ["m-4"]])
+        XCTAssertEqual(paired.unanchored, ["m-old"])
+        let none = AskDock.anchorToolCards(feed: [], cardIds: ["a", "b"])
+        XCTAssertEqual(none.anchors, [:])
+        XCTAssertEqual(none.unanchored, ["a", "b"])
+        XCTAssertEqual(AskDock.cardTools, ["plan_propose", "sessions_ask"])
+    }
 }

@@ -1,6 +1,7 @@
-- Szál fejléc: már semmi sem görget, az issue-k és sessionök "+N"-be csukódnak, ha elfogy a hely, az al-issue-k és mélyebb sessionök pedig egy koppintással nyílnak
-- Issue csatolása: a Conversation melletti "+" a Link an issue és New issue lehetőséget kínálja
-- Al-sessionök: egy al-session kérdései és tervei a szál beszélgetésében jelennek meg, és ott helyben megválaszolhatók
-- Egy szövegmező: a szál, egy session és egy új indítás egy mezőn osztozik, "Type / for commands", képpel, fájllal, # jellel és emojival a mezőben
-- Beállítások session közben: a Plan mód azonnal vált, az erőfeszítés, a computer use és az MCP szerverek pedig a következő üzenettől érvényesek
-- Issue állapot: a csatolt issue In progress állapotba kerül, egy pull request In review állapotba, összevonás után pedig Done állapotba viszi
+- Session áthelyezése másik eszközre: a session beállításaiban lévő Device tű a futó sessiont a worktree-vel és a beszélgetéssel együtt egy másik online eszközödre költözteti
+- A sessionök maguknak adnak nevet: minden session, fül és sor valódi nevet mutat, soha nem "Session 2"-t, a szál dispatchere pedig az összetartozó issue-kat egy sessionbe csoportosítja
+- Kérdések és tervek a szövegmező helyén: a várakozó kérdés vagy terv ott jelenik meg, ahol a mező volt, sessionben és szálban egyaránt, a többi pedig egymásra rakódik és egyenként nyílik
+- A session oldala a saját szálában él: lapozz a Conversation, az issue-k, a sessionök és a Guide között, a fejlécben egyetlen Stop pedig visszaadja a sorban álló üzeneteket a szövegmezőnek
+- A szálsorokról eltűnik a privát lakat és a "merged" szó, a Threads fül viszi az élő pöttyöt, az Inbox fül pedig pöttyöt mutat, amíg piszkozataid vannak
+- Az újranyitott piszkozat kérdés nélkül ment és bezárul
+- Javítások a review alapján: a Back második koppintása már nem zárja be a piszkozatot mentés közben, az Inbox pötty az aktuális csapat piszkozatait számolja, és a legújabb várakozó kártya látszik

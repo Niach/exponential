@@ -21,6 +21,7 @@ import com.exponential.app.domain.defaultTeamId
 import com.exponential.app.domain.TeamLiveRuns
 import com.exponential.app.domain.liveRunsByTeam
 import com.exponential.app.domain.lightsLiveDot
+import com.exponential.app.domain.activeTeamDrafts
 import com.exponential.app.domain.resolveDraftRows
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -236,10 +237,12 @@ class AppViewModel @Inject constructor(
         else db.notificationDao().observeUnreadCount(userId)
     }.stateIn(viewModelScope, SharingStarted.Eagerly, 0)
 
-    // EXP-1272: the account's drafts, resolved exactly like the Inbox's
-    // Drafts section (`DraftsViewModel`, `resolveDraftRows`: a draft whose
-    // board no longer resolves drops out), so the Inbox tab's dot and that
-    // section always agree. Statuses do not change the count.
+    // EXP-1272: the ACTIVE team's drafts (web `useDraftCount(team.id)`, iOS
+    // `draftTeamIds` against the active team), resolved exactly like the
+    // Inbox's Drafts section (`DraftsViewModel`, `resolveDraftRows`: a draft
+    // whose board no longer resolves drops out), so the Inbox tab's dot and
+    // that section always agree, and a team switch moves the dot at once.
+    // Statuses do not change the count.
     @OptIn(ExperimentalCoroutinesApi::class)
     val draftCount: StateFlow<Int> = accountDatabaseFlow(auth, databaseHolder)
         .flatMapLatest { db ->
@@ -247,7 +250,10 @@ class AppViewModel @Inject constructor(
             else combine(
                 db.issueDraftDao().observeAll(),
                 db.boardDao().observeAll(),
-            ) { drafts, boards -> resolveDraftRows(drafts, boards, emptyMap()).size }
+                teamSelection.selectedId,
+            ) { drafts, boards, teamId ->
+                resolveDraftRows(activeTeamDrafts(drafts, teamId), boards, emptyMap()).size
+            }
         }
         .distinctUntilChanged()
         .stateIn(viewModelScope, SharingStarted.Eagerly, 0)

@@ -42,12 +42,12 @@ use agent_client_protocol::schema::v1::{
     InitializeRequest, KillTerminalRequest, KillTerminalResponse, LoadSessionRequest,
     NewSessionRequest, PermissionOptionId, PromptRequest,
     ReadTextFileRequest, ReadTextFileResponse, ReleaseTerminalRequest, ReleaseTerminalResponse,
-    RequestPermissionOutcome, RequestPermissionRequest,
-    RequestPermissionResponse, SelectedPermissionOutcome, SessionConfigId,
-    SessionConfigOptionValue, SessionId, SessionModeId, SessionNotification,
-    SessionConfigOptionsCapabilities, SetSessionConfigOptionRequest, SetSessionModeRequest,
-    StopReason, TerminalExitStatus, TerminalId, TerminalOutputRequest, TerminalOutputResponse,
-    TextContent, WaitForTerminalExitRequest, WaitForTerminalExitResponse, WriteTextFileRequest,
+    RequestPermissionOutcome, RequestPermissionRequest, RequestPermissionResponse,
+    SelectedPermissionOutcome, SessionConfigId, SessionConfigOptionValue,
+    SessionConfigOptionsCapabilities, SessionId, SessionModeId, SessionNotification,
+    SetSessionConfigOptionRequest, SetSessionModeRequest, StopReason, TerminalExitStatus,
+    TerminalId, TerminalOutputRequest, TerminalOutputResponse, TextContent,
+    WaitForTerminalExitRequest, WaitForTerminalExitResponse, WriteTextFileRequest,
     WriteTextFileResponse,
 };
 use agent_client_protocol::schema::ProtocolVersion;
@@ -1391,22 +1391,18 @@ impl SessionCtx {
     /// EXP-1292: a person's message row keeps its `messages.id` as the line's
     /// id, so the replay that closes the line also consumes the row.
     fn mark_sent(&self, announce: String, message_id: Option<String>) -> Option<String> {
-        let id = self
-            .prompt_queue
-            .lock()
-            .ok()
-            .and_then(|mut queue| {
-                if queue.len() >= steer::QUEUE_MAX {
-                    return None;
-                }
-                let id = message_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
-                queue.push_back(QueuedPrompt {
-                    id: id.clone(),
-                    announce,
-                    held: None,
-                });
-                Some(id)
+        let id = self.prompt_queue.lock().ok().and_then(|mut queue| {
+            if queue.len() >= steer::QUEUE_MAX {
+                return None;
+            }
+            let id = message_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+            queue.push_back(QueuedPrompt {
+                id: id.clone(),
+                announce,
+                held: None,
             });
+            Some(id)
+        });
         if id.is_some() {
             self.publish_queue();
         }
@@ -1934,25 +1930,25 @@ where
         // a buffer read, a signal); only the wait can outlast the dispatch
         // loop's patience, so it is the one that spawns.
         .on_receive_request(
-            async move |request: CreateTerminalRequest, responder, _cx| {
-                match create_terminal(&create_ctx, &request) {
-                    Ok(terminal_id) => {
-                        responder.respond(CreateTerminalResponse::new(terminal_id))
-                    }
-                    Err(err) => responder.respond_with_internal_error(err),
-                }
+            async move |request: CreateTerminalRequest, responder, _cx| match create_terminal(
+                &create_ctx,
+                &request,
+            ) {
+                Ok(terminal_id) => responder.respond(CreateTerminalResponse::new(terminal_id)),
+                Err(err) => responder.respond_with_internal_error(err),
             },
             on_receive_request!(),
         )
         .on_receive_request(
-            async move |request: TerminalOutputRequest, responder, _cx| {
-                match output_ctx.terminals.snapshot(request.terminal_id.0.as_ref()) {
-                    Some(snapshot) => responder.respond(
-                        TerminalOutputResponse::new(snapshot.output, snapshot.truncated)
-                            .exit_status(snapshot.exit.as_ref().map(exit_status)),
-                    ),
-                    None => responder.respond_with_error(unknown_terminal(&request.terminal_id)),
-                }
+            async move |request: TerminalOutputRequest, responder, _cx| match output_ctx
+                .terminals
+                .snapshot(request.terminal_id.0.as_ref())
+            {
+                Some(snapshot) => responder.respond(
+                    TerminalOutputResponse::new(snapshot.output, snapshot.truncated)
+                        .exit_status(snapshot.exit.as_ref().map(exit_status)),
+                ),
+                None => responder.respond_with_error(unknown_terminal(&request.terminal_id)),
             },
             on_receive_request!(),
         )
@@ -1965,8 +1961,9 @@ where
                 cx.spawn(async move {
                     let terminal_id = request.terminal_id.clone();
                     let result = match ctx.terminals.wait(terminal_id.0.as_ref()).await {
-                        Some(exit) => responder
-                            .respond(WaitForTerminalExitResponse::new(exit_status(&exit))),
+                        Some(exit) => {
+                            responder.respond(WaitForTerminalExitResponse::new(exit_status(&exit)))
+                        }
                         None => responder.respond_with_error(unknown_terminal(&terminal_id)),
                     };
                     if let Err(err) = result {
@@ -1979,20 +1976,22 @@ where
             on_receive_request!(),
         )
         .on_receive_request(
-            async move |request: KillTerminalRequest, responder, _cx| {
-                match kill_ctx.terminals.kill(request.terminal_id.0.as_ref()) {
-                    true => responder.respond(KillTerminalResponse::new()),
-                    false => responder.respond_with_error(unknown_terminal(&request.terminal_id)),
-                }
+            async move |request: KillTerminalRequest, responder, _cx| match kill_ctx
+                .terminals
+                .kill(request.terminal_id.0.as_ref())
+            {
+                true => responder.respond(KillTerminalResponse::new()),
+                false => responder.respond_with_error(unknown_terminal(&request.terminal_id)),
             },
             on_receive_request!(),
         )
         .on_receive_request(
-            async move |request: ReleaseTerminalRequest, responder, _cx| {
-                match release_ctx.terminals.release(request.terminal_id.0.as_ref()) {
-                    true => responder.respond(ReleaseTerminalResponse::new()),
-                    false => responder.respond_with_error(unknown_terminal(&request.terminal_id)),
-                }
+            async move |request: ReleaseTerminalRequest, responder, _cx| match release_ctx
+                .terminals
+                .release(request.terminal_id.0.as_ref())
+            {
+                true => responder.respond(ReleaseTerminalResponse::new()),
+                false => responder.respond_with_error(unknown_terminal(&request.terminal_id)),
             },
             on_receive_request!(),
         )
@@ -2189,6 +2188,19 @@ fn advertises_mode(mapper: &Mapper, mode_id: &str) -> bool {
     )
 }
 
+/// EXP-1280: the `sessions.resolveCard` input that downgrades an approved
+/// plan card's "fresh context" to what happened: `fresh` ABSENT (never
+/// `false`) — the server turns a stored `fresh: true` into `false` for an
+/// approval whose input does not say `true`; idempotent on a card already
+/// resolved.
+pub(crate) fn fresh_context_downgrade(message_id: &str) -> api::sessions::AnswerInput {
+    api::sessions::AnswerInput {
+        message_id: message_id.to_string(),
+        decision: Some("approved".to_string()),
+        ..Default::default()
+    }
+}
+
 /// EXP-1280: the line a person's plan-mode move steers to the agent.
 fn plan_mode_line(mode_id: &str) -> &'static str {
     if mode_id == crate::adapters::PLAN_MODE_ID {
@@ -2238,8 +2250,31 @@ fn handle_command(
         // embeds localize on the spawned turn path like a composer message.
         EngineCommand::Deliver { message_id, text, fresh } => {
             ctx.note_message(&message_id);
-            // EXP-1280: a fresh-context prompt goes as it is (its plan's
-            // pictures stay links): the reset rides the request's `_meta`.
+            // EXP-1280: a fresh context is cleared BETWEEN turns only (the
+            // claude adapter's `/clear` would be swallowed by a running
+            // turn). An approval landing mid-turn keeps the context, and
+            // its card is downgraded on the server (`sessions.resolveCard`
+            // with `fresh` absent → `fresh: false`), so the stored card
+            // never claims a reset that did not happen — a wake after a
+            // daemon restart would otherwise read `fresh: true` and start
+            // the conversation over.
+            let fresh = fresh
+                && {
+                    let idle = ctx.turn_signal.is_idle();
+                    if !idle {
+                        log::info!(
+                        "engine: session {} card {message_id} approved in a fresh context mid-turn: the context stays",
+                        ctx.session_id
+                    );
+                        coding::pickup::write_back_card(
+                            Arc::clone(&ctx.trpc),
+                            fresh_context_downgrade(&message_id),
+                        );
+                    }
+                    idle
+                };
+            // A fresh-context prompt goes as it is (its plan's pictures
+            // stay links): the reset rides the request's `_meta`.
             let prompt = if fresh {
                 TurnPrompt::Ready(LocalizedPrompt { fresh: true, ..LocalizedPrompt::plain(text.clone()) })
             } else if ctx.attachments.is_some() && steer::has_attachment_embed(&text) {
@@ -2429,9 +2464,7 @@ fn handle_command(
                     // with no mode list answers Ok as a silent no-op, and
                     // mirroring that would publish a `config_state` claiming a
                     // mode the run never entered.
-                    Ok(_) => {
-                        ctx.with_mapper(|mapper| mirror_mode(mapper, &mode_id.0, &mut out))
-                    }
+                    Ok(_) => ctx.with_mapper(|mapper| mirror_mode(mapper, &mode_id.0, &mut out)),
                     Err(err) => {
                         ctx.with_mapper(|mapper| mapper.on_error(&err.to_string(), &mut out))
                     }
@@ -3190,6 +3223,21 @@ mod tests {
         assert_eq!(plan_mode_line(crate::adapters::PLAN_MODE_ID), domain::plan_card::copy().plan_mode_gate);
         assert!(plan_mode_on_line().contains("exponential_plan_propose"));
         assert_eq!(plan_mode_line("default"), PLAN_MODE_OFF_LINE);
+    }
+
+    /// EXP-1280: a fresh approval that cannot clear the context (mid-turn)
+    /// downgrades its card: an approval whose input leaves `fresh` ABSENT
+    /// (the server's path from a stored `true` to `false`), never `false`
+    /// on the wire, never another decision.
+    #[test]
+    fn the_fresh_context_downgrade_resolves_the_approval_without_fresh() {
+        let input = fresh_context_downgrade("m-1");
+        let wire = serde_json::to_value(&input).unwrap();
+        assert_eq!(
+            wire,
+            serde_json::json!({"messageId": "m-1", "decision": "approved"})
+        );
+        assert_eq!(input.fresh, None);
     }
 
     /// EXP-1317: the open-question table `answer_ask` translates an answer

@@ -22,9 +22,13 @@
 //!    `handoff{failed, reason}` and the session stays here untouched (its
 //!    engine revives on the next message as usual);
 //! 5. once the row shows the target claimed it (`device_id ≠ me`, status
-//!    past `queued`), [`cleanup`] removes the worktree, the local branch, the
-//!    run record and the native transcript here — a pending-cleanup list in
-//!    `{data_dir}/handoffs/` survives restarts.
+//!    past `queued`), [`cleanup`] drops the run record and the pending entry
+//!    here — a pending-cleanup list in `{data_dir}/handoffs/` survives
+//!    restarts. EXP-1349: the worktree, the local branch and the scratch dir
+//!    STAY on the source (the recovery point: the target claims the row
+//!    before it restores, and a failed restore falls back to a fresh launch
+//!    with the moved work held nowhere else); the native transcript goes
+//!    only when it travelled in the package.
 //!
 //! The TARGET's `launch_queued` sees `sessions.brief.handoff`, downloads the
 //! package into `{data_dir}/handoffs/<id>/` ([`extract_package`]: whitelisted
@@ -308,9 +312,8 @@ fn pack_repo(
             args.push(exclude);
         }
         let made = git(&args);
-        let bundle = made.and_then(|_| {
-            std::fs::read(&tmp).map_err(|err| PackageError::Failed(format!("read the bundle: {err}")))
-        });
+        let bundle = made
+            .and_then(|_| std::fs::read(&tmp).map_err(|err| PackageError::Failed(format!("read the bundle: {err}"))));
         let _ = std::fs::remove_file(&tmp);
         parts.push((BUNDLE, bundle?));
         manifest.bundle = true;
@@ -705,7 +708,13 @@ pub fn rewrite_path(path: &str, source: &str, target: &str, sep: char) -> Option
     if parts.len() < source_parts.len() {
         return None;
     }
-    let same = |a: &str, b: &str| if windows { a.eq_ignore_ascii_case(b) } else { a == b };
+    let same = |a: &str, b: &str| {
+        if windows {
+            a.eq_ignore_ascii_case(b)
+        } else {
+            a == b
+        }
+    };
     if !source_parts.iter().zip(&parts).all(|(a, b)| same(a, b)) {
         return None;
     }
@@ -752,10 +761,9 @@ pub fn target_record(
         .filter(|_| manifest.dispatch)
         .map(|repo| crate::git_worktree::clone_path(repos_root, repo));
     let (cwd, clone) = match (manifest.workspace, dispatch_clone) {
-        (_, Some(clone)) => (
-            crate::git_worktree::worktrees_dir(&clone).join(crate::git_worktree::DISPATCH_CHECKOUT_DIR),
-            Some(clone),
-        ),
+        (_, Some(clone)) => {
+            (crate::git_worktree::worktrees_dir(&clone).join(crate::git_worktree::DISPATCH_CHECKOUT_DIR), Some(clone))
+        }
         (WorkspaceKind::Repo, None) => {
             let repo = manifest.repo.as_deref()?;
             let branch = manifest.branch.as_deref()?;
@@ -828,7 +836,7 @@ pub fn moved_note(from_device: &str, native: bool) -> String {
 
 // ── The source side ───────────────────────────────────────────────────────
 
-/// One session handed off from here whose local copy waits for removal.
+/// One session handed off from here whose local copy waits for [`cleanup`].
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MovedAway {
@@ -840,6 +848,11 @@ pub struct MovedAway {
     pub branch: Option<String>,
     #[serde(default)]
     pub native: Option<PathBuf>,
+    /// EXP-1349: the transcript at `native` travelled in the package
+    /// (`manifest.native`), so the target holds a copy. Absent (an entry
+    /// written before the field) = unknown, and the transcript stays.
+    #[serde(default)]
+    pub native_packaged: bool,
 }
 
 fn moved_away_path(data_dir: &Path) -> PathBuf {
@@ -905,51 +918,44 @@ pub fn cleanups_due(data_dir: &Path, device_id: &str, sessions: &[domain::rows::
     due
 }
 
-/// Remove a handed-off session's local copy: its worktree and local branch
-/// (unless another run record here shares the worktree), or its scratch
-/// dir; its run record; its native transcript; the pending entry.
+/// Settle a handed-off session's local copy once the target claimed it:
+/// its run record and the pending entry go; its native transcript only when
+/// the package carried it ([`MovedAway::native_packaged`]).
+///
+/// EXP-1349 (interim, desktop 0.14.73): the worktree, the local branch and
+/// the scratch dir are KEPT. The target claims the row (`running`) before
+/// `receive_handoff` restores anything, and a restore that fails falls back
+/// to a fresh launch — so the claim this cleanup fires on is no proof the
+/// moved work (commits past `origin/<base>`, the diff, untracked files)
+/// landed anywhere. Removing them here wiped the only local copy of
+/// unpushed work. Until the target can mark the package restored (a synced
+/// marker, not for this train), the source keeps the workspace as the
+/// recovery point; `git worktree prune` still tidies entries whose dir a
+/// person removed, and [`crate::prune`] reclaims the branch once it lands.
 pub fn cleanup(data_dir: &Path, session_id: &str) {
     let Some(entry) = moved_away(data_dir).into_iter().find(|entry| entry.session_id == session_id) else {
         return;
     };
-    let shared = crate::run_registry::all(data_dir)
-        .iter()
-        .any(|record| record.session_id != session_id && record.cwd == entry.cwd);
-    match (&entry.clone, shared) {
-        (_, true) => log::info!("handoff: {} stays (another session here uses it)", entry.cwd.display()),
-        (Some(clone), false) if entry.branch.is_some() => {
-            let cwd = entry.cwd.to_string_lossy().into_owned();
-            if entry.cwd.exists() {
-                if let Err(err) =
-                    crate::git_worktree::run_git(Some(clone), &["worktree", "remove", "--force", &cwd], None, "handoff cleanup")
-                {
-                    log::warn!("handoff: worktree {cwd} not removed: {}", err.detail);
-                }
-            }
-            let _ = crate::git_worktree::run_git(Some(clone), &["worktree", "prune"], None, "handoff cleanup");
-            if let Some(branch) = entry.branch.as_deref().filter(|branch| !branch.starts_with('-')) {
-                if let Err(err) =
-                    crate::git_worktree::run_git(Some(clone), &["branch", "-D", branch], None, "handoff cleanup")
-                {
-                    log::info!("handoff: branch {branch} kept: {}", err.detail);
-                }
-            }
-        }
-        (Some(_), false) => {}
-        (None, false) => {
-            if crate::scratch::is_scratch_dir(data_dir, &entry.cwd) {
-                if let Err(err) = std::fs::remove_dir_all(&entry.cwd) {
-                    log::warn!("handoff: scratch dir {} not removed: {err}", entry.cwd.display());
-                }
-            }
-        }
+    if let Some(clone) = entry.clone.as_deref().filter(|_| entry.branch.is_some()) {
+        let _ = crate::git_worktree::run_git(Some(clone), &["worktree", "prune"], None, "handoff cleanup");
+        log::info!(
+            "handoff: {} (branch {}) stays as the recovery point of session {session_id}",
+            entry.cwd.display(),
+            entry.branch.as_deref().unwrap_or_default()
+        );
+    } else if entry.clone.is_none() && crate::scratch::is_scratch_dir(data_dir, &entry.cwd) {
+        log::info!("handoff: scratch dir {} stays as the recovery point of session {session_id}", entry.cwd.display());
     }
-    if let Some(native) = &entry.native {
-        let _ = std::fs::remove_file(native);
+    match &entry.native {
+        Some(native) if entry.native_packaged => {
+            let _ = std::fs::remove_file(native);
+        }
+        Some(native) => log::info!("handoff: transcript {} stays (it did not travel)", native.display()),
+        None => {}
     }
     crate::run_registry::remove(data_dir, session_id);
     forget_moved_away(data_dir, session_id);
-    log::info!("handoff: the local copy of session {session_id} is gone (it runs elsewhere now)");
+    log::info!("handoff: session {session_id} runs elsewhere now; its run record here is gone");
 }
 
 /// Read a package source for `session_id` off this machine.
@@ -1349,13 +1355,17 @@ mod tests {
         let mut rec = record(&scratch, None, None);
         rec.repo = None;
         crate::run_registry::record(&data, rec);
-        note_moved_away(&data, MovedAway {
-            session_id: "s1".to_string(),
-            cwd: scratch.clone(),
-            clone: None,
-            branch: None,
-            native: Some(native.clone()),
-        });
+        note_moved_away(
+            &data,
+            MovedAway {
+                session_id: "s1".to_string(),
+                cwd: scratch.clone(),
+                clone: None,
+                branch: None,
+                native: Some(native.clone()),
+                native_packaged: false,
+            },
+        );
         let row = |device: &str, status: &str| domain::rows::SessionRow {
             id: "s1".to_string(),
             device_id: Some(device.to_string()),
@@ -1367,10 +1377,27 @@ mod tests {
         assert_eq!(moved_away(&data).len(), 1, "persisted until due");
         assert_eq!(cleanups_due(&data, "me", &[row("other", "running")]), vec!["s1".to_string()]);
         cleanup(&data, "s1");
-        assert!(!scratch.exists());
-        assert!(!native.exists());
+        // EXP-1349: the workspace stays as the recovery point (the target's
+        // claim is no proof it restored); a transcript that did not travel
+        // stays too.
+        assert!(scratch.join("f").is_file(), "the scratch dir is kept");
+        assert!(native.exists(), "the transcript did not travel: kept");
         assert!(crate::run_registry::get(&data, "s1").is_none());
         assert!(moved_away(&data).is_empty());
+        // A transcript the package carried goes (the target holds it).
+        note_moved_away(
+            &data,
+            MovedAway {
+                session_id: "s1".to_string(),
+                cwd: scratch.clone(),
+                native: Some(native.clone()),
+                native_packaged: true,
+                ..MovedAway::default()
+            },
+        );
+        cleanup(&data, "s1");
+        assert!(!native.exists());
+        assert!(scratch.join("f").is_file());
         // A row back on this device drops the pending cleanup.
         note_moved_away(&data, MovedAway { session_id: "s2".to_string(), ..MovedAway::default() });
         let back = domain::rows::SessionRow { id: "s2".to_string(), device_id: Some("me".to_string()), status: Some("running".to_string()), ..Default::default() };

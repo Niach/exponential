@@ -1,6 +1,7 @@
-- Nagłówek wątku: nic już się nie przewija, issues i sesje zwijają się do "+N", gdy brakuje miejsca, a pod-issues i głębsze sesje otwierasz dotknięciem
-- Łączenie issue: "+" obok Conversation oferuje Link an issue i New issue
-- Pod-sesje: pytania i plany pod-sesji pojawiają się w rozmowie wątku i odpowiadasz na nie od razu tam
-- Jedno pole: wątek, sesja i nowy start dzielą jedno pole, "Type / for commands", z obrazem, plikiem, # i emoji w polu
-- Opcje w trakcie sesji: tryb Plan przełącza się od razu, a nakład, computer use i serwery MCP działają od następnej wiadomości
-- Status issue: połączone issue przechodzi do In progress, a pull request przenosi je do In review i, po scaleniu, do Done
+- Przenoszenie sesji na inne urządzenie: pinezka Device w opcjach sesji przenosi trwającą sesję, z jej worktree i rozmową, na inne Twoje urządzenie online
+- Sesje same się nazywają: każda sesja, karta i wiersz ma prawdziwą nazwę, nigdy "Session 2", a dispatcher wątku grupuje powiązane issues w jedną sesję
+- Pytania i plany zajmują miejsce pola: oczekujące pytanie lub plan pojawia się tam, gdzie było pole, zarówno w sesji, jak i w wątku, a kilka układa się w stos i otwiera po kolei
+- Strona sesji mieszka w swoim wątku: przesuwaj między Conversation, issues, sesjami i Guide, z jednym Stop w nagłówku, który zwraca wiadomości z kolejki do pola
+- Wiersze wątków tracą prywatną kłódkę i słowo "merged", karta Threads ma kropkę na żywo, a karta Inbox pokazuje kropkę, dopóki masz wersje robocze
+- Ponownie otwarta wersja robocza zapisuje się i zamyka bez pytania
+- Poprawki z review: drugie dotknięcie Back nie zamyka już wersji roboczej podczas zapisywania, kropka Inbox liczy wersje robocze bieżącego zespołu, a wyświetlana jest najnowsza oczekująca karta

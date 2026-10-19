@@ -31,6 +31,7 @@ import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.data.electric.SyncStats
 import com.exponential.app.data.steer.SteerConnectionStore
+import com.exponential.app.data.steer.stopHandingBackQueue
 import com.exponential.app.domain.ActivityFeedState
 import com.exponential.app.domain.AgentPhase
 import com.exponential.app.domain.AgentAccountsRows
@@ -1156,6 +1157,9 @@ class AgentSessionViewModel @AssistedInject constructor(
     /** EXP-790: interrupt the turn in flight — the composer's Stop glyph.
      *  Fire-and-forget like [setMode]; the feed shows the agent stopping. */
     fun interrupt() {
+        // EXP-1342: no socket to carry the frame, so `sessions.stop` does it —
+        // and [stopSession] hands the queue bar's text back to the composer
+        // just as [SteerConnection.interrupt] does over the relay.
         if (connected.value) connection.interrupt() else stopSession()
     }
 
@@ -1174,10 +1178,12 @@ class AgentSessionViewModel @AssistedInject constructor(
     /**
      * EXP-1291: Stop = `sessions.stop` — interrupts the current turn; the
      * session stays live and goes idle (every member may stop a SHARED one).
-     * A failure surfaces via [killError].
+     * A failure surfaces via [killError]. EXP-1342: the queued messages go
+     * back into the composer first ([stopHandingBackQueue]), the same
+     * hand-back the relay's interrupt does, and come back out on a failure.
      */
     fun stopSession() = sessionCall("Couldn't stop the session") { accountId ->
-        sessionsApi.stop(accountId, codingSessionId)
+        stopHandingBackQueue(connection) { sessionsApi.stop(accountId, codingSessionId) }
     }
 
     /** End the session for good (`sessions.end`; a root ends its tree). */

@@ -45,15 +45,20 @@ struct AskDockView<Card: View>: View {
 
     var body: some View {
         let layout = layout
-        // The big card carries NO dock identifier of its own: SwiftUI folds a
-        // one-child wrapper into its child, so a dock/card id would shadow
-        // the card's (`agent-feed-question`, `thread-plan-card`, which the
-        // shot walks and the store slide's pop-out rect look up).
+        // The fixture's test ids, verbatim ×4: `ask-dock` on the whole dock,
+        // `ask-dock-card` on the big card's wrapper, `ask-dock-row` per
+        // stacked card. Each wrapper is an explicit accessibility CONTAINER
+        // (`children: .contain`), so its id never folds onto the card's own
+        // (`agent-feed-question`, `thread-plan-card`, which the shot walks
+        // and the store slide's pop-out rect look up). The uniqueness
+        // suffix lives in the view identity (`.id`), never the test id.
         VStack(spacing: 0) {
             if let cardId = layout.cardId {
                 VStack(spacing: 0) {
                     card(cardId, layout.back ? { setFocus(nil) } : nil, Self.bodyMaxHeight)
                 }
+                    .accessibilityElement(children: .contain)
+                    .accessibilityIdentifier(AskDock.TestIds.card)
                     .modifier(AskDockEnter())
                     .id("card:\(cardId)")
             } else if !layout.rows.isEmpty {
@@ -66,7 +71,8 @@ struct AskDockView<Card: View>: View {
                 .id("stack")
             }
         }
-        .modifier(AskDockStackIdentifier(stacked: layout.cardId == nil))
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier(AskDock.TestIds.dock)
     }
 
     /// The height animates over `standard` (nil under reduce motion: the
@@ -189,21 +195,5 @@ extension AskDock {
     /// The picked plan option for a key (nil = unknown).
     static func planOption(key: String?) -> PlanOption? {
         planOptions.first { $0.key == key }
-    }
-}
-
-/// The dock's identifier, on the STACK only (see `AskDockView.body`: on a
-/// lone big card it would shadow the card's own).
-private struct AskDockStackIdentifier: ViewModifier {
-    let stacked: Bool
-
-    func body(content: Content) -> some View {
-        if stacked {
-            content
-                .accessibilityElement(children: .contain)
-                .accessibilityIdentifier(AskDock.TestIds.dock)
-        } else {
-            content
-        }
     }
 }
