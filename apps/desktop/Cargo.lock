@@ -1488,6 +1488,7 @@ version = "0.14.73"
 dependencies = [
  "core-foundation 0.10.0",
  "core-graphics 0.24.0",
+ "foreign-types",
  "image",
  "log",
  "objc2 0.6.4",

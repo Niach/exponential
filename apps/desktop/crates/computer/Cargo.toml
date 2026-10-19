@@ -34,7 +34,9 @@ x11rb = { version = "0.13", features = ["xtest", "xinput", "randr"] }
 # core-graphics, already in the tree), the window list off
 # CGWindowListCopyWindowInfo, activation through AppKit.
 [target.'cfg(target_os = "macos")'.dependencies]
-core-graphics = "0.24"
+core-graphics = { version = "0.24", features = ["highsierra"] }
+# `ForeignType::as_ptr`, to tag the event source (CGEventSourceSetUserData).
+foreign-types = "0.5"
 core-foundation = "0.10"
 objc2 = "0.6"
 objc2-app-kit = { version = "0.3", features = ["NSRunningApplication", "NSScreen", "NSWorkspace"] }
