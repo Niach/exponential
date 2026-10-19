@@ -30,25 +30,15 @@ jobs:
           # next.exponential.at) × three OSes. Staging builds pass `--features
           # staging` and carry a distinct app id so both can coexist.
           #
-          # macOS = macos-26 (EXP-1196): the linked cua driver pulls
-          # screencapturekit → apple-metal 0.8.8, whose Swift bridge compiles
-          # `#available(macOS 26.0, *)` Metal API (MTLSamplerReductionMode,
-          # MTLResidencySet, MTLLogState) and so needs an Xcode 26.x SDK.
-          # macos-14 defaults to Xcode 15.4 (SDK 14.5) and macos-15 to 16.4
-          # (SDK 15.5); macos-26 defaults to 26.x, the image build-ios.yml
-          # already uses. The .app still runs from macOS 13 (Info.plist
-          # LSMinimumSystemVersion; the bridge guards every newer call).
+          # macOS = macos-26, the image build-ios.yml already uses (EXP-1196
+          # needed its Xcode 26 SDK; EXP-1273 no longer does, the image
+          # stays). The .app still runs from macOS 13 (Info.plist
+          # LSMinimumSystemVersion).
           #
-          # Linux = ubuntu-24.04 (EXP-1196): the same driver links pipewire-rs
-          # 0.8 (libspa 0.8), whose `spa_video_info_raw` binding needs the
-          # `flags` field + unsigned `modifier` that PipeWire grew after
-          # 0.3.48 (jammy); noble ships 1.0.5. NB: the runner's glibc
-          # (ubuntu-24.04 → 2.39) is the AppImage's compatibility floor
-          # (forward-compatible only); libpipewire-0.3.so.0 is on
-          # linuxdeploy's excludelist, so the host's own PipeWire is loaded,
-          # never a bundled copy. The fleet's Linux desktops are 24.04-based
-          # (Mint 22); the Linux CLI legs stay on 22.04 because the daemon
-          # never links cua on Linux (crates/cli/Cargo.toml).
+          # Linux = ubuntu-24.04: the runner's glibc (2.39) is the AppImage's
+          # compatibility floor (forward-compatible only); the fleet's Linux
+          # desktops are 24.04-based (Mint 22). Computer use is pure-Rust X11
+          # since EXP-1273: nothing system-side at build or load time.
           all='[
             {"os":"macos-26","target":"aarch64-apple-darwin","channel":"production"},
             {"os":"macos-26","target":"aarch64-apple-darwin","channel":"staging"},

@@ -1603,6 +1603,10 @@ impl SessionCtx {
             // EXP-1331: a turn's tool caption ends with it.
             if idle {
                 self.tool_caption.set(None);
+            } else {
+                // EXP-1273: a new turn answers an Esc that aborted the
+                // run's computer use.
+                coding::computer::turn_started(&self.session_id);
             }
             self.aside_turn_edge(idle);
             // EXP-850 §8: a turn that ended runs no workflow — the caption

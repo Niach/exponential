@@ -139,27 +139,25 @@ impl Extras {
 /// alias lands ([`computer_use_section`]).
 pub const COMPUTER_USE_SECTION: &str = "# Computer use
 
-This device lets you see and drive its desktop through the `computer` MCP server (the cua \
-driver): `list_apps`, `list_windows`, `get_window_state`, `click`, `type_text`, `press_key`, \
-`hotkey`, `scroll`, `drag`, `invoke_menu`, `verify_state`, `get_desktop_state` and more; read the \
-tool schemas. It is the person's own screen, pointer and keyboard.
+This device lets you see and drive its desktop through the `computer` MCP server: `screenshot`, \
+`list_windows`, `activate_window`, `left_click`, `double_click`, `right_click`, `drag`, `scroll`, \
+`type`, `key`, `mouse_move`, `cursor_position`, `wait`; read the tool schemas. It is the person's \
+own screen, pointer and keyboard, in the foreground: while you drive, their input is locked and a \
+banner tells them so; their Esc aborts every call until they speak again.
 
 - Pixels come last. Prefer the Exponential tools, the team's MCP servers, your shell, a CLI or \
 an API; use the screen only when the task needs a desktop app or the person's logged-in browser.
-- One exact target per action: `list_windows`, then `get_window_state({pid, window_id})` for \
-its accessibility tree and screenshot, then act with `target: {kind: \"window\", pid, window_id}` \
-and `delivery_mode: \"background\"`, through a fresh `element_token` or pixels of THAT window. \
-Verify with `verify_state` or a fresh snapshot; an unverifiable effect is not success.
-- Background keeps the person's pointer, focus and keyboard theirs. Only a `background_unavailable` \
-refusal justifies `delivery_mode: \"foreground\"` or a desktop target (`get_desktop_state`, \
-`{kind: \"desktop\", display_id: \"primary\"}`): say so in your reply first, because that takes \
-over their pointer and keyboard.
-- Show the person a frame that matters: `screenshot_out_file` on a state tool, then file it as \
-a `label`ed picture on a Guide topic (`exponential_guide_write`, through its returned upload line).
-- Drive the screen from SUBAGENTS on model `{model}` (the `Agent` tool's `model`, a fast one by \
-design): one window per subagent, several at once when the task has several, each verifying its \
-own effects; keep the plan and the final check in this conversation. Background delivery drives \
-windows in place, so parallel subagents need no second pointer.
+- Say in your reply that you are taking the screen BEFORE the first action, and give it back \
+(stop calling) as soon as the step is done; the person cannot use their computer meanwhile.
+- Look, act, look: `screenshot`, then act on what it shows (every coordinate is in that \
+image's pixels; `list_windows` + `activate_window` put the right window in front), then \
+`screenshot` again to verify; an unverified effect is not success. A run works on one display at \
+a time; `screenshot {display}` switches.
+- Show the person a frame that matters: file a screenshot as a `label`ed picture on a Guide topic \
+(`exponential_guide_write`, through its returned upload line).
+- Drive the screen from ONE subagent at a time on model `{model}` (the `Agent` tool's `model`, a \
+fast one by design): there is one pointer and one keyboard, so screen work never runs in parallel; \
+keep the plan and the final check in this conversation.
 ";
 
 /// [`COMPUTER_USE_SECTION`] with the subagent model alias filled in.
@@ -284,7 +282,7 @@ mod tests {
         let alone = system_append_with(None, &computer("haiku"));
         assert!(alone.starts_with(playbook(false).trim_end()));
         assert!(alone.ends_with(&computer_use_section("haiku")));
-        assert!(alone.contains("SUBAGENTS on model `haiku`"));
+        assert!(alone.contains("subagent at a time on model `haiku`"));
         assert!(!alone.contains("{model}"));
         let both = system_append_with(Some("Rules"), &computer("sonnet"));
         let section = both.find("# Computer use").unwrap();

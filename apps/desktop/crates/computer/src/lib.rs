@@ -1,30 +1,25 @@
-//! EXP-1196: computer use for coding runs, through the cua driver
-//! (trycua/cua, MIT), linked. The host process (the IDE or the
-//! `exponential` daemon) serves ONE loopback MCP endpoint whose tools are
-//! cua's own (`list_windows`, `get_window_state`, `click`, `type_text`,
-//! `verify_state`, ...); the launcher hands a run a [`Grant`] when the
-//! device's Computer use switch is on.
+//! EXP-1273: computer use for coding runs, FOREGROUND only, on a thin
+//! backend of our own ([`backend`]): the agent drives the person's real
+//! pointer and keyboard through the OS input APIs (XTest, CGEvent,
+//! SendInput), sees the screen as a fitted screenshot ([`tools`]), and the
+//! person's own input is locked while it works (XInput2 slave grabs, a
+//! CGEventTap, low-level hooks) with Esc as the abort ([`host`]). No
+//! background mode, no second pointer, no accessibility tree: pixels only.
 //!
-//! The platform runtime lives in a private worker, this same executable
-//! re-run as `__private-worker` ([`worker`]): cua's topology for a GUI host.
-//! It inherits the host's OS permissions (TCC's responsibility chain), owns
-//! the agent cursor's main thread, and a crash in it never takes the host
-//! down. The worker runs while the switch is on and the hub has had a
-//! reason to start it; [`shutdown`] stops it when the switch turns off.
+//! The host process (the IDE or the `exponential` daemon) serves ONE
+//! loopback MCP endpoint ([`server`]); the launcher hands a run a [`Grant`]
+//! when the device's Computer use switch is on. Unrestricted by decision:
+//! the switch is the one gate.
 //!
-//! Unrestricted by decision: the switch is the one gate. No app blocklist,
-//! no approval cards, nothing on top of what cua itself refuses.
+//! gpui-free: the IDE's banner ("Computer use in progress · Esc to abort")
+//! follows [`set_presence_observer`]; the daemon only logs.
 
-#[cfg(feature = "cua")]
-mod channel;
-#[cfg(feature = "cua")]
-mod driver;
-#[cfg(all(feature = "cua", target_os = "linux"))]
-mod park;
+mod backend;
+mod host;
+mod keys;
 mod server;
-pub mod worker;
+mod tools;
 
-#[cfg(feature = "cua")]
 use std::sync::{Arc, OnceLock};
 
 pub use server::SERVER_NAME;
@@ -52,7 +47,7 @@ pub enum Readiness {
     Ready,
     /// An OS permission the person has to grant; the text names it.
     MissingPermission(String),
-    /// Nothing to drive here (a display-less Linux box).
+    /// Nothing to drive here (a display-less box, a Wayland session).
     Unsupported(String),
 }
 
@@ -75,109 +70,92 @@ impl Permission {
     }
 }
 
-#[cfg(feature = "cua")]
-struct Host {
+struct Live {
     hub: Arc<server::Hub>,
-    driver: Arc<driver::Driver>,
+    host: Arc<host::Host>,
     url: String,
 }
 
-/// The process-wide host, started on the first grant or prepare. An `Err`
-/// (no free port, no runtime) is remembered: it will not change under a
-/// running process.
-#[cfg(feature = "cua")]
-static HOST: OnceLock<Result<Host, String>> = OnceLock::new();
+/// The process-wide endpoint, started on the first grant. An `Err` (no free
+/// port) is remembered: it will not change under a running process.
+static LIVE: OnceLock<Result<Live, String>> = OnceLock::new();
 
-#[cfg(feature = "cua")]
-fn host() -> Result<&'static Host, String> {
-    HOST.get_or_init(|| {
-        let driver = Arc::new(driver::Driver::new(&host_bundle_id())?);
-        let hub = Arc::new(server::Hub::new(driver.clone()));
+fn live() -> Result<&'static Live, String> {
+    LIVE.get_or_init(|| {
+        let host = host::Host::new();
+        let hub = Arc::new(server::Hub::new(host.clone()));
         let url = server::serve(hub.clone())?;
         log::info!("[computer] serving computer use on {url}");
-        Ok(Host { hub, driver, url })
+        if let Some(presence) = PRESENCE.get() {
+            host.set_presence(presence.clone());
+        }
+        Ok(Live { hub, host, url })
     })
     .as_ref()
     .map_err(Clone::clone)
 }
 
-/// Why computer use is not in this binary at all, if so.
-const NOT_LINKED: Option<&str> = if cfg!(feature = "cua") {
-    None
-} else {
-    Some("Not available in this build (the Linux daemon); use the desktop app.")
-};
-
-/// The advisory host identity cua echoes in its diagnostics (never a trust
-/// signal): the executable's name under the app's reverse domain.
-#[cfg(feature = "cua")]
-fn host_bundle_id() -> String {
-    let stem = std::env::current_exe()
-        .ok()
-        .and_then(|exe| exe.file_stem().map(|stem| stem.to_string_lossy().into_owned()))
-        .unwrap_or_else(|| "host".to_string());
-    format!("at.exponential.{stem}")
-}
-
-/// Why this machine cannot drive anything at all, if so.
-fn unsupported() -> Option<String> {
-    if let Some(reason) = NOT_LINKED {
-        return Some(reason.to_string());
-    }
-    #[cfg(target_os = "linux")]
-    if std::env::var_os("DISPLAY").is_none() && std::env::var_os("WAYLAND_DISPLAY").is_none() {
-        return Some("No display session (neither DISPLAY nor WAYLAND_DISPLAY).".to_string());
-    }
-    None
-}
+/// The IDE's banner, registered before the endpoint exists.
+static PRESENCE: OnceLock<host::Presence> = OnceLock::new();
 
 /// Admit the run `session_id`; a grant it held before stops working.
-/// `label` is what the agent cursor's badge shows for the run (the issue's
-/// identifier, the action's name).
+/// `label` is what the banner shows for the run (the issue's identifier,
+/// the action's name).
 pub fn grant(session_id: &str, label: &str) -> Result<Grant, String> {
-    if let Some(reason) = unsupported() {
+    if let Some(reason) = backend::unsupported() {
         return Err(reason);
     }
-    #[cfg(feature = "cua")]
-    {
-        let host = host()?;
-        Ok(Grant { url: host.url.clone(), token: host.hub.grant(session_id, label) })
-    }
-    #[cfg(not(feature = "cua"))]
-    unreachable!("{session_id} {label}")
+    let live = live()?;
+    Ok(Grant { url: live.url.clone(), token: live.hub.grant(session_id, label) })
 }
 
-/// The run ended: its token is dead and its session closed.
+/// The run ended: its token is dead, its abort state gone, the lock
+/// released when it was the last user.
 pub fn revoke(session_id: &str) {
-    #[cfg(feature = "cua")]
-    if let Some(Ok(host)) = HOST.get() {
-        host.hub.revoke(session_id);
+    if let Some(Ok(live)) = LIVE.get() {
+        live.hub.revoke(session_id);
     }
-    #[cfg(not(feature = "cua"))]
-    let _ = session_id;
+}
+
+/// The run's turn began (the person's next message): an Esc that aborted
+/// it is answered, its calls work again.
+pub fn turn_started(session_id: &str) {
+    if let Some(Ok(live)) = LIVE.get() {
+        live.host.turn_started(session_id);
+    }
+}
+
+/// What the host does when the person's Esc aborts `session_id`'s computer
+/// use: the engine's Cancel of the running turn.
+pub fn on_abort(session_id: &str, hook: Arc<dyn Fn() + Send + Sync>) {
+    if let Ok(live) = live() {
+        live.host.set_hook(session_id, hook);
+    }
+}
+
+/// Who hears the lock engage (`Some(label)`) and release (`None`): the
+/// IDE's banner. Called at once with the current state.
+pub fn set_presence_observer(observer: impl Fn(Option<String>) + Send + Sync + 'static) {
+    let presence: host::Presence = Arc::new(observer);
+    if PRESENCE.set(presence.clone()).is_err() {
+        log::warn!("[computer] a presence observer was already set");
+        return;
+    }
+    match LIVE.get() {
+        Some(Ok(live)) => live.host.set_presence(presence),
+        _ => presence(None),
+    }
 }
 
 /// Every OS permission computer use needs here and whether it is granted,
 /// read WITHOUT prompting (the device doctor's rows). Empty where the OS
-/// asks for none up front (Windows, X11; a Wayland desktop's portals ask
-/// per session, inside cua).
+/// asks for none up front (Windows, X11).
 pub fn permissions() -> Vec<(Permission, bool)> {
-    #[cfg(all(target_os = "macos", feature = "cua"))]
-    {
-        let status = cua_driver_sdk::current_mac_os_permission_status();
-        vec![
-            (Permission::ScreenRecording, status.screen_recording),
-            (Permission::Accessibility, status.accessibility),
-        ]
-    }
-    #[cfg(not(all(target_os = "macos", feature = "cua")))]
-    {
-        Vec::new()
-    }
+    backend::permissions()
 }
 
 fn readiness_of(permissions: &[(Permission, bool)]) -> Readiness {
-    if let Some(reason) = unsupported() {
+    if let Some(reason) = backend::unsupported() {
         return Readiness::Unsupported(reason);
     }
     match permissions.iter().find(|(_, granted)| !granted) {
@@ -198,26 +176,17 @@ pub fn readiness() -> Readiness {
 }
 
 /// The switch is on: ask the OS for every permission computer use needs NOW
-/// (macOS Screen Recording + Accessibility, attributed to this app, which
-/// the worker then inherits; a Wayland desktop's portal consents through
-/// the worker) and bring the worker up, so nothing interrupts a run. Blocks while a dialog waits: off the UI thread, see
-/// [`prepare_in_background`].
+/// (macOS Screen Recording + Accessibility) and prove the backend opens, so
+/// nothing interrupts a run. Blocks while a dialog waits: off the UI
+/// thread, see [`prepare_in_background`].
 pub fn prepare() -> Readiness {
-    #[cfg(all(target_os = "macos", feature = "cua"))]
-    let permissions = {
-        let status = cua_driver_sdk::request_mac_os_permissions();
-        vec![
-            (Permission::ScreenRecording, status.screen_recording),
-            (Permission::Accessibility, status.accessibility),
-        ]
-    };
-    #[cfg(not(all(target_os = "macos", feature = "cua")))]
-    let permissions = permissions();
-    let readiness = readiness_of(&permissions);
-    #[cfg(feature = "cua")]
+    let readiness = readiness_of(&backend::request_permissions());
     if readiness == Readiness::Ready {
-        match host().and_then(|host| host.driver.start().map(|()| host)) {
-            Ok(host) => host.driver.warm_up(),
+        match backend::open() {
+            Ok(backend) => match backend.displays() {
+                Ok(displays) => log::info!("[computer] computer use is ready ({} display(s))", displays.len()),
+                Err(reason) => log::warn!("[computer] the screen does not answer: {reason}"),
+            },
             Err(reason) => log::warn!("[computer] {reason}"),
         }
     }
@@ -233,7 +202,7 @@ pub fn prepare_in_background() {
     }
     std::thread::spawn(|| {
         match prepare() {
-            Readiness::Ready => log::info!("[computer] computer use is ready"),
+            Readiness::Ready => {}
             Readiness::MissingPermission(reason) | Readiness::Unsupported(reason) => {
                 log::warn!("[computer] computer use is not ready: {reason}")
             }
@@ -242,20 +211,17 @@ pub fn prepare_in_background() {
     });
 }
 
-/// The switch turned off: every run's grant ends and the worker stops (its
-/// agent cursor with it). Grants after this start it again.
+/// The switch turned off: every run's grant ends and the person's input is
+/// theirs again. Grants after this work again.
 pub fn shutdown() {
-    #[cfg(feature = "cua")]
-    if let Some(Ok(host)) = HOST.get() {
-        host.hub.revoke_all();
-        host.driver.stop();
+    if let Some(Ok(live)) = LIVE.get() {
+        live.hub.revoke_all();
+        live.host.shutdown();
     }
 }
 
-/// Whether the worker runs right now.
+/// Whether an agent drives the screen right now (the person's input is
+/// locked).
 pub fn running() -> bool {
-    #[cfg(feature = "cua")]
-    return matches!(HOST.get(), Some(Ok(host)) if host.driver.is_live());
-    #[cfg(not(feature = "cua"))]
-    false
+    matches!(LIVE.get(), Some(Ok(live)) if live.host.engaged())
 }

@@ -329,9 +329,9 @@ fn undocked_root(
 // Duplicates `app::channel::APP_ID` (ui cannot depend on the app crate) via
 // the same compile-time channel feature — the CLOUD_INSTANCE precedent.
 #[cfg(not(feature = "staging"))]
-const CHANNEL_APP_ID: &str = "at.exponential";
+pub(crate) const CHANNEL_APP_ID: &str = "at.exponential";
 #[cfg(feature = "staging")]
-const CHANNEL_APP_ID: &str = "at.exponential.staging";
+pub(crate) const CHANNEL_APP_ID: &str = "at.exponential.staging";
 
 /// Activate an already-open undocked window (dedupe path), deferred out of
 /// the caller's window update.

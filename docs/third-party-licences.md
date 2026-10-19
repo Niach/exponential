@@ -294,17 +294,15 @@ SVG under `brand/`, a row in `icons.json` `brand` (with `owner`), a row in
 `contract.json` `mcpCatalog`, a `TRADEMARKS` row in
 `packages/licenses/curated/supplement.ts`, then the three generators.
 
-### The cua driver in computer use (2026-10-06)
+### The cua driver, gone (EXP-1273, 2026-10-19)
 
-`apps/desktop/crates/computer` (EXP-1196) LINKS the cua driver (trycua/cua,
-MIT, Cua AI, Inc.) as ordinary git dependencies pinned to one revision
-(`cua-driver-sdk`, `cursor-overlay`, `platform-macos` and what they pull);
-nothing of it is copied into this repository. They are `publish = false`,
-so `collect:rust` reads them off `cargo metadata` like every other crate, the
-desktop notice attributes them from the inventory, and `uniffi` (their
-binding layer, MPL-2.0, unmodified) gets its source URL through
-`MPL_SOURCE_URLS`. Bumping the pin = the same four rev strings in the
-crate's `Cargo.toml`, then `collect:rust` + `generate`.
+`apps/desktop/crates/computer` linked the cua driver (trycua/cua, MIT) from
+EXP-1196 to EXP-1273. It links nothing of it any more: computer use is a
+thin foreground backend of our own on crates already in the tree (`x11rb`,
+`core-graphics` and the `objc2` family, `windows-sys`, `image`), so the git
+dependency, its `uniffi` binding layer, the fetched `cua-LICENSE.txt`
+reproduction and the curated supplement rows for them went with it; nothing
+of cua was ever copied into this repository.
 
 ### Codex, a managed download (EXP-1232, 2026-10-07)
 

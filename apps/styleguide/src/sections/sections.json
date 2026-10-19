@@ -16,7 +16,7 @@
       "stack-merge-choice-dialog", "draft-leave-dialog", "readiness-checklist",
       "device-readiness", "results-guide", "mcp-app-views", "run-status-row", "session-thread", "composer-options",
       "work-card", "thread-parts", "ask-dock", "plan-card", "script-card", "comment-call-card",
-      "team-agents-settings", "voice-call-overlay",
+      "team-agents-settings", "voice-call-overlay", "computer-use-banner",
       "agent-home", "work-tabs-strip",
       "getting-started"
     ] },
@@ -64,6 +64,7 @@
     "comment-call-card": "EXP-1241",
     "team-agents-settings": "EXP-1293",
     "voice-call-overlay": "EXP-1268",
+    "computer-use-banner": "EXP-1273",
     "feedback-states": "EXP-1275",
     "agent-home": "EXP-1293",
     "work-tabs-strip": "EXP-1255",

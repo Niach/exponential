@@ -2,11 +2,7 @@
 //! plain JSON (no SSE stream; a `GET` is refused, which the transport
 //! allows). One listener per host process; each run reaches it with its own
 //! bearer token ([`crate::grant`]), which is what names the run. The tools
-//! are cua's, verbatim: the hub only routes a call to the run's session.
-
-// Without cua linked nothing serves; the hub still compiles (and its tests
-// run against the fake host) so the two builds share one file.
-#![cfg_attr(not(feature = "cua"), allow(dead_code))]
+//! are [`crate::tools`]'s: the hub only routes a call to the run.
 
 use std::collections::HashMap;
 use std::io::Read;
@@ -14,10 +10,9 @@ use std::sync::{Arc, Mutex};
 
 use serde_json::{json, Value};
 
-/// What the hub asks of the driver ([`crate::driver::Driver`] when cua is
-/// linked; a fake in tests).
+/// What the hub asks of the host ([`crate::host::Host`]; a fake in tests).
 pub(crate) trait ToolHost: Send + Sync {
-    /// cua's `tools/list` tools array.
+    /// The `tools/list` tools array.
     fn tools(&self) -> Result<Value, String>;
     /// One `tools/call`, answered as an MCP call result (never an error at
     /// the JSON-RPC level: a refusal is content the agent must read).
@@ -33,7 +28,7 @@ const BODY_MAX_BYTES: u64 = 4 * 1024 * 1024;
 
 pub(crate) struct Run {
     pub session_id: String,
-    /// What the agent cursor's badge shows for this run.
+    /// What the banner shows for this run.
     pub label: String,
 }
 
@@ -116,17 +111,13 @@ impl Hub {
 }
 
 /// What the agent reads at `initialize`; the per-tool schemas carry the
-/// rest. The one Exponential rule on top of cua's: say so in the run before
-/// the first foreground action, because that one moves the person's pointer.
-const INSTRUCTIONS: &str = "This computer's desktop, through the cua driver. Find the target with \
-list_apps / list_windows, observe it with get_window_state (accessibility tree + screenshot), act \
-with click / type_text / press_key / hotkey on an exact target {kind:\"window\", pid, window_id} and \
-delivery_mode \"background\" (the window is driven in place; the person's pointer, focus and \
-keyboard stay theirs), then verify with verify_state or a fresh get_window_state. A \
-background_unavailable refusal is the only reason to switch to delivery_mode \"foreground\" or a \
-desktop target (get_desktop_state + {kind:\"desktop\", display_id:\"primary\"}): tell the person in \
-your reply first, because that takes over their pointer and keyboard. Use returned element tokens, \
-never invented indices; an unverifiable effect is not success.";
+/// rest. The one rule on top of the schemas: this is the person's own
+/// screen, taken over.
+const INSTRUCTIONS: &str = "This computer's desktop, in the foreground: the person's own screen, pointer and \
+keyboard. While you drive, their input is locked and a banner tells them so; their Esc aborts \
+every call until they speak again. Take a screenshot, act on what it shows (every coordinate is in \
+the screenshot's pixels), take another to verify; an unverified effect is not success. Say in your \
+reply that you are taking the screen before the first action.";
 
 /// Bind loopback and serve `hub` on a background thread; returns the URL.
 pub(crate) fn serve(hub: Arc<Hub>) -> Result<String, String> {
@@ -193,7 +184,7 @@ fn respond(hub: &Hub, mut request: tiny_http::Request) {
 mod tests {
     use super::*;
 
-    /// A host that records what it was asked and answers like cua would.
+    /// A host that records what it was asked.
     #[derive(Default)]
     struct FakeHost {
         calls: Mutex<Vec<String>>,
@@ -229,7 +220,7 @@ mod tests {
     }
 
     #[test]
-    fn initialize_echoes_a_known_protocol_version_and_lists_cuas_tools() {
+    fn initialize_echoes_a_known_protocol_version_and_lists_the_tools() {
         let (hub, _) = hub();
         let token = hub.grant("s1", "EXP-1");
         let init = hub
@@ -237,7 +228,7 @@ mod tests {
             .unwrap();
         assert_eq!(init["result"]["protocolVersion"], "2025-03-26");
         assert_eq!(init["result"]["serverInfo"]["name"], "computer");
-        assert!(init["result"]["instructions"].as_str().unwrap().contains("delivery_mode"));
+        assert!(init["result"]["instructions"].as_str().unwrap().contains("Esc"));
         assert!(hub.handle(&token, &json!({ "jsonrpc": "2.0", "method": "notifications/initialized" })).is_none());
         let tools = hub.handle(&token, &json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" })).unwrap();
         let names: Vec<&str> = tools["result"]["tools"]
@@ -255,7 +246,7 @@ mod tests {
     fn a_call_goes_to_the_runs_session_with_its_label_and_the_result_passes_through() {
         let (hub, host) = hub();
         let (one, two) = (hub.grant("s1", "EXP-1"), hub.grant("s2", "Chat"));
-        let args = json!({ "target": { "kind": "window", "pid": 7, "window_id": 9 }, "x": 10, "y": 10, "delivery_mode": "background" });
+        let args = json!({ "x": 10, "y": 10 });
         let reply = call(&hub, &one, "click", args.clone());
         assert_eq!(reply["result"]["structuredContent"]["effect"], "confirmed");
         call(&hub, &two, "list_windows", json!({}));

@@ -606,6 +606,17 @@ export const componentStyles = `
   color: var(--fg);
 }
 .cmp-bulk-bar .glyph { width: 16px; height: 16px; }
+/* EXP-1273: the computer-use banner's key chip, inside the same capsule. */
+.cmp-bulk-bar .cmp-kbd {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 6px;
+  border: 1px solid var(--stroke-soft);
+  border-radius: var(--r-md);
+  font-size: 12px;
+  color: var(--fg);
+}
 
 /* -------------------------------------------------------------- divider */
 .cmp-divider { height: 1px; background: var(--stroke-soft); }

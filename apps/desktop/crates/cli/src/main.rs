@@ -135,13 +135,7 @@ fn maybe_prompt_auto_update() {
 }
 
 fn main() -> ExitCode {
-    // EXP-1196: the computer-use host re-runs this executable as cua's
-    // private worker (`exponential __private-worker --generation <id>`);
-    // that process is the driver and nothing else, before any other setup.
-    if let Some(generation) = coding::computer::worker::requested_generation() {
-        coding::computer::worker::run_and_exit(generation);
-    }
-    // EXP-1287: and as code mode's script worker (`__codemode-worker`, one
+    // EXP-1287: code mode's script worker (`__codemode-worker`, one
     // child per `exec`): the engine and nothing else, killable by its host.
     if coding::codemode::worker::requested() {
         coding::codemode::worker::run_and_exit();
@@ -171,7 +165,7 @@ fn main() -> ExitCode {
     }
 
     // EXP-1196: a host whose Computer use switch is on asks the OS
-    // permissions and brings the cua worker up now, not mid-run.
+    // permissions now, not mid-run.
     if matches!(command, "code" | "run" | "daemon") {
         let data_dir = context::data_dir();
         if coding::Settings::load(&coding::Settings::default_path(&data_dir)).computer_use {

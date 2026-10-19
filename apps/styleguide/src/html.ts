@@ -75,6 +75,9 @@ export const svgPaperclip = glyph(
 )
 export const svgMessageCircle = glyph(`<path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/>`)
 export const svgX = glyph(`<path d="M18 6 6 18"/><path d="m6 6 12 12"/>`)
+export const svgComputer = glyph(
+  `<rect width="14" height="8" x="5" y="2" rx="2"/><rect width="20" height="8" x="2" y="14" rx="2"/><path d="M6 18h2"/><path d="M12 18h6"/>`
+)
 export const svgCheck = glyph(`<path d="M20 6 9 17l-5-5"/>`)
 export const svgCircleHelp = glyph(
   `<circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/>`

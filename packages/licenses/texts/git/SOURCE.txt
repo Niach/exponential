@@ -1,10 +1,9 @@
 Repository-root licence files of git-pinned Rust dependencies whose crate
-directories ship no licence file of their own, vendored verbatim:
+directories ship no licence file of their own, vendored verbatim. None at
+the moment: the cua driver (EXP-1196) was the one such dependency and
+EXP-1273 removed it.
 
-  cua-LICENSE.txt
-    https://github.com/trycua/cua/blob/73387960d56a99dd2f607cef9b2bdae57e373217/LICENSE.md
-
-The curated supplement (curated/supplement.ts) reproduces each one under its
-own heading, so the copyright line the SPDX template lacks reaches the
-notices. Re-fetch by hand when apps/desktop/crates/computer/Cargo.toml moves
-the pin; do not hand-edit these files.
+When one returns: fetch the file by hand at the pinned revision, list it
+here with its URL, and reproduce it under its own heading in the curated
+supplement (curated/supplement.ts) so the copyright line the SPDX template
+lacks reaches the notices; do not hand-edit the fetched files.

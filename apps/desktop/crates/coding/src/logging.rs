@@ -173,6 +173,9 @@ const WORKSPACE_TARGETS: &[&str] = &[
     "domain",
     "steer",
     "engine",
+    // EXP-1273: the device's computer-use and code-mode servers.
+    "computer",
+    "codemode",
     "sync",
     "theme",
     "updater",

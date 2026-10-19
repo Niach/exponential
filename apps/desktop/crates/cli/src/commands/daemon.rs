@@ -1903,8 +1903,8 @@ fn apply_server_defaults(
         }
         log::info!("launch defaults: applied the server copy");
         // EXP-1196: the switch flipped from another client: on = ask this
-        // machine's permissions and start the cua worker now, not in the
-        // middle of a run; off = stop it (its agent cursor goes with it).
+        // machine's permissions now, not in the middle of a run; off = end
+        // every grant and give the person their input back.
         if settings.computer_use && !was_on {
             coding::computer::prepare_in_background();
         } else if !settings.computer_use && was_on {

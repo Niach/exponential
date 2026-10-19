@@ -8,8 +8,9 @@
 //!
 //! Why (the Linux "+" crash): gpui_linux runs the xdg-desktop-portal
 //! FileChooser through ashpd → zbus, spawned on gpui's FOREGROUND executor.
-//! Since EXP-1196 the IDE links cua's `platform-linux`, which turns on zbus'
-//! `tokio` feature; cargo unifies it, so zbus connects its D-Bus socket with
+//! EXP-1196 linked a driver that turned on zbus' `tokio` feature (gone since
+//! EXP-1273, but any dependency may bring it back and cargo unifies it): zbus
+//! then connects its D-Bus socket with
 //! `tokio::net::UnixStream::from_std` and spawns through
 //! `tokio::task::spawn_blocking` — both panic ("there is no reactor running,
 //! must be called from the context of a Tokio 1.x runtime") on gpui's main
