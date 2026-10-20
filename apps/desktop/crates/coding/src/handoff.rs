@@ -13,8 +13,10 @@
 //!    [`JOURNAL`], claude's [`NATIVE`] transcript and the workspace — a
 //!    repo worktree as a `git bundle` of `HEAD` past `origin/<base>`
 //!    ([`BUNDLE`]), `git diff --binary HEAD` ([`DIFF`]), the staged
-//!    `git diff --cached` ([`INDEX`]) and the untracked, non-ignored files
-//!    ([`UNTRACKED`]); a repo-less scratch dir whole
+//!    `git diff --cached` as a manifest field (`Manifest::index_diff`: a
+//!    0.14.73 target, whose whitelist refuses any entry it does not know,
+//!    skips the field and still restores the rest) and the untracked,
+//!    non-ignored files ([`UNTRACKED`]); a repo-less scratch dir whole
 //!    ([`SCRATCH`]). Over [`api::session_device::HANDOFF_MAX_BYTES`] the
 //!    transcript goes first, then the journal; a workspace that alone is too
 //!    big fails the move (work is never dropped);
@@ -58,12 +60,13 @@ pub const JOURNAL: &str = "journal.jsonl";
 pub const NATIVE: &str = "native.jsonl";
 pub const BUNDLE: &str = "worktree.bundle";
 pub const DIFF: &str = "worktree.diff";
-/// EXP-1355: the staged half, `git diff --cached --binary HEAD`, applied to
-/// the index only after [`DIFF`] restored the files.
-pub const INDEX: &str = "index.diff";
 pub const UNTRACKED: &str = "untracked.tar";
 pub const SCRATCH: &str = "scratch.tar";
-const ENTRIES: [&str; 8] = [MANIFEST, JOURNAL, NATIVE, BUNDLE, DIFF, INDEX, UNTRACKED, SCRATCH];
+const ENTRIES: [&str; 7] = [MANIFEST, JOURNAL, NATIVE, BUNDLE, DIFF, UNTRACKED, SCRATCH];
+/// EXP-1355: where [`restore_repo`] writes the staged patch it decodes from
+/// `Manifest::index_diff` (inside the extracted package dir; never a tar
+/// entry: a 0.14.73 target's whitelist would refuse the whole package).
+const INDEX_DIFF_FILE: &str = "index.diff";
 
 /// `{data_dir}/handoffs/` — downloaded packages and the pending-cleanup list.
 pub const HANDOFFS_DIR: &str = "handoffs";
@@ -166,6 +169,13 @@ pub struct Manifest {
     /// consumes them, never delivers them again.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub pending_consumes: Vec<String>,
+    /// EXP-1355: the staged half, `git diff --cached --binary HEAD`,
+    /// base64 ([`base64_encode`]), applied to the index only after [`DIFF`]
+    /// restored the files. A manifest field rather than a tar entry so a
+    /// target that predates it ignores it (the [`DIFF`] carries the staged
+    /// content too: only the index split is lost there).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub index_diff: Option<String>,
 }
 
 /// Why a package was not made.
@@ -337,7 +347,7 @@ fn pack_repo(
     }
     let staged = git(&["diff", "--cached", "--binary", "HEAD"])?;
     if !staged.is_empty() {
-        parts.push((INDEX, staged));
+        manifest.index_diff = Some(base64_encode(&staged));
     }
     let listed = git(&["ls-files", "--others", "--exclude-standard", "-z"])?;
     let files: Vec<String> = listed
@@ -522,6 +532,63 @@ fn plain_segment(id: &str) -> bool {
     !id.is_empty() && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
 }
 
+const BASE64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+/// Standard base64 (RFC 4648, padded) of `bytes`: how a binary patch rides
+/// in the JSON manifest (`Manifest::index_diff`).
+pub fn base64_encode(bytes: &[u8]) -> String {
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let n = (u32::from(chunk[0]) << 16)
+            | (u32::from(chunk.get(1).copied().unwrap_or(0)) << 8)
+            | u32::from(chunk.get(2).copied().unwrap_or(0));
+        out.push(BASE64[(n >> 18) as usize & 63] as char);
+        out.push(BASE64[(n >> 12) as usize & 63] as char);
+        out.push(if chunk.len() > 1 { BASE64[(n >> 6) as usize & 63] as char } else { '=' });
+        out.push(if chunk.len() > 2 { BASE64[n as usize & 63] as char } else { '=' });
+    }
+    out
+}
+
+/// The inverse of [`base64_encode`] (whitespace skipped, padding required).
+pub fn base64_decode(text: &str) -> Result<Vec<u8>, String> {
+    fn digit(byte: u8) -> Option<u32> {
+        let value = match byte {
+            b'A'..=b'Z' => byte - b'A',
+            b'a'..=b'z' => byte - b'a' + 26,
+            b'0'..=b'9' => byte - b'0' + 52,
+            b'+' => 62,
+            b'/' => 63,
+            _ => return None,
+        };
+        Some(u32::from(value))
+    }
+    let digits: Vec<u8> = text.bytes().filter(|byte| !byte.is_ascii_whitespace()).collect();
+    if digits.len() % 4 != 0 {
+        return Err("base64 of a length not a multiple of 4".to_string());
+    }
+    let mut out = Vec::with_capacity(digits.len() / 4 * 3);
+    for quad in digits.chunks(4) {
+        let pad = quad.iter().rev().take_while(|byte| **byte == b'=').count();
+        if pad > 2 {
+            return Err("base64 padding".to_string());
+        }
+        let mut n = 0u32;
+        for byte in &quad[..4 - pad] {
+            n = (n << 6) | digit(*byte).ok_or_else(|| format!("base64 digit {:?}", *byte as char))?;
+        }
+        n <<= 6 * pad as u32;
+        out.push((n >> 16) as u8);
+        if pad < 2 {
+            out.push((n >> 8) as u8);
+        }
+        if pad < 1 {
+            out.push(n as u8);
+        }
+    }
+    Ok(out)
+}
+
 // ── The target side ───────────────────────────────────────────────────────
 
 /// What the launcher restores on a resume that came with a package.
@@ -574,8 +641,10 @@ pub fn restore_repo(cwd: &Path, import: &HandoffImport) -> Result<(), String> {
         let diff = diff.to_string_lossy().into_owned();
         git(&["apply", "--binary", "--whitespace=nowarn", &diff])?;
     }
-    let staged = import.dir.join(INDEX);
-    if staged.is_file() {
+    if let Some(encoded) = manifest.index_diff.as_deref() {
+        let patch = base64_decode(encoded).map_err(|err| format!("the staged patch: {err}"))?;
+        let staged = import.dir.join(INDEX_DIFF_FILE);
+        std::fs::write(&staged, patch).map_err(|err| format!("write {INDEX_DIFF_FILE}: {err}"))?;
         let staged = staged.to_string_lossy().into_owned();
         git(&["apply", "--cached", "--binary", "--whitespace=nowarn", &staged])?;
     }
@@ -885,6 +954,13 @@ pub struct MovedAway {
     /// target holds the work, the workspace here may go.
     #[serde(default)]
     pub restored: bool,
+    /// The device THIS move went to (`move_to_device_id` when packed). A
+    /// restore marker counts only while the row sits on it: a later move
+    /// elsewhere (a target whose restore failed moving on fresh) restores
+    /// THAT package, not ours, and the copy here stays. Absent (an entry
+    /// written before the field) = any marker counts.
+    #[serde(default)]
+    pub target: Option<String>,
 }
 
 fn moved_away_path(data_dir: &Path) -> PathBuf {
@@ -937,10 +1013,11 @@ fn update_moved_away(data_dir: &Path, session_id: &str, patch: impl FnOnce(&mut 
 
 /// The sessions whose local copy has a [`cleanup`] step due now, for rows
 /// handed off from here that name another device: the target RESTORED it
-/// (`handoff_restored_at`, recorded on the entry — the workspace goes), or
-/// it CLAIMED it (status past `queued`, not yet released — the run record
-/// goes). A row back on THIS device (moved back before the target took it)
-/// drops the pending cleanup — the copy is the live one again.
+/// (`handoff_restored_at` while the row is on [`MovedAway::target`],
+/// recorded on the entry — the workspace goes), or it CLAIMED it (status
+/// past `queued`, not yet released — the run record goes). A row back on
+/// THIS device (moved back before the target took it) drops the pending
+/// cleanup — the copy is the live one again.
 pub fn cleanups_due(data_dir: &Path, device_id: &str, sessions: &[domain::rows::SessionRow]) -> Vec<String> {
     let entries = moved_away(data_dir);
     if entries.is_empty() {
@@ -953,7 +1030,11 @@ pub fn cleanups_due(data_dir: &Path, device_id: &str, sessions: &[domain::rows::
             forget_moved_away(data_dir, &entry.session_id);
             continue;
         }
-        if entry.restored || row.handoff_restored() {
+        // The marker is ours only on our target: set once the row moved on
+        // (B → C restored B's package) it says nothing about the work here.
+        let restored_by_target = row.handoff_restored()
+            && entry.target.as_deref().is_none_or(|target| row.device_id.as_deref() == Some(target));
+        if entry.restored || restored_by_target {
             if !entry.restored {
                 update_moved_away(data_dir, &entry.session_id, |entry| entry.restored = true);
             }
@@ -1166,6 +1247,15 @@ mod tests {
         assert!(package.manifest.bundle);
         assert_eq!(package.manifest.pending_consumes, vec!["m1".to_string()]);
         assert_eq!(package.manifest.native_session_id.as_deref(), Some("native-1"));
+        // EXP-1355: the staged half rides in the MANIFEST (a 0.14.73 target
+        // refuses any tar entry it does not know; it skips a field).
+        let staged = base64_decode(package.manifest.index_diff.as_deref().expect("staged patch")).unwrap();
+        assert_eq!(String::from_utf8_lossy(&staged).trim_end(), git(wt, &["diff", "--cached", "--binary", "HEAD"]));
+        let names = entry_names(&package.bytes);
+        assert!(!names.iter().any(|name| name == "index.diff"), "{names:?}");
+        assert!(names.iter().all(|name| ENTRIES.contains(&name.as_str())), "{names:?}");
+        let json: serde_json::Value = serde_json::from_slice(&manifest_of(&package.bytes)).unwrap();
+        assert!(json.get("indexDiff").is_some_and(serde_json::Value::is_string));
 
         let target = restore_on_target(&repos, &package);
         assert_eq!(git(&target, &["rev-parse", "HEAD"]), git(wt, &["rev-parse", "HEAD"]));
@@ -1194,6 +1284,7 @@ mod tests {
         };
         let package = build_package(&source, 64 * 1024 * 1024).unwrap();
         assert!(!package.manifest.bundle);
+        assert!(package.manifest.index_diff.is_none(), "nothing staged: no field");
         assert!(package.manifest.base_sha.is_some());
         assert_eq!(package.manifest.head_sha, package.manifest.base_sha);
         let target = restore_on_target(&repos, &package);
@@ -1321,6 +1412,60 @@ mod tests {
         let _ = std::fs::remove_dir_all(dir);
     }
 
+    /// The top-level entry names of a package.
+    fn entry_names(package: &[u8]) -> Vec<String> {
+        let mut archive = tar::Archive::new(flate2::read::GzDecoder::new(package));
+        archive
+            .entries()
+            .unwrap()
+            .map(|entry| entry.unwrap().path().unwrap().to_string_lossy().into_owned())
+            .collect()
+    }
+
+    /// The raw `manifest.json` bytes of a package.
+    fn manifest_of(package: &[u8]) -> Vec<u8> {
+        let mut archive = tar::Archive::new(flate2::read::GzDecoder::new(package));
+        for entry in archive.entries().unwrap() {
+            let mut entry = entry.unwrap();
+            if entry.path().unwrap() == Path::new(MANIFEST) {
+                let mut bytes = Vec::new();
+                entry.read_to_end(&mut bytes).unwrap();
+                return bytes;
+            }
+        }
+        panic!("no manifest")
+    }
+
+    #[test]
+    fn base64_round_trips_every_byte_and_refuses_junk() {
+        let all: Vec<u8> = (0..=255u8).collect();
+        for len in [0usize, 1, 2, 3, 4, 5, 255, 256] {
+            let bytes = &all[..len];
+            let text = base64_encode(bytes);
+            assert_eq!(text.len() % 4, 0);
+            assert_eq!(base64_decode(&text).unwrap(), bytes, "len {len}");
+        }
+        assert_eq!(base64_encode(b"Man"), "TWFu");
+        assert_eq!(base64_encode(b"Ma"), "TWE=");
+        assert_eq!(base64_encode(b"M"), "TQ==");
+        assert_eq!(base64_decode("TW\nFu").unwrap(), b"Man");
+        assert!(base64_decode("TWF").is_err());
+        assert!(base64_decode("TW!u").is_err());
+        assert!(base64_decode("T===").is_err());
+    }
+
+    /// The 0.14.73 target's `Manifest` (same serde shape, no
+    /// `deny_unknown_fields`) reads a manifest with fields it predates.
+    #[test]
+    fn a_manifest_with_unknown_fields_still_parses() {
+        let json = r#"{"version":1,"sessionId":"s1","indexDiff":"TWFu","somethingNewer":{"x":1}}"#;
+        let manifest: Manifest = serde_json::from_str(json).unwrap();
+        assert_eq!(manifest.index_diff.as_deref(), Some("TWFu"));
+        let without: Manifest = serde_json::from_str(r#"{"version":1,"sessionId":"s1"}"#).unwrap();
+        assert!(without.index_diff.is_none());
+        assert!(!serde_json::to_string(&without).unwrap().contains("indexDiff"), "absent when nothing is staged");
+    }
+
     #[test]
     fn a_workspace_tar_never_writes_outside() {
         let dst = temp("unpack");
@@ -1436,6 +1581,7 @@ mod tests {
                 cwd: scratch.clone(),
                 native: Some(native.clone()),
                 native_packaged: true,
+                target: Some("other".to_string()),
                 ..MovedAway::default()
             },
         );
@@ -1489,6 +1635,57 @@ mod tests {
         let back = domain::rows::SessionRow { id: "s2".to_string(), device_id: Some("me".to_string()), status: Some("running".to_string()), ..Default::default() };
         assert!(cleanups_due(&data, "me", &[back]).is_empty());
         assert!(moved_away(&data).is_empty());
+        let _ = std::fs::remove_dir_all(data);
+    }
+
+    /// A → B: B claims, its restore fails (fresh launch, no marker). Later
+    /// B → C: C restores B's partial package and sets the marker with the
+    /// row on C. A's copy is the only one of the work B never restored: the
+    /// marker on another device than A's target never settles it.
+    #[test]
+    fn a_later_moves_restore_marker_never_settles_the_first_sources_copy() {
+        let data = temp("cleanup-double");
+        let scratch = crate::scratch::scratch_root(&data).join("root-1").join("s1");
+        std::fs::create_dir_all(&scratch).unwrap();
+        std::fs::write(scratch.join("f"), "x").unwrap();
+        let mut rec = record(&scratch, None, None);
+        rec.repo = None;
+        crate::run_registry::record(&data, rec);
+        note_moved_away(
+            &data,
+            MovedAway { session_id: "s1".to_string(), cwd: scratch.clone(), target: Some("b".to_string()), ..MovedAway::default() },
+        );
+        let row = |device: &str, restored: bool| domain::rows::SessionRow {
+            id: "s1".to_string(),
+            device_id: Some(device.to_string()),
+            status: Some("running".to_string()),
+            handoff_restored_at: restored.then(|| "2026-10-19T10:00:00Z".to_string()),
+            ..Default::default()
+        };
+        // B claimed: the run record goes, the workspace waits.
+        assert_eq!(cleanups_due(&data, "a", &[row("b", false)]), vec!["s1".to_string()]);
+        cleanup(&data, "s1");
+        assert!(moved_away(&data)[0].released);
+        assert!(scratch.join("f").is_file());
+        // C restored B's package: not our marker.
+        assert!(cleanups_due(&data, "a", &[row("c", true)]).is_empty());
+        assert!(!moved_away(&data)[0].restored, "a later move's marker is not remembered as ours");
+        cleanup(&data, "s1");
+        assert!(scratch.join("f").is_file(), "the only copy of what B never restored stays");
+        // The marker on OUR target settles it.
+        assert_eq!(cleanups_due(&data, "a", &[row("b", true)]), vec!["s1".to_string()]);
+        assert!(moved_away(&data)[0].restored);
+        cleanup(&data, "s1");
+        assert!(!scratch.exists());
+        assert!(moved_away(&data).is_empty());
+
+        // An entry written before the field (no target) keeps today's rule:
+        // any marker off this device counts.
+        std::fs::create_dir_all(&scratch).unwrap();
+        note_moved_away(&data, MovedAway { session_id: "s1".to_string(), cwd: scratch.clone(), ..MovedAway::default() });
+        assert_eq!(cleanups_due(&data, "a", &[row("c", true)]), vec!["s1".to_string()]);
+        cleanup(&data, "s1");
+        assert!(!scratch.exists());
         let _ = std::fs::remove_dir_all(data);
     }
 

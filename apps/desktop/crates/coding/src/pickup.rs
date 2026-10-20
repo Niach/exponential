@@ -2251,6 +2251,7 @@ pub fn hand_off(row: &SessionRow, deps: &PickupDeps) -> Result<HandedOff, String
                 branch: record.branch.clone().filter(|_| workspace == crate::handoff::WorkspaceKind::Repo),
                 native: source.native.clone(),
                 native_packaged: package.manifest.native,
+                target: row.moving_to().map(str::to_string),
                 ..Default::default()
             },
         );
@@ -5373,6 +5374,7 @@ mod tests {
         let pending = crate::handoff::moved_away(&dir.0);
         assert_eq!(pending.len(), 1);
         assert_eq!(pending[0].cwd, rec.cwd);
+        assert_eq!(pending[0].target.as_deref(), Some("dev-2"), "the marker counts on this target only");
         assert!(rec.cwd.join("notes.md").is_file(), "nothing is removed before the target has it");
         let claimed = session("sess-1", "running", "dev-2", "t");
         assert_eq!(

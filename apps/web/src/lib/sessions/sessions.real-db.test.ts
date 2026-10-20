@@ -1624,6 +1624,67 @@ describe.skipIf(!ready.ok)(`EXP-1252: moving a session to another device`, async
     })
   })
 
+  it(`a fresh request carrying an old package expires by the REQUEST's age, not the blob's`, async () => {
+    const { reclaimStaleHandoffBlobsInTx, EXPIRED_MOVE_TEXT } = await import(`@/lib/session-attachment-sweep`)
+    const w = await moveWorld()
+    // Request, upload, cancel: the package stays on the row for the sweep.
+    await sendSession({ userId: w.owner, input: { sessionId: w.sessionId, deviceId: w.target } })
+    const put = await putHandoffBlob(
+      w.owner,
+      w.sessionId,
+      new Request(`http://x.test`, { method: `PUT`, body: new Uint8Array([31, 139, 8]) })
+    )
+    expect(put.status).toBe(201)
+    const key = (await row(w.sessionId)).handoff!.blob!.storageKey
+    await sendSession({ userId: w.owner, input: { sessionId: w.sessionId, deviceId: w.deviceId } })
+    expect((await row(w.sessionId)).handoff).toMatchObject({ request: null, blob: { storageKey: key } })
+    // A week later the move is asked for again: the OLD blob travels on the
+    // new request.
+    const uploadedAt = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString()
+    await db.execute(
+      sql`UPDATE sessions SET handoff = jsonb_set(handoff, '{blob,uploadedAt}', to_jsonb(${uploadedAt}::text)) WHERE id = ${w.sessionId}`
+    )
+    await sendSession({ userId: w.owner, input: { sessionId: w.sessionId, deviceId: w.target } })
+    const requested = await row(w.sessionId)
+    expect(requested.moveToDeviceId).toBe(w.target)
+    expect(requested.handoff!.blob).toMatchObject({ storageKey: key, uploadedAt })
+    const requestedAt = new Date(requested.handoff!.request!.requestedAt)
+
+    // A cutoff past the blob's age but before the request: the move stays
+    // pending, its package untouched (the non-pending strip skips it too).
+    await inRollback(async (tx) => {
+      const swept = await reclaimStaleHandoffBlobsInTx(tx, new Date(requestedAt.getTime() - 60_000))
+      expect(swept.storageKeys).not.toContain(key)
+      const [kept] = await tx.select().from(sessions).where(eq(sessions.id, w.sessionId))
+      expect(kept).toMatchObject({
+        deviceId: w.deviceId,
+        moveToDeviceId: w.target,
+        caption: `Moving to b-box…`,
+      })
+      expect(kept!.handoff).toMatchObject({
+        request: { deviceId: w.target },
+        blob: { storageKey: key },
+      })
+      const system = await tx
+        .select()
+        .from(messages)
+        .where(and(eq(messages.sessionId, w.sessionId), eq(messages.authorKind, `system`)))
+      expect(system.map((m) => m.body)).not.toContain(EXPIRED_MOVE_TEXT)
+    })
+    // A cutoff past the request's age expires it.
+    await inRollback(async (tx) => {
+      const swept = await reclaimStaleHandoffBlobsInTx(tx, new Date(requestedAt.getTime() + 60_000))
+      expect(swept.storageKeys).toContain(key)
+      const [expired] = await tx.select().from(sessions).where(eq(sessions.id, w.sessionId))
+      expect(expired).toMatchObject({ deviceId: w.deviceId, moveToDeviceId: null, handoff: null, caption: null })
+      const system = await tx
+        .select()
+        .from(messages)
+        .where(and(eq(messages.sessionId, w.sessionId), eq(messages.authorKind, `system`)))
+      expect(system.map((m) => m.body)).toContain(EXPIRED_MOVE_TEXT)
+    })
+  })
+
     it(`moved without a package is refused; the move stays pending for the upload`, async () => {
       const w = await moveWorld()
       await sendSession({

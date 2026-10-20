@@ -85,7 +85,11 @@ export async function reclaimOrphanSessionAttachmentsInTx(
  *  move still PENDING (`move_to_device_id` set: the source never reported
  *  it) is never just stripped of its package: the move expires instead
  *  (cleared, the failure line posted) and the session stays on its source,
- *  whose worktree never left. */
+ *  whose worktree never left. A pending move's age is its REQUEST's
+ *  (`handoff.request.requestedAt`, send.ts), never its package's: a new
+ *  request carries an older, unrestored blob forward (a cancelled move's
+ *  upload, a claim whose restore failed), and that blob's week must not
+ *  expire the move just asked for. */
 export const HANDOFF_BLOB_RETENTION_MS = 7 * 24 * 60 * 60 * 1000
 
 /** The Conversation line of a move the sweep expired. */
@@ -95,13 +99,17 @@ export async function reclaimStaleHandoffBlobsInTx(
   tx: Tx,
   cutoff: Date
 ): Promise<{ storageKeys: string[]; expiredMoves: number }> {
+  // A request-less pending row (none since send.ts writes the request with
+  // the move) falls back to its package's age, as before.
   const expired = await tx.execute(sql`
     WITH stale AS (
       SELECT id, handoff->'blob'->>'storageKey' AS storage_key
       FROM sessions
-      WHERE jsonb_typeof(handoff->'blob') = 'object'
-        AND (handoff->'blob'->>'uploadedAt')::timestamptz <= ${cutoff}
-        AND move_to_device_id IS NOT NULL
+      WHERE move_to_device_id IS NOT NULL
+        AND COALESCE(
+          (handoff->'request'->>'requestedAt')::timestamptz,
+          (handoff->'blob'->>'uploadedAt')::timestamptz
+        ) <= ${cutoff}
       LIMIT ${MAX_BATCH}
       FOR UPDATE
     )
