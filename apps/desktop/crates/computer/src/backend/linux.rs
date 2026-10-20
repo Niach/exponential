@@ -42,6 +42,7 @@ x11rb::atom_manager! {
         _NET_ACTIVE_WINDOW,
         _NET_WM_NAME,
         _NET_WM_PID,
+        _NET_WORKAREA,
         UTF8_STRING,
     }
 }
@@ -62,6 +63,28 @@ pub(crate) fn unsupported() -> Option<String> {
 
 pub(crate) fn open() -> Result<Box<dyn Backend>, String> {
     Ok(Box::new(X11::connect()?))
+}
+
+/// The screen as the window manager lays it out, in physical pixels: the
+/// root (every monitor side by side), the primary monitor (RandR) and the
+/// work area the panels leave (`_NET_WORKAREA`, the first desktop's).
+pub(crate) fn screen_layout() -> Option<crate::ScreenLayout> {
+    let x11 = X11::connect().ok()?;
+    let root = reply("root geometry", x11.conn.get_geometry(x11.root)).ok()?;
+    let displays = x11.displays().ok()?;
+    let primary = displays.iter().find(|display| display.primary).or_else(|| displays.first())?;
+    let area = x11.property32(x11.root, x11.atoms._NET_WORKAREA, xproto::AtomEnum::CARDINAL.into());
+    let work_area = match area.as_slice() {
+        [x, y, width, height, ..] if *width > 0 && *height > 0 => {
+            Some(crate::ScreenRect { x: *x as i32, y: *y as i32, width: *width, height: *height })
+        }
+        _ => None,
+    };
+    Some(crate::ScreenLayout {
+        root: (u32::from(root.width), u32::from(root.height)),
+        primary: crate::ScreenRect { x: primary.x, y: primary.y, width: primary.width, height: primary.height },
+        work_area,
+    })
 }
 
 /// Keycode → keysyms, as the server reports it.

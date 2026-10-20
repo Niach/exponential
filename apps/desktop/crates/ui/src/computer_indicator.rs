@@ -114,12 +114,22 @@ fn banner_options(cx: &App) -> WindowOptions {
     // The visible bounds leave the panel or dock out, like the bulk bar
     // floats above the list's bottom, not over the composer.
     let display_bounds = display.as_ref().map(|display| display.visible_bounds());
-    let origin = display_bounds
-        .map(|bounds| {
-            point(
-                bounds.origin.x + (bounds.size.width - px(BANNER_WIDTH)) / 2.,
-                bounds.origin.y + bounds.size.height - px(BANNER_HEIGHT) - px(BANNER_BOTTOM),
-            )
+    // On X11 the toolkit's display is the whole X screen (every monitor
+    // side by side): the primary monitor and the panel come from the
+    // server, scaled by the root's logical width (EXP-1273).
+    let on_primary_monitor = display_bounds.and_then(|bounds| {
+        let layout = coding::computer::screen_layout()?;
+        let (x, y) = layout.banner_origin(f32::from(bounds.size.width), BANNER_WIDTH, BANNER_HEIGHT, BANNER_BOTTOM)?;
+        Some(point(px(x), px(y)))
+    });
+    let origin = on_primary_monitor
+        .or_else(|| {
+            display_bounds.map(|bounds| {
+                point(
+                    bounds.origin.x + (bounds.size.width - px(BANNER_WIDTH)) / 2.,
+                    bounds.origin.y + bounds.size.height - px(BANNER_HEIGHT) - px(BANNER_BOTTOM),
+                )
+            })
         })
         .unwrap_or_else(|| point(px(0.), px(0.)));
     WindowOptions {

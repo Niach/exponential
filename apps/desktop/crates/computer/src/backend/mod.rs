@@ -125,6 +125,13 @@ pub(crate) fn request_permissions() -> Vec<(crate::Permission, bool)> {
 }
 
 /// Open the backend for one call.
+/// [`crate::screen_layout`]: X11 only, where the toolkit's display is the
+/// whole screen.
+#[cfg(target_os = "linux")]
+pub(crate) fn screen_layout() -> Option<crate::ScreenLayout> {
+    linux::screen_layout()
+}
+
 pub(crate) fn open() -> Result<Box<dyn Backend>, String> {
     if let Some(reason) = unsupported() {
         return Err(reason);

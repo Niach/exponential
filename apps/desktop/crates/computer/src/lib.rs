@@ -70,6 +70,68 @@ impl Permission {
     }
 }
 
+/// A rectangle of the screen in physical pixels.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ScreenRect {
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+}
+
+/// EXP-1273: where the IDE's banner goes on X11. The toolkit's X11 display
+/// is the whole X screen (every monitor side by side) in logical pixels,
+/// so centring on it lands on the seam between two monitors; the primary
+/// monitor and the panel-free work area come from the server instead, in
+/// physical pixels, and [`ScreenLayout::banner_origin`] scales them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ScreenLayout {
+    /// The root's size (all monitors).
+    pub root: (u32, u32),
+    /// The primary monitor.
+    pub primary: ScreenRect,
+    /// What the panels leave of the root (`_NET_WORKAREA`), when published.
+    pub work_area: Option<ScreenRect>,
+}
+
+impl ScreenLayout {
+    /// The top-left of a `width` x `height` (logical) banner floating
+    /// `gap` above the bottom centre of the primary monitor's visible
+    /// area, in the toolkit's logical pixels, given the root's logical
+    /// width (its physical width over the scale factor). `None` when the
+    /// numbers make no sense.
+    pub fn banner_origin(&self, logical_root_width: f32, width: f32, height: f32, gap: f32) -> Option<(f32, f32)> {
+        if logical_root_width <= 0. || self.root.0 == 0 {
+            return None;
+        }
+        let scale = self.root.0 as f32 / logical_root_width;
+        let primary = self.primary;
+        let mut bottom = primary.y + primary.height as i32;
+        if let Some(area) = self.work_area {
+            let area_bottom = area.y + area.height as i32;
+            if area_bottom > primary.y && area_bottom < bottom {
+                bottom = area_bottom;
+            }
+        }
+        let x = (primary.x as f32 + (primary.width as f32 - width * scale) / 2.) / scale;
+        let y = bottom as f32 / scale - height - gap;
+        Some((x, y))
+    }
+}
+
+/// The screen layout the banner is placed by (X11 only; `None` elsewhere
+/// and without a display).
+pub fn screen_layout() -> Option<ScreenLayout> {
+    #[cfg(target_os = "linux")]
+    {
+        backend::screen_layout()
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        None
+    }
+}
+
 struct Live {
     hub: Arc<server::Hub>,
     host: Arc<host::Host>,
@@ -226,4 +288,34 @@ pub fn shutdown() {
 /// locked).
 pub fn running() -> bool {
     matches!(LIVE.get(), Some(Ok(live)) if live.host.engaged())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_banner_centres_on_the_primary_monitor_above_the_panel() {
+        // Two 5120x2880 monitors side by side at scale 2, a 60 px panel at
+        // the bottom: the root is 10240x2880 physical, 5120 logical wide.
+        let layout = ScreenLayout {
+            root: (10240, 2880),
+            primary: ScreenRect { x: 0, y: 0, width: 5120, height: 2880 },
+            work_area: Some(ScreenRect { x: 0, y: 0, width: 10240, height: 2820 }),
+        };
+        let (x, y) = layout.banner_origin(5120., 560., 64., 16.).unwrap();
+        assert_eq!((x, y), ((2560. - 560.) / 2., 2820. / 2. - 64. - 16.));
+        // The primary on the right, no work area: its own bottom.
+        let right = ScreenLayout {
+            root: (10240, 2880),
+            primary: ScreenRect { x: 5120, y: 0, width: 5120, height: 2880 },
+            work_area: None,
+        };
+        assert_eq!(right.banner_origin(5120., 560., 64., 16.).unwrap(), (2560. + 1000., 1440. - 80.));
+        // A work area that ends above the primary (a panel on another
+        // monitor) is ignored; nonsense widths give nothing.
+        let elsewhere = ScreenLayout { work_area: Some(ScreenRect { x: 0, y: -100, width: 1, height: 50 }), ..right };
+        assert_eq!(elsewhere.banner_origin(5120., 560., 64., 16.), right.banner_origin(5120., 560., 64., 16.));
+        assert_eq!(right.banner_origin(0., 560., 64., 16.), None);
+    }
 }
