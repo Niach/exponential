@@ -30,13 +30,7 @@ mod x11_window_icon;
 mod windows_integration;
 
 fn main() {
-    // EXP-1196: the computer-use host re-runs this executable as cua's
-    // private worker (`exp-desktop __private-worker --generation <id>`);
-    // that process is the driver and nothing else, before any other setup.
-    if let Some(generation) = coding::computer::worker::requested_generation() {
-        coding::computer::worker::run_and_exit(generation);
-    }
-    // EXP-1287: and as code mode's script worker (`__codemode-worker`, one
+    // EXP-1287: code mode's script worker (`__codemode-worker`, one
     // child per `exec`): the engine and nothing else, killable by its host.
     if coding::codemode::worker::requested() {
         coding::codemode::worker::run_and_exit();

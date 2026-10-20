@@ -1,0 +1,18 @@
+{
+  "_": "EXP-1273: THE computer-use banner. While a coding session drives this machine's screen (crates/computer, foreground only), the person's keyboard and pointer are held: nothing they press or click reaches a window, and their Esc hands both back and stops the session's turn. The banner says so for exactly as long as the hold lasts. The desktop app draws it (computer_indicator.rs); the web styleguide pictures it; phones and the web app never show it (the screen is the device's).",
+  "copy": {
+    "title": "Computer use in progress",
+    "key": "Esc",
+    "abort": "to abort"
+  },
+  "layout": {
+    "bar": "THE bulk bar's capsule (opaque popover fill, strong stroke, radius xl3, 8/10 padding, 4 gap): one item = nav-computer glyph (16) + the title in the muted foreground, the session label as the bold value, one item = the key as a kbd chip (20 tall, hairline, radius md, 12 px) + the abort words",
+    "window": "a top-most, unfocused, click-through window floating at the bottom centre of the primary display's visible area, 16 px above it (where the bulk bar floats over a list), exactly the bar's size over a transparent ground; no title bar, no shadow of its own"
+  },
+  "rules": [
+    "The banner shows while the hold lasts and not a frame longer: it appears with the session's first screen action and goes with the release (Esc, the session's end, the switch turning off, or 30 s without an action).",
+    "The label is the session's label (the issue identifier, the action's name); without one the title stands alone.",
+    "Esc is the one way out: the banner is not a target, it takes no click and no focus, and the hold ends on the key itself.",
+    "One banner per machine, whatever the number of sessions: the label is the session that engaged the hold."
+  ]
+}

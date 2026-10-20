@@ -25,6 +25,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-10-19-computer-use-foreground`,
+    date: `2026-10-19`,
+    title: `Computer use works in the foreground, with your input held and Esc to take it back`,
+    summary: `An agent now drives the screen the way you would, in front of you: while it works your keyboard and mouse are held, a banner says so, and Esc hands them back and stops the turn. The background mode and its second pointer are gone.`,
+    body: `- **Foreground only**: the agent moves the real pointer and types on the real keyboard, one display at a time, the same way on Linux (X11), macOS and Windows.
+- **Your input is held**: while a session drives, your keys and clicks reach no window, and the banner at the top of the screen names the session.
+- **Esc takes it back**: Esc releases your input at once, stops the session's turn and tells the agent; your next message lets it continue.
+- **Gone**: the background mode, the second pointer on X11, the agent cursor overlay and the linked driver. A Wayland session says so in the device doctor; sign in with the X11 session to use it.`,
+  },
+  {
     id: `2026-10-19-release-train-pre-cleanup`,
     date: `2026-10-19`,
     title: `Release 2026-10-19: sessions with real names, the Ask dock and plan card, moving a session between devices, and the review fixes`,

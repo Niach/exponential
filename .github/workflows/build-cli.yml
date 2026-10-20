@@ -27,19 +27,15 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Linux stays on 22.04 on purpose: the daemon never links cua on
-          # Linux (crates/cli/Cargo.toml), so nothing here needs newer
-          # PipeWire headers, and glibc 2.35 stays the binary's floor for
-          # the servers it runs on.
+          # Linux stays on 22.04 on purpose: glibc 2.35 stays the binary's
+          # floor for the servers it runs on (computer use is pure-Rust X11
+          # since EXP-1273, nothing system-side at build or load time).
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-22.04
           - target: aarch64-unknown-linux-gnu
             os: ubuntu-22.04-arm
-          # macOS links cua (EXP-1196): screencapturekit → apple-metal 0.8.8,
-          # whose Swift bridge compiles `#available(macOS 26.0, *)` Metal API
-          # and so needs an Xcode 26.x SDK; macos-14 (Xcode 15.4) and
-          # macos-15 (Xcode 16.4) both fail on MTLLogState/MTLResidencySet/
-          # MTLSamplerReductionMode. Same image as build-ios.yml.
+          # macOS = macos-26, the same image as build-ios.yml (EXP-1196
+          # needed its Xcode 26 SDK; EXP-1273 no longer does, the image stays).
           - target: aarch64-apple-darwin
             os: macos-26
     runs-on: ${{ matrix.os }}
@@ -48,10 +44,7 @@ jobs:
       - name: Linux system deps
         if: runner.os == 'Linux'
         run: |
-          # libx11/xi/xtst, xkbcommon, pipewire (+ clang for its bindgen):
-          # the linked cua driver's Linux backend (EXP-1196).
-          sudo apt-get update && sudo apt-get install -y pkg-config libssl-dev \
-            libx11-dev libxi-dev libxtst-dev libxkbcommon-dev libpipewire-0.3-dev clang
+          sudo apt-get update && sudo apt-get install -y pkg-config libssl-dev
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}

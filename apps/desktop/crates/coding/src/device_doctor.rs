@@ -158,8 +158,9 @@ pub fn label(key: &str) -> &str {
 /// (read by [`ComputerState::read`]; tests build it by hand).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ComputerState {
-    /// No backend for this OS/session.
-    Unsupported,
+    /// No backend for this OS/session; the device's reason, when it has one
+    /// (a Wayland session, no display), is the row's detail.
+    Unsupported(Option<String>),
     /// Supported; each OS permission it needs and whether it is granted
     /// (empty on X11/Windows, which ask for none).
     Supported {
@@ -171,7 +172,7 @@ impl ComputerState {
     /// Ask the computer crate, never prompting.
     pub fn read() -> ComputerState {
         match crate::computer::readiness() {
-            crate::computer::Readiness::Unsupported(_) => ComputerState::Unsupported,
+            crate::computer::Readiness::Unsupported(reason) => ComputerState::Unsupported(Some(reason)),
             _ => ComputerState::Supported {
                 permissions: crate::computer::permissions(),
             },
@@ -342,8 +343,9 @@ fn computer_items(settings: &Settings, computer: &ComputerState) -> Vec<DoctorIt
         return vec![item(KEY_COMPUTER_USE, group, DoctorState::Off)];
     }
     let permissions = match computer {
-        ComputerState::Unsupported => {
-            return vec![item(KEY_COMPUTER_USE, group, DoctorState::Missing).detail(UNAVAILABLE)]
+        ComputerState::Unsupported(reason) => {
+            let detail = reason.as_deref().unwrap_or(UNAVAILABLE);
+            return vec![item(KEY_COMPUTER_USE, group, DoctorState::Missing).detail(detail)];
         }
         ComputerState::Supported { permissions } => permissions,
     };
@@ -407,7 +409,7 @@ pub fn current(settings: &Settings, data_dir: &Path, report: &DoctorReport) -> D
     let computer = if settings.computer_use {
         ComputerState::read()
     } else {
-        ComputerState::Unsupported
+        ComputerState::Unsupported(None)
     };
     build(&report, settings, computer)
 }
@@ -501,7 +503,7 @@ mod tests {
                     codex: managed_codex(crate::managed_codex::State::NotWanted),
                 },
                 settings(false),
-                ComputerState::Unsupported,
+                ComputerState::Unsupported(None),
             ),
             1 => (
                 DoctorReport {
@@ -533,7 +535,7 @@ mod tests {
                     codex: managed_codex(crate::managed_codex::State::Downloading),
                 },
                 settings(false),
-                ComputerState::Unsupported,
+                ComputerState::Unsupported(None),
             ),
             4 => (
                 DoctorReport {
@@ -544,7 +546,7 @@ mod tests {
                     )),
                 },
                 settings(false),
-                ComputerState::Unsupported,
+                ComputerState::Unsupported(None),
             ),
             5 => (
                 DoctorReport {
@@ -559,7 +561,7 @@ mod tests {
                     codex: managed_codex(crate::managed_codex::State::NotWanted),
                 },
                 settings(false),
-                ComputerState::Unsupported,
+                ComputerState::Unsupported(None),
             ),
             _ => panic!("no input for fixture case {index}: add one"),
         }
@@ -674,7 +676,7 @@ mod tests {
             claude,
             codex: check(Tool::Codex, Some("0.143.9")),
         };
-        let doctor = build(&report, &settings(true), ComputerState::Unsupported);
+        let doctor = build(&report, &settings(true), ComputerState::Unsupported(None));
         assert_eq!(
             doctor.items[1],
             item("claude", DoctorGroup::Agents, DoctorState::Action)

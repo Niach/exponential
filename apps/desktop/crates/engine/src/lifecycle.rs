@@ -101,6 +101,14 @@ impl RunLifecycle {
         }
 
         spawn_kill_pump(&ctx, kill.rx.clone(), commands.clone(), Arc::clone(&active));
+        // EXP-1273: the person's Esc during computer use aborts the turn the
+        // way their Stop does.
+        coding::computer::on_abort(&ctx.session_id, {
+            let commands = commands.clone();
+            Arc::new(move || {
+                let _ = commands.send(EngineCommand::Cancel);
+            })
+        });
         spawn_tickers(&ctx, Arc::clone(&active), commands);
 
         let refresher = ctx.run.repository_id.as_deref().map(|repository_id| {

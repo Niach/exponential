@@ -6,48 +6,54 @@ license.workspace = true
 publish = false
 
 [dependencies]
-# EXP-1196: computer use for coding runs = the cua driver (trycua/cua, MIT),
-# LINKED, not ported. The host (IDE or `exponential` daemon) serves ONE
-# loopback MCP endpoint whose tools are cua's own; the platform runtime runs
-# in a private worker = this same executable re-run as `__private-worker`
-# (`worker.rs`), the topology cua prescribes for a GUI host: the worker owns
-# the agent-cursor overlay's main thread and inherits the host's OS
-# permissions through the responsibility chain, and nothing has to locate a
-# helper binary. gpui-free; tokio is the SDK's own runtime.
+# EXP-1273: computer use for coding runs, FOREGROUND only, on our own thin
+# backend (`src/backend/`): the OS input APIs the person's own mouse and
+# keyboard use (XTest, CGEvent, SendInput), a screenshot of the real screen,
+# the person's input locked while the agent works, Esc as the abort. The
+# host (IDE or `exponential` daemon) serves ONE loopback MCP endpoint whose
+# tools are ours (`src/tools.rs`); no second process, no linked driver.
+# gpui-free: the banner the IDE shows is the IDE's, off `set_presence_observer`.
 serde = { workspace = true }
 serde_json = { workspace = true }
 log = "0.4"
 uuid = { workspace = true }
 # The loopback MCP endpoint: a blocking HTTP/1.1 server on its own thread.
 tiny_http = { version = "0.12", default-features = false }
-tokio = { version = "1", features = ["rt-multi-thread", "sync", "time"], optional = true }
+# The screenshot the agent sees: fitted to the model's frame and PNG-encoded.
+# Pure Rust, already in the tree.
+image = { workspace = true, features = ["png"] }
 
-# The cua driver SDK and its sibling crates, one pinned revision of the cua
-# monorepo (crates are `publish = false`). `cursor-overlay` = the agent
-# cursor's config record the worker hands the runtime. Linux turns on the
-# portal input (libei) and per-window capture (pipewire) features; the
-# build images carry libpipewire/libxkbcommon/libX11 headers for them.
-cua-driver-sdk = { git = "https://github.com/trycua/cua", rev = "73387960d56a99dd2f607cef9b2bdae57e373217", package = "cua-driver-sdk", optional = true }
-cursor-overlay = { git = "https://github.com/trycua/cua", rev = "73387960d56a99dd2f607cef9b2bdae57e373217", package = "cursor-overlay", optional = true }
-
+# X11 through the pure-Rust x11rb (already in the tree via gpui): no libX11
+# at load time, so the Linux daemon links it too and answers "no display"
+# at runtime on a server. xtest = the input, xinput = the lock (XInput2
+# grabs of the person's own devices), randr = the displays.
 [target.'cfg(target_os = "linux")'.dependencies]
-cua-driver-sdk = { git = "https://github.com/trycua/cua", rev = "73387960d56a99dd2f607cef9b2bdae57e373217", package = "cua-driver-sdk", features = ["portal-libei"], optional = true }
-# EXP-1235: parks cua's MPX master pointer after each call (`park.rs`); the
-# same Xlib/XI2 bindings cua's Linux backend already links.
-x11 = { version = "2.21", features = ["xlib", "xinput"], optional = true }
+x11rb = { version = "0.13", features = ["xtest", "xinput", "randr"] }
 
-# The worker's main thread on macOS: the AppKit run loop of the agent cursor.
+# macOS: CGEvent input + CGDisplay capture + the event tap lock (all in
+# core-graphics, already in the tree), the window list off
+# CGWindowListCopyWindowInfo, activation through AppKit.
 [target.'cfg(target_os = "macos")'.dependencies]
-platform-macos = { git = "https://github.com/trycua/cua", rev = "73387960d56a99dd2f607cef9b2bdae57e373217", package = "platform-macos", optional = true }
+core-graphics = { version = "0.24", features = ["highsierra"] }
+# `ForeignType::as_ptr`, to tag the event source (CGEventSourceSetUserData).
+foreign-types = "0.5"
+core-foundation = "0.10"
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", features = ["NSRunningApplication", "NSScreen", "NSWorkspace"] }
+objc2-foundation = { version = "0.3", features = ["NSArray", "NSString", "NSEnumerator", "NSGeometry"] }
 
-[features]
-# The FINAL binary decides: the IDE links cua on every OS, the `exponential`
-# daemon everywhere but Linux, where cua's backend makes the binary need
-# libX11, libxkbcommon and libpipewire at load time and a headless server
-# has none of them (the daemon is what servers run). Without it the crate
-# is the same API answering "not available here".
-cua = ["dep:cua-driver-sdk", "dep:cursor-overlay", "dep:platform-macos", "dep:tokio", "dep:x11"]
+# Windows: SendInput + GDI capture + the low-level hooks lock, raw bindings.
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-sys = { version = "0.59", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_Graphics_Dwm",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Threading",
+    "Win32_UI_HiDpi",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_WindowsAndMessaging",
+] }
 
 [[example]]
 name = "serve"
-required-features = ["cua"]
