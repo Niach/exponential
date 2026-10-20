@@ -813,7 +813,9 @@ export async function updatePullRequest(args: {
 }
 
 /** Detach one issue from a PR (a mislinked `pull_request_issues` row), in
- *  any PR state. The issue's status stays a human decision. */
+ *  any PR state. The issue's status stays a human decision; the row is
+ *  deleted only inside the PR's team (the MCP layer already confines the
+ *  issue to it). */
 export async function unlinkPullRequestIssue(args: {
   userId: string
   pullRequestId: string
@@ -822,7 +824,13 @@ export async function unlinkPullRequestIssue(args: {
   const pr = await resolvePullRequest({ userId: args.userId, pullRequestId: args.pullRequestId })
   const deleted = await db
     .delete(pullRequestIssues)
-    .where(and(eq(pullRequestIssues.pullRequestId, pr.id), eq(pullRequestIssues.issueId, args.issueId)))
+    .where(
+      and(
+        eq(pullRequestIssues.pullRequestId, pr.id),
+        eq(pullRequestIssues.issueId, args.issueId),
+        eq(pullRequestIssues.teamId, pr.teamId)
+      )
+    )
     .returning({ issueId: pullRequestIssues.issueId })
   return { unlinked: deleted.length > 0 }
 }

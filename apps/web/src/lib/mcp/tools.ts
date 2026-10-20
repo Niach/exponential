@@ -2854,7 +2854,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_pr_unlink`,
     {
-      description: `Unlink one issue (UUID or identifier) from a PR; its status stays as is. Name the PR by pullRequestId or repositoryId + prNumber; default = your session's newest open PR.`,
+      description: `Unlink one issue (UUID or identifier) from a PR; its status stays as is and no issue event is written. The thread keeps the issue (exponential_sessions_unlink drops it), so a later pr_open without issueIds on this branch re-links it. Name the PR by pullRequestId or repositoryId + prNumber; default = your session's newest open PR.`,
       inputSchema: strictInput({
         pullRequestId: prSelector.pullRequestId,
         repositoryId: prSelector.repositoryId,
