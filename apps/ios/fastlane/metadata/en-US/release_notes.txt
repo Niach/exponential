@@ -1,7 +1,4 @@
-- Move a session to another device: the Device pin in a session's options moves a running session, with its worktree and conversation, to another of your online devices
-- Sessions name themselves: every session, tab and row shows a real name, never "Session 2", and a thread's dispatcher groups related issues into one session
-- Questions and plans take the composer's place: a waiting question or plan sits where the composer was, in a session and in a thread alike, and several stack up and open one at a time
-- The session page lives inside its thread: swipe between Conversation, issues, sessions and the Guide, with one Stop in the header that hands queued messages back to the composer
-- Thread rows drop the private lock and the merged word, the Threads tab carries the live dot, and the Inbox tab shows a dot while you have drafts
-- A reopened draft saves and leaves without asking
-- Review fixes: a second tap on Back no longer closes a draft while it saves, the Inbox dot counts the current team's drafts, and the newest waiting card is the one shown
+- Faster everywhere: the app no longer syncs on a drumbeat while idle, and lists, the session view and the editors do far less work per keystroke and per sync tick
+- The Threads title sits in the sticky bar at the top, like every other tab
+- Moving a session: the source device keeps its worktree and branch until the target has fully restored them, then cleans up
+- Review fixes: a board that is still syncing no longer flashes the "Syncing team" banner, and a renamed status reaches the #EXP chips at once

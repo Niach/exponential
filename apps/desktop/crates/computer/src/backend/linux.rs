@@ -151,6 +151,9 @@ fn keysym_of(key: Key) -> u32 {
 
 pub(crate) struct X11 {
     conn: RustConnection,
+    /// The connection's default screen: `root` is `roots[screen]`'s, and so
+    /// must be the visual a capture is decoded with.
+    screen: usize,
     root: xproto::Window,
     atoms: Atoms,
     keymap: KeyMap,
@@ -179,7 +182,7 @@ impl X11 {
         let atoms = x("atoms", x("atoms", Atoms::new(&conn))?.reply())?;
         let keymap = KeyMap::fetch(&conn)?;
         let (xtest_keyboard, xtest_pointer) = xtest_devices(&conn);
-        Ok(X11 { conn, root, atoms, keymap, xtest_keyboard, xtest_pointer })
+        Ok(X11 { conn, screen, root, atoms, keymap, xtest_keyboard, xtest_pointer })
     }
 
     fn flush(&self) -> Result<(), String> {
@@ -376,7 +379,7 @@ impl Backend for X11 {
             .find(|format| format.depth == shot.depth)
             .map(|format| format.bits_per_pixel)
             .ok_or_else(|| format!("No pixmap format for depth {}.", shot.depth))?;
-        let visual = setup.roots[0]
+        let visual = setup.roots[self.screen]
             .allowed_depths
             .iter()
             .flat_map(|depth| depth.visuals.iter())
@@ -514,7 +517,7 @@ impl Backend for X11 {
         let notches = |button: u8, count: i32| -> Result<(), String> {
             for _ in 0..count {
                 self.fake(xproto::BUTTON_PRESS_EVENT, button, 0, 0)?;
-                self.fake(xproto::BUTTON_RELEASE_EVENT, button, 0, 0)?;
+                self.fake_button_up(button)?;
                 std::thread::sleep(Duration::from_millis(10));
             }
             Ok(())
@@ -645,6 +648,10 @@ impl Drop for Lock {
     }
 }
 
+/// X11's keycode for Escape under evdev (`KEY_ESC` 1 + the 8 X offsets),
+/// the stand-in when a keymap names no Escape keysym at all.
+const EVDEV_ESCAPE_KEYCODE: u8 = 9;
+
 struct Grabs {
     conn: RustConnection,
     root: xproto::Window,
@@ -668,7 +675,11 @@ impl Grabs {
         let root = conn.setup().roots[screen].root;
         reply("XInput 2", conn.xinput_xi_query_version(2, 0))?;
         let keymap = KeyMap::fetch(&conn)?;
-        let escape = keymap.find(Named::Escape.keysym()).map(|(keycode, _)| keycode);
+        let escape = keymap.find(Named::Escape.keysym()).map(|(keycode, _)| keycode).or_else(|| {
+            // A layout without an Escape keysym would leave the hotkey dead.
+            log::warn!("[computer] the keymap has no Escape keysym; falling back to keycode {EVDEV_ESCAPE_KEYCODE}");
+            Some(EVDEV_ESCAPE_KEYCODE)
+        });
         // A keyboard plugged in during the hold must not slip past it.
         let hierarchy = [xinput::EventMask { deviceid: xinput::Device::ALL.into(), mask: vec![xinput::XIEventMask::HIERARCHY.into()] }];
         x("hierarchy events", conn.xinput_xi_select_events(root, &hierarchy))?;

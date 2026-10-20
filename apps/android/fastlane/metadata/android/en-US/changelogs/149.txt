@@ -1,0 +1,4 @@
+Moving a session: the source device keeps its worktree and branch until the target has fully restored them, then cleans up.
+Agents can detach a mislinked issue from a pull request.
+Computer use on a desktop device now runs in the foreground, with your input held and Esc to take it back.
+Review fixes across the platform.

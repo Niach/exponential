@@ -293,8 +293,8 @@ enum IssueRefLookup {
             // The chip paints the issue's status glyph over its `#` (EXP-423),
             // so the team's statuses come out of the SAME read — one round trip
             // per token, as before. EXP-1358: the team's resolved rows are
-            // memoised for a few seconds (every token of a pass used to
-            // re-fetch and re-sort them).
+            // memoised for the span of one chip pass (every token of a pass
+            // used to re-fetch and re-sort them).
             let team = try TeamStatusMemo.statuses(teamId: teamId, db: db)
             let statusId: String? = row["status_id"]
             let anchor: String? = row["status"]
@@ -403,9 +403,14 @@ enum IssueRefChipCache {
 }
 
 
-/// EXP-1358: a team's resolved status rows, kept for a few seconds across
-/// the chip lookups of one decoration pass (and the passes of one burst of
-/// typing). Pool-thread safe: the lookups run inside `pool.read`.
+/// EXP-1358: a team's resolved status rows, kept across the chip lookups of
+/// ONE decoration pass. Pool-thread safe: the lookups run inside `pool.read`.
+///
+/// EXP-1358 review: the TTL is the chip pass's own debounce, not a wall-clock
+/// grace — the memo is keyed by team only and process-global, so anything
+/// longer kept painting a status renamed / recoloured / reordered in team
+/// settings onto `#EXP-n` chips for the rest of a typing burst. One pass's
+/// tokens resolve well inside the window; the next pass re-reads the rows.
 enum TeamStatusMemo {
     private struct Entry {
         let statuses: [ResolvedIssueStatus]
@@ -414,7 +419,7 @@ enum TeamStatusMemo {
 
     private nonisolated(unsafe) static var entries: [String: Entry] = [:]
     private static let lock = NSLock()
-    private static let ttl: TimeInterval = 5
+    private static let ttl: TimeInterval = BlockTextEditor.Coordinator.chipPassDebounce
 
     static func statuses(teamId: String, db: Database) throws -> [ResolvedIssueStatus] {
         let now = Date()

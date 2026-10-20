@@ -746,13 +746,14 @@ impl Lock {
                 hold(hooks, &*on_esc, &mut msg);
             })
             .map_err(|err| format!("lock thread: {err}"))?;
-        match ready_rx.recv() {
+        match ready_rx.recv_timeout(Duration::from_secs(5)) {
             Ok(Ok(thread_id)) => Ok(Lock { thread_id, thread: Some(thread) }),
             Ok(Err(reason)) => {
                 let _ = thread.join();
                 Err(reason)
             }
-            Err(_) => Err("The input lock's thread died.".to_string()),
+            Err(mpsc::RecvTimeoutError::Disconnected) => Err("The input lock's thread died.".to_string()),
+            Err(mpsc::RecvTimeoutError::Timeout) => Err("The input hooks did not start.".to_string()),
         }
     }
 }

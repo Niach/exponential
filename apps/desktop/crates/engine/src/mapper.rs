@@ -5313,6 +5313,11 @@ mod tests {
         mapper.set_turn(steer::TurnState::Started, false, &mut started);
         assert_eq!(turns(&started), vec![steer::TurnState::Started]);
         assert_eq!(started.local.len(), 1);
+        // EXP-1273: the host's prompt path flips the busy signal itself and
+        // answers the computer-use Esc there; the mapper's `idle = Some(false)`
+        // edge is the AGENT-opened turn's alone (`on_agent_turn`), so a
+        // person-seeded start carries none.
+        assert_eq!(started.idle, None, "the prompt turn rides no idle edge");
         let mut ended = MapOut::default();
         mapper.on_stop(StopReason::EndTurn, &mut ended);
         assert_eq!(turns(&ended), vec![steer::TurnState::Ended]);
