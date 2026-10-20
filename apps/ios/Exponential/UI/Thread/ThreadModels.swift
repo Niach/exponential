@@ -13,6 +13,10 @@ final class ThreadScreenModel {
     private(set) var rows: ThreadRows?
     private(set) var missing = false
     private(set) var now = Date()
+    /// EXP-1358: the thread view, built ONCE per emission and per clock
+    /// tick. It was a computed property, and the screen read it four or five
+    /// times per body pass (every message's card re-parsed each time).
+    private(set) var view: SessionThreadView?
     /// Issue ids already on screen when the screen first drew them — an
     /// issue linked AFTER that fades into the strip with a ring once.
     private(set) var seenIssueIds: Set<String>?
@@ -30,8 +34,6 @@ final class ThreadScreenModel {
         self.db = db
     }
 
-    var view: SessionThreadView? { rows?.view(now: now) }
-
     func start() {
         startObserving()
         guard clockTask == nil else { return }
@@ -40,7 +42,7 @@ final class ThreadScreenModel {
                 try? await Task.sleep(for: .seconds(1))
                 guard !Task.isCancelled, let self else { return }
                 // Only a live tree's elapsed moves.
-                if self.rows?.sessions.contains(where: \.isLive) == true { self.now = Date() }
+                if self.rows?.sessions.contains(where: \.isLive) == true { self.tick() }
             }
         }
     }
@@ -81,11 +83,18 @@ final class ThreadScreenModel {
         }
     }
 
+    /// The clock: the elapsed captions move, the view is rebuilt once.
+    private func tick() {
+        now = Date()
+        view = rows?.view(now: now)
+    }
+
     private func apply(_ next: ThreadRows?) {
         guard let next else {
             // Not synced yet, or gone: a grace period before the empty state.
             if rows != nil {
                 rows = nil
+                view = nil
                 missing = true
             } else if missingTask == nil {
                 missingTask = Task { [weak self] in
@@ -101,6 +110,6 @@ final class ThreadScreenModel {
         missing = false
         if seenIssueIds == nil { seenIssueIds = Set(next.issues.map(\.id)) }
         rows = next
-        now = Date()
+        tick()
     }
 }

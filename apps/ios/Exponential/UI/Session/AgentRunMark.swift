@@ -20,13 +20,19 @@ struct ClaudeSparkSpinner: View {
                 .resizable()
                 .scaledToFit()
         } else {
-            TimelineView(.periodic(from: .now, by: Self.frameSeconds)) { context in
+            // EXP-1358: ONE schedule for every spark on screen — a fixed
+            // epoch, so N busy rows tick in phase (N × 11 Hz out-of-phase
+            // timelines each re-ran their row's body on its own beat).
+            TimelineView(.periodic(from: Self.epoch, by: Self.frameSeconds)) { context in
                 Image("agent-claude-writing-\(Self.frame(at: context.date))")
                     .resizable()
                     .scaledToFit()
             }
         }
     }
+
+    /// The shared schedule's origin (any fixed instant in the past).
+    static let epoch = Date(timeIntervalSinceReferenceDate: 0)
 
     static func frame(at date: Date) -> Int {
         Int(date.timeIntervalSinceReferenceDate / frameSeconds) % frameCount

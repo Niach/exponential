@@ -24,9 +24,13 @@ public enum WireTimestamps {
     public static func parse(_ value: String) -> Date? {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
-        // Try the ISO-8601 forms first (tRPC-era writes) — cheap nil-returning
-        // attempts, no exceptions.
-        if let date = parseIso(trimmed) { return date }
+        // EXP-1358: the Postgres text form (a SPACE separator — what every
+        // synced row carries) goes straight to normalisation: both ISO
+        // formatters reject it, and those two failed attempts per timestamp
+        // used to dominate the session-tree sorts. An ISO string still tries
+        // the formatters first; a failed one still falls back to normalising.
+        let separator = trimmed.utf8.count > 10 ? trimmed.utf8[trimmed.utf8.index(trimmed.utf8.startIndex, offsetBy: 10)] : 0
+        if separator != UInt8(ascii: " "), let date = parseIso(trimmed) { return date }
         // Otherwise normalize the Postgres text form into RFC 3339 and re-try.
         guard let normalized = normalizePostgresText(trimmed) else { return nil }
         return parseIso(normalized)

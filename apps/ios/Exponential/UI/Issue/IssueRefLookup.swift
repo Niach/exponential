@@ -292,16 +292,16 @@ enum IssueRefLookup {
             ) else { return nil }
             // The chip paints the issue's status glyph over its `#` (EXP-423),
             // so the team's statuses come out of the SAME read — one round trip
-            // per token, as before.
-            let statusRows = try IssueStatusEntity
-                .filter(Column("team_id") == teamId)
-                .fetchAll(db)
+            // per token, as before. EXP-1358: the team's resolved rows are
+            // memoised for a few seconds (every token of a pass used to
+            // re-fetch and re-sort them).
+            let team = try TeamStatusMemo.statuses(teamId: teamId, db: db)
             let statusId: String? = row["status_id"]
             let anchor: String? = row["status"]
             let status = IssueStatusResolver.resolve(
                 statusId: statusId,
                 anchor: anchor,
-                team: IssueStatusResolver.teamStatusesOrFallback(statusRows)
+                team: team
             )
             return Chip(issueId: row["id"], title: row["title"], status: status)
         }) ?? nil
@@ -400,4 +400,38 @@ enum IssueRefChipCache {
     }
 
     private static var statusInfos: [ResolvedIssueStatus: IssueRefStatusInfo] = [:]
+}
+
+
+/// EXP-1358: a team's resolved status rows, kept for a few seconds across
+/// the chip lookups of one decoration pass (and the passes of one burst of
+/// typing). Pool-thread safe: the lookups run inside `pool.read`.
+enum TeamStatusMemo {
+    private struct Entry {
+        let statuses: [ResolvedIssueStatus]
+        let at: Date
+    }
+
+    private nonisolated(unsafe) static var entries: [String: Entry] = [:]
+    private static let lock = NSLock()
+    private static let ttl: TimeInterval = 5
+
+    static func statuses(teamId: String, db: Database) throws -> [ResolvedIssueStatus] {
+        let now = Date()
+        lock.lock()
+        if let hit = entries[teamId], now.timeIntervalSince(hit.at) < ttl {
+            lock.unlock()
+            return hit.statuses
+        }
+        lock.unlock()
+        let rows = try IssueStatusEntity
+            .filter(Column("team_id") == teamId)
+            .fetchAll(db)
+        let resolved = IssueStatusResolver.teamStatusesOrFallback(rows)
+        lock.lock()
+        if entries.count > 64 { entries.removeAll(keepingCapacity: true) }
+        entries[teamId] = Entry(statuses: resolved, at: now)
+        lock.unlock()
+        return resolved
+    }
 }

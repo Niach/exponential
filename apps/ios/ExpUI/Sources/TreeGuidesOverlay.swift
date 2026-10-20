@@ -43,17 +43,24 @@ public struct TreeGuidesOverlay: View {
     }
 
     public var body: some View {
-        // The canvas grows UP by the list's row spacing and is drawn outside
-        // the row it backs, so the branch runs through the gap above it.
-        GeometryReader { proxy in
-            Canvas { context, size in
-                draw(in: context, size: size)
+        // EXP-1358: a row with nothing to draw (every depth-0 row) gets no
+        // GeometryReader and no Canvas layer at all — both used to be built
+        // for every list row.
+        if guide.isEmpty {
+            EmptyView()
+        } else {
+            // The canvas grows UP by the list's row spacing and is drawn outside
+            // the row it backs, so the branch runs through the gap above it.
+            GeometryReader { proxy in
+                Canvas { context, size in
+                    draw(in: context, size: size)
+                }
+                .frame(height: proxy.size.height + gap)
+                .offset(y: -gap)
             }
-            .frame(height: proxy.size.height + gap)
-            .offset(y: -gap)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
         }
-        .allowsHitTesting(false)
-        .accessibilityHidden(true)
     }
 
     /// `size` spans the gap ABOVE the row plus the row itself: the row's top

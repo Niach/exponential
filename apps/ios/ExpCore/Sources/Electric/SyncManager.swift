@@ -561,8 +561,8 @@ public final class SyncManager: @unchecked Sendable {
             tokenProvider: token,
             pool: pool,
             session: session,
-            onMessages: { messages in
-                try await applyBatch(messages: messages, name: name, table: table, pool: pool)
+            onMessages: { messages, offset in
+                try await applyBatch(messages: messages, name: name, table: table, pool: pool, offset: offset)
             }
         )
         return Task {
@@ -583,10 +583,15 @@ public final class SyncManager: @unchecked Sendable {
 // Internal (not private) so the tolerant-apply tests can drive it against a
 // real in-memory pool.
 func applyBatch<T: PersistableRecord & Sendable>(
-    messages: [ShapeMessage<T>], name: String, table: String, pool: DatabasePool
+    messages: [ShapeMessage<T>], name: String, table: String, pool: DatabasePool,
+    offset: ElectricOffset? = nil
 ) async throws {
-    guard !messages.isEmpty else { return }
+    guard !messages.isEmpty || offset != nil else { return }
     try await pool.write { gdb in
+        // EXP-1358: the shape's new offset lands in the SAME commit as the
+        // rows it covers — one observation tick per poll, and a quit between
+        // the two writes can no longer replay a batch it already applied.
+        if let offset { try offset.save(gdb) }
         for message in messages {
             switch message {
             case let .insert(_, value):

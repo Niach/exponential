@@ -1,6 +1,7 @@
 import ExpUI
 import ExpCore
 import Foundation
+import SwiftUI
 import GRDB
 
 @MainActor @Observable
@@ -75,10 +76,9 @@ final class IssueListViewModel {
         }
         observationTasks.append(Task { [weak self] in
             do {
-                for try await board in boardObservation.values(in: pool) {
+                for try await board in boardObservation.removeDuplicates().values(in: pool) {
                     guard let self else { return }
                     self.board = board
-                    self.refreshPermissions(for: board)
                     self.rebuildRows()
                 }
             } catch {}
@@ -92,7 +92,7 @@ final class IssueListViewModel {
         }
         observationTasks.append(Task { [weak self] in
             do {
-                for try await issues in issueObservation.values(in: pool) {
+                for try await issues in issueObservation.removeDuplicates().values(in: pool) {
                     guard let self else { return }
                     self.issues = issues
                     self.rebuildRows()
@@ -108,7 +108,7 @@ final class IssueListViewModel {
         }
         observationTasks.append(Task { [weak self] in
             do {
-                for try await live in issuesLiveObservation.values(in: pool) {
+                for try await live in issuesLiveObservation.removeDuplicates().values(in: pool) {
                     guard let self else { return }
                     self.issuesSynced = live
                 }
@@ -149,8 +149,9 @@ final class IssueListViewModel {
         }
         observationTasks.append(Task { [weak self] in
             do {
-                for try await labels in labelObservation.values(in: pool) {
+                for try await labels in labelObservation.removeDuplicates().values(in: pool) {
                     self?.labels = labels
+                    self?.rebuildLabelIndex()
                 }
             } catch {}
         })
@@ -162,7 +163,7 @@ final class IssueListViewModel {
         }
         observationTasks.append(Task { [weak self] in
             do {
-                for try await rows in statusObservation.values(in: pool) {
+                for try await rows in statusObservation.removeDuplicates().values(in: pool) {
                     guard let self else { return }
                     self.statusRows = rows
                     self.rebuildRows()
@@ -176,8 +177,9 @@ final class IssueListViewModel {
         }
         observationTasks.append(Task { [weak self] in
             do {
-                for try await issueLabels in issueLabelObservation.values(in: pool) {
+                for try await issueLabels in issueLabelObservation.removeDuplicates().values(in: pool) {
                     self?.issueLabels = issueLabels
+                    self?.rebuildLabelIndex()
                 }
             } catch {}
         })
@@ -188,8 +190,9 @@ final class IssueListViewModel {
         }
         observationTasks.append(Task { [weak self] in
             do {
-                for try await users in userObservation.values(in: pool) {
+                for try await users in userObservation.removeDuplicates().values(in: pool) {
                     self?.users = users
+                    self?.rebuildUserIndex()
                 }
             } catch {}
         })
@@ -201,19 +204,30 @@ final class IssueListViewModel {
         // read-only until the view is remounted. Tracks the two regions the
         // computation reads: the team_members table and the
         // "team-members" offset row (isLive).
-        let permsObservation = ValueObservation.tracking { db -> ([TeamMemberEntity], Bool) in
-            let rows = try TeamMemberEntity.fetchAll(db)
-            let live = try ElectricOffset.fetchOne(db, key: "team-members")?.isLive ?? false
-            return (rows, live)
+        // EXP-1358: ONE tracked read derives the whole permission state
+        // (board → team → my role, the members-shape liveness, the human
+        // count) off the main actor, and equal snapshots never re-render —
+        // this used to re-fetch every member row and run two synchronous
+        // pool reads on main on EVERY shape poll (the offsets row it tracks
+        // was rewritten ~once a second while idle).
+        let userId = auth.userId
+        let isAdmin = auth.isAdmin
+        let permsObservation = ValueObservation.tracking { db -> TeamPermissionsSnapshot in
+            let teamId = try BoardEntity.fetchOne(db, key: boardId)?.teamId
+            return try TeamPermissionsSnapshot.read(
+                db: db, teamId: teamId, currentUserId: userId, isAdmin: isAdmin
+            )
         }
         observationTasks.append(Task { [weak self] in
             do {
-                for try await (rows, _) in permsObservation.values(in: pool) {
+                for try await snapshot in permsObservation.removeDuplicates().values(in: pool) {
                     guard let self else { return }
                     // The rows also scope the bulk-assign picker to this
                     // board's team (EXP-487, `teamUsers`).
-                    self.teamMembers = rows
-                    self.refreshPermissions(for: self.board)
+                    self.teamMembers = snapshot.members
+                    self.permissions = snapshot.permissions
+                    self.permissionsPending = snapshot.permissionsPending
+                    self.singleMemberTeam = snapshot.singleMemberTeam
                 }
             } catch {}
         })
@@ -228,7 +242,12 @@ final class IssueListViewModel {
 
     /// This board's team's statuses in render order (EXP-314), degrading to the
     /// constructed builtin defaults while the shape is still syncing.
-    var teamStatuses: [ResolvedIssueStatus] {
+    /// EXP-1358: resolved ONCE per status/board emission (`rebuildRows`), not
+    /// per row per render — every row's status glyph used to re-filter and
+    /// re-sort the account's status rows.
+    private(set) var teamStatuses: [ResolvedIssueStatus] = IssueStatusResolver.builtinFallbackTeam
+
+    private func resolveTeamStatuses() -> [ResolvedIssueStatus] {
         guard let teamId = board?.teamId else { return IssueStatusResolver.builtinFallbackTeam }
         return IssueStatusResolver.teamStatusesOrFallback(statusRows.filter { $0.teamId == teamId })
     }
@@ -307,6 +326,7 @@ final class IssueListViewModel {
     }
 
     private func rebuildRows() {
+        teamStatuses = resolveTeamStatuses()
         let groups = visibleGroups
         let sorted = groups.map { issues(forGroup: $0) }
         let byId = Dictionary(
@@ -343,14 +363,38 @@ final class IssueListViewModel {
         return hasher.finalize()
     }
 
+    // EXP-1358: the row lookups, indexed once per emission. A row's body
+    // used to filter the account's whole `issue_labels` table and scan the
+    // users array on every render.
+    private(set) var labelsByIssue: [String: [LabelEntity]] = [:]
+    private(set) var usersById: [String: UserEntity] = [:]
+    /// A label's dot colour, parsed once per label row.
+    private(set) var labelColors: [String: Color] = [:]
+
+    private func rebuildLabelIndex() {
+        let labelsById = Dictionary(labels.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        var byIssue: [String: [LabelEntity]] = [:]
+        // `labels` order (the team's label order) wins, like the filter did.
+        var idsByIssue: [String: Set<String>] = [:]
+        for link in issueLabels { idsByIssue[link.issueId, default: []].insert(link.labelId) }
+        for (issueId, ids) in idsByIssue {
+            byIssue[issueId] = labels.filter { ids.contains($0.id) }
+        }
+        labelsByIssue = byIssue
+        labelColors = labelsById.compactMapValues { Color(hex: $0.color) }
+    }
+
+    private func rebuildUserIndex() {
+        usersById = Dictionary(users.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+    }
+
     func labelsFor(issueId: String) -> [LabelEntity] {
-        let labelIds = issueLabels.filter { $0.issueId == issueId }.map(\.labelId)
-        return labels.filter { labelIds.contains($0.id) }
+        labelsByIssue[issueId] ?? []
     }
 
     func userFor(id: String?) -> UserEntity? {
         guard let id else { return nil }
-        return users.first { $0.id == id }
+        return usersById[id]
     }
 
     /// Labels belonging to this board's team (the pool holds every
@@ -519,43 +563,4 @@ final class IssueListViewModel {
         }
     }
 
-    // MARK: - Permissions
-
-    private func refreshPermissions(for board: BoardEntity?) {
-        guard let board else {
-            permissions = .denied
-            permissionsPending = false
-            singleMemberTeam = false
-            return
-        }
-        guard let pool = try? db.pool(forAccountId: accountId) else {
-            permissions = .denied
-            permissionsPending = false
-            singleMemberTeam = false
-            return
-        }
-        let (team, membersLive, humanCount): (TeamEntity?, Bool, Int) = (try? pool.read { db in
-            let ws = try TeamEntity.fetchOne(db, key: board.teamId)
-            let live = try ElectricOffset.fetchOne(db, key: "team-members")?.isLive ?? false
-            let count = try humanTeamMemberIds(teamId: board.teamId, db: db).count
-            return (ws, live, count)
-        }) ?? (nil, false, 0)
-        permissions = TeamPermissions.resolve(
-            team: team,
-            currentUserId: auth.userId,
-            isAdmin: auth.isAdmin,
-            dbPool: pool
-        )
-        // Only "pending" while membership genuinely hasn't landed — a live
-        // members shape with no matching row means the viewer really isn't a
-        // member, which is a real read-only state.
-        permissionsPending = permissions.isAuthed && !permissions.isMember && !membersLive
-        // Solo team ⇒ nothing to reassign to; the assignee affordances hide.
-        // EXACTLY one, not `<= 1`: a count of 0 means the member list hasn't
-        // synced yet (never a genuine empty team — the viewer is a member),
-        // and treating that as solo made the assignee affordance vanish and
-        // reappear on a real multi-member team. Same contract as web's
-        // issue-list.tsx / bulk-action-bar.tsx.
-        singleMemberTeam = humanCount == 1
-    }
 }

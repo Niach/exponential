@@ -1677,16 +1677,24 @@ public enum SessionTree {
         }
         var byRoot: [String: [TreeSession]] = [:]
         for session in sessions { byRoot[session.rootId, default: []].append(session) }
-        var buckets: [ThreadsListGroup.Key: [(row: ThreadsListRow, children: [ThreadsListRow])]] = [:]
+        // EXP-1358: the title lookups and every `updatedAt` parsed ONCE —
+        // this ran per row (and per sort comparison) on the main actor.
+        let titleIndex = SessionTitle.index(sessionIssues: sessionIssues, issues: issues, messages: messages)
+        var updatedMs: [String: Double] = [:]
+        for session in sessions { updatedMs[session.id] = ms(session.updatedAt) ?? 0 }
+        var buckets: [ThreadsListGroup.Key: [(row: ThreadsListRow, children: [ThreadsListRow], activityMs: Double)]] = [:]
         for root in roots {
             let tree = byRoot[root.id] ?? [root]
             let live = tree.filter { $0.status != "ended" }
             let needsYou = live.contains { $0.needsInput }
             let running = live.contains { $0.status == "queued" || $0.status == "running" }
-            let activity = tree.reduce(root.updatedAt) { latest, session in
-                (ms(session.updatedAt) ?? 0) > (ms(latest) ?? 0) ? session.updatedAt : latest
+            var activity = root.updatedAt
+            var activityMs = ms(root.updatedAt) ?? 0
+            for session in tree where (updatedMs[session.id] ?? 0) > activityMs {
+                activity = session.updatedAt
+                activityMs = updatedMs[session.id] ?? 0
             }
-            let title = SessionTitle.title(root, sessionIssues: sessionIssues, issues: issues, messages: messages)
+            let title = SessionTitle.title(SessionTitle.Session(root), index: titleIndex)
             let row = ThreadsListRow(
                 sessionId: root.id,
                 teamId: root.teamId,
@@ -1716,7 +1724,7 @@ public enum SessionTree {
                             depth: depth,
                             parentId: parentId,
                             rootId: root.id,
-                            title: SessionTitle.title(child, sessionIssues: sessionIssues, issues: issues, messages: messages),
+                            title: SessionTitle.title(SessionTitle.Session(child), index: titleIndex),
                             busy: !ended && child.busy,
                             needsYou: !ended && child.needsInput,
                             unread: unread(newestAgent[child.id], child.id),
@@ -1729,12 +1737,11 @@ public enum SessionTree {
                 }
                 walk(root.id, 1)
             }
-            buckets[key, default: []].append((row, children))
+            buckets[key, default: []].append((row, children, activityMs))
         }
         return ThreadsListGroup.Key.allCases.compactMap { key in
             let rows = (buckets[key] ?? []).sorted { a, b in
-                let ma = ms(a.row.activityAt) ?? 0, mb = ms(b.row.activityAt) ?? 0
-                if ma != mb { return ma > mb }
+                if a.activityMs != b.activityMs { return a.activityMs > b.activityMs }
                 return a.row.sessionId < b.row.sessionId
             }
             .flatMap { [$0.row] + $0.children }

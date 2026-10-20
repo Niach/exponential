@@ -124,6 +124,20 @@ public enum EditCard {
         return end
     }
 
+    /// Whether `card(items)` would draw at least one row — the same rule
+    /// (a member with a `detail` is a row; a member with only a patch is a
+    /// row when the patch names a file) WITHOUT parsing a patch unless it is
+    /// the member's only subject (EXP-1358).
+    public static func hasRows(_ items: [AgentFeedItem]) -> Bool {
+        items.contains { item in
+            guard case let .tool(_, _, detail, _, _, _, _, _, diff, _, _, _, _) = item else { return false }
+            let subject = detail?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if !subject.isEmpty { return true }
+            guard let diff, !diff.isEmpty else { return false }
+            return Diff.parse(diff).files.contains { !$0.path.isEmpty }
+        }
+    }
+
     /// The card one run of edit calls draws.
     public static func card(
         _ items: [AgentFeedItem], liveItemId: Int? = nil

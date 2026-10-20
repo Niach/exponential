@@ -61,7 +61,9 @@ public final class ShapeClient<T: Codable & Sendable>: Sendable {
     private let baseUrlProvider: @Sendable () -> String?
     private let tokenProvider: @Sendable () -> String?
     private let pool: DatabasePool
-    private let onMessages: @Sendable ([ShapeMessage<T>]) async throws -> Void
+    /// Applies one batch and, in the SAME transaction, the offset row the
+    /// response advanced to (nil = nothing to persist, EXP-1358).
+    private let onMessages: @Sendable ([ShapeMessage<T>], ElectricOffset?) async throws -> Void
 
     private let session: URLSession
 
@@ -73,7 +75,7 @@ public final class ShapeClient<T: Codable & Sendable>: Sendable {
         tokenProvider: @escaping @Sendable () -> String?,
         pool: DatabasePool,
         session: URLSession,
-        onMessages: @escaping @Sendable ([ShapeMessage<T>]) async throws -> Void
+        onMessages: @escaping @Sendable ([ShapeMessage<T>], ElectricOffset?) async throws -> Void
     ) {
         self.shapeName = shapeName
         self.urlPath = urlPath
@@ -439,7 +441,7 @@ public final class ShapeClient<T: Codable & Sendable>: Sendable {
                 ).save(db)
             }
             if !messages.isEmpty {
-                try await onMessages(messages)
+                try await onMessages(messages, nil)
             }
             return PollResult(shouldPause: true, cursor: nil)
         }
@@ -459,20 +461,27 @@ public final class ShapeClient<T: Codable & Sendable>: Sendable {
         let inserts = messages.filter { if case .insert = $0 { true } else { false } }.count
         let updates = messages.filter { if case .update = $0 { true } else { false } }.count
         let partials = messages.filter { if case .partialUpdate = $0 { true } else { false } }.count
+        // EXP-1358: the offset row rides the batch's own transaction (one
+        // commit per poll, never two), and a poll that moved nothing — the
+        // bare `up-to-date` every ~20s live hold answers with — writes NOTHING.
+        // Every write to `electric_offsets` re-fires each observation that
+        // reads a shape's `isLive`, so 26 shapes used to tick the issue list,
+        // the inbox and every open issue once a second while idle.
+        var next: ElectricOffset?
+        if let handle, let offset {
+            let live = sawUpToDate || (wasLive && !refetching)
+            let candidate = ElectricOffset(
+                shape: shapeName, handle: handle, offset: offset,
+                needsRefetch: false, isLive: live
+            )
+            if !Self.sameOffset(saved, candidate) { next = candidate }
+        }
         if !messages.isEmpty {
             logger.info("[\(self.shapeName)] \(messages.count) msgs (\(inserts) ins, \(updates) upd, \(partials) partial)")
             SyncDebug.shared.log("[\(shapeName)] \(inserts) ins, \(updates) upd, \(partials) partial")
-            try await onMessages(messages)
-        }
-
-        if let handle, let offset {
-            let live = sawUpToDate || (wasLive && !refetching)
-            try await pool.write { db in
-                try ElectricOffset(
-                    shape: shapeName, handle: handle, offset: offset,
-                    needsRefetch: false, isLive: live
-                ).save(db)
-            }
+            try await onMessages(messages, next)
+        } else if let next {
+            try await pool.write { db in try next.save(db) }
         }
 
         // Pace the loop when a non-live poll made no progress, so a response
@@ -484,6 +493,14 @@ public final class ShapeClient<T: Codable & Sendable>: Sendable {
             shouldPause: !goLive && !sawUpToDate && messages.isEmpty,
             cursor: httpResponse.value(forHTTPHeaderField: "electric-cursor")
         )
+    }
+
+    /// Whether the persisted offset row already says exactly what the
+    /// response did — then the poll persists nothing (EXP-1358).
+    static func sameOffset(_ saved: ElectricOffset?, _ next: ElectricOffset) -> Bool {
+        guard let saved else { return false }
+        return saved.handle == next.handle && saved.offset == next.offset
+            && saved.needsRefetch == next.needsRefetch && saved.isLive == next.isLive
     }
 
     // Internal (not private) so ExpCoreTests can lock the wire-format mapping

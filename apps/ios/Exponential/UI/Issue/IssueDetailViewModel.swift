@@ -280,7 +280,7 @@ final class IssueDetailViewModel {
         }
         observationTasks.append(Task { [weak self] in
             do {
-                for try await issue in issueObs.values(in: pool) {
+                for try await issue in issueObs.removeDuplicates().values(in: pool) {
                     guard let self else { return }
                     guard let issue else { continue }
                     let isFirstLoad = self.issue == nil
@@ -294,7 +294,6 @@ final class IssueDetailViewModel {
                         // a user-driven reload (field-level last-write-wins).
                         self.editor.applyRemote(markdown: remoteText, baseURL: self.baseURL)
                     }
-                    self.refreshPermissions(for: issue)
                     self.refreshBoard(issue: issue, pool: pool)
                     self.refreshDuplicateOf(issue: issue, pool: pool)
                 }
@@ -309,7 +308,7 @@ final class IssueDetailViewModel {
         }
         observationTasks.append(Task { [weak self] in
             do {
-                for try await threads in threadsObs.values(in: pool) {
+                for try await threads in threadsObs.removeDuplicates().values(in: pool) {
                     self?.threads = threads
                 }
             } catch {}
@@ -321,7 +320,7 @@ final class IssueDetailViewModel {
         }
         observationTasks.append(Task { [weak self] in
             do {
-                for try await pullRequests in pullRequestsObs.values(in: pool) {
+                for try await pullRequests in pullRequestsObs.removeDuplicates().values(in: pool) {
                     self?.pullRequests = pullRequests
                 }
             } catch {}
@@ -330,7 +329,7 @@ final class IssueDetailViewModel {
         let labelObs = ValueObservation.tracking { db in try LabelEntity.fetchAll(db) }
         observationTasks.append(Task { [weak self] in
             do {
-                for try await labels in labelObs.values(in: pool) {
+                for try await labels in labelObs.removeDuplicates().values(in: pool) {
                     self?.labels = labels
                 }
             } catch {}
@@ -340,7 +339,7 @@ final class IssueDetailViewModel {
         let statusObs = ValueObservation.tracking { db in try IssueStatusEntity.fetchAll(db) }
         observationTasks.append(Task { [weak self] in
             do {
-                for try await rows in statusObs.values(in: pool) {
+                for try await rows in statusObs.removeDuplicates().values(in: pool) {
                     self?.statusRows = rows
                 }
             } catch {}
@@ -350,7 +349,7 @@ final class IssueDetailViewModel {
         let boardObs = ValueObservation.tracking { db in try BoardEntity.fetchAll(db) }
         observationTasks.append(Task { [weak self] in
             do {
-                for try await boards in boardObs.values(in: pool) {
+                for try await boards in boardObs.removeDuplicates().values(in: pool) {
                     guard let self else { return }
                     self.boards = boards
                     // EXP-1121: the issue's OWN board row stays live too — a
@@ -368,17 +367,8 @@ final class IssueDetailViewModel {
         })
 
         // EXP-630: the team row carries the estimate scale — a switch in
-        // Settings must re-render the chip band without remounting (the
-        // members observation's playbook: `refreshPermissions` re-reads it).
-        let teamObs = ValueObservation.tracking { db in try TeamEntity.fetchAll(db) }
-        observationTasks.append(Task { [weak self] in
-            do {
-                for try await _ in teamObs.values(in: pool) {
-                    guard let self, let issue = self.issue else { continue }
-                    self.refreshPermissions(for: issue)
-                }
-            } catch {}
-        })
+        // Settings must re-render the chip band without remounting. EXP-1358:
+        // the team rides the permissions snapshot below (one tracked read).
 
         // Attachments on this issue (EXP-297). Filtered in Swift rather
         // than SQL: the inline-image rule is a shared contract constant, and
@@ -388,7 +378,7 @@ final class IssueDetailViewModel {
         }
         observationTasks.append(Task { [weak self] in
             do {
-                for try await rows in attachmentObs.values(in: pool) {
+                for try await rows in attachmentObs.removeDuplicates().values(in: pool) {
                     self?.applyAttachments(rows)
                 }
             } catch {}
@@ -419,7 +409,7 @@ final class IssueDetailViewModel {
         }
         observationTasks.append(Task { [weak self] in
             do {
-                for try await il in issueLabelObs.values(in: pool) {
+                for try await il in issueLabelObs.removeDuplicates().values(in: pool) {
                     self?.issueLabels = il
                 }
             } catch {}
@@ -428,14 +418,9 @@ final class IssueDetailViewModel {
         let userObs = ValueObservation.tracking { db in try UserEntity.fetchAll(db) }
         observationTasks.append(Task { [weak self] in
             do {
-                for try await users in userObs.values(in: pool) {
+                for try await users in userObs.removeDuplicates().values(in: pool) {
                     guard let self else { return }
                     self.users = users
-                    // Member user rows arriving can change the member count,
-                    // which gates the assignee row (EXP-50).
-                    if let issue = self.issue {
-                        self.refreshPermissions(for: issue)
-                    }
                 }
             } catch {}
         })
@@ -447,21 +432,31 @@ final class IssueDetailViewModel {
         // until the view is remounted. Tracks the two regions the
         // computation reads: the team_members table and the
         // "team-members" offset row (isLive).
-        let membersObs = ValueObservation.tracking { db -> ([TeamMemberEntity], Bool) in
-            let rows = try TeamMemberEntity.fetchAll(db)
-            let live = try ElectricOffset.fetchOne(db, key: "team-members")?.isLive ?? false
-            return (rows, live)
+        // EXP-1358: ONE tracked read (issue → board → team → my role, the
+        // members-shape liveness, the human count) off the main actor;
+        // equal snapshots never re-render. This used to re-fetch every
+        // member row and run three synchronous pool reads on main on EVERY
+        // shape poll (its offsets row was rewritten ~once a second idle).
+        let userId = auth.userId
+        let isAdmin = auth.isAdmin
+        let membersObs = ValueObservation.tracking { db -> TeamPermissionsSnapshot in
+            let boardId = try IssueEntity.fetchOne(db, key: issueId)?.boardId
+            let teamId = try boardId.flatMap { try BoardEntity.fetchOne(db, key: $0)?.teamId }
+            return try TeamPermissionsSnapshot.read(
+                db: db, teamId: teamId, currentUserId: userId, isAdmin: isAdmin
+            )
         }
         observationTasks.append(Task { [weak self] in
             do {
-                for try await (rows, _) in membersObs.values(in: pool) {
+                for try await snapshot in membersObs.removeDuplicates().values(in: pool) {
                     guard let self else { return }
                     // The rows also scope the assignee picker / @-mention
                     // vocabulary to this issue's team (EXP-487, `teamUsers`).
-                    self.teamMembers = rows
-                    if let issue = self.issue {
-                        self.refreshPermissions(for: issue)
-                    }
+                    self.teamMembers = snapshot.members
+                    self.team = snapshot.team
+                    self.permissions = snapshot.permissions
+                    self.permissionsPending = snapshot.permissionsPending
+                    self.singleMemberTeam = snapshot.singleMemberTeam
                 }
             } catch {}
         })
@@ -1215,32 +1210,6 @@ final class IssueDetailViewModel {
         } catch {
             self.fail(verb: "save", thing: "the issue", error.userFacingMessage)
             return false
-        }
-    }
-
-    private func refreshPermissions(for issue: IssueEntity) {
-        guard let pool = try? db.pool(forAccountId: accountId) else { return }
-        let (team, membersLive): (TeamEntity?, Bool) = (try? pool.read { db -> (TeamEntity?, Bool) in
-            let board = try BoardEntity.fetchOne(db, key: issue.boardId)
-            let ws = try board.flatMap { try TeamEntity.fetchOne(db, key: $0.teamId) }
-            let live = try ElectricOffset.fetchOne(db, key: "team-members")?.isLive ?? false
-            return (ws, live)
-        }) ?? (nil, false)
-        self.team = team
-        permissions = TeamPermissions.resolve(
-            team: team,
-            currentUserId: auth.userId,
-            isAdmin: auth.isAdmin,
-            dbPool: pool
-        )
-        permissionsPending = permissions.isAuthed && !permissions.isMember && !membersLive
-        if let team {
-            let humanIds = (try? pool.read { db in
-                try humanTeamMemberIds(teamId: team.id, db: db)
-            }) ?? []
-            singleMemberTeam = humanIds.count == 1
-        } else {
-            singleMemberTeam = false
         }
     }
 

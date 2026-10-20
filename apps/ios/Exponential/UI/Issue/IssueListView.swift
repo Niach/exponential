@@ -516,7 +516,7 @@ struct IssueListView: View {
                         let issueLabels = vm.labelsFor(issueId: issue.id)
                         ForEach(issueLabels.prefix(3), id: \.id) { label in
                             Circle()
-                                .fill(Color(hex: label.color) ?? .gray)
+                                .fill(vm.labelColors[label.id] ?? .gray)
                                 .frame(width: 8, height: 8)
                         }
                     }

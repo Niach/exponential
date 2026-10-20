@@ -2582,6 +2582,17 @@ public final class DatabaseManager: @unchecked Sendable {
             }
         }
 
+        // EXP-1358: the `#EXP-123` chip lookup matches `upper(identifier)`;
+        // without this expression index every miss (each keystroke of a ref
+        // being typed) scanned the whole issues table on the main actor.
+        migrator.registerMigration("v73_issue_identifier_upper_index") { db in
+            guard try db.tableExists("issues") else { return }
+            try db.execute(sql: """
+                CREATE INDEX IF NOT EXISTS "issues_identifier_upper"
+                ON "issues"(upper("identifier"))
+                """)
+        }
+
         return migrator
     }
 

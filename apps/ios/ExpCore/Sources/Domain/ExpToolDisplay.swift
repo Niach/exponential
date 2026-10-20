@@ -52,6 +52,26 @@ public struct ExpToolDisplay: Equatable, Sendable {
     /// server's `issues_create` (no `exponential_` in front) never does.
     /// Mirrors desktop `mapper::exp_tool_row`.
     public static func resolve(toolName: String) -> ExpToolDisplay? {
+        // EXP-1358: tool names repeat (a transcript names a handful), and
+        // this ran the ~70-row suffix scan per tool row per render.
+        memoLock.lock()
+        if let hit = memo[toolName] {
+            memoLock.unlock()
+            return hit
+        }
+        memoLock.unlock()
+        let resolved = resolveUncached(toolName: toolName)
+        memoLock.lock()
+        if memo.count > 512 { memo.removeAll(keepingCapacity: true) }
+        memo[toolName] = resolved
+        memoLock.unlock()
+        return resolved
+    }
+
+    private nonisolated(unsafe) static var memo: [String: ExpToolDisplay?] = [:]
+    private static let memoLock = NSLock()
+
+    static func resolveUncached(toolName: String) -> ExpToolDisplay? {
         let name = toolName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { return nil }
         let rows = DomainContract.expToolNames

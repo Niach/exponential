@@ -388,8 +388,15 @@ struct IssueDetailBottomBar: View {
 
     private func configureComposer() {
         composerEditor.onEdit = {
-            composerHasText = !composerEditor.currentMarkdown()
+            // EXP-1358: emptiness off the typed text and the block kinds —
+            // serialising the whole draft to markdown per keystroke was the
+            // comment composer's biggest per-key cost.
+            composerHasText = !composerEditor.plainText
                 .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                || composerEditor.blocks.contains { block in
+                    if case .text = block { return false }
+                    return true
+                }
         }
         composerEditor.issueRefResolver = { resolveIssueRef($0) }
         composerEditor.issueRefTitleResolver = { resolveIssueRefTitle($0) }

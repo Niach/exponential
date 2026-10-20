@@ -3,7 +3,7 @@ import GRDB
 
 // MARK: - Electric Offset
 
-public struct ElectricOffset: Codable, FetchableRecord, PersistableRecord, Sendable {
+public struct ElectricOffset: Codable, FetchableRecord, PersistableRecord, Equatable, Sendable {
     public static let databaseTableName = "electric_offsets"
 
     public let shape: String
@@ -35,7 +35,7 @@ public struct ElectricOffset: Codable, FetchableRecord, PersistableRecord, Senda
 
 // MARK: - Team
 
-public struct TeamEntity: FetchableRecord, PersistableRecord, Identifiable, Sendable {
+public struct TeamEntity: FetchableRecord, PersistableRecord, Identifiable, Equatable, Sendable {
     public static let databaseTableName = "teams"
 
     public let id: String
@@ -105,7 +105,7 @@ extension TeamEntity: Codable {
 
 // MARK: - Board
 
-public struct BoardEntity: FetchableRecord, PersistableRecord, Identifiable, Sendable {
+public struct BoardEntity: FetchableRecord, PersistableRecord, Identifiable, Equatable, Sendable {
     public static let databaseTableName = "boards"
 
     public let id: String
@@ -200,7 +200,7 @@ extension BoardEntity: Codable {
 
 // MARK: - Issue
 
-public struct IssueEntity: FetchableRecord, PersistableRecord, Identifiable, Sendable {
+public struct IssueEntity: FetchableRecord, PersistableRecord, Identifiable, Equatable, Sendable {
     public static let databaseTableName = "issues"
 
     public let id: String
@@ -347,7 +347,7 @@ extension IssueEntity: Codable {
 // (`shared OR user_id = me`), so every row here may be shown. Mirrors the
 // sessions shape allowlist (`host_user_id`, `mcp_server_ids` and an agent's
 // `instructions` stay server-only).
-public struct SessionEntity: FetchableRecord, PersistableRecord, Identifiable, Sendable {
+public struct SessionEntity: FetchableRecord, PersistableRecord, Identifiable, Equatable, Sendable {
     public static let databaseTableName = "sessions"
 
     public let id: String
@@ -608,7 +608,7 @@ extension SessionEntity: Codable {
 // visibility mirrors stay server-only. `source` ∈ contract
 // `sessionIssueSource` (`user` | `agent`; an agent link also names the
 // session that made it).
-public struct SessionIssueEntity: FetchableRecord, PersistableRecord, Identifiable, Sendable {
+public struct SessionIssueEntity: FetchableRecord, PersistableRecord, Identifiable, Equatable, Sendable {
     public static let databaseTableName = "session_issues"
 
     public let id: String
@@ -692,7 +692,7 @@ extension SessionIssueEntity: Codable {
 // (`{kind, …}`, contract `messageCardKind`; an unknown kind renders as
 // nothing); `consumed_at` nil on a person's message = still queued for the
 // device.
-public struct MessageEntity: FetchableRecord, PersistableRecord, Identifiable, Sendable {
+public struct MessageEntity: FetchableRecord, PersistableRecord, Identifiable, Equatable, Sendable {
     public static let databaseTableName = "messages"
 
     public let id: String
@@ -784,7 +784,7 @@ extension MessageEntity: Codable {
 // `sessions.markRead` when a thread or a session view opens. Static per user
 // (`user_id = me`) like `pins`; the Threads list folds them into `unread`
 // (bold titles + the Threads tab dot).
-public struct SessionReadEntity: Codable, FetchableRecord, PersistableRecord, Identifiable, Sendable {
+public struct SessionReadEntity: Codable, FetchableRecord, PersistableRecord, Identifiable, Equatable, Sendable {
     public static let databaseTableName = "session_reads"
 
     public let id: String
@@ -826,7 +826,7 @@ public struct SessionReadEntity: Codable, FetchableRecord, PersistableRecord, Id
 // branch state lives here, never on `issues`. Team-visible.
 // `basePullRequestId` = the open PR this one is stacked on (native GitHub
 // stacks); `state` ∈ contract `prState`.
-public struct PullRequestEntity: FetchableRecord, PersistableRecord, Identifiable, Sendable {
+public struct PullRequestEntity: FetchableRecord, PersistableRecord, Identifiable, Equatable, Sendable {
     public static let databaseTableName = "pull_requests"
 
     public let id: String
@@ -920,7 +920,7 @@ extension PullRequestEntity: Codable {
 
 // Which issues a PR closes (n ↔ n). Team-scoped with the issue's static
 // trash/archive predicates; the board mirrors stay server-only.
-public struct PullRequestIssueEntity: Codable, FetchableRecord, PersistableRecord, Identifiable, Sendable {
+public struct PullRequestIssueEntity: Codable, FetchableRecord, PersistableRecord, Identifiable, Equatable, Sendable {
     public static let databaseTableName = "pull_request_issues"
 
     public let id: String
@@ -963,7 +963,7 @@ public struct PullRequestIssueEntity: Codable, FetchableRecord, PersistableRecor
 // EXCLUDES `body`: the ≤64KB markdown prompt never rides sync, tRPC
 // `actions.get` stays the only body path. Mirrors packages/db-schema actions
 // minus body.
-public struct ActionEntity: FetchableRecord, PersistableRecord, Identifiable, Sendable {
+public struct ActionEntity: FetchableRecord, PersistableRecord, Identifiable, Equatable, Sendable {
     public static let databaseTableName = "actions"
 
     public let id: String
@@ -1064,7 +1064,7 @@ extension ActionEntity: Codable {
 // (EXP-858 dropped the controls, EXP-976 the switcher's read-only list).
 // `kind` ∈ contract `pinKind`; exactly one of issue_id / session_id /
 // action_id is set. Mirrors packages/db-schema pins.
-public struct PinEntity: FetchableRecord, PersistableRecord, Identifiable, Sendable {
+public struct PinEntity: FetchableRecord, PersistableRecord, Identifiable, Equatable, Sendable {
     public static let databaseTableName = "pins"
 
     public let id: String
@@ -1153,7 +1153,7 @@ extension PinEntity: Codable {
 // target. `status_id` NULL means the team's Backlog builtin; `label_ids` is a
 // Postgres `uuid[]` on the wire (`{a,b}`), stored here the way
 // `devices.shared_team_ids` is.
-public struct IssueDraftEntity: FetchableRecord, PersistableRecord, Identifiable, Sendable {
+public struct IssueDraftEntity: FetchableRecord, PersistableRecord, Identifiable, Equatable, Sendable {
     public static let databaseTableName = "issue_drafts"
 
     public let id: String
@@ -1254,7 +1254,7 @@ extension IssueDraftEntity: Codable {
 
 // MARK: - Label
 
-public struct LabelEntity: FetchableRecord, PersistableRecord, Identifiable, Sendable {
+public struct LabelEntity: FetchableRecord, PersistableRecord, Identifiable, Equatable, Sendable {
     public static let databaseTableName = "labels"
 
     public let id: String
@@ -1316,7 +1316,7 @@ extension LabelEntity: Codable {
 // `issue_status` enum value they anchor); custom rows have a NULL
 // `builtin_key`. Builtin rows render TODAY's design-token colors, not the
 // synced `color` hex — see `ResolvedIssueStatus.color` in ExpUI.
-public struct IssueStatusEntity: FetchableRecord, PersistableRecord, Identifiable, Sendable {
+public struct IssueStatusEntity: FetchableRecord, PersistableRecord, Identifiable, Equatable, Sendable {
     public static let databaseTableName = "issue_statuses"
 
     public let id: String
@@ -1386,7 +1386,7 @@ extension IssueStatusEntity: Codable {
 
 // MARK: - IssueLabel
 
-public struct IssueLabelEntity: Codable, FetchableRecord, PersistableRecord, Sendable {
+public struct IssueLabelEntity: Codable, FetchableRecord, PersistableRecord, Equatable, Sendable {
     public static let databaseTableName = "issue_labels"
 
     public let issueId: String
@@ -1413,7 +1413,7 @@ public struct IssueLabelEntity: Codable, FetchableRecord, PersistableRecord, Sen
 /// CANONICAL direction — `issueId` is the forward side — so a screen renders
 /// each row from whichever side it is looking at (see `IssueRelationType`).
 /// `boardId` is the SOURCE issue's board (nullable, like the server column).
-public struct IssueRelationEntity: Codable, FetchableRecord, PersistableRecord, Identifiable, Sendable {
+public struct IssueRelationEntity: Codable, FetchableRecord, PersistableRecord, Identifiable, Equatable, Sendable {
     public static let databaseTableName = "issue_relations"
 
     public let id: String
@@ -1463,7 +1463,7 @@ public struct IssueRelationEntity: Codable, FetchableRecord, PersistableRecord, 
 
 // MARK: - User
 
-public struct UserEntity: Codable, FetchableRecord, PersistableRecord, Identifiable, Sendable {
+public struct UserEntity: Codable, FetchableRecord, PersistableRecord, Identifiable, Equatable, Sendable {
     public static let databaseTableName = "users"
 
     public let id: String
@@ -1508,7 +1508,7 @@ public struct UserEntity: Codable, FetchableRecord, PersistableRecord, Identifia
 
 // MARK: - TeamMember
 
-public struct TeamMemberEntity: Codable, FetchableRecord, PersistableRecord, Identifiable, Sendable {
+public struct TeamMemberEntity: Codable, FetchableRecord, PersistableRecord, Identifiable, Equatable, Sendable {
     public static let databaseTableName = "team_members"
 
     public let id: String
@@ -1545,7 +1545,7 @@ public struct TeamMemberEntity: Codable, FetchableRecord, PersistableRecord, Ide
 
 // MARK: - TeamInvite
 
-public struct TeamInviteEntity: Codable, FetchableRecord, PersistableRecord, Identifiable, Sendable {
+public struct TeamInviteEntity: Codable, FetchableRecord, PersistableRecord, Identifiable, Equatable, Sendable {
     public static let databaseTableName = "team_invites"
 
     public let id: String
@@ -1629,7 +1629,7 @@ public enum CommentKind: String, Codable, Sendable {
     }
 }
 
-public struct CommentEntity: FetchableRecord, PersistableRecord, Identifiable, Sendable {
+public struct CommentEntity: FetchableRecord, PersistableRecord, Identifiable, Equatable, Sendable {
     public static let databaseTableName = "comments"
 
     public let id: String
@@ -1730,7 +1730,7 @@ extension CommentEntity: Codable {
 
 // MARK: - Attachment
 
-public struct AttachmentEntity: FetchableRecord, PersistableRecord, Identifiable, Sendable {
+public struct AttachmentEntity: FetchableRecord, PersistableRecord, Identifiable, Equatable, Sendable {
     public static let databaseTableName = "attachments"
 
     public let id: String
@@ -1856,7 +1856,7 @@ extension AttachmentEntity: Codable {
 
 // MARK: - Notification
 
-public struct NotificationEntity: Codable, FetchableRecord, PersistableRecord, Identifiable, Sendable {
+public struct NotificationEntity: Codable, FetchableRecord, PersistableRecord, Identifiable, Equatable, Sendable {
     public static let databaseTableName = "notifications"
 
     public let id: String
@@ -1923,7 +1923,7 @@ public struct NotificationEntity: Codable, FetchableRecord, PersistableRecord, I
 
 // MARK: - IssueSubscriber
 
-public struct IssueSubscriberEntity: Codable, FetchableRecord, PersistableRecord, Identifiable, Sendable {
+public struct IssueSubscriberEntity: Codable, FetchableRecord, PersistableRecord, Identifiable, Equatable, Sendable {
     public static let databaseTableName = "issue_subscribers"
 
     public let id: String
@@ -1993,7 +1993,7 @@ extension IssueSubscriberEntity {
 
 // MARK: - IssueEvent
 
-public struct IssueEventEntity: FetchableRecord, PersistableRecord, Identifiable, Sendable {
+public struct IssueEventEntity: FetchableRecord, PersistableRecord, Identifiable, Equatable, Sendable {
     public static let databaseTableName = "issue_events"
 
     public let id: String
@@ -2076,7 +2076,7 @@ extension IssueEventEntity: Codable {
 // (`DeviceLiveness`) — no relay presence in the sync path. Every non-PK field
 // is optional/defaulted: a required field absent on the wire silently drops
 // rows forever (the attachments `uploader_id` lesson).
-public struct DeviceEntity: FetchableRecord, PersistableRecord, Identifiable, Sendable {
+public struct DeviceEntity: FetchableRecord, PersistableRecord, Identifiable, Equatable, Sendable {
     public static let databaseTableName = "devices"
 
     public let id: String
@@ -2268,7 +2268,7 @@ extension DeviceEntity: Codable {
 // references the devices ROW id (uuid), never the steer device-id string.
 // The server-side scoping mirrors (user_id/shared_team_ids) stay out of the
 // allowlist and never reach this decoder.
-public struct DeviceWorktreeEntity: FetchableRecord, PersistableRecord, Identifiable, Sendable {
+public struct DeviceWorktreeEntity: FetchableRecord, PersistableRecord, Identifiable, Equatable, Sendable {
     public static let databaseTableName = "device_worktrees"
 
     public let id: String

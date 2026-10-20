@@ -41,7 +41,9 @@ final class AgentComposerModel {
     let launch = LaunchOptionsState()
 
     /// Checked issue ids in pick order (the send's `issueIds` order).
-    private(set) var checked: [String] = []
+    private(set) var checked: [String] = [] {
+        didSet { if checked != oldValue { rebuildIssueOptions() } }
+    }
     /// The picked action; nil = issues or a free request.
     private(set) var actionId: String?
     /// Typed input values keyed by the def's `key`; `""` = cleared.
@@ -213,6 +215,7 @@ final class AgentComposerModel {
                     guard let self else { return }
                     self.issueRows = issues
                     self.boardRows = boards
+                    self.rebuildIssueOptions()
                     self.actionRows = actions.map { ActionDto(entity: $0) }
                     let identifierById = Dictionary(
                         issues.map { ($0.id, $0.identifier ?? "") }, uniquingKeysWith: { a, _ in a }
@@ -301,8 +304,13 @@ final class AgentComposerModel {
 
     /// Every issue the composer can put on a thread. The checked ids are
     /// exempt from the issue-level checks: a seeded issue must stay on offer.
-    var issues: [IssueOption] {
-        IssueOption.build(issues: issueRows, boards: boardRows, teamId: teamId, exempt: Set(checked))
+    /// EXP-1358: built once per pool emission or `checked` change — it was a
+    /// computed property every keystroke's readers (`canSubmit`, `subject`,
+    /// `placeholder`, …) rebuilt from every synced issue, about ten times.
+    private(set) var issues: [IssueOption] = []
+
+    private func rebuildIssueOptions() {
+        issues = IssueOption.build(issues: issueRows, boards: boardRows, teamId: teamId, exempt: Set(checked))
     }
 
     /// The action picker's pool: the team's saved prompts, sortOrder-then-name
