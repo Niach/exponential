@@ -860,6 +860,8 @@ mod tests {
             bgra_to_rgba(&data, 2, 2, 12),
             Some(vec![3, 2, 1, 255, 6, 5, 4, 255, 9, 8, 7, 255, 12, 11, 10, 255])
         );
-        assert_eq!(bgra_to_rgba(&data[..20], 2, 2, 12), None);
+        // The last row needs no padding: 20 bytes hold both rows, 19 do not.
+        assert!(bgra_to_rgba(&data[..20], 2, 2, 12).is_some());
+        assert_eq!(bgra_to_rgba(&data[..19], 2, 2, 12), None);
     }
 }
