@@ -46,6 +46,20 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-10-21-release-train-pre-cleanup",
+    date: "2026-10-21",
+    title: "Release 2026-10-21: a faster iPhone app, moves that clean up after themselves, an unlink tool for pull requests, and the review fixes",
+    summary: "The iPhone app stops syncing while idle and does far less work per keystroke, a moved session's source cleans up its worktree once the target has restored it, agents can detach a mislinked issue from a pull request, and the release review hardened computer use and the move flow.",
+    body: r#"- **iPhone, faster**: the idle sync drumbeat is gone, lists, the session view and the editors do far less work per keystroke and per sync tick, and the Threads title sits in the sticky bar like every other tab.
+- **Moves clean up**: the source device keeps a moved session's worktree and branch until the target reports the restore, then removes them; a move keeps its index, drops the unpacked package on any outcome and consumes owed messages once.
+- **Unlink from a pull request**: the exponential_pr_unlink tool detaches one mislinked issue from a pull request; the issue's status stays as is and the thread keeps the issue.
+- **Android capture lanes** bundle the Exponential UI FFI, so the plan card's Preview renders in the store and gallery shots.
+- **Review fixes**: the computer-use Esc abort is answered only by your next message, never by a turn the agent opens itself, the X11 backend keeps an Escape on a keymap without one and reads back wheel releases, the Windows hook start no longer waits forever, a week-old package no longer expires a move you just requested, a restore marker from a later move no longer deletes the first source's recovery copy, a moved package with staged changes still restores on a device that has not updated yet, a board that is still syncing no longer flashes the "Syncing team" banner on iPhone, and a renamed status reaches the #EXP chips at once."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_65: ChangelogEntry = ChangelogEntry {
     id: "2026-10-19-computer-use-foreground",
     date: "2026-10-19",
     title: "Computer use works in the foreground, with your input held and Esc to take it back",

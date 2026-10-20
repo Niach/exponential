@@ -1,7 +1,4 @@
-- Mover uma sessão para outro dispositivo: o pin Device nas opções de uma sessão move uma sessão em curso, com o seu worktree e conversa, para outro dos seus dispositivos online
-- As sessões dão nome a si próprias: cada sessão, separador e linha mostra um nome real, nunca "Session 2", e o dispatcher de um tópico agrupa issues relacionados numa só sessão
-- Perguntas e planos ocupam o lugar do campo: uma pergunta ou plano pendente fica onde estava o campo, numa sessão e num tópico, e vários empilham-se e abrem um de cada vez
-- A página da sessão vive dentro do seu tópico: deslize entre Conversation, issues, sessões e o Guide, com um único Stop no cabeçalho que devolve as mensagens em fila ao campo
-- As linhas de tópicos perdem o cadeado privado e a palavra "merged", o separador Threads tem o ponto ao vivo, e o separador Inbox mostra um ponto enquanto tiver rascunhos
-- Um rascunho reaberto guarda e fecha sem perguntar
-- Correções da revisão: um segundo toque em Back já não fecha um rascunho enquanto guarda, o ponto da Inbox conta os rascunhos da equipa atual, e o cartão pendente mais recente é o que aparece
+- Mais rápida em todo o lado: a app já não sincroniza sem parar quando está inativa, e as listas, a vista da sessão e os editores trabalham muito menos a cada tecla e a cada ciclo de sincronização
+- O título Threads fica na barra fixa no topo, como em todos os outros separadores
+- Mover uma sessão: o dispositivo de origem mantém o worktree e o branch até o dispositivo de destino os ter restaurado por completo, e só depois faz a limpeza
+- Correções da revisão: um quadro que ainda está a sincronizar já não faz piscar o banner "Syncing team", e um estado renomeado chega de imediato aos chips #EXP

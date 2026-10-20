@@ -1,7 +1,4 @@
-- Flytt en session til en annen enhet: Device-nålen i en sessions valg flytter en kjørende session med worktree og samtale til en annen av enhetene dine som er på nett
-- Sessions navngir seg selv: hver session, fane og rad viser et ekte navn, aldri "Session 2", og trådens dispatcher samler relaterte issues i én session
-- Spørsmål og planer tar skrivefeltets plass: et ventende spørsmål eller en plan står der skrivefeltet var, i en session og i en tråd, og flere stables og åpnes én om gangen
-- Sessionssiden bor i tråden sin: sveip mellom Conversation, issues, sessions og Guide, med én Stop i toppen som sender meldinger i kø tilbake til skrivefeltet
-- Trådrader mister den private låsen og ordet "merged", Threads-fanen har live-prikken, og Inbox-fanen viser en prikk så lenge du har utkast
-- Et gjenåpnet utkast lagres og lukkes uten å spørre
-- Rettelser fra review: et nytt trykk på Back lukker ikke lenger et utkast mens det lagres, Inbox-prikken teller utkastene til gjeldende team, og det nyeste ventende kortet er det som vises
+- Raskere overalt: appen synkroniserer ikke lenger i fast takt når den er inaktiv, og lister, sessionsvisningen og redigeringsfeltene gjør langt mindre arbeid per tastetrykk og per synkroniseringsrunde
+- Threads-tittelen sitter i den faste linjen øverst, akkurat som på alle andre faner
+- Flytt en session: kildeenheten beholder worktree og branch til målenheten har gjenopprettet dem helt, og rydder deretter opp
+- Rettelser fra review: et board som fortsatt synkroniserer, får ikke lenger banneret "Syncing team" til å blinke, og en omdøpt status når #EXP-brikkene med en gang

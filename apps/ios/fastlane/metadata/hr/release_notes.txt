@@ -1,7 +1,4 @@
-- Premjesti session na drugi uređaj: Device pribadača u opcijama sessiona premješta aktivni session, s njegovim worktreeom i razgovorom, na drugi tvoj uređaj koji je online
-- Sessions se sami imenuju: svaki session, kartica i redak prikazuje pravo ime, nikad "Session 2", a dispatcher niti grupira povezane issues u jedan session
-- Pitanja i planovi zauzimaju mjesto polja za pisanje: pitanje ili plan na čekanju stoji gdje je bilo polje, i u sessionu i u niti, a više njih slaže se i otvara jedno po jedno
-- Stranica sessiona živi unutar svoje niti: prelazi između Conversation, issues, sessions i Guide, s jednim Stop u zaglavlju koji vraća poruke iz reda u polje za pisanje
-- Retci niti gube privatni lokot i riječ "merged", kartica Threads nosi živu točku, a kartica Inbox prikazuje točku dok imaš skice
-- Ponovno otvorena skica sprema se i zatvara bez pitanja
-- Ispravci iz reviewa: drugi dodir na Back više ne zatvara skicu dok se sprema, točka Inbox broji skice trenutnog tima, a prikazuje se najnovija kartica na čekanju
+- Brže posvuda: aplikacija se u mirovanju više ne sinkronizira bez prestanka, a popisi, prikaz sessiona i uređivači obavljaju puno manje posla po pritisku tipke i po ciklusu sinkronizacije
+- Naslov Threads nalazi se u fiksnoj traci na vrhu, kao i na svakoj drugoj kartici
+- Premještanje sessiona: izvorni uređaj zadržava svoj worktree i branch dok ih ciljni uređaj potpuno ne vrati, a tek onda čisti
+- Ispravci iz reviewa: board koji se još sinkronizira više ne bljesne bannerom "Syncing team", a preimenovani status odmah stiže do #EXP oznaka

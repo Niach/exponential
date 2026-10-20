@@ -1,7 +1,4 @@
-- Przenoszenie sesji na inne urządzenie: pinezka Device w opcjach sesji przenosi trwającą sesję, z jej worktree i rozmową, na inne Twoje urządzenie online
-- Sesje same się nazywają: każda sesja, karta i wiersz ma prawdziwą nazwę, nigdy "Session 2", a dispatcher wątku grupuje powiązane issues w jedną sesję
-- Pytania i plany zajmują miejsce pola: oczekujące pytanie lub plan pojawia się tam, gdzie było pole, zarówno w sesji, jak i w wątku, a kilka układa się w stos i otwiera po kolei
-- Strona sesji mieszka w swoim wątku: przesuwaj między Conversation, issues, sesjami i Guide, z jednym Stop w nagłówku, który zwraca wiadomości z kolejki do pola
-- Wiersze wątków tracą prywatną kłódkę i słowo "merged", karta Threads ma kropkę na żywo, a karta Inbox pokazuje kropkę, dopóki masz wersje robocze
-- Ponownie otwarta wersja robocza zapisuje się i zamyka bez pytania
-- Poprawki z review: drugie dotknięcie Back nie zamyka już wersji roboczej podczas zapisywania, kropka Inbox liczy wersje robocze bieżącego zespołu, a wyświetlana jest najnowsza oczekująca karta
+- Szybciej wszędzie: aplikacja nie synchronizuje się już bez przerwy w stanie bezczynności, a listy, widok sesji i edytory wykonują znacznie mniej pracy przy każdym naciśnięciu klawisza i każdym cyklu synchronizacji
+- Tytuł Threads znajduje się w przypiętym pasku u góry, tak jak w każdej innej karcie
+- Przenoszenie sesji: urządzenie źródłowe zachowuje swój worktree i branch, dopóki urządzenie docelowe w pełni ich nie przywróci, a dopiero potem sprząta
+- Poprawki z review: tablica, która wciąż się synchronizuje, nie miga już banerem "Syncing team", a zmieniona nazwa statusu od razu trafia do chipów #EXP

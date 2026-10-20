@@ -1,7 +1,4 @@
-- Flyt en session til en anden enhed: Device-nålen i en sessions indstillinger flytter en kørende session med worktree og samtale til en anden af dine online enheder
-- Sessions navngiver sig selv: hver session, fane og række viser et rigtigt navn, aldrig "Session 2", og en tråds dispatcher samler relaterede issues i én session
-- Spørgsmål og planer tager skrivefeltets plads: et ventende spørgsmål eller en plan står, hvor skrivefeltet var, i en session og i en tråd, og flere stables og åbnes ét ad gangen
-- Sessionssiden bor i sin tråd: swipe mellem Conversation, issues, sessions og Guide, med ét Stop i toppen, der sender beskeder i kø tilbage til skrivefeltet
-- Trådrækker mister den private lås og ordet "merged", Threads-fanen bærer live-prikken, og Inbox-fanen viser en prik, så længe du har kladder
-- En genåbnet kladde gemmes og lukkes uden at spørge
-- Rettelser fra review: et ekstra tryk på Back lukker ikke længere en kladde, mens den gemmes, Inbox-prikken tæller det aktuelle teams kladder, og det nyeste ventende kort er det, der vises
+- Hurtigere overalt: appen synkroniserer ikke længere i fast takt, når den er inaktiv, og lister, sessionsvisningen og editorerne laver langt mindre arbejde pr. tastetryk og pr. synkroniseringsrunde
+- Threads-titlen sidder i den faste bjælke øverst, ligesom på alle andre faner
+- Flyt en session: kildeenheden beholder sin worktree og branch, indtil målenheden har gendannet dem fuldt ud, og rydder derefter op
+- Rettelser fra review: et board, der stadig synkroniserer, får ikke længere banneret "Syncing team" til at blinke, og en omdøbt status når straks #EXP-chipsene
