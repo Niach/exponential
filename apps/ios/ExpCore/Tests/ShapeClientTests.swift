@@ -62,7 +62,7 @@ final class ShapeClientTests: XCTestCase {
             tokenProvider: { nil },
             pool: pool,
             session: makeShapeSession(),
-            onMessages: { _ in }
+            onMessages: { _, _ in }
         )
     }
 

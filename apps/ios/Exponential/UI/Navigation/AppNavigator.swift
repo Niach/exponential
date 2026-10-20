@@ -400,13 +400,10 @@ struct MainNavigator: View {
 
             NavigationStack(path: $path) {
                 tabRoot
-                    // EXP-1318: the Threads root wears its large in-content
-                    // heading right under the status bar (Android parity), so
-                    // ITS bar is hidden; every other root states its bar
-                    // visible explicitly — the roots swap inside ONE stack,
-                    // and an inherited hidden bar would take the board's
-                    // search / Settings links with it.
-                    .toolbar(tab == .threads ? .hidden : .visible, for: .navigationBar)
+                    // Every root states its bar visible explicitly — the
+                    // roots swap inside ONE stack (EXP-1358: Threads wears the
+                    // same inline bar as the others again).
+                    .toolbar(.visible, for: .navigationBar)
                     .navigationDestination(for: AppRoute.self) { destination(for: $0) }
             }
         }
@@ -870,11 +867,21 @@ struct MainNavigator: View {
         }
     }
 
-    @ViewBuilder
+    /// EXP-1358: its own view, so the sync stats it observes re-render
+    /// this banner alone, never the navigator around it.
     private var healthBanner: some View {
-        // Only the ACTIVE account's health — a signed-out/failing OTHER account
-        // must never flash the banner while the active account syncs fine.
-        let health = SyncDebug.shared.health(forAccountId: deps.auth.activeAccountId)
+        SyncHealthBanner(accountId: deps.auth.activeAccountId)
+    }
+}
+
+/// The active account's live-sync health banner (offline / session expired).
+/// Only the ACTIVE account's health — a signed-out/failing OTHER account
+/// must never flash the banner while the active account syncs fine.
+struct SyncHealthBanner: View {
+    let accountId: String?
+
+    var body: some View {
+        let health = accountId.flatMap { SyncDebug.shared.health[$0] } ?? .ok
         if health != .ok {
             HStack(spacing: 6) {
                 AppIcon(health == .unauthorized ? AppIcons.uiWarning : AppIcons.uiOffline, size: 11)
@@ -891,7 +898,9 @@ struct MainNavigator: View {
             .background(.ultraThinMaterial)
         }
     }
+}
 
+extension MainNavigator {
     @ViewBuilder
     private func destination(for route: AppRoute) -> some View {
         switch route {
@@ -998,7 +1007,7 @@ struct MainNavigator: View {
 
         let wsTask = Task { @MainActor in
             do {
-                for try await ws in wsObs.values(in: pool) {
+                for try await ws in wsObs.removeDuplicates().values(in: pool) {
                     teamState.teams = ws
                     // Re-resolve a dangling selection (EXP-43): after a
                     // team delete syncs out, an activeTeamId
@@ -1024,7 +1033,7 @@ struct MainNavigator: View {
         }
         let projTask = Task { @MainActor in
             do {
-                for try await proj in projObs.values(in: pool) {
+                for try await proj in projObs.removeDuplicates().values(in: pool) {
                     teamState.boards = proj
                     if pendingTeamAlign { alignActiveTeam() }
                 }
@@ -1062,7 +1071,7 @@ struct MainNavigator: View {
         }
         let draftsTask = Task { @MainActor in
             do {
-                for try await teamIds in draftsObs.values(in: pool) {
+                for try await teamIds in draftsObs.removeDuplicates().values(in: pool) {
                     draftTeamIds = teamIds
                 }
             } catch {}

@@ -76,7 +76,16 @@ public final class SyncDebug: @unchecked Sendable {
     // Keyed by accountId — every signed-in account's ShapeClients report here,
     // so the banner must read only the ACTIVE account's entry (one account's
     // outage must never alarm while the active account syncs fine).
-    public private(set) var accountHealth: [String: AccountHealth] = [:]
+    // EXP-1358: NEVER observed. Every shape poll (26 of them, each live hold
+    // answering after ~20s even when idle) stamps `lastSuccessAt`, and the
+    // app's root view used to read this through `health(forAccountId:)` —
+    // so every poll re-rendered the navigator, the tab bar and the tab root.
+    // Views read `health[accountId]` instead, which only changes when the
+    // banner's answer does.
+    @ObservationIgnored public private(set) var accountHealth: [String: AccountHealth] = [:]
+    /// The banner's answer per account, re-derived on every report and
+    /// written ONLY when it differs (EXP-1358).
+    public private(set) var health: [String: Health] = [:]
     // A hard, non-transient failure that stops sync from ever starting for an
     // account: DB pool open / GRDB migration failure, or a resync that can't
     // relaunch (no token, pool throws). Surfaced prominently in SyncDebugView
@@ -120,8 +129,8 @@ public final class SyncDebug: @unchecked Sendable {
     }
 
     /// Health for one account's pipelines (the active account drives the
-    /// banner). PURE READ — all state mutation stays in the report* methods
-    /// (this is re-evaluated in view bodies on observation ticks).
+    /// banner). PURE READ off the raw stats — views observe `health` (the
+    /// published answer); this is what the report* methods derive it from.
     public func health(forAccountId accountId: String?) -> Health {
         guard let accountId, let h = accountHealth[accountId], let err = h.lastErrorAt else { return .ok }
         // ANY success after the last failure clears instantly.
@@ -188,7 +197,16 @@ public final class SyncDebug: @unchecked Sendable {
                 }
             }
             self.accountHealth[accountId] = h
+            self.publishHealth(accountId: accountId)
         }
+    }
+
+    /// Re-derives one account's banner answer and publishes it only on a
+    /// change (EXP-1358: the observed surface of the per-poll stats).
+    @MainActor
+    private func publishHealth(accountId: String) {
+        let next = health(forAccountId: accountId)
+        if health[accountId] != next { health[accountId] = next }
     }
 
     /// A request that never produced an HTTP response (network down, DNS, TLS).
@@ -202,6 +220,7 @@ public final class SyncDebug: @unchecked Sendable {
                 h.failureStreakStartedAt = .now
             }
             self.accountHealth[accountId] = h
+            self.publishHealth(accountId: accountId)
         }
     }
 
