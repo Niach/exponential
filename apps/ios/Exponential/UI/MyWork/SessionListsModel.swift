@@ -66,13 +66,19 @@ final class SessionListsModel {
         stop()
         boundAccountId = accountId
         guard let pool = try? db.pool(forAccountId: accountId) else { return }
+        // EXP-1358: `derive` runs inside the observation's `map` — on GRDB's
+        // reader, never the main actor (this model is `@MainActor`, so the
+        // loop below is) — and an emission equal to the last one is dropped
+        // before it can re-render the Threads tab, the tab bar and Home.
         let observation = ValueObservation.tracking { db in
             try Self.read(db)
-        }
+        }.map { rows in
+            Self.derive(rows, userId: userId)
+        }.removeDuplicates()
         task = Task { [weak self] in
             do {
-                for try await rows in observation.values(in: pool) {
-                    self?.apply(Self.derive(rows, userId: userId))
+                for try await derived in observation.values(in: pool) {
+                    self?.apply(derived)
                 }
             } catch {}
         }
@@ -106,7 +112,7 @@ final class SessionListsModel {
         var deviceRows: [DeviceEntity]
     }
 
-    private struct Derived: Sendable {
+    private struct Derived: Sendable, Equatable {
         var groups: [ThreadsListGroup]
         var agents: [AgentRow]
         var running: [ThreadsListRow]

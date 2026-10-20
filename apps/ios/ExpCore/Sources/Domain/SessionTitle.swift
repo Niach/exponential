@@ -87,6 +87,65 @@ public enum SessionTitle {
         }
     }
 
+    /// EXP-1358: the lookups every title rung reads, built ONCE per list
+    /// (the issue map, each session's links, each session's input messages
+    /// oldest first with their timestamps parsed once). `partitionThreads`
+    /// used to rebuild all of these for EVERY row — O(rows × messages) on
+    /// the main actor on every sync tick.
+    public struct Index: Sendable {
+        let issuesById: [String: TreeIssue]
+        /// A root's own links, in link order.
+        let rootLinks: [String: [TreeSessionIssue]]
+        /// The links ASSIGNED to a child, in link order.
+        let assignedLinks: [String: [TreeSessionIssue]]
+        /// Each session's candidate first prompts, oldest first — `firstPrompt`'s
+        /// filter, already sorted.
+        let inputsBySession: [String: [Message]]
+
+        public init(links: [TreeSessionIssue], issues: [TreeIssue], messages: [Message]) {
+            var issuesById: [String: TreeIssue] = [:]
+            for issue in issues { issuesById[issue.id] = issue }
+            self.issuesById = issuesById
+            let ordered = links.sorted { a, b in
+                a.sortOrder != b.sortOrder ? a.sortOrder < b.sortOrder : a.issueId < b.issueId
+            }
+            rootLinks = Dictionary(grouping: ordered, by: \.sessionId)
+            assignedLinks = Dictionary(grouping: ordered.filter { $0.assignedSessionId != nil }) {
+                $0.assignedSessionId ?? ""
+            }
+            // The input filter, then ONE sort per session on pre-parsed stamps.
+            var stamped: [String: [(ms: Double, message: Message)]] = [:]
+            for message in messages where !message.hasCard {
+                let isInput: Bool
+                if message.authorKind == "user" {
+                    isInput = true
+                } else if let author = message.authorSessionId, !author.isEmpty {
+                    isInput = author != message.sessionId
+                } else {
+                    isInput = false
+                }
+                guard isInput else { continue }
+                stamped[message.sessionId, default: []].append((SessionTree.ms(message.createdAt) ?? 0, message))
+            }
+            inputsBySession = stamped.mapValues { entries in
+                entries.sorted { a, b in a.ms != b.ms ? a.ms < b.ms : a.message.id < b.message.id }
+                    .map(\.message)
+            }
+        }
+
+        func sessionIssues(id: String, rootId: String) -> [TreeIssue] {
+            let own = id == rootId ? rootLinks[id] : assignedLinks[id]
+            return (own ?? []).compactMap { issuesById[$0.issueId] }
+        }
+
+        func firstPrompt(sessionId: String) -> String? {
+            for message in inputsBySession[sessionId] ?? [] {
+                if let line = SessionTitle.firstLine(message.body) { return line }
+            }
+            return nil
+        }
+    }
+
     /// A root's links, or the links ASSIGNED to a child, in link order
     /// (`sortOrder`, then `issueId`); unknown issues are skipped.
     public static func sessionIssues(
@@ -95,35 +154,13 @@ public enum SessionTitle {
         links: [TreeSessionIssue],
         issues: [TreeIssue]
     ) -> [TreeIssue] {
-        var byId: [String: TreeIssue] = [:]
-        for issue in issues { byId[issue.id] = issue }
-        let isRoot = id == rootId
-        return links
-            .filter { isRoot ? $0.sessionId == id : $0.assignedSessionId == id }
-            .sorted { a, b in
-                a.sortOrder != b.sortOrder ? a.sortOrder < b.sortOrder : a.issueId < b.issueId
-            }
-            .compactMap { byId[$0.issueId] }
+        Index(links: links, issues: issues, messages: []).sessionIssues(id: id, rootId: rootId)
     }
 
     /// The first prompt's usable line: a person's text or another session's
     /// input, oldest first.
     public static func firstPrompt(sessionId: String, messages: [Message]) -> String? {
-        let inputs = messages
-            .filter { message in
-                guard message.sessionId == sessionId, !message.hasCard else { return false }
-                if message.authorKind == "user" { return true }
-                guard let author = message.authorSessionId, !author.isEmpty else { return false }
-                return author != sessionId
-            }
-            .sorted { a, b in
-                let ma = SessionTree.ms(a.createdAt) ?? 0, mb = SessionTree.ms(b.createdAt) ?? 0
-                return ma != mb ? ma < mb : a.id < b.id
-            }
-        for message in inputs {
-            if let line = firstLine(message.body) { return line }
-        }
-        return nil
+        Index(links: [], issues: [], messages: messages).firstPrompt(sessionId: sessionId)
     }
 
     /// THE display title (fixture `session-title.json` rungs).
@@ -133,15 +170,20 @@ public enum SessionTitle {
         issues: [TreeIssue],
         messages: [Message]
     ) -> String {
+        title(session, index: Index(links: links, issues: issues, messages: messages))
+    }
+
+    /// THE display title off a prebuilt `Index` (one index, many rows).
+    public static func title(_ session: Session, index: Index) -> String {
         let name = trimmed(session.name)
         if !name.isEmpty { return name }
         let stored = trimmed(session.title)
         if !stored.isEmpty { return stored }
-        let own = sessionIssues(id: session.id, rootId: session.rootId, links: links, issues: issues)
+        let own = index.sessionIssues(id: session.id, rootId: session.rootId)
         if !own.isEmpty { return issueLabel(own) }
         let action = trimmed(session.actionName)
         if !action.isEmpty { return Copy.action.replacingOccurrences(of: "{action}", with: action) }
-        if let prompt = firstPrompt(sessionId: session.id, messages: messages) {
+        if let prompt = index.firstPrompt(sessionId: session.id) {
             return clip(prompt, Copy.titleMax)
         }
         return Copy.untitled
@@ -154,9 +196,10 @@ public enum SessionTitle {
         issues: [TreeIssue],
         messages: [Message]
     ) -> [String: String] {
+        let index = Index(links: links, issues: issues, messages: messages)
         var out: [String: String] = [:]
         for session in sessions {
-            out[session.id] = title(session, links: links, issues: issues, messages: messages)
+            out[session.id] = title(session, index: index)
         }
         return out
     }
@@ -170,6 +213,15 @@ public enum SessionTitle {
         messages: [TreeMessage]
     ) -> String {
         title(Session(session), links: links, issues: issues, messages: messages.map(Message.init))
+    }
+
+    /// The tree rows' index (EXP-1358): build once, title every row.
+    public static func index(
+        sessionIssues links: [TreeSessionIssue],
+        issues: [TreeIssue],
+        messages: [TreeMessage]
+    ) -> Index {
+        Index(links: links, issues: issues, messages: messages.map(Message.init))
     }
 
     public static func titles(
@@ -196,7 +248,7 @@ public enum SessionTitle {
     }
 
     /// The first usable line of a body: non-blank, not an image embed.
-    private static func firstLine(_ body: String) -> String? {
+    static func firstLine(_ body: String) -> String? {
         body
             .components(separatedBy: "\n")
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
