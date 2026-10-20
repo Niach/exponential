@@ -42,6 +42,7 @@ x11rb::atom_manager! {
         _NET_ACTIVE_WINDOW,
         _NET_WM_NAME,
         _NET_WM_PID,
+        _NET_WORKAREA,
         UTF8_STRING,
     }
 }
@@ -62,6 +63,28 @@ pub(crate) fn unsupported() -> Option<String> {
 
 pub(crate) fn open() -> Result<Box<dyn Backend>, String> {
     Ok(Box::new(X11::connect()?))
+}
+
+/// The screen as the window manager lays it out, in physical pixels: the
+/// root (every monitor side by side), the primary monitor (RandR) and the
+/// work area the panels leave (`_NET_WORKAREA`, the first desktop's).
+pub(crate) fn screen_layout() -> Option<crate::ScreenLayout> {
+    let x11 = X11::connect().ok()?;
+    let root = reply("root geometry", x11.conn.get_geometry(x11.root)).ok()?;
+    let displays = x11.displays().ok()?;
+    let primary = displays.iter().find(|display| display.primary).or_else(|| displays.first())?;
+    let area = x11.property32(x11.root, x11.atoms._NET_WORKAREA, xproto::AtomEnum::CARDINAL.into());
+    let work_area = match area.as_slice() {
+        [x, y, width, height, ..] if *width > 0 && *height > 0 => {
+            Some(crate::ScreenRect { x: *x as i32, y: *y as i32, width: *width, height: *height })
+        }
+        _ => None,
+    };
+    Some(crate::ScreenLayout {
+        root: (u32::from(root.width), u32::from(root.height)),
+        primary: crate::ScreenRect { x: primary.x, y: primary.y, width: primary.width, height: primary.height },
+        work_area,
+    })
 }
 
 /// Keycode → keysyms, as the server reports it.
@@ -131,6 +154,10 @@ pub(crate) struct X11 {
     root: xproto::Window,
     atoms: Atoms,
     keymap: KeyMap,
+    /// The XTEST slave devices our input rides on (XI1 ids), for the
+    /// release read-back; `None` when the server does not name them.
+    xtest_keyboard: Option<u8>,
+    xtest_pointer: Option<u8>,
 }
 
 fn x<T>(what: &str, result: Result<T, impl std::fmt::Display>) -> Result<T, String> {
@@ -151,7 +178,8 @@ impl X11 {
         let root = conn.setup().roots[screen].root;
         let atoms = x("atoms", x("atoms", Atoms::new(&conn))?.reply())?;
         let keymap = KeyMap::fetch(&conn)?;
-        Ok(X11 { conn, root, atoms, keymap })
+        let (xtest_keyboard, xtest_pointer) = xtest_devices(&conn);
+        Ok(X11 { conn, root, atoms, keymap, xtest_keyboard, xtest_pointer })
     }
 
     fn flush(&self) -> Result<(), String> {
@@ -164,7 +192,61 @@ impl X11 {
     }
 
     fn fake_key(&self, keycode: u8, down: bool) -> Result<(), String> {
-        self.fake(if down { xproto::KEY_PRESS_EVENT } else { xproto::KEY_RELEASE_EVENT }, keycode, 0, 0)
+        self.fake(if down { xproto::KEY_PRESS_EVENT } else { xproto::KEY_RELEASE_EVENT }, keycode, 0, 0)?;
+        if down {
+            return Ok(());
+        }
+        // The server drops a fake release now and then (seen on X.Org 21
+        // with the person's devices floating under the lock: about one key
+        // in forty), which leaves the key held on the XTEST slave and
+        // autorepeating until this connection closes; the core keyboard
+        // reads released meanwhile, so the slave itself is read back, and
+        // the release sent again while it still says down.
+        let Some(device) = self.xtest_keyboard else { return Ok(()) };
+        for attempt in 1..=RELEASE_RETRIES {
+            if !self.device_key_down(device, keycode)? {
+                return Ok(());
+            }
+            log::warn!("[computer] key {keycode} still down after its release (try {attempt}), releasing again");
+            std::thread::sleep(RELEASE_SETTLE);
+            self.fake(xproto::KEY_RELEASE_EVENT, keycode, 0, 0)?;
+        }
+        Err(format!("Key {keycode} stays pressed."))
+    }
+
+    /// [`Backend::mouse_button`]'s release leg, with the same read-back as
+    /// [`X11::fake_key`]: a button the server kept down would drag
+    /// everything the pointer crosses next.
+    fn fake_button_up(&self, detail: u8) -> Result<(), String> {
+        self.fake(xproto::BUTTON_RELEASE_EVENT, detail, 0, 0)?;
+        let Some(device) = self.xtest_pointer else { return Ok(()) };
+        for attempt in 1..=RELEASE_RETRIES {
+            if !self.device_button_down(device, detail)? {
+                return Ok(());
+            }
+            log::warn!("[computer] button {detail} still down after its release (try {attempt}), releasing again");
+            std::thread::sleep(RELEASE_SETTLE);
+            self.fake(xproto::BUTTON_RELEASE_EVENT, detail, 0, 0)?;
+        }
+        Err(format!("Button {detail} stays pressed."))
+    }
+
+    /// Whether `keycode` is down on XI1 device `device` (`QueryDeviceState`).
+    fn device_key_down(&self, device: u8, keycode: u8) -> Result<bool, String> {
+        let state = reply("device state", self.conn.xinput_query_device_state(device))?;
+        Ok(state.classes.iter().any(|class| match &class.data {
+            xinput::InputStateData::Key(key) => key_is_down(&key.keys, keycode),
+            _ => false,
+        }))
+    }
+
+    /// Whether button `detail` is down on XI1 device `device`.
+    fn device_button_down(&self, device: u8, detail: u8) -> Result<bool, String> {
+        let state = reply("device state", self.conn.xinput_query_device_state(device))?;
+        Ok(state.classes.iter().any(|class| match &class.data {
+            xinput::InputStateData::Button(button) => button_is_down(&button.buttons, detail),
+            _ => false,
+        }))
     }
 
     fn property32(&self, window: xproto::Window, property: xproto::Atom, kind: xproto::Atom) -> Vec<u32> {
@@ -421,7 +503,11 @@ impl Backend for X11 {
             Button::Middle => 2,
             Button::Right => 3,
         };
-        self.fake(if down { xproto::BUTTON_PRESS_EVENT } else { xproto::BUTTON_RELEASE_EVENT }, detail, 0, 0)
+        if down {
+            self.fake(xproto::BUTTON_PRESS_EVENT, detail, 0, 0)
+        } else {
+            self.fake_button_up(detail)
+        }
     }
 
     fn scroll(&self, dx: i32, dy: i32) -> Result<(), String> {
@@ -451,6 +537,40 @@ impl Backend for X11 {
     fn lock(&self, on_esc: Box<dyn Fn() + Send + Sync>) -> Result<Box<dyn LockGuard>, String> {
         Ok(Box::new(Lock::take(on_esc)?))
     }
+}
+
+/// How often a dropped release is sent again before the call fails.
+const RELEASE_RETRIES: u32 = 5;
+/// Between a release read back as still down and the next one.
+const RELEASE_SETTLE: Duration = Duration::from_millis(5);
+
+/// The XTEST slave keyboard and pointer (XI1 ids) the fake input rides
+/// on: the slaves the server names "Virtual core XTEST …".
+fn xtest_devices(conn: &RustConnection) -> (Option<u8>, Option<u8>) {
+    let Ok(infos) = reply("devices", conn.xinput_xi_query_device(xinput::Device::ALL)) else { return (None, None) };
+    let find = |kind: xinput::DeviceType, name: &str| {
+        infos
+            .infos
+            .iter()
+            .find(|info| info.type_ == kind && String::from_utf8_lossy(&info.name).starts_with(name))
+            .and_then(|info| u8::try_from(info.deviceid).ok())
+    };
+    (
+        find(xinput::DeviceType::SLAVE_KEYBOARD, "Virtual core XTEST keyboard"),
+        find(xinput::DeviceType::SLAVE_POINTER, "Virtual core XTEST pointer"),
+    )
+}
+
+/// Whether `keycode` reads pressed in a device's key bitmap (one bit per
+/// keycode, least significant first).
+fn key_is_down(keys: &[u8; 32], keycode: u8) -> bool {
+    keys[usize::from(keycode / 8)] & (1 << (keycode % 8)) != 0
+}
+
+/// Whether button `detail` reads pressed in a device's button bitmap (bit
+/// `detail`; buttons count from 1).
+fn button_is_down(buttons: &[u8; 32], detail: u8) -> bool {
+    buttons[usize::from(detail / 8)] & (1 << (detail % 8)) != 0
 }
 
 fn finish(width: u32, height: u32, rgba: Vec<u8>, count: usize) -> Result<Image, String> {
@@ -647,6 +767,20 @@ mod tests {
         assert!(!lockable(&device(xinput::DeviceType::MASTER_POINTER, true, "Virtual core pointer")));
         assert!(!lockable(&device(xinput::DeviceType::SLAVE_KEYBOARD, false, "Power Button")));
         assert!(!lockable(&device(xinput::DeviceType::SLAVE_POINTER, true, "CUA v1.123 uinput pointer")));
+    }
+
+    #[test]
+    fn a_dropped_release_is_read_back_from_the_core_state() {
+        let mut keys = [0u8; 32];
+        assert!(!key_is_down(&keys, 36));
+        keys[36 / 8] |= 1 << (36 % 8);
+        assert!(key_is_down(&keys, 36));
+        assert!(!key_is_down(&keys, 37));
+        let mut buttons = [0u8; 32];
+        assert!(!button_is_down(&buttons, 1));
+        buttons[0] |= 1 << 1;
+        assert!(button_is_down(&buttons, 1));
+        assert!(!button_is_down(&buttons, 3));
     }
 
     #[test]
