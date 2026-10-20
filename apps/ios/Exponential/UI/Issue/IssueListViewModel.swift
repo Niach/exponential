@@ -226,7 +226,8 @@ final class IssueListViewModel {
                     // board's team (EXP-487, `teamUsers`).
                     self.teamMembers = snapshot.members
                     self.permissions = snapshot.permissions
-                    self.permissionsPending = snapshot.permissionsPending
+                    // EXP-1358 review: no team yet (board row unsynced) isn't "Syncing team…" — the old `refreshPermissions(for: nil)` forced the banner off.
+                    self.permissionsPending = snapshot.team != nil && snapshot.permissionsPending
                     self.singleMemberTeam = snapshot.singleMemberTeam
                 }
             } catch {}

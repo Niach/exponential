@@ -1,7 +1,4 @@
-- Sessie naar een ander apparaat verplaatsen: de Device-pin in de opties van een sessie verplaatst een lopende sessie, met worktree en gesprek, naar een ander online apparaat van je
-- Sessies geven zichzelf een naam: elke sessie, tab en rij toont een echte naam, nooit "Session 2", en de dispatcher van een thread bundelt verwante issues in één sessie
-- Vragen en plannen nemen de plek van het invoerveld in: een wachtende vraag of plan staat waar het invoerveld was, in een sessie en in een thread, en meerdere stapelen zich op en openen één voor één
-- De sessiepagina woont in haar thread: swipe tussen Conversation, issues, sessies en de Guide, met één Stop in de kop die berichten in de wachtrij teruggeeft aan het invoerveld
-- Threadrijen verliezen het privéslot en het woord "merged", de Threads-tab draagt de live-stip, en de Inbox-tab toont een stip zolang je concepten hebt
-- Een heropend concept wordt opgeslagen en sluit zonder te vragen
-- Fixes uit de review: een tweede tik op Back sluit een concept niet meer terwijl het opslaat, de Inbox-stip telt de concepten van het huidige team, en de nieuwste wachtende kaart is de getoonde
+- Overal sneller: de app synchroniseert niet meer aan één stuk door als hij inactief is, en lijsten, de sessieweergave en de editors doen veel minder werk per toetsaanslag en per synchronisatieronde
+- De Threads-titel staat in de vaste balk bovenaan, net als bij elk ander tabblad
+- Een sessie verplaatsen: het bronapparaat houdt zijn worktree en branch tot het doelapparaat ze volledig heeft hersteld, en ruimt daarna op
+- Fixes uit de review: een bord dat nog synchroniseert laat de banner "Syncing team" niet meer oplichten, en een hernoemde status bereikt de #EXP-chips meteen

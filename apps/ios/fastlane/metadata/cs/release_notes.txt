@@ -1,7 +1,4 @@
-- Přesun session na jiné zařízení: Device pin v možnostech session přesune běžící session i s worktree a konverzací na jiné vaše online zařízení
-- Sessions se pojmenují samy: každá session, záložka i řádek ukazuje skutečný název, nikdy "Session 2", a dispatcher vlákna seskupí související issues do jedné session
-- Otázky a plány nahradí pole pro psaní: čekající otázka nebo plán se zobrazí tam, kde bylo pole, v session i ve vlákně, a víc jich se seřadí a otevírají se postupně
-- Stránka session žije uvnitř svého vlákna: přejíždějte mezi Conversation, issues, sessions a Guide, s jedním Stop v záhlaví, které vrátí zprávy ve frontě do pole pro psaní
-- Řádky vláken už nemají zámek soukromí ani slovo "merged", záložka Threads nese živou tečku a záložka Inbox ukazuje tečku, dokud máte koncepty
-- Znovu otevřený koncept se uloží a zavře bez ptaní
-- Opravy z review: druhé klepnutí na Back už nezavře koncept během ukládání, tečka Inbox počítá koncepty aktuálního týmu a zobrazí se nejnovější čekající karta
+- Rychlejší všude: aplikace se v nečinnosti už neustále nesynchronizuje a seznamy, zobrazení session i editory odvádějí při každém stisku klávesy a každém cyklu synchronizace mnohem méně práce
+- Nadpis Threads je v pevné liště nahoře, stejně jako u všech ostatních karet
+- Přesun session: zdrojové zařízení si ponechá worktree i branch, dokud je cílové zařízení plně neobnoví, a teprve pak uklidí
+- Opravy z review: board, který se ještě synchronizuje, už neproblikne bannerem "Syncing team" a přejmenovaný stav se do štítků #EXP propíše okamžitě

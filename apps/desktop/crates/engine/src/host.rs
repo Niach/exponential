@@ -1600,13 +1600,11 @@ impl SessionCtx {
         }
         if let Some(idle) = out.idle {
             self.turn_signal.set_idle(idle);
-            // EXP-1331: a turn's tool caption ends with it.
+            // EXP-1331: a turn's tool caption ends with it. (EXP-1273's
+            // computer-use abort is NOT answered here: this edge also fires
+            // for a turn the agent opens on its own — see `start_turn`.)
             if idle {
                 self.tool_caption.set(None);
-            } else {
-                // EXP-1273: a new turn answers an Esc that aborted the
-                // run's computer use.
-                coding::computer::turn_started(&self.session_id);
             }
             self.aside_turn_edge(idle);
             // EXP-850 §8: a turn that ended runs no workflow — the caption
@@ -2903,6 +2901,11 @@ fn start_turn(
     }
     turns.in_flight.fetch_add(1, Ordering::SeqCst);
     ctx.turn_signal.set_idle(false);
+    // EXP-1273: the PERSON's message answers an Esc that aborted the run's
+    // computer use. Only here, never on the mapper's idle edge: a turn the
+    // agent opens by itself (EXP-1224) is not the person speaking again, and
+    // `tools::ABORTED` promises their input stays theirs until they do.
+    coding::computer::turn_started(&ctx.session_id);
     // EXP-848: the turn slot opens HERE — the one signal every client's
     // `working` predicate reads (`on_stop` closes it).
     let mut turn_out = MapOut::default();

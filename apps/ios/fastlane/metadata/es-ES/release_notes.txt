@@ -1,7 +1,4 @@
-- Mover una sesión a otro dispositivo: el pin Device en las opciones de una sesión mueve una sesión en curso, con su worktree y su conversación, a otro de tus dispositivos en línea
-- Las sesiones se nombran solas: cada sesión, pestaña y fila muestra un nombre real, nunca "Session 2", y el dispatcher de un hilo agrupa los issues relacionados en una sola sesión
-- Preguntas y planes ocupan el lugar del editor: una pregunta o un plan pendiente aparece donde estaba el editor, tanto en una sesión como en un hilo, y varios se apilan y se abren de uno en uno
-- La página de sesión vive dentro de su hilo: desliza entre Conversation, issues, sesiones y el Guide, con un único Stop en la cabecera que devuelve los mensajes en cola al editor
-- Las filas de hilos pierden el candado privado y la palabra "merged", la pestaña Threads lleva el punto en directo, y la pestaña Inbox muestra un punto mientras tengas borradores
-- Un borrador reabierto se guarda y se cierra sin preguntar
-- Correcciones de la revisión: un segundo toque en Back ya no cierra un borrador mientras se guarda, el punto de Inbox cuenta los borradores del equipo actual, y se muestra la tarjeta pendiente más reciente
+- Más rápida en todas partes: la app ya no se sincroniza sin parar cuando está inactiva, y las listas, la vista de sesión y los editores trabajan mucho menos con cada pulsación y cada ciclo de sincronización
+- El título de Threads se sitúa en la barra fija superior, como en todas las demás pestañas
+- Mover una sesión: el dispositivo de origen conserva su worktree y su rama hasta que el de destino los ha restaurado por completo, y después hace limpieza
+- Correcciones de la revisión: un tablero que aún se está sincronizando ya no hace parpadear el banner "Syncing team", y un estado renombrado llega al instante a los chips #EXP

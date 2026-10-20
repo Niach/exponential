@@ -1,7 +1,4 @@
-- Sposta una sessione su un altro dispositivo: il pin Device nelle opzioni di una sessione sposta una sessione in corso, con worktree e conversazione, su un altro dei tuoi dispositivi online
-- Le sessioni si danno un nome da sole: ogni sessione, scheda e riga mostra un nome vero, mai "Session 2", e il dispatcher di un thread raggruppa gli issue correlati in un'unica sessione
-- Domande e piani prendono il posto del campo: una domanda o un piano in attesa compare dove c'era il campo, sia in una sessione sia in un thread, e più elementi si impilano e si aprono uno alla volta
-- La pagina della sessione vive nel suo thread: scorri tra Conversation, issue, sessioni e la Guide, con un solo Stop nell'intestazione che riporta i messaggi in coda nel campo
-- Le righe dei thread perdono il lucchetto privato e la parola "merged", la scheda Threads porta il punto live, e la scheda Inbox mostra un punto finché hai bozze
-- Una bozza riaperta si salva e si chiude senza chiedere
-- Correzioni dalla revisione: un secondo tocco su Back non chiude più una bozza mentre si salva, il punto di Inbox conta le bozze del team attuale, e viene mostrata la scheda in attesa più recente
+- Più veloce ovunque: l'app non si sincronizza più a ritmo continuo quando è inattiva, e liste, vista della sessione ed editor lavorano molto meno a ogni battitura e a ogni ciclo di sincronizzazione
+- Il titolo Threads si trova nella barra fissa in alto, come in tutte le altre schede
+- Spostare una sessione: il dispositivo di origine conserva worktree e branch finché il dispositivo di destinazione non li ha ripristinati del tutto, poi fa pulizia
+- Correzioni dalla revisione: una board ancora in sincronizzazione non fa più lampeggiare il banner "Syncing team", e uno stato rinominato arriva subito ai chip #EXP

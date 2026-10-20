@@ -1,7 +1,4 @@
-- Siirrä sessio toiselle laitteelle: session asetusten Device-nasta siirtää käynnissä olevan session worktreen ja keskustelun kanssa toiselle verkossa olevalle laitteellesi
-- Sessiot nimeävät itsensä: jokainen sessio, välilehti ja rivi näyttää oikean nimen, ei koskaan "Session 2", ja ketjun dispatcher kokoaa toisiinsa liittyvät issuet yhteen sessioon
-- Kysymykset ja suunnitelmat tulevat kirjoituskentän paikalle: odottava kysymys tai suunnitelma näkyy siinä, missä kenttä oli, niin sessiossa kuin ketjussa, ja useampi pinoutuu ja avautuu yksi kerrallaan
-- Session sivu asuu ketjunsa sisällä: pyyhkäise Conversationin, issueiden, sessioiden ja Guiden välillä, ja otsikon yksi Stop palauttaa jonossa olevat viestit kirjoituskenttään
-- Ketjurivit menettävät yksityisyyden lukon ja sanan "merged", Threads-välilehti kantaa live-pistettä, ja Inbox-välilehti näyttää pisteen, kun sinulla on luonnoksia
-- Uudelleen avattu luonnos tallentuu ja sulkeutuu kysymättä
-- Korjauksia katselmoinnista: toinen napautus Backiin ei enää sulje luonnosta tallennuksen aikana, Inbox-piste laskee nykyisen tiimin luonnokset, ja näkyvissä on uusin odottava kortti
+- Nopeampi kaikkialla: sovellus ei enää synkronoi tauotta ollessaan käyttämättä, ja listat, sessionäkymä ja editorit tekevät paljon vähemmän työtä jokaista näppäinpainallusta ja synkronointikierrosta kohden
+- Threads-otsikko on kiinteässä palkissa ylhäällä, kuten kaikilla muillakin välilehdillä
+- Session siirto: lähdelaite säilyttää worktreen ja branchin, kunnes kohdelaite on palauttanut ne kokonaan, ja siivoaa vasta sitten
+- Korjauksia katselmoinnista: vielä synkronoituva board ei enää näytä hetkeksi "Syncing team" -banneria, ja uudelleennimetty tila päivittyy #EXP-siruihin heti

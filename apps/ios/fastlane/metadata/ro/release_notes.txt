@@ -1,7 +1,4 @@
-- Mută o sesiune pe alt dispozitiv: pinul Device din opțiunile unei sesiuni mută o sesiune activă, cu worktree-ul și conversația ei, pe alt dispozitiv al tău aflat online
-- Sesiunile își dau singure nume: fiecare sesiune, filă și rând arată un nume real, niciodată "Session 2", iar dispatcher-ul unui fir grupează issue-urile înrudite într-o singură sesiune
-- Întrebările și planurile iau locul câmpului: o întrebare sau un plan în așteptare stă acolo unde era câmpul, atât într-o sesiune, cât și într-un fir, iar mai multe se adună și se deschid pe rând
-- Pagina sesiunii stă în firul ei: glisează între Conversation, issue-uri, sesiuni și Guide, cu un singur Stop în antet care trimite mesajele din coadă înapoi în câmp
-- Rândurile firelor pierd lacătul privat și cuvântul "merged", fila Threads poartă punctul live, iar fila Inbox arată un punct cât timp ai ciorne
-- O ciornă redeschisă se salvează și se închide fără să întrebe
-- Corecturi din review: o a doua atingere pe Back nu mai închide o ciornă în timp ce se salvează, punctul Inbox numără ciornele echipei curente, iar cardul în așteptare cel mai nou este cel afișat
+- Mai rapidă peste tot: aplicația nu se mai sincronizează încontinuu când stă inactivă, iar listele, vizualizarea sesiunii și editoarele fac mult mai puțină muncă la fiecare tastă apăsată și la fiecare ciclu de sincronizare
+- Titlul Threads stă în bara fixă din partea de sus, ca la orice alt tab
+- Mutarea unei sesiuni: dispozitivul sursă își păstrează worktree-ul și branch-ul până când dispozitivul țintă le-a restaurat complet, apoi face curățenie
+- Corecturi din review: un board care încă se sincronizează nu mai face să clipească bannerul "Syncing team", iar un status redenumit ajunge imediat în chipurile #EXP
