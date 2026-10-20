@@ -434,7 +434,10 @@ public final class IssueEditorModel {
         // Baseline against the DERIVED markdown, not the raw input: the
         // markdown↔blocks round-trip is not byte-identical, so using the raw
         // input here would make the editor read as "dirty" immediately.
-        lastSavedMarkdown = currentMarkdown()
+        // EXP-1358: a display-only model never saves, so it never serialises
+        // — every streamed narration fragment used to re-serialise the whole
+        // growing message here for nothing.
+        lastSavedMarkdown = isDisplayOnly ? "" : currentMarkdown()
         pendingRemoteMarkdown = nil
         focusedBlockId = nil
         selection = nil

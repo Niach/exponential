@@ -1864,7 +1864,10 @@ public enum AgentFeed {
                 // EXP-938: `EditCard.card` drops a member with neither a patch
                 // nor a `detail`; a run it drops ENTIRELY emits no row, never a
                 // "0 files edited" card.
-                if !EditCard.card(run).rows.isEmpty {
+                // EXP-1358: `hasRows` answers without parsing every patch —
+                // this used to run `Diff.parse` over every edit in the window
+                // on EVERY relay batch, twice (`rows` and `subagents`).
+                if EditCard.hasRows(run) {
                     builders.append(RowBuilder(kind: .edits, items: run))
                 }
                 i = end + 1

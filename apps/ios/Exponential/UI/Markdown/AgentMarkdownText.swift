@@ -53,7 +53,12 @@ struct AgentMarkdownText: View {
     /// comment and issue renders keep the neutral interchange look.
     let overrides: MarkdownStyle.Overrides
 
-    @State private var displayModel: IssueEditorModel
+    /// EXP-1358: the row's model is made on the FIRST body pass, not in
+    /// `init` — a parent re-render re-inits every visible row, and SwiftUI
+    /// discards every `State(initialValue:)` but the first, so each re-init
+    /// used to build (and throw away) a whole decorated model.
+    @State private var displayBox: LazyBox<IssueEditorModel>
+    private var displayModel: IssueEditorModel { displayBox.value }
     @State private var displayedText: String?
     /// EXP-787: the metrics are baked into the attributed string at parse time,
     /// so a text-size change has to re-parse — the `@State` model outlives the
@@ -115,9 +120,9 @@ struct AgentMarkdownText: View {
         // blocks — a shared model cannot be reloaded in place (two rows
         // showing one text would follow each other's updates), and in-place
         // is the point: see `adoptDisplayBlocks`.
-        _displayModel = State(initialValue: Self.rowModel(
-            text, context: context, options: options, overrides: overrides
-        ))
+        _displayBox = State(initialValue: LazyBox {
+            Self.rowModel(text, context: context, options: options, overrides: overrides)
+        })
         _displayedText = State(initialValue: text)
     }
 
@@ -328,4 +333,22 @@ struct AgentMarkdownText: View {
 
 private extension String {
     var nilIfEmpty: String? { isEmpty ? nil : self }
+}
+
+
+/// A reference box whose value is built on first read (EXP-1358).
+final class LazyBox<Value> {
+    private let make: () -> Value
+    private var stored: Value?
+
+    init(_ make: @escaping () -> Value) {
+        self.make = make
+    }
+
+    var value: Value {
+        if let stored { return stored }
+        let built = make()
+        stored = built
+        return built
+    }
 }

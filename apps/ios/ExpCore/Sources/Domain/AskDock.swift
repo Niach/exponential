@@ -246,6 +246,9 @@ public enum AskDock {
     public static func anchorToolCards(
         feed: [AgentFeedItem], cardIds: [String]
     ) -> (anchors: [Int: [String]], unanchored: [String]) {
+        // EXP-1358: nothing to anchor = no walk over the whole feed (the
+        // session body called this on every render, cards or not).
+        guard !cardIds.isEmpty else { return ([:], []) }
         let calls: [Int] = feed.compactMap { item in
             guard case let .tool(id, name, _, _, _, _, settled, failed, _, _, _, _, _) = item,
                   settled, !failed,

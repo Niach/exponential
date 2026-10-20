@@ -133,7 +133,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v65_trigger_id", "v66_threads",
              "v67_issue_draft_thread", "v68_session_tree",
              "v69_session_dispatch", "v70_session_talk", "v71_session_issue_assignee",
-             "v72_session_move_to_device"]
+             "v72_session_move_to_device", "v73_issue_identifier_upper_index"]
         )
     }
 
@@ -188,7 +188,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v65_trigger_id", "v66_threads",
              "v67_issue_draft_thread", "v68_session_tree",
              "v69_session_dispatch", "v70_session_talk", "v71_session_issue_assignee",
-             "v72_session_move_to_device"]
+             "v72_session_move_to_device", "v73_issue_identifier_upper_index"]
         )
     }
 
@@ -714,7 +714,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v65_trigger_id", "v66_threads",
              "v67_issue_draft_thread", "v68_session_tree",
              "v69_session_dispatch", "v70_session_talk", "v71_session_issue_assignee",
-             "v72_session_move_to_device"]
+             "v72_session_move_to_device", "v73_issue_identifier_upper_index"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -817,7 +817,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v65_trigger_id", "v66_threads",
              "v67_issue_draft_thread", "v68_session_tree",
              "v69_session_dispatch", "v70_session_talk", "v71_session_issue_assignee",
-             "v72_session_move_to_device"]
+             "v72_session_move_to_device", "v73_issue_identifier_upper_index"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }

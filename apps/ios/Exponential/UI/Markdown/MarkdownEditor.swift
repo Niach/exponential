@@ -1100,12 +1100,24 @@ struct BlockTextEditor: UIViewRepresentable {
             if tv.isFirstResponder {
                 scrollCaretIntoView(tv)
             }
-            scheduleChipPass()
+            // EXP-1358: the pass (five copies + regexes over the document,
+            // then a DB lookup per token) ran on every keystroke. Now: only
+            // when the text can hold a token (`#`/`@`) or the last pass left
+            // chips to strip, and coalesced to a short pause after typing.
+            let text = tv.textStorage.string
+            let canChip = text.utf8.contains(UInt8(ascii: "#")) || text.utf8.contains(UInt8(ascii: "@"))
+            if canChip || chipsPresent {
+                chipsPresent = canChip
+                scheduleChipPass(delay: Self.chipPassDebounce)
+            }
         }
 
         // MARK: Chip decoration (EXP-322)
 
         private var chipPassScheduled = false
+        /// The last pass ran over a text that could hold chips (EXP-1358).
+        private var chipsPresent = false
+        static let chipPassDebounce: TimeInterval = 0.12
 
         /// Re-chip after the edit cycle, coalesced to one pass per runloop turn.
         /// Every mutation path in this file funnels through `textViewDidChange`

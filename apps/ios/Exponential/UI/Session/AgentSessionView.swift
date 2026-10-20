@@ -223,13 +223,19 @@ struct AgentSessionView: View {
     private func runFace(_ model: AgentSessionModel) -> some View {
         feedBody(model)
             .safeAreaInset(edge: .bottom, spacing: 0) {
-                bottomBand(model)
-                    // EXP-1316: the band's measured height IS the feed's
-                    // bottom inset; a pinned feed re-pins when it changes
-                    // (the composer expanding, the keyboard, late layout).
-                    .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { height in
-                        bottomBandHeight = height
-                    }
+                // EXP-1358: the band is its OWN observation scope. Built
+                // inline, every draft read it makes (`trimmedDraft`,
+                // `slashMatches`, `hasContent`) was tracked by THIS view's
+                // body, so each keystroke re-rendered the whole transcript.
+                BodySlice {
+                    bottomBand(model)
+                }
+                // EXP-1316: the band's measured height IS the feed's
+                // bottom inset; a pinned feed re-pins when it changes
+                // (the composer expanding, the keyboard, late layout).
+                .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { height in
+                    bottomBandHeight = height
+                }
             }
     }
 
@@ -4134,5 +4140,18 @@ extension AppDependencies {
         // an earlier one.
         model.devicesApi = devicesApi
         return model
+    }
+}
+
+
+/// EXP-1358: an observation boundary. SwiftUI tracks `@Observable` reads
+/// per view BODY; a `@ViewBuilder` closure invoked here is read by THIS
+/// body, so the properties it touches re-render this slice alone, never the
+/// view that built the closure.
+struct BodySlice<Content: View>: View {
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        content()
     }
 }
