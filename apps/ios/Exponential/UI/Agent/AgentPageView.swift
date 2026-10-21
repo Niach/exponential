@@ -5,8 +5,8 @@ import SwiftUI
 /// EXP-825/EXP-1291: HOME — the ONE launcher on every client. Top to bottom:
 /// the DAWN (FEED-100: the big brand mark rising behind the composer) while
 /// nothing is picked, else the subject headline (EXP-1038,
-/// `AgentComposerHeadline`: the contract verb plus the action or issue
-/// chips); the composer card (`AgentComposerCard`, placeholder "What do you
+/// `AgentComposerHeadline`: the contract verb plus the issue chips, or the
+/// prompt / agent chip); the composer card (`AgentComposerCard`, placeholder "What do you
 /// want to build?", the starting row after Start); the `@`/`:` candidate
 /// menu under it; the options line (`AgentOptionsRow`). EXP-1316
 /// (composer-home.json `phone`): the column is pinned to the BOTTOM (above
@@ -92,8 +92,26 @@ struct AgentPageView: View {
                         // responder, so the keyboard never drops.
                         if composer.draftEditor.showsAutocompleteMenu {
                             EditorAutocompleteMenu(model: composer.draftEditor)
+                        } else if slashMenuVisible(composer) {
+                            // NEW-2: the `/` menu = the team's prompts (no
+                            // session yet, so no builtins); a pick becomes the
+                            // subject chip and clears the `/name` typed.
+                            SlashCommandMenu(
+                                candidates: composer.slashPrompts.map(SlashCandidate.prompt),
+                                highlighted: 0
+                            ) { candidate in
+                                if case let .prompt(prompt) = candidate {
+                                    composer.pickPrompt(prompt.id)
+                                    composer.draftText = ""
+                                }
+                            }
+                            .accessibilityIdentifier("agent-composer-slash-menu")
                         }
-                        AgentOptionsRow(model: composer)
+                        // NEW-3: a message to an agent runs on ITS device and
+                        // login: the options line hides.
+                        if composer.subject != AgentComposerPrompt.Subject.agent {
+                            AgentOptionsRow(model: composer)
+                        }
                         captions(composer)
                     }
                     .padding()
@@ -150,6 +168,10 @@ struct AgentPageView: View {
                 composer?.landedRootId = nil
                 Task { @MainActor in open(rootId) }
             }
+            if let agentId = composer?.landedAgentId {
+                composer?.landedAgentId = nil
+                Task { @MainActor in openAgent(agentId) }
+            }
             ensureModels()
             // A composer kept through a team change (its draft or send)
             // follows the team once there is nothing left to lose.
@@ -193,11 +215,29 @@ struct AgentPageView: View {
                 open(rootId)
             }
         }
+        // NEW-3: a message into an agent's DM opens that DM.
+        .onChange(of: composer?.landedAgentId) { _, agentId in
+            if let agentId, visible {
+                composer?.landedAgentId = nil
+                openAgent(agentId)
+            }
+        }
     }
 
     /// A started thread opens on its Conversation.
     private func open(_ rootId: String) {
         pushRoute(.thread(accountId: accountId, threadId: rootId))
+    }
+
+    /// NEW-3: the caller's DM with an agent.
+    private func openAgent(_ agentId: String) {
+        pushRoute(.agentChannel(accountId: accountId, agentId: agentId))
+    }
+
+    /// NEW-2: the `/` menu is up while the field has focus and the draft is a
+    /// `/name` token matching a prompt.
+    private func slashMenuVisible(_ composer: AgentComposerModel) -> Bool {
+        composer.draftEditor.isEditing && !composer.slashPrompts.isEmpty
     }
 
     private func ensureModels() {

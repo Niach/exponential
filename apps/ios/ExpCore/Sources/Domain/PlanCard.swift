@@ -28,6 +28,20 @@ public enum PlanCard {
             feedbackLine.replacingOccurrences(of: "{feedback}", with: text)
         }
 
+        /// NEW-6 (N-1) `copy.stepLabel`: the stepper's line, `{n}` 1-based of
+        /// `{m}`.
+        public static let stepLabel = "Question {n} of {m}"
+        public static let back = "Back"
+        public static let next = "Next"
+        /// `copy.decide`: THE decision block's heading (`xs` semibold).
+        public static let decide = "Your decision"
+
+        public static func stepLabel(step: Int, count: Int) -> String {
+            stepLabel
+                .replacingOccurrences(of: "{n}", with: String(step))
+                .replacingOccurrences(of: "{m}", with: String(count))
+        }
+
         /// `copy.specimen`: the styleguide entry's three captions ×4.
         public enum Specimen {
             public static let pending = "A plan waiting on you: pictures, a surface, two questions"
@@ -55,6 +69,27 @@ public enum PlanCard {
         public static let surface = "plan-card-surface"
         public static let feedback = "plan-card-feedback"
         public static let issue = "plan-card-issue"
+        /// NEW-6 (N-1): the stepper's line, its Back / Next, the decision block.
+        public static let step = "plan-card-step"
+        public static let stepBack = "plan-card-step-back"
+        public static let stepNext = "plan-card-step-next"
+        public static let decision = "plan-card-decision"
+    }
+
+    /// NEW-6 (N-1) `stepper`: a PENDING plan with `minQuestions` or more
+    /// questions shows them one at a time; Back / Next sit `buttonGap` apart.
+    public enum Stepper {
+        public static let minQuestions = 2
+        public static let buttonGap: Double = 8
+    }
+
+    /// Whether a plan card steps through its questions (web
+    /// `stepperApplies`): pending (no decision) with `Stepper.minQuestions`+
+    /// questions. A question card and a decided plan never do.
+    public static func stepperApplies(kind: String, decision: String?, questionCount: Int) -> Bool {
+        guard kind == "plan" else { return false }
+        if decision == "approved" || decision == "rejected" { return false }
+        return questionCount >= Stepper.minQuestions
     }
 
     /// The picture tiles' geometry (pt).

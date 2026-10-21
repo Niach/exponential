@@ -5,9 +5,9 @@ import SwiftUI
 /// Linear-style floating bottom navigation: a glass pill with the top-level
 /// destinations (Issues, Inbox — with an unread dot — Devices — the
 /// machines surface — Threads — EXP-1291: it replaced Reviews, with the
-/// Agents band on top — and Actions — EXP-1187: a top-level tab ×3, the More
-/// menu is gone; Settings stays the Issues header's gear; base order per
-/// EXP-81) plus a detached launcher on
+/// Agents band on top; NEW-7: the Actions tab is gone — prompts live in the
+/// composer's `/` menu and Settings → Prompts; Settings stays the Issues
+/// header's gear; base order per EXP-81) plus a detached launcher on
 /// the right: the SPLIT capsule (chat | new issue), on every bar-visible
 /// route since EXP-973 — the chat arm opens Home (the composer and my
 /// Running threads, so it wears the running-session dot) and the New-issue
@@ -26,8 +26,6 @@ struct MobileTabBar: View {
     let agentActive: Bool
     let issuesActive: Bool
     let devicesActive: Bool
-    /// EXP-1187: lit while the Actions list (or an action) is up.
-    let actionsActive: Bool
     let myWorkActive: Bool
     /// EXP-1291: lit while the Threads screen is up.
     let threadsActive: Bool
@@ -49,7 +47,6 @@ struct MobileTabBar: View {
     let composeEnabled: Bool
     let onIssues: () -> Void
     let onDevices: () -> Void
-    let onActions: () -> Void
     let onMyWork: () -> Void
     let onThreads: () -> Void
     let onCompose: () -> Void
@@ -71,7 +68,6 @@ struct MobileTabBar: View {
         if myWorkActive { return "mywork" }
         if devicesActive { return "devices" }
         if threadsActive { return "threads" }
-        if actionsActive { return "actions" }
         return "none"
     }
 
@@ -120,16 +116,6 @@ struct MobileTabBar: View {
                     action: onThreads
                 )
                 .accessibilityIdentifier("tab-threads")
-                // EXP-1187: Actions — a top-level tab ×3 (the More menu is
-                // gone; Settings is the Issues header's gear). Authoring
-                // lives here; the composer's action chip runs one.
-                tab(
-                    glyph: AppIcons.navActions,
-                    label: "Actions",
-                    active: actionsActive,
-                    action: onActions
-                )
-                .accessibilityIdentifier("tab-actions")
             }
             .animation(motion.standard, value: activeKey)
             .padding(MobileTabBarMetrics.pillPadding)

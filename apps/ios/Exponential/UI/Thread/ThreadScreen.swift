@@ -6,6 +6,10 @@ import SwiftUI
 /// `session-thread.json`) — a THREAD, or a team AGENT's channel (the same
 /// Conversation, Slack-like, its started threads as session cards).
 ///
+/// * NEW-6 (N-1): a thread with ONE session (the root alone) IS that
+///   session: its page (raw work + composer, Stop in the header while live)
+///   is the main thing and the strip has no Conversation tab; a second
+///   session brings the Conversation tab back.
 /// * Header = the title (plain, never renamed — EXP-1316; a lock when
 ///   private; an agent's icon in its color before its name) and, for a
 ///   thread, THE strip — Conversation · one chip per linked issue · "+" ·
@@ -128,13 +132,16 @@ struct ThreadScreen: View {
     private var rows: ThreadRows? { model?.rows }
 
     /// The pager's pages: the strip's (an agent channel has the
-    /// Conversation alone).
+    /// Conversation alone). NEW-6 (N-1): a thread with ONE session has no
+    /// Conversation tab: that session's page leads instead (no chip of its
+    /// own), the issue chips and the Guide after it.
     private func pages(_ rows: ThreadRows, _ view: SessionThreadView) -> [ThreadPage] {
         guard !rows.isAgent else { return [.conversation] }
+        let main: [ThreadPage] = view.mainSessionId.map { [.session($0)] } ?? []
         // EXP-1334: a folded sub-issue is a page too (its chip's subtree);
         // EXP-1343: so is every session chip and every session it folds, in
         // strip order (`+` is never a page).
-        return view.tabs.flatMap { tab -> [ThreadPage] in
+        return main + view.tabs.flatMap { tab -> [ThreadPage] in
             switch tab {
             case .conversation: [.conversation]
             case let .issue(issueId, _, nested): [.issue(issueId)] + nested.map { .issue($0.issueId) }
@@ -149,6 +156,13 @@ struct ThreadScreen: View {
     private var currentPages: [ThreadPage] {
         guard let rows, let view = model?.view else { return [.conversation] }
         return pages(rows, view)
+    }
+
+    /// The page a thread lands on: its Conversation, or (NEW-6 N-1) the ONE
+    /// session's page of a single-session thread.
+    private var defaultPage: ThreadPage {
+        guard let rows, !rows.isAgent, let main = model?.view?.mainSessionId else { return .conversation }
+        return .session(main)
     }
 
     var body: some View {
@@ -190,12 +204,12 @@ struct ThreadScreen: View {
             ToolbarItem(placement: .principal) {
                 if let rows, let view = model?.view {
                     if rows.isAgent {
+                        // NEW-2: the agent DEFINITION's icon (coloured) + name.
                         ThreadHeaderTitle(
-                            title: rows.root.name ?? view.title,
+                            title: rows.agentName.isEmpty ? view.title : rows.agentName,
                             isPrivate: view.isPrivate,
-                            agentIcon: BoardTypeDisplay.iconName(for: rows.root.icon)
-                                ?? SessionTree.ListCopy.agentDefaultIcon,
-                            agentColor: rows.root.color ?? SessionTree.ListCopy.agentDefaultColor
+                            agentIcon: rows.agentIcon,
+                            agentColor: rows.agentColor
                         )
                     } else {
                         ThreadHeaderTitle(title: view.title, isPrivate: view.isPrivate)
@@ -306,7 +320,7 @@ struct ThreadScreen: View {
                 pendingPage = nil
                 selectPage(pending)
             } else if !pages.contains(page) {
-                page = .conversation
+                page = defaultPage
             }
             syncIssueModels()
         }
@@ -339,7 +353,13 @@ struct ThreadScreen: View {
                 isFresh: { model?.isFresh(issueId: $0) ?? false },
                 onSelect: { next in
                     pendingPage = nil
-                    selectPage(next)
+                    // NEW-6 (N-1): on a single-session thread the open issue
+                    // chip or Guide tapped again returns to the session.
+                    if let main = view.mainSessionId, next == page, next != .session(main) {
+                        selectPage(.session(main))
+                    } else {
+                        selectPage(next)
+                    }
                 },
                 onIssueMenu: { issueId in openMenu(issueId: issueId) },
                 onAdd: canEdit ? { openMenu(issueId: nil) } : nil,
@@ -1083,7 +1103,7 @@ struct ThreadScreen: View {
     }
 
     private func unlink(_ issueId: String) {
-        if page == .issue(issueId) { selectPage(.conversation) }
+        if page == .issue(issueId) { selectPage(defaultPage) }
         let api = deps.sessionsApi
         let accountId = accountId
         let rootId = rootId
@@ -1212,7 +1232,7 @@ struct ThreadScreen: View {
             selectPage(target)
         } else {
             pendingPage = target
-            selectPage(.conversation)
+            selectPage(defaultPage)
         }
     }
 
@@ -1348,6 +1368,8 @@ struct ThreadComposer: View {
     @State private var slashHighlight = 0
     /// A confirm-gated command waiting on its dialog (`/clear`).
     @State private var slashConfirm: SlashCommand?
+    /// NEW-2: the team's prompts, after the builtins in the `/` menu.
+    @State private var slashPrompts = TeamSlashPrompts()
     // EXP-1334: the "+" (composer-menu.json) and its pickers.
     @State private var showPlusMenu = false
     @State private var plusPick: ComposerMenu.RowId?
@@ -1366,10 +1388,10 @@ struct ThreadComposer: View {
                 VStack(spacing: 8) {
                     if open, slashMenuVisible(draft) {
                         SlashCommandMenu(
-                            commands: slashMatches(draft),
+                            candidates: slashMatches(draft),
                             highlighted: slashHighlight
-                        ) { command in
-                            applySlashCommand(command, draft)
+                        ) { candidate in
+                            applySlashCandidate(candidate, draft)
                         }
                         .padding(.horizontal, 16)
                     }
@@ -1479,6 +1501,9 @@ struct ThreadComposer: View {
         .background { effortPicker }
         .background { mcpPicker }
         .task(id: root?.teamId) { await loadMcpServers() }
+        .task(id: root?.teamId) {
+            slashPrompts.bind(accountId: accountId, teamId: root?.teamId, db: deps.db)
+        }
         // A sync past the configure settles its pick: whenever the row reads
         // what a pick says, the pick goes (web `dropSettled`).
         .onChange(of: settledRow) { _, row in
@@ -1728,11 +1753,28 @@ struct ThreadComposer: View {
         steerModel?.catalogAgent ?? root?.cli
     }
 
-    private func slashMatches(_ draft: ThreadComposerDraft) -> [SlashCommand] {
-        SlashCommands.matches(
-            draft: draft.draftText,
-            agent: catalogAgent
-        )
+    /// NEW-2: the builtins this agent runs, then the team's prompts.
+    private func slashMatches(_ draft: ThreadComposerDraft) -> [SlashCandidate] {
+        SlashCommands.candidates(draft: draft.draftText, agent: catalogAgent, prompts: slashPrompts.prompts)
+    }
+
+    /// A command rewrites the draft; a prompt's body (`prompts.get`) replaces
+    /// the `/name` draft (web `session-composer.tsx`). Never sends.
+    private func applySlashCandidate(_ candidate: SlashCandidate, _ draft: ThreadComposerDraft) {
+        switch candidate {
+        case let .command(command):
+            applySlashCommand(command, draft)
+        case let .prompt(prompt):
+            slashDismissedFor = draft.draftText
+            slashHighlight = 0
+            Task {
+                guard let body = await TeamSlashPrompts.loadBody(prompt, accountId: accountId, deps: deps),
+                      SlashCommands.isSlashDraft(draft.draftText)
+                else { return }
+                draft.draftText = body
+                focus()
+            }
+        }
     }
 
     private func slashMenuVisible(_ draft: ThreadComposerDraft) -> Bool {
@@ -1758,8 +1800,8 @@ struct ThreadComposer: View {
     private func handleReturn(_ draft: ThreadComposerDraft) {
         if slashMenuVisible(draft) {
             let matches = slashMatches(draft)
-            let command = matches.indices.contains(slashHighlight) ? matches[slashHighlight] : matches.first
-            if let command { applySlashCommand(command, draft) }
+            let candidate = matches.indices.contains(slashHighlight) ? matches[slashHighlight] : matches.first
+            if let candidate { applySlashCandidate(candidate, draft) }
             return
         }
         send(draft)

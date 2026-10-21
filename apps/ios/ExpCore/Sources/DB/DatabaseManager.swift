@@ -2616,7 +2616,44 @@ public final class DatabaseManager: @unchecked Sendable {
             }
         }
 
+        // v75 (NEW-3): `conversations` (the chat primitive; in step 1 every
+        // row is a session's own, kind `session`) — a brand-new synced table
+        // mirroring the shape allowlist — and `messages.conversation_id`
+        // beside the kept `session_id` (a guarded additive ALTER; the
+        // messages cursor resets only when the column was added).
+        migrator.registerMigration("v75_conversations") { db in
+            try createConversationsTable(db)
+            guard try db.tableExists("messages") else { return }
+            let existing = Set(try db.columns(in: "messages").map(\.name))
+            guard !existing.contains("conversation_id") else { return }
+            try db.alter(table: "messages") { t in
+                t.add(column: "conversation_id", .text)
+            }
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: """
+                    UPDATE "electric_offsets"
+                    SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                    WHERE "shape" = 'messages'
+                    """)
+            }
+        }
+
         return migrator
+    }
+
+    /// NEW-3: the `conversations` table, mirroring the shape allowlist
+    /// (`/api/shapes/conversations`); `conversation_members` stays server-only.
+    static func createConversationsTable(_ db: Database) throws {
+        try db.create(table: "conversations", ifNotExists: true) { t in
+            t.primaryKey("id", .text)
+            t.column("team_id", .text).notNull().indexed()
+            // dm | channel | session (contract conversationKind).
+            t.column("kind", .text).notNull().defaults(to: "session")
+            t.column("session_id", .text).indexed()
+            t.column("title", .text)
+            t.column("created_at", .text).notNull()
+            t.column("updated_at", .text).notNull()
+        }
     }
 
     /// NEW-2: the `agents` / `events` / `prompts` tables, mirroring the shape
@@ -2796,6 +2833,8 @@ public final class DatabaseManager: @unchecked Sendable {
             try db.execute(sql: "DELETE FROM pull_request_issues")
             try db.execute(sql: "DELETE FROM pull_requests")
             try db.execute(sql: "DELETE FROM messages")
+            // NEW-3: a session's conversation, wiped with its messages.
+            try db.execute(sql: "DELETE FROM conversations")
             try db.execute(sql: "DELETE FROM session_issues")
             try db.execute(sql: "DELETE FROM sessions")
             // EXP-481: child before parent, like the issue tables below.

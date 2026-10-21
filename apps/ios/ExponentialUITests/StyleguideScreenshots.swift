@@ -768,6 +768,23 @@ final class StyleguideScreenshots: XCTestCase {
             goBack(app)
             expect(app.staticTexts[Self.seededBoardName], within: Wait.nav, "Did not return to the team settings")
         }
+
+        // ── sg_settings-prompts · sg_settings-prompt: Settings → Prompts ────
+        // NEW-7: the team settings page's Prompts section (the band with New
+        // prompt over one row per prompt) scrolled into view, then New prompt
+        // (the owner pill): the same page an existing prompt opens, in create
+        // mode so the capture needs no seeded id. Nothing is saved.
+        if ScreenshotShots.isWanted("sg_settings-prompts") || ScreenshotShots.isWanted("sg_settings-prompt") {
+            let newPrompt = anyElement(app, identified: "prompts-new")
+            scrollUntilVisible(app, newPrompt, attempts: 10)
+            expect(newPrompt, within: Wait.sync, "Team settings drew no Prompts band with New prompt")
+            snapshot("sg_settings-prompts", settle: 2)
+            newPrompt.tap()
+            expect(anyElement(app, identified: "prompt-form"), within: Wait.nav, "New prompt did not open its form")
+            snapshot("sg_settings-prompt", settle: 2)
+            goBack(app)
+            expect(newPrompt, within: Wait.nav, "Did not return to the team settings")
+        }
         goBack(app)
 
         // ── sg_settings-account: the account / server detail ──────────────────

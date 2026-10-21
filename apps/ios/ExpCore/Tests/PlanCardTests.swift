@@ -62,6 +62,10 @@ final class PlanCardTests: XCTestCase {
             "surface": PlanCard.TestIds.surface,
             "feedback": PlanCard.TestIds.feedback,
             "issue": PlanCard.TestIds.issue,
+            "step": PlanCard.TestIds.step,
+            "stepBack": PlanCard.TestIds.stepBack,
+            "stepNext": PlanCard.TestIds.stepNext,
+            "decision": PlanCard.TestIds.decision,
         ])
 
         // Every key of `tiles` and `card`, both ways (a new fixture key
@@ -107,6 +111,26 @@ final class PlanCardTests: XCTestCase {
             XCTAssertEqual(cardMirror[key], value, "card.\(key)")
         }
         XCTAssertEqual(fixture["uploadScheme"] as? String, PlanCard.uploadScheme)
+    }
+
+    // NEW-6 (N-1): the stepper's constants + copy, and when it applies.
+    func testStepperMatchesTheFixture() throws {
+        let fixture = try fixture()
+        let stepper = try XCTUnwrap(fixture["stepper"] as? [String: Any])
+        XCTAssertEqual(stepper["minQuestions"] as? Int, PlanCard.Stepper.minQuestions)
+        XCTAssertEqual(stepper["buttonGap"] as? Double, PlanCard.Stepper.buttonGap)
+        let copy = try XCTUnwrap(fixture["copy"] as? [String: Any])
+        XCTAssertEqual(copy["stepLabel"] as? String, PlanCard.Copy.stepLabel)
+        XCTAssertEqual(copy["back"] as? String, PlanCard.Copy.back)
+        XCTAssertEqual(copy["next"] as? String, PlanCard.Copy.next)
+        XCTAssertEqual(copy["decide"] as? String, PlanCard.Copy.decide)
+        XCTAssertEqual(PlanCard.Copy.stepLabel(step: 2, count: 3), "Question 2 of 3")
+
+        XCTAssertTrue(PlanCard.stepperApplies(kind: "plan", decision: nil, questionCount: 2))
+        XCTAssertFalse(PlanCard.stepperApplies(kind: "plan", decision: nil, questionCount: 1))
+        XCTAssertFalse(PlanCard.stepperApplies(kind: "plan", decision: "approved", questionCount: 3))
+        XCTAssertFalse(PlanCard.stepperApplies(kind: "plan", decision: "rejected", questionCount: 3))
+        XCTAssertFalse(PlanCard.stepperApplies(kind: "question", decision: nil, questionCount: 3))
     }
 
     func testAnswerIssueCases() throws {

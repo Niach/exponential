@@ -88,19 +88,6 @@ public extension DevicePickerDevice {
     }
 }
 
-public extension ActionPickerAction {
-    /// An action row: its curated glyph resolved ONCE (`ActionIconDisplay` —
-    /// an unset or unknown name falls back to the generic action mark, never
-    /// to a hole) and its name. The composer's ▶ tool builds its rows here.
-    init(_ action: ActionDto) {
-        self.init(
-            id: action.id,
-            name: action.name,
-            icon: ActionIconDisplay.iconName(for: action.icon)
-        )
-    }
-}
-
 public extension IssuePickerIssue {
     /// An issue row: the STATUS glyph in its colour, then `IDENT Title`,
     /// matched on either half. A row whose identifier has not been stamped

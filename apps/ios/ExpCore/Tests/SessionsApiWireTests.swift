@@ -83,12 +83,11 @@ final class SessionsApiWireTests: XCTestCase {
         XCTAssertEqual(files.keys.sorted(), ["attachmentIds", "sessionId"])
     }
 
-    /// EXP-1323: a `/btw` aside names its parent, the question and the flag.
-    func testAnAsideSendsParentTextAndTheFlag() throws {
-        let wire = try json(SessionsSendInput.aside(parentId: "s-1", text: "what does useCart do?"))
-        XCTAssertEqual(wire.keys.sorted(), ["aside", "parentId", "text"])
-        XCTAssertEqual(wire["aside"] as? Bool, true)
-        XCTAssertEqual(wire["parentId"] as? String, "s-1")
+    /// NEW-3: a message to a team agent names the agent, never a session.
+    func testAnAgentMessageSendsTheAgentId() throws {
+        let wire = try json(SessionsSendInput.agent(agentId: "a-1", text: "Hi", attachmentIds: ["att-1"]))
+        XCTAssertEqual(wire.keys.sorted(), ["agentId", "attachmentIds", "text"])
+        XCTAssertEqual(wire["agentId"] as? String, "a-1")
     }
 
     /// EXP-1323: `sessions.startSuggestion` omits the unpicked runner fields.

@@ -424,6 +424,35 @@ final class SyncApplyTests: XCTestCase {
         ])
     }
 
+    // NEW-3: a session's conversation row lands (the shape allowlist), and a
+    // message carries its `conversation_id` beside the kept `session_id`.
+    func testConversationAndMessageConversationIdApply() async throws {
+        let conversation = try JSONDecoder().decode(ConversationEntity.self, from: Data("""
+            {"id":"c-1","team_id":"ws1","kind":"session","session_id":"s1","title":null,
+             "created_at":"2026-10-21T09:00:00Z","updated_at":"2026-10-21T09:00:00Z"}
+            """.utf8))
+        try await applyBatch(
+            messages: [ShapeMessage<ConversationEntity>.insert(key: #""public"."conversations"/"c-1""#, value: conversation)],
+            name: "conversations", table: "conversations", pool: pool
+        )
+        let message = try JSONDecoder().decode(MessageEntity.self, from: Data("""
+            {"id":"m-c","session_id":"s1","root_id":"s1","team_id":"ws1","conversation_id":"c-1",
+             "author_kind":"user","author_id":"u1","body":"hi",
+             "created_at":"2026-10-21T09:00:00Z","updated_at":"2026-10-21T09:00:00Z"}
+            """.utf8))
+        try await applyBatch(
+            messages: [ShapeMessage<MessageEntity>.insert(key: #""public"."messages"/"m-c""#, value: message)],
+            name: "messages", table: "messages", pool: pool
+        )
+        let stored = try await pool.read { db in
+            (try ConversationEntity.fetchOne(db, key: "c-1"), try MessageEntity.fetchOne(db, key: "m-c"))
+        }
+        XCTAssertEqual(stored.0, conversation)
+        XCTAssertEqual(stored.0?.kind, DomainContract.conversationKindSession)
+        XCTAssertEqual(stored.1?.conversationId, "c-1")
+        XCTAssertEqual(stored.1?.sessionId, "s1")
+    }
+
     // EXP-1291: the four child shapes round-trip — a message's card (jsonb)
     // as TEXT, a PR's number off the wire as text, a session issue's
     // defaulted source, a PR→issue link — and a partial answers a card.

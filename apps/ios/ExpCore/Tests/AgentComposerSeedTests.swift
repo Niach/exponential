@@ -9,7 +9,7 @@ final class AgentComposerSeedTests: XCTestCase {
     func testTheEmptySeedNamesNoSubject() {
         XCTAssertFalse(AgentComposerSeed.empty.hasSubject)
         XCTAssertEqual(AgentComposerSeed.empty.effectiveIssueIds, [])
-        XCTAssertNil(AgentComposerSeed.empty.actionId)
+        XCTAssertNil(AgentComposerSeed.empty.promptId)
         XCTAssertNil(AgentComposerSeed.empty.deviceId)
         XCTAssertNil(AgentComposerSeed.empty.text)
         XCTAssertNil(AgentComposerSeed.empty.teamId)
@@ -33,9 +33,9 @@ final class AgentComposerSeedTests: XCTestCase {
     }
 
     func testAnActionWinsOverIssues() {
-        let seed = AgentComposerSeed(issueIds: ["a"], actionId: "act-1")
+        let seed = AgentComposerSeed(issueIds: ["a"], promptId: "act-1")
         XCTAssertTrue(seed.hasSubject)
-        XCTAssertEqual(seed.actionId, "act-1")
+        XCTAssertEqual(seed.promptId, "act-1")
         // The issue ids are still carried (the route hashes them) but the
         // composer checks NONE of them.
         XCTAssertEqual(seed.issueIds, ["a"])
@@ -56,7 +56,7 @@ final class AgentComposerSeedTests: XCTestCase {
         XCTAssertNotEqual(base, AgentComposerSeed(issueIds: ["a", "b"], deviceId: "d", text: "t"))
         XCTAssertNotEqual(base, AgentComposerSeed(issueIds: ["a"], deviceId: "e", text: "t"))
         XCTAssertNotEqual(base, AgentComposerSeed(issueIds: ["a"], deviceId: "d", text: "u"))
-        XCTAssertNotEqual(base, AgentComposerSeed(issueIds: ["a"], actionId: "x", deviceId: "d", text: "t"))
+        XCTAssertNotEqual(base, AgentComposerSeed(issueIds: ["a"], promptId: "x", deviceId: "d", text: "t"))
         XCTAssertNotEqual(base, AgentComposerSeed(issueIds: ["a"], deviceId: "d", text: "t", teamId: "team-2"))
         var set: Set<AgentComposerSeed> = [base]
         set.insert(AgentComposerSeed(issueIds: ["a"], deviceId: "d", text: "t"))

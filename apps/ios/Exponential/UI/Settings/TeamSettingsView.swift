@@ -16,6 +16,13 @@ struct TeamSettingsView: View {
     // NEW-2: the team's agent definitions, listed like the boards.
     @State private var agents: [AgentDefinitionEntity] = []
     @State private var agentTarget: AgentPageTarget?
+    // NEW-2: the team's events (the band under the agents) and the titles of
+    // the sessions that emitted them.
+    @State private var events: [EventEntity] = []
+    @State private var eventSessionTitles: [String: String] = [:]
+    // NEW-7: Settings → Prompts (prompts replaced actions).
+    @State private var prompts: [PromptEntity] = []
+    @State private var promptTarget: PromptPageTarget?
     @State private var users: [UserEntity] = []
     // Invites of this team — the Members list badges the placeholder members
     // they created (EXP-630); minting/resending stays web-only.
@@ -55,6 +62,18 @@ struct TeamSettingsView: View {
                         agents: agents,
                         isOwner: isOwner,
                         onOpen: { agentTarget = AgentPageTarget(agentId: $0) }
+                    )
+
+                    // NEW-2: the team's Events, newest first (web
+                    // `AgentEventsBand`).
+                    TeamEventsSection(events: events, sessionTitles: eventSessionTitles, users: users)
+
+                    // NEW-7: Prompts — a row opens the prompt's page
+                    // (read-only for members); "New prompt" is the owner's.
+                    TeamPromptsSection(
+                        prompts: prompts,
+                        isOwner: isOwner,
+                        onOpen: { promptTarget = PromptPageTarget(promptId: $0) }
                     )
 
                     // Repositories registry (server-only, read over tRPC —
@@ -146,6 +165,10 @@ struct TeamSettingsView: View {
         .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
         .navigationDestination(item: $agentTarget) { target in
             AgentSettingsPage(teamId: teamId, agentId: target.agentId, isOwner: isOwner)
+        }
+        .navigationDestination(item: $promptTarget) { target in
+            PromptSettingsPage(teamId: teamId, promptId: target.promptId)
+                .environment(\.accountId, accountId)
         }
         .onAppear { startObserving() }
         .onDisappear { stopObserving() }
@@ -283,6 +306,41 @@ struct TeamSettingsView: View {
             } catch {}
         })
         observationTasks.append(Task {
+            let obs = ValueObservation.tracking { db -> ([EventEntity], [String: String]) in
+                let events = try EventEntity.filter(Column("team_id") == teamId)
+                    .order(Column("created_at").desc, Column("id").desc)
+                    .limit(TeamEventsSection.cap)
+                    .fetchAll(db)
+                let sessionIds = Array(Set(events.compactMap(\.sessionId)))
+                let sessions = sessionIds.isEmpty
+                    ? []
+                    : try SessionEntity.filter(sessionIds.contains(Column("id"))).fetchAll(db)
+                return (events, Dictionary(
+                    sessions.map { ($0.id, $0.title ?? "") }, uniquingKeysWith: { a, _ in a }
+                ))
+            }
+            do {
+                for try await (items, titles) in obs.values(in: pool) {
+                    await MainActor.run {
+                        events = items
+                        eventSessionTitles = titles
+                    }
+                }
+            } catch {}
+        })
+        observationTasks.append(Task {
+            let obs = ValueObservation.tracking { db in
+                try PromptEntity.filter(Column("team_id") == teamId)
+                    .order(Column("sort_order"), Column("name"))
+                    .fetchAll(db)
+            }
+            do {
+                for try await items in obs.values(in: pool) {
+                    await MainActor.run { prompts = items }
+                }
+            } catch {}
+        })
+        observationTasks.append(Task {
             let obs = ValueObservation.tracking { db in
                 try TeamInviteEntity.filter(Column("team_id") == teamId).fetchAll(db)
             }
@@ -311,4 +369,9 @@ struct TeamSettingsView: View {
 /// The agent page's navigation item: an agent id, or nil for a new one.
 private struct AgentPageTarget: Hashable {
     let agentId: String?
+}
+
+/// The prompt page's navigation item: a prompt id, or nil for a new one.
+private struct PromptPageTarget: Hashable {
+    let promptId: String?
 }

@@ -81,88 +81,34 @@ final class AgentComposerPromptTests: XCTestCase {
         )
     }
 
-    // The ×4 submit label contract.
+    // The submit label per subject (web `submitLabelFor`).
     func testSubmitTitlesFollowTheSubject() {
         XCTAssertEqual(AgentComposerPrompt.submitTitle(for: .none), "Start chat")
         XCTAssertEqual(AgentComposerPrompt.submitTitle(for: .issues(count: 1)), "Start coding")
         // Several issues are still ONE thread.
         XCTAssertEqual(AgentComposerPrompt.submitTitle(for: .issues(count: 3)), "Start coding")
-        XCTAssertEqual(AgentComposerPrompt.submitTitle(for: .action), "Run action")
+        XCTAssertEqual(AgentComposerPrompt.submitTitle(for: .prompt), "Start session")
+        // NEW-3: a message into an agent's DM.
+        XCTAssertEqual(AgentComposerPrompt.submitTitle(for: .agent), "Send")
     }
 
-    // EXP-1038: the headline verb over the composer — the contract's copy,
-    // one value per subject, and NOT the submit label.
+    // EXP-1038: the headline verb over the composer — the contract's copy;
+    // a prompt's or an agent's chip IS the headline (no verb).
     func testHeadlinesFollowTheSubject() {
-        XCTAssertEqual(AgentComposerPrompt.headline(for: .none), "Ask the agent")
+        XCTAssertEqual(AgentComposerPrompt.headline(for: .none), DomainContract.composerUiChatHeadline)
         XCTAssertEqual(AgentComposerPrompt.headline(for: .issues(count: 1)), "Implement")
-        // Several issues say the same verb — the chips carry the count.
-        XCTAssertEqual(AgentComposerPrompt.headline(for: .issues(count: 7)), "Implement")
-        XCTAssertEqual(AgentComposerPrompt.headline(for: .action), "Run")
+        XCTAssertEqual(
+            AgentComposerPrompt.headline(for: .issues(count: 7)), DomainContract.composerUiImplementHeadline
+        )
+        XCTAssertEqual(AgentComposerPrompt.headline(for: .prompt), "")
+        XCTAssertEqual(AgentComposerPrompt.headline(for: .agent), "")
     }
 
-    func testHeadlinesAreTheContractsCopy() {
-        XCTAssertEqual(
-            AgentComposerPrompt.headline(for: .none), DomainContract.composerUiChatHeadline
-        )
-        XCTAssertEqual(
-            AgentComposerPrompt.headline(for: .issues(count: 2)),
-            DomainContract.composerUiImplementHeadline
-        )
-        XCTAssertEqual(
-            AgentComposerPrompt.headline(for: .action), DomainContract.composerUiRunHeadline
-        )
-        // The headline is the VERB, never the button's label.
-        XCTAssertNotEqual(
-            AgentComposerPrompt.headline(for: .action), AgentComposerPrompt.submitTitle(for: .action)
-        )
-    }
-
-    // EXP-825: the field placeholder — web `composerPlaceholder` byte for
-    // byte. No subject asks for the message; a picked action with a
-    // non-blank hint shows the hint; everything else the generic prompt.
-    func testPlaceholderFollowsTheSubjectAndTheActionHint() {
-        XCTAssertEqual(
-            AgentComposerPrompt.placeholder(for: .none, actionHint: nil), "Ask the agent…"
-        )
-        XCTAssertEqual(
-            AgentComposerPrompt.placeholder(for: .issues(count: 1), actionHint: nil),
-            "Additional instructions (optional)…"
-        )
-        XCTAssertEqual(
-            AgentComposerPrompt.placeholder(for: .issues(count: 3), actionHint: nil),
-            "Additional instructions (optional)…"
-        )
-        XCTAssertEqual(
-            AgentComposerPrompt.placeholder(for: .action, actionHint: nil),
-            "Additional instructions (optional)…"
-        )
-        XCTAssertEqual(
-            AgentComposerPrompt.placeholder(
-                for: .action, actionHint: "Scope: which platforms, which version"
-            ),
-            "Scope: which platforms, which version"
-        )
-    }
-
-    // A blank hint is no hint; a padded one is shown trimmed. And a hint
-    // never leaks onto the other subjects (the model only passes the PICKED
-    // action's hint, but the rule guards it too).
-    func testBlankHintsFallBackAndPaddedHintsTrim() {
-        XCTAssertEqual(
-            AgentComposerPrompt.placeholder(for: .action, actionHint: "   \n"),
-            "Additional instructions (optional)…"
-        )
-        XCTAssertEqual(
-            AgentComposerPrompt.placeholder(for: .action, actionHint: "  Which version?  "),
-            "Which version?"
-        )
-        XCTAssertEqual(
-            AgentComposerPrompt.placeholder(for: .none, actionHint: "Which version?"),
-            "Ask the agent…"
-        )
-        XCTAssertEqual(
-            AgentComposerPrompt.placeholder(for: .issues(count: 1), actionHint: "Which version?"),
-            "Additional instructions (optional)…"
-        )
+    // EXP-825: the field placeholder — web `composerPlaceholder`.
+    func testPlaceholderFollowsTheSubject() {
+        XCTAssertEqual(AgentComposerPrompt.placeholder(for: .none), "Ask the agent…")
+        for subject: AgentComposerPrompt.Subject in [.issues(count: 1), .issues(count: 3), .prompt, .agent] {
+            XCTAssertEqual(AgentComposerPrompt.placeholder(for: subject), "Additional instructions (optional)…")
+        }
     }
 }
