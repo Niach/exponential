@@ -4458,6 +4458,7 @@ pub(crate) fn session_status_row(
     id: impl Into<gpui::ElementId>,
     agent: Option<coding::CodingAgent>,
     state: domain::session_tree::SessionState,
+    word: &str,
     cx: &App,
 ) -> AnyElement {
     h_flex()
@@ -4472,7 +4473,7 @@ pub(crate) fn session_status_row(
                 div()
                     .text_sm()
                     .text_color(crate::work_card::session_tone_color(state.tone(), cx))
-                    .child(SharedString::from(state.word())),
+                    .child(SharedString::from(word.to_string())),
             ),
         )
         .into_any_element()
@@ -4504,10 +4505,13 @@ impl SteerSessionView {
     fn render_status_row(&self, cx: &App) -> Option<AnyElement> {
         let row = self.row.as_ref()?;
         let state = self.view_state()?;
+        // NEW-1: a blocked session names its kind (`copy.blockedKinds`).
+        let word = domain::session_tree::session_kind_word(row, state);
         let element = session_status_row(
             "steer-run-status-row",
             crate::run_rows::run_agent(row.cli.as_deref()),
             state,
+            &word,
             cx,
         );
         Some(work_column_row(element).py_2().into_any_element())
@@ -6202,7 +6206,7 @@ impl SteerSessionView {
                 div()
                     .flex_shrink_0()
                     .text_color(crate::work_card::session_tone_color(state.tone(), cx))
-                    .child(SharedString::from(state.word())),
+                    .child(SharedString::from(domain::session_tree::session_kind_word(row, state))),
             )
             .children(caption.map(|caption| div().min_w_0().truncate().text_color(muted).child(caption)));
         Some(
@@ -7070,6 +7074,16 @@ impl SteerSessionView {
     /// a remote run whose machine this client cannot resolve) — a button that
     /// can only ever explain itself is worse than no button.
     fn switch_account_control(&self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
+        // NEW-1 (web `agent-session`): only a USAGE wall is lifted by
+        // another login; a watchdog flag (device offline, not picked up,
+        // stuck) offers no switch.
+        if self
+            .row
+            .as_ref()
+            .is_some_and(|row| row.blocked.is_some() && !domain::session_tree::is_usage_wall(row))
+        {
+            return None;
+        }
         let agent = self.builtin_agent()?;
         let context = crate::account_switch::SwitchContext {
             session_id: self.session_id.to_string(),

@@ -437,6 +437,46 @@ pub struct SessionCard {
     pub test_id: String,
 }
 
+/// NEW-1: the `blocked.kind` of a blocked session (`None` when it carries
+/// none: a usage wall from before the kinds).
+pub fn blocked_kind(session: &SessionRow) -> Option<&str> {
+    session
+        .blocked
+        .as_ref()?
+        .get("kind")?
+        .as_str()
+        .map(str::trim)
+        .filter(|kind| !kind.is_empty())
+}
+
+/// NEW-1: whether a blocked session sits behind a USAGE wall (`rate_limit`,
+/// or no kind at all) — the only block another account can lift (the
+/// Switch account control shows for it alone).
+pub fn is_usage_wall(session: &SessionRow) -> bool {
+    session.blocked.is_some() && blocked_kind(session).is_none_or(|kind| kind == "rate_limit")
+}
+
+/// NEW-1 (TS `sessionKindWord`): the card's state word; a blocked session
+/// names WHY (`copy.blockedKinds[blocked.kind]`; an unknown kind or none =
+/// `states.blocked`).
+pub fn session_kind_word(session: &SessionRow, state: SessionState) -> String {
+    if state == SessionState::Blocked {
+        if let Some(word) = blocked_kind(session).and_then(|kind| SESSION_CARD.copy.blocked_kinds.get(kind)) {
+            return word.clone();
+        }
+    }
+    state.word().to_string()
+}
+
+/// NEW-1 (web `blockedBadgeLabel`): a WATCHDOG flag (`device_offline`,
+/// `unclaimed`, `stuck`) names itself with the card's word and has no reset
+/// to count down to; `None` for a usage wall (or an unknown kind), which
+/// keeps its own label + countdown.
+pub fn watchdog_blocked_word(session: &SessionRow) -> Option<String> {
+    let kind = blocked_kind(session).filter(|kind| *kind != "rate_limit")?;
+    SESSION_CARD.copy.blocked_kinds.get(kind).cloned()
+}
+
 /// The card for `session`; `title` = its [`session_title`] (EXP-1341,
 /// `fixtures/session-title.json`; never `Session N`).
 pub fn session_card(session: &SessionRow, title: &str, now_ms: i64) -> SessionCard {
@@ -464,7 +504,7 @@ pub fn session_card(session: &SessionRow, title: &str, now_ms: i64) -> SessionCa
         session_id: session.id.clone(),
         icon: state.icon().to_string(),
         name,
-        kind_word: state.word().to_string(),
+        kind_word: session_kind_word(session, state),
         state,
         tone: state.tone().to_string(),
         elapsed,
@@ -2234,6 +2274,46 @@ mod tests {
 
     fn fixture(json: &str) -> Value {
         serde_json::from_str(json).unwrap()
+    }
+
+    /// NEW-1 (TS `sessionKindWord` / web `blockedBadgeLabel`): a blocked
+    /// session's word names its kind; an unknown kind or none reads
+    /// `Usage limit`; a watchdog flag has its word as the badge, a usage wall
+    /// none; only a usage wall offers Switch account.
+    #[test]
+    fn a_blocked_session_names_its_kind() {
+        let row = |blocked: serde_json::Value| -> SessionRow {
+            serde_json::from_value(serde_json::json!({"id": "s", "status": "running", "blocked": blocked})).unwrap()
+        };
+        for (kind, word) in [
+            ("rate_limit", "Usage limit"),
+            ("device_offline", "Device offline"),
+            ("unclaimed", "Not picked up"),
+            ("stuck", "Stuck"),
+        ] {
+            let session = row(serde_json::json!({"kind": kind}));
+            assert_eq!(session_state(&session), SessionState::Blocked, "{kind}");
+            assert_eq!(session_kind_word(&session, SessionState::Blocked), word, "{kind}");
+            assert_eq!(session_card(&session, "T", 0).kind_word, word, "{kind}");
+            assert_eq!(SESSION_CARD.copy.blocked_kinds.get(kind).map(String::as_str), Some(word));
+            if kind == "rate_limit" {
+                assert_eq!(watchdog_blocked_word(&session), None);
+                assert!(is_usage_wall(&session));
+            } else {
+                assert_eq!(watchdog_blocked_word(&session).as_deref(), Some(word), "{kind}");
+                assert!(!is_usage_wall(&session), "{kind}");
+            }
+        }
+        let future = row(serde_json::json!({"kind": "future_kind"}));
+        assert_eq!(session_kind_word(&future, SessionState::Blocked), "Usage limit");
+        assert_eq!(watchdog_blocked_word(&future), None);
+        let legacy = row(serde_json::json!({"window": "weekly"}));
+        assert_eq!(session_kind_word(&legacy, SessionState::Blocked), "Usage limit");
+        assert!(is_usage_wall(&legacy));
+        // Not blocked: the plain state word, no wall.
+        let free: SessionRow = serde_json::from_value(serde_json::json!({"id": "s", "status": "running"})).unwrap();
+        assert_eq!(session_kind_word(&free, session_state(&free)), session_state(&free).word());
+        assert!(!is_usage_wall(&free));
     }
 
     #[test]

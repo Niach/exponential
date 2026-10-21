@@ -14,7 +14,7 @@
 //! ONE chip (`chat_screen::agent_chip`) with the options line hidden.
 
 use gpui::{
-    div, px, AnyElement, App, Context, Div, Entity, FontWeight, IntoElement, ParentElement as _, Render,
+    div, px, AnyElement, App, Context, Div, Entity, IntoElement, ParentElement as _, Render,
     SharedString, Styled as _, Window,
 };
 use gpui_component::menu::PopupMenu;
@@ -473,23 +473,16 @@ fn caption(text: &'static str, cx: &App) -> Div {
 
 pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
     let muted = cx.theme().muted_foreground;
-    // The headline: the verb plus the subject's chip, the launcher's main
-    // element.
+    // NEW-2: a prompt picked off the / menu: its chip IS the headline (no
+    // verb), the launcher's main element.
     let headline = h_flex()
         .flex_wrap()
         .items_center()
         .gap_2()
         .px_1()
         .child(
-            div()
-                .text_lg()
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(cx.theme().foreground)
-                .child(domain::contract::COMPOSER_UI_RUN_HEADLINE),
-        )
-        .child(
             glass_pill("sg-composer-dialog-action", PillSize::Sm, PillMode::Readonly, cx)
-                .child(Icon::new(registry::PR_MERGED).xsmall().text_color(muted))
+                .child(Icon::new(registry::NAV_ACTIONS).xsmall().text_color(muted))
                 .child(div().text_xs().child("Triage new issues")),
         );
     let placeholder = thread_placeholder();
@@ -532,7 +525,10 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
                         .w(px(COLUMN_W))
                         .max_w_full()
                         .gap_2()
-                        .child(caption("An action: one chip, and the send is the only thing left to do.", cx))
+                        .child(caption(
+                            "A prompt off the / menu: its chip IS the headline, and the send is the only thing left to do.",
+                            cx,
+                        ))
                         .child(headline)
                         .child(action_start),
                 )

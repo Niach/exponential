@@ -27,6 +27,7 @@ pub(crate) fn render(_window: &mut Window, cx: &mut App) -> Div {
             ("styleguide-run-status-row", index),
             Some(coding::CodingAgent::default()),
             *state,
+            state.word(),
             cx,
         )
     });
