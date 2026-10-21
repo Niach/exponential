@@ -5509,6 +5509,7 @@ private fun ExpandedSteerComposer(
                     ultracode = claude,
                     mcp = menu.mcpServers.isNotEmpty(),
                     computerUse = menu.canComputerUse,
+                    agents = false,
                 ),
             ),
             codex = menu.agent == "codex",

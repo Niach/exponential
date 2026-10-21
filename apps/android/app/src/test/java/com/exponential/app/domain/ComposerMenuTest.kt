@@ -50,6 +50,7 @@ class ComposerMenuTest {
                     ultracode = c.getValue("ultracode").jsonPrimitive.boolean,
                     mcp = c.getValue("mcp").jsonPrimitive.boolean,
                     computerUse = c.getValue("computerUse").jsonPrimitive.boolean,
+                    agents = c.getValue("agents").jsonPrimitive.boolean,
                 ),
             )
             assertEquals(

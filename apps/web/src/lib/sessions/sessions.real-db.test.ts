@@ -6,6 +6,7 @@ import {
   agents,
   attachments,
   boards,
+  conversations,
   devices,
   issues,
   mcpServers,
@@ -164,6 +165,44 @@ describe.skipIf(!ready.ok)(`sessions.send — a new root`, () => {
     // EXP-1341: the shared chain: no name yet, so its issue names it.
     expect(listed).toMatchObject({ id: root.id })
     expect(listed!.title).toMatch(/^#CR-\d+ Fix login$/)
+  })
+
+  it(`NEW-3: a session owns ONE conversation of kind session; its messages name it`, async () => {
+    const w = await world({ shared: true })
+    const sent = await sendSession({
+      userId: w.owner,
+      input: { teamId: w.teamId, deviceId: w.deviceId, text: `hello` },
+    })
+    // The `create_session_conversation` trigger made it with the row, the
+    // session's visibility mirrors stamped once.
+    const [conversation] = await db
+      .select()
+      .from(conversations)
+      .where(eq(conversations.sessionId, sent.sessionId))
+    expect(conversation).toMatchObject({
+      kind: `session`,
+      teamId: w.teamId,
+      shared: true,
+      ownerId: w.owner,
+      title: null,
+    })
+    const [message] = await db.select().from(messages).where(eq(messages.id, sent.messageId!))
+    expect(message).toMatchObject({ conversationId: conversation!.id, sessionId: sent.sessionId })
+    // A child's conversation is its own, never the root's.
+    const child = await sendSession({
+      userId: w.owner,
+      input: { parentId: sent.sessionId, text: `fan out` },
+    })
+    const [childConversation] = await db
+      .select()
+      .from(conversations)
+      .where(eq(conversations.sessionId, child.sessionId))
+    expect(childConversation!.id).not.toBe(conversation!.id)
+    const [childMessage] = await db.select().from(messages).where(eq(messages.id, child.messageId!))
+    expect(childMessage!.conversationId).toBe(childConversation!.id)
+    // Ending the tree keeps the rows; deleting the session cascades them.
+    await db.delete(sessions).where(eq(sessions.id, sent.sessionId))
+    expect(await db.select().from(conversations).where(eq(conversations.sessionId, sent.sessionId))).toEqual([])
   })
 
   it(`stamps shared from the device and lets a teammate start on the shared box`, async () => {

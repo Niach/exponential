@@ -341,7 +341,7 @@ private struct ThreadStripSpecimens: View {
             }
             .padding(.horizontal, -16)
             ThreadComposerPlusMenu(
-                conditions: ComposerMenu.Conditions(subagentModel: false, ultracode: true, mcp: true, computerUse: true),
+                conditions: ComposerMenu.Conditions(subagentModel: false, ultracode: true, mcp: true, computerUse: true, agents: false),
                 agent: "claude",
                 effortValue: "High",
                 mcpValue: "2",

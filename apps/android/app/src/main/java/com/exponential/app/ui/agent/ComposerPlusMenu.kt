@@ -176,6 +176,7 @@ internal fun ComposerPlusMenuSheet(
 /** The row's concept glyph (fixture `rows[].icon`, ×4). */
 internal fun composerMenuGlyph(id: ComposerMenuRowId): ImageVector = when (id) {
     ComposerMenuRowId.ImplementIssue -> ExpIcons.editorIssueRef
+    ComposerMenuRowId.MessageAgent -> ExpIcons.settingsAgents
     ComposerMenuRowId.AddFile -> ExpIcons.uiAttach
     ComposerMenuRowId.Effort -> ExpIcons.uiEstimate
     ComposerMenuRowId.Subagents -> ExpIcons.codingSubagent

@@ -1032,6 +1032,13 @@ export const messageAuthorKindValues = [`user`, `agent`, `system`] as const
 export type MessageAuthorKind = (typeof messageAuthorKindValues)[number]
 export const messageAuthorKindSchema = z.enum(messageAuthorKindValues)
 
+/** NEW-3: conversations.kind — a person's DM (step 2), a channel (step 2),
+ *  or a session's own conversation (every session has exactly one; an
+ *  agent DM IS that agent's conversation session for the member). */
+export const conversationKindValues = [`dm`, `channel`, `session`] as const
+export type ConversationKind = (typeof conversationKindValues)[number]
+export const conversationKindSchema = z.enum(conversationKindValues)
+
 export const messageCardKindValues = [
   `question`,
   `plan`,

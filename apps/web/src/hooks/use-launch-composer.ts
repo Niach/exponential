@@ -12,6 +12,8 @@ import { useMcpServers } from "@/hooks/use-mcp-servers"
 import { useTeamBoards, useTeamById } from "@/hooks/use-team-data"
 import { useTeamRepos } from "@/hooks/use-team-repos"
 import { usePrompts } from "@/hooks/use-prompts"
+import { useAgents } from "@/hooks/use-session-tree"
+import type { AgentRow } from "@/lib/session-tree"
 import { issueCollection, sessionCollection } from "@/lib/collections"
 import {
   chatRepoOptions,
@@ -66,10 +68,14 @@ export type { LaunchSeed }
 
 /** One prompt as the composer lists it: the synced, body-less row. */
 export type ComposerPrompt = SyncedPrompt
+/** NEW-3: one agent as the "+" menu lists it (`listAgents`: icon, colour, name). */
+export type ComposerAgent = AgentRow
 
 export type LaunchSubject =
   | { kind: `issues`; ids: string[] }
   | { kind: `prompt`; id: string }
+  /** NEW-3: a message into the caller's DM with a team agent. */
+  | { kind: `agent`; id: string }
   | null
 
 /** Hard cap per session: parity with `sessions.send`'s zod cap. */
@@ -87,6 +93,7 @@ const CODEABLE_STATUSES = new Set<string>([`backlog`, `in_progress`, `in_review`
 
 /** The submit's label per subject (its aria-label + tooltip). */
 export function submitLabelFor(subject: LaunchSubject): string {
+  if (subject?.kind === `agent`) return `Send`
   if (subject === null || subject.kind === `prompt`) return `Start session`
   return subject.ids.length >= 2
     ? `Start batch · ${subject.ids.length}`
@@ -113,6 +120,16 @@ export function buildSendInput(args: {
 }): SessionsSendInput {
   const { options, subject } = args
   const text = args.text.trim()
+  // NEW-3: an agent subject = a message into the caller's DM with it. The
+  // DM runs on the agent's own device and login: no runner picks ride.
+  if (subject?.kind === `agent`) {
+    return {
+      teamId: args.teamId,
+      agentId: subject.id,
+      ...(text ? { text: args.text } : {}),
+      ...(args.attachmentIds.length > 0 ? { attachmentIds: [...args.attachmentIds] } : {}),
+    }
+  }
   return {
     teamId: args.teamId,
     deviceId: args.deviceId,
@@ -186,6 +203,13 @@ export interface LaunchComposerModel {
   /** The `/` menu's pick: the prompt becomes the subject. */
   pickPrompt: (promptId: string) => void
   clearPrompt: () => void
+  /** NEW-3: the team's agents (the "+" menu's Message an agent › rows). */
+  agents: ComposerAgent[]
+  /** The subject agent's row (null while it is not synced, or no agent). */
+  selectedAgent: ComposerAgent | null
+  /** The "+" menu's pick: the agent becomes the subject (a DM). */
+  pickAgent: (agentId: string) => void
+  clearAgent: () => void
 
   text: string
   setText: (text: string) => void
@@ -265,6 +289,11 @@ export function useLaunchComposer({
     subject?.kind !== `prompt`
       ? null
       : (prompts.find((prompt) => prompt.id === subject.id) ?? null)
+  // NEW-3: the team's agents, the "+" menu's Message an agent › rows.
+  // (no viewer: the rows need no busy / needs-you state here)
+  const { agents } = useAgents(teamId, null)
+  const selectedAgent =
+    subject?.kind !== `agent` ? null : (agents.find((agent) => agent.agentId === subject.id) ?? null)
 
   // Codeable issues live on boards that HAVE a repo (coding gates on repo
   // presence). Sorted ids keep the dep string stable.
@@ -415,6 +444,17 @@ export function useLaunchComposer({
     setSubject((current) => (current?.kind === `prompt` ? null : current))
   }, [])
 
+  // NEW-3: the "+" menu's Message an agent › pick. The agent replaces
+  // whatever subject is up (issues and prompts included: picking the other
+  // kind swaps).
+  const pickAgent = useCallback((agentId: string) => {
+    setSubject({ kind: `agent`, id: agentId })
+  }, [])
+
+  const clearAgent = useCallback(() => {
+    setSubject((current) => (current?.kind === `agent` ? null : current))
+  }, [])
+
   // ── Images and files ──────────────────────────────────────────────────────
 
   const addFiles = useCallback(
@@ -461,12 +501,18 @@ export function useLaunchComposer({
         !hasText && images.length === 0
       : subject.kind === `issues`
         ? overCap || spansRepos || spansBranches
-        : !selectedPrompt
+        : subject.kind === `agent`
+          ? // NEW-3: a DM needs the agent's row and something to say.
+            !selectedAgent || (!hasText && images.length === 0)
+          : !selectedPrompt
+  // NEW-3: a DM runs on the agent's device: the composer's machine and its
+  // readiness never gate it.
+  const toAgent = subject?.kind === `agent`
   const blocked =
     busy ||
-    !device ||
+    (!toAgent && !device) ||
     // EXP-773: the picked agent is not ready on the picked machine.
-    launch.agentNotReady ||
+    (!toAgent && launch.agentNotReady) ||
     subjectBlocked
 
   // ── Submit ────────────────────────────────────────────────────────────────
@@ -474,7 +520,7 @@ export function useLaunchComposer({
   const submitRef = useRef<() => Promise<void>>(async () => {})
 
   const submit = async () => {
-    if (blocked || !device) return
+    if (blocked || (!device && !toAgent)) return
     setSending(true)
     const retry = () => void submitRef.current()
     try {
@@ -498,7 +544,7 @@ export function useLaunchComposer({
       const options = launch.buildOptions()
       const input = buildSendInput({
         teamId,
-        deviceId: device.deviceId,
+        deviceId: device?.deviceId ?? ``,
         options,
         text,
         attachmentIds,
@@ -509,17 +555,24 @@ export function useLaunchComposer({
       try {
         result = await trpc.sessions.send.mutate(input, SKIP_ERROR_TOAST)
       } catch (error) {
-        startFailureToast(error, device, options.agent, retry)
+        if (toAgent) failedAction(`send`, `the message`, error, { retry })
+        else startFailureToast(error, device!, options.agent, retry)
         return
       }
       await awaitSynced(result.txid, START_SYNC_WAIT_MS)
+      const agentId = subject?.kind === `agent` ? subject.id : null
       clearDraft()
       onStartedRef.current?.(result.sessionId)
       if (teamSlug) {
-        void navigate({
-          to: `/t/$teamSlug/threads/$threadId`,
-          params: { teamSlug, threadId: result.sessionId },
-        })
+        // NEW-3: a DM opens the agent's conversation, a start its thread.
+        void navigate(
+          agentId
+            ? { to: `/t/$teamSlug/agents/$agentId`, params: { teamSlug, agentId } }
+            : {
+                to: `/t/$teamSlug/threads/$threadId`,
+                params: { teamSlug, threadId: result.sessionId },
+              }
+        )
       }
     } finally {
       setSending(false)
@@ -548,6 +601,10 @@ export function useLaunchComposer({
     toggleIssue,
     pickPrompt,
     clearPrompt,
+    agents,
+    selectedAgent,
+    pickAgent,
+    clearAgent,
     text,
     setText,
     images,

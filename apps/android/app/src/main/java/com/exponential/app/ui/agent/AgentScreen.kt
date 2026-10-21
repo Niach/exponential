@@ -701,6 +701,7 @@ fun AgentScreen(
                     // no subject owns it — the team's servers alone decide.
                     mcp = mcpServers.isNotEmpty(),
                     computerUse = device?.canToggleComputerUse == true,
+                    agents = false,
                 ),
             ),
             codex = launch.agent == "codex",
@@ -722,7 +723,7 @@ fun AgentScreen(
                     ComposerMenuRowId.Effort -> effortPickerOpen = true
                     ComposerMenuRowId.Subagents -> subagentPickerOpen = true
                     ComposerMenuRowId.McpServers -> mcpPickerOpen = true
-                    ComposerMenuRowId.Ultracode, ComposerMenuRowId.ComputerUse -> Unit
+                    ComposerMenuRowId.MessageAgent, ComposerMenuRowId.Ultracode, ComposerMenuRowId.ComputerUse -> Unit
                 }
             },
             onUltracodeChange = viewModel::setUltracode,

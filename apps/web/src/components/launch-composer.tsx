@@ -158,7 +158,8 @@ export function LaunchComposer({
   return (
     <ComposerFrame
       className={cn(`gap-2`, className)}
-      options={<LaunchOptionsLine model={model} />}
+      // NEW-3: a DM runs on the agent's own device and login: no options.
+      options={subject?.kind === `agent` ? undefined : <LaunchOptionsLine model={model} />}
     >
       {/* EXP-1019: the SUBJECT leads — a prompt / "Implement <issues>" —
           and the field under it is the optional half. The chips are the

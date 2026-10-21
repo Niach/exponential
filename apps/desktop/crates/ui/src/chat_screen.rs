@@ -101,6 +101,7 @@ const PAGE_MARK_FADE_STEPS: usize = 12;
 /// menu, the styleguide `menu` entry's composer specimen).
 pub(crate) const PLUS_TOOLTIP: &str = "Add";
 pub(crate) const MENU_IMPLEMENT_ISSUE: &str = "Implement issue";
+pub(crate) const MENU_MESSAGE_AGENT: &str = "Message an agent";
 pub(crate) const MENU_ADD_FILE: &str = "Add file or image";
 pub(crate) const MENU_SUBAGENTS: &str = "Subagents";
 pub(crate) const MENU_ULTRACODE: &str = "Ultracode";
@@ -2318,6 +2319,9 @@ impl gpui::Global for OpenComposerDialog {}
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ComposerMenuRow {
     ImplementIssue,
+    /// NEW-3: Message an agent › (`when: agents`); natives hold `agents`
+    /// false until NEW-6 draws the submenu.
+    MessageAgent,
     AddFile,
     Separator,
     Effort,
@@ -2332,6 +2336,7 @@ impl ComposerMenuRow {
     pub(crate) fn icon(self) -> Option<crate::icons::ExpIcon> {
         Some(match self {
             Self::ImplementIssue => registry::EDITOR_ISSUE_REF,
+            Self::MessageAgent => registry::SETTINGS_AGENTS,
             Self::AddFile => registry::UI_ATTACH,
             Self::Separator => return None,
             Self::Effort => registry::UI_ESTIMATE,
@@ -2354,6 +2359,8 @@ pub(crate) struct ComposerMenuConditions {
     pub(crate) ultracode: bool,
     pub(crate) mcp: bool,
     pub(crate) computer_use: bool,
+    /// NEW-3: the team has agents. FALSE until NEW-6 draws the submenu.
+    pub(crate) agents: bool,
 }
 
 impl ComposerMenuConditions {
@@ -2363,6 +2370,7 @@ impl ComposerMenuConditions {
             ultracode: options.ultracode.is_some(),
             mcp: !options.mcp_servers.is_empty(),
             computer_use: options.computer_use.is_some(),
+            agents: false,
         }
     }
 }
@@ -2379,6 +2387,7 @@ pub(crate) fn composer_menu_rows(conditions: Option<ComposerMenuConditions>) -> 
     };
     let all = [
         (ImplementIssue, true),
+        (MessageAgent, when.agents),
         (AddFile, true),
         (Separator, true),
         (Effort, true),
@@ -2450,6 +2459,8 @@ pub(crate) fn plus_menu(
                     },
                 )
             }
+            // NEW-3: drawn from NEW-6 on (`agents` is false until then).
+            (ComposerMenuRow::MessageAgent, _) => menu,
             (ComposerMenuRow::AddFile, _) => menu.item({
                 let view = view.clone();
                 pointer_menu_item(None, MENU_ADD_FILE, |_| None, move |window, cx| {
@@ -2774,6 +2785,7 @@ mod tests {
         assert_eq!(fixture["plusLabel"], PLUS_TOOLTIP);
         let row_of = |id: &str| match id {
             "implement-issue" => (ComposerMenuRow::ImplementIssue, MENU_IMPLEMENT_ISSUE),
+            "message-agent" => (ComposerMenuRow::MessageAgent, MENU_MESSAGE_AGENT),
             "add-file" => (ComposerMenuRow::AddFile, MENU_ADD_FILE),
             "effort" => (ComposerMenuRow::Effort, coding::CodingAgent::Claude.effort_label()),
             "subagents" => (ComposerMenuRow::Subagents, MENU_SUBAGENTS),
@@ -2809,6 +2821,7 @@ mod tests {
             ultracode: true,
             mcp: true,
             computer_use: true,
+            agents: true,
         };
         assert_eq!(composer_menu_rows(Some(all)), every, "rows order");
         for case in fixture["cases"].as_array().unwrap() {
@@ -2818,6 +2831,7 @@ mod tests {
                 ultracode: when["ultracode"].as_bool().unwrap(),
                 mcp: when["mcp"].as_bool().unwrap(),
                 computer_use: when["computerUse"].as_bool().unwrap(),
+                agents: when["agents"].as_bool().unwrap(),
             };
             let expected: Vec<ComposerMenuRow> = case["expected"]
                 .as_array()

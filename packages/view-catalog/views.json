@@ -4304,7 +4304,7 @@
       "id": "composer-menu",
       "group": "coding",
       "title": "Composer + menu",
-      "blurb": "The composer’s ONE \"+\" menu (EXP-1249, fixture composer-menu.json): Implement issue › and Run action › (SLOP-28: submenus on THE search list), Add file or image, Effort ›, Subagents ›, Ultracode, MCP servers ›, Computer use; a dropdown at desktop widths and a bottom sheet on phones, submenus pushed as pages.",
+      "blurb": "The composer’s ONE \"+\" menu (EXP-1249, fixture composer-menu.json): Implement issue › (SLOP-28: THE search list) and Message an agent › (NEW-3: the team’s agents, a DM), Add file or image, Effort ›, Subagents ›, Ultracode, MCP servers ›, Computer use; a dropdown at desktop widths and a bottom sheet on phones, submenus pushed as pages.",
       "order": 12,
       "web": {
         "route": "/t/$teamSlug/agent",

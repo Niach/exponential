@@ -1563,7 +1563,8 @@ struct ThreadComposer: View {
             subagentModel: false,
             ultracode: agent == "claude" && !ended,
             mcp: !mcpServers.isEmpty && !ended,
-            computerUse: Self.advertises(device, cap: ComposerMenu.computerUseRunCap) && !ended
+            computerUse: Self.advertises(device, cap: ComposerMenu.computerUseRunCap) && !ended,
+            agents: false
         )
     }
 
@@ -1617,7 +1618,7 @@ struct ThreadComposer: View {
             withTransaction(transaction) { attach.menu = true }
         case .effort: showEffortPicker = true
         case .mcpServers: showMcpPicker = true
-        case .subagents, .ultracode, .computerUse: break
+        case .messageAgent, .subagents, .ultracode, .computerUse: break
         }
     }
 

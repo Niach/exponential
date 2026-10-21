@@ -392,6 +392,10 @@
   "messageAuthorKind": {
     "values": ["user", "agent", "system"]
   },
+  "conversationKind": {
+    "$comment": "NEW-3: conversations.kind. Every session owns ONE conversation of kind `session` (messages.conversation_id; messages.session_id stays as the step-1 read shim). `dm` and `channel` = people talking (step 2, NEW-8); an agent DM is the agent's conversation SESSION for that member.",
+    "values": ["dm", "channel", "session"]
+  },
   "planCard": {
     "$comment": "EXP-1280 custom plan mode: the caps of exponential_plan_propose and exponential_sessions_ask (the card's behaviour = fixtures/plan-card.json). Pictures are named by `label` in the call and uploaded afterwards; until the upload lands the markdown embeds `![alt](upload:<label>)` and an option names its picture by label.",
     "questionsMax": 10,

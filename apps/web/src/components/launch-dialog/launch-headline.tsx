@@ -29,7 +29,8 @@ const { composerUi } = contract
  *  needs none: its name IS the headline. */
 export function launchHeadlineVerb(subject: LaunchSubject): string {
   if (subject === null) return composerUi.chatHeadline
-  if (subject.kind === `prompt`) return ``
+  // A prompt's name, an agent's chip (NEW-3): the headline IS the chip.
+  if (subject.kind === `prompt` || subject.kind === `agent`) return ``
   return composerUi.implementHeadline
 }
 
@@ -43,6 +44,7 @@ export function launchHeadlineText(model: LaunchComposerModel): string {
   const verb = launchHeadlineVerb(subject)
   if (subject === null) return verb
   if (subject.kind === `prompt`) return model.selectedPrompt?.name ?? `Prompt`
+  if (subject.kind === `agent`) return model.selectedAgent?.name ?? `Agent`
   const named = model.checkedIssues.map((issue) => issue.identifier)
   const pending = subject.ids.length - named.length
   const parts = [...named, ...(pending > 0 ? [`${pending} more`] : [])]
@@ -64,6 +66,7 @@ export function LaunchHeadline({
   if (subject === null) return null
   const checkedCount = subject.kind === `issues` ? subject.ids.length : 0
   const promptSubject = subject.kind === `prompt`
+  const agentSubject = subject.kind === `agent`
   const verb = launchHeadlineVerb(subject)
   return (
     <div
@@ -79,8 +82,11 @@ export function LaunchHeadline({
         pendingIssueCount={checkedCount - model.checkedIssues.length}
         prompt={promptSubject ? model.selectedPrompt : null}
         promptPending={promptSubject && model.selectedPrompt === null}
+        agent={agentSubject ? model.selectedAgent : null}
+        agentPending={agentSubject && model.selectedAgent === null}
         onRemoveIssue={model.toggleIssue}
         onClearPrompt={model.clearPrompt}
+        onClearAgent={model.clearAgent}
         disabled={busy}
       />
     </div>

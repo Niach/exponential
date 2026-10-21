@@ -9,6 +9,7 @@ import fixture from "@exp/domain-contract/fixtures/composer-menu.json"
 
 export type ComposerMenuRowId =
   | `implement-issue`
+  | `message-agent`
   | `add-file`
   | `effort`
   | `subagents`

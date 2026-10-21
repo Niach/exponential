@@ -232,6 +232,8 @@ export interface DomainContract {
   sessionIssueSource: { values: readonly string[] }
   /** EXP-1291: a conversation row's author — a person, the agent, the server. */
   messageAuthorKind: { values: readonly string[] }
+  /** NEW-3: a conversation's kind (conversations.kind): dm, channel, session. */
+  conversationKind: { values: readonly string[] }
   /** EXP-1291: the card kinds a conversation row may carry (messages.card). */
   messageCardKind: { values: readonly string[] }
   /** EXP-1291: an `event` card's event. */
