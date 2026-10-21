@@ -122,7 +122,8 @@ pub struct Extras {
     pub computer_use: Option<String>,
     /// The launch wired the `codemode` server.
     pub code_mode: bool,
-    /// A dispatcher root or a team agent ([`crate::launcher::dispatches`]).
+    /// An agent's conversation session, the persistent kind
+    /// ([`crate::launcher::dispatches`]); NEW-1: no thread root dispatches.
     pub dispatch: bool,
 }
 

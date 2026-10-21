@@ -162,10 +162,11 @@ fn run_pass(cx: &mut App) {
     let live = Arc::clone(&cx.global::<PickupHost>().live);
     // Only this machine's sessions (and their messages) reach the plan —
     // plus, EXP-1252, the rows of engines live here that name another
-    // device now (a move: released without a row write).
+    // device now (an agent moved in Settings: released without a row write).
     let live_ids: HashSet<String> = live.session_ids().into_iter().collect();
-    let all_sessions: Vec<SessionRow> = collections.sessions.read(cx).iter().cloned().collect();
-    let sessions: Vec<SessionRow> = all_sessions
+    let sessions: Vec<SessionRow> = collections
+        .sessions
+        .read(cx)
         .iter()
         .filter(|row| {
             row.device_id.as_deref() == Some(device_id.as_str()) || live_ids.contains(&row.id)
@@ -193,6 +194,9 @@ fn run_pass(cx: &mut App) {
     cx.global_mut::<PickupHost>()
         .stalled
         .retain(|session_id, at| fingerprints.get(session_id.as_str()) == Some(&*at));
+    // NEW-5: the sessions an earlier process left behind, re-claimed first
+    // (a continuation goes in flight before this pass plans).
+    reclaim_left_behind(&device_id, &sessions, &messages, &live, &fingerprints, cx);
     let in_flight = cx.global::<PickupHost>().in_flight.clone();
     let stalled = cx.global::<PickupHost>().stalled.clone();
     let views = live.live_views();
@@ -208,22 +212,13 @@ fn run_pass(cx: &mut App) {
     // Rows this host claimed whose launch failed transiently read `running`
     // — the plan only launches `queued` ones.
     actions.extend(live.retry_launches(&device_id, &sessions, &in_flight));
-    // EXP-1252: sessions handed off from here whose target claimed them.
-    actions.extend(
-        pickup::cleanup_actions(&coding_flow::coding_data_dir(cx), &device_id, &all_sessions)
-            .into_iter()
-            .filter(|action| !in_flight.contains(action.session_id())),
-    );
     let blocking = |action: &PickupAction| match action {
         // EXP-849: a switch suspends + relaunches (network + git).
         // EXP-1341: a revive resumes/launches (network + git).
         PickupAction::Launch { .. }
         | PickupAction::Resume { .. }
         | PickupAction::Revive { .. }
-        | PickupAction::Switch { .. }
-        // EXP-1252: a move packs + uploads; a cleanup runs git.
-        | PickupAction::Handoff { .. }
-        | PickupAction::Cleanup { .. } => true,
+        | PickupAction::Switch { .. } => true,
         // A delivery to an engine that just finished wakes it.
         PickupAction::Deliver { session_id, .. } => !live.contains_live(session_id),
         _ => false,
@@ -292,22 +287,6 @@ fn run_pass(cx: &mut App) {
                 account,
                 pickup::switch_session(session, account, None, messages, &deps),
             ),
-            // EXP-1252: a move whose engine is not truly idle yet looks
-            // again on the retry timer (the 30 min bound is the registry's).
-            PickupAction::Handoff { session } => match pickup::hand_off(session, &deps) {
-                Ok(pickup::HandedOff::Waiting) => {
-                    log::info!("[pickup] move of {session_id} waits for a quiet moment");
-                    StepOutcome::Failed
-                }
-                Ok(outcome) => {
-                    log::info!("[pickup] move of {session_id}: {outcome:?}");
-                    StepOutcome::Progressed
-                }
-                Err(err) => {
-                    log::warn!("[pickup] move of {session_id} failed: {err}");
-                    StepOutcome::Failed
-                }
-            },
             other => match pickup::execute(other, &deps) {
                 Ok(()) => StepOutcome::Progressed,
                 Err(err) => {
@@ -316,6 +295,130 @@ fn run_pass(cx: &mut App) {
                 }
             },
         });
+    }
+}
+
+/// NEW-5: the sessions the pickup holds — engines live here and steps in
+/// flight (the heartbeat's `liveSessionIds`).
+pub(crate) fn hosted_ids(cx: &App) -> Vec<String> {
+    let Some(host) = cx.try_global::<PickupHost>() else {
+        return Vec::new();
+    };
+    let mut ids = host.live.session_ids();
+    ids.extend(host.in_flight.iter().cloned());
+    ids
+}
+
+/// NEW-5 (the daemon's `reconcile_rows`): re-claim each session an earlier
+/// process of this app left behind ([`crate::session_registry::left_behind`])
+/// once its row is here — a pending input replays through [`pickup::plan`]'s
+/// Resume, a mid-turn row resumes with [`pickup::continue_after_restart`]'s
+/// continuation turn, a `running` row between turns goes idle. A row a
+/// sibling process holds is skipped by its claim lock (EXP-229).
+fn reclaim_left_behind(
+    device_id: &str,
+    sessions: &[SessionRow],
+    messages: &[MessageRow],
+    live: &pickup::LiveRegistry,
+    fingerprints: &HashMap<&str, String>,
+    cx: &mut App,
+) {
+    let left = crate::session_registry::left_behind();
+    if left.is_empty() {
+        return;
+    }
+    let data_dir = coding_flow::coding_data_dir(cx);
+    let pending: HashSet<&str> = messages
+        .iter()
+        .filter(|message| pickup::is_pending_input(message))
+        .map(|message| message.session_id.as_str())
+        .collect();
+    let mut mid_turn = Vec::new();
+    let mut idle = Vec::new();
+    for row in sessions.iter().filter(|row| left.contains(&row.id)) {
+        crate::session_registry::settle_left_behind(&row.id);
+        let open = row.status_is(domain::contract::SESSION_STATUS_RUNNING)
+            || row.status_is(domain::contract::SESSION_STATUS_IDLE);
+        if !open
+            || row.device_id.as_deref() != Some(device_id)
+            || live.contains_live(&row.id)
+            || cx.global::<PickupHost>().in_flight.contains(&row.id)
+        {
+            continue;
+        }
+        if !matches!(pickup::ClaimLock::try_acquire(&data_dir, &row.id), Ok(Some(_))) {
+            log::info!("[pickup] reclaim: session {} runs in another process here — skipped", row.id);
+            continue;
+        }
+        match pickup::reclaim_step(row, pending.contains(row.id.as_str())) {
+            pickup::ReclaimStep::Replay => {
+                log::info!("[pickup] reclaim: session {} re-claimed — its pending messages replay", row.id);
+            }
+            pickup::ReclaimStep::Continue => mid_turn.push(row.clone()),
+            pickup::ReclaimStep::Idle => {
+                log::info!("[pickup] reclaim: session {} re-claimed between turns — idle", row.id);
+                idle.push(row.id.clone());
+            }
+            pickup::ReclaimStep::Waiting => {
+                log::info!("[pickup] reclaim: session {} re-claimed — idle, waiting for its next message", row.id);
+            }
+        }
+    }
+    let Some(trpc) = queries::trpc_client(cx).map(Arc::new) else {
+        return;
+    };
+    if !idle.is_empty() {
+        let trpc = Arc::clone(&trpc);
+        std::thread::spawn(move || {
+            for session_id in idle {
+                if let Err(err) = api::session_device::report(&trpc, &session_id, &idle_report()) {
+                    log::warn!("[pickup] reclaim: session {session_id} not reported idle: {err}");
+                }
+            }
+        });
+    }
+    if mid_turn.is_empty() {
+        return;
+    }
+    let Some(deps) = pickup_deps(device_id, sessions, cx) else {
+        return;
+    };
+    let deps = Arc::new(deps);
+    for row in mid_turn {
+        let at = fingerprints.get(row.id.as_str()).cloned().unwrap_or_default();
+        let deps = Arc::clone(&deps);
+        let trpc = Arc::clone(&trpc);
+        spawn_step(row.id.clone(), at, cx, move || {
+            let id = row.id.as_str();
+            match pickup::continue_after_restart(&row, &deps) {
+                Ok(true) => {
+                    log::info!("[pickup] reclaim: session {id} was mid-turn — resumed with a continuation turn");
+                    StepOutcome::Progressed
+                }
+                Ok(false) => {
+                    match api::session_device::report(&trpc, id, &idle_report()) {
+                        Ok(()) => log::info!(
+                            "[pickup] reclaim: session {id} was mid-turn with no run record here — now idle"
+                        ),
+                        Err(err) => log::warn!("[pickup] reclaim: session {id} not reported idle: {err}"),
+                    }
+                    StepOutcome::Progressed
+                }
+                Err(err) => {
+                    log::warn!("[pickup] reclaim: session {id} not continued: {err}");
+                    StepOutcome::Failed
+                }
+            }
+        });
+    }
+}
+
+/// NEW-5: a re-claimed session between turns — idle and not working.
+fn idle_report() -> api::session_device::SessionReport {
+    api::session_device::SessionReport {
+        status: Some(api::session_device::ReportStatus::Idle),
+        busy: Some(false),
+        ..api::session_device::SessionReport::default()
     }
 }
 

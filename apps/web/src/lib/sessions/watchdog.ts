@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull, lt, or, sql } from "drizzle-orm"
+import { and, eq, inArray, isNull, lt, notInArray, or, sql } from "drizzle-orm"
 import type { CodingSessionBlocked } from "@exp/db-schema/domain"
 import { contract } from "@exp/domain-contract"
 import { db } from "@/db/connection"
@@ -199,6 +199,44 @@ export async function restoreDeviceSessionsInTx(
     tx,
     rows.map((row) => row.id)
   )
+  return rows.length
+}
+
+/** NEW-5: the heartbeat's `liveSessionIds` = the sessions the host process
+ *  runs. A `running` + `busy` session on that device that is NOT listed has
+ *  a dead process (the daemon lives, the run does not): idle, not busy,
+ *  `stuck` (its next report or claim clears it), said once to its parent. */
+export async function flagDeadSessionsInTx(
+  tx: Tx,
+  device: { deviceId: string; liveSessionIds: readonly string[] },
+  now: Date = new Date()
+): Promise<number> {
+  const live = [...new Set(device.liveSessionIds)]
+  const rows = await tx
+    .select({ id: sessions.id, parentId: sessions.parentId })
+    .from(sessions)
+    .where(
+      and(
+        eq(sessions.deviceId, device.deviceId),
+        eq(sessions.status, `running`),
+        eq(sessions.busy, true),
+        ...(live.length > 0 ? [notInArray(sessions.id, live)] : [])
+      )
+    )
+    .for(`update`, { skipLocked: true })
+  for (const row of rows) {
+    await tx
+      .update(sessions)
+      .set({
+        status: `idle`,
+        busy: false,
+        blocked: flag(`stuck`, now),
+        needsInput: true,
+        updatedAt: now,
+      })
+      .where(eq(sessions.id, row.id))
+    await busLine(tx, row, `session_stuck`, BUS_COPY.session_stuck, { waking: true })
+  }
   return rows.length
 }
 

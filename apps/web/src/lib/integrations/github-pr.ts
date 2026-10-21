@@ -501,6 +501,28 @@ export async function branchExists(
   )
 }
 
+// NEW-5: delete a branch (`DELETE /git/refs/heads/{branch}`) — a merged PR's
+// head. `gone` = GitHub no longer has it (404, or the 422 "Reference does not
+// exist"), which is the goal anyway. Throws on anything else.
+export async function deleteBranch(opts: {
+  repo: string
+  branch: string
+  token: string
+  fetchImpl?: GitHubFetch
+}): Promise<`deleted` | `gone`> {
+  const doFetch = opts.fetchImpl ?? (globalThis.fetch as unknown as GitHubFetch)
+  const ref = opts.branch.split(`/`).map(encodeURIComponent).join(`/`)
+  const res = await doFetch(`https://api.github.com/repos/${opts.repo}/git/refs/heads/${ref}`, {
+    method: `DELETE`,
+    headers: githubApiHeaders(opts.token),
+  })
+  if (res.ok) return `deleted`
+  if (res.status === 404 || res.status === 422) return `gone`
+  throw new Error(
+    `GitHub returned ${res.status} deleting branch ${opts.repo}:${opts.branch}: ${await githubErrorMessage(res)}`
+  )
+}
+
 // Change a PR's base branch (`PATCH /pulls/{n}` with `{base}`) — the stacked-PR
 // self-heal: after a parent is squash-merged its branch is stale, and GitHub
 // only auto-retargets children when the base branch is DELETED (we leave it).

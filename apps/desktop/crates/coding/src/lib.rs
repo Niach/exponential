@@ -60,8 +60,6 @@ pub mod device_doctor;
 pub mod doctor;
 pub mod git_credentials;
 pub mod git_worktree;
-// EXP-1252: a session moving to another device (the handoff package).
-pub mod handoff;
 pub mod inventory;
 pub mod launch_defaults_sync;
 pub mod launch_gate;
@@ -150,12 +148,21 @@ pub use launcher::{
     PreparedLaunch, ResumeReconfigure, ResumeRun, ResumeSeed, SessionEndObserver, SessionLaunchRequest,
     WorktreeProvider, SESSION_BRANCH_PREFIX,
 };
-pub use run_cleanup::{remove_if_clean, CleanupOutcome, RunCleanup};
-pub use wip_save::{save_wip_commit, WipSave};
+pub use run_cleanup::{
+    finish_session_worktree, finish_worktree, leftover_note, post_leftover_note, remove_if_clean,
+    session_id8,
+    CleanupOutcome, FinishOutcome, LiveHolders, RunCleanup, SkipReason as CleanupSkipReason,
+    LEFTOVER_BRANCH_PREFIX,
+};
+pub use wip_save::{save_tracked_wip_commit, save_wip_commit, WipSave};
 pub use mcp_json::{
     remove_stale_legacy_mcp_json, render_mcp_json, write_mcp_json, MCP_JSON_FILE,
 };
-pub use prune::{prune_landed, PrunePolicy, PruneReport, SkipReason};
+pub use prune::{
+    prune_landed, settle_sweep_report, sweep_stale_worktrees, sweep_stale_worktrees_if_due,
+    PrunePolicy, PruneReport, SkipReason, SweepPolicy, SweepReport, SweptWorktree, SWEEP_INTERVAL,
+    SWEEP_MAX_AGE,
+};
 pub use inventory::{
     inventory_fingerprint, scan_clones, scan_inventory, CloneRef, WorktreeInventoryEntry,
     MAX_REPORTED_WORKTREES,

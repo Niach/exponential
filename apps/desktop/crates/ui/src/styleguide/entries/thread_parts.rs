@@ -108,7 +108,7 @@ pub(super) fn case(index: usize) -> Case {
 }
 
 /// EXP-1334's case: folded issue + session chips, a child's asks.
-pub(super) const FOLD_CASE: &str = "EXP-1334: the dispatcher";
+pub(super) const FOLD_CASE: &str = "EXP-1334: the root has no chip";
 
 /// EXP-1334: the web entry's two extra issues on the fold case, so each
 /// zone has something to fold: `(id, identifier, title)`.

@@ -29,6 +29,7 @@ import { BUS_COPY, busLine } from "@/lib/sessions/bus"
 import { postSystemCard } from "@/lib/sessions/messages"
 import type { Tx } from "@/lib/sessions/tx"
 import {
+  deleteBranch,
   fetchPullStack,
   listOpenPullsByBase,
   retargetPullRequest,
@@ -1002,6 +1003,10 @@ export async function applyPullRequestMerged(opts: {
   actorUserId?: string | null
   actorViaAgent?: boolean
   githubActorUserId?: string | null
+  /** NEW-5: our own merge — delete the head whatever its name, with the
+   *  merge's token. Omitted = only an `exp/` head goes (a merge made
+   *  outside Exponential, seen by the webhook or the poller). */
+  deleteHead?: { token: string; anyBranch: boolean }
 }): Promise<{ applied: boolean; txid: number | null }> {
   const result = await db.transaction(async (tx) => {
     const txid = await generateTxId(tx)
@@ -1059,13 +1064,78 @@ export async function applyPullRequestMerged(opts: {
     })
   }
   invalidateOpenPullsLazy(result.pr.teamId)
-  // EXP-324: the PRs based on the merged head move onto the default branch
-  // (GitHub only does it when the base branch is DELETED; we keep it).
-  // Fire-and-forget: never blocks the webhook or the merge caller.
-  void retargetChildrenOfMergedPr(result.pr.id).catch((err) => {
-    console.error(`retargetChildrenOfMergedPr failed:`, err)
+  // EXP-324: the PRs based on the merged head move onto the default branch,
+  // THEN (NEW-5) the head branch itself goes: any branch when the merge was
+  // ours (`deleteHead`), only `exp/` ones when it happened outside (webhook,
+  // poller). Fire-and-forget: never blocks the webhook or the merge caller.
+  void deleteMergedHeadBranch({
+    pullRequestId: result.pr.id,
+    token: opts.deleteHead?.token ?? null,
+    anyBranch: opts.deleteHead?.anyBranch ?? false,
   })
   return { applied: true, txid: result.txid }
+}
+
+/** NEW-5: whether a merged PR's head branch may be deleted on GitHub. Never
+ *  a default branch; only `exp/` branches unless `anyBranch` (our own
+ *  merge); never while a live PR still sits on it or reuses it as its head
+ *  (a native-stack child GitHub restacks itself, a reopened PR). */
+export function mergedHeadDeletable(opts: {
+  head: string
+  anyBranch: boolean
+  isDefaultBranch: boolean
+  openChildren: number
+  liveOnSameHead: boolean
+}): boolean {
+  const head = opts.head.trim()
+  if (!head || opts.isDefaultBranch) return false
+  if (!opts.anyBranch && !head.startsWith(`exp/`)) return false
+  return opts.openChildren === 0 && !opts.liveOnSameHead
+}
+
+/**
+ * NEW-5: delete a merged PR's head branch on GitHub, after its children were
+ * retargeted (EXP-324) so nothing still rests on it. Best effort: every
+ * failure logs and nothing throws — a merge never fails over its branch.
+ * `token` = the installation token the merge used; resolved when omitted.
+ */
+export async function deleteMergedHeadBranch(opts: {
+  pullRequestId: string
+  token?: string | null
+  anyBranch?: boolean
+}): Promise<`deleted` | `gone` | `kept` | `failed`> {
+  try {
+    await retargetChildrenOfMergedPr(opts.pullRequestId)
+  } catch (err) {
+    console.error(`retargetChildrenOfMergedPr failed:`, err)
+  }
+  try {
+    const merged = await loadPullRequest(opts.pullRequestId)
+    if (!merged || merged.state !== `merged` || !merged.head) return `kept`
+    const repo = repoFromPrUrl(merged.url)
+    if (!repo) return `kept`
+    if (!opts.anyBranch && !merged.head.startsWith(`exp/`)) return `kept`
+    const defaults = await loadRepoDefaultBranches(db, { teamId: merged.teamId, repoFullName: repo })
+    const githubDefault = await resolveRepoDefaultBranchCached(repo).catch(() => null)
+    const token = opts.token ?? (await resolveRepoInstallationTokenInfo(repo))?.token ?? null
+    if (!token) return `kept`
+    const [children, sameHead] = await Promise.all([
+      listOpenPullsByBase(repo, merged.head, token),
+      loadLivePullRequestByHead(merged.repositoryId, merged.head),
+    ])
+    const deletable = mergedHeadDeletable({
+      head: merged.head,
+      anyBranch: opts.anyBranch ?? false,
+      isDefaultBranch: isRepoDefaultBranch(defaults, merged.head) || merged.head === githubDefault,
+      openChildren: children.length,
+      liveOnSameHead: sameHead != null && sameHead.id !== merged.id,
+    })
+    if (!deletable) return `kept`
+    return await deleteBranch({ repo, branch: merged.head, token })
+  } catch (err) {
+    console.error(`deleting the merged head of ${opts.pullRequestId} failed:`, err)
+    return `failed`
+  }
 }
 
 /** Closed without merging (live → closed). Posts the thread's card. */

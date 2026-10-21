@@ -293,10 +293,6 @@ fn run_daemon(args: &[String]) -> CommandResult {
     // process-wide).
     registry::install_end_observer(ctx.data_dir.clone());
 
-    // EXP-229 parity: rows a previous crash left `running` go idle — never
-    // ended (EXP-1292: the next message resumes the SAME row). Pid-guarded —
-    // rows owned by a live sibling process are skipped.
-    reconcile_stale_sessions(&ctx);
     // EXP-757 (desktop parity): reclaim the scratch dirs of repo-less runs
     // nothing runs any more; a live sibling's (the desktop app on this
     // machine) are the keep set. Nothing is live in THIS process yet.
@@ -380,7 +376,17 @@ fn run_daemon(args: &[String]) -> CommandResult {
         device_id: device_id.clone(),
         in_flight: Arc::new(Mutex::new(HashSet::new())),
         backoff: Mutex::new(HashMap::new()),
+        reclaiming: Mutex::new(HashSet::new()),
+        reclaim_until: Instant::now() + RECLAIM_GRACE,
     });
+    // EXP-229 parity, NEW-5: the sessions a previous process of this install
+    // left behind are RE-CLAIMED once the shapes sync ([`DaemonHost::
+    // reconcile_rows`]: a mid-turn row continues, a pending message
+    // replays, the rest idles) — never ended. Pid-guarded: rows owned by a
+    // live sibling process are skipped. Without a sync pipeline nothing can
+    // re-claim them, so they only go idle (the pre-NEW-5 rule).
+    let reclaim = reconcile_stale_sessions(&ctx, sync_manager.is_some());
+    lock_or_recover(&pickup.reclaiming).extend(reclaim);
     let daemon_worker = sync_manager.as_ref().map(|manager| {
         let synced = Arc::new(SyncedShapes::default());
         let worker = spawn_daemon_worker(Arc::clone(&pickup), Arc::clone(&synced));
@@ -504,9 +510,10 @@ fn run_daemon(args: &[String]) -> CommandResult {
         // deltas), never here.
         std::thread::sleep(Duration::from_secs(1));
 
-        // EXP-637: a finished RUN reclaims its own worktree — but only when
-        // it is provably clean and carries no commits. Blocking git on the
-        // 1Hz loop is fine: it runs once per finished run, not per tick.
+        // EXP-637 → NEW-5: a finished RUN's worktree ends
+        // ([`coding::finish_session_worktree`]): removed, its unpushed work
+        // parked on `origin/exp/leftover-<id8>` and named in the session's
+        // conversation. The git + push run on a side thread, never the loop.
         // EXP-764: a finished repo-LESS thread has no worktree to judge — it
         // is purged whole: scratch dir, claude trust entries, run record and
         // steer journal. A team agent's is kept (EXP-1292: it only idles).
@@ -550,11 +557,20 @@ fn run_daemon(args: &[String]) -> CommandResult {
                         // the worktree on the recorded branch; the registry's
                         // TTL retires the record.
                         let live = live_holders.clone().with_registry(&ctx.data_dir, &session_id);
-                        let verdict = coding::remove_if_clean(&cleanup, &live);
-                        log::info!(
-                            "run cleanup [{session_id}] on {}: {verdict:?}",
-                            cleanup.branch
-                        );
+                        let trpc = Arc::clone(&ctx.trpc);
+                        let spawned = std::thread::Builder::new()
+                            .name("exp-run-finish".to_string())
+                            .spawn(move || {
+                                let verdict =
+                                    coding::finish_session_worktree(&trpc, &session_id, &cleanup, &live);
+                                log::info!(
+                                    "run cleanup [{session_id}] on {}: {verdict:?}",
+                                    cleanup.branch
+                                );
+                            });
+                        if let Err(err) = spawned {
+                            log::warn!("run cleanup: finish thread failed to spawn: {err}");
+                        }
                     }
                     // EXP-1292: a team agent never ends — its scratch dir and
                     // record are what the next message or firing wakes it in.
@@ -594,16 +610,38 @@ fn run_daemon(args: &[String]) -> CommandResult {
         // EXP-1005: walled runs rotate to another account between turns.
         rotation.tick(&doctor);
         // EXP-1353: the size walk can take seconds — never on this loop nor
-        // the serialized device worker; one sweep thread at a time.
+        // the serialized device worker; one sweep thread at a time. NEW-5:
+        // the nightly stale-worktree sweep rides the same beat (its own
+        // throttle sweeps each clone once a day), shielding this host's
+        // live runs.
         if last_cargo_gc.is_none_or(|at| at.elapsed() >= CARGO_TARGET_GC_BEAT)
             && !cargo_gc_running.swap(true, Ordering::SeqCst)
         {
             last_cargo_gc = Some(Instant::now());
             let repos_root = coding::Settings::load(&coding::Settings::default_path(&ctx.data_dir))
                 .repos_root_path();
+            let live = {
+                let guard = lock_sessions(&sessions);
+                coding::LiveHolders {
+                    branches: guard
+                        .iter()
+                        .filter(|live| !live.session.is_done())
+                        .map(|live| live.branch.clone())
+                        .filter(|branch| !branch.is_empty())
+                        .collect(),
+                    worktrees: guard
+                        .iter()
+                        .filter(|live| !live.session.is_done())
+                        .map(|live| live.session.worktree.clone())
+                        .collect(),
+                }
+            };
+            let data_dir = ctx.data_dir.clone();
+            let trpc = Arc::clone(&ctx.trpc);
             let running = Arc::clone(&cargo_gc_running);
             std::thread::spawn(move || {
                 sweep_cargo_targets(&repos_root);
+                sweep_stale_worktrees(&repos_root, &data_dir, live, &trpc);
                 running.store(false, Ordering::SeqCst);
             });
         }
@@ -665,6 +703,9 @@ fn run_daemon(args: &[String]) -> CommandResult {
                 .then(|| serde_json::to_value(&device_doctor).ok())
                 .flatten();
             let carried_optional = send_accounts || send_usage || doctor_json.is_some();
+            // NEW-5: the sessions this process runs — a busy row on this
+            // device missing from it is a dead process to the server.
+            let live_session_ids = pickup.heartbeat_live_ids();
             match api::devices::heartbeat(
                 &ctx.trpc,
                 &api::devices::HeartbeatInput {
@@ -674,6 +715,7 @@ fn run_daemon(args: &[String]) -> CommandResult {
                     agent_accounts: send_accounts.then_some(accounts_json.as_ref()).flatten(),
                     agent_usage: send_usage.then_some(usage_json.as_ref()).flatten(),
                     doctor: doctor_json.as_ref(),
+                    live_session_ids: live_session_ids.as_deref(),
                 },
             ) {
                 Ok(result) => {
@@ -1284,18 +1326,43 @@ fn sweep_scratch_dirs_now(ctx: &Ctx) {
 }
 
 /// EXP-229 parity, EXP-1292 semantics: the sessions a previous process of
-/// this install left behind go `idle` — never `ended`: the next message
-/// resumes the SAME row from its run record (a crash, a suspend whose idle
-/// report failed; a team agent always idles). Only a thread whose final
-/// `ended` report never resolved (its run record says so) gets that END
-/// again.
-fn reconcile_stale_sessions(ctx: &Ctx) {
+/// this install left behind are never `ended` — the SAME row resumes from
+/// its run record (a crash, a suspend whose idle report failed; a team agent
+/// always idles). Only a thread whose final `ended` report never resolved
+/// (its run record says so) gets that END again.
+///
+/// NEW-5: with `reclaim` (the daemon syncs its shapes) the rest is returned
+/// instead of idled — [`DaemonHost::reconcile_rows`] re-claims them from
+/// their synced rows (a mid-turn one gets a continuation turn), and the
+/// heartbeat counts them live until it has. Their registry entries are
+/// dropped here: a re-claimed run records itself afresh under this pid.
+fn reconcile_stale_sessions(ctx: &Ctx, reclaim: bool) -> HashSet<String> {
     let stale = registry::stale_entries(&ctx.data_dir, &ctx.account.id);
+    let mut reclaimed = HashSet::new();
     if stale.is_empty() {
-        return;
+        return reclaimed;
     }
     let trpc = Arc::clone(&ctx.trpc);
     let data_dir = ctx.data_dir.clone();
+    let owed_end = |id: &str| {
+        coding::run_registry::get(&data_dir, id)
+            .is_some_and(|record| !record.kind.is_persistent() && record.unreported_end())
+    };
+    let stale: Vec<registry::StaleEntry> = stale
+        .into_iter()
+        .filter(|entry| {
+            let take = reclaim && (entry.crashed || !owed_end(&entry.id));
+            if take {
+                log::info!("reclaim: session {} was left behind by an earlier process — re-claiming it", entry.id);
+                registry::remove(&data_dir, &entry.id);
+                reclaimed.insert(entry.id.clone());
+            }
+            !take
+        })
+        .collect();
+    if stale.is_empty() {
+        return reclaimed;
+    }
     std::thread::spawn(move || {
         for entry in stale {
             let owed_end = coding::run_registry::get(&data_dir, &entry.id).is_some_and(|record| {
@@ -1313,6 +1380,7 @@ fn reconcile_stale_sessions(ctx: &Ctx) {
             }
         }
     });
+    reclaimed
 }
 
 // ---------------------------------------------------------------------------
@@ -2236,6 +2304,30 @@ fn sweep_cargo_targets(repos_root: &Path) -> Vec<String> {
     walked
 }
 
+/// NEW-5: the nightly stale-worktree sweep over every clone under
+/// `repos_root` ([`coding::sweep_stale_worktrees_if_due`]: once a day per
+/// clone), logging each report and naming parked leftover branches in their
+/// sessions' conversations. Returns the clones swept this call.
+fn sweep_stale_worktrees(
+    repos_root: &Path,
+    data_dir: &Path,
+    live: coding::LiveHolders,
+    trpc: &api::TrpcClient,
+) -> Vec<String> {
+    let policy = coding::SweepPolicy { live, ..coding::SweepPolicy::default() };
+    let mut swept = Vec::new();
+    for clone in coding::scan_clones(repos_root) {
+        let Some(report) =
+            coding::sweep_stale_worktrees_if_due(&clone.path, data_dir, std::time::SystemTime::now(), &policy)
+        else {
+            continue;
+        };
+        coding::settle_sweep_report(Some(trpc), &clone.full_name, &report);
+        swept.push(clone.full_name);
+    }
+    swept
+}
+
 /// Scan + report the worktree inventory when its fingerprint moved.
 fn report_worktrees(
     ctx: &Ctx,
@@ -2323,14 +2415,16 @@ const DAEMON_TICK: Duration = Duration::from_secs(30);
 /// (a claim that failed over the network leaves the row `queued`).
 const PICKUP_RETRY: Duration = Duration::from_secs(30);
 
+/// NEW-5: how long the heartbeat counts the sessions an earlier process
+/// left behind as live while the startup re-claim waits for the shapes (a
+/// sync that never comes up must not hide a dead turn forever).
+const RECLAIM_GRACE: Duration = Duration::from_secs(5 * 60);
+
 /// EXP-1334: how long a switch / reconfigure that a turn in flight refused
 /// waits before the pass plans it again (the turn's own rows nudge the
 /// pass; a full [`PICKUP_RETRY`] would hold the session's deliveries,
 /// answers and kills with it).
 const SWITCH_BUSY_RETRY: Duration = Duration::from_secs(2);
-
-/// EXP-1252: how soon a move whose engine is not truly idle yet looks again.
-const HANDOFF_WAIT_RETRY: Duration = Duration::from_secs(5);
 
 /// Open the daemon's shape store and start its pipeline. `None` (logged, not
 /// fatal) leaves the pickup dormant while every other daemon
@@ -2490,6 +2584,11 @@ struct DaemonPickup {
     in_flight: Arc<Mutex<HashSet<String>>>,
     /// A failed attempt's retry floor ([`PICKUP_RETRY`]).
     backoff: Mutex<HashMap<String, Instant>>,
+    /// NEW-5: the sessions an earlier process left behind, awaiting the
+    /// startup re-claim ([`DaemonHost::reconcile_rows`]); the heartbeat
+    /// counts them live until then (at most until `reclaim_until`).
+    reclaiming: Mutex<HashSet<String>>,
+    reclaim_until: Instant,
 }
 
 impl DaemonPickup {
@@ -2514,6 +2613,30 @@ impl DaemonPickup {
     /// [`Self::back_off`] for `wait`.
     fn back_off_for(&self, session_id: &str, wait: Duration) {
         lock_or_recover(&self.backoff).insert(session_id.to_string(), Instant::now() + wait);
+    }
+
+    /// NEW-5: the heartbeat's `liveSessionIds` — every session a process of
+    /// this machine runs: this daemon's runs and engines, its attempts in
+    /// flight, the rows awaiting the startup re-claim, and a live sibling
+    /// process's (a foreground `code`, EXP-229). `None` past the cap.
+    fn heartbeat_live_ids(&self) -> Option<Vec<String>> {
+        let own: Vec<String> = lock_sessions(&self.sessions)
+            .iter()
+            .map(|live| live.session.session_id.clone())
+            .collect();
+        let in_flight: Vec<String> = lock_or_recover(&self.in_flight).iter().cloned().collect();
+        let reclaiming: Vec<String> = if Instant::now() < self.reclaim_until {
+            lock_or_recover(&self.reclaiming).iter().cloned().collect()
+        } else {
+            Vec::new()
+        };
+        live_session_ids([
+            own,
+            self.live.session_ids(),
+            in_flight,
+            reclaiming,
+            registry::live_ids(&self.ctx.data_dir),
+        ])
     }
 
     /// The pass's `in_flight` set: attempts running and attempts backing off.
@@ -2700,12 +2823,6 @@ impl DaemonHost {
         // (or whose claim answer was lost) read `running` — plan only
         // launches `queued` ones.
         actions.extend(live.retry_launches(&self.pickup.device_id, rows, &excluded));
-        // EXP-1252: sessions handed off from here that the target claimed.
-        actions.extend(
-            coding::pickup::cleanup_actions(&self.pickup.ctx.data_dir, &self.pickup.device_id, rows)
-                .into_iter()
-                .filter(|action| !excluded.contains(action.session_id())),
-        );
         if actions.is_empty() {
             return;
         }
@@ -2726,10 +2843,7 @@ impl DaemonHost {
                 // EXP-1341: a revive resumes/launches (network + git).
                 | PickupAction::Revive { .. }
                 // EXP-849: a switch suspends + relaunches (network + git).
-                | PickupAction::Switch { .. }
-                // EXP-1252: a move packs + uploads; a cleanup runs git.
-                | PickupAction::Handoff { .. }
-                | PickupAction::Cleanup { .. } => true,
+                | PickupAction::Switch { .. } => true,
                 // A delivery to an engine that just finished wakes it.
                 PickupAction::Deliver { session_id, .. } => !live.contains_live(session_id),
                 _ => false,
@@ -2822,25 +2936,6 @@ impl DaemonHost {
                             }
                         }
                     }
-                    // EXP-1252: a move waiting for its engine's true idle is
-                    // no failure — it looks again shortly (the 30 min bound
-                    // is the registry's).
-                    coding::pickup::PickupAction::Handoff { session } => {
-                        match coding::pickup::hand_off(session, &deps) {
-                            Ok(coding::pickup::HandedOff::Waiting) => {
-                                pickup.back_off_for(&session_id, HANDOFF_WAIT_RETRY);
-                                true
-                            }
-                            Ok(outcome) => {
-                                log::info!("pickup: move of {session_id}: {outcome:?}");
-                                true
-                            }
-                            Err(err) => {
-                                log::warn!("pickup: move of {session_id} failed: {err}");
-                                false
-                            }
-                        }
-                    }
                     other => match coding::pickup::execute(other, &deps) {
                         Ok(()) => true,
                         Err(err) => {
@@ -2859,44 +2954,120 @@ impl DaemonHost {
         }
     }
 
-    /// EXP-1292's startup reconcile, once the shapes are synced: a row this
-    /// device left `running` with no engine behind it (a crash, a kill -9, a
-    /// reboot) goes `idle` — NEVER `ended`: the next message resumes the SAME
-    /// row from its run record. Rows with a pending message are the pass's
-    /// own Resume; a row another process on this machine holds (a foreground
-    /// `code`) is skipped by its claim lock.
+    /// EXP-1292's startup reconcile, NEW-5's re-claim, once the shapes are
+    /// synced: every row on this device reading `running` (or `busy`) with no
+    /// engine behind it (a crash, a kill -9, a reboot) is taken back — NEVER
+    /// `ended`:
+    /// - a pending input → the pass's own Resume replays it;
+    /// - mid-turn (`busy`) → [`coding::pickup::continue_after_restart`]
+    ///   resumes the recorded run with a continuation turn;
+    /// - between turns → `idle` (a persistent root is then the pass's
+    ///   Revive; anything else waits for its next message).
+    ///
+    /// A row another process on this machine holds (a foreground `code`) is
+    /// skipped by its claim lock (EXP-229).
     fn reconcile_rows(&self, rows: &[SessionRow], messages: &[MessageRow]) {
         let pending = pending_session_ids(messages);
-        let stale: Vec<String> = rows
-            .iter()
-            .filter(|row| {
-                row.on_device(&self.pickup.device_id)
-                    && row.status_is(domain::contract::SESSION_STATUS_RUNNING)
-                    && !self.pickup.live.contains_live(&row.id)
-                    && !pending.contains(row.id.as_str())
-            })
-            .filter(|row| {
-                matches!(
-                    coding::pickup::ClaimLock::try_acquire(&self.pickup.ctx.data_dir, &row.id),
-                    Ok(Some(_))
-                )
-            })
-            .map(|row| row.id.clone())
-            .collect();
+        let left_behind = std::mem::take(&mut *lock_or_recover(&self.pickup.reclaiming));
+        let mut stale = Vec::new();
+        let mut mid_turn = Vec::new();
+        for row in rows {
+            let running = row.status_is(domain::contract::SESSION_STATUS_RUNNING);
+            let idle = row.status_is(domain::contract::SESSION_STATUS_IDLE);
+            if !row.on_device(&self.pickup.device_id)
+                || !(running || (idle && (row.busy || left_behind.contains(&row.id))))
+                || self.pickup.live.contains_live(&row.id)
+            {
+                continue;
+            }
+            if !matches!(
+                coding::pickup::ClaimLock::try_acquire(&self.pickup.ctx.data_dir, &row.id),
+                Ok(Some(_))
+            ) {
+                log::info!("reclaim: session {} runs in another process here — skipped", row.id);
+                continue;
+            }
+            match coding::pickup::reclaim_step(row, pending.contains(row.id.as_str())) {
+                coding::pickup::ReclaimStep::Replay => {
+                    log::info!("reclaim: session {} re-claimed — its pending messages replay", row.id);
+                }
+                coding::pickup::ReclaimStep::Continue => mid_turn.push(row.clone()),
+                coding::pickup::ReclaimStep::Idle => {
+                    log::info!("reclaim: session {} re-claimed between turns — idle", row.id);
+                    stale.push(row.id.clone());
+                }
+                coding::pickup::ReclaimStep::Waiting => {
+                    log::info!("reclaim: session {} re-claimed — idle, waiting for its next message", row.id);
+                }
+            }
+        }
+        if !mid_turn.is_empty() {
+            let deps = Arc::new(self.pickup.deps());
+            for row in mid_turn {
+                // In flight BEFORE this pass plans: no Revive/Resume races it.
+                let Some(guard) = self.pickup.begin(&row.id) else {
+                    continue;
+                };
+                let deps = Arc::clone(&deps);
+                let pickup = Arc::clone(&self.pickup);
+                let nudge = self.nudge.clone();
+                let spawned = std::thread::Builder::new()
+                    .name("exp-reclaim".to_string())
+                    .spawn(move || {
+                        let _guard = guard;
+                        let id = row.id.as_str();
+                        match coding::pickup::continue_after_restart(&row, &deps) {
+                            Ok(true) => log::info!(
+                                "reclaim: session {id} was mid-turn — resumed with a continuation turn"
+                            ),
+                            Ok(false) => {
+                                let result = api::session_device::report(
+                                    &pickup.ctx.trpc,
+                                    id,
+                                    &idle_report(),
+                                );
+                                match result {
+                                    Ok(()) => log::info!(
+                                        "reclaim: session {id} was mid-turn with no run record here — now idle"
+                                    ),
+                                    Err(err) => log::warn!("reclaim: session {id} not reported idle: {err}"),
+                                }
+                            }
+                            Err(err) => {
+                                log::warn!("reclaim: session {id} not continued: {err}");
+                                pickup.back_off(id);
+                            }
+                        }
+                        let _ = nudge.send(DaemonWork::Pickup);
+                    });
+                if let Err(err) = spawned {
+                    log::warn!("reclaim: continuation thread failed to spawn: {err}");
+                }
+            }
+        }
         if stale.is_empty() {
             return;
         }
         let trpc = Arc::clone(&self.pickup.ctx.trpc);
         std::thread::spawn(move || {
             for session_id in stale {
-                match api::session_device::report(&trpc, &session_id, &idle_report()) {
-                    Ok(()) => log::info!("reconcile: session {session_id} had no engine here — now idle"),
-                    Err(err) => log::warn!("reconcile: session {session_id} not reported idle: {err}"),
+                if let Err(err) = api::session_device::report(&trpc, &session_id, &idle_report()) {
+                    log::warn!("reclaim: session {session_id} not reported idle: {err}");
                 }
             }
         });
     }
 
+}
+
+/// NEW-5: one sorted, de-duplicated `liveSessionIds` out of every source;
+/// `None` past [`api::devices::LIVE_SESSION_IDS_CAP`] (the server would
+/// refuse the whole beat — no claim beats a truncated one).
+fn live_session_ids<I: IntoIterator<Item = String>>(
+    sources: impl IntoIterator<Item = I>,
+) -> Option<Vec<String>> {
+    let ids: std::collections::BTreeSet<String> = sources.into_iter().flatten().collect();
+    (ids.len() <= api::devices::LIVE_SESSION_IDS_CAP).then(|| ids.into_iter().collect())
 }
 
 /// EXP-1292: a session with no engine on this device — idle and not working.
@@ -3337,6 +3508,23 @@ mod tests {
 
     /// EXP-1353: the daemon offers every clone to the shared GC, and the
     /// shared throttle keeps a second pass within the hour from re-walking.
+    /// NEW-5: the heartbeat's `liveSessionIds` = the union of every live
+    /// source, sorted and de-duplicated; past the cap no claim at all.
+    #[test]
+    fn heartbeat_live_ids_union_the_live_runs() {
+        let ids = live_session_ids([
+            vec!["b".to_string(), "a".to_string()],
+            vec!["a".to_string()],
+            Vec::new(),
+            vec!["c".to_string()],
+        ]);
+        assert_eq!(ids, Some(vec!["a".to_string(), "b".to_string(), "c".to_string()]));
+        assert_eq!(live_session_ids(Vec::<Vec<String>>::new()), Some(Vec::new()));
+        let many: Vec<String> =
+            (0..=api::devices::LIVE_SESSION_IDS_CAP).map(|n| format!("s{n}")).collect();
+        assert_eq!(live_session_ids([many]), None);
+    }
+
     #[test]
     fn sweep_cargo_targets_walks_each_clone_once_per_interval() {
         let nanos = std::time::SystemTime::now()

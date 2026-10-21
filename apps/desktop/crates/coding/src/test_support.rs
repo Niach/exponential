@@ -54,8 +54,7 @@ pub(crate) fn canned_server_recording(
     canned_server_bytes(responses.into_iter().map(|(status, body)| (status, body.into_bytes())).collect())
 }
 
-/// EXP-1252: [`canned_server_recording`] with raw byte bodies (a handoff
-/// package download).
+/// [`canned_server_recording`] with raw byte bodies.
 pub(crate) fn canned_server_bytes(
     responses: Vec<(u16, Vec<u8>)>,
 ) -> (String, Arc<std::sync::Mutex<Vec<String>>>) {
@@ -142,18 +141,6 @@ impl WorktreeProvider for FakeWorktrees {
         // resume into a RECLAIMED worktree relies on that.
         let _ = fs::create_dir_all(&self.worktree);
         Ok(self.worktree.clone())
-    }
-
-    /// Recorded like [`Self::prepare`] with a BLANK branch (= detached).
-    fn prepare_detached(
-        &self,
-        repos_root: &Path,
-        full_name: &str,
-        default_branch: &str,
-        url: &TokenUrl,
-        expires_at: Option<&str>,
-    ) -> Result<PathBuf, GitError> {
-        self.prepare(repos_root, full_name, default_branch, "", url, expires_at)
     }
 }
 

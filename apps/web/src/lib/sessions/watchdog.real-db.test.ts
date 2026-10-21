@@ -57,6 +57,7 @@ const { BUS_COPY } = await import(`@/lib/sessions/bus`)
 const { buildQuestionCard, postAskCard } = await import(`@/lib/sessions/plan`)
 const { runWatchdog, restoreDeviceSessionsInTx } = await import(`@/lib/sessions/watchdog`)
 const { sessionsRouter } = await import(`@/lib/trpc/sessions`)
+const { devicesRouter } = await import(`@/lib/trpc/devices`)
 
 const MIN = 60 * 1000
 /** The watchdog's clock: far before any real row in the dev database. */
@@ -308,6 +309,60 @@ describe.skipIf(!ready.ok)(`the watchdog`, () => {
       await db.transaction((tx) => restoreDeviceSessionsInTx(tx, { deviceId: `dev-${id8()}`, userId: w.owner }))
     ).toBe(0)
     expect((await row(childId)).blocked).toMatchObject({ kind: `device_offline` })
+  })
+
+  it(`a heartbeat's liveSessionIds flags a busy session its host no longer runs; listed ones and a beat without the field change nothing`, async () => {
+    const w = await world({ shared: true })
+    const rootId = await w.root()
+    const dead = await w.child(rootId, `its process died`)
+    const alive = await w.child(rootId, `still running`)
+    const between = await w.child(rootId, `between turns`)
+    // A teammate's session on the same shared box: the heartbeat speaks for
+    // every session the device hosts, whoever started it.
+    const mates = await w.root(`hosted`, w.mate)
+    for (const id of [dead, alive, between, mates]) await w.host.claim({ sessionId: id })
+    for (const id of [dead, alive, mates]) await w.host.report({ sessionId: id, busy: true })
+    const beat = (liveSessionIds?: string[]) =>
+      devicesRouter
+        .createCaller({ session: { user: { id: w.owner } }, db, request: new Request(`http://x.test`) } as never)
+        .heartbeat({ deviceId: w.deviceId, activeSessions: 1, defaultsSyncedAt: null, ...(liveSessionIds ? { liveSessionIds } : {}) })
+
+    // No field: no claim either way.
+    await beat()
+    for (const id of [dead, alive, mates]) {
+      expect(await row(id)).toMatchObject({ status: `running`, busy: true, blocked: null })
+    }
+
+    // Another account's beat naming this device owns no row: nothing moves.
+    const stranger = await user()
+    expect(
+      await devicesRouter
+        .createCaller({ session: { user: { id: stranger } }, db, request: new Request(`http://x.test`) } as never)
+        .heartbeat({ deviceId: w.deviceId, activeSessions: 0, defaultsSyncedAt: null, liveSessionIds: [] })
+    ).toMatchObject({ ok: false })
+    expect(await row(dead)).toMatchObject({ busy: true, blocked: null })
+
+    await beat([alive])
+    for (const id of [dead, mates]) {
+      expect(await row(id)).toMatchObject({
+        status: `idle`,
+        busy: false,
+        needsInput: true,
+        blocked: { kind: `stuck` },
+      })
+    }
+    expect(await row(alive)).toMatchObject({ status: `running`, busy: true, blocked: null, needsInput: false })
+    expect(await row(between)).toMatchObject({ status: `running`, busy: false, blocked: null })
+    // The parent is woken once.
+    expect(await lines(rootId, `session_stuck`, dead)).toMatchObject([
+      { authorKind: `system`, authorSessionId: dead, consumedAt: null, body: BUS_COPY.session_stuck },
+    ])
+    await beat([alive])
+    expect(await lines(rootId, `session_stuck`, dead)).toHaveLength(1)
+
+    // The next report clears it, as for the watchdog's own `stuck`.
+    await w.host.report({ sessionId: dead, status: `running`, busy: true })
+    expect(await row(dead)).toMatchObject({ blocked: null, needsInput: false, busy: true })
   })
 
   it(`a usage wall keeps the session under Needs you until the device clears it`, async () => {
