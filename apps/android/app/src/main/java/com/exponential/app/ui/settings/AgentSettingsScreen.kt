@@ -79,7 +79,7 @@ import com.exponential.app.ui.theme.flatRow
 // managed EXACTLY like boards. The list = icon-in-colour + name rows under the
 // "Agents" band, then `New agent` (owner-only, like `New board`). An agent's
 // page = the board form's ONE identity field (icon picker + colour swatch +
-// name) over Device, Account, Schedule, Instructions and the owner-only
+// name) over Device, Account, Triggers, Instructions and the owner-only
 // Delete. A NEW agent is a form with a Create button
 // (`sessions.send({agent})`); an existing one autosaves like the board page:
 // name and instructions on blur, everything else at once.
@@ -105,7 +105,7 @@ internal fun AgentGlyph(icon: String, color: String, modifier: Modifier = Modifi
  */
 @Composable
 fun AgentsSettingsList(
-    onOpenAgent: (agentSessionId: String) -> Unit,
+    onOpenAgent: (agentId: String) -> Unit,
     onNewAgent: () -> Unit,
     modifier: Modifier = Modifier,
     viewModel: AgentSettingsViewModel = hiltViewModel(),
@@ -126,7 +126,7 @@ fun AgentsSettingsList(
 internal fun AgentsSettingsListContent(
     agents: List<SessionTree.AgentRow>,
     canCreate: Boolean,
-    onOpenAgent: (agentSessionId: String) -> Unit,
+    onOpenAgent: (agentId: String) -> Unit,
     onNewAgent: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -143,7 +143,7 @@ internal fun AgentsSettingsListContent(
                     .fillMaxWidth()
                     .testTag(SessionTree.ListCopy.TEST_ID_AGENT_ROW)
                     .flatRow()
-                    .clickable { onOpenAgent(row.sessionId) }
+                    .clickable { onOpenAgent(row.agentId) }
                     .padding(horizontal = 12.dp, vertical = 10.dp),
             ) {
                 AgentGlyph(row.icon, row.color)
@@ -182,7 +182,7 @@ internal fun AgentsSettingsListContent(
 @Composable
 fun AgentsSettingsScreen(
     onBack: () -> Unit,
-    onOpenAgent: (agentSessionId: String) -> Unit,
+    onOpenAgent: (agentId: String) -> Unit,
     onNewAgent: () -> Unit,
 ) {
     Scaffold(
@@ -208,17 +208,18 @@ fun AgentsSettingsScreen(
 }
 
 /**
- * ONE agent's settings page (`settings/agent/{sessionId}`; the
- * `settings/agent-new` route = `New agent`, the model's `sessionId` null).
- * [onOpenChannel] opens the agent's conversation; [onCreated] lands on a
- * just-created agent's page; [onDeleted] leaves the page.
+ * ONE agent's settings page (`settings/agent/{agentId}`; the
+ * `settings/agent-new` route = `New agent`, the model's `agentId` null).
+ * [onOpenChannel] opens the caller's conversation with the agent (when one
+ * exists); [onCreated] lands on a just-created agent's page; [onDeleted]
+ * leaves the page.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AgentSettingsScreen(
     onBack: () -> Unit,
-    onOpenChannel: (agentSessionId: String) -> Unit,
-    onCreated: (agentSessionId: String) -> Unit,
+    onOpenChannel: (conversationSessionId: String) -> Unit,
+    onCreated: (agentId: String) -> Unit,
     onDeleted: () -> Unit,
     viewModel: AgentSettingsViewModel = hiltViewModel(),
 ) {
@@ -229,9 +230,10 @@ fun AgentSettingsScreen(
     val isOwner by viewModel.isTeamOwner.collectAsStateWithLifecycle()
     val busy by viewModel.busy.collectAsStateWithLifecycle()
     val failure by viewModel.failure.collectAsStateWithLifecycle()
+    val conversationId by viewModel.conversationId.collectAsStateWithLifecycle()
     FailedActionToast(failure, onShown = viewModel::clearFailure)
 
-    val isNew = viewModel.sessionId == null
+    val isNew = viewModel.agentId == null
     // The form's own copy of the row, seeded ONCE (an Electric echo must
     // never fight a person mid-edit).
     var name by remember { mutableStateOf("") }
@@ -242,7 +244,7 @@ fun AgentSettingsScreen(
     var instructions by remember { mutableStateOf("") }
     var instructionsSeeded by remember { mutableStateOf(false) }
     var seeded by remember { mutableStateOf(false) }
-    // A new agent's schedule lives here until Create sends it.
+    // A new agent's triggers live here until Create sends it.
     var draftTriggers by remember { mutableStateOf<List<AgentTrigger>>(emptyList()) }
     var showErrors by remember { mutableStateOf(false) }
 
@@ -250,7 +252,7 @@ fun AgentSettingsScreen(
         val row = agent ?: return@LaunchedEffect
         if (seeded) return@LaunchedEffect
         seeded = true
-        name = row.name.orEmpty()
+        name = row.name
         icon = row.icon ?: SessionTree.ListCopy.AGENT_DEFAULT_ICON
         color = row.color ?: SessionTree.ListCopy.AGENT_DEFAULT_COLOR
         deviceId = row.deviceId
@@ -280,7 +282,7 @@ fun AgentSettingsScreen(
     val errors = viewModel.validate(name, deviceId, instructions)
     val editable = isOwner
 
-    // The Schedule sheet: null = closed; -1 = a new trigger, else its index.
+    // The Triggers sheet: null = closed; -1 = a new trigger, else its index.
     var triggerSheet by remember { mutableStateOf<Int?>(null) }
     var confirmDelete by remember { mutableStateOf(false) }
 
@@ -301,7 +303,7 @@ fun AgentSettingsScreen(
                 },
                 navigationIcon = { TopBarBackButton(onClick = onBack) },
                 actions = {
-                    val id = viewModel.sessionId
+                    val id = conversationId
                     if (id != null) {
                         CircleIconButton(
                             ExpIcons.actionChat,
@@ -563,7 +565,7 @@ internal fun AgentSettingsContent(
         FieldErrors(listOfNotNull(errorOf(AgentSettings.FIELD_IDENTITY), errorOf(AgentSettings.FIELD_DEVICE)))
         Spacer(Modifier.height(12.dp))
 
-        // ── Account + Schedule ───────────────────────────────────────────
+        // ── Account + Triggers ───────────────────────────────────────────
         OptionGroup {
             AccountPicker(
                 options = accounts,
@@ -588,7 +590,7 @@ internal fun AgentSettingsContent(
                 modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 12.dp, top = 10.dp, bottom = 10.dp),
             ) {
                 Text(
-                    label(AgentSettings.FIELD_SCHEDULE),
+                    label(AgentSettings.FIELD_TRIGGERS),
                     style = MaterialTheme.typography.bodyLarge,
                     modifier = Modifier.weight(1f),
                 )

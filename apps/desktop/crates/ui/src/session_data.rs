@@ -82,6 +82,31 @@ pub(crate) fn session(session_id: &str, cx: &App) -> Option<SessionRow> {
     store.collections().sessions.read(cx).get(session_id).cloned()
 }
 
+/// NEW-2: one synced agent DEFINITION (`agents` shape).
+pub(crate) fn agent_def(agent_id: &str, cx: &App) -> Option<domain::rows::AgentDefRow> {
+    let store = Store::try_global(cx)?;
+    store.collections().agents.read(cx).get(agent_id).cloned()
+}
+
+/// NEW-2: the viewer's own conversation session with the agent (a root
+/// with `agent_id` and `user_id == me`), `None` until the first message
+/// creates it (`sessions.send({agentId})`).
+pub(crate) fn my_conversation(agent_id: &str, cx: &App) -> Option<SessionRow> {
+    let store = Store::try_global(cx)?;
+    let me = crate::queries::active_account(cx)?.user_id;
+    store
+        .collections()
+        .sessions
+        .read(cx)
+        .iter()
+        .find(|row| {
+            row.is_root()
+                && row.agent_id.as_deref() == Some(agent_id)
+                && row.user_id.as_deref() == Some(me.as_str())
+        })
+        .cloned()
+}
+
 /// The root of `session_id`'s tree (the row itself for a root); `None` while
 /// either row has not synced.
 pub(crate) fn root_of(session_id: &str, cx: &App) -> Option<SessionRow> {
@@ -552,17 +577,22 @@ pub(crate) fn session_thread_view(
 // The Threads page, the rail and the team picker
 // ---------------------------------------------------------------------------
 
-/// The rail's Agents section: the agent roots of `team_id`
-/// (`domain::session_tree::list_agents`).
+/// The rail's Agents section: the agent DEFINITIONS of `team_id` (NEW-2,
+/// `domain::session_tree::list_agents`), lit off the viewer's own
+/// conversation session with each.
 pub(crate) fn agents_in_team(team_id: &str, cx: &App) -> Vec<AgentRow> {
     let Some(store) = Store::try_global(cx) else {
         return Vec::new();
     };
+    let me = crate::queries::active_account(cx).map(|account| account.user_id);
+    let agents = store.collections().agents.read(cx);
+    let agents: Vec<&domain::rows::AgentDefRow> = agents.iter().collect();
     let sessions = store.collections().sessions.read(cx);
     let rows: Vec<&SessionRow> = sessions.iter().collect();
-    // An agent's spinner / needs-you dot is its own row only: the threads
-    // it spawns are their own roots (the Threads entry lights for them).
-    list_agents(&rows, Some(team_id))
+    // An agent's spinner / needs-you dot is the viewer's conversation only:
+    // the threads it spawns are their own roots (the Threads entry lights
+    // for them).
+    list_agents(&agents, &rows, Some(team_id), me.as_deref())
 }
 
 /// The store state one [`thread_lists`] answer derives from.
@@ -926,6 +956,8 @@ pub(crate) fn observe_session_collections<V: 'static>(cx: &mut gpui::Context<V>)
         cx.observe(&collections.pull_requests, |_, _, cx| cx.notify()),
         cx.observe(&collections.pull_request_issues, |_, _, cx| cx.notify()),
         cx.observe(&collections.issues, |_, _, cx| cx.notify()),
+        // NEW-2: the Agents rows are the agent definitions.
+        cx.observe(&collections.agents, |_, _, cx| cx.notify()),
     ]
 }
 

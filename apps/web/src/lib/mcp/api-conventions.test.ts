@@ -220,7 +220,7 @@ describe(`envelope + projection drift (EXP-707 themes E/I)`, () => {
     const files = readFileSync(join(dir, `steer.ts`), `utf8`)
       .concat(readFileSync(join(dir, `issues.ts`), `utf8`))
       .concat(readFileSync(join(dir, `boards.ts`), `utf8`))
-      .concat(readFileSync(join(dir, `actions.ts`), `utf8`))
+      .concat(readFileSync(join(dir, `prompts.ts`), `utf8`))
     expect(/\btxid\b/.test(files)).toBe(false)
   })
 

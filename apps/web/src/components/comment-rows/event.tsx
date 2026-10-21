@@ -8,7 +8,7 @@ import {
   TraceLine,
   TraceTitle,
 } from "@exp/ui"
-import { relationEventParts } from "@/lib/issue-relations"
+import { relationEventParts } from "@/lib/issue-relations-pure"
 import { priorityLabel, statusLabel } from "@/lib/issue-event-labels"
 import { estimateEventPhrase } from "@/lib/issue-estimate"
 import type { IssueEstimation } from "@/lib/domain"

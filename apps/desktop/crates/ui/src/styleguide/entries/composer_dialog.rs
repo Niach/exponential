@@ -20,7 +20,7 @@ use gpui_component::{h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _};
 
 use crate::chat_screen::{
     composer_menu_rows, ComposerMenuConditions, ComposerMenuRow, MENU_ADD_FILE, MENU_COMPUTER_USE,
-    MENU_IMPLEMENT_ISSUE, MENU_MCP_SERVERS, MENU_RUN_ACTION, MENU_ULTRACODE, PLUS_TOOLTIP,
+    MENU_IMPLEMENT_ISSUE, MENU_MCP_SERVERS, MENU_ULTRACODE, PLUS_TOOLTIP,
 };
 use crate::composer::{
     composer_tool, session_composer_box, session_composer_field, session_context_ring, session_model_pin,
@@ -352,7 +352,7 @@ pub(super) fn plus_menu_rows(phase: Phase) -> Vec<ComposerMenuRow> {
     .into_iter()
     .filter(|row| *row != ComposerMenuRow::Subagents)
     .filter(|row| {
-        phase == Phase::Start || !matches!(row, ComposerMenuRow::ImplementIssue | ComposerMenuRow::RunAction)
+        phase == Phase::Start || !matches!(row, ComposerMenuRow::ImplementIssue)
     })
     .collect()
 }
@@ -378,9 +378,6 @@ fn plus_menu(
             ComposerMenuRow::Separator => menu.separator(),
             ComposerMenuRow::ImplementIssue => {
                 menu.submenu_with_icon(Some(menu_icon(row)), MENU_IMPLEMENT_ISSUE, window, cx, |sub, _, _| sub)
-            }
-            ComposerMenuRow::RunAction => {
-                menu.submenu_with_icon(Some(menu_icon(row)), MENU_RUN_ACTION, window, cx, |sub, _, _| sub)
             }
             ComposerMenuRow::AddFile => {
                 menu.item(pointer_menu_item(None, MENU_ADD_FILE, |_| None, |_, _| {}).icon(menu_icon(row)))
@@ -535,7 +532,7 @@ mod tests {
         use ComposerMenuRow::*;
         assert_eq!(
             plus_menu_rows(Phase::Start),
-            vec![ImplementIssue, RunAction, AddFile, Separator, Effort, Ultracode, Separator, McpServers, ComputerUse]
+            vec![ImplementIssue, AddFile, Separator, Effort, Ultracode, Separator, McpServers, ComputerUse]
         );
         assert_eq!(
             plus_menu_rows(Phase::Running),

@@ -34,10 +34,10 @@ use crate::contract::{
     MESSAGE_CARD_KIND_REPLIES, MESSAGE_CARD_KIND_REPORT, MESSAGE_CARD_KIND_SESSION,
     MESSAGE_CARD_KIND_SUBAGENT,
     MESSAGE_CARD_KIND_SUGGESTIONS, MESSAGE_CARD_KIND_THREAD_STARTED,
-    SESSION_KIND_AGENT, SESSION_KIND_THREAD, SESSION_STATUS_ENDED, SESSION_STATUS_QUEUED,
+    SESSION_STATUS_ENDED, SESSION_STATUS_QUEUED,
     SESSION_STATUS_RUNNING, PR_STATE_MERGED,
 };
-use crate::rows::{Issue, MessageRow, PullRequestRow, SessionIssueRow, SessionReadRow, SessionRow};
+use crate::rows::{AgentDefRow, Issue, MessageRow, PullRequestRow, SessionIssueRow, SessionReadRow, SessionRow};
 use crate::session_title::{session_title, session_titles};
 
 /// A resolved title from [`session_titles`] (`""` when absent, TS `?? ''`).
@@ -310,10 +310,6 @@ fn card_str<'a>(card: &'a Value, key: &str) -> Option<&'a str> {
 
 fn is_root(session: &SessionRow) -> bool {
     session.is_root()
-}
-
-fn kind_is(session: &SessionRow, kind: &str) -> bool {
-    session.kind.as_deref() == Some(kind)
 }
 
 fn status_is(session: &SessionRow, status: &str) -> bool {
@@ -1799,7 +1795,9 @@ pub fn partition_threads(input: ThreadsListInput<'_>) -> Vec<ThreadsListGroup> {
     let mut buckets: HashMap<ThreadsListKey, Vec<(ThreadsListRow, Vec<ThreadsListRow>)>> = HashMap::new();
     for root in input.sessions.iter().copied().filter(|session| {
         is_root(session)
-            && kind_is(session, SESSION_KIND_THREAD)
+            // NEW-2: an agent's conversation (a root with `agent_id`) is no
+            // thread.
+            && !session.is_agent()
             && input
                 .team_id
                 .is_none_or(|team| session.team_id.as_deref() == Some(team))
@@ -2043,13 +2041,15 @@ pub fn rail_threads(
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentRow {
-    pub session_id: String,
+    /// NEW-2: the `agents` definition row.
+    pub agent_id: String,
     pub team_id: String,
     pub name: String,
     /// Icon concept (default `agentDefaults.icon`).
     pub icon: String,
     /// `#rrggbb` (default `agentDefaults.color`).
     pub color: String,
+    /// From the VIEWER's own conversation session with the agent.
     pub busy: bool,
     pub needs_you: bool,
 }
@@ -2059,17 +2059,30 @@ fn locale_cmp(a: &str, b: &str) -> std::cmp::Ordering {
     a.to_lowercase().cmp(&b.to_lowercase()).then_with(|| a.cmp(b))
 }
 
-/// The agent roots of the team (`None` = every team) by `sort_order`, then
-/// name, then id; missing icon/color fall back to the fixture defaults.
-pub fn list_agents(sessions: &[&SessionRow], team_id: Option<&str>) -> Vec<AgentRow> {
-    let mut agents: Vec<&SessionRow> = sessions
+/// NEW-2: the rail's Agents section: one row per `agents` definition of the
+/// team (`None` = every team) by `sort_order`, then name, then id; missing
+/// icon/color fall back to the fixture defaults. The spinner / needs-you
+/// dot read the VIEWER's own conversation session with the agent (a root
+/// with `agent_id` and `user_id == me`); a member without one sees a quiet
+/// row.
+pub fn list_agents(
+    agents: &[&AgentDefRow],
+    sessions: &[&SessionRow],
+    team_id: Option<&str>,
+    me: Option<&str>,
+) -> Vec<AgentRow> {
+    let mut mine: HashMap<&str, &SessionRow> = HashMap::new();
+    for session in sessions {
+        if let Some(agent_id) = session.agent_id.as_deref().filter(|id| !id.is_empty()) {
+            if is_root(session) && me.is_some() && session.user_id.as_deref() == me {
+                mine.insert(agent_id, session);
+            }
+        }
+    }
+    let mut agents: Vec<&AgentDefRow> = agents
         .iter()
         .copied()
-        .filter(|session| {
-            is_root(session)
-                && kind_is(session, SESSION_KIND_AGENT)
-                && team_id.is_none_or(|team| session.team_id.as_deref() == Some(team))
-        })
+        .filter(|agent| team_id.is_none_or(|team| agent.team_id.as_deref() == Some(team)))
         .collect();
     agents.sort_by(|a, b| {
         a.sort_order
@@ -2084,14 +2097,18 @@ pub fn list_agents(sessions: &[&SessionRow], team_id: Option<&str>) -> Vec<Agent
     let defaults = &THREADS_LIST.agent_defaults;
     agents
         .into_iter()
-        .map(|session| AgentRow {
-            session_id: session.id.clone(),
-            team_id: session.team_id.clone().unwrap_or_default(),
-            name: session.name.clone().unwrap_or_default(),
-            icon: session.icon.clone().unwrap_or_else(|| defaults.icon.clone()),
-            color: session.color.clone().unwrap_or_else(|| defaults.color.clone()),
-            busy: session.busy,
-            needs_you: session.needs_input,
+        .map(|agent| {
+            let conversation = mine.get(agent.id.as_str());
+            let live = conversation.is_some_and(|session| !session.is_ended());
+            AgentRow {
+                agent_id: agent.id.clone(),
+                team_id: agent.team_id.clone().unwrap_or_default(),
+                name: agent.name.clone().unwrap_or_default(),
+                icon: agent.icon.clone().unwrap_or_else(|| defaults.icon.clone()),
+                color: agent.color.clone().unwrap_or_else(|| defaults.color.clone()),
+                busy: live && conversation.is_some_and(|session| session.busy),
+                needs_you: live && conversation.is_some_and(|session| session.needs_input),
+            }
         })
         .collect()
 }
@@ -2390,9 +2407,15 @@ mod tests {
         for case in agent_cases {
             let name = case["name"].as_str().unwrap();
             let input = &case["input"];
+            let agents: Vec<AgentDefRow> = rows(&input["agents"]);
+            let agents: Vec<&AgentDefRow> = agents.iter().collect();
             let sessions: Vec<SessionRow> = rows(&input["sessions"]);
             let sessions: Vec<&SessionRow> = sessions.iter().collect();
-            assert_whole(list_agents(&sessions, input["teamId"].as_str()), &case["expected"], name);
+            assert_whole(
+                list_agents(&agents, &sessions, input["teamId"].as_str(), input["me"].as_str()),
+                &case["expected"],
+                name,
+            );
         }
         let mark_cases = fixture["markCases"].as_array().unwrap();
         assert!(!mark_cases.is_empty());

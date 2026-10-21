@@ -2,19 +2,20 @@ import ExpCore
 import ExpUI
 import SwiftUI
 
-// The action page's editor (SLOP-2; EXP-1291: an action is a saved prompt) —
-// icon + name on ONE row, the composer hint and the markdown body itself.
+// The saved prompt's editor (SLOP-2; NEW-2: prompts replace actions; NEW-7
+// moves it to Settings → Prompts) — icon + name on ONE row and the markdown
+// body itself (prompts carry no composer hint).
 //
-// The body is deliberately NOT on the Electric `actions` shape (a ≤64KB
+// The body is deliberately NOT on the Electric `prompts` shape (a ≤64KB
 // markdown blob has no business riding sync), so the page fetches it through
-// tRPC `actions.get` on open — exactly what the web and desktop editors do —
-// and saves ONLY the fields that actually changed via `actions.update`
+// tRPC `prompts.get` on open — exactly what the web and desktop editors do —
+// and saves ONLY the fields that actually changed via `prompts.update`
 // (`icon` clears as an explicit null). Writes are owner-only
 // server-side, so a non-owner gets the same form read-only: fields disabled,
 // no Save.
 struct ActionPromptTab: View {
     /// The synced list row (its `body` is empty by shape design — the prompt
-    /// arrives from `actions.get`).
+    /// arrives from `prompts.get`).
     let action: ActionDto
     /// Team owners write; every other member reads (the server refuses their
     /// update anyway).
@@ -24,8 +25,6 @@ struct ActionPromptTab: View {
     @Environment(\.accountId) private var accountId
 
     @State private var name = ""
-    /// EXP-825: the composer's field hint while this action is picked.
-    @State private var promptPlaceholder = ""
     @State private var icon = ""
     @State private var prompt = ""
     /// The fetched row's own values — the dirty check and the patch are both
@@ -55,18 +54,13 @@ struct ActionPromptTab: View {
     /// Only what actually changed rides the patch: an untouched field must not
     /// be re-sent (the rename pre-check hangs off the fields present in the
     /// input).
-    private var patch: ActionPatch {
+    private var patch: PromptPatch {
         let action = baseline
-        var patch = ActionPatch()
+        var patch = PromptPatch()
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmedName != action.name { patch.name = trimmedName }
         if icon != (action.icon ?? "") {
             patch.icon = .some(icon.isEmpty ? nil : icon)
-        }
-        let trimmedHint = promptPlaceholder.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmedHint != (action.promptPlaceholder ?? "") {
-            // Blank clears (an explicit null, like the icon).
-            patch.promptPlaceholder = .some(trimmedHint.isEmpty ? nil : trimmedHint)
         }
         if let loadedBody, prompt != loadedBody { patch.body = prompt }
         return patch
@@ -103,7 +97,6 @@ struct ActionPromptTab: View {
     private var form: some View {
         Form {
             identitySection
-            hintSection
             promptSection
         }
         // EXP-603: the page's own background shows through the grouped list;
@@ -134,31 +127,8 @@ struct ActionPromptTab: View {
         .listRowBackground(glassFormRowFill)
     }
 
-    /// Inline placeholder title (S7) — no label above the field. EXP-825:
-    /// what the requester should type beside this action, shown as the
-    /// composer field's placeholder while it is picked.
-    private var hintSection: some View {
-        Section {
-            GlassTextField(
-                "Composer hint, e.g. Scope: which platforms, which version",
-                text: $promptPlaceholder,
-                bordered: false,
-                accessibilityIdentifier: "edit-action-prompt-placeholder"
-            )
-            .disabled(!canEdit)
-            // Client parity with the server's cap (UTF-16 units, the JS
-            // length), so a long paste is refused at the field instead of
-            // at submit.
-            .onChange(of: promptPlaceholder) { _, value in
-                let clamped = ActionDto.clampPromptPlaceholder(value)
-                if clamped != value { promptPlaceholder = clamped }
-            }
-        }
-        .listRowBackground(glassFormRowFill)
-    }
-
     /// The markdown prompt itself — monospaced, and tall enough to read like
-    /// the editor it is. It only exists once `actions.get` lands.
+    /// the editor it is. It only exists once `prompts.get` lands.
     @ViewBuilder
     private var promptSection: some View {
         Section {
@@ -201,7 +171,6 @@ struct ActionPromptTab: View {
         // The metadata is already synced — seed from it so the form is never
         // blank while the body is in flight.
         name = action.name
-        promptPlaceholder = action.promptPlaceholder ?? ""
         icon = action.icon ?? ""
         await loadBody(accountId: accountId, retried: false)
         loading = false
@@ -219,9 +188,9 @@ struct ActionPromptTab: View {
     @MainActor
     private func loadBody(accountId: String, retried: Bool) async {
         do {
-            let fetched = try await deps.actionsApi.get(accountId: accountId, id: action.id)
-            prompt = fetched.body
-            loadedBody = fetched.body
+            let fetched = try await deps.promptsApi.get(accountId: accountId, id: action.id)
+            prompt = fetched.body ?? ""
+            loadedBody = fetched.body ?? ""
             loadFailed = false
         } catch {
             loadFailed = true
@@ -241,12 +210,12 @@ struct ActionPromptTab: View {
         nameError = nil
         Task {
             do {
-                let saved = try await deps.actionsApi.update(
+                let saved = try await deps.promptsApi.update(
                     accountId: accountId, id: action.id, patch: payload
                 )
                 // The page stays open: the answer becomes the baseline, so the
                 // form reads clean until the synced row echoes it.
-                savedRow = saved
+                savedRow = ActionDto(prompt: saved)
                 if let body = payload.body { loadedBody = body }
                 saving = false
             } catch {
@@ -254,7 +223,7 @@ struct ActionPromptTab: View {
                     nameError = error.userFacingMessage
                 } else {
                     toaster.error(
-                        FeedbackStates.Errors.title(verb: "save", thing: "the action"),
+                        FeedbackStates.Errors.title(verb: "save", thing: "the prompt"),
                         description: error.userFacingMessage
                     )
                 }

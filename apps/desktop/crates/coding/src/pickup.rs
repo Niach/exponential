@@ -2928,6 +2928,10 @@ fn row_from_record(record: &RunRecord, device_id: &str) -> SessionRow {
         id: record.session_id.clone(),
         team_id: some(&record.team_id),
         kind: Some(record.kind.as_str().to_string()),
+        // NEW-2: persistence keys on `agent_id`; the record keeps the kind
+        // only, so a recorded agent run stands in its own id (nothing on
+        // the device resolves the definition from it).
+        agent_id: record.kind.is_persistent().then(|| record.session_id.clone()),
         device_id: Some(device_id.to_string()),
         cli: Some(record.agent.id().to_string()),
         account: record.account(),
@@ -2976,6 +2980,7 @@ mod tests {
     fn agent(id: &str, status: &str) -> SessionRow {
         SessionRow {
             kind: Some(SESSION_KIND_AGENT.to_string()),
+            agent_id: Some("ag-triage".to_string()),
             name: Some("Triage".to_string()),
             ..session(id, status, DEV, "2026-10-01T00:00:00Z")
         }

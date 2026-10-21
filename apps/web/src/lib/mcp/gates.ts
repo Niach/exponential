@@ -12,7 +12,7 @@
 // and `agent` only pick the instructions' wording: an unattended session (a
 // child, or a root another live session watches: its spawner) closes out with
 // `exponential_sessions_end` LAST, an attended one only when asked, and a
-// team agent (its root is `kind = agent`) never ends.
+// team agent's conversation (its root carries `agent_id`) never ends.
 import { and, eq, sql } from "drizzle-orm"
 import { alias } from "drizzle-orm/pg-core"
 import { db } from "@/db/connection"
@@ -27,7 +27,8 @@ export interface McpToolGates {
   /** That session is a child or a root another session spawned: nobody is
    * watching. Wording only, never a registration gate. */
   unattended: boolean
-  /** That session's root is a team agent (it never ends). Wording only. */
+  /** That session's root is a team agent's conversation (it never ends).
+   * Wording only. */
   agent: boolean
   /** EXP-1280: that session is still planning (`sessions.plan_mode`), so the
    * instructions carry the plan-mode gate. Wording only. */
@@ -87,7 +88,7 @@ export async function resolveMcpToolGates(
       teamId: sessions.teamId,
       deviceId: sessions.deviceId,
       parentId: sessions.parentId,
-      rootKind: root.kind,
+      rootAgentId: root.agentId,
       planMode: sessions.planMode,
       // NEW-1: a live session watches this one (its spawner): nobody is
       // watching in person.
@@ -109,7 +110,7 @@ export async function resolveMcpToolGates(
   return {
     inSession: true,
     unattended: row.parentId !== null || row.watched === true,
-    agent: row.rootKind === `agent`,
+    agent: row.rootAgentId !== null,
     planMode: row.planMode === true,
     cards: hostFeedsOwnCards(host?.version),
   }

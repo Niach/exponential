@@ -2,7 +2,7 @@
 // the web port of the desktop's `navigation::derive_origin` (apps/desktop/
 // crates/ui/src/navigation.rs), same rule, same cases:
 //
-//   * Opened from a LIST screen (board, inbox, threads, an action): that
+//   * Opened from a LIST screen (board, inbox, threads): that
 //     list STAYS — it rides the detail's `?from=` token and the sidebar shows
 //     it as the LIST NAV panel beside the detail.
 //   * Opened CONTEXT-FREE (a pinned row, a sidebar session row, a deep link, a
@@ -13,8 +13,8 @@
 // (`sidebarOccupant`) and where Back goes. The vocabulary is the list set —
 // `board:<slug>`, `inbox`, `inbox:my-issues`, `threads` (EXP-1293: the
 // Threads page, which replaced the Agent page's lists and Reviews),
-// `action:<id>` (an action page's Runs), `drafts` (EXP-1170), `running`.
-// The retired `agent`, `agent:recent`, `reviews` and `sessions` tokens parse
+// `drafts` (EXP-1170), `running`. The retired `agent`, `agent:recent`,
+// `reviews`, `sessions` and `action:<id>` (NEW-2) tokens parse
 // to "no origin". EXP-1246: only `inbox` keeps its list BESIDE the detail
 // (`originHasListNav`); every other origin names Back only.
 // Pure, so every combination is a test.
@@ -27,10 +27,6 @@ export type DetailOrigin =
   | { kind: `board`; boardSlug: string }
   /** EXP-1293: the Threads page (Needs you · Running · Recent). */
   | { kind: `threads` }
-  /** An action page's Runs (EXP-862, SLOP-2) — the one list that shows a
-   *  TRIGGERED run, so a run opened from it returns there rather than to the
-   *  Agent page's person-started list. */
-  | { kind: `action`; actionId: string }
   /** EXP-923: the sidebar's RUNNING section — a live run of mine, opened from
    *  the main menu itself. It is an origin rather than "no origin" because it
    *  carries two extra rules: the navigation creates NO work tab
@@ -42,7 +38,7 @@ export type DetailOrigin =
   | { kind: `drafts` }
 
 /** The screen a navigation starts FROM. `other` is every full-page screen
- * (Devices, the Actions list, Settings…) — the context-free set, desktop
+ * (Devices, Settings…) — the context-free set, desktop
  * `Screen::is_context_free`. */
 export type OriginScreen =
   | { kind: `inbox` }
@@ -51,8 +47,6 @@ export type OriginScreen =
   | { kind: `session` }
   /** EXP-1293: the Threads page — a list context, never context-free. */
   | { kind: `threads` }
-  /** An action's page — a list context too (its Runs), never context-free. */
-  | { kind: `action`; actionId: string }
   | { kind: `other` }
 
 /** What is being opened. */
@@ -75,8 +69,6 @@ export function screenFromPath(pathname: string): OriginScreen {
   const rest = teamRest(pathname)
   if (rest === null) return { kind: `other` }
   if (rest === `/inbox`) return { kind: `inbox` }
-  const action = rest.match(/^\/actions\/([^/]+)$/)
-  if (action) return { kind: `action`, actionId: action[1] }
   if (rest === `/threads`) return { kind: `threads` }
   if (/^\/sessions\/[^/]+$/.test(rest)) return { kind: `session` }
   const issue = rest.match(/^\/boards\/([^/]+)\/issues\/([^/]+)$/)
@@ -116,8 +108,6 @@ export function capturedOrigin(
       return carried
     case `threads`:
       return { kind: `threads` }
-    case `action`:
-      return { kind: `action`, actionId: screen.actionId }
     case `session`:
       return carried
     case `other`:
@@ -156,8 +146,6 @@ export function formatOrigin(origin: DetailOrigin | null): string | undefined {
       return `board:${origin.boardSlug}`
     case `threads`:
       return `threads`
-    case `action`:
-      return `action:${origin.actionId}`
     case `running`:
       return `running`
     case `drafts`:
@@ -167,7 +155,8 @@ export function formatOrigin(origin: DetailOrigin | null): string | undefined {
 
 /** The inverse. Anything unrecognised is "no origin" — a link is a shortcut,
  * not a guarantee (`lib/launch-seed.ts`'s rule); the retired `agent`,
- * `agent:recent`, `reviews` and `sessions` tokens included. */
+ * `agent:recent`, `reviews`, `sessions` and (NEW-2) `action:` tokens
+ * included. */
 export function parseOrigin(
   value: string | null | undefined
 ): DetailOrigin | null {
@@ -180,13 +169,11 @@ export function parseOrigin(
   if (value === `drafts`) return { kind: `drafts` }
   const board = value.match(/^board:([^:]+)$/)
   if (board) return { kind: `board`, boardSlug: board[1] }
-  const action = value.match(/^action:([^:]+)$/)
-  if (action) return { kind: `action`, actionId: action[1] }
   return null
 }
 
 /** The list nav's back-row label — the list this detail came from. A board
- * or action origin needs its NAME, which only the caller can resolve. */
+ * origin needs its NAME, which only the caller can resolve. */
 export function originLabel(
   origin: DetailOrigin,
   name?: string | null
@@ -196,8 +183,6 @@ export function originLabel(
       return `Inbox`
     case `threads`:
       return `Threads`
-    case `action`:
-      return name || `Action`
     case `running`:
       return `Running`
     case `drafts`:
@@ -240,12 +225,6 @@ export function originListNavigation(
       }
     case `threads`:
       return { to: `/t/$teamSlug/threads`, params: { teamSlug }, search: {} }
-    case `action`:
-      return {
-        to: `/t/$teamSlug/actions/$actionId`,
-        params: { teamSlug, actionId: origin.actionId },
-        search: { tab: `runs` },
-      }
     case `drafts`:
       return { to: `/t/$teamSlug/drafts`, params: { teamSlug }, search: {} }
     case `running`:
@@ -317,7 +296,7 @@ export function sidebarOccupant(
 
 /** EXP-1246: the ONLY origin whose list stays beside the detail — the Inbox
  * (both its lists; desktop `second_sidebar_for` parity). Board, threads,
- * action, running and drafts origins keep the main menu and name only where
+ * running and drafts origins keep the main menu and name only where
  * Back goes. */
 export function originHasListNav(origin: DetailOrigin): boolean {
   return origin.kind === `inbox` && origin.tab !== `drafts`

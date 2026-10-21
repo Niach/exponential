@@ -6,10 +6,10 @@
 //! plain-text [`crate::surface::glass_section_header`] over a GAPPED list of
 //! rows (EXP-642).
 //!
-//! The list is LIVE off the synced `actions` shape (body-less rows; the
-//! action page fetches the body via `actions.get` on open). ▶ Run opens the
-//! composer with the action picked; it owns agent/model/effort and the typed
-//! input fields.
+//! NEW-2: the list is LIVE off the synced `prompts` shape (body-less rows;
+//! the page fetches the body via `prompts.get` on open). ▶ Run opens the
+//! composer with the prompt picked; it owns agent/model/effort. NEW-6 moves
+//! prompts into the composer's `/` menu and Settings → Prompts.
 //!
 //! EXP-832: `render` builds elements and NOTHING else — the team's rows are
 //! computed ONCE per data change in the `observe` callbacks
@@ -102,7 +102,7 @@ struct ActionsDerived {
     /// The team the rows belong to (the active team at the last refresh).
     team_id: Option<String>,
     /// The team's actions in list order.
-    actions: Vec<api::actions::Action>,
+    actions: Vec<api::prompts::Prompt>,
     /// The `actions` shape's readiness (an empty list before it is "still
     /// syncing", never "no actions").
     ready: bool,
@@ -114,7 +114,7 @@ impl ActionsDerived {
         let Some(team) = team_id.as_deref() else {
             return Self { ready: true, ..Self::default() };
         };
-        let (actions, ready) = queries::team_actions(cx, team);
+        let (actions, ready) = queries::team_prompts(cx, team);
         Self {
             team_id,
             actions,
@@ -131,7 +131,7 @@ impl ActionsView {
         let mut subscriptions = vec![cx.observe(&nav, |this, _, cx| this.refresh(cx))];
         let watched = sync::Store::try_global(cx).map(|store| {
             let collections = store.collections();
-            (collections.actions.clone(), collections.pins.clone())
+            (collections.prompts.clone(), collections.pins.clone())
         });
         if let Some((actions, pins)) = watched {
             subscriptions.push(cx.observe(&actions, |this, _, cx| this.refresh(cx)));
@@ -198,7 +198,7 @@ impl ActionsView {
     fn render_action_row(
         &self,
         index: usize,
-        action: &api::actions::Action,
+        action: &api::prompts::Prompt,
         is_owner: bool,
         no_agent: Option<&SharedString>,
         cx: &mut gpui::Context<Self>,
@@ -224,22 +224,11 @@ impl ActionsView {
                     .child(SharedString::from(action.name.clone())),
             );
 
-        let mut middle = gpui_component::v_flex()
+        let middle = gpui_component::v_flex()
             .flex_1()
             .min_w_0()
             .gap_0p5()
             .child(title_row);
-        if let Some(description) = action.description.clone() {
-            middle = middle.child(
-                div()
-                    .w_full()
-                    .min_w_0()
-                    .text_xs()
-                    .text_color(muted)
-                    .line_clamp(2)
-                    .child(SharedString::from(description)),
-            );
-        }
         // EXP-367: no agent CLI → Run disabled with the reason, never hidden.
         // EXP-832: the reason is the ONLY tooltip the button wears — an
         // enabled ▶ with a managed tooltip re-rendered the whole window on
@@ -446,7 +435,7 @@ pub(crate) fn open_action_page(window: &mut Window, cx: &mut App, action_id: Str
     navigate(window, cx, Screen::Action { action_id });
 }
 
-/// `actions.delete` over tRPC — the synced collection drops the row; a live
+/// `prompts.delete` over tRPC — the synced collection drops the row; a live
 /// run keeps going and keeps its label.
 pub(crate) fn spawn_action_delete(cx: &mut App, action_id: String) {
     let Some(trpc) = queries::trpc_client(cx) else {
@@ -455,7 +444,7 @@ pub(crate) fn spawn_action_delete(cx: &mut App, action_id: String) {
     cx.spawn(async move |cx| {
         let result = cx
             .background_executor()
-            .spawn(async move { api::actions::delete(&trpc, &action_id) })
+            .spawn(async move { api::prompts::delete(&trpc, &action_id) })
             .await;
         let _ = cx.update(|_| {
             if let Err(err) = result {

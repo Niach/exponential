@@ -44,7 +44,9 @@ const ACTIONS = [
   },
 ]
 
-const ACTION_PAGE = shotSrc(`action-page`, `web`)
+// NEW-2: the web app has no Actions page any more (prompts replaced
+// actions); the desktop capture stands in until this section is rewritten.
+const ACTION_PAGE = shotSrc(`action-page`, `desktop`)
 
 export function ActionsSection() {
   return (

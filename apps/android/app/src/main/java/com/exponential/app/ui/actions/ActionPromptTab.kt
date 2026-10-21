@@ -32,56 +32,37 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.exponential.app.data.api.ActionDto
-import com.exponential.app.data.api.ActionInputDto
-import com.exponential.app.domain.DomainContract
+import com.exponential.app.data.api.PromptDto
+import com.exponential.app.data.api.PromptFields
 import com.exponential.app.domain.FeedbackStates
 import com.exponential.app.domain.Prompts
-import com.exponential.app.ui.components.CircleIconButton
 import com.exponential.app.ui.components.FailedActionToast
 import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.GlassSubmitButton
 import com.exponential.app.ui.components.GlassTextField
-import com.exponential.app.ui.components.GroupDivider
 import com.exponential.app.ui.components.IconPicker
 import com.exponential.app.ui.components.OptionGroup
-import com.exponential.app.ui.components.PickerRow
-import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.components.PromptAlert
-import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.components.SkeletonRows
-import com.exponential.app.ui.components.SwitchRow
-import com.exponential.app.ui.components.TextFieldRow
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.TextEmphasis
 
 // The action editor (EXP-694; EXP-1291/EXP-1296: an action is a SAVED
-// PROMPT, so its page IS this editor): icon + name, the composer hint, the
-// typed pick inputs (repo | board | pr | issue) and the markdown PROMPT, on
-// the grouped card stack every form uses. [ActionPromptForm] is the one form
-// — the page edits a fetched row with it, `New action` creates with it.
+// PROMPT, so its page IS this editor). NEW-2: prompts replace actions — icon
+// + name and the markdown PROMPT only (no composer hint, no inputs), on the
+// grouped card stack every form uses. [ActionPromptForm] is the one form —
+// the page edits a fetched row with it, `New action` creates with it.
 //
-// The synced `actions` shape excludes the ≤64KB body, so the page fetches
-// the row when it opens (`actions.get`) and writes it back with
-// `actions.update`. Writes are owner-gated server-side; a member gets the
+// The synced `prompts` shape excludes the ≤64KB body, so the page fetches
+// the row when it opens (`prompts.get`) and writes it back with
+// `prompts.update`. Writes are owner-gated server-side; a member gets the
 // same fields read-only, no Save, no Delete.
 
-// Mirrors the router's zod limits (apps/web/src/lib/trpc/actions.ts) so a
+// Mirrors the router's zod limits (apps/web/src/lib/trpc/prompts.ts) so a
 // too-long value is impossible rather than a round-trip refusal.
 private const val MAX_ACTION_NAME = 255
 private const val MAX_ACTION_BODY = 64 * 1024
-private const val MAX_ACTION_INPUTS = 10
-private const val MAX_ACTION_INPUT_LABEL = 100
-
-/** How each contract `actionInputType` reads in the editor. */
-internal fun actionInputTypeLabel(type: String): String = when (type) {
-    "repo" -> "Repository"
-    "board" -> "Board"
-    "pr" -> "Pull request"
-    "issue" -> "Issue"
-    else -> type
-}
 
 /** The editor's field state (one per page / create sheet). */
 @Stable
@@ -89,60 +70,34 @@ class ActionFormState {
     var name by mutableStateOf("")
     var icon by mutableStateOf("")
     var body by mutableStateOf("")
-    var promptPlaceholder by mutableStateOf("")
-    var inputs by mutableStateOf<List<ActionInputDto>>(emptyList())
 
-    fun seed(row: ActionDto) {
+    fun seed(row: PromptDto) {
         name = row.name
         icon = row.icon.orEmpty()
         body = row.body
-        promptPlaceholder = row.promptPlaceholder.orEmpty()
-        inputs = row.inputs.orEmpty()
     }
 
-    fun fields(): ActionFields = ActionFields(
+    fun fields(): PromptFields = PromptFields(
         name = name.trim(),
         icon = icon.takeIf { it.isNotEmpty() },
         body = body,
-        inputs = inputs.map { it.copy(label = it.label.trim()) },
-        promptPlaceholder = promptPlaceholder.trim().takeIf { it.isNotEmpty() },
     )
 
-    fun differsFrom(row: ActionDto): Boolean =
+    fun differsFrom(row: PromptDto): Boolean =
         name.trim() != row.name ||
             icon != row.icon.orEmpty() ||
-            body != row.body ||
-            promptPlaceholder.trim() != row.promptPlaceholder.orEmpty() ||
-            inputs.map { it.copy(label = it.label.trim()) } != row.inputs.orEmpty()
+            body != row.body
 
     val valid: Boolean
-        get() = name.isNotBlank() && body.isNotBlank() && inputs.all { it.label.isNotBlank() }
-
-    fun addInput(type: String = "issue") {
-        if (inputs.size >= MAX_ACTION_INPUTS) return
-        val label = actionInputTypeLabel(type)
-        inputs = inputs + ActionInputDto(
-            key = actionInputKey(label, inputs.map { it.key }.toSet()),
-            label = label,
-            type = type,
-        )
-    }
-
-    fun updateInput(index: Int, transform: (ActionInputDto) -> ActionInputDto) {
-        inputs = inputs.mapIndexed { i, def -> if (i == index) transform(def) else def }
-    }
-
-    fun removeInput(index: Int) {
-        inputs = inputs.filterIndexed { i, _ -> i != index }
-    }
+        get() = name.isNotBlank() && body.isNotBlank()
 }
 
 @Composable
 fun rememberActionFormState(): ActionFormState = remember { ActionFormState() }
 
 /**
- * THE action form: identity row, composer hint, inputs, prompt. [bodyLoading]
- * parks the prompt (the `actions.get` fetch); [bodySlot] replaces it (the
+ * THE action form: identity row, prompt. [bodyLoading]
+ * parks the prompt (the `prompts.get` fetch); [bodySlot] replaces it (the
  * fetch's empty state + Retry).
  */
 @Composable
@@ -185,84 +140,6 @@ internal fun ActionPromptForm(
                     enabled = editable,
                 )
             }
-        }
-        Spacer(Modifier.height(8.dp))
-
-        // EXP-825: what the requester should type beside this action — the
-        // composer field's placeholder while it is picked. Blank clears.
-        OptionGroup {
-            GlassTextField(
-                value = form.promptPlaceholder,
-                onValueChange = { form.promptPlaceholder = it.take(ActionDto.PROMPT_PLACEHOLDER_MAX_LENGTH) },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("action-edit-prompt-placeholder"),
-                placeholder = "Composer hint, e.g. Scope: which platforms, which version",
-                singleLine = true,
-                enabled = editable,
-                bordered = false,
-            )
-        }
-        Spacer(Modifier.height(16.dp))
-
-        // The typed pick inputs the composer asks for when the action runs.
-        SectionHeader(
-            "Inputs",
-            modifier = Modifier.padding(horizontal = 16.dp),
-        ) {
-            if (editable && form.inputs.size < MAX_ACTION_INPUTS) {
-                GlassPill(
-                    "Add input",
-                    icon = ExpIcons.uiAdd,
-                    size = PillSize.Sm,
-                    onClick = { form.addInput() },
-                    modifier = Modifier.testTag("action-edit-add-input"),
-                )
-            }
-        }
-        form.inputs.forEachIndexed { index, def ->
-            OptionGroup {
-                TextFieldRow(
-                    label = "Label",
-                    value = def.label,
-                    onValueChange = { value ->
-                        form.updateInput(index) { it.copy(label = value.take(MAX_ACTION_INPUT_LABEL)) }
-                    },
-                    enabled = editable,
-                    trailing = if (editable) {
-                        {
-                            CircleIconButton(
-                                ExpIcons.uiDelete,
-                                contentDescription = "Remove input",
-                                onClick = { form.removeInput(index) },
-                                tint = DesignTokens.Semantic.Red.copy(alpha = 0.5f),
-                                glyphSize = 16.dp,
-                                borderless = true,
-                            )
-                        }
-                    } else {
-                        null
-                    },
-                )
-                GroupDivider()
-                PickerRow(
-                    label = "Type",
-                    value = actionInputTypeLabel(def.type),
-                    options = DomainContract.actionInputTypeValues,
-                    selected = def.type,
-                    optionLabel = ::actionInputTypeLabel,
-                    onSelect = { type -> form.updateInput(index) { it.copy(type = type) } },
-                    enabled = editable,
-                )
-                GroupDivider()
-                SwitchRow(
-                    title = "Required",
-                    checked = def.required,
-                    onCheckedChange = { required -> form.updateInput(index) { it.copy(required = required) } },
-                    enabled = editable,
-                )
-            }
-            Spacer(Modifier.height(8.dp))
         }
         Spacer(Modifier.height(8.dp))
 

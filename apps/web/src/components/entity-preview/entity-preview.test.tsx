@@ -111,7 +111,7 @@ function context(over: Partial<EntityRefRouteContext> = {}): EntityRefRouteConte
     teamSlugById: (id) => (id === `t-2` ? `other` : null),
     sessionRootId: (id) =>
       id === `root-1` || id === `s-1` ? `root-1` : id === `agent-1` ? `agent-1` : null,
-    sessionIsAgent: (id) => id === `agent-1`,
+    sessionAgentId: (id) => (id === `agent-1` ? `agent-def-1` : null),
     ...over,
   }
 }
@@ -177,10 +177,18 @@ describe(`entityRefRoute`, () => {
     })
   })
 
-  it(`sends a team agent root to its channel`, () => {
+  it(`sends an agent's conversation root and an agent to the agent's page`, () => {
     expect(route({ kind: `session`, id: `agent-1` })).toEqual({
       to: `/t/$teamSlug/agents/$agentId`,
-      params: { teamSlug: `acme`, agentId: `agent-1` },
+      params: { teamSlug: `acme`, agentId: `agent-def-1` },
+    })
+    expect(route({ kind: `agent`, id: `agent-def-1` })).toEqual({
+      to: `/t/$teamSlug/agents/$agentId`,
+      params: { teamSlug: `acme`, agentId: `agent-def-1` },
+    })
+    expect(route({ kind: `event`, id: `e-1` })).toEqual({
+      to: `/t/$teamSlug/settings/agents`,
+      params: { teamSlug: `acme` },
     })
   })
 

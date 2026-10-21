@@ -1,9 +1,9 @@
 //! The "New trigger" / "Edit trigger" dialog (EXP-583; SLOP-2; EXP-1294: a
 //! trigger lives on its AGENT, so there is nothing to pick but the WHEN) —
-//! opened from the agent settings page's Schedule rows. Saving is ONE
-//! `sessions.updateAgent({sessionId, triggers})`, a whole-array replace
-//! ([`crate::trigger_editor`]'s write shapes); no session is started — the
-//! agent's device watches its own synced rows and fires by itself.
+//! opened from the agent settings page's Triggers rows. Saving is ONE
+//! `agents.update({id, triggers})`, a whole-array replace
+//! ([`crate::trigger_editor`]'s write shapes); no session is started —
+//! NEW-2: the SERVER fires the agent's triggers.
 //!
 //! The whole form is [`TriggerEditorState`]; this file is its window, its
 //! footer and the write. EXP-1319: the New agent page has no agent row yet,
@@ -36,7 +36,7 @@ pub(crate) struct DraftTriggers {
     pub(crate) write: Rc<dyn Fn(Vec<Value>, &mut App)>,
 }
 
-/// Where a save lands: the agent row (`sessions.updateAgent`) or a draft.
+/// Where a save lands: the agent definition (`agents.update`) or a draft.
 #[derive(Clone)]
 enum Target {
     Agent(String),
@@ -87,14 +87,12 @@ fn open_existing(window: &mut Window, cx: &mut App, target: Target, trigger_id: 
 
 fn open_inner(window: &mut Window, cx: &mut App, target: Target, existing: Option<Value>) {
     let team_id = match &target {
-        Target::Agent(agent_id) => crate::session_data::session(agent_id, cx)
-            .filter(|row| row.has_triggers())
-            .and_then(|row| row.team_id),
+        Target::Agent(agent_id) => crate::session_data::agent_def(agent_id, cx).and_then(|row| row.team_id),
         Target::Draft(draft) => Some(draft.team_id.clone()),
     };
-    let Some(team_id) = team_id else {
+    if team_id.is_none() {
         return;
-    };
+    }
     let editing = existing.is_some();
     // The window opens at the cap and then FITS its form (P66): no slack
     // under a short schedule form, the form's own scroll past the cap.
@@ -105,9 +103,9 @@ fn open_inner(window: &mut Window, cx: &mut App, target: Target, existing: Optio
         size(px(520.), height),
     )
     .resizable(size(px(420.), px(320.)));
-    native_dialog::open_dialog_window(window, cx, spec, move |_, cx| {
-        let view = cx.new(|_| {
-            let mut view = TriggerDialogView::new(team_id.clone(), target.clone(), existing.clone());
+    native_dialog::open_dialog_window(window, cx, spec, move |window, cx| {
+        let view = cx.new(|cx| {
+            let mut view = TriggerDialogView::new(target.clone(), existing.clone(), window, cx);
             view.max_height = max_height;
             view
         });
@@ -148,10 +146,10 @@ struct TriggerDialogView {
 }
 
 impl TriggerDialogView {
-    fn new(team_id: String, target: Target, existing: Option<Value>) -> Self {
-        let mut editor = TriggerEditorState::new(team_id);
+    fn new(target: Target, existing: Option<Value>, window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
+        let mut editor = TriggerEditorState::new(window, cx);
         if let Some(trigger) = &existing {
-            editor.seed_trigger(trigger);
+            editor.seed_trigger(trigger, window, cx);
         }
         Self {
             target,
@@ -201,7 +199,7 @@ impl TriggerDialogView {
         // must ride along, not be overwritten by a stale snapshot (nor a
         // write of our own whose echo is still on the way).
         let current = self.target.current(cx);
-        let when = self.editor.to_trigger();
+        let when = self.editor.to_trigger(cx);
         let triggers = match (&write, self.existing_id()) {
             (Write::Delete(id), _) => trigger_editor::triggers_without(&current, id),
             (Write::Save, Some(id)) => {
@@ -239,15 +237,14 @@ impl TriggerDialogView {
         self.submitting = true;
         cx.notify();
 
-        let input = api::sessions::UpdateAgentInput {
-            session_id: agent_id.clone(),
+        let input = api::agents::UpdateInput {
             triggers: Some(triggers.clone()),
-            ..Default::default()
+            ..api::agents::UpdateInput::new(agent_id.clone())
         };
         cx.spawn_in(window, async move |this, window| {
             let result = window
                 .background_executor()
-                .spawn(async move { api::sessions::update_agent(&trpc, &input) })
+                .spawn(async move { api::agents::update(&trpc, &input) })
                 .await;
             let _ = this.update_in(window, |view, window, cx| match result {
                 // The synced echo repaints the Schedule rows; until it lands
@@ -313,7 +310,7 @@ impl Render for TriggerDialogView {
         let (content_slot, body_slot) = (self.content_h.clone(), self.body_h.clone());
         let form = self
             .editor
-            .render("trigger-dialog", |this: &mut Self| &mut this.editor, cx);
+            .render("trigger-dialog", |this: &mut Self| &mut this.editor, window, cx);
         let editing = self.existing.is_some();
 
         let footer = h_flex()

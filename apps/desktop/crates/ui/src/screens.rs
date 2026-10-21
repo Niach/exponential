@@ -3014,7 +3014,7 @@ impl ScreensPanel {
                 DevDialogTarget::Search
             }
             DevDialog::ActionEditor(action_id) => {
-                store.collections().actions.read(cx).get(action_id)?;
+                store.collections().prompts.read(cx).get(action_id)?;
                 DevDialogTarget::ActionEditor {
                     action_id: action_id.clone(),
                 }

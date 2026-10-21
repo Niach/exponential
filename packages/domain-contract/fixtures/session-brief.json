@@ -1,13 +1,11 @@
 {
-  "$comment": "EXP-1291/NEW-1: the FIRST prompt of every new session is composed on the SERVER (`sessions.brief`, read by the device at pickup), so all four clients and every start path (composer, Start on an issue, an action, a trigger firing, an agent spawn, a follow-up child) produce byte-identical input. composeBrief(input) (TS reference packages/domain-contract/src/session-brief.ts; the server calls it, no client mirror needed beyond reading this spec) replays `cases`: sections in this order, each '## <heading>' + a blank line + its body, joined by a blank line, empty sections omitted: Request (the person's text, trimmed; image embed lines kept) · Plan (EXP-1280: a session started in plan mode, `planMode`; body = `plan`; right behind the Request so the byte cap can never trim it) · Action '<name>' (the action body trimmed, then for each filled input in declaration order '- <label>: <display>' after an 'Inputs:' line and a blank line) · Issues (one '- <identifier> <title>' per issue in link order) · Parent (a child only: templates `parent` with {title} = the parent's title, {depth}/{maxDepth} = its depth and contract sessionsSend.treeMaxDepth, {branch} = the parent's branch; without a branch the `parentNoBranch` template). Nothing at all = `empty`. The result is cut at sessionsSend.briefMaxBytes UTF-8 bytes at the last newline that fits, ending in a '…' line.",
+  "$comment": "EXP-1291/NEW-1: the FIRST prompt of every new session is composed on the SERVER (`sessions.brief`, read by the device at pickup), so all four clients and every start path (composer, Start on an issue, an action, a trigger firing, an agent spawn, a follow-up child) produce byte-identical input. composeBrief(input) (TS reference packages/domain-contract/src/session-brief.ts; the server calls it, no client mirror needed beyond reading this spec) replays `cases`: sections in this order, each '## <heading>' + a blank line + its body, joined by a blank line, empty sections omitted: Request (the person's text, trimmed; image embed lines kept; NEW-2: a prompt run's body plus what was typed is already the text) · Plan (EXP-1280: a session started in plan mode, `planMode`; body = `plan`; right behind the Request so the byte cap can never trim it) · Issues (one '- <identifier> <title>' per issue in link order) · Parent (a child only: templates `parent` with {title} = the parent's title, {depth}/{maxDepth} = its depth and contract sessionsSend.treeMaxDepth, {branch} = the parent's branch; without a branch the `parentNoBranch` template). Nothing at all = `empty`. The result is cut at sessionsSend.briefMaxBytes UTF-8 bytes at the last newline that fits, ending in a '…' line.",
   "headings": {
     "request": "Request",
-    "action": "Action: {name}",
     "issues": "Issues",
     "parent": "Parent",
     "plan": "Plan"
   },
-  "inputsLine": "Inputs:",
   "parent": "You are a sub-session (depth {depth} of {maxDepth}) of \"{title}\". Base your work on its branch: `git fetch origin {branch} && git reset --hard origin/{branch}` before any edit, then open your PR with `pr_open({base: \"{branch}\"})`.",
   "parentNoBranch": "You are a sub-session (depth {depth} of {maxDepth}) of \"{title}\".",
   "empty": "Wait for the next message.",
@@ -35,38 +33,6 @@
         ]
       },
       "expected": "## Request\n\nKeep the API stable.\n\n## Issues\n\n- EXP-12 Login fails on Safari\n- EXP-13 Session cookie expires early"
-    },
-    {
-      "name": "an action with its picked inputs",
-      "input": {
-        "action": {
-          "name": "Review PR",
-          "body": "Review the pull request for correctness.\n",
-          "inputs": [
-            {
-              "label": "Pull request",
-              "display": "#45 Fix Safari login"
-            },
-            {
-              "label": "Board",
-              "display": "Web"
-            }
-          ]
-        }
-      },
-      "expected": "## Action: Review PR\n\nReview the pull request for correctness.\n\nInputs:\n\n- Pull request: #45 Fix Safari login\n- Board: Web"
-    },
-    {
-      "name": "an action without inputs plus a request",
-      "input": {
-        "text": "Focus on the web board.",
-        "action": {
-          "name": "Tidy up",
-          "body": "Close stale issues.",
-          "inputs": []
-        }
-      },
-      "expected": "## Request\n\nFocus on the web board.\n\n## Action: Tidy up\n\nClose stale issues."
     },
     {
       "name": "a follow-up child on its parent's branch",

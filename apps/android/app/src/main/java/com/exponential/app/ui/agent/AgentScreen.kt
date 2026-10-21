@@ -71,7 +71,6 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.exponential.app.domain.ActionInputValues
 import com.exponential.app.domain.AgentComposerPrompt
 import com.exponential.app.domain.AgentComposerSeed
 import com.exponential.app.domain.AgentHome
@@ -192,12 +191,10 @@ fun AgentScreen(
     val imageError by viewModel.imageError.collectAsStateWithLifecycle()
     val resume by viewModel.resume.collectAsStateWithLifecycle()
     val sending by viewModel.sending.collectAsStateWithLifecycle()
-    val pendingPrIssueId by viewModel.pendingPrIssueId.collectAsStateWithLifecycle()
     val issueRefCandidates by viewModel.issueRefCandidates.collectAsStateWithLifecycle()
     val mentionMembers by viewModel.mentionMembers.collectAsStateWithLifecycle()
     val pool by viewModel.startCandidates.collectAsStateWithLifecycle()
     // EXP-1291: an action's `issue` inputs pick from the team's issues.
-    val inputIssues by viewModel.inputIssues.collectAsStateWithLifecycle()
     // EXP-1249: the "+" menu's MCP servers pick and per-run computer use.
     val mcpServers by viewModel.mcpServers.collectAsStateWithLifecycle()
     val mcpServerIds by viewModel.mcpServerIds.collectAsStateWithLifecycle()
@@ -211,8 +208,6 @@ fun AgentScreen(
     // ── Lookup data ─────────────────────────────────────────────────────────
     val actionsState by dataViewModel.actionsState.collectAsStateWithLifecycle()
     val teamRepos by dataViewModel.repos.collectAsStateWithLifecycle()
-    val boardOptions by dataViewModel.boardOptions.collectAsStateWithLifecycle()
-    val pullRequestOptions by dataViewModel.pullRequestOptions.collectAsStateWithLifecycle()
     val deviceWorktrees by dataViewModel.deviceWorktrees.collectAsStateWithLifecycle()
     val syncedDeviceRows by dataViewModel.deviceRows.collectAsStateWithLifecycle()
 
@@ -225,12 +220,12 @@ fun AgentScreen(
         onLandInThread(sessionId)
     }
     // ── Subject resolution ──────────────────────────────────────────────────
-    val actionSubject = subject as? ComposerSubject.Action
+    val actionSubject = subject as? ComposerSubject.Prompt
     val issueSubject = subject as? ComposerSubject.Issues
+    // NEW-2: the picked saved prompt's synced row (its chip).
     val selectedAction = actionSubject?.let { picked ->
         actionsState.actions?.firstOrNull { it.id == picked.id }
     }
-    val selectedActionInputs = selectedAction?.inputs.orEmpty()
     // The checked issues' rows. A seeded id outside the codeable pool (a done
     // issue the detail's play button still offers) falls back to the team's
     // issue index so its chip still renders — the server decides the rest.
@@ -254,16 +249,6 @@ fun AgentScreen(
     }
     val checkedCount = issueSubject?.ids?.size ?: 0
 
-    // EXP-323: the `pr` seed resolves once the options pool has the row —
-    // normalised through `optionForIssue` because the caller's issue is
-    // rarely the option's representative.
-    LaunchedEffect(pendingPrIssueId, pullRequestOptions, selectedActionInputs) {
-        val issueId = pendingPrIssueId ?: return@LaunchedEffect
-        val key = selectedActionInputs.firstOrNull { it.type == "pr" }?.key ?: return@LaunchedEffect
-        val option = pullRequestOptions.optionForIssue(issueId) ?: return@LaunchedEffect
-        viewModel.setInput(key, option.pullRequestId)
-        viewModel.consumePendingPr()
-    }
     // A team with exactly one repository pre-picks it for a chat.
     LaunchedEffect(teamRepos) { viewModel.defaultChatRepo(teamRepos.map { it.id }) }
 
@@ -287,9 +272,7 @@ fun AgentScreen(
         // repo is optional).
         null -> hasText || images.isNotEmpty()
         is ComposerSubject.Issues -> checkedCount in 1..MAX_BATCH_ISSUES && !multiRepo
-        is ComposerSubject.Action -> selectedAction != null &&
-            !ActionInputValues.hasUnsupportedType(selectedActionInputs) &&
-            viewModel.requiredInputsFilled(selectedActionInputs)
+        is ComposerSubject.Prompt -> selectedAction != null
     }
     val busy = sending || starting != null || runState is ActionRunState.Sending
     val canSubmit = device != null && !agentNotReady && !busy && subjectOk &&
@@ -325,8 +308,6 @@ fun AgentScreen(
         agentNotReady -> "Not ready on ${device?.deviceLabel?.ifBlank { device?.deviceId }}. Run the doctor there."
         multiRepo -> "Pick issues from a single repository per session."
         overCap -> "At most $MAX_BATCH_ISSUES issues per session. Split the batch."
-        selectedAction != null && ActionInputValues.hasUnsupportedType(selectedActionInputs) ->
-            "This action needs a newer app version."
         !AgentComposerPrompt.withinLimit(
             draft,
             images.count { it.isImage },
@@ -440,7 +421,7 @@ fun AgentScreen(
     // `blocked`), so a draft emptied or made multi-repo after the failure
     // never reaches the server to be refused a second time.
     val retryStart by rememberUpdatedState {
-        if (canSubmit) viewModel.submit(selectedAction, resumeCandidate != null)
+        if (canSubmit) viewModel.submit(resumeCandidate != null)
     }
     LaunchedEffect(runState) {
         val failed = runState as? ActionRunState.Failed ?: return@LaunchedEffect
@@ -560,7 +541,7 @@ fun AgentScreen(
                                 issueChips = checkedOptions,
                                 onRemoveIssue = viewModel::toggleIssue,
                                 actionChip = selectedAction,
-                                onClearAction = viewModel::clearAction,
+                                onClearAction = viewModel::clearPrompt,
                             )
                         }
                     }
@@ -610,18 +591,9 @@ fun AgentScreen(
                                 }
                             },
                             // The field's prompt per subject — a chat asks for
-                            // the message, a picked action shows its own
-                            // composer hint (EXP-825), anything else what is
-                            // optional next to it.
-                            placeholder = composerPlaceholder(subject, selectedAction, home = true),
-                            // EXP-1038: the CHIP is in the headline above; the
-                            // card takes the action only for its pick rows.
-                            actionChip = selectedAction,
-                            inputValues = actionSubject?.inputs.orEmpty(),
-                            repos = teamRepos,
-                            boards = boardOptions,
-                            pullRequests = pullRequestOptions,
-                            onInputChange = viewModel::setInput,
+                            // the message, anything else what is optional
+                            // next to it.
+                            placeholder = composerPlaceholder(subject, home = true),
                             pendingImages = images,
                             imageError = imageError,
                             sending = sending || starting != null,
@@ -630,8 +602,7 @@ fun AgentScreen(
                             onRemoveImage = viewModel::removeImage,
                             submitLabel = submitLabel,
                             canSubmit = canSubmit,
-                            onSubmit = { viewModel.submit(selectedAction, resumeCandidate != null) },
-                            issues = inputIssues,
+                            onSubmit = { viewModel.submit(resumeCandidate != null) },
                         )
                     }
                     if (menuOpen) {
@@ -746,7 +717,7 @@ fun AgentScreen(
                 when (row) {
                     // SLOP-28: these two push their search-list page inside
                     // the menu ([ComposerPlusMenuSheet]) and never land here.
-                    ComposerMenuRowId.ImplementIssue, ComposerMenuRowId.RunAction -> Unit
+                    ComposerMenuRowId.ImplementIssue -> Unit
                     ComposerMenuRowId.AddFile -> filePicker.launch(arrayOf("*/*"))
                     ComposerMenuRowId.Effort -> effortPickerOpen = true
                     ComposerMenuRowId.Subagents -> subagentPickerOpen = true
@@ -763,17 +734,6 @@ fun AgentScreen(
                     checkedIds = issueSubject?.ids?.toSet().orEmpty(),
                     onToggle = viewModel::toggleIssue,
                     onDone = close,
-                )
-            },
-            actionPage = { close ->
-                AgentActionPickerPage(
-                    actions = actionsState.actions,
-                    error = actionsState.error,
-                    selectedId = actionSubject?.id,
-                    onPick = { id ->
-                        viewModel.pickAction(id)
-                        close()
-                    },
                 )
             },
         )

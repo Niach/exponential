@@ -333,14 +333,11 @@ final class AgentSessionModel {
     /// current draft — empty whenever the menu must not open (the pure rule
     /// lives in ExpCore's SlashCommands, mirrored ×4).
     var slashMatches: [SlashCommand] {
-        // EXP-746: the contract catalog UNION whatever the agent itself
-        // advertised on `config_state` (contract first, dedupe by name). An
-        // agent-less run that published one is EXTERNAL, so it contributes no
-        // contract rows at all (`agentId(_:acp:)`).
+        // NEW-2: the contract catalog alone; what the agent itself
+        // advertises on `config_state` stays hidden.
         SlashCommands.matches(
             draft: draftText,
-            agent: catalogAgent,
-            extra: sessionConfig?.commands ?? []
+            agent: catalogAgent
         )
     }
 
@@ -515,7 +512,7 @@ final class AgentSessionModel {
     /// asides, no row yet). Rules + copy: `SessionDeviceMove`.
     var devicePin: SessionDevicePin? {
         guard let session,
-              SessionDeviceMove.pinVisible(kind: session.kind, aside: session.aside)
+              SessionDeviceMove.pinVisible(kind: sessionKindOf(agentId: session.agentId), aside: session.aside)
         else { return nil }
         let devices = moveCandidateDevices
         let agent = SessionAccountSwitch.agent(

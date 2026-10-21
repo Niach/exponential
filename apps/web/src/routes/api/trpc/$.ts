@@ -23,7 +23,8 @@ import { pushTokensRouter } from "@/lib/trpc/push-tokens"
 import { commentsRouter } from "@/lib/trpc/comments"
 import { attachmentsRouter } from "@/lib/trpc/attachments"
 import { repositoriesRouter } from "@/lib/trpc/repositories"
-import { actionsRouter } from "@/lib/trpc/actions"
+import { promptsRouter } from "@/lib/trpc/prompts"
+import { agentsRouter } from "@/lib/trpc/agents"
 import { steerRouter } from "@/lib/trpc/steer"
 import { devicesRouter } from "@/lib/trpc/devices"
 import { billingRouter } from "@/lib/trpc/billing"
@@ -52,7 +53,8 @@ export const appRouter = router({
   comments: commentsRouter,
   attachments: attachmentsRouter,
   repositories: repositoriesRouter,
-  actions: actionsRouter,
+  prompts: promptsRouter,
+  agents: agentsRouter,
   steer: steerRouter,
   devices: devicesRouter,
   teamInvites: teamInvitesRouter,

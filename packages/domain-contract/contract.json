@@ -409,7 +409,7 @@
     "values": ["question", "plan", "subagent", "session", "picture", "event", "thread_started", "report", "suggestions", "replies", "ask"]
   },
   "messageEventKind": {
-    "values": ["issue_linked", "issue_filed", "issue_unlinked", "pr_opened", "pr_merged", "pr_closed", "session_ended", "session_claimed", "session_blocked", "session_unclaimed", "session_stuck", "device_offline"]
+    "values": ["issue_linked", "issue_filed", "issue_unlinked", "pr_opened", "pr_merged", "pr_closed", "session_ended", "session_claimed", "session_blocked", "session_unclaimed", "session_stuck", "device_offline", "trigger_fired"]
   },
   "codingAgent": {
     "values": ["claude", "codex"]
@@ -463,21 +463,20 @@
     ]
   },
   "agentTrigger": {
-    "eventValues": [
-      "created",
-      "status_changed",
-      "assignee_changed",
-      "label_added",
-      "priority_changed",
-      "pr_opened",
-      "pr_merged"
-    ],
-    "scheduleIntervalValues": ["daily", "weekly", "monthly"],
-    "eventSourceValues": ["exponential"],
-    "maxFilterIds": 20,
+    "$comment": "NEW-2: triggers live on the `agents` definition and the SERVER fires them every watchdog tick. schedule = a 5-field cron with minutes (`m h dom mon dow`) read in an IANA `tz` (default UTC); a tick missed while the server was down is caught up on the next one within catchUpHours, once; a schedule never stacks while its last firing is unread. event = the name of an `events` row.",
+    "kindValues": ["schedule", "event"],
     "maxPerAgent": 10,
-    "cooldownSeconds": 60,
-    "eventCatchupHours": 24
+    "cronMax": 64,
+    "tzMax": 64,
+    "catchUpHours": 24
+  },
+  "events": {
+    "$comment": "NEW-2: the team's event stream (`events` shape). builtinNames = what the server emits itself; any other name is a custom event (MCP events_emit). Rows older than retentionDays are pruned.",
+    "builtinNames": ["issue.created", "issue.status_changed", "pr.opened", "pr.merged", "session.ended"],
+    "emitterValues": ["session", "user", "server"],
+    "nameMax": 128,
+    "payloadMaxBytes": 16384,
+    "retentionDays": 30
   },
   "actionInputs": {
     "max": 10,
@@ -488,6 +487,7 @@
     "maxImages": 4
   },
   "steerCommands": {
+    "$comment": "NEW-2 (owner 2026-10-21): the composer's `/` menu = the team's PROMPTS (the `prompts` shape, a pick inserts the prompt as the run's first message) plus ONLY these builtins; commands the agent CLI injects from outside Exponential (Claude Code skills, plugins) are hidden on every platform. /model <alias> is sent as text (the CLI switches, config_state reports it), /effort <level> = sessions.configure.",
     "commands": [
       {
         "name": "compact",
@@ -497,17 +497,17 @@
         "confirm": false
       },
       {
-        "name": "clear",
-        "description": "Start a fresh conversation (context is discarded)",
-        "argHint": "",
+        "name": "model",
+        "description": "Switch the model for this session",
+        "argHint": "model",
         "agents": ["claude", "codex"],
-        "confirm": true
+        "confirm": false
       },
       {
-        "name": "btw",
-        "description": "Ask a quick side question, answered read-only without adding to the session",
-        "argHint": "question",
-        "agents": ["claude"],
+        "name": "effort",
+        "description": "Set the reasoning effort for this session",
+        "argHint": "level",
+        "agents": ["claude", "codex"],
         "confirm": false
       }
     ]
@@ -524,52 +524,22 @@
       "action",
       "list",
       "results",
-      "picture"
+      "picture",
+      "prompt",
+      "agent",
+      "event"
     ],
     "tools": [
       {
-        "name": "actions_delete",
-        "title": "Delete action",
-        "blurb": "Removes an action from the team for good.",
-        "progressive": "Deleting action",
-        "done": "Deleted action",
-        "progressiveMany": "Deleting {n} actions",
-        "doneMany": "Deleted {n} actions",
-        "subjectKey": "id",
-        "result": "none"
-      },
-      {
-        "name": "actions_get",
-        "title": "Read action",
-        "blurb": "Reads one action with its prompt body and its inputs.",
-        "progressive": "Reading action",
-        "done": "Read action",
-        "progressiveMany": "Reading {n} actions",
-        "doneMany": "Read {n} actions",
-        "subjectKey": "id",
-        "result": "action"
-      },
-      {
-        "name": "actions_list",
-        "title": "List actions",
-        "blurb": "Lists the team's actions, its saved prompts.",
-        "progressive": "Listing actions",
-        "done": "Listed actions",
-        "progressiveMany": "Listing actions {n} times",
-        "doneMany": "Listed actions {n} times",
+        "name": "agents_list",
+        "title": "List agents",
+        "blurb": "Lists the team's agents with their triggers, device and owner.",
+        "progressive": "Listing agents",
+        "done": "Listed agents",
+        "progressiveMany": "Listing agents {n} times",
+        "doneMany": "Listed agents {n} times",
         "subjectKey": "",
         "result": "list"
-      },
-      {
-        "name": "actions_upsert",
-        "title": "Save action",
-        "blurb": "Creates an action or edits one: its name, prompt body, icon and inputs.",
-        "progressive": "Saving action",
-        "done": "Saved action",
-        "progressiveMany": "Saving {n} actions",
-        "doneMany": "Saved {n} actions",
-        "subjectKey": "name",
-        "result": "action"
       },
       {
         "name": "attachments_delete",
@@ -746,6 +716,17 @@
         "doneMany": "Listed machines {n} times",
         "subjectKey": "",
         "result": "list"
+      },
+      {
+        "name": "events_emit",
+        "title": "Emit event",
+        "blurb": "Posts a named event with a payload; the agents listening on that name wake with it.",
+        "progressive": "Emitting event",
+        "done": "Emitted event",
+        "progressiveMany": "Emitting {n} events",
+        "doneMany": "Emitted {n} events",
+        "subjectKey": "name",
+        "result": "event"
       },
       {
         "name": "guide_write",
@@ -1177,6 +1158,28 @@
         "result": "none"
       },
       {
+        "name": "prompts_get",
+        "title": "Read prompt",
+        "blurb": "Reads one saved prompt with its body.",
+        "progressive": "Reading prompt",
+        "done": "Read prompt",
+        "progressiveMany": "Reading {n} prompts",
+        "doneMany": "Read {n} prompts",
+        "subjectKey": "id",
+        "result": "prompt"
+      },
+      {
+        "name": "prompts_list",
+        "title": "List prompts",
+        "blurb": "Lists the team's saved prompts.",
+        "progressive": "Listing prompts",
+        "done": "Listed prompts",
+        "progressiveMany": "Listing prompts {n} times",
+        "doneMany": "Listed prompts {n} times",
+        "subjectKey": "",
+        "result": "list"
+      },
+      {
         "name": "repositories_add",
         "title": "Add repository",
         "blurb": "Registers a GitHub repository with the team.",
@@ -1256,7 +1259,7 @@
       {
         "name": "sessions_list",
         "title": "List sessions",
-        "blurb": "Lists threads or team agents across your teams, newest first.",
+        "blurb": "Lists threads across your teams, newest first, or your conversations with one agent.",
         "progressive": "Listing sessions",
         "done": "Listed sessions",
         "progressiveMany": "Listing sessions {n} times",
@@ -1267,7 +1270,7 @@
       {
         "name": "sessions_send",
         "title": "Send to session",
-        "blurb": "Messages a session, starts a child session, or starts a thread or a team agent.",
+        "blurb": "Messages a session or an agent, starts a child session, or starts a thread.",
         "progressive": "Sending to session",
         "done": "Sent to session",
         "progressiveMany": "Sending to {n} sessions",
@@ -1449,17 +1452,14 @@
     "values": [
       "issue", "board", "action", "comment", "session", "label",
       "status", "device", "member", "repository", "team", "invite",
-      "notification", "attachment", "list", "thread"
+      "notification", "attachment", "list", "thread", "prompt", "agent", "event"
     ]
   },
   "expToolPreview": {
     "maxRefs": 8,
     "textMax": 200,
     "tools": [
-      { "name": "actions_delete", "refs": "" },
-      { "name": "actions_get", "refs": "action@" },
-      { "name": "actions_list", "refs": "list:action@" },
-      { "name": "actions_upsert", "refs": "action@" },
+      { "name": "agents_list", "refs": "list:agent@" },
       { "name": "attachments_delete", "refs": "" },
       { "name": "attachments_get", "refs": "attachment@" },
       { "name": "attachments_list", "refs": "list:attachment@attachments issue@$issueId" },
@@ -1476,6 +1476,7 @@
       { "name": "comments_update", "refs": "comment@ issue@" },
       { "name": "devices_account_login", "refs": "" },
       { "name": "devices_list", "refs": "list:device@" },
+      { "name": "events_emit", "refs": "" },
       { "name": "guide_write", "refs": "" },
       { "name": "invites_create", "refs": "invite@invite" },
       { "name": "invites_list", "refs": "list:invite@" },
@@ -1515,6 +1516,8 @@
       { "name": "pr_unlink", "refs": "issue@$issueId" },
       { "name": "pr_update", "refs": "issue@$issueId" },
       { "name": "report_bug", "refs": "issue@" },
+      { "name": "prompts_get", "refs": "prompt@" },
+      { "name": "prompts_list", "refs": "list:prompt@" },
       { "name": "repositories_add", "refs": "repository@" },
       { "name": "repositories_list", "refs": "list:repository@" },
       { "name": "sessions_ask", "refs": "" },

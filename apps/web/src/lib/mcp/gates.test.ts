@@ -80,7 +80,7 @@ describe(`resolveMcpToolGates`, () => {
 
   it(`is on and attended for the caller's own person-started root`, async () => {
     h.dbRows.current = [
-      { userId: `u`, hostUserId: null, parentId: null, rootKind: `thread`, watched: false, planMode: false },
+      { userId: `u`, hostUserId: null, parentId: null, rootAgentId: null, watched: false, planMode: false },
     ]
     expect(await resolveMcpToolGates(`u`, FULL_ACCESS, RUN)).toEqual({
       inSession: true,
@@ -99,18 +99,18 @@ describe(`resolveMcpToolGates`, () => {
 
   it(`is unattended for a child and for a root a live session watches (its spawner)`, async () => {
     h.dbRows.current = [
-      { userId: `u`, hostUserId: null, parentId: PARENT, rootKind: `thread`, watched: false, planMode: false },
+      { userId: `u`, hostUserId: null, parentId: PARENT, rootAgentId: null, watched: false, planMode: false },
     ]
     expect((await resolveMcpToolGates(`u`, FULL_ACCESS, RUN)).unattended).toBe(true)
     h.dbRows.current = [
-      { userId: `u`, hostUserId: null, parentId: null, rootKind: `thread`, watched: true, planMode: false },
+      { userId: `u`, hostUserId: null, parentId: null, rootAgentId: null, watched: true, planMode: false },
     ]
     expect((await resolveMcpToolGates(`u`, FULL_ACCESS, RUN)).unattended).toBe(true)
   })
 
   it(`flags a team agent's session`, async () => {
     h.dbRows.current = [
-      { userId: `u`, hostUserId: null, parentId: null, rootKind: `agent`, watched: false, planMode: false },
+      { userId: `u`, hostUserId: null, parentId: null, rootAgentId: `22222222-2222-4222-8222-222222222222`, watched: false, planMode: false },
     ]
     expect(await resolveMcpToolGates(`u`, FULL_ACCESS, RUN)).toEqual({
       inSession: true,
@@ -127,7 +127,7 @@ describe(`resolveMcpToolGates`, () => {
       userId: `u`,
       hostUserId: null,
       parentId: null,
-      rootKind: `thread`,
+      rootAgentId: null,
       watched: false,
       planMode: false,
     }
@@ -142,21 +142,21 @@ describe(`resolveMcpToolGates`, () => {
 
   it(`flags a session that is still planning`, async () => {
     h.dbRows.current = [
-      { userId: `u`, hostUserId: null, parentId: null, rootKind: `thread`, watched: false, planMode: true },
+      { userId: `u`, hostUserId: null, parentId: null, rootAgentId: null, watched: false, planMode: true },
     ]
     expect((await resolveMcpToolGates(`u`, FULL_ACCESS, RUN)).planMode).toBe(true)
   })
 
   it(`is on for a session the caller only hosts`, async () => {
     h.dbRows.current = [
-      { userId: `owner`, hostUserId: `u`, parentId: null, rootKind: `thread`, watched: false, planMode: false },
+      { userId: `owner`, hostUserId: `u`, parentId: null, rootAgentId: null, watched: false, planMode: false },
     ]
     expect((await resolveMcpToolGates(`u`, FULL_ACCESS, RUN)).inSession).toBe(true)
   })
 
   it(`is off for someone else's session and for a header naming no row`, async () => {
     h.dbRows.current = [
-      { userId: `other`, hostUserId: `other-host`, parentId: null, rootKind: `thread`, watched: false, planMode: false },
+      { userId: `other`, hostUserId: `other-host`, parentId: null, rootAgentId: null, watched: false, planMode: false },
     ]
     expect(await resolveMcpToolGates(`u`, FULL_ACCESS, RUN)).toEqual(CLOSED)
     h.dbRows.current = []

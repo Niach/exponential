@@ -1,5 +1,6 @@
 package com.exponential.app.domain
 
+import com.exponential.app.data.db.AgentDefinitionEntity
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.IssueRelationEntity
 import com.exponential.app.data.db.MessageEntity
@@ -63,6 +64,9 @@ object SessionTree {
         val caption: String? = null,
         /** EXP-1323: a `/btw` aside child (absent = false). */
         val aside: Boolean = false,
+        /** NEW-2: the agent whose conversation this root is (null = a thread
+         *  or a child); the kind derives from it ([SessionKind.sessionKindOf]). */
+        val agentId: String? = null,
     )
 
     /** EXP-1323: the viewer's read marks (`session_reads`, already user-scoped). */
@@ -155,6 +159,8 @@ object SessionTree {
             "session_unclaimed" to "{session} was not picked up",
             "session_stuck" to "{session} looks stuck",
             "device_offline" to "{session} paused: device offline",
+            // NEW-2: a trigger firing in an agent's conversation.
+            "trigger_fired" to "Trigger fired: {name}",
         )
         const val TEST_ID_TABS = "thread-tabs"
         const val TEST_ID_CONVERSATION = "thread-conversation"
@@ -700,6 +706,12 @@ object SessionTree {
             val name = card.str("sessionId")?.let(sessionName) ?: return null
             text = text.replaceFirst("{session}", name)
         }
+        if (text.contains("{name}")) {
+            // NEW-2 `trigger_fired`: the event name; a schedule firing has
+            // none and draws no line (its body says what fired).
+            val name = card.str("name")?.takeIf { it.isNotBlank() } ?: return null
+            text = text.replaceFirst("{name}", name)
+        }
         return text
     }
 
@@ -1033,7 +1045,9 @@ object SessionTree {
         val titleMessages = messages.map(::titleMessage)
         fun titleOf(s: Session) = SessionTitle.sessionTitle(titleSession(s), titleLinks, titleIssues, titleMessages)
         val roots = sessions.filter {
-            it.parentId == null && it.kind == DomainContract.sessionKindThread &&
+            it.parentId == null &&
+                // NEW-2: an agent's conversation (a root with `agentId`) is no thread.
+                it.agentId.isNullOrEmpty() &&
                 (teamId == null || it.teamId == teamId)
         }
         val byRoot = LinkedHashMap<String, MutableList<Session>>()
@@ -1171,7 +1185,7 @@ object SessionTree {
         groups.any { group -> group.rows.any { it.depth == 0 && it.unread } }
 
     data class AgentRow(
-        val sessionId: String,
+        val agentId: String,
         val teamId: String,
         val name: String,
         /** A curated board icon name (contract `boardIcon`). */
@@ -1182,31 +1196,71 @@ object SessionTree {
         val needsYou: Boolean,
     )
 
+    /** NEW-2: an `agents` definition row as the list needs it. */
+    data class AgentDefinition(
+        val id: String,
+        val teamId: String,
+        val name: String,
+        val icon: String?,
+        val color: String?,
+        val sortOrder: Double,
+    )
+
     /**
      * The Agents list (rail above Boards, Settings → Agents): one row per
-     * agent root of the team, icon + color like boards, by `sortOrder` then
-     * name. Its spinner / needs-you dot covers its own row only.
+     * `agents` definition of the team (NEW-2), icon + color like boards, by
+     * `sortOrder` then name then id. The spinner / needs-you dot read the
+     * VIEWER's own conversation session with the agent (a root with `agentId`
+     * and `userId == me`); a member without one sees a quiet row.
      */
-    fun listAgents(sessions: List<Session>, teamId: String?): List<AgentRow> =
-        sessions
-            .filter {
-                it.parentId == null && it.kind == DomainContract.sessionKindAgent &&
-                    (teamId == null || it.teamId == teamId)
-            }
-            .sortedWith(
-                compareBy<Session>({ it.sortOrder }, { it.name ?: "" }, { it.id }),
-            )
+    fun listAgents(
+        agents: List<AgentDefinition>,
+        sessions: List<Session>,
+        teamId: String?,
+        me: String?,
+    ): List<AgentRow> {
+        val mine = HashMap<String, Session>()
+        for (s in sessions) {
+            val agentId = s.agentId
+            if (s.parentId == null && !agentId.isNullOrEmpty() && s.userId == me) mine[agentId] = s
+        }
+        return agents
+            .filter { teamId == null || it.teamId == teamId }
+            .sortedWith(compareBy<AgentDefinition>({ it.sortOrder }, { it.name }, { it.id }))
             .map {
+                val conversation = mine[it.id]
+                val live = conversation != null && conversation.status != DomainContract.sessionStatusEnded
                 AgentRow(
-                    sessionId = it.id,
+                    agentId = it.id,
                     teamId = it.teamId,
-                    name = it.name ?: "",
+                    name = it.name,
                     icon = it.icon ?: ListCopy.AGENT_DEFAULT_ICON,
                     color = it.color ?: ListCopy.AGENT_DEFAULT_COLOR,
-                    busy = it.busy,
-                    needsYou = it.needsInput,
+                    busy = live && conversation!!.busy,
+                    needsYou = live && conversation!!.needsInput,
                 )
             }
+    }
+
+    /** NEW-2: the viewer's own conversation session per agent id (an Agents
+     *  row opens it; absent = none yet, `sessions.send({agentId})` makes it). */
+    fun conversations(sessions: List<Session>, me: String?): Map<String, String> {
+        val out = HashMap<String, String>()
+        for (s in sessions) {
+            val agentId = s.agentId
+            if (s.parentId == null && !agentId.isNullOrEmpty() && s.userId == me) out[agentId] = s.id
+        }
+        return out
+    }
+
+    fun agentDefinition(row: AgentDefinitionEntity): AgentDefinition = AgentDefinition(
+        id = row.id,
+        teamId = row.teamId,
+        name = row.name,
+        icon = row.icon,
+        color = row.color,
+        sortOrder = row.sortOrder,
+    )
 
     // ── the Guide's PR + the session composer (EXP-1306) ────────────────────
 
@@ -1486,6 +1540,7 @@ object SessionTree {
         deviceId = row.deviceId.ifBlank { null },
         caption = row.caption,
         aside = row.aside,
+        agentId = row.agentId,
     )
 
     fun sessionIssue(row: SessionIssueEntity): SessionIssue =

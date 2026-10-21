@@ -2,20 +2,17 @@ import { useCallback, useMemo, useState } from "react"
 import { eq, inArray, useLiveQuery } from "@tanstack/react-db"
 import { toast } from "@exp/ui"
 import type { PinKind } from "@exp/db-schema/domain"
-import {
-  actionCollection,
-  issueCollection,
-  pinCollection,
-} from "@/lib/collections"
+import { issueCollection, pinCollection } from "@/lib/collections"
 import { useTeamBoards } from "@/hooks/use-team-data"
 import { trpc } from "@/lib/trpc-client"
-import type { Issue, Pin, SyncedAction } from "@/db/schema"
+import type { Issue, Pin } from "@/db/schema"
 
 // EXP-778: personal pins — the sidebar's "Pinned" group. The `pins` shape is
 // per USER (static `user_id = me`), so the collection only ever holds the
 // caller's rows; the hooks below narrow to the active team and let the
 // sidebar resolve each target against the scoped collections (an issue on a
 // trashed board, a session of a team the user left — no target, no row).
+// NEW-2: a pin of kind `action` (actions are gone) never renders.
 
 /** The caller's pins in a team, in display order (sort_order ascending). */
 export function useTeamPins(teamId: string | undefined): Pin[] {
@@ -111,7 +108,6 @@ export type PinnedEntry =
       identifier: string
       title: string
     }
-  | { pin: Pin; kind: `action`; action: SyncedAction; title: string }
 
 export function usePinnedEntries(teamId: string | undefined): PinnedEntry[] {
   const pins = useTeamPins(teamId)
@@ -132,23 +128,11 @@ export function usePinnedEntries(teamId: string | undefined): PinnedEntry[] {
         : undefined,
     [issueIds.join(`,`)]
   )
-  const { data: actions } = useLiveQuery(
-    (query) =>
-      teamId
-        ? query
-            .from({ a: actionCollection })
-            .where(({ a }) => eq(a.teamId, teamId))
-        : undefined,
-    [teamId]
-  )
 
   return useMemo(() => {
     const boardsById = new Map((boards ?? []).map((board) => [board.id, board]))
     const issuesById = new Map(
       ((issues ?? []) as Issue[]).map((issue) => [issue.id, issue])
-    )
-    const actionsById = new Map(
-      ((actions ?? []) as SyncedAction[]).map((action) => [action.id, action])
     )
     return pins.flatMap((pin): PinnedEntry[] => {
       if (pin.kind === `issue` && pin.issueId) {
@@ -166,12 +150,7 @@ export function usePinnedEntries(teamId: string | undefined): PinnedEntry[] {
           },
         ]
       }
-      if (pin.kind === `action` && pin.actionId) {
-        const action = actionsById.get(pin.actionId)
-        if (!action) return []
-        return [{ pin, kind: `action`, action, title: action.name }]
-      }
       return []
     })
-  }, [pins, boards, issues, actions])
+  }, [pins, boards, issues])
 }

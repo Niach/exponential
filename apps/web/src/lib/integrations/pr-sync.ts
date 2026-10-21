@@ -21,6 +21,7 @@ import {
 import { applyStatusDerivations } from "@/lib/status-derivations"
 import { generateTxId } from "@/lib/trpc"
 import { recordIssueEvent } from "@/lib/integrations/activity"
+import { emitEventInTx } from "@/lib/events"
 import type { IssueEventOrigin } from "@/lib/integrations/event-origin"
 import { syncDuplicateMirror } from "@/lib/issue-relations"
 import { fireAndForgetPrNotify } from "@/lib/integrations/notifications"
@@ -838,6 +839,25 @@ export interface RecordOpenedArgs {
  * `pr_opened` card. Notifications fire post-commit for the newly linked
  * issues only, so the pr_open + webhook pair stays single-fire.
  */
+/** The payload of the builtin `pr.opened` / `pr.merged` events. */
+function prEventPayload(
+  pr: Pick<PullRequestRow, `id` | `number` | `url` | `title` | `head` | `base` | `repositoryId` | `sessionId` | `rootSessionId`>,
+  issueIds: readonly string[]
+) {
+  return {
+    pullRequestId: pr.id,
+    number: pr.number,
+    url: pr.url,
+    title: pr.title,
+    head: pr.head,
+    base: pr.base,
+    repositoryId: pr.repositoryId,
+    sessionId: pr.sessionId,
+    rootSessionId: pr.rootSessionId,
+    issueIds: [...issueIds],
+  }
+}
+
 export async function recordPullRequestOpened(
   args: RecordOpenedArgs
 ): Promise<{ pullRequest: PullRequestRow; created: boolean; linkedIssueIds: string[]; txid: number }> {
@@ -900,6 +920,19 @@ export async function recordPullRequestOpened(
       userId: args.actorUserId,
       ...(args.origin ? { origin: args.origin } : {}),
     })
+    if (inserted) {
+      // NEW-2: the builtin `pr.opened` event, once per PR row.
+      await emitEventInTx(tx, {
+        teamId: pullRequest.teamId,
+        name: `pr.opened`,
+        payload: prEventPayload(pullRequest, args.issueIds),
+        emittedBy: pullRequest.sessionId
+          ? { sessionId: pullRequest.sessionId }
+          : args.actorUserId
+            ? { userId: args.actorUserId }
+            : { server: true },
+      })
+    }
     if (announceRoot) {
       await postSystemCard(tx, announceRoot, {
         kind: `event`,
@@ -1006,6 +1039,13 @@ export async function applyPullRequestMerged(opts: {
         pullRequestId: claimed.id,
       })
     }
+    // NEW-2: the builtin `pr.merged` event.
+    await emitEventInTx(tx, {
+      teamId: claimed.teamId,
+      name: `pr.merged`,
+      payload: prEventPayload(claimed, linked.map((issue) => issue.id)),
+      emittedBy: opts.actorUserId ? { userId: opts.actorUserId } : { server: true },
+    })
     return { applied: true as const, issueIds: linked.map((issue) => issue.id), txid, pr: claimed }
   })
   if (!result.applied || !result.pr) return { applied: false, txid: null }

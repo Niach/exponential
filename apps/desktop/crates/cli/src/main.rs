@@ -88,7 +88,7 @@ Commands:
   status                                  Account + device + daemon + tooling summary
   doctor                                  Check git and the agent CLIs
   code <ISSUE> [options]                  Start a session on an issue
-  run <action> [options]                  Run a team action (a saved prompt)
+  run <prompt> [options]                  Run a team's saved prompt
   devices [--team <team-id>]              Your devices: online, agents, running sessions
   sessions [--device <d>] [--status <s>] [--agents]
                                           Sessions, newest first
@@ -106,9 +106,9 @@ Options for code/run:
   --device <label|id>       start it on ANOTHER device instead (see `devices`);
                             with --account <profile> and --follow (tail it)
 Options for run:
-  --team <team-id>          --input k=v   (repeatable; the action's pick inputs)
-  --prompt <text>           (the session's first message: additional
-                             instructions for the action)
+  --team <team-id>
+  --prompt <text>           (appended to the prompt's body in the session's
+                             first message)
 Environment:
   EXP_INSTANCE, EXP_TOKEN (API key expu_… from Settings → Security, or a session
   token; non-interactive login), EXP_INSTALL_TOKEN (one-time expi_… token from

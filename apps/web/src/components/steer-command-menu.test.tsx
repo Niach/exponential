@@ -5,27 +5,39 @@ import {
   SlashCommandMenu,
   useSlashCommandMenu,
 } from "@/components/steer-command-menu"
-import { steerCommandsFor } from "@/lib/steer-commands"
+import { steerCommandsFor, type SlashPrompt } from "@/lib/steer-commands"
 
 // EXP-724 — the steering composer's `/` menu, driven the way MessageComposer
 // drives it: the menu gets every keystroke first and reports whether it
-// consumed one; only an unconsumed Enter sends.
+// consumed one; only an unconsumed Enter sends. NEW-2: the builtins
+// (compact, model, effort) and then the team's prompts, in ONE menu.
+
+const PROMPTS: SlashPrompt[] = [
+  { id: `p1`, name: `Fix flaky tests`, icon: null },
+  { id: `p2`, name: `Release train`, icon: `rocket` },
+]
 
 function Harness({
   agent = `claude`,
   onSend,
   initial = ``,
+  prompts,
+  onPickPrompt,
 }: {
   agent?: string
   onSend: (text: string) => void
   initial?: string
+  prompts?: SlashPrompt[]
+  onPickPrompt?: (prompt: SlashPrompt) => void
 }) {
   const [text, setText] = useState(initial)
   const commands = steerCommandsFor(agent)
   const menu = useSlashCommandMenu({
     text,
     commands,
+    prompts,
     onAccept: (next) => setText(next),
+    onPickPrompt,
   })
   return (
     <div className="relative">
@@ -43,7 +55,7 @@ function Harness({
       />
       {menu.open && (
         <SlashCommandMenu
-          commands={menu.candidates}
+          candidates={menu.candidates}
           active={menu.active}
           onSelect={menu.accept}
           onHover={menu.setActive}
@@ -86,20 +98,17 @@ describe(`SlashCommandMenu`, () => {
     expect(el.value).toBe(`/compact `)
   })
 
-  it(`a no-argument command is accepted bare and the menu closes so Enter sends`, () => {
+  it(`an accepted command closes the menu so the next Enter sends`, () => {
     const onSend = vi.fn()
     render(<Harness onSend={onSend} />)
     const el = field()
-    type(el, `/cl`)
+    type(el, `/mo`)
     fireEvent.keyDown(el, { key: `Enter` })
-    expect(el.value).toBe(`/clear`)
-    // The row is gone (its description is the menu's own text, unlike the
-    // `/clear` token the textarea now also carries).
-    expect(
-      screen.queryByText(`Start a fresh conversation (context is discarded)`)
-    ).toBeNull()
+    expect(el.value).toBe(`/model `)
+    expect(screen.queryByText(`Switch the model for this session`)).toBeNull()
+    type(el, `/model opus`)
     fireEvent.keyDown(el, { key: `Enter` })
-    expect(onSend).toHaveBeenCalledWith(`/clear`)
+    expect(onSend).toHaveBeenCalledWith(`/model opus`)
   })
 
   it(`Escape closes the menu and the next Enter sends the draft`, () => {
@@ -159,13 +168,55 @@ describe(`SlashCommandMenu`, () => {
     expect(screen.queryByText(`/compact`)).toBeNull()
   })
 
-  it(`offers only the session agent's commands`, () => {
+  it(`offers only the contract builtins, never the CLI's own`, () => {
     render(<Harness agent="codex" onSend={vi.fn()} />)
     const el = field()
     type(el, `/`)
-    // The two rows are every agent's; nothing outside the catalog shows.
     expect(screen.getByText(`/compact`)).toBeTruthy()
-    expect(screen.getByText(`/clear`)).toBeTruthy()
+    expect(screen.getByText(`/model`)).toBeTruthy()
+    expect(screen.getByText(`/effort`)).toBeTruthy()
+    // `/clear` and `/btw` are gone; nothing outside the catalog shows.
+    expect(screen.queryByText(`/clear`)).toBeNull()
+    expect(screen.queryByText(`/btw`)).toBeNull()
     expect(screen.queryByText(`/new`)).toBeNull()
+  })
+
+  it(`lists the team's prompts after the builtins`, () => {
+    render(<Harness onSend={vi.fn()} prompts={PROMPTS} onPickPrompt={vi.fn()} />)
+    type(field(), `/`)
+    const rows = screen.getAllByRole(`option`).map((row) => row.textContent ?? ``)
+    expect(rows.slice(0, 3).map((text) => text.match(/^\/[a-z]+/)?.[0])).toEqual([
+      `/compact`,
+      `/model`,
+      `/effort`,
+    ])
+    expect(rows.slice(3)).toEqual([`Fix flaky tests`, `Release train`])
+  })
+
+  it(`filters prompts by name prefix, spaces as dashes`, () => {
+    render(<Harness onSend={vi.fn()} prompts={PROMPTS} onPickPrompt={vi.fn()} />)
+    type(field(), `/fix-fl`)
+    expect(screen.getByText(`Fix flaky tests`)).toBeTruthy()
+    expect(screen.queryByText(`Release train`)).toBeNull()
+    expect(screen.queryByText(`/compact`)).toBeNull()
+  })
+
+  it(`Enter on a prompt hands it to the host and never sends`, () => {
+    const onSend = vi.fn()
+    const onPickPrompt = vi.fn()
+    render(<Harness onSend={onSend} prompts={PROMPTS} onPickPrompt={onPickPrompt} />)
+    const el = field()
+    type(el, `/rel`)
+    fireEvent.keyDown(el, { key: `Enter` })
+    expect(onPickPrompt).toHaveBeenCalledWith(PROMPTS[1])
+    expect(onSend).not.toHaveBeenCalled()
+    // The menu stays shut on the draft it was picked on.
+    expect(screen.queryByText(`Release train`)).toBeNull()
+  })
+
+  it(`offers no prompts without a pick handler`, () => {
+    render(<Harness onSend={vi.fn()} prompts={PROMPTS} />)
+    type(field(), `/`)
+    expect(screen.queryByText(`Fix flaky tests`)).toBeNull()
   })
 })

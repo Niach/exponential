@@ -49,7 +49,7 @@ class SessionTreeTest {
         teamId = json.str("teamId")!!,
         parentId = json.str("parentId"),
         rootId = json.str("rootId")!!,
-        kind = json.str("kind")!!,
+        kind = json.str("kind") ?: DomainContract.sessionKindThread,
         userId = json.str("userId")!!,
         status = json.str("status")!!,
         busy = json.bool("busy"),
@@ -73,6 +73,7 @@ class SessionTreeTest {
         deviceId = json.str("deviceId"),
         caption = json.str("caption"),
         aside = (json["aside"] as? JsonPrimitive)?.boolean ?: false,
+        agentId = json.str("agentId"),
     )
 
     private fun read(json: JsonObject) = SessionTree.SessionRead(
@@ -358,7 +359,7 @@ class SessionTreeTest {
     }
 
     private fun encode(agent: SessionTree.AgentRow): JsonObject = buildJsonObject {
-        put("sessionId", agent.sessionId)
+        put("agentId", agent.agentId)
         put("teamId", agent.teamId)
         put("name", agent.name)
         put("icon", agent.icon)
@@ -497,7 +498,22 @@ class SessionTreeTest {
         assertTrue(cases.isNotEmpty())
         for (case in cases) {
             val input = case.getValue("input").jsonObject
-            val actual = SessionTree.listAgents(input.list("sessions").map(::session), input.str("teamId"))
+            val agents = input.list("agents").map {
+                SessionTree.AgentDefinition(
+                    id = it.str("id")!!,
+                    teamId = it.str("teamId")!!,
+                    name = it.str("name")!!,
+                    icon = it.str("icon"),
+                    color = it.str("color"),
+                    sortOrder = it.getValue("sortOrder").jsonPrimitive.double,
+                )
+            }
+            val actual = SessionTree.listAgents(
+                agents,
+                input.list("sessions").map(::session),
+                input.str("teamId"),
+                input.str("me"),
+            )
             assertEquals(case.str("name"), case.getValue("expected"), JsonArray(actual.map(::encode)))
         }
     }

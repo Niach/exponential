@@ -13,18 +13,18 @@ import {
 import { getUserTeamIds } from "@/lib/auth/membership"
 import { loadSessionForUser } from "@/lib/sessions/access"
 import { deriveSessionTitles } from "@/lib/sessions/title"
-import type { SessionKind } from "@exp/db-schema/domain"
 
-// EXP-1291/NEW-1: the session tree as one read (MCP `sessions_get`) and the
-// thread / agent lists (MCP `sessions_list`). Same visibility rule as the
-// shapes; the server-only facets (`mcp_server_ids`, `wake_on`, an agent's
-// `instructions`) never leave here. A root's issues = the UNION over its
-// tree's rows (each row names the session holding it).
+// EXP-1291/NEW-1/NEW-2: the session tree as one read (MCP `sessions_get`)
+// and the thread list (MCP `sessions_list`: thread roots; an agent's
+// conversation sessions are listed through `agents_list`). Same visibility
+// rule as the shapes; the server-only facets (`mcp_server_ids`, `wake_on`)
+// never leave here. A root's issues = the UNION over its tree's rows (each
+// row names the session holding it).
 
-export type PublicSession = Omit<Session, `mcpServerIds` | `wakeOn` | `instructions`>
+export type PublicSession = Omit<Session, `mcpServerIds` | `wakeOn`>
 
 export function publicSession(session: Session): PublicSession {
-  const { mcpServerIds: _mcp, wakeOn: _wake, instructions: _instructions, ...rest } = session
+  const { mcpServerIds: _mcp, wakeOn: _wake, ...rest } = session
   return rest
 }
 
@@ -170,7 +170,8 @@ export async function getSessionTree(
 export interface SessionListRow {
   id: string
   teamId: string
-  kind: SessionKind
+  /** NEW-2: the agent this is a conversation of (null = a thread). */
+  agentId: string | null
   title: string
   status: Session[`status`]
   busy: boolean
@@ -191,11 +192,12 @@ export interface SessionListRow {
   updatedAt: Date
 }
 
-/** Roots (threads or agents) the caller may see, most recently active
- *  first. `live` = not ended (agents always are). */
+/** Roots the caller may see, most recently active first: threads, or with
+ *  `agentId` the caller's conversations with that agent. `live` = not
+ *  ended. */
 export async function listSessions(
   userId: string,
-  args: { teamId?: string; kind: SessionKind; live?: boolean; limit: number; offset: number }
+  args: { teamId?: string; agentId?: string; live?: boolean; limit: number; offset: number }
 ): Promise<SessionListRow[]> {
   const memberTeams = await getUserTeamIds(userId)
   const teamIds = args.teamId
@@ -207,7 +209,7 @@ export async function listSessions(
     .select({
       id: sessions.id,
       teamId: sessions.teamId,
-      kind: sessions.kind,
+      agentId: sessions.agentId,
       rootId: sessions.rootId,
       title: sessions.title,
       status: sessions.status,
@@ -229,7 +231,10 @@ export async function listSessions(
       and(
         inArray(sessions.teamId, teamIds),
         isNull(sessions.parentId),
-        eq(sessions.kind, args.kind),
+        // NEW-2: `agentId` = the caller's OWN conversations with that agent.
+        args.agentId
+          ? and(eq(sessions.agentId, args.agentId), eq(sessions.userId, userId))
+          : isNull(sessions.agentId),
         or(eq(sessions.shared, true), eq(sessions.userId, userId)),
         ...(args.live ? [ne(sessions.status, `ended`)] : [])
       )

@@ -16,27 +16,27 @@ import {
   draftFromTrigger,
   draftToTrigger,
   emptyTriggerDraft,
+  validateTriggerDraft,
   type TriggerDraft,
+  type TriggerDraftError,
 } from "@/components/trigger-fields"
 
 // The "New trigger" / "Edit trigger" form (EXP-583). EXP-1293: a trigger
 // lives on a team AGENT, which already owns its device and account, so the
-// form edits the WHEN alone (a schedule, or an event + its filters). Saving
+// form edits the WHEN alone (NEW-2: a cron + zone, or an event name). Saving
 // hands the when-part back; the agent page owns the whole `triggers` array
 // and how it persists (create mode keeps it local, an existing agent writes
-// `sessions.updateAgent`). A failed save keeps the dialog open; the caller
-// toasts.
+// `agents.update`). Invalid input = an inline error; a failed save keeps the
+// dialog open, the caller toasts.
 
 export function TriggerDialog({
   open,
   onOpenChange,
-  teamId,
   trigger,
   onSave,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
-  teamId: string
   /** The trigger being edited; absent/null = add a new one. */
   trigger?: TriggerWhen | null
   /** Persist the when-part; a rejection keeps the dialog open. */
@@ -45,11 +45,13 @@ export function TriggerDialog({
   const editing = trigger != null
   const [draft, setDraft] = useState<TriggerDraft>(emptyTriggerDraft)
   const [submitting, setSubmitting] = useState(false)
+  const [errors, setErrors] = useState<TriggerDraftError[]>([])
 
   // Seed on OPEN only, the rule every dialog here follows.
   useEffect(() => {
     if (!open) return
     setDraft(draftFromTrigger(trigger ?? null))
+    setErrors([])
     setSubmitting(false)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
@@ -57,6 +59,9 @@ export function TriggerDialog({
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (submitting) return
+    const found = validateTriggerDraft(draft)
+    setErrors(found)
+    if (found.length > 0) return
     setSubmitting(true)
     try {
       await onSave(draftToTrigger(draft))
@@ -80,7 +85,14 @@ export function TriggerDialog({
 
         <form onSubmit={submit} className="flex min-h-0 flex-1 flex-col gap-3">
           <DialogBody className="space-y-3">
-            <TriggerWhenFields draft={draft} onChange={setDraft} teamId={teamId} />
+            <TriggerWhenFields
+              draft={draft}
+              onChange={(next) => {
+                setDraft(next)
+                if (errors.length > 0) setErrors([])
+              }}
+              errors={errors}
+            />
           </DialogBody>
 
           <DialogFooter>

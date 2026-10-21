@@ -1617,7 +1617,7 @@ struct ThreadComposer: View {
             withTransaction(transaction) { attach.menu = true }
         case .effort: showEffortPicker = true
         case .mcpServers: showMcpPicker = true
-        case .runAction, .subagents, .ultracode, .computerUse: break
+        case .subagents, .ultracode, .computerUse: break
         }
     }
 
@@ -1730,8 +1730,7 @@ struct ThreadComposer: View {
     private func slashMatches(_ draft: ThreadComposerDraft) -> [SlashCommand] {
         SlashCommands.matches(
             draft: draft.draftText,
-            agent: catalogAgent,
-            extra: steerModel?.sessionConfig?.commands ?? []
+            agent: catalogAgent
         )
     }
 
@@ -1771,7 +1770,7 @@ struct ThreadComposer: View {
     private func send(_ draft: ThreadComposerDraft) {
         guard !draft.steerSending else { return }
         if let command = SlashCommands.command(
-            for: draft.draftText, agent: catalogAgent, extra: steerModel?.sessionConfig?.commands ?? []
+            for: draft.draftText, agent: catalogAgent
         ) {
             if draft.hasPendingAttachments {
                 toaster.error(SlashCommands.attachmentsRefusal)

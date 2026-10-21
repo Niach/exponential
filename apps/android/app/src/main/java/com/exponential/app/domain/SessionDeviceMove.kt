@@ -74,7 +74,7 @@ object SessionDeviceMove {
      *  request), or null = it renders: never for an agent (persistent; it
      *  moves from Settings → Agents) nor an aside. */
     fun hiddenReason(kind: String?, aside: Boolean): String? = when {
-        SessionKind.isPersistent(kind) -> REASON_AGENT
+        SessionKind.sessionTraits(kind).persistent -> REASON_AGENT
         aside -> REASON_ASIDE
         else -> null
     }

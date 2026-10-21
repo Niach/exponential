@@ -16,10 +16,13 @@
 //!   agent's rows, in contract order, so an empty query lists them all;
 //! * **what accepting leaves behind** — `/name ` for a command that takes an
 //!   argument, bare `/name` for one that does not. Accepting never sends;
-//! * **the confirm copy** for the context-discarding row (`/clear`);
-//! * EXP-1323: **`/btw <question>`** = an aside child ([`btw_question`]).
-//!   The publisher executes whatever it receives, so asking first is entirely
-//!   the client's job — on all four of them, in the same words.
+//! * **the confirm copy** for a context-discarding row (none in the catalog
+//!   since NEW-2 dropped `/clear`; the copy stays the ×4 mirror);
+//! * NEW-2 (owner 2026-10-21): the catalog is the contract's `compact`,
+//!   `model` and `effort`, and the commands the AGENT CLI injects (skills,
+//!   plugins, `config_state.commands`) are NEVER merged into the menu.
+//!   `/effort <level>` is a launch-option change ([`effort_level`] →
+//!   `sessions.configure`), `/model <alias>` a message the CLI acts on.
 
 use steer::activity::SessionAgent;
 use steer::commands::{catalog_for, SteerCommand};
@@ -64,18 +67,14 @@ pub(crate) fn slash_query(draft: &str) -> Option<&str> {
         .then_some(rest)
 }
 
-/// One row of the `/` menu. Owned, unlike [`SteerCommand`]'s `&'static str`s,
-/// because an ACP session's own commands arrive on the wire
-/// (`config_state.commands`) and are as real a menu row as a contract one.
+/// One row of the `/` menu (owned, so the composer can hold it).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct MenuCommand {
     pub(crate) name: String,
     pub(crate) description: String,
     /// Empty = the command takes no argument.
     pub(crate) arg_hint: String,
-    /// The client confirms before sending (context is discarded). Only the
-    /// contract knows this — an agent-advertised command never confirms,
-    /// because nothing here knows what it does.
+    /// The client confirms before sending (context is discarded).
     pub(crate) confirm: bool,
 }
 
@@ -90,19 +89,11 @@ impl From<SteerCommand> for MenuCommand {
     }
 }
 
-/// EXP-746 — the same menu over the contract catalog UNION the commands the
-/// AGENT advertised for this run (`config_state.commands`, ACP
-/// `available_commands_update`).
-///
-/// Contract rows come FIRST because those are the ones the publisher is known
-/// to be able to execute on every transport; an agent row that shadows a
-/// contract name is dropped rather than listed twice (`/compact` is one
-/// command whoever ends up running it). Mirrored ×4 as `mergeAgentCommands`.
-pub(crate) fn menu_matches_with(
-    draft: &str,
-    agent: SessionAgent,
-    extra: &[steer::frames::ConfigCommand],
-) -> Vec<MenuCommand> {
+/// The `/` menu's rows for `draft`: the contract catalog for `agent`,
+/// prefix-filtered. NEW-2: NEVER merged with the commands the agent CLI
+/// advertises (`config_state.commands`): those stay hidden on every
+/// platform.
+pub(crate) fn menu_matches(draft: &str, agent: SessionAgent) -> Vec<MenuCommand> {
     let Some(query) = slash_query(draft) else {
         return Vec::new();
     };
@@ -110,43 +101,28 @@ pub(crate) fn menu_matches_with(
     let mut rows: Vec<MenuCommand> = catalog_for(agent)
         .into_iter()
         .map(MenuCommand::from)
+        .filter(|row| row.name.to_ascii_lowercase().starts_with(&needle))
         .collect();
-    for command in extra {
-        let name = command.name.trim();
-        if name.is_empty()
-            || rows
-                .iter()
-                .any(|row| row.name.eq_ignore_ascii_case(name))
-        {
-            continue;
-        }
-        rows.push(MenuCommand {
-            name: name.to_string(),
-            description: command.description.clone(),
-            arg_hint: command.hint.clone().unwrap_or_default(),
-            confirm: false,
-        });
-    }
-    rows.retain(|row| row.name.to_ascii_lowercase().starts_with(&needle));
     rows.truncate(MENU_LIMIT);
     rows
 }
 
-/// EXP-1323: the contract's `/btw` row (claude only): a side question.
-pub(crate) const BTW: &str = "btw";
+/// The contract's `/effort` row.
+pub(crate) const EFFORT: &str = "effort";
 
-/// EXP-1323: the question of a `/btw <question>` draft for `agent` — sent
-/// as an ASIDE child (`sessions.send({parentId, text, aside: true})`), never
-/// as a message to the session; `None` for any other draft, a bare `/btw`,
-/// or an agent whose catalog has no `btw` (codex). Mirrored ×4.
+/// NEW-2: the level of an `/effort <level>` draft for `agent`, lowercased —
+/// sent as `sessions.configure({effort})` like the "+" menu's Effort pick,
+/// never as a message; `None` for any other draft or a bare `/effort`.
+pub(crate) fn effort_level(draft: &str, agent: SessionAgent) -> Option<String> {
+    let parsed = steer::commands::parse_command(draft, agent)?;
+    let level = parsed.args.trim();
+    (parsed.command.name == EFFORT && !level.is_empty() && !level.contains(char::is_whitespace))
+        .then(|| level.to_ascii_lowercase())
+}
+
 /// The refusal when a slash command is sent with attachments staged — a
 /// command is the WHOLE message (web `session-composer`'s toast, same words).
 pub(crate) const ATTACHMENTS_BLOCK_COMMAND: &str = "Remove the attachments to send a command";
-
-pub(crate) fn btw_question(draft: &str, agent: SessionAgent) -> Option<String> {
-    let parsed = steer::commands::parse_command(draft, agent)?;
-    (parsed.command.name == BTW && !parsed.args.trim().is_empty()).then(|| parsed.args.trim().to_string())
-}
 
 /// What accepting `command` puts in the composer — with the trailing space
 /// when there is an argument to type, without when there is not.
@@ -190,21 +166,8 @@ pub(crate) fn confirm_button(name: &str) -> String {
 mod tests {
     use super::*;
 
-    /// The menu with no agent commands at all — every catalog assertion
-    /// below is about the contract half.
     fn names(draft: &str, agent: SessionAgent) -> Vec<String> {
-        agent_names(draft, agent, &[])
-    }
-
-    fn agent_names(
-        draft: &str,
-        agent: SessionAgent,
-        extra: &[steer::frames::ConfigCommand],
-    ) -> Vec<String> {
-        menu_matches_with(draft, agent, extra)
-            .into_iter()
-            .map(|command| command.name)
-            .collect()
+        menu_matches(draft, agent).into_iter().map(|command| command.name).collect()
     }
 
     #[test]
@@ -221,29 +184,14 @@ mod tests {
         assert_eq!(slash_query(""), None);
     }
 
+    /// NEW-2: the catalog is the contract's compact/model/effort for both
+    /// agents (`clear` and `btw` are gone).
     #[test]
     fn an_empty_query_lists_the_agents_whole_catalog_in_contract_order() {
-        assert_eq!(names("/", SessionAgent::Claude), vec!["compact", "clear", "btw"]);
-        // EXP-1323: `/btw` is claude's alone.
-        assert_eq!(names("/", SessionAgent::Codex), vec!["compact", "clear"]);
-    }
-
-    /// EXP-1323: `/btw <question>` is an aside (claude only); a bare one,
-    /// another command or prose is not.
-    #[test]
-    fn btw_carries_its_question() {
-        assert_eq!(
-            btw_question("/btw  what does useCart return? ", SessionAgent::Claude).as_deref(),
-            Some("what does useCart return?")
-        );
-        assert_eq!(btw_question("/BTW why", SessionAgent::Claude).as_deref(), Some("why"));
-        assert_eq!(btw_question("/btw", SessionAgent::Claude), None);
-        assert_eq!(btw_question("/btw why", SessionAgent::Codex), None);
-        assert_eq!(btw_question("/compact why", SessionAgent::Claude), None);
-        assert_eq!(btw_question("btw why", SessionAgent::Claude), None);
-        let btw = menu_matches_with("/bt", SessionAgent::Claude, &[]).remove(0);
-        assert_eq!(insertion(&btw), "/btw ");
-        assert!(!btw.confirm);
+        assert_eq!(names("/", SessionAgent::Claude), vec!["compact", "model", "effort"]);
+        assert_eq!(names("/", SessionAgent::Codex), vec!["compact", "model", "effort"]);
+        assert!(names("/clear", SessionAgent::Claude).is_empty());
+        assert!(names("/btw", SessionAgent::Claude).is_empty());
     }
 
     #[test]
@@ -251,6 +199,7 @@ mod tests {
         assert_eq!(names("/co", SessionAgent::Claude), vec!["compact"]);
         assert_eq!(names("/CO", SessionAgent::Claude), vec!["compact"]);
         assert_eq!(names("/compact", SessionAgent::Claude), vec!["compact"]);
+        assert_eq!(names("/m", SessionAgent::Codex), vec!["model"]);
         // A prefix, never a substring: `pact` is inside `compact`, not in front.
         assert!(names("/pact", SessionAgent::Claude).is_empty());
         // A closed token draws nothing at all.
@@ -259,82 +208,39 @@ mod tests {
     }
 
     #[test]
-    fn accepting_adds_a_trailing_space_only_when_there_is_an_argument() {
-        let compact = menu_matches_with("/compact", SessionAgent::Claude, &[]).remove(0);
-        assert_eq!(compact.arg_hint, "instructions");
-        assert_eq!(insertion(&compact), "/compact ");
-        let clear = menu_matches_with("/clear", SessionAgent::Claude, &[]).remove(0);
-        assert_eq!(clear.arg_hint, "");
-        assert_eq!(insertion(&clear), "/clear");
-    }
-
-    // ── EXP-746: the contract ∪ agent union (×4 `mergeAgentCommands`) ──────
-
-    fn agent_command(name: &str, hint: Option<&str>) -> steer::frames::ConfigCommand {
-        steer::frames::ConfigCommand {
-            hint: hint.map(str::to_string),
-            ..steer::frames::ConfigCommand::new(name, "an agent command")
+    fn accepting_adds_a_trailing_space_when_there_is_an_argument() {
+        for (name, hint) in [("compact", "instructions"), ("model", "model"), ("effort", "level")] {
+            let row = menu_matches(&format!("/{name}"), SessionAgent::Claude).remove(0);
+            assert_eq!(row.arg_hint, hint);
+            assert!(!row.confirm);
+            assert_eq!(insertion(&row), format!("/{name} "));
         }
+        let bare = MenuCommand {
+            name: "bare".into(),
+            description: String::new(),
+            arg_hint: String::new(),
+            confirm: false,
+        };
+        assert_eq!(insertion(&bare), "/bare");
     }
 
+    /// NEW-2: `/effort <level>` is a configure, never a message; `/model`
+    /// and anything else is not.
     #[test]
-    fn contract_rows_come_first() {
-        assert_eq!(
-            agent_names(
-                "/",
-                SessionAgent::Claude,
-                &[agent_command("agents", None), agent_command("review", None)]
-            ),
-            vec!["compact", "clear", "btw", "agents", "review"]
-        );
-        // The prefix filter applies to the whole union, not just the contract
-        // half.
-        assert_eq!(
-            agent_names("/a", SessionAgent::Claude, &[agent_command("agents", None)]),
-            vec!["agents"]
-        );
+    fn effort_carries_its_level() {
+        assert_eq!(effort_level("/effort High", SessionAgent::Claude).as_deref(), Some("high"));
+        assert_eq!(effort_level(" /EFFORT  low ", SessionAgent::Codex).as_deref(), Some("low"));
+        assert_eq!(effort_level("/effort", SessionAgent::Claude), None);
+        assert_eq!(effort_level("/effort very high", SessionAgent::Claude), None);
+        assert_eq!(effort_level("/model opus", SessionAgent::Claude), None);
+        assert_eq!(effort_level("effort high", SessionAgent::Claude), None);
     }
 
+    /// An external ACP agent has no contract catalog at all, and NEW-2
+    /// never merges the agent's own commands: its menu is empty.
     #[test]
-    fn an_agent_command_that_shadows_a_contract_name_is_dropped() {
-        let rows = menu_matches_with(
-            "/",
-            SessionAgent::Claude,
-            &[
-                agent_command("COMPACT", Some("only what matters")),
-                agent_command("  ", None),
-            ],
-        );
-        assert_eq!(
-            rows.iter().map(|row| row.name.as_str()).collect::<Vec<_>>(),
-            vec!["compact", "clear", "btw"]
-        );
-        // …and the CONTRACT row survives whole: its hint and its confirm are
-        // what the publisher acts on.
-        assert_eq!(rows[0].arg_hint, "instructions");
-    }
-
-    #[test]
-    fn the_union_respects_the_menu_limit() {
-        let extra: Vec<steer::frames::ConfigCommand> = (0..20)
-            .map(|n| agent_command(&format!("cmd{n}"), None))
-            .collect();
-        assert_eq!(
-            menu_matches_with("/", SessionAgent::Claude, &extra).len(),
-            MENU_LIMIT
-        );
-    }
-
-    /// An external ACP agent has no contract catalog at all (`agent_id`
-    /// returns an id `steerCommands` cannot name) — its menu is exactly what
-    /// the agent advertised.
-    #[test]
-    fn an_external_agent_offers_only_its_own_commands() {
+    fn an_external_agent_offers_nothing() {
         assert!(names("/", SessionAgent::External).is_empty());
-        assert_eq!(
-            agent_names("/", SessionAgent::External, &[agent_command("review", None)]),
-            vec!["review"]
-        );
     }
 
     /// The two chip strings, spelled out where the ×4 mirror can see them.
@@ -351,35 +257,18 @@ mod tests {
         // EXP-849: a retired agent id reads like any other unknown one.
         assert_eq!(agent_from_id(Some(" pi "), false), SessionAgent::Claude);
         assert_eq!(agent_from_id(Some("claude"), false), SessionAgent::Claude);
-        assert_eq!(
-            agent_from_id(Some("something-else"), false),
-            SessionAgent::Claude
-        );
+        assert_eq!(agent_from_id(Some("something-else"), false), SessionAgent::Claude);
     }
 
-    /// EXP-746, mirrored ×4 under this name (web `steerAgentId`, iOS
-    /// `testAnAgentLessAcpRunIsAnExternalAgent`, Android
-    /// `an agent-less acp run is an external agent`): a REMOTE viewer cannot
-    /// ask the run what it is, so an agent-less row that published a
-    /// `config_state` is the external agent it must be — otherwise the menu
-    /// offered claude's `/clear`, confirm dialog and all, and the text
-    /// reached the agent as an ordinary prompt.
+    /// EXP-746, mirrored ×4: an agent-less row that published a
+    /// `config_state` is the external agent it must be.
     #[test]
     fn an_agent_less_acp_run_is_an_external_agent() {
         assert_eq!(agent_from_id(None, true), SessionAgent::External);
         assert_eq!(agent_from_id(Some("  "), true), SessionAgent::External);
         // A named agent keeps its own catalog on the ACP path.
         assert_eq!(agent_from_id(Some("codex"), true), SessionAgent::Codex);
-        // ...and the menu it leaves is the agent's own commands, nothing else.
         assert!(names("/", agent_from_id(None, true)).is_empty());
-        assert_eq!(
-            agent_names(
-                "/",
-                agent_from_id(None, true),
-                &[agent_command("review", None)]
-            ),
-            vec!["review"]
-        );
     }
 
     #[test]

@@ -519,37 +519,60 @@
       ]
     },
     {
-      "name": "actions_list: the builtins ride along as members",
-      "tool": "exponential_actions_list",
+      "name": "prompts_list: the rows as the router lists them",
+      "tool": "exponential_prompts_list",
       "result": [
         {
-          "id": "a-1",
+          "id": "p-1",
           "teamId": "t-1",
-          "name": "Release all",
-          "builtin": false
+          "name": "Release all"
         },
         {
-          "id": "builtin:create-action",
-          "name": "Create action",
-          "builtin": true
+          "id": "p-2",
+          "teamId": "t-1",
+          "name": "Review PR"
         }
       ],
       "refs": [
         {
           "kind": "list",
-          "id": "action",
-          "title": "actions",
+          "id": "prompt",
+          "title": "prompts",
           "count": 2
         },
         {
-          "kind": "action",
-          "id": "a-1",
+          "kind": "prompt",
+          "id": "p-1",
           "title": "Release all"
         },
         {
-          "kind": "action",
-          "id": "builtin:create-action",
-          "title": "Create action"
+          "kind": "prompt",
+          "id": "p-2",
+          "title": "Review PR"
+        }
+      ]
+    },
+    {
+      "name": "agents_list: one ref per agent",
+      "tool": "exponential_agents_list",
+      "result": [
+        {
+          "id": "ag-1",
+          "teamId": "t-1",
+          "name": "Triage"
+        }
+      ],
+      "refs": [
+        {
+          "kind": "list",
+          "id": "agent",
+          "title": "agents",
+          "count": 1
+        },
+        {
+          "kind": "agent",
+          "id": "ag-1",
+          "title": "Triage"
         }
       ]
     },
@@ -819,11 +842,12 @@
       ]
     },
     {
-      "name": "actions_delete: nothing to preview",
-      "tool": "exponential_actions_delete",
+      "name": "events_emit: nothing to preview",
+      "tool": "exponential_events_emit",
       "result": {
-        "ok": true,
-        "id": "a-1"
+        "id": "ev-1",
+        "name": "ui-changed",
+        "createdAt": "2026-10-21T09:00:00.000Z"
       },
       "refs": []
     },

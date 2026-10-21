@@ -9,6 +9,7 @@ import {
   sessionCollection,
   sessionIssueCollection,
   sessionReadsCollection,
+  agentCollection,
 } from "@/lib/collections"
 import { sessionTitles } from "@exp/domain-contract/session-title"
 import { useNow } from "@/hooks/use-now"
@@ -16,6 +17,7 @@ import { teamScopeIds } from "@/lib/team-scope"
 import {
   buildSessionThread,
   listAgents,
+  type AgentLike,
   partitionThreads,
   sessionCard,
   toTreeIssue,
@@ -233,13 +235,33 @@ export function useThreadsList(teamId: string | readonly string[] | null | undef
   }, [tree, context, isReady, reads])
 }
 
-/** The rail's Agents section: the team's agent roots, like boards. */
-export function useAgents(teamId: string | readonly string[] | null | undefined): {
+/** NEW-2: the rail's Agents section: the team's `agents` definitions, like
+ *  boards; busy / needs-you from the viewer's own conversation with each. */
+export function useAgents(
+  teamId: string | readonly string[] | null | undefined,
+  me: string | null | undefined
+): {
   agents: AgentRow[]
   isReady: boolean
 } {
+  const teamIds = teamScopeIds(teamId ?? undefined)
+  const key = teamIds.join(`,`)
+  const { data: agentRows, isReady: agentsReady } = useLiveQuery(
+    (query) =>
+      teamIds.length > 0
+        ? query.from({ agents: agentCollection }).where(({ agents }) => inArray(agents.teamId, teamIds))
+        : undefined,
+    [key]
+  )
   const { tree, isReady } = useTeamSessions(teamId)
-  return useMemo(() => ({ agents: listAgents(tree, null), isReady }), [tree, isReady])
+  return useMemo(
+    () => ({
+      agents: listAgents((agentRows ?? []) as AgentLike[], tree, null, me ?? null),
+      isReady: isReady && (teamIds.length === 0 || agentsReady),
+    }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [agentRows, tree, isReady, agentsReady, key, me]
+  )
 }
 
 /** One synced session row (any node of any tree). */

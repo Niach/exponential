@@ -4,6 +4,7 @@ import { SkeletonRows, useIsMobile } from "@exp/ui"
 import { ThreadsListView, useTeamPullRequestsByRoot } from "@/components/thread/threads-list"
 import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
 import { useAgents, useTeamSessions, useThreadsList } from "@/hooks/use-session-tree"
+import { useSession } from "@/hooks/use-session"
 import { useTeamBySlug } from "@/hooks/use-team-data"
 import { pageTitle } from "@/lib/page-title"
 import { THREADS_LIST_COPY } from "@/lib/session-tree"
@@ -35,7 +36,8 @@ function ThreadsPage() {
   const team = useTeamBySlug(teamSlug)
   const { groups, isReady } = useThreadsList(team?.id)
   const { rows } = useTeamSessions(team?.id)
-  const { agents } = useAgents(isMobile ? team?.id : undefined)
+  const { data: authSession } = useSession()
+  const { agents } = useAgents(isMobile ? team?.id : undefined, authSession?.user?.id)
   const prs = useTeamPullRequestsByRoot(team?.id)
   // EXP-1323: every session's mark (live trees nest their children).
   const cliByRoot = useMemo(() => new Map(rows.map((row) => [row.id, row.cli])), [rows])

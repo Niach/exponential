@@ -30,7 +30,7 @@ import type { LaunchSeed } from "@/lib/launch-seed"
 // EXP-825 had made every play button a navigation to the Agent page with the
 // subject in the search params. That lost the context the person was in, and
 // the composer it landed on looked like a prompt box with a badge: the whole
-// point (your action is loaded, press send) was the smallest thing on screen.
+// point (your issues are loaded, press send) was the smallest thing on screen.
 // A subject-carrying start opens this dialog instead (`use-open-composer.ts`
 // decides; a subjectless chat still gets the Agent page, which is where a
 // chat belongs).
@@ -99,12 +99,7 @@ export function LaunchDialogHost({ team }: { team: Team | null | undefined }) {
 
 /** One mount per opening — the seed IS the identity of a launch. */
 function seedKey(seed: LaunchSeed): string {
-  return [
-    seed.actionId ?? ``,
-    seed.issueIds.join(`,`),
-    seed.prIssueId ?? ``,
-    seed.deviceId ?? ``,
-  ].join(`|`)
+  return [seed.issueIds.join(`,`), seed.deviceId ?? ``].join(`|`)
 }
 
 function LaunchDialogBody({
@@ -167,7 +162,7 @@ function LaunchDialogBody({
       <DialogHeader>
         {/* The VISIBLE headline is the composer's own (chips and all); the
             dialog's accessible name is the same line as plain text, so a
-            screen reader hears "Run <action>" rather than a generic
+            screen reader hears "Implement <issues>" rather than a generic
             title. */}
         <DialogTitle className="sr-only">
           {model.subject === null

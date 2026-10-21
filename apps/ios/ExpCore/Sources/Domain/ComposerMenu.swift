@@ -10,7 +10,6 @@ import Foundation
 public enum ComposerMenu {
     public enum RowId: String, Equatable, Sendable, CaseIterable {
         case implementIssue = "implement-issue"
-        case runAction = "run-action"
         case addFile = "add-file"
         case effort
         case subagents
@@ -31,7 +30,7 @@ public enum ComposerMenu {
         public var subagentModel: Bool
         /// The picked agent supports ultracode (claude).
         public var ultracode: Bool
-        /// The team has an MCP server and the subject does not own its list.
+        /// The team has at least one MCP server.
         public var mcp: Bool
         /// The picked device advertises `computerUseRunCap`.
         public var computerUse: Bool
@@ -67,7 +66,6 @@ public enum ComposerMenu {
 
     private static let rows: [(Row?, When?)] = [
         (Row(id: .implementIssue, kind: .submenu, label: "Implement issue", codexLabel: nil, icon: "editor-issue-ref"), nil),
-        (Row(id: .runAction, kind: .submenu, label: "Run action", codexLabel: nil, icon: "action-run"), nil),
         (Row(id: .addFile, kind: .item, label: "Add file or image", codexLabel: nil, icon: "ui-attach"), nil),
         (nil, nil),
         (Row(id: .effort, kind: .submenu, label: "Effort", codexLabel: "Reasoning", icon: "ui-estimate"), nil),
@@ -84,8 +82,8 @@ public enum ComposerMenu {
     /// SLOP-28: the submenu pages' search input (the shared search list).
     public static let submenuSearchTestId = "agent-composer-submenu-search"
     public static let plusLabel = "Add"
-    /// SLOP-28 (EXP-1259 D5): Implement issue and Run action are the SAME
-    /// search list (`SearchList`): one row height, at most this many visible
+    /// SLOP-28 (EXP-1259 D5): Implement issue is the shared search list
+    /// (`SearchList`): one row height, at most this many visible
     /// on a pointer (phones push them as pages of 44pt rows).
     public static let submenuRowHeight: Double = 32
     public static let submenuMaxRows = 8

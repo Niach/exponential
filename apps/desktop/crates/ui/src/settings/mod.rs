@@ -430,14 +430,14 @@ fn valid_board_ids(
     )
 }
 
-/// EXP-1294: [`valid_board_ids`]' twin for a selected `Agent(id)`: the
-/// synced agent roots of the active team, `None` while the sessions
+/// EXP-1294: [`valid_board_ids`]' twin for a selected `Agent(id)`: NEW-2:
+/// the synced agent DEFINITIONS of the active team, `None` while the agents
 /// collection is still loading.
 fn valid_agent_ids(
     cx: &App,
     nav: &Entity<Navigation>,
 ) -> Option<std::collections::HashSet<String>> {
-    if !Store::global(cx).collections().sessions.read(cx).is_ready() {
+    if !Store::global(cx).collections().agents.read(cx).is_ready() {
         return None;
     }
     let Some(team_id) = active_team_id(nav, cx) else {
@@ -446,7 +446,7 @@ fn valid_agent_ids(
     Some(
         crate::session_data::agents_in_team(&team_id, cx)
             .into_iter()
-            .map(|agent| agent.session_id)
+            .map(|agent| agent.agent_id)
             .collect(),
     )
 }
@@ -461,7 +461,7 @@ fn first_agent_resolved(
     match selected {
         SettingsSection::Agent(id) if id.is_empty() => active_team_id(nav, cx)
             .and_then(|team_id| crate::session_data::agents_in_team(&team_id, cx).into_iter().next())
-            .map(|agent| SettingsSection::Agent(agent.session_id))
+            .map(|agent| SettingsSection::Agent(agent.agent_id))
             .unwrap_or(SettingsSection::Agent(id)),
         other => other,
     }
@@ -605,6 +605,7 @@ impl SettingsView {
             cx.observe(&collections.boards, |_, _, cx| cx.notify()),
             // EXP-1294: … and a deleted agent a selected `Agent(id)`.
             cx.observe(&collections.sessions, |_, _, cx| cx.notify()),
+            cx.observe(&collections.agents, |_, _, cx| cx.notify()),
         ];
 
         Self {
@@ -849,6 +850,7 @@ impl SettingsNavPanel {
             cx.observe(&collections.boards, |_, _, cx| cx.notify()),
             // EXP-1294: the Agents group lists the live agent roots.
             cx.observe(&collections.sessions, |_, _, cx| cx.notify()),
+            cx.observe(&collections.agents, |_, _, cx| cx.notify()),
         ];
         Self {
             nav,
@@ -963,11 +965,11 @@ impl Render for SettingsNavPanel {
             list = list.child(Self::group_label(group.label, cx));
             if agent_group {
                 for agent in &agents {
-                    let section = SettingsSection::Agent(agent.session_id.clone());
+                    let section = SettingsSection::Agent(agent.agent_id.clone());
                     let selected = section == effective;
                     list = list.child(
                         Self::row(
-                            SharedString::from(format!("settings-nav-agent-{}", agent.session_id)),
+                            SharedString::from(format!("settings-nav-agent-{}", agent.agent_id)),
                             agent.name.clone(),
                             Some(crate::icons::agent_row_icon(agent)),
                             selected,

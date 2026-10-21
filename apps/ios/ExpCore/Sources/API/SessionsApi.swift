@@ -1,9 +1,9 @@
 import Foundation
 
 // Mirrors apps/web/src/lib/trpc/sessions.ts (EXP-1291 Threads v2). A thread
-// IS a root session, a team agent a root of kind `agent`, children are
-// sub-sessions — and ONE entrypoint starts and messages them all:
-// `sessions.send`. The database is the bus: a new session is a `queued` row
+// IS a root session, children are sub-sessions, and (NEW-2) a team agent is
+// a definition (`AgentsApi`) whose conversations are roots with `agent_id` —
+// and ONE entrypoint starts and messages them all: `sessions.send`. The database is the bus: a new session is a `queued` row
 // naming its device, a message a `messages` row; both land here over the
 // shapes. Every write answers with a `txid` the client never needs, so it is
 // not decoded. The `pullRequests` router (merge/close/files) lives at the
@@ -51,36 +51,12 @@ public struct SessionLaunchOptions: Sendable, Equatable {
     }
 }
 
-/// A new team agent's facets (Settings → Agents). `icon` is a board-pickable
-/// icon name, `color` a `#rrggbb` hex.
-public struct AgentFacetsInput: Encodable, Sendable, Equatable {
-    public var name: String
-    public var icon: String
-    public var color: String
-    public var instructions: String
-    public var triggers: [AgentTriggerInput]
-
-    public init(
-        name: String,
-        icon: String,
-        color: String,
-        instructions: String = "",
-        triggers: [AgentTriggerInput] = []
-    ) {
-        self.name = name
-        self.icon = icon
-        self.color = color
-        self.instructions = instructions
-        self.triggers = triggers
-    }
-}
-
 /// The four forms of `sessions.send`. `teamId` is the ACTIVE team (phones:
 /// the current board's team).
 public enum SessionsSendInput: Sendable, Equatable {
-    /// A new THREAD root: the composer, Start on an issue (`issueIds`), an
-    /// action run (`actionId` + `inputs` = picked ids by input key). Needs
-    /// `text`, `issueIds` or an `actionId`.
+    /// A new THREAD root: the composer, Start on an issue (`issueIds`), a
+    /// saved prompt run (NEW-2 `promptId`: its body plus `text` = the first
+    /// message). Needs `text`, `issueIds` or a `promptId`.
     case newThread(
         teamId: String,
         deviceId: String,
@@ -88,17 +64,13 @@ public enum SessionsSendInput: Sendable, Equatable {
         text: String? = nil,
         attachmentIds: [String]? = nil,
         issueIds: [String]? = nil,
-        actionId: String? = nil,
-        inputs: [String: String]? = nil,
+        promptId: String? = nil,
         repositoryId: String? = nil
     )
-    /// A new team AGENT root (Settings → Agents create).
-    case newAgent(
-        teamId: String,
-        deviceId: String,
-        options: SessionLaunchOptions = SessionLaunchOptions(),
-        agent: AgentFacetsInput
-    )
+    /// NEW-2: a message to a team AGENT — into the caller's own conversation
+    /// session with it (created on first use; it runs on the agent's own
+    /// device, so no runner picks). Needs text or files.
+    case agent(agentId: String, text: String? = nil, attachmentIds: [String]? = nil)
     /// A CHILD session of `parentId` on any device.
     case child(
         parentId: String,
@@ -129,7 +101,7 @@ extension SessionsSendInput: Encodable {
     private enum Keys: String, CodingKey {
         case teamId, sessionId, parentId, deviceId
         case cli, account, model, effort, planMode, computerUse, ultracode, mcpServerIds
-        case text, attachmentIds, issueIds, actionId, inputs, repositoryId, agent, aside
+        case text, attachmentIds, issueIds, promptId, repositoryId, agentId, aside
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -145,21 +117,19 @@ extension SessionsSendInput: Encodable {
             try c.encodeIfPresent(options.mcpServerIds, forKey: .mcpServerIds)
         }
         switch self {
-        case let .newThread(teamId, deviceId, options, text, attachmentIds, issueIds, actionId, inputs, repositoryId):
+        case let .newThread(teamId, deviceId, options, text, attachmentIds, issueIds, promptId, repositoryId):
             try c.encode(teamId, forKey: .teamId)
             try c.encode(deviceId, forKey: .deviceId)
             try encodeOptions(options)
             try c.encodeIfPresent(text, forKey: .text)
             try c.encodeIfPresent(attachmentIds, forKey: .attachmentIds)
             try c.encodeIfPresent(issueIds, forKey: .issueIds)
-            try c.encodeIfPresent(actionId, forKey: .actionId)
-            try c.encodeIfPresent(inputs, forKey: .inputs)
+            try c.encodeIfPresent(promptId, forKey: .promptId)
             try c.encodeIfPresent(repositoryId, forKey: .repositoryId)
-        case let .newAgent(teamId, deviceId, options, agent):
-            try c.encode(teamId, forKey: .teamId)
-            try c.encode(deviceId, forKey: .deviceId)
-            try encodeOptions(options)
-            try c.encode(agent, forKey: .agent)
+        case let .agent(agentId, text, attachmentIds):
+            try c.encode(agentId, forKey: .agentId)
+            try c.encodeIfPresent(text, forKey: .text)
+            try c.encodeIfPresent(attachmentIds, forKey: .attachmentIds)
         case let .child(parentId, deviceId, options, text):
             try c.encode(parentId, forKey: .parentId)
             try c.encode(deviceId, forKey: .deviceId)
@@ -244,92 +214,6 @@ extension CardJSON: Encodable {
         case let .array(values): try container.encode(values)
         case let .object(values): try container.encode(values)
         }
-    }
-}
-
-/// A partial `sessions.updateAgent` (owner-gated). An OMITTED field (nil)
-/// keeps the row's value; `account` / `model` are clearable, so `.some(nil)`
-/// sends an explicit null ("the device's last used login" / "the CLI
-/// default"). `triggers` is the WHOLE array or nothing.
-public struct AgentPatch: Sendable, Equatable {
-    public var name: String?
-    public var icon: String?
-    public var color: String?
-    public var instructions: String?
-    public var triggers: [AgentTriggerInput]?
-    public var deviceId: String?
-    public var account: String??
-    public var model: String??
-    public var sortOrder: Double?
-
-    public init(
-        name: String? = nil,
-        icon: String? = nil,
-        color: String? = nil,
-        instructions: String? = nil,
-        triggers: [AgentTriggerInput]? = nil,
-        deviceId: String? = nil,
-        account: String?? = nil,
-        model: String?? = nil,
-        sortOrder: Double? = nil
-    ) {
-        self.name = name
-        self.icon = icon
-        self.color = color
-        self.instructions = instructions
-        self.triggers = triggers
-        self.deviceId = deviceId
-        self.account = account
-        self.model = model
-        self.sortOrder = sortOrder
-    }
-
-    /// Nothing changed — no id-only mutation.
-    public var isEmpty: Bool {
-        name == nil && icon == nil && color == nil && instructions == nil && triggers == nil
-            && deviceId == nil && account == nil && model == nil && sortOrder == nil
-    }
-}
-
-/// Internal (not private) so the wire test can pin omit-vs-null per field.
-struct UpdateAgentInput: Encodable {
-    let sessionId: String
-    let patch: AgentPatch
-
-    enum CodingKeys: String, CodingKey {
-        case sessionId, name, icon, color, instructions, triggers, deviceId, account, model, sortOrder
-    }
-
-    func encode(to encoder: Encoder) throws {
-        var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encode(sessionId, forKey: .sessionId)
-        try c.encodeIfPresent(patch.name, forKey: .name)
-        try c.encodeIfPresent(patch.icon, forKey: .icon)
-        try c.encodeIfPresent(patch.color, forKey: .color)
-        try c.encodeIfPresent(patch.instructions, forKey: .instructions)
-        // The whole array, an EMPTY one included ("no triggers left").
-        try c.encodeIfPresent(patch.triggers, forKey: .triggers)
-        try c.encodeIfPresent(patch.deviceId, forKey: .deviceId)
-        // The unwrapped inner optional is encoded even when nil — an explicit
-        // null is what clears the field server-side.
-        if let account = patch.account {
-            try c.encode(account, forKey: .account)
-        }
-        if let model = patch.model {
-            try c.encode(model, forKey: .model)
-        }
-        try c.encodeIfPresent(patch.sortOrder, forKey: .sortOrder)
-    }
-}
-
-/// `sessions.getAgent`: the agent row's server-only facets.
-public struct AgentDetails: Decodable, Sendable, Equatable {
-    public let sessionId: String
-    public let instructions: String
-
-    public init(sessionId: String, instructions: String) {
-        self.sessionId = sessionId
-        self.instructions = instructions
     }
 }
 
@@ -426,8 +310,8 @@ public final class SessionsApi: Sendable {
         self.trpc = trpc
     }
 
-    /// THE entrypoint: start a thread, an agent or a child, or message a
-    /// session. A refusal throws `TrpcError.httpError`, whose description is
+    /// THE entrypoint: start a thread or a child, or message a session or an
+    /// agent. A refusal throws `TrpcError.httpError`, whose description is
     /// the server's message.
     @discardableResult
     public func send(accountId: String, _ input: SessionsSendInput) async throws -> SessionsSendResult {
@@ -579,27 +463,6 @@ public final class SessionsApi: Sendable {
             accountId: accountId,
             path: "sessions.fileSuggestion",
             input: SuggestionItemInput(messageId: messageId, itemId: itemId)
-        )
-    }
-
-    /// The agent's server-only instructions, for its settings page.
-    public func getAgent(accountId: String, sessionId: String) async throws -> AgentDetails {
-        try await trpc.query(
-            accountId: accountId, path: "sessions.getAgent", input: SessionIdInput(sessionId: sessionId)
-        )
-    }
-
-    public func updateAgent(accountId: String, sessionId: String, patch: AgentPatch) async throws {
-        try await trpc.mutationVoid(
-            accountId: accountId,
-            path: "sessions.updateAgent",
-            input: UpdateAgentInput(sessionId: sessionId, patch: patch)
-        )
-    }
-
-    public func deleteAgent(accountId: String, sessionId: String) async throws {
-        try await trpc.mutationVoid(
-            accountId: accountId, path: "sessions.deleteAgent", input: SessionIdInput(sessionId: sessionId)
         )
     }
 }

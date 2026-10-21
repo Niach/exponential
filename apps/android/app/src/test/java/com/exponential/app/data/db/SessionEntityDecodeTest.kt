@@ -27,4 +27,21 @@ class SessionEntityDecodeTest {
         val older = json.decodeFromString(SessionEntity.serializer(), """{"id":"s-2"}""")
         assertFalse(older.dispatch)
     }
+
+    /** NEW-2: `agent_id` = the agent whose conversation the root is; the kind
+     *  derives from it ([com.exponential.app.domain.SessionKind.sessionKindOf]). */
+    @Test
+    fun `agent_id decodes and drives isAgent, absent = a thread`() {
+        val conversation = json.decodeFromString(
+            SessionEntity.serializer(),
+            """{"id":"s-1","root_id":"s-1","kind":"agent","agent_id":"ag-1"}""",
+        )
+        assertTrue(conversation.isAgent)
+        org.junit.Assert.assertEquals("ag-1", conversation.agentId)
+        // The legacy `kind` shim alone never makes an agent.
+        val legacy = json.decodeFromString(SessionEntity.serializer(), """{"id":"s-2","kind":"agent"}""")
+        assertFalse(legacy.isAgent)
+        val camel = json.decodeFromString(SessionEntity.serializer(), """{"id":"s-3","agentId":"ag-2"}""")
+        org.junit.Assert.assertEquals("ag-2", camel.agentId)
+    }
 }

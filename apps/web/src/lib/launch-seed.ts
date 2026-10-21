@@ -6,12 +6,7 @@
 
 export interface LaunchSeed {
   issueIds: string[]
-  /** An action id — wins over `issueIds` when both arrive. */
-  actionId?: string
   deviceId?: string
-  /** The pull request (or any issue it closes) a `pr` input should open
-   *  pre-picked on. */
-  prIssueId?: string
   /** Text inserted into an EMPTY draft (a suggestion's description). */
   text?: string
 }
@@ -19,8 +14,6 @@ export interface LaunchSeed {
 /** The route's validated search params (all optional strings). */
 export interface AgentSearch {
   issues?: string
-  action?: string
-  pr?: string
   device?: string
   text?: string
 }
@@ -28,11 +21,12 @@ export interface AgentSearch {
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
-/** EXP-1019: the seed carries a SUBJECT — issues or an action. That is the
+/** EXP-1019: the seed carries a SUBJECT — issues (NEW-2: prompts are picked
+ *  in the composer's `/` menu, never seeded). That is the
  *  one thing that decides whether a start opens the launcher as a DIALOG
  *  (`use-open-composer.ts`) or travels to the Agent page as a plain chat. */
 export function seedHasSubject(seed: Partial<LaunchSeed>): boolean {
-  return (seed.issueIds?.length ?? 0) > 0 || Boolean(seed.actionId)
+  return (seed.issueIds?.length ?? 0) > 0
 }
 
 /** The search params as a seed, or null when none of them is set. Bad
@@ -45,16 +39,12 @@ export function seedFromSearch(search: AgentSearch): LaunchSeed | null {
     .filter((id) => UUID_RE.test(id))
   const seed: LaunchSeed = {
     issueIds,
-    actionId: search.action || undefined,
     deviceId: search.device || undefined,
-    prIssueId: search.pr && UUID_RE.test(search.pr) ? search.pr : undefined,
     text: search.text || undefined,
   }
   const empty =
     seed.issueIds.length === 0 &&
-    !seed.actionId &&
     !seed.deviceId &&
-    !seed.prIssueId &&
     !seed.text
   return empty ? null : seed
 }
@@ -64,8 +54,6 @@ export function seedFromSearch(search: AgentSearch): LaunchSeed | null {
 export function searchFromSeed(seed: Partial<LaunchSeed>): AgentSearch {
   const out: AgentSearch = {}
   if (seed.issueIds && seed.issueIds.length > 0) out.issues = seed.issueIds.join(`,`)
-  if (seed.actionId) out.action = seed.actionId
-  if (seed.prIssueId) out.pr = seed.prIssueId
   if (seed.deviceId) out.device = seed.deviceId
   if (seed.text) out.text = seed.text
   return out

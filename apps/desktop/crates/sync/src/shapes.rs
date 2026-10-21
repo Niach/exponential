@@ -1,4 +1,4 @@
-//! The 26 synced shapes (masterplan-v3 §5.9) — the registry the `SyncManager`
+//! The 29 synced shapes (masterplan-v3 §5.9) — the registry the `SyncManager`
 //! iterates and the store builds its schema from. gpui-free.
 //!
 //! Each [`ShapeSpec`] carries the SQLite table name, the kebab-case proxy URL
@@ -80,11 +80,11 @@ impl ShapeSpec {
     }
 }
 
-/// The 26 shapes, in §5.9 order. Column sets mirror `packages/db-schema`
+/// The 29 shapes, in §5.9 order. Column sets mirror `packages/db-schema`
 /// (minus the §5.4 exclusions: no `email` on `issue_subscribers`, web-only
 /// billing fields dropped from `users`, no `body` on `actions`, no scoping
 /// mirrors on `device_worktrees`).
-pub const SHAPES: [ShapeSpec; 26] = [
+pub const SHAPES: [ShapeSpec; 29] = [
     ShapeSpec {
         name: "teams",
         path: "/api/shapes/teams",
@@ -388,7 +388,7 @@ pub const SHAPES: [ShapeSpec; 26] = [
         // EXP-1294 (Threads v2): THE session tree (roots `thread` | `agent`,
         // children under a root). Byte-matches the proxy's allowlist; the
         // server-only `host_user_id`, `mcp_server_ids` and `instructions`
-        // never sync (agent instructions come from `sessions.getAgent`).
+        // never sync (NEW-2: agent instructions come from `agents.get`).
         columns: &[
             "id",
             "team_id",
@@ -396,6 +396,9 @@ pub const SHAPES: [ShapeSpec; 26] = [
             "root_id",
             "depth",
             "kind",
+            // NEW-2: the agent definition a conversation session runs (the
+            // kind derives from it; `kind` stays a legacy read shim).
+            "agent_id",
             "user_id",
             "device_id",
             "cli",
@@ -530,10 +533,9 @@ pub const SHAPES: [ShapeSpec; 26] = [
     ShapeSpec {
         name: "actions",
         path: "/api/shapes/actions",
-        // MUST NOT declare a `body` column (EXP-268): the proxy's columns
-        // allowlist excludes the ≤64KB prompt from sync — runs and editors
-        // fetch it fresh via tRPC `actions.get`. `inputs` is the typed
-        // input-schema JSON array (stored as TEXT like issue_events.payload).
+        // NEW-2: an EMPTY read shim (prompts replaced actions; NEW-8 drops
+        // it). MUST NOT declare a `body` column (EXP-268). Byte-matches the
+        // proxy's allowlist.
         columns: &[
             "id",
             "team_id",
@@ -545,12 +547,6 @@ pub const SHAPES: [ShapeSpec; 26] = [
             "inputs",
             // EXP-825: the composer hint while the action is picked.
             "prompt_placeholder",
-            // EXP-1294: actions are saved prompts now (the server no longer
-            // syncs triggers); kept only while #EXP-1292's
-            // `coding::triggers::parse_action_triggers` still reads it, so
-            // it decodes as an absent column. `ShapeStore::open` drops the
-            // orphaned pre-SLOP-2 `automations` table (SLOP-17).
-            "triggers",
             "sort_order",
             "created_at",
             "updated_at",
@@ -740,6 +736,55 @@ pub const SHAPES: [ShapeSpec; 26] = [
         columns: &["id", "user_id", "session_id", "read_at", "created_at", "updated_at"],
         pk: PkKind::Id,
     },
+    ShapeSpec {
+        name: "agents",
+        path: "/api/shapes/agents",
+        // NEW-2: the team's agent DEFINITIONS. Byte-matches the proxy's
+        // allowlist (apps/web routes/api/shapes/agents.ts): `instructions`
+        // and `trigger_state` stay server-only (tRPC `agents.get`).
+        columns: &[
+            "id",
+            "team_id",
+            "name",
+            "icon",
+            "color",
+            "triggers",
+            "device_id",
+            "cli",
+            "account",
+            "model",
+            "owner_id",
+            "sort_order",
+            "created_at",
+            "updated_at",
+        ],
+        pk: PkKind::Id,
+    },
+    ShapeSpec {
+        name: "events",
+        path: "/api/shapes/events",
+        // NEW-2: the team's event stream (agent event triggers listen on
+        // `name`; the server fires them). Byte-matches the proxy.
+        columns: &[
+            "id",
+            "team_id",
+            "name",
+            "payload",
+            "emitted_by",
+            "session_id",
+            "user_id",
+            "created_at",
+        ],
+        pk: PkKind::Id,
+    },
+    ShapeSpec {
+        name: "prompts",
+        path: "/api/shapes/prompts",
+        // NEW-2: saved prompts (the composer's `/` menu). MUST NOT declare a
+        // `body` column: the body stays server-only (tRPC `prompts.get`).
+        columns: &["id", "team_id", "name", "icon", "sort_order", "created_at", "updated_at"],
+        pk: PkKind::Id,
+    },
 ];
 
 /// Look a shape up by its table name.
@@ -752,8 +797,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn registry_has_26_shapes_with_kebab_paths() {
-        assert_eq!(SHAPES.len(), 26);
+    fn registry_has_29_shapes_with_kebab_paths() {
+        assert_eq!(SHAPES.len(), 29);
         for spec in &SHAPES {
             assert!(spec.path.starts_with("/api/shapes/"), "{}", spec.name);
             assert!(!spec.path.contains('_'), "paths are kebab-case: {}", spec.path);
@@ -903,7 +948,33 @@ mod tests {
             assert!(!actions.columns.contains(&gone), "{gone} left the actions shape");
         }
         assert!(!actions.columns.contains(&"body"), "the prompt never syncs");
+        // NEW-2: the read shim byte-matches the proxy (no `triggers`).
+        assert_eq!(
+            actions.columns,
+            &["id", "team_id", "name", "icon", "inputs", "prompt_placeholder", "sort_order", "created_at", "updated_at"]
+        );
         assert!(shape_by_name("automations").is_none());
+    }
+
+    /// NEW-2: agents, events and prompts byte-match the proxies; the
+    /// server-only columns never sync.
+    #[test]
+    fn the_new2_shapes_match_the_proxies() {
+        assert_eq!(
+            shape_by_name("agents").unwrap().columns,
+            &["id", "team_id", "name", "icon", "color", "triggers", "device_id", "cli", "account", "model", "owner_id", "sort_order", "created_at", "updated_at"]
+        );
+        assert_eq!(
+            shape_by_name("events").unwrap().columns,
+            &["id", "team_id", "name", "payload", "emitted_by", "session_id", "user_id", "created_at"]
+        );
+        assert_eq!(
+            shape_by_name("prompts").unwrap().columns,
+            &["id", "team_id", "name", "icon", "sort_order", "created_at", "updated_at"]
+        );
+        let sessions = shape_by_name("sessions").unwrap();
+        let kind = sessions.columns.iter().position(|c| *c == "kind").unwrap();
+        assert_eq!(sessions.columns[kind + 1], "agent_id");
     }
 
     #[test]
@@ -1074,7 +1145,7 @@ mod tests {
     fn the_session_tree_shapes_match_the_proxies() {
         let sessions = shape_by_name("sessions").unwrap();
         assert_eq!(sessions.path, "/api/shapes/sessions");
-        assert_eq!(sessions.columns.len(), 43);
+        assert_eq!(sessions.columns.len(), 44);
         for column in [
             "parent_id", "root_id", "kind", "status", "busy", "needs_input", "shared", "guide", "triggers",
             // EXP-1323: the live status line + a `/btw` aside child.

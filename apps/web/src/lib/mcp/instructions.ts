@@ -38,11 +38,11 @@ export function mcpServerInstructions(gates: {
   const paragraphs = [
     // EXP-707 (theme D): status changes are AUTOMATIC — PR open/merge apply
     // the team's configured status automation; set one only when asked.
-    `Exponential is this team's issue tracker and agent layer: issues on boards; sessions (threads and team agents) with their PRs and Guide. In a coding session: exponential_issues_get, exponential_comments_list, implement, commit and push, exponential_guide_write, then exponential_pr_open. Status changes are automatic. Search for exponential_* tools for boards, members, attachments, actions, sessions, devices, repos and teams.`,
-    `exponential_sessions_send is the one session verb: sessionId messages a session, parentId starts a child, neither starts a thread. exponential_sessions_get (no id) reads your thread. Ping a person with @email in a message. PR tools take pullRequestId, issueId or repositoryId plus prNumber, default your session's newest open PR; merge a tree root first. Merging your own PR never ends your session.`,
+    `Exponential is this team's issue tracker and agent layer: issues on boards; sessions (threads, team agents) with their PRs and Guide. In a coding session: exponential_issues_get, exponential_comments_list, implement, commit and push, exponential_guide_write, then exponential_pr_open. Statuses move automatically. Search for exponential_* tools for boards, members, files, prompts, agents, events, sessions, devices, repos, teams.`,
+    `exponential_sessions_send is the one session verb: sessionId messages a session, agentId a team agent (your conversation), parentId starts a child, neither starts a thread. exponential_sessions_get (no id) reads your thread. Ping a person with @email in a message. PR tools take pullRequestId, issueId or repositoryId plus prNumber, default your session's newest open PR; merge a tree root first. Merging your own PR never ends it.`,
     // EXP-792: the one registry. An agent asked to "add the Linear MCP"
     // would otherwise write a repo .mcp.json the launcher never reads.
-    `Team MCP servers (Linear, Sentry...) live in exponential_mcp_servers_*, not a repo .mcp.json.`,
+    `Team MCP servers (Linear, Sentry…) live in exponential_mcp_servers_*, never a repo .mcp.json.`,
   ]
   if (gates.reportBug) {
     paragraphs.push(
@@ -51,12 +51,12 @@ export function mcpServerInstructions(gates: {
   }
   if (gates.inSession && gates.agent) {
     paragraphs.push(
-      `You are a team agent: you never end. Work arrives as messages and trigger firings; start threads for it with exponential_sessions_send and answer in your reply.`
+      `You are a team agent: you never end. Work arrives as messages, schedule ticks and events (exponential_events_emit posts one); start threads with exponential_sessions_send (they report back here); answer in your reply.`
     )
   }
   if (gates.inSession && !gates.agent && gates.unattended) {
     paragraphs.push(
-      `This session is unattended (another session started it). Finish with exponential_sessions_end LAST, worktree clean: its summary (finished, stopped for a human, or changed nothing) is your final message and your parent's report. Never wait or poll: end your turn, messages wake you (a child's reply, question, PR or end).`
+      `This session is unattended (another session started it). Finish with exponential_sessions_end LAST, worktree clean: its summary (finished, stopped for a human, or changed nothing) is your final message and your parent's report. Never wait or poll: end your turn, messages wake you (a child's reply, question, PR, end).`
     )
   }
   if (gates.inSession && !gates.agent && !gates.unattended) {

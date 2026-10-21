@@ -6,9 +6,6 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.TeamSelection
-import com.exponential.app.data.api.ActionDto
-import com.exponential.app.ui.components.toPickerIssue
-import com.exponential.app.data.api.ActionInputDto
 import com.exponential.app.data.api.IssueImagesApi
 import com.exponential.app.data.api.McpServersApi
 import com.exponential.app.domain.McpServerOption
@@ -30,7 +27,6 @@ import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.domain.AccountOption
 import com.exponential.app.domain.AccountOptions
-import com.exponential.app.domain.ActionInputValues
 import com.exponential.app.domain.AgentComposerPrompt
 import com.exponential.app.domain.AgentComposerSeed
 import com.exponential.app.domain.DomainContract
@@ -92,21 +88,17 @@ import com.exponential.app.domain.FeedbackStates
 // watch is the shared [SteerLaunchDelegate].
 
 /**
- * The composer field's placeholder — web `composerPlaceholder` byte for byte
- * (EXP-825): no subject asks for the message; a picked action with a
- * non-blank `promptPlaceholder` (trimmed) shows it; every other subject asks
- * for what is optional next to it. [selectedAction] is the PICKED action's
- * row (null while it has not synced); issue chips never read a hint.
+ * The composer field's placeholder — web `composerPlaceholder` byte for byte:
+ * no subject asks for the message; any subject (issue chips or, NEW-2, a
+ * picked prompt — prompts carry no composer hint any more) asks for what is
+ * optional next to it.
  */
 internal fun composerPlaceholder(
     subject: ComposerSubject?,
-    selectedAction: ActionDto?,
     /** EXP-1253: the Agent HOME asks composer-home.json's question instead. */
     home: Boolean = false,
 ): String {
     if (subject == null) return if (home) AgentHome.PLACEHOLDER else DomainContract.composerUiChatPlaceholder
-    val hint = selectedAction?.promptPlaceholder?.trim().orEmpty()
-    if (subject is ComposerSubject.Action && hint.isNotEmpty()) return hint
     return DomainContract.composerUiInstructionsPlaceholder
 }
 
@@ -114,15 +106,13 @@ internal fun composerPlaceholder(
 data class ComposerStarting(val deviceLabel: String, val sinceMs: Long)
 
 
-/** What the composer is about — issue chips OR one action chip, never both. */
+/** What the composer is about — issue chips OR one prompt chip, never both
+ *  (web `subject.kind` issues | prompt). */
 sealed interface ComposerSubject {
     data class Issues(val ids: List<String>) : ComposerSubject
 
-    /** [inputs] are the typed pick values keyed by def key; "" = cleared. */
-    data class Action(
-        val id: String,
-        val inputs: Map<String, String>,
-    ) : ComposerSubject
+    /** NEW-2: a saved prompt (`sessions.send({promptId})`); no inputs. */
+    data class Prompt(val id: String) : ComposerSubject
 }
 
 /**
@@ -296,31 +286,6 @@ class AgentComposerViewModel @Inject constructor(
         if (db == null || team == null) null else boards.any { it.teamId == team && it.deletedAt == null }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
-    /**
-     * EXP-1291: an action's `issue` input picks ONE issue of the team (any
-     * status), newest first, as shared issue-picker rows.
-     */
-    val inputIssues: StateFlow<List<com.exponential.app.ui.components.picker.IssuePickerIssue>> =
-        combine(allIssues, allBoards, teamId) { issues, boards, team ->
-            if (team == null) {
-                emptyList()
-            } else {
-                val teamBoardIds = boards.filter { it.teamId == team && it.deletedAt == null }.map { it.id }.toSet()
-                issues.filter { it.boardId in teamBoardIds }
-                    .sortedByDescending { it.createdAt }
-                    .map { it.toPickerIssue() }
-            }
-        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
-
-    /** EXP-323: the PR an action's `pr` input should open pre-picked on —
-     * consumed by the screen once the options pool resolves it. */
-    private val _pendingPrIssueId = MutableStateFlow<String?>(null)
-    val pendingPrIssueId: StateFlow<String?> = _pendingPrIssueId
-
-    fun consumePendingPr() {
-        _pendingPrIssueId.value = null
-    }
-
     // ── Draft ───────────────────────────────────────────────────────────────
     private val _draft = MutableStateFlow("")
     /** The text — the screen owns the caret (`TextFieldValue`), this the string. */
@@ -419,7 +384,6 @@ class AgentComposerViewModel @Inject constructor(
         _images.value = emptyList()
         _draft.value = ""
         _subject.value = null
-        _pendingPrIssueId.value = null
         reseedPlanMode()
     }
 
@@ -560,22 +524,16 @@ class AgentComposerViewModel @Inject constructor(
     // ── Seed ────────────────────────────────────────────────────────────────
 
     /**
-     * Apply a preselection: `action` wins over `issues` (no subject = a
-     * plain message); text lands only in an EMPTY draft; a `pr` seed waits
-     * for the options pool; a device seed is a PREFERENCE (sticky until the
-     * user picks).
+     * Apply a preselection: a prompt wins over `issues` (no subject = a
+     * plain message); text lands only in an EMPTY draft; a device seed is a
+     * PREFERENCE (sticky until the user picks).
      */
     fun applySeed(seed: AgentComposerSeed) {
-        val actionId = seed.actionId
-        if (actionId != null) {
-            _subject.value = ComposerSubject.Action(
-                actionId,
-                if (seed.icon.isNullOrEmpty()) emptyMap() else mapOf("icon" to seed.icon),
-            )
-            _pendingPrIssueId.value = seed.prIssueId
+        val promptId = seed.promptId
+        if (promptId != null) {
+            _subject.value = ComposerSubject.Prompt(promptId)
         } else if (seed.effectiveIssueIds.isNotEmpty()) {
             _subject.value = ComposerSubject.Issues(seed.effectiveIssueIds.distinct())
-            _pendingPrIssueId.value = null
         }
         seed.deviceId?.let { id -> _launch.value = _launch.value.copy(requestedDeviceId = id) }
         val text = seed.text
@@ -585,7 +543,7 @@ class AgentComposerViewModel @Inject constructor(
 
     // ── Subject actions ─────────────────────────────────────────────────────
 
-    /** Picking an issue while an action is the subject SWAPS (EXP-825). */
+    /** Picking an issue while a prompt is the subject SWAPS (EXP-825). */
     fun toggleIssue(issueId: String) {
         val current = _subject.value
         _subject.value = if (current !is ComposerSubject.Issues) {
@@ -594,33 +552,21 @@ class AgentComposerViewModel @Inject constructor(
             val ids = if (issueId in current.ids) current.ids - issueId else current.ids + issueId
             if (ids.isEmpty()) null else ComposerSubject.Issues(ids)
         }
-        _pendingPrIssueId.value = null
         steerLaunch.clearFailure()
         reseedPlanMode()
     }
 
-    fun pickAction(actionId: String) {
-        val current = _subject.value
-        // A different action has a different input schema — stale values
-        // must not leak into the new one's payload.
-        if (current !is ComposerSubject.Action || current.id != actionId) {
-            _subject.value = ComposerSubject.Action(actionId, emptyMap())
-        }
-        _pendingPrIssueId.value = null
+    /** NEW-2: pick a saved prompt as the subject (the `/` menu, NEW-7). */
+    fun pickPrompt(promptId: String) {
+        _subject.value = ComposerSubject.Prompt(promptId)
         steerLaunch.clearFailure()
         reseedPlanMode()
     }
 
-    fun clearAction() {
-        if (_subject.value is ComposerSubject.Action) _subject.value = null
-        _pendingPrIssueId.value = null
+    fun clearPrompt() {
+        if (_subject.value is ComposerSubject.Prompt) _subject.value = null
         steerLaunch.clearFailure()
         reseedPlanMode()
-    }
-
-    fun setInput(key: String, value: String) {
-        val current = _subject.value as? ComposerSubject.Action ?: return
-        _subject.value = current.copy(inputs = current.inputs + (key to value))
     }
 
     fun setDraft(text: String) {
@@ -832,7 +778,6 @@ class AgentComposerViewModel @Inject constructor(
     fun sendInput(
         teamId: String,
         deviceId: String,
-        action: ActionDto?,
         text: String?,
         attachmentIds: List<String>,
     ): SessionsSendInput {
@@ -845,10 +790,7 @@ class AgentComposerViewModel @Inject constructor(
             text = text,
             attachmentIds = attachmentIds,
             issueIds = (subject as? ComposerSubject.Issues)?.ids,
-            actionId = (subject as? ComposerSubject.Action)?.id,
-            inputs = (subject as? ComposerSubject.Action)?.let { picked ->
-                ActionInputValues.wireValues(action?.inputs.orEmpty(), picked.inputs)
-            },
+            promptId = (subject as? ComposerSubject.Prompt)?.id,
             // EXP-993: a chat (no subject) runs in the picked repo, never a
             // scratch dir by accident; a subject resolves its own repo.
             repositoryId = _chatRepoId.value.takeIf { subject == null && it.isNotEmpty() },
@@ -870,16 +812,13 @@ class AgentComposerViewModel @Inject constructor(
      * so a retry after a mid-batch failure only uploads the rest), compose
      * the text, then ONE `sessions.send` (a new thread root). The draft,
      * images and subject clear only once the send was ACCEPTED — a refused
-     * start keeps everything to retry. [action] is the resolved row for an
-     * action subject (null while its synced row is missing).
+     * start keeps everything to retry.
      */
-    fun submit(action: ActionDto?, @Suppress("UNUSED_PARAMETER") resumeOffered: Boolean = false) {
+    fun submit(@Suppress("UNUSED_PARAMETER") resumeOffered: Boolean = false) {
         if (_sending.value) return
         val target = device.value ?: return
         val teamId = teamId.value ?: return
         val accountId = auth.activeAccountId.value ?: return
-        val subject = _subject.value
-        if (subject is ComposerSubject.Action && action == null) return
         val label = target.deviceLabel.ifBlank { target.deviceId }
         viewModelScope.launch {
             _sending.value = true
@@ -919,7 +858,6 @@ class AgentComposerViewModel @Inject constructor(
                 val input = sendInput(
                     teamId = teamId,
                     deviceId = target.deviceId,
-                    action = action,
                     text = text,
                     attachmentIds = uploadedSet.mapNotNull { it.uploadedId },
                 )
@@ -930,12 +868,4 @@ class AgentComposerViewModel @Inject constructor(
             }
         }
     }
-
-    /** The run inputs the composer would send for [defs] right now. */
-    fun inputValues(): Map<String, String> =
-        (_subject.value as? ComposerSubject.Action)?.inputs.orEmpty()
-
-    /** Whether every required input of [defs] is filled. */
-    fun requiredInputsFilled(defs: List<ActionInputDto>): Boolean =
-        ActionInputValues.requiredFilled(defs, inputValues())
 }

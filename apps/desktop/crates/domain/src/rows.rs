@@ -678,9 +678,14 @@ pub struct SessionRow {
     pub root_id: Option<String>,
     #[serde(default, deserialize_with = "tolerant_opt_i64")]
     pub depth: Option<i64>,
-    /// Contract `sessionKind`: `thread` | `agent`.
+    /// Contract `sessionKind`: `thread` | `agent`. NEW-2: a never-trusted
+    /// legacy read shim; the kind derives from [`Self::agent_id`].
     #[serde(default)]
     pub kind: Option<String>,
+    /// NEW-2: the agent DEFINITION (`agents` row) this conversation session
+    /// runs; `None` = a thread.
+    #[serde(default)]
+    pub agent_id: Option<String>,
     /// The person who STARTED it (not necessarily the host's owner).
     #[serde(default)]
     pub user_id: Option<String>,
@@ -808,20 +813,21 @@ impl SessionRow {
         self.parent_id.as_deref().is_none_or(str::is_empty)
     }
 
-    /// An agent root (`kind = agent`).
+    /// NEW-2: the derived kind ([`crate::session_kind::session_kind_of`]).
+    pub fn session_kind(&self) -> &'static str {
+        crate::session_kind::session_kind_of(self.agent_id.as_deref())
+    }
+
+    /// An agent's conversation session (`agent_id` set; never the `kind`
+    /// shim).
     pub fn is_agent(&self) -> bool {
-        self.kind.as_deref() == Some(crate::contract::SESSION_KIND_AGENT)
+        self.session_kind() == crate::contract::SESSION_KIND_AGENT
     }
 
-    /// EXP-1341: a persistent session (an agent root): it idles instead of
-    /// ending and its device revives it ([`crate::session_kind`]).
+    /// EXP-1341: a persistent session (an agent's conversation): it idles
+    /// instead of ending and its device revives it ([`crate::session_kind`]).
     pub fn is_persistent(&self) -> bool {
-        crate::session_kind::is_persistent(self.kind.as_deref())
-    }
-
-    /// EXP-1341: carries triggers its device fires (an agent root's kind).
-    pub fn has_triggers(&self) -> bool {
-        crate::session_kind::has_triggers(self.kind.as_deref())
+        crate::session_kind::is_persistent(self.agent_id.as_deref())
     }
 
     /// A thread session (root or child): every kind that is not `agent`.
@@ -866,14 +872,6 @@ impl SessionRow {
             .as_deref()
             .map(str::trim)
             .filter(|title| !title.is_empty())
-    }
-
-    /// The agent's triggers (`[]` when absent or not an array).
-    pub fn trigger_list(&self) -> Vec<serde_json::Value> {
-        match &self.triggers {
-            Some(serde_json::Value::Array(items)) => items.clone(),
-            _ => Vec::new(),
-        }
     }
 }
 
@@ -1052,8 +1050,8 @@ pub struct PullRequestIssueRow {
 /// `actions` shape row (EXP-268) — the body-less list projection: the ≤64KB
 /// prompt `body` is excluded from sync server-side (runs/editors fetch it
 /// fresh via tRPC `actions.get`), so no local field may exist to hold a
-/// stale copy. SLOP-2: the action carries its `triggers` (the old
-/// `automations` rows folded in).
+/// stale copy. NEW-2: prompts replaced actions; the shape stays as an EMPTY
+/// read shim (NEW-8 drops it).
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct ActionRow {
     pub id: String,
@@ -1076,12 +1074,97 @@ pub struct ActionRow {
     /// chars, NULL = the generic "Additional instructions" hint).
     #[serde(default)]
     pub prompt_placeholder: Option<String>,
-    /// jsonb `ActionTrigger[]` (SLOP-2) — TEXT-stored like `inputs`. Each
-    /// element = a when-part (schedule or event) plus its runner; the
-    /// `coding::triggers` engine owns the tolerant parse. Absent on rows
-    /// from a pre-SLOP-2 server (= no triggers).
+    #[serde(default, deserialize_with = "tolerant_opt_f64")]
+    pub sort_order: Option<f64>,
+    #[serde(default)]
+    pub created_at: Option<String>,
+    #[serde(default)]
+    pub updated_at: Option<String>,
+}
+
+/// NEW-2: `agents` shape row: a team agent DEFINITION (never a session).
+/// The server-only `instructions` and `trigger_state` never sync (tRPC
+/// `agents.get`). Named `AgentDefRow` so it never clashes with the Agents
+/// list's [`crate::session_tree::AgentRow`].
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct AgentDefRow {
+    pub id: String,
+    #[serde(default)]
+    pub team_id: Option<String>,
+    #[serde(default)]
+    pub name: Option<String>,
+    /// An icon concept (contract `boardIcon`); `None` = the generic glyph.
+    #[serde(default)]
+    pub icon: Option<String>,
+    /// `#rrggbb`.
+    #[serde(default)]
+    pub color: Option<String>,
+    /// jsonb `AgentTrigger[]` (`{id, enabled, kind: schedule, cron, tz?}` |
+    /// `{id, enabled, kind: event, name}`); the SERVER fires them.
     #[serde(default, deserialize_with = "tolerant_opt_json")]
     pub triggers: Option<serde_json::Value>,
+    #[serde(default)]
+    pub device_id: Option<String>,
+    #[serde(default)]
+    pub cli: Option<String>,
+    #[serde(default)]
+    pub account: Option<String>,
+    #[serde(default)]
+    pub model: Option<String>,
+    #[serde(default)]
+    pub owner_id: Option<String>,
+    #[serde(default, deserialize_with = "tolerant_opt_f64")]
+    pub sort_order: Option<f64>,
+    #[serde(default)]
+    pub created_at: Option<String>,
+    #[serde(default)]
+    pub updated_at: Option<String>,
+}
+
+impl AgentDefRow {
+    /// The agent's triggers (`[]` when absent or not an array).
+    pub fn trigger_list(&self) -> Vec<serde_json::Value> {
+        match &self.triggers {
+            Some(serde_json::Value::Array(items)) => items.clone(),
+            _ => Vec::new(),
+        }
+    }
+}
+
+/// NEW-2: `events` shape row: one entry of the team's event stream.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct EventRow {
+    pub id: String,
+    #[serde(default)]
+    pub team_id: Option<String>,
+    /// Free-text event name (`issue.created`, or anything `events_emit`
+    /// posts).
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default, deserialize_with = "tolerant_opt_json")]
+    pub payload: Option<serde_json::Value>,
+    /// Contract `events.emitterValues`: `session` | `user` | `server`.
+    #[serde(default)]
+    pub emitted_by: Option<String>,
+    #[serde(default)]
+    pub session_id: Option<String>,
+    #[serde(default)]
+    pub user_id: Option<String>,
+    #[serde(default)]
+    pub created_at: Option<String>,
+}
+
+/// NEW-2: `prompts` shape row: a saved prompt, body-less (the body stays
+/// server-only, tRPC `prompts.get`).
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct PromptRow {
+    pub id: String,
+    #[serde(default)]
+    pub team_id: Option<String>,
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub icon: Option<String>,
     #[serde(default, deserialize_with = "tolerant_opt_f64")]
     pub sort_order: Option<f64>,
     #[serde(default)]
@@ -1588,29 +1671,54 @@ mod tests {
     }
 
     #[test]
-    fn action_row_hydrates_its_triggers_like_inputs() {
-        // SLOP-2: `triggers` arrives TEXT-stored (§5.5) — the string form
-        // must re-parse into structured JSON, like `inputs`.
+    fn action_row_ignores_a_stale_triggers_column() {
+        // NEW-2: the actions shim no longer syncs triggers; a stale local
+        // column is IGNORED (serde is non-strict), never a dropped row.
         let action: ActionRow = serde_json::from_value(json!({
             "id": "act-1",
             "team_id": "t-1",
             "name": "Groom",
-            "triggers": "[{\"id\":\"t-1\",\"deviceId\":\"dev-1\",\"kind\":\"schedule\",\"interval\":\"daily\",\"minuteOfDay\":540}]",
+            "triggers": "[]",
         }))
         .unwrap();
-        let triggers = action.triggers.as_ref().unwrap();
-        assert_eq!(triggers[0]["kind"], "schedule");
-        assert_eq!(triggers[0]["deviceId"], "dev-1");
+        assert_eq!(action.name.as_deref(), Some("Groom"));
+    }
 
-        // A narrow row (a pre-SLOP-2 server, a partial hydrate) still
-        // decodes — no triggers — and a stale pre-EXP-583 `trigger` column
-        // is IGNORED (serde is non-strict), never a dropped row.
-        let narrow: ActionRow = serde_json::from_value(json!({
-            "id": "act-2",
-            "trigger": "{\"kind\":\"schedule\"}",
+    /// NEW-2: the three new rows hydrate tolerantly (TEXT-stored jsonb and
+    /// numerics, unknown columns ignored); a session's kind derives from
+    /// `agent_id`, never the `kind` shim.
+    #[test]
+    fn new2_rows_hydrate_and_the_kind_derives_from_agent_id() {
+        let agent: AgentDefRow = serde_json::from_value(json!({
+            "id": "ag-1",
+            "team_id": "t-1",
+            "name": "Triage",
+            "triggers": "[{\"id\":\"tr-1\",\"enabled\":true,\"kind\":\"schedule\",\"cron\":\"0 9 * * 1-5\"}]",
+            "sort_order": "1",
+            "some_future_column": 7,
         }))
         .unwrap();
-        assert_eq!(narrow.triggers, None);
+        assert_eq!(agent.triggers.as_ref().unwrap()[0]["cron"], "0 9 * * 1-5");
+        assert_eq!(agent.trigger_list().len(), 1);
+        assert_eq!(agent.sort_order, Some(1.0));
+        let event: EventRow = serde_json::from_value(json!({
+            "id": "ev-1",
+            "name": "issue.created",
+            "payload": "{\"issueId\":\"i-1\"}",
+            "emitted_by": "server",
+        }))
+        .unwrap();
+        assert_eq!(event.payload.as_ref().unwrap()["issueId"], "i-1");
+        let prompt: PromptRow =
+            serde_json::from_value(json!({"id": "p-1", "name": "Groom", "body": "never synced"})).unwrap();
+        assert_eq!(prompt.name.as_deref(), Some("Groom"));
+
+        let conversation: SessionRow =
+            serde_json::from_value(json!({"id": "s-1", "kind": "thread", "agent_id": "ag-1"})).unwrap();
+        assert!(conversation.is_agent() && conversation.is_persistent());
+        let legacy: SessionRow =
+            serde_json::from_value(json!({"id": "s-2", "kind": "agent"})).unwrap();
+        assert!(!legacy.is_agent() && !legacy.is_persistent());
     }
 
     #[test]
@@ -1999,12 +2107,12 @@ mod tests {
         let agent: SessionRow = serde_json::from_value(json!({
             "id": "a-1",
             "kind": "agent",
+            "agent_id": "ag-1",
             "name": "Triage",
             "triggers": "[{\"kind\":\"schedule\"}]"
         }))
         .unwrap();
         assert!(agent.is_agent());
-        assert_eq!(agent.trigger_list().len(), 1);
         assert_eq!(agent.root_id_or_self(), "a-1", "a partial row is its own root");
     }
 

@@ -97,6 +97,10 @@ object EntityPreview {
         "attachment" to "ui-attach",
         "list" to "ui-checklist",
         "thread" to "work-faces",
+        // NEW-2: prompts (the rocket actions wore), agents, events.
+        "prompt" to "nav-actions",
+        "agent" to "settings-agents",
+        "event" to "trigger-event",
     )
 
     private val NOUNS: Map<String, Pair<String, String>> = mapOf(
@@ -116,6 +120,9 @@ object EntityPreview {
         "attachment" to ("attachment" to "attachments"),
         "list" to ("list" to "lists"),
         "thread" to ("thread" to "threads"),
+        "prompt" to ("prompt" to "prompts"),
+        "agent" to ("agent" to "agents"),
+        "event" to ("event" to "events"),
     )
 
     /** The product noun for a kind: singular for [count] 1, plural otherwise.

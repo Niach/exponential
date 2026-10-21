@@ -26,7 +26,6 @@ mod action_error;
 mod device_move;
 mod action_prompt_form;
 mod action_view;
-mod action_inputs;
 mod agent_login;
 mod agent_login_outcome;
 mod action_run;
@@ -35,7 +34,6 @@ mod actions_view;
 mod agent_screen;
 // THE ask dock (waiting question/plan cards in the composer's slot), ask-dock.json ×4.
 mod ask_dock;
-mod trigger_host;
 mod app_title_bar;
 mod attachment_markdown_preview;
 mod attachments_row;

@@ -6,8 +6,9 @@ import androidx.lifecycle.viewModelScope
 import com.exponential.app.ui.components.FailedAction
 import com.exponential.app.data.TeamSelection
 import com.exponential.app.data.routeTeamIdFlow
-import com.exponential.app.data.api.ActionDto
-import com.exponential.app.data.api.ActionsApi
+import com.exponential.app.data.api.PromptDto
+import com.exponential.app.data.api.PromptFields
+import com.exponential.app.data.api.PromptsApi
 import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.DatabaseHolder
@@ -26,6 +27,8 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
+// NEW-2: reads + writes go through `prompts.get/update/delete` (the
+// `actions` router is gone).
 // The action editor's data layer (EXP-694 — editing stopped being
 // web/desktop-only; SLOP-2: the action page's Prompt tab). The list metadata
 // already rides the synced `actions` shape, but the ≤64KB markdown `body` is
@@ -39,7 +42,7 @@ data class ActionEditState(
     /** The `actions.get` round-trip is in flight (the prompt field parks). */
     val loading: Boolean = true,
     /** The fetched row, body included; null until it lands. */
-    val action: ActionDto? = null,
+    val action: PromptDto? = null,
     val saving: Boolean = false,
     /** FEED-79: a failed save (or a failed Retry tap), raised once as an error toast. */
     val failure: FailedAction? = null,
@@ -53,8 +56,7 @@ class ActionEditViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val auth: AuthRepository,
     holder: DatabaseHolder,
-    private val actionsApi: ActionsApi,
-    private val writes: ActionWrites,
+    private val prompts: PromptsApi,
     selection: TeamSelection,
 ) : ViewModel() {
 
@@ -104,7 +106,7 @@ class ActionEditViewModel @Inject constructor(
                 return@launch
             }
             try {
-                _state.value = ActionEditState(loading = false, action = actionsApi.get(accountId, actionId))
+                _state.value = ActionEditState(loading = false, action = prompts.get(accountId, actionId))
             } catch (t: Throwable) {
                 if (t is CancellationException) throw t
                 _state.value = ActionEditState(
@@ -120,7 +122,7 @@ class ActionEditViewModel @Inject constructor(
 
     /** Save the edited row (every field, inputs included); a refusal is
      *  the state's [ActionEditState.failure] (a toast with Retry). */
-    fun save(actionId: String, fields: ActionFields) {
+    fun save(actionId: String, fields: PromptFields) {
         if (_state.value.saving) return
         _state.value = _state.value.copy(saving = true, failure = null)
         viewModelScope.launch {
@@ -130,7 +132,7 @@ class ActionEditViewModel @Inject constructor(
                 return@launch
             }
             try {
-                val saved = writes.update(accountId, actionId, fields)
+                val saved = prompts.update(accountId, actionId, fields)
                 _state.value = _state.value.copy(saving = false, action = saved)
             } catch (t: Throwable) {
                 if (t is CancellationException) throw t
@@ -151,7 +153,7 @@ class ActionEditViewModel @Inject constructor(
         viewModelScope.launch {
             val accountId = auth.activeAccountId.value
             try {
-                if (accountId != null) writes.delete(accountId, actionId)
+                if (accountId != null) prompts.delete(accountId, actionId)
                 _state.value = _state.value.copy(saving = false)
                 onDeleted()
             } catch (t: Throwable) {

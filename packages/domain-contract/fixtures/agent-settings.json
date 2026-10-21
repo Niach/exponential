@@ -1,5 +1,5 @@
 {
-  "$comment": "EXP-1291 Threads v2: Team settings → Agents ×4, managed exactly like boards. The list = Settings rows (icon + color + name like a board row, then `New agent`); an agent page = the board page layout, `fields` top to bottom: identity (the board form's ONE field: icon picker + color swatch + name), Device (required; the device picker, online devices of the team the caller may start on), Account (the device's account picker, optional = the device's last used login; EXP-1306: the row's VALUE reads exactly like the composer's account picker chip = the picked login's agent brand mark + its email (`options` = the logins the device reports, `accountName` ladder; the agent-named stand-in row a profile-less device gets in the composer never counts), never the agent's name alone and never dimmed while editable; `agentAccountValue({options, account, cli})` replays `accountValueCases`: the option whose id == the pinned `account` (and whose agent == `cli` when set), else `cli`'s first option, else the last used option (isLastUsed), else the first; none = null and the row reads `copy.accountLastUsed` muted), Schedule (the agent's triggers: one row per trigger reading `triggerSummary`, a toggle per row, `+ Add` opens the existing trigger editor; none = the agent only waits for input), Instructions (markdown, server-only: `sessions.getAgent`, placeholder `copy.instructionsPlaceholder`), Delete (owner-only, confirms with `copy.deleteConfirm`). Owner-only controls are hidden from members (they read). Save = `sessions.send({teamId, deviceId, account, agent})` for a new agent, `sessions.updateAgent` after. triggerSummary(trigger) (TS reference packages/domain-contract/src/agent-settings.ts; mirrors desktop domain::agent_settings, iOS AgentSettings.swift, Android AgentSettings.kt) replays `summaryCases`: schedule daily = 'Daily at HH:MM', weekly = 'Weekly on <weekday> at HH:MM' (weekday 1 = Monday … 7 = Sunday), monthly = 'Monthly on day <n> at HH:MM' (minuteOfDay → zero-padded 24h wall clock, device-local); event = `copy.events[event]`; a disabled trigger appends ' · Paused'. validateAgentForm(form) replays `validationCases`: errors keyed by field, in field order: name blank (after trim) → copy.errors.nameRequired, over agentNameMax (contract sessionsSend) → copy.errors.nameTooLong, no device → copy.errors.deviceRequired, instructions over agentInstructionsMaxBytes UTF-8 bytes → copy.errors.instructionsTooLong; [] = valid.",
+  "$comment": "EXP-1291 Threads v2: Team settings → Agents ×4, managed exactly like boards. The list = Settings rows (icon + color + name like a board row, then `New agent`); an agent page = the board page layout, `fields` top to bottom: identity (the board form's ONE field: icon picker + color swatch + name), Device (required; the device picker, online devices of the team the caller may start on), Account (the device's account picker, optional = the device's last used login; EXP-1306: the row's VALUE reads exactly like the composer's account picker chip = the picked login's agent brand mark + its email (`options` = the logins the device reports, `accountName` ladder; the agent-named stand-in row a profile-less device gets in the composer never counts), never the agent's name alone and never dimmed while editable; `agentAccountValue({options, account, cli})` replays `accountValueCases`: the option whose id == the pinned `account` (and whose agent == `cli` when set), else `cli`'s first option, else the last used option (isLastUsed), else the first; none = null and the row reads `copy.accountLastUsed` muted), Triggers (NEW-2: one row per trigger reading `triggerSummary`, a toggle per row, `+ Add` opens the trigger editor: a schedule = a 5-field cron with minutes in an IANA zone (#N-2), an event = the name of an `events` row (the builtins `contract.events.builtinNames` or any custom name); none = the agent only waits for messages), Instructions (markdown, server-only: `sessions.getAgent`, placeholder `copy.instructionsPlaceholder`), Delete (owner-only, confirms with `copy.deleteConfirm`). Owner-only controls are hidden from members (they read). Save = `agents.create` for a new agent, `agents.update` after (NEW-2: an agent is a definition row; its conversations follow it). triggerSummary(trigger) (TS reference packages/domain-contract/src/agent-settings.ts; mirrors desktop domain::agent_settings, iOS AgentSettings.swift, Android AgentSettings.kt) replays `summaryCases`: schedule = `copy.schedule.cron` with {cron} and, when a `tz` is set, `copy.schedule.cronTz` with {cron} and {tz}; event = `copy.events[name]` for a builtin name, else `copy.event` with {name}; a disabled trigger appends ' · Paused'. validateAgentForm(form) replays `validationCases`: errors keyed by field, in field order: name blank (after trim) → copy.errors.nameRequired, over agentNameMax (contract sessionsSend) → copy.errors.nameTooLong, no device → copy.errors.deviceRequired, instructions over agentInstructionsMaxBytes UTF-8 bytes → copy.errors.instructionsTooLong; [] = valid.",
   "fields": [
     {
       "key": "identity",
@@ -21,8 +21,8 @@
       "value": "agent-mark-email"
     },
     {
-      "key": "schedule",
-      "label": "Schedule",
+      "key": "triggers",
+      "label": "Triggers",
       "control": "trigger-list",
       "required": false
     },
@@ -49,28 +49,16 @@
     "noSchedule": "Waits for messages",
     "paused": "Paused",
     "deleteConfirm": "Delete this agent? Its conversation is deleted with it.",
-    "weekdays": [
-      "Monday",
-      "Tuesday",
-      "Wednesday",
-      "Thursday",
-      "Friday",
-      "Saturday",
-      "Sunday"
-    ],
     "schedule": {
-      "daily": "Daily at {time}",
-      "weekly": "Weekly on {weekday} at {time}",
-      "monthly": "Monthly on day {day} at {time}"
+      "cron": "Cron {cron}",
+      "cronTz": "Cron {cron} ({tz})"
     },
     "events": {
-      "created": "When an issue is created",
-      "status_changed": "When an issue's status changes",
-      "assignee_changed": "When an issue is assigned",
-      "label_added": "When a label is added",
-      "priority_changed": "When an issue's priority changes",
-      "pr_opened": "When a pull request opens",
-      "pr_merged": "When a pull request merges"
+      "issue.created": "When an issue is created",
+      "issue.status_changed": "When an issue's status changes",
+      "pr.opened": "When a pull request opens",
+      "pr.merged": "When a pull request merges",
+      "session.ended": "When a session ends"
     },
     "errors": {
       "nameRequired": "Name the agent",
@@ -78,7 +66,8 @@
       "deviceRequired": "Pick a device",
       "instructionsTooLong": "Instructions are too long"
     },
-    "accountLastUsed": "Last used"
+    "accountLastUsed": "Last used",
+    "event": "On {name}"
   },
   "testIds": {
     "list": "agents-settings-list",
@@ -88,47 +77,32 @@
     {
       "trigger": {
         "kind": "schedule",
-        "interval": "daily",
-        "minuteOfDay": 540,
+        "cron": "0 9 * * *",
         "enabled": true
       },
-      "expected": "Daily at 09:00"
+      "expected": "Cron 0 9 * * *"
     },
     {
       "trigger": {
         "kind": "schedule",
-        "interval": "weekly",
-        "minuteOfDay": 1005,
-        "weekday": 1,
+        "cron": "*/10 * * * 1-5",
+        "tz": "Europe/Vienna",
         "enabled": true
       },
-      "expected": "Weekly on Monday at 16:45"
+      "expected": "Cron */10 * * * 1-5 (Europe/Vienna)"
     },
     {
       "trigger": {
         "kind": "schedule",
-        "interval": "weekly",
-        "minuteOfDay": 0,
-        "weekday": 7,
+        "cron": "0 0 * * 0",
         "enabled": false
       },
-      "expected": "Weekly on Sunday at 00:00 · Paused"
-    },
-    {
-      "trigger": {
-        "kind": "schedule",
-        "interval": "monthly",
-        "minuteOfDay": 75,
-        "dayOfMonth": 28,
-        "enabled": true
-      },
-      "expected": "Monthly on day 28 at 01:15"
+      "expected": "Cron 0 0 * * 0 · Paused"
     },
     {
       "trigger": {
         "kind": "event",
-        "event": "created",
-        "source": "exponential",
+        "name": "issue.created",
         "enabled": true
       },
       "expected": "When an issue is created"
@@ -136,8 +110,7 @@
     {
       "trigger": {
         "kind": "event",
-        "event": "pr_merged",
-        "source": "exponential",
+        "name": "pr.merged",
         "enabled": false
       },
       "expected": "When a pull request merges · Paused"
@@ -145,16 +118,18 @@
     {
       "trigger": {
         "kind": "event",
-        "event": "label_added",
-        "source": "exponential",
-        "filters": {
-          "labelIds": [
-            "l1"
-          ]
-        },
+        "name": "ui-changed",
         "enabled": true
       },
-      "expected": "When a label is added"
+      "expected": "On ui-changed"
+    },
+    {
+      "trigger": {
+        "kind": "event",
+        "name": "deploy:prod",
+        "enabled": false
+      },
+      "expected": "On deploy:prod · Paused"
     }
   ],
   "validationCases": [

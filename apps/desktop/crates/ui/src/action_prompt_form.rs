@@ -1,25 +1,18 @@
-//! The Prompt part of an action's page (EXP-467 as the "Edit action" dialog;
-//! SLOP-2 folded it into [`crate::action_view`]) — the web `ActionPromptForm`
-//! 1:1. Two columns like the web: metadata left (icon + Name / Description /
-//! composer hint), the prompt right as a plain monospace multiline editor
-//! (the web textarea — NOT the WYSIWYG), one batched `actions.update` on
-//! Save. Writes are owner-only (the server enforces it), so a NON-owner gets
-//! the same form read-only, with no Save.
+//! The Prompt part of a saved prompt's page (EXP-467 as the "Edit action"
+//! dialog; SLOP-2 folded it into [`crate::action_view`]). Two columns: the
+//! metadata left (icon + Name), the body right as a plain monospace
+//! multiline editor, one batched `prompts.update` on Save. Writes are
+//! owner-only (the server enforces it), so a NON-owner gets the same form
+//! read-only, with no Save.
 //!
-//! EXP-1294: an action is a SAVED PROMPT — name, icon, body, typed inputs,
-//! composer hint. No repository, no MCP servers, no triggers.
+//! NEW-2: prompts replaced actions — a name, an icon and a body, nothing
+//! else (no description, inputs or composer hint). NEW-6 moves this into
+//! Settings → Prompts.
 //!
-//! Synced rows carry no body (EXP-268), so the prompt is fetched via
-//! `actions.get` when the form is built and the field stays disabled until it
-//! lands — a save can never blank it. A duplicate-name CONFLICT (HTTP 409)
-//! renders inline under the Name field, everything else beside Save. There is
-//! deliberately NO inputs editor — the web form has none; the batched update
-//! omits `inputs`, leaving them untouched.
-//!
-//! EXP-694: the fields wear the inset-grouped stack every client's editors
-//! wear ([`crate::surface::glass_group`]) — icon + Name are ONE row, the
-//! description and the prompt are chrome-less textareas whose PLACEHOLDER is
-//! their title (no label above).
+//! Synced rows carry no body, so it is fetched via `prompts.get` when the
+//! form is built and the field stays disabled until it lands — a save can
+//! never blank it. A duplicate-name CONFLICT (HTTP 409) renders inline under
+//! the Name field, everything else beside Save.
 
 use gpui::{
     div, px, AppContext as _, IntoElement, ParentElement, Render, SharedString, Styled,
@@ -35,10 +28,6 @@ use gpui_component::{
 use crate::controls::{glass_input, WebControl as _};
 use crate::queries;
 
-/// EXP-825: the composer-hint field's own placeholder — byte-identical to
-/// the web form's (`action-prompt-form.tsx`).
-const PROMPT_PLACEHOLDER_HINT: &str = "Composer hint, e.g. Scope: which platforms, which version";
-
 /// The metadata column's width — the old dialog's left column.
 const META_COLUMN_W: f32 = 400.;
 
@@ -46,21 +35,14 @@ pub(crate) struct ActionPromptForm {
     action_id: String,
     team_id: String,
     name: gpui::Entity<InputState>,
-    /// EXP-530: a TEXTAREA like the web dialog's — action descriptions are
-    /// the Suggestions-tab paragraphs, not one-liners.
-    description: gpui::Entity<TextareaState>,
-    /// EXP-825: the composer's field hint while this action is picked
-    /// (`actions.prompt_placeholder`, ≤200 chars; "" clears). A single
-    /// line like the web `Input`, capped at the server's limit.
-    prompt_placeholder: gpui::Entity<InputState>,
     /// The curated registry glyph (`actionIconSchema` — the boards set).
     icon: String,
     /// The prompt — a plain multiline editor (web textarea parity).
     body: gpui::Entity<TextareaState>,
-    /// `actions.get` in flight — the prompt and Save stay disabled so a
+    /// `prompts.get` in flight — the prompt and Save stay disabled so a
     /// save can never blank the body.
     body_loading: bool,
-    /// FEED-79: `actions.get` failed. The load on open is quiet: the prompt
+    /// FEED-79: `prompts.get` failed. The load on open is quiet: the prompt
     /// field becomes its empty state + Retry and Save stays off, so the real
     /// body is never blanked. `body_retry_pressed` = the load in flight is
     /// the person's Retry press, whose failure toasts.
@@ -75,13 +57,13 @@ pub(crate) struct ActionPromptForm {
     _subscriptions: Vec<Subscription>,
 }
 
-/// The prompt field when `actions.get` failed (web `action-prompt-form.tsx`).
+/// The prompt field when `prompts.get` failed (web `action-prompt-form.tsx`).
 const PROMPT_UNAVAILABLE: &str = "Prompt unavailable";
 
 impl ActionPromptForm {
     /// The form over one synced (non-builtin) action row.
     pub(crate) fn new(
-        action: api::actions::Action,
+        action: api::prompts::Prompt,
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) -> Self {
@@ -91,29 +73,7 @@ impl ActionPromptForm {
         name.update(cx, |state, cx| {
             state.set_value(action.name.clone(), window, cx);
         });
-        let description =
-            cx.new(|cx| crate::controls::web_textarea(2, 8, window, cx).placeholder("Description"));
-        description.update(cx, |state, cx| {
-            state.set_value(action.description.clone().unwrap_or_default(), window, cx);
-        });
-        // EXP-825: the composer hint — the web field's placeholder and
-        // `maxLength` (the server's `actionPromptPlaceholderSchema` cap), so
-        // a save can never 400 on length.
-        let prompt_placeholder = cx.new(|cx| {
-            InputState::new(window, cx)
-                .placeholder(PROMPT_PLACEHOLDER_HINT)
-                .validate(|text, _| {
-                    text.chars().count() <= api::actions::MAX_PROMPT_PLACEHOLDER_CHARS
-                })
-        });
-        prompt_placeholder.update(cx, |state, cx| {
-            state.set_value(
-                action.prompt_placeholder.clone().unwrap_or_default(),
-                window,
-                cx,
-            );
-        });
-        // "Prompt" once `actions.get` lands (web parity); until then the
+        // "Prompt" once `prompts.get` lands (web parity); until then the
         // group shows the skeleton (D8), never a "Loading…" placeholder.
         // The prompt AUTO-GROWS: the page is the one scroller (SLOP-2), so
         // the field is as tall as its text, inside a sane band.
@@ -122,37 +82,31 @@ impl ActionPromptForm {
         // Enter submits from the one-line fields; in the prompt it inserts a
         // newline (hence no shell-level `on_enter`).
         let mut subscriptions = Vec::new();
-        for field in [&name, &prompt_placeholder] {
-            subscriptions.push(cx.subscribe_in(
-                field,
-                window,
-                |this, _, event: &InputEvent, window, cx| match event {
-                    InputEvent::Change => cx.notify(),
-                    InputEvent::PressEnter { .. } => this.submit(window, cx),
-                    _ => {}
-                },
-            ));
-        }
-        // Save-gating (empty body) follows the editors live. Both are
-        // textareas, so Enter inserts a newline instead of submitting.
-        for field in [&description, &body] {
-            subscriptions.push(cx.subscribe_in(
-                field,
-                window,
-                |_, _, event: &InputEvent, _, cx| {
-                    if matches!(event, InputEvent::Change) {
-                        cx.notify();
-                    }
-                },
-            ));
-        }
+        subscriptions.push(cx.subscribe_in(
+            &name,
+            window,
+            |this, _, event: &InputEvent, window, cx| match event {
+                InputEvent::Change => cx.notify(),
+                InputEvent::PressEnter { .. } => this.submit(window, cx),
+                _ => {}
+            },
+        ));
+        // Save-gating (empty body) follows the editor live. It is a
+        // textarea, so Enter inserts a newline instead of submitting.
+        subscriptions.push(cx.subscribe_in(
+            &body,
+            window,
+            |_, _, event: &InputEvent, _, cx| {
+                if matches!(event, InputEvent::Change) {
+                    cx.notify();
+                }
+            },
+        ));
 
         let mut this = Self {
             action_id: action.id.clone(),
             team_id: action.team_id.clone(),
             name,
-            description,
-            prompt_placeholder,
             icon: action
                 .icon
                 .clone()
@@ -180,7 +134,7 @@ impl ActionPromptForm {
         cx.spawn_in(window, async move |this, window| {
             let result = window
                 .background_executor()
-                .spawn(async move { api::actions::get(&trpc, &action_id) })
+                .spawn(async move { api::prompts::get(&trpc, &action_id) })
                 .await;
             let _ = this.update_in(window, |view, window, cx| {
                 let attended = std::mem::take(&mut view.body_retry_pressed);
@@ -222,8 +176,7 @@ impl ActionPromptForm {
         cx.notify();
     }
 
-    /// ONE batched `actions.update` — the web dialog's submit. `inputs`
-    /// stays omitted (untouched).
+    /// ONE batched `prompts.update`.
     /// Writes are owner-only: everyone else reads the form.
     fn read_only(&self, cx: &gpui::App) -> bool {
         !crate::settings::is_owner(cx, &self.team_id)
@@ -245,20 +198,6 @@ impl ActionPromptForm {
         if name.is_empty() || body.trim().is_empty() {
             return;
         }
-        // EXP-530: the description is a textarea now — newlines are the
-        // author's, so only the outer whitespace goes.
-        let description = self.description.read(cx).value().trim().to_string();
-        // EXP-825: one logical line, outer whitespace off; "" clears (the
-        // server nulls it — web `promptPlaceholder.trim() === "" ? null`).
-        let prompt_placeholder: String = self
-            .prompt_placeholder
-            .read(cx)
-            .value()
-            .replace(['\r', '\n'], " ")
-            .trim()
-            .chars()
-            .take(api::actions::MAX_PROMPT_PLACEHOLDER_CHARS)
-            .collect();
         let Some(trpc) = queries::trpc_client(cx) else {
             return;
         };
@@ -267,18 +206,15 @@ impl ActionPromptForm {
         self.name_error = None;
         cx.notify();
 
-        let mut input = api::actions::ActionUpdate::new(self.action_id.clone());
+        let mut input = api::prompts::PromptUpdate::new(self.action_id.clone());
         input.name = Some(name);
-        // "" clears — the existing desktop convention (the server nulls it).
-        input.description = Some(description);
-        input.prompt_placeholder = Some(prompt_placeholder);
-        input.icon = Some(self.icon.clone());
+        input.icon = Some(Some(self.icon.clone()));
         input.body = Some(body);
 
         cx.spawn_in(window, async move |this, window| {
             let result = window
                 .background_executor()
-                .spawn(async move { api::actions::update(&trpc, &input).map(|_| ()) })
+                .spawn(async move { api::prompts::update(&trpc, &input).map(|_| ()) })
                 .await;
             let _ = this.update_in(window, |view, _, cx| {
                 view.submitting = false;
@@ -298,7 +234,7 @@ impl ActionPromptForm {
                                 let form = cx.entity().downgrade();
                                 crate::action_error::failed_action_with_retry(
                                     "save",
-                                    "the action",
+                                    "the prompt",
                                     crate::action_error::action_error_description(&other),
                                     move |window, cx| {
                                         let _ = form.update(cx, |view, cx| view.submit(window, cx));
@@ -366,33 +302,9 @@ impl Render for ActionPromptForm {
                         .disabled(read_only),
                 ),
             );
-        let description_row = div().w_full().child(
-            Textarea::new(&self.description)
-                .appearance(false)
-                .w_full()
-                .px_4()
-                .py_3()
-                .disabled(read_only),
-        );
-        // EXP-825: the composer hint — the third row of the metadata group,
-        // its placeholder the title like the name's.
-        let prompt_placeholder_row = crate::surface::glass_row_shell().child(
-            div().flex_1().min_w_0().child(
-                glass_input(&self.prompt_placeholder, window, cx)
-                    .appearance(false)
-                    .h_auto()
-                    .px_0()
-                    .py_0()
-                    .disabled(read_only),
-            ),
-        );
         let mut form = v_flex()
             .gap_2()
-            .child(crate::surface::glass_group_rows(vec![
-                name_row,
-                description_row,
-                prompt_placeholder_row,
-            ]));
+            .child(crate::surface::glass_group_rows(vec![name_row]));
         if let Some(name_error) = self.name_error.clone() {
             form = form.child(crate::action_error::field_error(name_error, cx).px_1());
         }

@@ -71,9 +71,7 @@ import {
 } from "@/components/team/sidebar-rail"
 import { useOpenNewDraft } from "@/hooks/use-open-new-draft"
 import {
-  ACTIONS_LABEL,
   DRAFTS_LABEL,
-  NavActionsIcon,
   NavDraftsIcon,
   useDraftCount,
 } from "@/components/team/sidebar-nav-entries"
@@ -187,7 +185,7 @@ export function TeamSidebar({
     wordOf: (row) => threadWordOf(row, teamPrs.byRoot.get(row.sessionId) ?? [], teamPrs.all),
   }
   const threadsNav = threadsNavState(threadsList.groups)
-  const { agents } = useAgents(team?.id)
+  const { agents } = useAgents(team?.id, session?.user?.id)
   // The guarded /t/$teamSlug layout is the only render site, so a session is
   // guaranteed — the reactive useSession store may still be pending on cold
   // load, and we render the authed chrome throughout rather than flash a
@@ -450,21 +448,9 @@ export function TeamSidebar({
                               </Link>
                             </SidebarMenuButton>
                           </SidebarMenuItem>
-                          {/* Actions (authoring; the composer's action
-                              chip RUNS one) and the Drafts pile (EXP-878,
-                              while any) are root entries, as on desktop. */}
-                          <SidebarMenuItem>
-                            <SidebarMenuButton asChild density="compact">
-                              <Link
-                                to="/t/$teamSlug/actions"
-                                params={{ teamSlug }}
-                                data-testid="nav-actions"
-                              >
-                                <NavActionsIcon className="h-4 w-4" />
-                                <span>{ACTIONS_LABEL}</span>
-                              </Link>
-                            </SidebarMenuButton>
-                          </SidebarMenuItem>
+                          {/* The Drafts pile (EXP-878, while any) is a
+                              root entry, as on desktop. NEW-2: no Actions
+                              entry (prompts live in the composer's `/`). */}
                           {draftCount > 0 && (
                             <SidebarMenuItem>
                               <SidebarMenuButton asChild density="compact">

@@ -187,8 +187,8 @@ struct AgentComposerCard: View {
             withTransaction(transaction) { showAttachMenu = true }
         case .effort: showEffortPicker = true
         case .mcpServers: showMcpPicker = true
-        // Implement issue and Run action are pages of the sheet itself.
-        case .implementIssue, .runAction, .subagents, .ultracode, .computerUse: break
+        // Implement issue is a page of the sheet itself.
+        case .implementIssue, .subagents, .ultracode, .computerUse: break
         }
     }
 

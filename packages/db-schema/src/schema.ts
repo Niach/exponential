@@ -26,6 +26,9 @@ import {
   actionInputsSchema,
   type CodingSessionBlocked,
   type AgentTrigger,
+  type AgentTriggerState,
+  type EventEmitter,
+  eventEmitterValues,
   type GuideEntry,
   type MessageCard,
   messageAuthorKindSchema,
@@ -1702,9 +1705,15 @@ export const pins = pgTable(
 // names the child, and a watchdog (`lib/sessions/watchdog.ts`) flags what
 // stalls.
 //
-// NEW-2 moves the agent facets (`kind`, `name`, `icon`, `color`,
-// `instructions`, `triggers`, `sort_order`) to an `agents` table and the
-// action facets to prompts; they stay here until then.
+// NEW-2: a team AGENT is a definition row (`agents`, below) and RUNS as
+// conversation sessions: one root per (agent, member) = that member's
+// private DM with it (`agent_id` set, `user_id` = the member, the agent's
+// device and login), never ending. The former agent facets (`kind`, `name`,
+// `icon`, `color`, `triggers`, `sort_order`) and the action facets
+// (`action_*`) stay as LEGACY read shims for the iOS store build and the
+// ≤0.14.74 devices: a conversation session mirrors `kind = agent` + the
+// agent's name/icon/color so those devices keep it alive (persistent) and
+// those clients list it; nothing else writes them. NEW-8 drops them.
 //
 // Visibility (ONE rule ×4): `shared` is stamped at creation = the device is
 // shared with the team (a child inherits its root's). Shared rows sync to
@@ -1731,7 +1740,15 @@ export const sessions = pgTable(
       .notNull()
       .references((): AnyPgColumn => sessions.id, { onDelete: `cascade` }),
     depth: integer().notNull().default(0),
+    // LEGACY read shim (NEW-2): `agent` on a conversation session (derived
+    // from `agent_id`, for the ≤0.14.74 devices' persistence), else `thread`.
     kind: sessionKindEnum().notNull().default(`thread`),
+    // NEW-2: the agent this is a conversation session OF (a root; one per
+    // (agent, user_id)); its children carry nothing (they resolve through
+    // the root). NULL = a thread.
+    agentId: uuid(`agent_id`).references((): AnyPgColumn => agents.id, {
+      onDelete: `cascade`,
+    }),
     // ── runner ──
     // The STARTER (the real person; a teammate's start on a shared server
     // device stays theirs). Visibility keys on it.
@@ -1798,9 +1815,10 @@ export const sessions = pgTable(
     aside: boolean().notNull().default(false),
     // The thread's ONE Guide = every PR body (`guide_write`, FOR UPDATE).
     guide: jsonb().$type<GuideEntry[]>(),
-    // The action this thread ran (saved prompt) + its filled picks, and a
-    // name snapshot so a deleted action still names the thread (NEW-2:
-    // prompts).
+    // LEGACY read shims (NEW-2): the action a thread ran. A prompt run
+    // (`sessions.send({promptId})`) composes the body into the first message
+    // and names the session after the prompt instead; never written. NEW-8
+    // drops them.
     actionId: uuid(`action_id`).references(() => actions.id, {
       onDelete: `set null`,
     }),
@@ -1811,13 +1829,12 @@ export const sessions = pgTable(
     // never written (the ≤0.14.74 desktop names it in its shape request).
     // NEW-8 drops it.
     spawnedBySessionId: uuid(`spawned_by_session_id`),
-    // ── agent facets (roots of kind agent; NEW-2 moves them) ──
+    // LEGACY read shims (NEW-2): the agent facets, now on `agents`. A
+    // conversation session mirrors its agent's name/icon/color (stamped at
+    // creation, re-stamped by `agents.update`); `triggers` stays `[]`.
     name: varchar({ length: 64 }),
     icon: varchar({ length: 64 }),
     color: varchar({ length: 7 }),
-    // SERVER-ONLY (behind the shape allowlist, `sessions.getAgent`): goes
-    // into every agent turn's system append.
-    instructions: text(),
     triggers: jsonb()
       .$type<AgentTrigger[]>()
       .notNull()
@@ -1826,10 +1843,11 @@ export const sessions = pgTable(
     ...timestamps,
   },
   (table) => [
-    check(
-      `sessions_agent_root_check`,
-      sql`kind = 'thread' OR (parent_id IS NULL AND name IS NOT NULL)`
-    ),
+    // One conversation per (agent, member).
+    uniqueIndex(`uniq_sessions_agent_conversation`)
+      .on(table.agentId, table.userId)
+      .where(sql`agent_id IS NOT NULL AND parent_id IS NULL`),
+    index(`idx_sessions_agent`).on(table.agentId),
     check(
       `sessions_root_check`,
       sql`(parent_id IS NULL AND depth = 0 AND root_id = id) OR (parent_id IS NOT NULL AND depth > 0)`
@@ -1845,6 +1863,110 @@ export const sessions = pgTable(
     index(`idx_sessions_device_live`)
       .on(table.deviceId, table.status)
       .where(sql`status <> 'ended'`),
+  ]
+)
+
+// NEW-2: a team AGENT = a definition (WHO, HOW, WHEN), never a session.
+// Name, icon and color like a board; server-only `instructions` (every turn's
+// system append in its conversations and their children); `triggers` (a
+// cron schedule or an event name, evaluated by the SERVER each watchdog
+// tick, `lib/agents/triggers.ts`) with their server-only `trigger_state`;
+// the runner: `device_id` + `cli` + `account` + `model` (the composer's
+// picks, fixed per agent) and `owner_id` = the member whose conversation
+// session a trigger wakes. Owner-written (`agents` router + MCP
+// `agents_list`), member-read; synced MINUS `instructions`/`trigger_state`.
+// Deleting an agent cascades its conversation sessions (and their trees).
+export const agents = pgTable(
+  `agents`,
+  {
+    id: uuidPk(),
+    teamId: uuid(`team_id`)
+      .notNull()
+      .references(() => teams.id, { onDelete: `cascade` }),
+    name: varchar({ length: 64 }).notNull(),
+    icon: varchar({ length: 64 }),
+    color: varchar({ length: 7 }),
+    // SERVER-ONLY (tRPC `agents.get`).
+    instructions: text().notNull().default(``),
+    triggers: jsonb()
+      .$type<AgentTrigger[]>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    // SERVER-ONLY: per-trigger bookkeeping (last evaluated tick, last fire).
+    triggerState: jsonb(`trigger_state`)
+      .$type<AgentTriggerState>()
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    deviceId: varchar(`device_id`, { length: 128 }).notNull(),
+    cli: varchar({ length: 16 }),
+    account: varchar({ length: 64 }),
+    model: varchar({ length: 64 }),
+    ownerId: text(`owner_id`)
+      .notNull()
+      .references(() => users.id, { onDelete: `cascade` }),
+    sortOrder: doublePrecision(`sort_order`).notNull().default(0),
+    ...timestamps,
+  },
+  (table) => [
+    index(`idx_agents_team`).on(table.teamId),
+    index(`idx_agents_device`).on(table.deviceId),
+  ]
+)
+
+// NEW-2: EVENTS, the team's event stream (synced, listed on the Agents
+// page). A row = a NAME (free text: the server builtins
+// `issue.created` / `issue.status_changed` / `pr.opened` / `pr.merged` /
+// `session.ended`, or anything an agent emits over MCP `events_emit`, e.g.
+// `ui-changed`) + a jsonb payload + who emitted it (a session, a person, or
+// the server). An agent trigger `{kind: event, name}` makes the server post
+// the event into the agent owner's conversation session as it lands
+// (`lib/events.ts`); an agent never fires on its own emit. Rows older than
+// contract `events.retentionDays` are pruned by the watchdog.
+export const eventEmitterEnum = pgEnum(`event_emitter`, eventEmitterValues)
+export const events = pgTable(
+  `events`,
+  {
+    id: uuidPk(),
+    teamId: uuid(`team_id`)
+      .notNull()
+      .references(() => teams.id, { onDelete: `cascade` }),
+    name: varchar({ length: 128 }).notNull(),
+    payload: jsonb().$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+    emittedBy: eventEmitterEnum(`emitted_by`).notNull().$type<EventEmitter>(),
+    sessionId: uuid(`session_id`).references((): AnyPgColumn => sessions.id, {
+      onDelete: `set null`,
+    }),
+    userId: text(`user_id`).references(() => users.id, { onDelete: `set null` }),
+    createdAt: timestamp(`created_at`, { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index(`idx_events_team_created`).on(table.teamId, table.createdAt),
+    index(`idx_events_team_name`).on(table.teamId, table.name),
+  ]
+)
+
+// NEW-2: PROMPTS replace actions: a name, a curated icon and a markdown
+// body, nothing else (no inputs, triggers, repository or pick types). They
+// live in the composer's `/` menu and Settings → Prompts; running one =
+// `sessions.send({promptId, text})`: a root whose first message is the body
+// plus what was typed, titled after the prompt. Synced MINUS `body` (tRPC
+// `prompts.get` / MCP `prompts_get`); owner-written, member-read.
+export const prompts = pgTable(
+  `prompts`,
+  {
+    id: uuidPk(),
+    teamId: uuid(`team_id`)
+      .notNull()
+      .references(() => teams.id, { onDelete: `cascade` }),
+    name: varchar({ length: 255 }).notNull(),
+    icon: varchar({ length: 64 }),
+    body: text().notNull(),
+    sortOrder: doublePrecision(`sort_order`).notNull().default(0),
+    ...timestamps,
+  },
+  (table) => [
+    unique().on(table.teamId, table.name),
+    index(`idx_prompts_team`).on(table.teamId),
   ]
 )
 
@@ -2371,12 +2493,10 @@ export const mcpOauthFlows = pgTable(
   (table) => [index(`idx_mcp_oauth_flows_user`).on(table.userId)]
 )
 
-// Team actions = SAVED PROMPTS (EXP-1291): a named markdown prompt plus
-// typed pick inputs. Running one = `sessions.send({actionId, inputs})`; the
-// server composes it into the session's brief. No triggers, repository or MCP
-// picks (triggers live on team agents). Synced MINUS `body` (EXP-268): the
-// ≤64KB prompt is fetched via tRPC `actions.get` on demand. Writes stay
-// team-owner-only; every member may list/run.
+// LEGACY read shim (NEW-2): actions became `prompts` (migration 0182 copied
+// name, icon and body over and emptied this table). The table and its
+// shape stay, EMPTY and never written, for the iOS store build and the
+// ≤0.14.74 devices that still request the `actions` shape; NEW-8 drops it.
 export const actions = pgTable(
   `actions`,
   {
@@ -2923,8 +3043,23 @@ export const selectSessionSchema = createSelectSchema(sessions, {
 export const selectSyncedSessionSchema = selectSessionSchema.omit({
   mcpServerIds: true,
   wakeOn: true,
-  instructions: true,
 })
+
+// NEW-2: agents, events, prompts.
+export const selectAgentSchema = createSelectSchema(agents, {
+  triggers: z.custom<AgentTrigger[]>((value) => Array.isArray(value)),
+  triggerState: z.custom<AgentTriggerState>((value) => value !== null && typeof value === `object`),
+})
+export const selectSyncedAgentSchema = selectAgentSchema.omit({
+  instructions: true,
+  triggerState: true,
+})
+export const selectEventSchema = createSelectSchema(events, {
+  emittedBy: z.enum(eventEmitterValues),
+  payload: z.custom<Record<string, unknown>>((value) => value !== null && typeof value === `object`),
+})
+export const selectPromptSchema = createSelectSchema(prompts)
+export const selectSyncedPromptSchema = selectPromptSchema.omit({ body: true })
 export const selectSessionIssueSchema = createSelectSchema(sessionIssues, {
   source: sessionIssueSourceSchema,
 })
@@ -3055,6 +3190,11 @@ export type McpOauthFlow = InferSelectModel<typeof mcpOauthFlows>
 export type DeviceAgentProfile = z.infer<typeof deviceAgentProfileSchema>
 export type Action = InferSelectModel<typeof actions>
 export type SyncedAction = Omit<Action, `body`>
+export type Agent = InferSelectModel<typeof agents>
+export type SyncedAgent = Omit<Agent, `instructions` | `triggerState`>
+export type Event = InferSelectModel<typeof events>
+export type Prompt = InferSelectModel<typeof prompts>
+export type SyncedPrompt = Omit<Prompt, `body`>
 export type UserNotificationPrefs = InferSelectModel<
   typeof userNotificationPrefs
 >

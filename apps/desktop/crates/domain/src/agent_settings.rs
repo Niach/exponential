@@ -5,8 +5,9 @@
 //! `accountValueCases`).
 //!
 //! An agent is managed exactly like a board: identity (icon + color + name),
-//! Device, Account, Schedule (its triggers, one row each reading
-//! [`trigger_summary`]), Instructions, Delete. The copy and the field list
+//! Device, Account, Triggers (NEW-2: cron schedules + named events the
+//! SERVER fires, one row each reading [`trigger_summary`]), Instructions,
+//! Delete. The copy and the field list
 //! come FROM the fixture ([`AGENT_SETTINGS`]); the caps from the contract
 //! (`sessionsSend`).
 
@@ -24,7 +25,7 @@ use crate::contract::{
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentSettingsField {
-    /// `identity` | `device` | `account` | `schedule` | `instructions` |
+    /// `identity` | `device` | `account` | `triggers` | `instructions` |
     /// `delete`.
     pub key: String,
     pub label: String,
@@ -37,13 +38,12 @@ pub struct AgentSettingsField {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AgentScheduleCopy {
-    /// `Daily at {time}`.
-    pub daily: String,
-    /// `Weekly on {weekday} at {time}`.
-    pub weekly: String,
-    /// `Monthly on day {day} at {time}`.
-    pub monthly: String,
+    /// `Cron {cron}`.
+    pub cron: String,
+    /// `Cron {cron} ({tz})`.
+    pub cron_tz: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -70,11 +70,12 @@ pub struct AgentSettingsCopy {
     pub no_schedule: String,
     pub paused: String,
     pub delete_confirm: String,
-    /// Monday … Sunday (weekday 1 … 7).
-    pub weekdays: Vec<String>,
     pub schedule: AgentScheduleCopy,
-    /// Event trigger text by `agentTriggerEvent`.
+    /// Event trigger text by builtin event name (contract
+    /// `events.builtinNames`).
     pub events: BTreeMap<String, String>,
+    /// Any other event: `On {name}`.
+    pub event: String,
     pub errors: AgentErrorCopy,
     /// The Account row with no login reported (`Last used`, muted).
     pub account_last_used: String,
@@ -103,44 +104,28 @@ pub static AGENT_SETTINGS: LazyLock<AgentSettingsSpec> = LazyLock::new(|| {
     serde_json::from_str(AGENT_SETTINGS_JSON).expect("agent-settings.json parses")
 });
 
-fn clock(minute_of_day: Option<i64>) -> String {
-    let minutes = minute_of_day.unwrap_or(0).clamp(0, 1439);
-    format!("{:02}:{:02}", minutes / 60, minutes % 60)
-}
-
-fn int(trigger: &Value, key: &str) -> Option<i64> {
-    let value = trigger.get(key)?;
-    value
-        .as_i64()
-        .or_else(|| value.as_f64().map(|number| number.floor() as i64))
-}
-
-/// One Schedule row's text for an `AgentTrigger` jsonb (`kind` schedule |
-/// event): `Daily at 09:00`, `Weekly on Monday at 16:45`, `Monthly on day 28
-/// at 01:15`, an event's copy; a disabled trigger appends ` · Paused`.
+/// One Triggers row's text for an `AgentTrigger` jsonb (NEW-2): a schedule
+/// reads `Cron {cron}` (` ({tz})` when zoned), a builtin event its copy, any
+/// other event `On {name}`; a disabled trigger appends ` · Paused`.
 pub fn trigger_summary(trigger: &Value) -> String {
     let copy = &AGENT_SETTINGS.copy;
-    let text = if trigger.get("kind").and_then(Value::as_str) == Some("schedule") {
-        let time = clock(int(trigger, "minuteOfDay"));
-        match trigger.get("interval").and_then(Value::as_str) {
-            Some("weekly") => {
-                let index = (int(trigger, "weekday").unwrap_or(1) - 1).rem_euclid(7) as usize;
-                let weekday = copy.weekdays.get(index).map(String::as_str).unwrap_or_default();
-                copy.schedule
-                    .weekly
-                    .replacen("{weekday}", weekday, 1)
-                    .replacen("{time}", &time, 1)
-            }
-            Some("monthly") => copy
+    let text_of = |key: &str| trigger.get(key).and_then(Value::as_str).unwrap_or_default();
+    let text = if text_of("kind") == "schedule" {
+        let cron = text_of("cron");
+        match text_of("tz") {
+            "" => copy.schedule.cron.replacen("{cron}", cron, 1),
+            tz => copy
                 .schedule
-                .monthly
-                .replacen("{day}", &int(trigger, "dayOfMonth").unwrap_or(1).to_string(), 1)
-                .replacen("{time}", &time, 1),
-            _ => copy.schedule.daily.replacen("{time}", &time, 1),
+                .cron_tz
+                .replacen("{cron}", cron, 1)
+                .replacen("{tz}", tz, 1),
         }
     } else {
-        let event = trigger.get("event").and_then(Value::as_str).unwrap_or_default();
-        copy.events.get(event).cloned().unwrap_or_else(|| event.to_string())
+        let name = text_of("name");
+        copy.events
+            .get(name)
+            .cloned()
+            .unwrap_or_else(|| copy.event.replacen("{name}", name, 1))
     };
     if trigger.get("enabled").and_then(Value::as_bool) == Some(false) {
         format!("{text} · {}", copy.paused)
@@ -240,10 +225,13 @@ mod tests {
     #[test]
     fn the_spec_parses_from_the_fixture() {
         let keys: Vec<&str> = AGENT_SETTINGS.fields.iter().map(|field| field.key.as_str()).collect();
-        assert_eq!(keys, ["identity", "device", "account", "schedule", "instructions", "delete"]);
+        assert_eq!(keys, ["identity", "device", "account", "triggers", "instructions", "delete"]);
         assert!(AGENT_SETTINGS.fields.last().unwrap().owner_only);
         assert_eq!(AGENT_SETTINGS.copy.new_agent, "New agent");
-        assert_eq!(AGENT_SETTINGS.copy.weekdays.len(), 7);
+        // NEW-2: every builtin event name has its copy.
+        for name in crate::contract::EVENT_BUILTIN_NAMES {
+            assert!(AGENT_SETTINGS.copy.events.contains_key(*name), "{name}");
+        }
     }
 
     #[test]

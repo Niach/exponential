@@ -175,9 +175,6 @@ fn print_exit(exit: &session_host::SessionExit) -> CommandResult {
 pub(crate) struct AttachState {
     /// The newest answerable question card, numbered exactly as printed.
     pending: Option<PendingQuestion>,
-    /// The `/` names the AGENT advertised (`config_state.commands`) — the
-    /// contract catalog is the other half of the composer's vocabulary.
-    agent_commands: Vec<String>,
     /// `config_state`, `usage` and `diff` are LATEST-WINS state (D4), re-sent
     /// on a timer or on every change: print each only when it actually
     /// differs, or a 3 s diff tick alone would fill the screen.
@@ -278,13 +275,9 @@ pub(crate) fn print_activity(event: &steer::ActivityEvent, state: &Mutex<AttachS
                 }
             }
         }
-        steer::ActivityEvent::ConfigState { options, current_mode, commands, .. } => {
+        steer::ActivityEvent::ConfigState { options, current_mode, .. } => {
             let line = config_line(options, current_mode.as_deref());
             let mut state = lock(state);
-            if let Some(commands) = commands {
-                state.agent_commands =
-                    commands.iter().map(|command| command.name.clone()).collect();
-            }
             if state.config_line.as_deref() != Some(line.as_str()) {
                 state.config_line = Some(line.clone());
                 drop(state);
@@ -476,8 +469,7 @@ fn compose(session: &Arc<RunningSession>, state: &Mutex<AttachState>, line: Stri
             return;
         }
     }
-    let agent_commands = lock(state).agent_commands.clone();
-    if let Some((name, args)) = parse_slash_line(&line, session.agent, &agent_commands) {
+    if let Some((name, args)) = parse_slash_line(&line, session.agent) {
         session.run_command(&name, &args);
         return;
     }
@@ -493,27 +485,14 @@ fn parse_answer_line(line: &str, keys: &[String]) -> Option<String> {
 }
 
 /// `/name` or `/name args` → the command sink, for a name the CONTRACT
-/// catalog carries for this agent or one the agent advertised itself
-/// (`config_state.commands`). Everything else — an unknown name, a path like
-/// `/tmp/x` — is prose and rides the message path, exactly as
-/// `steer::commands::parse_command` decides it for a remote steerer.
-fn parse_slash_line(
-    line: &str,
-    agent: steer::SessionAgent,
-    agent_commands: &[String],
-) -> Option<(String, String)> {
-    if let Some(parsed) = steer::commands::parse_command(line, agent) {
-        return Some((parsed.command.name.to_string(), parsed.args));
-    }
-    let rest = line.trim().strip_prefix('/')?;
-    let (head, tail) = match rest.find(char::is_whitespace) {
-        Some(at) => (&rest[..at], rest[at..].trim()),
-        None => (rest, ""),
-    };
-    let name = agent_commands
-        .iter()
-        .find(|command| command.eq_ignore_ascii_case(head))?;
-    Some((name.clone(), tail.to_string()))
+/// catalog carries for this agent (`compact`, `model`, `effort`). NEW-2:
+/// the commands the agent CLI advertises are never offered; anything else
+/// (an unknown name, a path like `/tmp/x`) is prose and rides the message
+/// path, exactly as `steer::commands::parse_command` decides it for a
+/// remote steerer.
+fn parse_slash_line(line: &str, agent: steer::SessionAgent) -> Option<(String, String)> {
+    let parsed = steer::commands::parse_command(line, agent)?;
+    Some((parsed.command.name.to_string(), parsed.args))
 }
 
 /// `model opus · effort high · mode plan` — the chip row as one line, in the
@@ -661,39 +640,24 @@ mod tests {
         assert_eq!(parse_answer_line("1", &[]), None);
     }
 
-    /// EXP-746: `/` lines route to the command sink for a CONTRACT row of this
-    /// agent or a command the agent advertised itself (`config_state.commands`)
-    /// — the same union every client's `/` menu offers. Anything else stays
-    /// prose, so a path never becomes a command.
+    /// NEW-2: `/` lines route to the command sink for a CONTRACT row of this
+    /// agent only; an agent-advertised name is prose (the menu never offers
+    /// it), so is a path.
     #[test]
     fn slash_line_routes_to_the_command_sink() {
         let agent = steer::SessionAgent::Claude;
-        let advertised = vec!["review".to_string()];
-
-        // A contract row, with and without arguments.
-        let compact = steer::commands::catalog_for(agent)
-            .first()
-            .expect("claude has catalog commands")
-            .name;
+        let names: Vec<&str> = steer::commands::catalog_for(agent).iter().map(|c| c.name).collect();
+        assert_eq!(names, vec!["compact", "model", "effort"]);
+        assert_eq!(parse_slash_line("/compact", agent), Some(("compact".to_string(), String::new())));
         assert_eq!(
-            parse_slash_line(&format!("/{compact}"), agent, &advertised),
-            Some((compact.to_string(), String::new()))
+            parse_slash_line("/model opus", agent),
+            Some(("model".to_string(), "opus".to_string()))
         );
-        assert_eq!(
-            parse_slash_line(&format!("/{compact} now"), agent, &advertised),
-            Some((compact.to_string(), "now".to_string()))
-        );
-
-        // An agent-advertised command, case-insensitively.
-        assert_eq!(
-            parse_slash_line("/Review the diff", agent, &advertised),
-            Some(("review".to_string(), "the diff".to_string()))
-        );
-
-        // Prose and paths are messages.
-        assert_eq!(parse_slash_line("/tmp/build.log", agent, &advertised), None);
-        assert_eq!(parse_slash_line("just do it", agent, &advertised), None);
-        assert_eq!(parse_slash_line("/review", agent, &[]), None);
+        // An agent-advertised command, prose and paths are messages.
+        assert_eq!(parse_slash_line("/review the diff", agent), None);
+        assert_eq!(parse_slash_line("/clear", agent), None);
+        assert_eq!(parse_slash_line("/tmp/build.log", agent), None);
+        assert_eq!(parse_slash_line("just do it", agent), None);
     }
 
     /// The chip row and the context line are LATEST-WINS state, so the printer

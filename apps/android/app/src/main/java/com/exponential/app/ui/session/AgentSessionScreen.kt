@@ -204,7 +204,6 @@ import com.exponential.app.domain.AgentRowClass
 import com.exponential.app.domain.ActivityFeedState
 import com.exponential.app.domain.AgentUsagePresentation
 import com.exponential.app.domain.ContextLayoutPresentation
-import com.exponential.app.domain.ConfigCommand
 import com.exponential.app.domain.ToolCallSummary
 import com.exponential.app.domain.ExpToolDisplay
 import com.exponential.app.domain.ExpToolGroup
@@ -263,12 +262,10 @@ import com.exponential.app.ui.components.CLI_DEFAULT_EFFORT
 import com.exponential.app.ui.components.effortLabel
 import com.exponential.app.ui.components.effortValuesFor
 import com.exponential.app.ui.components.supportsPlanMode
-import com.exponential.app.ui.components.picker.ActionPicker
 import com.exponential.app.ui.components.picker.DevicePicker
 import com.exponential.app.ui.components.picker.DevicePickerDevice
 import com.exponential.app.ui.components.deviceIcon
 import com.exponential.app.domain.SessionDeviceMove
-import com.exponential.app.ui.components.picker.ActionPickerAction
 import com.exponential.app.ui.components.picker.McpServerPicker
 import com.exponential.app.ui.components.picker.Picker
 import com.exponential.app.ui.components.picker.PickerItem
@@ -1147,10 +1144,6 @@ private fun RunFaceContent(
                     answerLabels = answerLabels,
                     // EXP-724: filters the command pill's catalog.
                     agent = catalogAgent,
-                    // EXP-746: the run's own advertised
-                    // commands, so a steered agent command
-                    // renders as a command row, not prose.
-                    agentCommands = sessionConfig?.commands.orEmpty(),
                     // Every answer is one semantic `answer` frame keyed
                     // by the card's wire id (EXP-249).
                     onAnswer = onAnswer,
@@ -1868,9 +1861,6 @@ private fun ActivityFeed(
      *  whose first token is one of ITS catalog commands renders as a command
      *  pill instead of prose. */
     agent: String? = null,
-    /** EXP-746: the commands the AGENT advertised on this run — merged behind
-     *  the contract catalog so a steered `/<agent command>` reads as one. */
-    agentCommands: List<ConfigCommand> = emptyList(),
     /** EXP-688: how much of the feed's tail the floating Latest-changes bar
      *  covers. The list pads past it (and so does the Jump-to-bottom pill), so
      *  the last message is never parked underneath it. */
@@ -2155,7 +2145,7 @@ private fun ActivityFeed(
                             is AgentFeedItem.UserMessage -> {
                                 // EXP-724: a steered catalog command reads as one.
                                 val command =
-                                    SlashCommands.commandFor(item.text, agent, agentCommands)
+                                    SlashCommands.commandFor(item.text, agent)
                                 if (command != null) {
                                     CommandRow(command, item.text)
                                 } else {
@@ -4609,7 +4599,6 @@ internal fun SessionComposer(
     // change live (`sessions.configure`).
     val picks by viewModel.configurePicks.collectAsStateWithLifecycle()
     val mcpServers by viewModel.mcpServers.collectAsStateWithLifecycle()
-    val menuActions by viewModel.menuActions.collectAsStateWithLifecycle()
     val canComputerUse by viewModel.hostCanToggleComputerUse.collectAsStateWithLifecycle()
     val configureError by viewModel.configureError.collectAsStateWithLifecycle()
     com.exponential.app.ui.components.FailedActionToast(
@@ -4649,7 +4638,6 @@ internal fun SessionComposer(
                 updatedAt = it.updatedAt,
             )
         },
-        actions = menuActions?.map { ActionPickerAction(id = it.id, name = it.name, icon = it.icon) },
         planMode = picks.planMode
             ?: (planModeBadge(sessionConfig) != null || (sessionConfig == null && session?.planMode == true)),
         // An ENDED session takes no configure: the rows and the Plan switch
@@ -5238,12 +5226,6 @@ private const val COMPOSER_MENU_MCP = "mcp"
 /** The options line's Plan switch label (composer-menu.json options line). */
 private const val PLAN_LABEL = "Plan"
 
-/** Run action › in a running session: the message names the action. */
-internal fun runActionText(draft: String, action: String): String {
-    val line = "Run the \"$action\" action."
-    return if (draft.isBlank()) line else "${draft.trimEnd()}\n$line"
-}
-
 /**
  * EXP-1334: what THE session composer's "+" offers in a running session —
  * composer-menu.json's rows, the live picks (the synced row, overridden by
@@ -5260,8 +5242,6 @@ internal data class SessionComposerMenu(
     val mcpServers: List<McpServerOption>,
     val mcpServerIds: List<String>,
     val issues: List<IssueOption>,
-    /** null = still loading. */
-    val actions: List<ActionPickerAction>?,
     val planMode: Boolean,
     /** An ended session: the option rows and the Plan switch are read-only. */
     val readOnly: Boolean,
@@ -5573,26 +5553,6 @@ private fun ExpandedSteerComposer(
                         implementPicks = emptySet()
                         close()
                     },
-                )
-            },
-            // Run action › names the action in the message (the agent reads
-            // it with `actions_get`).
-            actionPage = { close ->
-                ActionPicker(
-                    actions = menu.actions.orEmpty(),
-                    value = null,
-                    onChange = { id ->
-                        val name = menu.actions?.firstOrNull { it.id == id }?.name
-                        if (name != null) {
-                            val text = runActionText(value.text, name)
-                            onValueRewrite(TextFieldValue(text, TextRange(text.length)))
-                        }
-                        close()
-                    },
-                    emptyText = "No matching actions",
-                    loading = menu.actions == null,
-                    inline = true,
-                    modifier = Modifier.testTag("agent-composer-actions-picker"),
                 )
             },
         )

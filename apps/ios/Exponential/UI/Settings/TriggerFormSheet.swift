@@ -2,11 +2,11 @@ import ExpCore
 import ExpUI
 import SwiftUI
 
-// The "New trigger" / "Edit trigger" form (EXP-583). EXP-1291: a trigger
-// belongs to the team AGENT whose Schedule rows open this, and the agent's own
-// device fires it — so the sheet is the when-part alone (`TriggerForm`:
-// schedule or event). Owner-only: the agent page hides the entry points for
-// everyone else, and the server refuses anyway.
+// The "New trigger" / "Edit trigger" form (EXP-583). NEW-2: a trigger
+// belongs to the team AGENT definition whose Triggers rows open this, and the
+// SERVER fires it — so the sheet is the when-part alone (`TriggerForm`: a
+// cron schedule or an event name). Owner-only: the agent page hides the entry
+// points for everyone else, and the server refuses anyway.
 struct TriggerFormSheet: View {
     let teamId: String
     /// nil = add a new trigger.
@@ -15,12 +15,9 @@ struct TriggerFormSheet: View {
     /// one without an id (the server mints it) and enabled.
     let onSubmit: (AgentTriggerInput) -> Void
 
-    @Environment(AppDependencies.self) private var deps
-    @Environment(\.accountId) private var accountId
     @Environment(\.dismiss) private var dismiss
 
     @State private var draft = TriggerDraft()
-    @State private var filterOptions = TriggerFilterOptions()
     @State private var seeded = false
 
     var body: some View {
@@ -29,7 +26,7 @@ struct TriggerFormSheet: View {
             height: .full,
             content: {
                 Form {
-                    TriggerForm(draft: $draft, options: filterOptions)
+                    TriggerForm(draft: $draft)
                 }
                 // EXP-603: the sheet's own background shows through the
                 // grouped list; rows carry the glass fill.
@@ -39,7 +36,7 @@ struct TriggerFormSheet: View {
                 .tint(DesignTokens.Palette.primary)
             },
             primaryAction: {
-                GlassSubmitButton(editing == nil ? "Add trigger" : "Save changes") {
+                GlassSubmitButton(editing == nil ? "Add trigger" : "Save changes", enabled: draft.isValid) {
                     submit()
                 }
             }
@@ -47,11 +44,6 @@ struct TriggerFormSheet: View {
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("trigger-form-sheet")
         .onAppear { seed() }
-        .task {
-            filterOptions = await TriggerFilterOptions.load(
-                db: deps.db, accountId: accountId, teamId: teamId
-            )
-        }
     }
 
     private func seed() {
@@ -61,6 +53,7 @@ struct TriggerFormSheet: View {
     }
 
     private func submit() {
+        guard draft.isValid else { return }
         // Snapshot before dismissing — the payload must not depend on what
         // the teardown does to the sheet's state.
         let input = AgentTriggerInput(

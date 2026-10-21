@@ -20,7 +20,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.exponential.app.data.api.SteerDevice
-import com.exponential.app.data.db.ActionEntity
+import com.exponential.app.data.db.PromptEntity
 import com.exponential.app.data.db.BoardEntity
 import com.exponential.app.data.db.SessionEntity
 import com.exponential.app.domain.SessionTree
@@ -164,7 +164,9 @@ fun EntityRefPreviewSheet(
         when (ref.kind) {
             "issue" -> IssueCard(ref, open)
             "board" -> BoardCard(ref, open)
-            "action" -> ActionCard(ref, open)
+            // NEW-2: prompts replace actions (an old `action` ref resolves
+            // against the same synced rows, i.e. usually not at all).
+            "prompt", "action" -> PromptCard(ref, open)
             "comment" -> CommentCard(ref, open)
             "session" -> SessionCard(ref, open)
             "label" -> LabelCard(ref, open)
@@ -255,10 +257,10 @@ private fun teamBoards(): List<BoardEntity> {
 }
 
 @Composable
-private fun teamActions(): List<ActionEntity> {
+private fun teamPrompts(): List<PromptEntity> {
     val teamId = LocalEntityRefResolver.current?.teamId
-    val rows by observeScoped(teamId, emptyList<ActionEntity>()) { db ->
-        if (teamId == null) flowOf(emptyList()) else db.actionDao().observeByTeam(teamId)
+    val rows by observeScoped(teamId, emptyList<PromptEntity>()) { db ->
+        if (teamId == null) flowOf(emptyList()) else db.promptDao().observeByTeam(teamId)
     }
     return rows
 }
@@ -331,21 +333,16 @@ private fun BoardCard(ref: EntityRef, open: (EntityTarget) -> Unit) {
 }
 
 @Composable
-private fun ActionCard(ref: EntityRef, open: (EntityTarget) -> Unit) {
-    val action = teamActions().firstOrNull { it.id == ref.id } ?: run {
+private fun PromptCard(ref: EntityRef, open: (EntityTarget) -> Unit) {
+    val prompt = teamPrompts().firstOrNull { it.id == ref.id } ?: run {
         SlimCard(ref, onOpen = { open(EntityTarget.Actions) })
         return
     }
-    val inputCount = remember(action.inputs) { jsonArrayLength(action.inputs) }
     EntityPreviewCard(
-        icon = { HeaderGlyph(action.icon?.let { ExpIcons.byName(it) } ?: ExpIcons.actionDefault) },
-        eyebrow = "Action",
-        title = action.name,
-        body = action.description?.takeIf { it.isNotBlank() },
-        facts = {
-            GlassPill("$inputCount " + if (inputCount == 1) "input" else "inputs", size = PillSize.Sm, mode = PillMode.Readonly)
-        },
-        onOpen = { open(EntityTarget.Action(action.id)) },
+        icon = { HeaderGlyph(prompt.icon?.let { ExpIcons.byName(it) } ?: ExpIcons.actionDefault) },
+        eyebrow = "Prompt",
+        title = prompt.name,
+        onOpen = { open(EntityTarget.Action(prompt.id)) },
     )
 }
 
@@ -623,7 +620,7 @@ private fun memberTarget(ref: EntityRef): EntityTarget? = when (ref.kind) {
     "issue" -> EntityTarget.Issue(ref.id)
     "board" -> EntityTarget.Board(ref.id)
     "session" -> EntityTarget.Session(ref.id)
-    "action" -> EntityTarget.Action(ref.id)
+    "prompt", "action" -> EntityTarget.Action(ref.id)
     "device" -> EntityTarget.Devices
     "label", "status", "member", "invite", "team", "repository" -> EntityTarget.TeamSettings
     "notification" -> EntityTarget.Inbox
@@ -636,13 +633,6 @@ private const val EXCERPT_MAX = 240
 private const val BOARD_PREVIEW_ROWS = 6
 private val CLOSED_STATUSES = setOf(IssueStatus.Done, IssueStatus.Cancelled, IssueStatus.Duplicate)
 private val OnlineGreen = androidx.compose.ui.graphics.Color(0xFF34D399)
-
-/** How many entries a JSON array string holds; 0 for anything else. */
-private fun jsonArrayLength(raw: String?): Int {
-    val text = raw?.trim().orEmpty()
-    if (!text.startsWith("[")) return 0
-    return runCatching { (Json.parseToJsonElement(text) as? JsonArray)?.size ?: 0 }.getOrDefault(0)
-}
 
 private val MD_IMAGE = Regex("""!\[[^\]]*]\([^)]*\)""")
 private val MD_LINK = Regex("""\[([^\]]*)]\([^)]*\)""")

@@ -236,7 +236,7 @@ class PickerContractTest {
     @Test
     fun everyTypedPickerRendersThroughThePrimitive() {
         val typed = listOf(
-            "BoardPicker", "IssuePicker", "ActionPicker", "AccountPicker", "DevicePicker",
+            "BoardPicker", "IssuePicker", "AccountPicker", "DevicePicker",
             "AssigneePicker", "StatusPicker", "PriorityPicker", "LabelPicker", "ModelPicker",
         )
         for (name in typed) {
@@ -272,7 +272,7 @@ class PickerContractTest {
             .map { codeOf(it.readText()) }
             .toList()
         val typed = listOf(
-            "BoardPicker", "IssuePicker", "ActionPicker", "AccountPicker", "DevicePicker",
+            "BoardPicker", "IssuePicker", "AccountPicker", "DevicePicker",
             "AssigneePicker", "StatusPicker", "PriorityPicker", "LabelPicker", "IconPicker",
             "ModelPicker",
         )

@@ -126,9 +126,19 @@ class ThreadsViewModel @Inject constructor(
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    /** Every member team's agents (rail / Settings order). */
-    val agents: StateFlow<List<SessionTree.AgentRow>> = sessions.map { SessionTree.listAgents(it, teamId = null) }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    private val agentDefinitions = dbFlow.scopedQuery(emptyList()) { it.agentDefinitionDao().observeAll() }
+        .map { rows -> rows.map(SessionTree::agentDefinition) }
+
+    /** NEW-2: every member team's agent DEFINITIONS (rail / Settings order);
+     *  busy / needs-you off the viewer's own conversation session. */
+    val agents: StateFlow<List<SessionTree.AgentRow>> = combine(agentDefinitions, sessions, auth.userId) { defs, s, me ->
+        SessionTree.listAgents(defs, s, teamId = null, me = me)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** NEW-2: the viewer's conversation session per agent id (a row opens it). */
+    val conversations: StateFlow<Map<String, String>> = combine(sessions, auth.userId) { s, me ->
+        SessionTree.conversations(s, me)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
     /** The member teams, name order — the per-team bands. */
     val teams: StateFlow<List<TeamEntity>> = dbFlow.scopedQuery(emptyList()) { it.teamDao().observeAll() }

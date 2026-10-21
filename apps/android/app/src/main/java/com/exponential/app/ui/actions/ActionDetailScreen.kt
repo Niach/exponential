@@ -83,7 +83,7 @@ fun ActionDetailScreen(
                         CircleIconButton(
                             ExpIcons.actionRun,
                             contentDescription = "Run",
-                            onClick = { onOpenAgent(AgentComposerSeed(actionId = action.id)) },
+                            onClick = { onOpenAgent(AgentComposerSeed(promptId = action.id)) },
                             modifier = Modifier
                                 .padding(end = 8.dp)
                                 .testTag("action-detail-run"),

@@ -1,141 +1,107 @@
 import ExpCore
 import ExpUI
-import GRDB
 import SwiftUI
 
-// EXP-615: the ONE trigger editor — the Schedule | On event switch, the
-// schedule fields and the event filters of a trigger's when-part. EXP-1291:
-// triggers live on a team AGENT (Settings → Agents); the agent's own device
-// fires them, so the form is the when-part alone. Contextual filters are
-// single-select on mobile — a multi-id list (the web allows several) seeds
-// from its first entry and travels as one.
+// EXP-615: the ONE trigger editor — the Schedule | On event switch over the
+// when-part of a trigger. NEW-2: triggers live on a team AGENT definition and
+// the SERVER fires them: a schedule = a 5-field cron (`m h dom mon dow`) read
+// in an IANA time zone (blank = UTC), an event = the name of an `events` row
+// (a builtin, contract `eventBuiltinNames`, or any custom name).
 
-/// One trigger's own glyph, by kind (a Schedule row's leading mark).
+/// One trigger's own glyph, by kind (a Triggers row's leading mark).
 enum TriggerGlyph {
     static func icon(for trigger: TriggerWhen) -> String {
         trigger.isSchedule ? AppIcons.triggerSchedule : AppIcons.triggerEvent
     }
 }
 
-/// The trigger being edited, in picker-shaped fields.
+/// The trigger being edited, in field-shaped values.
 struct TriggerDraft: Equatable {
-    var kind = "schedule"
-    var schedInterval = "daily"
-    var schedTime = TriggerDraft.defaultScheduleTime
-    /// 1 = Monday … 7 = Sunday (the wire convention).
-    var schedWeekday = 1
-    var schedDayOfMonth = 1
-    var eventType = "created"
-    var filterBoardId = ""
-    var filterLabelId = ""
-    var filterPriority = ""
-    var filterToStatusId = ""
+    /// The event picker's "type a name" row.
+    static let customEvent = "custom"
 
-    static var defaultScheduleTime: Date {
-        Calendar.current.date(bySettingHour: 9, minute: 0, second: 0, of: Date()) ?? Date()
-    }
+    var kind = "schedule"
+    var cron = "0 9 * * 1-5"
+    /// IANA zone; blank = UTC. A new trigger seeds the phone's own zone.
+    var tz = TimeZone.current.identifier
+    /// A builtin event name, or `customEvent`.
+    var eventPick = DomainContract.eventBuiltinNames.first ?? customEvent
+    var customName = ""
 
     init() {}
 
-    /// Seed the pickers from an existing/suggested trigger.
+    /// Seed the fields from an existing trigger.
     init(trigger: TriggerWhen?) {
         switch trigger {
         case let .schedule(s)?:
             kind = "schedule"
-            schedInterval = s.interval
-            schedWeekday = s.weekday ?? 1
-            schedDayOfMonth = s.dayOfMonth ?? 1
-            schedTime = Calendar.current.date(
-                bySettingHour: s.minuteOfDay / 60,
-                minute: s.minuteOfDay % 60,
-                second: 0,
-                of: Date()
-            ) ?? Self.defaultScheduleTime
+            cron = s.cron
+            tz = s.tz ?? ""
         case let .event(e)?:
             kind = "event"
-            eventType = e.event
-            filterBoardId = e.filters.boardIds.first ?? ""
-            filterLabelId = e.filters.labelIds.first ?? ""
-            filterPriority = e.filters.priorities.first ?? ""
-            filterToStatusId = e.filters.toStatusIds.first ?? ""
+            if DomainContract.eventBuiltinNames.contains(e.name) {
+                eventPick = e.name
+            } else {
+                eventPick = Self.customEvent
+                customName = e.name
+            }
         case nil:
             break
         }
     }
 
-    /// The configured trigger in wire form. Contextual filters travel only for
-    /// the event they apply to — a stale pick from a previously chosen event
-    /// never rides along.
+    private var trimmedCron: String {
+        cron.trimmingCharacters(in: .whitespacesAndNewlines)
+            .split(whereSeparator: \.isWhitespace).joined(separator: " ")
+    }
+
+    private var trimmedTz: String { tz.trimmingCharacters(in: .whitespacesAndNewlines) }
+
+    private var eventName: String {
+        eventPick == Self.customEvent
+            ? customName.trimmingCharacters(in: .whitespacesAndNewlines)
+            : eventPick
+    }
+
+    /// What the server's strict schema would take: five cron fields within
+    /// the contract cap (a known zone or none), or a non-blank event name
+    /// within its cap of letters, digits and `. _ : / -`.
+    var isValid: Bool {
+        if kind == "schedule" {
+            let cron = trimmedCron
+            guard cron.split(separator: " ").count == 5,
+                  cron.count <= DomainContract.agentTriggerCronMax
+            else { return false }
+            return trimmedTz.isEmpty
+                || (trimmedTz.count <= DomainContract.agentTriggerTzMax && TimeZone(identifier: trimmedTz) != nil)
+        }
+        let name = eventName
+        guard let first = name.unicodeScalars.first,
+              name.count <= DomainContract.eventNameMax,
+              CharacterSet.alphanumerics.contains(first)
+        else { return false }
+        let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._:/-")
+        return name.unicodeScalars.allSatisfy { allowed.contains($0) }
+    }
+
+    /// The configured trigger in wire form.
     var trigger: TriggerWhen {
         if kind == "schedule" {
-            let comps = Calendar.current.dateComponents([.hour, .minute], from: schedTime)
-            let minuteOfDay = (comps.hour ?? 0) * 60 + (comps.minute ?? 0)
-            return .schedule(ScheduleTrigger(
-                interval: schedInterval,
-                minuteOfDay: minuteOfDay,
-                weekday: schedInterval == "weekly" ? schedWeekday : nil,
-                dayOfMonth: schedInterval == "monthly" ? schedDayOfMonth : nil
-            ))
+            return .schedule(ScheduleTrigger(cron: trimmedCron, tz: trimmedTz.isEmpty ? nil : trimmedTz))
         }
-        return .event(EventTrigger(
-            event: eventType,
-            filters: TriggerFilters(
-                boardIds: filterBoardId.isEmpty ? [] : [filterBoardId],
-                labelIds: eventType == "label_added" && !filterLabelId.isEmpty
-                    ? [filterLabelId] : [],
-                priorities: (eventType == "created" || eventType == "priority_changed")
-                    && !filterPriority.isEmpty ? [filterPriority] : [],
-                toStatusIds: eventType == "status_changed" && !filterToStatusId.isEmpty
-                    ? [filterToStatusId] : []
-            )
-        ))
-    }
-}
-
-/// The event filters' option pools, off the synced store.
-struct TriggerFilterOptions {
-    var boards: [BoardEntity] = []
-    var labels: [LabelEntity] = []
-    var statuses: [IssueStatusEntity] = []
-
-    static func load(
-        db: DatabaseManager,
-        accountId: String,
-        teamId: String
-    ) async -> TriggerFilterOptions {
-        guard let pool = try? db.pool(forAccountId: accountId) else {
-            return TriggerFilterOptions()
-        }
-        let boardRows = (try? await pool.read { db in
-            try BoardEntity.filter(Column("team_id") == teamId).fetchAll(db)
-        }) ?? []
-        let labelRows = (try? await pool.read { db in
-            try LabelEntity.filter(Column("team_id") == teamId).fetchAll(db)
-        }) ?? []
-        let statusRows = (try? await pool.read { db in
-            try IssueStatusEntity.filter(Column("team_id") == teamId).fetchAll(db)
-        }) ?? []
-        return TriggerFilterOptions(
-            boards: boardRows.sorted { ($0.sortOrder ?? 0, $0.name) < ($1.sortOrder ?? 0, $1.name) },
-            labels: labelRows.sorted { ($0.sortOrder ?? 0, $0.name) < ($1.sortOrder ?? 0, $1.name) },
-            statuses: statusRows
-                .filter { $0.category != "duplicate" }
-                .sorted { ($0.sortOrder ?? 0, $0.name) < ($1.sortOrder ?? 0, $1.name) }
-        )
+        return .event(EventTrigger(name: eventName))
     }
 }
 
 /// The when-part `Section` of the trigger form.
 struct TriggerForm: View {
     @Binding var draft: TriggerDraft
-    let options: TriggerFilterOptions
 
     @ViewBuilder
     var body: some View {
         // EXP-721 (EXP-698 r4 parity): the Schedule / On event tabs are the
         // FIRST ROW of the trigger card — the embedded strip — not a capsule
-        // under a "Trigger" heading. No footer note about the machine's own
-        // clock: the agent's Device row names the machine it belongs to.
+        // under a "Trigger" heading.
         Section {
             GlassSegmentedControl(
                 options: ["schedule", "event"],
@@ -160,120 +126,46 @@ struct TriggerForm: View {
 
     @ViewBuilder
     private var scheduleRows: some View {
-        GlassPickerRow(
-            "Every",
-            selection: $draft.schedInterval,
-            options: ["daily", "weekly", "monthly"],
-            label: { value in
-                switch value {
-                case "weekly": "Week"
-                case "monthly": "Month"
-                default: "Day"
-                }
-            }
-        )
-        if draft.schedInterval == "weekly" {
-            GlassPickerRow(
-                "Weekday",
-                selection: $draft.schedWeekday,
-                options: Array(1...7),
-                label: { AgentSettings.Copy.weekdays[$0 - 1] }
-            )
-        }
-        if draft.schedInterval == "monthly" {
-            GlassPickerRow(
-                "Day of month",
-                selection: $draft.schedDayOfMonth,
-                options: Array(1...28),
-                label: { "Day \($0)" }
-            )
-        }
-        // EXP-721: the shared glass row, not the stock compact `DatePicker` —
-        // its grey pill was the one system control left in this card, and its
-        // 12-hour rendering disagreed with every other client's "HH:mm".
-        GlassTimeRow("Time", selection: $draft.schedTime)
+        textRow("Cron", placeholder: "0 9 * * 1-5", text: $draft.cron, id: "trigger-cron")
+            .font(.system(.body, design: .monospaced))
+        textRow("Time zone", placeholder: "UTC", text: $draft.tz, id: "trigger-tz")
     }
 
     @ViewBuilder
     private var eventRows: some View {
         GlassPickerRow(
             "When",
-            selection: $draft.eventType,
-            options: DomainContract.agentTriggerEventValues,
-            label: { TriggerDisplay.eventLabel($0) }
+            selection: $draft.eventPick,
+            options: DomainContract.eventBuiltinNames + [TriggerDraft.customEvent],
+            label: { value in
+                value == TriggerDraft.customEvent
+                    ? "Custom event"
+                    : AgentSettings.Copy.events[value] ?? value
+            }
         )
-        filterRow(
-            "Board",
-            anyLabel: "Any board",
-            rows: BoardPicker<EmptyView>.items(options.boards.map(BoardPickerBoard.init)),
-            selection: $draft.filterBoardId
-        )
-        if draft.eventType == "label_added" {
-            filterRow(
-                "Label",
-                anyLabel: "Any label",
-                rows: LabelPicker<EmptyView>.items(options.labels.map(LabelPickerLabel.init)),
-                selection: $draft.filterLabelId
-            )
-        }
-        if draft.eventType == "created" || draft.eventType == "priority_changed" {
-            filterRow(
-                "Priority",
-                anyLabel: "Any priority",
-                rows: PriorityPicker<EmptyView>.items(
-                    IssuePriority.displayOrder.map(PriorityPickerOption.init)
-                ),
-                selection: $draft.filterPriority
-            )
-        }
-        if draft.eventType == "status_changed" {
-            // EXP-314: the team's rows resolved the way every list resolves
-            // them, so a custom status keeps its own glyph and colour and the
-            // order matches the board it filters.
-            filterRow(
-                "To status",
-                anyLabel: "Any status",
-                rows: StatusPicker<EmptyView>.items(
-                    IssueStatusResolver.teamStatuses(options.statuses)
-                        .map(StatusPickerStatus.init)
-                ),
-                selection: $draft.filterToStatusId
-            )
+        if draft.eventPick == TriggerDraft.customEvent {
+            textRow("Event", placeholder: "deploy:prod", text: $draft.customName, id: "trigger-event-name")
         }
     }
 
-    /// One event filter: the TYPED pickers' own rows — a board wears its glyph
-    /// in its colour, a label its dot, a status its glyph — on the shared
-    /// sheet, with the "Any X" reset as the FIRST row.
-    ///
-    /// Built from each typed picker's `items` rather than from the typed VIEW
-    /// on purpose, which is also what the IDE's filter rows do
-    /// (`board_picker::board_items` + its own row) and what Android's filter
-    /// picker reads as: "Any board" is not a
-    /// board, and a mobile filter is SINGLE-select (a multi-id list seeds from
-    /// its first entry and travels as one, see this file's header), so there
-    /// is no empty multi-selection for a cleared filter to be — it is a row.
-    private func filterRow(
-        _ title: String,
-        anyLabel: String,
-        rows: [PickerItem<String>],
-        selection: Binding<String>
+    /// A labelled single-line text row: the title leading, the field filling
+    /// the rest (the picker rows' layout).
+    private func textRow(
+        _ title: String, placeholder: String, text: Binding<String>, id: String
     ) -> some View {
-        GlassPicker(
-            items: [PickerItem(value: "", label: anyLabel)] + rows,
-            mode: .single,
-            value: [selection.wrappedValue],
-            onChange: { picked in
-                guard let value = picked.first else { return }
-                selection.wrappedValue = value
+        GlassTextField(
+            placeholder,
+            text: text,
+            bordered: false,
+            accessibilityIdentifier: id,
+            leading: {
+                Text(title)
+                    .foregroundStyle(.white)
+                    .frame(minWidth: 88, alignment: .leading)
             },
-            title: title,
-            trigger: {
-                GlassPickerRowLabel(
-                    title,
-                    value: rows.first { $0.value == selection.wrappedValue }?.label ?? anyLabel
-                )
-            }
+            trailing: { EmptyView() }
         )
+        .textInputAutocapitalization(.never)
+        .autocorrectionDisabled()
     }
 }

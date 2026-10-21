@@ -45,10 +45,11 @@ import com.exponential.app.ui.theme.TextEmphasis
 /**
  * EXP-1249: the composer's ONE "+" menu on a phone (web `composer-plus-menu.tsx`
  * as its sheet arm): the rows of [ComposerMenu.composerMenuLayout] in a
- * bottom sheet — Implement issue ›, Run action ›, Add file or image | Effort ›,
- * Subagents ›, Ultracode | MCP servers ›, Computer use. SLOP-28 (EXP-1259 D5):
- * Implement issue and Run action PUSH a page inside this sheet ([issuePage],
- * [actionPage]: THE search list, back returns to the rows); the other submenu
+ * bottom sheet — Implement issue ›, Add file or image | Effort ›,
+ * Subagents ›, Ultracode | MCP servers ›, Computer use (NEW-2: no Run action;
+ * prompts live in the `/` menu). SLOP-28 (EXP-1259 D5): Implement issue
+ * PUSHES a page inside this sheet ([issuePage]: THE search list, back
+ * returns to the rows); the other submenu
  * rows close it and open their picker sheet (two stacked sheets are a dead
  * end on Android); a toggle flips in place.
  */
@@ -74,8 +75,6 @@ internal fun ComposerPlusMenuSheet(
     onDismiss: () -> Unit,
     /** The Implement issue › page (the search list); its arg closes the menu. */
     issuePage: @Composable (close: () -> Unit) -> Unit,
-    /** The Run action › page (the search list); its arg closes the menu. */
-    actionPage: @Composable (close: () -> Unit) -> Unit,
 ) {
     var page by remember { mutableStateOf<ComposerMenuRowId?>(null) }
     GlassSheet(
@@ -93,10 +92,7 @@ internal fun ComposerPlusMenuSheet(
                 onClick = { page = null },
                 leading = { RowGlyph(ExpIcons.uiBack) },
             )
-            when (pushed) {
-                ComposerMenuRowId.ImplementIssue -> issuePage(onDismiss)
-                else -> actionPage(onDismiss)
-            }
+            issuePage(onDismiss)
             return@GlassSheet
         }
         Column(modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState())) {
@@ -156,8 +152,7 @@ internal fun ComposerPlusMenuSheet(
                                         enabled = enabled,
                                         onClick = {
                                             when (entry.id) {
-                                                ComposerMenuRowId.ImplementIssue,
-                                                ComposerMenuRowId.RunAction -> page = entry.id
+                                                ComposerMenuRowId.ImplementIssue -> page = entry.id
                                                 else -> onRow(entry.id)
                                             }
                                         },
@@ -181,7 +176,6 @@ internal fun ComposerPlusMenuSheet(
 /** The row's concept glyph (fixture `rows[].icon`, ×4). */
 internal fun composerMenuGlyph(id: ComposerMenuRowId): ImageVector = when (id) {
     ComposerMenuRowId.ImplementIssue -> ExpIcons.editorIssueRef
-    ComposerMenuRowId.RunAction -> ExpIcons.actionRun
     ComposerMenuRowId.AddFile -> ExpIcons.uiAttach
     ComposerMenuRowId.Effort -> ExpIcons.uiEstimate
     ComposerMenuRowId.Subagents -> ExpIcons.codingSubagent

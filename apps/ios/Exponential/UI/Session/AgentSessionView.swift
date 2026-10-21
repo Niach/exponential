@@ -970,13 +970,10 @@ struct AgentSessionView: View {
             case let .userMessage(_, text, _):
                 // EXP-724: a steered slash command is a control action, not
                 // prose — it renders as a compact pill instead of a bubble.
-                // EXP-746: over the MERGED catalog, so a command the agent
-                // itself advertised gets the pill too (the `/` menu that sent
-                // it reads the same merge).
+                // NEW-2: the contract catalog alone (agent commands hidden).
                 if let command = SlashCommands.command(
                     for: text,
-                    agent: model?.catalogAgent,
-                    extra: model?.sessionConfig?.commands ?? []
+                    agent: model?.catalogAgent
                 ) {
                     CommandPill(command: command, text: text)
                 } else {
@@ -1945,7 +1942,7 @@ struct AgentSessionView: View {
         // `/clear` discards the whole conversation — ask first, then send
         // exactly what was typed.
         if let command = SlashCommands.command(
-            for: model.draftText, agent: model.catalogAgent, extra: model.sessionConfig?.commands ?? []
+            for: model.draftText, agent: model.catalogAgent
         ) {
             if model.hasPendingAttachments {
                 toaster.error(SlashCommands.attachmentsRefusal)
@@ -3383,7 +3380,7 @@ private struct ExpToolRow: View {
             // The `Open Results` button / the inline tile below the row IS
             // its preview (EXP-933 / EXP-1172).
             EmptyView()
-        case .session, .board, .action, .comment:
+        case .session, .board, .action, .comment, .prompt, .agent, .event:
             // A name/identifier chip — never a bare uuid: an id the reader
             // cannot place says less than the caption already did.
             if let name = preview.title ?? preview.identifier {

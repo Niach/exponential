@@ -9,13 +9,13 @@ package com.exponential.app.domain
  *
  * The list = Settings rows (icon + color + name like a board row, then
  * `New agent`); an agent page = the board page layout, [FIELDS] top to
- * bottom. Save = `sessions.send({teamId, deviceId, account, agent})` for a
- * new agent, `sessions.updateAgent` after. Owner-only controls hide from
+ * bottom. Save = `agents.create` for a new agent, `agents.update` after
+ * (NEW-2: an agent is a definition row). Owner-only controls hide from
  * members.
  */
 object AgentSettings {
 
-    /** One page field: [key] identity | device | account | schedule |
+    /** One page field: [key] identity | device | account | triggers |
      *  instructions | delete; [control] names the widget. */
     data class Field(
         val key: String,
@@ -28,7 +28,7 @@ object AgentSettings {
     const val FIELD_IDENTITY = "identity"
     const val FIELD_DEVICE = "device"
     const val FIELD_ACCOUNT = "account"
-    const val FIELD_SCHEDULE = "schedule"
+    const val FIELD_TRIGGERS = "triggers"
     const val FIELD_INSTRUCTIONS = "instructions"
     const val FIELD_DELETE = "delete"
 
@@ -36,7 +36,7 @@ object AgentSettings {
         Field(FIELD_IDENTITY, "Name", "icon-color-name", required = true),
         Field(FIELD_DEVICE, "Device", "device-picker", required = true),
         Field(FIELD_ACCOUNT, "Account", "account-picker", required = false),
-        Field(FIELD_SCHEDULE, "Schedule", "trigger-list", required = false),
+        Field(FIELD_TRIGGERS, "Triggers", "trigger-list", required = false),
         Field(FIELD_INSTRUCTIONS, "Instructions", "markdown", required = false),
         Field(FIELD_DELETE, "Delete agent", "danger", required = false, ownerOnly = true),
     )
@@ -50,22 +50,18 @@ object AgentSettings {
         const val NO_SCHEDULE = "Waits for messages"
         const val PAUSED = "Paused"
         const val DELETE_CONFIRM = "Delete this agent? Its conversation is deleted with it."
-        val WEEKDAYS: List<String> = listOf(
-            "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday",
-        )
-        const val SCHEDULE_DAILY = "Daily at {time}"
-        const val SCHEDULE_WEEKLY = "Weekly on {weekday} at {time}"
-        const val SCHEDULE_MONTHLY = "Monthly on day {day} at {time}"
-        /** Event summaries by contract `agentTriggerEventValues`. */
+        const val SCHEDULE_CRON = "Cron {cron}"
+        const val SCHEDULE_CRON_TZ = "Cron {cron} ({tz})"
+        /** Event summaries by contract `eventBuiltinNames`. */
         val EVENTS: Map<String, String> = mapOf(
-            "created" to "When an issue is created",
-            "status_changed" to "When an issue's status changes",
-            "assignee_changed" to "When an issue is assigned",
-            "label_added" to "When a label is added",
-            "priority_changed" to "When an issue's priority changes",
-            "pr_opened" to "When a pull request opens",
-            "pr_merged" to "When a pull request merges",
+            "issue.created" to "When an issue is created",
+            "issue.status_changed" to "When an issue's status changes",
+            "pr.opened" to "When a pull request opens",
+            "pr.merged" to "When a pull request merges",
+            "session.ended" to "When a session ends",
         )
+        /** Any other (custom) event name. */
+        const val EVENT = "On {name}"
         const val ERROR_NAME_REQUIRED = "Name the agent"
         const val ERROR_NAME_TOO_LONG = "Use at most 64 characters"
         const val ERROR_DEVICE_REQUIRED = "Pick a device"
@@ -82,35 +78,26 @@ object AgentSettings {
     data class TriggerLike(
         val kind: String,
         val enabled: Boolean? = null,
-        val interval: String? = null,
-        val minuteOfDay: Int? = null,
-        val weekday: Int? = null,
-        val dayOfMonth: Int? = null,
-        val event: String? = null,
+        /** schedule: the 5-field cron and its IANA zone. */
+        val cron: String? = null,
+        val tz: String? = null,
+        /** event: the events row name it listens on. */
+        val name: String? = null,
     )
 
-    private fun clock(minuteOfDay: Int?): String {
-        val minutes = (minuteOfDay ?: 0).coerceIn(0, 1439)
-        fun pad(value: Int) = value.toString().padStart(2, '0')
-        return "${pad(minutes / 60)}:${pad(minutes % 60)}"
-    }
-
-    /** One Schedule row's text. */
+    /** One Triggers row's text. */
     fun triggerSummary(trigger: TriggerLike): String {
         val text = if (trigger.kind == "schedule") {
-            val time = clock(trigger.minuteOfDay)
-            when (trigger.interval) {
-                "weekly" -> {
-                    val index = Math.floorMod((trigger.weekday ?: 1) - 1 + 7, 7)
-                    Copy.SCHEDULE_WEEKLY.replace("{weekday}", Copy.WEEKDAYS[index]).replace("{time}", time)
-                }
-                "monthly" -> Copy.SCHEDULE_MONTHLY
-                    .replace("{day}", (trigger.dayOfMonth ?: 1).toString())
-                    .replace("{time}", time)
-                else -> Copy.SCHEDULE_DAILY.replace("{time}", time)
+            val cron = trigger.cron ?: ""
+            val tz = trigger.tz
+            if (!tz.isNullOrEmpty()) {
+                Copy.SCHEDULE_CRON_TZ.replace("{cron}", cron).replace("{tz}", tz)
+            } else {
+                Copy.SCHEDULE_CRON.replace("{cron}", cron)
             }
         } else {
-            Copy.EVENTS[trigger.event ?: ""] ?: trigger.event ?: ""
+            val name = trigger.name ?: ""
+            Copy.EVENTS[name] ?: Copy.EVENT.replace("{name}", name)
         }
         return if (trigger.enabled == false) "$text · ${Copy.PAUSED}" else text
     }
@@ -121,12 +108,10 @@ object AgentSettings {
             is TriggerWhen.Schedule -> TriggerLike(
                 kind = "schedule",
                 enabled = trigger.enabled,
-                interval = part.interval,
-                minuteOfDay = part.minuteOfDay,
-                weekday = part.weekday,
-                dayOfMonth = part.dayOfMonth,
+                cron = part.cron,
+                tz = part.tz,
             )
-            is TriggerWhen.Event -> TriggerLike(kind = "event", enabled = trigger.enabled, event = part.event)
+            is TriggerWhen.Event -> TriggerLike(kind = "event", enabled = trigger.enabled, name = part.name)
         },
     )
 

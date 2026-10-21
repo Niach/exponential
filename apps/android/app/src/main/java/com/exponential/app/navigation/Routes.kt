@@ -25,7 +25,8 @@ object Routes {
     fun session(sessionId: String): String = "session/$sessionId"
 
     const val AGENTS_SETTINGS = "settings/agents"
-    const val AGENT_SETTINGS_PATTERN = "settings/agent/{sessionId}"
-    fun agentSettings(agentSessionId: String): String = "settings/agent/$agentSessionId"
+    // NEW-2: an agent = a definition row (`agents.id`).
+    const val AGENT_SETTINGS_PATTERN = "settings/agent/{agentId}"
+    fun agentSettings(agentId: String): String = "settings/agent/$agentId"
     const val AGENT_NEW = "settings/agent-new"
 }

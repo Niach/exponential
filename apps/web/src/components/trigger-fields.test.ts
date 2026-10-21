@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest"
 
 import {
+  draftFromTrigger,
+  draftToTrigger,
+  emptyTriggerDraft,
+  validateTriggerDraft,
   accountPinOf,
   triggerAccountKey,
   pickedAccountOption,
@@ -106,5 +110,46 @@ describe(`trigger account pin (EXP-995)`, () => {
     // A profile the machine no longer reports falls to that agent's first row.
     expect(pickedAccountOption(options, { agent: `claude`, account: `gone` })?.id).toBe(`work`)
     expect(pickedAccountOption(options, { agent: ``, account: `` })).toBeUndefined()
+  })
+})
+
+// NEW-2: the when-part = a 5-field cron + IANA zone, or an event name.
+describe(`trigger draft (NEW-2)`, () => {
+  it(`starts as a schedule in the browser's zone`, () => {
+    const draft = emptyTriggerDraft()
+    expect(draft.kind).toBe(`schedule`)
+    expect(draft.cron).toBe(``)
+    expect(draft.tz).toBe(Intl.DateTimeFormat().resolvedOptions().timeZone)
+  })
+
+  it(`round-trips a schedule and an event`, () => {
+    const schedule = { kind: `schedule` as const, cron: `0 9 * * 1-5`, tz: `Europe/Vienna` }
+    expect(draftToTrigger(draftFromTrigger(schedule))).toEqual(schedule)
+    const utc = { kind: `schedule` as const, cron: `*/10 * * * *` }
+    expect(draftToTrigger(draftFromTrigger(utc))).toEqual(utc)
+    const event = { kind: `event` as const, name: `ui-changed` }
+    expect(draftToTrigger(draftFromTrigger(event))).toEqual(event)
+  })
+
+  it(`normalises the cron's whitespace and drops a blank zone`, () => {
+    expect(
+      draftToTrigger({ kind: `schedule`, cron: ` 0  9 * *   1-5 `, tz: ` `, name: `` })
+    ).toEqual({ kind: `schedule`, cron: `0 9 * * 1-5` })
+  })
+
+  it(`validates the visible pane only`, () => {
+    const base = { ...emptyTriggerDraft(), tz: `Europe/Vienna` }
+    expect(validateTriggerDraft({ ...base, cron: `0 9 * * 1-5` })).toEqual([])
+    expect(validateTriggerDraft({ ...base, cron: `` }).map((e) => e.field)).toEqual([`cron`])
+    expect(validateTriggerDraft({ ...base, cron: `0 9 * *` }).map((e) => e.field)).toEqual([`cron`])
+    expect(validateTriggerDraft({ ...base, cron: `61 9 * * *` }).map((e) => e.field)).toEqual([`cron`])
+    expect(
+      validateTriggerDraft({ ...base, cron: `0 9 * * *`, tz: `Mars/Base` }).map((e) => e.field)
+    ).toEqual([`tz`])
+    const event = { ...base, kind: `event` as const, cron: `` }
+    expect(validateTriggerDraft({ ...event, name: `issue.created` })).toEqual([])
+    expect(validateTriggerDraft({ ...event, name: `deploy:prod` })).toEqual([])
+    expect(validateTriggerDraft({ ...event, name: `` }).map((e) => e.field)).toEqual([`name`])
+    expect(validateTriggerDraft({ ...event, name: `has space` }).map((e) => e.field)).toEqual([`name`])
   })
 })

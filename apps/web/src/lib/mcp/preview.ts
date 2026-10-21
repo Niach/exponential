@@ -44,6 +44,9 @@ export const entityRefKinds = contract.entityRefKind.values as readonly [
   `thread`,
   `attachment`,
   `list`,
+  `prompt`,
+  `agent`,
+  `event`,
 ]
 export type EntityRefKind = (typeof entityRefKinds)[number]
 

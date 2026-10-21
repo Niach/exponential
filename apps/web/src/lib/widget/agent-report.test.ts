@@ -31,6 +31,8 @@ const tx = {
   }),
 }
 
+// NEW-2: the builtin issue events ride recordIssueEvent; not under test here.
+vi.mock(`@/lib/events`, () => ({ emitIssueEventInTx: vi.fn(async () => null), emitEventInTx: vi.fn() }))
 vi.mock(`@/db/connection`, () => ({
   db: {
     transaction: vi.fn(async (fn: (t: typeof tx) => Promise<unknown>) => {

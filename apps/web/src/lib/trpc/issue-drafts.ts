@@ -132,7 +132,7 @@ export const issueDraftsRouter = router({
       let threadRootId: string | null | undefined = input.sessionId
       if (input.sessionId) {
         const thread = await loadSessionForUser(userId, input.sessionId).catch(() => null)
-        if (!thread || thread.teamId !== board.teamId || thread.kind !== `thread`) {
+        if (!thread || thread.teamId !== board.teamId || thread.agentId) {
           throw new TRPCError({
             code: `BAD_REQUEST`,
             message: `The thread must belong to this team`,

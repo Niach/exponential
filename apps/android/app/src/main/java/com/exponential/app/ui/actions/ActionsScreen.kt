@@ -35,7 +35,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.exponential.app.data.api.ActionDto
+import com.exponential.app.data.api.PromptDto
 import com.exponential.app.domain.AgentComposerSeed
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.ui.components.BottomBarInset
@@ -72,7 +72,9 @@ import com.exponential.app.ui.theme.glassRow
 //
 // EXP-1270: the Suggestions segment is gone (the seeds left every client), so
 // the screen is the one list. EXP-1291: an action is a saved prompt; tapping a
-// row opens its page ([ActionDetailScreen]).
+// row opens its page ([ActionDetailScreen]). NEW-2: the rows are the synced
+// `prompts` (the `actions` router is gone); NEW-7 moves prompts to Settings
+// and the composer's `/` menu, this screen is a compiling shell until then.
 
 @Composable
 fun ActionsScreen(
@@ -168,7 +170,7 @@ fun ActionsScreen(
                                     action = action,
                                     // EXP-1186: the composer resolves the
                                     // ACTION's team off the seed.
-                                    onRun = { onOpenAgent(AgentComposerSeed(actionId = action.id)) },
+                                    onRun = { onOpenAgent(AgentComposerSeed(promptId = action.id)) },
                                     // SLOP-2: the row (and its menu's Edit)
                                     // opens the action page, which is
                                     // read-only for non-owners.
@@ -188,7 +190,7 @@ fun ActionsScreen(
 // overflow with Edit. Tapping the row opens the action page.
 @Composable
 private fun ActionRow(
-    action: ActionDto,
+    action: PromptDto,
     onRun: () -> Unit,
     onOpen: () -> Unit,
 ) {
@@ -224,16 +226,6 @@ private fun ActionRow(
                     overflow = TextOverflow.Ellipsis,
                     // Yield to the glyphs instead of pushing them off the row.
                     modifier = Modifier.weight(1f, fill = false),
-                )
-            }
-            val description = action.description
-            if (!description.isNullOrBlank()) {
-                Text(
-                    description,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
                 )
             }
         }

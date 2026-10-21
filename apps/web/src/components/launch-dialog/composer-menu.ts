@@ -9,7 +9,6 @@ import fixture from "@exp/domain-contract/fixtures/composer-menu.json"
 
 export type ComposerMenuRowId =
   | `implement-issue`
-  | `run-action`
   | `add-file`
   | `effort`
   | `subagents`
@@ -48,7 +47,7 @@ export const COMPOSER_MENU_TEST_IDS = fixture.testIds
 export const COMPOSER_PLUS_LABEL = fixture.plusLabel
 /** The capability a device advertises once it reads the per-run flag. */
 export const COMPUTER_USE_RUN_CAP = fixture.computerUse.cap
-/** SLOP-28: the Implement issue / Run action submenus = the search list at
+/** SLOP-28: the Implement issue submenu = the search list at
  *  ONE row height, at most this many rows visible before it scrolls. */
 export const COMPOSER_SUBMENU_ROW_HEIGHT = fixture.submenuRowHeight
 export const COMPOSER_SUBMENU_MAX_ROWS = fixture.submenuMaxRows

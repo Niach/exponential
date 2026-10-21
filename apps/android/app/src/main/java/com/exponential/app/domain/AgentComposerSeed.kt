@@ -16,11 +16,10 @@ data class AgentComposerSeed(
     /** Pre-checked issue ids (1 = a single-issue run, 2+ = a batch). */
     val issueIds: List<String> = emptyList(),
     /**
-     * A preselected action — a team row or one of the builtins
-     * (`builtin:create-action`, `builtin:fix-conflicts`). Wins over
-     * [issueIds] when both arrive (the web rule).
+     * NEW-2: a preselected saved PROMPT (rides the route's `action` arg).
+     * Wins over [issueIds] when both arrive.
      */
-    val actionId: String? = null,
+    val promptId: String? = null,
     /** The machine to preselect (the Devices tab's play glyph). */
     val deviceId: String? = null,
     /**
@@ -50,13 +49,13 @@ data class AgentComposerSeed(
     val threadId: String? = null,
 ) {
     /** Whether the seed names a subject at all. */
-    val hasSubject: Boolean get() = actionId != null || issueIds.isNotEmpty()
+    val hasSubject: Boolean get() = promptId != null || issueIds.isNotEmpty()
 
     /**
      * The issue ids the composer should check — EMPTY when an action is seeded
      * too, because `action` wins over `issues` (web parity).
      */
-    val effectiveIssueIds: List<String> get() = if (actionId == null) issueIds else emptyList()
+    val effectiveIssueIds: List<String> get() = if (promptId == null) issueIds else emptyList()
 
     companion object {
         /** The Chat FAB's seed: nothing preselected. */
@@ -73,7 +72,7 @@ data class AgentComposerSeed(
                 .split(',')
                 .map { it.trim() }
                 .filter { UUID_RE.matches(it) },
-            actionId = get(ARG_ACTION)?.takeIf { it.isNotEmpty() },
+            promptId = get(ARG_ACTION)?.takeIf { it.isNotEmpty() },
             deviceId = get(ARG_DEVICE)?.takeIf { it.isNotEmpty() },
             prIssueId = get(ARG_PR)?.takeIf { UUID_RE.matches(it) },
             text = get(ARG_TEXT)?.takeIf { it.isNotEmpty() },
@@ -130,7 +129,7 @@ val AGENT_ROUTE_PATTERN: String =
 fun agentRoute(seed: AgentComposerSeed): String {
     val params = buildList {
         if (seed.issueIds.isNotEmpty()) add(ARG_ISSUES to seed.issueIds.joinToString(","))
-        seed.actionId?.takeIf { it.isNotEmpty() }?.let { add(ARG_ACTION to it) }
+        seed.promptId?.takeIf { it.isNotEmpty() }?.let { add(ARG_ACTION to it) }
         seed.deviceId?.takeIf { it.isNotEmpty() }?.let { add(ARG_DEVICE to it) }
         seed.prIssueId?.takeIf { it.isNotEmpty() }?.let { add(ARG_PR to it) }
         seed.text?.takeIf { it.isNotEmpty() }?.let { add(ARG_TEXT to it) }

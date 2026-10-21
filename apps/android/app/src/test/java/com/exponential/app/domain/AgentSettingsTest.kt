@@ -7,7 +7,6 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -32,14 +31,12 @@ class AgentSettingsTest {
     private fun JsonObject.str(key: String): String? =
         this[key]?.takeUnless { it is JsonNull }?.jsonPrimitive?.content
 
-    private fun JsonObject.int(key: String): Int? =
-        this[key]?.takeUnless { it is JsonNull }?.jsonPrimitive?.int
-
     @Test
-    fun `every trigger event has a summary`() {
-        for (event in DomainContract.agentTriggerEventValues) {
+    fun `every builtin event has a summary`() {
+        for (event in DomainContract.eventBuiltinNames) {
             assertTrue(event, !AgentSettings.Copy.EVENTS[event].isNullOrEmpty())
         }
+        assertEquals(DomainContract.eventBuiltinNames.toSet(), AgentSettings.Copy.EVENTS.keys)
     }
 
     @Test
@@ -51,15 +48,14 @@ class AgentSettingsTest {
             val like = AgentSettings.TriggerLike(
                 kind = trigger.str("kind")!!,
                 enabled = trigger["enabled"]?.takeUnless { it is JsonNull }?.jsonPrimitive?.boolean,
-                interval = trigger.str("interval"),
-                minuteOfDay = trigger.int("minuteOfDay"),
-                weekday = trigger.int("weekday"),
-                dayOfMonth = trigger.int("dayOfMonth"),
-                event = trigger.str("event"),
+                cron = trigger.str("cron"),
+                tz = trigger.str("tz"),
+                name = trigger.str("name"),
             )
             assertEquals(case.str("expected"), AgentSettings.triggerSummary(like))
-            // The same text off the PARSED stored trigger (the Schedule rows).
+            // The same text off the PARSED stored trigger (the Triggers rows).
             val parsed = parseAgentTrigger(trigger)
+            assertTrue(trigger.toString(), parsed != null)
             if (parsed != null) assertEquals(case.str("expected"), AgentSettings.triggerSummary(parsed))
         }
     }
@@ -138,14 +134,10 @@ class AgentSettingsTest {
         assertEquals(copy.str("noSchedule"), AgentSettings.Copy.NO_SCHEDULE)
         assertEquals(copy.str("paused"), AgentSettings.Copy.PAUSED)
         assertEquals(copy.str("deleteConfirm"), AgentSettings.Copy.DELETE_CONFIRM)
-        assertEquals(
-            copy.getValue("weekdays").jsonArray.map { it.jsonPrimitive.content },
-            AgentSettings.Copy.WEEKDAYS,
-        )
         val schedule = copy.getValue("schedule").jsonObject
-        assertEquals(schedule.str("daily"), AgentSettings.Copy.SCHEDULE_DAILY)
-        assertEquals(schedule.str("weekly"), AgentSettings.Copy.SCHEDULE_WEEKLY)
-        assertEquals(schedule.str("monthly"), AgentSettings.Copy.SCHEDULE_MONTHLY)
+        assertEquals(schedule.str("cron"), AgentSettings.Copy.SCHEDULE_CRON)
+        assertEquals(schedule.str("cronTz"), AgentSettings.Copy.SCHEDULE_CRON_TZ)
+        assertEquals(copy.str("event"), AgentSettings.Copy.EVENT)
         val events = copy.getValue("events").jsonObject
         assertEquals(events.keys, AgentSettings.Copy.EVENTS.keys)
         for ((key, value) in events) assertEquals(value.jsonPrimitive.content, AgentSettings.Copy.EVENTS[key])
@@ -165,15 +157,17 @@ class AgentSettingsTest {
         val schedule = AgentTrigger(
             id = null,
             enabled = true,
-            whenPart = TriggerWhen.Schedule(interval = "weekly", minuteOfDay = 540, weekday = 1),
+            whenPart = TriggerWhen.Schedule(cron = "0 9 * * 1-5", tz = "Europe/Vienna"),
         )
         assertEquals(
-            """{"enabled":true,"kind":"schedule","interval":"weekly","minuteOfDay":540,"weekday":1}""",
+            """{"enabled":true,"kind":"schedule","cron":"0 9 * * 1-5","tz":"Europe/Vienna"}""",
             schedule.toWireJson().toString(),
         )
-        val event = AgentTrigger(id = "t-1", enabled = false, whenPart = TriggerWhen.Event(event = "created"))
+        val utc = AgentTrigger(id = null, enabled = true, whenPart = TriggerWhen.Schedule(cron = "0 0 * * 0"))
+        assertEquals("""{"enabled":true,"kind":"schedule","cron":"0 0 * * 0"}""", utc.toWireJson().toString())
+        val event = AgentTrigger(id = "t-1", enabled = false, whenPart = TriggerWhen.Event(name = "pr.merged"))
         assertEquals(
-            """{"id":"t-1","enabled":false,"kind":"event","source":"exponential","event":"created"}""",
+            """{"id":"t-1","enabled":false,"kind":"event","name":"pr.merged"}""",
             event.toWireJson().toString(),
         )
         // …and reads back tolerant: one unreadable element is skipped.

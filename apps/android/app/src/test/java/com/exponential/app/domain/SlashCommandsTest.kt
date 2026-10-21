@@ -12,54 +12,49 @@ import org.junit.Test
  * `steer::commands`, web `lib/steer-commands.ts`, iOS `SlashCommands.swift`),
  * so this file is the Android half of a four-way lock — the literals below are
  * asserted byte-for-byte on purpose.
+ *
+ * NEW-2 (owner 2026-10-21): the catalog = the contract builtins ONLY
+ * (compact, model, effort; clear and btw are gone) and commands the agent CLI
+ * advertises (`config_state.commands`) are never merged in: the API has no
+ * path for them at all.
  */
 class SlashCommandsTest {
 
     @Test
-    fun `the catalog is the contract, filtered by the run's agent`() {
+    fun `the catalog is the generated contract, filtered by the run's agent`() {
         assertEquals(DomainContract.steerCommandNames, SlashCommands.all.map { it.name })
+        assertEquals(listOf("compact", "model", "effort"), SlashCommands.all.map { it.name })
         // A row with no agent recorded ran the default one.
         assertEquals(
             SlashCommands.catalogFor("claude").map { it.name },
             SlashCommands.catalogFor(null).map { it.name },
         )
         assertEquals("claude", DomainContract.codingAgentValues.first())
-
-        val claude = SlashCommands.catalogFor("claude").map { it.name }
-        val codex = SlashCommands.catalogFor("codex").map { it.name }
-        // /compact is the one every agent has.
-        assertTrue("compact" in claude && "compact" in codex)
-        // /clear is every agent's (the desktop maps it); it discards the
-        // conversation, so it confirms.
-        // EXP-1323: /btw (the aside) is claude's alone.
-        assertEquals(listOf("compact", "clear", "btw"), claude)
-        assertEquals(listOf("compact", "clear"), codex)
-        // EXP-849: pi is gone from contract `codingAgent`, so its catalog — and
-        // any unknown agent id's — is EMPTY rather than claude's.
+        assertEquals(listOf("compact", "model", "effort"), SlashCommands.catalogFor("claude").map { it.name })
+        assertEquals(listOf("compact", "model", "effort"), SlashCommands.catalogFor("codex").map { it.name })
+        // A retired / unknown agent id's catalog is EMPTY rather than claude's.
         assertTrue(SlashCommands.catalogFor("pi").isEmpty())
-        assertTrue(SlashCommands.all.single { it.name == "clear" }.confirm)
-        assertFalse(SlashCommands.all.single { it.name == "compact" }.confirm)
-        // Contract order is menu order.
-        assertEquals(claude, DomainContract.steerCommandNames.filter { it in claude })
+        // Nothing the catalog offers discards context any more.
+        assertTrue(SlashCommands.all.none { it.confirm })
+        // clear and btw are gone.
+        assertNull(SlashCommands.commandFor("/clear", "claude"))
+        assertNull(SlashCommands.commandFor("/btw why?", "claude"))
     }
 
     @Test
     fun `the menu opens only while the whole draft is a command being typed`() {
         // A bare slash offers every row for the agent.
-        assertEquals(
-            SlashCommands.catalogFor("claude"),
-            SlashCommands.matches("/", "claude"),
-        )
+        assertEquals(SlashCommands.catalogFor("claude"), SlashCommands.matches("/", "claude"))
         // Case-insensitive name PREFIX, in catalog order.
         assertEquals(listOf("compact"), SlashCommands.matches("/comp", "claude").map { it.name })
         assertEquals(listOf("compact"), SlashCommands.matches("/COMP", "claude").map { it.name })
-        // Contract order, not alphabetical.
-        assertEquals(listOf("compact", "clear"), SlashCommands.matches("/c", "claude").map { it.name })
+        assertEquals(listOf("model"), SlashCommands.matches("/mo", "claude").map { it.name })
+        assertEquals(listOf("effort"), SlashCommands.matches("/e", "codex").map { it.name })
         // Not a prefix of anything.
         assertTrue(SlashCommands.matches("/zzz", "claude").isEmpty())
         // Outside the catalog, whatever the CLI ships.
         assertTrue(SlashCommands.matches("/new", "codex").isEmpty())
-        assertTrue(SlashCommands.matches("/mo", "claude").isEmpty())
+        assertTrue(SlashCommands.matches("/cl", "claude").isEmpty())
         // The slash must open the draft, and the first whitespace closes the
         // menu — the argument is being typed now.
         assertTrue(SlashCommands.matches("", "claude").isEmpty())
@@ -72,8 +67,11 @@ class SlashCommandsTest {
 
     @Test
     fun `accepting a row inserts a trailing space only when there is an argument`() {
+        for (command in SlashCommands.all) {
+            val expected = if (command.argHint.isEmpty()) "/${command.name}" else "/${command.name} "
+            assertEquals(expected, command.insertion)
+        }
         assertEquals("/compact ", SlashCommands.all.single { it.name == "compact" }.insertion)
-        assertEquals("/clear", SlashCommands.all.single { it.name == "clear" }.insertion)
     }
 
     @Test
@@ -81,15 +79,14 @@ class SlashCommandsTest {
         assertEquals("compact", SlashCommands.commandFor("/compact", "claude")?.name)
         assertEquals("compact", SlashCommands.commandFor("/compact keep the diff", "claude")?.name)
         assertEquals("compact", SlashCommands.commandFor("  /Compact  ", "codex")?.name)
+        assertEquals("model", SlashCommands.commandFor("/model opus", "claude")?.name)
         // A run with no recorded agent is claude's.
-        assertEquals("clear", SlashCommands.commandFor("/clear", null)?.name)
+        assertEquals("effort", SlashCommands.commandFor("/effort high", null)?.name)
         // Not in the catalog, whatever the CLI ships.
         assertNull(SlashCommands.commandFor("/cost", "claude"))
         assertNull(SlashCommands.commandFor("/new", "codex"))
-        assertNull(SlashCommands.commandFor("/model opus", "claude"))
-        assertEquals("clear", SlashCommands.commandFor("/clear", "codex")?.name)
-        // EXP-849: a retired agent id names no command at all.
-        assertNull(SlashCommands.commandFor("/clear", "pi"))
+        // A retired agent id names no command at all.
+        assertNull(SlashCommands.commandFor("/compact", "pi"))
         // Prose, paths and a bare slash are never commands.
         assertNull(SlashCommands.commandFor("fix /compact later", "claude"))
         assertNull(SlashCommands.commandFor("/api/foo", "claude"))
@@ -98,74 +95,10 @@ class SlashCommandsTest {
         assertNull(SlashCommands.commandFor("compact", "claude"))
     }
 
-    @Test
-    fun `a btw draft is an aside question`() {
-        assertEquals("why is CI red?", SlashCommands.asideQuestion("/btw why is CI red?", "claude"))
-        assertEquals("x", SlashCommands.asideQuestion("  /BTW   x ", "claude"))
-        // A bare /btw asks nothing; codex has no aside; prose is not a command.
-        assertEquals(null, SlashCommands.asideQuestion("/btw", "claude"))
-        assertEquals(null, SlashCommands.asideQuestion("/btw why?", "codex"))
-        assertEquals(null, SlashCommands.asideQuestion("by the way /btw", "claude"))
-        assertEquals(null, SlashCommands.asideQuestion("/compact now", "claude"))
-    }
-
-    // ── EXP-746: the run's own advertised commands ─────────────────────────
-
-    @Test
-    fun `merged lists the contract commands first`() {
-        val agent = listOf(
-            ConfigCommand("review", "Review the diff", hint = "<path>"),
-            // The wire form may carry the sigil; the catalog never does.
-            ConfigCommand("/usage", "Show usage"),
-        )
-        val merged = SlashCommands.merged(SlashCommands.catalogFor("claude"), agent)
-        assertEquals(listOf("compact", "clear", "btw", "review", "usage"), merged.map { it.name })
-        // Only the contract knows what discards context.
-        assertFalse(merged.single { it.name == "review" }.confirm)
-        assertEquals("<path>", merged.single { it.name == "review" }.argHint)
-        assertEquals("/review ", merged.single { it.name == "review" }.insertion)
-        assertEquals("/usage", merged.single { it.name == "usage" }.insertion)
-        // Nothing advertised leaves the contract catalog untouched.
-        assertEquals(SlashCommands.catalogFor("claude"), SlashCommands.merged(SlashCommands.catalogFor("claude"), emptyList()))
-    }
-
-    @Test
-    fun `an agent command that shadows a contract name is dropped`() {
-        val merged = SlashCommands.merged(
-            SlashCommands.catalogFor("claude"),
-            listOf(
-                ConfigCommand("Compact", "the agent's own"),
-                ConfigCommand("review", "first wins"),
-                ConfigCommand("REVIEW", "the duplicate"),
-                ConfigCommand("  ", "nameless"),
-            ),
-        )
-        assertEquals(listOf("compact", "clear", "btw", "review"), merged.map { it.name })
-        // The CONTRACT row survives, with its own copy and its confirm flag.
-        assertTrue(merged.single { it.name == "compact" }.confirm.not())
-        assertEquals("first wins", merged.single { it.name == "review" }.description)
-    }
-
-    @Test
-    fun `the menu and the command lookup both see the advertised rows`() {
-        val agent = listOf(ConfigCommand("review", "Review the diff"))
-        assertEquals(
-            listOf("compact", "clear", "btw", "review"),
-            SlashCommands.matches("/", "claude", agent).map { it.name },
-        )
-        assertEquals(listOf("review"), SlashCommands.matches("/rev", "claude", agent).map { it.name })
-        assertEquals("review", SlashCommands.commandFor("/review src/a.kt", "claude", agent)?.name)
-        // Without the advertisement it is prose again.
-        assertNull(SlashCommands.commandFor("/review src/a.kt", "claude"))
-    }
-
     /**
-     * EXP-746, mirrored ×4 under this name (web `steerAgentId`, iOS
-     * `testAnAgentLessAcpRunIsAnExternalAgent`, desktop
-     * `an_agent_less_acp_run_is_an_external_agent`): "no agent" alone does not
-     * mean claude. An EXTERNAL ACP agent syncs no agent either, so offering it
-     * `/compact` and `/clear` — confirm dialog and all — sent the literal text
-     * to an agent whose desktop-side catalog is empty, and nothing ran.
+     * EXP-746, mirrored ×4 under this name: "no agent" alone does not mean
+     * claude. An EXTERNAL ACP agent syncs no agent either, so its catalog is
+     * empty — and with agent commands never merged (NEW-2) its menu is shut.
      */
     @Test
     fun `an agent-less acp run is an external agent`() {
@@ -174,18 +107,13 @@ class SlashCommandsTest {
         assertEquals(SlashCommands.EXTERNAL_AGENT, SlashCommands.agentId("  ", acp = true))
         // A named agent keeps its own catalog on the ACP path.
         assertEquals("codex", SlashCommands.agentId("codex", acp = true))
-        // A PTY run publishes no `config_state`: an agent-less one there is
-        // the claude run it always was.
         assertEquals("claude", SlashCommands.agentId(null, acp = false))
         assertEquals("claude", SlashCommands.agentId("", acp = false))
 
         val external = SlashCommands.agentId(null, acp = true)
         assertTrue(SlashCommands.catalogFor(external).isEmpty())
-        // Only what the agent advertised reaches the menu and the lookup — no
-        // `/clear`, so no confirm dialog for a command nothing would run.
-        val agent = listOf(ConfigCommand("review", "Review the diff"))
-        assertEquals(listOf("review"), SlashCommands.matches("/", external, agent).map { it.name })
-        assertNull(SlashCommands.commandFor("/clear", external, agent))
+        assertTrue(SlashCommands.matches("/", external).isEmpty())
+        assertNull(SlashCommands.commandFor("/compact", external))
     }
 
     @Test

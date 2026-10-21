@@ -1306,13 +1306,17 @@ impl RailView {
         agent: &domain::session_tree::AgentRow,
         cx: &mut gpui::Context<Self>,
     ) -> gpui::AnyElement {
+        // NEW-2: the row is the agent DEFINITION; its channel is the
+        // viewer's own conversation session (none before the first message:
+        // the click opens the agent's page instead; NEW-6 redoes this).
+        let conversation = crate::session_data::my_conversation(&agent.agent_id, cx).map(|row| row.id);
         let active = matches!(
             resolved_screen(&self.nav, cx),
-            Some(Screen::Agent { session_id }) if session_id == agent.session_id
+            Some(Screen::Agent { session_id }) if conversation.as_deref() == Some(session_id.as_str())
         );
         let icon = crate::icons::agent_row_icon(agent);
-        let session_id = agent.session_id.clone();
-        let settings_id = agent.session_id.clone();
+        let settings_id = agent.agent_id.clone();
+        let open_settings_id = agent.agent_id.clone();
         self.entry(
             ("rail-agent-row", index),
             icon.with_size(gpui_component::Size::Medium).flex_shrink_0().into_any_element(),
@@ -1322,14 +1326,16 @@ impl RailView {
             cx,
         )
         .group(AGENT_ROW_GROUP)
-        .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
-            navigate(
-                window,
-                cx,
-                Screen::Agent {
-                    session_id: session_id.clone(),
-                },
-            );
+        .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| match conversation.clone() {
+            Some(session_id) => navigate(window, cx, Screen::Agent { session_id }),
+            None => {
+                select_settings_section(
+                    window,
+                    cx,
+                    crate::settings::SettingsSection::Agent(open_settings_id.clone()),
+                );
+                navigate(window, cx, Screen::Settings);
+            }
         }))
         .child(
                 div()

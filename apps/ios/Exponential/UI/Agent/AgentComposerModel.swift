@@ -202,7 +202,8 @@ final class AgentComposerModel {
         let observation = ValueObservation.tracking { db in
             let issues = try IssueEntity.fetchAll(db)
             let boards = try BoardEntity.fetchAll(db)
-            let actions = try ActionEntity.fetchAll(db)
+            // NEW-2: the saved prompts (the `actions` shape is served empty).
+            let actions = try PromptEntity.fetchAll(db)
             let pulls = try PullRequestEntity
                 .filter(Column("state") == DomainContract.prStateOpen)
                 .fetchAll(db)
@@ -216,7 +217,7 @@ final class AgentComposerModel {
                     self.issueRows = issues
                     self.boardRows = boards
                     self.rebuildIssueOptions()
-                    self.actionRows = actions.map { ActionDto(entity: $0) }
+                    self.actionRows = actions.map { ActionDto(prompt: $0) }
                     let identifierById = Dictionary(
                         issues.map { ($0.id, $0.identifier ?? "") }, uniquingKeysWith: { a, _ in a }
                     )
@@ -760,17 +761,15 @@ final class AgentComposerModel {
                 issueIds: effectiveChecked
             )
         case .action:
-            // Values in wire form: blank optionals dropped (a required blank
-            // can't get here — `canSubmit` gates it).
-            let values = ActionInputValues.wireValues(selectedActionInputs, values: resolvedInputValues)
+            // NEW-2: the picked saved PROMPT (`actionId` holds its id; NEW-7
+            // renames it): its body plus `text` = the first message.
             return .newThread(
                 teamId: teamId,
                 deviceId: deviceId,
                 options: launch.buildOptions(),
                 text: text,
                 attachmentIds: attachments,
-                actionId: actionId,
-                inputs: values.isEmpty ? nil : values
+                promptId: actionId
             )
         }
     }

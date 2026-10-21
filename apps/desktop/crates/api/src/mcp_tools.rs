@@ -273,7 +273,7 @@ pub struct RemoteSession {
     /// A team agent's display name (`kind = agent` roots only).
     #[serde(default)]
     pub name: Option<String>,
-    /// The action a thread runs, by name.
+    /// The action a thread ran, by name (a legacy read shim).
     #[serde(default)]
     pub action_name: Option<String>,
     #[serde(default)]
@@ -385,7 +385,8 @@ pub fn sessions_get(trpc: &TrpcClient, session_id: &str) -> Result<RemoteSession
 /// `exponential_sessions_send` input — the server's `sessionsSendInputSchema`
 /// (web `@exp/db-schema/domain`): message an existing session (`session_id`;
 /// an idle one resumes), start a CHILD (`parent_id`), or start a new ROOT
-/// thread (neither; `issue_ids` / `action_id`+`inputs` / `repository_id`).
+/// thread (neither; `issue_ids` / `prompt_id` / `repository_id`); NEW-2:
+/// `agent_id` messages a team agent (the caller's conversation with it).
 /// A new session names its `device_id`; absent runner pickers = that
 /// device's own launch defaults. Every absent field stays off the wire.
 #[derive(Clone, Debug, Default, Serialize, PartialEq)]
@@ -422,16 +423,17 @@ pub struct SessionsSendInput {
     pub attachment_ids: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub issue_ids: Option<Vec<String>>,
+    /// NEW-2: a new root run from a saved prompt (its body first).
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub action_id: Option<String>,
-    /// Action input values by key (BTreeMap for a deterministic wire order).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub inputs: Option<std::collections::BTreeMap<String, String>>,
+    pub prompt_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub repository_id: Option<String>,
     /// EXP-1341: an explicit name for a new root or child.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    /// NEW-2: a message to a team agent (the caller's conversation with it).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent_id: Option<String>,
 }
 
 /// What `exponential_sessions_send` hands back: the session (new or the one
@@ -544,8 +546,6 @@ mod tests {
     #[test]
     fn a_send_omits_absent_options() {
         // A new root thread on an issue, run on a named device.
-        let mut inputs = std::collections::BTreeMap::new();
-        inputs.insert("repo".to_string(), "r1".to_string());
         let input = SessionsSendInput {
             device_id: Some("d1".into()),
             issue_ids: Some(vec!["i1".into()]),
@@ -556,18 +556,23 @@ mod tests {
             serde_json::to_string(&input).unwrap(),
             r#"{"deviceId":"d1","text":"hi","issueIds":["i1"]}"#
         );
-        let action = SessionsSendInput {
+        let prompt = SessionsSendInput {
             team_id: Some("t1".into()),
             device_id: Some("d1".into()),
             plan_mode: Some(true),
-            action_id: Some("a1".into()),
-            inputs: Some(inputs),
+            prompt_id: Some("p1".into()),
             ..Default::default()
         };
         assert_eq!(
-            serde_json::to_string(&action).unwrap(),
-            r#"{"teamId":"t1","deviceId":"d1","planMode":true,"actionId":"a1","inputs":{"repo":"r1"}}"#
+            serde_json::to_string(&prompt).unwrap(),
+            r#"{"teamId":"t1","deviceId":"d1","planMode":true,"promptId":"p1"}"#
         );
+        let agent = SessionsSendInput {
+            agent_id: Some("ag1".into()),
+            text: Some("hi".into()),
+            ..Default::default()
+        };
+        assert_eq!(serde_json::to_string(&agent).unwrap(), r#"{"text":"hi","agentId":"ag1"}"#);
     }
 
     #[test]

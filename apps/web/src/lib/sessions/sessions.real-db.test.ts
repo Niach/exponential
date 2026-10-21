@@ -3,13 +3,14 @@ import { afterAll, describe, expect, it, vi } from "vitest"
 import { and, eq, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
 import {
-  actions,
+  agents,
   attachments,
   boards,
   devices,
   issues,
   mcpServers,
   messages,
+  prompts,
   sessionIssues,
   sessions,
   teamMembers,
@@ -158,8 +159,8 @@ describe.skipIf(!ready.ok)(`sessions.send — a new root`, () => {
 
     // Private: the teammate cannot see it.
     await expect(loadSessionForUser(w.mate, root.id)).rejects.toMatchObject({ code: `NOT_FOUND` })
-    expect(await listSessions(w.mate, { kind: `thread`, limit: 10, offset: 0 })).toEqual([])
-    const [listed] = await listSessions(w.owner, { teamId: w.teamId, kind: `thread`, limit: 10, offset: 0 })
+    expect(await listSessions(w.mate, { limit: 10, offset: 0 })).toEqual([])
+    const [listed] = await listSessions(w.owner, { teamId: w.teamId, limit: 10, offset: 0 })
     // EXP-1341: the shared chain: no name yet, so its issue names it.
     expect(listed).toMatchObject({ id: root.id })
     expect(listed!.title).toMatch(/^#CR-\d+ Fix login$/)
@@ -223,48 +224,35 @@ describe.skipIf(!ready.ok)(`sessions.send — a new root`, () => {
     ).rejects.toMatchObject({ code: `BAD_REQUEST` })
   })
 
-  it(`resolves an action's inputs and snapshots its name`, async () => {
+  it(`NEW-2: a prompt run's first message is the body plus the text, titled after the prompt`, async () => {
     const w = await world()
-    const issueId = await w.issue(`Target`)
-    const [action] = await db
-      .insert(actions)
-      .values({
-        teamId: w.teamId,
-        name: `Triage`,
-        body: `Triage the issue.`,
-        inputs: [{ key: `issue`, label: `Issue`, type: `issue`, required: true }],
-      })
-      .returning({ id: actions.id })
+    const [prompt] = await db
+      .insert(prompts)
+      .values({ teamId: w.teamId, name: `Triage`, body: `Triage the backlog.\n` })
+      .returning({ id: prompts.id })
     await expect(
       sendSession({
         userId: w.owner,
-        input: { teamId: w.teamId, deviceId: w.deviceId, actionId: action!.id, inputs: {} },
+        input: { teamId: w.teamId, deviceId: w.deviceId, promptId: crypto.randomUUID() },
       })
-    ).rejects.toMatchObject({ code: `BAD_REQUEST` })
+    ).rejects.toMatchObject({ code: `NOT_FOUND` })
     const sent = await sendSession({
       userId: w.owner,
-      input: { teamId: w.teamId, deviceId: w.deviceId, actionId: action!.id, inputs: { issue: issueId } },
+      input: { teamId: w.teamId, deviceId: w.deviceId, promptId: prompt!.id, text: `Web board only.` },
     })
-    expect(await row(sent.sessionId)).toMatchObject({
-      actionName: `Triage`,
-      actionInputs: { issue: issueId },
-    })
-    // NEW-1: the root WORKS the action itself (no dispatcher hand-off).
+    expect(await row(sent.sessionId)).toMatchObject({ title: `Triage`, actionId: null, actionName: null })
+    const [first] = await db.select({ body: messages.body }).from(messages).where(eq(messages.sessionId, sent.sessionId))
+    expect(first!.body).toBe(`Triage the backlog.\n\nWeb board only.`)
     const brief = await composeSessionBrief(sent.sessionId)
-    expect(brief.brief).toContain(`Triage the issue.`)
-    expect(brief.brief).toContain(`Target`)
-    expect(brief.brief).not.toContain(`## Dispatch`)
-
-    // An ended root's continuation carries the Action on.
-    await endSession({ userId: w.owner, sessionId: sent.sessionId, summary: `Done.` })
-    const cont = await sendSession({ userId: w.owner, input: { sessionId: sent.sessionId, text: `again` } })
-    expect(await row(cont.sessionId)).toMatchObject({
-      parentId: sent.sessionId,
-      actionId: action!.id,
-      actionName: `Triage`,
-      actionInputs: { issue: issueId },
+    expect(brief.brief).toContain(`Triage the backlog.`)
+    expect(brief.brief).toContain(`Web board only.`)
+    expect(brief.brief).not.toContain(`## Action`)
+    // A passed name wins over the prompt's.
+    const named = await sendSession({
+      userId: w.owner,
+      input: { teamId: w.teamId, deviceId: w.deviceId, promptId: prompt!.id, name: `Tidy` },
     })
-    expect((await composeSessionBrief(cont.sessionId)).brief).toContain(`Triage the issue.`)
+    expect(await row(named.sessionId)).toMatchObject({ title: `Tidy` })
   })
 })
 
@@ -522,32 +510,36 @@ describe.skipIf(!ready.ok)(`sessions.send — children, messages, continuation`,
     const ended = await endSession({ userId: w.owner, sessionId: root.sessionId })
     expect(ended.endedIds).toEqual([sibling.sessionId, root.sessionId])
 
-    const agent = await sendSession({
+    // NEW-2: an agent is a definition; a message to it opens the caller's
+    // conversation session (persistent: End refuses).
+    const [ada] = await db
+      .insert(agents)
+      .values({ teamId: w.teamId, name: `Ada`, icon: `rocket`, color: `#ff0000`, instructions: `Be brief.`, deviceId: w.deviceId, ownerId: w.owner })
+      .returning({ id: agents.id })
+    const agent = await sendSession({ userId: w.owner, input: { agentId: ada!.id, text: `hello` } })
+    expect(await row(agent.sessionId)).toMatchObject({
+      agentId: ada!.id,
+      kind: `agent`,
+      name: `Ada`,
+      title: `Ada`,
       userId: w.owner,
-      input: {
-        teamId: w.teamId,
-        deviceId: w.deviceId,
-        agent: { name: `Ada`, icon: `rocket`, color: `#ff0000`, instructions: `Be brief.`, triggers: [] },
-      },
+      deviceId: w.deviceId,
+      repositoryId: null,
+      status: `queued`,
     })
-    expect(await row(agent.sessionId)).toMatchObject({ kind: `agent`, name: `Ada`, instructions: `Be brief.` })
     await expect(endSession({ userId: w.owner, sessionId: agent.sessionId })).rejects.toMatchObject({
       code: `BAD_REQUEST`,
     })
-    // A member may not create an agent.
-    await expect(
-      sendSession({
-        userId: w.mate,
-        input: {
-          teamId: w.teamId,
-          deviceId: w.deviceId,
-          agent: { name: `Bo`, icon: `rocket`, color: `#00ff00`, instructions: ``, triggers: [] },
-        },
-      })
-    ).rejects.toMatchObject({ code: `FORBIDDEN` })
+    // The same member's next message lands on the SAME conversation.
+    const again = await sendSession({ userId: w.owner, input: { agentId: ada!.id, text: `more` } })
+    expect(again.sessionId).toBe(agent.sessionId)
+    // A teammate has no access to an agent on an unshared device.
+    await expect(sendSession({ userId: w.mate, input: { agentId: ada!.id, text: `hi` } })).rejects.toMatchObject({
+      code: `NOT_FOUND`,
+    })
 
     // The agent spawns a thread: it lands in the team, on the agent's device,
-    // with a thread_started card on the agent.
+    // with a thread_started card on the conversation.
     const spawned = await sendSession({
       userId: w.owner,
       callerSessionId: agent.sessionId,
@@ -557,15 +549,16 @@ describe.skipIf(!ready.ok)(`sessions.send — children, messages, continuation`,
       teamId: w.teamId,
       deviceId: w.deviceId,
       parentId: null,
+      agentId: null,
       spawnedBySessionId: null,
     })
     // NEW-1: the agent WATCHES its spawn (the bus reports back to it).
     expect((await row(agent.sessionId)).wakeOn).toEqual([spawned.sessionId])
-    const [card] = await db
+    const cards = await db
       .select({ card: messages.card })
       .from(messages)
-      .where(eq(messages.sessionId, agent.sessionId))
-    expect(card!.card).toEqual({ kind: `thread_started`, sessionId: spawned.sessionId })
+      .where(and(eq(messages.sessionId, agent.sessionId), sql`${messages.card} IS NOT NULL`))
+    expect(cards.map((c) => c.card)).toEqual([{ kind: `thread_started`, sessionId: spawned.sessionId }])
     const brief = await composeSessionBrief(agent.sessionId)
     expect(brief.agentInstructions).toBe(`Be brief.`)
   })
@@ -808,53 +801,62 @@ describe.skipIf(!ready.ok)(`the sessions router: device procedures and answers`,
     expect(brief).toContain(`start`)
   })
 
-  it(`manages agents: owner writes, members read, a device move re-stamps visibility`, async () => {
+  it(`NEW-2 agents router: owner writes, members read, a device move re-stamps the conversations`, async () => {
     const w = await world()
-    const agent = await sendSession({
-      userId: w.owner,
-      input: {
-        teamId: w.teamId,
-        deviceId: w.deviceId,
-        agent: {
-          name: `Ada`,
-          icon: `rocket`,
-          color: `#123456`,
-          instructions: `Hi`,
-          triggers: [{ kind: `schedule`, enabled: true, interval: `daily`, minuteOfDay: 540 } as never],
-        },
-      },
-    })
-    const stored = (await row(agent.sessionId)).triggers
-    expect(stored[0]!.id).toMatch(/^[0-9a-f-]{36}$/)
-    expect(await caller(w.owner).getAgent({ sessionId: agent.sessionId })).toEqual({
-      sessionId: agent.sessionId,
+    const { agentsRouter } = await import(`@/lib/trpc/agents`)
+    const agentsOf = (userId: string) =>
+      agentsRouter.createCaller({ session: { user: { id: userId } }, db, request: new Request(`http://x.test`) } as never)
+    const { agent } = await agentsOf(w.owner).create({
+      teamId: w.teamId,
+      name: `Ada`,
+      icon: `rocket`,
+      color: `#123456`,
       instructions: `Hi`,
+      triggers: [{ kind: `schedule`, enabled: true, cron: `0 9 * * *`, tz: `Europe/Vienna` }],
+      deviceId: w.deviceId,
+      cli: `claude`,
+      model: `opus`,
     })
-    // Private (unshared device): the teammate cannot see it.
-    await expect(caller(w.mate).getAgent({ sessionId: agent.sessionId })).rejects.toMatchObject({
-      code: `NOT_FOUND`,
-    })
+    expect(agent.triggers[0]!.id).toMatch(/^[0-9a-f-]{36}$/)
+    expect(agent).toMatchObject({ ownerId: w.owner, deviceId: w.deviceId, model: `opus` })
+    await expect(
+      agentsOf(w.owner).create({ teamId: w.teamId, name: `Bad`, deviceId: w.deviceId, cli: `claude`, model: `nope` })
+    ).rejects.toMatchObject({ code: `BAD_REQUEST` })
+    await expect(
+      agentsOf(w.owner).update({ id: agent.id, triggers: [{ kind: `schedule`, cron: `every day` } as never] })
+    ).rejects.toMatchObject({ code: `BAD_REQUEST` })
+    // A member reads, never writes.
+    expect((await agentsOf(w.mate).get({ id: agent.id })).agent.instructions).toBe(`Hi`)
+    expect((await agentsOf(w.mate).list({ teamId: w.teamId })).agents.map((a) => a.id)).toEqual([agent.id])
+    await expect(agentsOf(w.mate).update({ id: agent.id, name: `x` })).rejects.toMatchObject({ code: `FORBIDDEN` })
+    await expect(
+      agentsOf(w.mate).create({ teamId: w.teamId, name: `Bo`, deviceId: w.deviceId })
+    ).rejects.toMatchObject({ code: `FORBIDDEN` })
+
+    // The owner's conversation, then a move onto a shared box: the
+    // conversation follows (device, visibility, queued again, mirrors).
+    const conversation = await sendSession({ userId: w.owner, input: { agentId: agent.id, text: `hi` } })
     const sharedDevice = `dev-${id8()}`
-    await db.insert(devices).values({
-      userId: w.owner,
-      deviceId: sharedDevice,
-      label: `srv`,
-      kind: `server`,
-      sharedTeamIds: [w.teamId],
-    })
-    await caller(w.owner).updateAgent({ sessionId: agent.sessionId, deviceId: sharedDevice, name: `Ada 2` })
-    expect(await row(agent.sessionId)).toMatchObject({
+    await db.insert(devices).values({ userId: w.owner, deviceId: sharedDevice, label: `srv`, kind: `server`, sharedTeamIds: [w.teamId] })
+    await agentsOf(w.owner).update({ id: agent.id, deviceId: sharedDevice, name: `Ada 2`, account: `acc1` })
+    expect(await row(conversation.sessionId)).toMatchObject({
       deviceId: sharedDevice,
       shared: true,
       status: `queued`,
       name: `Ada 2`,
+      account: `acc1`,
     })
-    expect((await caller(w.mate).getAgent({ sessionId: agent.sessionId })).instructions).toBe(`Hi`)
-    await expect(caller(w.mate).updateAgent({ sessionId: agent.sessionId, name: `x` })).rejects.toMatchObject({
-      code: `FORBIDDEN`,
-    })
-    await caller(w.owner).deleteAgent({ sessionId: agent.sessionId })
-    expect(await db.select().from(sessions).where(eq(sessions.id, agent.sessionId))).toEqual([])
+    // Now the teammate may talk to it too: their OWN conversation.
+    const mates = await sendSession({ userId: w.mate, input: { agentId: agent.id, text: `hey` } })
+    expect(mates.sessionId).not.toBe(conversation.sessionId)
+    expect(await row(mates.sessionId)).toMatchObject({ agentId: agent.id, userId: w.mate, deviceId: sharedDevice, shared: true })
+    const mine = await listSessions(w.owner, { teamId: w.teamId, agentId: agent.id, limit: 10, offset: 0 })
+    expect(mine.map((r) => r.id)).toEqual([conversation.sessionId])
+    expect(await listSessions(w.owner, { teamId: w.teamId, limit: 10, offset: 0 })).toEqual([])
+
+    await agentsOf(w.owner).delete({ id: agent.id })
+    expect(await db.select().from(sessions).where(eq(sessions.id, conversation.sessionId))).toEqual([])
+    expect(await db.select().from(sessions).where(eq(sessions.id, mates.sessionId))).toEqual([])
   })
 
   it(`EXP-1334: configure changes a live session's options mid-session`, async () => {
@@ -1346,14 +1348,11 @@ describe.skipIf(!ready.ok)(`NEW-1: moving a session to another device`, async ()
     // Nothing moved.
     expect(await row(w.sessionId)).toMatchObject({ status: `running`, deviceId: w.deviceId })
 
-    const agent = await sendSession({
-      userId: w.owner,
-      input: {
-        teamId: w.teamId,
-        deviceId: w.deviceId,
-        agent: { name: `Bot`, icon: `bot`, color: `#336699`, instructions: ``, triggers: [] },
-      },
-    })
+    const [bot] = await db
+      .insert(agents)
+      .values({ teamId: w.teamId, name: `Bot`, deviceId: w.deviceId, ownerId: w.owner })
+      .returning({ id: agents.id })
+    const agent = await sendSession({ userId: w.owner, input: { agentId: bot!.id, text: `hi` } })
     await refuse(w.target, MOVE_COPY.agent, agent.sessionId)
     // An ENDED thread: a bare device pick has nothing to run; with a
     // message the continuation starts ON the named device.
@@ -1432,7 +1431,7 @@ describe.skipIf(!ready.ok)(`NEW-1: moving a session to another device`, async ()
 
   it(`#FEED-84: sessions_list and sessions_get show the agent and its login`, async () => {
     const w = await moveWorld()
-    const [listed] = await listSessions(w.owner, { teamId: w.teamId, kind: `thread`, limit: 10, offset: 0 })
+    const [listed] = await listSessions(w.owner, { teamId: w.teamId, limit: 10, offset: 0 })
     expect(listed).toMatchObject({
       id: w.sessionId,
       cli: `claude`,

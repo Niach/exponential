@@ -755,160 +755,127 @@ export const actionInputsSchema = z
     }
   })
 
-// ── Agent triggers (EXP-530 → SLOP-2 → EXP-1291: on team agents) ──────────
-// A team agent (`sessions.kind = agent`) carries its triggers (`sessions
-// .triggers` jsonb). A trigger is only its WHEN (a schedule or an event
-// watcher) plus `id` + `enabled`: the agent itself is the runner (its device,
-// account, model). LOCAL-ONLY: the agent's device watches its own Electric
-// sync and posts the firing into the agent's channel. An event names its
-// `source` (`exponential` today). Writes are STRICT (agentTriggerSchema);
-// readers stay tolerant (an unknown trigger never fires). The event
-// vocabulary is APPEND-ONLY.
+// ── Agent triggers (NEW-2: on the `agents` definition rows) ───────────────
+// A trigger is only its WHEN plus `id` + `enabled`: the agent itself is the
+// runner (its device, account, model). The SERVER evaluates them
+// (`lib/agents/triggers.ts`, every watchdog tick) and posts the firing into
+// the agent OWNER's conversation session; a missed tick is caught up on the
+// next one (never lost with a turn, #FEED-124). Two kinds:
+//   schedule: a 5-field cron with minutes (`m h dom mon dow`, #N-2) in an
+//             IANA `tz` (default UTC);
+//   event:    the NAME of an `events` row (free text; the server builtins
+//             are `builtinEventNames`).
+// Writes are STRICT (agentTriggerSchema); readers stay tolerant (an unknown
+// trigger never fires).
 
-export const agentTriggerEventValues = [
-  `created`,
-  `status_changed`,
-  `assignee_changed`,
-  `label_added`,
-  `priority_changed`,
-  `pr_opened`,
-  `pr_merged`,
+export const agentTriggerKindValues = [`schedule`, `event`] as const
+export type AgentTriggerKind = (typeof agentTriggerKindValues)[number]
+
+/** The server-emitted event names (contract `events.builtinNames`). */
+export const builtinEventNames = [
+  `issue.created`,
+  `issue.status_changed`,
+  `pr.opened`,
+  `pr.merged`,
+  `session.ended`,
 ] as const
-export type AgentTriggerEvent = (typeof agentTriggerEventValues)[number]
+export type BuiltinEventName = (typeof builtinEventNames)[number]
 
-export const agentScheduleIntervalValues = [
-  `daily`,
-  `weekly`,
-  `monthly`,
-] as const
-export type AgentScheduleInterval =
-  (typeof agentScheduleIntervalValues)[number]
+/** Who emitted an `events` row (contract `events.emitterValues`). */
+export const eventEmitterValues = [`session`, `user`, `server`] as const
+export type EventEmitter = (typeof eventEmitterValues)[number]
 
-export const agentTriggerSourceValues = [`exponential`] as const
-export type AgentTriggerSource = (typeof agentTriggerSourceValues)[number]
+export const EVENT_NAME_MAX = 128
+export const EVENT_PAYLOAD_MAX_BYTES = 16384
+/** A free-text event name: `issue.created`, `ui-changed`, `deploy:prod`. */
+export const eventNameSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(EVENT_NAME_MAX)
+  .regex(/^[A-Za-z0-9][A-Za-z0-9._:/-]*$/, `letters, digits, . _ : / -`)
+export const eventPayloadSchema = z
+  .record(z.string(), z.unknown())
+  .refine((value) => JSON.stringify(value).length <= EVENT_PAYLOAD_MAX_BYTES, {
+    message: `payload over ${EVENT_PAYLOAD_MAX_BYTES} bytes`,
+  })
 
-export const MAX_TRIGGER_FILTER_IDS = 20
+export const CRON_MAX = 64
+/** One 5-field cron expression (minute hour day-of-month month day-of-week):
+ *  `*`, lists, ranges and steps per field; parsed by `cron.ts`. */
+export const cronSchema = z
+  .string()
+  .trim()
+  .min(9)
+  .max(CRON_MAX)
+  .regex(/^(\S+\s+){4}\S+$/, `five fields: minute hour day month weekday`)
+
+export const TZ_MAX = 64
+export const timeZoneSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(TZ_MAX)
+  .refine(
+    (value) => {
+      try {
+        new Intl.DateTimeFormat(`en-US`, { timeZone: value })
+        return true
+      } catch {
+        return false
+      }
+    },
+    { message: `not an IANA time zone` }
+  )
 
 export interface ScheduleTriggerWhen {
   kind: `schedule`
-  interval: AgentScheduleInterval
-  /** 0–1439, DEVICE-LOCAL wall clock (no tz field by design). */
-  minuteOfDay: number
-  /** ISO weekday 1=Mon…7=Sun — required iff weekly. */
-  weekday?: number
-  /** 1–28 (no 29–31 ambiguity) — required iff monthly. */
-  dayOfMonth?: number
-}
-
-export interface EventTriggerFilters {
-  /** Applies to every event kind; absent = every board. */
-  boardIds?: string[]
-  /** label_added only: the added label. */
-  labelIds?: string[]
-  /** created + priority_changed only: the (new) priority. */
-  priorities?: IssuePriority[]
-  /** status_changed only: target issue_statuses rows. */
-  toStatusIds?: string[]
+  cron: string
+  /** IANA zone the cron reads in; absent = UTC. */
+  tz?: string
 }
 
 export interface EventTriggerWhen {
   kind: `event`
-  event: AgentTriggerEvent
-  filters?: EventTriggerFilters
+  /** The events row name this listens to (a builtin or a custom one). */
+  name: string
 }
 
 export type TriggerWhen = ScheduleTriggerWhen | EventTriggerWhen
 
+export const MAX_AGENT_TRIGGERS = 10
 
-// Filter arrays reject empty ([] would silently match nothing) and cap at 20.
-const triggerIdArraySchema = z
-  .array(z.string().uuid())
-  .min(1)
-  .max(MAX_TRIGGER_FILTER_IDS)
+export type AgentTrigger = { id: string; enabled: boolean } & TriggerWhen
 
+export const agentTriggerSchema = z.discriminatedUnion(`kind`, [
+  z.strictObject({
+    id: z.string().uuid().optional(),
+    enabled: z.boolean().default(true),
+    kind: z.literal(`schedule`),
+    cron: cronSchema,
+    tz: timeZoneSchema.optional(),
+  }),
+  z.strictObject({
+    id: z.string().uuid().optional(),
+    enabled: z.boolean().default(true),
+    kind: z.literal(`event`),
+    name: eventNameSchema,
+  }),
+])
+export const agentTriggersSchema = z.array(agentTriggerSchema).max(MAX_AGENT_TRIGGERS)
 
-const scheduleTriggerShape = {
-  kind: z.literal(`schedule`),
-  interval: z.enum(agentScheduleIntervalValues),
-  minuteOfDay: z.number().int().min(0).max(1439),
-  weekday: z.number().int().min(1).max(7).optional(),
-  dayOfMonth: z.number().int().min(1).max(28).optional(),
-}
-
-const eventFilterShape = {
-  boardIds: triggerIdArraySchema.optional(),
-  labelIds: triggerIdArraySchema.optional(),
-  priorities: z
-    .array(z.enum(issuePriorityValues))
-    .min(1)
-    .max(MAX_TRIGGER_FILTER_IDS)
-    .optional(),
-  toStatusIds: triggerIdArraySchema.optional(),
-}
-
-const eventTriggerShape = {
-  kind: z.literal(`event`),
-  // Optional on the wire (an agent may omit it), always stored.
-  source: z.enum(agentTriggerSourceValues).default(`exponential`),
-  event: z.enum(agentTriggerEventValues),
-  filters: z.strictObject(eventFilterShape).optional(),
-}
-
-function refineSchedule(
-  t: { interval: AgentScheduleInterval; weekday?: number; dayOfMonth?: number },
-  ctx: z.RefinementCtx
-): void {
-  const issue = (message: string) =>
-    ctx.addIssue({ code: z.ZodIssueCode.custom, message })
-  if (t.interval === `weekly` && t.weekday === undefined)
-    issue(`weekly requires weekday`)
-  if (t.interval === `monthly` && t.dayOfMonth === undefined)
-    issue(`monthly requires dayOfMonth`)
-  if (t.interval !== `weekly` && t.weekday !== undefined)
-    issue(`weekday only applies to weekly`)
-  if (t.interval !== `monthly` && t.dayOfMonth !== undefined)
-    issue(`dayOfMonth only applies to monthly`)
-}
-
-function refineEvent(
-  t: { event: AgentTriggerEvent; filters?: EventTriggerFilters },
-  ctx: z.RefinementCtx
-): void {
-  const issue = (message: string) =>
-    ctx.addIssue({ code: z.ZodIssueCode.custom, message })
-  if (t.filters?.labelIds && t.event !== `label_added`)
-    issue(`labelIds only applies to label_added`)
-  if (t.filters?.toStatusIds && t.event !== `status_changed`)
-    issue(`toStatusIds only applies to status_changed`)
-  if (
-    t.filters?.priorities &&
-    t.event !== `created` &&
-    t.event !== `priority_changed`
-  )
-    issue(`priorities only applies to created/priority_changed`)
-}
-
-
-
-/** The when-part of a stored trigger (schedule or event, no runner fields). */
+/** The when-part of a stored trigger (no id, no enabled). */
 export function triggerWhenPart(trigger: AgentTrigger): TriggerWhen {
   if (trigger.kind === `schedule`) {
-    return {
-      kind: `schedule`,
-      interval: trigger.interval,
-      minuteOfDay: trigger.minuteOfDay,
-      ...(trigger.weekday !== undefined ? { weekday: trigger.weekday } : {}),
-      ...(trigger.dayOfMonth !== undefined
-        ? { dayOfMonth: trigger.dayOfMonth }
-        : {}),
-    }
+    return { kind: `schedule`, cron: trigger.cron, ...(trigger.tz ? { tz: trigger.tz } : {}) }
   }
-  return {
-    kind: `event`,
-    event: trigger.event,
-    ...(trigger.filters ? { filters: trigger.filters } : {}),
-  }
+  return { kind: `event`, name: trigger.name }
 }
+
+/** NEW-2: the server's per-trigger bookkeeping on `agents.trigger_state`
+ *  (SERVER-ONLY): `checkedAt` = the last tick that evaluated the schedule,
+ *  `firedAt` = its last firing. */
+export type AgentTriggerState = Record<string, { checkedAt?: string; firedAt?: string }>
 
 export const dateOnlySchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
 
@@ -1094,6 +1061,9 @@ export const messageEventKindValues = [
   `session_unclaimed`,
   `session_stuck`,
   `device_offline`,
+  // NEW-2: a trigger of the agent fired into its conversation (a schedule's
+  // tick or an `events` row); the body is the firing text the agent reads.
+  `trigger_fired`,
 ] as const
 export type MessageEventKind = (typeof messageEventKindValues)[number]
 
@@ -1295,6 +1265,12 @@ export type MessageCard =
       issueId?: string | null
       pullRequestId?: string | null
       sessionId?: string | null
+      /** NEW-2 `trigger_fired`: the agent, its trigger, the event row (an
+       *  event trigger) and the event's name. */
+      agentId?: string | null
+      triggerId?: string | null
+      eventId?: string | null
+      name?: string | null
     }
   | { kind: `thread_started`; sessionId: string }
   /** A child's end (or a turn's relay when `final` is false) in its parent. */
@@ -1352,36 +1328,6 @@ export const messageCardSchema = z
 /** The Guide (ONE per thread, on the root): the PR body of every PR of the
  *  thread. Same entry shape and caps as the EXP-879/1154 results. */
 
-// ── Agent triggers (agent roots only; SLOP-2's action triggers moved here) ──
-// A trigger carries only its WHEN: the runner is the agent itself (its
-// device, account, model). LOCAL-ONLY like before: the agent's device reads
-// them off the sessions shape and posts the firing as a message into the
-// agent's channel (`sessions.send({sessionId: agent})`).
-export const MAX_AGENT_TRIGGERS = 10
-
-export type AgentTrigger = { id: string; enabled: boolean } & (
-  | ScheduleTriggerWhen
-  | (EventTriggerWhen & { source: AgentTriggerSource })
-)
-
-export const agentTriggerSchema = z.discriminatedUnion(`kind`, [
-  z
-    .strictObject({
-      id: z.string().uuid().optional(),
-      enabled: z.boolean().default(true),
-      ...scheduleTriggerShape,
-    })
-    .superRefine(refineSchedule),
-  z
-    .strictObject({
-      id: z.string().uuid().optional(),
-      enabled: z.boolean().default(true),
-      ...eventTriggerShape,
-    })
-    .superRefine(refineEvent),
-])
-export const agentTriggersSchema = z.array(agentTriggerSchema).max(MAX_AGENT_TRIGGERS)
-
 // ── sessions.send (THE entrypoint) ──────────────────────────────────────────
 export const SESSIONS_SEND_TEXT_MAX = 16384
 export const SESSIONS_SEND_MAX_ATTACHMENTS = 10
@@ -1394,12 +1340,19 @@ export const AGENT_INSTRUCTIONS_MAX_BYTES = 16384
 export const SESSION_TREE_MAX_DEPTH = 3
 export const SESSION_TREE_MAX_SESSIONS = 10
 
+/** NEW-2: an `agents` definition row's writable facets (`agents.create` /
+ *  `agents.update`, owner-only). The runner = its device + login + CLI +
+ *  model: the agent's conversation sessions run there. */
 export const agentFacetsSchema = z.object({
   name: z.string().trim().min(1).max(AGENT_NAME_MAX),
-  icon: boardIconSchema,
-  color: hexColorSchema,
+  icon: boardIconSchema.nullable().optional(),
+  color: hexColorSchema.nullable().optional(),
   instructions: z.string().max(AGENT_INSTRUCTIONS_MAX_BYTES).default(``),
   triggers: agentTriggersSchema.default([]),
+  deviceId: z.string().min(1).max(128),
+  cli: z.string().min(1).max(16).optional(),
+  account: z.string().min(1).max(64).nullable().optional(),
+  model: z.string().min(1).max(64).nullable().optional(),
 })
 export type AgentFacetsInput = z.infer<typeof agentFacetsSchema>
 
@@ -1426,18 +1379,18 @@ export type SessionAnswerInput = z.infer<typeof sessionAnswerSchema>
 
 /**
  * `sessions.send`: message an existing session (`sessionId`; resumes it when
- * idle, an ended THREAD continues in a new child), start a CHILD
- * (`parentId`), or start a new ROOT (neither): a thread (optionally with
- * `issueIds` / `actionId`+`inputs` / `repositoryId`) or, with `agent`, a team
- * agent. EXP-1341: `name` names a NEW root or child (omitted = it names
- * itself, session-title.json); `issueIds` on a child ASSIGNS them to it, on
- * a message FORWARDS them to that session (linked to the root first).
- * A new session needs `deviceId` (the composer's device picker; an
+ * idle, an ended THREAD continues in a new child), message an AGENT
+ * (`agentId`: the caller's own conversation session with it, NEW-2), start
+ * a CHILD (`parentId`), or start a new ROOT (neither): a thread, optionally
+ * with `issueIds` / `promptId` / `repositoryId`. EXP-1341: `name` names a
+ * NEW root or child (omitted = it names itself, session-title.json);
+ * `issueIds` on a start are rows on it, on a message FORWARD to that
+ * session. A new root needs `deviceId` (the composer's device picker; an
  * agent's spawn defaults to the agent's own device). `teamId` = the ACTIVE
- * team; omitted, it resolves from `sessionId`/`parentId`, else the CALLING
- * session's team (MCP), else it is required. NEW-1: `answer` answers the
- * target's open card; `wakeOn` watches sessions; a new root started from
- * inside a session is watched by the caller.
+ * team; omitted, it resolves from `sessionId`/`parentId`/`agentId`, else
+ * the CALLING session's team (MCP), else it is required. NEW-1: `answer`
+ * answers the target's open card; `wakeOn` watches sessions; a new root
+ * started from inside a session is watched by the caller.
  */
 export const sessionsSendInputSchema = z
   .object({
@@ -1471,11 +1424,13 @@ export const sessionsSendInputSchema = z
     // A new root's or child's issues (rows on it); a message's FORWARDED
     // ones (the rows move to that session).
     issueIds: z.array(sendUuid).min(1).max(SESSIONS_SEND_MAX_ISSUES).optional(),
-    actionId: sendUuid.optional(),
-    inputs: z.record(z.string(), z.string().max(MAX_ACTION_INPUT_TEXT)).optional(),
+    // NEW-2: a new root run from a saved PROMPT: its body plus `text` =
+    // the first message.
+    promptId: sendUuid.optional(),
     repositoryId: sendUuid.optional(),
-    // A NEW team agent root (Settings → Agents).
-    agent: agentFacetsSchema.optional(),
+    // NEW-2: a message to an AGENT = into the caller's own conversation
+    // session with it (created on first use; agents never end).
+    agentId: sendUuid.optional(),
     // NEW-1: answer the target session's open question/plan card (first
     // answer wins: a parent answering what it knows, a person the rest).
     answer: sessionAnswerSchema.optional(),
@@ -1487,10 +1442,15 @@ export const sessionsSendInputSchema = z
   .superRefine((input, ctx) => {
     const issue = (message: string) =>
       ctx.addIssue({ code: z.ZodIssueCode.custom, message })
-    const rootFacets =
-      input.actionId !== undefined ||
-      input.repositoryId !== undefined ||
-      input.agent !== undefined
+    const rootFacets = input.promptId !== undefined || input.repositoryId !== undefined
+    if (input.agentId) {
+      if (input.sessionId || input.parentId) issue(`agentId is a message to that agent alone`)
+      if (rootFacets || input.name) issue(`a message to an agent takes no root facets`)
+      if (input.deviceId) issue(`an agent runs on its own device`)
+      if (!input.text?.trim() && !input.attachmentIds?.length && !input.issueIds && !input.wakeOn)
+        issue(`a message needs text, attachments or issues`)
+      return
+    }
     if (input.sessionId) {
       if (input.parentId) issue(`sessionId and parentId are exclusive`)
       if (rootFacets) issue(`a message to a session takes no root facets`)
@@ -1509,12 +1469,8 @@ export const sessionsSendInputSchema = z
     }
     if (input.answer) issue(`an answer goes to a session (sessionId)`)
     if (input.parentId && rootFacets) issue(`a child session takes no root facets`)
-    if (input.agent && (input.issueIds || input.actionId))
-      issue(`an agent takes no issues or action`)
-    if (input.agent && input.name) issue(`an agent is named by agent.name`)
-    if (input.inputs && !input.actionId) issue(`inputs need an actionId`)
-    if (!input.agent && !input.text?.trim() && !input.issueIds && !input.actionId && !input.wakeOn)
-      issue(`a new session needs text, issues or an action`)
+    if (!input.text?.trim() && !input.issueIds && !input.promptId && !input.wakeOn)
+      issue(`a new session needs text, issues or a prompt`)
   })
 export type SessionsSendInput = z.infer<typeof sessionsSendInputSchema>
 

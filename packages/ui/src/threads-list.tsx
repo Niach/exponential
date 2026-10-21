@@ -147,7 +147,7 @@ export function ThreadsList({
           <div className="flex flex-col">
             {agents.map((agent) => (
               <ThreadsListItem
-                key={agent.sessionId}
+                key={agent.agentId}
                 testId="agents-row"
                 lead={
                   agent.busy ? (
@@ -158,8 +158,8 @@ export function ThreadsList({
                 }
                 title={agent.name}
                 word={agent.needsYou ? (THREAD_ROW_WORDS.needsInput ?? null) : null}
-                active={agent.sessionId === activeId}
-                onOpen={onOpenAgent ? () => onOpenAgent(agent.sessionId) : undefined}
+                active={agent.agentId === activeId}
+                onOpen={onOpenAgent ? () => onOpenAgent(agent.agentId) : undefined}
               />
             ))}
           </div>

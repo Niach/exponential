@@ -1,17 +1,13 @@
-import { useMemo } from "react"
-import { eq, useLiveQuery } from "@tanstack/react-db"
+import { useMemo, useState } from "react"
 import {
-  MAX_TRIGGER_FILTER_IDS,
-  agentTriggerEventValues,
-  type EventTriggerFilters,
-  type AgentScheduleInterval,
-  type ScheduleTriggerWhen,
+  builtinEventNames,
+  cronSchema,
+  eventNameSchema,
+  timeZoneSchema,
   type TriggerWhen,
-  type AgentTriggerEvent,
-  type IssuePriority,
 } from "@exp/db-schema/domain"
 import { AGENT_SETTINGS_COPY } from "@/lib/session-tree"
-import { issuePriorityOptions } from "@/lib/domain"
+import { parseCron } from "@/lib/agents/cron"
 import { accountOptionsOf } from "@/components/launch-dialog/use-launch-options"
 import {
   accountOptionKey,
@@ -20,306 +16,210 @@ import {
 } from "@/lib/accounts/account-option"
 import type { SteerDevice } from "@/lib/steer-devices"
 import {
-  boardCollection,
-  issueStatusCollection,
-  labelCollection,
-} from "@/lib/collections"
-import { buildStatusOptions } from "@/lib/team-statuses"
-import { toStatusPickerStatus } from "@/components/issue-properties/status-dropdown"
-import type { Board, IssueStatusRow, Label as TeamLabel } from "@/db/schema"
-import {
-  BoardPicker,
-  Picker,
-  LabelPicker,
-  PriorityPicker,
-  StatusPicker,
-  Button,
-  TabsTrigger,
-  GLASS_SELECT_TRIGGER,
+  FieldError,
   GlassGroup,
   GlassTabsRow,
+  Input,
+  Picker,
+  TabsTrigger,
 } from "@exp/ui"
-import { cn } from "@/lib/utils"
 
-// The reusable trigger editing PIECES (EXP-530; EXP-1293: a trigger lives on
-// its team AGENT, which owns the device and account, so only the WHEN is
-// edited): the when-part panes + event filters, plus the account-pin helpers
-// the agent page's Account row shares. Everything is CONTROLLED — the parent holds a `TriggerDraft`
-// (the when-part only, exactly what an `TriggerWhen` carries) and seeds
-// it in its open-reset effect, the same pattern as every other dialog field
-// here.
+// The reusable trigger editing PIECES (EXP-530; NEW-2: a trigger lives on
+// its `agents` row, which owns the device and account, so only the WHEN is
+// edited): a schedule = ONE 5-field cron + its IANA zone, an event = ONE
+// event name (the contract builtins offered, any custom name allowed). Plus
+// the account-pin helpers the agent page's Account row shares. CONTROLLED:
+// the parent holds a `TriggerDraft` and seeds it on open.
 
 export interface TriggerDraft {
   kind: `schedule` | `event`
-  interval: AgentScheduleInterval
-  /** `HH:MM` wall-clock string, straight off the time input. */
-  time: string
-  weekday: number
-  dayOfMonth: number
-  event: AgentTriggerEvent
-  boardIds: string[]
-  labelIds: string[]
-  priorities: IssuePriority[]
-  toStatusIds: string[]
+  /** `m h dom mon dow`. */
+  cron: string
+  /** IANA zone; `` = UTC. */
+  tz: string
+  /** The events row name. */
+  name: string
 }
+
+/** The browser's zone, the default a new schedule reads in. */
+export function browserTimeZone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || `UTC`
+  } catch {
+    return `UTC`
+  }
+}
+
+export const CRON_PLACEHOLDER = `0 9 * * 1-5`
 
 export function emptyTriggerDraft(): TriggerDraft {
-  return {
-    kind: `schedule`,
-    interval: `daily`,
-    time: `09:00`,
-    weekday: 1,
-    dayOfMonth: 1,
-    event: `created`,
-    boardIds: [],
-    labelIds: [],
-    priorities: [],
-    toStatusIds: [],
-  }
+  return { kind: `schedule`, cron: ``, tz: browserTimeZone(), name: `` }
 }
 
-function minuteToTime(minuteOfDay: number): string {
-  const hours = String(Math.floor(minuteOfDay / 60)).padStart(2, `0`)
-  const minutes = String(minuteOfDay % 60).padStart(2, `0`)
-  return `${hours}:${minutes}`
-}
-
-function timeToMinute(time: string): number {
-  const match = /^(\d{1,2}):(\d{2})$/.exec(time)
-  if (!match) return 540
-  const minute = Number(match[1]) * 60 + Number(match[2])
-  return minute >= 0 && minute <= 1439 ? minute : 540
-}
-
-export function draftFromTrigger(
-  trigger: TriggerWhen | null
-): TriggerDraft {
+export function draftFromTrigger(trigger: TriggerWhen | null): TriggerDraft {
   const draft = emptyTriggerDraft()
   if (!trigger) return draft
-  draft.kind = trigger.kind
   if (trigger.kind === `schedule`) {
-    draft.interval = trigger.interval
-    draft.time = minuteToTime(trigger.minuteOfDay)
-    if (trigger.weekday !== undefined) draft.weekday = trigger.weekday
-    if (trigger.dayOfMonth !== undefined) draft.dayOfMonth = trigger.dayOfMonth
-  } else {
-    draft.event = trigger.event
-    draft.boardIds = trigger.filters?.boardIds ?? []
-    draft.labelIds = trigger.filters?.labelIds ?? []
-    draft.priorities = trigger.filters?.priorities ?? []
-    draft.toStatusIds = trigger.filters?.toStatusIds ?? []
+    return { ...draft, kind: `schedule`, cron: trigger.cron ?? ``, tz: trigger.tz ?? `` }
   }
-  return draft
+  return { ...draft, kind: `event`, name: trigger.name ?? `` }
 }
 
-/** The draft as a strict `TriggerWhen`. Filters irrelevant to the
- * picked event are dropped, matching the server's write schema. */
+export interface TriggerDraftError {
+  field: `cron` | `tz` | `name`
+  message: string
+}
+
+const firstIssue = (result: { success: boolean; error?: { issues: { message: string }[] } }) =>
+  result.success ? null : (result.error?.issues[0]?.message ?? `Invalid`)
+
+/** Inline errors for the draft's visible pane; [] = savable. */
+export function validateTriggerDraft(draft: TriggerDraft): TriggerDraftError[] {
+  const errors: TriggerDraftError[] = []
+  if (draft.kind === `schedule`) {
+    if (!draft.cron.trim()) errors.push({ field: `cron`, message: `Enter a cron expression` })
+    else if (firstIssue(cronSchema.safeParse(draft.cron)) || !parseCron(draft.cron.trim())) {
+      errors.push({ field: `cron`, message: `Use five fields: minute hour day month weekday` })
+    }
+    if (draft.tz.trim() && firstIssue(timeZoneSchema.safeParse(draft.tz))) {
+      errors.push({ field: `tz`, message: `Use an IANA time zone, like Europe/Vienna` })
+    }
+    return errors
+  }
+  if (!draft.name.trim()) errors.push({ field: `name`, message: `Name the event` })
+  else if (firstIssue(eventNameSchema.safeParse(draft.name))) {
+    errors.push({ field: `name`, message: `Use letters, digits and . _ : / -` })
+  }
+  return errors
+}
+
+/** The draft as a strict `TriggerWhen` (call after `validateTriggerDraft`). */
 export function draftToTrigger(draft: TriggerDraft): TriggerWhen {
   if (draft.kind === `schedule`) {
-    const trigger: ScheduleTriggerWhen = {
-      kind: `schedule`,
-      interval: draft.interval,
-      minuteOfDay: timeToMinute(draft.time),
-    }
-    if (draft.interval === `weekly`) trigger.weekday = draft.weekday
-    if (draft.interval === `monthly`) trigger.dayOfMonth = draft.dayOfMonth
-    return trigger
+    const cron = draft.cron.trim().replace(/\s+/g, ` `)
+    const tz = draft.tz.trim()
+    return { kind: `schedule`, cron, ...(tz ? { tz } : {}) }
   }
-  const clamp = <T,>(list: T[]) => list.slice(0, MAX_TRIGGER_FILTER_IDS)
-  const filters: EventTriggerFilters = {}
-  if (draft.boardIds.length > 0) filters.boardIds = clamp(draft.boardIds)
-  if (draft.event === `label_added` && draft.labelIds.length > 0) {
-    filters.labelIds = clamp(draft.labelIds)
-  }
-  if (
-    (draft.event === `created` || draft.event === `priority_changed`) &&
-    draft.priorities.length > 0
-  ) {
-    filters.priorities = clamp(draft.priorities)
-  }
-  if (draft.event === `status_changed` && draft.toStatusIds.length > 0) {
-    filters.toStatusIds = clamp(draft.toStatusIds)
-  }
-  return {
-    kind: `event`,
-    event: draft.event,
-    ...(Object.keys(filters).length > 0 ? { filters } : {}),
-  }
+  return { kind: `event`, name: draft.name.trim() }
 }
 
-const INTERVAL_LABELS: Record<AgentScheduleInterval, string> = {
-  daily: `Day`,
-  weekly: `Week`,
-  monthly: `Month`,
+const ROW_INPUT = `h-auto rounded-none border-0 bg-transparent px-4 py-3 text-sm shadow-none focus-visible:border-0 focus-visible:ring-0 md:text-sm`
+
+/** The label the event Picker reads for a name: a builtin's sentence, else
+ *  the name itself. */
+function eventLabel(name: string): string {
+  return (AGENT_SETTINGS_COPY.events as Record<string, string>)[name] ?? name
 }
 
-const MONTH_DAYS = Array.from({ length: 28 }, (_, index) => index + 1)
-const WEEKDAYS = [1, 2, 3, 4, 5, 6, 7]
-
-/** The when-part editor: Schedule | On event segmented control plus the
- * matching pane (interval/time, or event + filters). */
+/** The when-part editor: Schedule | On event, then the matching pane. */
 export function TriggerWhenFields({
   draft,
   onChange,
-  teamId,
+  errors = [],
 }: {
   draft: TriggerDraft
   onChange: (draft: TriggerDraft) => void
-  teamId: string
+  errors?: readonly TriggerDraftError[]
 }) {
-  const set = (patch: Partial<TriggerDraft>) =>
-    onChange({ ...draft, ...patch })
+  const set = (patch: Partial<TriggerDraft>) => onChange({ ...draft, ...patch })
+  const errorOf = (field: TriggerDraftError[`field`]) =>
+    errors.find((error) => error.field === field)?.message ?? null
+  const fieldErrors =
+    draft.kind === `schedule`
+      ? [errorOf(`cron`), errorOf(`tz`)].filter(Boolean)
+      : [errorOf(`name`)].filter(Boolean)
 
   return (
-    // EXP-698 r4: ONE card, no "Trigger" caption above it — the Schedule /
-    // On event strip IS the group's first row (the embedded segmented style
-    // the agent card already uses), and the when-part below it is a list of
-    // picker rows with the same geometry.
-    <GlassGroup>
-      <GlassTabsRow
-        value={draft.kind}
-        onValueChange={(kind) => {
-          if (kind === draft.kind) return
-          set({ kind: kind as TriggerDraft[`kind`] })
-        }}
-      >
-        <TabsTrigger value="schedule">Schedule</TabsTrigger>
-        <TabsTrigger value="event">On event</TabsTrigger>
-      </GlassTabsRow>
+    <div className="space-y-1">
+      <GlassGroup>
+        <GlassTabsRow
+          value={draft.kind}
+          onValueChange={(kind) => {
+            if (kind === draft.kind) return
+            set({ kind: kind as TriggerDraft[`kind`] })
+          }}
+        >
+          <TabsTrigger value="schedule">Schedule</TabsTrigger>
+          <TabsTrigger value="event">On event</TabsTrigger>
+        </GlassTabsRow>
 
-      {draft.kind === `schedule` && (
-        <>
-          <Picker
-            mode="single"
-            triggerVariant="row"
-            mobileTitle="Every"
-            value={draft.interval}
-            onChange={(value) => {
-              if (value !== null) {
-                set({ interval: value as AgentScheduleInterval })
-              }
-            }}
-            items={(
-              Object.keys(INTERVAL_LABELS) as AgentScheduleInterval[]
-            ).map((interval) => ({
-              value: interval,
-              label: INTERVAL_LABELS[interval],
-            }))}
-          />
-          {draft.interval === `weekly` && (
-            <Picker
-              mode="single"
-              triggerVariant="row"
-              mobileTitle="Weekday"
-              value={String(draft.weekday)}
-              onChange={(value) => {
-                if (value !== null) set({ weekday: Number(value) })
-              }}
-              items={WEEKDAYS.map((weekday) => ({
-                value: String(weekday),
-                label: AGENT_SETTINGS_COPY.weekdays[weekday - 1] ?? ``,
-              }))}
+        {draft.kind === `schedule` && (
+          <>
+            <Input
+              aria-label="Cron"
+              value={draft.cron}
+              onChange={(e) => set({ cron: e.target.value })}
+              placeholder={CRON_PLACEHOLDER}
+              spellCheck={false}
+              autoComplete="off"
+              aria-invalid={Boolean(errorOf(`cron`)) || undefined}
+              className={`${ROW_INPUT} font-mono`}
+              data-testid="trigger-cron"
             />
-          )}
-          {draft.interval === `monthly` && (
-            <Picker
-              mode="single"
-              triggerVariant="row"
-              mobileTitle="Day of month"
-              value={String(draft.dayOfMonth)}
-              onChange={(value) => {
-                if (value !== null) set({ dayOfMonth: Number(value) })
-              }}
-              items={MONTH_DAYS.map((day) => ({
-                value: String(day),
-                label: `Day ${day}`,
-              }))}
+            <Input
+              aria-label="Time zone"
+              value={draft.tz}
+              onChange={(e) => set({ tz: e.target.value })}
+              placeholder="UTC"
+              spellCheck={false}
+              autoComplete="off"
+              aria-invalid={Boolean(errorOf(`tz`)) || undefined}
+              className={ROW_INPUT}
+              data-testid="trigger-tz"
             />
-          )}
-          <TriggerTimeRow
-            time={draft.time}
-            onChange={(time) => set({ time })}
-          />
-        </>
-      )}
+          </>
+        )}
 
-      {draft.kind === `event` && (
-        <>
-          <Picker
-            mode="single"
-            triggerVariant="row"
-            mobileTitle="When"
-            value={draft.event}
-            onChange={(value) => {
-              if (value !== null) set({ event: value as AgentTriggerEvent })
-            }}
-            items={agentTriggerEventValues.map((event) => ({
-              value: event,
-              label: (AGENT_SETTINGS_COPY.events as Record<string, string>)[event] ?? event,
-            }))}
-          />
-          <div className="px-4 py-3">
-            <EventFilterPickers draft={draft} set={set} teamId={teamId} />
-          </div>
-        </>
-      )}
-    </GlassGroup>
+        {draft.kind === `event` && (
+          <EventNamePicker value={draft.name} onChange={(name) => set({ name })} />
+        )}
+      </GlassGroup>
+      <FieldError className="px-1">{fieldErrors[0] ?? null}</FieldError>
+    </div>
   )
 }
 
-const pad2 = (value: number) => String(value).padStart(2, `0`)
-const HOUR_ITEMS = Array.from({ length: 24 }, (_, hour) => ({
-  value: pad2(hour),
-  label: pad2(hour),
-}))
-const MINUTE_ITEMS = Array.from({ length: 60 }, (_, minute) => ({
-  value: pad2(minute),
-  label: pad2(minute),
-}))
-
-/** The Time row ×4: the 24h `HH:mm` value, its hour and its minute each a
- *  Picker with the natives' choices (every hour, every minute) — never the
- *  locale-dependent browser time control. */
-function TriggerTimeRow({
-  time,
+/** The event row: THE Picker over the contract builtins, its search field
+ *  the free-text name (a typed name that is no builtin is offered as its
+ *  own row). */
+function EventNamePicker({
+  value,
   onChange,
 }: {
-  time: string
-  onChange: (time: string) => void
+  value: string
+  onChange: (name: string) => void
 }) {
-  const [hour = `09`, minute = `00`] = time.split(`:`)
+  const [query, setQuery] = useState(``)
+  const typed = query.trim()
+  const items = useMemo(() => {
+    const names: string[] = [...builtinEventNames]
+    if (value && !names.includes(value)) names.unshift(value)
+    if (typed && !names.includes(typed)) names.unshift(typed)
+    return names.map((name) => ({
+      value: name,
+      label: eventLabel(name),
+      keywords: [name, eventLabel(name)],
+      hint: eventLabel(name) === name ? undefined : name,
+    }))
+  }, [typed, value])
   return (
-    <div
-      className="flex w-full items-center gap-3 px-4 py-3 text-sm"
-      data-testid="trigger-time"
-    >
-      <span className="shrink-0 text-foreground">Time</span>
-      <span className="ml-auto flex items-center gap-0.5 text-foreground/70 tabular-nums">
-        <Picker
-          mode="single"
-          triggerVariant="inline"
-          mobileTitle="Hour"
-          width="sm"
-          value={pad2(Number(hour) || 0)}
-          items={HOUR_ITEMS}
-          onChange={(value) => {
-            if (value !== null) onChange(`${value}:${pad2(Number(minute) || 0)}`)
-          }}
-        />
-        <span aria-hidden>:</span>
-        <Picker
-          mode="single"
-          triggerVariant="inline"
-          mobileTitle="Minute"
-          width="sm"
-          value={pad2(Number(minute) || 0)}
-          items={MINUTE_ITEMS}
-          onChange={(value) => {
-            if (value !== null) onChange(`${pad2(Number(hour) || 0)}:${value}`)
-          }}
-        />
-      </span>
-    </div>
+    <Picker
+      mode="single"
+      triggerVariant="row"
+      mobileTitle="Event"
+      triggerLabel="Pick an event"
+      search
+      searchPlaceholder="Event name"
+      query={query}
+      onQueryChange={setQuery}
+      value={value || null}
+      onChange={(name) => {
+        onChange(name)
+        setQuery(``)
+      }}
+      items={items}
+      data-testid="trigger-event"
+    />
   )
 }
 
@@ -388,207 +288,4 @@ export function seedAccountPin(
       ? options.find((option) => option.agent === current.agent)
       : undefined) ?? lastUsedAccountOption(options)
   return fallback ? accountPinOf(fallback) : undefined
-}
-
-function EventFilterPickers({
-  draft,
-  set,
-  teamId,
-}: {
-  draft: TriggerDraft
-  set: (patch: Partial<TriggerDraft>) => void
-  teamId: string
-}) {
-  const { data: boardRows } = useLiveQuery(
-    (q) =>
-      q
-        .from({ boards: boardCollection })
-        .where(({ boards }) => eq(boards.teamId, teamId)),
-    [teamId]
-  )
-  const showLabels = draft.event === `label_added`
-  const showPriorities =
-    draft.event === `created` || draft.event === `priority_changed`
-  const showStatuses = draft.event === `status_changed`
-
-  const { data: labelRows } = useLiveQuery(
-    (q) =>
-      showLabels
-        ? q
-            .from({ labels: labelCollection })
-            .where(({ labels }) => eq(labels.teamId, teamId))
-        : undefined,
-    [teamId, showLabels]
-  )
-  const { data: statusRows } = useLiveQuery(
-    (q) =>
-      showStatuses
-        ? q
-            .from({ issueStatuses: issueStatusCollection })
-            .where(({ issueStatuses }) => eq(issueStatuses.teamId, teamId))
-        : undefined,
-    [teamId, showStatuses]
-  )
-
-  // EXP-1021: the filter rows are the typed pickers' rows — a board keeps its
-  // icon and colour, a label its dot, a status its glyph — so a filter list
-  // reads exactly like the list it filters.
-  const boardOptions = useMemo(
-    () =>
-      [...((boardRows ?? []) as Board[])]
-        .sort((a, b) => a.name.localeCompare(b.name))
-        .map((board) => ({
-          id: board.id,
-          name: board.name,
-          icon: board.icon,
-          color: board.color,
-          repositoryId: board.repositoryId,
-        })),
-    [boardRows]
-  )
-  const labelOptions = useMemo(
-    () =>
-      [...((labelRows ?? []) as TeamLabel[])]
-        .sort((a, b) => a.name.localeCompare(b.name))
-        .map((label) => ({ id: label.id, name: label.name, color: label.color })),
-    [labelRows]
-  )
-  // Duplicate is never a pickable target (same rule as the create/edit status
-  // chips — it is only reachable via the duplicate-picker interception).
-  const statusOptions = useMemo(
-    () =>
-      buildStatusOptions((statusRows ?? []) as IssueStatusRow[])
-        .filter((option) => option.category !== `duplicate`)
-        .map((option) => toStatusPickerStatus(option)),
-    [statusRows]
-  )
-  const priorityOptions = useMemo(
-    () =>
-      issuePriorityOptions.map((option) => ({
-        ...option,
-        id: option.value,
-        name: option.label,
-      })),
-    []
-  )
-
-  return (
-    <div className="flex flex-wrap gap-2">
-      <BoardPicker
-        mode="multi"
-        max={MAX_TRIGGER_FILTER_IDS}
-        boards={boardOptions}
-        value={draft.boardIds}
-        onChange={(boardIds) => set({ boardIds })}
-        mobileTitle="Any board"
-        searchPlaceholder="Filter boards..."
-        emptyText="No boards found."
-        width="sm"
-        trigger={filterTrigger(
-          filterSummary(boardOptions, draft.boardIds, `Any board`, `board`, `boards`),
-          draft.boardIds.length === 0
-        )}
-      />
-      {showLabels && (
-        <LabelPicker
-          max={MAX_TRIGGER_FILTER_IDS}
-          labels={labelOptions}
-          value={draft.labelIds}
-          onChange={(labelIds) => set({ labelIds })}
-          mobileTitle="Any label"
-          searchPlaceholder="Filter labels..."
-          emptyText="No labels found."
-          width="sm"
-          trigger={filterTrigger(
-            filterSummary(labelOptions, draft.labelIds, `Any label`, `label`, `labels`),
-            draft.labelIds.length === 0
-          )}
-        />
-      )}
-      {showPriorities && (
-        <PriorityPicker
-          mode="multi"
-          max={MAX_TRIGGER_FILTER_IDS}
-          options={priorityOptions}
-          value={draft.priorities}
-          onChange={(priorities) =>
-            set({ priorities: priorities as IssuePriority[] })
-          }
-          mobileTitle="Any priority"
-          width="sm"
-          trigger={filterTrigger(
-            filterSummary(
-              priorityOptions,
-              draft.priorities,
-              `Any priority`,
-              `priority`,
-              `priorities`
-            ),
-            draft.priorities.length === 0
-          )}
-        />
-      )}
-      {showStatuses && (
-        <StatusPicker
-          mode="multi"
-          max={MAX_TRIGGER_FILTER_IDS}
-          statuses={statusOptions}
-          value={draft.toStatusIds}
-          onChange={(toStatusIds) => set({ toStatusIds })}
-          mobileTitle="Any status"
-          search
-          searchPlaceholder="Filter statuses..."
-          emptyText="No statuses found."
-          width="sm"
-          trigger={filterTrigger(
-            filterSummary(
-              statusOptions,
-              draft.toStatusIds,
-              `Any status`,
-              `status`,
-              `statuses`
-            ),
-            draft.toStatusIds.length === 0
-          )}
-        />
-      )}
-    </div>
-  )
-}
-
-// EXP-941/EXP-1021: the popover+Command copy these four filters shared is now
-// the TYPED picker of each domain in its multi arm, capped at
-// MAX_TRIGGER_FILTER_IDS to match the server's per-list limit. What stays
-// local is the only thing a picker can't know: the filter's own `3 boards`
-// summary, and the compact chip that shows it.
-type FilterRow = { id: string; name: string }
-
-function filterSummary(
-  rows: FilterRow[],
-  selected: string[],
-  anyLabel: string,
-  noun: string,
-  nounPlural: string
-): string {
-  if (selected.length === 0) return anyLabel
-  if (selected.length === 1) {
-    return rows.find((row) => row.id === selected[0])?.name ?? `1 ${noun}`
-  }
-  return `${selected.length} ${nounPlural}`
-}
-
-function filterTrigger(summary: string, empty: boolean) {
-  return (
-    <Button
-      variant="outline"
-      size="sm"
-      className={cn(
-        `h-8 font-normal`,
-        GLASS_SELECT_TRIGGER,
-        empty && `text-muted-foreground`
-      )}
-    >
-      {summary}
-    </Button>
-  )
 }

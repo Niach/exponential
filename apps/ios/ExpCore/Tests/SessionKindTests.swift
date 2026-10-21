@@ -40,7 +40,24 @@ final class SessionKindTests: XCTestCase {
             let kind = testCase["kind"] as? String
             let expected = try traits(testCase["expected"])
             XCTAssertEqual(SessionKind.traits(kind), expected, kind ?? "null")
-            XCTAssertEqual(SessionKind.isPersistent(kind), expected.persistent, kind ?? "null")
+        }
+    }
+
+    /// NEW-2: the kind derives from `agentId`, never from the legacy `kind`
+    /// column; `isPersistent` follows it.
+    func testReplaysEveryKindOfCase() throws {
+        let cases = try XCTUnwrap(try fixture()["kindOfCases"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for testCase in cases {
+            let session = try XCTUnwrap(testCase["session"] as? [String: Any])
+            let agentId = session["agentId"] as? String
+            let expected = try XCTUnwrap(testCase["expected"] as? String)
+            XCTAssertEqual(sessionKindOf(agentId: agentId), expected, "\(session)")
+            XCTAssertEqual(
+                SessionKind.isPersistent(agentId: agentId),
+                SessionKind.traits(expected).persistent,
+                "\(session)"
+            )
         }
     }
 }

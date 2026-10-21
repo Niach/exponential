@@ -2593,7 +2593,73 @@ public final class DatabaseManager: @unchecked Sendable {
                 """)
         }
 
+        // v74 (NEW-2): agents are DEFINITIONS (`agents`), prompts replace
+        // actions (`prompts`), and `events` are the new primitive — three
+        // brand-new synced tables (no cursor yet) mirroring the shape
+        // allowlists; `sessions.agent_id` marks an agent's conversation
+        // session (a guarded additive ALTER; the sessions cursor resets only
+        // when the column was added, so synced rows re-arrive carrying it).
+        migrator.registerMigration("v74_agents_events_prompts") { db in
+            try createAgentDefinitionTables(db)
+            guard try db.tableExists("sessions") else { return }
+            let existing = Set(try db.columns(in: "sessions").map(\.name))
+            guard !existing.contains("agent_id") else { return }
+            try db.alter(table: "sessions") { t in
+                t.add(column: "agent_id", .text)
+            }
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: """
+                    UPDATE "electric_offsets"
+                    SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                    WHERE "shape" = 'sessions'
+                    """)
+            }
+        }
+
         return migrator
+    }
+
+    /// NEW-2: the `agents` / `events` / `prompts` tables, mirroring the shape
+    /// allowlists (`/api/shapes/{agents,events,prompts}`). jsonb columns
+    /// (triggers, payload) are stored as their JSON text; the server-only
+    /// columns (`instructions`, `trigger_state`, `body`) never arrive.
+    static func createAgentDefinitionTables(_ db: Database) throws {
+        try db.create(table: "agents", ifNotExists: true) { t in
+            t.primaryKey("id", .text)
+            t.column("team_id", .text).notNull().indexed()
+            t.column("name", .text).notNull().defaults(to: "")
+            t.column("icon", .text)
+            t.column("color", .text)
+            t.column("triggers", .text).notNull().defaults(to: "[]")
+            t.column("device_id", .text)
+            t.column("cli", .text)
+            t.column("account", .text)
+            t.column("model", .text)
+            t.column("owner_id", .text)
+            t.column("sort_order", .double).notNull().defaults(to: 0)
+            t.column("created_at", .text).notNull()
+            t.column("updated_at", .text).notNull()
+        }
+        try db.create(table: "events", ifNotExists: true) { t in
+            t.primaryKey("id", .text)
+            t.column("team_id", .text).notNull().indexed()
+            t.column("name", .text).notNull().defaults(to: "")
+            t.column("payload", .text)
+            // session | user | server (contract eventEmitter).
+            t.column("emitted_by", .text).notNull().defaults(to: "server")
+            t.column("session_id", .text)
+            t.column("user_id", .text)
+            t.column("created_at", .text).notNull()
+        }
+        try db.create(table: "prompts", ifNotExists: true) { t in
+            t.primaryKey("id", .text)
+            t.column("team_id", .text).notNull().indexed()
+            t.column("name", .text).notNull().defaults(to: "")
+            t.column("icon", .text)
+            t.column("sort_order", .double).notNull().defaults(to: 0)
+            t.column("created_at", .text).notNull()
+            t.column("updated_at", .text).notNull()
+        }
     }
 
     /// EXP-1291: the five session-tree tables, mirroring the shape
@@ -2736,6 +2802,10 @@ public final class DatabaseManager: @unchecked Sendable {
             try db.execute(sql: "DELETE FROM device_worktrees")
             try db.execute(sql: "DELETE FROM devices")
             try db.execute(sql: "DELETE FROM actions")
+            // NEW-2: agent definitions, events and prompts.
+            try db.execute(sql: "DELETE FROM agents")
+            try db.execute(sql: "DELETE FROM events")
+            try db.execute(sql: "DELETE FROM prompts")
             try db.execute(sql: "DELETE FROM notifications")
             try db.execute(sql: "DELETE FROM issue_events")
             try db.execute(sql: "DELETE FROM issue_subscribers")

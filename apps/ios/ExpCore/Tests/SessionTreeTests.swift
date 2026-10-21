@@ -70,7 +70,8 @@ final class SessionTreeTests: XCTestCase {
             updatedAt: try XCTUnwrap(string(row["updatedAt"])),
             deviceId: string(row["deviceId"]),
             caption: string(row["caption"]),
-            aside: (row["aside"] as? Bool) ?? false
+            aside: (row["aside"] as? Bool) ?? false,
+            agentId: string(row["agentId"])
         )
     }
 
@@ -287,7 +288,7 @@ final class SessionTreeTests: XCTestCase {
 
     private func json(_ agent: AgentRow) -> [String: Any] {
         [
-            "sessionId": agent.sessionId,
+            "agentId": agent.agentId,
             "teamId": agent.teamId,
             "name": agent.name,
             "icon": agent.icon,
@@ -619,9 +620,21 @@ final class SessionTreeTests: XCTestCase {
         for testCase in try cases(try fixture("threads-list.json"), "agentCases") {
             let name = try XCTUnwrap(testCase["name"] as? String)
             let input = try XCTUnwrap(testCase["input"] as? [String: Any])
+            let definitions = try XCTUnwrap(input["agents"] as? [[String: Any]]).map { row in
+                AgentLike(
+                    id: try XCTUnwrap(string(row["id"])),
+                    teamId: try XCTUnwrap(string(row["teamId"])),
+                    name: try XCTUnwrap(string(row["name"])),
+                    icon: string(row["icon"]),
+                    color: string(row["color"]),
+                    sortOrder: try XCTUnwrap(row["sortOrder"] as? Double)
+                )
+            }
             let agents = SessionTree.listAgents(
-                try XCTUnwrap(input["sessions"] as? [Any]).map(session),
-                teamId: string(input["teamId"])
+                agents: definitions,
+                sessions: try XCTUnwrap(input["sessions"] as? [Any]).map(session),
+                teamId: string(input["teamId"]),
+                me: string(input["me"])
             )
             assertJSON(agents.map(json), testCase["expected"], name)
         }

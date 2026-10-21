@@ -156,7 +156,6 @@ import {
 import { scriptCard } from "@exp/domain-contract/script-card"
 import taskQueueSpec from "@exp/domain-contract/fixtures/task-queue.json"
 import {
-  mergeAgentCommands,
   parseSteerCommand,
   steerAgentId,
   steerCommandsFor,
@@ -495,16 +494,12 @@ export function AgentSessionView({
     [live, canAnswer, feed, questionIds, answerStates]
   )
   /** EXP-724/746: the slash commands this session's agent can run, so a
-   *  steered `/<command>` renders as a command row, not prose. */
+   *  steered `/<command>` renders as a command row, not prose. NEW-2: the
+   *  contract builtins only; the CLI's injected commands never count. */
   const catalogAgent = steerAgentId(session.cli, config !== null)
   const agentCommands = useMemo(
-    () =>
-      mergeAgentCommands(
-        steerCommandsFor(catalogAgent),
-        config?.commands ?? [],
-        catalogAgent
-      ),
-    [catalogAgent, config?.commands]
+    () => steerCommandsFor(catalogAgent),
+    [catalogAgent]
   )
   /** EXP-389/848: the agent is EXECUTING a turn. */
   const working = sessionIsWorking({

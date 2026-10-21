@@ -37,8 +37,10 @@ import {
   actions,
   apikeys,
   attachments,
+  agents,
   comments,
   devices,
+  events,
   issueDrafts,
   issueEvents,
   issueLabels,
@@ -88,6 +90,9 @@ import {
   DEMO_AGENT_CHANNEL_TIMES,
   DEMO_AGENT_COMMENT_ID,
   DEMO_AGENT_COMMENT_MINUTES_AGO,
+  DEMO_AGENT_CONVERSATION_ID,
+  DEMO_AGENT_CONVERSATION_IDS,
+  DEMO_AGENT_EVENT_TRIGGER_ID,
   DEMO_AGENT_ID,
   DEMO_AGENT_IDS,
   DEMO_AGENT_REQUEST,
@@ -592,60 +597,90 @@ async function seedSessionTree(ctx: {
     ...extra,
   })
 
-  // ── the team agents (never ended: they idle between messages) ──────────
-  const agentTriggers: AgentTrigger[] = [
+  // ── the team agents (NEW-2: `agents` definition rows) ─────────────────
+  // Each runs as the demo user's conversation session with it (a root with
+  // `agent_id`, never ended: it idles between messages). Triggers live on
+  // the definition and the server fires them.
+  const agentSpecs = [
     {
-      id: DEMO_AGENT_TRIGGER_ID,
-      enabled: true,
-      kind: `schedule`,
-      interval: `daily`,
-      minuteOfDay: 9 * 60,
-    },
-  ]
-  const agent = (
-    id: string,
-    spec: { name: string; icon: string; color: string; instructions: string; sortOrder: number }
-  ) =>
-    root(id, {
-      kind: `agent`,
-      // Agents run on the team's shared build server, hosted by its owner.
-      deviceId: DEMO_SERVER_DEVICE_ID,
-      account: `system`,
-      repositoryId: null,
-      status: `idle`,
-      startedAt: daysAgo(20),
-      lastTurnAt: DEMO_AGENT_CHANNEL_TIMES.reply,
-      createdAt: daysAgo(20),
-      updatedAt: DEMO_AGENT_CHANNEL_TIMES.reply,
-      ...spec,
-    })
-  await db.insert(sessions).values([
-    agent(DEMO_AGENT_IDS.triage, {
+      key: `triage` as const,
       name: `Triage`,
       icon: `bug`,
       color: `#a855f7`,
       instructions: `Look after the boards: merge duplicates, add labels and priorities, start a thread for anything that needs code.`,
       sortOrder: 1,
-    }),
-    agent(DEMO_AGENT_IDS.designer, {
+      triggers: [
+        {
+          id: DEMO_AGENT_TRIGGER_ID,
+          enabled: true,
+          kind: `schedule`,
+          cron: `0 9 * * *`,
+          tz: `Europe/Vienna`,
+        },
+        { id: DEMO_AGENT_EVENT_TRIGGER_ID, enabled: true, kind: `event`, name: `issue.created` },
+      ] satisfies AgentTrigger[],
+    },
+    {
+      key: `designer` as const,
       name: `Designer`,
       icon: `palette`,
       color: `#ec4899`,
       instructions: `Review UI changes against the design system: spacing, colour tokens and icon usage. Comment with a screenshot when something drifts.`,
       sortOrder: 2,
-    }),
-    agent(DEMO_AGENT_IDS.release, {
+      triggers: [
+        { id: `0e7bc9f6-1f25-447c-ace6-9e61b395886f`, enabled: true, kind: `event`, name: `ui-changed` },
+      ] satisfies AgentTrigger[],
+    },
+    {
+      key: `release` as const,
       name: `Release`,
       icon: `package`,
       color: `#22c55e`,
       instructions: `Draft release notes from the pull requests merged since the last tag and post them for review.`,
       sortOrder: 3,
-    }),
-  ])
-  await db
-    .update(sessions)
-    .set({ triggers: agentTriggers })
-    .where(eq(sessions.id, DEMO_AGENT_IDS.triage))
+      triggers: [] satisfies AgentTrigger[],
+    },
+  ]
+  await db.insert(agents).values(
+    agentSpecs.map((spec) => ({
+      id: DEMO_AGENT_IDS[spec.key],
+      teamId,
+      name: spec.name,
+      icon: spec.icon,
+      color: spec.color,
+      instructions: spec.instructions,
+      triggers: spec.triggers,
+      // Agents run on the team's shared build server, hosted by its owner.
+      deviceId: DEMO_SERVER_DEVICE_ID,
+      cli: `claude`,
+      account: `system`,
+      ownerId: demoId,
+      sortOrder: spec.sortOrder,
+      createdAt: daysAgo(20),
+      updatedAt: daysAgo(20),
+    }))
+  )
+  await db.insert(sessions).values(
+    agentSpecs.map((spec) =>
+      root(DEMO_AGENT_CONVERSATION_IDS[spec.key], {
+        agentId: DEMO_AGENT_IDS[spec.key],
+        // Legacy read shims (≤0.14.74 devices): kind + the agent's facets.
+        kind: `agent`,
+        name: spec.name,
+        icon: spec.icon,
+        color: spec.color,
+        title: spec.name,
+        deviceId: DEMO_SERVER_DEVICE_ID,
+        account: `system`,
+        repositoryId: null,
+        status: `idle`,
+        startedAt: daysAgo(20),
+        lastTurnAt: DEMO_AGENT_CHANNEL_TIMES.reply,
+        createdAt: daysAgo(20),
+        updatedAt: DEMO_AGENT_CHANNEL_TIMES.reply,
+      })
+    )
+  )
 
   // ── the thread roots ───────────────────────────────────────────────────
   const batchGuide = [
@@ -702,7 +737,7 @@ async function seedSessionTree(ctx: {
       title: `Sort today's widget reports`,
       deviceId: DEMO_SERVER_DEVICE_ID,
       branch: `exp/FB-9`,
-      spawnedBySessionId: DEMO_AGENT_IDS.triage,
+      spawnedBySessionId: DEMO_AGENT_CONVERSATION_ID,
     }),
     root(ids.offlineSpike, {
       ...liveState(ids.offlineSpike),
@@ -825,7 +860,7 @@ async function seedSessionTree(ctx: {
       at: minutesAgo(30),
     }),
     link(ids.groupByAssignee, `APP-14`, 1),
-    link(ids.sortReports, `FB-9`, 1, { source: `agent`, by: DEMO_AGENT_IDS.triage }),
+    link(ids.sortReports, `FB-9`, 1, { source: `agent`, by: DEMO_AGENT_CONVERSATION_ID }),
     link(ids.batchLabels, `APP-15`, 1),
     link(ids.scrollRestore, `APP-16`, 1),
   ])
@@ -964,33 +999,69 @@ async function seedSessionTree(ctx: {
         body: `The issue list sometimes jumps back to the top after closing an issue. Find out why and fix it.`,
         at: hoursAgo(DEMO_CLOCK_ANCHOR.endedHoursAgo + 2),
       },
-      // The Triage agent's channel (the `agent-channel` view).
+      // The demo user's conversation with the Triage agent (the
+      // `agent-channel` view).
       {
-        sessionId: DEMO_AGENT_ID,
+        sessionId: DEMO_AGENT_CONVERSATION_ID,
         author: `agent`,
         body: `Two new widget reports on Product Feedback. ${issue(`FB-8`).identifier} is a duplicate of ${fb3}, merged it. ${issue(`FB-9`).identifier} needs code, so I started a thread:`,
         at: DEMO_AGENT_CHANNEL_TIMES.report,
       },
       {
-        sessionId: DEMO_AGENT_ID,
+        sessionId: DEMO_AGENT_CONVERSATION_ID,
         author: `agent`,
         card: { kind: `thread_started`, sessionId: ids.sortReports },
         at: DEMO_AGENT_CHANNEL_TIMES.threadStarted,
       },
       {
-        sessionId: DEMO_AGENT_ID,
+        sessionId: DEMO_AGENT_CONVERSATION_ID,
         author: `user`,
         body: DEMO_AGENT_REQUEST,
         at: DEMO_AGENT_CHANNEL_TIMES.request,
       },
       {
-        sessionId: DEMO_AGENT_ID,
+        sessionId: DEMO_AGENT_CONVERSATION_ID,
         author: `agent`,
         body: `Done, 3 issues labelled android.`,
         at: DEMO_AGENT_CHANNEL_TIMES.reply,
       },
     ].map((spec) => message(spec as MessageSpec))
   )
+
+  // NEW-2: the team's event stream (Settings → Agents lists it): two server
+  // builtins and a custom one a thread emitted over MCP `events_emit`.
+  await db.insert(events).values([
+    {
+      teamId,
+      name: `ui-changed`,
+      payload: { files: [`src/board/selection-bar.tsx`] },
+      emittedBy: `session`,
+      sessionId: ids.batchLabels,
+      createdAt: minutesAgo(12),
+    },
+    {
+      teamId,
+      name: `issue.created`,
+      payload: { issueId: issue(`FB-9`).id, identifier: issue(`FB-9`).identifier },
+      emittedBy: `server`,
+      createdAt: minutesAgo(48),
+    },
+    {
+      teamId,
+      name: `pr.merged`,
+      payload: {},
+      emittedBy: `server`,
+      createdAt: hoursAgo(3),
+    },
+    {
+      teamId,
+      name: `deploy:staging`,
+      payload: {},
+      emittedBy: `user`,
+      userId: demoId,
+      createdAt: hoursAgo(5),
+    },
+  ])
 
   // EXP-1323: the cold-start thread's suggested tasks card (one started, two
   // open) and the started child's report, posted by that child.

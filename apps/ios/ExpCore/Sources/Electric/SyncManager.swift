@@ -542,6 +542,27 @@ public final class SyncManager: @unchecked Sendable {
             session: session
         ))
 
+        // NEW-2: agent DEFINITIONS (a member's conversation with one is a
+        // `sessions` row with `agent_id`), the team's events, and the saved
+        // prompts that replace actions (the `actions` shape above stays, served
+        // empty, until NEW-8). All team-scoped; `instructions`,
+        // `trigger_state` and prompt `body` stay server-only.
+        tasks.append(makeShapeTask(
+            name: "agents", path: "/api/shapes/agents", table: "agents",
+            type: AgentDefinitionEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token,
+            session: session
+        ))
+        tasks.append(makeShapeTask(
+            name: "events", path: "/api/shapes/events", table: "events",
+            type: EventEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token,
+            session: session
+        ))
+        tasks.append(makeShapeTask(
+            name: "prompts", path: "/api/shapes/prompts", table: "prompts",
+            type: PromptEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token,
+            session: session
+        ))
+
         lock.withLock { pipelines[accountId] = tasks }
     }
 

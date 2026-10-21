@@ -1,8 +1,8 @@
 import type { User } from "@/db/schema"
 import { displayUserName } from "@/lib/user-display"
-import { TypeaheadRow, UserAvatar } from "@exp/ui"
+import { getActionIcon, TypeaheadRow, UserAvatar } from "@exp/ui"
 import type { EmojiRecord } from "@/lib/emoji"
-import type { SteerCommand } from "@/lib/steer-commands"
+import type { SlashPrompt, SteerCommand } from "@/lib/steer-commands"
 
 // The candidate rows of the @mention / :emoji autocomplete menus — shared
 // between the comment composer (mention-textarea.tsx) and the TipTap markdown
@@ -104,6 +104,28 @@ export function CommandCandidateRow({
           {`<${command.argHint}>`}
         </span>
       )}
+    </TypeaheadRow>
+  )
+}
+
+/** NEW-2: a team prompt in the `/` menu — its icon and name, after the
+ *  builtin commands. */
+export function PromptCandidateRow({
+  prompt,
+  active,
+  onSelect,
+  onHover,
+}: {
+  prompt: SlashPrompt
+  active: boolean
+  onSelect: () => void
+  onHover: () => void
+}) {
+  const Icon = getActionIcon(prompt)
+  return (
+    <TypeaheadRow active={active} onSelect={onSelect} onMouseEnter={onHover}>
+      <Icon className="size-4 shrink-0 text-muted-foreground" />
+      <span className="truncate">{prompt.name}</span>
     </TypeaheadRow>
   )
 }

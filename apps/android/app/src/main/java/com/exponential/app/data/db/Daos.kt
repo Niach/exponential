@@ -333,18 +333,10 @@ interface SessionDao {
     @Query("SELECT * FROM sessions WHERE root_id = :rootId OR id = :rootId ORDER BY created_at, id")
     fun observeTree(rootId: String): Flow<List<SessionEntity>>
 
-    // The team agents (roots of kind agent), rail / Settings order.
-    @Query(
-        "SELECT * FROM sessions WHERE parent_id IS NULL AND kind = 'agent' " +
-            "ORDER BY sort_order, name, id",
-    )
+    // NEW-2: the agents' CONVERSATION sessions (roots with `agent_id`; the
+    // definitions live in `agents`), creation order.
+    @Query("SELECT * FROM sessions WHERE parent_id IS NULL AND agent_id IS NOT NULL ORDER BY created_at, id")
     fun observeAgents(): Flow<List<SessionEntity>>
-
-    @Query(
-        "SELECT * FROM sessions WHERE parent_id IS NULL AND kind = 'agent' AND team_id = :teamId " +
-            "ORDER BY sort_order, name, id",
-    )
-    fun observeAgentsByTeam(teamId: String): Flow<List<SessionEntity>>
 
     // Every session not ended (the bar's live dot, the switcher's per-team dots).
     @Query("SELECT * FROM sessions WHERE status != 'ended' ORDER BY created_at, id")
@@ -441,6 +433,69 @@ interface SessionReadDao {
     suspend fun deleteById(id: String)
 
     @Query("DELETE FROM session_reads")
+    suspend fun clear()
+}
+
+// NEW-2: the team agents (definitions), rail order.
+@Dao
+interface AgentDefinitionDao {
+    @Query("SELECT * FROM agents ORDER BY sort_order, name, id")
+    fun observeAll(): Flow<List<AgentDefinitionEntity>>
+
+    @Query("SELECT * FROM agents WHERE team_id = :teamId ORDER BY sort_order, name, id")
+    fun observeByTeam(teamId: String): Flow<List<AgentDefinitionEntity>>
+
+    @Query("SELECT * FROM agents WHERE id = :id LIMIT 1")
+    fun observeById(id: String): Flow<AgentDefinitionEntity?>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(item: AgentDefinitionEntity)
+
+    @Query("DELETE FROM agents WHERE id = :id")
+    suspend fun deleteById(id: String)
+
+    @Query("DELETE FROM agents")
+    suspend fun clear()
+}
+
+// NEW-2: the member teams' events, newest first.
+@Dao
+interface EventDao {
+    @Query("SELECT * FROM events ORDER BY created_at DESC, id")
+    fun observeAll(): Flow<List<EventEntity>>
+
+    @Query("SELECT * FROM events WHERE team_id = :teamId ORDER BY created_at DESC, id")
+    fun observeByTeam(teamId: String): Flow<List<EventEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(item: EventEntity)
+
+    @Query("DELETE FROM events WHERE id = :id")
+    suspend fun deleteById(id: String)
+
+    @Query("DELETE FROM events")
+    suspend fun clear()
+}
+
+// NEW-2: the saved prompts (the composer's `/` menu, Settings → Prompts).
+@Dao
+interface PromptDao {
+    @Query("SELECT * FROM prompts ORDER BY sort_order, name")
+    fun observeAll(): Flow<List<PromptEntity>>
+
+    @Query("SELECT * FROM prompts WHERE team_id = :teamId ORDER BY sort_order, name")
+    fun observeByTeam(teamId: String): Flow<List<PromptEntity>>
+
+    @Query("SELECT * FROM prompts WHERE id = :id LIMIT 1")
+    fun observeById(id: String): Flow<PromptEntity?>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(item: PromptEntity)
+
+    @Query("DELETE FROM prompts WHERE id = :id")
+    suspend fun deleteById(id: String)
+
+    @Query("DELETE FROM prompts")
     suspend fun clear()
 }
 

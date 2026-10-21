@@ -6,12 +6,7 @@ import type { db } from "@/db/connection"
 import { clientAtOrBelow } from "@/lib/client-version"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
 import {
-  AGENT_INSTRUCTIONS_MAX_BYTES,
-  agentFacetsSchema,
-  agentTriggersSchema,
-  boardIconSchema,
   codingSessionBlockedSchema,
-  hexColorSchema,
   MESSAGE_BODY_MAX,
   messageCardSchema,
   QUESTION_CARD_OPTIONS_MAX,
@@ -27,12 +22,10 @@ import {
 import {
   attachments,
   messages,
-  sessionIssues,
   sessionReads,
   sessions,
   type Session,
 } from "@/db/schema"
-import { assertTeamOwner } from "@/lib/auth/membership"
 import {
   assertCanSteer,
   assertDeviceHost,
@@ -55,7 +48,6 @@ import {
 import {
   endDeadSessionInTx,
   endSession,
-  relayKillSessionsBestEffort,
   stopSession,
 } from "@/lib/sessions/lifecycle"
 import { parseMcpSessionHeader } from "@/lib/mcp/session-header"
@@ -71,12 +63,9 @@ import {
 } from "@/lib/sessions/suggestions"
 import { issuesRouter } from "@/lib/trpc/issues"
 import {
-  assertRunnerVocabulary,
   effectiveCli,
   isRunnerModel,
-  resolveSessionDevice,
   sendSession,
-  withTriggerIds,
 } from "@/lib/sessions/send"
 import {
   fireAndForgetSessionMessageNotify,
@@ -101,14 +90,6 @@ const suggestionRef = z.object({ messageId: uuid, itemId: z.string().min(1).max(
 
 /** The cards a DEVICE may post (the server owns event/session cards). */
 const DEVICE_CARD_KINDS = new Set([`question`, `plan`, `subagent`, `picture`])
-
-async function loadAgent(userId: string, sessionId: string): Promise<Session> {
-  const agent = await loadSessionForUser(userId, sessionId)
-  if (agent.kind !== `agent`) {
-    throw new TRPCError({ code: `NOT_FOUND`, message: `Agent not found` })
-  }
-  return agent
-}
 
 // COMPAT (EXP-1334): delete once CLIENT_MIN_VERSION_IOS > 0.14.61 AND
 // CLIENT_MIN_VERSION_ANDROID > 0.14.63 AND CLIENT_MIN_VERSION_DESKTOP/_CLI >
@@ -396,121 +377,8 @@ export const sessionsRouter = router({
       })
     }),
 
-  // ── team agents (Settings → Agents; owner writes, members read) ───────────
-  // Create = `sessions.send({teamId, deviceId, account?, agent})`.
-
-  /** The agent row's server-only facets (instructions) for the settings page. */
-  getAgent: authedProcedure
-    .input(z.object({ sessionId: uuid }))
-    .query(async ({ ctx, input }): Promise<{ sessionId: string; instructions: string }> => {
-      const agent = await loadAgent(ctx.session.user.id, input.sessionId)
-      return { sessionId: agent.id, instructions: agent.instructions ?? `` }
-    }),
-
-  updateAgent: authedProcedure
-    .input(
-      z.object({
-        sessionId: uuid,
-        name: agentFacetsSchema.shape.name.optional(),
-        icon: boardIconSchema.optional(),
-        color: hexColorSchema.optional(),
-        // NOT the facet schema's (its `.default('')` would wipe the
-        // instructions on every update that leaves them out).
-        instructions: z.string().max(AGENT_INSTRUCTIONS_MAX_BYTES).optional(),
-        triggers: agentTriggersSchema.optional(),
-        deviceId: z.string().min(1).max(128).optional(),
-        account: z.string().min(1).max(64).nullable().optional(),
-        model: z.string().max(64).nullable().optional(),
-        sortOrder: z.number().finite().optional(),
-      })
-    )
-    .mutation(async ({ ctx, input }) => {
-      const userId = ctx.session.user.id
-      const agent = await loadAgent(userId, input.sessionId)
-      await assertTeamOwner(userId, agent.teamId)
-      // The model comes from the agent's CLI vocabulary like a send's; a
-      // blank (an old client's "CLI default") = unset, never stored.
-      const model = input.model === undefined ? undefined : input.model || null
-      if (model) assertRunnerVocabulary({ cli: agent.cli ?? undefined, model })
-      // A new device re-stamps the agent tree's visibility (its device's
-      // share decides it) and hands the agent over: queued again, the new
-      // device boots it, the old one drops a row that no longer names it.
-      const moved =
-        input.deviceId !== undefined && input.deviceId !== agent.deviceId
-          ? await resolveSessionDevice(userId, agent.teamId, input.deviceId)
-          : null
-      return ctx.db.transaction(async (tx) => {
-        const txid = await generateTxId(tx)
-        const now = new Date()
-        await tx
-          .update(sessions)
-          .set({
-            ...(input.name !== undefined ? { name: input.name } : {}),
-            ...(input.icon !== undefined ? { icon: input.icon } : {}),
-            ...(input.color !== undefined ? { color: input.color } : {}),
-            ...(input.instructions !== undefined ? { instructions: input.instructions } : {}),
-            ...(input.triggers !== undefined ? { triggers: withTriggerIds(input.triggers) } : {}),
-            ...(input.account !== undefined ? { account: input.account } : {}),
-            ...(model !== undefined ? { model } : {}),
-            ...(input.sortOrder !== undefined ? { sortOrder: input.sortOrder } : {}),
-            ...(moved
-              ? {
-                  deviceId: input.deviceId,
-                  shared: moved.shared,
-                  status: `queued` as const,
-                  busy: false,
-                }
-              : {}),
-            updatedAt: now,
-          })
-          .where(eq(sessions.id, agent.id))
-        if (moved && moved.shared !== agent.shared) {
-          await tx
-            .update(sessions)
-            .set({ shared: moved.shared, updatedAt: now })
-            .where(eq(sessions.rootId, agent.id))
-          await tx
-            .update(messages)
-            .set({ shared: moved.shared })
-            .where(eq(messages.rootId, agent.id))
-          await tx
-            .update(sessionIssues)
-            .set({ shared: moved.shared })
-            .where(eq(sessionIssues.sessionId, agent.id))
-        }
-        return { txid }
-      })
-    }),
-
-  deleteAgent: authedProcedure
-    .input(z.object({ sessionId: uuid }))
-    .mutation(async ({ ctx, input }) => {
-      const userId = ctx.session.user.id
-      const agent = await loadAgent(userId, input.sessionId)
-      await assertTeamOwner(userId, agent.teamId)
-      const result = await ctx.db.transaction(async (tx) => {
-        const txid = await generateTxId(tx)
-        const tree = await tx
-          .select({ id: sessions.id })
-          .from(sessions)
-          .where(eq(sessions.rootId, agent.id))
-        // Message files go back to owner-less uploads (the orphan sweep
-        // reclaims their blobs) before the cascade drops the messages.
-        await tx
-          .update(attachments)
-          .set({ messageId: null })
-          .where(
-            inArray(
-              attachments.messageId,
-              tx.select({ id: messages.id }).from(messages).where(eq(messages.rootId, agent.id))
-            )
-          )
-        await tx.delete(sessions).where(eq(sessions.id, agent.id))
-        return { txid, ids: tree.map((row) => row.id) }
-      })
-      await relayKillSessionsBestEffort(result.ids)
-      return { txid: result.txid }
-    }),
+  // NEW-2: team agents are definition rows: the `agents` router (Settings →
+  // Agents); a message to one = `sessions.send({agentId})`.
 
   // ── the device (the daemon / desktop that runs the session) ───────────────
 
