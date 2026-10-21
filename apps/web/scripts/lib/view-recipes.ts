@@ -484,7 +484,13 @@ async function recipeTypeSlashInSessionComposer(page: Page): Promise<void> {
   const capsule = page.getByTestId(`floating-composer-capsule`).first()
   const phone = await capsule.waitFor({ timeout: 5_000 }).then(() => true, () => false)
   if (phone) await capsule.click()
-  const field = page.getByTestId(`thread-composer`).locator(`textarea`).first()
+  // NEW-6: a thread with ONE session shows that session's view in place, so
+  // its box is the session composer (`session-composer`), the thread's own
+  // (`thread-composer`) only once a second session exists.
+  const field = page
+    .getByTestId(/^(thread|session)-composer$/)
+    .locator(`textarea`)
+    .first()
   await field.waitFor({ timeout: 30_000 })
   await field.scrollIntoViewIfNeeded()
   await field.focus()
