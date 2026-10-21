@@ -539,7 +539,7 @@
     ],
     "tools": [
       {
-        "name": "agents_list",
+        "name": "team_config_agents_list",
         "title": "List agents",
         "blurb": "Lists the team's agents with their triggers, device and owner.",
         "progressive": "Listing agents",
@@ -737,6 +737,17 @@
         "result": "event"
       },
       {
+        "name": "events_list",
+        "title": "List events",
+        "blurb": "Lists the team's recent events, newest first.",
+        "progressive": "Listing events",
+        "done": "Listed events",
+        "progressiveMany": "Listing events {n} times",
+        "doneMany": "Listed events {n} times",
+        "subjectKey": "",
+        "result": "list"
+      },
+      {
         "name": "guide_write",
         "title": "Write the Guide",
         "blurb": "Writes the thread's Guide: GFM sections with their files and screenshots, the body of every PR.",
@@ -748,7 +759,7 @@
         "result": "results"
       },
       {
-        "name": "invites_create",
+        "name": "people_invites_create",
         "title": "Create invite",
         "blurb": "Creates an invite link for a team, optionally mailed to an address.",
         "progressive": "Creating invite",
@@ -759,7 +770,7 @@
         "result": "none"
       },
       {
-        "name": "invites_list",
+        "name": "people_invites_list",
         "title": "List invites",
         "blurb": "Lists a team's outstanding invites.",
         "progressive": "Listing invites",
@@ -770,7 +781,7 @@
         "result": "list"
       },
       {
-        "name": "invites_revoke",
+        "name": "people_invites_revoke",
         "title": "Revoke invite",
         "blurb": "Kills an invite link before anyone uses it.",
         "progressive": "Revoking invite",
@@ -781,7 +792,7 @@
         "result": "none"
       },
       {
-        "name": "issue_labels_add",
+        "name": "issues_labels_add",
         "title": "Add label to issue",
         "blurb": "Puts one of the team's labels on an issue.",
         "progressive": "Adding labels",
@@ -792,7 +803,7 @@
         "result": "issue"
       },
       {
-        "name": "issue_labels_remove",
+        "name": "issues_labels_remove",
         "title": "Remove label from issue",
         "blurb": "Takes a label back off an issue.",
         "progressive": "Removing labels",
@@ -803,7 +814,7 @@
         "result": "issue"
       },
       {
-        "name": "issue_relations_add",
+        "name": "issues_relations_add",
         "title": "Link issues",
         "blurb": "Relates two issues: blocks, parent, duplicate or related.",
         "progressive": "Linking issues",
@@ -814,7 +825,7 @@
         "result": "issue"
       },
       {
-        "name": "issue_relations_remove",
+        "name": "issues_relations_remove",
         "title": "Unlink issues",
         "blurb": "Drops a relation between two issues.",
         "progressive": "Unlinking issues",
@@ -935,7 +946,7 @@
         "result": "issue"
       },
       {
-        "name": "labels_create",
+        "name": "team_config_labels_create",
         "title": "Create label",
         "blurb": "Adds a label to a team, with its name and its colour.",
         "progressive": "Creating label",
@@ -946,7 +957,7 @@
         "result": "none"
       },
       {
-        "name": "labels_delete",
+        "name": "team_config_labels_delete",
         "title": "Delete label",
         "blurb": "Removes a label from the team and from every issue wearing it.",
         "progressive": "Deleting label",
@@ -957,7 +968,7 @@
         "result": "none"
       },
       {
-        "name": "labels_get",
+        "name": "team_config_labels_get",
         "title": "Read label",
         "blurb": "Reads one label with its name and its colour.",
         "progressive": "Reading label",
@@ -968,7 +979,7 @@
         "result": "none"
       },
       {
-        "name": "labels_list",
+        "name": "team_config_labels_list",
         "title": "List labels",
         "blurb": "Lists a team's labels.",
         "progressive": "Listing labels",
@@ -979,7 +990,7 @@
         "result": "list"
       },
       {
-        "name": "labels_update",
+        "name": "team_config_labels_update",
         "title": "Update label",
         "blurb": "Renames a label or changes its colour.",
         "progressive": "Updating label",
@@ -990,7 +1001,7 @@
         "result": "none"
       },
       {
-        "name": "mcp_servers_add",
+        "name": "team_config_mcp_servers_add",
         "title": "Add MCP server",
         "blurb": "Adds a remote MCP server to the team's registry for coding sessions.",
         "progressive": "Adding MCP server",
@@ -1001,7 +1012,7 @@
         "result": "none"
       },
       {
-        "name": "mcp_servers_list",
+        "name": "team_config_mcp_servers_list",
         "title": "List MCP servers",
         "blurb": "Lists the team's MCP servers and your connection to each.",
         "progressive": "Listing MCP servers",
@@ -1012,7 +1023,7 @@
         "result": "list"
       },
       {
-        "name": "mcp_servers_remove",
+        "name": "team_config_mcp_servers_remove",
         "title": "Remove MCP server",
         "blurb": "Removes an MCP server from the team's registry.",
         "progressive": "Removing MCP server",
@@ -1023,7 +1034,7 @@
         "result": "none"
       },
       {
-        "name": "members_add",
+        "name": "people_add",
         "title": "Add member",
         "blurb": "Adds a person to a team's roster without inviting them.",
         "progressive": "Adding member",
@@ -1034,7 +1045,7 @@
         "result": "none"
       },
       {
-        "name": "members_list",
+        "name": "people_list",
         "title": "List members",
         "blurb": "Lists a team's members with their roles.",
         "progressive": "Listing members",
@@ -1067,7 +1078,7 @@
         "result": "none"
       },
       {
-        "name": "plan_propose",
+        "name": "session_self_plan",
         "title": "Propose a plan",
         "blurb": "Posts the plan card: markdown with pictures, choice questions and an optional surface; a person approves it in the card.",
         "progressive": "Proposing a plan",
@@ -1155,7 +1166,7 @@
         "result": "pr"
       },
       {
-        "name": "report_bug",
+        "name": "session_self_report_bug",
         "title": "Report a bug",
         "blurb": "Files a bug about Exponential itself with the people who build it.",
         "progressive": "Reporting bug to Exponential",
@@ -1166,7 +1177,7 @@
         "result": "none"
       },
       {
-        "name": "prompts_get",
+        "name": "team_config_prompts_get",
         "title": "Read prompt",
         "blurb": "Reads one saved prompt with its body.",
         "progressive": "Reading prompt",
@@ -1177,7 +1188,7 @@
         "result": "prompt"
       },
       {
-        "name": "prompts_list",
+        "name": "team_config_prompts_list",
         "title": "List prompts",
         "blurb": "Lists the team's saved prompts.",
         "progressive": "Listing prompts",
@@ -1188,7 +1199,7 @@
         "result": "list"
       },
       {
-        "name": "repositories_add",
+        "name": "team_config_repositories_add",
         "title": "Add repository",
         "blurb": "Registers a GitHub repository with the team.",
         "progressive": "Adding repository",
@@ -1199,7 +1210,7 @@
         "result": "none"
       },
       {
-        "name": "repositories_list",
+        "name": "team_config_repositories_list",
         "title": "List repositories",
         "blurb": "Lists the repositories the team has registered.",
         "progressive": "Listing repositories",
@@ -1210,7 +1221,7 @@
         "result": "list"
       },
       {
-        "name": "sessions_ask",
+        "name": "session_self_ask",
         "title": "Ask a question",
         "blurb": "Posts one question card with text or picture options, single or multiple choice; a person answers in the card.",
         "progressive": "Asking a question",
@@ -1221,7 +1232,7 @@
         "result": "none"
       },
       {
-        "name": "sessions_compact",
+        "name": "session_self_compact",
         "title": "Compact context",
         "blurb": "Asks the host to compact this session's context at the next turn boundary.",
         "progressive": "Requesting compaction",
@@ -1287,18 +1298,7 @@
         "result": "session"
       },
       {
-        "name": "sessions_stop",
-        "title": "Stop session",
-        "blurb": "Stops a session's running turn; a message resumes it.",
-        "progressive": "Stopping session",
-        "done": "Stopped session",
-        "progressiveMany": "Stopping {n} sessions",
-        "doneMany": "Stopped {n} sessions",
-        "subjectKey": "id",
-        "result": "none"
-      },
-      {
-        "name": "sessions_suggest",
+        "name": "session_self_suggest",
         "title": "Suggest tasks",
         "blurb": "Proposes follow-up tasks as one card a person starts, files or dismisses, or quick replies above the composer.",
         "progressive": "Suggesting tasks",
@@ -1320,7 +1320,7 @@
         "result": "none"
       },
       {
-        "name": "statuses_create",
+        "name": "team_config_statuses_create",
         "title": "Create status",
         "blurb": "Adds a custom status to a team inside one of the six categories.",
         "progressive": "Creating status",
@@ -1331,7 +1331,7 @@
         "result": "none"
       },
       {
-        "name": "statuses_delete",
+        "name": "team_config_statuses_delete",
         "title": "Delete status",
         "blurb": "Removes a custom status once its issues have somewhere else to go.",
         "progressive": "Deleting status",
@@ -1342,7 +1342,7 @@
         "result": "none"
       },
       {
-        "name": "statuses_list",
+        "name": "team_config_statuses_list",
         "title": "List statuses",
         "blurb": "Lists a team's statuses in board order.",
         "progressive": "Listing statuses",
@@ -1353,7 +1353,7 @@
         "result": "list"
       },
       {
-        "name": "statuses_update",
+        "name": "team_config_statuses_update",
         "title": "Update status",
         "blurb": "Renames a status, recolours it or moves it within its category.",
         "progressive": "Updating status",
@@ -1467,7 +1467,7 @@
     "maxRefs": 8,
     "textMax": 200,
     "tools": [
-      { "name": "agents_list", "refs": "list:agent@" },
+      { "name": "team_config_agents_list", "refs": "list:agent@" },
       { "name": "attachments_delete", "refs": "" },
       { "name": "attachments_get", "refs": "attachment@" },
       { "name": "attachments_list", "refs": "list:attachment@attachments issue@$issueId" },
@@ -1485,14 +1485,15 @@
       { "name": "devices_account_login", "refs": "" },
       { "name": "devices_list", "refs": "list:device@" },
       { "name": "events_emit", "refs": "" },
+      { "name": "events_list", "refs": "list:event@events" },
       { "name": "guide_write", "refs": "" },
-      { "name": "invites_create", "refs": "invite@invite" },
-      { "name": "invites_list", "refs": "list:invite@" },
-      { "name": "invites_revoke", "refs": "" },
-      { "name": "issue_labels_add", "refs": "issue@$issueId label@$labelId" },
-      { "name": "issue_labels_remove", "refs": "issue@$issueId label@$labelId" },
-      { "name": "issue_relations_add", "refs": "issue@$issueId issue@$relatedIssueId" },
-      { "name": "issue_relations_remove", "refs": "issue@$issueId issue@$relatedIssueId" },
+      { "name": "people_invites_create", "refs": "invite@invite" },
+      { "name": "people_invites_list", "refs": "list:invite@" },
+      { "name": "people_invites_revoke", "refs": "" },
+      { "name": "issues_labels_add", "refs": "issue@$issueId label@$labelId" },
+      { "name": "issues_labels_remove", "refs": "issue@$issueId label@$labelId" },
+      { "name": "issues_relations_add", "refs": "issue@$issueId issue@$relatedIssueId" },
+      { "name": "issues_relations_remove", "refs": "issue@$issueId issue@$relatedIssueId" },
       { "name": "issues_activity", "refs": "issue@$issueId" },
       { "name": "issues_create", "refs": "issue@" },
       { "name": "issues_delete", "refs": "" },
@@ -1503,19 +1504,19 @@
       { "name": "issues_unsubscribe", "refs": "issue@" },
       { "name": "issues_update", "refs": "issue@" },
       { "name": "issues_update_status", "refs": "issue@ status@" },
-      { "name": "labels_create", "refs": "label@" },
-      { "name": "labels_delete", "refs": "" },
-      { "name": "labels_get", "refs": "label@" },
-      { "name": "labels_list", "refs": "list:label@" },
-      { "name": "labels_update", "refs": "label@" },
-      { "name": "mcp_servers_add", "refs": "" },
-      { "name": "mcp_servers_list", "refs": "" },
-      { "name": "mcp_servers_remove", "refs": "" },
-      { "name": "members_add", "refs": "member@" },
-      { "name": "members_list", "refs": "list:member@" },
+      { "name": "team_config_labels_create", "refs": "label@" },
+      { "name": "team_config_labels_delete", "refs": "" },
+      { "name": "team_config_labels_get", "refs": "label@" },
+      { "name": "team_config_labels_list", "refs": "list:label@" },
+      { "name": "team_config_labels_update", "refs": "label@" },
+      { "name": "team_config_mcp_servers_add", "refs": "" },
+      { "name": "team_config_mcp_servers_list", "refs": "" },
+      { "name": "team_config_mcp_servers_remove", "refs": "" },
+      { "name": "people_add", "refs": "member@" },
+      { "name": "people_list", "refs": "list:member@" },
       { "name": "notifications_list", "refs": "list:notification@" },
       { "name": "notifications_mark_read", "refs": "" },
-      { "name": "plan_propose", "refs": "" },
+      { "name": "session_self_plan", "refs": "" },
       { "name": "pr_close", "refs": "issue@$issueId" },
       { "name": "pr_files", "refs": "issue@$issueId" },
       { "name": "pr_merge", "refs": "issue@$issueId" },
@@ -1523,25 +1524,24 @@
       { "name": "pr_retarget", "refs": "issue@$issueId" },
       { "name": "pr_unlink", "refs": "issue@$issueId" },
       { "name": "pr_update", "refs": "issue@$issueId" },
-      { "name": "report_bug", "refs": "issue@" },
-      { "name": "prompts_get", "refs": "prompt@" },
-      { "name": "prompts_list", "refs": "list:prompt@" },
-      { "name": "repositories_add", "refs": "repository@" },
-      { "name": "repositories_list", "refs": "list:repository@" },
-      { "name": "sessions_ask", "refs": "" },
-      { "name": "sessions_compact", "refs": "" },
+      { "name": "session_self_report_bug", "refs": "issue@" },
+      { "name": "team_config_prompts_get", "refs": "prompt@" },
+      { "name": "team_config_prompts_list", "refs": "list:prompt@" },
+      { "name": "team_config_repositories_add", "refs": "repository@" },
+      { "name": "team_config_repositories_list", "refs": "list:repository@" },
+      { "name": "session_self_ask", "refs": "" },
+      { "name": "session_self_compact", "refs": "" },
       { "name": "sessions_end", "refs": "" },
       { "name": "sessions_get", "refs": "session@root" },
       { "name": "sessions_link", "refs": "session@ issue@$issueIds[]" },
       { "name": "sessions_list", "refs": "list:session@" },
       { "name": "sessions_send", "refs": "session@" },
-      { "name": "sessions_stop", "refs": "session@$id" },
-      { "name": "sessions_suggest", "refs": "" },
+      { "name": "session_self_suggest", "refs": "" },
       { "name": "sessions_unlink", "refs": "session@ issue@$issueId" },
-      { "name": "statuses_create", "refs": "status@" },
-      { "name": "statuses_delete", "refs": "" },
-      { "name": "statuses_list", "refs": "list:status@" },
-      { "name": "statuses_update", "refs": "status@" },
+      { "name": "team_config_statuses_create", "refs": "status@" },
+      { "name": "team_config_statuses_delete", "refs": "" },
+      { "name": "team_config_statuses_list", "refs": "list:status@" },
+      { "name": "team_config_statuses_update", "refs": "status@" },
       { "name": "teams_create", "refs": "team@" },
       { "name": "teams_get", "refs": "team@" },
       { "name": "teams_list", "refs": "list:team@" },

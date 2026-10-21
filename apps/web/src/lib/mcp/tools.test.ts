@@ -289,6 +289,7 @@ import { getSteerRelayConfig, relayPostCompact } from "@/lib/steer"
 import { registerExponentialTools, GUIDE_PICTURE_NEXT_STEP } from "@/lib/mcp/tools"
 import { FULL_ACCESS, type McpAccess } from "@/lib/mcp/scope"
 import { ALL_MCP_TOOL_GATES, type McpToolGates } from "@/lib/mcp/gates"
+import { displayRowNames, legacyNameOfRow } from "@/lib/mcp/nouns"
 import type { McpUser } from "@/lib/mcp/server"
 import { contract } from "@exp/domain-contract"
 import { PLAN_CARD_COPY } from "@exp/domain-contract/plan-card"
@@ -1833,6 +1834,9 @@ describe(`expToolDisplay covers the whole tool surface (EXP-846)`, () => {
     // `exponential_report_bug` — a row the contract must describe too, since
     // cloud agents call it.
     vi.stubEnv(`CLOUD_INSTANCE`, `true`)
+    // NEW-4: every per-operation tool must still be reachable as an op of a
+    // noun (nouns.ts routes it), and the contract describes the row
+    // `<noun>_<op>` the engine composes for a call.
     const names = (() => {
       try {
         return [...collectToolDefs().keys()]
@@ -1843,7 +1847,10 @@ describe(`expToolDisplay covers the whole tool surface (EXP-846)`, () => {
     // Every tool this server registers is `exponential_*` — the prefix IS the
     // match rule the clients apply, so a bare name could never be captioned.
     expect(names.filter((name) => !name.startsWith(prefix))).toEqual([])
-    const registered = names.map((name) => name.slice(prefix.length)).sort()
+    const rows = displayRowNames()
+    const routed = rows.map((row) => legacyNameOfRow(row)).sort()
+    expect(routed).toEqual([...names].sort())
+    const registered = [...rows].sort()
     const described = contract.expToolDisplay.tools
       .map((row) => row.name)
       .sort()
@@ -2183,11 +2190,11 @@ describe(`exponential_sessions_get / list`, () => {
   })
 })
 
-describe(`exponential_sessions_stop / end`, () => {
-  it(`stops a named session`, async () => {
+describe(`exponential_sessions_send stop / sessions_end`, () => {
+  it(`NEW-4: stop rides sessions_send and interrupts the named session's turn`, async () => {
     sessionsCore.stopSession.mockResolvedValue({ txid: 1 })
-    const result = await tool(`exponential_sessions_stop`)({ id: CHILD })
-    expect(parseOk(result)).toEqual({ ok: true, id: CHILD })
+    const result = await tool(`exponential_sessions_send`)({ sessionId: CHILD, stop: true })
+    expect(parseOk(result)).toEqual({ ok: true, id: CHILD, stopped: true })
     expect(sessionsCore.stopSession).toHaveBeenCalledWith({
       userId: USER.id,
       sessionId: CHILD,

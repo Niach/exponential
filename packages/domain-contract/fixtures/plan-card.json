@@ -22,7 +22,7 @@
       "multi": "This question takes one answer",
       "unknown": "Pick one of the options"
     },
-    "planModeGate": "This session is in plan mode: propose the plan with exponential_plan_propose and wait for approval before opening a PR.",
+    "planModeGate": "This session is in plan mode: propose the plan with exponential_session_self (op plan) and wait for approval before opening a PR.",
     "proposeNext": "Posted. End your turn now: the answer arrives as your next message."
   },
   "testIds": {

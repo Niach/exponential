@@ -28,7 +28,7 @@
 pub const RUN_SKILL: &str = include_str!("runbook.md");
 
 /// The section only a DISPATCHER (a dispatcher root, a team agent) reads.
-pub const DISPATCH_HEADING: &str = "## Dispatch";
+pub const DISPATCH_HEADING: &str = "## Agents";
 
 /// The coding-work sections a dispatcher never reads: it hands that work
 /// (EXP-1280: planning included) to children instead.
@@ -372,19 +372,15 @@ run `bun test`.\n"
         // session tree (send, link, guide) replaced start/message/threads.
         let tools = mentioned_tools(RUN_SKILL);
         for name in [
-            "exponential_sessions_get",
+            "exponential_sessions",
             "exponential_sessions_send",
-            "exponential_sessions_link",
-            "exponential_sessions_unlink",
-            "exponential_sessions_end",
-            "exponential_sessions_compact",
-            "exponential_issues_create",
-            "exponential_members_list",
+            "exponential_session_self",
+            "exponential_issues",
+            "exponential_people",
+            "exponential_attachments",
             "exponential_guide_write",
-            "exponential_pr_open",
-            "exponential_pr_merge",
-            "exponential_pr_retarget",
-            "exponential_report_bug",
+            "exponential_pr",
+            "exponential_events",
         ] {
             assert!(tools.contains(&name), "playbook never names {name}");
         }
@@ -393,6 +389,9 @@ run `bun test`.\n"
             "exponential_sessions_message",
             "exponential_threads_get",
             "exponential_sessions_guide",
+            "exponential_sessions_get",
+            "exponential_plan_propose",
+            "exponential_report_bug",
         ] {
             assert!(!tools.contains(&gone), "playbook still names {gone}");
         }
@@ -459,7 +458,7 @@ run `bun test`.\n"
         let section = dispatch.split(DISPATCH_HEADING).nth(1).unwrap();
         for words in [
             "read-only",
-            "`exponential_sessions_send({parentId: <your session>, text})`",
+            "`exponential_sessions_send {teamId, deviceId, issueIds?, text}`",
             "no `parentId`",
             "self-contained brief",
             "one or two lines",
@@ -484,11 +483,11 @@ run `bun test`.\n"
         for words in [
             "`plan_mode`",
             "no commits, pushes or PRs until a person approves",
-            "`exponential_plan_propose({plan, pictures?, questions?, surface?})`",
+            "`exponential_session_self {op: \"plan\", plan, pictures?, questions?, surface?}`",
             "LAST call of your turn and stop",
             "upload:<label>",
             "rejected = keep planning",
-            "`exponential_sessions_ask({question, options, multi?, custom?})`",
+            "`exponential_session_self {op: \"ask\", question, options, multi?, custom?}`",
         ] {
             assert!(section.contains(words), "the Plan section never says {words}");
         }

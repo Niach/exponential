@@ -3089,11 +3089,11 @@ describe(`tool-posted cards (EXP-1280)`, () => {
       ...over,
     })
     const feed = [
-      call(1, `mcp__exponential__exponential_plan_propose`),
+      call(1, `mcp__exponential__exponential_session_self_plan`),
       { id: 2, kind: `narration` },
       call(3, `mcp__exponential__exponential_issues_get`),
-      call(4, `exponential_sessions_ask`, { failed: true }),
-      call(5, `mcp__exponential__exponential_sessions_ask`),
+      call(4, `exponential_session_self_ask`, { failed: true }),
+      call(5, `mcp__exponential__exponential_session_self_ask`),
       call(6, `mcp__other__plan_propose`),
     ]
     expect(anchorToolCards(feed, [`old`, `a`, `b`])).toEqual({

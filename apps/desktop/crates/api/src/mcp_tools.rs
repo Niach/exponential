@@ -131,6 +131,18 @@ pub fn parse_tool_response(body: &str) -> Result<Value, ApiError> {
 }
 
 /// One `tools/call` against `/api/mcp`, decoded to the tool's JSON output.
+/// NEW-4: the server's noun tools take an `op` beside the op's fields
+/// (`exponential_sessions {op: "list", ...}`); the CLI's typed calls build
+/// their fields and stamp the op here.
+pub fn with_op(op: &str, mut arguments: Value) -> Value {
+    if let Some(object) = arguments.as_object_mut() {
+        object.insert("op".to_string(), Value::String(op.to_string()));
+        arguments
+    } else {
+        serde_json::json!({ "op": op })
+    }
+}
+
 pub fn call_tool(trpc: &TrpcClient, name: &str, arguments: &Value) -> Result<Value, ApiError> {
     let body = trpc.post_json(
         "/api/mcp",
@@ -199,7 +211,7 @@ pub fn devices_list(
     if let Some(team_id) = team_id {
         arguments["teamId"] = Value::String(team_id.to_string());
     }
-    call_typed(trpc, "exponential_devices_list", &arguments)
+    call_typed(trpc, "exponential_devices", &with_op("list", arguments))
 }
 
 // ---------------------------------------------------------------------------
@@ -222,7 +234,7 @@ pub struct RemoteTeam {
 
 /// `exponential_teams_list` — every team the caller belongs to, by name.
 pub fn teams_list(trpc: &TrpcClient) -> Result<Vec<RemoteTeam>, ApiError> {
-    call_typed(trpc, "exponential_teams_list", &serde_json::json!({ "limit": MAX_PAGE }))
+    call_typed(trpc, "exponential_teams", &serde_json::json!({ "op": "list", "limit": MAX_PAGE }))
 }
 
 // ---------------------------------------------------------------------------
@@ -369,7 +381,7 @@ pub fn sessions_list(
     query: &SessionsQuery,
 ) -> Result<Vec<RemoteSession>, ApiError> {
     let arguments = serde_json::to_value(query).map_err(|e| ApiError::Decode(e.to_string()))?;
-    call_typed(trpc, "exponential_sessions_list", &arguments)
+    call_typed(trpc, "exponential_sessions", &with_op("list", arguments))
 }
 
 /// `exponential_sessions_get` — the tree `session_id` belongs to (no
@@ -377,8 +389,8 @@ pub fn sessions_list(
 pub fn sessions_get(trpc: &TrpcClient, session_id: &str) -> Result<RemoteSessionTree, ApiError> {
     call_typed(
         trpc,
-        "exponential_sessions_get",
-        &serde_json::json!({ "id": session_id, "messages": 0 }),
+        "exponential_sessions",
+        &serde_json::json!({ "op": "get", "id": session_id, "messages": 0 }),
     )
 }
 
@@ -462,14 +474,14 @@ pub fn sessions_send(
 /// `exponential_sessions_stop` — interrupt the session's current turn; it
 /// stays live and goes idle (`sessions.stop`).
 pub fn sessions_stop(trpc: &TrpcClient, session_id: &str) -> Result<(), ApiError> {
-    call_tool(trpc, "exponential_sessions_stop", &serde_json::json!({ "id": session_id }))?;
+    call_tool(trpc, "exponential_sessions_send", &serde_json::json!({ "sessionId": session_id, "stop": true }))?;
     Ok(())
 }
 
 /// `exponential_sessions_end` — end a session explicitly (status `ended`;
 /// ending a root ends its whole tree; agents never end).
 pub fn sessions_end(trpc: &TrpcClient, session_id: &str) -> Result<(), ApiError> {
-    call_tool(trpc, "exponential_sessions_end", &serde_json::json!({ "id": session_id }))?;
+    call_tool(trpc, "exponential_sessions", &serde_json::json!({ "op": "end", "id": session_id }))?;
     Ok(())
 }
 
@@ -486,10 +498,10 @@ mod tests {
 
     #[test]
     fn the_call_body_is_a_bare_tools_call() {
-        let body = tool_call_body("exponential_sessions_get", &serde_json::json!({"id": "s1"}));
+        let body = tool_call_body("exponential_sessions", &serde_json::json!({"id": "s1", "op": "get"}));
         assert_eq!(
             body,
-            r#"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"exponential_sessions_get","arguments":{"id":"s1"}}}"#
+            r#"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"exponential_sessions","arguments":{"id":"s1","op":"get"}}}"#
         );
     }
 
@@ -538,7 +550,7 @@ mod tests {
             "Accept: application/json, text/event-stream"
         ));
         assert!(
-            request.ends_with(r#""arguments":{"limit":200}}}"#),
+            request.ends_with(r#""arguments":{"limit":200,"op":"list"}}}"#),
             "{request}"
         );
     }
@@ -604,9 +616,13 @@ mod tests {
 
     #[test]
     fn sessions_stop_and_end_name_the_session() {
-        for (call, tool) in [
-            (sessions_stop as fn(&TrpcClient, &str) -> Result<(), ApiError>, "exponential_sessions_stop"),
-            (sessions_end, "exponential_sessions_end"),
+        // NEW-4: stop rides `sessions_send`; end is the `sessions` noun's op.
+        for (call, expected) in [
+            (
+                sessions_stop as fn(&TrpcClient, &str) -> Result<(), ApiError>,
+                r#""params":{"name":"exponential_sessions_send","arguments":{"sessionId":"s1","stop":true}}}"#,
+            ),
+            (sessions_end, r#""params":{"name":"exponential_sessions","arguments":{"id":"s1","op":"end"}}}"#),
         ] {
             let (base, captured) = one_shot_server(
                 200,
@@ -614,12 +630,7 @@ mod tests {
             );
             call(&client(&base), "s1").unwrap();
             let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
-            assert!(
-                request.ends_with(&format!(
-                    r#""params":{{"name":"{tool}","arguments":{{"id":"s1"}}}}}}"#
-                )),
-                "{request}"
-            );
+            assert!(request.ends_with(expected), "{request}");
         }
     }
 
@@ -653,7 +664,7 @@ mod tests {
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(
             request.ends_with(
-                r#""params":{"name":"exponential_sessions_get","arguments":{"id":"c1","messages":0}}}"#
+                r#""params":{"name":"exponential_sessions","arguments":{"id":"c1","messages":0,"op":"get"}}}"#
             ),
             "{request}"
         );

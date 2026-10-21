@@ -1,5 +1,4 @@
 import { describe, expect, it, vi } from "vitest"
-import type { z } from "zod"
 
 // EXP-988 contract table for `toolResultPreview` (lib/mcp/preview.ts).
 //
@@ -55,10 +54,7 @@ vi.mock(`@/lib/widget/agent-report`, () => ({
 // The widest surface: every gate open plus the cloud-only report_bug.
 vi.stubEnv(`CLOUD_INSTANCE`, `true`)
 
-import { registerExponentialTools } from "@/lib/mcp/tools"
-import { FULL_ACCESS } from "@/lib/mcp/scope"
-import { ALL_MCP_TOOL_GATES } from "@/lib/mcp/gates"
-import type { McpUser } from "@/lib/mcp/server"
+import { displayRowNames } from "@/lib/mcp/nouns"
 import {
   entityRefKinds,
   listRefNoun,
@@ -70,21 +66,11 @@ import { contract } from "@exp/domain-contract"
 import fixture from "@exp/domain-contract/fixtures/tool-result-preview.json"
 
 function registeredToolNames(): string[] {
-  const names: string[] = []
-  const fakeServer = {
-    registerTool: (name: string, _def: { inputSchema?: z.ZodType }) => {
-      names.push(name)
-    },
-  }
-  registerExponentialTools(
-    fakeServer as never,
-    { id: `u` } as unknown as McpUser,
-    new Request(`https://x.test/api/mcp`),
-    FULL_ACCESS,
-    null,
-    ALL_MCP_TOOL_GATES
-  )
-  return names.sort()
+  // NEW-4: the surface is 15 noun tools; a result's preview is keyed by the
+  // display row `<noun>_<op>` the engine composes (nouns.ts).
+  return displayRowNames()
+    .map((row) => `${contract.expToolDisplay.prefix}${row}`)
+    .sort()
 }
 
 /** Tool → the ref kinds its result yields (in order; a `list` is followed
@@ -92,8 +78,9 @@ function registeredToolNames(): string[] {
  *  caption alone. Derived by hand from contract `expToolPreview.tools` and
  *  locked against it below. */
 export const PREVIEW_KINDS: Record<string, EntityRefKind[]> = {
-  exponential_agents_list: [`list`, `agent`],
+  exponential_team_config_agents_list: [`list`, `agent`],
   exponential_events_emit: [],
+  exponential_events_list: [`list`, `event`],
   exponential_attachments_delete: [],
   exponential_attachments_get: [`attachment`],
   exponential_attachments_list: [`list`, `attachment`, `issue`],
@@ -110,13 +97,13 @@ export const PREVIEW_KINDS: Record<string, EntityRefKind[]> = {
   exponential_comments_update: [`comment`, `issue`],
   exponential_devices_account_login: [],
   exponential_devices_list: [`list`, `device`],
-  exponential_invites_create: [`invite`],
-  exponential_invites_list: [`list`, `invite`],
-  exponential_invites_revoke: [],
-  exponential_issue_labels_add: [`issue`, `label`],
-  exponential_issue_labels_remove: [`issue`, `label`],
-  exponential_issue_relations_add: [`issue`, `issue`],
-  exponential_issue_relations_remove: [`issue`, `issue`],
+  exponential_people_invites_create: [`invite`],
+  exponential_people_invites_list: [`list`, `invite`],
+  exponential_people_invites_revoke: [],
+  exponential_issues_labels_add: [`issue`, `label`],
+  exponential_issues_labels_remove: [`issue`, `label`],
+  exponential_issues_relations_add: [`issue`, `issue`],
+  exponential_issues_relations_remove: [`issue`, `issue`],
   exponential_issues_activity: [`issue`],
   exponential_issues_create: [`issue`],
   exponential_issues_delete: [],
@@ -127,37 +114,37 @@ export const PREVIEW_KINDS: Record<string, EntityRefKind[]> = {
   exponential_issues_unsubscribe: [`issue`],
   exponential_issues_update: [`issue`],
   exponential_issues_update_status: [`issue`, `status`],
-  exponential_labels_create: [`label`],
-  exponential_labels_delete: [],
-  exponential_labels_get: [`label`],
-  exponential_labels_list: [`list`, `label`],
-  exponential_labels_update: [`label`],
-  exponential_mcp_servers_add: [],
-  exponential_mcp_servers_list: [],
-  exponential_mcp_servers_remove: [],
-  exponential_members_add: [`member`],
-  exponential_members_list: [`list`, `member`],
+  exponential_team_config_labels_create: [`label`],
+  exponential_team_config_labels_delete: [],
+  exponential_team_config_labels_get: [`label`],
+  exponential_team_config_labels_list: [`list`, `label`],
+  exponential_team_config_labels_update: [`label`],
+  exponential_team_config_mcp_servers_add: [],
+  exponential_team_config_mcp_servers_list: [],
+  exponential_team_config_mcp_servers_remove: [],
+  exponential_people_add: [`member`],
+  exponential_people_list: [`list`, `member`],
   exponential_notifications_list: [`list`, `notification`],
   exponential_notifications_mark_read: [],
-  exponential_plan_propose: [],
-  exponential_report_bug: [`issue`],
-  exponential_repositories_add: [`repository`],
-  exponential_repositories_list: [`list`, `repository`],
-  exponential_sessions_compact: [],
+  exponential_session_self_plan: [],
+  exponential_session_self_report_bug: [`issue`],
+  exponential_team_config_repositories_add: [`repository`],
+  exponential_team_config_repositories_list: [`list`, `repository`],
+  exponential_session_self_compact: [],
   exponential_sessions_end: [],
   exponential_sessions_list: [`list`, `session`],
-  exponential_sessions_suggest: [],
-  exponential_sessions_ask: [],
-  exponential_statuses_create: [`status`],
-  exponential_statuses_delete: [],
-  exponential_statuses_list: [`list`, `status`],
-  exponential_statuses_update: [`status`],
+  exponential_session_self_suggest: [],
+  exponential_session_self_ask: [],
+  exponential_team_config_statuses_create: [`status`],
+  exponential_team_config_statuses_delete: [],
+  exponential_team_config_statuses_list: [`list`, `status`],
+  exponential_team_config_statuses_update: [`status`],
   exponential_teams_create: [`team`],
   exponential_teams_get: [`team`],
   exponential_teams_list: [`list`, `team`],
   exponential_teams_update: [`team`],
-  exponential_prompts_get: [`prompt`],
-  exponential_prompts_list: [`list`, `prompt`],
+  exponential_team_config_prompts_get: [`prompt`],
+  exponential_team_config_prompts_list: [`list`, `prompt`],
   exponential_guide_write: [],
   exponential_pr_close: [`issue`],
   exponential_pr_files: [`issue`],
@@ -169,7 +156,6 @@ export const PREVIEW_KINDS: Record<string, EntityRefKind[]> = {
   exponential_sessions_get: [`session`],
   exponential_sessions_link: [`session`, `issue`],
   exponential_sessions_send: [`session`],
-  exponential_sessions_stop: [`session`],
   exponential_sessions_unlink: [`session`, `issue`],
 }
 
@@ -267,7 +253,7 @@ describe(`toolResultPreview (EXP-920)`, () => {
     expect(listRefNoun(`status`)).toBe(`statuses`)
     expect(listRefNoun(`repository`)).toBe(`repositories`)
     expect(listRefNoun(`issue`)).toBe(`issues`)
-    const [list] = toolResultPreview(`exponential_labels_list`, [{ id: `l`, name: `bug` }])
+    const [list] = toolResultPreview(`exponential_team_config_labels_list`, [{ id: `l`, name: `bug` }])
     expect(list).toEqual({ kind: `list`, id: `label`, title: `labels`, count: 1 })
   })
 })

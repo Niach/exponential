@@ -93,6 +93,7 @@ import {
   ALWAYS_LOAD_TOOLS,
   GATED_ALWAYS_LOAD_TOOLS,
 } from "@/lib/mcp/always-load"
+import { NOUN_TOOLS } from "@/lib/mcp/nouns"
 import {
   MCP_SERVER_INSTRUCTIONS,
   mcpServerInstructions,
@@ -100,15 +101,11 @@ import {
 
 it(`keeps the always-loaded MCP tool set exactly ALWAYS_LOAD_TOOLS`, () => {
   const defs = serializeToolDefs()
-  // Guard the CLOUD_INSTANCE stub above: if the cloud-only tool ever stops
-  // registering here, the budget silently under-measures.
-  expect(defs.some((def) => def.name === `exponential_report_bug`)).toBe(true)
-  // EXP-660: the gated families register behind per-caller gates whose
-  // DEFAULT is the full surface — if that default ever flips, the budget
-  // would silently stop measuring them.
-  expect(defs.some((def) => def.name === `exponential_guide_write`)).toBe(
-    true
+  // NEW-4: the surface is the 15 noun tools, the same for every caller.
+  expect(defs.map((def) => def.name).sort()).toEqual(
+    NOUN_TOOLS.map((spec) => `exponential_${spec.name}`).sort()
   )
+  expect(defs).toHaveLength(15)
   // Every listed tool actually registers, and nothing else carries the flag —
   // adding `_meta` to a tool is adding it to EVERY session's context, so it
   // has to be a deliberate edit of always-load.ts.
@@ -123,15 +120,15 @@ it(`keeps the always-loaded MCP tool set exactly ALWAYS_LOAD_TOOLS`, () => {
   expect([...flagged].sort()).toEqual(
     [...ALWAYS_LOAD_TOOLS, ...GATED_ALWAYS_LOAD_TOOLS].sort()
   )
-  // exponential_report_bug is deliberately NOT always-loaded: an agent that
-  // needs it searches for it.
-  expect(flagged).not.toContain(`exponential_report_bug`)
+  // The self tools (ask, plan, suggest, compact, report_bug) are deliberately
+  // NOT always-loaded: an agent that needs them searches for them.
+  expect(flagged).not.toContain(`exponential_session_self`)
+  expect(flagged).toHaveLength(5)
 })
 
-// EXP-1291: the tools that act on the caller's OWN session (the Guide,
-// compaction) register only behind the session gate; `sessions_end` takes an
-// id, so every caller has it.
-it(`registers the own-session tools only behind the session gate`, () => {
+// NEW-4 (plan 3.11): NO conditional registration — the 15 register for
+// every caller; an op the caller cannot use errors when called.
+it(`registers the same 15 tools for every caller`, () => {
   const headerless = serializeToolDefs({
     inSession: false,
     unattended: false,
@@ -142,25 +139,17 @@ it(`registers the own-session tools only behind the session gate`, () => {
     unattended: false,
     agent: false,
   }).map((def) => def.name)
-  for (const name of [`exponential_guide_write`, `exponential_sessions_compact`]) {
-    expect(inSession, name).toContain(name)
-    expect(headerless, name).not.toContain(name)
-  }
-  expect(headerless).toContain(`exponential_sessions_end`)
-  expect(headerless).toContain(`exponential_sessions_send`)
-  // EXP-1291: the retired surface is gone.
+  expect([...headerless].sort()).toEqual([...inSession].sort())
+  expect(headerless).toHaveLength(15)
+  // EXP-1291 / NEW-4: the retired surface is gone.
   for (const name of [
     `exponential_sessions_start`,
     `exponential_sessions_message`,
-    `exponential_sessions_messages`,
-    `exponential_sessions_ask_parent`,
-    `exponential_sessions_guide`,
-    `exponential_sessions_show`,
-    `exponential_sessions_kill`,
-    `exponential_notifications_send`,
-    `exponential_threads_get`,
-    `exponential_issues_pr_files`,
-    `exponential_repositories_branch_diff`,
+    `exponential_sessions_stop`,
+    `exponential_sessions_end`,
+    `exponential_issues_get`,
+    `exponential_report_bug`,
+    `exponential_plan_propose`,
   ]) {
     expect(inSession, name).not.toContain(name)
   }
@@ -211,7 +200,7 @@ it(`keeps the serialized MCP tool context within budget`, () => {
 it(`keeps the MCP server instructions self-contained and in budget`, () => {
   expect(MCP_SERVER_INSTRUCTIONS.length).toBeLessThan(2_000)
   const opening = MCP_SERVER_INSTRUCTIONS.slice(0, 512)
-  expect(opening).toContain(`exponential_pr_open`)
+  expect(opening).toContain(`exponential_pr {op: "open"}`)
   expect(opening).toContain(`Search for exponential_*`)
   // EXP-660: the deferred families an agent would never guess at by name.
   expect(opening).toContain(`sessions`)
@@ -231,15 +220,15 @@ it(`keeps the MCP server instructions self-contained and in budget`, () => {
     reportBug: true,
   })
   expect(person).toContain(
-    `exponential_sessions_end ends this session; call it only when the person asks you to end the session.`
+    `exponential_sessions {op: "end"} ends this session; call it only when the person asks you to end the session.`
   )
   expect(person).not.toContain(`This session is unattended`)
   // EXP-1280: only a planning session is told it is in plan mode (the
   // fixture's gate sentence); every session gets the ask.
   expect(MCP_SERVER_INSTRUCTIONS).toContain(PLAN_CARD_COPY.planModeGate)
   expect(person).not.toContain(PLAN_CARD_COPY.planModeGate)
-  expect(person).toContain(`exponential_sessions_ask`)
-  expect(MCP_SERVER_INSTRUCTIONS).toContain(`exponential_sessions_end LAST`)
+  expect(person).toContain(`exponential_session_self {op: "ask"}`)
+  expect(MCP_SERVER_INSTRUCTIONS).toContain(`exponential_sessions {op: "end", summary} LAST`)
   expect(MCP_SERVER_INSTRUCTIONS).not.toContain(`only when the person asks`)
   // A team agent never ends and writes no Guide of its own.
   const agent = mcpServerInstructions({
@@ -249,7 +238,7 @@ it(`keeps the MCP server instructions self-contained and in budget`, () => {
     reportBug: true,
   })
   expect(agent).toContain(`You are a team agent`)
-  expect(agent).not.toContain(`exponential_sessions_end`)
+  expect(agent).not.toContain(`op: "end"`)
   // FEED-21: the report-bug trigger follows the tool's EXP-496 cloud gate.
   const selfHosted = mcpServerInstructions({
     inSession: true,
@@ -257,8 +246,8 @@ it(`keeps the MCP server instructions self-contained and in budget`, () => {
     agent: false,
     reportBug: false,
   })
-  expect(selfHosted).not.toContain(`exponential_report_bug`)
-  expect(MCP_SERVER_INSTRUCTIONS).toContain(`exponential_report_bug`)
+  expect(selfHosted).not.toContain(`report_bug`)
+  expect(MCP_SERVER_INSTRUCTIONS).toContain(`report_bug`)
   // EXP-879/1251: the Guide ask follows the session gate.
   const noSession = mcpServerInstructions({
     inSession: false,
@@ -267,7 +256,7 @@ it(`keeps the MCP server instructions self-contained and in budget`, () => {
     reportBug: true,
   })
   expect(noSession).not.toContain(`Close out with a Guide`)
-  expect(noSession).not.toContain(`exponential_sessions_end`)
+  expect(noSession).not.toContain(`op: "end"`)
   expect(MCP_SERVER_INSTRUCTIONS).toContain(`Close out with a Guide`)
   // EXP-1291: people are pinged by @email, never a notify tool.
   expect(MCP_SERVER_INSTRUCTIONS).toContain(`@email`)
@@ -287,9 +276,9 @@ function repoRoot(): string {
   return dir
 }
 
-it(`keeps CLAUDE.md under Claude Code's 40k-char performance warning`, () => {
+it(`keeps CLAUDE.md to repo facts under 12k chars (NEW-4)`, () => {
   const claudeMd = readFileSync(join(repoRoot(), `CLAUDE.md`), `utf8`)
-  expect(claudeMd.length).toBeLessThan(40_000)
+  expect(claudeMd.length).toBeLessThan(12_000)
 })
 
 // EXP-763: the run playbook the desktop + CLI launcher appends to EVERY
@@ -314,30 +303,13 @@ it(`keeps the run playbook in budget and naming only registered tools`, () => {
   // The point of the document: the deferred tools a run never found by itself.
   for (const name of [
     `exponential_sessions_send`,
-    `exponential_issues_create`,
-    `exponential_issue_relations_add`,
-    `exponential_report_bug`,
-    // EXP-988: the contract tools the leaves fill in.
-    `exponential_attachments_list`,
-    `exponential_attachments_upload`,
-    `exponential_sessions_compact`,
-    // EXP-1251 → EXP-1291: the close-out Guide's tool, and what the agent
-    // links into its thread.
+    `exponential_sessions`,
+    `exponential_session_self`,
+    `exponential_issues`,
+    `exponential_pr`,
     `exponential_guide_write`,
-    `exponential_sessions_get`,
-    `exponential_sessions_link`,
+    `exponential_events`,
   ]) {
-    expect(mentioned.has(name), `playbook never names ${name}`).toBe(true)
+    expect(playbook, `playbook names ${name}`).toContain(name)
   }
-  // EXP-760: a sub-issue is one issues_create call with parentId.
-  expect(playbook).toContain(`parentId`)
-  // EXP-856: the workflow rule. A second copy of a live lane, resumed by
-  // SendMessage into the same files, is the failure this sentence prevents.
-  expect(playbook).toContain(`never messaged`)
-  expect(playbook).toContain(`SendMessage`)
-  // SLOP-3: follow-up runs base on the parent's branch through pr_open's base.
-  expect(playbook).toContain(`base:`)
-  expect(playbook).toContain(`follow-up`)
-  expect(playbook).not.toContain(`stackOnIssueId`)
-  expect(playbook).not.toContain(`\u2014`)
 })

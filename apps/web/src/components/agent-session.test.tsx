@@ -306,7 +306,7 @@ describe(`AgentSessionView tool-posted cards (EXP-1280)`, () => {
     id: 3,
     seq: 3,
     kind: `tool` as const,
-    name: `mcp__exponential__exponential_plan_propose`,
+    name: `mcp__exponential__exponential_session_self_plan`,
     settled: true,
   }
 

@@ -2230,6 +2230,10 @@ impl Mapper {
         notification_meta: Option<&BTreeMapLike>,
         out: &mut MapOut,
     ) {
+        // NEW-4: a noun tool's `op` composes the display name once, here.
+        let mut composed = call.clone();
+        composed.title = exp_tool_title(&call.title, call.raw_input.as_ref());
+        let call = &composed;
         let id = steer::truncate(&call.tool_call_id.0, ID_MAX);
         let subagent_id = call
             .meta
@@ -2348,6 +2352,13 @@ impl Mapper {
             .clone()
             .or_else(|| known.map(|state| state.title.clone()))
             .unwrap_or_default();
+        // NEW-4: the `op` may arrive with the input on a later update.
+        let title = exp_tool_title(
+            &title,
+            raw_input
+                .as_ref()
+                .or_else(|| known.and_then(|state| state.raw_input.as_ref())),
+        );
         if let Some(state) = self.tools.get_mut(&id) {
             state.kind = kind;
             state.title.clone_from(&title);
@@ -3989,6 +4000,33 @@ fn wire_tool_kind(kind: ToolKind) -> WireToolKind {
 /// preview.
 fn json_payload(result: &Value) -> Option<Value> {
     crate::exp_tool_refs::tool_result_payload(result)
+}
+
+/// NEW-4: an Exponential MCP call's DISPLAY name. The server's 15 noun
+/// tools take an `op` (`exponential_issues` + `{op: "get"}`); the contract's
+/// display rows are keyed `<noun>_<op>` (`issues_get`), so the mapper composes
+/// that name from the call's title and its input once, here, and every
+/// client's lookup (`steer::exp_tool`) stays keyed by the row. A title that
+/// already names a row (a verb like `sessions_send`, or an older server's
+/// per-operation tool) and any other tool pass through unchanged.
+fn exp_tool_title(title: &str, raw_input: Option<&Value>) -> String {
+    let trimmed = title.trim();
+    if steer::exp_tool::exp_tool_index(trimmed).is_some() {
+        return title.to_string();
+    }
+    let Some(op) = raw_input
+        .and_then(Value::as_object)
+        .and_then(|input| input.get("op"))
+        .and_then(Value::as_str)
+    else {
+        return title.to_string();
+    };
+    let composed = format!("{trimmed}_{}", op.trim());
+    if steer::exp_tool::exp_tool_index(&composed).is_some() {
+        composed
+    } else {
+        title.to_string()
+    }
 }
 
 /// EXP-920: the ACP `raw_input` worth RETAINING on a tool's state — only an

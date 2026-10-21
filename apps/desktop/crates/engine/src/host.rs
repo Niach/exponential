@@ -3228,7 +3228,7 @@ mod tests {
     #[test]
     fn the_plan_mode_line_is_the_fixture_gate() {
         assert_eq!(plan_mode_line(crate::adapters::PLAN_MODE_ID), domain::plan_card::copy().plan_mode_gate);
-        assert!(plan_mode_on_line().contains("exponential_plan_propose"));
+        assert!(plan_mode_on_line().contains("exponential_session_self"));
         assert_eq!(plan_mode_line("default"), PLAN_MODE_OFF_LINE);
     }
 
