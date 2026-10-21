@@ -62,6 +62,10 @@ async function buildSolid(dir: string, entries: Record<string, string>, external
   const { build } = await import(`vite`)
   const { default: solid } = await import(`vite-plugin-solid`)
   const roots = external.filter((d) => !d.endsWith(`/*`))
+  // Vite's `build()` sets `process.env.NODE_ENV` to "production" when it is
+  // unset, and a child `npm install` spawned later in the same process
+  // (guides/check.ts) would then skip devDependencies: restore it.
+  const nodeEnv = process.env.NODE_ENV
   const result = await build({
     configFile: false,
     root: dir,
@@ -78,6 +82,8 @@ async function buildSolid(dir: string, entries: Record<string, string>, external
       rollupOptions: { external: (id) => roots.some((d) => id === d || id.startsWith(`${d}/`)) },
     },
   })
+  if (nodeEnv === undefined) delete process.env.NODE_ENV
+  else process.env.NODE_ENV = nodeEnv
   const outputs = (Array.isArray(result) ? result : [result]).flatMap((r) => (`output` in r ? r.output : []))
   return outputs.filter((o) => o.type === `chunk`).map((o) => `dist/${o.fileName}`)
 }
