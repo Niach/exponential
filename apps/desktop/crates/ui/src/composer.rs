@@ -672,14 +672,15 @@ pub(crate) fn session_context_ring(props: ContextRingProps, cx: &App) -> Option<
 }
 
 /// EXP-724 — THE `/` command menu INSIDE the composer card, above the field:
-/// mono name, muted argument hint, muted description. Hovering MOVES the
+/// mono name, muted argument hint, muted description; NEW-2: then the team's
+/// prompts, icon + name. Hovering MOVES the
 /// selection (`on_hover(view, index)`), a press accepts it
 /// (`on_pick(view, index)`).
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn session_slash_menu<V: 'static>(
     id: &'static str,
     row_id: &'static str,
-    items: &[crate::slash_commands::MenuCommand],
+    items: &[crate::slash_commands::SlashItem],
     selected: usize,
     scroll: &gpui::ScrollHandle,
     on_hover: fn(&mut V, usize, &mut gpui::Context<V>),
@@ -687,25 +688,27 @@ pub(crate) fn session_slash_menu<V: 'static>(
     window: &Window,
     cx: &mut gpui::Context<V>,
 ) -> AnyElement {
+    use crate::slash_commands::SlashItem;
     use gpui::prelude::FluentBuilder as _;
     use gpui::InteractiveElement as _;
     use gpui::StatefulInteractiveElement as _;
     let muted = cx.theme().muted_foreground;
     let mut rows: Vec<AnyElement> = Vec::with_capacity(items.len());
-    for (index, command) in items.iter().enumerate() {
-        rows.push(
-            crate::controls::typeahead_row((row_id, index), index == selected, cx)
-                // EXP-892: hovering MOVES the selection onto the row under
-                // the pointer, it never paints a second highlight.
-                .on_hover(cx.listener(move |view, hovered: &bool, _window, cx| {
-                    if *hovered {
-                        on_hover(view, index, cx);
-                    }
-                }))
-                .on_mouse_down(
-                    gpui::MouseButton::Left,
-                    cx.listener(move |view, _, window, cx| on_pick(view, index, window, cx)),
-                )
+    for (index, item) in items.iter().enumerate() {
+        let row = crate::controls::typeahead_row((row_id, index), index == selected, cx)
+            // EXP-892: hovering MOVES the selection onto the row under
+            // the pointer, it never paints a second highlight.
+            .on_hover(cx.listener(move |view, hovered: &bool, _window, cx| {
+                if *hovered {
+                    on_hover(view, index, cx);
+                }
+            }))
+            .on_mouse_down(
+                gpui::MouseButton::Left,
+                cx.listener(move |view, _, window, cx| on_pick(view, index, window, cx)),
+            );
+        let row = match item {
+            SlashItem::Command(command) => row
                 .child(
                     div()
                         .flex_shrink_0()
@@ -730,9 +733,25 @@ pub(crate) fn session_slash_menu<V: 'static>(
                         .text_xs()
                         .text_color(muted)
                         .child(SharedString::from(command.description.to_string())),
+                ),
+            // NEW-2 (web `PromptCandidateRow`): the prompt's icon, muted,
+            // and its name.
+            SlashItem::Prompt(prompt) => row
+                .child(
+                    crate::icons::action_icon(prompt.icon.as_deref())
+                        .small()
+                        .flex_shrink_0()
+                        .text_color(muted),
                 )
-                .into_any_element(),
-        );
+                .child(
+                    div()
+                        .min_w_0()
+                        .truncate()
+                        .text_xs()
+                        .child(SharedString::from(prompt.name.clone())),
+                ),
+        };
+        rows.push(row.into_any_element());
     }
     // EXP-970: the ONE typeahead surface, in the composer card's flow.
     crate::controls::typeahead_menu(

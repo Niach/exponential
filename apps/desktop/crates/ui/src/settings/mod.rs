@@ -41,6 +41,7 @@ mod add_repository_dialog;
 pub(crate) mod agent_detail;
 mod new_agent;
 mod agents;
+mod agents_index;
 mod api_keys;
 pub(crate) mod doctor_section;
 // EXP-630: THE invite-by-email form (the pane's own and the resend dialog's)
@@ -210,6 +211,10 @@ pub(crate) enum SettingsSection {
     /// the old Coding pane; EXP-1294 renamed it from `Agents` — "Agents" are
     /// the team's agents now).
     AgentClis,
+    /// NEW-6: the Agents index (web `settings/agents`): the team's agents
+    /// over the team's Events. The Agents group's LABEL opens it.
+    /// Member-visible.
+    Agents,
     /// EXP-1294: one team agent's settings page (the Agents group lists every
     /// agent root as its own nav entry; the payload is the agent's session
     /// id). Member-visible: every member manages agents, only Delete is the
@@ -393,7 +398,10 @@ fn section_icon(section: &SettingsSection) -> Icon {
         SettingsSection::Widget => Icon::from(registry::SETTINGS_WIDGET),
         SettingsSection::McpServers => Icon::from(registry::SETTINGS_MCP),
         SettingsSection::Tools => Icon::from(registry::SETTINGS_TOOLS),
-        SettingsSection::AgentClis | SettingsSection::Agent(_) | SettingsSection::NewAgent => {
+        SettingsSection::AgentClis
+        | SettingsSection::Agents
+        | SettingsSection::Agent(_)
+        | SettingsSection::NewAgent => {
             Icon::from(registry::SETTINGS_AGENTS)
         }
         SettingsSection::Prompts | SettingsSection::Prompt(_) | SettingsSection::NewPrompt => {
@@ -471,7 +479,7 @@ fn valid_agent_ids(
     )
 }
 
-/// EXP-1294: `Agent("")` (the DEV `EXP_DEV_SETTINGS=agents` seed) = the
+/// EXP-1294: `Agent("")` (the DEV `EXP_DEV_SETTINGS=agent` seed) = the
 /// active team's first agent, or the empty Agents pane while it has none.
 fn first_agent_resolved(
     selected: SettingsSection,
@@ -556,6 +564,8 @@ pub struct SettingsView {
     /// EXP-1319: the New agent page, built FRESH on every entry (and per
     /// team) so a left-behind draft never reappears.
     new_agent: Option<(String, Entity<NewAgentPane>)>,
+    /// NEW-6: the Agents index (the agents + the Events band).
+    agents_index: Entity<agents_index::AgentsIndexPane>,
     /// NEW-6: the Prompts list (live off the synced `prompts` shape).
     prompts: Entity<PromptsPane>,
     /// NEW-6: the open prompt page, keyed by its prompt id (`new:<team>` in
@@ -621,6 +631,7 @@ impl SettingsView {
             cx.new(|cx| AgentDetailPane::new(nav.clone(), shared.clone(), window, cx));
         let repositories = cx.new(|cx| RepositoriesPane::new(nav.clone(), window, cx));
         let prompts = cx.new(|cx| PromptsPane::new(nav.clone(), cx));
+        let agents_index = cx.new(|cx| agents_index::AgentsIndexPane::new(nav.clone(), cx));
         let widget = cx.new(|cx| WidgetPane::new(nav.clone(), cx));
         let mcp_servers = cx.new(|cx| McpServersPane::new(nav.clone(), window, cx));
         let tools = cx.new(|cx| ToolsPane::new(window, cx));
@@ -662,6 +673,7 @@ impl SettingsView {
             board_detail,
             agent_detail,
             new_agent: None,
+            agents_index,
             prompts,
             prompt_page: None,
             repositories,
@@ -814,6 +826,7 @@ impl Render for SettingsView {
                     .map(|(_, pane)| pane.clone().into_any_element())
                     .unwrap_or_else(|| div().into_any_element())
             }
+            SettingsSection::Agents => self.agents_index.clone().into_any_element(),
             SettingsSection::Prompts => self.prompts.clone().into_any_element(),
             SettingsSection::NewPrompt => {
                 let team_id = active_team_id(&self.nav, cx).unwrap_or_default();
@@ -1063,7 +1076,31 @@ impl Render for SettingsNavPanel {
                 list = list.child(Self::group_divider());
             }
             first_group = false;
-            list = list.child(Self::group_label(group.label, cx));
+            if agent_group {
+                // NEW-6 (web parity): the label opens the Agents page (the
+                // list + Events), lit while it shows.
+                let lit = effective == SettingsSection::Agents;
+                let foreground = cx.theme().foreground;
+                list = list.child(
+                    div()
+                        .id("settings-agents-index")
+                        .cursor_pointer()
+                        .px_2()
+                        .pt_2()
+                        .pb_0p5()
+                        .text_xs()
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(if lit { foreground } else { cx.theme().muted_foreground })
+                        .hover(move |label| label.text_color(foreground))
+                        .child(group.label)
+                        .on_click(cx.listener(|_, _, window, cx| {
+                            select_settings_section(window, cx, SettingsSection::Agents);
+                            navigate(window, cx, Screen::Settings);
+                        })),
+                );
+            } else {
+                list = list.child(Self::group_label(group.label, cx));
+            }
             if agent_group {
                 for agent in &agents {
                     let section = SettingsSection::Agent(agent.agent_id.clone());

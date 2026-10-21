@@ -29,16 +29,14 @@ pub(crate) enum SubjectKind {
 }
 
 /// EXP-1019/EXP-1037 — the composer's HEADLINE verb, the launcher's main
-/// element above the text field: `Run` beside an action's chip, `Implement`
-/// beside the issue chips. The strings are the shared contract's
+/// element above the text field: `Implement` beside the issue chips; NEW-2/3
+/// (web `launchHeadlineVerb`): a prompt's or an agent's chip IS the headline. The strings are the shared contract's
 /// (`domain::contract::COMPOSER_UI_*_HEADLINE`, ×4), never local literals.
 pub(crate) fn headline(subject: &SubjectKind) -> &'static str {
     match subject {
         SubjectKind::Chat => domain::contract::COMPOSER_UI_CHAT_HEADLINE,
         SubjectKind::Issues { .. } => domain::contract::COMPOSER_UI_IMPLEMENT_HEADLINE,
-        SubjectKind::Action => domain::contract::COMPOSER_UI_RUN_HEADLINE,
-        // NEW-3 (web `launchHeadlineVerb`): the agent's chip IS the headline.
-        SubjectKind::Agent => "",
+        SubjectKind::Action | SubjectKind::Agent => "",
     }
 }
 
@@ -48,7 +46,8 @@ pub(crate) fn submit_label(subject: &SubjectKind) -> String {
         SubjectKind::Chat => "Start session".to_string(),
         SubjectKind::Issues { count: 1 } => "Start coding".to_string(),
         SubjectKind::Issues { count } => format!("Start coding · {count}"),
-        SubjectKind::Action => "Run action".to_string(),
+        // NEW-2 (web `submitLabelFor`): a prompt starts a session.
+        SubjectKind::Action => "Start session".to_string(),
         SubjectKind::Agent => "Send".to_string(),
     }
 }
@@ -248,7 +247,7 @@ mod tests {
         assert_eq!(headline(&SubjectKind::Chat), "Ask the agent");
         assert_eq!(headline(&SubjectKind::Issues { count: 1 }), "Implement");
         assert_eq!(headline(&SubjectKind::Issues { count: 4 }), "Implement");
-        assert_eq!(headline(&SubjectKind::Action), "Run");
+        assert_eq!(headline(&SubjectKind::Action), "");
         assert_eq!(headline(&SubjectKind::Agent), "");
     }
 
@@ -258,7 +257,7 @@ mod tests {
         assert_eq!(submit_label(&SubjectKind::Chat), "Start session");
         assert_eq!(submit_label(&SubjectKind::Issues { count: 1 }), "Start coding");
         assert_eq!(submit_label(&SubjectKind::Issues { count: 3 }), "Start coding · 3");
-        assert_eq!(submit_label(&SubjectKind::Action), "Run action");
+        assert_eq!(submit_label(&SubjectKind::Action), "Start session");
         assert_eq!(submit_label(&SubjectKind::Agent), "Send");
     }
 

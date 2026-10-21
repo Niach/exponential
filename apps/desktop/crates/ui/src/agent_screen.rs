@@ -1,25 +1,33 @@
-//! EXP-1294 — an AGENT CHANNEL ([`Screen::Agent`]): a team agent is a root
-//! session of kind `agent` that stays open. The header is the agent's
-//! tinted icon and name; the conversation is its messages as COMMENT ROWS
+//! EXP-1294 / NEW-6 — an AGENT's page ([`Screen::Agent`], web
+//! `agents/$agentId.tsx`): the screen id IS the `agents` row; the page shows
+//! the CALLER's own conversation with it (a root session with that
+//! `agent_id` and `user_id` = me). No conversation yet = the same screen,
+//! empty, whose composer opens one with `sessions.send({agentId})`. The
+//! header is the `agents` row's tinted icon and name; the conversation is
+//! its messages as COMMENT ROWS
 //! ([`crate::comments::message_row`]: avatar or the agent's mark · author ·
 //! `HH:MM` · markdown), every `thread_started` / `session` card THE session
 //! card (a started thread opens as the thread, a session as the session
 //! view), question and plan cards answered in place; under it THE session
-//! composer of the session view targeting the agent root
+//! composer of the session view targeting the conversation root
 //! (`session_screen::root_composer_view`: model pin, context ring, `/` menu,
 //! Send⇄Stop over the tree, the queue strip), `Message <name>`.
 
+use std::time::Instant;
+
 use gpui::{
-    div, px, AnyElement, App, AppContext as _, Entity, FocusHandle,
+    div, px, AnyElement, App, AppContext as _, ClickEvent, Entity, FocusHandle,
     Focusable, FontWeight, InteractiveElement as _, IntoElement, ParentElement, Render,
     ScrollHandle, SharedString, Styled, Subscription, Window,
 };
-use gpui_component::{h_flex, v_flex, ActiveTheme as _, Sizable as _};
+use gpui_component::input::{InputEvent, TextareaState};
+use gpui_component::{h_flex, v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _};
 use sync::Store;
 
-use domain::rows::{MessageRow, SessionRow};
+use domain::rows::{AgentDefRow, MessageRow, SessionRow};
 use domain::session_tree::SessionThreadRow;
 
+use crate::composer_images::{self, PendingImages};
 use crate::icons::registry;
 use crate::markdown::ImageCache;
 
@@ -35,31 +43,79 @@ const MARKER_PX: f32 = 24.;
 /// plus its gap.
 const CARD_INSET: f32 = 36.;
 
+/// The page whose agent is not (or no longer) there (web `$agentId.tsx`).
+const AGENT_NOT_FOUND: &str = "Not found";
+
 /// The composer's placeholder: `Message <name>`.
 pub(crate) fn message_placeholder(name: &str) -> String {
     format!("Message {name}")
 }
 
-/// The agent's display name: its `name`, else EXP-1341's title ladder
-/// (`domain::session_title`; `Untitled` with nothing to go on).
-pub(crate) fn agent_name(agent: &SessionRow) -> String {
-    domain::session_title::title_from_parts(
-        agent.name.as_deref(),
-        agent.title.as_deref(),
-        &[],
-        agent.action_name.as_deref(),
-        None,
+/// The agent's display name: the `agents` row's `name`, `Untitled` while it
+/// is blank (EXP-1341's ladder bottom).
+pub(crate) fn agent_def_name(agent: &AgentDefRow) -> String {
+    domain::session_title::title_from_parts(agent.name.as_deref(), None, &[], None, None)
+}
+
+/// The agent's mark: its icon in its colour (web `BoardGlyph`).
+pub(crate) fn agent_def_icon(agent: Option<&AgentDefRow>) -> Icon {
+    crate::icons::agent_icon(
+        agent.and_then(|agent| agent.icon.as_deref()),
+        agent.and_then(|agent| agent.color.as_deref()),
     )
 }
 
+/// NEW-6: the `agents` row an [`crate::navigation::Screen::Agent`] id names.
+/// The id IS the agent row; a LEGACY link (an older build, a notification)
+/// named the agent's conversation SESSION, whose `agent_id` resolves it
+/// (migrated agents kept one id for both). Unknown ids stay as they are.
+pub(crate) fn resolve_agent_id(id: &str, cx: &App) -> String {
+    if crate::session_data::agent_def(id, cx).is_some() {
+        return id.to_string();
+    }
+    crate::session_data::session(id, cx)
+        .and_then(|row| row.agent_id)
+        .filter(|agent_id| !agent_id.is_empty())
+        .unwrap_or_else(|| id.to_string())
+}
+
+/// NEW-6: the tree root an agent screen's tab holds: the CALLER's own
+/// conversation with the agent once it exists, else the agent id (the
+/// placeholder root until the first message creates the conversation).
+pub(crate) fn agent_screen_root(id: &str, cx: &App) -> String {
+    let agent_id = resolve_agent_id(id, cx);
+    crate::session_data::my_conversation(&agent_id, cx)
+        .map(|row| row.id)
+        .unwrap_or(agent_id)
+}
+
+/// THE composer before the conversation exists: the session composer box,
+/// whose send opens the conversation with `sessions.send({agentId, text})`
+/// (web `AgentComposer`).
+struct FirstComposer {
+    input: Entity<TextareaState>,
+    mention: Entity<crate::mention_input::MentionInput>,
+    images: PendingImages,
+    sending: bool,
+    notice: Option<SharedString>,
+    mention_team: Option<String>,
+}
+
 pub struct AgentScreenView {
-    agent_id: String,
-    agent: Option<SessionRow>,
+    /// The id the screen was opened with (the agent row, or a legacy
+    /// conversation session id).
+    requested_id: String,
+    agent: Option<AgentDefRow>,
+    /// The caller's own conversation session with the agent (a root with
+    /// that `agent_id` and `user_id` = me); `None` before the first message.
+    conversation: Option<SessionRow>,
     rows: Vec<SessionThreadRow>,
     messages: std::collections::HashMap<String, MessageRow>,
     images: Entity<ImageCache>,
-    /// THE session composer, targeting the agent root.
-    composer: Entity<crate::steer_viewer::SteerSessionView>,
+    /// THE session composer, targeting the conversation root (keyed by its
+    /// id); `None` until the conversation exists.
+    composer: Option<(String, Entity<crate::steer_viewer::SteerSessionView>)>,
+    first: FirstComposer,
     /// THE ask dock's state (the focused card, the swap animation).
     ask_dock: Entity<crate::ask_dock::AskDockState>,
     /// The name the placeholder was built for.
@@ -67,28 +123,28 @@ pub struct AgentScreenView {
     scroll: ScrollHandle,
     /// EXP-1316 (1n): the channel follows its tail like the session feed.
     follow: crate::controls::TailFollow,
+    opened_at: Instant,
     focus_handle: FocusHandle,
     _subscriptions: Vec<Subscription>,
 }
 
 impl AgentScreenView {
     pub fn new(agent_id: String, window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
-        let name = crate::session_data::session(&agent_id, cx).map(|agent| agent_name(&agent));
-        let composer = crate::session_screen::root_composer_view(
-            &agent_id,
-            message_placeholder(name.as_deref().unwrap_or_default()),
-            crate::steer_viewer::ComposerIds::new(
-                "agent-send",
-                "agent-attach",
-                "agent-model",
-                "agent-context",
-            ),
+        let (input, mention) = crate::composer::session_composer_field(message_placeholder(""), window, cx);
+        let mut subscriptions = vec![cx.subscribe_in(
+            &input,
             window,
-            cx,
-        );
-        let mut subscriptions = vec![cx.observe(&composer, |_, _, cx| cx.notify())];
+            |this, _, event: &InputEvent, window, cx| match event {
+                InputEvent::PressEnter { shift: false, .. } => this.send_first(window, cx),
+                InputEvent::Change => cx.notify(),
+                _ => {}
+            },
+        )];
         if let Some(store) = Store::try_global(cx) {
             let collections = store.collections().clone();
+            subscriptions.push(cx.observe_in(&collections.agents, window, |this, _, window, cx| {
+                this.refresh(window, cx)
+            }));
             subscriptions.push(cx.observe_in(&collections.sessions, window, |this, _, window, cx| {
                 this.refresh(window, cx)
             }));
@@ -101,17 +157,35 @@ impl AgentScreenView {
         let images = cx.new(|_| ImageCache::new(transport));
         // Picture cards repaint when their bytes land (the cache notifies).
         subscriptions.push(cx.observe(&images, |_, _, cx| cx.notify()));
+        // The "Not found" verdict waits out the sync grace: one repaint then.
+        cx.spawn(async move |this, cx| {
+            cx.background_executor()
+                .timer(crate::thread_screen::MISSING_GRACE)
+                .await;
+            let _ = this.update(cx, |_, cx| cx.notify());
+        })
+        .detach();
         let mut this = Self {
-            agent_id,
+            requested_id: agent_id,
             agent: None,
+            conversation: None,
             rows: Vec::new(),
             messages: std::collections::HashMap::new(),
             images,
-            composer,
+            composer: None,
+            first: FirstComposer {
+                input,
+                mention,
+                images: PendingImages::default(),
+                sending: false,
+                notice: None,
+                mention_team: None,
+            },
             ask_dock: cx.new(|_| crate::ask_dock::AskDockState::default()),
-            placeholder_name: name,
+            placeholder_name: None,
             scroll: ScrollHandle::new(),
             follow: crate::controls::TailFollow::default(),
+            opened_at: Instant::now(),
             focus_handle: cx.focus_handle(),
             _subscriptions: subscriptions,
         };
@@ -120,41 +194,246 @@ impl AgentScreenView {
     }
 
     fn refresh(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        self.agent = crate::session_data::session(&self.agent_id, cx);
-        // The channel's own card leads the contract's rows; the header
+        let agent_id = resolve_agent_id(&self.requested_id, cx);
+        self.agent = crate::session_data::agent_def(&agent_id, cx);
+        self.conversation = crate::session_data::my_conversation(&agent_id, cx);
+        let name = self.agent.as_ref().map(agent_def_name).unwrap_or_default();
+        // THE session composer of the conversation, built once it exists
+        // (and rebuilt should it ever be another row).
+        match &self.conversation {
+            Some(conversation)
+                if self.composer.as_ref().map(|(id, _)| id.as_str()) != Some(conversation.id.as_str()) =>
+            {
+                let composer = crate::session_screen::root_composer_view(
+                    &conversation.id,
+                    message_placeholder(&name),
+                    crate::steer_viewer::ComposerIds::new(
+                        "agent-send",
+                        "agent-attach",
+                        "agent-model",
+                        "agent-context",
+                    ),
+                    window,
+                    cx,
+                );
+                self._subscriptions.push(cx.observe(&composer, |_, _, cx| cx.notify()));
+                self.composer = Some((conversation.id.clone(), composer));
+            }
+            Some(_) => {}
+            None => self.composer = None,
+        }
+        let conversation_id = self.conversation.as_ref().map(|row| row.id.clone());
+        // The conversation's own card leads the contract's rows; the header
         // already names the agent.
-        let rows: Vec<SessionThreadRow> =
-            crate::session_data::session_thread_view(&self.agent_id, None, crate::session_data::now_ms(), cx)
-                .map(|view| {
-                    view.rows
-                        .into_iter()
-                        .filter(|row| row.id() != self.agent_id)
-                        .collect()
-                })
-                .unwrap_or_default();
-        self.rows = rows;
-        self.messages = crate::session_data::messages_of_session(&self.agent_id, cx)
+        self.rows = conversation_id
+            .as_deref()
+            .and_then(|id| {
+                crate::session_data::session_thread_view(id, None, crate::session_data::now_ms(), cx)
+                    .map(|view| view.rows.into_iter().filter(|row| row.id() != id).collect())
+            })
+            .unwrap_or_default();
+        self.messages = conversation_id
+            .as_deref()
+            .map(|id| crate::session_data::messages_of_session(id, cx))
+            .unwrap_or_default()
             .into_iter()
             .map(|message| (message.id.clone(), message))
             .collect();
-        if let Some(agent) = self.agent.clone() {
-            let name = agent_name(&agent);
-            if self.placeholder_name.as_deref() != Some(name.as_str()) {
-                self.composer.update(cx, |composer, cx| {
+        if self.agent.is_some() && self.placeholder_name.as_deref() != Some(name.as_str()) {
+            if let Some((_, composer)) = &self.composer {
+                composer.update(cx, |composer, cx| {
                     composer.set_placeholder(message_placeholder(&name), window, cx);
                 });
-                self.placeholder_name = Some(name);
             }
+            self.first.input.update(cx, |input, cx| {
+                input.set_placeholder(message_placeholder(&name), window, cx)
+            });
+            self.placeholder_name = Some(name);
+        }
+        let team_id = self.agent.as_ref().and_then(|agent| agent.team_id.clone());
+        if team_id != self.first.mention_team {
+            self.first.mention_team = team_id.clone();
+            self.first.mention.update(cx, |mention, _| {
+                mention.set_source(team_id.map(crate::markdown::store_completion_source));
+            });
         }
         cx.notify();
     }
 
+    // ── the first message (web `AgentComposer`) ──────────────────────────
+
+    fn first_can_send(&self, cx: &App) -> bool {
+        let has_content =
+            !self.first.input.read(cx).value().trim().is_empty() || !self.first.images.is_empty();
+        !self.first.sending && has_content && self.agent.is_some()
+    }
+
+    /// Upload the staged files to the TEAM route (there is no session yet),
+    /// then ONE `sessions.send({teamId, agentId, text, attachmentIds})`: the
+    /// conversation is created and the screen fills from the sync.
+    fn send_first(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        if !self.first_can_send(cx) {
+            return;
+        }
+        let Some(agent) = self.agent.clone() else {
+            return;
+        };
+        let Some(team_id) = agent.team_id.clone() else {
+            return;
+        };
+        let text = self.first.input.read(cx).value().to_string();
+        let jobs = self.first.images.jobs();
+        let transport = if jobs.is_empty() {
+            None
+        } else {
+            match crate::queries::attachment_transport(cx) {
+                Some(transport) => Some(transport),
+                None => {
+                    crate::action_error::failed_action("upload", "the attachment", None, cx);
+                    return;
+                }
+            }
+        };
+        let Some(trpc) = crate::queries::trpc_client(cx) else {
+            crate::action_error::failed_action("send", "the message", None, cx);
+            return;
+        };
+        self.first.sending = true;
+        self.first.notice = None;
+        cx.notify();
+        cx.spawn_in(window, async move |this, cx| {
+            let upload_team = team_id.clone();
+            let uploaded = match transport {
+                None => Ok(Vec::new()),
+                Some(transport) => {
+                    cx.background_executor()
+                        .spawn(async move {
+                            composer_images::upload_all(jobs, |filename, content_type, bytes| {
+                                transport.upload_team_session_file(&upload_team, filename, content_type, bytes)
+                            })
+                        })
+                        .await
+                }
+            };
+            let resolved = match uploaded {
+                Ok(resolved) => resolved,
+                Err((resolved, error)) => {
+                    let _ = this.update_in(cx, |this, _window, cx| {
+                        this.first.sending = false;
+                        this.first.images.note_uploaded(&resolved);
+                        log::warn!("[ui] agent composer upload failed: {error}");
+                        let view = cx.entity().downgrade();
+                        crate::action_error::failed_action_with_retry(
+                            "upload",
+                            "the attachment",
+                            None,
+                            move |window, cx| {
+                                let _ = view.update(cx, |this, cx| this.send_first(window, cx));
+                            },
+                            cx,
+                        );
+                        cx.notify();
+                    });
+                    return;
+                }
+            };
+            let Ok(input) = this.update(cx, |this, _| {
+                this.first.images.note_uploaded(&resolved);
+                let parsed = domain::image_message::parse_steer_message(&this.first.images.message(&text));
+                let mut attachment_ids = parsed.attachment_ids;
+                attachment_ids.extend(parsed.files.into_iter().map(|file| file.id));
+                crate::chat_launch::agent_send_input(&team_id, &agent.id, &parsed.text, attachment_ids)
+            }) else {
+                return;
+            };
+            let result = cx
+                .background_executor()
+                .spawn(async move { api::sessions::send(&trpc, &input) })
+                .await;
+            let _ = this.update_in(cx, |this, window, cx| {
+                this.first.sending = false;
+                match result {
+                    Ok(_) => {
+                        this.first.images.clear();
+                        this.first
+                            .input
+                            .update(cx, |state, cx| state.set_value("", window, cx));
+                    }
+                    Err(err) => crate::action_error::failed_action_err("send", "the message", &err, cx),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    fn stage_first_files(
+        &mut self,
+        files: Vec<composer_images::StagedFile>,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        self.first.notice = self.first.images.stage(files, &self.first.input, window, cx);
+        cx.notify();
+    }
+
+    fn remove_first_file(&mut self, key: u64, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        self.first.images.remove(key, &self.first.input, window, cx);
+        cx.notify();
+    }
+
+    /// THE session composer box, field + attach + Send: the first message.
+    fn render_first_composer(&self, cx: &mut gpui::Context<Self>) -> AnyElement {
+        let disabled = !self.first_can_send(cx);
+        let view = cx.entity().downgrade();
+        let submit = crate::composer::SessionComposerSubmit::send("agent-send", disabled, move |_, window, cx| {
+            let _ = view.update(cx, |this, cx| this.send_first(window, cx));
+        })
+        .loading(self.first.sending);
+        let strip = (!self.first.images.is_empty()).then(|| {
+            self.first
+                .images
+                .render_strip("agent-pending-remove", self.first.sending, Self::remove_first_file, cx)
+        });
+        let notice = self.first.notice.clone();
+        let composer = crate::composer::session_composer_box(
+            crate::composer::SessionComposerBox::new(self.first.mention.clone(), submit)
+                .strip(strip)
+                .tool(
+                    crate::composer::composer_tool("agent-attach", registry::UI_ATTACH, cx)
+                        .tooltip("Attach files")
+                        .disabled(self.first.sending)
+                        .on_click(cx.listener(|_, _: &ClickEvent, window, cx| {
+                            composer_images::pick_attachment_files(window, cx, |this: &mut Self, read, window, cx| {
+                                this.stage_first_files(read, window, cx)
+                            });
+                        })),
+                ),
+            cx,
+        );
+        match notice {
+            Some(notice) => v_flex()
+                .w_full()
+                .gap_1()
+                .child(composer)
+                .child(
+                    div()
+                        .w_full()
+                        .max_w(px(CHANNEL_W))
+                        .mx_auto()
+                        .px(px(crate::work_header::WORK_GUTTER))
+                        .text_xs()
+                        .text_color(cx.theme().muted_foreground)
+                        .child(notice),
+                )
+                .into_any_element(),
+            None => composer,
+        }
+    }
+
     /// The agent's mark in the 24px gutter disc.
     fn agent_marker(&self, cx: &App) -> AnyElement {
-        let icon = match &self.agent {
-            Some(agent) => crate::icons::agent_session_icon(agent),
-            None => crate::icons::agent_icon(None, None),
-        };
+        let icon = agent_def_icon(self.agent.as_ref());
         div()
             .size(px(MARKER_PX))
             .flex_shrink_0()
@@ -169,6 +448,7 @@ impl AgentScreenView {
 
     fn render_row(&self, row: &SessionThreadRow, window: &Window, cx: &mut gpui::Context<Self>) -> AnyElement {
         let team_id = self.agent.as_ref().and_then(|agent| agent.team_id.clone());
+        let conversation_id = self.conversation.as_ref().map(|row| row.id.clone()).unwrap_or_default();
         let SessionThreadRow::Message {
             id,
             author,
@@ -177,7 +457,7 @@ impl AgentScreenView {
             ..
         } = row
         else {
-            return crate::thread_screen::card_row(row, &self.agent_id, &crate::thread_screen::ThreadText::team(team_id.as_deref()), &self.images, window, cx)
+            return crate::thread_screen::card_row(row, &conversation_id, &crate::thread_screen::ThreadText::team(team_id.as_deref()), &self.images, window, cx)
                 .map(|card| div().w_full().pl(px(CARD_INSET)).child(card).into_any_element())
                 .unwrap_or_else(|| div().into_any_element());
         };
@@ -201,7 +481,7 @@ impl AgentScreenView {
             }
             domain::contract::MESSAGE_AUTHOR_KIND_AGENT => (
                 self.agent_marker(cx),
-                self.agent.as_ref().map(agent_name).unwrap_or_default(),
+                self.agent.as_ref().map(agent_def_name).unwrap_or_default(),
             ),
             _ => {
                 return crate::thread_screen::muted_line(registry::UI_INFO, body.clone(), cx);
@@ -228,10 +508,8 @@ impl AgentScreenView {
 
     fn render_header(&self, cx: &App) -> AnyElement {
         let theme = cx.theme();
-        let (icon, name) = match &self.agent {
-            Some(agent) => (crate::icons::agent_session_icon(agent), agent_name(agent)),
-            None => (crate::icons::agent_icon(None, None), String::new()),
-        };
+        let icon = agent_def_icon(self.agent.as_ref());
+        let name = self.agent.as_ref().map(agent_def_name).unwrap_or_default();
         v_flex()
             .w_full()
             .px(px(HEADER_INSET))
@@ -267,6 +545,23 @@ impl Focusable for AgentScreenView {
 impl Render for AgentScreenView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         if self.agent.is_none() {
+            // The agents synced, this one is not among them, and the grace
+            // passed (deleted, a lost membership, a foreign id).
+            let ready = Store::try_global(cx).is_some_and(|store| store.collections().agents.read(cx).is_ready());
+            if crate::thread_screen::thread_not_found(ready, false, self.opened_at.elapsed()) {
+                return v_flex()
+                    .track_focus(&self.focus_handle)
+                    .size_full()
+                    .px_4()
+                    .items_center()
+                    .justify_center()
+                    .child(crate::controls::empty_state(
+                        Icon::new(registry::SETTINGS_AGENTS),
+                        AGENT_NOT_FOUND,
+                        Some(crate::empty_state_copy::THREAD_NOT_FOUND_DESCRIPTION.into()),
+                        cx,
+                    ));
+            }
             // Skeletons, never "Loading…" (feedback-states.json).
             return v_flex()
                 .track_focus(&self.focus_handle)
@@ -275,14 +570,15 @@ impl Render for AgentScreenView {
                 .pt_6()
                 .child(crate::feedback::skeleton_rows("agent-loading", 3, 36., cx));
         }
-        // THE ask dock (ask-dock.json ×4): the channel's waiting cards take
-        // the composer's slot; a reader who may not reply keeps them inline.
+        // THE ask dock (ask-dock.json ×4): the conversation's waiting cards
+        // take the composer's slot; a reader who may not reply keeps them
+        // inline.
         let team_id = self.agent.as_ref().and_then(|agent| agent.team_id.clone());
-        let dock = self
-            .composer
-            .read(cx)
-            .may_message()
-            .then(|| {
+        let composer_view = self.composer.as_ref().map(|(_, composer)| composer.clone());
+        let dock = composer_view
+            .as_ref()
+            .filter(|composer| composer.read(cx).may_message())
+            .and_then(|_| {
                 crate::thread_screen::conversation_dock(
                     "agent",
                     &self.rows,
@@ -293,8 +589,7 @@ impl Render for AgentScreenView {
                     window,
                     cx,
                 )
-            })
-            .flatten();
+            });
         let docked = dock.as_ref().map(|(_, ids)| ids.clone()).unwrap_or_default();
         let rows: Vec<AnyElement> = self
             .rows
@@ -312,10 +607,11 @@ impl Render for AgentScreenView {
             .pb_8()
             .gap_4()
             .children(rows);
-        // THE session composer of the session view, targeting the agent; it
-        // yields its slot to the dock.
-        let composer = match dock {
-            Some((dock, _)) => Some(
+        // THE session composer of the conversation, targeting its root; it
+        // yields its slot to the dock. No conversation yet = the same box,
+        // whose send opens it.
+        let composer = match (dock, composer_view) {
+            (Some((dock, _)), _) => Some(
                 div()
                     .w_full()
                     .max_w(px(CHANNEL_W))
@@ -324,9 +620,10 @@ impl Render for AgentScreenView {
                     .child(dock)
                     .into_any_element(),
             ),
-            None => self
-                .composer
-                .update(cx, |composer, cx| composer.render_session_composer(window, cx)),
+            (None, Some(composer)) => {
+                composer.update(cx, |composer, cx| composer.render_session_composer(window, cx))
+            }
+            (None, None) => Some(self.render_first_composer(cx)),
         };
         v_flex()
             .track_focus(&self.focus_handle)
@@ -352,9 +649,9 @@ mod tests {
     #[test]
     fn the_placeholder_names_the_agent() {
         assert_eq!(message_placeholder("Triage"), "Message Triage");
-        let agent: SessionRow = serde_json::from_value(serde_json::json!({"id": "a", "name": " Triage "})).unwrap();
-        assert_eq!(agent_name(&agent), "Triage");
-        let unnamed: SessionRow = serde_json::from_value(serde_json::json!({"id": "a"})).unwrap();
-        assert_eq!(agent_name(&unnamed), domain::session_title::copy::UNTITLED);
+        let agent: AgentDefRow = serde_json::from_value(serde_json::json!({"id": "a", "name": " Triage "})).unwrap();
+        assert_eq!(agent_def_name(&agent), "Triage");
+        let unnamed: AgentDefRow = serde_json::from_value(serde_json::json!({"id": "a"})).unwrap();
+        assert_eq!(agent_def_name(&unnamed), domain::session_title::copy::UNTITLED);
     }
 }

@@ -1352,7 +1352,7 @@ fn fold_forest<'a, T: ?Sized>(
         }
     }
     let mut seen: HashSet<&'a str> = HashSet::new();
-    let mut fold = |top: &'a T, seen: &mut HashSet<&'a str>| {
+    let fold = |top: &'a T, seen: &mut HashSet<&'a str>| {
         let mut nested = Vec::new();
         seen.insert(id(top));
         walk(id(top), 1, &children, &id, seen, &mut nested);

@@ -56,7 +56,7 @@ use gpui::{
     SharedString, Styled, Subscription,
     Window,
 };
-use gpui_component::input::{InputEvent, TextareaState};
+use gpui_component::input::{self as input, InputEvent, TextareaState};
 use gpui_component::menu::{DropdownMenu as _, PopupMenuItem};
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::{
@@ -348,6 +348,13 @@ pub(crate) struct ChatScreenView {
     chips_scroll: gpui::ScrollHandle,
     /// EXP-1155: the dialog window follows its content (`None` on the page).
     dialog_fit: Option<DialogFit>,
+    /// NEW-2: THE `/` menu over the draft — the team's prompts alone (no
+    /// session yet, so no builtins); `None` = closed.
+    slash: Option<(Vec<crate::slash_commands::SlashItem>, usize)>,
+    slash_scroll: gpui::ScrollHandle,
+    /// The draft the menu was dismissed (or picked) on; it stays shut until
+    /// the draft changes.
+    slash_dismissed_for: Option<String>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -388,8 +395,12 @@ impl ChatScreenView {
                 window,
                 |this, _, event: &InputEvent, window, cx| match event {
                     InputEvent::PressEnter { shift: false, .. } => this.send(window, cx),
-                    // The blocker is a function of the draft.
-                    InputEvent::Change => cx.notify(),
+                    // The blocker is a function of the draft, the `/`
+                    // menu too.
+                    InputEvent::Change => {
+                        this.refresh_slash(cx);
+                        cx.notify();
+                    }
                     _ => {}
                 },
             ),
@@ -472,6 +483,9 @@ impl ChatScreenView {
             page_scroll: gpui::ScrollHandle::new(),
             chips_scroll: gpui::ScrollHandle::new(),
             dialog_fit: None,
+            slash: None,
+            slash_scroll: gpui::ScrollHandle::new(),
+            slash_dismissed_for: None,
             _subscriptions: subscriptions,
         };
         this.ensure_launch(window, cx);
@@ -896,6 +910,128 @@ impl ChatScreenView {
         self.actions
             .iter()
             .find(|action| action.id == subject.action_id)
+    }
+
+    // ── the `/` menu (NEW-2) ──────────────────────────────────────────────
+
+    /// Re-derive the `/` menu from the draft (web `launch-composer`: the
+    /// team's prompts, no builtins — there is no session yet).
+    fn refresh_slash(&mut self, cx: &mut gpui::Context<Self>) {
+        let draft = self.input.read(cx).value().to_string();
+        if self.slash_dismissed_for.as_deref() == Some(draft.as_str()) {
+            self.slash = None;
+            return;
+        }
+        self.slash_dismissed_for = None;
+        let prompts: Vec<crate::slash_commands::SlashPrompt> = self
+            .actions
+            .iter()
+            .map(crate::slash_commands::SlashPrompt::from)
+            .collect();
+        let items = crate::slash_commands::slash_items(&draft, None, &prompts);
+        self.slash = if items.is_empty() {
+            None
+        } else {
+            let selected = self
+                .slash
+                .as_ref()
+                .map_or(0, |(_, selected)| *selected)
+                .min(items.len() - 1);
+            Some((items, selected))
+        };
+    }
+
+    fn move_slash(&mut self, delta: isize, cx: &mut gpui::Context<Self>) {
+        if let Some((items, selected)) = self.slash.as_mut() {
+            let len = items.len() as isize;
+            if len > 0 {
+                *selected = (*selected as isize + delta).rem_euclid(len) as usize;
+                self.slash_scroll.scroll_to_item(*selected);
+                cx.notify();
+            }
+        }
+    }
+
+    /// A pick makes the prompt the SUBJECT (its chip) and clears the `/name`
+    /// it was typed as; the send then carries `promptId`.
+    fn accept_slash(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let Some((items, selected)) = self.slash.take() else {
+            return;
+        };
+        if let Some(crate::slash_commands::SlashItem::Prompt(prompt)) = items.get(selected).cloned() {
+            self.slash_dismissed_for = Some(String::new());
+            self.select_action(prompt.id, cx);
+            self.input
+                .update(cx, |state, cx| state.set_value("", window, cx));
+        }
+        cx.notify();
+    }
+
+    fn on_slash_up(&mut self, _: &input::MoveUp, _: &mut Window, cx: &mut gpui::Context<Self>) {
+        if self.slash.is_some() {
+            self.move_slash(-1, cx);
+            cx.stop_propagation();
+        }
+    }
+
+    fn on_slash_down(&mut self, _: &input::MoveDown, _: &mut Window, cx: &mut gpui::Context<Self>) {
+        if self.slash.is_some() {
+            self.move_slash(1, cx);
+            cx.stop_propagation();
+        }
+    }
+
+    fn on_slash_escape(&mut self, _: &input::Escape, _: &mut Window, cx: &mut gpui::Context<Self>) {
+        if self.slash.take().is_some() {
+            self.slash_dismissed_for = Some(self.input.read(cx).value().to_string());
+            cx.stop_propagation();
+            cx.notify();
+        }
+    }
+
+    /// With the menu open Enter ACCEPTS, and the field never emits the
+    /// `PressEnter` that starts.
+    fn on_slash_enter(&mut self, action: &input::Enter, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        if self.slash.is_some() && !action.shift {
+            self.accept_slash(window, cx);
+            cx.stop_propagation();
+        }
+    }
+
+    fn on_slash_tab(&mut self, _: &input::IndentInline, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        if self.slash.is_some() {
+            self.accept_slash(window, cx);
+            cx.stop_propagation();
+        }
+    }
+
+    /// THE `/` menu inside the card, above the field (the session
+    /// composer's [`crate::composer::session_slash_menu`]).
+    fn render_slash(&self, window: &Window, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
+        let (items, selected) = self.slash.as_ref()?;
+        Some(crate::composer::session_slash_menu(
+            "chat-slash-menu",
+            "chat-slash-row",
+            items,
+            *selected,
+            &self.slash_scroll,
+            |this: &mut Self, index, cx| {
+                if let Some((_, selected)) = this.slash.as_mut() {
+                    if *selected != index {
+                        *selected = index;
+                        cx.notify();
+                    }
+                }
+            },
+            |this: &mut Self, index, window, cx| {
+                if let Some((_, selected)) = this.slash.as_mut() {
+                    *selected = index;
+                }
+                this.accept_slash(window, cx);
+            },
+            window,
+            cx,
+        ))
     }
 
     // ── subject: agent (NEW-3) ────────────────────────────────────────────
@@ -1564,9 +1700,11 @@ impl ChatScreenView {
                 Ok(output) => {
                     let in_dialog = this.in_dialog();
                     if this.start_landed(generation, window, cx) {
-                        let session_id = output.session_id;
+                        // NEW-6: the agent's page shows the caller's
+                        // conversation (the send created or reused it).
+                        let _ = output.session_id;
                         navigation::defer_in_result_window(window, cx, move |window, cx| {
-                            let screen = Screen::Agent { session_id };
+                            let screen = Screen::Agent { agent_id };
                             if in_dialog {
                                 navigation::navigate(window, cx, screen);
                             } else {
@@ -2223,8 +2361,9 @@ impl ChatScreenView {
         .loading(self.sending || self.start_pending.shown())
         .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.send(window, cx)));
         // EXP-1019: the subject CHIPS moved out of the card into the
-        // headline (NEW-2: a prompt has no typed inputs).
-        let leading: Option<AnyElement> = None;
+        // headline (NEW-2: a prompt has no typed inputs). NEW-2: the `/`
+        // menu leads the card, above the field.
+        let leading: Option<AnyElement> = self.render_slash(window, cx);
         let strip = (!self.images.is_empty()).then(|| {
             self.images
                 .render_strip("chat-pending-remove", self.sending, Self::remove_image, cx)
@@ -2233,6 +2372,13 @@ impl ChatScreenView {
             div()
                 .w_full()
                 .min_w_0()
+                // The captures run before the field's own handlers: with the
+                // `/` menu open the keys drive it, never the send.
+                .capture_action(cx.listener(Self::on_slash_up))
+                .capture_action(cx.listener(Self::on_slash_down))
+                .capture_action(cx.listener(Self::on_slash_escape))
+                .capture_action(cx.listener(Self::on_slash_enter))
+                .capture_action(cx.listener(Self::on_slash_tab))
                 .child(self.mention.clone())
                 .into_any_element(),
         )

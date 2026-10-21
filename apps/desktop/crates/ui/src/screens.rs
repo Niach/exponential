@@ -175,8 +175,8 @@ pub(crate) fn build_screen_content(
         Screen::Thread { session_id } => cx
             .new(|cx| crate::thread_screen::ThreadScreenView::new(session_id.clone(), window, cx))
             .into(),
-        Screen::Agent { session_id } => cx
-            .new(|cx| crate::agent_screen::AgentScreenView::new(session_id.clone(), window, cx))
+        Screen::Agent { agent_id } => cx
+            .new(|cx| crate::agent_screen::AgentScreenView::new(agent_id.clone(), window, cx))
             .into(),
         // EXP-769: a terminal pops out through `undock::open_undocked_terminal_tab`
         // (the manager keeps the tab; the window renders the same view) —
@@ -251,7 +251,7 @@ struct TabEntry {
 impl TabEntry {
     fn new(screen: Screen, origin: Option<TabOrigin>, root_id: Option<String>) -> Self {
         let root_id = root_id.or_else(|| match &screen {
-            Screen::Thread { session_id } | Screen::Agent { session_id } => {
+            Screen::Thread { session_id } | Screen::Agent { agent_id: session_id } => {
                 Some(session_id.clone())
             }
             _ => None,
@@ -287,7 +287,7 @@ impl TabEntry {
             return true;
         }
         match screen {
-            Screen::Thread { session_id } | Screen::Agent { session_id } => {
+            Screen::Thread { session_id } | Screen::Agent { agent_id: session_id } => {
                 self.holds_root(session_id)
             }
             _ => false,
@@ -305,7 +305,10 @@ impl TabEntry {
 /// while that row has not synced, and for every other screen).
 fn screen_root(screen: &Screen, cx: &App) -> Option<String> {
     match screen {
-        Screen::Thread { session_id } | Screen::Agent { session_id } => Some(session_id.clone()),
+        Screen::Thread { session_id } => Some(session_id.clone()),
+        // NEW-6: the caller's conversation with the agent (the agent id
+        // until the first message creates it).
+        Screen::Agent { agent_id } => Some(crate::agent_screen::agent_screen_root(agent_id, cx)),
         Screen::Session { session_id } => crate::session_data::session(session_id, cx)
             .map(|row| row.root_id_or_self().to_string()),
         _ => None,
@@ -754,10 +757,11 @@ fn session_chip_content(session_id: &str, cx: &App) -> ChipContent {
     }
 }
 
-/// EXP-1294 — an agent channel's chip: the agent's icon in its colour and
-/// its name.
+/// EXP-1294 — an agent page's chip: the `agents` row's icon in its colour
+/// and its name.
 fn agent_chip_content(agent_id: &str, cx: &App) -> ChipContent {
-    let Some(agent) = crate::session_data::session(agent_id, cx) else {
+    let resolved = crate::agent_screen::resolve_agent_id(agent_id, cx);
+    let Some(agent) = crate::session_data::agent_def(&resolved, cx) else {
         return loading_chip(cx);
     };
     ChipContent {
@@ -768,7 +772,7 @@ fn agent_chip_content(agent_id: &str, cx: &App) -> ChipContent {
         identifier: None,
         title: Some(screen_title(
             &Screen::Agent {
-                session_id: agent_id.to_string(),
+                agent_id: agent_id.to_string(),
             },
             cx,
         )),
@@ -817,7 +821,7 @@ fn chip_content(screen: &Screen, cx: &App) -> ChipContent {
     match screen {
         Screen::Session { session_id } => return session_chip_content(session_id, cx),
         Screen::Thread { session_id } => return thread_chip_content(session_id, cx),
-        Screen::Agent { session_id } => return agent_chip_content(session_id, cx),
+        Screen::Agent { agent_id } => return agent_chip_content(agent_id, cx),
         Screen::Terminal { tab } => return terminal_chip_content(*tab, cx),
         _ => {}
     }
@@ -1373,9 +1377,9 @@ impl ScreensPanel {
                 // EXP-1316 (1b): back on the thread itself.
                 thread.update(cx, |thread, cx| thread.set_focus(None, cx));
             }
-            Screen::Agent { session_id } => {
-                self.agents.entry(session_id.clone()).or_insert_with(|| {
-                    cx.new(|cx| crate::agent_screen::AgentScreenView::new(session_id, window, cx))
+            Screen::Agent { agent_id } => {
+                self.agents.entry(agent_id.clone()).or_insert_with(|| {
+                    cx.new(|cx| crate::agent_screen::AgentScreenView::new(agent_id, window, cx))
                 });
             }
             Screen::BoardIssues { .. }
@@ -1689,7 +1693,14 @@ impl ScreensPanel {
             if let Some(view) = self.threads.remove(root_id) {
                 view.update(cx, |view, cx| view.shutdown(cx));
             }
-            self.agents.remove(root_id);
+            // NEW-6: agent views are keyed by the AGENT id; the tab's root
+            // is the caller's conversation with it.
+            self.agents.retain(|agent_id, _| {
+                agent_id != root_id && crate::agent_screen::agent_screen_root(agent_id, cx) != *root_id
+            });
+        }
+        if let Screen::Agent { agent_id } = &tab.screen {
+            self.agents.remove(agent_id);
         }
         // EXP-894: a closed tab's stashed drafts (`crate::tab_state`) go too.
         if let Some(issue_id) = tab.issue_id() {
@@ -3172,9 +3183,9 @@ impl Render for ScreensPanel {
                 .cloned()
                 .map(gpui::IntoElement::into_any_element)
                 .unwrap_or_else(|| self.render_syncing(cx)),
-            Some(Screen::Agent { session_id }) => self
+            Some(Screen::Agent { agent_id }) => self
                 .agents
-                .get(session_id)
+                .get(agent_id)
                 .cloned()
                 .map(gpui::IntoElement::into_any_element)
                 .unwrap_or_else(|| self.render_syncing(cx)),
@@ -3654,7 +3665,7 @@ mod tests {
         assert_eq!(early.root_id, None);
         let agent = TabEntry::new(
             Screen::Agent {
-                session_id: "a1".into(),
+                agent_id: "a1".into(),
             },
             None,
             None,
@@ -3906,8 +3917,8 @@ mod tests {
                 _window: &mut Window,
                 _cx: &mut gpui::Context<Self>,
             ) -> impl IntoElement {
-                // The Actions page's real shapes (actions_view.rs /
-                // machines.rs), with production-like text. The action rows
+                // A settings list's real shapes (the retired Actions page's
+                // rows, machines.rs), with production-like text. The action rows
                 // mirror `render_action_row` (EXP-618): full-width, a
                 // truncating middle column, a nowrap trailing control.
                 let action_row = |name: &'static str, blurb: &'static str| {

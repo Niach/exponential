@@ -274,9 +274,9 @@ pub(crate) fn select_file(window: &mut Window, cx: &mut App, path: Option<String
 
 /// DEV-ONLY `EXP_DEV_SETTINGS` values: the [`crate::settings::SettingsSection`]
 /// variants in kebab form, plus `board:<uuid>` / `agent:<id>` /
-/// `prompt:<id>` for one board's / agent's / prompt's pane and `agents` =
-/// the team's first agent (or the
-/// empty Agents pane; resolved by the settings screen once synced). The
+/// `prompt:<id>` for one board's / agent's / prompt's pane, `agents` = the
+/// Agents index and `agent` = the team's first agent (resolved by the
+/// settings screen once synced). The
 /// settings screen clamps a section the signed-in user cannot see
 /// (`settings::effective_selection`), so an owner-only value on a member
 /// account still lands on the fallback pane rather than an empty one.
@@ -293,7 +293,10 @@ fn parse_dev_settings_section(spec: &str) -> Option<crate::settings::SettingsSec
         "repositories" => Some(S::Repositories),
         "tools" => Some(S::Tools),
         "agent-clis" => Some(S::AgentClis),
-        "agents" => Some(S::Agent(String::new())),
+        // NEW-6: the Agents index (web `settings/agents`: the agents + the
+        // Events band); `agent` = the team's first agent's page.
+        "agents" => Some(S::Agents),
+        "agent" => Some(S::Agent(String::new())),
         "new-agent" => Some(S::NewAgent),
         // NEW-6: Settings → Prompts, and its create page.
         "prompts" => Some(S::Prompts),
@@ -1310,17 +1313,17 @@ impl RailView {
         agent: &domain::session_tree::AgentRow,
         cx: &mut gpui::Context<Self>,
     ) -> gpui::AnyElement {
-        // NEW-2: the row is the agent DEFINITION; its channel is the
-        // viewer's own conversation session (none before the first message:
-        // the click opens the agent's page instead; NEW-6 redoes this).
-        let conversation = crate::session_data::my_conversation(&agent.agent_id, cx).map(|row| row.id);
+        // NEW-6: the row is the agent DEFINITION; a click opens its page
+        // (the viewer's own conversation with it, empty before the first
+        // message, whose composer then opens it).
         let active = matches!(
             resolved_screen(&self.nav, cx),
-            Some(Screen::Agent { session_id }) if conversation.as_deref() == Some(session_id.as_str())
+            Some(Screen::Agent { agent_id })
+                if crate::agent_screen::resolve_agent_id(&agent_id, cx) == agent.agent_id
         );
         let icon = crate::icons::agent_row_icon(agent);
         let settings_id = agent.agent_id.clone();
-        let open_settings_id = agent.agent_id.clone();
+        let open_id = agent.agent_id.clone();
         self.entry(
             ("rail-agent-row", index),
             icon.with_size(gpui_component::Size::Medium).flex_shrink_0().into_any_element(),
@@ -1330,16 +1333,14 @@ impl RailView {
             cx,
         )
         .group(AGENT_ROW_GROUP)
-        .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| match conversation.clone() {
-            Some(session_id) => navigate(window, cx, Screen::Agent { session_id }),
-            None => {
-                select_settings_section(
-                    window,
-                    cx,
-                    crate::settings::SettingsSection::Agent(open_settings_id.clone()),
-                );
-                navigate(window, cx, Screen::Settings);
-            }
+        .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
+            navigate(
+                window,
+                cx,
+                Screen::Agent {
+                    agent_id: open_id.clone(),
+                },
+            )
         }))
         .child(
                 div()

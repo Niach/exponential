@@ -103,10 +103,12 @@ pub enum Screen {
     /// [`crate::session_screen`]), opened from its card. It shares its ROOT's
     /// tab: the tab rebinds to it and Back returns to the thread.
     Session { session_id: String },
-    /// EXP-1294: one agent's channel — a ROOT `sessions` row of kind `agent`
-    /// ([`crate::agent_screen`]). A detail tab chipped with the agent's
+    /// EXP-1294 / NEW-6: one agent's page ([`crate::agent_screen`]): the id
+    /// is the `agents` row (a legacy conversation session id still resolves,
+    /// [`crate::agent_screen::resolve_agent_id`]); it shows the caller's own
+    /// conversation with the agent. A detail tab chipped with the agent's
     /// tinted icon and name.
-    Agent { session_id: String },
+    Agent { agent_id: String },
     /// One PTY terminal of this window's `TerminalManager` (EXP-769): a plain
     /// shell or an agent login, never a coding run (EXP-773). The
     /// terminal used to live in a sliding bottom dock; it renders FULLSCREEN
@@ -322,7 +324,11 @@ pub(crate) fn second_sidebar_for(
 pub(crate) fn session_screen_for(session_id: &str, cx: &App) -> Screen {
     let session_id = session_id.to_string();
     match crate::session_data::session(&session_id, cx) {
-        Some(row) if row.is_root() && row.is_agent() => Screen::Agent { session_id },
+        // NEW-6: a conversation opens its AGENT's page (the caller's own
+        // conversation shows there).
+        Some(row) if row.is_root() && row.is_agent() => Screen::Agent {
+            agent_id: row.agent_id.clone().unwrap_or(session_id),
+        },
         Some(row) if row.is_root() => Screen::Thread { session_id },
         _ => Screen::Session { session_id },
     }
@@ -363,7 +369,7 @@ pub(crate) fn screen_title(screen: &Screen, cx: &App) -> gpui::SharedString {
         // root syncs).
         Screen::Thread { session_id } => thread_tab_title(session_id, cx),
         // EXP-1294: the agent's name.
-        Screen::Agent { session_id } => agent_tab_title(session_id, cx),
+        Screen::Agent { agent_id } => agent_tab_title(agent_id, cx),
         // EXP-769: the manager's live tab title (OSC-updated), looked up
         // across this process's windows — a tab id is process-unique.
         Screen::Terminal { tab } => crate::session_bar::terminal_tab_title(*tab, cx)
@@ -424,11 +430,13 @@ fn session_tab_title(session_id: &str, cx: &App) -> gpui::SharedString {
     thread_tab_title(session_id, cx)
 }
 
-/// EXP-1294: an agent channel's label — the agent's name, `Agent` while the
-/// root syncs (or carries none).
-fn agent_tab_title(session_id: &str, cx: &App) -> gpui::SharedString {
+/// EXP-1294: an agent page's label — the `agents` row's name, `Agent` while
+/// it syncs (or carries none).
+fn agent_tab_title(agent_id: &str, cx: &App) -> gpui::SharedString {
     Store::try_global(cx)
-        .and_then(|_| crate::session_data::session(session_id, cx))
+        .and_then(|_| {
+            crate::session_data::agent_def(&crate::agent_screen::resolve_agent_id(agent_id, cx), cx)
+        })
         .and_then(|row| row.name)
         .map(|name| name.trim().to_string())
         .filter(|name| !name.is_empty())
@@ -867,7 +875,7 @@ fn parse_dev_screen(spec: &str) -> Option<Screen> {
             }
             if let Some(id) = spec.strip_prefix("agent:") {
                 return Some(Screen::Agent {
-                    session_id: id.to_string(),
+                    agent_id: id.to_string(),
                 });
             }
             // EXP-1259: one IDE styleguide entry, full-window.
@@ -2304,7 +2312,7 @@ mod tests {
         assert!(!thread.carries_list());
         assert!(!thread.undockable());
         let agent = Screen::Agent {
-            session_id: "a1".into(),
+            agent_id: "a1".into(),
         };
         assert_eq!(parse_dev_screen("agent:a1"), Some(agent.clone()));
         assert_eq!(parse_dev_screen("agent"), None);
@@ -2372,7 +2380,7 @@ mod tests {
                 session_id: "t1".into(),
             },
             Screen::Agent {
-                session_id: "a1".into(),
+                agent_id: "a1".into(),
             },
             draft_screen("d1", "b1"),
         ] {
@@ -2513,7 +2521,7 @@ mod tests {
         assert!(!draft.is_dock_tab());
         assert!(!Screen::Home.carries_list());
         assert!(!Screen::Agent {
-            session_id: "a1".into()
+            agent_id: "a1".into()
         }
         .carries_list());
         // (A terminal is out too, but `TabId` has no test constructor.)
@@ -2680,7 +2688,7 @@ mod tests {
             Screen::Files,
             Screen::SourceControl,
             Screen::Threads,
-            Screen::Agent { session_id: "a1".into() },
+            Screen::Agent { agent_id: "a1".into() },
             Screen::ExponentialUiKitchenSink,
             Screen::ExponentialUiDevices,
         ] {
