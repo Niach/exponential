@@ -141,7 +141,9 @@ struct ThreadFoldSheet: View {
 /// EXP-1334: THE thread composer's "+" on a phone — composer-menu.json's
 /// rows (`ComposerMenu.composerMenuLayout`, fixture-locked ×4) in THE Menu's
 /// sheet, the same rows before and DURING a session: Implement issue (links
-/// it into this thread, waking the dispatcher) · Add file or image | Effort ›
+/// it into this thread, waking the dispatcher) · Message an agent › (NEW-7,
+/// while the team has agents: the pick becomes the composer's subject, the
+/// send goes into the caller's DM with it) · Add file or image | Effort ›
 /// · Ultracode | MCP servers › · Computer use. Run action has no target in a
 /// running thread (an action STARTS one), so it stays off. Toggles flip in
 /// place (the host sends `sessions.configure`); a hand-off row closes the
@@ -153,6 +155,8 @@ struct ThreadComposerPlusMenu: View {
     /// The Effort row's value, the MCP row's value.
     let effortValue: String?
     let mcpValue: String?
+    /// NEW-7: Message an agent ›'s value (the picked agent's name).
+    var agentValue: String? = nil
     @Binding var ultracode: Bool
     @Binding var computerUse: Bool
     var addFileEnabled = true
@@ -219,7 +223,9 @@ struct ThreadComposerPlusMenu: View {
                         .font(.body)
                         .foregroundStyle(.white)
                     Spacer(minLength: 8)
-                    if let value = row.id == .effort ? effortValue : row.id == .mcpServers ? mcpValue : nil {
+                    if let value = row.id == .effort ? effortValue
+                        : row.id == .mcpServers ? mcpValue
+                        : row.id == .messageAgent ? agentValue : nil {
                         Text(value)
                             .font(.subheadline)
                             .foregroundStyle(.white.opacity(TextOpacity.tertiary))

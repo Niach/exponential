@@ -15,11 +15,16 @@ import Foundation
 // MARK: - Inputs
 
 /// A usage wall (`sessions.blocked` jsonb): set = the session is walled.
+/// NEW-1: `kind` = why (contract codingSessionBlocked.kinds: `rate_limit`,
+/// or a watchdog flag `device_offline` / `unclaimed` / `stuck`); nil = a
+/// usage wall written before the column carried it.
 public struct TreeSessionBlocked: Equatable, Sendable {
+    public let kind: String?
     public let window: String?
     public let resetsAt: String?
 
-    public init(window: String? = nil, resetsAt: String? = nil) {
+    public init(kind: String? = nil, window: String? = nil, resetsAt: String? = nil) {
+        self.kind = kind
         self.window = window
         self.resetsAt = resetsAt
     }
@@ -28,6 +33,7 @@ public struct TreeSessionBlocked: Equatable, Sendable {
     public static func parse(_ raw: String?) -> TreeSessionBlocked? {
         guard let object = SessionTree.jsonObject(raw) else { return nil }
         return TreeSessionBlocked(
+            kind: object["kind"] as? String,
             window: object["window"] as? String,
             resetsAt: object["resetsAt"] as? String
         )
@@ -1329,7 +1335,7 @@ public enum SessionTree {
             sessionId: session.id,
             icon: state.icon,
             name: title,
-            kindWord: state.word,
+            kindWord: sessionKindWord(session, state: state),
             state: state,
             tone: state.tone,
             elapsed: elapsed,
@@ -1337,6 +1343,16 @@ public enum SessionTree {
             caption: cardCaption(session),
             testId: CardCopy.testId
         )
+    }
+
+    /// NEW-1: the card's state word; a blocked session names WHY
+    /// (`CardCopy.blockedKinds[blocked.kind]`; an unknown or absent kind =
+    /// `SessionState.blocked.word`). Web `sessionKindWord`.
+    public static func sessionKindWord(_ session: TreeSession, state: SessionState) -> String {
+        if state == .blocked, let kind = session.blocked?.kind, let word = CardCopy.blockedKinds[kind] {
+            return word
+        }
+        return state.word
     }
 
     /// EXP-1323: the card's second line — the trimmed caption; blank = nil;

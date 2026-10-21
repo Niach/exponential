@@ -1581,8 +1581,12 @@ struct AgentSessionView: View {
                 )
                 Spacer(minLength: 0)
                 // EXP-849: the wall's PRIMARY move is another login — only
-                // for whoever may steer the session.
-                if model.mayPost {
+                // for whoever may steer the session, and (NEW-1) only for a
+                // USAGE wall: a watchdog flag is not lifted by a login.
+                if model.mayPost,
+                   AgentUsagePresentation.isUsageWall(
+                       AgentUsagePresentation.parseBlocked((model.session ?? session).blocked)
+                   ) {
                     accountSwitchControl(model)
                 }
             }

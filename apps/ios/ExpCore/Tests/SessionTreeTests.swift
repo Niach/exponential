@@ -40,7 +40,9 @@ final class SessionTreeTests: XCTestCase {
     private func session(_ object: Any?) throws -> TreeSession {
         let row = try XCTUnwrap(object as? [String: Any])
         let blocked = (row["blocked"] as? [String: Any]).map {
-            TreeSessionBlocked(window: $0["window"] as? String, resetsAt: $0["resetsAt"] as? String)
+            TreeSessionBlocked(
+                kind: $0["kind"] as? String, window: $0["window"] as? String, resetsAt: $0["resetsAt"] as? String
+            )
         }
         let guide = (row["guide"] as? [[String: Any]]).map { entries in
             entries.map { TreeGuideEntry(text: $0["text"] as? String, label: $0["label"] as? String) }
@@ -335,6 +337,33 @@ final class SessionTreeTests: XCTestCase {
             )
             assertJSON(json(card), testCase["expected"], name)
         }
+    }
+
+    /// NEW-1: a blocked session's card names its kind (`copy.blockedKinds`);
+    /// an unknown or absent kind keeps `states.blocked` (TS
+    /// `sessionKindWord`).
+    func testABlockedCardNamesItsKind() throws {
+        let fixture = try fixture("session-card.json")
+        let base = try XCTUnwrap(try cases(fixture).first {
+            (($0["expected"] as? [String: Any])?["state"] as? String) == "blocked"
+        })
+        let input = try XCTUnwrap(base["input"] as? [String: Any])
+        var row = try XCTUnwrap(input["session"] as? [String: Any])
+        let title = try XCTUnwrap(input["title"] as? String)
+        let now = try date(input["now"])
+        func word(_ blocked: [String: Any]) throws -> String {
+            row["blocked"] = blocked
+            return SessionTree.sessionCard(try session(row), title: title, now: now).kindWord
+        }
+        let kinds = try XCTUnwrap((fixture["copy"] as? [String: Any])?["blockedKinds"] as? [String: String])
+        XCTAssertEqual(try word(["kind": "rate_limit"]), kinds["rate_limit"])
+        XCTAssertEqual(try word(["kind": "device_offline"]), "Device offline")
+        XCTAssertEqual(try word(["kind": "unclaimed"]), "Not picked up")
+        XCTAssertEqual(try word(["kind": "stuck"]), "Stuck")
+        XCTAssertEqual(try word(["kind": "future_kind"]), SessionState.blocked.word)
+        XCTAssertEqual(try word(["window": "weekly"]), SessionState.blocked.word)
+        // The jsonb parse carries the kind.
+        XCTAssertEqual(TreeSessionBlocked.parse(#"{"kind":"stuck"}"#)?.kind, "stuck")
     }
 
     func testFormatsTheElapsedLadder() {

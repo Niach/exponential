@@ -966,6 +966,9 @@ final class StyleguideScreenshots: XCTestCase {
         )
         snapshot("sg_agent-channel", settle: 2)
         goBack(app)
+        // A subset run that wants neither of the next two stops here: the
+        // session step needs the relay stub (`bun run screenshots:desktop`).
+        guard ScreenshotShots.isWanted("sg_thread") || ScreenshotShots.isWanted("sg_session") else { return }
 
         // ── sg_thread: the cold-start thread (DEMO_THREAD_ID) ──────────────
         let coldStart = threadRow(app, containing: Self.coldStartThreadTitle)
@@ -986,6 +989,11 @@ final class StyleguideScreenshots: XCTestCase {
             XCTAssertTrue(pinned.isHittable, "\(id) is off screen — the strip must never scroll")
         }
         snapshot("sg_thread", settle: 2)
+        guard ScreenshotShots.isWanted("sg_session") else {
+            goBack(app)
+            settle(1)
+            return
+        }
 
         // ── sg_session: that card's raw view (DEMO_SESSION_ID) ─────────────
         // The child's session card sits above; scroll back to it if a long

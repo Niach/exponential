@@ -83,7 +83,7 @@ struct TeamEventsSection: View {
                 EmptyState(title: "No events yet", icon: AppIcons.triggerEvent, size: .list)
                     .padding(.vertical, 8)
             }
-            TimelineView(.periodic(from: .now, by: 60)) { context in
+            TimelineView(.everyMinute) { context in
                 VStack(spacing: 0) {
                     ForEach(events) { event in
                         row(event, now: context.date)

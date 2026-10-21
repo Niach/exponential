@@ -450,7 +450,12 @@ enum EntityRefResolver {
         // EXP-1341: ONE display title for a root and a child alike.
         let title = try SessionTree.sessionTitle(db: db, session: session)
         var facts: [EntityPreviewModel.Fact] = [
-            .init(id: "state", label: state.word, tint: SessionStateDot.color(state)),
+            // NEW-1: a blocked session names WHY (`blockedKinds`).
+            .init(
+                id: "state",
+                label: SessionTree.sessionKindWord(TreeSession(sessionRow: session), state: state),
+                tint: SessionStateDot.color(state)
+            ),
         ]
         if let cli = session.cli, !cli.isEmpty {
             facts.append(.init(id: "agent", label: cli.capitalized))

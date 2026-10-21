@@ -432,6 +432,24 @@ final class AgentUsagePresentationTests: XCTestCase {
         XCTAssertNil(AgentUsagePresentation.blockedBadgeLabel(nil, now: now))
     }
 
+    // NEW-1: a watchdog flag names itself with the session card's word and
+    // never counts down (web `blockedBadgeLabel`); Switch account is for a
+    // usage wall alone.
+    func testAWatchdogFlagReadsItsWordWithNoCountdown() {
+        func blocked(_ kind: String?) -> SessionBlocked {
+            SessionBlocked(kind: kind, agent: "claude", window: nil, resetsAt: "2026-08-28T12:00:00.000Z")
+        }
+        XCTAssertEqual(AgentUsagePresentation.blockedBadgeLabel(blocked("device_offline"), now: now), "Device offline")
+        XCTAssertEqual(AgentUsagePresentation.blockedBadgeLabel(blocked("unclaimed"), now: now), "Not picked up")
+        XCTAssertEqual(AgentUsagePresentation.blockedBadgeLabel(blocked("stuck"), now: now), "Stuck")
+        XCTAssertTrue(AgentUsagePresentation.isUsageWall(blocked("rate_limit")))
+        XCTAssertTrue(AgentUsagePresentation.isUsageWall(blocked(nil)))
+        XCTAssertTrue(AgentUsagePresentation.isUsageWall(nil))
+        for kind in ["device_offline", "unclaimed", "stuck"] {
+            XCTAssertFalse(AgentUsagePresentation.isUsageWall(blocked(kind)), kind)
+        }
+    }
+
     // The column is a TOLERANT decode for the same reason the server's zod
     // mirror is `.nullish()` throughout: an unreadable field must degrade,
     // never blank the wall and render a walled run healthy.
