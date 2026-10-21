@@ -54,6 +54,8 @@ pub(crate) fn concept_icon(concept: &str) -> Option<ExpIcon> {
         "coding-running" => registry::CODING_RUNNING,
         "settings-labels" => registry::SETTINGS_LABELS,
         "settings-statuses" => registry::SETTINGS_STATUSES,
+        "settings-agents" => registry::SETTINGS_AGENTS,
+        "trigger-event" => registry::TRIGGER_EVENT,
         "ui-device" => registry::UI_DEVICE,
         "ui-avatar-placeholder" => registry::UI_AVATAR_PLACEHOLDER,
         "ui-repository" => registry::UI_REPOSITORY,

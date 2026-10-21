@@ -223,13 +223,12 @@ impl RunLifecycle {
 /// (an ended root takes its whole tree with it), and no WIP is saved.
 pub const SUSPEND_OUTCOME: &str = "suspended";
 
-/// EXP-1252: the outcome of a shutdown that hands the session to ANOTHER
-/// device: the source host suspends its engine before packaging a move, or
-/// kills one whose row already names another device. Like
-/// [`SUSPEND_OUTCOME`] the workspace stays (the handoff packs it, the
-/// source's cleanup removes it once the target has it) and no WIP is saved,
-/// but the end sequence writes NOTHING to the row — not its status, not
-/// its caption: the row belongs to the target from the move on.
+/// EXP-1252: the outcome of a shutdown whose row names ANOTHER device now
+/// (an agent moved in Settings): the host kills its engine. Like
+/// [`SUSPEND_OUTCOME`] the workspace stays (the stale-worktree and scratch
+/// sweeps reclaim it) and no WIP is saved, but the end sequence writes
+/// NOTHING to the row — not its status, not its caption: the row belongs
+/// to the other device.
 pub const RELEASED_OUTCOME: &str = coding::pickup::RELEASED_OUTCOME;
 
 /// EXP-1252: an exit whose workspace the host must KEEP (a suspend for an

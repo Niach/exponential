@@ -353,6 +353,9 @@ struct Shared {
     compacted: Mutex<HashSet<String>>,
     usage: CodexUsage,
     closed: AtomicBool,
+    /// N-5 / NEW-5: the app-server refused the confined sandbox once; later
+    /// turns run as today instead of failing again.
+    confine_rejected: AtomicBool,
     /// EXP-1051: the `context_layout` frame has gone out for this thread.
     /// One-shot like claude's, and re-armed by `thread/start`/`thread/resume`
     /// — a new thread is a new conversation with a new prefix.
@@ -505,6 +508,7 @@ impl ConnectTo<Client> for CodexAgent {
                 compacted: Mutex::new(HashSet::new()),
                 usage,
                 closed: AtomicBool::new(false),
+                confine_rejected: AtomicBool::new(false),
                 context_layout_published: AtomicBool::new(false),
                 resumed: AtomicBool::new(false),
                 pumping: AtomicBool::new(false),
@@ -1271,7 +1275,7 @@ async fn start_turn(
         (model, effort, mode, tier)
     };
     let roots = shared.writable_roots();
-    let params = codex_wire::turn_start_request(&TurnRequest {
+    let request = TurnRequest {
         thread_id,
         input,
         model: (!model.is_empty()).then_some(model.as_str()),
@@ -1279,8 +1283,37 @@ async fn start_turn(
         mode,
         service_tier: service_tier.as_deref(),
         writable_roots: &roots,
-    });
-    let response = call(shared, "turn/start", params).await?;
+        confine_to: None,
+    };
+    // N-5 / NEW-5: a confined run asks for the scratch-rooted sandbox until the
+    // app-server rejects it once; from then on it runs as today.
+    let confine = shared
+        .spec
+        .confine_to
+        .as_deref()
+        .filter(|_| !shared.confine_rejected.load(Ordering::SeqCst));
+    let response = match confine {
+        Some(root) => {
+            let confined = TurnRequest { confine_to: Some(root), ..request };
+            match call(shared, "turn/start", codex_wire::turn_start_request(&confined)).await {
+                Ok(response) => response,
+                Err(error) => {
+                    log::warn!(
+                        "engine: codex rejected the confined sandbox at {} ({error}); \
+                         falling back to full access",
+                        root.display()
+                    );
+                    let response =
+                        call(shared, "turn/start", codex_wire::turn_start_request(&request)).await?;
+                    // Only a start that succeeds WITHOUT the sandbox proves the
+                    // sandbox was the problem; a plain failure keeps confining.
+                    shared.confine_rejected.store(true, Ordering::SeqCst);
+                    response
+                }
+            }
+        }
+        None => call(shared, "turn/start", codex_wire::turn_start_request(&request)).await?,
+    };
     let turn_id = response
         .get("turn")
         .and_then(|turn| turn.get("id"))

@@ -120,6 +120,16 @@ pub struct AdapterSpec {
     /// (`--fork-session`) and runs read-only
     /// ([`crate::aside::ASIDE_DISALLOWED_TOOLS`]). Codex never runs one.
     pub aside: bool,
+    /// N-5 / NEW-5: a repo-less run's scratch dir (`<data>/scratch/<root>/<session>`):
+    /// file tools may not leave it. `None` = today's behaviour (full access).
+    ///
+    /// Claude: `can_use_tool` (and a `PreToolUse` hook, which fires even
+    /// under `bypassPermissions`) DENIES file tools whose path resolves
+    /// outside it, and Bash commands naming an absolute path outside it
+    /// ([`claude::confinement_denial`]). Codex: every turn asks the
+    /// app-server's `workspaceWrite` sandbox rooted here (network on), and
+    /// falls back to full access when the app-server rejects it.
+    pub confine_to: Option<PathBuf>,
     /// Where a stdio adapter reports its child's exit (`ChildLines::forward_exit`),
     /// so the run's bye is `exit:<code>`. An adapter that owns no child of
     /// ours never records, and the run ends as `ended`.

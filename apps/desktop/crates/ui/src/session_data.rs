@@ -1034,7 +1034,8 @@ mod tests {
     #[test]
     fn agent_roots_and_team_less_roots_never_count() {
         let mut agent = root("a1", "t1", "me", "running");
-        agent.kind = Some("agent".into());
+        // NEW-2: an agent's conversation is decided by `agent_id`, never `kind`.
+        agent.agent_id = Some("ag-1".into());
         let mut loose = root("r1", "t1", "me", "running");
         loose.team_id = None;
         let sessions = [agent, loose];

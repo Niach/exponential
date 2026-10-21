@@ -302,12 +302,11 @@ pub(crate) fn end_outcome_resolves<T>(result: &Result<T, api::ApiError>) -> bool
     }
 }
 
-/// EXP-229 startup/login reconcile: end (best-effort, idempotent) every
-/// registry entry for `account` that is NOT a live [`LocalSessions`] entry —
-/// a same-process re-login keeps its running children, while a cold start
-/// (empty `LocalSessions`) treats every recorded id as an orphan. Runs on a
-/// fire-and-forget plain thread (`spawn_tracked_end` style); the token
-/// provider is call-time, so it survives a token refresh mid-loop.
+/// EXP-229 startup/login reconcile: every registry entry for `account` that
+/// is NOT a live [`LocalSessions`] entry — a same-process re-login keeps its
+/// running children, while a cold start (empty `LocalSessions`) treats every
+/// recorded id as left behind — is handed to the pickup's re-claim (NEW-5;
+/// it used to END threads and idle agents here).
 ///
 /// EXP-295: `LocalSessions` only knows THIS process, so entries launched by
 /// another instance that is still alive on this machine are filtered out
@@ -330,43 +329,53 @@ pub(crate) fn reconcile_stale_sessions(account: &api::Account, cx: &mut App) {
     if stale.is_empty() {
         return;
     }
-    let provider: std::sync::Arc<dyn api::TokenProvider> =
-        auth.auth.token_provider(&account.id);
-    let trpc = api::TrpcClient::new(&account.instance_url, provider);
-    std::thread::spawn(move || {
-        for id in stale {
-            // EXP-1341: the CLI's rule (`daemon::reconcile_stale_sessions`):
-            // a PERSISTENT session (an agent root) never ends — the server
-            // refuses `sessions.end` for it — so it is reported idle, and the
-            // pickup's Revive brings it back; a thread ends as before.
-            let persistent = coding::run_registry::get(&data_dir, &id)
-                .is_some_and(|record| record.kind.is_persistent());
-            let result = if persistent {
-                api::session_device::report(&trpc, &id, &stale_idle_report())
-            } else {
-                api::sessions::end(&trpc, &id).map(|_| ())
-            };
-            let verb = if persistent { "idled" } else { "ended" };
-            match &result {
-                Ok(_) => log::info!("[session-registry] {verb} stale coding session {id}"),
-                Err(err) => log::warn!(
-                    "[session-registry] stale coding session {id} not {verb}: {err}"
-                ),
-            }
-            if end_outcome_resolves(&result) {
-                remove(&data_dir, &id);
-            }
-        }
-    });
+    // NEW-5 (the daemon's rule, `daemon::reconcile_stale_sessions`): a
+    // left-behind session is never ended — the pickup RE-CLAIMS it once the
+    // shapes show its row (`session_pickup::reclaim_left_behind`: a mid-turn
+    // row continues, a pending message replays, the rest idles). The entry
+    // is dropped here: a re-claimed run records itself afresh under this pid.
+    let mut left = lock_left_behind();
+    left.until = Some(std::time::Instant::now() + RECLAIM_GRACE);
+    for id in stale {
+        log::info!("[session-registry] session {id} was left behind by an earlier process — re-claiming it");
+        remove(&data_dir, &id);
+        left.ids.insert(id);
+    }
 }
 
-/// EXP-1341: a stale persistent session's report: idle and not working.
-fn stale_idle_report() -> api::session_device::SessionReport {
-    api::session_device::SessionReport {
-        status: Some(api::session_device::ReportStatus::Idle),
-        busy: Some(false),
-        ..api::session_device::SessionReport::default()
+/// NEW-5: how long the heartbeat counts the left-behind sessions as live
+/// while the re-claim waits for their rows to sync.
+const RECLAIM_GRACE: std::time::Duration = std::time::Duration::from_secs(5 * 60);
+
+/// NEW-5: the sessions an earlier process left behind, awaiting the
+/// pickup's re-claim.
+#[derive(Default)]
+struct LeftBehind {
+    ids: std::collections::HashSet<String>,
+    until: Option<std::time::Instant>,
+}
+
+static LEFT_BEHIND: std::sync::LazyLock<Mutex<LeftBehind>> =
+    std::sync::LazyLock::new(|| Mutex::new(LeftBehind::default()));
+
+fn lock_left_behind() -> std::sync::MutexGuard<'static, LeftBehind> {
+    LEFT_BEHIND.lock().unwrap_or_else(|poison| poison.into_inner())
+}
+
+/// NEW-5: the left-behind sessions still awaiting their re-claim (empty
+/// past the grace: a row that never synced is the heartbeat's business).
+pub(crate) fn left_behind() -> std::collections::HashSet<String> {
+    let mut left = lock_left_behind();
+    if left.until.is_some_and(|until| std::time::Instant::now() >= until) {
+        left.ids.clear();
+        left.until = None;
     }
+    left.ids.clone()
+}
+
+/// NEW-5: the re-claim took `session_id` over.
+pub(crate) fn settle_left_behind(session_id: &str) {
+    lock_left_behind().ids.remove(session_id);
 }
 
 #[cfg(test)]

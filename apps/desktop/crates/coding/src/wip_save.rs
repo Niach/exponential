@@ -16,6 +16,12 @@ use crate::prune::{worktree_dirty_state, DirtyState};
 pub const WIP_COMMIT_MESSAGE: &str =
     "WIP: uncommitted changes saved when the session was stopped (Exponential)";
 
+/// NEW-5: the message of the WIP commit [`save_tracked_wip_commit`] makes
+/// when a FINISHED session's worktree is cleaned up
+/// ([`crate::run_cleanup::finish_worktree`]).
+pub const WIP_FINISH_COMMIT_MESSAGE: &str =
+    "WIP: uncommitted changes saved when the session ended (Exponential)";
+
 /// The identity a commit falls back to when the worktree has none configured.
 const FALLBACK_NAME: &str = "user.name=Exponential";
 const FALLBACK_EMAIL: &str = "user.email=noreply@exponential.local";
@@ -39,13 +45,27 @@ pub enum WipSave {
 /// first attempt fails for a missing one. Hooks and signing are skipped: a
 /// save at stop time must not hang on a prompt or be vetoed by a linter.
 pub fn save_wip_commit(worktree: &Path) -> WipSave {
+    save(worktree, &["add", "-A"], WIP_COMMIT_MESSAGE)
+}
+
+/// NEW-5: [`save_wip_commit`] for TRACKED changes only (`git add -u`), with
+/// [`WIP_FINISH_COMMIT_MESSAGE`] — the finished-session cleanup commits real
+/// work but never the untracked debris (build artifacts, the launcher's seed
+/// files) a removal discards anyway. An untracked-only tree reads `Clean`.
+pub fn save_tracked_wip_commit(worktree: &Path) -> WipSave {
+    save(worktree, &["add", "-u"], WIP_FINISH_COMMIT_MESSAGE)
+}
+
+fn save(worktree: &Path, add: &[&str], message: &str) -> WipSave {
     // A worktree has a `.git` FILE, a clone a `.git` dir; a scratch dir has
     // neither (and may sit inside some unrelated repo, which is not ours).
     if !worktree.join(".git").exists() {
         return WipSave::NotARepo;
     }
+    let tracked_only = add.contains(&"-u");
     match worktree_dirty_state(worktree) {
         DirtyState::Clean => return WipSave::Clean,
+        DirtyState::UntrackedOnly if tracked_only => return WipSave::Clean,
         DirtyState::UntrackedOnly | DirtyState::TrackedChanges => {}
     }
     // FEED-67: a Stop mid-rebase leaves HEAD detached. A commit there lands
@@ -59,7 +79,7 @@ pub fn save_wip_commit(worktree: &Path) -> WipSave {
                 .to_string(),
         );
     }
-    if let Err(err) = run_git(Some(worktree), &["add", "-A"], None, "git add -A") {
+    if let Err(err) = run_git(Some(worktree), add, None, "git add") {
         return WipSave::Failed(err.detail);
     }
     let commit = |identity: &[&str]| {
@@ -71,7 +91,7 @@ pub fn save_wip_commit(worktree: &Path) -> WipSave {
             "-q",
             "--no-verify",
             "-m",
-            WIP_COMMIT_MESSAGE,
+            message,
         ]);
         run_git(Some(worktree), &args, None, "git commit (WIP)")
     };
@@ -212,6 +232,26 @@ mod tests {
         }
         assert_eq!(worktree_dirty_state(&dir), DirtyState::TrackedChanges);
         assert_eq!(git(&dir, &["rev-parse", "HEAD"]), head);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// NEW-5: the finish variant commits tracked changes only; untracked
+    /// debris stays untracked, and untracked-only reads clean.
+    #[test]
+    fn the_tracked_variant_leaves_untracked_debris_alone() {
+        let dir = repo("tracked-only");
+        std::fs::write(dir.join("debris.log"), "noise\n").unwrap();
+        assert_eq!(save_tracked_wip_commit(&dir), WipSave::Clean);
+        std::fs::write(dir.join("README.md"), "changed\n").unwrap();
+        assert_eq!(
+            save_tracked_wip_commit(&dir),
+            WipSave::Committed { branch: "exp/APP-1".to_string() }
+        );
+        assert_eq!(worktree_dirty_state(&dir), DirtyState::UntrackedOnly);
+        let log = git(&dir, &["log", "-1", "--format=%s"]);
+        assert_eq!(log.trim(), WIP_FINISH_COMMIT_MESSAGE);
+        let files = git(&dir, &["show", "--name-only", "--format=", "HEAD"]);
+        assert!(files.contains("README.md") && !files.contains("debris.log"), "{files}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

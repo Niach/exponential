@@ -502,56 +502,6 @@ default branch and retry.",
     Ok(worktree)
 }
 
-/// The layout dir of the clone's ONE dispatcher checkout
-/// (`<clone>.worktrees/_dispatch`): no `exp/` branch sanitizes to it.
-pub const DISPATCH_CHECKOUT_DIR: &str = "_dispatch";
-
-/// The dispatcher checkout of `clone`: a DETACHED worktree at `base_ref`
-/// (`origin/<default>`), shared by every dispatcher root on the repo (they
-/// only read, so one is enough and nothing per session piles up). An
-/// existing one is moved to the fresh `base_ref` best-effort (a refused
-/// checkout keeps the old tree: a slightly stale read beats no session);
-/// a concurrent first launch that lost the `worktree add` race reuses the
-/// winner's.
-pub fn create_detached_worktree(
-    clone: &Path,
-    base_ref: &str,
-    url: &TokenUrl,
-) -> Result<PathBuf, GitError> {
-    validate_branch_arg(base_ref, "dispatcher checkout")?;
-    let worktree = worktrees_dir(clone).join(DISPATCH_CHECKOUT_DIR);
-    if worktree.join(".git").exists() {
-        if let Err(err) = run_git(
-            Some(&worktree),
-            &["checkout", "--quiet", "--detach", base_ref],
-            Some(url),
-            &format!("git checkout --detach {base_ref}"),
-        ) {
-            log::warn!("dispatcher checkout not refreshed to {base_ref}: {}", err.detail);
-        }
-        refresh_worktree_stamp(&worktree);
-        return Ok(worktree);
-    }
-    if let Some(parent) = worktree.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| GitError {
-            op: "prepare worktrees dir for the dispatcher checkout".to_string(),
-            detail: e.to_string(),
-        })?;
-    }
-    let _ = run_git(Some(clone), &["worktree", "prune"], Some(url), "git worktree prune");
-    let worktree_str = worktree.to_string_lossy().into_owned();
-    match run_git(
-        Some(clone),
-        &["worktree", "add", "--detach", &worktree_str, base_ref],
-        Some(url),
-        &format!("git worktree add --detach from {base_ref}"),
-    ) {
-        Ok(_) => Ok(worktree),
-        Err(_) if worktree.join(".git").exists() => Ok(worktree),
-        Err(err) => Err(err),
-    }
-}
-
 /// EXP-478: stamp "a launch (re)claimed this worktree now" — the prune's
 /// launch grace reads the `.git` link file's mtime, and reuse (a relaunch on
 /// a merged issue, a fix-conflicts run) must renew it or the old stamp lets
