@@ -863,21 +863,13 @@ fn a_nonsense_meter_is_clamped_into_the_relays_bounds_and_never_repeated() {
 /// an unchanged `config_state` is not published twice (one `set_config` used
 /// to emit two identical frames, one `set_mode` three).
 #[test]
-fn command_labels_are_redacted_and_an_unchanged_snapshot_is_not_republished() {
+fn agent_commands_never_publish_and_an_unchanged_snapshot_is_not_republished() {
+    // NEW-2: commands the agent CLI injects (skills, plugins) are hidden on
+    // every platform: `config_state` carries no `commands`, whatever the
+    // adapter announces (and so nothing of theirs can leak).
     let wire = wire("commands.jsonl");
     assert_eq!(wire.len(), 1, "the identical second snapshot is dropped");
-    assert_eq!(
-        wire[0],
-        json!({
-            "kind": "config_state",
-            "options": [],
-            "commands": [{
-                "name": "deploy",
-                "description": "Ship it with [redacted]",
-                "hint": "target [redacted]"
-            }]
-        })
-    );
+    assert_eq!(wire[0], json!({ "kind": "config_state", "options": [] }));
 }
 
 /// EXP-905 + REV2-17 — the agent's conversation name is outbound text like

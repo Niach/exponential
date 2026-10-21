@@ -943,16 +943,14 @@ fn a_turn_publishes_its_updates_and_feeds_the_local_screen() {
     assert_eq!(tools[0]["name"], "Read");
     assert_eq!(tools[0]["detail"], "src/main.rs");
 
-    // `session/new` published the first snapshot; the commands update
-    // replaced it wholesale.
+    // `session/new` published the first snapshot. NEW-2: the agent's own
+    // commands never publish (`config_state` carries no `commands`).
     let config = events_of(&harness.sink, "config_state");
     assert!(!config.is_empty(), "the handshake publishes config_state");
-    until("the agent commands", || {
-        events_of(&harness.sink, "config_state")
-            .last()
-            .map(|state| state.get("commands").is_some())
-            .unwrap_or(false)
-    });
+    assert!(
+        config.iter().all(|state| state.get("commands").is_none()),
+        "CLI-injected commands stay hidden"
+    );
 
     // The local feed carried the same events plus the tool CARD.
     let mut saw_activity = false;

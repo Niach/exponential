@@ -420,7 +420,7 @@
     },
     {
       "name": "issue_relations_add: both issues off the input",
-      "tool": "exponential_issue_relations_add",
+      "tool": "exponential_issues_relations_add",
       "input": {
         "issueId": "EXP-1",
         "relatedIssueId": "EXP-2",
@@ -445,7 +445,7 @@
     },
     {
       "name": "issue_labels_add: the issue and the label off the input",
-      "tool": "exponential_issue_labels_add",
+      "tool": "exponential_issues_labels_add",
       "input": {
         "issueId": "i-1",
         "labelId": "l-1"
@@ -520,7 +520,7 @@
     },
     {
       "name": "prompts_list: the rows as the router lists them",
-      "tool": "exponential_prompts_list",
+      "tool": "exponential_team_config_prompts_list",
       "result": [
         {
           "id": "p-1",
@@ -554,7 +554,7 @@
     },
     {
       "name": "agents_list: one ref per agent",
-      "tool": "exponential_agents_list",
+      "tool": "exponential_team_config_agents_list",
       "result": [
         {
           "id": "ag-1",
@@ -612,7 +612,7 @@
     },
     {
       "name": "members_add: the placeholder member just seated",
-      "tool": "exponential_members_add",
+      "tool": "exponential_people_add",
       "result": {
         "id": "u-ph",
         "memberId": "m-ph",
@@ -631,7 +631,7 @@
     },
     {
       "name": "members_list: the user, never the membership row",
-      "tool": "exponential_members_list",
+      "tool": "exponential_people_list",
       "result": [
         {
           "id": "u-1",
@@ -657,7 +657,7 @@
     },
     {
       "name": "repositories_list: full names",
-      "tool": "exponential_repositories_list",
+      "tool": "exponential_team_config_repositories_list",
       "result": [
         {
           "id": "r-1",
@@ -681,7 +681,7 @@
     },
     {
       "name": "invites_create: the wrapped invite by email",
-      "tool": "exponential_invites_create",
+      "tool": "exponential_people_invites_create",
       "result": {
         "invite": {
           "id": "inv-1",
@@ -701,7 +701,7 @@
     },
     {
       "name": "statuses_list: statuses, the irregular plural",
-      "tool": "exponential_statuses_list",
+      "tool": "exponential_team_config_statuses_list",
       "result": [
         {
           "id": "s-1",
@@ -735,7 +735,7 @@
     },
     {
       "name": "labels_create: a label by name",
-      "tool": "exponential_labels_create",
+      "tool": "exponential_team_config_labels_create",
       "result": {
         "id": "l-1",
         "teamId": "t-1",
@@ -752,7 +752,7 @@
     },
     {
       "name": "report_bug: the filed issue by issueId + identifier",
-      "tool": "exponential_report_bug",
+      "tool": "exponential_session_self_report_bug",
       "result": {
         "issueId": "i-77",
         "identifier": "FEED-77"
@@ -937,7 +937,7 @@
     },
     {
       "name": "issue_relations_add: the same issue twice is one ref",
-      "tool": "exponential_issue_relations_add",
+      "tool": "exponential_issues_relations_add",
       "input": {
         "issueId": "EXP-1",
         "relatedIssueId": "EXP-1",

@@ -54,6 +54,7 @@ import {
   attachments,
   comments,
   devices,
+  events,
   issueEvents,
   issueLabels,
   issueRelations,
@@ -2218,7 +2219,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_sessions_send`,
     {
-      description: `THE one call for sessions. sessionId = message it (idle resumes; ended = continues on its branch; answer = answer its open question/plan {answer|answers|decision}, first wins; issueIds = forward; account = switch login; deviceId = move). agentId = message a team agent (your conversation with it). parentId = start a child. Neither = a new thread (text, issueIds, promptId = a saved prompt's body first, repositoryId); its transitions wake you, as do wakeOn sessions. New threads need deviceId; teamId defaults to yours. Never resend, never wait.`,
+      description: `THE one call for sessions. sessionId = message it (idle resumes; ended = continues on its branch; answer = answer its open question/plan {answer|answers|decision}, first wins; issueIds = forward; account = switch login; deviceId = move; stop = interrupt its turn). agentId = message a team agent (your conversation with it). parentId = start a child. Neither = a new thread (text, issueIds, promptId = a saved prompt's body first, repositoryId); its transitions wake you, as do wakeOn sessions. New threads need deviceId; teamId defaults to yours. Never resend, never wait.`,
       _meta: ALWAYS_LOAD_META,
       inputSchema: strictInput({
         teamId: uuidString.optional(),
@@ -2243,11 +2244,21 @@ export function registerExponentialTools(
         // Loose for the context budget; sessionsSendInputSchema validates all.
         answer: z.record(z.string(), z.unknown()).optional(),
         wakeOn: z.array(uuidString).min(1).max(20).optional(),
+        // NEW-4: `stop: true` with sessionId interrupts that session's
+        // running turn (it stays, idle; a message resumes it). Nothing else
+        // rides along.
+        stop: z.boolean().optional(),
       }),
     },
-    async ({ issueIds: issueRefs, ...rest }) => {
+    async ({ issueIds: issueRefs, stop, ...rest }) => {
       try {
         const own = await loadCallerSession()
+        if (stop) {
+          if (!rest.sessionId) throw new Error(`stop needs sessionId.`)
+          if (!access.full) await loadGrantedSession(rest.sessionId)
+          await stopSession({ userId: user.id, sessionId: rest.sessionId })
+          return ok({ ok: true, id: rest.sessionId, stopped: true })
+        }
         // A confined grant: the target session's team, else the named team,
         // else the caller's (the default the core applies).
         if (!access.full) {
@@ -2347,23 +2358,6 @@ export function registerExponentialTools(
             offset: offset ?? 0,
           })
         )
-      } catch (e) {
-        return err(e)
-      }
-    }
-  )
-
-  server.registerTool(
-    `exponential_sessions_stop`,
-    {
-      description: `Stop a session's running turn (by UUID); the session stays, idle, and a message resumes it.`,
-      inputSchema: strictInput({ id: uuidString }),
-    },
-    async ({ id }) => {
-      try {
-        if (!access.full) await loadGrantedSession(id)
-        await stopSession({ userId: user.id, sessionId: id })
-        return ok({ ok: true, id })
       } catch (e) {
         return err(e)
       }
@@ -3454,6 +3448,46 @@ export function registerExponentialTools(
   )
 
 
+
+  server.registerTool(
+    `exponential_events_list`,
+    {
+      annotations: READ_ONLY,
+      description: `List a team's recent events, newest first: id, name, payload, emitter (session, user or server), createdAt. name filters to one event name. teamId defaults to your session's.`,
+      inputSchema: strictInput({
+        teamId: uuidString.optional(),
+        name: z.string().min(1).max(128).optional(),
+        ...pageInput,
+      }),
+    },
+    async ({ teamId: namedTeam, name, limit, offset }) => {
+      try {
+        const own = await loadCallerSession()
+        const teamId = namedTeam ?? own?.teamId
+        if (!teamId) throw new Error(`Pass teamId: this call runs outside a session.`)
+        await assertTeamMember(user.id, teamId)
+        if (!access.full) assertTeamVisible(access, teamId)
+        const rows = await db
+          .select({
+            id: events.id,
+            name: events.name,
+            payload: events.payload,
+            emittedBy: events.emittedBy,
+            sessionId: events.sessionId,
+            userId: events.userId,
+            createdAt: events.createdAt,
+          })
+          .from(events)
+          .where(and(eq(events.teamId, teamId), name ? eq(events.name, name) : undefined))
+          .orderBy(desc(events.createdAt))
+          .limit(limit ?? 50)
+          .offset(offset ?? 0)
+        return ok({ events: rows })
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
 
   // -----------------------------------------------------------------------
   // Boards (delete / retarget repository)

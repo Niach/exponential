@@ -11,7 +11,7 @@
 // counts, cloud or not), so the number is a build fact, not a per-run one.
 
 import { z } from "zod"
-import { registerExponentialTools } from "@/lib/mcp/tools"
+import { registerNounTools } from "@/lib/mcp/nouns"
 import { FULL_ACCESS } from "@/lib/mcp/scope"
 import { ALL_MCP_TOOL_GATES } from "@/lib/mcp/gates"
 import {
@@ -45,7 +45,7 @@ export function serializeToolDefs(gates = ALL_MCP_TOOL_GATES) {
       })
     },
   }
-  registerExponentialTools(
+  registerNounTools(
     fakeServer as never,
     { id: `u` } as unknown as McpUser,
     new Request(`https://x.test/api/mcp`),

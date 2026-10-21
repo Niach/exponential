@@ -17,150 +17,41 @@ const SECTIONS: DocsSectionType[] = [
   { id: `your-own-servers`, num: `06`, label: `Your own servers` },
 ]
 
-/* Tool reference — names + one-liners mirroring apps/web/src/lib/mcp/tools.ts. */
+/* Tool reference — the 15 noun tools (NEW-4), mirroring apps/web/src/lib/mcp/nouns.ts:
+   every tool takes `op` plus that op's fields; its description lists every op
+   with its parameters. */
 const TOOL_GROUPS: {
   heading: string
   tools: { name: string; desc: string }[]
 }[] = [
   {
-    heading: `Teams`,
+    heading: `Work`,
     tools: [
-      { name: `exponential_teams_list`, desc: `List the teams you belong to.` },
-      { name: `exponential_teams_get`, desc: `Get a single team by id.` },
-      { name: `exponential_teams_create`, desc: `Create a new team you own.` },
-      { name: `exponential_teams_update`, desc: `Rename a team or change its icon (owner only).` },
+      { name: `exponential_issues`, desc: `op list (filters by boards, statusId / statusCategory, priority, assignee, labels any/all/unlabeled, source, comment activity, created/updated ranges, title search, each with an exclude twin, sort; open work only unless includeClosed or a status filter), get (by UUID or identifier "EXP-42", with labels, relations, recent comments), show (the interactive list in MCP Apps hosts), create, update, delete, activity, update_status, subscribe, unsubscribe, labels_add, labels_remove, relations_add, relations_remove.` },
+      { name: `exponential_comments`, desc: `op list, create, update, delete. Plain GFM; threads one level deep; audience "reporter" emails a widget reporter.` },
+      { name: `exponential_attachments`, desc: `op list, get (metadata plus contents or a signed URL), upload (bytes now, or a signed uploadUrl then a finalize call), delete.` },
+      { name: `exponential_pr`, desc: `op open (links the session's issues, infers the base in a stack), merge (squash through the GitHub App; stack: true lands a stack member and everything beneath it), close, retarget, update, unlink, files. Name a PR by pullRequestId, issueId or repositoryId + prNumber; default = the session's newest open PR.` },
     ],
   },
   {
-    heading: `Boards`,
+    heading: `Teams and boards`,
     tools: [
-      { name: `exponential_boards_list`, desc: `List boards in one team or across all your teams.` },
-      { name: `exponential_boards_get`, desc: `Get a single board.` },
-      { name: `exponential_boards_create`, desc: `Create a board (optionally repo-backed).` },
-      { name: `exponential_boards_update`, desc: `Update name, color, icon, or the board's default branch.` },
-      { name: `exponential_boards_delete`, desc: `Move a board to the 48-hour trash (owner only).` },
-      { name: `exponential_boards_set_repository`, desc: `Point a board at a different registered repository.` },
+      { name: `exponential_teams`, desc: `op list, get, create, update.` },
+      { name: `exponential_boards`, desc: `op list, get, create, update, delete (the 48-hour trash), set_repository.` },
+      { name: `exponential_people`, desc: `op list and add members; invites_list, invites_create, invites_revoke.` },
+      { name: `exponential_team_config`, desc: `op labels_list/get/create/update/delete, statuses_list/create/update/delete, prompts_list/get, agents_list, mcp_servers_list/add/remove, repositories_list/add.` },
     ],
   },
   {
-    heading: `Issues`,
+    heading: `Sessions and agents`,
     tools: [
-      { name: `exponential_issues_list`, desc: `List issues, open work only unless includeClosed (or a status filter) says otherwise: boards, statusId / statusCategory, priority, assignee, labels (any, all, or unlabeled), source (user or widget), comment activity, created/updated ranges, title search, each with an exclude twin, plus sort (a "-" prefix descends). Up to 1000 per page.` },
-      { name: `exponential_issues_get`, desc: `Get one issue with labels, relations and recent comments, by UUID or identifier ("EXP-42").` },
-      { name: `exponential_issues_show`, desc: `The issue list as an interactive view in clients that render MCP Apps (OpenClaw, Claude, ChatGPT): status groups, priorities and PR numbers; a row opens the issue. Other clients get the same rows as exponential_issues_list.` },
-      { name: `exponential_issues_create`, desc: `Create an issue. Pass statusId for a custom status.` },
-      { name: `exponential_issues_update`, desc: `Update an issue's fields. Pass only what changes.` },
-      { name: `exponential_issues_delete`, desc: `Permanently delete an issue and everything attached to it.` },
-      { name: `exponential_issues_update_status`, desc: `Set status during a coding session (PR events move it to the team's configured statuses).` },
-      { name: `exponential_pr_open`, desc: `Open + link the pull request server-side: issueId for one, issueIds + head for a batch, or repositoryId + head for a chore PR that links nothing. A follow-up session builds on its parent session's branch with base; such a tree merges root first, and the root's merge retargets its children.` },
-      { name: `exponential_pr_merge`, desc: `Squash-merge through the GitHub App (no gh, no token): issueId, issueIds, or repositoryId + prNumber. endSessions overrides the team's end-sessions-on-merge setting for this call.` },
-      { name: `exponential_pr_close`, desc: `Close an open PR without merging, e.g. one another PR superseded. Its issues keep their status.` },
-      { name: `exponential_pr_retarget`, desc: `Repoint an open PR's base branch, the fix for a PR whose base branch is gone.` },
-      { name: `exponential_issues_pr_files`, desc: `List the linked PR's changed files with patches and add/delete counts.` },
-    ],
-  },
-  {
-    heading: `Relations`,
-    tools: [
-      { name: `exponential_issue_relations_add`, desc: `Link two issues: blocks, parent, duplicate or related, stored one way (issueId blocks / is the parent of / duplicates relatedIssueId; related is symmetric). Pass inverse for blocked by, sub-issue of or duplicated by.` },
-      { name: `exponential_issue_relations_remove`, desc: `Unlink two issues, named in the direction the link is stored; exponential_issues_get lists them.` },
-    ],
-  },
-  {
-    heading: `Statuses`,
-    tools: [
-      { name: `exponential_statuses_list`, desc: `List a team's issue statuses with id, name, category and color — the ids you pass as statusId.` },
-      { name: `exponential_statuses_create`, desc: `Create a custom status in a category (never duplicate; started allows at most four).` },
-      { name: `exponential_statuses_update`, desc: `Rename or recolor a custom status. Builtins are locked.` },
-      { name: `exponential_statuses_delete`, desc: `Delete a custom status; issues still on it need a reassignToId replacement.` },
-    ],
-  },
-  {
-    heading: `Labels & issue labels`,
-    tools: [
-      { name: `exponential_labels_list`, desc: `List a team's labels.` },
-      { name: `exponential_labels_get`, desc: `Get a label by id.` },
-      { name: `exponential_labels_create`, desc: `Create a label.` },
-      { name: `exponential_labels_update`, desc: `Rename or recolor a label.` },
-      { name: `exponential_labels_delete`, desc: `Delete a label.` },
-      { name: `exponential_issue_labels_add`, desc: `Attach a label to an issue.` },
-      { name: `exponential_issue_labels_remove`, desc: `Detach a label from an issue.` },
-    ],
-  },
-  {
-    heading: `Comments`,
-    tools: [
-      { name: `exponential_comments_list`, desc: `List an issue's comments, oldest first, each with its parentId when it is a reply.` },
-      { name: `exponential_comments_create`, desc: `Post a comment as the connected user; it shows as "via MCP". Pass parentId to reply under a comment (threads are one level deep), or audience: "reporter" on a widget-filed issue whose reporter left an email to send it to them as well (top-level only); the result says whether that mail went out.` },
-      { name: `exponential_comments_update`, desc: `Edit your own comment.` },
-      { name: `exponential_comments_delete`, desc: `Delete a comment.` },
-    ],
-  },
-  {
-    heading: `Subscriptions & notifications`,
-    tools: [
-      { name: `exponential_issues_subscribe`, desc: `Subscribe to an issue's notifications.` },
-      { name: `exponential_issues_unsubscribe`, desc: `Unsubscribe (and suppress auto-resubscribe).` },
-      { name: `exponential_notifications_list`, desc: `List your notifications, newest first.` },
-      { name: `exponential_notifications_mark_read`, desc: `Mark one notification read, or all of them.` },
-      { name: `exponential_notifications_send`, desc: `Send a notification (inbox row + push) to members of a team, or to yourself; recipients are member user ids or emails. A member who turned off messages from teammates' agents is reported as declined; your own user always receives.` },
-    ],
-  },
-  {
-    heading: `Members & invites`,
-    tools: [
-      { name: `exponential_members_list`, desc: `List a team's members (useful to resolve an assigneeId).` },
-      { name: `exponential_invites_create`, desc: `Create an invite link (owner only).` },
-      { name: `exponential_invites_list`, desc: `List pending invites.` },
-      { name: `exponential_invites_revoke`, desc: `Revoke a pending invite (owner only).` },
-    ],
-  },
-  {
-    heading: `Repositories & branch diff`,
-    tools: [
-      { name: `exponential_repositories_list`, desc: `List a team's registered repositories and the boards they back.` },
-      { name: `exponential_repositories_add`, desc: `Register a GitHub repository ("owner/name") with a team.` },
-      { name: `exponential_repositories_branch_diff`, desc: `Diff an issue's branch against the repo's default branch.` },
-    ],
-  },
-  {
-    heading: `Actions`,
-    tools: [
-      { name: `exponential_actions_list`, desc: `List a team's actions, the reusable AI prompts members run on their own desktop, each with its triggers.` },
-      { name: `exponential_actions_create`, desc: `Create an action with markdown instructions and an optional repository (owner only).` },
-      { name: `exponential_actions_update`, desc: `Update an action (owner only). The triggers field replaces the whole array: send every trigger you keep with its id, a new one without an id.` },
-      { name: `exponential_actions_delete`, desc: `Delete an action (owner only).` },
-    ],
-  },
-  {
-    heading: `Coding sessions & devices`,
-    tools: [
-      { name: `exponential_devices_list`, desc: `List your machines (desktop app or CLI daemon) plus servers shared with the team, with their online state and the agents each can run.` },
-      { name: `exponential_devices_account_login`, desc: `Sign an agent account in on one of your own machines. The machine runs the agent's own login; only the sign-in link and the code you type travel, the credential never leaves it.` },
-      { name: `exponential_sessions_start`, desc: `Start a session on an ONLINE device: an issue, a batch of issues, an action, or a resume. Offline devices are refused — starts are live, never queued.` },
-      { name: `exponential_sessions_list`, desc: `List coding sessions newest first, with status, subject, branch, device, any usage wall, and who ended an ended session.` },
-      { name: `exponential_sessions_get`, desc: `Get one session; poll it after a start to follow running → in review → ended, with any question the session parked for you. waitForIdle holds the call until the session's turn ends (120s at most).` },
-      { name: `exponential_sessions_messages`, desc: `Read what a session you own or host said: its transcript (your messages, its replies, tool calls and questions), its newest messages with a cursor for what comes next.` },
-      { name: `exponential_sessions_message`, desc: `Send text into a live session you own or host — it arrives as user input to that agent.` },
-      { name: `exponential_sessions_results`, desc: `Publish a screenshot of this session's work: it hands back a short-lived upload link and a curl line, filed under a topic with one label per picture, and shows up on the session's Results face everywhere.` },
-      { name: `exponential_sessions_show`, desc: `Show a screenshot while the session works: it appears in the session's transcript at the call, on every client, and is filed under the Results face (topic Progress by default). A local file gets a curl line; small images upload inline as base64.` },
-      { name: `exponential_sessions_kill`, desc: `Abort a live session you own or host. Never your own session.` },
-      { name: `exponential_sessions_end`, desc: `End this session with a close-out summary for whoever started it (not stored on the session). Unattended (trigger- or agent-started) sessions call it last; a person-started session only when asked.` },
-      { name: `exponential_sessions_ask_parent`, desc: `Inside a session: ask whoever started it, or the person who owns it, a question and end your turn; its answer arrives as a user message. A starter that is not a session reads the parked question with sessions_get and answers with sessions_message.` },
-    ],
-  },
-  {
-    heading: `Bug reports`,
-    tools: [
-      { name: `exponential_report_bug`, desc: `File a bug about Exponential itself with its developers. Never for the caller's own project. Cloud only.` },
-    ],
-  },
-  {
-    heading: `Attachments`,
-    tools: [
-      { name: `exponential_attachments_get`, desc: `Fetch any attachment: metadata plus a short-lived signed download URL (images also come back inline).` },
-      { name: `exponential_attachments_upload`, desc: `Upload an image and get its embeddable markdown form back.` },
-      { name: `exponential_attachments_delete`, desc: `Delete an attachment; embeds in descriptions and comments are rewritten in the same transaction.` },
+      { name: `exponential_sessions_send`, desc: `THE session verb, no op: sessionId messages a session (answer answers its open question or plan; stop: true interrupts its turn; issueIds forwards issues; deviceId moves it), agentId messages a team agent (your own conversation with it), parentId starts a child, neither starts a thread (text, issueIds, promptId, repositoryId; deviceId required). Every transition of a session comes back as a message.` },
+      { name: `exponential_sessions`, desc: `op get (a session tree: title, issues, PRs, Guide, children, latest messages; no id = your own), list, link, unlink, end.` },
+      { name: `exponential_session_self`, desc: `Inside a session only: op ask (one rich question card), plan (plan mode's card), suggest (one-tap replies or follow-up tasks), compact (ask the host to compact your context), report_bug (when Exponential itself misbehaves; cloud only).` },
+      { name: `exponential_guide_write`, desc: `The thread's one Guide, the body of every PR in it: per topic 2-3 sentences plus the files it touched; label mints a picture upload; remove drops a picture, a text or a topic.` },
+      { name: `exponential_devices`, desc: `op list (the machines running sessions, their agents and logins), account_login.` },
+      { name: `exponential_events`, desc: `op emit (a named event with a payload; every agent with a trigger on that name wakes), list.` },
+      { name: `exponential_notifications`, desc: `op list, mark_read.` },
     ],
   },
 ]
@@ -338,12 +229,12 @@ openclaw mcp login exponential
             <h3>Interactive views (MCP Apps)</h3>
             <p>
               Clients that render MCP Apps show five tools as Exponential
-              views instead of JSON: <code>exponential_issues_show</code> (the
+              views instead of JSON: <code>exponential_issues</code> op show (the
               issue list, grouped by status; a row opens the issue),{` `}
-              <code>exponential_sessions_list</code> (your sessions),{` `}
-              <code>exponential_sessions_get</code> (a coding session&apos;s
-              report), <code>exponential_notifications_list</code> (your
-              inbox) and <code>exponential_devices_list</code> (your machines
+              <code>exponential_sessions</code> op list (your sessions),{` `}
+              <code>exponential_sessions</code> op get (a thread&apos;s
+              report), <code>exponential_notifications</code> op list (your
+              inbox) and <code>exponential_devices</code> op list (your machines
               and their agent logins). Self-hosted instances serve the same
               views; nothing to configure on the server.
             </p>
@@ -365,22 +256,20 @@ npx mcp-remote ${LINKS.app.mcp}
           <DocsSection id="tools" num="04" label="Tool reference">
             <h2>Tool reference</h2>
             <p>
-              What a connected client can do, grouped by area. Every call is
-              confined to the OAuth grant&apos;s scope (or the API key&apos;s
-              membership). Every list tool paginates (50 by default, 200 at
-              most, 1000 for <code>issues_list</code>), and issue parameters
-              take an identifier
-              (&quot;EXP-42&quot;) wherever they take a UUID.
+              15 tools, one per noun. Every call carries an <code>op</code>
+              and that op&apos;s fields beside it, for example{` `}
+              <code>exponential_issues {`{op: "get", id: "EXP-42"}`}</code>;
+              a tool&apos;s description lists every op with its parameters.
+              Every call is confined to the OAuth grant&apos;s scope (or the
+              API key&apos;s membership). List ops paginate (50 by default, 200
+              at most, 1000 for issues), and issue parameters take an
+              identifier (&quot;EXP-42&quot;) wherever they take a UUID.
             </p>
-            <DocsCallout kind="note" title="Some tools only exist in context">
-              <code>exponential_sessions_end</code>,{` `}
-              <code>exponential_sessions_ask_parent</code>,{` `}
-              <code>exponential_sessions_results</code> and{` `}
-              <code>exponential_sessions_show</code> only inside an agent
-              session the launcher started; and{` `}
-              <code>exponential_report_bug</code> only on the cloud. Ask the
-              server&apos;s own <code>tools/list</code> for the exact set your
-              client sees.
+            <DocsCallout kind="note" title="The same tools for every caller">
+              Every client sees all 15. An op that only makes sense inside an
+              agent session the launcher started (the Guide, the self ops) or
+              on the cloud (report_bug) answers with a message saying so
+              instead of hiding.
             </DocsCallout>
             {TOOL_GROUPS.map((group) => (
               <div key={group.heading}>
@@ -405,17 +294,17 @@ npx mcp-remote ${LINKS.app.mcp}
               &quot;File a bug on the app board: it drops drag events
               on narrow viewports. Priority high, label it{` `}
               <em>bug</em>.&quot; The client chains{` `}
-              <code>exponential_boards_list</code> →{` `}
-              <code>exponential_issues_create</code> →{` `}
-              <code>exponential_labels_list</code> →{` `}
-              <code>exponential_issue_labels_add</code>, and answers with the
+              <code>exponential_boards</code> op list →{` `}
+              <code>exponential_issues</code> op create →{` `}
+              <code>exponential_team_config</code> op labels_list →{` `}
+              <code>exponential_issues</code> op labels_add, and answers with the
               new identifier.
             </p>
 
             <h3>Check a PR&apos;s files from chat</h3>
             <p>
               &quot;What does EXP-42&apos;s PR actually change?&quot; The client
-              calls <code>exponential_issues_pr_files</code>, which returns the
+              calls <code>exponential_pr</code> op files, which returns the
               changed files with patches, so the model can summarize the diff,
               flag a risky change, or compare it against the issue&apos;s
               acceptance criteria.
@@ -425,7 +314,7 @@ npx mcp-remote ${LINKS.app.mcp}
             <p>
               An agent that fixed several issues on one pushed branch opens a
               single PR for all of them:{` `}
-              <code>exponential_pr_open</code> with{` `}
+              <code>exponential_pr</code> op open with{` `}
               <code>issueIds</code> (the batch) and <code>head</code> (the
               pushed branch). Every listed issue links to the PR and moves to
               In Review; merging completes them all. This is exactly what a
@@ -438,21 +327,21 @@ npx mcp-remote ${LINKS.app.mcp}
               Some work never gets filed: a dependency bump, a typo sweep. Pass
               {` `}
               <code>repositoryId</code> + <code>head</code> to{` `}
-              <code>exponential_pr_open</code> (and{` `}
+              <code>exponential_pr</code> op open (and{` `}
               <code>repositoryId</code> + <code>prNumber</code> to{` `}
-              <code>exponential_pr_merge</code>) and you get an ordinary pull
+              <code>exponential_pr</code> op merge) and you get an ordinary pull
               request with nothing linked, moved, or notified.
             </p>
 
             <h3>Start a session on one of your machines, from chat</h3>
             <p>
               &quot;Have my build box take EXP-42.&quot; The client calls{` `}
-              <code>exponential_devices_list</code> to find an online machine
+              <code>exponential_devices</code> op list to find an online machine
               that runs the agent you want, then{` `}
-              <code>exponential_sessions_start</code>, and follows the session
-              with <code>exponential_sessions_get</code>. Steer it mid-session
-              with <code>exponential_sessions_message</code> and read its
-              replies with <code>exponential_sessions_messages</code>. Details
+              <code>exponential_sessions_send</code>, and follows the session
+              with <code>exponential_sessions</code> op get. Steer it mid-session
+              with <code>exponential_sessions_send</code> (sessionId) and read its
+              replies with <code>exponential_sessions</code> op get. Details
               in{` `}
               <a href="/docs/cli/#daemon">CLI &amp; daemon</a>.
             </p>
