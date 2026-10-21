@@ -997,20 +997,29 @@ final class StyleguideScreenshots: XCTestCase {
             return
         }
 
-        // ── sg_session: that card's raw view (DEMO_SESSION_ID) ─────────────
-        // The child's session card sits above; scroll back to it if a long
-        // transcript pushed it off. The relay stub's feed ends on an
-        // UNANSWERED question, whose card takes the composer's place
-        // (EXP-1306). Nothing is answered.
-        let sessionCard = app.descendants(matching: .any)
-            .matching(identifier: "session-card")
-            .matching(NSPredicate(format: "label CONTAINS %@", Self.sessionTitle))
-            .firstMatch
-        for _ in 0..<4 where !(sessionCard.exists && sessionCard.isHittable) {
-            app.swipeDown()
+        // ── sg_session: that session's page in the thread (DEMO_SESSION_ID) ─
+        // The relay stub's feed ends on an UNANSWERED question, whose card
+        // takes the composer's place (EXP-1306). Nothing is answered.
+        // The session's strip chip in the thread header opens the SAME page
+        // as its Conversation card, and it never scrolls: a card scrolled
+        // under the floating header still reads hittable, and XCUITest then
+        // taps the point it finds visible (the header's back button on a Pro
+        // Max), popping the thread instead. The card is the fallback when
+        // the strip folded the chip into a "+N".
+        let sessionChip = anyElement(app, identified: "thread-tab-session-\(Self.sessionId)")
+        if sessionChip.waitForExistence(timeout: Wait.sync), sessionChip.isHittable {
+            sessionChip.tap()
+        } else {
+            let sessionCard = app.descendants(matching: .any)
+                .matching(identifier: "session-card")
+                .matching(NSPredicate(format: "label CONTAINS %@", Self.sessionTitle))
+                .firstMatch
+            for _ in 0..<4 where !(sessionCard.exists && sessionCard.isHittable) {
+                app.swipeDown()
+            }
+            expect(sessionCard, within: Wait.nav, "The cold-start thread drew no \"\(Self.sessionTitle)\" chip or card")
+            sessionCard.tap()
         }
-        expect(sessionCard, within: Wait.nav, "The cold-start thread drew no \"\(Self.sessionTitle)\" card")
-        sessionCard.tap()
         // EXP-1343: a session chip of THIS thread opens as its page under
         // the thread's ONE header (the thread title, Stop while live) — no
         // pushed session screen, no back row (Android's `sg_session` is the
