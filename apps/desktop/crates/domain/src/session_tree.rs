@@ -1100,6 +1100,13 @@ fn event_text(
         let name = card_str(card, "sessionId").and_then(&session_name)?;
         text = text.replacen("{session}", &name, 1);
     }
+    if text.contains("{name}") {
+        // NEW-2: a trigger line names its event (an event trigger) and
+        // nothing else; a schedule firing has no name and draws no line (its
+        // body speaks).
+        let name = card_str(card, "name").filter(|name| !name.trim().is_empty())?;
+        text = text.replacen("{name}", name, 1);
+    }
     Some(text)
 }
 
@@ -2274,6 +2281,27 @@ mod tests {
 
     fn fixture(json: &str) -> Value {
         serde_json::from_str(json).unwrap()
+    }
+
+    /// NEW-2: a `trigger_fired` line shows for an EVENT firing ({name} =
+    /// the event name); a schedule firing (no name) draws no line.
+    #[test]
+    fn a_trigger_line_names_its_event_and_a_schedule_draws_none() {
+        let issues = HashMap::new();
+        let prs = HashMap::new();
+        let line = |card: Value| event_text(&card, &issues, &prs, |_| None);
+        assert_eq!(
+            line(serde_json::json!({"kind": "event", "event": "trigger_fired", "name": "issue.created", "agentId": "a", "triggerId": "t"}))
+                .as_deref(),
+            Some("Trigger fired: issue.created")
+        );
+        for name in [Value::Null, serde_json::json!("  ")] {
+            assert_eq!(
+                line(serde_json::json!({"kind": "event", "event": "trigger_fired", "name": name, "agentId": "a", "triggerId": "t"})),
+                None
+            );
+        }
+        assert_eq!(line(serde_json::json!({"kind": "event", "event": "trigger_fired"})), None);
     }
 
     /// NEW-1 (TS `sessionKindWord` / web `blockedBadgeLabel`): a blocked
