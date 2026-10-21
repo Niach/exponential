@@ -17,13 +17,13 @@
 import { Component, Fragment, memo, useCallback, useContext, useEffect, useMemo, type CSSProperties, type ReactNode } from "react"
 import { UNKNOWN_COMPONENT, catalogView, instanceSegment, isResponsiveValue, nativeRecipeProps, responsiveAt, templateItemKeys, templateSiteKey, withOwnWrites } from "@exponential-at/ui"
 import type { ExtensionDef, UiNode } from "@exponential-at/ui"
-import { dynamicStyleEntries, nodeClass, queryToken, styleDirection } from "./box-css"
+import { dynamicStyleEntries, nodeClass, queryToken, styleDirection } from "@exponential-at/ui/web"
 import { InstanceContext, ScopeContext, SurfaceContext, resolveContextOf, useSurfaceContext, type SurfaceContextValue } from "./context"
-import { absolutePath, ariaAttributes, getPointer, resolveAccessibility, resolveNodeProps, resolveValue, resolveVisible, type ResolveContext } from "./data"
+import { absolutePath, ariaAttributes, getPointer, resolveAccessibility, resolveNodeProps, resolveValue, resolveVisible, type ResolveContext } from "@exponential-at/ui/web"
 import { extensionComponent, extensionMacroNames } from "./extensions"
 import type { ExtensionComponentProps, SurfaceActionEvent } from "./host"
 import { NATIVES } from "./natives"
-import { cssValue, isMacroComponent, partClass, propAttribute } from "./theme-css"
+import { cssValue, isMacroComponent, partClass, propAttribute } from "@exponential-at/ui/web"
 
 export interface NativeProps extends ExtensionComponentProps {
   /** The data scope (template item) this node renders under. */

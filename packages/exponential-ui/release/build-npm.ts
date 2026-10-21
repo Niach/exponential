@@ -10,7 +10,7 @@ import { existsSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync 
 import { dirname, join, resolve } from "node:path"
 
 export const ENTRIES: Record<string, Record<string, string>> = {
-  "@exponential-at/ui": { index: `src/index.ts` },
+  "@exponential-at/ui": { index: `src/index.ts`, web: `src/web/index.ts` },
   "@exponential-at/ui-react": { index: `src/index.ts`, primitives: `src/primitives/index.ts` },
 }
 
@@ -20,7 +20,9 @@ export async function buildNpm(dir: string): Promise<void> {
   if (!entries) throw new Error(`${pkg.name} is not an npm package of the SDK`)
   rmSync(join(dir, `dist`, `index.js`), { force: true })
   rmSync(join(dir, `dist`, `types`), { recursive: true, force: true })
-  const external = [...Object.keys(pkg.dependencies ?? {}), ...Object.keys(pkg.peerDependencies ?? {})].flatMap((d) => [d, `${d}/*`])
+  // The package's own name too: a sub-entry (`@exponential-at/ui/web`)
+  // imports its root by name, so the root's module state stays ONE copy.
+  const external = [pkg.name, ...Object.keys(pkg.dependencies ?? {}), ...Object.keys(pkg.peerDependencies ?? {})].flatMap((d) => [d, `${d}/*`])
   const result = await Bun.build({
     entrypoints: Object.values(entries).map((e) => join(dir, e)),
     outdir: join(dir, `dist`),

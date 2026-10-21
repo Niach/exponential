@@ -6,7 +6,7 @@
 // document's when the host sets none).
 
 import { DEFAULT_MEDIA_SCHEMES, decideUrl, mediaRequest, safeHref, type MediaRequest, type UrlPolicy } from "@exponential-at/ui"
-import type { HostPlugin } from "./host"
+import type { AnyHostPlugin as HostPlugin } from "./host-types"
 
 const documentBase = (): string | undefined => (typeof document !== `undefined` && document.baseURI ? document.baseURI : undefined)
 

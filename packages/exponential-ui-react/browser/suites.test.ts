@@ -54,10 +54,10 @@ import {
   styleToCss,
 } from "@exponential-at/ui"
 import type { ChildTemplate, ConformanceReport, Decoded, ExtensionDef, FlatComponent, ModeName, NestedNode, UiNode, VappPackage } from "@exponential-at/ui"
-import { CLIENT_FUNCTIONS, LITERAL_ROWS_ROOT, absolutePath, bindTree as reactBindTree, isBinding, memoFormatter, resolveNodeProps, resolveValue, setPointer, type DataModel, type ResolveContext } from "../src/data"
+import { CLIENT_FUNCTIONS, LITERAL_ROWS_ROOT, absolutePath, bindTree as reactBindTree, isBinding, memoFormatter, resolveNodeProps, resolveValue, setPointer, type DataModel, type ResolveContext } from "@exponential-at/ui/web"
 import { itemInstance, runNodeAction, templateItems } from "../src/node-view"
 import type { SurfaceContextValue } from "../src/context"
-import { BASE_CSS } from "../src/base-css"
+import { BASE_CSS } from "@exponential-at/ui/web"
 import { openPage, startHarness, type Harness } from "./support"
 
 const fixture = (name: string) => JSON.parse(readFileSync(join(import.meta.dirname, `..`, `..`, `exponential-ui`, `fixtures`, name), `utf8`))

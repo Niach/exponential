@@ -1,6 +1,6 @@
 // VAPP-87: the data model, bindings and the client functions.
 
-import { describe, expect, it } from "vitest"
+import { describe, expect, it } from "bun:test"
 import { absolutePath, boundPath, getPointer, resolveValue, setPointer } from "./data"
 
 describe(`JSON pointers`, () => {
@@ -24,7 +24,7 @@ describe(`JSON pointers`, () => {
     const list = { list: [1] }
     expect(setPointer(list, `/list/3`, 2)).toBe(list)
     expect(setPointer(list, `/list/x`, 2)).toBe(list)
-    expect(setPointer({ a: 1, b: 2 }, `/a`, undefined)).toEqual({ b: 2 })
+    expect(setPointer({ a: 1, b: 2 } as Record<string, number>, `/a`, undefined)).toEqual({ b: 2 })
     expect(setPointer({}, ``, { whole: true })).toEqual({ whole: true })
   })
   it(`relative paths resolve against a template scope`, () => {

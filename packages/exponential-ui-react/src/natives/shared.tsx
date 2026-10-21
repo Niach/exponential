@@ -6,55 +6,17 @@
 // `builtinIcons` (never a hardcoded glyph for an owned part).
 
 import { useContext, useMemo, type ReactNode } from "react"
-import { DEFAULT_STRINGS, coreCatalog, displayString, nativeRecipeProps } from "@exponential-at/ui"
+import { displayString, nativeRecipeProps } from "@exponential-at/ui"
+import { arr, bool, builtinIconName, failingCheck, failingChecks, formatFileSize, num, objects, phrase, str } from "@exponential-at/ui/web"
 import type { UiNode } from "@exponential-at/ui"
 import { InstanceContext, useSurfaceContext } from "../context"
 import { IconGlyph } from "../icons"
-import { partClass, propAttribute } from "../theme-css"
+import { partClass, propAttribute } from "@exponential-at/ui/web"
 
 export type Attrs = Record<string, unknown>
 
-export const str = (v: unknown, fallback = ``): string => (v === undefined || v === null ? fallback : typeof v === `object` ? JSON.stringify(v) : String(v))
-export const num = (v: unknown, fallback = 0): number => (typeof v === `number` && Number.isFinite(v) ? v : typeof v === `string` && v.trim() !== `` && Number.isFinite(Number(v)) ? Number(v) : fallback)
-export const bool = (v: unknown): boolean => v === true || v === `true`
-export const arr = <T,>(v: unknown): T[] => (Array.isArray(v) ? (v as T[]) : [])
-/** An array of OBJECTS (options, items, tabs, columns, rows…): entries that
- *  are not objects (`options: [null]`) are skipped, never painted. */
-export const objects = <T,>(v: unknown): T[] => (Array.isArray(v) ? (v.filter((e) => e !== null && typeof e === `object` && !Array.isArray(e)) as T[]) : [])
-
-/** A built-in PHRASE with placeholders (`removeItem` = `Remove {name}`):
- *  the surface's string table entry when it carries `id` (word order is the
- *  translation's), else `fallback()`, the round-1 composition kept until
- *  catalog/strings.json ships the id. */
-export function phrase(ctx: { strings: Readonly<Record<string, string>>; t: (id: string, params?: Record<string, unknown>) => string }, id: string, params: Record<string, unknown>, fallback: () => string): string {
-  return ctx.strings[id] !== undefined ? ctx.t(id, params) : fallback()
-}
-
-const SIZE_UNITS = [`byte`, `kilobyte`, `megabyte`, `gigabyte`] as const
-const sizeFormats = new Map<string, Intl.NumberFormat[]>()
-
-/** A byte count in the surface locale with a LOCALIZED unit (1024 steps,
- *  `Intl.NumberFormat` `style: "unit"`, e.g. `1,5 kB` / `١٫٥ ك.بايت`). */
-export function formatFileSize(bytes: number, locale: string): string {
-  let fmts = sizeFormats.get(locale)
-  if (!fmts) {
-    fmts = SIZE_UNITS.map((unit) => {
-      try {
-        return new Intl.NumberFormat(locale, { style: `unit`, unit, unitDisplay: `short`, maximumFractionDigits: 1 })
-      } catch {
-        return new Intl.NumberFormat(locale, { maximumFractionDigits: 1 })
-      }
-    })
-    sizeFormats.set(locale, fmts)
-  }
-  let i = 0
-  let n = Math.max(0, bytes)
-  while (n >= 1024 && i < SIZE_UNITS.length - 1) {
-    n /= 1024
-    i++
-  }
-  return fmts[i].format(n)
-}
+// FEED-128: the pure helpers live in `@exponential-at/ui/web` (coerce.ts).
+export { str, num, bool, arr, objects, phrase, formatFileSize, failingChecks, failingCheck, builtinIconName }
 
 export type PartFn = ((name: string, ...states: (string | false | undefined | null)[]) => Attrs) & {
   /** The same with part-level recipe props (`{kind: "keyword"}`). */
@@ -148,30 +110,8 @@ export function TextPart({ part, text, as: Tag = `span`, id, htmlFor }: { part: 
   return <span {...attrs} id={id}>{s}</span>
 }
 
-/** A control's `checks` evaluated: EVERY failing message, in order (a
- *  check without one says `$string.invalidValue`: pass the surface's). */
-export function failingChecks(checks: unknown, fallback: string = DEFAULT_STRINGS.invalidValue): string[] {
-  const out: string[] = []
-  for (const check of objects<{ condition?: unknown; message?: unknown }>(checks)) {
-    if (check && typeof check === `object` && `condition` in check && (check.condition === false || check.condition === null || check.condition === undefined || check.condition === ``)) out.push(str(check.message, fallback))
-  }
-  return out
-}
-
-/** The first failing message, or null (kept for hosts that used it). */
-export function failingCheck(checks: unknown, fallback?: string): string | null {
-  return failingChecks(checks, fallback)[0] ?? null
-}
-
 export function Hidden({ children }: { children: ReactNode }) {
   return <span className="xui-sr-only">{children}</span>
-}
-
-const BUILTIN_ICONS = coreCatalog.builtinIcons as Record<string, string>
-
-/** The icons.json name a renderer draws for an owned part. */
-export function builtinIconName(slot: string): string {
-  return BUILTIN_ICONS[slot] ?? `ui-icon-placeholder`
 }
 
 /** The glyph of an owned part (`CodeBlock.copy`, `Table.sortIcon.asc`),
