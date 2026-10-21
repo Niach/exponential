@@ -1,10 +1,10 @@
 import { TRPCError } from "@trpc/server"
 import { and, eq, inArray } from "drizzle-orm"
-import type { SessionsConfigureInput, SessionWorkLaunch } from "@exp/db-schema/domain"
+import type { SessionsConfigureInput } from "@exp/db-schema/domain"
 import { db } from "@/db/connection"
 import { mcpServers, sessions } from "@/db/schema"
 import { generateTxId } from "@/lib/trpc"
-import { assertCanSteer, loadSessionForUser } from "@/lib/sessions/access"
+import { assertCanSteer, loadSessionForUser, sessionDeviceOwner } from "@/lib/sessions/access"
 import { assertRunnerVocabulary, effectiveCli } from "@/lib/sessions/send"
 import { getSteerRelayConfig, relayPostNudge } from "@/lib/steer"
 
@@ -50,13 +50,7 @@ export async function configureSession(
   }
   const result = await db.transaction(async (tx) => {
     const txid = await generateTxId(tx)
-    // A DISPATCHER never plans, edits or drives the screen itself: its picks
-    // are its WORK picks, inherited by the children it spawns from now on.
-    const set: Partial<typeof sessions.$inferInsert> = target.dispatch
-      ? Object.keys(picks).length > 0
-        ? { workLaunch: { ...(target.workLaunch ?? {}), ...picks } satisfies SessionWorkLaunch }
-        : {}
-      : picks
+    const set: Partial<typeof sessions.$inferInsert> = picks
     if (mcpServerIds !== undefined) set.mcpServerIds = mcpServerIds
     await tx
       .update(sessions)
@@ -67,7 +61,7 @@ export async function configureSession(
   // The host device acts on the row at its next pass; a relay nudge kills
   // the latency (best-effort, like a send).
   const config = getSteerRelayConfig()
-  if (config) void relayPostNudge(config, target.hostUserId ?? target.userId, target.deviceId)
+  if (config) void relayPostNudge(config, await sessionDeviceOwner(target), target.deviceId)
   return result
 }
 

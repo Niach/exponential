@@ -43,7 +43,7 @@ describe(`useSteerCommand`, () => {
   const dispatch = (agent: string | null) =>
     renderHook(() => useSteerCommand({ teamId: `t1`, sessionId: `s1`, agent })).result.current
 
-  it(`sends /btw as an aside child of the session (parentId, aside) and reports sent`, async () => {
+  it(`sends /btw as a child of the session (parentId) and reports sent`, async () => {
     mocks.send.mockResolvedValue({ sessionId: `s2` })
     await expect(dispatch(`claude`)(`/btw why?`)).resolves.toBe(`sent`)
     expect(mocks.send).toHaveBeenCalledTimes(1)
@@ -51,7 +51,6 @@ describe(`useSteerCommand`, () => {
       teamId: `t1`,
       parentId: `s1`,
       text: `why?`,
-      aside: true,
     })
     // The hook raises its own toast: the generic mutation toast is skipped.
     expect(mocks.send.mock.calls[0]![1]).toEqual({ context: { skipErrorToast: true } })

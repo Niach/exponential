@@ -51,11 +51,10 @@ export interface TreeSessionRead {
 }
 
 export interface TreeSessionIssue {
+  /** NEW-1: the session that HOLDS the issue (the row sits on it). */
   sessionId: string
   issueId: string
   sortOrder: number
-  /** EXP-1341: the tree session working on it (absent/null = the root's). */
-  assignedSessionId?: string | null
 }
 
 export interface TreeIssue {
@@ -84,6 +83,8 @@ export interface TreeMessage {
 export interface TreePullRequest {
   id: string
   number: number
+  /** NEW-1: `treeState` reads it (`merged` = landed); absent = unknown. */
+  state?: string
 }
 
 export const SESSION_CARD_COPY = cardFixture.copy
@@ -183,17 +184,32 @@ export function sessionCard(
   }
 }
 
-function rootIssues(
-  rootId: string,
+/** NEW-1: a thread's issues = the UNION over its tree's rows: the sessions
+ *  in tree order (the root first, then creation order), each one's rows by
+ *  sortOrder, every issue once. */
+export function treeIssues(
+  tree: readonly Pick<TreeSession, `id`>[],
   sessionIssues: readonly TreeSessionIssue[],
   issues: readonly TreeIssue[]
 ): TreeIssue[] {
   const byId = new Map(issues.map((issue) => [issue.id, issue]))
-  return sessionIssues
-    .filter((link) => link.sessionId === rootId)
-    .sort((a, b) => a.sortOrder - b.sortOrder)
-    .map((link) => byId.get(link.issueId))
-    .filter((issue): issue is TreeIssue => issue !== undefined)
+  const seen = new Set<string>()
+  const out: TreeIssue[] = []
+  for (const session of tree) {
+    const rows = sessionIssues
+      .filter((link) => link.sessionId === session.id)
+      .sort(
+        (a, b) =>
+          a.sortOrder - b.sortOrder || (a.issueId < b.issueId ? -1 : a.issueId > b.issueId ? 1 : 0)
+      )
+    for (const link of rows) {
+      const issue = byId.get(link.issueId)
+      if (!issue || seen.has(issue.id)) continue
+      seen.add(issue.id)
+      out.push(issue)
+    }
+  }
+  return out
 }
 
 /** A session chip's lead ×4: the thread row mark of THAT session, `ended`
@@ -524,22 +540,30 @@ export interface SessionThreadView {
 function eventText(
   card: Record<string, unknown>,
   issues: ReadonlyMap<string, TreeIssue>,
-  prs: ReadonlyMap<string, TreePullRequest>
+  prs: ReadonlyMap<string, TreePullRequest>,
+  sessionName: (id: string) => string | null = () => null
 ): string | null {
   const event = String(card.event ?? ``)
   const template = (THREAD_COPY.events as Record<string, string>)[event]
   if (!template) return null
   const issue = typeof card.issueId === `string` ? issues.get(card.issueId) : undefined
   const pr = typeof card.pullRequestId === `string` ? prs.get(card.pullRequestId) : undefined
-  if (template.includes(`{issue}`)) {
+  let text = template
+  if (text.includes(`{issue}`)) {
     if (!issue) return null
-    return template.replace(`{issue}`, issue.identifier)
+    text = text.replace(`{issue}`, () => issue.identifier)
   }
-  if (template.includes(`{pr}`)) {
+  if (text.includes(`{pr}`)) {
     if (!pr) return null
-    return template.replace(`{pr}`, `#${pr.number}`)
+    text = text.replace(`{pr}`, () => `#${pr.number}`)
   }
-  return template
+  if (text.includes(`{session}`)) {
+    // NEW-1: a bus line about a session of the tree; an unsynced one drops.
+    const name = typeof card.sessionId === `string` ? sessionName(card.sessionId) : null
+    if (!name) return null
+    text = text.replace(`{session}`, () => name)
+  }
+  return text
 }
 
 export interface GuidePullRequestLike {
@@ -697,7 +721,7 @@ export function buildSessionThread(input: {
   const byId = new Map(input.sessions.map((s) => [s.id, s]))
   byId.set(root.id, root)
   const titles = sessionTitles([...byId.values()], input.sessionIssues, input.issues, input.messages)
-  const issues = rootIssues(root.id, input.sessionIssues, input.issues)
+  const issues = treeIssues(tree, input.sessionIssues, input.issues)
   const issueMap = new Map(input.issues.map((issue) => [issue.id, issue]))
   const prMap = new Map(input.pullRequests.map((pr) => [pr.id, pr]))
   const own = input.messages
@@ -862,10 +886,17 @@ export function buildSessionThread(input: {
         break
       }
       case `event`: {
-        const text = eventText(card, issueMap, prMap)
+        const text = eventText(card, issueMap, prMap, (id) => {
+          const target = byId.get(id)
+          return target ? sessionCard(target, titles.get(target.id) ?? ``, now).name : null
+        })
         if (text) rows.push({ type: `event`, id: message.id, event: String(card.event), text })
         break
       }
+      // NEW-1: a child's ask mirrored into its parent (`ask`): the child's
+      // own card already surfaces in the Conversation (`asks`), so the
+      // mirror draws nothing here.
+      case `ask`:
       default:
         break
     }
@@ -936,6 +967,34 @@ export interface ThreadsListGroup {
   rows: ThreadsListRow[]
 }
 
+export type TreeState = `needs_you` | `running` | `done` | `stale` | `idle`
+
+export const TREE_STATE_RULES = listFixture.treeState
+
+/**
+ * NEW-1 (plan 3.13): a tree's derived state. `needs_you` = a live session
+ * waits on a person (`needsInput`, a usage wall or a watchdog flag included);
+ * `running` = any session queued or running; `done` = every session ended
+ * and every PR of the thread merged (none = never done); `stale` = nothing
+ * live touched for `treeState.staleHours`; else `idle`.
+ */
+export function treeState(
+  tree: readonly TreeSession[],
+  pullRequests: readonly Pick<TreePullRequest, `id` | `state`>[],
+  now: string
+): TreeState {
+  const live = tree.filter((s) => s.status !== `ended`)
+  if (live.some((s) => s.needsInput)) return `needs_you`
+  if (live.some((s) => s.status === `queued` || s.status === `running`)) return `running`
+  if (live.length === 0 && pullRequests.length > 0 && pullRequests.every((pr) => pr.state === `merged`)) {
+    return `done`
+  }
+  const newest = tree.reduce((latest, s) => Math.max(latest, ms(s.updatedAt) ?? 0), 0)
+  const at = ms(now)
+  if (at !== null && at - newest > TREE_STATE_RULES.staleHours * 60 * 60 * 1000) return `stale`
+  return `idle`
+}
+
 /**
  * The Threads page/rail list: roots of kind `thread` in scope (`teamId` =
  * the ACTIVE team; null = every team, phones band rows per team), grouped
@@ -951,6 +1010,9 @@ export function partitionThreads(input: {
   teamId: string | null
   /** EXP-1323: the viewer's `session_reads` (absent = none read). */
   reads?: readonly TreeSessionRead[]
+  /** NEW-1: the clock for Recent's window (absent = no window: every
+   *  recent tree, up to `recent.max`). */
+  now?: string | null
 }): ThreadsListGroup[] {
   const readAt = new Map((input.reads ?? []).map((read) => [read.sessionId, ms(read.readAt) ?? 0]))
   const rootOf = new Map(input.sessions.map((s) => [s.id, s.rootId]))
@@ -1045,16 +1107,29 @@ export function partitionThreads(input: {
     }
     buckets[key].push({ row, children })
   }
-  const order = (entries: { row: ThreadsListRow; children: ThreadsListRow[] }[]) =>
-    entries
-      .sort(
-        (a, b) =>
-          (ms(b.row.activityAt) ?? 0) - (ms(a.row.activityAt) ?? 0) ||
-          (a.row.sessionId < b.row.sessionId ? -1 : 1)
-      )
-      .flatMap((entry) => [entry.row, ...entry.children])
+  const sorted = (entries: { row: ThreadsListRow; children: ThreadsListRow[] }[]) =>
+    entries.sort(
+      (a, b) =>
+        (ms(b.row.activityAt) ?? 0) - (ms(a.row.activityAt) ?? 0) ||
+        (a.row.sessionId < b.row.sessionId ? -1 : 1)
+    )
+  const flat = (entries: { row: ThreadsListRow; children: ThreadsListRow[] }[]) =>
+    entries.flatMap((entry) => [entry.row, ...entry.children])
+  // NEW-1: Recent = every tree active in the last `recent.hours`, filled
+  // up to the last `recent.max` by activity. Ended trees stay openable.
+  const recentRules = listFixture.recent
+  const at = ms(input.now ?? null)
+  const recent = sorted(buckets.recent).filter(
+    (entry, index) =>
+      index < recentRules.max ||
+      (at !== null && at - (ms(entry.row.activityAt) ?? 0) <= recentRules.hours * 60 * 60 * 1000)
+  )
   return (Object.keys(buckets) as ThreadsListGroup[`key`][])
-    .map((key) => ({ key, title: THREADS_LIST_COPY.groups[key], rows: order(buckets[key]) }))
+    .map((key) => ({
+      key,
+      title: THREADS_LIST_COPY.groups[key],
+      rows: flat(key === `recent` ? recent : sorted(buckets[key])),
+    }))
     .filter((group) => group.rows.length > 0)
 }
 

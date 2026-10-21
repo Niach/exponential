@@ -56,12 +56,12 @@ export function mcpServerInstructions(gates: {
   }
   if (gates.inSession && !gates.agent && gates.unattended) {
     paragraphs.push(
-      `This session is unattended (another session started it). Finish with exponential_sessions_end LAST, worktree clean: its summary (finished, stopped for a human, or changed nothing) is your final message and your parent's report. Never wait for replies; a question only your starter can answer goes to your parent via exponential_sessions_send, then stop.`
+      `This session is unattended (another session started it). Finish with exponential_sessions_end LAST, worktree clean: its summary (finished, stopped for a human, or changed nothing) is your final message and your parent's report. Never wait or poll: end your turn, messages wake you (a child's reply, question, PR or end).`
     )
   }
   if (gates.inSession && !gates.agent && !gates.unattended) {
     paragraphs.push(
-      `exponential_sessions_end ends this session; call it only when the person asks you to end the session.`
+      `exponential_sessions_end ends this session; call it only when the person asks you to end the session. Never wait or poll: end your turn, messages wake you.`
     )
   }
   // EXP-1280: plan mode is Exponential's (a card + the pr_open gate): a

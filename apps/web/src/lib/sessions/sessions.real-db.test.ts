@@ -15,11 +15,13 @@ import {
   teamMembers,
   teams,
 } from "@/db/schema"
-import { inRollback, probeRealDb } from "@/test/real-db"
+import { probeRealDb } from "@/test/real-db"
 
-// EXP-1291: the session tree's core against the REAL migrated Postgres —
-// sessions.send's three forms, visibility, the tree caps, lifecycle, the
-// Guide, the brief and the custom-trigger mirrors. These helpers open their
+// EXP-1291/NEW-1: the session tree's core against the REAL migrated
+// Postgres — sessions.send's three forms (a root that WORKS on its own
+// picks), visibility, the derived host, the tree caps, lifecycle, moves,
+// the Guide, the brief and the custom-trigger mirrors. The bus and the
+// watchdog have their own suites (bus/watchdog.real-db.test.ts). These helpers open their
 // own transactions, so each case builds a fresh team and the suite deletes
 // every team (and user) it made (cascade). Skips without a migrated DB that
 // has the EXP-1291 triggers (see src/test/real-db.ts).
@@ -34,22 +36,14 @@ vi.mock(`@/lib/integrations/notifications`, () => ({
   fireAndForgetIssueMentionNotify: () => {},
 }))
 
-// EXP-1252: the handoff package's object store (never reached here).
-const storage = vi.hoisted(() => ({
-  uploaded: [] as string[],
-  deleted: [] as string[],
-}))
+// The object store (never reached here: card pictures arrive as rows).
 vi.mock(`@/lib/storage`, () => ({
-  uploadObject: async (options: { key: string }) => {
-    storage.uploaded.push(options.key)
-  },
+  uploadObject: async () => {},
   getObject: async () => ({ Body: {}, ContentLength: 3 }),
   toResponseBody: async () => new Uint8Array([1, 2, 3]).buffer,
 }))
 vi.mock(`@/lib/storage/issue-attachment-cleanup`, () => ({
-  deleteStorageObjects: async (keys: string[]) => {
-    storage.deleted.push(...keys)
-  },
+  deleteStorageObjects: async () => {},
 }))
 
 const ready = await probeRealDb(`
@@ -69,6 +63,7 @@ const { linkIssues, unlinkIssue } = await import(`@/lib/sessions/issues`)
 const { writeGuide } = await import(`@/lib/sessions/guide`)
 const { composeSessionBrief } = await import(`@/lib/sessions/brief`)
 const { getSessionTree, listSessions } = await import(`@/lib/sessions/tree`)
+const { resolveSessionHost } = await import(`@/lib/sessions/host`)
 
 const id8 = () => crypto.randomUUID().slice(0, 8)
 const made = { teams: [] as string[], users: [] as string[] }
@@ -149,9 +144,10 @@ describe.skipIf(!ready.ok)(`sessions.send — a new root`, () => {
       rootId: root.id,
       depth: 0,
       shared: false,
-      hostUserId: null,
       cli: null,
     })
+    // NEW-1: the host is derived from the devices rows: the starter's own.
+    expect(await resolveSessionHost(root)).toBe(w.owner)
     const links = await db.select().from(sessionIssues).where(eq(sessionIssues.sessionId, root.id))
     expect(links).toMatchObject([{ issueId, ownerId: w.owner, shared: false, boardId: w.boardId }])
     const [message] = await db.select().from(messages).where(eq(messages.id, sent.messageId!))
@@ -176,7 +172,9 @@ describe.skipIf(!ready.ok)(`sessions.send — a new root`, () => {
       input: { teamId: w.teamId, deviceId: w.deviceId, text: `hello` },
     })
     const root = await row(sent.sessionId)
-    expect(root).toMatchObject({ shared: true, userId: w.mate, hostUserId: w.owner })
+    expect(root).toMatchObject({ shared: true, userId: w.mate })
+    // The teammate owns no row for the box: the owner sharing it hosts.
+    expect(await resolveSessionHost(root)).toBe(w.owner)
     // Visible to the owner (member + shared).
     expect((await loadSessionForUser(w.owner, root.id)).id).toBe(root.id)
   })
@@ -251,37 +249,29 @@ describe.skipIf(!ready.ok)(`sessions.send — a new root`, () => {
       actionName: `Triage`,
       actionInputs: { issue: issueId },
     })
+    // NEW-1: the root WORKS the action itself (no dispatcher hand-off).
     const brief = await composeSessionBrief(sent.sessionId)
     expect(brief.brief).toContain(`Triage the issue.`)
     expect(brief.brief).toContain(`Target`)
-    // A dispatcher started on an action hands it off; a work child sees the
-    // action through its dispatcher parent.
-    expect(brief.brief).toContain(`## Dispatch`)
-    const child = await sendSession({ userId: w.owner, input: { parentId: sent.sessionId, text: `do it` } })
-    const childBrief = await composeSessionBrief(child.sessionId)
-    expect(childBrief.brief).toContain(`Triage the issue.`)
-    expect(childBrief.brief).not.toContain(`## Dispatch`)
+    expect(brief.brief).not.toContain(`## Dispatch`)
 
-    // An ended dispatcher's continuation carries the Action on, so ITS
-    // children (grandchildren of the root) still get it, and dispatches.
+    // An ended root's continuation carries the Action on.
     await endSession({ userId: w.owner, sessionId: sent.sessionId, summary: `Done.` })
     const cont = await sendSession({ userId: w.owner, input: { sessionId: sent.sessionId, text: `again` } })
     expect(await row(cont.sessionId)).toMatchObject({
-      dispatch: true,
+      parentId: sent.sessionId,
       actionId: action!.id,
       actionName: `Triage`,
       actionInputs: { issue: issueId },
     })
-    expect((await composeSessionBrief(cont.sessionId)).brief).toContain(`## Dispatch`)
-    const grandchild = await sendSession({ userId: w.owner, input: { parentId: cont.sessionId, text: `go` } })
-    expect((await composeSessionBrief(grandchild.sessionId)).brief).toContain(`Triage the issue.`)
+    expect((await composeSessionBrief(cont.sessionId)).brief).toContain(`Triage the issue.`)
   })
 })
 
-// Dispatch (owner 2026-10-15): every new root is a DISPATCHER on the device's
-// thread model; the composer's picks ride `work_launch` to its children.
-describe.skipIf(!ready.ok)(`sessions.send — dispatcher roots`, () => {
-  it(`a new root dispatches on no model of its own and hands its picks to children`, async () => {
+// NEW-1 (no dispatcher): a new root RUNS on the composer's picks; a child
+// inherits its parent's.
+describe.skipIf(!ready.ok)(`sessions.send — a root works on its own picks`, () => {
+  it(`a new root carries the composer's picks and children inherit them`, async () => {
     const w = await world()
     const root = await sendSession({
       userId: w.owner,
@@ -297,41 +287,28 @@ describe.skipIf(!ready.ok)(`sessions.send — dispatcher roots`, () => {
         text: `build it`,
       },
     })
-    expect(await row(root.sessionId)).toMatchObject({
-      dispatch: true,
-      cli: `claude`,
-      model: null,
-      effort: null,
-      planMode: false,
-      ultracode: false,
-      computerUse: false,
-      workLaunch: {
-        model: `opus`,
-        effort: `high`,
-        planMode: true,
-        ultracode: true,
-        computerUse: true,
-      },
-    })
-
-    // A child inherits the WORK picks, never the dispatcher's own run, and
-    // is no dispatcher itself.
-    const child = await sendSession({ userId: w.owner, input: { parentId: root.sessionId, text: `part 1` } })
-    expect(await row(child.sessionId)).toMatchObject({
-      dispatch: false,
+    const picks = {
       cli: `claude`,
       model: `opus`,
       effort: `high`,
       planMode: true,
       ultracode: true,
       computerUse: true,
-    })
+    }
+    // The legacy shims stay unwritten.
+    expect(await row(root.sessionId)).toMatchObject({ ...picks, dispatch: false, spawnedBySessionId: null })
+
+    const child = await sendSession({ userId: w.owner, input: { parentId: root.sessionId, text: `part 1` } })
+    expect(await row(child.sessionId)).toMatchObject({ ...picks, dispatch: false })
     // The child's own picks win over the inherited ones.
     const picked = await sendSession({
       userId: w.owner,
       input: { parentId: root.sessionId, text: `part 2`, model: `haiku`, planMode: false },
     })
     expect(await row(picked.sessionId)).toMatchObject({ model: `haiku`, planMode: false, effort: `high` })
+    // A grandchild inherits from ITS parent.
+    const grand = await sendSession({ userId: w.owner, input: { parentId: picked.sessionId, text: `deeper` } })
+    expect(await row(grand.sessionId)).toMatchObject({ model: `haiku`, planMode: false, effort: `high` })
     // An old client's blank model/effort ("CLI default") is tolerated but
     // never stored: the inherited pick stays.
     const blank = await sendSession({
@@ -343,17 +320,12 @@ describe.skipIf(!ready.ok)(`sessions.send — dispatcher roots`, () => {
       userId: w.owner,
       input: { teamId: w.teamId, deviceId: w.deviceId, cli: `claude`, model: ``, text: `x` },
     })
-    expect((await row(blankRoot.sessionId)).workLaunch).toMatchObject({ model: null })
+    expect(await row(blankRoot.sessionId)).toMatchObject({ model: null, effort: null })
 
-    // An ended dispatcher's continuation dispatches on.
+    // An ended root's continuation runs on the same picks.
     await endSession({ userId: w.owner, sessionId: root.sessionId, summary: `Done.` })
     const cont = await sendSession({ userId: w.owner, input: { sessionId: root.sessionId, text: `again` } })
-    expect(await row(cont.sessionId)).toMatchObject({
-      parentId: root.sessionId,
-      dispatch: true,
-      model: null,
-      workLaunch: { model: `opus`, effort: `high`, planMode: true },
-    })
+    expect(await row(cont.sessionId)).toMatchObject({ parentId: root.sessionId, ...picks })
   })
 })
 
@@ -395,7 +367,7 @@ describe.skipIf(!ready.ok)(`sessions.send — children, messages, continuation`,
     expect(`instructions` in tree.root).toBe(false)
   })
 
-  it(`EXP-1341: a child takes a name and its ASSIGNED issues; a message forwards one`, async () => {
+  it(`NEW-1: a start's issues sit on the new session; a message FORWARDS one onto its target`, async () => {
     const w = await world()
     const [a, b, c] = [await w.issue(`Lag`), await w.issue(`Jank`), await w.issue(`Typo`)]
     const root = await sendSession({
@@ -411,28 +383,43 @@ describe.skipIf(!ready.ok)(`sessions.send — children, messages, continuation`,
       userId: w.owner,
       input: { parentId: root.sessionId, text: `Fix the typo`, issueIds: [c], name: `Copy fixes` },
     })
-    const links = await db.select().from(sessionIssues).where(eq(sessionIssues.sessionId, root.sessionId))
-    const assigned = Object.fromEntries(links.map((link) => [link.issueId, link.assignedSessionId]))
-    // c was new: linked onto the ROOT, assigned to its child.
-    expect(assigned).toEqual({ [a]: grouped.sessionId, [b]: grouped.sessionId, [c]: named.sessionId })
+    const holders = async (issueId: string) =>
+      (
+        await db
+          .select({ sessionId: sessionIssues.sessionId, assigned: sessionIssues.assignedSessionId })
+          .from(sessionIssues)
+          .where(eq(sessionIssues.issueId, issueId))
+      )
+        .map((link) => {
+          // The legacy shim is never written.
+          expect(link.assigned).toBeNull()
+          return link.sessionId
+        })
+        .sort()
+    // The row sits on the session that holds the issue: each start its own.
+    expect(await holders(a)).toEqual([root.sessionId, grouped.sessionId].sort())
+    expect(await holders(c)).toEqual([named.sessionId])
 
     const tree = await getSessionTree(w.owner, root.sessionId)
     expect(tree.root.displayTitle).toBe(`Perf pass`)
     const titles = Object.fromEntries(tree.children.map((s) => [s.id, s.displayTitle]))
     expect(titles[grouped.sessionId]).toMatch(/^#CR-\d+ Lag \+ 1$/)
     expect(titles[named.sessionId]).toBe(`Copy fixes`)
-    // The child's brief lists only its share.
+    // sessions_get = the union over the tree, each row naming its holder.
+    expect(new Set(tree.issues.map((link) => link.issueId))).toEqual(new Set([a, b, c]))
+    expect(tree.issues.find((link) => link.issueId === c)!.sessionId).toBe(named.sessionId)
+    // The child's brief lists only its own rows.
     const brief = await composeSessionBrief(grouped.sessionId)
     expect(brief.brief).toContain(`Lag`)
     expect(brief.brief).not.toContain(`Typo`)
 
-    // Forward: c moves to the grouped child.
+    // Forward: c's row MOVES from the named child onto the grouped one.
     await sendSession({ userId: w.owner, input: { sessionId: grouped.sessionId, issueIds: [c] } })
-    const [moved] = await db
-      .select()
-      .from(sessionIssues)
-      .where(and(eq(sessionIssues.sessionId, root.sessionId), eq(sessionIssues.issueId, c)))
-    expect(moved!.assignedSessionId).toBe(grouped.sessionId)
+    expect(await holders(c)).toEqual([grouped.sessionId])
+    // Forwarding what the target already holds drops the tree's other copy.
+    await sendSession({ userId: w.owner, input: { sessionId: grouped.sessionId, issueIds: [a] } })
+    expect(await holders(a)).toEqual([grouped.sessionId])
+    expect((await composeSessionBrief(grouped.sessionId)).brief).toContain(`Typo`)
   })
 
   it(`a message to a live session lands on it; to an ended thread it continues in a new child`, async () => {
@@ -524,8 +511,16 @@ describe.skipIf(!ready.ok)(`sessions.send — children, messages, continuation`,
     const w = await world()
     const root = await sendSession({ userId: w.owner, input: { teamId: w.teamId, deviceId: w.deviceId, text: `r` } })
     const child = await sendSession({ userId: w.owner, input: { parentId: root.sessionId, text: `c` } })
+    const grand = await sendSession({ userId: w.owner, input: { parentId: child.sessionId, text: `g` } })
+    const sibling = await sendSession({ userId: w.owner, input: { parentId: root.sessionId, text: `s` } })
+    // A child's End ends only its subtree.
+    const sub = await endSession({ userId: w.owner, sessionId: child.sessionId })
+    expect(sub.endedIds).toEqual([grand.sessionId, child.sessionId])
+    expect(await row(sibling.sessionId)).toMatchObject({ status: `queued` })
+    expect(await row(root.sessionId)).toMatchObject({ status: `queued` })
+    // A root's End ends the rest of its tree, deepest first.
     const ended = await endSession({ userId: w.owner, sessionId: root.sessionId })
-    expect(new Set(ended.endedIds)).toEqual(new Set([root.sessionId, child.sessionId]))
+    expect(ended.endedIds).toEqual([sibling.sessionId, root.sessionId])
 
     const agent = await sendSession({
       userId: w.owner,
@@ -561,8 +556,11 @@ describe.skipIf(!ready.ok)(`sessions.send — children, messages, continuation`,
     expect(await row(spawned.sessionId)).toMatchObject({
       teamId: w.teamId,
       deviceId: w.deviceId,
-      spawnedBySessionId: agent.sessionId,
+      parentId: null,
+      spawnedBySessionId: null,
     })
+    // NEW-1: the agent WATCHES its spawn (the bus reports back to it).
+    expect((await row(agent.sessionId)).wakeOn).toEqual([spawned.sessionId])
     const [card] = await db
       .select({ card: messages.card })
       .from(messages)
@@ -574,14 +572,14 @@ describe.skipIf(!ready.ok)(`sessions.send — children, messages, continuation`,
 })
 
 describe.skipIf(!ready.ok)(`thread issues, the Guide and the trigger mirrors`, () => {
-  it(`links idempotently on the root with event cards, and unlinks`, async () => {
+  it(`links on the HOLDER idempotently with event cards on the root, and unlinks`, async () => {
     const w = await world()
     const a = await w.issue(`A`)
     const root = await sendSession({ userId: w.owner, input: { teamId: w.teamId, deviceId: w.deviceId, text: `r` } })
     const child = await sendSession({ userId: w.owner, input: { parentId: root.sessionId, text: `c` } })
     await db.transaction(async (tx) => {
       const first = await linkIssues(tx, {
-        rootId: child.sessionId,
+        sessionId: child.sessionId,
         issueIds: [a],
         source: `agent`,
         addedBy: w.owner,
@@ -589,7 +587,7 @@ describe.skipIf(!ready.ok)(`thread issues, the Guide and the trigger mirrors`, (
         filed: true,
       })
       const second = await linkIssues(tx, {
-        rootId: root.sessionId,
+        sessionId: child.sessionId,
         issueIds: [a],
         source: `user`,
         addedBy: w.owner,
@@ -599,15 +597,18 @@ describe.skipIf(!ready.ok)(`thread issues, the Guide and the trigger mirrors`, (
       expect(second.linked).toEqual([])
     })
     const links = await db.select().from(sessionIssues).where(eq(sessionIssues.issueId, a))
-    expect(links).toMatchObject([{ sessionId: root.sessionId, source: `agent` }])
-    await db.transaction((tx) => unlinkIssue(tx, { rootId: root.sessionId, issueId: a }))
+    expect(links).toMatchObject([{ sessionId: child.sessionId, source: `agent`, assignedSessionId: null }])
+    // The root's "−" reaches the row wherever its tree holds it.
+    const out = await db.transaction((tx) => unlinkIssue(tx, { sessionId: root.sessionId, issueId: a }))
+    expect(out).toEqual({ unlinked: true })
+    expect(await db.select().from(sessionIssues).where(eq(sessionIssues.issueId, a))).toEqual([])
     const events = await db
       .select({ card: messages.card })
       .from(messages)
       .where(and(eq(messages.sessionId, root.sessionId), eq(messages.authorKind, `system`)))
-    expect(events.map((e) => (e.card as { event?: string }).event).filter(Boolean)).toEqual([
-      `issue_filed`,
-      `issue_unlinked`,
+    expect(events.map((e) => e.card as { event?: string; sessionId?: string | null }).filter((c) => c.event)).toEqual([
+      { kind: `event`, event: `issue_filed`, issueId: a, sessionId: child.sessionId },
+      { kind: `event`, event: `issue_unlinked`, issueId: a, sessionId: null },
     ])
   })
 
@@ -916,11 +917,9 @@ describe.skipIf(!ready.ok)(`the sessions router: device procedures and answers`,
     await owner.configure({ sessionId: codex.sessionId, model: `gpt-5.6-luna` })
     expect((await row(codex.sessionId)).model).toBe(`gpt-5.6-luna`)
 
-    // A dispatcher root keeps its own runner: the picks are its WORK picks.
+    // NEW-1: a root runs on its own picks: configure moves them like a child's.
     await owner.configure({ sessionId: root.sessionId, model: `opus`, planMode: true, effort: `low` })
-    const dispatcher = await row(root.sessionId)
-    expect(dispatcher).toMatchObject({ dispatch: true, model: null, planMode: false, effort: null })
-    expect(dispatcher.workLaunch).toMatchObject({ model: `opus`, planMode: true, effort: `low` })
+    expect(await row(root.sessionId)).toMatchObject({ dispatch: false, model: `opus`, planMode: true, effort: `low` })
 
     // The steer rule: a private session refuses a teammate; the device-only
     // read refuses anyone but the host.
@@ -949,11 +948,11 @@ describe.skipIf(!ready.ok)(`the sessions router: device procedures and answers`,
     // The plan was approved: claude left plan mode, the row follows.
     await host.report({ sessionId: child.sessionId, planMode: false })
     expect((await row(child.sessionId)).planMode).toBe(false)
-    // Omitted = unchanged; a dispatcher never plans, whatever is reported.
+    // Omitted = unchanged; a root follows its run like any session.
     await host.report({ sessionId: child.sessionId, busy: true })
     expect((await row(child.sessionId)).planMode).toBe(false)
     await host.report({ sessionId: root.sessionId, planMode: true })
-    expect((await row(root.sessionId)).planMode).toBe(false)
+    expect((await row(root.sessionId)).planMode).toBe(true)
 
     // The model the run reports (a `/model` switch) follows onto the row; a
     // value outside the agent's vocabulary is ignored, never refused.
@@ -962,7 +961,7 @@ describe.skipIf(!ready.ok)(`the sessions router: device procedures and answers`,
     await host.report({ sessionId: child.sessionId, model: `claude-opus-4-1-20250805`, busy: false })
     expect(await row(child.sessionId)).toMatchObject({ model: `haiku`, busy: false })
     await host.report({ sessionId: root.sessionId, model: `opus` })
-    expect((await row(root.sessionId)).model).toBeNull()
+    expect((await row(root.sessionId)).model).toBe(`opus`)
   })
 
   it(`EXP-1334: mcpPicks is readable by whoever may steer the session`, async () => {
@@ -998,7 +997,7 @@ describe.skipIf(!ready.ok)(`the sessions router: device procedures and answers`,
   })
 })
 
-describe.skipIf(!ready.ok)(`EXP-1323: reports, asides, reads and suggestions`, async () => {
+describe.skipIf(!ready.ok)(`EXP-1323: reports, reads and suggestions`, async () => {
   const { sessionsRouter } = await import(`@/lib/trpc/sessions`)
   const { postReplies, postSuggestions } = await import(`@/lib/sessions/suggestions`)
   const { sessionReads } = await import(`@/db/schema`)
@@ -1057,7 +1056,7 @@ describe.skipIf(!ready.ok)(`EXP-1323: reports, asides, reads and suggestions`, a
     expect((await sessionMessages(root.sessionId)).length).toBe(before + 1)
   })
 
-  it(`the device's ended report falls back to the child's last reply; an aside never reports`, async () => {
+  it(`the device's ended report falls back to the child's last reply`, async () => {
     const w = await world()
     const root = await sendSession({ userId: w.owner, input: { teamId: w.teamId, deviceId: w.deviceId, text: `r` } })
     const child = await sendSession({ userId: w.owner, input: { parentId: root.sessionId, text: `c` } })
@@ -1065,51 +1064,26 @@ describe.skipIf(!ready.ok)(`EXP-1323: reports, asides, reads and suggestions`, a
     await host.claim({ sessionId: child.sessionId })
     await host.reply({ sessionId: child.sessionId, body: `All done.` })
     await host.report({ sessionId: child.sessionId, status: `ended` })
+    expect(await row(child.sessionId)).toMatchObject({ status: `ended`, busy: false })
     const reports = (await sessionMessages(root.sessionId)).filter(
       (m) => (m.card as { kind?: string } | null)?.kind === `report`
     )
     expect(reports.map((m) => m.body)).toEqual([`All done.`])
-
-    // An aside forks a RUNNING parent: a queued one has no run yet, an ended
-    // one none anymore.
-    await expect(
-      sendSession({ userId: w.owner, input: { parentId: root.sessionId, text: `q`, aside: true } })
-    ).rejects.toMatchObject({ code: `BAD_REQUEST`, message: `Asides need a running session` })
-    await expect(
-      sendSession({ userId: w.owner, input: { parentId: child.sessionId, text: `q`, aside: true } })
-    ).rejects.toMatchObject({ code: `BAD_REQUEST`, message: `Asides need a running session` })
-    await host.claim({ sessionId: root.sessionId })
-    const aside = await sendSession({
-      userId: w.owner,
-      input: { parentId: root.sessionId, text: `why is CI red?\nctx`, aside: true },
-    })
-    expect(await row(aside.sessionId)).toMatchObject({
-      aside: true,
-      cli: `claude`,
-      title: `why is CI red?`,
-      depth: 1,
-      deviceId: w.deviceId,
-    })
-    await endSession({ userId: w.owner, sessionId: aside.sessionId, summary: `flaky test` })
+    // A late report of an ended row is a no-op: the report is posted once.
+    await host.report({ sessionId: child.sessionId, status: `ended` })
     expect(
       (await sessionMessages(root.sessionId)).filter((m) => (m.card as { kind?: string } | null)?.kind === `report`)
     ).toHaveLength(1)
-    // Never on codex.
-    await db.update(sessions).set({ cli: `codex` }).where(eq(sessions.id, root.sessionId))
-    await expect(
-      sendSession({ userId: w.owner, input: { parentId: root.sessionId, text: `q`, aside: true } })
-    ).rejects.toMatchObject({ code: `BAD_REQUEST` })
-  })
-
-  it(`reports a caption (trimmed, capped, cleared at turn end)`, async () => {
-    const w = await world()
-    const root = await sendSession({ userId: w.owner, input: { teamId: w.teamId, deviceId: w.deviceId, text: `r` } })
-    const host = caller(w.owner)
-    await host.claim({ sessionId: root.sessionId })
-    await host.report({ sessionId: root.sessionId, busy: true, caption: `  Running ${`x`.repeat(200)}` })
-    expect((await row(root.sessionId)).caption).toHaveLength(80)
-    await host.report({ sessionId: root.sessionId, busy: false })
-    expect((await row(root.sessionId)).caption).toBeNull()
+    // With neither a summary nor a reply: the fallback.
+    const { REPORT_FALLBACK } = await import(`@/lib/sessions/bus`)
+    const quiet = await sendSession({ userId: w.owner, input: { parentId: root.sessionId, text: `q` } })
+    await host.claim({ sessionId: quiet.sessionId })
+    await host.report({ sessionId: quiet.sessionId, status: `ended` })
+    const fallback = (await sessionMessages(root.sessionId)).find(
+      (m) => (m.card as { sessionId?: string; kind?: string } | null)?.kind === `report` &&
+        (m.card as { sessionId?: string }).sessionId === quiet.sessionId
+    )
+    expect(fallback!.body).toBe(REPORT_FALLBACK)
   })
 
   it(`markRead upserts the caller's read mark of a visible session only`, async () => {
@@ -1224,15 +1198,14 @@ describe.skipIf(!ready.ok)(`EXP-1323: reports, asides, reads and suggestions`, a
   })
 
 
-// ── EXP-1252: moving a session to another device (+ #FEED-84 / #FEED-85) ────
+// ── EXP-1252/NEW-1: moving a session to another device (+ #FEED-84 / #FEED-85) ────
 
 const signedIn = (id: string, email: string) => ({
   claude: { signedIn: true, email, profiles: [{ id, signedIn: true, email, active: true }] },
 })
 
-describe.skipIf(!ready.ok)(`EXP-1252: moving a session to another device`, async () => {
+describe.skipIf(!ready.ok)(`NEW-1: moving a session to another device`, async () => {
   const { sessionsRouter } = await import(`@/lib/trpc/sessions`)
-  const { putHandoffBlob, getHandoffBlob } = await import(`@/lib/sessions/handoff`)
   const { MOVE_COPY } = await import(`@/lib/sessions/move`)
   const caller = (userId: string) =>
     sessionsRouter.createCaller({
@@ -1241,12 +1214,12 @@ describe.skipIf(!ready.ok)(`EXP-1252: moving a session to another device`, async
       request: new Request(`http://x.test`),
     } as never)
 
-  /** The owner's second machine, online, signed in to claude. */
+  /** The owner's second machine, online, signed in to claude; a CLAIMED root. */
   async function moveWorld() {
     const w = await world()
     await db
       .update(devices)
-      .set({ agentAccounts: signedIn(`pa`, `me@move.test`), version: `0.14.73` })
+      .set({ agentAccounts: signedIn(`pa`, `me@move.test`), version: `0.14.74` })
       .where(eq(devices.deviceId, w.deviceId))
     const target = `dev-b-${id8()}`
     await db.insert(devices).values({
@@ -1254,43 +1227,93 @@ describe.skipIf(!ready.ok)(`EXP-1252: moving a session to another device`, async
       deviceId: target,
       label: `b-box`,
       kind: `desktop`,
-      version: `0.14.73`,
+      version: `0.14.74`,
       agentAccounts: signedIn(`pb`, `ME@move.test`),
     })
     const root = await sendSession({
       userId: w.owner,
       input: { teamId: w.teamId, deviceId: w.deviceId, cli: `claude`, account: `pa`, text: `work` },
     })
-    await caller(w.owner).claim({ sessionId: root.sessionId, deviceId: w.deviceId })
+    await caller(w.owner).claim({ sessionId: root.sessionId, deviceId: w.deviceId, branch: `exp/move` })
     return { ...w, target, sessionId: root.sessionId, firstMessageId: root.messageId! }
   }
+  const systemBodies = async (sessionId: string) =>
+    (
+      await db
+        .select()
+        .from(messages)
+        .where(and(eq(messages.sessionId, sessionId), eq(messages.authorKind, `system`)))
+    ).map((m) => m.body)
 
-  it(`requests a move (carried login, caption, nothing posted) and cancels it`, async () => {
+  it(`a QUEUED row re-targets in place, carrying the login, and says so (pre-consumed)`, async () => {
     const w = await moveWorld()
-    const before = await db.select().from(messages).where(eq(messages.sessionId, w.sessionId))
-    const sent = await sendSession({ userId: w.owner, input: { sessionId: w.sessionId, deviceId: w.target } })
-    expect(sent).toMatchObject({ sessionId: w.sessionId, messageId: null, status: `running` })
-    const moving = await row(w.sessionId)
-    expect(moving).toMatchObject({
-      deviceId: w.deviceId,
-      moveToDeviceId: w.target,
-      caption: `Moving to b-box…`,
-      account: `pa`,
+    const fresh = await sendSession({
+      userId: w.owner,
+      input: { teamId: w.teamId, deviceId: w.deviceId, cli: `claude`, account: `pa`, text: `not yet` },
     })
+    const sent = await sendSession({ userId: w.owner, input: { sessionId: fresh.sessionId, deviceId: w.target } })
+    expect(sent).toMatchObject({ sessionId: fresh.sessionId, messageId: null, status: `queued` })
     // The same address on the target carries (case-insensitive).
-    expect(moving.handoff?.request).toMatchObject({ deviceId: w.target, account: `pb`, requestedBy: w.owner })
-    expect(await db.select().from(messages).where(eq(messages.sessionId, w.sessionId))).toHaveLength(
-      before.length
-    )
-    // The current device while moving = cancel.
-    await sendSession({ userId: w.owner, input: { sessionId: w.sessionId, deviceId: w.deviceId } })
-    expect(await row(w.sessionId)).toMatchObject({ moveToDeviceId: null, handoff: null, caption: null })
-    // The current device with nothing pending = nothing at all.
-    await sendSession({ userId: w.owner, input: { sessionId: w.sessionId, deviceId: w.deviceId, text: `hi` } })
-    expect(await row(w.sessionId)).toMatchObject({ deviceId: w.deviceId, moveToDeviceId: null })
+    expect(await row(fresh.sessionId)).toMatchObject({
+      deviceId: w.target,
+      status: `queued`,
+      account: `pb`,
+      moveToDeviceId: null,
+    })
+    const [moved] = await db
+      .select()
+      .from(messages)
+      .where(and(eq(messages.sessionId, fresh.sessionId), eq(messages.body, `Moved from box to b-box`)))
+    expect(moved).toMatchObject({ authorKind: `system`, card: null })
+    expect(moved!.consumedAt).not.toBeNull()
+    // The current device = nothing at all.
+    await sendSession({ userId: w.owner, input: { sessionId: fresh.sessionId, deviceId: w.target, text: `hi` } })
+    expect(await row(fresh.sessionId)).toMatchObject({ deviceId: w.target, status: `queued` })
   })
 
-  it(`refuses with the client copy: offline, visibility, no login, aside, agent, ended`, async () => {
+  it(`a LIVE row ends and continues on the target on its branch; children and watchers follow`, async () => {
+    const w = await moveWorld()
+    const issueId = await w.issue(`Moving work`)
+    await sendSession({ userId: w.owner, input: { sessionId: w.sessionId, issueIds: [issueId] } })
+    const kid = await sendSession({ userId: w.owner, input: { parentId: w.sessionId, text: `kid` } })
+    // A second root watching the moving one.
+    const watcher = await sendSession({ userId: w.owner, input: { teamId: w.teamId, deviceId: w.deviceId, text: `w` } })
+    await sendSession({
+      userId: w.owner,
+      callerSessionId: watcher.sessionId,
+      viaMcp: true,
+      input: { sessionId: watcher.sessionId, wakeOn: [w.sessionId] },
+    })
+    expect((await row(watcher.sessionId)).wakeOn).toEqual([w.sessionId])
+
+    const sent = await sendSession({
+      userId: w.owner,
+      input: { sessionId: w.sessionId, deviceId: w.target, text: `carry on there` },
+    })
+    expect(sent.sessionId).not.toBe(w.sessionId)
+    expect(await row(w.sessionId)).toMatchObject({ status: `ended`, busy: false, deviceId: w.deviceId })
+    expect(await row(sent.sessionId)).toMatchObject({
+      rootId: w.sessionId,
+      deviceId: w.target,
+      branch: `exp/move`,
+      account: `pb`,
+      status: `queued`,
+    })
+    expect(await systemBodies(w.sessionId)).toContain(`Moved from box to b-box`)
+    // The message waits on the continuation.
+    const [pending] = await db.select().from(messages).where(eq(messages.id, sent.messageId!))
+    expect(pending).toMatchObject({ sessionId: sent.sessionId, body: `carry on there`, consumedAt: null })
+    // Its live child re-parents, its watcher follows, its issue rows move.
+    expect(await row(kid.sessionId)).toMatchObject({ parentId: sent.sessionId, status: `queued` })
+    expect((await row(watcher.sessionId)).wakeOn).toEqual([sent.sessionId])
+    const [link] = await db.select().from(sessionIssues).where(eq(sessionIssues.issueId, issueId))
+    expect(link!.sessionId).toBe(sent.sessionId)
+    // A moved ROOT continues as a child of itself, never of its own
+    // continuation (the children's re-parent must skip the new row).
+    expect((await row(sent.sessionId)).parentId).toBe(w.sessionId)
+  })
+
+  it(`refuses with the client copy: offline, visibility, no login, agent; an ended thread continues there`, async () => {
     const w = await moveWorld()
     const add = async (values: Partial<typeof devices.$inferInsert>) => {
       const deviceId = `dev-x-${id8()}`
@@ -1299,7 +1322,7 @@ describe.skipIf(!ready.ok)(`EXP-1252: moving a session to another device`, async
         deviceId,
         label: `x`,
         kind: `server`,
-        version: `0.14.73`,
+        version: `0.14.74`,
         agentAccounts: signedIn(`px`, `me@move.test`),
         ...values,
       })
@@ -1311,27 +1334,18 @@ describe.skipIf(!ready.ok)(`EXP-1252: moving a session to another device`, async
       })
     await refuse(await add({ lastSeenAt: new Date(Date.now() - 3_600_000) }), MOVE_COPY.offline)
     await refuse(await add({ sharedTeamIds: [w.teamId] }), MOVE_COPY.visibility)
-    // A target before the first handoff-capable build (0.14.73) would launch
-    // the moved row fresh: refused before its logins are even looked at.
-    await refuse(await add({ version: null, agentAccounts: null }), MOVE_COPY.update)
-    await refuse(await add({ version: `0.14.72` }), MOVE_COPY.update)
     await refuse(await add({ agentAccounts: null }), MOVE_COPY.noLogin)
     // A teammate's machine nobody shared is invisible to the starter.
-    await db.insert(devices).values({ userId: w.mate, deviceId: `dev-m-${id8()}`, label: `m`, kind: `desktop` })
-    const mateDevice = (
-      await db.select({ deviceId: devices.deviceId }).from(devices).where(eq(devices.userId, w.mate))
-    )[0]!.deviceId
+    const mateDevice = `dev-m-${id8()}`
+    await db.insert(devices).values({ userId: w.mate, deviceId: mateDevice, label: `m`, kind: `desktop` })
     await refuse(mateDevice, MOVE_COPY.visibility)
     // An explicit login must be one of the target's.
     await expect(
       sendSession({ userId: w.owner, input: { sessionId: w.sessionId, deviceId: w.target, account: `nope` } })
     ).rejects.toMatchObject({ code: `BAD_REQUEST` })
+    // Nothing moved.
+    expect(await row(w.sessionId)).toMatchObject({ status: `running`, deviceId: w.deviceId })
 
-    const aside = await sendSession({
-      userId: w.owner,
-      input: { parentId: w.sessionId, text: `why?`, aside: true },
-    })
-    await refuse(w.target, MOVE_COPY.aside, aside.sessionId)
     const agent = await sendSession({
       userId: w.owner,
       input: {
@@ -1341,8 +1355,8 @@ describe.skipIf(!ready.ok)(`EXP-1252: moving a session to another device`, async
       },
     })
     await refuse(w.target, MOVE_COPY.agent, agent.sessionId)
-    // An ENDED thread ignores `deviceId` (as before EXP-1252): a message
-    // continues it on its own device; a bare device pick has nothing to run.
+    // An ENDED thread: a bare device pick has nothing to run; with a
+    // message the continuation starts ON the named device.
     await endSession({ userId: w.owner, sessionId: w.sessionId })
     await expect(sendSession({ userId: w.owner, input: { sessionId: w.sessionId, deviceId: w.target } })).rejects.toMatchObject({
       code: `BAD_REQUEST`,
@@ -1355,519 +1369,37 @@ describe.skipIf(!ready.ok)(`EXP-1252: moving a session to another device`, async
     expect(cont.sessionId).not.toBe(w.sessionId)
     expect(await row(cont.sessionId)).toMatchObject({
       parentId: w.sessionId,
-      deviceId: w.deviceId,
+      deviceId: w.target,
+      branch: `exp/move`,
       status: `queued`,
-      moveToDeviceId: null,
     })
   })
 
-  it(`a request needs the SOURCE online and on a handoff-capable build; a queued row does not`, async () => {
+  it(`a claim guards the device it read the row on: a re-target in between is CONFLICT (claim_lost)`, async () => {
     const w = await moveWorld()
-    const refuse = (message: string, sessionId = w.sessionId) =>
-      expect(sendSession({ userId: w.owner, input: { sessionId, deviceId: w.target } })).rejects.toMatchObject({
-        code: `PRECONDITION_FAILED`,
-        message,
-      })
-    // The source is where the package comes from: offline, nobody would
-    // ever hand the row over (only `completeHandoff` clears the move).
-    await db
-      .update(devices)
-      .set({ lastSeenAt: new Date(Date.now() - 3_600_000) })
-      .where(eq(devices.deviceId, w.deviceId))
-    await refuse(MOVE_COPY.sourceOffline)
-    expect(await row(w.sessionId)).toMatchObject({ moveToDeviceId: null, handoff: null, caption: null })
-    await db
-      .update(devices)
-      .set({ lastSeenAt: new Date(), version: `0.14.72` })
-      .where(eq(devices.deviceId, w.deviceId))
-    await refuse(MOVE_COPY.sourceUpdate)
-    await db.update(devices).set({ version: null }).where(eq(devices.deviceId, w.deviceId))
-    await refuse(MOVE_COPY.sourceUpdate)
-    // A session that never started has nothing to hand off: the old,
-    // offline source does not matter, the row simply re-targets.
-    await db
-      .update(devices)
-      .set({ lastSeenAt: new Date(Date.now() - 3_600_000) })
-      .where(eq(devices.deviceId, w.deviceId))
     const fresh = await sendSession({
       userId: w.owner,
       input: { teamId: w.teamId, deviceId: w.deviceId, cli: `claude`, text: `not yet` },
     })
-    await sendSession({ userId: w.owner, input: { sessionId: fresh.sessionId, deviceId: w.target } })
-    expect(await row(fresh.sessionId)).toMatchObject({ deviceId: w.target, status: `queued` })
-    // Back online and current: the request goes through.
-    await db
-      .update(devices)
-      .set({ lastSeenAt: new Date(), version: `0.14.73` })
-      .where(eq(devices.deviceId, w.deviceId))
-    await sendSession({ userId: w.owner, input: { sessionId: w.sessionId, deviceId: w.target } })
-    expect(await row(w.sessionId)).toMatchObject({ moveToDeviceId: w.target })
-  })
-
-  it(`a re-queued row (started, then moved) moves DIRECT again, its package with it`, async () => {
-    const { applyMove } = await import(`@/lib/sessions/send`)
-    const w = await moveWorld()
-    const third = `dev-c-${id8()}`
-    await db.insert(devices).values({
-      userId: w.owner,
-      deviceId: third,
-      label: `c-box`,
-      kind: `desktop`,
-      version: `0.14.73`,
-      agentAccounts: signedIn(`pc`, `me@move.test`),
-    })
-    await sendSession({ userId: w.owner, input: { sessionId: w.sessionId, deviceId: w.target } })
-    await putHandoffBlob(
-      w.owner,
-      w.sessionId,
-      new Request(`http://x.test`, { method: `PUT`, body: new Uint8Array([31, 139, 8]) })
-    )
-    await caller(w.owner).handoff({ sessionId: w.sessionId, deviceId: w.deviceId, outcome: `moved` })
-    const queuedOnB = await row(w.sessionId)
-    expect(queuedOnB).toMatchObject({ deviceId: w.target, status: `queued` })
-    expect(queuedOnB.startedAt).not.toBeNull()
-    const blob = queuedOnB.handoff!.blob!
-    // B has not claimed it: a second move is a DIRECT re-target (a request
-    // would make B package an EMPTY workspace over A's blob).
-    await sendSession({ userId: w.owner, input: { sessionId: w.sessionId, deviceId: third } })
-    const onC = await row(w.sessionId)
-    expect(onC).toMatchObject({ deviceId: third, status: `queued`, moveToDeviceId: null, account: `pc` })
-    expect(onC.handoff).toEqual({ request: null, blob })
-
-    // The direct write is guarded on `queued`: a plan made from a row the
-    // device claimed in between is CONFLICT, never a re-target.
-    const stale = await loadSessionForUser(w.owner, w.sessionId)
-    await caller(w.owner).claim({ sessionId: w.sessionId, deviceId: third })
-    const target = { deviceId: w.target, name: `b-box`, hostUserId: null, ownerId: w.owner, account: null }
-    await expect(
-      db.transaction((tx) => applyMove(tx, stale, { kind: `direct`, target }, w.owner))
-    ).rejects.toMatchObject({ code: `CONFLICT`, message: `The session just started; try again.` })
-    expect(await row(w.sessionId)).toMatchObject({ deviceId: third, status: `running` })
-    // Likewise a request planned for a row that ended since.
-    const running = await loadSessionForUser(w.owner, w.sessionId)
-    await endSession({ userId: w.owner, sessionId: w.sessionId })
-    await expect(
-      db.transaction((tx) => applyMove(tx, running, { kind: `request`, target }, w.owner))
-    ).rejects.toMatchObject({ code: `CONFLICT` })
-    expect(await row(w.sessionId)).toMatchObject({ moveToDeviceId: null })
-  })
-
-  it(`hands over: package up, moved re-stamps queued, the target restores without re-feeding`, async () => {
-    const w = await moveWorld()
-    const host = caller(w.owner)
-    await sendSession({ userId: w.owner, input: { sessionId: w.sessionId, deviceId: w.target } })
-    // A message sent while moving waits for the target.
-    const waiting = await sendSession({ userId: w.owner, input: { sessionId: w.sessionId, text: `after` } })
-
-    // Only the source, only with a move pending.
-    await expect(
-      host.handoff({ sessionId: w.sessionId, deviceId: w.target, outcome: `moved` })
-    ).rejects.toMatchObject({ code: `FORBIDDEN` })
-    const tooBig = await putHandoffBlob(
-      w.owner,
-      w.sessionId,
-      new Request(`http://x.test`, { method: `PUT`, body: new Uint8Array(10) }),
-      4
-    )
-    expect(tooBig.status).toBe(413)
-    const put = await putHandoffBlob(
-      w.owner,
-      w.sessionId,
-      new Request(`http://x.test`, { method: `PUT`, body: new Uint8Array([31, 139, 8]) })
-    )
-    expect(put.status).toBe(201)
-    const blob = (await row(w.sessionId)).handoff?.blob
-    expect(blob).toMatchObject({ sizeBytes: 3, fromDeviceId: w.deviceId, fromDeviceName: `box` })
-    expect(storage.uploaded).toContain(blob!.storageKey)
-
-    await host.handoff({ sessionId: w.sessionId, deviceId: w.deviceId, outcome: `moved` })
-    const moved = await row(w.sessionId)
-    expect(moved).toMatchObject({
-      deviceId: w.target,
-      hostUserId: null,
-      account: `pb`,
-      status: `queued`,
-      busy: false,
-      moveToDeviceId: null,
-      caption: null,
-    })
-    expect(moved.startedAt).not.toBeNull()
-    expect(moved.handoff).toMatchObject({ request: null, blob: { storageKey: blob!.storageKey } })
-    // EXP-1349: no restore yet: the source keeps its worktree.
-    expect(moved.handoffRestoredAt).toBeNull()
-    const system = await db
-      .select()
-      .from(messages)
-      .where(and(eq(messages.sessionId, w.sessionId), eq(messages.authorKind, `system`)))
-    expect(system.map((m) => m.body)).toContain(`Moved from box to b-box`)
-
-    // The target's brief names the package; the old device is shut out.
-    expect((await host.brief({ sessionId: w.sessionId })).handoff).toEqual({
-      sizeBytes: 3,
-      fromDeviceId: w.deviceId,
-      fromDeviceName: `box`,
-    })
-    // CONFLICT: the daemon's `claim_lost` reads 404/409 as "moved away"
-    // (silent), any other code as a start failure it posts about.
-    await expect(host.claim({ sessionId: w.sessionId, deviceId: w.deviceId })).rejects.toMatchObject({
-      code: `CONFLICT`,
-    })
-    await host.report({ sessionId: w.sessionId, deviceId: w.deviceId, status: `idle` })
-    expect((await row(w.sessionId)).status).toBe(`queued`)
-    await host.claim({ sessionId: w.sessionId, deviceId: w.target })
-    expect((await row(w.sessionId)).status).toBe(`running`)
-    // The claim is no restore: the marker waits for `handoffDone`.
-    expect((await row(w.sessionId)).handoffRestoredAt).toBeNull()
-    const [pending] = await db.select().from(messages).where(eq(messages.id, waiting.messageId!))
-    expect(pending!.consumedAt).toBeNull()
-
-    const got = await getHandoffBlob(w.owner, w.sessionId)
-    expect(got.status).toBe(200)
-    expect(got.headers.get(`content-type`)).toBe(`application/gzip`)
-    await host.handoffDone({ sessionId: w.sessionId })
-    expect((await row(w.sessionId)).handoff).toBeNull()
-    const restoredAt = (await row(w.sessionId)).handoffRestoredAt
-    expect(restoredAt).not.toBeNull()
-    // A retry (the blob gone) keeps the marker.
-    await host.handoffDone({ sessionId: w.sessionId })
-    expect((await row(w.sessionId)).handoffRestoredAt).toEqual(restoredAt)
-    expect(storage.deleted).toContain(blob!.storageKey)
-    expect((await getHandoffBlob(w.owner, w.sessionId)).status).toBe(404)
-    // No move pending: the upload is refused.
-    const late = await putHandoffBlob(
-      w.owner,
-      w.sessionId,
-      new Request(`http://x.test`, { method: `PUT`, body: new Uint8Array([1]) })
-    )
-    expect(late.status).toBe(412)
-  })
-
-  it(`a failed handoff clears the move and says why; a never-started session moves at once`, async () => {
-    const w = await moveWorld()
-    await sendSession({ userId: w.owner, input: { sessionId: w.sessionId, deviceId: w.target } })
-    await caller(w.owner).handoff({
-      sessionId: w.sessionId,
-      deviceId: w.deviceId,
-      outcome: `failed`,
-      reason: `disk full`,
-    })
-    expect(await row(w.sessionId)).toMatchObject({ deviceId: w.deviceId, moveToDeviceId: null, handoff: null })
-    const system = await db
-      .select()
-      .from(messages)
-      .where(and(eq(messages.sessionId, w.sessionId), eq(messages.authorKind, `system`)))
-    expect(system.map((m) => m.body)).toContain(`Couldn't move the session: disk full`)
-    // A daemon that already prefixed its reason is not prefixed twice.
-    await sendSession({ userId: w.owner, input: { sessionId: w.sessionId, deviceId: w.target } })
-    await caller(w.owner).handoff({
-      sessionId: w.sessionId,
-      deviceId: w.deviceId,
-      outcome: `failed`,
-      reason: `Couldn't move the session: no space`,
-    })
-    const again = await db
-      .select()
-      .from(messages)
-      .where(and(eq(messages.sessionId, w.sessionId), eq(messages.authorKind, `system`)))
-    expect(again.map((m) => m.body)).toContain(`Couldn't move the session: no space`)
-    expect(again.map((m) => m.body)).not.toContain(`Couldn't move the session: Couldn't move the session: no space`)
-
-    const fresh = await sendSession({
-      userId: w.owner,
-      input: { teamId: w.teamId, deviceId: w.deviceId, cli: `claude`, text: `not yet` },
-    })
-    await sendSession({ userId: w.owner, input: { sessionId: fresh.sessionId, deviceId: w.target } })
-    expect(await row(fresh.sessionId)).toMatchObject({
-      deviceId: w.target,
-      moveToDeviceId: null,
-      status: `queued`,
-      // No login picked at the start: the target settles on its own.
-      account: null,
-    })
-  })
-
-  it(`EXP-1349: a failed move clears the restore marker; the sweep expires a week-old pending move`, async () => {
-    const { reclaimStaleHandoffBlobsInTx, EXPIRED_MOVE_TEXT } = await import(`@/lib/session-attachment-sweep`)
-    const w = await moveWorld()
-    // A marker left by an earlier move into this device.
-    await db.update(sessions).set({ handoffRestoredAt: new Date() }).where(eq(sessions.id, w.sessionId))
-    await sendSession({ userId: w.owner, input: { sessionId: w.sessionId, deviceId: w.target } })
-    await caller(w.owner).handoff({ sessionId: w.sessionId, deviceId: w.deviceId, outcome: `failed` })
-    expect((await row(w.sessionId)).handoffRestoredAt).toBeNull()
-
-    // A pending move whose package sat a week (the source never reported).
-    await sendSession({ userId: w.owner, input: { sessionId: w.sessionId, deviceId: w.target } })
-    const put = await putHandoffBlob(
-      w.owner,
-      w.sessionId,
-      new Request(`http://x.test`, { method: `PUT`, body: new Uint8Array([31, 139, 8]) })
-    )
-    expect(put.status).toBe(201)
-    const key = (await row(w.sessionId)).handoff!.blob!.storageKey
-    // Rolled back: the cutoff reaches every package in the shared dev DB.
-    await inRollback(async (tx) => {
-      const swept = await reclaimStaleHandoffBlobsInTx(tx, new Date(Date.now() + 60_000))
-      expect(swept.storageKeys).toContain(key)
-      expect(swept.expiredMoves).toBeGreaterThanOrEqual(1)
-      const [expired] = await tx.select().from(sessions).where(eq(sessions.id, w.sessionId))
-      expect(expired).toMatchObject({
-        deviceId: w.deviceId,
-        moveToDeviceId: null,
-        handoff: null,
-        caption: null,
-      })
-      const system = await tx
-        .select()
-        .from(messages)
-        .where(and(eq(messages.sessionId, w.sessionId), eq(messages.authorKind, `system`)))
-      expect(system.map((m) => m.body)).toContain(EXPIRED_MOVE_TEXT)
-    })
-  })
-
-  it(`a fresh request carrying an old package expires by the REQUEST's age, not the blob's`, async () => {
-    const { reclaimStaleHandoffBlobsInTx, EXPIRED_MOVE_TEXT } = await import(`@/lib/session-attachment-sweep`)
-    const w = await moveWorld()
-    // Request, upload, cancel: the package stays on the row for the sweep.
-    await sendSession({ userId: w.owner, input: { sessionId: w.sessionId, deviceId: w.target } })
-    const put = await putHandoffBlob(
-      w.owner,
-      w.sessionId,
-      new Request(`http://x.test`, { method: `PUT`, body: new Uint8Array([31, 139, 8]) })
-    )
-    expect(put.status).toBe(201)
-    const key = (await row(w.sessionId)).handoff!.blob!.storageKey
-    await sendSession({ userId: w.owner, input: { sessionId: w.sessionId, deviceId: w.deviceId } })
-    expect((await row(w.sessionId)).handoff).toMatchObject({ request: null, blob: { storageKey: key } })
-    // A week later the move is asked for again: the OLD blob travels on the
-    // new request.
-    const uploadedAt = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString()
-    await db.execute(
-      sql`UPDATE sessions SET handoff = jsonb_set(handoff, '{blob,uploadedAt}', to_jsonb(${uploadedAt}::text)) WHERE id = ${w.sessionId}`
-    )
-    await sendSession({ userId: w.owner, input: { sessionId: w.sessionId, deviceId: w.target } })
-    const requested = await row(w.sessionId)
-    expect(requested.moveToDeviceId).toBe(w.target)
-    expect(requested.handoff!.blob).toMatchObject({ storageKey: key, uploadedAt })
-    const requestedAt = new Date(requested.handoff!.request!.requestedAt)
-
-    // A cutoff past the blob's age but before the request: the move stays
-    // pending, its package untouched (the non-pending strip skips it too).
-    await inRollback(async (tx) => {
-      const swept = await reclaimStaleHandoffBlobsInTx(tx, new Date(requestedAt.getTime() - 60_000))
-      expect(swept.storageKeys).not.toContain(key)
-      const [kept] = await tx.select().from(sessions).where(eq(sessions.id, w.sessionId))
-      expect(kept).toMatchObject({
-        deviceId: w.deviceId,
-        moveToDeviceId: w.target,
-        caption: `Moving to b-box…`,
-      })
-      expect(kept!.handoff).toMatchObject({
-        request: { deviceId: w.target },
-        blob: { storageKey: key },
-      })
-      const system = await tx
-        .select()
-        .from(messages)
-        .where(and(eq(messages.sessionId, w.sessionId), eq(messages.authorKind, `system`)))
-      expect(system.map((m) => m.body)).not.toContain(EXPIRED_MOVE_TEXT)
-    })
-    // A cutoff past the request's age expires it.
-    await inRollback(async (tx) => {
-      const swept = await reclaimStaleHandoffBlobsInTx(tx, new Date(requestedAt.getTime() + 60_000))
-      expect(swept.storageKeys).toContain(key)
-      const [expired] = await tx.select().from(sessions).where(eq(sessions.id, w.sessionId))
-      expect(expired).toMatchObject({ deviceId: w.deviceId, moveToDeviceId: null, handoff: null, caption: null })
-      const system = await tx
-        .select()
-        .from(messages)
-        .where(and(eq(messages.sessionId, w.sessionId), eq(messages.authorKind, `system`)))
-      expect(system.map((m) => m.body)).toContain(EXPIRED_MOVE_TEXT)
-    })
-  })
-
-    it(`moved without a package is refused; the move stays pending for the upload`, async () => {
-      const w = await moveWorld()
-      await sendSession({
-        userId: w.owner,
-        input: { sessionId: w.sessionId, deviceId: w.target },
-      })
-      await expect(
-        caller(w.owner).handoff({
-          sessionId: w.sessionId,
-          deviceId: w.deviceId,
-          outcome: `moved`,
-        })
-      ).rejects.toMatchObject({ code: `PRECONDITION_FAILED` })
-      expect(await row(w.sessionId)).toMatchObject({
-        deviceId: w.deviceId,
-        moveToDeviceId: w.target,
-        status: `running`,
-      })
-      await putHandoffBlob(
-        w.owner,
-        w.sessionId,
-        new Request(`http://x.test`, {
-          method: `PUT`,
-          body: new Uint8Array([31, 139, 8]),
-        })
-      )
-      await caller(w.owner).handoff({
-        sessionId: w.sessionId,
-        deviceId: w.deviceId,
-        outcome: `moved`,
-      })
-      expect(await row(w.sessionId)).toMatchObject({
-        deviceId: w.target,
-        status: `queued`,
-        moveToDeviceId: null,
-      })
-    })
-
-    it(`a move planned on a snapshot the handoff outran is CONFLICT; the moved row is untouched`, async () => {
-      const { applyMove } = await import(`@/lib/sessions/send`)
-      const w = await moveWorld()
-      const third = `dev-c-${id8()}`
-      await db.insert(devices).values({
-        userId: w.owner,
-        deviceId: third,
-        label: `c-box`,
-        kind: `desktop`,
-        version: `0.14.73`,
-        agentAccounts: signedIn(`pc`, `me@move.test`),
-      })
-      await sendSession({
-        userId: w.owner,
-        input: { sessionId: w.sessionId, deviceId: w.target },
-      })
-      await putHandoffBlob(
-        w.owner,
-        w.sessionId,
-        new Request(`http://x.test`, {
-          method: `PUT`,
-          body: new Uint8Array([31, 139, 8]),
-        })
-      )
-      // A re-target to C (and a cancel) are planned from THIS snapshot: on A,
-      // moving to B, the package up…
-      const stale = await loadSessionForUser(w.owner, w.sessionId)
-      // …while the source's handoff commits first: the row is queued on B.
-      await caller(w.owner).handoff({
-        sessionId: w.sessionId,
-        deviceId: w.deviceId,
-        outcome: `moved`,
-      })
-      const moved = await row(w.sessionId)
-      expect(moved).toMatchObject({
-        deviceId: w.target,
-        status: `queued`,
-        moveToDeviceId: null,
-      })
-      expect(moved.handoff).toMatchObject({
-        request: null,
-        blob: { fromDeviceId: w.deviceId },
-      })
-      const target = {
-        deviceId: third,
-        name: `c-box`,
-        hostUserId: null,
-        ownerId: w.owner,
-        account: null,
-      }
-      // Unguarded, the request would land `moveToDeviceId = C` with no
-      // package on the row B is about to claim.
-      await expect(
-        db.transaction((tx) =>
-          applyMove(tx, stale, { kind: `request`, target }, w.owner)
-        )
-      ).rejects.toMatchObject({
-        code: `CONFLICT`,
-        message: `The move changed; try again.`,
-      })
-      await expect(
-        db.transaction((tx) =>
-          applyMove(tx, stale, { kind: `cancel` }, w.owner)
-        )
-      ).rejects.toMatchObject({ code: `CONFLICT` })
-      expect(await row(w.sessionId)).toEqual(moved)
-    })
-
-    it(`a cancel planned before the package landed keeps the package`, async () => {
-      const { applyMove } = await import(`@/lib/sessions/send`)
-      const w = await moveWorld()
-      await sendSession({
-        userId: w.owner,
-        input: { sessionId: w.sessionId, deviceId: w.target },
-      })
-      const stale = await loadSessionForUser(w.owner, w.sessionId)
-      expect(stale.handoff?.blob).toBeNull()
-      await putHandoffBlob(
-        w.owner,
-        w.sessionId,
-        new Request(`http://x.test`, {
-          method: `PUT`,
-          body: new Uint8Array([31, 139, 8]),
-        })
-      )
-      const blob = (await row(w.sessionId)).handoff!.blob!
-      const nudge = await db.transaction((tx) =>
-        applyMove(tx, stale, { kind: `cancel` }, w.owner)
-      )
-      expect(nudge).toEqual({ ownerId: w.owner, deviceId: w.deviceId })
-      const cancelled = await row(w.sessionId)
-      expect(cancelled).toMatchObject({
-        deviceId: w.deviceId,
-        moveToDeviceId: null,
-        caption: null,
-      })
-      // The upload that raced the cancel stays for the sweep, never dropped.
-      expect(cancelled.handoff).toEqual({ request: null, blob })
-    })
-
-    it(`a claim guards the device it read the row on: a re-target in between is CONFLICT (claim_lost)`, async () => {
-      const w = await moveWorld()
-      const fresh = await sendSession({
-        userId: w.owner,
-        input: {
-          teamId: w.teamId,
-          deviceId: w.deviceId,
-          cli: `claude`,
-          text: `not yet`,
+    // The daemon's claim reads the row on A; a person's direct re-target to
+    // B commits before its write.
+    const raced = sessionsRouter.createCaller({
+      session: { user: { id: w.owner } },
+      request: new Request(`http://x.test`),
+      db: {
+        transaction: async (fn: Parameters<typeof db.transaction>[0]) => {
+          await sendSession({ userId: w.owner, input: { sessionId: fresh.sessionId, deviceId: w.target } })
+          return db.transaction(fn)
         },
-      })
-      // The daemon's claim reads the row on A; a person's direct re-target to
-      // B commits before its write.
-      const raced = sessionsRouter.createCaller({
-        session: { user: { id: w.owner } },
-        request: new Request(`http://x.test`),
-        db: {
-          transaction: async (fn: Parameters<typeof db.transaction>[0]) => {
-            await sendSession({
-              userId: w.owner,
-              input: { sessionId: fresh.sessionId, deviceId: w.target },
-            })
-            return db.transaction(fn)
-          },
-        },
-      } as never)
-      // A 0.14.72 daemon sends no `deviceId`: the snapshot's device stands in.
-      await expect(
-        raced.claim({ sessionId: fresh.sessionId })
-      ).rejects.toMatchObject({ code: `CONFLICT` })
-      expect(await row(fresh.sessionId)).toMatchObject({
-        deviceId: w.target,
-        status: `queued`,
-        startedAt: null,
-      })
-      // B's claim takes it.
-      await caller(w.owner).claim({
-        sessionId: fresh.sessionId,
-        deviceId: w.target,
-      })
-      expect(await row(fresh.sessionId)).toMatchObject({
-        deviceId: w.target,
-        status: `running`,
-      })
-    })
+      },
+    } as never)
+    // A 0.14.72 daemon sends no `deviceId`: the snapshot's device stands in.
+    await expect(raced.claim({ sessionId: fresh.sessionId })).rejects.toMatchObject({ code: `CONFLICT` })
+    expect(await row(fresh.sessionId)).toMatchObject({ deviceId: w.target, status: `queued`, startedAt: null })
+    // B's claim takes it.
+    await caller(w.owner).claim({ sessionId: fresh.sessionId, deviceId: w.target })
+    expect(await row(fresh.sessionId)).toMatchObject({ deviceId: w.target, status: `running` })
+  })
 
   it(`#FEED-84: an ended CHILD continues as its sibling with its branch, title and issues`, async () => {
     const w = await world()
@@ -1889,11 +1421,9 @@ describe.skipIf(!ready.ok)(`EXP-1252: moving a session to another device`, async
       title: `Deep work`,
       status: `queued`,
     })
-    const [link] = await db
-      .select()
-      .from(sessionIssues)
-      .where(and(eq(sessionIssues.sessionId, root.sessionId), eq(sessionIssues.issueId, issueId)))
-    expect(link!.assignedSessionId).toBe(cont.sessionId)
+    // NEW-1: the continuation TAKES OVER the ended child's rows.
+    const links = await db.select().from(sessionIssues).where(eq(sessionIssues.issueId, issueId))
+    expect(links).toMatchObject([{ sessionId: cont.sessionId, assignedSessionId: null }])
     // An ended ROOT keeps continuing as its own child.
     await endSession({ userId: w.owner, sessionId: root.sessionId })
     const rootCont = await sendSession({ userId: w.owner, input: { sessionId: root.sessionId, text: `again` } })
@@ -1917,8 +1447,8 @@ describe.skipIf(!ready.ok)(`EXP-1252: moving a session to another device`, async
     expect(tree.root).not.toHaveProperty(`handoff`)
   })
 
-  it(`#FEED-85: idle clears busy, the sweep clears a dead device's busy, Stop frees a ghost`, async () => {
-    const { stopSession, sweepStaleSessions } = await import(`@/lib/sessions/lifecycle`)
+  it(`#FEED-85: idle clears busy, Stop frees a ghost`, async () => {
+    const { stopSession } = await import(`@/lib/sessions/lifecycle`)
     const w = await moveWorld()
     const host = caller(w.owner)
     await host.report({ sessionId: w.sessionId, busy: true })
@@ -1926,18 +1456,11 @@ describe.skipIf(!ready.ok)(`EXP-1252: moving a session to another device`, async
     await host.report({ sessionId: w.sessionId, status: `idle` })
     expect(await row(w.sessionId)).toMatchObject({ status: `idle`, busy: false })
 
-    // A dead device's idle row with a stale spinner.
-    const old = new Date(Date.now() - 3 * 3_600_000)
-    await db.update(devices).set({ lastSeenAt: old }).where(eq(devices.deviceId, w.deviceId))
-    // (the updated_at trigger would re-stamp it: write past the triggers)
-    await db.transaction(async (tx) => {
-      await tx.execute(sql`SET LOCAL session_replication_role = replica`)
-      await tx.update(sessions).set({ busy: true, updatedAt: old }).where(eq(sessions.id, w.sessionId))
-    })
-    await sweepStaleSessions()
-    expect((await row(w.sessionId)).busy).toBe(false)
-
     // Stop on a running row whose device is offline frees it.
+    await db
+      .update(devices)
+      .set({ lastSeenAt: new Date(Date.now() - 3 * 3_600_000) })
+      .where(eq(devices.deviceId, w.deviceId))
     await db.update(sessions).set({ status: `running`, busy: true }).where(eq(sessions.id, w.sessionId))
     await stopSession({ userId: w.owner, sessionId: w.sessionId })
     expect(await row(w.sessionId)).toMatchObject({ status: `idle`, busy: false })
@@ -1981,7 +1504,7 @@ describe.skipIf(!ready.ok)(`plan mode: the plan card`, async () => {
       userId: w.mate,
       input: { teamId: w.teamId, deviceId: w.deviceId, text: `plan it` },
     })
-    await db.update(sessions).set({ planMode: true, dispatch: false }).where(eq(sessions.id, sent.sessionId))
+    await db.update(sessions).set({ planMode: true }).where(eq(sessions.id, sent.sessionId))
     const host = caller(w.owner)
     await host.claim({ sessionId: sent.sessionId })
 

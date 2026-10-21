@@ -379,7 +379,14 @@ export const prStateValues = [`open`, `closed`, `merged`, `draft`] as const
 // (contract codingSessionBlocked.windows, the same vocabulary
 // DeviceUsageWindow.key uses). `resetsAt` is an ISO string or null when the
 // agent gave no reset time; `since` is when the device first saw the wall.
-export const codingSessionBlockedKindValues = [`rate_limit`] as const
+// NEW-1: `rate_limit` = the usage wall (device-written); `device_offline`,
+// `unclaimed`, `stuck` = the server watchdog (`lib/sessions/watchdog.ts`).
+export const codingSessionBlockedKindValues = [
+  `rate_limit`,
+  `device_offline`,
+  `unclaimed`,
+  `stuck`,
+] as const
 export const codingSessionBlockedWindowValues = [
   `session`,
   `weekly`,
@@ -388,8 +395,9 @@ export const codingSessionBlockedWindowValues = [
 
 export interface CodingSessionBlocked {
   kind: string
-  agent: string
-  window: string
+  /** The agent and usage window of a wall; null on a watchdog flag. */
+  agent: string | null
+  window: string | null
   resetsAt: string | null
   since: string
 }
@@ -1027,40 +1035,6 @@ export const DEVICE_AGENT_DEFAULTS: DeviceAgentDefaults = {
   threadModel: `haiku`,
 }
 
-/** A dispatcher root's WORK picks (`sessions.work_launch`, server-only): what
- *  its children run with. The dispatcher itself runs on the thread model. */
-export interface SessionWorkLaunch {
-  model?: string | null
-  effort?: string | null
-  planMode?: boolean
-  ultracode?: boolean
-  computerUse?: boolean
-}
-
-/** EXP-1252 `sessions.handoff` (server-only): a pending move's request and,
- *  once the source uploaded it, the handoff package (worktree + transcript). */
-export interface SessionHandoff {
-  request?: {
-    deviceId: string
-    /** The login to use on the target (a profile id there), else carried. */
-    account: string | null
-    requestedBy: string
-    requestedAt: string
-  } | null
-  blob?: {
-    storageKey: string
-    sizeBytes: number
-    fromDeviceId: string
-    /** The source device's name at upload ("Moved from …", the brief). */
-    fromDeviceName?: string
-    uploadedAt: string
-  } | null
-}
-
-/** EXP-1252: the handoff package cap (gzip bytes). */
-export const SESSION_HANDOFF_MAX_BYTES = 64 * 1024 * 1024
-
-
 // ── Threads v2 (EXP-1291): ONE session tree ─────────────────────────────────
 // A thread IS a root session (`sessions.kind = thread`, `parent_id` NULL); a
 // team agent is a root of kind `agent` (never ends: it idles and wakes on a
@@ -1102,6 +1076,7 @@ export const messageCardKindValues = [
   `report`,
   `suggestions`,
   `replies`,
+  `ask`,
 ] as const
 export type MessageCardKind = (typeof messageCardKindValues)[number]
 
@@ -1113,6 +1088,12 @@ export const messageEventKindValues = [
   `pr_merged`,
   `pr_closed`,
   `session_ended`,
+  // NEW-1: the bus's lines in a parent (and watchers) about a child.
+  `session_claimed`,
+  `session_blocked`,
+  `session_unclaimed`,
+  `session_stuck`,
+  `device_offline`,
 ] as const
 export type MessageEventKind = (typeof messageEventKindValues)[number]
 
@@ -1316,7 +1297,12 @@ export type MessageCard =
       sessionId?: string | null
     }
   | { kind: `thread_started`; sessionId: string }
-  | { kind: `report`; sessionId: string; summary: string }
+  /** A child's end (or a turn's relay when `final` is false) in its parent. */
+  | { kind: `report`; sessionId: string; summary: string; final?: boolean | null }
+  /** NEW-1: a child's open question/plan card mirrored into its parent and
+   *  watchers: `messageId` = THE card row on `sessionId` (one row, two
+   *  views); answering either answers the child. */
+  | { kind: `ask`; sessionId: string; messageId: string }
   | { kind: `suggestions`; items: SuggestionItem[] }
   | { kind: `replies`; items: ReplyItem[] }
 
@@ -1419,6 +1405,25 @@ export type AgentFacetsInput = z.infer<typeof agentFacetsSchema>
 
 const sendUuid = z.string().uuid()
 
+/** NEW-1: the sessions one session may watch at once. */
+export const SESSIONS_SEND_MAX_WAKE_ON = 20
+
+/** NEW-1: `sessions.send({sessionId, answer})`: the answer to the target's
+ *  OPEN question/plan card (its newest unanswered one, or `messageId`).
+ *  Same shape as `sessions.answer`'s card answer. */
+export const sessionAnswerSchema = z.object({
+  messageId: sendUuid.optional(),
+  answer: z.string().max(MESSAGE_BODY_MAX).optional(),
+  answers: z
+    .union([planCardAnswersSchema, z.array(z.string().max(PLAN_CARD_LABEL_MAX)).max(QUESTION_CARD_OPTIONS_MAX)])
+    .optional(),
+  decision: z.enum([`approved`, `rejected`]).optional(),
+  fresh: z.boolean().optional(),
+  feedback: z.string().max(MESSAGE_BODY_MAX).optional(),
+  surfaceData: z.record(z.string(), z.unknown()).optional(),
+})
+export type SessionAnswerInput = z.infer<typeof sessionAnswerSchema>
+
 /**
  * `sessions.send`: message an existing session (`sessionId`; resumes it when
  * idle, an ended THREAD continues in a new child), start a CHILD
@@ -1430,7 +1435,9 @@ const sendUuid = z.string().uuid()
  * A new session needs `deviceId` (the composer's device picker; an
  * agent's spawn defaults to the agent's own device). `teamId` = the ACTIVE
  * team; omitted, it resolves from `sessionId`/`parentId`, else the CALLING
- * session's team (MCP), else it is required.
+ * session's team (MCP), else it is required. NEW-1: `answer` answers the
+ * target's open card; `wakeOn` watches sessions; a new root started from
+ * inside a session is watched by the caller.
  */
 export const sessionsSendInputSchema = z
   .object({
@@ -1461,15 +1468,21 @@ export const sessionsSendInputSchema = z
     attachmentIds: z.array(sendUuid).max(SESSIONS_SEND_MAX_ATTACHMENTS).optional(),
     // EXP-1341: the new session's display name (root or child).
     name: z.string().trim().min(1).max(255).optional(),
-    // A new root's issues; a child's ASSIGNED issues; a message's FORWARDED ones.
+    // A new root's or child's issues (rows on it); a message's FORWARDED
+    // ones (the rows move to that session).
     issueIds: z.array(sendUuid).min(1).max(SESSIONS_SEND_MAX_ISSUES).optional(),
     actionId: sendUuid.optional(),
     inputs: z.record(z.string(), z.string().max(MAX_ACTION_INPUT_TEXT)).optional(),
     repositoryId: sendUuid.optional(),
     // A NEW team agent root (Settings → Agents).
     agent: agentFacetsSchema.optional(),
-    // EXP-1330: a `/btw` aside child of `parentId` (text = the question).
-    aside: z.boolean().optional(),
+    // NEW-1: answer the target session's open question/plan card (first
+    // answer wins: a parent answering what it knows, a person the rest).
+    answer: sessionAnswerSchema.optional(),
+    // NEW-1: WATCH these sessions: the bus delivers their transitions to the
+    // caller exactly as to their parent, until they end. Needs a caller
+    // session (MCP); idempotent.
+    wakeOn: z.array(sendUuid).min(1).max(SESSIONS_SEND_MAX_WAKE_ON).optional(),
   })
   .superRefine((input, ctx) => {
     const issue = (message: string) =>
@@ -1480,7 +1493,6 @@ export const sessionsSendInputSchema = z
       input.agent !== undefined
     if (input.sessionId) {
       if (input.parentId) issue(`sessionId and parentId are exclusive`)
-      if (input.aside) issue(`an aside needs a parentId and a question`)
       if (rootFacets) issue(`a message to a session takes no root facets`)
       if (input.name) issue(`a name is for a new session`)
       if (
@@ -1488,20 +1500,20 @@ export const sessionsSendInputSchema = z
         !input.attachmentIds?.length &&
         !input.account &&
         !input.issueIds &&
-        !input.deviceId
+        !input.deviceId &&
+        !input.answer &&
+        !input.wakeOn
       )
-        issue(`a message needs text, attachments, issues, an account or a device`)
+        issue(`a message needs text, attachments, issues, an answer, an account or a device`)
       return
     }
-    if (input.aside && (!input.parentId || !input.text?.trim()))
-      issue(`an aside needs a parentId and a question`)
+    if (input.answer) issue(`an answer goes to a session (sessionId)`)
     if (input.parentId && rootFacets) issue(`a child session takes no root facets`)
     if (input.agent && (input.issueIds || input.actionId))
       issue(`an agent takes no issues or action`)
     if (input.agent && input.name) issue(`an agent is named by agent.name`)
-    if (input.aside && input.issueIds) issue(`an aside takes no issues`)
     if (input.inputs && !input.actionId) issue(`inputs need an actionId`)
-    if (!input.agent && !input.text?.trim() && !input.issueIds && !input.actionId)
+    if (!input.agent && !input.text?.trim() && !input.issueIds && !input.actionId && !input.wakeOn)
       issue(`a new session needs text, issues or an action`)
   })
 export type SessionsSendInput = z.infer<typeof sessionsSendInputSchema>

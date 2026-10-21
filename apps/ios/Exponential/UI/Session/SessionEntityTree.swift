@@ -46,8 +46,7 @@ extension TreeSessionIssue {
         self.init(
             sessionId: row.sessionId,
             issueId: row.issueId,
-            sortOrder: row.sortOrder,
-            assignedSessionId: row.assignedSessionId
+            sortOrder: row.sortOrder
         )
     }
 }

@@ -25,8 +25,6 @@ import {
   type ActionInputDef,
   actionInputsSchema,
   type CodingSessionBlocked,
-  type SessionHandoff,
-  type SessionWorkLaunch,
   type AgentTrigger,
   type GuideEntry,
   type MessageCard,
@@ -1689,22 +1687,33 @@ export const pins = pgTable(
 
 
 // ---------------------------------------------------------------------------
-// EXP-1291 Threads v2: ONE session tree
+// NEW-1: ONE session tree, root = worker
 // ---------------------------------------------------------------------------
-// A thread IS a root session (`kind = thread`, `parent_id` NULL); a team
-// agent is a root of `kind = agent`; children are sub-sessions (kind
-// `thread`) on any device. The root carries the thread facets (issues via
-// `session_issues`, the Guide, PRs via `pull_requests`, the action it came
-// from); an agent root carries the agent facets. Every start and message is
-// `sessions.send` and the DATABASE is the bus: a new session is a `queued`
-// row naming its device, which picks it up off the sessions shape.
+// A thread IS a root session (`parent_id` NULL); children are sub-sessions
+// on any device. Every session does its own work (the composer's model and
+// plan mode, a worktree when `repository_id` is set) and spawns children
+// only when it fans out; there is no dispatcher. The thread facets live on
+// the root (`title`, `guide`; its issues = the UNION of the tree's
+// `session_issues`, its PRs via `pull_requests`). Every start and message
+// is `sessions.send` and the DATABASE is the bus: a new session is a
+// `queued` row naming its device, which picks it up off the sessions shape;
+// the SERVER posts every child transition into the parent's conversation
+// (`lib/sessions/bus.ts`) and into every live session whose `wake_on`
+// names the child, and a watchdog (`lib/sessions/watchdog.ts`) flags what
+// stalls.
+//
+// NEW-2 moves the agent facets (`kind`, `name`, `icon`, `color`,
+// `instructions`, `triggers`, `sort_order`) to an `agents` table and the
+// action facets to prompts; they stay here until then.
 //
 // Visibility (ONE rule ×4): `shared` is stamped at creation = the device is
 // shared with the team (a child inherits its root's). Shared rows sync to
 // every team member (read, post, answer, Stop); unshared rows to the starter
 // only. The shape = `team_id IN (member teams) AND (shared OR user_id = me)`;
 // every child table carries `shared` + `owner_id` mirrors so its shape stays
-// single-table.
+// single-table. The account that RUNS a session is derived from the devices
+// rows (`lib/sessions/host.ts`): the starter's own row for `device_id`, else
+// the row sharing the team.
 export const sessions = pgTable(
   `sessions`,
   {
@@ -1712,9 +1721,9 @@ export const sessions = pgTable(
     teamId: uuid(`team_id`)
       .notNull()
       .references(() => teams.id, { onDelete: `cascade` }),
-    // The tree. NULL parent = a root (a thread or an agent). `root_id` = the
-    // root's id (its own on a root), written by the app at insert; `depth` =
-    // 0 on a root (follow-up cap: contract sessionsSend.treeMaxDepth).
+    // The tree. NULL parent = a root. `root_id` = the root's id (its own on
+    // a root), written by the app at insert; `depth` = 0 on a root
+    // (follow-up cap: contract sessionsSend.treeMaxDepth).
     parentId: uuid(`parent_id`).references((): AnyPgColumn => sessions.id, {
       onDelete: `cascade`,
     }),
@@ -1729,16 +1738,12 @@ export const sessions = pgTable(
     userId: text(`user_id`)
       .notNull()
       .references(() => users.id, { onDelete: `cascade` }),
-    // SERVER-ONLY: the device owner hosting a teammate's start (EXP-432);
-    // NULL when the starter owns the device.
-    hostUserId: text(`host_user_id`).references(() => users.id, {
-      onDelete: `set null`,
-    }),
     // The steer deviceId of the machine that runs it (no FK: devices rows
     // are per (user, deviceId)). The device picks up `queued` rows naming it.
     deviceId: varchar(`device_id`, { length: 128 }).notNull(),
     // The agent CLI (contract codingAgent), its account profile, model,
-    // effort and launch switches — the composer's pickers, fixed at start.
+    // effort and launch switches — the composer's pickers, fixed at start;
+    // a child inherits its parent's.
     cli: varchar({ length: 16 }),
     account: varchar({ length: 64 }),
     model: varchar({ length: 64 }),
@@ -1746,71 +1751,67 @@ export const sessions = pgTable(
     planMode: boolean(`plan_mode`).notNull().default(false),
     computerUse: boolean(`computer_use`).notNull().default(false),
     ultracode: boolean().notNull().default(false),
-    // A DISPATCHER root (threads + team agents since 2026-10-15): it runs on
-    // the device's thread model, never plans, never edits, and hands real
-    // work to child sessions. False on children and on pre-dispatch roots.
+    // LEGACY read shim (NEW-1): the dispatcher flag. Never true any more;
+    // synced for the iOS store build and the ≤0.14.74 devices. NEW-8 drops it.
     dispatch: boolean().notNull().default(false),
-    // SERVER-ONLY: a dispatcher's work picks (the composer's model, effort,
-    // plan mode, ultracode, computer use) its children inherit instead of
-    // the dispatcher's own runner fields.
-    workLaunch: jsonb(`work_launch`).$type<SessionWorkLaunch>(),
     // SERVER-ONLY (EXP-1140): the team MCP servers this session picked —
     // the only ids `mcpServers.resolveForLaunch` hands credentials for.
     mcpServerIds: jsonb(`mcp_server_ids`).$type<string[]>(),
+    // SERVER-ONLY (NEW-1): the sessions this one WATCHES. The bus delivers
+    // every transition of a watched session here exactly as to its parent,
+    // until the watched session ends (`sessions.send({wakeOn})`; a root
+    // started from inside a session is watched by its starter).
+    wakeOn: jsonb(`wake_on`).$type<string[]>(),
     repositoryId: uuid(`repository_id`).references(() => repositories.id, {
       onDelete: `set null`,
     }),
     // The session's working branch (device-written at claim).
     branch: varchar({ length: 255 }),
-    // EXP-1252: a pending MOVE to this device (synced): the source host
-    // hands the session over after its turn (`sessions.handoff`). NULL = none.
+    // LEGACY read shims (NEW-1): the EXP-1252 move. A move is now an end
+    // here and a continuation on the target; nothing writes these. NEW-8
+    // drops them.
     moveToDeviceId: varchar(`move_to_device_id`, { length: 128 }),
-    // SERVER-ONLY (EXP-1252): the move request + the uploaded handoff package.
-    handoff: jsonb().$type<SessionHandoff>(),
-    // EXP-1349: the target restored the moved package (synced; stamped by
-    // `sessions.handoffDone`, cleared by the next `handoff{moved}` and by a
-    // failed move). The SOURCE removes its worktree only once it is set.
     handoffRestoredAt: timestamp(`handoff_restored_at`, { withTimezone: true }),
     // ── state ──
     status: sessionStatusEnum().notNull().default(`queued`),
     // Device-written turn state (EXP-848): the ONLY list-spinner input ×4.
     busy: boolean().notNull().default(false),
-    // A question/plan card waits for a person (the "Needs you" group).
+    // A question/plan card waits for a person (the "Needs you" group); the
+    // server also holds it true while `blocked` is set.
     needsInput: boolean(`needs_input`).notNull().default(false),
-    // EXP-804: the usage wall as row state (a blocked session stays live).
+    // Why the session cannot proceed (contract codingSessionBlocked.kinds):
+    // the usage wall (device-written), or the watchdog's `device_offline`,
+    // `unclaimed`, `stuck`. A blocked session stays live.
     blocked: jsonb().$type<CodingSessionBlocked>(),
     startedAt: timestamp(`started_at`, { withTimezone: true }),
     lastTurnAt: timestamp(`last_turn_at`, { withTimezone: true }),
     endedAt: timestamp(`ended_at`, { withTimezone: true }),
     // ── visibility ── (stamped at creation, never changes)
     shared: boolean().notNull().default(false),
-    // ── thread facets (roots of kind thread) ──
+    // ── thread facets (roots) ──
     // Set by a person or the agent; NULL = derived for display
-    // (`buildThreadView`). On a child: the CLI's auto-name (EXP-905).
+    // (session-title.json). On a child: the CLI's auto-name (EXP-905).
     title: varchar({ length: 255 }),
-    // EXP-1323: the live status line (device-written on tool edges via
-    // `sessions.report`, throttled, <=80 chars, cleared at turn end; an
-    // aside keeps its answer's first line).
+    // LEGACY read shims (NEW-1): the EXP-1323 live status line and the
+    // `/btw` aside flag. Never written; NEW-8 drops them.
     caption: varchar({ length: 80 }),
-    // EXP-1323: a `/btw` aside child: a forked read-only run, no worktree,
-    // branch, brief or PR; ends after its first reply.
     aside: boolean().notNull().default(false),
     // The thread's ONE Guide = every PR body (`guide_write`, FOR UPDATE).
     guide: jsonb().$type<GuideEntry[]>(),
     // The action this thread ran (saved prompt) + its filled picks, and a
-    // name snapshot so a deleted action still names the thread.
+    // name snapshot so a deleted action still names the thread (NEW-2:
+    // prompts).
     actionId: uuid(`action_id`).references(() => actions.id, {
       onDelete: `set null`,
     }),
     actionName: varchar(`action_name`, { length: 255 }),
     actionInputs: jsonb(`action_inputs`).$type<Record<string, string>>(),
-    // The agent or thread session that started this root (an agent spawning
-    // a thread, a trigger firing). History only.
-    spawnedBySessionId: uuid(`spawned_by_session_id`).references(
-      (): AnyPgColumn => sessions.id,
-      { onDelete: `set null` }
-    ),
-    // ── agent facets (roots of kind agent) ──
+    // LEGACY read shim (NEW-1): the session that spawned this root. The
+    // bus routes a spawned root to its spawner through `wake_on` instead;
+    // never written (the ≤0.14.74 desktop names it in its shape request).
+    // NEW-8 drops it.
+    spawnedBySessionId: uuid(`spawned_by_session_id`),
+    // ── agent facets (roots of kind agent; NEW-2 moves them) ──
     name: varchar({ length: 64 }),
     icon: varchar({ length: 64 }),
     color: varchar({ length: 7 }),
@@ -1838,17 +1839,21 @@ export const sessions = pgTable(
     index(`idx_sessions_root`).on(table.rootId),
     index(`idx_sessions_user`).on(table.userId),
     index(`idx_sessions_action`).on(table.actionId),
-    index(`idx_sessions_spawned_by`).on(table.spawnedBySessionId),
-    // The device pickup + the live sweep.
+    // The bus's reverse lookup: who watches a session.
+    index(`idx_sessions_wake_on`).using(`gin`, table.wakeOn),
+    // The device pickup + the watchdog.
     index(`idx_sessions_device_live`)
       .on(table.deviceId, table.status)
       .where(sql`status <> 'ended'`),
   ]
 )
 
-// A thread's issues (n ↔ n: an issue may sit in several threads). Always on
-// the ROOT. Carries the issue's board mirrors (trash/archive, REV2-5) and the
-// root's visibility mirrors (`shared`, `owner_id`), all trigger-maintained.
+// A session's issues (n ↔ n: an issue may sit in several sessions). NEW-1:
+// a row sits on the session that HOLDS the issue (a worker's link, the
+// issues a start names, a filed issue); a forward moves the row; a root's
+// list = the union over its tree. Carries the issue's board mirrors
+// (trash/archive, REV2-5) and the holder's visibility mirrors (`shared`,
+// `owner_id`), all trigger-maintained.
 export const sessionIssues = pgTable(
   `session_issues`,
   {
@@ -1876,12 +1881,14 @@ export const sessionIssues = pgTable(
     addedBy: text(`added_by`).references(() => users.id, {
       onDelete: `set null`,
     }),
+    // Provenance: the session whose agent linked it (never its location).
     addedBySessionId: uuid(`added_by_session_id`).references(
       (): AnyPgColumn => sessions.id,
       { onDelete: `set null` }
     ),
-    // EXP-1341: the tree session working on it (the dispatcher's grouping;
-    // NULL = the root's own). Names that child, scopes its brief + PR share.
+    // LEGACY read shim (NEW-1): the EXP-1341 assignment. Migrated into
+    // `session_id`; never written; the ≤0.14.74 desktop names it in its
+    // shape request. NEW-8 drops it.
     assignedSessionId: uuid(`assigned_session_id`).references(
       (): AnyPgColumn => sessions.id,
       { onDelete: `set null` }
@@ -1895,7 +1902,6 @@ export const sessionIssues = pgTable(
     index(`idx_session_issues_team`).on(table.teamId),
     index(`idx_session_issues_board`).on(table.boardId),
     index(`idx_session_issues_added_by_session`).on(table.addedBySessionId),
-    index(`idx_session_issues_assigned_session`).on(table.assignedSessionId),
   ]
 )
 
@@ -2915,9 +2921,8 @@ export const selectSessionSchema = createSelectSchema(sessions, {
   mcpServerIds: z.array(z.string()).nullable(),
 })
 export const selectSyncedSessionSchema = selectSessionSchema.omit({
-  hostUserId: true,
   mcpServerIds: true,
-  workLaunch: true,
+  wakeOn: true,
   instructions: true,
 })
 export const selectSessionIssueSchema = createSelectSchema(sessionIssues, {

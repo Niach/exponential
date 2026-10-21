@@ -48,10 +48,22 @@ describe(`shape column allowlists`, () => {
 })
 
 describe(`sessions allowlist`, () => {
-  it(`syncs a pending move, never the server-only handoff`, () => {
-    expect(SESSION_COLUMNS).toContain(`move_to_device_id`)
-    expect(SESSION_COLUMNS).toContain(`handoff_restored_at`)
-    expect(SESSION_COLUMNS).not.toContain(`handoff`)
-    expect(SESSION_COLUMNS).not.toContain(`host_user_id`)
+  it(`keeps the legacy read shims for the shipped clients, never the server-only columns`, () => {
+    for (const shim of [
+      `dispatch`,
+      `caption`,
+      `aside`,
+      `move_to_device_id`,
+      `handoff_restored_at`,
+      `spawned_by_session_id`,
+    ]) {
+      expect(SESSION_COLUMNS).toContain(shim)
+    }
+    expect(SESSION_COLUMNS).not.toContain(`wake_on`)
+    expect(SESSION_COLUMNS).not.toContain(`mcp_server_ids`)
+    expect(SESSION_COLUMNS).not.toContain(`instructions`)
+  })
+  it(`keeps the never-written assignment column the shipped desktop names`, () => {
+    expect(SESSION_ISSUE_COLUMNS).toContain(`assigned_session_id`)
   })
 })

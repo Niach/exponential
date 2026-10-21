@@ -20,6 +20,7 @@ import {
   threadRowMarkState,
   threadRowWord,
   threadsUnread,
+  treeState,
   type ThreadStripLayout,
 } from "./session-tree"
 
@@ -64,6 +65,22 @@ describe(`session-tree fixtures (EXP-1291)`, () => {
   for (const entry of list.cases) {
     test(`threads list: ${entry.name}`, () => {
       expect(partitionThreads(entry.input as never)).toEqual(entry.expected as never)
+    })
+  }
+  for (const entry of list.recentCases) {
+    test(`recent (NEW-1): ${entry.name}`, () => {
+      const groups = partitionThreads(entry.input as never)
+      const recent = groups.find((group) => group.key === `recent`)
+      expect(recent?.rows.filter((row) => row.depth === 0).map((row) => row.sessionId) ?? []).toEqual(
+        entry.expected
+      )
+    })
+  }
+  for (const entry of list.treeStateCases) {
+    test(`tree state (NEW-1): ${entry.name}`, () => {
+      expect(
+        treeState(entry.input.tree as never, entry.input.pullRequests as never, entry.input.now)
+      ).toBe(entry.expected)
     })
   }
   for (const entry of list.agentCases) {

@@ -13,6 +13,7 @@
 // EXP-432 bends the per-user rule exactly once: a server device may be SHARED
 // with teams (`shared_team_ids`, owner-toggled via `setShared`; FEED-33 made
 // it a set) so their members can remote-start on it.
+import { restoreDeviceSessionsInTx } from "@/lib/sessions/watchdog"
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
 import {
@@ -692,6 +693,12 @@ export const devicesRouter = router({
         })
       const row = updated[0]
       if (!row) return { ok: false, updateRequested: false }
+
+      // NEW-1: the device is back: its sessions the watchdog parked as
+      // `device_offline` read live again (the device re-claims them).
+      await ctx.db.transaction((tx) =>
+        restoreDeviceSessionsInTx(tx, { deviceId: input.deviceId, userId: ctx.session.user.id })
+      )
 
       const pending = await ctx.db
         .select({

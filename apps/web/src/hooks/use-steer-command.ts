@@ -45,7 +45,7 @@ export function useSteerCommand(input: {
       if (question === null) return null
       try {
         await trpc.sessions.send.mutate(
-          { teamId, parentId: sessionId, text: question, aside: true },
+          { teamId, parentId: sessionId, text: question },
           SKIP_ERROR_TOAST
         )
         return `sent`

@@ -50,7 +50,6 @@ class SessionTitleTest {
                         sessionId = it.str("sessionId")!!,
                         issueId = it.str("issueId")!!,
                         sortOrder = it.getValue("sortOrder").jsonPrimitive.double,
-                        assignedSessionId = it.str("assignedSessionId"),
                     )
                 },
                 input.list("issues").map {

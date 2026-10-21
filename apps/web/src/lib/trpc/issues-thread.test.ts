@@ -144,7 +144,7 @@ describe(`issues.create sessionId (EXP-1291)`, () => {
     expect(h.loadSessionForUser).toHaveBeenCalledWith(`actor`, SESSION_ID)
     expect(h.linkIssues).toHaveBeenCalledTimes(1)
     expect(h.linkIssues).toHaveBeenCalledWith(tx, {
-      rootId: ROOT_ID,
+      sessionId: SESSION_ID,
       issueIds: [ISSUE_ID],
       source: `user`,
       addedBy: `actor`,

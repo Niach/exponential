@@ -10,16 +10,21 @@ import {
   issues,
   issueStatuses,
   repositories,
+  sessionIssues,
+  sessions,
   teamMembers,
   teams,
 } from "@/db/schema"
 import { probeRealDb } from "@/test/real-db"
 
-// EXP-1334: the status automation against the REAL migrated Postgres — a
-// thread link starts its issues, a PR closes its session's share of the
-// thread, a stacked PR's issues wait for the stack's bottom to land, and a
-// parent issue waits for its linked sub-issues. Each case builds a fresh
-// team; the suite deletes every team (and user) it made (cascade).
+// EXP-1334/NEW-1: the status automation against the REAL migrated Postgres
+// — a WORKER (a session with a repository) taking an issue starts it, a PR
+// closes its session's share of the thread, a stacked PR's issues wait for
+// the stack's bottom to land, a parent issue waits for its linked
+// sub-issues, and the session side of issue-lifecycle.json (taken /
+// unlinked, no settle-back). The world's board carries the repository, so
+// its threads are workers. Each case builds a fresh team; the suite deletes
+// every team (and user) it made (cascade).
 
 vi.mock(`@/lib/pull-requests`, () => ({ syncPullRequestBodies: async () => {} }))
 vi.mock(`@/lib/integrations/notifications`, () => ({
@@ -35,19 +40,18 @@ vi.mock(`@/lib/integrations/github-app`, async (importOriginal) => ({
 const ready = await probeRealDb(`
   SELECT (
     EXISTS (SELECT 1 FROM information_schema.columns
-      WHERE table_name = 'sessions' AND column_name = 'dispatch')
+      WHERE table_name = 'sessions' AND column_name = 'wake_on')
     AND EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'populate_message_session_mirrors')
   ) AS ok
 `)
 if (!ready.ok) console.info(`[issue-automation.real-db] skipped: ${ready.reason}`)
 
 const { sendSession } = await import(`@/lib/sessions/send`)
-const { linkIssues, manualLinkText } = await import(`@/lib/sessions/issues`)
+const { forwardIssues, linkIssues, manualLinkText, unlinkIssue } = await import(`@/lib/sessions/issues`)
 const { prDefaultIssueIds } = await import(`@/lib/sessions/pr-issues`)
-const { endSession, settleFollowUpIssuesInTx } = await import(`@/lib/sessions/lifecycle`)
+const { endSession } = await import(`@/lib/sessions/lifecycle`)
 const {
   applyPullRequestBase,
-  applyPullRequestClosed,
   applyPullRequestMerged,
   loadPullRequest,
   recordPullRequestOpened,
@@ -72,10 +76,6 @@ async function world() {
   const teamId = team!.id
   made.teams.push(teamId)
   await db.insert(teamMembers).values({ teamId, userId: owner, role: `owner` })
-  const [board] = await db
-    .insert(boards)
-    .values({ teamId, name: `Core`, slug: `core-${id8()}`, prefix: `AU` })
-    .returning({ id: boards.id })
   const deviceId = `dev-${id8()}`
   await db.insert(devices).values({ userId: owner, deviceId, label: `box`, kind: `server` })
   const fullName = `o/r-${id8()}`
@@ -83,6 +83,11 @@ async function world() {
     .insert(repositories)
     .values({ teamId, fullName, defaultBranch: `main` })
     .returning({ id: repositories.id })
+  // The board's repository makes a thread on its issues a WORKER.
+  const [board] = await db
+    .insert(boards)
+    .values({ teamId, name: `Core`, slug: `core-${id8()}`, prefix: `AU`, repositoryId: repo!.id })
+    .returning({ id: boards.id })
   const issue = async (title = `An issue`) =>
     (
       await db
@@ -128,7 +133,10 @@ async function world() {
       })
     ).pullRequest
   }
-  return { owner, teamId, deviceId, issue, parentOf, status, thread, openPr }
+  /** A root with no repository (no issues named at the start): no worker. */
+  const chat = async (text = `chat`) =>
+    (await sendSession({ userId: owner, input: { teamId, deviceId, text } })).sessionId
+  return { owner, teamId, deviceId, repoId: repo!.id, issue, parentOf, status, thread, chat, openPr }
 }
 
 afterAll(async () => {
@@ -142,25 +150,39 @@ afterAll(async () => {
 })
 
 describe.skipIf(!ready.ok)(`EXP-1334 status automation`, () => {
-  it(`a thread link starts a not-yet-started issue and leaves a started one alone`, async () => {
+  it(`a worker's link starts a backlog issue and resumes one in review; a repo-less session moves nothing`, async () => {
     const w = await world()
     const fresh = await w.issue(`Fresh`)
     const reviewing = await w.issue(`Reviewing`)
+    const idle = await w.issue(`Chatted about`)
     await db.update(issues).set({ status: `in_review` }).where(eq(issues.id, reviewing.id))
 
-    // The quiet start link starts it too.
+    // The quiet start link takes it: the thread is a worker (the board's repo).
     const rootId = await w.thread([fresh.id])
+    expect((await db.select().from(sessions).where(eq(sessions.id, rootId)))[0]!.repositoryId).toBe(w.repoId)
     expect(await w.status(fresh.id)).toEqual({ status: `in_progress`, builtinKey: `in_progress` })
     const [event] = await db
       .select({ payload: issueEvents.payload, actor: issueEvents.actorUserId })
       .from(issueEvents)
       .where(and(eq(issueEvents.issueId, fresh.id), eq(issueEvents.type, `status_changed`)))
-    expect(event).toMatchObject({ actor: w.owner, payload: { automation: true, toName: `In Progress` } })
+    expect(event).toMatchObject({
+      actor: w.owner,
+      payload: { automation: true, toName: `In Progress`, event: `taken`, sessionId: rootId },
+    })
 
+    // In review → In progress (`resumed`): the worker took it again.
     await db.transaction((tx) =>
-      linkIssues(tx, { rootId, issueIds: [reviewing.id], source: `agent`, addedBy: w.owner, addedBySessionId: rootId })
+      linkIssues(tx, { sessionId: rootId, issueIds: [reviewing.id], source: `agent`, addedBy: w.owner, addedBySessionId: rootId })
     )
-    expect(await w.status(reviewing.id)).toMatchObject({ status: `in_review` })
+    expect(await w.status(reviewing.id)).toEqual({ status: `in_progress`, builtinKey: `in_progress` })
+
+    // A session without a repository takes nothing.
+    const chatId = await w.chat()
+    await db.transaction((tx) =>
+      linkIssues(tx, { sessionId: chatId, issueIds: [idle.id], source: `user`, addedBy: w.owner, addedBySessionId: null })
+    )
+    expect(await w.status(idle.id)).toMatchObject({ status: `backlog` })
+
     expect(manualLinkText([`AU-1`, `AU-2`])).toBe(`Link #AU-1 #AU-2`)
     expect(manualLinkText([])).toBeNull()
   })
@@ -175,12 +197,17 @@ describe.skipIf(!ready.ok)(`EXP-1334 status automation`, () => {
       .sessionId
     const a1 = (await sendSession({ userId: w.owner, input: { parentId: a, text: `follow up` } })).sessionId
     await sendSession({ userId: w.owner, input: { parentId: rootId, text: `Do #${other.identifier}` } })
+    // NEW-1: the grandchild files it: the row sits on the grandchild.
     await db.transaction((tx) =>
-      linkIssues(tx, { rootId, issueIds: [followUp.id], source: `agent`, addedBy: w.owner, addedBySessionId: a1 })
+      linkIssues(tx, { sessionId: a1, issueIds: [followUp.id], source: `agent`, addedBy: w.owner, addedBySessionId: a1, filed: true })
     )
 
-    expect(await prDefaultIssueIds(db, { rootId, sessionId: a })).toEqual([named.id, followUp.id])
-    expect(await prDefaultIssueIds(db, { rootId, sessionId: rootId })).toEqual([named.id, other.id, followUp.id])
+    // a's share = its subtree's rows + what its start names.
+    expect((await prDefaultIssueIds(db, { rootId, sessionId: a })).sort()).toEqual([named.id, followUp.id].sort())
+    // The root's own PR takes the whole thread.
+    expect((await prDefaultIssueIds(db, { rootId, sessionId: rootId })).sort()).toEqual(
+      [named.id, other.id, followUp.id].sort()
+    )
   })
 
   it(`a stacked PR's issues wait for the stack's bottom to land in the default branch`, async () => {
@@ -305,19 +332,19 @@ describe.skipIf(!ready.ok)(`EXP-1334 status automation`, () => {
   })
 })
 
-describe.skipIf(!ready.ok)(`EXP-1350 follow-up work`, () => {
-  /** A person sets the status by hand (issues.update writes no flag). */
-  const setByHand = async (issueId: string, status: `in_review` | `in_progress` | `backlog`) => {
-    await db.update(issues).set({ status, statusId: null }).where(eq(issues.id, issueId))
-    await db.execute(sql`
-      INSERT INTO issue_events (issue_id, team_id, board_id, type, payload, created_at, updated_at)
-      SELECT id, team_id, board_id, 'status_changed', '{"fromName": null, "toName": null}'::jsonb,
-        clock_timestamp(), clock_timestamp()
-      FROM issues WHERE id = ${issueId}
-    `)
-  }
-  const child = async (w: Awaited<ReturnType<typeof world>>, parentId: string, text = `follow up`) =>
-    (await sendSession({ userId: w.owner, input: { parentId, text } })).sessionId
+// NEW-1 (issue-lifecycle.json): the session side of the lifecycle. A row
+// landing on a worker TAKES the issue (backlog / in review → In progress),
+// so does a PERSON's message into a worker holding it; the last live worker
+// dropping it with no live PR sends it back to backlog. Nothing settles back
+// when work stops (EXP-1350's follow-up machinery is gone).
+describe.skipIf(!ready.ok)(`NEW-1 issue lifecycle`, () => {
+  const child = async (
+    w: Awaited<ReturnType<typeof world>>,
+    parentId: string,
+    opts: { text?: string; issueIds?: string[] } = {}
+  ) =>
+    (await sendSession({ userId: w.owner, input: { parentId, text: opts.text ?? `follow up`, issueIds: opts.issueIds } }))
+      .sessionId
   const end = (w: Awaited<ReturnType<typeof world>>, sessionId: string) =>
     endSession({ userId: w.owner, sessionId, summary: `done` })
   const reviewing = async (w: Awaited<ReturnType<typeof world>>) => {
@@ -327,91 +354,119 @@ describe.skipIf(!ready.ok)(`EXP-1350 follow-up work`, () => {
     expect(await w.status(issue.id)).toMatchObject({ status: `in_review` })
     return { issue, rootId, pr }
   }
+  const statusEvents = async (issueId: string) =>
+    (
+      await db
+        .select({ payload: issueEvents.payload })
+        .from(issueEvents)
+        .where(and(eq(issueEvents.issueId, issueId), eq(issueEvents.type, `status_changed`)))
+    ).map((row) => row.payload)
 
-  it(`a child moves In Review back to In Progress and its end with the PR open returns it`, async () => {
+  it(`a child started on an issue in review takes it back to In progress; its end moves nothing`, async () => {
     const w = await world()
     const { issue, rootId } = await reviewing(w)
-    const a = await child(w, rootId)
+    // A child that names no issue takes nothing.
+    const bare = await child(w, rootId)
+    expect(await w.status(issue.id)).toMatchObject({ status: `in_review` })
+    const a = await child(w, rootId, { issueIds: [issue.id] })
     expect(await w.status(issue.id)).toEqual({ status: `in_progress`, builtinKey: `in_progress` })
-    const events = await db
-      .select({ payload: issueEvents.payload })
-      .from(issueEvents)
-      .where(and(eq(issueEvents.issueId, issue.id), eq(issueEvents.type, `status_changed`)))
-    expect(events.map((row) => row.payload)).toContainEqual(
-      expect.objectContaining({ automation: true, event: `resumed`, rootSessionId: rootId, toName: `In Progress` })
+    expect(await statusEvents(issue.id)).toContainEqual(
+      expect.objectContaining({ automation: true, event: `taken`, sessionId: a, toName: `In Progress` })
     )
+    // No settle-back: the work stopping leaves it where it is.
     await end(w, a)
-    expect(await w.status(issue.id)).toEqual({ status: `in_review`, builtinKey: `in_review` })
+    await end(w, bare)
+    expect(await w.status(issue.id)).toMatchObject({ status: `in_progress` })
   })
 
-  it(`a hand-set In Review stays when follow-up work starts`, async () => {
+  it(`a person's message into the worker holding it retakes it; a session's message does not`, async () => {
     const w = await world()
     const { issue, rootId } = await reviewing(w)
-    await setByHand(issue.id, `in_review`)
-    await child(w, rootId)
+    const other = await w.chat(`a sibling thread`)
+    // Another session's message (its MCP key) is bus input: nothing moves.
+    await sendSession({
+      userId: w.owner,
+      input: { sessionId: rootId, text: `status?` },
+      callerSessionId: other,
+      viaMcp: true,
+    })
     expect(await w.status(issue.id)).toMatchObject({ status: `in_review` })
+    // A message into a session that does NOT hold it takes nothing.
+    const bare = await child(w, rootId)
+    await sendSession({ userId: w.owner, input: { sessionId: bare, text: `hi` } })
+    expect(await w.status(issue.id)).toMatchObject({ status: `in_review` })
+    // A person's message into the holder: the worker takes it again.
+    await sendSession({ userId: w.owner, input: { sessionId: rootId, text: `one more thing` } })
+    expect(await w.status(issue.id)).toEqual({ status: `in_progress`, builtinKey: `in_progress` })
   })
 
-  it(`a person's move while the child works wins over its end`, async () => {
+  it(`a forward and a continuation take the issue onto the new holder`, async () => {
     const w = await world()
     const { issue, rootId } = await reviewing(w)
     const a = await child(w, rootId)
+    await sendSession({ userId: w.owner, input: { sessionId: a, issueIds: [issue.id] } })
+    expect(await db.select({ sessionId: sessionIssues.sessionId }).from(sessionIssues).where(eq(sessionIssues.issueId, issue.id))).toEqual([
+      { sessionId: a },
+    ])
     expect(await w.status(issue.id)).toMatchObject({ status: `in_progress` })
-    await setByHand(issue.id, `in_progress`)
+
+    // Back in review (a second PR's open), then a's continuation takes it over.
+    await db.update(issues).set({ status: `in_review`, statusId: null }).where(eq(issues.id, issue.id))
     await end(w, a)
+    const cont = (await sendSession({ userId: w.owner, input: { sessionId: a, text: `again` } })).sessionId
+    expect(await db.select({ sessionId: sessionIssues.sessionId }).from(sessionIssues).where(eq(sessionIssues.issueId, issue.id))).toEqual([
+      { sessionId: cont },
+    ])
+    expect(await w.status(issue.id)).toEqual({ status: `in_progress`, builtinKey: `in_progress` })
+
+    // forwardIssues of an issue the target already holds retakes it too.
+    await db.update(issues).set({ status: `in_review`, statusId: null }).where(eq(issues.id, issue.id))
+    await db.transaction((tx) =>
+      forwardIssues(tx, { sessionId: cont, issueIds: [issue.id], source: `user`, addedBy: w.owner, addedBySessionId: null })
+    )
     expect(await w.status(issue.id)).toMatchObject({ status: `in_progress` })
   })
 
-  it(`only the last working child's end returns it to In Review`, async () => {
+  it(`unlinking from the last live worker with no live PR sends it back to backlog`, async () => {
     const w = await world()
-    const { issue, rootId } = await reviewing(w)
-    const a = await child(w, rootId, `one`)
-    const b = await child(w, rootId, `two`)
-    await end(w, a)
+    const issue = await w.issue(`Dropped`)
+    const rootId = await w.thread([issue.id])
+    const a = await child(w, rootId, { issueIds: [issue.id] })
     expect(await w.status(issue.id)).toMatchObject({ status: `in_progress` })
-    await end(w, b)
-    expect(await w.status(issue.id)).toMatchObject({ status: `in_review` })
+    const unlink = (sessionId: string) =>
+      db.transaction((tx) => unlinkIssue(tx, { sessionId, issueId: issue.id, removedBy: w.owner }))
+    // Another worker still holds it: nothing moves.
+    await unlink(a)
+    expect(await w.status(issue.id)).toMatchObject({ status: `in_progress` })
+    // The last one: backlog.
+    await unlink(rootId)
+    expect(await w.status(issue.id)).toEqual({ status: `backlog`, builtinKey: `backlog` })
+    expect(await statusEvents(issue.id)).toHaveLength(2)
+
+    // With a live PR it stays: in progress (retaken after the PR opened).
+    const kept = await w.issue(`Kept`)
+    const keptRoot = await w.thread([kept.id])
+    await w.openPr({ rootId: keptRoot, head: `exp/${kept.identifier}`, issueIds: [kept.id] })
+    await sendSession({ userId: w.owner, input: { sessionId: keptRoot, text: `fix the review` } })
+    expect(await w.status(kept.id)).toMatchObject({ status: `in_progress` })
+    await db.transaction((tx) => unlinkIssue(tx, { sessionId: keptRoot, issueId: kept.id, removedBy: w.owner }))
+    expect(await w.status(kept.id)).toMatchObject({ status: `in_progress` })
+
+    // An ended worker no longer counts as holding it.
+    const last = await w.issue(`Last`)
+    const lastRoot = await w.thread([last.id])
+    const lastChild = await child(w, lastRoot, { issueIds: [last.id] })
+    await end(w, lastChild)
+    await db.transaction((tx) => unlinkIssue(tx, { sessionId: lastRoot, issueId: last.id, removedBy: w.owner }))
+    // lastRoot's own row went; the ended child's row remains but is no worker.
+    expect(await w.status(last.id)).toMatchObject({ status: `backlog` })
   })
 
-  it(`no PR left live: the end leaves it In Progress`, async () => {
-    const w = await world()
-    const { issue, rootId, pr } = await reviewing(w)
-    const a = await child(w, rootId)
-    await applyPullRequestClosed({ pullRequestId: pr.id })
-    await end(w, a)
-    expect(await w.status(issue.id)).toMatchObject({ status: `in_progress` })
-  })
-
-  it(`a dispatcher message never moves it; a message into an idle work child does, its turn end returns it`, async () => {
-    const w = await world()
-    const { issue, rootId } = await reviewing(w)
-    await sendSession({ userId: w.owner, input: { sessionId: rootId, text: `status?` } })
-    expect(await w.status(issue.id)).toMatchObject({ status: `in_review` })
-
-    const a = await child(w, rootId)
-    // The device ran the child: its turn is over (idle, message read).
-    const settle = async () => {
-      await db.execute(sql`UPDATE messages SET consumed_at = now() WHERE session_id = ${a}`)
-      await db.execute(sql`UPDATE sessions SET status = 'idle', busy = false WHERE id = ${a}`)
-      const [row] = await db.execute(sql`SELECT root_id FROM sessions WHERE id = ${a}`).then((r) => r.rows)
-      await db.transaction((tx) =>
-        settleFollowUpIssuesInTx(tx, { rootId: (row as { root_id: string }).root_id }, [a], w.owner)
-      )
-    }
-    await settle()
-    expect(await w.status(issue.id)).toMatchObject({ status: `in_review` })
-
-    await sendSession({ userId: w.owner, input: { sessionId: a, text: `one more thing` } })
-    expect(await w.status(issue.id)).toMatchObject({ status: `in_progress` })
-    await settle()
-    expect(await w.status(issue.id)).toMatchObject({ status: `in_review` })
-  })
-
-  it(`a team without PR-open automation never moves it back`, async () => {
+  it(`taken targets the builtins: a team without PR-open automation still starts its work`, async () => {
     const w = await world()
     const { issue, rootId } = await reviewing(w)
     await db.update(teams).set({ prOpenedAutomation: false }).where(eq(teams.id, w.teamId))
-    await child(w, rootId)
-    expect(await w.status(issue.id)).toMatchObject({ status: `in_review` })
+    await child(w, rootId, { issueIds: [issue.id] })
+    expect(await w.status(issue.id)).toEqual({ status: `in_progress`, builtinKey: `in_progress` })
   })
 })

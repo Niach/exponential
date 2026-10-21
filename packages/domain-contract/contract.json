@@ -239,7 +239,8 @@
     "values": ["queued", "running", "idle", "ended"]
   },
   "codingSessionBlocked": {
-    "kinds": ["rate_limit"],
+    "$comment": "NEW-1: rate_limit = the usage wall (device-written); device_offline, unclaimed, stuck = the server watchdog (sessionWatchdog).",
+    "kinds": ["rate_limit", "device_offline", "unclaimed", "stuck"],
     "windows": ["session", "weekly", "model"]
   },
   "codingSession": {
@@ -257,6 +258,12 @@
     "agentInstructionsMaxBytes": 16384,
     "treeMaxDepth": 3,
     "treeMaxSessions": 10
+  },
+  "sessionWatchdog": {
+    "$comment": "NEW-1: the server watchdog (every minute). A queued session nobody claimed for unclaimedMinutes = blocked:unclaimed + Needs you; a live session with pending input older than nudgeMinutes = the device is nudged again; a busy session with no device report for stuckMinutes = blocked:stuck; a host device silent past device.onlineWindowSeconds = its live sessions idle + blocked:device_offline until its next heartbeat.",
+    "unclaimedMinutes": 5,
+    "nudgeMinutes": 2,
+    "stuckMinutes": 30
   },
   "device": {
     "onlineWindowSeconds": 90
@@ -399,10 +406,10 @@
     "uploadScheme": "upload:"
   },
   "messageCardKind": {
-    "values": ["question", "plan", "subagent", "session", "picture", "event", "thread_started", "report", "suggestions", "replies"]
+    "values": ["question", "plan", "subagent", "session", "picture", "event", "thread_started", "report", "suggestions", "replies", "ask"]
   },
   "messageEventKind": {
-    "values": ["issue_linked", "issue_filed", "issue_unlinked", "pr_opened", "pr_merged", "pr_closed", "session_ended"]
+    "values": ["issue_linked", "issue_filed", "issue_unlinked", "pr_opened", "pr_merged", "pr_closed", "session_ended", "session_claimed", "session_blocked", "session_unclaimed", "session_stuck", "device_offline"]
   },
   "codingAgent": {
     "values": ["claude", "codex"]

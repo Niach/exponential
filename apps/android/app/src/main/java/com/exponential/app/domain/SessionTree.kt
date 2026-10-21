@@ -22,7 +22,7 @@ import kotlinx.serialization.json.doubleOrNull
  *   fixtures/session-card.json   → [sessionCard]
  *   fixtures/session-thread.json → [buildSessionThread], [guidePullRequest],
  *                                  [composerYieldsToCard], [guideMenuEntries]
- *   fixtures/threads-list.json   → [partitionThreads] + [listAgents]
+ *   fixtures/threads-list.json   → [partitionThreads] + [listAgents] + [treeState]
  * The copy / icons / tones / testIds below are the fixtures' (the test
  * proves equality).
  */
@@ -68,12 +68,11 @@ object SessionTree {
     /** EXP-1323: the viewer's read marks (`session_reads`, already user-scoped). */
     data class SessionRead(val sessionId: String, val readAt: String)
 
-    /** [assignedSessionId] (EXP-1341) = the tree session working on it (null = the root's). */
+    /** NEW-1: [sessionId] = the session that HOLDS the issue (the row sits on it). */
     data class SessionIssue(
         val sessionId: String,
         val issueId: String,
         val sortOrder: Double,
-        val assignedSessionId: String? = null,
     )
 
     /** [parentId] (EXP-1334) = the issue's `parent` relation (null = none):
@@ -95,7 +94,8 @@ object SessionTree {
         val authorSessionId: String? = null,
     )
 
-    data class PullRequest(val id: String, val number: Int)
+    /** [state] (NEW-1) = contract `prState`; only [treeState] reads it (null = unknown, never merged). */
+    data class PullRequest(val id: String, val number: Int, val state: String? = null)
 
     // ── copy (= the fixtures) ───────────────────────────────────────────────
 
@@ -127,6 +127,13 @@ object SessionTree {
             SessionState.Ended to "muted",
         )
         const val TEST_ID_CARD = "session-card"
+        /** NEW-1 `copy.blockedKinds`: a `blocked.kind` → its word. */
+        val BLOCKED_KINDS: Map<String, String> = mapOf(
+            "rate_limit" to "Usage limit",
+            "device_offline" to "Device offline",
+            "unclaimed" to "Not picked up",
+            "stuck" to "Stuck",
+        )
     }
 
     object ThreadCopy {
@@ -143,6 +150,11 @@ object SessionTree {
             "pr_merged" to "Merged PR {pr}",
             "pr_closed" to "Closed PR {pr}",
             "session_ended" to "Session ended",
+            "session_claimed" to "{session} started",
+            "session_blocked" to "{session} hit a usage limit",
+            "session_unclaimed" to "{session} was not picked up",
+            "session_stuck" to "{session} looks stuck",
+            "device_offline" to "{session} paused: device offline",
         )
         const val TEST_ID_TABS = "thread-tabs"
         const val TEST_ID_CONVERSATION = "thread-conversation"
@@ -197,6 +209,10 @@ object SessionTree {
         const val TEST_ID_AGENT_ROW = "agents-row"
         /** EXP-1318: the rail band (web + IDE). */
         const val RAIL = "Active"
+        /** NEW-1 fixture `recent` (hours, max) + `treeState.staleHours`. */
+        const val RECENT_HOURS = 24
+        const val RECENT_MAX = 20
+        const val STALE_HOURS = 24
     }
 
     // ── session state + card ────────────────────────────────────────────────
@@ -307,7 +323,7 @@ object SessionTree {
         SessionTitle.TitleSession(id = s.id, rootId = s.rootId, name = s.name, title = s.title, actionName = s.actionName)
 
     private fun titleLink(link: SessionIssue) =
-        SessionTitle.TitleLink(link.sessionId, link.issueId, link.sortOrder, link.assignedSessionId)
+        SessionTitle.TitleLink(link.sessionId, link.issueId, link.sortOrder)
 
     private fun titleIssue(issue: Issue) = SessionTitle.TitleIssue(issue.id, issue.identifier, issue.title)
 
@@ -356,12 +372,24 @@ object SessionTree {
             threadRowMarkState(needsYou = session.needsInput, busy = session.busy)
         }
 
-    private fun rootIssues(rootId: String, sessionIssues: List<SessionIssue>, issues: List<Issue>): List<Issue> {
+    /** NEW-1: a thread's issues = the UNION over its tree's rows: the
+     *  sessions in tree order (the root first, then creation order), each
+     *  one's rows by sortOrder, every issue once. */
+    fun treeIssues(tree: List<Session>, sessionIssues: List<SessionIssue>, issues: List<Issue>): List<Issue> {
         val byId = issues.associateBy { it.id }
-        return sessionIssues
-            .filter { it.sessionId == rootId }
-            .sortedBy { it.sortOrder }
-            .mapNotNull { byId[it.issueId] }
+        val seen = HashSet<String>()
+        val out = mutableListOf<Issue>()
+        for (session in tree) {
+            val rows = sessionIssues
+                .filter { it.sessionId == session.id }
+                .sortedWith(compareBy<SessionIssue>({ it.sortOrder }, { it.issueId }))
+            for (link in rows) {
+                val issue = byId[link.issueId] ?: continue
+                if (!seen.add(issue.id)) continue
+                out.add(issue)
+            }
+        }
+        return out
     }
 
     // ── the thread screen ───────────────────────────────────────────────────
@@ -649,20 +677,30 @@ object SessionTree {
         return value.doubleOrNull?.toInt()
     }
 
-    private fun eventText(card: JsonObject, issues: Map<String, Issue>, prs: Map<String, PullRequest>): String? {
+    private fun eventText(
+        card: JsonObject,
+        issues: Map<String, Issue>,
+        prs: Map<String, PullRequest>,
+        sessionName: (String) -> String? = { null },
+    ): String? {
         val event = card.text("event")
-        val template = ThreadCopy.EVENTS[event] ?: return null
+        var text = ThreadCopy.EVENTS[event] ?: return null
         val issue = card.str("issueId")?.let { issues[it] }
         val pr = card.str("pullRequestId")?.let { prs[it] }
-        if (template.contains("{issue}")) {
+        if (text.contains("{issue}")) {
             if (issue == null) return null
-            return template.replaceFirst("{issue}", issue.identifier)
+            text = text.replaceFirst("{issue}", issue.identifier)
         }
-        if (template.contains("{pr}")) {
+        if (text.contains("{pr}")) {
             if (pr == null) return null
-            return template.replaceFirst("{pr}", "#${pr.number}")
+            text = text.replaceFirst("{pr}", "#${pr.number}")
         }
-        return template
+        if (text.contains("{session}")) {
+            // NEW-1: a bus line about a session of the tree; an unsynced one drops.
+            val name = card.str("sessionId")?.let(sessionName) ?: return null
+            text = text.replaceFirst("{session}", name)
+        }
+        return text
     }
 
     private fun suggestionsRow(
@@ -786,7 +824,7 @@ object SessionTree {
         val byId = sessions.associateBy { it.id }.toMutableMap()
         byId[root.id] = root
         val titles = sessionTitles(byId.values.toList(), sessionIssues, issues, messages)
-        val linked = rootIssues(root.id, sessionIssues, issues)
+        val linked = treeIssues(tree, sessionIssues, issues)
         val issueMap = issues.associateBy { it.id }
         val prMap = pullRequests.associateBy { it.id }
         val own = messages.filter { it.sessionId == root.id }.sortedWith(messageOrder)
@@ -890,9 +928,14 @@ object SessionTree {
                     suggestionsRow(message, card, byId, titles, issueMap, now)?.let(rows::add)
                 }
                 DomainContract.messageCardKindEvent -> {
-                    val text = eventText(card, issueMap, prMap)
+                    val text = eventText(card, issueMap, prMap) { id ->
+                        byId[id]?.let { target -> sessionCard(target, titles[target.id] ?: "", now).name }
+                    }
                     if (text != null) rows.add(ThreadRow.Event(message.id, card.text("event"), text))
                 }
+                // NEW-1: a child's ask mirrored into its parent: the child's own
+                // card already surfaces in the Conversation, the mirror draws nothing.
+                DomainContract.messageCardKindAsk -> Unit
                 else -> Unit
             }
         }
@@ -967,6 +1010,9 @@ object SessionTree {
         teamId: String?,
         /** EXP-1323: the viewer's `session_reads` (empty = none read). */
         reads: List<SessionRead> = emptyList(),
+        /** NEW-1: the clock for Recent's window (null = no window: the last
+         *  [ListCopy.RECENT_MAX] only). */
+        now: String? = null,
     ): List<ThreadsListGroup> {
         val readAt = reads.associate { it.sessionId to (ms(it.readAt) ?: 0L) }
         val rootOf = sessions.associate { it.id to it.rootId }
@@ -980,7 +1026,7 @@ object SessionTree {
             newestAgentInTree[rootId] = maxOf(newestAgentInTree[rootId] ?: 0L, at)
         }
         fun unreadAt(newest: Long?, sessionId: String) = newest != null && newest > (readAt[sessionId] ?: -1L)
-        val now = ""
+        val cardNow = ""
         // Converted once: titles are resolved per row below.
         val titleLinks = sessionIssues.map(::titleLink)
         val titleIssues = issues.map(::titleIssue)
@@ -1020,7 +1066,7 @@ object SessionTree {
                 parentId = null,
                 rootId = root.id,
                 unread = unreadAt(newestAgentInTree[root.id], root.id),
-                caption = sessionCard(root, title, now).caption,
+                caption = sessionCard(root, title, cardNow).caption,
             )
             val key = when {
                 needsYou -> ThreadsGroupKey.NeedsYou
@@ -1035,7 +1081,7 @@ object SessionTree {
                 fun walk(parentId: String, depth: Int) {
                     for (child in ordered) {
                         if (child.parentId != parentId || child.aside) continue
-                        val card = sessionCard(child, titleOf(child), now)
+                        val card = sessionCard(child, titleOf(child), cardNow)
                         val ended = child.status == DomainContract.sessionStatusEnded
                         children.add(
                             ThreadsListRow(
@@ -1062,15 +1108,62 @@ object SessionTree {
         }
         val order = compareByDescending<Pair<ThreadsListRow, List<ThreadsListRow>>> { ms(it.first.activityAt) ?: 0L }
             .thenBy { it.first.sessionId }
+        // NEW-1: Recent = every tree active in the last `recent.hours`, filled
+        // up to the last `recent.max` by activity. Ended trees stay openable.
+        val at = now?.let { ms(it) }
+        val windowMs = ListCopy.RECENT_HOURS * 60L * 60L * 1000L
         return buckets.entries
             .map { (key, entries) ->
+                var sorted = entries.sortedWith(order)
+                if (key == ThreadsGroupKey.Recent) {
+                    sorted = sorted.filterIndexed { index, (row, _) ->
+                        index < ListCopy.RECENT_MAX ||
+                            (at != null && at - (ms(row.activityAt) ?: 0L) <= windowMs)
+                    }
+                }
                 ThreadsListGroup(
                     key,
                     ListCopy.GROUPS.getValue(key),
-                    entries.sortedWith(order).flatMap { (row, children) -> listOf(row) + children },
+                    sorted.flatMap { (row, children) -> listOf(row) + children },
                 )
             }
             .filter { it.rows.isNotEmpty() }
+    }
+
+    /** NEW-1 (plan 3.13): a tree's derived state ([treeState]). */
+    enum class TreeState(val wire: String) {
+        NeedsYou("needs_you"),
+        Running("running"),
+        Done("done"),
+        Stale("stale"),
+        Idle("idle"),
+    }
+
+    /**
+     * NEW-1: a tree's derived state. `needs_you` = a live session waits on a
+     * person (needsInput: a card, a usage wall or a watchdog flag); `running`
+     * = any session queued or running; `done` = every session ended and every
+     * PR of the thread merged (none = never done); `stale` = nothing touched
+     * for [ListCopy.STALE_HOURS]; else `idle`.
+     */
+    fun treeState(tree: List<Session>, pullRequests: List<PullRequest>, now: String): TreeState {
+        val live = tree.filter { it.status != DomainContract.sessionStatusEnded }
+        if (live.any { it.needsInput }) return TreeState.NeedsYou
+        if (live.any {
+                it.status == DomainContract.sessionStatusQueued || it.status == DomainContract.sessionStatusRunning
+            }
+        ) {
+            return TreeState.Running
+        }
+        if (live.isEmpty() && pullRequests.isNotEmpty() &&
+            pullRequests.all { it.state == DomainContract.prStateMerged }
+        ) {
+            return TreeState.Done
+        }
+        val newest = tree.fold(0L) { latest, s -> maxOf(latest, ms(s.updatedAt) ?: 0L) }
+        val at = ms(now)
+        if (at != null && at - newest > ListCopy.STALE_HOURS * 60L * 60L * 1000L) return TreeState.Stale
+        return TreeState.Idle
     }
 
     /** EXP-1323: the Threads nav dot = any thread row is unread (`unreadCases`). */
@@ -1400,7 +1493,6 @@ object SessionTree {
             sessionId = row.sessionId,
             issueId = row.issueId,
             sortOrder = row.sortOrder,
-            assignedSessionId = row.assignedSessionId,
         )
 
     fun issue(row: IssueEntity, parentId: String? = null): Issue =
@@ -1434,7 +1526,7 @@ object SessionTree {
     fun sessionRead(row: SessionReadEntity): SessionRead = SessionRead(sessionId = row.sessionId, readAt = row.readAt)
 
     fun pullRequest(row: PullRequestEntity): PullRequest? =
-        row.number?.let { PullRequest(id = row.id, number = it) }
+        row.number?.let { PullRequest(id = row.id, number = it, state = row.state) }
 
     /** The ISO `now` the view models take, off the wall clock. */
     fun nowIso(nowMs: Long = System.currentTimeMillis()): String = java.time.Instant.ofEpochMilli(nowMs).toString()

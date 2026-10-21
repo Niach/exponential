@@ -554,7 +554,7 @@ async function seedSessionTree(ctx: {
   repoId: string
   issue: (identifier: string) => IssueRow
 }) {
-  const { teamId, demoId, jonas, repoId, issue } = ctx
+  const { teamId, demoId, repoId, issue } = ctx
   const minutesAgo = (m: number) => new Date(now - m * 60_000)
   const ids = DEMO_THREAD_IDS
   const live = new Map(DEMO_LIVE_SESSIONS.map((spec) => [spec.id, spec]))
@@ -610,7 +610,6 @@ async function seedSessionTree(ctx: {
       kind: `agent`,
       // Agents run on the team's shared build server, hosted by its owner.
       deviceId: DEMO_SERVER_DEVICE_ID,
-      hostUserId: jonas,
       account: `system`,
       repositoryId: null,
       status: `idle`,
@@ -702,7 +701,6 @@ async function seedSessionTree(ctx: {
       ...liveState(ids.sortReports),
       title: `Sort today's widget reports`,
       deviceId: DEMO_SERVER_DEVICE_ID,
-      hostUserId: jonas,
       branch: `exp/FB-9`,
       spawnedBySessionId: DEMO_AGENT_IDS.triage,
     }),

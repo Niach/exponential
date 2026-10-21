@@ -16,11 +16,7 @@ export interface BriefInput {
   issues?: { identifier: string; title: string }[]
   /** A CHILD session's parent. */
   parent?: { title: string; depth: number; branch: string | null } | null
-  /** A dispatcher root whose start is work by construction (plan mode, issues
-   *  or an action): its brief orders the hand-off instead of leaving it to
-   *  the model's judgement. */
-  handOff?: boolean
-  /** EXP-1280: a session started in plan mode (never a dispatcher). */
+  /** EXP-1280: a session started in plan mode. */
   planMode?: boolean
 }
 
@@ -45,10 +41,8 @@ export function composeBrief(input: BriefInput): string {
     if (body.trim()) sections.push(`## ${heading}\n\n${body}`)
   }
   section(fixture.headings.request, (input.text ?? ``).trim())
-  // The hand-off order rides right behind the Request: the cut at
-  // `briefMaxBytes` trims from the END, so a near-cap action body can never
-  // take the Dispatch section with it.
-  if (input.handOff) section(fixture.headings.dispatch, fixture.handOff)
+  // The plan gate rides right behind the Request: the cut at `briefMaxBytes`
+  // trims from the END, so a near-cap action body can never take it.
   if (input.planMode) section(fixture.headings.plan, fixture.plan)
   if (input.action) {
     const parts = [input.action.body.trim()].filter(Boolean)

@@ -1261,6 +1261,20 @@
       "when": 1792375313797,
       "tag": "0179_aromatic_exodus",
       "breakpoints": true
+    },
+    {
+      "idx": 180,
+      "version": "7",
+      "when": 1792564313916,
+      "tag": "0180_new1_sessions_slim",
+      "breakpoints": true
+    },
+    {
+      "idx": 181,
+      "version": "7",
+      "when": 1792564314700,
+      "tag": "0181_new1_sessions_wake_on",
+      "breakpoints": true
     }
   ]
 }

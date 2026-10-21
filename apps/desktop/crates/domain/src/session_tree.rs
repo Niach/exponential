@@ -29,13 +29,13 @@ use serde_json::Value;
 
 use crate::activity_fold::parse_instant;
 use crate::contract::{
-    MESSAGE_AUTHOR_KIND_AGENT, MESSAGE_AUTHOR_KIND_USER, MESSAGE_CARD_KIND_EVENT,
+    MESSAGE_AUTHOR_KIND_AGENT, MESSAGE_AUTHOR_KIND_USER, MESSAGE_CARD_KIND_ASK, MESSAGE_CARD_KIND_EVENT,
     MESSAGE_CARD_KIND_PICTURE, MESSAGE_CARD_KIND_PLAN, MESSAGE_CARD_KIND_QUESTION,
     MESSAGE_CARD_KIND_REPLIES, MESSAGE_CARD_KIND_REPORT, MESSAGE_CARD_KIND_SESSION,
     MESSAGE_CARD_KIND_SUBAGENT,
     MESSAGE_CARD_KIND_SUGGESTIONS, MESSAGE_CARD_KIND_THREAD_STARTED,
     SESSION_KIND_AGENT, SESSION_KIND_THREAD, SESSION_STATUS_ENDED, SESSION_STATUS_QUEUED,
-    SESSION_STATUS_RUNNING,
+    SESSION_STATUS_RUNNING, PR_STATE_MERGED,
 };
 use crate::rows::{Issue, MessageRow, PullRequestRow, SessionIssueRow, SessionReadRow, SessionRow};
 use crate::session_title::{session_title, session_titles};
@@ -74,9 +74,13 @@ impl StateStrings {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SessionCardCopy {
     /// The muted state word per state.
     pub states: StateStrings,
+    /// NEW-1: the word per `blocked.kind` (`rate_limit` → `Usage limit`,
+    /// `device_offline`, `unclaimed`, `stuck`).
+    pub blocked_kinds: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -229,6 +233,25 @@ pub struct ThreadsListSpec {
     /// An agent row without its own icon/color.
     pub agent_defaults: AgentDefaults,
     pub test_ids: ThreadsListTestIds,
+    /// NEW-1: the Recent band's window + fill.
+    pub recent: RecentRules,
+    /// NEW-1: [`tree_state`]'s thresholds.
+    pub tree_state: TreeStateRules,
+}
+
+/// NEW-1: `threads-list.json` `recent`: every tree active within `hours`,
+/// filled up to the last `max` by activity.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+pub struct RecentRules {
+    pub hours: i64,
+    pub max: usize,
+}
+
+/// NEW-1: `threads-list.json` `treeState`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TreeStateRules {
+    pub stale_hours: i64,
 }
 
 const SESSION_CARD_JSON: &str =
@@ -488,29 +511,41 @@ impl TreeIssue {
     }
 }
 
-/// The issues linked to `root_id`, by link sort order; unsynced issues drop
-/// out.
-pub fn root_issues(
-    root_id: &str,
+/// NEW-1: a thread's issues = the UNION over its tree's rows: the sessions
+/// in tree order (the root first, then creation order, [`tree_order`]), each
+/// one's rows by sort order then issue id, every issue once; unsynced issues
+/// drop out.
+pub fn tree_issues(
+    tree: &[&SessionRow],
     session_issues: &[&SessionIssueRow],
     issues: &[TreeIssue],
 ) -> Vec<TreeIssue> {
     let by_id: HashMap<&str, &TreeIssue> = issues.iter().map(|issue| (issue.id.as_str(), issue)).collect();
-    let mut links: Vec<&SessionIssueRow> = session_issues
-        .iter()
-        .copied()
-        .filter(|link| link.session_id == root_id)
-        .collect();
-    links.sort_by(|a, b| {
-        a.sort_order
-            .unwrap_or(0.0)
-            .partial_cmp(&b.sort_order.unwrap_or(0.0))
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
-    links
-        .into_iter()
-        .filter_map(|link| by_id.get(link.issue_id.as_str()).map(|issue| (*issue).clone()))
-        .collect()
+    let mut seen: HashSet<&str> = HashSet::new();
+    let mut out = Vec::new();
+    for session in tree {
+        let mut links: Vec<&SessionIssueRow> = session_issues
+            .iter()
+            .copied()
+            .filter(|link| link.session_id == session.id)
+            .collect();
+        links.sort_by(|a, b| {
+            a.sort_order
+                .unwrap_or(0.0)
+                .partial_cmp(&b.sort_order.unwrap_or(0.0))
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| a.issue_id.cmp(&b.issue_id))
+        });
+        for link in links {
+            let Some(issue) = by_id.get(link.issue_id.as_str()) else {
+                continue;
+            };
+            if seen.insert(issue.id.as_str()) {
+                out.push((*issue).clone());
+            }
+        }
+    }
+    out
 }
 
 // ---------------------------------------------------------------------------
@@ -1007,19 +1042,25 @@ fn event_text(
     card: &Value,
     issues: &HashMap<&str, &TreeIssue>,
     prs: &HashMap<&str, &PullRequestRow>,
+    session_name: impl Fn(&str) -> Option<String>,
 ) -> Option<String> {
     let event = js_string(card.get("event"));
-    let template = THREAD.copy.events.get(&event)?;
-    if template.contains("{issue}") {
+    let mut text = THREAD.copy.events.get(&event)?.clone();
+    if text.contains("{issue}") {
         let issue = card_str(card, "issueId").and_then(|id| issues.get(id))?;
-        return Some(template.replacen("{issue}", &issue.identifier, 1));
+        text = text.replacen("{issue}", &issue.identifier, 1);
     }
-    if template.contains("{pr}") {
+    if text.contains("{pr}") {
         let pr = card_str(card, "pullRequestId").and_then(|id| prs.get(id))?;
         let number = pr.number?;
-        return Some(template.replacen("{pr}", &format!("#{number}"), 1));
+        text = text.replacen("{pr}", &format!("#{number}"), 1);
     }
-    Some(template.clone())
+    if text.contains("{session}") {
+        // NEW-1: a bus line about a session of the tree; an unsynced one drops.
+        let name = card_str(card, "sessionId").and_then(&session_name)?;
+        text = text.replacen("{session}", &name, 1);
+    }
+    Some(text)
 }
 
 fn guide_dot(guide: Option<&Value>) -> bool {
@@ -1380,7 +1421,7 @@ pub fn build_session_thread(input: SessionThreadInput<'_>, focus: Option<&str>) 
     by_id.insert(root.id.as_str(), root);
     let everyone: Vec<&SessionRow> = by_id.values().copied().collect();
     let titles = session_titles(&everyone, input.session_issues, input.issues, input.messages);
-    let issues = root_issues(&root.id, input.session_issues, input.issues);
+    let issues = tree_issues(&tree, input.session_issues, input.issues);
     let issue_map: HashMap<&str, &TreeIssue> =
         input.issues.iter().map(|issue| (issue.id.as_str(), issue)).collect();
     let pr_map: HashMap<&str, &PullRequestRow> =
@@ -1538,7 +1579,12 @@ pub fn build_session_thread(input: SessionThreadInput<'_>, focus: Option<&str>) 
                 }
             }
             Some(MESSAGE_CARD_KIND_EVENT) => {
-                if let Some(text) = event_text(card, &issue_map, &pr_map) {
+                let session_name = |id: &str| {
+                    by_id
+                        .get(id)
+                        .map(|target| session_card(target, title_of(&titles, &target.id), now).name)
+                };
+                if let Some(text) = event_text(card, &issue_map, &pr_map, session_name) {
                     rows.push(SessionThreadRow::Event {
                         id: message.id.clone(),
                         event: js_string(card.get("event")),
@@ -1546,6 +1592,9 @@ pub fn build_session_thread(input: SessionThreadInput<'_>, focus: Option<&str>) 
                     });
                 }
             }
+            // NEW-1: a child's ask mirrored into its parent: the child's own
+            // card already surfaces in the Conversation, so it draws nothing.
+            Some(MESSAGE_CARD_KIND_ASK) => {}
             _ => {}
         }
     }
@@ -1654,6 +1703,64 @@ pub struct ThreadsListInput<'a> {
     pub team_id: Option<&'a str>,
     /// EXP-1323: the viewer's `session_reads` (empty = none read).
     pub reads: &'a [&'a SessionReadRow],
+    /// NEW-1: the clock for Recent's window (epoch ms; `None` = no window:
+    /// the last `recent.max` only).
+    pub now_ms: Option<i64>,
+}
+
+/// NEW-1: a tree's derived state ([`tree_state`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TreeState {
+    NeedsYou,
+    Running,
+    Done,
+    Stale,
+    Idle,
+}
+
+impl TreeState {
+    /// The fixture's wire word.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::NeedsYou => "needs_you",
+            Self::Running => "running",
+            Self::Done => "done",
+            Self::Stale => "stale",
+            Self::Idle => "idle",
+        }
+    }
+}
+
+/// NEW-1 (plan 3.13): a tree's derived state. `needs_you` = a live session
+/// waits on a person (`needs_input`, a usage wall or a watchdog flag
+/// included); `running` = any session queued or running; `done` = every
+/// session ended and every PR of the thread merged (none = never done);
+/// `stale` = nothing touched for `treeState.staleHours`; else `idle`.
+pub fn tree_state(tree: &[&SessionRow], pull_requests: &[&PullRequestRow], now_ms: i64) -> TreeState {
+    let live: Vec<&SessionRow> = tree.iter().copied().filter(|session| !session.is_ended()).collect();
+    if live.iter().any(|session| session.needs_input) {
+        return TreeState::NeedsYou;
+    }
+    if live.iter().any(|session| {
+        status_is(session, SESSION_STATUS_QUEUED) || status_is(session, SESSION_STATUS_RUNNING)
+    }) {
+        return TreeState::Running;
+    }
+    if live.is_empty()
+        && !pull_requests.is_empty()
+        && pull_requests.iter().all(|pr| pr.state.as_deref() == Some(PR_STATE_MERGED))
+    {
+        return TreeState::Done;
+    }
+    let newest = tree
+        .iter()
+        .map(|session| ms_or_zero(session.updated_at.as_deref()))
+        .fold(0, i64::max);
+    if now_ms - newest > THREADS_LIST.tree_state.stale_hours * 60 * 60 * 1000 {
+        return TreeState::Stale;
+    }
+    TreeState::Idle
 }
 
 /// The Threads page: roots of kind `thread` in scope grouped Needs you (a
@@ -1785,6 +1892,23 @@ pub fn partition_threads(input: ThreadsListInput<'_>) -> Vec<ThreadsListGroup> {
                     .cmp(&ms_or_zero(Some(&a.activity_at)))
                     .then_with(|| a.session_id.cmp(&b.session_id))
             });
+            if key == ThreadsListKey::Recent {
+                // NEW-1: every tree active in the last `recent.hours`, filled
+                // up to the last `recent.max` by activity.
+                let rules = THREADS_LIST.recent;
+                let window = rules.hours * 60 * 60 * 1000;
+                entries = entries
+                    .into_iter()
+                    .enumerate()
+                    .filter(|(index, (row, _))| {
+                        *index < rules.max
+                            || input
+                                .now_ms
+                                .is_some_and(|at| at - ms_or_zero(Some(&row.activity_at)) <= window)
+                    })
+                    .map(|(_, entry)| entry)
+                    .collect();
+            }
             let rows: Vec<ThreadsListRow> = entries
                 .into_iter()
                 .flat_map(|(row, children)| std::iter::once(row).chain(children))
@@ -2094,6 +2218,12 @@ mod tests {
         assert_eq!(THREADS_LIST.copy.title, "Threads");
         assert_eq!(ThreadsListKey::Recent.title(), "Recent");
         assert_eq!(THREADS_LIST.agent_defaults.icon, "bot");
+        assert_eq!(THREADS_LIST.recent, RecentRules { hours: 24, max: 20 });
+        assert_eq!(THREADS_LIST.tree_state.stale_hours, 24);
+        assert_eq!(SESSION_CARD.copy.blocked_kinds.get("rate_limit").map(String::as_str), Some("Usage limit"));
+        for kind in crate::contract::CODING_SESSION_BLOCKED_KINDS {
+            assert!(SESSION_CARD.copy.blocked_kinds.contains_key(*kind), "{kind}");
+        }
     }
 
     /// The fixture's `copy.words` key set IS the struct's: an extra key
@@ -2190,8 +2320,64 @@ mod tests {
                 messages: &messages,
                 team_id: input["teamId"].as_str(),
                 reads: &reads,
+                now_ms: input["now"].as_str().and_then(parse_instant),
             });
             assert_whole(&groups, &case["expected"], name);
+        }
+        let recent_cases = fixture["recentCases"].as_array().unwrap();
+        assert!(!recent_cases.is_empty());
+        for case in recent_cases {
+            let name = case["name"].as_str().unwrap();
+            let input = &case["input"];
+            let sessions: Vec<SessionRow> = rows(&input["sessions"]);
+            let links: Vec<SessionIssueRow> = rows(&input["sessionIssues"]);
+            let issues: Vec<TreeIssue> =
+                serde_json::from_value(input["issues"].clone()).unwrap_or_default();
+            let messages: Vec<MessageRow> = rows(&input["messages"]);
+            let reads: Vec<SessionReadRow> = rows(&input["reads"]);
+            let sessions: Vec<&SessionRow> = sessions.iter().collect();
+            let links: Vec<&SessionIssueRow> = links.iter().collect();
+            let messages: Vec<&MessageRow> = messages.iter().collect();
+            let reads: Vec<&SessionReadRow> = reads.iter().collect();
+            let groups = partition_threads(ThreadsListInput {
+                sessions: &sessions,
+                session_issues: &links,
+                issues: &issues,
+                messages: &messages,
+                team_id: input["teamId"].as_str(),
+                reads: &reads,
+                now_ms: input["now"].as_str().and_then(parse_instant),
+            });
+            let recent: Vec<&str> = groups
+                .iter()
+                .find(|group| group.key == ThreadsListKey::Recent)
+                .map(|group| {
+                    group
+                        .rows
+                        .iter()
+                        .filter(|row| row.depth == 0)
+                        .map(|row| row.session_id.as_str())
+                        .collect()
+                })
+                .unwrap_or_default();
+            let expected: Vec<&str> =
+                case["expected"].as_array().unwrap().iter().map(|id| id.as_str().unwrap()).collect();
+            assert_eq!(recent, expected, "{name}");
+        }
+        let state_cases = fixture["treeStateCases"].as_array().unwrap();
+        assert!(!state_cases.is_empty());
+        for case in state_cases {
+            let name = case["name"].as_str().unwrap();
+            let input = &case["input"];
+            let tree: Vec<SessionRow> = rows(&input["tree"]);
+            let prs: Vec<PullRequestRow> = rows(&input["pullRequests"]);
+            let tree: Vec<&SessionRow> = tree.iter().collect();
+            let prs: Vec<&PullRequestRow> = prs.iter().collect();
+            assert_eq!(
+                tree_state(&tree, &prs, now(&input["now"])).as_str(),
+                case["expected"].as_str().unwrap(),
+                "{name}"
+            );
         }
         let unread_cases = fixture["unreadCases"].as_array().unwrap();
         assert!(!unread_cases.is_empty());

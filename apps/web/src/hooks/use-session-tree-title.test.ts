@@ -77,18 +77,15 @@ describe(`thread title readiness`, () => {
       session(`assigned`, { rootId: `linked` }),
       session(`child`, { rootId: `linked` }),
     ]
-    const links = [
-      { sessionId: `linked`, assignedSessionId: null },
-      { sessionId: `linkedAction`, assignedSessionId: null },
-      { sessionId: `linked`, assignedSessionId: `assigned` },
-    ]
+    // NEW-1: a row sits on the session holding the issue (root or child).
+    const links = [{ sessionId: `linked` }, { sessionId: `linkedAction` }, { sessionId: `assigned` }]
     const all = { sessions, sessionIssues: links }
     // Everything in: nothing held.
     expect(
       unsettledTitleRoots({ ...all, linksReady: true, issuesReady: true, messagesReady: true })
     ).toEqual(new Set())
-    // Issues pending: only sessions with OWN issues wait (a root's links, a
-    // child's assigned ones), the action outranked by its issues too.
+    // Issues pending: only sessions holding issues wait, the action
+    // outranked by its issues too.
     expect(
       unsettledTitleRoots({ ...all, linksReady: true, issuesReady: false, messagesReady: true })
     ).toEqual(new Set([`linked`, `linkedAction`, `assigned`]))

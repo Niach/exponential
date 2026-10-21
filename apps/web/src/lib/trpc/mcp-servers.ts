@@ -15,6 +15,7 @@
 // connection (`setShared`); a session that runs an ACTION then also gets one
 // `<server>-as-<member>` entry per other member's shared connection to a
 // picked http server, like device sharing.
+import { isSessionPrincipal } from "@/lib/sessions/host"
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
 import { and, asc, eq, inArray } from "drizzle-orm"
@@ -647,7 +648,7 @@ export const mcpServersRouter = router({
         .select({
           id: sessions.id,
           userId: sessions.userId,
-          hostUserId: sessions.hostUserId,
+          deviceId: sessions.deviceId,
           teamId: sessions.teamId,
           status: sessions.status,
           mcpServerIds: sessions.mcpServerIds,
@@ -658,7 +659,7 @@ export const mcpServersRouter = router({
         .limit(1)
       if (
         !run ||
-        (run.userId !== userId && run.hostUserId !== userId) ||
+        !(await isSessionPrincipal(userId, run)) ||
         run.status === `ended`
       ) {
         throw new TRPCError({

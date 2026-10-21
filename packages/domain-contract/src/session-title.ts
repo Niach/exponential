@@ -1,4 +1,4 @@
-// EXP-1341: THE display title of any session ×4 (never `Session N`).
+// EXP-1341/NEW-1: THE display title of any session ×4 (never `Session N`).
 // fixtures/session-title.json holds the rules + cases; mirrors: desktop
 // `domain::session_title`, iOS ExpCore `SessionTitle.swift`, Android
 // `domain/SessionTitle.kt`. The server's `deriveSessionTitle` calls this.
@@ -20,11 +20,10 @@ export interface TitleSession {
 }
 
 export interface TitleLink {
+  /** NEW-1: the session that HOLDS the issue (the row sits on it). */
   sessionId: string
   issueId: string
   sortOrder: number
-  /** The tree session working on it (null = the root's own). */
-  assignedSessionId?: string | null
 }
 
 export interface TitleIssue {
@@ -63,18 +62,15 @@ function firstLine(body: string): string | null {
   )
 }
 
-/** A root's links, or the links ASSIGNED to a child, in link order. */
+/** The session's OWN rows, in link order (root or child alike, NEW-1). */
 export function sessionIssues<I extends TitleIssue>(
-  session: Pick<TitleSession, `id` | `rootId`>,
+  session: Pick<TitleSession, `id`>,
   links: readonly TitleLink[],
   issues: readonly I[]
 ): I[] {
   const byId = new Map(issues.map((issue) => [issue.id, issue]))
-  const isRoot = session.id === session.rootId
   return links
-    .filter((link) =>
-      isRoot ? link.sessionId === session.id : (link.assignedSessionId ?? null) === session.id
-    )
+    .filter((link) => link.sessionId === session.id)
     .sort(
       (a, b) =>
         a.sortOrder - b.sortOrder || (a.issueId < b.issueId ? -1 : a.issueId > b.issueId ? 1 : 0)
