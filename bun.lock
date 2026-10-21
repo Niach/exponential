@@ -295,6 +295,7 @@
         "@exponential-at/ui": "workspace:*",
         "@floating-ui/dom": "^1.7.0",
         "@kobalte/core": "^0.13.14",
+        "aria-hidden": "^1.2.6",
         "lucide-solid": "0.544.0",
       },
       "devDependencies": {
