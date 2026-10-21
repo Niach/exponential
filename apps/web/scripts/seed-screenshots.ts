@@ -34,7 +34,6 @@ import { db } from "@/db/connection"
 import { storeOauthTokens } from "@/lib/mcp-oauth/credentials"
 import {
   accounts,
-  actions,
   apikeys,
   attachments,
   agents,
@@ -55,6 +54,7 @@ import {
   notifications,
   boards,
   pullRequestIssues,
+  prompts,
   pullRequests,
   repositories,
   sessionIssues,
@@ -2062,34 +2062,42 @@ async function main() {
     },
   ])
 
-  // Team actions (EXP-253) so the Actions screenshot lists real saved
-  // actions. EXP-1293: an action is a saved prompt (name, icon, body, inputs,
-  // placeholder) — no builtins, no triggers (those moved onto agents). Bodies
-  // are short but plausible: the list shows the name.
-  const actionRows = await db
-    .insert(actions)
+  // The team's saved prompts (NEW-2: prompts replaced actions — a name, an
+  // icon and a body, no inputs or triggers) so Settings → Prompts and the
+  // composers' `/` menus list real rows. The `actions` table stays EMPTY (a
+  // read shim until NEW-8). Bodies are short but plausible: the list shows
+  // the name.
+  const promptRows = await db
+    .insert(prompts)
     .values([
+      {
+        teamId: ws.id,
+        name: `Release train`,
+        icon: `rocket`,
+        body: `Collect the PRs merged since the last release tag and draft concise, user-facing release notes grouped by feature, fix, and performance. Post the draft as a comment for review.`,
+        sortOrder: 1,
+      },
+      {
+        teamId: ws.id,
+        id: DEMO_ACTION_ID,
+        name: `Fix flaky tests`,
+        icon: `bug`,
+        body: `Run the test suite three times. For every failure, decide flaky vs real: quarantine and file an issue for flaky tests, fix trivial breakage directly, and file detailed issues for anything deeper.`,
+        sortOrder: 2,
+      },
+      {
+        teamId: ws.id,
+        name: `Triage new issues`,
+        icon: `flag`,
+        body: `Read every issue filed since yesterday, add the right labels, set a priority, link duplicates and ask the reporter for what is missing.`,
+        sortOrder: 3,
+      },
       {
         teamId: ws.id,
         name: `Update dependencies`,
         icon: `package`,
         body: `Update all dependencies to their latest compatible versions. Run the full test suite, fix any breakage the bumps cause, and open a PR summarizing notable upgrades.`,
-        sortOrder: 0,
-      },
-      {
-        teamId: ws.id,
-        id: DEMO_ACTION_ID,
-        name: `Nightly test triage`,
-        icon: `flask-conical`,
-        body: `Run the test suite three times. For every failure, decide flaky vs real: quarantine and file an issue for flaky tests, fix trivial breakage directly, and file detailed issues for anything deeper.`,
-        sortOrder: 10,
-      },
-      {
-        teamId: ws.id,
-        name: `Draft release notes`,
-        icon: `sparkles`,
-        body: `Collect the PRs merged since the last release tag and draft concise, user-facing release notes grouped by feature, fix, and performance. Post the draft as a comment for review.`,
-        sortOrder: 20,
+        sortOrder: 4,
       },
     ])
     .returning()
@@ -2407,7 +2415,7 @@ Seeded screenshot demo data:
   agents      Triage (${DEMO_AGENT_ID}), Designer, Release
   machines    demo desktop (offline until screenshots:desktop beats) + 1 shared team server (offline)
   pull reqs   5 (APP-14 stacked on APP-15; APP-14 → ${REVIEW_PR_URL}, a real diff)
-  actions     ${actionRows.length} saved team actions
+  prompts     ${promptRows.length} saved team prompts
   storage     ${seedAttachments.length} attachments (1 unreferenced image to sweep)
   mcp         3 team MCP servers: linear (OAuth, connected for the demo user), sentry (OAuth, not connected), acme-docs (no sign-in)
   widgets     2 widget configs
