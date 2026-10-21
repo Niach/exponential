@@ -40,7 +40,12 @@ import kotlinx.serialization.json.JsonObject
 @Composable
 internal fun PlanCardSpecimens() {
     val context = LocalContext.current
-    remember { seedSpecimenPictures(context) }
+    // Seeded ONCE, before the tiles below load (RememberReturnType: a
+    // remember never returns Unit, so it yields the done flag).
+    remember(context) {
+        seedSpecimenPictures(context)
+        true
+    }
     val rows = remember {
         listOf(
             message("n1", PENDING_PLAN, answeredAt = null, consumedAt = null, createdAt = "2026-10-13T10:01:00.000Z"),

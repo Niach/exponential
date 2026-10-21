@@ -54,7 +54,7 @@ class SessionTreeTest {
         status = json.str("status")!!,
         busy = json.bool("busy"),
         needsInput = json.bool("needsInput"),
-        blocked = (json["blocked"] as? JsonObject)?.let { SessionTree.Blocked(it.str("window"), it.str("resetsAt")) },
+        blocked = (json["blocked"] as? JsonObject)?.let { SessionTree.Blocked(it.str("window"), it.str("resetsAt"), it.str("kind")) },
         shared = json.bool("shared"),
         title = json.str("title"),
         guide = (json["guide"] as? JsonArray)?.map { entry ->
@@ -738,4 +738,37 @@ class SessionTreeTest {
             SessionTree.TreeState.entries.map { it.wire }.toSet(),
         )
     }
+
+    // NEW-1 (TS `sessionKindWord`, session-card.json `copy.blockedKinds`): a
+    // blocked session's state word names WHY; an unknown kind = "Usage limit".
+    private fun blockedSession(kind: String?) = SessionTree.Session(
+        id = "s1", teamId = "t1", parentId = null, rootId = "s1", kind = "thread", userId = "u1",
+        status = "running", busy = false, needsInput = false, blocked = SessionTree.Blocked(kind = kind),
+        shared = true, title = null, guide = null, actionName = null, name = null, icon = null,
+        color = null, sortOrder = 0.0, startedAt = null, endedAt = null,
+        createdAt = "2026-10-21T10:00:00.000Z", updatedAt = "2026-10-21T10:00:00.000Z",
+    )
+
+    private fun blockedWord(kind: String?): String {
+        val session = blockedSession(kind)
+        return SessionTree.sessionCard(session, "S", "2026-10-21T10:05:00.000Z").kindWord
+    }
+
+    @Test
+    fun blockedKindUsageWallReadsUsageLimit() = assertEquals("Usage limit", blockedWord("rate_limit"))
+
+    @Test
+    fun blockedKindMissingReadsUsageLimit() = assertEquals("Usage limit", blockedWord(null))
+
+    @Test
+    fun blockedKindDeviceOfflineReadsItsWord() = assertEquals("Device offline", blockedWord("device_offline"))
+
+    @Test
+    fun blockedKindUnclaimedReadsItsWord() = assertEquals("Not picked up", blockedWord("unclaimed"))
+
+    @Test
+    fun blockedKindStuckReadsItsWord() = assertEquals("Stuck", blockedWord("stuck"))
+
+    @Test
+    fun blockedKindUnknownKeepsUsageLimit() = assertEquals("Usage limit", blockedWord("quota"))
 }

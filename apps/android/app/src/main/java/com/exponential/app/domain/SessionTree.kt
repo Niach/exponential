@@ -31,7 +31,9 @@ object SessionTree {
 
     // ── inputs (the synced rows, projected) ─────────────────────────────────
 
-    data class Blocked(val window: String? = null, val resetsAt: String? = null)
+    /** [kind] = contract `blockedKind`-ish: `rate_limit` (a usage wall) or a
+     *  watchdog flag (`device_offline` / `unclaimed` / `stuck`); null = a wall. */
+    data class Blocked(val window: String? = null, val resetsAt: String? = null, val kind: String? = null)
 
     data class GuideEntry(val text: String? = null, val label: String? = null)
 
@@ -295,6 +297,18 @@ object SessionTree {
      * Tapping it opens that session's raw view. [title] = its [sessionTitle]
      * (EXP-1341, never `Session N`); [now] = an ISO timestamp.
      */
+    /**
+     * NEW-1 (TS `sessionKindWord`): the card's state word; a blocked session
+     * names WHY (`copy.blockedKinds[blocked.kind]`), an unknown kind keeps
+     * `states.blocked` ("Usage limit").
+     */
+    fun sessionKindWord(session: Session, state: SessionState): String {
+        if (state == SessionState.Blocked) {
+            session.blocked?.kind?.let { kind -> CardCopy.BLOCKED_KINDS[kind] }?.let { return it }
+        }
+        return CardCopy.STATES.getValue(state)
+    }
+
     fun sessionCard(session: Session, title: String, now: String): SessionCard {
         val state = sessionState(session)
         val start = ms(session.startedAt)
@@ -313,7 +327,7 @@ object SessionTree {
             sessionId = session.id,
             icon = CardCopy.ICONS.getValue(state),
             name = title,
-            kindWord = CardCopy.STATES.getValue(state),
+            kindWord = sessionKindWord(session, state),
             state = state,
             tone = CardCopy.TONES.getValue(state),
             elapsed = elapsed,
@@ -1528,7 +1542,7 @@ object SessionTree {
         status = row.status,
         busy = row.busy,
         needsInput = row.needsInput,
-        blocked = parseObject(row.blocked)?.let { Blocked(it.str("window"), it.str("resetsAt")) },
+        blocked = parseObject(row.blocked)?.let { Blocked(it.str("window"), it.str("resetsAt"), it.str("kind")) },
         shared = row.shared,
         title = row.title,
         guide = parseArray(row.guide)?.map { element ->

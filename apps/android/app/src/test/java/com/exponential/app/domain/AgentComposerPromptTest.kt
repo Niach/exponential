@@ -71,7 +71,7 @@ class AgentComposerPromptTest {
         assertEquals("Start coding", AgentComposerPrompt.submitTitle(AgentComposerPrompt.Subject.Issues(1)))
         assertEquals("Start batch · 2", AgentComposerPrompt.submitTitle(AgentComposerPrompt.Subject.Issues(2)))
         assertEquals("Start batch · 30", AgentComposerPrompt.submitTitle(AgentComposerPrompt.Subject.Issues(30)))
-        assertEquals("Run action", AgentComposerPrompt.submitTitle(AgentComposerPrompt.Subject.Action))
+        assertEquals("Start session", AgentComposerPrompt.submitTitle(AgentComposerPrompt.Subject.Action))
         // EXP-1233: the Fix merge conflicts builtin with a picked PR.
         assertEquals("Fix conflicts", AgentComposerPrompt.submitTitle(AgentComposerPrompt.Subject.FixConflicts))
         assertEquals(
@@ -88,7 +88,8 @@ class AgentComposerPromptTest {
         assertEquals("Implement", AgentComposerPrompt.headline(AgentComposerPrompt.Subject.Issues(1)))
         // A batch says the same verb — the chips carry the count.
         assertEquals("Implement", AgentComposerPrompt.headline(AgentComposerPrompt.Subject.Issues(7)))
-        assertEquals("Run", AgentComposerPrompt.headline(AgentComposerPrompt.Subject.Action))
+        // NEW-2: a prompt's chip IS the headline (no verb).
+        assertEquals("", AgentComposerPrompt.headline(AgentComposerPrompt.Subject.Action))
         assertEquals("Fix merge conflicts", AgentComposerPrompt.headline(AgentComposerPrompt.Subject.FixConflicts))
     }
 
@@ -101,10 +102,6 @@ class AgentComposerPromptTest {
         assertEquals(
             DomainContract.composerUiImplementHeadline,
             AgentComposerPrompt.headline(AgentComposerPrompt.Subject.Issues(2)),
-        )
-        assertEquals(
-            DomainContract.composerUiRunHeadline,
-            AgentComposerPrompt.headline(AgentComposerPrompt.Subject.Action),
         )
         assertEquals(
             DomainContract.composerUiFixConflictsHeadline,

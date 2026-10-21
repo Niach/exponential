@@ -1253,6 +1253,48 @@ private fun RunFaceContent(
                 }
 
 
+                // EXP-804 / NEW-1: the PERSISTED block off the session row
+                // (web `session-blocked-strip`): a usage wall reads `Rate
+                // limited · resets in …` with Switch account; a watchdog flag
+                // (device offline, not picked up, stuck) its card word, no
+                // countdown and no switch.
+                val persistedBlock = AgentUsagePresentation.parseBlocked(session?.blocked)
+                val blockedLabel = AgentUsagePresentation.blockedBadgeLabel(persistedBlock, nowMs)
+                if (blockedLabel != null) {
+                    ReadingColumn {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 6.dp)
+                                .testTag("session-blocked-strip"),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Text(
+                                blockedLabel,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = DesignTokens.Semantic.Yellow,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f),
+                            )
+                            if (session?.isEnded != true &&
+                                AgentUsagePresentation.isUsageWall(persistedBlock) &&
+                                accountSwitch.canSwitchAny(activity.turnState)
+                            ) {
+                                GlassPill(
+                                    SessionAccountSwitch.WALL_SWITCH_LABEL,
+                                    onClick = { usageSheetOpen = true },
+                                    size = PillSize.Sm,
+                                    mode = PillMode.Action,
+                                    icon = ExpIcons.uiSwap,
+                                    modifier = Modifier.testTag("blocked-switch-account"),
+                                )
+                            }
+                        }
+                    }
+                }
+
                 // EXP-784: the agent's rate-limit window — ONE banner from the
                 // latest-wins slot (never a run of identical feed rows), with how
                 // long until the reset when the agent named one. Gone the
