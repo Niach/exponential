@@ -330,6 +330,7 @@ class SessionTreeTest {
         put("liveSessionId", nullable(view.liveSessionId))
         put("busy", view.busy)
         put("needsYou", view.needsYou)
+        put("mainSessionId", nullable(view.mainSessionId))
     }
 
     private fun encode(group: SessionTree.ThreadsListGroup): JsonObject = buildJsonObject {

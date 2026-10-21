@@ -27,6 +27,11 @@
 //!   and the plan's note; `sessions.answer`), events as muted lines, pictures as tiles; under it
 //!   THE session composer box ([`crate::composer::session_composer_box`])
 //!   sending `sessions.send({sessionId: root})`.
+//! * NEW-6 (N-1): a thread with ONE session (`view.main_session_id`, no
+//!   child yet) has no Conversation tab: its body = that session's raw work
+//!   in place (its own composer, Stop in the header's trailing slot);
+//!   picking the open issue chip / Guide again returns to it. The first
+//!   child brings the Conversation back.
 //! * An ISSUE child = the issue detail, EMBEDDED (no work header bar, no
 //!   Threads row); the GUIDE child = the Guide page
 //!   ([`crate::session_results::render`]) over the root's guide and its pull
@@ -874,7 +879,7 @@ pub(crate) fn card_answering(cx: &App) -> AnyElement {
 }
 
 /// How a card sits: inline in the Conversation (`Default`), or THE ask
-/// dock's big card (`docked`: the body capped and scrolling, `back` = the
+/// dock's big card (`docked`: the body inline, never scrolling, `back` = the
 /// focused card's arrow leading its header; `fixtures/ask-dock.json`).
 #[derive(Default)]
 pub(crate) struct CardChrome {
@@ -883,7 +888,7 @@ pub(crate) struct CardChrome {
 }
 
 /// A card's column: the markdown body and the rich content (surface,
-/// questions; EXP-1280), capped and scrolling inside THE ask dock, then
+/// questions; EXP-1280), inline in THE ask dock (NEW-6: no scroll), then
 /// the controls (decision row, Answer, the closed lines) below.
 fn card_column(id: &str, body: MarkdownView, content: Vec<AnyElement>, controls: AnyElement, chrome: &CardChrome, window: &Window, cx: &App) -> gpui::Div {
     let body = v_flex()
@@ -2356,13 +2361,17 @@ pub(crate) fn thread_strip(spec: ThreadStrip, window: &Window, cx: &App) -> AnyE
                 .into_any_element(),
         );
     }
-    lead.push(
-        strip_tab(SharedString::from(format!("{prefix}-child-conversation")), spec.open == StripPick::Conversation, cx)
-            .child(Icon::new(registry::ACTION_CHAT).xsmall())
-            .child(SharedString::from(THREAD.copy.conversation.clone()))
-            .on_click(pick(StripPick::Conversation))
-            .into_any_element(),
-    );
+    // NEW-6 (N-1): a thread with ONE session has no Conversation tab (its
+    // raw work IS the body); the tab comes back with the first child.
+    if spec.tabs.iter().any(|tab| matches!(tab, ThreadTab::Conversation)) {
+        lead.push(
+            strip_tab(SharedString::from(format!("{prefix}-child-conversation")), spec.open == StripPick::Conversation, cx)
+                .child(Icon::new(registry::ACTION_CHAT).xsmall())
+                .child(SharedString::from(THREAD.copy.conversation.clone()))
+                .on_click(pick(StripPick::Conversation))
+                .into_any_element(),
+        );
+    }
     let middle_index = lead.len();
 
     let mut middle: Vec<AnyElement> =
@@ -2581,6 +2590,10 @@ pub(crate) struct ThreadScreenView {
     /// (the Conversation's Tasks card + status line), while it shows.
     tail: Option<(String, Entity<crate::session_screen::SessionScreenView>)>,
     _tail_sub: Option<Subscription>,
+    /// NEW-6 (N-1): the thread's ONE session (`view.main_session_id`) while
+    /// it is the main thing: its raw work is the body, in place.
+    main: Option<(String, Entity<crate::session_screen::SessionScreenView>)>,
+    _main_sub: Option<Subscription>,
     /// EXP-1334: the strip's middle slot, measured (the partition budget).
     strip_slot: Option<f32>,
     _missing_tick: Task<()>,
@@ -2664,6 +2677,8 @@ impl ThreadScreenView {
             _focus_sub: None,
             tail: None,
             _tail_sub: None,
+            main: None,
+            _main_sub: None,
             strip_slot: None,
             _missing_tick: missing_tick,
             _subscriptions: subscriptions,
@@ -2742,6 +2757,10 @@ impl ThreadScreenView {
         if let Some((_, view)) = self.tail.take() {
             view.update(cx, |view, cx| view.shutdown(cx));
         }
+        if let Some((_, view)) = self.main.take() {
+            view.update(cx, |view, cx| view.shutdown(cx));
+        }
+        self._main_sub = None;
         if let (ThreadChildSel::Issue(_), Some(view)) = (&self.child, &self.issue_view) {
             view.update(cx, |detail, cx| {
                 detail.flush_title(cx);
@@ -2878,7 +2897,8 @@ impl ThreadScreenView {
             )
         });
         // EXP-1316 (1b): the open session's Stop while it is live.
-        let stop = self.focus.as_ref().filter(|(_, view)| view.read(cx).stoppable(cx)).map(|(session_id, _)| {
+        // NEW-6 (N-1): the thread's ONE session's Stop while it is the body.
+        let stop = self.focus.as_ref().or(self.main.as_ref()).filter(|(_, view)| view.read(cx).stoppable(cx)).map(|(session_id, _)| {
             let session_id = session_id.clone();
             crate::session_screen::stop_session_pill(
                 "thread-session-stop",
@@ -2943,6 +2963,9 @@ impl ThreadScreenView {
             .map(|session| (session.id, session.cli))
             .collect();
         let this = cx.entity().downgrade();
+        // NEW-6 (N-1): with no Conversation tab, picking the open issue chip
+        // or Guide again returns to the ONE session's work.
+        let single = model.view.main_session_id.is_some();
         let on_pick: OnStripPick = std::rc::Rc::new(move |pick, window, cx| match pick {
             StripPick::Session(session_id) => open_session_in_place(session_id, window, cx),
             other => {
@@ -2951,7 +2974,14 @@ impl ThreadScreenView {
                     StripPick::Guide => ThreadChildSel::Guide,
                     _ => ThreadChildSel::Conversation,
                 };
-                let _ = this.update(cx, |this, cx| this.select_child(child, window, cx));
+                let _ = this.update(cx, |this, cx| {
+                    let child = if single && this.focus.is_none() && this.child == child {
+                        ThreadChildSel::Conversation
+                    } else {
+                        child
+                    };
+                    this.select_child(child, window, cx)
+                });
             }
         });
         let slot = cx.entity().downgrade();
@@ -3032,6 +3062,23 @@ impl ThreadScreenView {
             let view = cx.new(|cx| crate::session_screen::SessionScreenView::remote(id.clone(), window, cx));
             self._tail_sub = Some(cx.observe(&view, |_, _, cx| cx.notify()));
             self.tail = Some((id, view));
+        }
+    }
+
+    /// NEW-6 (N-1): keep the ONE session's view while it is the body.
+    fn sync_main(&mut self, main: Option<&str>, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        if self.main.as_ref().map(|(id, _)| id.as_str()) == main {
+            return;
+        }
+        if let Some((_, view)) = self.main.take() {
+            view.update(cx, |view, cx| view.shutdown(cx));
+        }
+        self._main_sub = None;
+        if let Some(main) = main {
+            let id = main.to_string();
+            let view = cx.new(|cx| crate::session_screen::SessionScreenView::new(id.clone(), window, cx));
+            self._main_sub = Some(cx.observe(&view, |_, _, cx| cx.notify()));
+            self.main = Some((id, view));
         }
     }
 
@@ -3429,9 +3476,14 @@ impl Render for ThreadScreenView {
         }
         // EXP-1346: ONE memoised chip resolver per frame for every text.
         self.text = ThreadText::memoized(model.root.team_id.as_deref(), Some(self.chip_cache.clone()));
+        // NEW-6 (N-1): a thread with ONE session = that session's raw work
+        // in place of the Conversation (its composer, Stop in the header).
+        let on_conversation = self.focus.is_none() && self.child == ThreadChildSel::Conversation;
+        let main = on_conversation.then(|| model.view.main_session_id.clone()).flatten();
+        self.sync_main(main.as_deref(), window, cx);
         let header = self.render_header(&model, window, cx);
         // EXP-1323: the live tail's viewer rides the Conversation only.
-        let live = (self.focus.is_none() && self.child == ThreadChildSel::Conversation)
+        let live = (on_conversation && main.is_none())
             .then(|| model.view.live_session_id.clone())
             .flatten();
         self.sync_tail(live.as_deref(), window, cx);
@@ -3443,7 +3495,7 @@ impl Render for ThreadScreenView {
         }
         // EXP-1316 (1b): a session open in place = its raw work under the
         // thread's own header + strip (no session header of its own).
-        if let Some((_, view)) = self.focus.clone() {
+        if let Some((_, view)) = self.focus.clone().or_else(|| self.main.clone()) {
             let inner = view.read(cx).inner().clone();
             let scrolled = inner.read(cx).body_scrolled();
             return v_flex()

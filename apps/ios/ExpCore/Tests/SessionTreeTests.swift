@@ -260,6 +260,7 @@ final class SessionTreeTests: XCTestCase {
             "liveSessionId": json(view.liveSessionId),
             "busy": view.busy,
             "needsYou": view.needsYou,
+            "mainSessionId": json(view.mainSessionId),
         ]
     }
 

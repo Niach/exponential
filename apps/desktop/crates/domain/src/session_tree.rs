@@ -1019,6 +1019,10 @@ pub struct SessionThreadView {
     pub live_session_id: Option<String>,
     pub busy: bool,
     pub needs_you: bool,
+    /// NEW-6 (N-1): a thread with ONE session (the root alone, no child yet)
+    /// shows that session's raw work as the main thing: its id, and the
+    /// strip carries no Conversation tab. `None` once a second session exists.
+    pub main_session_id: Option<String>,
 }
 
 /// [`build_session_thread`]'s input: what the caller synced.
@@ -1596,7 +1600,12 @@ pub fn build_session_thread(input: SessionThreadInput<'_>, focus: Option<&str>) 
     }
 
     let live: Vec<&SessionRow> = tree.iter().copied().filter(|session| !session.is_ended()).collect();
-    let mut tabs = vec![ThreadTab::Add, ThreadTab::Conversation];
+    // NEW-6 (N-1): the root alone = the thread IS that session.
+    let single = tree.iter().all(|session| session.id == root.id);
+    let mut tabs = vec![ThreadTab::Add];
+    if !single {
+        tabs.push(ThreadTab::Conversation);
+    }
     tabs.extend(issue_tabs);
     tabs.extend(session_tabs);
     tabs.push(ThreadTab::Guide {
@@ -1617,6 +1626,7 @@ pub fn build_session_thread(input: SessionThreadInput<'_>, focus: Option<&str>) 
         live_session_id: (!root.is_ended()).then(|| root.id.clone()),
         busy: live.iter().any(|session| session.busy),
         needs_you: live.iter().any(|session| session.needs_input),
+        main_session_id: single.then(|| root.id.clone()),
     }
 }
 

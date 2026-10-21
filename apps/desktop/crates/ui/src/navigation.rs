@@ -87,19 +87,6 @@ pub enum Screen {
         board_id: String,
         status_id: Option<String>,
     },
-    /// The Actions page (EXP-467 — the web `t/$teamSlug/actions` page 1:1:
-    /// the team's action rows; editing lives in the edit dialog).
-    /// EXP-480: a tab-less full-page mode like Settings (no sidebar, no tab
-    /// chip), opened from the rail's Actions entry; the rail stays up.
-    /// EXP-686 split machines out into their own screen.
-    Actions,
-    /// One action's page (SLOP-2 — the web `t/$teamSlug/actions/$actionId`
-    /// page): its Prompt, its Triggers and its Runs as three sections of ONE
-    /// scrolling page. It replaced the edit dialog and the old Automations
-    /// screen. Tab-less full-page mode like [`Screen::Actions`], whose rail
-    /// entry stays lit; context-free, so a run opened from its Runs shows the
-    /// rail and its Back (the history) returns here.
-    Action { action_id: String },
     /// HOME (EXP-1294, was the Chat/Agent page): the composer column — one
     /// centred prompt box over its launch pickers. Tab-less full-page mode
     /// like Devices; a send lands on the new thread ([`Screen::Thread`]).
@@ -179,7 +166,7 @@ impl Screen {
     /// gets a tab chip. Settings is a tab-less full-screen mode (leave via
     /// the settings nav's back button, or by clicking any open tab); Source
     /// Control's diff and the file viewer are TOOL-DEFAULT center content,
-    /// never tabs; Home, Threads, Actions and Devices are tab-less pages.
+    /// never tabs; Home, Threads and Devices are tab-less pages.
     /// EXP-1294: a thread, a session of its tree (sharing the thread's tab)
     /// and an agent's channel are detail tabs. EXP-769: so is a PTY terminal
     /// (its chip sits in the bottom bar, [`Self::is_dock_tab`]).
@@ -209,7 +196,7 @@ impl Screen {
     /// detail opened from it inherits. EXP-1246: the Inbox alone — the one
     /// list SCREEN that stays beside its detail as a second sidebar. Threads
     /// opens its rows full width (Back returns to it through history), a
-    /// board its issues, and everything else — Settings, Devices, Actions,
+    /// board its issues, and everything else — Settings, Devices,
     /// Home, Files, any detail — is context-free.
     pub(crate) fn list_origin(&self) -> Option<TabOrigin> {
         use crate::sidebar::ToolWindow;
@@ -400,17 +387,6 @@ pub(crate) fn screen_title(screen: &Screen, cx: &App) -> gpui::SharedString {
         Screen::Drafts => "Drafts".into(),
         // EXP-1170: the draft page names itself by the contract's header.
         Screen::IssueDraft { .. } => domain::issue_draft::HEADER.into(),
-        Screen::Actions => "Actions".into(),
-        // The synced name, or the generic word while the row has not landed.
-        // NEW-2: the page is a saved prompt's.
-        Screen::Action { action_id } => Store::global(cx)
-            .collections()
-            .prompts
-            .read(cx)
-            .get(action_id)
-            .and_then(|row| row.name.clone())
-            .map(gpui::SharedString::from)
-            .unwrap_or_else(|| "Action".into()),
         Screen::Home => "Home".into(),
         Screen::Threads => domain::session_tree::THREADS_LIST.copy.title.clone().into(),
         Screen::ExponentialUiKitchenSink => "Exponential UI".into(),
@@ -842,7 +818,6 @@ fn parse_dev_screen(spec: &str) -> Option<Screen> {
             board_id: String::new(),
             status_id: None,
         }),
-        "actions" => Some(Screen::Actions),
         // EXP-818: Usage folded into Devices (its Accounts section); the old
         // dev value lands there.
         "usage" => Some(Screen::Devices),
@@ -900,10 +875,7 @@ fn parse_dev_screen(spec: &str) -> Option<Screen> {
                 return crate::styleguide::entries::find(id)
                     .map(|entry| Screen::StyleguideEntry { id: entry.id.to_string() });
             }
-            // SLOP-2: one action's page.
-            spec.strip_prefix("action:").map(|id| Screen::Action {
-                action_id: id.to_string(),
-            })
+            None
         }
     }
 }
@@ -2197,13 +2169,11 @@ mod tests {
             }
             other => panic!("draft parsed to {other:?}"),
         }
-        assert_eq!(parse_dev_screen("actions"), Some(Screen::Actions));
-        // SLOP-2: the Automations screen is gone; an action has its page.
+        // NEW-6: the Actions page and an action's page are gone (prompts
+        // live in the composer's `/` menu and Settings → Prompts).
+        assert_eq!(parse_dev_screen("actions"), None);
         assert_eq!(parse_dev_screen("automations"), None);
-        assert_eq!(
-            parse_dev_screen("action:act-1"),
-            Some(Screen::Action { action_id: "act-1".into() })
-        );
+        assert_eq!(parse_dev_screen("action:act-1"), None);
         // EXP-1294: Home and the Threads page; Reviews and the old `chat`
         // spellings are gone with their screens.
         assert_eq!(parse_dev_screen("home"), Some(Screen::Home));
@@ -2386,8 +2356,6 @@ mod tests {
             Screen::Settings,
             Screen::Devices,
             Screen::Drafts,
-            Screen::Actions,
-            Screen::Action { action_id: "act-1".into() },
             Screen::Home,
             Screen::Threads,
             Screen::Files,
@@ -2708,11 +2676,9 @@ mod tests {
         for previous in [
             Screen::Devices,
             Screen::Drafts,
-            Screen::Actions,
             Screen::Settings,
             Screen::Files,
             Screen::SourceControl,
-            Screen::Action { action_id: "act-1".into() },
             Screen::Threads,
             Screen::Agent { session_id: "a1".into() },
             Screen::ExponentialUiKitchenSink,
@@ -2822,7 +2788,7 @@ mod tests {
         assert_eq!(nav.step_back(), Some(Screen::Threads));
         // a real navigation (navigate_inner's bookkeeping)
         nav.back_stack.push(nav.screen.take().unwrap());
-        nav.screen = Some(Screen::Actions);
+        nav.screen = Some(Screen::Drafts);
         nav.forward_stack.clear();
         assert!(!nav.can_go_forward());
     }
@@ -2835,10 +2801,10 @@ mod tests {
         let diff = Screen::IssueDetail { issue_id: "i1".into() };
         let mut nav = Navigation::new();
         nav.screen = Some(Screen::Threads);
-        nav.back_stack = vec![Screen::Devices, diff.clone(), Screen::Actions];
+        nav.back_stack = vec![Screen::Devices, diff.clone(), Screen::Drafts];
         nav.forward_stack = vec![diff.clone(), Screen::Settings, diff.clone()];
         assert!(nav.purge_history(|screen| *screen == diff));
-        assert_eq!(nav.back_stack, vec![Screen::Devices, Screen::Actions]);
+        assert_eq!(nav.back_stack, vec![Screen::Devices, Screen::Drafts]);
         assert_eq!(nav.forward_stack, vec![Screen::Settings]);
         // the current screen is not history
         assert_eq!(nav.screen, Some(Screen::Threads));
@@ -2894,7 +2860,6 @@ mod tests {
             assert_eq!(screen_title(&Screen::Drafts, cx), "Drafts");
             // EXP-1170: the New issue page names itself by the contract.
             assert_eq!(screen_title(&draft_screen("d1", ""), cx), "New issue");
-            assert_eq!(screen_title(&Screen::Actions, cx), "Actions");
             assert_eq!(screen_title(&Screen::Threads, cx), "Threads");
             assert_eq!(screen_title(&Screen::Home, cx), "Home");
         });

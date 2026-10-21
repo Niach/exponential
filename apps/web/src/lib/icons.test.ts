@@ -504,7 +504,8 @@ describe(`icon call sites`, () => {
     // EXP-886: + Sessions (desktop-only, the This device group).
     // EXP-630: + Issues, the parent pane Labels and Statuses nest under on
     // both clients.
-    expect(desktopNav.size).toBe(19)
+    // NEW-6: Settings → Prompts on the desktop too.
+    expect(desktopNav.size).toBe(20)
 
     // The sections both clients render, web label → desktop variant.
     const shared: [string, string][] = [
@@ -519,6 +520,7 @@ describe(`icon call sites`, () => {
       // at render on both clients).
       [`Archived boards`, `ArchivedBoards`],
       [`Repositories`, `Repositories`],
+      [`Prompts`, `Prompts`],
       [`Widget`, `Widget`],
       // EXP-807: member-visible on both clients, so the pair belongs in the
       // SHARED list — without the row here the gate never bites on it.

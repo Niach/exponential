@@ -326,7 +326,8 @@ describe.skipIf(!ready.ok)(`sessions.send — a root works on its own picks`, ()
     expect(await row(root.sessionId)).toMatchObject({ ...picks, dispatch: false, spawnedBySessionId: null })
 
     const child = await sendSession({ userId: w.owner, input: { parentId: root.sessionId, text: `part 1` } })
-    expect(await row(child.sessionId)).toMatchObject({ ...picks, dispatch: false })
+    // NEW-6 (N-1): everything but plan mode: a child plans only when told.
+    expect(await row(child.sessionId)).toMatchObject({ ...picks, planMode: false, dispatch: false })
     // The child's own picks win over the inherited ones.
     const picked = await sendSession({
       userId: w.owner,

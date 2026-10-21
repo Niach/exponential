@@ -6507,8 +6507,8 @@ impl SteerSessionView {
 
     /// A card's body: in the transcript the folding chat body (a plan never
     /// folds there: a read-only reader sees it whole, EXP-738); in THE ask
-    /// dock (`docked`) the whole body, capped and scrolling inside
-    /// (ask-dock.json `bodyMaxHeightFraction`, no "Show more").
+    /// dock (`docked`) the whole body, inline (NEW-6: no scroll of its own;
+    /// no "Show more").
     fn render_card_body(
         &self,
         id: FeedItemId,

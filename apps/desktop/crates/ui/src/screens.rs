@@ -193,12 +193,6 @@ pub(crate) fn build_screen_content(
         // EXP-1170: the New issue page is never undocked (one shared view
         // owns the draft's autosave).
         Screen::IssueDraft { .. } => cx.new(|_| NeverUndocked).into(),
-        Screen::Actions => cx
-            .new(|cx| crate::actions_view::ActionsView::new(window, cx))
-            .into(),
-        Screen::Action { .. } => cx
-            .new(|cx| crate::action_view::ActionView::new(window, cx))
-            .into(),
         Screen::Home => cx
             .new(|cx| crate::chat_screen::ChatScreenView::new(window, cx))
             .into(),
@@ -886,12 +880,6 @@ pub struct ScreensPanel {
     /// like the PR diff ([`Self::sync_issue_draft`]); a navigation off it
     /// pays the draft out.
     issue_draft: Entity<crate::issue_draft_screen::IssueDraftView>,
-    /// The Actions page (EXP-467 — the team's action rows; EXP-480: a
-    /// tab-less full-page mode like Settings).
-    actions: Entity<crate::actions_view::ActionsView>,
-    /// One action's page (SLOP-2 — Prompt · Triggers · Runs). ONE shared
-    /// view that re-points itself off the window's [`Screen::Action`].
-    action: Entity<crate::action_view::ActionView>,
     /// HOME (EXP-772's Chat page — the centred prompt box; the same tab-less
     /// full-page mode).
     chat: Entity<crate::chat_screen::ChatScreenView>,
@@ -1007,8 +995,6 @@ impl ScreensPanel {
         let drafts = cx.new(|cx| crate::drafts_view::DraftsView::new(window, cx));
         let issue_draft =
             cx.new(|cx| crate::issue_draft_screen::IssueDraftView::new(window, cx));
-        let actions = cx.new(|cx| crate::actions_view::ActionsView::new(window, cx));
-        let action = cx.new(|cx| crate::action_view::ActionView::new(window, cx));
         let chat = cx.new(|cx| crate::chat_screen::ChatScreenView::new(window, cx));
         let threads_page = cx.new(|cx| crate::threads_view::ThreadsView::new(window, cx));
         let nav = nav_for_window(window, cx);
@@ -1095,8 +1081,6 @@ impl ScreensPanel {
             devices,
             drafts,
             issue_draft,
-            actions,
-            action,
             chat,
             threads_page,
             exponential_ui: None,
@@ -1401,8 +1385,6 @@ impl ScreensPanel {
             | Screen::Devices
             | Screen::Drafts
             | Screen::IssueDraft { .. }
-            | Screen::Actions
-            | Screen::Action { .. }
             | Screen::Home
             | Screen::Threads
             | Screen::ExponentialUiKitchenSink
@@ -2864,9 +2846,7 @@ impl Focusable for ScreensPanel {
 // DEV-ONLY one-shot dialog hook (§11.4 headless verification)
 // ---------------------------------------------------------------------------
 
-/// DEV-ONLY `EXP_DEV_DIALOG` values: `search` |
-/// `action-editor:<uuid>` (a legacy ALIAS — the edit dialog became the action
-/// page, so it navigates to `EXP_DEV_SCREEN=action:<uuid>`) | `create-board` |
+/// DEV-ONLY `EXP_DEV_DIALOG` values: `search` | `create-board` |
 /// `create-team` | `join-team[:<invite-token>]` (a token prefills the paste
 /// field and previews the invite) | `add-server` | `device-settings:<uuid>` |
 /// `duplicate-picker:<issue-uuid>` | `getting-started` (EXP-1259: the rail
@@ -2879,7 +2859,6 @@ impl Focusable for ScreensPanel {
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum DevDialog {
     Search,
-    ActionEditor(String),
     CreateBoard,
     CreateTeam,
     /// EXP-642: an optional invite token — `join-team:<token>` opens the
@@ -2896,8 +2875,7 @@ enum DevDialog {
 
 /// The accepted [`DevDialog`] spellings, for the parse-failure log — a typo
 /// in a capture recipe must name its alternatives, not fail silently.
-const DEV_DIALOG_SPECS: &str = "search | action-editor:<uuid> | \
-    create-board | create-team | join-team[:<invite-token>] | add-server | \
+const DEV_DIALOG_SPECS: &str = "search | create-board | create-team | join-team[:<invite-token>] | add-server | \
     device-settings:<uuid> | duplicate-picker:<issue-uuid> | \
     run:<issue-uuid>[,<issue-uuid>…] | getting-started";
 
@@ -2925,9 +2903,6 @@ fn parse_dev_dialog(spec: &str) -> Option<DevDialog> {
                     (!token.is_empty()).then(|| token.to_string()),
                 ));
             }
-            if let Some(id) = spec.strip_prefix("action-editor:") {
-                return Some(DevDialog::ActionEditor(id.to_string()));
-            }
             if let Some(id) = spec.strip_prefix("device-settings:") {
                 return Some(DevDialog::DeviceSettings(id.to_string()));
             }
@@ -2941,7 +2916,6 @@ fn parse_dev_dialog(spec: &str) -> Option<DevDialog> {
 /// are snapshotted here so the delayed spawn never re-reads the store.
 enum DevDialogTarget {
     Search,
-    ActionEditor { action_id: String },
     CreateBoard { team_id: String },
     CreateTeam,
     JoinTeam { token: Option<String> },
@@ -2955,9 +2929,6 @@ enum DevDialogTarget {
 fn open_dev_dialog(target: DevDialogTarget, window: &mut Window, cx: &mut App) {
     match target {
         DevDialogTarget::Search => crate::search_sheet::open_search(window, cx),
-        DevDialogTarget::ActionEditor { action_id } => {
-            crate::actions_view::open_action_page(window, cx, action_id)
-        }
         DevDialogTarget::CreateBoard { team_id } => {
             crate::create_board_dialog::open(window, cx, team_id)
         }
@@ -3012,12 +2983,6 @@ impl ScreensPanel {
                 }
                 active_team_id(&self.nav, cx)?;
                 DevDialogTarget::Search
-            }
-            DevDialog::ActionEditor(action_id) => {
-                store.collections().prompts.read(cx).get(action_id)?;
-                DevDialogTarget::ActionEditor {
-                    action_id: action_id.clone(),
-                }
             }
             DevDialog::CreateBoard => DevDialogTarget::CreateBoard {
                 team_id: active_team_id(&self.nav, cx)?,
@@ -3198,8 +3163,6 @@ impl Render for ScreensPanel {
             Some(Screen::Devices) => self.devices.clone().into_any_element(),
             Some(Screen::Drafts) => self.drafts.clone().into_any_element(),
             Some(Screen::IssueDraft { .. }) => self.issue_draft.clone().into_any_element(),
-            Some(Screen::Actions) => self.actions.clone().into_any_element(),
-            Some(Screen::Action { .. }) => self.action.clone().into_any_element(),
             Some(Screen::Home) => self.chat.clone().into_any_element(),
             Some(Screen::Threads) => self.threads_page.clone().into_any_element(),
             // EXP-1294: built by `sync_tabs` on activation, like a session.

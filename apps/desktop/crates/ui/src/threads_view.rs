@@ -29,7 +29,7 @@ use domain::session_tree::{
     THREADS_LIST,
 };
 
-use crate::actions_view::page_scaffold_with;
+use crate::scroll_pane::page_scaffold_with;
 use crate::icons::registry;
 use crate::navigation::{active_team_id, nav_for_window, Navigation, Screen};
 use crate::pr_rows::{pr_row, PrRowSpec};

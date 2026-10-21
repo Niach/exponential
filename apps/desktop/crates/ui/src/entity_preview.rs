@@ -217,7 +217,8 @@ pub(crate) fn open_target(target: EntityTarget, window: &mut Window, cx: &mut Ap
             navigate(window, cx, screen)
         }
         EntityTarget::Action(action_id) => {
-            crate::actions_view::open_action_page(window, cx, action_id)
+            // NEW-6: a prompt (actions became these) opens its settings page.
+            crate::settings::prompts::open_prompt_page(window, cx, action_id)
         }
     }
 }

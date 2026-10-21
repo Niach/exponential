@@ -537,6 +537,11 @@ export interface SessionThreadView {
   liveSessionId: string | null
   busy: boolean
   needsYou: boolean
+  /** NEW-6 (N-1): a thread with ONE session (the root alone, no child yet)
+   *  shows that session's raw work as the main thing: its id, and the
+   *  strip carries no Conversation tab. Null once a second session exists
+   *  (the Conversation tab appears, the chips name the children). */
+  mainSessionId: string | null
 }
 
 function eventText(
@@ -916,6 +921,10 @@ export function buildSessionThread(input: {
     (entry) => (entry.text ?? ``).trim().length > 0 || (entry.label ?? null) !== null
   )
   const live = tree.filter((s) => s.status !== `ended`)
+  // NEW-6 (N-1): the root alone = the thread IS that session (no
+  // Conversation tab, its raw work is the body); a second session brings
+  // the Conversation tab and the chips.
+  const single = tree.every((s) => s.id === root.id)
   return {
     rootId: root.id,
     title,
@@ -923,7 +932,7 @@ export function buildSessionThread(input: {
     focusId: focus?.id ?? null,
     tabs: [
       { kind: `add` },
-      { kind: `conversation` },
+      ...(single ? [] : [{ kind: `conversation` as const }]),
       ...issueTabs,
       ...sessionTabs,
       { kind: `guide`, dot: guideDot },
@@ -934,6 +943,7 @@ export function buildSessionThread(input: {
     liveSessionId: root.status === `ended` ? null : root.id,
     busy: live.some((s) => s.busy),
     needsYou: live.some((s) => s.needsInput),
+    mainSessionId: single ? root.id : null,
   }
 }
 

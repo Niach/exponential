@@ -4,7 +4,7 @@
 //! `issue_list` (virtualized), `issue_detail`, `markdown_editor` +
 //! `mention_popover`, `issue_draft_screen` (the New issue page),
 //! `create_board`/`create_team`, `inbox`, `my_issues`, `settings/*`,
-//! `account`, `diff_view`, `actions_view`. Lands across Phases 1–5.
+//! `account`, `diff_view`. Lands across Phases 1–5.
 //!
 //! Dependency rule (§3.1): lower crates never depend on `ui` (no back-edges).
 //!
@@ -24,13 +24,10 @@ mod account_switch;
 mod action_error;
 // EXP-1252: moving a live session to another device (the session composer's Device pin).
 mod device_move;
-mod action_prompt_form;
-mod action_view;
 mod agent_login;
 mod agent_login_outcome;
 mod action_run;
 mod actions;
-mod actions_view;
 mod agent_screen;
 // THE ask dock (waiting question/plan cards in the composer's slot), ask-dock.json ×4.
 mod ask_dock;

@@ -897,13 +897,8 @@
       },
       "notes": {
         "web": "NEW-2: no web capture. The web app has no Actions page any more: actions became PROMPTS, run from the composer's `/` menu and managed in Settings → Prompts (`settings-prompts`). The native and desktop captures stay until their NEW-2 lanes land.",
-        "web-mobile": "See web."
-      },
-      "desktop": {
-        "drive": {
-          "kind": "screen",
-          "value": "actions"
-        }
+        "web-mobile": "See web.",
+        "desktop": "NEW-6: no desktop capture. The IDE has no Actions page or rail entry any more: prompts run from the composer's `/` menu and are managed in Settings → Prompts (`settings-prompts`)."
       }
     },
     {
@@ -1309,17 +1304,12 @@
       "title": "Action",
       "blurb": "One action as a page: its prompt (name, icon, repository, MCP servers, the markdown body the agent runs), its triggers and its sessions. The MCP servers list offers only team MCPs (no sign-in, or a member's shared connection) and every session of the action uses it.",
       "order": 1,
-      "desktop": {
-        "drive": {
-          "kind": "screen",
-          "value": "action:$action"
-        }
-      },
       "notes": {
         "web": "NEW-2: no web capture. The web app has no Actions page any more: actions became PROMPTS, run from the composer's `/` menu and managed in Settings → Prompts (`settings-prompts`). The native and desktop captures stay until their NEW-2 lanes land.",
         "web-mobile": "See web.",
         "ios": "The Prompt tab is not captured on its own; `action-triggers` and `action-runs` photograph the page.",
-        "android": "The Prompt tab is not captured on its own; `action-triggers` and `action-runs` photograph the page."
+        "android": "The Prompt tab is not captured on its own; `action-triggers` and `action-runs` photograph the page.",
+        "desktop": "NEW-6: no desktop capture. The IDE has no Actions page or rail entry any more: prompts run from the composer's `/` menu and are managed in Settings → Prompts (`settings-prompts`)."
       }
     },
     {
@@ -1889,11 +1879,16 @@
         "settleMs": 800
       },
       "webMobile": "inherit",
+      "desktop": {
+        "drive": {
+          "kind": "settings",
+          "value": "prompts"
+        }
+      },
       "notes": {
         "web": "The demo team's prompts (Release train, Fix flaky tests, Triage new issues, Update dependencies; seed-screenshots.ts must seed them). Members see the same list without New prompt.",
         "ios": "NEW-2: no native prompts screen yet; the native lanes add theirs.",
-        "android": "NEW-2: no native prompts screen yet; the native lanes add theirs.",
-        "desktop": "NEW-2: no native prompts screen yet; the native lanes add theirs."
+        "android": "NEW-2: no native prompts screen yet; the native lanes add theirs."
       }
     },
     {
@@ -1911,11 +1906,17 @@
         "settleMs": 600
       },
       "webMobile": "inherit",
+      "desktop": {
+        "drive": {
+          "kind": "settings",
+          "value": "new-prompt"
+        }
+      },
       "notes": {
         "web": "New prompt: the same page an existing prompt opens (`/settings/prompts/$promptId`), in create mode so the capture needs no seeded id.",
         "ios": "NEW-2: no native prompts screen yet; the native lanes add theirs.",
         "android": "NEW-2: no native prompts screen yet; the native lanes add theirs.",
-        "desktop": "NEW-2: no native prompts screen yet; the native lanes add theirs."
+        "desktop": "NEW-6: New prompt (`EXP_DEV_SETTINGS=new-prompt`), the same page an existing prompt opens (`prompt:<id>`), in create mode so the capture needs no seeded id."
       }
     },
     {

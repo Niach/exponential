@@ -23,6 +23,9 @@ pub(crate) enum SubjectKind {
     Issues { count: usize },
     /// One picked action.
     Action,
+    /// NEW-3: one picked team agent — a message into the caller's DM with it
+    /// (`sessions.send({agentId})`), on the agent's own device and login.
+    Agent,
 }
 
 /// EXP-1019/EXP-1037 — the composer's HEADLINE verb, the launcher's main
@@ -34,6 +37,8 @@ pub(crate) fn headline(subject: &SubjectKind) -> &'static str {
         SubjectKind::Chat => domain::contract::COMPOSER_UI_CHAT_HEADLINE,
         SubjectKind::Issues { .. } => domain::contract::COMPOSER_UI_IMPLEMENT_HEADLINE,
         SubjectKind::Action => domain::contract::COMPOSER_UI_RUN_HEADLINE,
+        // NEW-3 (web `launchHeadlineVerb`): the agent's chip IS the headline.
+        SubjectKind::Agent => "",
     }
 }
 
@@ -44,6 +49,7 @@ pub(crate) fn submit_label(subject: &SubjectKind) -> String {
         SubjectKind::Issues { count: 1 } => "Start coding".to_string(),
         SubjectKind::Issues { count } => format!("Start coding · {count}"),
         SubjectKind::Action => "Run action".to_string(),
+        SubjectKind::Agent => "Send".to_string(),
     }
 }
 
@@ -52,7 +58,9 @@ pub(crate) fn submit_label(subject: &SubjectKind) -> String {
 /// additional instructions.
 pub(crate) fn text_blocker(subject: &SubjectKind, text: &str, image_count: usize) -> Option<&'static str> {
     match subject {
-        SubjectKind::Chat if text.trim().is_empty() && image_count == 0 => Some(TYPE_A_MESSAGE),
+        SubjectKind::Chat | SubjectKind::Agent if text.trim().is_empty() && image_count == 0 => {
+            Some(TYPE_A_MESSAGE)
+        }
         _ => None,
     }
 }
@@ -129,6 +137,26 @@ pub(crate) fn send_input(
         issue_ids: Some(subject.issue_ids).filter(|ids| !ids.is_empty()),
         prompt_id: subject.prompt_id,
         repository_id: subject.repository_id,
+        ..Default::default()
+    }
+}
+
+/// NEW-3 — a message to a team AGENT: one `sessions.send` naming the agent,
+/// which lands in the caller's own conversation with it (created on first
+/// use). The DM runs on the agent's device and login, so no runner pick
+/// rides (web `buildSendInput`'s agent arm).
+pub(crate) fn agent_send_input(
+    team_id: &str,
+    agent_id: &str,
+    text: &str,
+    attachment_ids: Vec<String>,
+) -> api::sessions::SendInput {
+    let text = text.trim();
+    api::sessions::SendInput {
+        team_id: Some(team_id.to_string()),
+        agent_id: Some(agent_id.to_string()),
+        text: (!text.is_empty()).then(|| text.to_string()),
+        attachment_ids: Some(attachment_ids).filter(|ids| !ids.is_empty()),
         ..Default::default()
     }
 }
@@ -221,6 +249,7 @@ mod tests {
         assert_eq!(headline(&SubjectKind::Issues { count: 1 }), "Implement");
         assert_eq!(headline(&SubjectKind::Issues { count: 4 }), "Implement");
         assert_eq!(headline(&SubjectKind::Action), "Run");
+        assert_eq!(headline(&SubjectKind::Agent), "");
     }
 
     /// EXP-1294: N issues are ONE session — never a "batch".
@@ -230,6 +259,7 @@ mod tests {
         assert_eq!(submit_label(&SubjectKind::Issues { count: 1 }), "Start coding");
         assert_eq!(submit_label(&SubjectKind::Issues { count: 3 }), "Start coding · 3");
         assert_eq!(submit_label(&SubjectKind::Action), "Run action");
+        assert_eq!(submit_label(&SubjectKind::Agent), "Send");
     }
 
     /// Free text is required with no subject (an image alone counts),
@@ -240,6 +270,9 @@ mod tests {
         assert_eq!(text_blocker(&SubjectKind::Chat, "", 1), None);
         assert_eq!(text_blocker(&SubjectKind::Chat, "hi", 0), None);
         assert_eq!(text_blocker(&SubjectKind::Action, "", 0), None);
+        // NEW-3: a DM needs something to say.
+        assert_eq!(text_blocker(&SubjectKind::Agent, " ", 0), Some(TYPE_A_MESSAGE));
+        assert_eq!(text_blocker(&SubjectKind::Agent, "", 1), None);
         assert_eq!(text_blocker(&SubjectKind::Issues { count: 2 }, "", 0), None);
         assert_eq!(issue_count_blocker(0).as_deref(), Some("Select at least one issue."));
         assert!(issue_count_blocker(1).is_none());
@@ -258,6 +291,21 @@ mod tests {
             note_for_blocker(Some("Select at least one issue.")),
             Some("Select at least one issue.")
         );
+    }
+
+    /// NEW-3: a message to an agent names the team, the agent, the text and
+    /// the uploads, and NO runner pick (the DM runs on the agent's device).
+    #[test]
+    fn the_agent_send_input_carries_no_runner_picks() {
+        let input = agent_send_input("team-1", "agent-1", "  hello \n", vec!["att-1".into()]);
+        assert_eq!(input.team_id.as_deref(), Some("team-1"));
+        assert_eq!(input.agent_id.as_deref(), Some("agent-1"));
+        assert_eq!(input.text.as_deref(), Some("hello"));
+        assert_eq!(input.attachment_ids, Some(vec!["att-1".to_string()]));
+        assert!(input.device_id.is_none() && input.cli.is_none() && input.model.is_none());
+        assert!(input.plan_mode.is_none() && input.ultracode.is_none());
+        let bare = agent_send_input("team-1", "agent-1", " ", Vec::new());
+        assert!(bare.text.is_none() && bare.attachment_ids.is_none());
     }
 
     /// EXP-1294: ONE send per start — the active team, the device, the

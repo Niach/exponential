@@ -26,7 +26,7 @@ export const PICKER_TITLE = `Move to device`
 export const MOVING_LABEL = `Moving to {device}…`
 
 /** What a move does, said once where the move is offered. */
-export const NOTE = `The session moves after its current turn. Its worktree and conversation go with it; logins stay on each device.`
+export const NOTE = `The session ends here and continues on that device on the same branch; its conversation goes with it, logins stay on each device.`
 
 /** A person's failed move (the failedAction toast title). */
 export const MOVE_FAILED_TOAST = `Couldn't move the session`

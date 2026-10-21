@@ -555,6 +555,10 @@ object SessionTree {
         /** EXP-1323: the live tail (Tasks card + status line) reads this
          *  session's relay state; null once the root ended. */
         val liveSessionId: String? = null,
+        /** NEW-6 (N-1): a thread with ONE session (the root alone) shows that
+         *  session's raw work as the main thing: its id, and no Conversation
+         *  tab. Null once a second session exists. */
+        val mainSessionId: String? = null,
     )
 
     private fun JsonObject.str(key: String): String? =
@@ -956,6 +960,8 @@ object SessionTree {
             (entry.text ?: "").trim().isNotEmpty() || entry.label != null
         }
         val live = tree.filter { it.status != DomainContract.sessionStatusEnded }
+        // NEW-6 (N-1): the root alone = the thread IS that session.
+        val single = tree.all { it.id == root.id }
         return ThreadView(
             rootId = root.id,
             title = title,
@@ -963,7 +969,7 @@ object SessionTree {
             focusId = focused?.id,
             tabs = buildList {
                 add(ThreadTab.Add)
-                add(ThreadTab.Conversation)
+                if (!single) add(ThreadTab.Conversation)
                 addAll(issueTabs)
                 addAll(sessionTabs)
                 add(ThreadTab.Guide(guideDot))
@@ -974,6 +980,7 @@ object SessionTree {
             busy = live.any { it.busy },
             needsYou = live.any { it.needsInput },
             liveSessionId = if (root.status == DomainContract.sessionStatusEnded) null else root.id,
+            mainSessionId = if (single) root.id else null,
         )
     }
 

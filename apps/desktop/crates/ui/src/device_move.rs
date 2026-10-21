@@ -37,7 +37,7 @@ pub(crate) const MOVING_LABEL: &str = "Moving to {device}…";
 
 /// What a move does, said once where it is offered (the pin's tooltip).
 pub(crate) const NOTE: &str =
-    "The session moves after its current turn. Its worktree and conversation go with it; logins stay on each device.";
+    "The session ends here and continues on that device on the same branch; its conversation goes with it, logins stay on each device.";
 
 pub(crate) const REASON_STEER: &str = "Only people who can steer this session can move it.";
 pub(crate) const REASON_ENDED: &str = "This session has ended.";
@@ -499,7 +499,7 @@ mod tests {
         assert_eq!(MOVING_LABEL, "Moving to {device}\u{2026}");
         assert_eq!(
             NOTE,
-            "The session moves after its current turn. Its worktree and conversation go with it; logins stay on each device."
+            "The session ends here and continues on that device on the same branch; its conversation goes with it, logins stay on each device."
         );
         assert_eq!(REASON_STEER, "Only people who can steer this session can move it.");
         assert_eq!(REASON_ENDED, "This session has ended.");

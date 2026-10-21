@@ -779,6 +779,9 @@ async function startChild(
       userId,
       deviceId,
       ...runnerFields(input, parent),
+      // NEW-6 (N-1): plan mode is the ROOT's stance, never inherited: a
+      // child plans only when its start says so.
+      planMode: input.planMode ?? false,
       // EXP-1341: the parent's `name`, else a suggestion's title; omitted =
       // the session names itself (session-title.json).
       ...((input.name ?? extras.title)?.trim()

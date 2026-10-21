@@ -953,6 +953,10 @@ public struct SessionThreadView: Equatable, Sendable {
     public let liveSessionId: String?
     public let busy: Bool
     public let needsYou: Bool
+    /// NEW-6 (N-1): a thread with ONE session (the root alone) shows that
+    /// session's raw work as the main thing: its id, and no Conversation
+    /// tab. Nil once a second session exists.
+    public let mainSessionId: String?
 
     public init(
         rootId: String,
@@ -965,9 +969,11 @@ public struct SessionThreadView: Equatable, Sendable {
         live: Bool,
         liveSessionId: String? = nil,
         busy: Bool,
-        needsYou: Bool
+        needsYou: Bool,
+        mainSessionId: String? = nil
     ) {
         self.liveSessionId = liveSessionId
+        self.mainSessionId = mainSessionId
         self.rootId = rootId
         self.title = title
         self.isPrivate = isPrivate
@@ -1514,18 +1520,21 @@ public enum SessionTree {
                 || entry.label != nil
         }
         let live = tree.filter { $0.status != "ended" }
+        // NEW-6 (N-1): the root alone = the thread IS that session.
+        let single = tree.allSatisfy { $0.id == root.id }
         return SessionThreadView(
             rootId: root.id,
             title: title,
             isPrivate: !root.shared,
             focusId: focused?.id,
-            tabs: [.add, .conversation] + issueTabs + sessionTabs + [.guide(dot: guideDot)],
+            tabs: [.add] + (single ? [] : [.conversation]) + issueTabs + sessionTabs + [.guide(dot: guideDot)],
             rows: rows,
             composer: ThreadComposer(sessionId: root.id, placeholder: ThreadCopy.placeholder),
             live: !live.isEmpty,
             liveSessionId: root.status == "ended" ? nil : root.id,
             busy: live.contains { $0.busy },
-            needsYou: live.contains { $0.needsInput }
+            needsYou: live.contains { $0.needsInput },
+            mainSessionId: single ? root.id : nil
         )
     }
 

@@ -144,7 +144,7 @@ function AgentChannelPage() {
         >
           <div
             ref={follow.contentRef}
-            className="mx-auto flex min-h-full w-full max-w-3xl flex-col justify-end px-4 pt-8 pb-8 md:px-6"
+            className="mx-auto flex min-h-full w-full max-w-4xl flex-col justify-end px-4 pt-8 pb-8 md:px-6"
           >
             <AgentChannel
               agent={agent}
@@ -174,7 +174,7 @@ function AgentChannelPage() {
               busy={conversation.busy}
               canStop
               testId="agent-composer"
-              className="mx-auto max-w-3xl"
+              className="mx-auto max-w-4xl"
             />
           ) : (
             <AgentComposer
@@ -183,7 +183,7 @@ function AgentChannelPage() {
               placeholder={`Message ${name}`}
               users={users as User[]}
               testId="agent-composer"
-              className="mx-auto max-w-3xl"
+              className="mx-auto max-w-4xl"
             />
           )}
         </div>

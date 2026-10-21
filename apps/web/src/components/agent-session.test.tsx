@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react"
+import { fireEvent, render, screen, within } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { SteerSessionSnapshot } from "@/lib/steer-session-store"
 import type { SessionRow } from "@/lib/session-tree"
@@ -317,8 +317,8 @@ describe(`AgentSessionView tool-posted cards (EXP-1280)`, () => {
     const dock = screen.getByTestId(`ask-dock`)
     expect(screen.queryByTestId(`composer`)).toBeNull()
     expect(dock.textContent).toContain(`Which layout?`)
-    fireEvent.click(screen.getAllByTestId(`plan-card-option`)[0]!)
-    fireEvent.click(dock.querySelectorAll(`[data-testid="ask-option"]`)[0]!)
+    fireEvent.click(within(dock).getByTestId(`plan-card-question`).querySelector(`[data-testid="plan-card-option"]`)!)
+    fireEvent.click(dock.querySelector(`[data-slot="plan-card-decide"]`)!)
     expect(answerMutate).toHaveBeenCalledWith(
       { messageId: `m-plan`, decision: `approved`, answers: { q: [`Two`] } },
       expect.anything()
