@@ -8,7 +8,7 @@
 //! prompt with no subject (required) and optional additional instructions
 //! otherwise.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::HashSet;
 
 use coding::LaunchOptions;
 
@@ -90,9 +90,8 @@ pub(crate) fn issue_count_blocker(count: usize) -> Option<String> {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct StartSubject {
     pub(crate) issue_ids: Vec<String>,
-    pub(crate) action_id: Option<String>,
-    /// The action's filled picks, key → value.
-    pub(crate) inputs: BTreeMap<String, String>,
+    /// NEW-2: a saved prompt (its body plus the text = the first message).
+    pub(crate) prompt_id: Option<String>,
     pub(crate) repository_id: Option<String>,
 }
 
@@ -128,12 +127,7 @@ pub(crate) fn send_input(
         text: (!text.is_empty()).then(|| text.to_string()),
         attachment_ids: Some(attachment_ids).filter(|ids| !ids.is_empty()),
         issue_ids: Some(subject.issue_ids).filter(|ids| !ids.is_empty()),
-        inputs: subject
-            .action_id
-            .as_ref()
-            .and(Some(subject.inputs))
-            .filter(|inputs| !inputs.is_empty()),
-        action_id: subject.action_id,
+        prompt_id: subject.prompt_id,
         repository_id: subject.repository_id,
         ..Default::default()
     }
@@ -293,15 +287,13 @@ mod tests {
         assert_eq!(issues.attachment_ids, Some(vec!["att-1".to_string()]));
         assert_eq!(issues.issue_ids, Some(vec!["i-1".to_string(), "i-2".to_string()]));
         assert_eq!(issues.repository_id.as_deref(), Some("repo-1"));
-        assert!(issues.action_id.is_none() && issues.inputs.is_none());
+        assert!(issues.prompt_id.is_none());
         // EXP-849: no account picked = the target's last used login; no
         // computer-use pick leaves it to the target.
         assert_eq!(issues.account, None);
         assert_eq!(issues.computer_use, None);
         assert!(issues.session_id.is_none() && issues.parent_id.is_none());
 
-        let mut inputs = BTreeMap::new();
-        inputs.insert("board".to_string(), "board-1".to_string());
         let action = send_input(
             "team-1",
             "dev-1",
@@ -311,15 +303,13 @@ mod tests {
                 ..options()
             },
             StartSubject {
-                action_id: Some("act-1".into()),
-                inputs,
+                prompt_id: Some("p-1".into()),
                 ..Default::default()
             },
             " ",
             Vec::new(),
         );
-        assert_eq!(action.action_id.as_deref(), Some("act-1"));
-        assert_eq!(action.inputs.as_ref().and_then(|map| map.get("board")).map(String::as_str), Some("board-1"));
+        assert_eq!(action.prompt_id.as_deref(), Some("p-1"));
         assert_eq!(action.text, None);
         assert_eq!(action.attachment_ids, None);
         assert_eq!(action.issue_ids, None);

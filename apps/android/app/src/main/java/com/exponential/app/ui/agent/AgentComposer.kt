@@ -6,9 +6,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -35,12 +33,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
-import com.exponential.app.data.api.ActionDto
-import com.exponential.app.data.api.TeamRepo
+import com.exponential.app.data.api.PromptDto
 import com.exponential.app.domain.IssueStatusResolver
 import com.exponential.app.domain.AgentComposerPrompt
 import com.exponential.app.domain.ComposerMenu
-import com.exponential.app.ui.components.picker.IssuePickerIssue
 import com.exponential.app.domain.FeedbackStates
 import com.exponential.app.ui.components.FeedbackMark
 import com.exponential.app.ui.components.FieldError
@@ -65,9 +61,9 @@ import com.exponential.app.ui.theme.TextEmphasis
  * EXP-825: the ONE launcher's card — the same [GlassComposer] the steer and
  * comment composers wear. Slot order is leading · strip · field · tools:
  *
- * - leading: under an action that declares inputs, its typed pick rows
- *   ([ActionInputFields]). EXP-1038: the subject chips are NOT here any more
- *   — they head the page beside the contract verb
+ * - leading: none (NEW-2: prompts have no typed inputs). EXP-1038: the
+ *   subject chips are NOT here any more — they head the page beside the
+ *   contract verb
  *   ([AgentComposerHeadline], mounted by the page above this card);
  * - field: the draft with the `@` / `#` / `:` typeahead (the page mounts the
  *   candidate rows under the card and splices at this value's caret);
@@ -92,14 +88,6 @@ internal fun AgentComposer(
     onValueRewrite: (TextFieldValue) -> Unit,
     fieldModifier: Modifier,
     placeholder: String,
-    // The picked action, for its typed pick rows only — its CHIP lives in
-    // the page's headline (EXP-1038).
-    actionChip: ActionDto?,
-    inputValues: Map<String, String>,
-    repos: List<TeamRepo>,
-    boards: List<StartBoardOption>,
-    pullRequests: List<StartPullRequestOption>,
-    onInputChange: (key: String, value: String) -> Unit,
     pendingImages: List<PendingAttachment>,
     imageError: String?,
     sending: Boolean,
@@ -116,8 +104,6 @@ internal fun AgentComposer(
     canSubmit: Boolean,
     onSubmit: () -> Unit,
     modifier: Modifier = Modifier,
-    /** EXP-1291: the team's issues, for an action's `issue` inputs. */
-    issues: List<IssuePickerIssue> = emptyList(),
 ) {
     // Each newly picked image inserts its own `[Image #k]` marker at the
     // caret, so the writer can say "crop [Image #2]" without typing the
@@ -137,30 +123,13 @@ internal fun AgentComposer(
         }
         markedImages = imageCount
     }
-    val inputDefs = actionChip?.inputs.orEmpty()
     GlassComposer(
         modifier = modifier.testTag("agent-composer"),
         // EXP-1038: the subject chips are NOT in the card any more — they head
         // the page beside the contract verb ([AgentComposerHeadline], mounted
-        // by the page above this card). What stays here are the picked
-        // action's typed pick rows, which belong with the field they are
-        // filled next to.
-        leading = if (inputDefs.isNotEmpty()) {
-            {
-                ActionInputFields(
-                    defs = inputDefs,
-                    values = inputValues,
-                    repos = repos,
-                    boards = boards,
-                    pullRequests = pullRequests,
-                    onValueChange = onInputChange,
-                    issues = issues,
-                )
-                Spacer(Modifier.height(4.dp))
-            }
-        } else {
-            null
-        },
+        // by the page above this card). NEW-2: prompts carry no typed pick
+        // inputs, so the card has no leading rows.
+        leading = null,
         strip = {
             val startingShown = rememberDelayedFlag(starting != null)
             if (starting != null && startingShown) StartingRow(starting)
@@ -271,7 +240,7 @@ internal fun AgentComposerHeadline(
     headline: String,
     issueChips: List<IssueOption>,
     onRemoveIssue: (String) -> Unit,
-    actionChip: ActionDto?,
+    actionChip: PromptDto?,
     /**
      * The ✕'s name per issue chip ("Remove APP-3").
      */

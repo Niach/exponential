@@ -45,9 +45,7 @@ import {
 import { assertTeamMember, assertTeamOwner } from "@/lib/team-membership"
 import {
   connectionFor,
-  memberRoster,
   resolveForLaunch,
-  resolveSharedForLaunch,
   storeSecret,
   type McpConnection,
 } from "@/lib/mcp-oauth/credentials"
@@ -622,11 +620,8 @@ export const mcpServersRouter = router({
   //     refused outright, so a prompt-injected agent cannot mint itself a
   //     row with a wider pick and read it back.
   //
-  // FEED-73 — a session that runs an ACTION (`action_id` set on the row)
-  // also gets every OTHER current member's SHARED connection to a picked
-  // http server as an extra `<server>-as-<member>` entry carrying them as
-  // `actor`, plus `members`: the roster of who is in, who is not. Any other
-  // session: no extras, `members: []`.
+  // NEW-2: no per-run extras (FEED-73's action shares went with actions):
+  // `members: []`.
   resolveForLaunch: authedProcedure
     .input(z.object({}))
     .mutation(async ({ ctx }) => {
@@ -652,7 +647,6 @@ export const mcpServersRouter = router({
           teamId: sessions.teamId,
           status: sessions.status,
           mcpServerIds: sessions.mcpServerIds,
-          actionId: sessions.actionId,
         })
         .from(sessions)
         .where(eq(sessions.id, sessionId))
@@ -680,24 +674,6 @@ export const mcpServersRouter = router({
         },
         now
       )
-      if (run.actionId) {
-        const shares = await resolveSharedForLaunch(ctx.db, {
-          teamId: run.teamId,
-          serverIds,
-          excludeUserId: userId,
-          now,
-        })
-        resolved.servers.push(...shares.servers)
-        resolved.warnings.push(...shares.warnings)
-        resolved.members = await memberRoster(ctx.db, {
-          teamId: run.teamId,
-          serverIds,
-          selfUserId: userId,
-          sharedResolved: shares.resolved,
-          unavailable: shares.unavailable,
-          now,
-        })
-      }
       return resolved
     }),
 })

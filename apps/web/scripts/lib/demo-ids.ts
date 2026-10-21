@@ -20,7 +20,7 @@
  */
 import { and, eq, inArray } from "drizzle-orm"
 import { db } from "@/db/connection"
-import { actions, boards, devices, issues, sessions, teams } from "@/db/schema"
+import { actions, agents, boards, devices, issues, sessions, teams } from "@/db/schema"
 import { mintReporterToken } from "@/lib/reporter/token"
 import {
   DEMO_AGENT_ID,
@@ -189,10 +189,15 @@ export async function resolveDemoIds(): Promise<DemoIds> {
     .where(
       and(
         eq(sessions.teamId, team.id),
-        inArray(sessions.id, [DEMO_SESSION_ID, DEMO_THREAD_ID, DEMO_GUIDE_THREAD_ID, DEMO_AGENT_ID])
+        inArray(sessions.id, [DEMO_SESSION_ID, DEMO_THREAD_ID, DEMO_GUIDE_THREAD_ID])
       )
     )
-  const present = new Set(pinned.map((row) => row.id))
+  // NEW-2: the demo agent is an `agents` row.
+  const pinnedAgents = await db
+    .select({ id: agents.id })
+    .from(agents)
+    .where(and(eq(agents.teamId, team.id), eq(agents.id, DEMO_AGENT_ID)))
+  const present = new Set([...pinned, ...pinnedAgents].map((row) => row.id))
   const ifPresent = (id: string) => (present.has(id) ? id : undefined)
 
   return {

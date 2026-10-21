@@ -116,6 +116,10 @@ public enum ExpToolResultKind: String, Sendable, CaseIterable {
     /// EXP-1172: `sessions_show` — ONE picture the run filed while it worked;
     /// the settled row renders it as a tile under itself (`preview.id`).
     case picture
+    /// NEW-2: `prompts_get` / `prompts_list`, `agents_list`, `events_emit`.
+    case prompt
+    case agent
+    case event
 
     public init(wire: String) {
         // Spelled out rather than `?? .none`: a `none` CASE beside Optional's

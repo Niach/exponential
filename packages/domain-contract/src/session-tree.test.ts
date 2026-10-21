@@ -85,8 +85,8 @@ describe(`session-tree fixtures (EXP-1291)`, () => {
   }
   for (const entry of list.agentCases) {
     test(`agents: ${entry.name}`, () => {
-      const { sessions, teamId } = entry.input as never
-      expect(listAgents(sessions, teamId)).toEqual(entry.expected as never)
+      const { agents, sessions, teamId, me } = entry.input as never
+      expect(listAgents(agents, sessions, teamId, me)).toEqual(entry.expected as never)
     })
   }
   for (const entry of list.markCases) {

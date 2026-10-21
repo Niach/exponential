@@ -13,7 +13,7 @@ use gpui::{
 };
 use gpui_component::{input::InputState, ActiveTheme as _};
 
-use crate::chat_screen::{ComposerMenuRow, MENU_ADD_FILE, MENU_IMPLEMENT_ISSUE, MENU_RUN_ACTION};
+use crate::chat_screen::{ComposerMenuRow, MENU_ADD_FILE, MENU_IMPLEMENT_ISSUE};
 use crate::picker::search_list::{action_row_body, row, surface, SearchList};
 
 pub(crate) const ID: &str = "menu-submenu";
@@ -31,7 +31,6 @@ const ACTIONS: [(&str, &str); 5] = [
 fn plus_rows(cx: &App) -> Div {
     let rows = [
         (ComposerMenuRow::ImplementIssue, MENU_IMPLEMENT_ISSUE, true),
-        (ComposerMenuRow::RunAction, MENU_RUN_ACTION, true),
         (ComposerMenuRow::AddFile, MENU_ADD_FILE, false),
     ];
     let mut column = surface(cx).w(px(260.)).p_1();
@@ -40,8 +39,8 @@ fn plus_rows(cx: &App) -> Div {
         let mut item = crate::controls::menu_row(row_kind.icon(), label, trailing, false, cx)
             .px_2()
             .rounded(cx.theme().radius);
-        // The Run action row is the open one.
-        if index == 1 {
+        // The Implement issue row is the open one.
+        if index == 0 {
             item = item.bg(cx.theme().accent);
         }
         column = column.child(item);

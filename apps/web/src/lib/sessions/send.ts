@@ -1,33 +1,28 @@
-import { PERSISTENT_KINDS, isPersistent } from "@exp/domain-contract/session-kind"
+import { isPersistent } from "@exp/domain-contract/session-kind"
 import { TRPCError } from "@trpc/server"
 import { and, eq, inArray, isNull, ne, sql } from "drizzle-orm"
-import type { z } from "zod"
 import {
   SESSION_TREE_MAX_DEPTH,
   SESSION_TREE_MAX_SESSIONS,
-  type AgentTrigger,
-  type agentTriggersSchema,
   type SessionsSendInput,
   type SessionsSendResult,
 } from "@exp/db-schema/domain"
 import { contract } from "@exp/domain-contract"
 import { db } from "@/db/connection"
 import {
-  actions,
   attachments,
   boards,
   devices,
   issues,
   mcpServers,
-  pullRequests,
+  prompts,
   repositories,
   sessions,
   type Session,
 } from "@/db/schema"
 import { generateTxId } from "@/lib/trpc"
-import { assertTeamMember, assertTeamOwner, getTeamMember } from "@/lib/auth/membership"
-import { resolveActionInputs } from "@/lib/action-inputs"
-import { actionInputLookups } from "@/lib/sessions/action-lookups"
+import { assertTeamMember, getTeamMember } from "@/lib/auth/membership"
+import { conversationInTx, loadAgentForUser } from "@/lib/agents/conversation"
 import { answerSessionCardInTx } from "@/lib/sessions/answer"
 import {
   assertCanSteer,
@@ -63,9 +58,9 @@ import { buildAttachmentUrl, isAcceptedImageContentType } from "@/lib/storage/is
 import { getSteerRelayConfig, relayPostNudge } from "@/lib/steer"
 import { fireAndForgetSessionMessageNotify } from "@/lib/integrations/notifications"
 
-// EXP-1291/NEW-1: `sessions.send` — THE entrypoint (tRPC `sessions.send`
-// and MCP `exponential_sessions_send` both land here). Three forms, one
-// shape:
+// EXP-1291/NEW-1/NEW-2: `sessions.send` — THE entrypoint (tRPC
+// `sessions.send` and MCP `exponential_sessions_send` both land here). Four
+// forms, one shape:
 //   - `sessionId`: a person's (or a session's) message into a session (the
 //     DB is the bus: a `messages` row the device delivers, resuming an
 //     idle session in place). `answer` answers its open card; `issueIds`
@@ -73,12 +68,16 @@ import { fireAndForgetSessionMessageNotify } from "@/lib/integrations/notificati
 //     a live one ends here and continues there). An ENDED session continues
 //     in a NEW session carrying the message: a root as a child of itself,
 //     a child as its sibling, on the same branch.
+//   - `agentId`: a message to a team AGENT = into the caller's own
+//     conversation session with it (one per agent and member, created on
+//     first use on the agent's device, never ending).
 //   - `parentId`: a child (sub-session) of any visible session, depth + 1,
 //     inheriting its parent's runner picks.
 //   - neither: a new ROOT — a thread that WORKS (the composer's picks, a
-//     worktree when a repo is set) or, with `agent`, a team agent
-//     (owner-only). Started from inside a session, the caller WATCHES it
-//     (the bus delivers its transitions there).
+//     worktree when a repo is set; `promptId` = a saved prompt's body plus
+//     the text as its first message, titled after the prompt). Started from
+//     inside a session, the caller WATCHES it (the bus delivers its
+//     transitions there).
 // Every new session is a `queued` row naming its device; the device picks
 // it up off the sessions shape (a best-effort relay nudge kills the latency).
 
@@ -151,13 +150,6 @@ async function assertMcpServersInTeam(tx: Tx, teamId: string, ids: string[] | un
     throw new TRPCError({ code: `BAD_REQUEST`, message: `Unknown MCP server for this team` })
   }
   return unique
-}
-
-/** Agent triggers as stored: every trigger carries an id (minted here). */
-export function withTriggerIds(triggers: z.infer<typeof agentTriggersSchema>): AgentTrigger[] {
-  return triggers.map(
-    (trigger) => ({ ...trigger, id: trigger.id ?? crypto.randomUUID() }) as AgentTrigger
-  )
 }
 
 /**
@@ -384,12 +376,14 @@ export async function sendSession(args: {
   const starter = effectiveStarter(args.userId, caller)
   const uploaderIds = [...new Set([args.userId, starter])]
   const { input } = args
-  if (!input.sessionId) assertRunnerVocabulary(input)
+  if (!input.sessionId && !input.agentId) assertRunnerVocabulary(input)
 
   const extras = args.extras ?? {}
   let outcome: SendOutcome
   if (input.sessionId) {
     outcome = await messageSession(starter, uploaderIds, input, caller, extras, args.viaMcp === true)
+  } else if (input.agentId) {
+    outcome = await messageAgent(starter, uploaderIds, input, caller, extras, args.viaMcp === true)
   } else if (input.parentId) {
     outcome = await startChild(starter, uploaderIds, input, caller, extras)
   } else {
@@ -627,6 +621,47 @@ async function messageSession(
 }
 
 /**
+ * NEW-2: a message to an AGENT: the caller's own conversation session with
+ * it (found, or created `queued` on the agent's device: own or shared with
+ * the team). Issues on it are rows on the conversation; the message is the
+ * conversation's pending input (agents never end: the row resumes).
+ */
+async function messageAgent(
+  userId: string,
+  uploaderIds: string[],
+  input: SessionsSendInput,
+  caller: Session | null,
+  extras: SendExtras,
+  viaMcp: boolean
+): Promise<SendOutcome> {
+  const agent = await loadAgentForUser(userId, input.agentId!)
+  if (input.teamId && input.teamId !== agent.teamId) {
+    throw new TRPCError({ code: `BAD_REQUEST`, message: `The agent is in another team` })
+  }
+  return db.transaction(async (tx) => {
+    const txid = await generateTxId(tx)
+    const { session, created } = await conversationInTx(tx, agent, userId)
+    const from = caller
+      ? { sessionId: caller.id, asSession: viaMcp && caller.id !== session.id }
+      : null
+    if (input.issueIds?.length) {
+      await assertIssuesInTeam(tx, agent.teamId, input.issueIds)
+      await forwardIssues(tx, {
+        sessionId: session.id,
+        issueIds: input.issueIds,
+        source: caller ? `agent` : `user`,
+        addedBy: userId,
+        addedBySessionId: caller?.id ?? null,
+      })
+    }
+    const messageId = await postSendMessage(tx, session, input, userId, uploaderIds, from)
+    await applyWakeOn(tx, caller, input)
+    await extras.within?.(tx, { sessionId: session.id, messageId, rootId: session.id })
+    return { sessionId: session.id, messageId, status: session.status, txid, queued: created }
+  })
+}
+
+/**
  * The continuation of an ENDED session: a new session on `device` with the
  * ended row's pickers, branch (the device reuses its worktree) and title,
  * taking over its issue rows. An ended ROOT continues as a child of itself;
@@ -670,9 +705,6 @@ async function continueSession(
     ...runnerFields({ account: input.account }, ended),
     mcpServerIds: ended.mcpServerIds,
     repositoryId: ended.repositoryId ?? root.repositoryId,
-    actionId: ended.actionId,
-    actionName: ended.actionName,
-    actionInputs: ended.actionInputs,
     status: `queued`,
     shared: root.shared,
   })
@@ -789,26 +821,10 @@ async function startChild(
   })
 }
 
-/** A new root's repository: the explicit pick, else what its facets name —
- *  a `repo` / `pr` action input, else the first issue's board repository. */
-async function defaultRepository(
-  tx: Tx,
-  input: SessionsSendInput,
-  actionInputs: Array<{ type: string; value: string }>
-): Promise<string | null> {
-  const repoInput = actionInputs.find((entry) => entry.type === `repo`)
-  if (repoInput) return repoInput.value
-  const prInput = actionInputs.find((entry) => entry.type === `pr`)
-  if (prInput) {
-    const [pr] = await tx
-      .select({ repositoryId: pullRequests.repositoryId })
-      .from(pullRequests)
-      .where(eq(pullRequests.id, prInput.value))
-      .limit(1)
-    if (pr) return pr.repositoryId
-  }
-  const firstIssue =
-    input.issueIds?.[0] ?? actionInputs.find((entry) => entry.type === `issue`)?.value
+/** A new root's repository: the explicit pick, else the first issue's board
+ *  repository. */
+async function defaultRepository(tx: Tx, input: SessionsSendInput): Promise<string | null> {
+  const firstIssue = input.issueIds?.[0]
   if (firstIssue) {
     const [board] = await tx
       .select({ repositoryId: boards.repositoryId })
@@ -831,30 +847,17 @@ async function startRoot(
   if (!teamId) {
     throw new TRPCError({ code: `BAD_REQUEST`, message: `teamId is required for a new session` })
   }
-  if (input.agent) await assertTeamOwner(userId, teamId)
-  else await assertTeamMember(userId, teamId)
+  await assertTeamMember(userId, teamId)
 
-  // An agent's spawn runs on the agent's own device unless it names one.
-  const callerAgentRoot =
+  // An agent's spawn runs on the agent's own device unless it names one:
+  // the caller's root is a conversation session (its device = the agent's).
+  const callerRoot =
     caller && caller.teamId === teamId
-      ? isPersistent(caller) && caller.parentId === null
+      ? caller.rootId === caller.id
         ? caller
-        : caller.rootId !== caller.id
-          ? (
-              await db
-                .select()
-                .from(sessions)
-                .where(
-                  and(
-                    eq(sessions.id, caller.rootId),
-                    inArray(sessions.kind, [...PERSISTENT_KINDS])
-                  )
-                )
-                .limit(1)
-            )[0] ?? null
-          : null
+        : ((await db.select().from(sessions).where(eq(sessions.id, caller.rootId)).limit(1))[0] ?? null)
       : null
-  const deviceId = input.deviceId ?? callerAgentRoot?.deviceId
+  const deviceId = input.deviceId ?? (callerRoot?.agentId ? callerRoot.deviceId : undefined)
   if (!deviceId) {
     throw new TRPCError({ code: `BAD_REQUEST`, message: `Pick a device for the new session` })
   }
@@ -866,38 +869,33 @@ async function startRoot(
     if (input.repositoryId) await assertRepositoryInTeam(tx, teamId, input.repositoryId)
     const mcpServerIds = await assertMcpServersInTeam(tx, teamId, input.mcpServerIds)
 
-    let action: { id: string; name: string } | null = null
-    let actionInputs: Array<{ key: string; type: string; value: string }> = []
-    if (input.actionId) {
+    // NEW-2: a prompt run: the body plus what was typed is the first
+    // message; the prompt names the session unless a name was passed.
+    let prompt: { name: string; body: string } | null = null
+    if (input.promptId) {
       const [row] = await tx
-        .select({ id: actions.id, name: actions.name, inputs: actions.inputs })
-        .from(actions)
-        .where(and(eq(actions.id, input.actionId), eq(actions.teamId, teamId)))
+        .select({ name: prompts.name, body: prompts.body })
+        .from(prompts)
+        .where(and(eq(prompts.id, input.promptId), eq(prompts.teamId, teamId)))
         .limit(1)
-      if (!row) throw new TRPCError({ code: `NOT_FOUND`, message: `Action not found` })
-      const resolved = await resolveActionInputs(
-        row.inputs ?? [],
-        input.inputs ?? {},
-        teamId,
-        actionInputLookups(tx)
-      )
-      if (!resolved.ok) throw new TRPCError({ code: `BAD_REQUEST`, message: resolved.message })
-      action = { id: row.id, name: row.name }
-      actionInputs = resolved.inputs
+      if (!row) throw new TRPCError({ code: `NOT_FOUND`, message: `Prompt not found` })
+      prompt = row
     }
+    const text = prompt
+      ? [prompt.body.trim(), input.text?.trim() ?? ``].filter(Boolean).join(`\n\n`)
+      : input.text
+    const title = input.name ?? prompt?.name
 
-    const repositoryId =
-      input.repositoryId ?? (input.agent ? null : await defaultRepository(tx, input, actionInputs))
+    const repositoryId = input.repositoryId ?? (await defaultRepository(tx, input))
 
     const id = crypto.randomUUID()
-    const agent = input.agent
     const root = await insertSession(tx, {
       id,
       teamId,
       parentId: null,
       rootId: id,
       depth: 0,
-      kind: agent ? `agent` : `thread`,
+      kind: `thread`,
       userId,
       deviceId,
       // NEW-1: the root WORKS: the composer's picks are its own.
@@ -906,21 +904,7 @@ async function startRoot(
       repositoryId,
       status: `queued`,
       shared: device.shared,
-      actionId: action?.id ?? null,
-      actionName: action?.name ?? null,
-      actionInputs: action
-        ? Object.fromEntries(actionInputs.map((entry) => [entry.key, entry.value]))
-        : null,
-      ...(input.name ? { title: input.name.slice(0, 255) } : {}),
-      ...(agent
-        ? {
-            name: agent.name,
-            icon: agent.icon,
-            color: agent.color,
-            instructions: agent.instructions,
-            triggers: withTriggerIds(agent.triggers),
-          }
-        : {}),
+      ...(title ? { title: title.slice(0, 255) } : {}),
     })
 
     if (input.issueIds?.length) {
@@ -933,8 +917,8 @@ async function startRoot(
         quiet: true,
       })
     }
-    const messageId = await postSendMessage(tx, root, input, userId, uploaderIds)
-    if (caller && caller.teamId === teamId && !agent) {
+    const messageId = await postSendMessage(tx, root, { ...input, text }, userId, uploaderIds)
+    if (caller && caller.teamId === teamId) {
       // NEW-1: a root started from inside a session is WATCHED by its
       // starter: the bus delivers its transitions there (an agent's spawned
       // threads report back into its conversation). The card names it.

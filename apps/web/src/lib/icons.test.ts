@@ -494,7 +494,8 @@ describe(`icon call sites`, () => {
     // EXP-630: + Import (Team), web-only like Billing, and + Issues (Team),
     // the parent entry Labels and Statuses now nest under on both clients.
     // SLOP-4: − Helpdesk (the widget is the one Features entry).
-    expect(webNav.size).toBe(15)
+    // NEW-2: + Prompts (Agents), web-only for now.
+    expect(webNav.size).toBe(16)
     // EXP-262: + About (desktop-only in the settings nav, like Tools/Agents).
     // EXP-500: + Archived boards (EXP-862: on both clients' navs now).
     // EXP-771: + Feedback widget (SLOP-4: labelled Widget; Helpdesk gone).

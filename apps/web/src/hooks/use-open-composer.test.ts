@@ -19,14 +19,14 @@ import {
 describe(`composerSearch`, () => {
   it(`carries the origin's token beside the seed`, () => {
     expect(
-      composerSearch({ actionId: `a1` }, { kind: `board`, boardSlug: `web` })
-    ).toEqual({ action: `a1`, from: `board:web` })
+      composerSearch({ text: `hi` }, { kind: `board`, boardSlug: `web` })
+    ).toEqual({ text: `hi`, from: `board:web` })
   })
 
-  // A pinned action is context-free: no `from`, so the Agent page opens
-  // full-width and the run it starts brings no list along.
-  it(`omits from for a context-free (pinned) start`, () => {
-    expect(composerSearch({ actionId: `a1` }, null)).toEqual({ action: `a1` })
+  // A context-free start: no `from`, so the Agent page opens full-width and
+  // the run it starts brings no list along.
+  it(`omits from for a context-free start`, () => {
+    expect(composerSearch({ text: `hi` }, null)).toEqual({ text: `hi` })
   })
 
   it(`keeps every seeded field`, () => {
@@ -48,18 +48,6 @@ describe(`useOpenComposer`, () => {
     result.current(seed, options)
   }
 
-  it(`opens the dialog on the action, without navigating`, () => {
-    openLauncher({ actionId: `act-1`, prIssueId: `i9` })
-    expect(navigate).not.toHaveBeenCalled()
-    const { result } = renderHook(() => useLaunchDialogSeed())
-    expect(result.current).toEqual({
-      actionId: `act-1`,
-      prIssueId: `i9`,
-      issueIds: [],
-    })
-    closeLaunchDialog()
-  })
-
   it(`opens the dialog on the picked issues, without navigating`, () => {
     openLauncher({ issueIds: [`i1`, `i2`] })
     expect(navigate).not.toHaveBeenCalled()
@@ -71,10 +59,10 @@ describe(`useOpenComposer`, () => {
   // EXP-1293: a started session opens its thread, so a caller's origin
   // never rides the dialog request.
   it(`keeps a caller's origin out of the dialog request`, () => {
-    openLauncher({ actionId: `a1` }, { origin: null })
+    openLauncher({ issueIds: [`i1`] }, { origin: null })
     expect(navigate).not.toHaveBeenCalled()
     const { result } = renderHook(() => useLaunchDialogSeed())
-    expect(result.current).toEqual({ actionId: `a1`, issueIds: [] })
+    expect(result.current).toEqual({ issueIds: [`i1`] })
     closeLaunchDialog()
   })
 

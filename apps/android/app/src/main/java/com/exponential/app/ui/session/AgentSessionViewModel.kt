@@ -33,6 +33,7 @@ import com.exponential.app.data.electric.SyncStats
 import com.exponential.app.data.steer.SteerConnectionStore
 import com.exponential.app.data.steer.stopHandingBackQueue
 import com.exponential.app.domain.ActivityFeedState
+import com.exponential.app.domain.SessionKind
 import com.exponential.app.domain.AgentPhase
 import com.exponential.app.domain.AgentAccountsRows
 import com.exponential.app.domain.AgentUsagePresentation
@@ -377,7 +378,7 @@ class AgentSessionViewModel @AssistedInject constructor(
         steerDeviceFlow(dbFlow, session.map { it?.teamId }.distinctUntilChanged(), auth.userId),
         auth.userId,
     ) { row, devices, userId ->
-        if (row == null || !SessionDeviceMove.visible(row.kind, row.aside)) {
+        if (row == null || !SessionDeviceMove.visible(SessionKind.sessionKindOf(row.agentId), row.aside)) {
             return@combine SessionDeviceMoveState()
         }
         val moveTo = row.moveToDeviceId?.takeIf { it.isNotEmpty() }
@@ -764,8 +765,8 @@ class AgentSessionViewModel @AssistedInject constructor(
      * EXP-724: the curated slash commands the `/` menu should offer for the
      * CURRENT draft — empty whenever the menu must stay shut. Filtered by the
      * run's own agent (a row with none ran the default one), so the menu never
-     * offers a command the desktop could not execute. EXP-746: the run's OWN
-     * advertised commands follow the contract rows.
+     * offers a command the desktop could not execute. NEW-2: commands the
+     * agent CLI advertises are never merged in (hidden on every platform).
      */
     val slashMatches: StateFlow<List<SlashCommand>> = combine(
         draft,
@@ -775,7 +776,6 @@ class AgentSessionViewModel @AssistedInject constructor(
         SlashCommands.matches(
             text,
             SlashCommands.agentId(row?.cli, config != null),
-            config?.commands.orEmpty(),
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
@@ -787,7 +787,6 @@ class AgentSessionViewModel @AssistedInject constructor(
     fun pendingSlashCommand(): SlashCommand? = SlashCommands.commandFor(
         draft.value,
         SlashCommands.agentId(session.value?.cli, sessionConfig.value != null),
-        sessionConfig.value?.commands.orEmpty(),
     )
 
     // ── EXP-1334: THE session composer's "+" changes a RUNNING session ──────
@@ -858,22 +857,6 @@ class AgentSessionViewModel @AssistedInject constructor(
             }
         }
     }
-
-    /** The "+"'s Run action › rows: the session team's saved actions. */
-    @OptIn(ExperimentalCoroutinesApi::class)
-    val menuActions: StateFlow<List<com.exponential.app.data.db.ActionEntity>?> = session
-        .map { it?.teamId }
-        .distinctUntilChanged()
-        .flatMapLatest { teamId ->
-            if (teamId.isNullOrEmpty()) {
-                flowOf(emptyList())
-            } else {
-                dbFlow.scopedQuery(emptyList<com.exponential.app.data.db.ActionEntity>()) {
-                    it.actionDao().observeByTeam(teamId)
-                }
-            }
-        }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /** The "+"'s Implement issue ›: link the picks to the session's ROOT
      *  (`sessions.linkIssues`; a manual link wakes the dispatcher). */
@@ -959,30 +942,11 @@ class AgentSessionViewModel @AssistedInject constructor(
         val images = pendingImages.value
         if (text.isBlank() && images.isEmpty()) return
         if (_sending.value) return
-        // A slash command (`/btw` included) is the WHOLE message: with
+        // A slash command is the WHOLE message: with
         // attachments around it the send refuses, like web — never an
         // ordinary message carrying the command text.
         if (images.isNotEmpty() && pendingSlashCommand() != null) {
             _sendRefusal.value = SlashCommands.COMMAND_WITH_ATTACHMENTS
-            return
-        }
-        // EXP-1323: `/btw <question>` = a read-only aside child of THIS
-        // session (its answer lands as a child card), never a message to it.
-        val aside = SlashCommands.asideQuestion(text, SlashCommands.agentId(session.value?.cli, sessionConfig.value != null))
-        if (aside != null) {
-            viewModelScope.launch {
-                val accountId = auth.activeAccountId.value ?: return@launch
-                _sending.value = true
-                try {
-                    sessionsApi.send(accountId, SessionsSendInput.aside(codingSessionId, aside))
-                    connection.setDraft("")
-                } catch (t: Throwable) {
-                    if (t is CancellationException) throw t
-                    _sendError.value = trpcErrorMessage(t, "")
-                } finally {
-                    _sending.value = false
-                }
-            }
             return
         }
         viewModelScope.launch {

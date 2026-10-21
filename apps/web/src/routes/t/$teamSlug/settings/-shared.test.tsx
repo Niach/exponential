@@ -223,11 +223,21 @@ describe(`SETTINGS_NAV Agents group (EXP-1293)`, () => {
     (group) => group.group === SETTINGS_AGENTS_GROUP
   )!
 
-  it(`sits right after Boards with Repositories as its one static entry`, () => {
+  it(`sits right after Boards with Repositories and Prompts as its static entries`, () => {
     const names = SETTINGS_NAV.map((group) => group.group)
     expect(names.indexOf(`Agents`)).toBe(names.indexOf(`Boards`) + 1)
-    expect(agentsGroup.items.map((item) => item.label)).toEqual([`Repositories`])
+    expect(agentsGroup.items.map((item) => item.label)).toEqual([`Repositories`, `Prompts`])
     expect(agentsGroup.items[0].to).toBe(`/t/$teamSlug/settings/repositories`)
+    expect(agentsGroup.items[1].to).toBe(`/t/$teamSlug/settings/prompts`)
+  })
+
+  // NEW-2: every member reads the team's prompts; writes are owner-only
+  // inside the section.
+  it(`shows Prompts to owners and plain members alike`, () => {
+    const team: SettingsNavContext = { isCloud: false }
+    const prompts = agentsGroup.items.find((item) => item.label === `Prompts`)!
+    expect(prompts.visible(permissionsFor(`owner`), team)).toBe(true)
+    expect(prompts.visible(permissionsFor(`member`), team)).toBe(true)
   })
 
   it(`labels the create entry with the fixture copy`, () => {

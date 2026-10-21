@@ -74,6 +74,7 @@ fun ThreadsScreen(
 ) {
     val groups by viewModel.groups.collectAsStateWithLifecycle()
     val agents by viewModel.agents.collectAsStateWithLifecycle()
+    val conversations by viewModel.conversations.collectAsStateWithLifecycle()
     val teams by viewModel.teams.collectAsStateWithLifecycle()
     val meta by viewModel.rowMeta.collectAsStateWithLifecycle()
     val words by viewModel.words.collectAsStateWithLifecycle()
@@ -81,6 +82,7 @@ fun ThreadsScreen(
         ThreadsContent(
             groups = groups,
             agents = agents,
+            conversations = conversations,
             teams = teams,
             rowMeta = meta,
             words = words,
@@ -96,6 +98,8 @@ fun ThreadsScreen(
 fun ThreadsContent(
     groups: List<SessionTree.ThreadsListGroup>,
     agents: List<SessionTree.AgentRow>,
+    /** NEW-2: the viewer's conversation session per agent id (absent = none yet). */
+    conversations: Map<String, String>,
     teams: List<TeamEntity>,
     rowMeta: Map<String, ThreadRowMeta>,
     /** EXP-1309: each row's quiet word (web `threadRowWord`), by root id. */
@@ -127,8 +131,8 @@ fun ThreadsContent(
                 item(key = "__agents__") {
                     SectionHeader(SessionTree.ListCopy.AGENTS, leading = { BandGlyph(ExpIcons.settingsAgents, Muted) })
                 }
-                items(agents, key = { "agent_${it.sessionId}" }) { agent ->
-                    AgentListRow(agent, onClick = { onOpenThread(agent.sessionId) })
+                items(agents, key = { "agent_${it.agentId}" }) { agent ->
+                    AgentListRow(agent, onClick = { conversations[agent.agentId]?.let(onOpenThread) })
                 }
                 item(key = "__agents_gap__") { Spacer(Modifier.height(12.dp)) }
             }

@@ -133,6 +133,8 @@ const FLEET_VIEWS = new Set([
   `chat-issues`,
   `chat-from-issue`,
   `composer-menu`,
+  // NEW-2: the home composer's `/` menu sits over the options line.
+  `composer-slash-menu`,
   `steering`,
   `work-card`,
   `script-card`,

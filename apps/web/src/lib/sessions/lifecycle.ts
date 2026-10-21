@@ -1,9 +1,10 @@
 import { TRPCError } from "@trpc/server"
-import { and, asc, desc, eq, gte, inArray, isNull, ne, notInArray, or, sql } from "drizzle-orm"
-import { PERSISTENT_KINDS, TRIGGER_KINDS, isPersistent } from "@exp/domain-contract/session-kind"
+import { and, asc, desc, eq, gte, inArray, isNull, ne, or, sql } from "drizzle-orm"
+import { isPersistent } from "@exp/domain-contract/session-kind"
 import { db } from "@/db/connection"
-import { devices, sessions, type Session } from "@/db/schema"
+import { agents, devices, sessions, type Session } from "@/db/schema"
 import { generateTxId } from "@/lib/trpc"
+import { emitEventInTx } from "@/lib/events"
 import { assertCanSteer, loadSessionForUser } from "@/lib/sessions/access"
 import { busReport, forgetWatched } from "@/lib/sessions/bus"
 import { postAgentMessage, postSystemCard } from "@/lib/sessions/messages"
@@ -29,12 +30,12 @@ export async function relayKillSessionsBestEffort(sessionIds: string[]): Promise
   await Promise.all(sessionIds.map((id) => relayPostKill(config, id)))
 }
 
-type TreeRow = Pick<Session, `id` | `parentId` | `depth` | `kind`>
+type TreeRow = Pick<Session, `id` | `parentId` | `depth` | `agentId`>
 
 /** The session and every live descendant (a root = its whole tree),
  *  deepest first. */
 async function liveSubtree(tx: Tx, session: Pick<Session, `id` | `parentId`>): Promise<TreeRow[]> {
-  const fields = { id: sessions.id, parentId: sessions.parentId, depth: sessions.depth, kind: sessions.kind }
+  const fields = { id: sessions.id, parentId: sessions.parentId, depth: sessions.depth, agentId: sessions.agentId }
   if (session.parentId === null) {
     return tx
       .select(fields)
@@ -48,7 +49,7 @@ async function liveSubtree(tx: Tx, session: Pick<Session, `id` | `parentId`>): P
       UNION ALL
       SELECT s.id FROM sessions s JOIN sub ON s.parent_id = sub.id
     )
-    SELECT s.id, s.parent_id AS "parentId", s.depth, s.kind
+    SELECT s.id, s.parent_id AS "parentId", s.depth, s.agent_id AS "agentId"
     FROM sessions s JOIN sub ON sub.id = s.id
     WHERE s.status <> 'ended'
     ORDER BY s.depth DESC, s.created_at ASC
@@ -56,21 +57,15 @@ async function liveSubtree(tx: Tx, session: Pick<Session, `id` | `parentId`>): P
   return result.rows as unknown as TreeRow[]
 }
 
-/** Flips rows to ended (never a persistent one: EXP-1341 session-kind.json).
- *  Returns the ids it ended. */
+/** Flips rows to ended (never a persistent one: an agent's conversation,
+ *  session-kind.json). Returns the ids it ended. */
 export async function markEnded(tx: Tx, ids: string[]): Promise<string[]> {
   if (ids.length === 0) return []
   const now = new Date()
   const ended = await tx
     .update(sessions)
     .set({ status: `ended`, endedAt: now, busy: false, needsInput: false, blocked: null, updatedAt: now })
-    .where(
-      and(
-        inArray(sessions.id, ids),
-        ne(sessions.status, `ended`),
-        notInArray(sessions.kind, [...PERSISTENT_KINDS])
-      )
-    )
+    .where(and(inArray(sessions.id, ids), ne(sessions.status, `ended`), isNull(sessions.agentId)))
     .returning({ id: sessions.id })
   return ended.map((row) => row.id)
 }
@@ -94,6 +89,20 @@ export async function endRowsInTx(
     endedIds.push(row.id)
     await postSystemCard(tx, row.id, { kind: `event`, event: `session_ended`, sessionId: row.id })
     await busReport(tx, row, named?.id === row.id ? named.summary : null)
+    // NEW-2: the builtin `session.ended` event.
+    const [endedRow] = await tx
+      .select({ teamId: sessions.teamId, rootId: sessions.rootId, title: sessions.title, branch: sessions.branch })
+      .from(sessions)
+      .where(eq(sessions.id, row.id))
+      .limit(1)
+    if (endedRow) {
+      await emitEventInTx(tx, {
+        teamId: endedRow.teamId,
+        name: `session.ended`,
+        payload: { sessionId: row.id, rootId: endedRow.rootId, title: endedRow.title, branch: endedRow.branch },
+        emittedBy: { server: true },
+      })
+    }
   }
   await forgetWatched(tx, endedIds)
   return endedIds
@@ -170,7 +179,7 @@ export async function endSession(args: {
   if (isPersistent(session)) {
     throw new TRPCError({
       code: `BAD_REQUEST`,
-      message: `An agent never ends; delete it in Settings → Agents`,
+      message: `An agent's conversation never ends; delete the agent in Settings → Agents`,
     })
   }
   const result = await db.transaction(async (tx) => {
@@ -210,14 +219,14 @@ export async function endForeignHostedSessions(
 ): Promise<string[]> {
   const endedIds = await db.transaction(async (tx) => {
     const hosted = await tx
-      .select({ id: sessions.id, parentId: sessions.parentId, depth: sessions.depth, kind: sessions.kind })
+      .select({ id: sessions.id, parentId: sessions.parentId, depth: sessions.depth, agentId: sessions.agentId })
       .from(sessions)
       .where(
         and(
           ne(sessions.userId, hostUserId),
           eq(sessions.teamId, teamId),
           ne(sessions.status, `ended`),
-          notInArray(sessions.kind, [...PERSISTENT_KINDS]),
+          isNull(sessions.agentId),
           sql`EXISTS (SELECT 1 FROM ${devices} d WHERE d.user_id = ${hostUserId} AND d.device_id = ${sessions.deviceId})`,
           // The starter's own row for the machine makes the starter the host.
           sql`NOT EXISTS (SELECT 1 FROM ${devices} d WHERE d.user_id = ${sessions.userId} AND d.device_id = ${sessions.deviceId})`,
@@ -232,11 +241,12 @@ export async function endForeignHostedSessions(
 }
 
 /**
- * SLOP-2/EXP-1291: a share withdrawn from `teamIds` leaves those teams'
- * agents on this device running on the owner's credentials with nobody able
- * to stop them (agent settings are team-owner-only). Disarm them in the
- * caller's transaction: every trigger disabled, the agent idle. Their
- * owners re-arm them on another device.
+ * SLOP-2/EXP-1291/NEW-2: a share withdrawn from `teamIds` leaves those
+ * teams' agents on this device running on the owner's credentials with
+ * nobody able to stop them (agent settings are team-owner-only). Disarm
+ * them in the caller's transaction: every trigger of an `agents` row on
+ * the device disabled, its conversations idle. Their owners re-arm them on
+ * another device.
  */
 export async function pauseDeviceAgents(
   tx: Tx,
@@ -245,21 +255,24 @@ export async function pauseDeviceAgents(
 ): Promise<number> {
   if (teamIds.length === 0) return 0
   const paused = await tx
-    .update(sessions)
+    .update(agents)
     .set({
-      triggers: sql`(SELECT coalesce(jsonb_agg(t || '{"enabled": false}'::jsonb), '[]'::jsonb) FROM jsonb_array_elements(${sessions.triggers}) t)`,
-      status: `idle`,
-      busy: false,
+      triggers: sql`(SELECT coalesce(jsonb_agg(t || '{"enabled": false}'::jsonb), '[]'::jsonb) FROM jsonb_array_elements(${agents.triggers}) t)`,
       updatedAt: new Date(),
     })
-    .where(
-      and(
-        inArray(sessions.kind, [...TRIGGER_KINDS]),
-        isNull(sessions.parentId),
-        eq(sessions.deviceId, deviceId),
-        inArray(sessions.teamId, teamIds)
+    .where(and(eq(agents.deviceId, deviceId), inArray(agents.teamId, teamIds)))
+    .returning({ id: agents.id })
+  if (paused.length > 0) {
+    await tx
+      .update(sessions)
+      .set({ status: `idle`, busy: false, updatedAt: new Date() })
+      .where(
+        and(
+          inArray(sessions.agentId, paused.map((row) => row.id)),
+          isNull(sessions.parentId),
+          ne(sessions.status, `ended`)
+        )
       )
-    )
-    .returning({ id: sessions.id })
+  }
   return paused.length
 }

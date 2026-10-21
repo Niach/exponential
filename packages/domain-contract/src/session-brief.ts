@@ -8,11 +8,6 @@ import contractJson from "../contract.json" with { type: "json" }
 export interface BriefInput {
   /** The person's text (the composer, an agent's spawn request …). */
   text?: string | null
-  action?: {
-    name: string
-    body: string
-    inputs: { label: string; display: string }[]
-  } | null
   issues?: { identifier: string; title: string }[]
   /** A CHILD session's parent. */
   parent?: { title: string; depth: number; branch: string | null } | null
@@ -42,19 +37,8 @@ export function composeBrief(input: BriefInput): string {
   }
   section(fixture.headings.request, (input.text ?? ``).trim())
   // The plan gate rides right behind the Request: the cut at `briefMaxBytes`
-  // trims from the END, so a near-cap action body can never take it.
+  // trims from the END, so a near-cap request can never take it.
   if (input.planMode) section(fixture.headings.plan, fixture.plan)
-  if (input.action) {
-    const parts = [input.action.body.trim()].filter(Boolean)
-    if (input.action.inputs.length > 0) {
-      parts.push(
-        `${fixture.inputsLine}\n\n${input.action.inputs
-          .map((entry) => `- ${entry.label}: ${entry.display}`)
-          .join(`\n`)}`
-      )
-    }
-    section(fixture.headings.action.replace(`{name}`, input.action.name), parts.join(`\n\n`))
-  }
   section(
     fixture.headings.issues,
     (input.issues ?? []).map((issue) => `- ${issue.identifier} ${issue.title}`).join(`\n`)

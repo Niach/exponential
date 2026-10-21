@@ -243,8 +243,7 @@ describe(`useLaunchOptions account`, () => {
   })
 })
 
-// FEED-73: a real action owns its run's MCP list (the server sets it on
-// start), so the composer's pick never rides out for one.
+// EXP-792: the composer's MCP pick rides out with the start.
 describe(`useLaunchOptions MCP pick`, () => {
   const mcpServers = [
     {
@@ -254,7 +253,7 @@ describe(`useLaunchOptions MCP pick`, () => {
     },
   ] as never
 
-  it(`sends the pick, and omits it when the subject owns the list`, () => {
+  it(`sends the pick`, () => {
     const { result } = renderHook(() =>
       useLaunchOptions({
         open: true,
@@ -264,9 +263,6 @@ describe(`useLaunchOptions MCP pick`, () => {
       })
     )
     expect(result.current.buildOptions().mcpServerIds).toEqual([`linear`])
-    expect(
-      result.current.buildOptions({ omitMcp: true }).mcpServerIds
-    ).toBeUndefined()
   })
 })
 

@@ -187,12 +187,13 @@ function ThreadPage() {
     return () => clearTimeout(timer)
   }, [threadId])
 
-  // A team agent's root is no thread: its page is the agent's channel.
-  if (thread.root?.kind === `agent`) {
+  // An agent's conversation (NEW-2: a root with `agentId`) is no thread:
+  // its page is the agent's.
+  if (thread.root?.agentId) {
     return (
       <Navigate
         to="/t/$teamSlug/agents/$agentId"
-        params={{ teamSlug, agentId: thread.root.id }}
+        params={{ teamSlug, agentId: thread.root.agentId }}
         replace
       />
     )

@@ -359,7 +359,7 @@ fn run_daemon(args: &[String]) -> CommandResult {
         Arc::clone(&logins_inflight),
         Arc::clone(&check_in),
     );
-    // EXP-1292: the pickup + trigger host — this daemon's own Electric
+    // EXP-1292: the pickup host — this daemon's own Electric
     // pipeline (a shape subset in `sync-cli.sqlite`, never the GUI's store),
     // ONE delta drain nudging the ONE serialized worker, plus the 30s
     // self-tick below. Sync failing to open is not fatal for the device row
@@ -477,10 +477,9 @@ fn run_daemon(args: &[String]) -> CommandResult {
     // converges in ~1s (and a restarted daemon corrects a stale count on its
     // first tick) instead of up to a full heartbeat interval.
     let mut reported_sessions: Option<usize> = None;
-    // EXP-530: the worker beat. The pickup and event triggers ride the
-    // delta drain (they act within a second of the row landing); this tick
-    // is what makes SCHEDULES fire — and the catch-up pass after a
-    // sleep/offline stretch, where no delta ever arrives.
+    // EXP-530: the worker beat. The pickup rides the delta drain (it acts
+    // within a second of the row landing); this tick is the catch-up pass
+    // after a sleep/offline stretch, where no delta ever arrives.
     let mut last_worker_tick = Instant::now();
     // EXP-1005: the account-rotation wall beat (every ROTATION_BEAT).
     let mut rotation = RotationHost {
@@ -2285,22 +2284,21 @@ fn report_worktrees(
 }
 
 // ---------------------------------------------------------------------------
-// EXP-1292: the pickup + trigger host — this daemon's own Electric pipeline
-// (a shape subset in `sync-cli.sqlite`), ONE delta-drain thread, and ONE
-// serialized worker. Each pass runs the session pickup (the database is the
-// bus: `queued` rows naming this device launch, person messages deliver, a
-// row gone `ended` kills — `coding::pickup`) and then the agent trigger pass
-// (team agents' schedule/event triggers bound to this device post their
-// firing into the agent's channel). Sessions it spawns join the normal
+// EXP-1292: the pickup host — this daemon's own Electric pipeline (a shape
+// subset in `sync-cli.sqlite`), ONE delta-drain thread, and ONE serialized
+// worker. Each pass runs the session pickup (the database is the bus:
+// `queued` rows naming this device launch, person messages deliver, a row
+// gone `ended` kills — `coding::pickup`). NEW-2: agent triggers are fired
+// by the SERVER (a message into the agent's conversation session), never
+// here. Sessions it spawns join the normal
 // `Sessions` vec, so heartbeat/parked-update/quit-sweep cover them like any
 // other run.
 // ---------------------------------------------------------------------------
 
 /// What the daemon syncs: the session tree and its conversation (`sessions`,
-/// `messages`, `session_issues` — the pickup's input; the agent rows also
-/// carry the triggers), the event feed (`issue_events`), and the rows the
-/// firing lines, board filters and branch names read (`issues`, `boards`,
-/// `labels`, `issue_statuses`). Deliberately NOT the desktop's whole set — a
+/// `messages`, `session_issues` — the pickup's input) and the rows the
+/// branch names read (`issues`, `boards`). Deliberately NOT the desktop's
+/// whole set — a
 /// headless daemon has no views to hydrate. A name the sync crate has no
 /// spec for is skipped by the pipeline (the v2 specs land with #EXP-1294).
 const DAEMON_SHAPES: &[&str] = &[
@@ -2308,10 +2306,7 @@ const DAEMON_SHAPES: &[&str] = &[
     "messages",
     "session_issues",
     "issues",
-    "issue_events",
     "boards",
-    "labels",
-    "issue_statuses",
 ];
 
 /// The shapes a pickup pass reads. It runs only once BOTH reached
@@ -2319,10 +2314,9 @@ const DAEMON_SHAPES: &[&str] = &[
 /// whose row is missing, so a cold store must never be planned over.
 const PICKUP_SHAPES: &[&str] = &["sessions", "messages"];
 
-/// The worker's self-tick. Deltas drive the pickup and event triggers (they
-/// act within a second of the row landing); this beat is what makes
-/// SCHEDULES fire at all, and it is the catch-up pass after a sleep/offline
-/// stretch where no delta ever arrives.
+/// The worker's self-tick. Deltas drive the pickup (it acts within a second
+/// of the row landing); this beat is the catch-up pass after a
+/// sleep/offline stretch where no delta ever arrives.
 const DAEMON_TICK: Duration = Duration::from_secs(30);
 
 /// How long a failed launch/resume attempt waits before the pass retries it
@@ -2338,12 +2332,8 @@ const SWITCH_BUSY_RETRY: Duration = Duration::from_secs(2);
 /// EXP-1252: how soon a move whose engine is not truly idle yet looks again.
 const HANDOFF_WAIT_RETRY: Duration = Duration::from_secs(5);
 
-/// How long a posted trigger firing counts its agent busy before the
-/// `messages` shape shows it (then the row's own `consumed_at` decides).
-const FIRING_SYNC_GRACE: Duration = Duration::from_secs(10 * 60);
-
 /// Open the daemon's shape store and start its pipeline. `None` (logged, not
-/// fatal) leaves the pickup and triggers dormant while every other daemon
+/// fatal) leaves the pickup dormant while every other daemon
 /// duty — heartbeat, worktree commands, history serving — keeps running.
 fn start_daemon_sync(ctx: &Ctx, gated: &Arc<AtomicBool>) -> Option<Arc<sync::SyncManager>> {
     // NEVER `sync-v2.sqlite`: that file belongs to the desktop GUI, and two
@@ -2355,7 +2345,7 @@ fn start_daemon_sync(ctx: &Ctx, gated: &Arc<AtomicBool>) -> Option<Arc<sync::Syn
         .join("sync-cli.sqlite");
     if let Some(parent) = db_path.parent() {
         if let Err(err) = std::fs::create_dir_all(parent) {
-            log::warn!("daemon sync: store dir ({err}) — sessions and triggers disabled");
+            log::warn!("daemon sync: store dir ({err}) — sessions disabled");
             return None;
         }
     }
@@ -2387,22 +2377,17 @@ fn start_daemon_sync(ctx: &Ctx, gated: &Arc<AtomicBool>) -> Option<Arc<sync::Syn
             Some(manager)
         }
         Err(err) => {
-            log::warn!("daemon sync: store failed to open ({err}) — sessions and triggers disabled");
+            log::warn!("daemon sync: store failed to open ({err}) — sessions disabled");
             None
         }
     }
 }
 
-/// Why the worker woke up. Every variant runs the same full pass; they
-/// differ only in whether the (expensive) `issue_events` snapshot has to be
-/// re-read — EXP-562: a beat that nothing eventful scheduled reuses the
-/// cached rows instead of hydrating the table again.
+/// Why the worker woke up. Every variant runs the same full pass.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum DaemonWork {
-    /// A synced `issue_events` batch landed — the cache is stale.
-    EventsChanged,
     /// A `sessions` / `messages` / `session_issues` batch landed (a queued
-    /// start, a message, an agent's triggers edited), or a pickup attempt
+    /// start, a message), or a pickup attempt
     /// settled and the pass should look again.
     Pickup,
     /// The 1s loop's [`DAEMON_TICK`] beat.
@@ -2429,7 +2414,6 @@ impl SyncedShapes {
 /// The work a delta wakes, `None` = nothing the worker reads.
 fn delta_work(shape: &str) -> Option<DaemonWork> {
     match shape {
-        "issue_events" => Some(DaemonWork::EventsChanged),
         "sessions" | "messages" | "session_issues" => Some(DaemonWork::Pickup),
         _ => None,
     }
@@ -2614,20 +2598,12 @@ struct DaemonHost {
     synced: Arc<SyncedShapes>,
     /// The worker's own queue: a settled attempt asks for the next pass.
     nudge: flume::Sender<DaemonWork>,
-    /// EXP-562: the last hydrated event snapshot, reused by every beat no
-    /// `issue_events` batch woke up. `None` = nothing cached (first beat, a
-    /// failed read, or a device with no event trigger at all).
-    event_cache: Option<Vec<coding::triggers::EventRow>>,
     /// The startup reconcile of the store's rows ran (once per process).
     reconciled: bool,
-    /// Trigger firings this daemon posted that the `messages` shape has not
-    /// shown yet: agent id → (message id, posted at). They count the agent
-    /// busy, so a second firing never piles onto an unread first.
-    posted: HashMap<String, (String, Instant)>,
 }
 
 /// The `spawn_device_worker` idiom: unbounded flume + ONE thread, so two
-/// passes never plan (or write trigger state) concurrently.
+/// passes never plan concurrently.
 fn spawn_daemon_worker(
     pickup: Arc<DaemonPickup>,
     synced: Arc<SyncedShapes>,
@@ -2637,34 +2613,20 @@ fn spawn_daemon_worker(
         pickup,
         synced,
         nudge: tx.clone(),
-        event_cache: None,
         reconciled: false,
-        posted: HashMap::new(),
     };
     std::thread::Builder::new()
         .name("exp-daemon-worker".to_string())
         .spawn(move || {
-            while let Ok(first) = rx.recv() {
+            while rx.recv().is_ok() {
                 // Coalesce a burst (a refetch is thousands of rows in a
                 // handful of batches) into ONE pass.
-                let mut batch = vec![first];
-                while let Ok(more) = rx.try_recv() {
-                    batch.push(more);
-                }
-                host.beat(rescan_events(&batch));
+                while rx.try_recv().is_ok() {}
+                host.beat();
             }
         })
         .expect("spawn the daemon worker");
     tx
-}
-
-/// Whether a coalesced burst invalidates the event snapshot: ONE
-/// `issue_events` batch anywhere in it does, a pile of ticks and session
-/// deltas does not.
-fn rescan_events(batch: &[DaemonWork]) -> bool {
-    batch
-        .iter()
-        .any(|work| matches!(work, DaemonWork::EventsChanged))
 }
 
 /// The session a pickup action is about.
@@ -2697,16 +2659,15 @@ fn woke(result: Result<Vec<String>, String>) -> bool {
 impl DaemonHost {
     /// One pass. Every failure mode degrades to "do nothing this beat" — the
     /// next nudge or tick retries from fresh state.
-    fn beat(&mut self, rescan: bool) {
+    fn beat(&mut self) {
         let Some(store) = self.pickup.store() else {
             return;
         };
-        let rows = read_shape_rows::<SessionRow>(&store, "sessions");
-        let messages = read_shape_rows::<MessageRow>(&store, "messages");
         if self.synced.ready(PICKUP_SHAPES) {
+            let rows = read_shape_rows::<SessionRow>(&store, "sessions");
+            let messages = read_shape_rows::<MessageRow>(&store, "messages");
             self.pickup_pass(&rows, &messages);
         }
-        self.trigger_pass(&store, &rows, &messages, rescan);
     }
 
     /// The session pickup: plan over the shapes, then act. Launches and
@@ -2936,125 +2897,6 @@ impl DaemonHost {
         });
     }
 
-    /// The agent trigger pass: evaluate this device's agents' triggers;
-    /// a firing is persisted FIRST (watermark-at-post), then its text is
-    /// posted into the agent's channel (`sessions.send`) — the pickup then
-    /// delivers it like any message, waking the agent if it idles.
-    fn trigger_pass(
-        &mut self,
-        store: &sync::store::ShapeStore,
-        rows: &[SessionRow],
-        messages: &[MessageRow],
-        rescan: bool,
-    ) {
-        let armed = coding::triggers::bound_agent_triggers(rows.iter(), &self.pickup.device_id);
-        if armed.is_empty() {
-            self.event_cache = None;
-            self.posted.clear();
-            return;
-        }
-        let trigger_store = coding::triggers::TriggerStore::open(
-            &self.pickup.ctx.data_dir,
-            &self.pickup.device_id,
-        );
-        let mut states = coding::triggers::read_states(&trigger_store);
-        let now_local = chrono::Local::now();
-        let now_ms = now_local.timestamp_millis();
-
-        if !coding::triggers::needs_events(&armed) {
-            // Schedule-only device: never touch the events table, and drop
-            // whatever a previously-enabled event trigger left cached.
-            self.event_cache = None;
-        } else if rescan || self.event_cache.is_none() {
-            // A failed read is NOT cached — this beat evaluates with no
-            // events (an event trigger simply decides nothing) and the next
-            // one retries the scan.
-            self.event_cache = read_event_rows(store, now_ms);
-        } else if let Some(cached) = self.event_cache.as_mut() {
-            patch_missing_boards(store, cached);
-        }
-        let events: &[coding::triggers::EventRow] = self.event_cache.as_deref().unwrap_or(&[]);
-        let busy = busy_agent_ids(rows, messages, &mut self.posted, Instant::now());
-
-        let decisions = coding::triggers::evaluate(&coding::triggers::EvalInput {
-            armed: &armed,
-            states: &states,
-            events,
-            busy_agent_ids: &busy,
-            now_ms,
-            now_local,
-        });
-
-        // Re-seeds are pure bookkeeping (a new or edited trigger anchoring
-        // itself) — persist the whole batch in ONE write.
-        let mut reseeded = false;
-        for decision in &decisions {
-            if let coding::triggers::Decision::Reseed {
-                trigger_id,
-                new_state,
-            } = decision
-            {
-                states.insert(trigger_id.clone(), new_state.clone());
-                reseeded = true;
-            }
-        }
-        if reseeded {
-            persist_trigger_states(&trigger_store, &states);
-        }
-
-        let mut fired_agents: HashSet<String> = HashSet::new();
-        for decision in decisions {
-            let coding::triggers::Decision::Fire {
-                trigger_id,
-                firing,
-                new_state,
-            } = decision
-            else {
-                continue;
-            };
-            let Some(armed_trigger) = armed
-                .iter()
-                .find(|candidate| candidate.trigger_id == trigger_id)
-            else {
-                continue;
-            };
-            let agent_id = armed_trigger.agent_id.clone();
-            // Two triggers of one agent in one pass: the second waits for the
-            // next beat (no state written — it re-decides then).
-            if fired_agents.contains(&agent_id) {
-                continue;
-            }
-            // Watermark-at-post (the firing protocol): persist before
-            // posting, so a crash mid-post drops the firing instead of
-            // re-firing the same events forever.
-            states.insert(trigger_id.clone(), new_state.clone());
-            if !persist_trigger_states(&trigger_store, &states) {
-                continue;
-            }
-            fired_agents.insert(agent_id.clone());
-            let lookups = event_lookups(store, &firing);
-            let text = coding::triggers::firing_text(armed_trigger, &firing, &lookups);
-            match api::session_device::post_message(&self.pickup.ctx.trpc, &agent_id, &text) {
-                Ok(message_id) => {
-                    log::info!("trigger {trigger_id} fired into agent {agent_id} (message {message_id})");
-                    self.posted.insert(agent_id, (message_id, Instant::now()));
-                }
-                Err(err) => {
-                    // Poison-pill backoff: the events are already consumed (a
-                    // firing that cannot post must not hot-loop the same
-                    // batch), so only the cooldown moves.
-                    log::warn!("trigger {trigger_id} failed to post into agent {agent_id}: {err}");
-                    let mut backed_off = new_state;
-                    backed_off.cooldown_until = Some(
-                        backed_off.cooldown_until.unwrap_or(now_ms)
-                            + coding::triggers::SEND_FAILURE_BACKOFF_MS,
-                    );
-                    states.insert(trigger_id, backed_off);
-                    persist_trigger_states(&trigger_store, &states);
-                }
-            }
-        }
-    }
 }
 
 /// EXP-1292: a session with no engine on this device — idle and not working.
@@ -3066,85 +2908,16 @@ fn idle_report() -> api::session_device::SessionReport {
     }
 }
 
-fn persist_trigger_states(
-    store: &coding::triggers::TriggerStore,
-    states: &HashMap<String, coding::triggers::TriggerState>,
-) -> bool {
-    match coding::triggers::write_states(store, states) {
-        Ok(()) => true,
-        Err(err) => {
-            // Without a durable watermark a firing could re-post forever —
-            // skip the fire rather than risk that.
-            log::warn!("triggers: persisting state failed ({err}) — skipping");
-            false
-        }
-    }
-}
-
-/// The agents that must not get another firing yet (pure, unit-tested): a
-/// turn in flight (`busy`), an unconsumed person message in its channel
-/// (an earlier firing included, once synced), or a firing this daemon posted
-/// that the `messages` shape has not shown yet ([`FIRING_SYNC_GRACE`]).
-/// `posted` forgets what the shape now carries (its row decides) or what
-/// outlived the grace.
-fn busy_agent_ids(
-    rows: &[SessionRow],
-    messages: &[MessageRow],
-    posted: &mut HashMap<String, (String, Instant)>,
-    now: Instant,
-) -> HashSet<String> {
-    let synced: HashSet<&str> = messages.iter().map(|message| message.id.as_str()).collect();
-    posted.retain(|_, (message_id, at)| {
-        !synced.contains(message_id.as_str()) && now.saturating_duration_since(*at) < FIRING_SYNC_GRACE
-    });
-    let mut busy: HashSet<String> = posted.keys().cloned().collect();
-    busy.extend(
-        rows.iter()
-            .filter(|row| row.has_triggers() && row.busy)
-            .map(|row| row.id.clone()),
-    );
-    busy.extend(pending_session_ids(messages).into_iter().map(str::to_string));
-    busy
-}
-
 /// The sessions with an input waiting for them — a person's message or one
 /// another session posted (a child's `report`, a child asking its parent):
 /// [`coding::pickup::is_pending_input`], the pickup's own predicate, so the
-/// reconcile's Resume and an agent's firing hold read the same rows.
+/// reconcile's Resume reads the same rows.
 fn pending_session_ids(messages: &[MessageRow]) -> HashSet<&str> {
     messages
         .iter()
         .filter(|message| coding::pickup::is_pending_input(message))
         .map(|message| message.session_id.as_str())
         .collect()
-}
-
-/// The names a firing's event lines render: the matched issues point-read
-/// ([`coding::triggers::firing_issue_ids`]), the two small team-wide tables
-/// whole.
-fn event_lookups(
-    store: &sync::store::ShapeStore,
-    firing: &coding::triggers::Firing,
-) -> coding::triggers::EventLookups {
-    let mut issues = HashMap::new();
-    for issue_id in coding::triggers::firing_issue_ids(firing) {
-        let Some(identifier) = issue_field(store, &issue_id, "identifier") else {
-            continue;
-        };
-        let title = issue_field(store, &issue_id, "title").unwrap_or_default();
-        issues.insert(issue_id, (identifier, title));
-    }
-    coding::triggers::EventLookups {
-        issues,
-        labels: read_shape_rows::<domain::rows::Label>(store, "labels")
-            .into_iter()
-            .map(|label| (label.id, label.name))
-            .collect(),
-        statuses: read_shape_rows::<domain::rows::IssueStatusRow>(store, "issue_statuses")
-            .into_iter()
-            .map(|status| (status.id, status.name))
-            .collect(),
-    }
 }
 
 /// One synced `sessions` row, point-read by primary key (§5.8).
@@ -3204,100 +2977,6 @@ pub(crate) fn read_shape_rows<T: serde::de::DeserializeOwned>(
     }
 }
 
-/// How far BELOW the catch-up cutoff [`event_scan_bound`] aims. The SQL
-/// pre-filter compares raw text, so the margin absorbs everything text order
-/// cannot model — device/server clock skew and a sub-second or offset-suffix
-/// render difference — and keeps the scan a strict superset of the window
-/// the Rust filter then applies exactly.
-const EVENT_SCAN_MARGIN_MS: i64 = 3_600_000;
-
-/// The `created_at >= ?` bound for the event scan: the catch-up cutoff minus
-/// [`EVENT_SCAN_MARGIN_MS`], rendered UTC in the space form Electric emits
-/// (`2026-08-18 06:00:00…`) so a byte compare orders it correctly against
-/// both wire forms — see [`sync::store::ShapeStore::read_where_ge`]. An
-/// unrepresentable instant degrades to the empty bound: a full scan, i.e. the
-/// old behaviour, never a missed row.
-fn event_scan_bound(now_ms: i64) -> String {
-    let floor_ms = now_ms - domain::contract::TRIGGER_EVENT_CATCHUP_MS - EVENT_SCAN_MARGIN_MS;
-    chrono::DateTime::from_timestamp_millis(floor_ms)
-        .map(|at| at.format("%Y-%m-%d %H:%M:%S").to_string())
-        .unwrap_or_default()
-}
-
-/// The candidate event rows: inside the contract catch-up window, with
-/// `board_id` pre-joined from the issue (the `issue_events` shape carries
-/// none, and the engine's board filter needs it — a missing datum
-/// conservatively FAILS a non-empty filter).
-///
-/// SQL narrows the table to the window first (EXP-562 — hydrating every
-/// synced event every beat was the cost); the exact `created_at_ms < cutoff`
-/// filter still runs here, because the text bound is only a superset.
-/// `None` means the read FAILED — the caller evaluates with no events and
-/// caches nothing, so the next beat retries.
-fn read_event_rows(
-    store: &sync::store::ShapeStore,
-    now_ms: i64,
-) -> Option<Vec<coding::triggers::EventRow>> {
-    let spec = sync::shapes::shape_by_name("issue_events")?;
-    let raw = match store.read_where_ge(spec, "created_at", &event_scan_bound(now_ms)) {
-        Ok(raw) => raw,
-        Err(err) => {
-            log::debug!("triggers: scanning the issue_events table failed: {err}");
-            return None;
-        }
-    };
-    let cutoff = now_ms - domain::contract::TRIGGER_EVENT_CATCHUP_MS;
-    let mut boards: HashMap<String, Option<String>> = HashMap::new();
-    Some(
-        raw.into_iter()
-            // §5.5 tolerant decode — an undecodable row is dropped, never fatal.
-            .filter_map(|row| {
-                serde_json::from_value::<domain::rows::IssueEvent>(serde_json::Value::Object(row))
-                    .ok()
-            })
-            .filter_map(|row| {
-                let created_at_ms = row.created_at.as_deref().and_then(parse_epoch_ms)?;
-                if created_at_ms < cutoff {
-                    return None;
-                }
-                let board_id = boards
-                    .entry(row.issue_id.clone())
-                    .or_insert_with(|| issue_field(store, &row.issue_id, "board_id"))
-                    .clone();
-                Some(coding::triggers::EventRow {
-                    id: row.id,
-                    issue_id: row.issue_id,
-                    // The engine fences matching to the action's own team — a
-                    // missing value conservatively never matches.
-                    team_id: row.team_id,
-                    created_at_ms,
-                    kind: row.kind.unwrap_or_default(),
-                    payload: row.payload,
-                    board_id,
-                })
-            })
-            .collect(),
-    )
-}
-
-/// Re-join the `board_id` of CACHED rows that still have none: `issue_events`
-/// routinely syncs ahead of its issue, and an unknown board conservatively
-/// FAILS a board filter — so a miss frozen into the cache would silently
-/// never match, even once the issue lands. Only the misses are point-read
-/// (deduped per issue), so a cached beat stays O(unresolved issues).
-fn patch_missing_boards(
-    store: &sync::store::ShapeStore,
-    rows: &mut [coding::triggers::EventRow],
-) {
-    let mut resolved: HashMap<String, Option<String>> = HashMap::new();
-    for row in rows.iter_mut().filter(|row| row.board_id.is_none()) {
-        row.board_id = resolved
-            .entry(row.issue_id.clone())
-            .or_insert_with(|| issue_field(store, &row.issue_id, "board_id"))
-            .clone();
-    }
-}
-
 /// One column of one issue, point-read by primary key (§5.8).
 fn issue_field(store: &sync::store::ShapeStore, issue_id: &str, column: &str) -> Option<String> {
     let spec = sync::shapes::shape_by_name("issues")?;
@@ -3307,26 +2986,6 @@ fn issue_field(store: &sync::store::ShapeStore, issue_id: &str, column: &str) ->
     row.get(column)
         .and_then(serde_json::Value::as_str)
         .map(str::to_string)
-}
-
-/// Tolerant ISO-8601 → MS epoch (the watermark scale). Electric/Postgres
-/// emit both the RFC 3339 form and the `2026-07-03 10:00:00+00` space form —
-/// the twin of the ui crate's `comments::parse_epoch`, in milliseconds.
-fn parse_epoch_ms(raw: &str) -> Option<i64> {
-    let trimmed = raw.trim();
-    if trimmed.is_empty() {
-        return None;
-    }
-    if let Ok(parsed) = chrono::DateTime::parse_from_rfc3339(trimmed) {
-        return Some(parsed.timestamp_millis());
-    }
-    let t_form = trimmed.replacen(' ', "T", 1);
-    for candidate in [t_form.clone(), format!("{t_form}:00"), format!("{t_form}Z")] {
-        if let Ok(parsed) = chrono::DateTime::parse_from_rfc3339(&candidate) {
-            return Some(parsed.timestamp_millis());
-        }
-    }
-    None
 }
 
 // ---------------------------------------------------------------------------
@@ -3909,14 +3568,8 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // EXP-1292: the pickup + trigger host's pure helpers
+    // EXP-1292: the pickup host's pure helpers
     // -----------------------------------------------------------------------
-
-    fn session(id: &str, json: serde_json::Value) -> SessionRow {
-        let mut value = json;
-        value["id"] = serde_json::json!(id);
-        serde_json::from_value(value).expect("session row decodes")
-    }
 
     fn message(id: &str, session_id: &str, consumed: bool) -> MessageRow {
         serde_json::from_value(serde_json::json!({
@@ -3944,8 +3597,8 @@ mod tests {
     }
 
     /// EXP-1329: a child's pending `report` is an input like a person's
-    /// message — it holds the agent's next firing and marks the row for the
-    /// reconcile's Resume; the session's own reply never does.
+    /// message — it marks the row for the reconcile's Resume; the session's
+    /// own reply never does.
     #[test]
     fn pending_inputs_count_child_reports_never_own_replies() {
         let messages = vec![
@@ -3958,48 +3611,6 @@ mod tests {
         let mut pending: Vec<&str> = pending_session_ids(&messages).into_iter().collect();
         pending.sort_unstable();
         assert_eq!(pending, vec!["s-person", "s-reported"]);
-    }
-
-    /// An agent gets no second firing while it works, while a person message
-    /// (an earlier firing included) waits in its channel, or while a firing
-    /// this daemon posted has not synced back yet; the posted memory lets go
-    /// once the shape carries the row, or after the grace.
-    #[test]
-    fn busy_agents_defer_their_next_firing() {
-        let rows = vec![
-            session("agent-busy", serde_json::json!({"kind": "agent", "busy": "true"})),
-            session("agent-idle", serde_json::json!({"kind": "agent", "busy": "false"})),
-            session("agent-queued", serde_json::json!({"kind": "agent"})),
-            session("agent-posted", serde_json::json!({"kind": "agent"})),
-            session("agent-synced", serde_json::json!({"kind": "agent"})),
-            // EXP-1329: a child's pending report is an input too.
-            session("agent-reported", serde_json::json!({"kind": "agent"})),
-            session("agent-replied", serde_json::json!({"kind": "agent"})),
-            // A busy THREAD is no agent to defer.
-            session("thread", serde_json::json!({"kind": "thread", "busy": "true"})),
-        ];
-        let messages = vec![
-            message("m-pending", "agent-queued", false),
-            message("m-consumed", "agent-idle", true),
-            message("m-synced", "agent-synced", true),
-            agent_message("m-report", "agent-reported", Some("child-1")),
-            // The agent's own reply waits on nobody.
-            agent_message("m-reply", "agent-replied", None),
-        ];
-        let now = Instant::now();
-        let mut posted = HashMap::from([
-            ("agent-posted".to_string(), ("m-unsynced".to_string(), now)),
-            ("agent-synced".to_string(), ("m-synced".to_string(), now)),
-            (
-                "agent-stale".to_string(),
-                ("m-lost".to_string(), now - FIRING_SYNC_GRACE),
-            ),
-        ]);
-        let busy = busy_agent_ids(&rows, &messages, &mut posted, now);
-        let mut busy: Vec<&str> = busy.iter().map(String::as_str).collect();
-        busy.sort_unstable();
-        assert_eq!(busy, vec!["agent-busy", "agent-posted", "agent-queued", "agent-reported"]);
-        assert_eq!(posted.keys().collect::<Vec<_>>(), vec!["agent-posted"]);
     }
 
     /// The branch and label follow the thread's link order — `sort_order`
@@ -4021,14 +3632,14 @@ mod tests {
         assert_eq!(ordered_issue_ids(links, "root"), vec!["i-two", "i-three", "i-ten"]);
     }
 
-    /// The pickup's input shapes wake the pass, the event feed invalidates
-    /// the snapshot, everything else is ignored.
+    /// The pickup's input shapes wake the pass, everything else is ignored
+    /// (NEW-2: no event feed: the server fires agent triggers).
     #[test]
     fn deltas_route_to_the_worker() {
         assert_eq!(delta_work("sessions"), Some(DaemonWork::Pickup));
         assert_eq!(delta_work("messages"), Some(DaemonWork::Pickup));
         assert_eq!(delta_work("session_issues"), Some(DaemonWork::Pickup));
-        assert_eq!(delta_work("issue_events"), Some(DaemonWork::EventsChanged));
+        assert_eq!(delta_work("issue_events"), None);
         assert_eq!(delta_work("labels"), None);
     }
 
@@ -4089,55 +3700,6 @@ mod tests {
         drop(held);
         assert!(!foreground_start_held(&dir));
         let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    /// Postgres/Electric timestamp forms → the watermark's ms scale.
-    #[test]
-    fn event_timestamps_parse_in_both_wire_forms() {
-        let expected = 1_754_395_200_000;
-        assert_eq!(parse_epoch_ms("2025-08-05T12:00:00.000Z"), Some(expected));
-        assert_eq!(parse_epoch_ms("2025-08-05T12:00:00Z"), Some(expected));
-        assert_eq!(parse_epoch_ms("2025-08-05 12:00:00+00"), Some(expected));
-        assert_eq!(parse_epoch_ms("2025-08-05 12:00:00+00:00"), Some(expected));
-        assert_eq!(parse_epoch_ms(""), None);
-        assert_eq!(parse_epoch_ms("not-a-date"), None);
-    }
-
-    /// EXP-562: the SQL pre-filter's bound is UTC, second-granular, and a
-    /// margin BELOW the catch-up cutoff — a byte compare against either wire
-    /// form must never exclude a row the exact filter would keep.
-    #[test]
-    fn event_scan_bound_renders_utc_seconds_minus_margin() {
-        // 2025-08-05 12:00:00Z, in a zone whose local time is irrelevant.
-        let now_ms = 1_754_395_200_000;
-        let bound = event_scan_bound(now_ms);
-        assert_eq!(bound, "2025-08-04 11:00:00");
-        assert_eq!(
-            parse_epoch_ms(&format!("{bound}+00")),
-            Some(now_ms - domain::contract::TRIGGER_EVENT_CATCHUP_MS - EVENT_SCAN_MARGIN_MS),
-            "the bound IS the cutoff minus the margin, to the second"
-        );
-        // Both wire forms of a row exactly AT the cutoff sort above it.
-        let cutoff_ms = now_ms - domain::contract::TRIGGER_EVENT_CATCHUP_MS;
-        let at_cutoff = chrono::DateTime::from_timestamp_millis(cutoff_ms).unwrap();
-        assert!(at_cutoff.format("%Y-%m-%d %H:%M:%S%.3f+00").to_string() > bound);
-        assert!(at_cutoff.to_rfc3339() > bound);
-    }
-
-    /// Only an `issue_events` batch invalidates the cached snapshot — ticks
-    /// and session deltas re-decide over the rows already in hand.
-    #[test]
-    fn only_an_events_batch_forces_a_rescan() {
-        assert!(!rescan_events(&[DaemonWork::Tick]));
-        assert!(!rescan_events(&[DaemonWork::Tick, DaemonWork::Pickup]));
-        assert!(rescan_events(&[
-            DaemonWork::Tick,
-            DaemonWork::EventsChanged,
-            DaemonWork::Pickup,
-        ]));
-        // An empty drain can't happen (recv yields the first item), but the
-        // fold must still be total.
-        assert!(!rescan_events(&[]));
     }
 
     /// EXP-746 (D9): the cap LISTS and their three tests moved into

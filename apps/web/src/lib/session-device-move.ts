@@ -60,10 +60,11 @@ export function movingLabel(deviceName: string): string {
   return MOVING_LABEL.replace(`{device}`, deviceName)
 }
 
-/** The pin renders at all: never for an agent (persistent; it moves from
+/** The pin renders at all: never for an agent's conversation (NEW-2: a
+ *  session with `agentId`, persistent; it moves with its agent's device in
  *  Settings → Agents) nor an aside (it stays on its parent's device). */
 export function deviceMoveVisible(session: {
-  kind?: string | null
+  agentId?: string | null
   aside?: boolean | null
 }): boolean {
   return deviceMoveHiddenReason(session) === null
@@ -71,7 +72,7 @@ export function deviceMoveVisible(session: {
 
 /** Why the pin is hidden (the server's refusal for the same request). */
 export function deviceMoveHiddenReason(session: {
-  kind?: string | null
+  agentId?: string | null
   aside?: boolean | null
 }): string | null {
   if (isPersistent(session)) return REASON_AGENT

@@ -118,11 +118,8 @@ describe(`sessionsSendInputSchema — name and issues`, () => {
     const cases: Array<[unknown, string]> = [
       [{ sessionId: SESSION, text: `go`, name: `x` }, `a name is for a new session`],
       [
-        {
-          name: `x`,
-          agent: { name: `Bot`, icon: `bot`, color: `#112233` },
-        },
-        `an agent is named by agent.name`,
+        { agentId: `11111111-1111-4111-8111-111111111111`, text: `hi`, name: `x` },
+        `a message to an agent takes no root facets`,
       ],
     ]
     for (const [input, message] of cases) {

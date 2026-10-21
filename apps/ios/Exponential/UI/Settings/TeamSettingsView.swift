@@ -13,8 +13,8 @@ struct TeamSettingsView: View {
     @State private var members: [TeamMemberEntity] = []
     @State private var labels: [LabelEntity] = []
     @State private var boards: [BoardEntity] = []
-    // EXP-1291: the team's agent roots, listed like the boards.
-    @State private var agents: [SessionEntity] = []
+    // NEW-2: the team's agent definitions, listed like the boards.
+    @State private var agents: [AgentDefinitionEntity] = []
     @State private var agentTarget: AgentPageTarget?
     @State private var users: [UserEntity] = []
     // Invites of this team — the Members list badges the placeholder members
@@ -274,7 +274,7 @@ struct TeamSettingsView: View {
         })
         observationTasks.append(Task {
             let obs = ValueObservation.tracking { db in
-                try SessionQueries.roots(db: db, teamId: teamId, kind: DomainContract.sessionKindAgent)
+                try SessionQueries.agents(db: db, teamId: teamId)
             }
             do {
                 for try await items in obs.values(in: pool) {

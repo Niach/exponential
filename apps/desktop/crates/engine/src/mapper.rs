@@ -851,8 +851,7 @@ impl Mapper {
                 }
             }
             SessionUpdate::AvailableCommandsUpdate(update) => {
-                let mapped = self.map_commands(&update.available_commands);
-                self.config_state.commands = Some(mapped);
+                self.config_state.commands = self.map_commands(&update.available_commands);
                 self.emit_config_state(out);
             }
             SessionUpdate::CurrentModeUpdate(update) => {
@@ -1475,8 +1474,7 @@ impl Mapper {
             self.config_state.options = self.map_options(options);
         }
         if !commands.is_empty() {
-            let mapped = self.map_commands(commands);
-            self.config_state.commands = Some(mapped);
+            self.config_state.commands = self.map_commands(commands);
         }
         self.emit_config_state(out);
     }
@@ -2780,11 +2778,6 @@ impl Mapper {
             .to_string()
     }
 
-    /// The agent's own `/` commands. EXP-758: their three labels go through
-    /// [`Mapper::clean`] like every other published string: an agent's
-    /// command catalog is built from files in the REPO (claude's
-    /// `.claude/commands`), so a description is exactly as
-    /// likely to quote a token as any other text the run produces.
     /// EXP-877: the agent's option list, wire-shaped. An EMPTY select list
     /// maps to `values: None` — the wire's "read-only on this run" (a menu of
     /// nothing is not a menu), which is exactly what the adapters publish for
@@ -2846,31 +2839,20 @@ impl Mapper {
             .collect()
     }
 
-    fn map_commands(&self, commands: &[AvailableCommand]) -> Vec<steer::ConfigCommand> {
-        commands
-            .iter()
-            .map(|command| steer::ConfigCommand {
-                name: self.clean(&command.name, steer::activity::CONFIG_ID_MAX),
-                description: self.clean(
-                    &command.description,
-                    steer::activity::CONFIG_DESCRIPTION_MAX,
-                ),
-                hint: command.input.as_ref().and_then(|input| match input {
-                    agent_client_protocol::schema::v1::AvailableCommandInput::Unstructured(
-                        unstructured,
-                    ) => Some(self.clean(&unstructured.hint, steer::activity::CONFIG_HINT_MAX)),
-                    _ => None,
-                }),
-            })
-            .collect()
+    /// The agent's own `/` commands (Claude Code skills, plugins, repo
+    /// `.claude/commands`). NEW-2 (owner 2026-10-21): they are HIDDEN on
+    /// every platform: the composer's `/` menu = the team's prompts plus
+    /// the contract's `steerCommands`, so the catalog is parsed off the ACP
+    /// update and never published (`config_state.commands` stays `None`).
+    fn map_commands(&self, _commands: &[AvailableCommand]) -> Option<Vec<steer::ConfigCommand>> {
+        None
     }
 
     fn build_config_state(&self) -> ActivityEvent {
         let mut event = ActivityEvent::ConfigState {
             // EXP-877: the `model` VALUE and nothing else (EXP-772 emptied
-            // this and EXP-790 keeps every option launch-time). Modes (plan
-            // on/off) and the `/` catalog are still the whole mid-session
-            // steering vocabulary.
+            // this and EXP-790 keeps every option launch-time). NEW-2: the
+            // agent's `/` catalog is never published (always `None`).
             options: self.config_state.options.clone(),
             current_mode: self.config_state.current_mode.clone(),
             modes: self.config_state.modes.clone(),
@@ -5330,9 +5312,10 @@ mod tests {
 
     #[test]
     fn config_state_is_one_clamped_whole_snapshot_carrying_the_model_value() {
-        // EXP-877: the snapshot carries modes, commands AND the `model`
-        // option the adapters publish — a VALUE with no `values`, because a
-        // switch is the `/model <alias>` prompt, not a menu pick.
+        // EXP-877: the snapshot carries modes AND the `model` option the
+        // adapters publish — a VALUE with no `values`, because a switch is
+        // the `/model <alias>` prompt, not a menu pick. NEW-2: the agent's
+        // own commands are parsed and never published.
         use agent_client_protocol::schema::v1::{
             SessionConfigOptionCategory, SessionConfigSelectOption, SessionMode, SessionModeId,
         };
@@ -5363,8 +5346,7 @@ mod tests {
                 "modes": [
                     {"id": "plan", "label": "Plan"},
                     {"id": "bypassPermissions", "label": "Build"}
-                ],
-                "commands": [{"name": "compact", "description": "Compact the context"}]
+                ]
             })
         );
 

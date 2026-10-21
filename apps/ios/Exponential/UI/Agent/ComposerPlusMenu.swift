@@ -4,10 +4,10 @@ import SwiftUI
 
 /// EXP-1249: the launch composer's ONE "+" menu on a phone — a bottom sheet
 /// of the same rows web's dropdown draws (`ComposerMenu.composerMenuLayout`,
-/// fixture-locked ×4): Implement issue ›, Run action ›, Add file or image |
-/// Effort ›, Ultracode | MCP servers ›, Computer use. Implement issue › and Run action › PUSH their page inside
-/// this sheet, THE search list (`AgentIssuePickerPage`,
-/// `AgentActionPickerPage`) with a back row; the other submenu rows close
+/// fixture-locked ×4): Implement issue ›, Add file or image | Effort ›,
+/// Ultracode | MCP servers ›, Computer use (NEW-2: prompts live in the `/`
+/// menu, never here). Implement issue › PUSHES its page inside this sheet,
+/// THE search list (`AgentIssuePickerPage`) with a back row; the other submenu rows close
 /// this sheet and hand off to their picker (a sheet cannot present while its
 /// sibling is still animating away, so the host opens the picker on this
 /// sheet's dismiss); a toggle flips in place.
@@ -88,7 +88,7 @@ struct ComposerPlusMenu: View {
             let disabled = row.id == .effort && launch.agent == "claude" && launch.ultracode
                 || row.id == .addFile && (model.attachFull || model.sending)
             Button {
-                if row.id == .implementIssue || row.id == .runAction {
+                if row.id == .implementIssue {
                     page = row.id
                 } else {
                     onPick(row.id)
@@ -128,7 +128,7 @@ struct ComposerPlusMenu: View {
             } label: {
                 HStack(spacing: 8) {
                     AppIcon(AppIcons.uiChevronLeft, size: 14)
-                    Text(id == .implementIssue ? "Implement issue" : "Run action")
+                    Text("Implement issue")
                         .font(.headline)
                     Spacer(minLength: 0)
                 }
@@ -141,11 +141,7 @@ struct ComposerPlusMenu: View {
             .buttonStyle(.plain)
             .accessibilityLabel("Back")
             .accessibilityIdentifier("agent-composer-submenu-back")
-            if id == .implementIssue {
-                AgentIssuePickerPage(model: model, onClose: onClose)
-            } else {
-                AgentActionPickerPage(model: model, onClose: onClose)
-            }
+            AgentIssuePickerPage(model: model, onClose: onClose)
         }
         .frame(maxHeight: .infinity, alignment: .top)
         .presentationDetents([.large])

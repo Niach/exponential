@@ -101,7 +101,10 @@ export function useEntityRefTargets(
         const row = sessions.get(id)
         return row ? (row.rootId ?? row.id) : null
       },
-      sessionIsAgent: (id) => sessions.get(id)?.kind === `agent`,
+      sessionAgentId: (id) => {
+        const row = sessions.get(id)
+        return row && row.parentId === null ? (row.agentId ?? null) : null
+      },
     }),
     [teamSlug, issueRefs, boards, comments, attachments, notifications, teams, sessions]
   )

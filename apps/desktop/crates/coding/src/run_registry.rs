@@ -127,11 +127,13 @@ pub enum RunKind {
 }
 
 impl RunKind {
-    /// The row's kind (`sessions.kind`; anything but `agent` = a thread).
+    /// The row's kind (NEW-2: derived from `agent_id`, never the legacy
+    /// `kind` shim; anything but an agent's conversation = a thread).
     pub fn of(row: &domain::rows::SessionRow) -> Self {
-        match row.kind.as_deref() {
-            Some(domain::contract::SESSION_KIND_AGENT) => Self::Agent,
-            _ => Self::Thread,
+        if row.is_agent() {
+            Self::Agent
+        } else {
+            Self::Thread
         }
     }
 

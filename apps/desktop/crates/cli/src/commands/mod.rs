@@ -44,18 +44,6 @@ pub fn take_flag(args: &mut Vec<String>, name: &str) -> bool {
     }
 }
 
-/// Collect every `--name k=v` occurrence (repeatable), stripped from `args`.
-pub fn take_values(args: &mut Vec<String>, name: &str) -> Vec<String> {
-    let mut values = Vec::new();
-    while let Some(value) = take_value(args, name) {
-        if value.is_empty() {
-            break;
-        }
-        values.push(value);
-    }
-    values
-}
-
 pub fn reject_unknown_flags(args: &[String]) -> anyhow::Result<()> {
     if let Some(flag) = args.iter().find(|arg| arg.starts_with('-')) {
         anyhow::bail!("unknown option `{flag}`");

@@ -34,6 +34,8 @@ export interface TreeSession {
   icon: string | null
   color: string | null
   sortOrder: number
+  /** NEW-2: the agent this root is a conversation of (absent = null). */
+  agentId?: string | null
   startedAt: string | null
   endedAt: string | null
   createdAt: string
@@ -563,6 +565,14 @@ function eventText(
     if (!name) return null
     text = text.replace(`{session}`, () => name)
   }
+  if (text.includes(`{name}`)) {
+    // NEW-2: a trigger line names its event (an event trigger) and nothing
+    // else; a schedule firing has no name and draws no line (its body
+    // speaks).
+    const name = typeof card.name === `string` && card.name.trim() ? card.name : null
+    if (!name) return null
+    text = text.replace(`{name}`, () => name)
+  }
   return text
 }
 
@@ -1031,7 +1041,8 @@ export function partitionThreads(input: {
   const roots = input.sessions.filter(
     (s) =>
       s.parentId === null &&
-      s.kind === `thread` &&
+      // NEW-2: an agent's conversation (a root with `agentId`) is no thread.
+      !s.agentId &&
       (input.teamId === null || s.teamId === input.teamId)
   )
   const byRoot = new Map<string, TreeSession[]>()
@@ -1139,7 +1150,7 @@ export function threadsUnread(groups: readonly ThreadsListGroup[]): boolean {
 }
 
 export interface AgentRow {
-  sessionId: string
+  agentId: string
   teamId: string
   name: string
   icon: string
@@ -1148,38 +1159,54 @@ export interface AgentRow {
   needsYou: boolean
 }
 
+/** NEW-2: an `agents` definition row as the list needs it. */
+export interface AgentLike {
+  id: string
+  teamId: string
+  name: string
+  icon: string | null
+  color: string | null
+  sortOrder: number
+}
+
 /**
- * The rail's Agents section (above Boards): one row per agent root of the
- * team, icon + color like boards, by `sortOrder` then name. An agent's
- * spinner/needs-you dot covers its own row only (the threads it spawns are
- * their own roots).
+ * The rail's Agents section (above Boards): one row per `agents` definition
+ * of the team (NEW-2), icon + color like boards, by `sortOrder` then name
+ * then id. The spinner / needs-you dot read the VIEWER's own conversation
+ * session with the agent (a root with `agentId` and `userId == me`); a
+ * member without one sees a quiet row.
  */
 export function listAgents(
+  agents: readonly AgentLike[],
   sessions: readonly TreeSession[],
-  teamId: string | null
+  teamId: string | null,
+  me: string | null
 ): AgentRow[] {
-  return sessions
-    .filter(
-      (s) =>
-        s.parentId === null &&
-        s.kind === `agent` &&
-        (teamId === null || s.teamId === teamId)
-    )
+  const mine = new Map<string, TreeSession>()
+  for (const s of sessions) {
+    if (s.parentId === null && s.agentId && s.userId === me) mine.set(s.agentId, s)
+  }
+  return agents
+    .filter((a) => teamId === null || a.teamId === teamId)
+    .slice()
     .sort(
       (a, b) =>
         a.sortOrder - b.sortOrder ||
-        (a.name ?? ``).localeCompare(b.name ?? ``) ||
+        a.name.localeCompare(b.name) ||
         (a.id < b.id ? -1 : 1)
     )
-    .map((s) => ({
-      sessionId: s.id,
-      teamId: s.teamId,
-      name: s.name ?? ``,
-      icon: s.icon ?? listFixture.agentDefaults.icon,
-      color: s.color ?? listFixture.agentDefaults.color,
-      busy: s.busy,
-      needsYou: s.needsInput,
-    }))
+    .map((a) => {
+      const conversation = mine.get(a.id)
+      return {
+        agentId: a.id,
+        teamId: a.teamId,
+        name: a.name,
+        icon: a.icon ?? listFixture.agentDefaults.icon,
+        color: a.color ?? listFixture.agentDefaults.color,
+        busy: conversation?.busy === true && conversation.status !== `ended`,
+        needsYou: conversation?.needsInput === true && conversation.status !== `ended`,
+      }
+    })
 }
 
 /** EXP-1309/1318: the ONE quiet trailing word of a thread row ×4. Keys;

@@ -16,7 +16,7 @@ const run = (over: Partial<TeamLiveRunSession> = {}): TeamLiveRunSession =>
     userId: `u-me`,
     status: `running`,
     needsInput: false,
-    kind: `thread`,
+    agentId: null,
     rootId: null,
     ...over,
   }) as TeamLiveRunSession
@@ -58,7 +58,7 @@ describe(`liveRunsByTeam`, () => {
   it(`skips team agents and every session under one`, () => {
     const map = liveRunsByTeam(
       [
-        run({ kind: `agent` }),
+        run({ agentId: `agent-def-1` }),
         run({ rootId: `agent-1` }),
         run({ teamId: `team-b`, rootId: `thread-1` }),
       ],
@@ -120,7 +120,7 @@ describe(`countsAsLiveSession`, () => {
   })
 
   it(`never counts an agent root, its children or an ended row`, () => {
-    expect(countsAsLiveSession(run({ kind: `agent` }), agents)).toBe(false)
+    expect(countsAsLiveSession(run({ agentId: `agent-def-1` }), agents)).toBe(false)
     expect(countsAsLiveSession(run({ rootId: `agent-1` }), agents)).toBe(false)
     expect(countsAsLiveSession(run({ status: `ended` }), agents)).toBe(false)
   })

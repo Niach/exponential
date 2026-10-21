@@ -7,6 +7,7 @@ import { Link, useRouterState } from "@tanstack/react-router"
 import type { TeamPermissions } from "@/hooks/use-team-permissions"
 import { useTeamBoards, useTeamBySlug } from "@/hooks/use-team-data"
 import { useAgents } from "@/hooks/use-session-tree"
+import { useSession } from "@/hooks/use-session"
 import { AGENT_SETTINGS_TEST_IDS } from "@/components/team/agents-section"
 import { getRuntimeConfigCached, type RuntimeConfig } from "@/lib/runtime-config"
 import {
@@ -134,7 +135,8 @@ export function SettingsSidebar({
   const [createOpen, setCreateOpen] = useState(false)
   // EXP-1293: the Agents group lists the team's agents the same way. Every
   // member sees them (their pages read-only); "New agent" is owner-only.
-  const { agents } = useAgents(team?.id)
+  const { data: authSession } = useSession()
+  const { agents } = useAgents(team?.id, authSession?.user?.id)
 
   return (
     <>
@@ -156,7 +158,22 @@ export function SettingsSidebar({
               key={group.group}
               data-testid={isAgentsGroup ? AGENT_SETTINGS_TEST_IDS.list : undefined}
             >
-              <SidebarGroupLabel>{group.group}</SidebarGroupLabel>
+              {isAgentsGroup ? (
+                // NEW-2: the label opens the Agents page (the list + Events).
+                <SidebarGroupLabel asChild className="hover:text-sidebar-foreground">
+                  <Link
+                    to="/t/$teamSlug/settings/agents"
+                    params={{ teamSlug }}
+                    activeOptions={{ exact: true }}
+                    activeProps={{ className: `text-sidebar-foreground` }}
+                    data-testid="settings-agents-index"
+                  >
+                    {group.group}
+                  </Link>
+                </SidebarGroupLabel>
+              ) : (
+                <SidebarGroupLabel>{group.group}</SidebarGroupLabel>
+              )}
               <SidebarGroupContent>
                 <SidebarMenu>
                   {withBoards && (
@@ -190,11 +207,11 @@ export function SettingsSidebar({
                   {withAgents && (
                     <Fragment>
                       {agents.map((agent) => (
-                        <SidebarMenuItem key={agent.sessionId}>
+                        <SidebarMenuItem key={agent.agentId}>
                           <SidebarMenuButton asChild>
                             <Link
                               to="/t/$teamSlug/settings/agents/$agentId"
-                              params={{ teamSlug, agentId: agent.sessionId }}
+                              params={{ teamSlug, agentId: agent.agentId }}
                             >
                               <BoardGlyph
                                 board={{ icon: agent.icon, color: agent.color }}

@@ -1275,6 +1275,20 @@
       "when": 1792564314700,
       "tag": "0181_new1_sessions_wake_on",
       "breakpoints": true
+    },
+    {
+      "idx": 182,
+      "version": "7",
+      "when": 1792567893206,
+      "tag": "0182_new2_agents_events_prompts",
+      "breakpoints": true
+    },
+    {
+      "idx": 183,
+      "version": "7",
+      "when": 1792567893939,
+      "tag": "0183_new2_sessions_agent_id",
+      "breakpoints": true
     }
   ]
 }

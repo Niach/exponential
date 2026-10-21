@@ -110,7 +110,6 @@ describe(`MobileTabBar FAB (EXP-973)`, () => {
       `/t/$teamSlug/boards/$boardSlug`,
       `/t/$teamSlug/inbox`,
       `/t/$teamSlug/devices`,
-      `/t/$teamSlug/actions`,
       `/t/$teamSlug/threads`,
     ]) {
       route.value = path
@@ -209,7 +208,7 @@ describe(`MobileTabBar Threads (EXP-1293)`, () => {
   })
 })
 
-// EXP-1187: no More on the phone — Actions is a tab of its own, Settings
+// EXP-1187 / NEW-2: no More and no Actions on the phone, Settings
 // lives in the topbar's avatar menu (×3 with iOS and Android).
 describe(`MobileTabBar tabs (EXP-1187)`, () => {
   beforeEach(() => {
@@ -217,13 +216,13 @@ describe(`MobileTabBar tabs (EXP-1187)`, () => {
     memberTeams.value = null
   })
 
-  it(`draws Issues · Inbox · Devices · Threads · Actions and no More`, () => {
+  it(`draws Issues · Inbox · Devices · Threads and no More`, () => {
     renderBar()
     const nav = screen.getByRole(`navigation`, { name: `Primary` })
     const labels = [...nav.querySelectorAll(`a, button`)].map((el) =>
       el.getAttribute(`aria-label`)
     )
-    expect(labels).toEqual([`Issues`, `Inbox`, `Devices`, `Threads`, `Actions`])
+    expect(labels).toEqual([`Issues`, `Inbox`, `Devices`, `Threads`])
     expect(screen.queryByTestId(`nav-more`)).toBeNull()
     expect(screen.queryByLabelText(`More`)).toBeNull()
     expect(screen.queryByLabelText(`Settings`)).toBeNull()
@@ -244,25 +243,11 @@ describe(`MobileTabBar tabs (EXP-1187)`, () => {
     )
   })
 
-  it(`links the Actions tab to the team's actions`, () => {
+  // NEW-2: prompts replaced actions; the phone has no Actions tab.
+  it(`draws no Actions tab`, () => {
     renderBar()
-    const tab = screen.getByTestId(`tab-actions`)
-    expect(tab.getAttribute(`href`)).toBe(`/t/$teamSlug/actions`)
-    expect(tab.getAttribute(`aria-label`)).toBe(`Actions`)
-  })
-
-  it(`lights the Actions tab on the actions routes only`, () => {
-    route.value = `/t/$teamSlug/actions`
-    const view = renderBar()
-    expect(screen.getByTestId(`tab-actions`).className).toContain(
-      `bg-glass-active`
-    )
-    view.unmount()
-    route.value = `/t/$teamSlug/devices`
-    renderBar()
-    expect(screen.getByTestId(`tab-actions`).className).not.toContain(
-      `bg-glass-active`
-    )
+    expect(screen.queryByTestId(`tab-actions`)).toBeNull()
+    expect(screen.queryByLabelText(`Actions`)).toBeNull()
   })
 })
 

@@ -7,9 +7,9 @@
 //! board form's one field) and the Device row; a second group with the
 //! Account row and the Schedule rows (one per trigger, a toggle each, the
 //! trigger editor in its dialog); the Instructions card (server-only,
-//! `sessions.getAgent`, saved on blur); the owner-only "Delete agent".
+//! `agents.get`, saved on blur); the owner-only "Delete agent".
 //!
-//! Every write is `sessions.updateAgent` / `sessions.deleteAgent`; icon,
+//! Every write is `agents.update` / `agents.delete`; icon,
 //! colour, device and account save at once, the name on blur/Enter. A failed
 //! write is the "Couldn't …" toast (FEED-79).
 //!
@@ -36,7 +36,7 @@ use sync::Store;
 use domain::agent_settings::{
     agent_account_value, validate_agent_form, AgentAccountOption, AgentForm, AGENT_SETTINGS,
 };
-use domain::rows::SessionRow;
+use domain::rows::AgentDefRow;
 
 use crate::controls::{glass_input, WebControl as _};
 use crate::native_dialog::{self, AlertSpec};
@@ -268,9 +268,10 @@ pub(crate) fn device_picker_control(
 
 /// Fire-and-forget agent write off the foreground; the synced row's echo
 /// repaints, a rejection is the "Couldn't <verb> <thing>" toast.
-fn spawn_agent_write<F>(cx: &mut App, verb: &'static str, thing: &'static str, call: F)
+fn spawn_agent_write<F, T>(cx: &mut App, verb: &'static str, thing: &'static str, call: F)
 where
-    F: FnOnce(&api::TrpcClient) -> Result<api::sessions::TxOutput, api::ApiError> + Send + 'static,
+    F: FnOnce(&api::TrpcClient) -> Result<T, api::ApiError> + Send + 'static,
+    T: Send + 'static,
 {
     let Some(trpc) = queries::trpc_client(cx) else {
         log::warn!("[ui] agent write skipped: no signed-in account");
@@ -285,8 +286,8 @@ where
     .detach();
 }
 
-fn update_agent(cx: &mut App, verb: &'static str, thing: &'static str, input: api::sessions::UpdateAgentInput) {
-    spawn_agent_write(cx, verb, thing, move |trpc| api::sessions::update_agent(trpc, &input));
+fn update_agent(cx: &mut App, verb: &'static str, thing: &'static str, input: api::agents::UpdateInput) {
+    spawn_agent_write(cx, verb, thing, move |trpc| api::agents::update(trpc, &input));
 }
 
 /// The server-only instructions of the selected agent.
@@ -335,7 +336,7 @@ impl AgentDetailPane {
         let subscriptions = vec![
             cx.observe(&nav, |_, _, cx| cx.notify()),
             cx.observe(&shared, |_, _, cx| cx.notify()),
-            cx.observe(&collections.sessions, |_, _, cx| cx.notify()),
+            cx.observe(&collections.agents, |_, _, cx| cx.notify()),
             cx.observe(&collections.devices, |_, _, cx| cx.notify()),
             cx.subscribe(&name_input, |this, _, event: &InputEvent, cx| match event {
                 InputEvent::Blur | InputEvent::PressEnter { .. } => this.commit_rename(cx),
@@ -371,7 +372,7 @@ impl AgentDetailPane {
 
     /// Re-seed the inputs when the selected agent changes, flushing the
     /// PREVIOUS agent's pending name and instructions first.
-    fn sync_selected_agent(&mut self, agent: &SessionRow, window: &mut Window, cx: &mut gpui::Context<Self>) {
+    fn sync_selected_agent(&mut self, agent: &AgentDefRow, window: &mut Window, cx: &mut gpui::Context<Self>) {
         if self.loaded_agent.as_deref() == Some(agent.id.as_str()) {
             return;
         }
@@ -389,7 +390,7 @@ impl AgentDetailPane {
         self.fetch_instructions(window, cx);
     }
 
-    /// `sessions.getAgent` — the ONLY instructions path (never synced).
+    /// `agents.get` — the ONLY instructions path (never synced).
     fn fetch_instructions(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
         let Some(agent_id) = self.loaded_agent.clone() else {
             return;
@@ -403,7 +404,7 @@ impl AgentDetailPane {
         cx.spawn_in(window, async move |this, window| {
             let result = window
                 .background_executor()
-                .spawn(async move { api::sessions::get_agent(&trpc, &agent_id) })
+                .spawn(async move { api::agents::get(&trpc, &agent_id) })
                 .await;
             let _ = this.update_in(window, |this, window, cx| {
                 if this.generation != generation {
@@ -417,7 +418,7 @@ impl AgentDetailPane {
                         InstructionsLoad::Ready(text)
                     }
                     Err(err) => {
-                        log::warn!("[ui] sessions.getAgent failed: {err}");
+                        log::warn!("[ui] agents.get failed: {err}");
                         InstructionsLoad::Failed
                     }
                 };
@@ -428,7 +429,7 @@ impl AgentDetailPane {
     }
 
     /// The form as it stands, for the fixture's validation.
-    fn form(&self, agent: Option<&SessionRow>, cx: &App) -> AgentForm {
+    fn form(&self, agent: Option<&AgentDefRow>, cx: &App) -> AgentForm {
         AgentForm {
             name: self.name_input.read(cx).value().to_string(),
             device_id: agent.and_then(|agent| agent.device_id.clone()),
@@ -437,14 +438,14 @@ impl AgentDetailPane {
     }
 
     /// The first fixture error of `field`, if the form has one.
-    fn field_error(&self, field: &str, agent: Option<&SessionRow>, cx: &App) -> Option<String> {
+    fn field_error(&self, field: &str, agent: Option<&AgentDefRow>, cx: &App) -> Option<String> {
         validate_agent_form(&self.form(agent, cx))
             .into_iter()
             .find(|error| error.field == field)
             .map(|error| error.message)
     }
 
-    /// `sessions.updateAgent({name})` when the drafted name is valid and
+    /// `agents.update({name})` when the drafted name is valid and
     /// differs from the synced row (keyed on the LOADED agent — a remote
     /// rename while editing doesn't stomp the input).
     fn commit_rename(&mut self, cx: &mut gpui::Context<Self>) {
@@ -452,7 +453,7 @@ impl AgentDetailPane {
             return;
         };
         // A deleted agent (its row gone) has nothing left to rename.
-        let Some(agent) = crate::session_data::session(&agent_id, cx) else {
+        let Some(agent) = crate::session_data::agent_def(&agent_id, cx) else {
             return;
         };
         let agent = Some(agent);
@@ -471,15 +472,14 @@ impl AgentDetailPane {
             cx,
             "rename",
             "the agent",
-            api::sessions::UpdateAgentInput {
-                session_id: agent_id,
+            api::agents::UpdateInput {
                 name: Some(drafted),
-                ..Default::default()
+                ..api::agents::UpdateInput::new(agent_id)
             },
         );
     }
 
-    /// `sessions.updateAgent({instructions})` when the text changed since the
+    /// `agents.update({instructions})` when the text changed since the
     /// read (never before it landed: a blur then would blank them).
     fn commit_instructions(&mut self, cx: &mut gpui::Context<Self>) {
         let Some(agent_id) = self.loaded_agent.clone() else {
@@ -488,7 +488,7 @@ impl AgentDetailPane {
         let InstructionsLoad::Ready(saved) = &self.load else {
             return;
         };
-        let Some(agent) = crate::session_data::session(&agent_id, cx) else {
+        let Some(agent) = crate::session_data::agent_def(&agent_id, cx) else {
             return;
         };
         let agent = Some(agent);
@@ -508,10 +508,9 @@ impl AgentDetailPane {
             cx,
             "save",
             "the instructions",
-            api::sessions::UpdateAgentInput {
-                session_id: agent_id,
+            api::agents::UpdateInput {
                 instructions: Some(drafted),
-                ..Default::default()
+                ..api::agents::UpdateInput::new(agent_id)
             },
         );
     }
@@ -531,15 +530,14 @@ impl AgentDetailPane {
         );
         self.trigger_writing = true;
         cx.notify();
-        let input = api::sessions::UpdateAgentInput {
-            session_id: agent_id.clone(),
+        let input = api::agents::UpdateInput {
             triggers: Some(triggers.clone()),
-            ..Default::default()
+            ..api::agents::UpdateInput::new(agent_id.clone())
         };
         cx.spawn(async move |this, cx| {
             let result = cx
                 .background_executor()
-                .spawn(async move { api::sessions::update_agent(&trpc, &input) })
+                .spawn(async move { api::agents::update(&trpc, &input) })
                 .await;
             let _ = this.update(cx, |this, cx| {
                 this.trigger_writing = false;
@@ -571,7 +569,7 @@ impl AgentDetailPane {
         .on_ok(move |_, cx| {
             let agent_id = agent_id.clone();
             spawn_agent_write(cx, "delete", "the agent", move |trpc| {
-                api::sessions::delete_agent(trpc, &agent_id)
+                api::agents::delete(trpc, &agent_id)
             });
             true
         });
@@ -580,7 +578,7 @@ impl AgentDetailPane {
 
     /// The Device row: picking a machine re-binds the agent and drops its
     /// account pin (a profile id is device-local, EXP-995).
-    fn device_row(&self, agent: &SessionRow, devices: &[AgentDevice], cx: &App) -> gpui::Div {
+    fn device_row(&self, agent: &AgentDefRow, devices: &[AgentDevice], cx: &App) -> gpui::Div {
         let agent_id = agent.id.clone();
         let bound = agent.device_id.clone();
         let control = device_picker_control(
@@ -595,11 +593,10 @@ impl AgentDetailPane {
                     cx,
                     "change",
                     "the agent's device",
-                    api::sessions::UpdateAgentInput {
-                        session_id: agent_id.clone(),
+                    api::agents::UpdateInput {
                         device_id: Some(device_id),
                         account: Some(None),
-                        ..Default::default()
+                        ..api::agents::UpdateInput::new(agent_id.clone())
                     },
                 );
             }),
@@ -610,7 +607,7 @@ impl AgentDetailPane {
 
     /// The Account row: THE account picker over the bound machine's logins
     /// (brand mark + email), its last used login when nothing is pinned.
-    fn account_row(&self, agent: &SessionRow, devices: &[AgentDevice], cx: &App) -> gpui::Div {
+    fn account_row(&self, agent: &AgentDefRow, devices: &[AgentDevice], cx: &App) -> gpui::Div {
         let options = agent
             .device_id
             .as_deref()
@@ -655,10 +652,9 @@ impl AgentDetailPane {
                                 cx,
                                 "change",
                                 "the agent's account",
-                                api::sessions::UpdateAgentInput {
-                                    session_id: agent_id.clone(),
+                                api::agents::UpdateInput {
                                     account: Some(option.wire_account()),
-                                    ..Default::default()
+                                    ..api::agents::UpdateInput::new(agent_id.clone())
                                 },
                             );
                         }),
@@ -678,7 +674,7 @@ impl AgentDetailPane {
     /// "Waits for messages" that opens the editor on a new trigger.
     fn schedule_rows(&self, agent_id: &str, cx: &mut gpui::Context<Self>) -> Vec<gpui::Div> {
         let copy = &AGENT_SETTINGS.copy;
-        let label = field_label("schedule");
+        let label = field_label("triggers");
         let triggers = trigger_editor::agent_triggers(agent_id, cx);
         if triggers.is_empty() {
             let agent_id = agent_id.to_string();
@@ -783,8 +779,7 @@ impl Render for AgentDetailPane {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let agent = self
             .selected_agent_id(cx)
-            .and_then(|id| crate::session_data::session(&id, cx))
-            .filter(SessionRow::is_agent);
+            .and_then(|id| crate::session_data::agent_def(&id, cx));
         // The nav clamps a stale Agent(id) selection away before this pane
         // shows, so a missing row is only a transient frame.
         let Some(agent) = agent else {
@@ -815,10 +810,9 @@ impl Render for AgentDetailPane {
                     cx,
                     "change",
                     "the agent's icon",
-                    api::sessions::UpdateAgentInput {
-                        session_id: agent_id.clone(),
-                        icon: Some(name.to_string()),
-                        ..Default::default()
+                    api::agents::UpdateInput {
+                        icon: Some(Some(name.to_string())),
+                        ..api::agents::UpdateInput::new(agent_id.clone())
                     },
                 );
             },
@@ -833,10 +827,9 @@ impl Render for AgentDetailPane {
                     cx,
                     "change",
                     "the agent's color",
-                    api::sessions::UpdateAgentInput {
-                        session_id: agent_id.clone(),
-                        color: Some(color.to_string()),
-                        ..Default::default()
+                    api::agents::UpdateInput {
+                        color: Some(Some(color.to_string())),
+                        ..api::agents::UpdateInput::new(agent_id.clone())
                     },
                 );
             },
@@ -908,7 +901,7 @@ mod tests {
     fn field_labels_come_from_the_fixture() {
         assert_eq!(field_label("device"), "Device");
         assert_eq!(field_label("account"), "Account");
-        assert_eq!(field_label("schedule"), "Schedule");
+        assert_eq!(field_label("triggers"), "Triggers");
         assert_eq!(field_label("instructions"), "Instructions");
         assert_eq!(field_label("delete"), "Delete agent");
         assert_eq!(field_label("nope"), "");

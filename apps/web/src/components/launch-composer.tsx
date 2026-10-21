@@ -5,7 +5,10 @@ import {
   MentionTextarea,
   type MentionTextareaHandle,
 } from "@/components/mention-textarea"
-import { ActionInputFields } from "@/components/launch-dialog/action-input-fields"
+import {
+  SlashCommandMenu,
+  useSlashCommandMenu,
+} from "@/components/steer-command-menu"
 import { ComposerPlusMenu } from "@/components/launch-dialog/composer-plus-menu"
 import { LaunchHeadline } from "@/components/launch-dialog/launch-headline"
 import { LaunchOptionsLine } from "@/components/launch-dialog/launch-options-line"
@@ -27,6 +30,7 @@ import {
 import { contract } from "@exp/domain-contract"
 import { HOME_PLACEHOLDER } from "@exp/domain-contract/home-greeting"
 import type { LaunchComposerModel } from "@/hooks/use-launch-composer"
+import type { SteerCommand } from "@/lib/steer-commands"
 import { cn } from "@/lib/utils"
 import { useSession } from "@/hooks/use-session"
 import { useIssuesCodingReadiness } from "@/hooks/use-coding-readiness"
@@ -37,15 +41,16 @@ import {
 
 // EXP-825: the ONE launcher — the composer card, rendered inline on the
 // Agent page and inside the start-coding dialog (EXP-1019, `launch-dialog.tsx`)
-// without a second implementation of any of it. The HEADLINE leads ("Run
-// <action>" / "Implement <issues>" — the chips live there now, not in the
-// card), an action's typed input fields follow, then the mention field
-// (`@` members, `#` issue refs, `:` emoji; Enter sends, Shift+Enter breaks
-// the line), the pending-image strip, and a tool row whose ONE tool is the
-// "+" menu (EXP-1249: Implement issue ›, Run action ›, Add file or image,
-// the run's options and tools — `launch-dialog/composer-plus-menu.tsx`), the
-// submit glyph carrying the per-subject label (Start session / Start coding /
-// Start batch · N / Run action). Under the card: the options line (EXP-1270: the
+// without a second implementation of any of it. The HEADLINE leads (a picked
+// prompt's chip / "Implement <issues>" — the chips live there now, not in the
+// card), then the mention field (`@` members, `#` issue refs, `:` emoji;
+// Enter sends, Shift+Enter breaks the line) with its `/` menu (NEW-2: the
+// team's PROMPTS only — no builtins before a session exists; a pick makes the
+// prompt the subject), the pending-image strip, and a tool row whose ONE tool
+// is the "+" menu (EXP-1249: Implement issue ›, Add file or image, the run's
+// options and tools — `launch-dialog/composer-plus-menu.tsx`), the submit
+// glyph carrying the per-subject label (Start session / Start coding / Start
+// batch · N). Under the card: the options line (EXP-1270: the
 // suggestion rows are gone; the HOME column owns what sits under it, see
 // `routes/t/$teamSlug/agent.tsx`). All state is the hook's
 // (`use-launch-composer.ts`); this file owns chrome, the caret and the file
@@ -73,13 +78,9 @@ export function composerPlaceholder(
   model: LaunchComposerModel,
   variant: LaunchComposerVariant = `dialog`
 ): string {
-  const { subject, selectedAction } = model
+  const { subject } = model
   if (subject === null)
     return variant === `home` ? HOME_PLACEHOLDER : contract.composerUi.chatPlaceholder
-  // EXP-825: an action can say what the requester should type here (its
-  // `promptPlaceholder`).
-  const hint = selectedAction?.promptPlaceholder?.trim()
-  if (subject.kind === `action` && hint) return hint
   return contract.composerUi.instructionsPlaceholder
 }
 
@@ -138,8 +139,20 @@ export function LaunchComposer({
     void model.submit()
   }
 
-  const actionSubject = subject?.kind === `action`
-  const inputDefs = model.selectedAction?.inputs ?? []
+  // NEW-2: the `/` menu = the team's prompts (no builtins: there is no
+  // session yet). A pick makes the prompt the subject and clears the
+  // `/name` it was typed as.
+  const menu = useSlashCommandMenu({
+    text,
+    commands: NO_COMMANDS,
+    prompts: model.prompts,
+    onAccept: model.setText,
+    onPickPrompt: (prompt) => {
+      model.pickPrompt(prompt.id)
+      model.setText(``)
+    },
+  })
+
   const submitLabel = pendingShown ? FEEDBACK_WORDS.pending.start : model.submitLabel
 
   return (
@@ -147,29 +160,14 @@ export function LaunchComposer({
       className={cn(`gap-2`, className)}
       options={<LaunchOptionsLine model={model} />}
     >
-      {/* EXP-1019: the SUBJECT leads — "Run <action>" / "Implement <issues>"
-          — and the field under it is the optional half. The chips are the
+      {/* EXP-1019: the SUBJECT leads — a prompt / "Implement <issues>" —
+          and the field under it is the optional half. The chips are the
           ones the card used to carry in its leading row, ✕ and all. */}
       <LaunchHeadline model={model} />
       <Composer
         data-testid="agent-composer"
         strip={
           <>
-            {actionSubject && subject && inputDefs.length > 0 ? (
-              /* The action's typed picks (repo / board / pr / issue): the
-                 free-text kinds are gone (EXP-825): what the requester types
-                 IS the session's instructions. */
-              <div className="px-3 pt-3">
-                <ActionInputFields
-                  defs={inputDefs}
-                  values={subject.inputs}
-                  onChange={model.setInput}
-                  repos={model.repos ?? []}
-                  teamId={model.teamId}
-                  seedPrIssueId={model.seedPrIssueId}
-                />
-              </div>
-            ) : null}
             {images.length > 0 && (
               <div className="flex flex-wrap gap-2 px-3 pt-3">
                 {images.map((image) =>
@@ -277,35 +275,52 @@ export function LaunchComposer({
           if (event.dataTransfer.types.includes(`Files`)) event.preventDefault()
         }}
       >
-        <MentionTextarea
-          ref={fieldRef}
-          id="agent-composer-field"
-          data-testid="agent-composer-field"
-          value={text}
-          onValueChange={model.setText}
-          users={users}
-          onKeyDown={(event) => {
-            // Shift+Enter breaks the line; an IME's own Enter is never a send.
-            if (event.key !== `Enter` || event.shiftKey) return
-            if (event.nativeEvent.isComposing) return
-            event.preventDefault()
-            send()
-          }}
-          onPaste={(e) => {
-            if (e.clipboardData.files.length === 0) return
-            e.preventDefault()
-            addFiles(Array.from(e.clipboardData.files))
-          }}
-          placeholder={composerPlaceholder(model, variant)}
-          className="min-h-20 resize-none border-0 bg-transparent px-3 pt-3 shadow-none focus-visible:ring-0"
-          // Client parity with the server's cap, so a long paste is refused
-          // at the field instead of at submit.
-          maxLength={SESSIONS_SEND_TEXT_MAX}
-        />
+        <div className="relative">
+          <MentionTextarea
+            ref={fieldRef}
+            id="agent-composer-field"
+            data-testid="agent-composer-field"
+            value={text}
+            onValueChange={model.setText}
+            users={users}
+            onKeyDown={(event) => {
+              // An IME's own Enter is never a send.
+              if (event.nativeEvent.isComposing) return
+              // The `/` menu gets first refusal: Enter/Tab pick a prompt and
+              // never send the half-typed `/name`.
+              if (menu.handleKeyDown(event)) return
+              // Shift+Enter breaks the line.
+              if (event.key !== `Enter` || event.shiftKey) return
+              event.preventDefault()
+              send()
+            }}
+            onPaste={(e) => {
+              if (e.clipboardData.files.length === 0) return
+              e.preventDefault()
+              addFiles(Array.from(e.clipboardData.files))
+            }}
+            placeholder={composerPlaceholder(model, variant)}
+            className="min-h-20 resize-none border-0 bg-transparent px-3 pt-3 shadow-none focus-visible:ring-0"
+            // Client parity with the server's cap, so a long paste is refused
+            // at the field instead of at submit.
+            maxLength={SESSIONS_SEND_TEXT_MAX}
+          />
+          {menu.open && (
+            <SlashCommandMenu
+              candidates={menu.candidates}
+              active={menu.active}
+              onSelect={menu.accept}
+              onHover={menu.setActive}
+            />
+          )}
+        </div>
       </Composer>
     </ComposerFrame>
   )
 }
+
+/** The launch composer's `/` menu offers no builtins (no session yet). */
+const NO_COMMANDS: readonly SteerCommand[] = []
 
 /** The pending submit's spinner: the round 24px glyph's slot, so a bit
  *  larger than a text button's `pending.spinner`. */

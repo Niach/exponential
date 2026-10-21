@@ -1,7 +1,4 @@
 import { contract } from "@exp/domain-contract"
-// EXP-746: type-only, so the chip helpers in agent-feed.ts can import the two
-// label constants below without a runtime cycle.
-import type { SessionConfigCommand } from "@/lib/agent-feed"
 
 // EXP-724 — the curated slash commands a viewer may send into a live steering
 // session. Pure: the `/` menu (components/steer-command-menu.tsx), the
@@ -10,9 +7,13 @@ import type { SessionConfigCommand } from "@/lib/agent-feed"
 // Android SlashCommands.kt, desktop ui/src/slash_commands.rs).
 //
 // The catalog itself is contract data (packages/domain-contract/contract.json
-// `steerCommands`), so the list a phone offers is byte-identical to the one the
-// desktop publisher knows how to execute. Commands ride the ORDINARY input
-// frames as text — there is no command frame on the wire.
+// `steerCommands`: compact, model, effort), so the list a phone offers is
+// byte-identical to the one the desktop publisher knows how to execute.
+// NEW-2: commands the agent CLI injects (`config_state.commands`: Claude Code
+// skills, plugins) are HIDDEN on every client — never merged into the menu;
+// the team's PROMPTS follow the builtins instead (steer-command-menu.tsx).
+// Commands ride the ORDINARY input frames as text, except `/effort`
+// (`sessions.configure`, hooks/use-steer-command.ts).
 
 export interface SteerCommand {
   /** The bare name, no leading slash (`compact`). */
@@ -95,6 +96,34 @@ export function filterSteerCommands(
     .slice(0, limit)
 }
 
+/** NEW-2: a team prompt as the `/` menu lists it (the synced, body-less
+ *  `prompts` row): its icon and name, after the builtins. */
+export interface SlashPrompt {
+  id: string
+  name: string
+  icon: string | null
+}
+
+/** The token a prompt answers to after the slash: its name, lowercased,
+ *  whitespace runs as `-` (`Fix flaky tests` → `fix-flaky-tests`), so
+ *  `/fix` and `/fix-fl` both find it. */
+export function promptSlashName(name: string): string {
+  return name.trim().toLowerCase().replace(/\s+/g, `-`)
+}
+
+/** Case-insensitive PREFIX filter over the prompts' slash names, the
+ *  team's order preserved. An empty query offers every prompt. */
+export function filterSlashPrompts<T extends SlashPrompt>(
+  prompts: readonly T[],
+  query: string,
+  limit = 50
+): T[] {
+  const needle = query.trim().toLowerCase()
+  return prompts
+    .filter((prompt) => promptSlashName(prompt.name).startsWith(needle))
+    .slice(0, limit)
+}
+
 export interface ParsedSteerCommand {
   command: SteerCommand
   /** Everything after the command token, trimmed (`` when there is none). */
@@ -125,42 +154,6 @@ export function parseSteerCommand(
  *  takes none is left bare. Accepting NEVER sends. */
 export function steerCommandDraft(command: SteerCommand): string {
   return command.argHint ? `/${command.name} ` : `/${command.name}`
-}
-
-/** EXP-746: the `/` menu's catalog on an ACP run — the contract commands for
- *  this agent FIRST, then the agent's OWN advertised ones
- *  (`config_state.commands`), deduped by lowercased name so an agent that
- *  ships its own `/compact` never doubles the row. Mirrored ×4 (iOS
- *  SlashCommands.merged, Android SlashCommands.merged, desktop
- *  slash_commands::menu_matches_with).
- *
- *  An agent command becomes an ordinary `SteerCommand` so the menu, the send
- *  path and the feed's command pill all keep working unchanged: no argument
- *  hint unless the agent gave one, scoped to THIS session's agent, and never
- *  confirm-gated (only the contract knows which commands discard context). */
-export function mergeAgentCommands(
-  contractCommands: readonly SteerCommand[],
-  agentCommands: readonly SessionConfigCommand[],
-  agent?: string | null
-): SteerCommand[] {
-  const merged = [...contractCommands]
-  const seen = new Set(merged.map((command) => command.name.toLowerCase()))
-  const id = agent?.trim() ? agent.trim() : DEFAULT_STEER_AGENT
-  for (const command of agentCommands) {
-    const name = command.name.trim()
-    if (!name) continue
-    const key = name.toLowerCase()
-    if (seen.has(key)) continue
-    seen.add(key)
-    merged.push({
-      name,
-      description: command.description,
-      argHint: command.hint ?? ``,
-      agents: [id],
-      confirm: false,
-    })
-  }
-  return merged
 }
 
 // ── Copy (byte-identical on web, iOS, Android and the desktop viewer) ────────

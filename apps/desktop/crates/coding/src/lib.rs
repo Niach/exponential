@@ -49,7 +49,6 @@ pub mod aside;
 pub mod atomic_config;
 pub mod argv;
 pub mod cargo_target_gc;
-pub mod triggers;
 pub mod claude_oauth;
 pub mod claude_trust;
 pub mod clone_manager;

@@ -102,6 +102,7 @@ export function ActionsDocsPage() {
 
             <DocShot
               view="action-page"
+              platform="desktop"
               caption="An action's page: Prompt, Triggers, Sessions"
             />
           </DocsSection>

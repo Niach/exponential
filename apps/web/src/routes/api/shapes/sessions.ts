@@ -5,14 +5,16 @@ import {
 } from "@/lib/team-membership"
 import { createShapeRouteHandler } from "@/lib/shape-route"
 
-// EXP-1291/NEW-1 — the session tree (threads, agents and their
-// sub-sessions). ONE visibility rule: `shared OR user_id = me` inside the
-// member's teams. A device picks up its `queued` rows from this shape (the
-// DB is the bus). SERVER-ONLY, behind the allowlist: `mcp_server_ids`,
-// `wake_on` and an agent's `instructions` (tRPC `sessions.getAgent`). The
-// never-written LEGACY read shims (`dispatch`, `caption`, `aside`,
-// `move_to_device_id`, `handoff_restored_at`, `spawned_by_session_id`)
-// stay listed for the iOS store build and the ≤0.14.74 devices (NEW-8).
+// EXP-1291/NEW-1/NEW-2 — the session tree (threads, agent conversations
+// and their sub-sessions). ONE visibility rule: `shared OR user_id = me`
+// inside the member's teams. A device picks up its `queued` rows from this
+// shape (the DB is the bus). SERVER-ONLY, behind the allowlist:
+// `mcp_server_ids` and `wake_on`. The LEGACY read shims (`dispatch`,
+// `caption`, `aside`, `move_to_device_id`, `handoff_restored_at`,
+// `spawned_by_session_id`, `action_*`, and the agent facets `kind`/`name`/
+// `icon`/`color`/`triggers`/`sort_order`, mirrored on a conversation
+// session) stay listed for the iOS store build and the ≤0.14.74 devices
+// (NEW-8 drops them). NEW-2 adds `agent_id`.
 export const SESSION_COLUMNS = [
   `id`,
   `team_id`,
@@ -20,6 +22,7 @@ export const SESSION_COLUMNS = [
   `root_id`,
   `depth`,
   `kind`,
+  `agent_id`,
   `user_id`,
   `device_id`,
   `cli`,

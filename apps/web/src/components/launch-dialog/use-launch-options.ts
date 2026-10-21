@@ -111,11 +111,7 @@ export interface LaunchOptions {
   setAccountKey: (key: string) => void
   /** The capability-clamped runner picks `sessions.send` carries
    *  (`buildSendInput` maps them; `agent` = the `cli`). */
-  buildOptions: (args?: {
-    /** FEED-73: the subject (a real action) owns the run's MCP list, so the
-     * pick never rides out. */
-    omitMcp?: boolean
-  }) => CodingLaunchPrefs
+  buildOptions: () => CodingLaunchPrefs
 }
 
 export function useLaunchOptions({
@@ -372,7 +368,7 @@ export function useLaunchOptions({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, availableAgentsKey, agent])
 
-  const buildOptions = ({ omitMcp = false }: { omitMcp?: boolean } = {}) => ({
+  const buildOptions = () => ({
     agent,
     model,
     effort: effortValue === CLI_DEFAULT_EFFORT ? `` : effortValue,
@@ -384,8 +380,7 @@ export function useLaunchOptions({
     planMode: planMode && agentSupportsPlanMode(agent),
     // EXP-792: omitted when nothing is picked — the server treats an absent
     // list and an empty one alike.
-    // FEED-73: a real action's runs use the ACTION's list (server-set).
-    ...(mcpServerIds.length > 0 && !omitMcp
+    ...(mcpServerIds.length > 0
       ? { mcpServerIds: [...mcpServerIds] }
       : {}),
     // EXP-1249: only a picked device gets it, and only

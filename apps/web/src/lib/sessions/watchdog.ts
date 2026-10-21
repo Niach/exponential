@@ -3,6 +3,8 @@ import type { CodingSessionBlocked } from "@exp/db-schema/domain"
 import { contract } from "@exp/domain-contract"
 import { db } from "@/db/connection"
 import { devices, messages, sessions } from "@/db/schema"
+import { fireScheduledTriggers } from "@/lib/agents/triggers"
+import { pruneEvents } from "@/lib/events"
 import { BUS_COPY, busLine } from "@/lib/sessions/bus"
 import { hostDeviceCondition, resolveSessionHost } from "@/lib/sessions/host"
 import { pendingInput } from "@/lib/sessions/messages"
@@ -26,6 +28,9 @@ export interface WatchdogRun {
   nudged: number
   stuck: number
   offline: number
+  /** NEW-2: agent schedule firings this tick, and pruned event rows. */
+  fired: number
+  pruned: number
 }
 
 const LIVE = [`running`, `idle`] as const
@@ -203,6 +208,10 @@ export async function runWatchdog(now: Date = new Date()): Promise<WatchdogRun> 
     nudged: await nudgeStalled(now),
     stuck: await flagStuck(now),
     offline: await flagOffline(now),
+    // NEW-2: the same tick fires the agents' schedules (a missed tick is
+    // caught up here) and sweeps the event stream.
+    fired: await fireScheduledTriggers(now),
+    pruned: await pruneEvents(now),
   }
 }
 
@@ -218,7 +227,7 @@ export function startSessionWatchdog(): void {
         reportSchedulerRun(`session-watchdog`, {
           ok: true,
           durationMs: performance.now() - begun,
-          detail: `${run.unclaimed} unclaimed, ${run.nudged} nudged, ${run.stuck} stuck, ${run.offline} offline`,
+          detail: `${run.unclaimed} unclaimed, ${run.nudged} nudged, ${run.stuck} stuck, ${run.offline} offline, ${run.fired} fired, ${run.pruned} events pruned`,
         })
       )
       .catch((error: unknown) => {

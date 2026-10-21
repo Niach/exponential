@@ -43,8 +43,10 @@ final class ActionsViewModel {
             isLoading = false
             return
         }
+        // NEW-2: the team's saved PROMPTS (the `actions` shape is served
+        // empty; NEW-7 moves this page to Settings → Prompts).
         let observation = ValueObservation.tracking { db in
-            try ActionEntity.fetchAll(db)
+            try PromptEntity.fetchAll(db)
         }
         actionsObservationTask = Task { [weak self] in
             do {
@@ -52,8 +54,8 @@ final class ActionsViewModel {
                     guard let self, !Task.isCancelled else { return }
                     guard self.loadedTeamId == teamId else { return }
                     let dtos = rows
-                        .sorted { ($0.sortOrder ?? 0, $0.name) < ($1.sortOrder ?? 0, $1.name) }
-                        .map { ActionDto(entity: $0) }
+                        .sorted { ($0.sortOrder, $0.name) < ($1.sortOrder, $1.name) }
+                        .map { ActionDto(prompt: $0) }
                     self.actions = dtos
                     self.isLoading = false
                 }

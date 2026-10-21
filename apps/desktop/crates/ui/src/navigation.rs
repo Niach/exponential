@@ -402,9 +402,10 @@ pub(crate) fn screen_title(screen: &Screen, cx: &App) -> gpui::SharedString {
         Screen::IssueDraft { .. } => domain::issue_draft::HEADER.into(),
         Screen::Actions => "Actions".into(),
         // The synced name, or the generic word while the row has not landed.
+        // NEW-2: the page is a saved prompt's.
         Screen::Action { action_id } => Store::global(cx)
             .collections()
-            .actions
+            .prompts
             .read(cx)
             .get(action_id)
             .and_then(|row| row.name.clone())

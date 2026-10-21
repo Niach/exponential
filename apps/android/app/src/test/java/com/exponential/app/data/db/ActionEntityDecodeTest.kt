@@ -1,6 +1,5 @@
 package com.exponential.app.data.db
 
-import com.exponential.app.data.api.toActionDto
 import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -8,10 +7,9 @@ import org.junit.Test
 
 /**
  * Wire-decode vectors for the actions shape row (EXP-825: `prompt_placeholder`,
- * the composer hint). The column must decode when PRESENT, when an explicit
- * null, and when ABSENT (a row synced before the column existed — a required
- * field missing on the wire silently drops the row forever), and the DTO
- * mapping has to carry it through to the composer.
+ * the composer hint). NEW-2: the shape is served EMPTY (a read shim for
+ * shipped clients, NEW-8 drops it) and nothing maps it to the UI any more,
+ * but a stray row must still decode rather than stall the shape.
  */
 class ActionEntityDecodeTest {
 
@@ -41,9 +39,6 @@ class ActionEntityDecodeTest {
         """.trimIndent()
         val entity = json.decodeFromString(ActionEntity.serializer(), row)
         assertEquals("Scope: which platforms, which version", entity.promptPlaceholder)
-        val dto = entity.toActionDto(json)
-        assertEquals("Scope: which platforms, which version", dto.promptPlaceholder)
-        assertEquals(listOf("repo"), dto.inputs?.map { it.key })
     }
 
     @Test
@@ -60,7 +55,6 @@ class ActionEntityDecodeTest {
         """.trimIndent()
         val entity = json.decodeFromString(ActionEntity.serializer(), absent)
         assertNull(entity.promptPlaceholder)
-        assertNull(entity.toActionDto(json).promptPlaceholder)
 
         val explicitNull = """
             {

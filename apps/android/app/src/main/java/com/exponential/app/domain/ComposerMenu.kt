@@ -7,13 +7,11 @@ package com.exponential.app.domain
 // with which concept glyph and copy. Phones open it as a bottom sheet of the
 // same rows, submenus as pushed pages (`AgentComposer.kt` binds the ids).
 // EXP-1259: the suggestion rows are gone (`composer-home.json` owns the page
-// around the card). EXP-1291: Run action lists the team's SAVED actions only
-// (no builtins), and since actions no longer carry their own MCP list no
-// subject owns it: the `mcp` condition = the team has a server.
+// around the card). NEW-2: the Run action row is gone (prompts live in the
+// `/` menu); the `mcp` condition = the team has a server.
 
 enum class ComposerMenuRowId(val wire: String) {
     ImplementIssue("implement-issue"),
-    RunAction("run-action"),
     AddFile("add-file"),
     Effort("effort"),
     Subagents("subagents"),
@@ -69,8 +67,8 @@ object ComposerMenu {
     const val PLUS_LABEL = "Add"
 
     /**
-     * SLOP-28 (EXP-1259 D5): Implement issue and Run action are the SAME
-     * search list (`search-list.json`) — one row height, at most this many
+     * SLOP-28 (EXP-1259 D5): Implement issue is the shared search list
+     * (`search-list.json`) — one row height, at most this many
      * rows visible before the list scrolls. Phones push them as pages of
      * 44dp rows ([SearchList.ROW_HEIGHT_PHONE]).
      */
@@ -98,7 +96,6 @@ object ComposerMenu {
     /** Every row in fixture order (`rows`). */
     val ROWS: List<ComposerMenuEntry> = listOf(
         ComposerMenuEntry.Row(ComposerMenuRowId.ImplementIssue, ComposerMenuRowKind.Submenu, "Implement issue", icon = "editor-issue-ref"),
-        ComposerMenuEntry.Row(ComposerMenuRowId.RunAction, ComposerMenuRowKind.Submenu, "Run action", icon = "action-run"),
         ComposerMenuEntry.Row(ComposerMenuRowId.AddFile, ComposerMenuRowKind.Item, "Add file or image", icon = "ui-attach"),
         ComposerMenuEntry.Separator,
         ComposerMenuEntry.Row(ComposerMenuRowId.Effort, ComposerMenuRowKind.Submenu, "Effort", codexLabel = "Reasoning", icon = "ui-estimate"),

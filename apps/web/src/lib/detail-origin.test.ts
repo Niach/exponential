@@ -29,12 +29,8 @@ describe(`screenFromPath`, () => {
     expect(screenFromPath(`/t/acme/inbox`)).toEqual({ kind: `inbox` })
     // EXP-1293: the Agent page is the composer alone — a full page.
     expect(screenFromPath(`/t/acme/agent`)).toEqual({ kind: `other` })
-    // EXP-862/SLOP-2: an action's page lists its runs, the TRIGGERED ones
-    // included, so it is a list screen of its own.
-    expect(screenFromPath(`/t/acme/actions/a1`)).toEqual({
-      kind: `action`,
-      actionId: `a1`,
-    })
+    // NEW-2: the retired action pages are no list of their own.
+    expect(screenFromPath(`/t/acme/actions/a1`)).toEqual({ kind: `other` })
     expect(screenFromPath(`/t/acme/actions`)).toEqual({ kind: `other` })
     expect(screenFromPath(`/t/acme/threads`)).toEqual({ kind: `threads` })
     expect(screenFromPath(`/t/acme/sessions/s1`)).toEqual({ kind: `session` })
@@ -62,7 +58,6 @@ describe(`screenFromPath`, () => {
     // A list or a detail is NOT context-free.
     for (const path of [
       `/t/acme/inbox`,
-      `/t/acme/actions/a1`,
       `/t/acme/threads`,
       `/t/acme/sessions/s1`,
       `/t/acme/boards/web`,
@@ -102,15 +97,6 @@ describe(`deriveOrigin`, () => {
         kind: `session`,
       })
     ).toEqual({ kind: `threads` })
-    // EXP-862: so is an action's page — a triggered run opened from it
-    // keeps that list, and Back returns to it.
-    expect(
-      deriveOrigin(
-        screenFromPath(`/t/acme/actions/a1`),
-        { kind: `action`, actionId: `a1` },
-        { kind: `session` }
-      )
-    ).toEqual({ kind: `action`, actionId: `a1` })
     // Devices (context-free) → a session: no origin at all, so the sidebar's
     // main menu stays put.
     expect(
@@ -144,15 +130,6 @@ describe(`capturedOrigin`, () => {
       kind: `threads`,
     })
     expect(capturedOrigin(screenFromPath(`/t/acme/agent`))).toBeNull()
-    // EXP-862: a run opened from an action's page returns THERE, so the
-    // page is its own origin and never hands on what it was opened with.
-    expect(capturedOrigin(screenFromPath(`/t/acme/actions/a1`))).toEqual({
-      kind: `action`,
-      actionId: `a1`,
-    })
-    expect(
-      capturedOrigin(screenFromPath(`/t/acme/actions/a1`), board)
-    ).toEqual({ kind: `action`, actionId: `a1` })
     // The Agent page hands on the origin the composer was opened with.
     expect(capturedOrigin(screenFromPath(`/t/acme/agent`), board)).toEqual(
       board
@@ -187,7 +164,6 @@ describe(`formatOrigin / parseOrigin`, () => {
       { kind: `inbox`, tab: `drafts` },
       board,
       { kind: `threads` },
-      { kind: `action`, actionId: `a1` },
       { kind: `drafts` },
     ]
     for (const origin of origins) {
@@ -198,7 +174,7 @@ describe(`formatOrigin / parseOrigin`, () => {
     // No origin = no param: the sidebar's main menu stays.
     expect(formatOrigin(null)).toBeUndefined()
     // EXP-1293: the retired list tokens are no origin.
-    for (const retired of [`sessions`, `agent`, `agent:recent`, `reviews`]) {
+    for (const retired of [`sessions`, `agent`, `agent:recent`, `reviews`, `action:a1`]) {
       expect(parseOrigin(retired), retired).toBeNull()
     }
     // Junk is no origin at all — the retired `issue:` origin included.
@@ -215,7 +191,6 @@ describe(`originLabel / originBoardSlug`, () => {
     expect(originLabel(inbox)).toBe(`Inbox`)
     expect(originLabel({ kind: `inbox`, tab: `my-issues` })).toBe(`Inbox`)
     expect(originLabel({ kind: `threads` })).toBe(`Threads`)
-    expect(originLabel({ kind: `action`, actionId: `a1` }, `Triage`)).toBe(`Triage`)
     expect(originLabel(board, `Web`)).toBe(`Web`)
     // The board's name has to sync in first — never an empty row.
     expect(originLabel(board)).toBe(`Board`)
@@ -225,7 +200,6 @@ describe(`originLabel / originBoardSlug`, () => {
     expect(originBoardSlug(board)).toBe(`web`)
     expect(originBoardSlug(inbox)).toBeNull()
     expect(originBoardSlug({ kind: `threads` })).toBeNull()
-    expect(originBoardSlug({ kind: `action`, actionId: `a1` })).toBeNull()
   })
 })
 
@@ -287,7 +261,7 @@ describe(`sidebarOccupant`, () => {
     expect(sidebarOccupant(`/t/acme/agent`, null)).toEqual({ kind: `main` })
   })
 
-  // EXP-1246: board, reviews and action origins keep Back but no list — the
+  // EXP-1246: board and reviews origins keep Back but no list — the
   // review state of the bug report (a Reviews list beside a plain issue tab)
   // cannot happen any more.
   it(`keeps the main menu for every other origin`, () => {
@@ -315,7 +289,6 @@ describe(`sidebarOccupant`, () => {
     expect(originHasListNav({ kind: `running` })).toBe(false)
     expect(originHasListNav({ kind: `threads` })).toBe(false)
     expect(originHasListNav({ kind: `board`, boardSlug: `web` })).toBe(false)
-    expect(originHasListNav({ kind: `action`, actionId: `a1` })).toBe(false)
     expect(originHasListNav({ kind: `inbox` })).toBe(true)
     expect(originHasListNav({ kind: `inbox`, tab: `my-issues` })).toBe(true)
     // The Running section is not a page: no Back destination of its own.
@@ -373,13 +346,6 @@ describe(`originListNavigation`, () => {
       to: `/t/$teamSlug/threads`,
       params: { teamSlug: `acme` },
       search: {},
-    })
-    expect(
-      originListNavigation(`acme`, { kind: `action`, actionId: `a1` })
-    ).toEqual({
-      to: `/t/$teamSlug/actions/$actionId`,
-      params: { teamSlug: `acme`, actionId: `a1` },
-      search: { tab: `runs` },
     })
   })
 

@@ -1,8 +1,8 @@
 import Foundation
 
 // EXP-1291 Threads v2: the session tree's view models — a thread IS a root
-// session (`kind` thread), a team agent a root of `kind` agent, children are
-// sub-sessions. A 1:1 port of the TS reference
+// session, an agent's conversation a root with `agentId` (NEW-2), children
+// are sub-sessions. A 1:1 port of the TS reference
 // `packages/domain-contract/src/session-tree.ts` (desktop
 // `domain::session_tree`, Android `domain/SessionTree.kt`), byte-locked by the
 // fixtures `SessionTreeTests` replays:
@@ -96,6 +96,8 @@ public struct TreeSession: Equatable, Sendable, Identifiable {
     public let caption: String?
     /// EXP-1323: a `/btw` aside child.
     public let aside: Bool
+    /// NEW-2: the agent this root is a conversation of (nil = a thread).
+    public let agentId: String?
 
     public init(
         id: String,
@@ -122,8 +124,10 @@ public struct TreeSession: Equatable, Sendable, Identifiable {
         updatedAt: String,
         deviceId: String? = nil,
         caption: String? = nil,
-        aside: Bool = false
+        aside: Bool = false,
+        agentId: String? = nil
     ) {
+        self.agentId = agentId
         self.deviceId = deviceId
         self.caption = caption
         self.aside = aside
@@ -301,6 +305,9 @@ public struct TreeMessageCard: Equatable, Sendable {
     public let summary: String?
     /// EXP-1323 suggestions: nil = no items array (no row).
     public let items: [TreeSuggestionItem]?
+    /// NEW-2 `trigger_fired`: the event name the card's `name` carries; nil =
+    /// none (a schedule firing draws no line).
+    public let eventName: String?
 
     public init(
         kind: String?,
@@ -330,9 +337,11 @@ public struct TreeMessageCard: Equatable, Sendable {
         issueId: String? = nil,
         pullRequestId: String? = nil,
         summary: String? = nil,
-        items: [TreeSuggestionItem]? = nil
+        items: [TreeSuggestionItem]? = nil,
+        eventName: String? = nil
     ) {
         self.kind = kind
+        self.eventName = eventName
         self.summary = summary
         self.items = items
         self.sessionId = sessionId
@@ -460,7 +469,8 @@ public struct TreeMessageCard: Equatable, Sendable {
                         textIsString: item["text"] is String
                     )
                 }
-            }
+            },
+            eventName: text("name")
         )
     }
 
@@ -1092,9 +1102,36 @@ public struct StackPr: Equatable, Sendable {
     }
 }
 
-/// One row of the Agents band (icon + color like a board row).
+/// NEW-2: an `agents` definition row as the Agents band needs it.
+public struct AgentLike: Equatable, Sendable, Identifiable {
+    public let id: String
+    public let teamId: String
+    public let name: String
+    public let icon: String?
+    public let color: String?
+    public let sortOrder: Double
+
+    public init(id: String, teamId: String, name: String, icon: String?, color: String?, sortOrder: Double) {
+        self.id = id
+        self.teamId = teamId
+        self.name = name
+        self.icon = icon
+        self.color = color
+        self.sortOrder = sortOrder
+    }
+
+    public init(_ agent: AgentDefinitionEntity) {
+        self.init(
+            id: agent.id, teamId: agent.teamId, name: agent.name,
+            icon: agent.icon, color: agent.color, sortOrder: agent.sortOrder
+        )
+    }
+}
+
+/// One row of the Agents band (icon + color like a board row): an agent
+/// DEFINITION (NEW-2); opening it opens the viewer's conversation with it.
 public struct AgentRow: Equatable, Sendable, Identifiable {
-    public let sessionId: String
+    public let agentId: String
     public let teamId: String
     public let name: String
     /// Icon NAME (contract `boardIconValues`).
@@ -1104,10 +1141,10 @@ public struct AgentRow: Equatable, Sendable, Identifiable {
     public let busy: Bool
     public let needsYou: Bool
 
-    public var id: String { sessionId }
+    public var id: String { agentId }
 
     public init(
-        sessionId: String,
+        agentId: String,
         teamId: String,
         name: String,
         icon: String,
@@ -1115,7 +1152,7 @@ public struct AgentRow: Equatable, Sendable, Identifiable {
         busy: Bool,
         needsYou: Bool
     ) {
-        self.sessionId = sessionId
+        self.agentId = agentId
         self.teamId = teamId
         self.name = name
         self.icon = icon
@@ -1163,6 +1200,9 @@ public enum SessionTree {
             "session_unclaimed": "{session} was not picked up",
             "session_stuck": "{session} looks stuck",
             "device_offline": "{session} paused: device offline",
+            // NEW-2: an agent's trigger fired ({name} = the event name, else
+            // the schedule's cron).
+            "trigger_fired": "Trigger fired: {name}",
         ]
         public static let tabsTestId = "thread-tabs"
         /// EXP-1334: a zone's "+N" chip reads out as web's
@@ -1698,7 +1738,8 @@ public enum SessionTree {
             return newest > (readAt[sessionId] ?? -1)
         }
         let roots = sessions.filter {
-            $0.parentId == nil && $0.kind == "thread" && (teamId == nil || $0.teamId == teamId)
+            // NEW-2: an agent's conversation (a root with `agentId`) is no thread.
+            $0.parentId == nil && ($0.agentId ?? "").isEmpty && (teamId == nil || $0.teamId == teamId)
         }
         var byRoot: [String: [TreeSession]] = [:]
         for session in sessions { byRoot[session.rootId, default: []].append(session) }
@@ -1827,29 +1868,37 @@ public enum SessionTree {
         groups.contains { group in group.rows.contains { $0.depth == 0 && $0.unread } }
     }
 
-    /// The Agents band: one row per agent root of the team (nil = every
-    /// team) by `sortOrder`, then name, then id. An agent's spinner/needs-you
-    /// dot covers its own row only.
-    public static func listAgents(_ sessions: [TreeSession], teamId: String?) -> [AgentRow] {
-        sessions
-            .filter {
-                $0.parentId == nil && $0.kind == "agent" && (teamId == nil || $0.teamId == teamId)
-            }
+    /// The Agents band: one row per `agents` definition of the team (nil =
+    /// every team, NEW-2) by `sortOrder`, then name, then id. The spinner /
+    /// needs-you dot read the VIEWER's own conversation session with the
+    /// agent (a root with `agentId` and `userId == me`); none = a quiet row.
+    public static func listAgents(
+        agents: [AgentLike], sessions: [TreeSession], teamId: String?, me: String?
+    ) -> [AgentRow] {
+        var mine: [String: TreeSession] = [:]
+        for session in sessions where session.parentId == nil && session.userId == me {
+            guard let agentId = session.agentId, !agentId.isEmpty else { continue }
+            mine[agentId] = session
+        }
+        return agents
+            .filter { teamId == nil || $0.teamId == teamId }
             .sorted { a, b in
                 if a.sortOrder != b.sortOrder { return a.sortOrder < b.sortOrder }
-                let byName = (a.name ?? "").localizedCompare(b.name ?? "")
+                let byName = a.name.localizedCompare(b.name)
                 if byName != .orderedSame { return byName == .orderedAscending }
                 return a.id < b.id
             }
-            .map {
-                AgentRow(
-                    sessionId: $0.id,
-                    teamId: $0.teamId,
-                    name: $0.name ?? "",
-                    icon: $0.icon ?? ListCopy.agentDefaultIcon,
-                    color: $0.color ?? ListCopy.agentDefaultColor,
-                    busy: $0.busy,
-                    needsYou: $0.needsInput
+            .map { agent in
+                let conversation = mine[agent.id]
+                let live = conversation.map { $0.status != "ended" } ?? false
+                return AgentRow(
+                    agentId: agent.id,
+                    teamId: agent.teamId,
+                    name: agent.name,
+                    icon: agent.icon ?? ListCopy.agentDefaultIcon,
+                    color: agent.color ?? ListCopy.agentDefaultColor,
+                    busy: live && conversation?.busy == true,
+                    needsYou: live && conversation?.needsInput == true
                 )
             }
     }
@@ -2048,6 +2097,11 @@ public enum SessionTree {
             // NEW-1: a bus line about a session of the tree; an unsynced one drops.
             guard let name = card.sessionId.flatMap(sessionName), !name.isEmpty else { return nil }
             text = text.replacingOccurrences(of: "{session}", with: name)
+        }
+        if text.contains("{name}") {
+            // NEW-2: a nameless firing drops, like any unresolvable target.
+            guard let name = card.eventName, !name.isEmpty else { return nil }
+            text = text.replacingOccurrences(of: "{name}", with: name)
         }
         return text
     }

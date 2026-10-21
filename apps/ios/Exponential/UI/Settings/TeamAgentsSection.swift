@@ -4,13 +4,13 @@ import SwiftUI
 
 /// EXP-1291: Team settings → Agents, managed exactly like boards — the
 /// filled group band over flat rows (`TeamBoardsSection`), one row per agent
-/// root (its glyph tinted with its colour + its name). A row opens the agent
+/// DEFINITION (NEW-2; its glyph tinted with its colour + its name). A row opens the agent
 /// page (`AgentSettingsPage`); members open it read-only. Creating one is the
 /// owner's, like a board.
 struct TeamAgentsSection: View {
-    /// The team's agent roots (`SessionQueries.roots(kind: agent)`), in their
-    /// sort order.
-    let agents: [SessionEntity]
+    /// The team's agent definitions (`SessionQueries.agents`), in their sort
+    /// order.
+    let agents: [AgentDefinitionEntity]
     let isOwner: Bool
     /// nil = a new agent.
     let onOpen: (String?) -> Void
@@ -33,7 +33,7 @@ struct TeamAgentsSection: View {
                     HStack(spacing: 10) {
                         AppIcon(Self.iconName(agent), size: 16)
                             .foregroundStyle(Self.tint(agent))
-                        Text(agent.name ?? "")
+                        Text(agent.name)
                             .font(.subheadline)
                             .foregroundStyle(.white)
                             .lineLimit(1)
@@ -53,11 +53,11 @@ struct TeamAgentsSection: View {
     }
 
     /// The agent's curated glyph, else the contract default (`bot`).
-    static func iconName(_ agent: SessionEntity) -> String {
+    static func iconName(_ agent: AgentDefinitionEntity) -> String {
         BoardTypeDisplay.iconName(for: agent.icon) ?? SessionTree.ListCopy.agentDefaultIcon
     }
 
-    static func tint(_ agent: SessionEntity) -> Color {
+    static func tint(_ agent: AgentDefinitionEntity) -> Color {
         Color(hex: agent.color ?? SessionTree.ListCopy.agentDefaultColor) ?? .gray
     }
 }

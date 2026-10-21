@@ -1,6 +1,6 @@
 package com.exponential.app.ui.components
 
-import com.exponential.app.data.api.ActionDto
+import com.exponential.app.data.api.PromptDto
 import com.exponential.app.ui.icons.ExpIcons
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -15,7 +15,7 @@ import org.junit.Test
  */
 class ActionGlyphTest {
 
-    private fun action(icon: String?) = ActionDto(
+    private fun action(icon: String?) = PromptDto(
         id = "a1",
         teamId = "t1",
         name = "Ship it",

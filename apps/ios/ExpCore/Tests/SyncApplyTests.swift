@@ -321,20 +321,22 @@ final class SyncApplyTests: XCTestCase {
         XCTAssertNil(gone)
     }
 
-    // EXP-1291: an agent root decodes its facets; a native-scalar (tRPC /
+    // NEW-2: an agent's conversation session (`agent_id` set) is the agent
+    // kind whatever the legacy `kind` shim says; a native-scalar (tRPC /
     // fixture) row with the defaulted columns absent takes the schema
-    // defaults rather than throwing.
+    // defaults rather than throwing, and a row without `agent_id` (a
+    // pre-NEW-2 server) is a thread even when its shim says `agent`.
     func testAgentSessionDecodesFacetsAndDefaults() throws {
         let json = """
-            {"id":"ag1","team_id":"ws1","kind":"agent","user_id":"u1",
+            {"id":"ag1","team_id":"ws1","kind":"agent","agent_id":"def-1","user_id":"u1",
              "device_id":"dev-1","status":"idle","name":"Caretaker",
-             "icon":"bot","color":"#4f46e5","sort_order":2,
-             "triggers":[{"id":"tr1","enabled":true,"kind":"schedule",
-                          "interval":"daily","minuteOfDay":540}],
+             "icon":"bot","color":"#4f46e5","sort_order":2,"triggers":[],
              "created_at":"2026-10-13T09:00:00Z","updated_at":"2026-10-13T09:00:00Z"}
             """
         let agent = try JSONDecoder().decode(SessionEntity.self, from: Data(json.utf8))
         XCTAssertTrue(agent.isAgent)
+        XCTAssertTrue(agent.traits.persistent)
+        XCTAssertEqual(agent.agentId, "def-1")
         XCTAssertTrue(agent.isRoot)
         XCTAssertEqual(agent.rootId, "ag1")
         XCTAssertEqual(agent.depth, 0)
@@ -343,7 +345,83 @@ final class SyncApplyTests: XCTestCase {
         XCTAssertEqual(agent.sortOrder, 2)
         XCTAssertFalse(agent.busy)
         XCTAssertFalse(agent.shared)
-        XCTAssertTrue(agent.triggers.contains("\"minuteOfDay\":540"))
+
+        let legacy = try JSONDecoder().decode(SessionEntity.self, from: Data("""
+            {"id":"ag2","team_id":"ws1","kind":"agent","user_id":"u1","device_id":"dev-1",
+             "created_at":"2026-10-13T09:00:00Z","updated_at":"2026-10-13T09:00:00Z"}
+            """.utf8))
+        XCTAssertNil(legacy.agentId)
+        XCTAssertFalse(legacy.isAgent)
+        XCTAssertFalse(legacy.traits.persistent)
+    }
+
+    // NEW-2: the three new shapes apply — an agent definition's triggers
+    // (jsonb) stored as TEXT and its sort order off the wire as text, an
+    // event's payload, a prompt; the server-only columns (`instructions`,
+    // `trigger_state`, `body`) never land even when they leak onto the wire.
+    func testAgentEventPromptShapesApply() async throws {
+        let agent = try JSONDecoder().decode(AgentDefinitionEntity.self, from: Data("""
+            {"id":"def-1","team_id":"ws1","name":"Triage","icon":"bot","color":"#22c55e",
+             "triggers":[{"id":"tr1","enabled":true,"kind":"schedule","cron":"0 9 * * 1-5","tz":"Europe/Vienna"}],
+             "device_id":"dev-1","cli":"claude","account":null,"model":"opus","owner_id":"u1",
+             "sort_order":"2","instructions":"server only","trigger_state":{},
+             "created_at":"2026-10-21T09:00:00Z","updated_at":"2026-10-21T09:00:00Z"}
+            """.utf8))
+        XCTAssertEqual(AgentTrigger.parseList(agent.triggers), [
+            AgentTrigger(id: "tr1", when: .schedule(ScheduleTrigger(cron: "0 9 * * 1-5", tz: "Europe/Vienna"))),
+        ])
+        XCTAssertEqual(agent.sortOrder, 2)
+        let event = try JSONDecoder().decode(EventEntity.self, from: Data("""
+            {"id":"ev-1","team_id":"ws1","name":"pr.merged","payload":{"number":12},
+             "emitted_by":"server","session_id":null,"user_id":null,
+             "created_at":"2026-10-21T09:00:00Z"}
+            """.utf8))
+        XCTAssertEqual(event.payload, #"{"number":12}"#)
+        let prompt = try JSONDecoder().decode(PromptEntity.self, from: Data("""
+            {"id":"p-1","team_id":"ws1","name":"Review PR","icon":"rocket","sort_order":"1",
+             "body":"server only","created_at":"2026-10-21T09:00:00Z","updated_at":"2026-10-21T09:00:00Z"}
+            """.utf8))
+
+        try await applyBatch(
+            messages: [ShapeMessage<AgentDefinitionEntity>.insert(key: #""public"."agents"/"def-1""#, value: agent)],
+            name: "agents", table: "agents", pool: pool
+        )
+        try await applyBatch(
+            messages: [ShapeMessage<EventEntity>.insert(key: #""public"."events"/"ev-1""#, value: event)],
+            name: "events", table: "events", pool: pool
+        )
+        try await applyBatch(
+            messages: [ShapeMessage<PromptEntity>.insert(key: #""public"."prompts"/"p-1""#, value: prompt)],
+            name: "prompts", table: "prompts", pool: pool
+        )
+        let stored = try await pool.read { db in
+            (
+                try AgentDefinitionEntity.fetchOne(db, key: "def-1"),
+                try EventEntity.fetchOne(db, key: "ev-1"),
+                try PromptEntity.fetchOne(db, key: "p-1")
+            )
+        }
+        XCTAssertEqual(stored.0, agent)
+        XCTAssertEqual(stored.0?.model, "opus")
+        XCTAssertEqual(stored.1?.name, "pr.merged")
+        XCTAssertEqual(stored.1?.emittedBy, "server")
+        XCTAssertEqual(stored.2?.name, "Review PR")
+        XCTAssertEqual(stored.2?.sortOrder, 1)
+
+        // A partial renames the agent and replaces its triggers.
+        let partial = ShapeMessage<AgentDefinitionEntity>.partialUpdate(
+            key: #""public"."agents"/"def-1""#,
+            columns: columns([
+                "id": "def-1", "name": "Triage bot",
+                "triggers": #"[{"id":"tr2","enabled":false,"kind":"event","name":"issue.created"}]"#,
+            ])
+        )
+        try await applyBatch(messages: [partial], name: "agents", table: "agents", pool: pool)
+        let patched = try await pool.read { try AgentDefinitionEntity.fetchOne($0, key: "def-1") }
+        XCTAssertEqual(patched?.name, "Triage bot")
+        XCTAssertEqual(AgentTrigger.parseList(patched?.triggers), [
+            AgentTrigger(id: "tr2", enabled: false, when: .event(EventTrigger(name: "issue.created"))),
+        ])
     }
 
     // EXP-1291: the four child shapes round-trip — a message's card (jsonb)
@@ -805,12 +883,27 @@ final class SyncApplyTests: XCTestCase {
             try SessionEntity(
                 id: "ag-b", teamId: "ws1", kind: DomainContract.sessionKindAgent, userId: "u1",
                 deviceId: "dev-1", status: DomainContract.sessionStatusIdle, name: "Beta",
-                sortOrder: 1, createdAt: at, updatedAt: at
+                sortOrder: 1, createdAt: at, updatedAt: at, agentId: "def-b"
             ).save(db)
             try SessionEntity(
                 id: "ag-a", teamId: "ws1", kind: DomainContract.sessionKindAgent, userId: "u1",
                 deviceId: "dev-1", status: DomainContract.sessionStatusIdle, name: "Alpha",
-                sortOrder: 1, createdAt: at, updatedAt: at
+                sortOrder: 1, createdAt: at, updatedAt: at, agentId: "def-a"
+            ).save(db)
+            // NEW-2: a legacy `kind = agent` row without `agent_id` is a
+            // thread; the kind derives from `agent_id` alone.
+            try SessionEntity(
+                id: "t-legacy-kind", teamId: "ws3", kind: DomainContract.sessionKindAgent, userId: "u1",
+                deviceId: "dev-1", createdAt: at, updatedAt: "2026-10-13T08:00:00Z"
+            ).save(db)
+            try AgentDefinitionEntity(
+                id: "def-b", teamId: "ws1", name: "Beta", sortOrder: 1, createdAt: at, updatedAt: at
+            ).save(db)
+            try AgentDefinitionEntity(
+                id: "def-a", teamId: "ws1", name: "Alpha", sortOrder: 1, createdAt: at, updatedAt: at
+            ).save(db)
+            try AgentDefinitionEntity(
+                id: "def-z", teamId: "ws2", name: "Zed", sortOrder: 0, createdAt: at, updatedAt: at
             ).save(db)
             try MessageEntity(
                 id: "m2", sessionId: "t-child", rootId: "t-new", teamId: "ws1",
@@ -857,13 +950,17 @@ final class SyncApplyTests: XCTestCase {
             XCTAssertEqual(
                 try SessionQueries.roots(db: db, teamId: nil, kind: DomainContract.sessionKindThread)
                     .map(\.id),
-                ["t-other", "t-new", "t-old"]
+                ["t-other", "t-new", "t-old", "t-legacy-kind"]
             )
             XCTAssertEqual(
                 try SessionQueries.roots(db: db, teamId: "ws1", kind: DomainContract.sessionKindAgent)
                     .map(\.id),
                 ["ag-a", "ag-b"]
             )
+            XCTAssertEqual(try SessionQueries.agents(db: db, teamId: "ws1").map(\.id), ["def-a", "def-b"])
+            XCTAssertEqual(try SessionQueries.agents(db: db, teamId: nil).map(\.id), ["def-z", "def-a", "def-b"])
+            XCTAssertEqual(try SessionQueries.conversation(db: db, agentId: "def-a", userId: "u1")?.id, "ag-a")
+            XCTAssertNil(try SessionQueries.conversation(db: db, agentId: "def-a", userId: "u2"))
             XCTAssertEqual(try SessionQueries.tree(db: db, rootId: "t-new").map(\.id), ["t-new", "t-child"])
             XCTAssertEqual(try SessionQueries.messages(db: db, rootId: "t-new").map(\.id), ["m1", "m2"])
             XCTAssertEqual(try SessionQueries.messages(db: db, sessionId: "t-child").map(\.id), ["m2"])

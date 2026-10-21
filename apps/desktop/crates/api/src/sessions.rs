@@ -4,14 +4,14 @@
 //! session host, not here.
 //!
 //! - `sessions.send` = THE one entrypoint ([`send`]): a new root (team +
-//!   device + text/issues/action), a new AGENT (`agent`), a child
+//!   device + text/issues/prompt), a message to an AGENT (`agentId`: the
+//!   caller's own conversation session with it, NEW-2), a child
 //!   (`parentId`) or a message to an existing session (`sessionId`; to an
 //!   idle session it resumes it, to an ended thread it continues it).
 //! - `stop` interrupts a turn, `end` ends a session (a root: its tree).
 //! - `linkIssues` / `unlinkIssue`, `answer` (a question/plan card),
 //!   `unqueue` (a queued person message).
-//! - Agents: `getAgent` (the server-only instructions), `updateAgent`,
-//!   `deleteAgent`.
+//! - NEW-2: agent definitions live in [`crate::agents`] (`agents.*`).
 //! - `pullRequests.merge` / `close` / `files`.
 //! - EXP-1323: `markRead`, the suggestions verbs (`startSuggestion`,
 //!   `startAllSuggestions`, `dismissSuggestion`, `fileSuggestion`) and the
@@ -22,32 +22,17 @@
 //! re-stream over the shapes, so callers fire-and-forget; `txId` also
 //! decodes as `txid`.
 
-use std::collections::BTreeMap;
-
 use serde::{Deserialize, Serialize};
 
 use crate::error::ApiError;
 use crate::trpc::TrpcClient;
 
-/// A new agent's facets (`sessions.send({agent})`).
-#[derive(Clone, Debug, Default, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AgentInput {
-    pub name: String,
-    /// Icon concept.
-    pub icon: String,
-    /// `#rrggbb`.
-    pub color: String,
-    pub instructions: String,
-    /// `AgentTrigger[]` jsonb, sent as is.
-    pub triggers: Vec<serde_json::Value>,
-}
-
 /// `sessions.send` input. Every key is optional and omitted when unset; the
 /// server's rules decide which combinations are valid (a message needs
 /// `session_id` + text/attachments/`account` — an `account` on a message is
-/// an account SWITCH, EXP-849, and may ride alone — a child `parent_id` + `device_id`, a new
-/// root `team_id` + `device_id` + text/issues/action, a new agent `agent`).
+/// an account SWITCH, EXP-849, and may ride alone — a child `parent_id` +
+/// `device_id`, a new root `team_id` + `device_id` + text/issues/prompt, a
+/// message to an agent `agent_id` + text).
 /// EXP-1341: `issue_ids` also ride a child (`parent_id`: linked to the root
 /// and ASSIGNED to the child) and a message (`session_id`: forwarded), and
 /// `name` names a new root or child — no client-side refusal of either.
@@ -84,19 +69,20 @@ pub struct SendInput {
     pub attachment_ids: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub issue_ids: Option<Vec<String>>,
+    /// NEW-2: a new root run from a saved prompt (its body plus `text` =
+    /// the first message).
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub action_id: Option<String>,
-    /// The action's picked inputs (needs `action_id`).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub inputs: Option<BTreeMap<String, String>>,
+    pub prompt_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub repository_id: Option<String>,
     /// EXP-1341: an explicit name for a new root or child (its stored
     /// title; `domain::session_title`'s first rung).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    /// NEW-2: a message to an AGENT = into the caller's own conversation
+    /// session with it (created on first use; agents never end).
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub agent: Option<AgentInput>,
+    pub agent_id: Option<String>,
     /// EXP-1323: a `/btw` aside child (with `parent_id`; `text` = the
     /// question): answered without adding to the parent's context.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -373,54 +359,6 @@ pub fn dismiss_replies(trpc: &TrpcClient, message_id: &str) -> Result<serde::de:
     trpc.mutation("sessions.dismissReplies", &MessageIdInput { message_id })
 }
 
-/// `sessions.getAgent` output: the server-only instructions.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AgentDetails {
-    pub session_id: String,
-    #[serde(default)]
-    pub instructions: String,
-}
-
-/// Read an agent's instructions (never synced).
-pub fn get_agent(trpc: &TrpcClient, session_id: &str) -> Result<AgentDetails, ApiError> {
-    trpc.query_with_input("sessions.getAgent", &SessionIdInput { session_id })
-}
-
-/// `sessions.updateAgent` input: unset keys are omitted; `account`/`model`
-/// take `Some(None)` to send `null` (back to the device's default).
-#[derive(Clone, Debug, Default, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct UpdateAgentInput {
-    pub session_id: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub icon: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub color: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub instructions: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub triggers: Option<Vec<serde_json::Value>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub device_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub account: Option<Option<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub model: Option<Option<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub sort_order: Option<f64>,
-}
-
-pub fn update_agent(trpc: &TrpcClient, input: &UpdateAgentInput) -> Result<TxOutput, ApiError> {
-    trpc.mutation("sessions.updateAgent", input)
-}
-
-pub fn delete_agent(trpc: &TrpcClient, session_id: &str) -> Result<TxOutput, ApiError> {
-    trpc.mutation("sessions.deleteAgent", &SessionIdInput { session_id })
-}
-
 /// `pullRequests.merge` output: `queued` = a merge queue took it, `error` =
 /// GitHub refused (the caller shows it).
 #[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
@@ -528,7 +466,7 @@ mod tests {
     }
 
     #[test]
-    fn send_a_new_root_and_a_new_agent() {
+    fn send_a_new_root_and_a_message_to_an_agent() {
         let (base, captured) =
             one_shot_server(200, r#"{"result":{"data":{"sessionId":"s-2","messageId":null,"txId":3}}}"#);
         let input = SendInput {
@@ -550,24 +488,18 @@ mod tests {
             )
         );
 
+        // NEW-2: a message to an agent rides `agentId` (the server routes
+        // it into the caller's own conversation session).
         let (base, captured) =
-            one_shot_server(200, r#"{"result":{"data":{"sessionId":"ag-1","messageId":null,"txid":4}}}"#);
+            one_shot_server(200, r#"{"result":{"data":{"sessionId":"c-1","messageId":"m-1","txid":4}}}"#);
         let input = SendInput {
-            team_id: Some("t-1".into()),
-            device_id: Some("dev-1".into()),
-            agent: Some(AgentInput {
-                name: "Triage".into(),
-                icon: "bot".into(),
-                color: "#22c55e".into(),
-                instructions: String::new(),
-                triggers: vec![serde_json::json!({"kind": "schedule"})],
-            }),
+            agent_id: Some("ag-1".into()),
+            text: Some("Triage the inbox".into()),
             ..SendInput::default()
         };
-        send(&client(&base), &input).unwrap();
-        assert!(request(&captured).ends_with(
-            r##"{"teamId":"t-1","deviceId":"dev-1","agent":{"name":"Triage","icon":"bot","color":"#22c55e","instructions":"","triggers":[{"kind":"schedule"}]}}"##
-        ));
+        let out = send(&client(&base), &input).unwrap();
+        assert_eq!(out.session_id, "c-1");
+        assert!(request(&captured).ends_with(r#"{"text":"Triage the inbox","agentId":"ag-1"}"#));
     }
 
     #[test]
@@ -578,7 +510,7 @@ mod tests {
     }
 
     #[test]
-    fn send_a_child_and_action_inputs() {
+    fn send_a_child_and_a_prompt() {
         let (base, captured) =
             one_shot_server(200, r#"{"result":{"data":{"sessionId":"c-1","messageId":"m-2","txid":1}}}"#);
         send(&client(&base), &SendInput::child("s-1", "dev-1", "Review")).unwrap();
@@ -589,13 +521,13 @@ mod tests {
         let input = SendInput {
             team_id: Some("t-1".into()),
             device_id: Some("dev-1".into()),
-            action_id: Some("act-1".into()),
-            inputs: Some(BTreeMap::from([("repo".to_string(), "r-1".to_string())])),
+            prompt_id: Some("p-1".into()),
+            text: Some("only the web".into()),
             ..SendInput::default()
         };
         send(&client(&base), &input).unwrap();
         assert!(request(&captured)
-            .ends_with(r#"{"teamId":"t-1","deviceId":"dev-1","actionId":"act-1","inputs":{"repo":"r-1"}}"#));
+            .ends_with(r#"{"teamId":"t-1","deviceId":"dev-1","text":"only the web","promptId":"p-1"}"#));
     }
 
     /// EXP-1323: the aside send, markRead and the suggestion verbs.
@@ -651,11 +583,10 @@ mod tests {
     }
 
     #[test]
-    fn stop_end_and_delete_post_the_session_id() {
+    fn stop_and_end_post_the_session_id() {
         for (path, call) in [
             ("sessions.stop", stop as fn(&TrpcClient, &str) -> Result<TxOutput, ApiError>),
             ("sessions.end", end),
-            ("sessions.deleteAgent", delete_agent),
         ] {
             let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"txid":5}}}"#);
             assert_eq!(call(&client(&base), "s-1").unwrap().tx_id, Some(5));
@@ -729,31 +660,6 @@ mod tests {
         let request_text = request(&captured);
         assert!(request_text.starts_with("POST /api/trpc/sessions.unqueue HTTP/1.1"));
         assert!(request_text.ends_with(r#"{"messageId":"m-2"}"#));
-    }
-
-    #[test]
-    fn get_and_update_an_agent() {
-        let (base, captured) = one_shot_server(
-            200,
-            r#"{"result":{"data":{"sessionId":"ag-1","instructions":"Keep it tidy."}}}"#,
-        );
-        let details = get_agent(&client(&base), "ag-1").unwrap();
-        assert_eq!(details.instructions, "Keep it tidy.");
-        assert!(request(&captured).starts_with(
-            "GET /api/trpc/sessions.getAgent?input=%7B%22sessionId%22%3A%22ag-1%22%7D HTTP/1.1"
-        ));
-
-        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"txid":2}}}"#);
-        let input = UpdateAgentInput {
-            session_id: "ag-1".into(),
-            name: Some("Docs".into()),
-            account: Some(None),
-            model: Some(Some("opus".into())),
-            ..UpdateAgentInput::default()
-        };
-        update_agent(&client(&base), &input).unwrap();
-        assert!(request(&captured)
-            .ends_with(r#"{"sessionId":"ag-1","name":"Docs","account":null,"model":"opus"}"#));
     }
 
     #[test]

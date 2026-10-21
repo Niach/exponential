@@ -3431,6 +3431,7 @@ mod tests {
         assert!(dispatches(&thread));
         let mut agent = row("a-1", None);
         agent.kind = Some("agent".to_string());
+        agent.agent_id = Some("ag-1".to_string());
         assert!(!dispatches(&agent), "the kind never decides");
         agent.dispatch = true;
         assert!(dispatches(&agent));
@@ -3510,6 +3511,7 @@ mod tests {
         assert_eq!(session_label(&thread, &[], "## Issues\n\n- not-an-id"), "Untitled");
         let mut agent = row("a-1", None);
         agent.kind = Some("agent".to_string());
+        agent.agent_id = Some("ag-1".to_string());
         agent.title = None;
         agent.name = Some("Inbox watcher".to_string());
         assert_eq!(session_label(&agent, &[], ""), "Inbox watcher");
@@ -3885,6 +3887,7 @@ mod tests {
         let deps = make_deps(&base, &dir.0, fake_worktrees(&dir.0.join("unused")));
         let mut agent = row("agent-1", None);
         agent.kind = Some("agent".to_string());
+        agent.agent_id = Some("ag-1".to_string());
         agent.name = Some("Inbox watcher".to_string());
         agent.plan_mode = false;
         // EXP-1341: the server stamps dispatch on every root, agents included.
@@ -4301,6 +4304,7 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
         assert_eq!(last_used_stamp(&child, &options(Some("0a1b2c3d"))), None);
         let mut agent_row = row("s-agent", None);
         agent_row.kind = Some("agent".to_string());
+        agent_row.agent_id = Some("ag-1".to_string());
         let agent = PrepareRequest::Session(session_request(agent_row, &[]));
         assert_eq!(last_used_stamp(&agent, &options(None)), None);
         let dir = temp_dir("stamp-resume");

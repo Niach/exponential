@@ -3,8 +3,8 @@ package com.exponential.app.ui.actions
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.exponential.app.data.api.ActionDto
-import com.exponential.app.data.api.toActionDto
+import com.exponential.app.data.api.PromptDto
+import com.exponential.app.data.api.toPromptDto
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.accountDatabaseFlow
@@ -20,8 +20,8 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.serialization.json.Json
 
+// NEW-2: the page reads the synced `prompts` row (route id = a prompt id).
 // The action page's data (EXP-1291: an action is a SAVED PROMPT — no
 // triggers, no runs tab): ONE action's synced row (name, icon, inputs) and
 // whether the caller owns its team. The prompt body is the editor's own fetch
@@ -29,7 +29,7 @@ import kotlinx.serialization.json.Json
 
 data class ActionDetailState(
     /** The synced row; null while loading, or once the action is gone. */
-    val action: ActionDto? = null,
+    val action: PromptDto? = null,
     val loading: Boolean = true,
 )
 
@@ -39,7 +39,6 @@ class ActionDetailViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val auth: AuthRepository,
     holder: DatabaseHolder,
-    private val json: Json,
 ) : ViewModel() {
 
     val actionId: String = savedStateHandle["actionId"] ?: ""
@@ -50,8 +49,8 @@ class ActionDetailViewModel @Inject constructor(
         if (db == null) {
             flowOf(ActionDetailState(loading = false))
         } else {
-            db.actionDao().observeById(actionId).map { row ->
-                ActionDetailState(action = row?.toActionDto(json), loading = false)
+            db.promptDao().observeById(actionId).map { row ->
+                ActionDetailState(action = row?.toPromptDto(), loading = false)
             }
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ActionDetailState())

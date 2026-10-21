@@ -40,7 +40,8 @@ export type WorkTab =
       from: string | null
     }
   | {
-      /** A team agent's channel (a root of kind `agent`). */
+      /** A team agent's page (NEW-2: an `agents` row id; the page shows
+       *  the caller's conversation session with it). */
       kind: `agent`
       agentId: string
       from: string | null
@@ -86,13 +87,12 @@ export function tabKey(tab: WorkTab): string {
   }
 }
 
-/** The session row a tab names (a thread, an agent or a session), if any. */
+/** The session row a tab names (a thread or a session), if any. NEW-2: an
+ *  agent tab names an `agents` row, never a session. */
 export function tabSessionId(tab: WorkTab): string | null {
   switch (tab.kind) {
     case `thread`:
       return tab.threadId
-    case `agent`:
-      return tab.agentId
     case `session`:
       return tab.sessionId
     default:

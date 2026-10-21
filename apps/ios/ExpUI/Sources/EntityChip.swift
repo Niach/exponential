@@ -36,6 +36,9 @@ public enum EntityChipIcon {
         "ui-attach": AppIcons.uiAttach,
         "ui-checklist": AppIcons.uiChecklist,
         "work-faces": AppIcons.workFaces,
+        // NEW-2: agents and events (a prompt wears nav-actions).
+        "settings-agents": AppIcons.settingsAgents,
+        "trigger-event": AppIcons.triggerEvent,
     ]
 
     /// The glyph a concept draws; an unknown concept wears the list glyph,

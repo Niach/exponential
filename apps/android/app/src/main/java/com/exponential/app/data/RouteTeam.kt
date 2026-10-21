@@ -58,7 +58,8 @@ fun routeTeamIdFlow(
             flowOf(null)
         } else {
             when (subject) {
-                is RouteSubject.Action -> db.actionDao().observeById(subject.id).map { it?.teamId }
+                // NEW-2: an `action` route arg names a saved prompt.
+                is RouteSubject.Action -> db.promptDao().observeById(subject.id).map { it?.teamId }
                 is RouteSubject.Issue -> combine(
                     db.issueDao().observeById(subject.id),
                     db.boardDao().observeAll(),

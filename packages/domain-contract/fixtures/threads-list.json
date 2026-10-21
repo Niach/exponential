@@ -1,5 +1,5 @@
 {
-  "$comment": "EXP-1291 Threads v2: the Threads page (rail entry Threads, concept nav-threads; the composer on top) and the rail's Agents section, ×4 in the existing styleguide list (a filled group band, no count, over FLAT gapless rows, NO dividers ×4, EXP-1320). partitionThreads({sessions, sessionIssues, issues, messages, teamId}) = the roots of kind `thread` (teamId = the ACTIVE team on web/desktop; null = every team, phones band rows per team) grouped `needs_you` (any non-ended session of the tree has needsInput) · `running` (else any session queued or running) · `recent` (the rest), each by the tree's newest updatedAt desc (ties by id); empty groups omitted; Needs you and Running uncapped, Recent per `recent` (NEW-1, below). A row = the thread title (session-thread.json sessionTitle, EXP-1341), NO lock (EXP-1339), a spinner while busy, an amber dot when needsYou; ONE quiet trailing word off the team's PRs, EXP-1309. listAgents(sessions, teamId) = the agent roots (kind `agent`) by sortOrder, then name, then id, each icon + color like a board row (missing → `agentDefaults`), spinner while busy, amber dot when needsYou; the section sits above Boards and opens the agent's channel (the same Conversation + composer). Reference packages/domain-contract/src/session-tree.ts; mirrors replay `cases` and `agentCases` comparing the WHOLE expected value. EXP-1312: threadRowMarkState({needsYou, busy}) = the lead of a thread row outside the Threads tab (home Running band, the rail Running rows, work tabs) x4: needs_you (the brand mark with the amber badge) beats working (the working mark), else waiting (the bare brand mark); markCases replay it. EXP-1318 (owner 2026-10-14): ONE row ×4 = lead mark (EXP-1344: threadRowMarkState FIRST, at every depth ×4: needsYou → the amber badge BEATS busy → the working mark, a parked plan/question keeps the device busy; then an open PR → pr-open emerald, merged → pr-merged VIOLET on every client incl. the IDE) · the title (no separate identifier slot: sessionTitle names it) · trailing = the word (EXP-1339: no lock). The word = threadRowWord({pullRequests, busy, needsYou, inStack}) (keys; `copy.words` = the text; EXP-1339: `merged` has NO text, it only turns the lead pr-merged violet), order stack → readyToMerge (an open PR while nothing works) → merged → question; inStack = threadInStack(threadPrs, teamPrs) (an open PR based on another open PR, or one based on it); mirrors replay `wordCases` + `stackCases`. Group bands carry their glyph ×4 (Needs you = coding-needs-input amber, Running = the working mark, Recent = ui-check), no count. Phones (teamId null): the TEAM band is OUTER (the filled team section header with the avatar), the group bands sit inside it, page title = `copy.title` in each platform's own root-screen header (Android: the large in-content headline its roots share; iOS: the sticky inline nav-bar title its other tab roots use, EXP-1358). The rail (web + IDE) = ONE band `copy.rail` = railThreads(groups, wordOf): every needs_you row, every running row, then the recent rows whose word is readyToMerge or stack, in that order (`railCases`, input words by sessionId); both list every thread the shapes make visible (no own-user filter). EXP-1318 (owner 2026-10-15): the device icon is back ×4: row trailing = word · the DEVICE ICON (list-item.json SessionRow anatomy: the title line + the trailing device glyph). The row's `deviceId` = the ROOT session's logical device_id (null when unset or absent: mirrors read a missing field as null); the icon = that device row's icon through the `deviceIcon` concept map, tooltip/accessibility label = the device name; a device the viewer cannot see (not in their synced devices) or a null deviceId → no icon. Rail rows (railThreads) carry the same field. EXP-1323 (owner 2026-10-15): rows carry `depth` (0 = the thread, opens the thread), `parentId`, `rootId`, `unread`, `caption`. A tree in Needs you or Running nests EVERY non-aside descendant right after its root (depth-first, the tree's creation order, depth = levels below the root) as SessionRow depth + TreeGuides (14px/level, the 3px corner tee); a child row = its session card name, its own busy/needsYou (false once ended), its own deviceId + caption, activityAt = its updatedAt, and opens that session; Recent collapses to the root. `reads` = the viewer's `session_reads` {sessionId, readAt} (absent = none): a root is `unread` when the tree's newest agent-authored message (any session of the tree, cards included) is newer than the read of the ROOT; a child when its OWN newest agent message is newer than its own read; no agent message = read. Unread = a bold title ×4; threadsUnread(groups) (any depth-0 row unread) = the Threads nav dot (`unreadCases`). `caption` = the session-card rule. Rows animate between bands on motion tokens. NEW-1 (plan 3.13): `recent` = Recent holds every tree with activity in the last `recent.hours` and, beyond those, fills up to the last `recent.max` by activity (`now` input; absent = no window, the last `recent.max` only; `recentCases` replay it with `now`). treeState(tree, pullRequests, now) = a tree's derived state for every surface that colours a thread: `needs_you` (a live session waits on a person: a card, a usage wall or a watchdog flag all set needsInput) · `running` (any session queued or running) · `done` (every session ended and every PR of the thread merged; a thread without a PR is never done) · `stale` (nothing touched for `treeState.staleHours`) · else `idle`; `treeStateCases` replay it. A thread's issues ×4 = the UNION over its tree's `session_issues` rows (NEW-1: a row sits on the session that holds the issue; `assignedSessionId` is gone), the root's rows first, then each child's in creation order, every issue once. recentCases: expected = the Recent group's ROOT session ids in order (other groups empty).",
+  "$comment": "EXP-1291 Threads v2: the Threads page (rail entry Threads, concept nav-threads; the composer on top) and the rail's Agents section, ×4 in the existing styleguide list (a filled group band, no count, over FLAT gapless rows, NO dividers ×4, EXP-1320). partitionThreads({sessions, sessionIssues, issues, messages, teamId}) = the roots of kind `thread` (teamId = the ACTIVE team on web/desktop; null = every team, phones band rows per team) grouped `needs_you` (any non-ended session of the tree has needsInput) · `running` (else any session queued or running) · `recent` (the rest), each by the tree's newest updatedAt desc (ties by id); empty groups omitted; Needs you and Running uncapped, Recent per `recent` (NEW-1, below). A row = the thread title (session-thread.json sessionTitle, EXP-1341), NO lock (EXP-1339), a spinner while busy, an amber dot when needsYou; ONE quiet trailing word off the team's PRs, EXP-1309. listAgents(agents, sessions, teamId, me) = the team's `agents` rows (NEW-2: definitions, never sessions) by sortOrder, then name, then id, each icon + color like a board row (missing → `agentDefaults`); busy / needsYou come from the viewer's OWN conversation session with the agent (a root with `agentId` and `userId == me`; none = false); the section sits above Boards and opens the agent's conversation (the same Conversation + composer). Reference packages/domain-contract/src/session-tree.ts; mirrors replay `cases` and `agentCases` comparing the WHOLE expected value. EXP-1312: threadRowMarkState({needsYou, busy}) = the lead of a thread row outside the Threads tab (home Running band, the rail Running rows, work tabs) x4: needs_you (the brand mark with the amber badge) beats working (the working mark), else waiting (the bare brand mark); markCases replay it. EXP-1318 (owner 2026-10-14): ONE row ×4 = lead mark (EXP-1344: threadRowMarkState FIRST, at every depth ×4: needsYou → the amber badge BEATS busy → the working mark, a parked plan/question keeps the device busy; then an open PR → pr-open emerald, merged → pr-merged VIOLET on every client incl. the IDE) · the title (no separate identifier slot: sessionTitle names it) · trailing = the word (EXP-1339: no lock). The word = threadRowWord({pullRequests, busy, needsYou, inStack}) (keys; `copy.words` = the text; EXP-1339: `merged` has NO text, it only turns the lead pr-merged violet), order stack → readyToMerge (an open PR while nothing works) → merged → question; inStack = threadInStack(threadPrs, teamPrs) (an open PR based on another open PR, or one based on it); mirrors replay `wordCases` + `stackCases`. Group bands carry their glyph ×4 (Needs you = coding-needs-input amber, Running = the working mark, Recent = ui-check), no count. Phones (teamId null): the TEAM band is OUTER (the filled team section header with the avatar), the group bands sit inside it, page title = `copy.title` in each platform's own root-screen header (Android: the large in-content headline its roots share; iOS: the sticky inline nav-bar title its other tab roots use, EXP-1358). The rail (web + IDE) = ONE band `copy.rail` = railThreads(groups, wordOf): every needs_you row, every running row, then the recent rows whose word is readyToMerge or stack, in that order (`railCases`, input words by sessionId); both list every thread the shapes make visible (no own-user filter). EXP-1318 (owner 2026-10-15): the device icon is back ×4: row trailing = word · the DEVICE ICON (list-item.json SessionRow anatomy: the title line + the trailing device glyph). The row's `deviceId` = the ROOT session's logical device_id (null when unset or absent: mirrors read a missing field as null); the icon = that device row's icon through the `deviceIcon` concept map, tooltip/accessibility label = the device name; a device the viewer cannot see (not in their synced devices) or a null deviceId → no icon. Rail rows (railThreads) carry the same field. EXP-1323 (owner 2026-10-15): rows carry `depth` (0 = the thread, opens the thread), `parentId`, `rootId`, `unread`, `caption`. A tree in Needs you or Running nests EVERY non-aside descendant right after its root (depth-first, the tree's creation order, depth = levels below the root) as SessionRow depth + TreeGuides (14px/level, the 3px corner tee); a child row = its session card name, its own busy/needsYou (false once ended), its own deviceId + caption, activityAt = its updatedAt, and opens that session; Recent collapses to the root. `reads` = the viewer's `session_reads` {sessionId, readAt} (absent = none): a root is `unread` when the tree's newest agent-authored message (any session of the tree, cards included) is newer than the read of the ROOT; a child when its OWN newest agent message is newer than its own read; no agent message = read. Unread = a bold title ×4; threadsUnread(groups) (any depth-0 row unread) = the Threads nav dot (`unreadCases`). `caption` = the session-card rule. Rows animate between bands on motion tokens. NEW-1 (plan 3.13): `recent` = Recent holds every tree with activity in the last `recent.hours` and, beyond those, fills up to the last `recent.max` by activity (`now` input; absent = no window, the last `recent.max` only; `recentCases` replay it with `now`). treeState(tree, pullRequests, now) = a tree's derived state for every surface that colours a thread: `needs_you` (a live session waits on a person: a card, a usage wall or a watchdog flag all set needsInput) · `running` (any session queued or running) · `done` (every session ended and every PR of the thread merged; a thread without a PR is never done) · `stale` (nothing touched for `treeState.staleHours`) · else `idle`; `treeStateCases` replay it. A thread's issues ×4 = the UNION over its tree's `session_issues` rows (NEW-1: a row sits on the session that holds the issue; `assignedSessionId` is gone), the root's rows first, then each child's in creation order, every issue once. recentCases: expected = the Recent group's ROOT session ids in order (other groups empty).",
   "copy": {
     "title": "Threads",
     "agents": "Agents",
@@ -228,7 +228,8 @@
             "createdAt": "2026-10-13T10:00:00.000Z",
             "updatedAt": "2026-10-13T11:00:00.000Z",
             "rootId": "g",
-            "id": "g"
+            "id": "g",
+            "agentId": "g"
           },
           {
             "teamId": "t-team-1",
@@ -656,7 +657,8 @@
             "createdAt": "2026-10-13T10:00:00.000Z",
             "updatedAt": "2026-10-13T11:00:00.000Z",
             "rootId": "g",
-            "id": "g"
+            "id": "g",
+            "agentId": "g"
           },
           {
             "teamId": "t-team-1",
@@ -923,7 +925,8 @@
             "createdAt": "2026-10-13T10:00:00.000Z",
             "updatedAt": "2026-10-13T11:00:00.000Z",
             "rootId": "g",
-            "id": "g"
+            "id": "g",
+            "agentId": "g"
           }
         ],
         "sessionIssues": [],
@@ -1340,13 +1343,48 @@
   ],
   "agentCases": [
     {
-      "name": "agents of the active team by sortOrder then name, defaults filled",
+      "name": "agents of the active team by sortOrder then name, defaults filled, state from my own conversation",
       "input": {
+        "agents": [
+          {
+            "id": "ag1",
+            "teamId": "t-team-1",
+            "name": "Triage",
+            "icon": "bot",
+            "color": "#22c55e",
+            "sortOrder": 2
+          },
+          {
+            "id": "ag2",
+            "teamId": "t-team-1",
+            "name": "Release",
+            "icon": "rocket",
+            "color": "#f97316",
+            "sortOrder": 1
+          },
+          {
+            "id": "ag3",
+            "teamId": "t-team-1",
+            "name": "Docs",
+            "icon": null,
+            "color": null,
+            "sortOrder": 2
+          },
+          {
+            "id": "ag4",
+            "teamId": "t-team-2",
+            "name": "Elsewhere",
+            "icon": null,
+            "color": null,
+            "sortOrder": 0
+          }
+        ],
         "sessions": [
           {
             "teamId": "t-team-1",
             "parentId": null,
             "kind": "agent",
+            "agentId": "ag1",
             "userId": "u-dana",
             "status": "idle",
             "busy": false,
@@ -1357,20 +1395,21 @@
             "guide": null,
             "actionName": null,
             "name": "Triage",
-            "icon": "bot",
-            "color": "#22c55e",
-            "sortOrder": 2,
+            "icon": null,
+            "color": null,
+            "sortOrder": 0,
             "startedAt": "2026-10-13T10:00:00.000Z",
             "endedAt": null,
             "createdAt": "2026-10-13T10:00:00.000Z",
             "updatedAt": "2026-10-13T10:00:00.000Z",
-            "rootId": "ag1",
-            "id": "ag1"
+            "rootId": "c1",
+            "id": "c1"
           },
           {
             "teamId": "t-team-1",
             "parentId": null,
             "kind": "agent",
+            "agentId": "ag2",
             "userId": "u-dana",
             "status": "running",
             "busy": true,
@@ -1381,20 +1420,21 @@
             "guide": null,
             "actionName": null,
             "name": "Release",
-            "icon": "rocket",
-            "color": "#f97316",
-            "sortOrder": 1,
+            "icon": null,
+            "color": null,
+            "sortOrder": 0,
             "startedAt": "2026-10-13T10:00:00.000Z",
             "endedAt": null,
             "createdAt": "2026-10-13T10:00:00.000Z",
             "updatedAt": "2026-10-13T10:00:00.000Z",
-            "rootId": "ag2",
-            "id": "ag2"
+            "rootId": "c2",
+            "id": "c2"
           },
           {
             "teamId": "t-team-1",
             "parentId": null,
             "kind": "agent",
+            "agentId": "ag3",
             "userId": "u-dana",
             "status": "idle",
             "busy": false,
@@ -1407,28 +1447,29 @@
             "name": "Docs",
             "icon": null,
             "color": null,
-            "sortOrder": 2,
+            "sortOrder": 0,
             "startedAt": "2026-10-13T10:00:00.000Z",
             "endedAt": null,
             "createdAt": "2026-10-13T10:00:00.000Z",
             "updatedAt": "2026-10-13T10:00:00.000Z",
-            "rootId": "ag3",
-            "id": "ag3"
+            "rootId": "c3",
+            "id": "c3"
           },
           {
-            "teamId": "t-team-2",
+            "teamId": "t-team-1",
             "parentId": null,
             "kind": "agent",
-            "userId": "u-dana",
+            "agentId": "ag3",
+            "userId": "u-bob",
             "status": "running",
-            "busy": false,
+            "busy": true,
             "needsInput": false,
             "blocked": null,
             "shared": true,
             "title": null,
             "guide": null,
             "actionName": null,
-            "name": "Elsewhere",
+            "name": "Docs",
             "icon": null,
             "color": null,
             "sortOrder": 0,
@@ -1436,13 +1477,14 @@
             "endedAt": null,
             "createdAt": "2026-10-13T10:00:00.000Z",
             "updatedAt": "2026-10-13T10:00:00.000Z",
-            "rootId": "ag4",
-            "id": "ag4"
+            "rootId": "c3b",
+            "id": "c3b"
           },
           {
             "teamId": "t-team-1",
             "parentId": null,
             "kind": "thread",
+            "agentId": null,
             "userId": "u-dana",
             "status": "running",
             "busy": false,
@@ -1464,11 +1506,12 @@
             "id": "th"
           }
         ],
-        "teamId": "t-team-1"
+        "teamId": "t-team-1",
+        "me": "u-dana"
       },
       "expected": [
         {
-          "sessionId": "ag2",
+          "agentId": "ag2",
           "teamId": "t-team-1",
           "name": "Release",
           "icon": "rocket",
@@ -1477,7 +1520,7 @@
           "needsYou": false
         },
         {
-          "sessionId": "ag3",
+          "agentId": "ag3",
           "teamId": "t-team-1",
           "name": "Docs",
           "icon": "bot",
@@ -1486,7 +1529,7 @@
           "needsYou": true
         },
         {
-          "sessionId": "ag1",
+          "agentId": "ag1",
           "teamId": "t-team-1",
           "name": "Triage",
           "icon": "bot",
@@ -1497,13 +1540,48 @@
       ]
     },
     {
-      "name": "every team",
+      "name": "every team on a phone; a member without a conversation sees a quiet row",
       "input": {
+        "agents": [
+          {
+            "id": "ag1",
+            "teamId": "t-team-1",
+            "name": "Triage",
+            "icon": "bot",
+            "color": "#22c55e",
+            "sortOrder": 2
+          },
+          {
+            "id": "ag2",
+            "teamId": "t-team-1",
+            "name": "Release",
+            "icon": "rocket",
+            "color": "#f97316",
+            "sortOrder": 1
+          },
+          {
+            "id": "ag3",
+            "teamId": "t-team-1",
+            "name": "Docs",
+            "icon": null,
+            "color": null,
+            "sortOrder": 2
+          },
+          {
+            "id": "ag4",
+            "teamId": "t-team-2",
+            "name": "Elsewhere",
+            "icon": null,
+            "color": null,
+            "sortOrder": 0
+          }
+        ],
         "sessions": [
           {
             "teamId": "t-team-1",
             "parentId": null,
             "kind": "agent",
+            "agentId": "ag1",
             "userId": "u-dana",
             "status": "idle",
             "busy": false,
@@ -1514,20 +1592,21 @@
             "guide": null,
             "actionName": null,
             "name": "Triage",
-            "icon": "bot",
-            "color": "#22c55e",
-            "sortOrder": 2,
+            "icon": null,
+            "color": null,
+            "sortOrder": 0,
             "startedAt": "2026-10-13T10:00:00.000Z",
             "endedAt": null,
             "createdAt": "2026-10-13T10:00:00.000Z",
             "updatedAt": "2026-10-13T10:00:00.000Z",
-            "rootId": "ag1",
-            "id": "ag1"
+            "rootId": "c1",
+            "id": "c1"
           },
           {
             "teamId": "t-team-1",
             "parentId": null,
             "kind": "agent",
+            "agentId": "ag2",
             "userId": "u-dana",
             "status": "running",
             "busy": true,
@@ -1538,20 +1617,21 @@
             "guide": null,
             "actionName": null,
             "name": "Release",
-            "icon": "rocket",
-            "color": "#f97316",
-            "sortOrder": 1,
+            "icon": null,
+            "color": null,
+            "sortOrder": 0,
             "startedAt": "2026-10-13T10:00:00.000Z",
             "endedAt": null,
             "createdAt": "2026-10-13T10:00:00.000Z",
             "updatedAt": "2026-10-13T10:00:00.000Z",
-            "rootId": "ag2",
-            "id": "ag2"
+            "rootId": "c2",
+            "id": "c2"
           },
           {
             "teamId": "t-team-1",
             "parentId": null,
             "kind": "agent",
+            "agentId": "ag3",
             "userId": "u-dana",
             "status": "idle",
             "busy": false,
@@ -1564,28 +1644,29 @@
             "name": "Docs",
             "icon": null,
             "color": null,
-            "sortOrder": 2,
+            "sortOrder": 0,
             "startedAt": "2026-10-13T10:00:00.000Z",
             "endedAt": null,
             "createdAt": "2026-10-13T10:00:00.000Z",
             "updatedAt": "2026-10-13T10:00:00.000Z",
-            "rootId": "ag3",
-            "id": "ag3"
+            "rootId": "c3",
+            "id": "c3"
           },
           {
-            "teamId": "t-team-2",
+            "teamId": "t-team-1",
             "parentId": null,
             "kind": "agent",
-            "userId": "u-dana",
+            "agentId": "ag3",
+            "userId": "u-bob",
             "status": "running",
-            "busy": false,
+            "busy": true,
             "needsInput": false,
             "blocked": null,
             "shared": true,
             "title": null,
             "guide": null,
             "actionName": null,
-            "name": "Elsewhere",
+            "name": "Docs",
             "icon": null,
             "color": null,
             "sortOrder": 0,
@@ -1593,13 +1674,14 @@
             "endedAt": null,
             "createdAt": "2026-10-13T10:00:00.000Z",
             "updatedAt": "2026-10-13T10:00:00.000Z",
-            "rootId": "ag4",
-            "id": "ag4"
+            "rootId": "c3b",
+            "id": "c3b"
           },
           {
             "teamId": "t-team-1",
             "parentId": null,
             "kind": "thread",
+            "agentId": null,
             "userId": "u-dana",
             "status": "running",
             "busy": false,
@@ -1621,11 +1703,12 @@
             "id": "th"
           }
         ],
-        "teamId": null
+        "teamId": null,
+        "me": "u-bob"
       },
       "expected": [
         {
-          "sessionId": "ag4",
+          "agentId": "ag4",
           "teamId": "t-team-2",
           "name": "Elsewhere",
           "icon": "bot",
@@ -1634,25 +1717,25 @@
           "needsYou": false
         },
         {
-          "sessionId": "ag2",
+          "agentId": "ag2",
           "teamId": "t-team-1",
           "name": "Release",
           "icon": "rocket",
           "color": "#f97316",
-          "busy": true,
+          "busy": false,
           "needsYou": false
         },
         {
-          "sessionId": "ag3",
+          "agentId": "ag3",
           "teamId": "t-team-1",
           "name": "Docs",
           "icon": "bot",
           "color": "#6366f1",
-          "busy": false,
-          "needsYou": true
+          "busy": true,
+          "needsYou": false
         },
         {
-          "sessionId": "ag1",
+          "agentId": "ag1",
           "teamId": "t-team-1",
           "name": "Triage",
           "icon": "bot",
@@ -1661,6 +1744,142 @@
           "needsYou": false
         }
       ]
+    },
+    {
+      "name": "no agents",
+      "input": {
+        "agents": [],
+        "sessions": [
+          {
+            "teamId": "t-team-1",
+            "parentId": null,
+            "kind": "agent",
+            "agentId": "ag1",
+            "userId": "u-dana",
+            "status": "idle",
+            "busy": false,
+            "needsInput": false,
+            "blocked": null,
+            "shared": true,
+            "title": null,
+            "guide": null,
+            "actionName": null,
+            "name": "Triage",
+            "icon": null,
+            "color": null,
+            "sortOrder": 0,
+            "startedAt": "2026-10-13T10:00:00.000Z",
+            "endedAt": null,
+            "createdAt": "2026-10-13T10:00:00.000Z",
+            "updatedAt": "2026-10-13T10:00:00.000Z",
+            "rootId": "c1",
+            "id": "c1"
+          },
+          {
+            "teamId": "t-team-1",
+            "parentId": null,
+            "kind": "agent",
+            "agentId": "ag2",
+            "userId": "u-dana",
+            "status": "running",
+            "busy": true,
+            "needsInput": false,
+            "blocked": null,
+            "shared": true,
+            "title": null,
+            "guide": null,
+            "actionName": null,
+            "name": "Release",
+            "icon": null,
+            "color": null,
+            "sortOrder": 0,
+            "startedAt": "2026-10-13T10:00:00.000Z",
+            "endedAt": null,
+            "createdAt": "2026-10-13T10:00:00.000Z",
+            "updatedAt": "2026-10-13T10:00:00.000Z",
+            "rootId": "c2",
+            "id": "c2"
+          },
+          {
+            "teamId": "t-team-1",
+            "parentId": null,
+            "kind": "agent",
+            "agentId": "ag3",
+            "userId": "u-dana",
+            "status": "idle",
+            "busy": false,
+            "needsInput": true,
+            "blocked": null,
+            "shared": true,
+            "title": null,
+            "guide": null,
+            "actionName": null,
+            "name": "Docs",
+            "icon": null,
+            "color": null,
+            "sortOrder": 0,
+            "startedAt": "2026-10-13T10:00:00.000Z",
+            "endedAt": null,
+            "createdAt": "2026-10-13T10:00:00.000Z",
+            "updatedAt": "2026-10-13T10:00:00.000Z",
+            "rootId": "c3",
+            "id": "c3"
+          },
+          {
+            "teamId": "t-team-1",
+            "parentId": null,
+            "kind": "agent",
+            "agentId": "ag3",
+            "userId": "u-bob",
+            "status": "running",
+            "busy": true,
+            "needsInput": false,
+            "blocked": null,
+            "shared": true,
+            "title": null,
+            "guide": null,
+            "actionName": null,
+            "name": "Docs",
+            "icon": null,
+            "color": null,
+            "sortOrder": 0,
+            "startedAt": "2026-10-13T10:00:00.000Z",
+            "endedAt": null,
+            "createdAt": "2026-10-13T10:00:00.000Z",
+            "updatedAt": "2026-10-13T10:00:00.000Z",
+            "rootId": "c3b",
+            "id": "c3b"
+          },
+          {
+            "teamId": "t-team-1",
+            "parentId": null,
+            "kind": "thread",
+            "agentId": null,
+            "userId": "u-dana",
+            "status": "running",
+            "busy": false,
+            "needsInput": false,
+            "blocked": null,
+            "shared": true,
+            "title": "A thread",
+            "guide": null,
+            "actionName": null,
+            "name": null,
+            "icon": null,
+            "color": null,
+            "sortOrder": 0,
+            "startedAt": "2026-10-13T10:00:00.000Z",
+            "endedAt": null,
+            "createdAt": "2026-10-13T10:00:00.000Z",
+            "updatedAt": "2026-10-13T10:00:00.000Z",
+            "rootId": "th",
+            "id": "th"
+          }
+        ],
+        "teamId": "t-team-1",
+        "me": "u-dana"
+      },
+      "expected": []
     }
   ],
   "markCases": [

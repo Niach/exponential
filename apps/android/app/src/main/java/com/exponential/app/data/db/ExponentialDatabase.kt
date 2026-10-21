@@ -32,6 +32,9 @@ import androidx.room.TypeConverters
         PullRequestEntity::class,
         PullRequestIssueEntity::class,
         SessionReadEntity::class,
+        AgentDefinitionEntity::class,
+        EventEntity::class,
+        PromptEntity::class,
         ElectricOffsetEntity::class,
     ],
     // v2: added attachments.width / attachments.height (parity with iOS).
@@ -424,8 +427,12 @@ import androidx.room.TypeConverters
     // v91 (EXP-1252): sessions.move_to_device_id (a pending device move).
     //      Explicit [MIGRATION_90_91] adds the nullable column and refetches
     //      only the sessions shape.
+    // v92 (NEW-2): agents are definitions, prompts replace actions, events.
+    //      sessions.agent_id + the `agents`, `events` and `prompts` tables
+    //      (three new shapes). Explicit [MIGRATION_91_92] adds the column,
+    //      creates the tables empty and refetches only the sessions shape.
     // Older versions still fall back to destructive + resync (DatabaseHolder).
-    version = 91,
+    version = 92,
     exportSchema = false,
 )
 @TypeConverters(StringListConverters::class)
@@ -456,5 +463,8 @@ abstract class ExponentialDatabase : RoomDatabase() {
     abstract fun pullRequestDao(): PullRequestDao
     abstract fun pullRequestIssueDao(): PullRequestIssueDao
     abstract fun sessionReadDao(): SessionReadDao
+    abstract fun agentDefinitionDao(): AgentDefinitionDao
+    abstract fun eventDao(): EventDao
+    abstract fun promptDao(): PromptDao
     abstract fun electricOffsetDao(): ElectricOffsetDao
 }

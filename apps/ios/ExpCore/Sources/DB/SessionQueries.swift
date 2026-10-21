@@ -10,19 +10,44 @@ public enum SessionQueries {
 
     /// A team's roots of one kind (`DomainContract.sessionKindThread` |
     /// `sessionKindAgent`); nil team = every team (phones list ALL teams).
-    /// Threads: most recent activity first. Agents: their manual order
-    /// (`sort_order`, then name), like boards.
+    /// NEW-2: the kind derives from `agent_id` (`sessionKindOf`), never from
+    /// the legacy `kind` shim: agent = an agent's conversation session.
+    /// Threads: most recent activity first. Conversations: their agent's
+    /// order mirror (`sort_order`, then name), like boards.
     public static func roots(db: Database, teamId: String?, kind: String) throws -> [SessionEntity] {
+        let agent = kind == DomainContract.sessionKindAgent
         var request = SessionEntity
             .filter(Column("parent_id") == nil)
-            .filter(Column("kind") == kind)
+            .filter(agent ? Column("agent_id") != nil : Column("agent_id") == nil)
         if let teamId {
             request = request.filter(Column("team_id") == teamId)
         }
-        request = kind == DomainContract.sessionKindAgent
+        request = agent
             ? request.order(Column("sort_order").asc, Column("name").asc, Column("id").asc)
             : request.order(Column("updated_at").desc, Column("id").asc)
         return try request.fetchAll(db)
+    }
+
+    /// NEW-2: a team's agent DEFINITIONS (nil team = every team), in their
+    /// manual order (`sort_order`, then name, then id), like boards.
+    public static func agents(db: Database, teamId: String?) throws -> [AgentDefinitionEntity] {
+        var request = AgentDefinitionEntity.all()
+        if let teamId {
+            request = request.filter(Column("team_id") == teamId)
+        }
+        return try request
+            .order(Column("sort_order").asc, Column("name").asc, Column("id").asc)
+            .fetchAll(db)
+    }
+
+    /// NEW-2: my conversation session with an agent (a root with its
+    /// `agent_id` that I started); nil = none yet (the first message makes it).
+    public static func conversation(db: Database, agentId: String, userId: String) throws -> SessionEntity? {
+        try SessionEntity
+            .filter(Column("parent_id") == nil)
+            .filter(Column("agent_id") == agentId)
+            .filter(Column("user_id") == userId)
+            .fetchOne(db)
     }
 
     /// One session by id.

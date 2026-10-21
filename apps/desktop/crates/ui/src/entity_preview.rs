@@ -122,6 +122,10 @@ pub(crate) fn row_facts(kind: &str, id: &str, cx: &App) -> EntityRowFacts {
         "issue" => synced(find_issue(id, cx).is_some()),
         "board" => synced(collections.boards.read(cx).get(id).is_some()),
         "action" => synced(collections.actions.read(cx).get(id).is_some()),
+        // NEW-2: prompts, agent definitions and events.
+        "prompt" => synced(collections.prompts.read(cx).get(id).is_some()),
+        "agent" => synced(collections.agents.read(cx).get(id).is_some()),
+        "event" => synced(collections.events.read(cx).get(id).is_some()),
         "comment" => match collections.comments.read(cx).get(id) {
             Some(comment) => EntityRowFacts { synced: true, issue_id: Some(comment.issue_id.clone()) },
             None => EntityRowFacts::default(),
@@ -178,7 +182,9 @@ pub(crate) fn target_for(kind: &str, id: &str, facts: &EntityRowFacts) -> Option
         "issue" => EntityTarget::Screen(Screen::IssueDetail { issue_id: id.to_string() }),
         "board" => EntityTarget::Screen(Screen::BoardIssues { board_id: id.to_string() }),
         "session" => EntityTarget::Session(id.to_string()),
-        "action" => EntityTarget::Action(id.to_string()),
+        // NEW-2: a prompt opens the (prompt-backed) action page.
+        "action" | "prompt" => EntityTarget::Action(id.to_string()),
+        "agent" => EntityTarget::Screen(Screen::Settings),
         "device" => EntityTarget::Screen(Screen::Devices),
         "label" | "status" | "member" | "invite" | "team" => EntityTarget::Screen(Screen::Settings),
         "notification" => {

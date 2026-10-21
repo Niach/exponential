@@ -39,14 +39,15 @@ final class ActionDetailViewModel {
             return
         }
         let observation = ValueObservation.tracking { db in
-            try ActionEntity.fetchOne(db, key: actionId)
+            // NEW-2: a saved prompt (the `actions` shape is served empty).
+            try PromptEntity.fetchOne(db, key: actionId)
         }
         actionObservationTask = Task { [weak self] in
             do {
                 for try await row in observation.values(in: pool) {
                     guard let self, !Task.isCancelled else { return }
                     guard self.loadedActionId == actionId else { return }
-                    self.action = row.map { ActionDto(entity: $0) }
+                    self.action = row.map { ActionDto(prompt: $0) }
                     self.resolved = true
                     if let teamId = row?.teamId, teamId != self.loadedTeamId {
                         self.loadedTeamId = teamId

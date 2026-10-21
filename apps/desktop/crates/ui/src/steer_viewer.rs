@@ -2677,15 +2677,6 @@ impl SteerSessionView {
             .map_or(SessionAgent::Claude, |row| slash_commands::agent_of(row, acp))
     }
 
-    /// The `/` menu's agent half — what the AGENT advertised for this run
-    /// (`config_state.commands`), empty until it says.
-    fn agent_commands(&self) -> Vec<steer::frames::ConfigCommand> {
-        self.feed
-            .config()
-            .map(|config| config.commands.clone())
-            .unwrap_or_default()
-    }
-
     /// EXP-746: the run's context/spend meter (the usage sheet's own block).
     pub(crate) fn usage(&self) -> Option<steer::SessionUsage> {
         self.feed.usage()
@@ -2910,8 +2901,9 @@ impl SteerSessionView {
             return;
         }
         self.slash_dismissed_for = None;
-        // EXP-746: the contract catalog UNION whatever this agent advertised.
-        let items = slash_commands::menu_matches_with(&draft, self.agent(), &self.agent_commands());
+        // NEW-2: the contract catalog alone; the agent's own commands stay
+        // hidden.
+        let items = slash_commands::menu_matches(&draft, self.agent());
         self.slash = if items.is_empty() {
             None
         } else {
@@ -3120,10 +3112,18 @@ impl SteerSessionView {
         }
         let text = self.input.read(cx).value().to_string();
         self.notice = None;
-        // EXP-1323: `/btw <question>` is an ASIDE child of this session
-        // (`sessions.send({parentId, text, aside})`), never a message to it.
-        if let Some(question) = slash_commands::btw_question(&text, self.agent()) {
-            self.post_message_with(api::sessions::SendInput::aside(&self.session_id, &question), window, cx);
+        // NEW-2: `/effort <level>` changes the launch option exactly like
+        // the "+" menu's Effort pick (`sessions.configure`), never a message.
+        if let Some(level) = slash_commands::effort_level(&text, self.agent()) {
+            self.input.update(cx, |state, cx| state.set_value("", window, cx));
+            self.configure_now(
+                api::sessions::ConfigureInput {
+                    session_id: self.session_id.to_string(),
+                    effort: Some(Some(level)),
+                    ..Default::default()
+                },
+                cx,
+            );
             return;
         }
         if self.pending_images.is_empty() {

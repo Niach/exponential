@@ -5,7 +5,7 @@ import type { SteerDevice } from "@/lib/steer-devices"
 // EXP-825 / EXP-1293: the composer's model: swap rules, submit labels, the
 // blocked matrix, seed consumption and THE start, ONE `sessions.send` that
 // opens the new thread. The synced collections are stubbed by ALIAS: the
-// hook names its query sources (`a` actions, `issues`), so the fake
+// hook names its query sources (`p` prompts, `issues`), so the fake
 // `useLiveQuery` hands each one its own rows.
 
 const mockState = vi.hoisted(() => ({
@@ -40,7 +40,7 @@ vi.mock(`@tanstack/react-db`, async (importOriginal) => {
 })
 vi.mock(`@tanstack/react-router`, () => ({ useNavigate: () => mockState.navigate }))
 vi.mock(`@/lib/collections`, () => ({
-  actionCollection: {},
+  promptCollection: {},
   issueCollection: {},
   sessionCollection: { utils: { awaitTxId: mockState.awaitTxId } },
 }))
@@ -105,14 +105,11 @@ const issue = (id: string, boardId: string, status = `backlog`) => ({
   createdAt: new Date(`2026-09-01T00:00:00Z`),
 })
 
-const action = (id: string, inputs: unknown[] = [], extra: Record<string, unknown> = {}) => ({
+const prompt = (id: string, extra: Record<string, unknown> = {}) => ({
   id,
   teamId: `t1`,
-  repositoryId: null,
-  name: `Action ${id}`,
-  description: null,
+  name: `Prompt ${id}`,
   icon: null,
-  inputs,
   sortOrder: 1,
   createdAt: new Date(0),
   updatedAt: new Date(0),
@@ -130,7 +127,7 @@ function mount(seed: LaunchSeed | null = null, devices: SteerDevice[] | null = [
 
 beforeEach(() => {
   mockState.rows = {
-    a: [action(`act-1`)],
+    p: [prompt(`pr-1`)],
     issues: [issue(`i1`, `b1`), issue(`i2`, `b1`), issue(`i3`, `b2`)],
   }
   mockState.boards = [board(`b1`, `repo-1`), board(`b2`, `repo-1`)]
@@ -154,7 +151,7 @@ describe(`submitLabelFor`, () => {
     expect(submitLabelFor(null)).toBe(`Start session`)
     expect(submitLabelFor({ kind: `issues`, ids: [`a`] })).toBe(`Start coding`)
     expect(submitLabelFor({ kind: `issues`, ids: [`a`, `b`] })).toBe(`Start batch · 2`)
-    expect(submitLabelFor({ kind: `action`, id: `x`, inputs: {} })).toBe(`Run action`)
+    expect(submitLabelFor({ kind: `prompt`, id: `x` })).toBe(`Start session`)
   })
 })
 
@@ -193,7 +190,7 @@ describe(`buildSendInput`, () => {
     })
   })
 
-  it(`sends an action with its inputs, a chat with its repository`, () => {
+  it(`sends a prompt beside its repository, a chat with its repository`, () => {
     const base = {
       teamId: `t1`,
       deviceId: `dev-1`,
@@ -202,55 +199,59 @@ describe(`buildSendInput`, () => {
       attachmentIds: [`att-1`],
       repoId: `repo-1`,
     }
+    expect(buildSendInput({ ...base, subject: { kind: `prompt`, id: `pr-1` } })).toMatchObject({
+      promptId: `pr-1`,
+      repositoryId: `repo-1`,
+      text: `hello`,
+      attachmentIds: [`att-1`],
+    })
     expect(
-      buildSendInput({
-        ...base,
-        subject: { kind: `action`, id: `act-1`, inputs: {} },
-        actionInputs: { repo: `repo-1` },
-      })
-    ).toMatchObject({ actionId: `act-1`, inputs: { repo: `repo-1` }, text: `hello`, attachmentIds: [`att-1`] })
+      buildSendInput({ ...base, subject: { kind: `prompt`, id: `pr-1` }, repoId: `` })
+    ).not.toHaveProperty(`repositoryId`)
     const chat = buildSendInput({ ...base, subject: null })
     expect(chat).toMatchObject({ repositoryId: `repo-1` })
     expect(chat).not.toHaveProperty(`issueIds`)
-    expect(chat).not.toHaveProperty(`actionId`)
+    expect(chat).not.toHaveProperty(`promptId`)
     expect(buildSendInput({ ...base, subject: null, repoId: `` })).not.toHaveProperty(`repositoryId`)
   })
 })
 
 describe(`useLaunchComposer subject`, () => {
-  it(`swaps between issues and an action`, () => {
+  it(`swaps between issues and a prompt`, () => {
     const { result } = mount()
     act(() => result.current.toggleIssue(`i1`))
     act(() => result.current.toggleIssue(`i2`))
     expect(result.current.subject).toEqual({ kind: `issues`, ids: [`i1`, `i2`] })
     expect(result.current.submitLabel).toBe(`Start batch · 2`)
-    act(() => result.current.pickAction(`act-1`))
-    expect(result.current.subject).toEqual({ kind: `action`, id: `act-1`, inputs: {} })
+    act(() => result.current.pickPrompt(`pr-1`))
+    expect(result.current.subject).toEqual({ kind: `prompt`, id: `pr-1` })
+    expect(result.current.selectedPrompt?.name).toBe(`Prompt pr-1`)
     act(() => result.current.toggleIssue(`i3`))
     expect(result.current.subject).toEqual({ kind: `issues`, ids: [`i3`] })
     act(() => result.current.toggleIssue(`i3`))
     expect(result.current.subject).toBeNull()
+    act(() => result.current.pickPrompt(`pr-1`))
+    act(() => result.current.clearPrompt())
+    expect(result.current.subject).toBeNull()
   })
 
-  it(`lists the team's actions only, in server order`, () => {
-    mockState.rows.a = [
-      action(`b`, [], { sortOrder: 2 }),
-      action(`a`, [], { sortOrder: 1 }),
-    ]
+  it(`lists the team's prompts in server order`, () => {
+    mockState.rows.p = [prompt(`b`, { sortOrder: 2 }), prompt(`a`, { sortOrder: 1 })]
     const { result } = mount()
-    expect(result.current.actions?.map((row) => row.id)).toEqual([`a`, `b`])
+    expect(result.current.prompts.map((row) => row.id)).toEqual([`a`, `b`])
   })
 
-  it(`blocks a subjectless start without text, and an action missing a required input`, () => {
-    mockState.rows.a = [action(`act-1`, [{ key: `pr`, label: `PR`, type: `pr`, required: true }])]
+  it(`blocks a subjectless start without text; a synced prompt needs none`, () => {
     const { result } = mount()
     expect(result.current.blocked).toBe(true)
     act(() => result.current.setText(`hi`))
     expect(result.current.blocked).toBe(false)
-    act(() => result.current.pickAction(`act-1`))
-    expect(result.current.blocked).toBe(true)
-    act(() => result.current.setInput(`pr`, `pull-1`))
+    act(() => result.current.setText(``))
+    act(() => result.current.pickPrompt(`pr-1`))
     expect(result.current.blocked).toBe(false)
+    // A prompt whose row is not synced (or gone) cannot start.
+    act(() => result.current.pickPrompt(`pr-gone`))
+    expect(result.current.blocked).toBe(true)
   })
 
   it(`blocks a batch spanning repositories`, () => {
@@ -268,15 +269,9 @@ describe(`useLaunchComposer subject`, () => {
     expect(result.current.blocked).toBe(true)
   })
 
-  it(`consumes a seed once: action over issues, text only into an empty draft`, () => {
-    const { result, onSeedConsumed } = mount({
-      issueIds: [`i1`],
-      actionId: `act-1`,
-      prIssueId: `i2`,
-      text: `do it`,
-    })
-    expect(result.current.subject).toEqual({ kind: `action`, id: `act-1`, inputs: {} })
-    expect(result.current.seedPrIssueId).toBe(`i2`)
+  it(`consumes a seed once: issues, text only into an empty draft`, () => {
+    const { result, onSeedConsumed } = mount({ issueIds: [`i1`, `i1`], text: `do it` })
+    expect(result.current.subject).toEqual({ kind: `issues`, ids: [`i1`] })
     expect(result.current.text).toBe(`do it`)
     expect(onSeedConsumed).toHaveBeenCalledTimes(1)
   })
@@ -305,6 +300,20 @@ describe(`useLaunchComposer start`, () => {
     // The draft is done with.
     expect(result.current.subject).toBeNull()
     expect(result.current.text).toBe(``)
+  })
+
+  it(`starts a prompt run: promptId beside the repository and the typed text`, async () => {
+    const { result } = mount()
+    act(() => result.current.pickPrompt(`pr-1`))
+    act(() => result.current.setText(`only the web app`))
+    await act(() => result.current.submit())
+    expect(mockState.send.mock.calls[0]![0]).toMatchObject({
+      teamId: `t1`,
+      promptId: `pr-1`,
+      repositoryId: `repo-1`,
+      text: `only the web app`,
+    })
+    expect(result.current.subject).toBeNull()
   })
 
   it(`uploads files first and sends their ids`, async () => {

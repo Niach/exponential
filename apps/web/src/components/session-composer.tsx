@@ -45,6 +45,7 @@ import {
 import { useComposerReplies } from "@/hooks/use-composer-replies"
 import { useSessionRow } from "@/hooks/use-session-tree"
 import { useSteerCommand } from "@/hooks/use-steer-command"
+import { usePrompts } from "@/hooks/use-prompts"
 import { planModeToggle, sessionModel } from "@/lib/agent-feed"
 import { contextPercent, severity } from "@/lib/agent-usage"
 import {
@@ -56,11 +57,11 @@ import {
   mergeHeldIntoDraft,
 } from "@/lib/steer-session-store"
 import {
-  mergeAgentCommands,
   parseSteerCommand,
   steerAgentId,
   steerCommandConfirmCopy,
   steerCommandsFor,
+  matchSlashDraft,
   type SteerCommand,
 } from "@/lib/steer-commands"
 import { uploadTeamSessionImageFile } from "@/lib/storage/issue-image-upload"
@@ -245,22 +246,32 @@ export function SessionComposer({
   )
   const agent = row?.cli ?? `claude`
   const options = useSessionComposerOptions({ teamId, sessionId, row, agent })
-  // The `/` menu: the contract catalog for this agent, then the agent's own
-  // advertised commands (`config_state.commands`).
+  // The `/` menu (NEW-2): the contract builtins for this agent, then the
+  // team's prompts; the CLI's own injected commands are never offered.
   const catalogAgent = steerAgentId(row?.cli, config !== null)
-  const commands = useMemo(
-    () =>
-      mergeAgentCommands(
-        steerCommandsFor(catalogAgent),
-        config?.commands ?? [],
-        catalogAgent
-      ),
-    [catalogAgent, config?.commands]
-  )
-  const menu = useSlashCommandMenu({ text, commands, onAccept: setText })
-  // EXP-1323: `/btw <question>` is an ASIDE child of this session
-  // (`sessions.send({parentId, text, aside})`), never a message to it.
-  const dispatch = useSteerCommand({ teamId, sessionId, agent: catalogAgent })
+  const commands = useMemo(() => steerCommandsFor(catalogAgent), [catalogAgent])
+  const { prompts } = usePrompts(teamId)
+  // A picked prompt's body (`prompts.get`, the only body path) REPLACES the
+  // `/name` draft the menu was open on, to be edited and sent.
+  const pickPrompt = (prompt: { id: string; name: string }) => {
+    trpc.prompts.get
+      .query({ id: prompt.id })
+      .then(({ prompt: full }) => {
+        if (matchSlashDraft(textRef.current) === null) return
+        textRef.current = full.body
+        setText(full.body)
+      })
+      .catch((error) => failedAction(`load`, prompt.name, error))
+  }
+  const menu = useSlashCommandMenu({
+    text,
+    commands,
+    prompts,
+    onAccept: setText,
+    onPickPrompt: pickPrompt,
+  })
+  // NEW-2: `/effort <level>` = `sessions.configure`, never a message.
+  const dispatch = useSteerCommand({ sessionId, agent: catalogAgent })
 
   // The model pin: the model in force (the relay's `config_state`), else the
   // row's / device's. A pick reads as picked AT ONCE (the CLI only confirms
@@ -333,8 +344,8 @@ export function SessionComposer({
     }
     setSending(true)
     try {
-      // A steer command the web runs itself (`/btw`): the draft clears once
-      // the aside is in; a failed one toasted and keeps the draft.
+      // A steer command the web runs itself (`/effort`): the draft clears
+      // once it is applied; a failed one toasted and keeps the draft.
       const dispatched = await dispatch(text)
       if (dispatched !== null) {
         if (dispatched === `sent`) setText(``)
@@ -549,7 +560,7 @@ export function SessionComposer({
           />
           {menu.open && (
             <SlashCommandMenu
-              commands={menu.candidates}
+              candidates={menu.candidates}
               active={menu.active}
               onSelect={menu.accept}
               onHover={menu.setActive}

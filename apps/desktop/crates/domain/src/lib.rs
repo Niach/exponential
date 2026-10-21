@@ -130,6 +130,8 @@ pub mod relations;
 pub mod relations_view;
 pub mod reporter_reply;
 pub mod rows;
+// NEW-2: THE schedule picker (cron <-> rows, labels, summary), fixture-locked ×4.
+pub mod schedule_picker;
 pub mod session_results;
 // EXP-1341: ONE session model (kind traits) + THE session title, fixture-locked ×4.
 pub mod session_kind;

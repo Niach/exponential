@@ -39,7 +39,7 @@ pub struct ActionView {
 struct ActionDerived {
     /// The action's synced row; `None` while it has not landed — or once it
     /// is gone ([`Self::ready`] tells the two apart).
-    action: Option<api::actions::Action>,
+    action: Option<api::prompts::Prompt>,
     /// The `actions` shape's readiness.
     ready: bool,
 }
@@ -49,10 +49,10 @@ impl ActionDerived {
         let (Some(action_id), Some(store)) = (action_id, sync::Store::try_global(cx)) else {
             return Self::default();
         };
-        let actions = store.collections().actions.read(cx);
+        let actions = store.collections().prompts.read(cx);
         let ready = actions.is_ready();
         Self {
-            action: actions.get(action_id).map(api::actions::from_row),
+            action: actions.get(action_id).map(api::prompts::from_row),
             ready,
         }
     }
@@ -65,7 +65,7 @@ impl ActionView {
             vec![cx.observe_in(&nav, window, |this, _, window, cx| this.sync_screen(window, cx))];
         let watched = sync::Store::try_global(cx).map(|store| {
             let collections = store.collections();
-            (collections.actions.clone(), collections.pins.clone())
+            (collections.prompts.clone(), collections.pins.clone())
         });
         if let Some((actions, pins)) = watched {
             subscriptions.push(cx.observe_in(&actions, window, |this, _, window, cx| {
@@ -163,7 +163,7 @@ impl ActionView {
     /// (Delete) · Run.
     fn render_header(
         &self,
-        action: &api::actions::Action,
+        action: &api::prompts::Prompt,
         is_owner: bool,
         cx: &mut gpui::Context<Self>,
     ) -> gpui::AnyElement {

@@ -1,11 +1,11 @@
 package com.exponential.app.ui.components
 
 import androidx.compose.ui.graphics.vector.ImageVector
-import com.exponential.app.data.api.ActionDto
+import com.exponential.app.data.api.PromptDto
 import com.exponential.app.ui.icons.ExpIcons
 
 /**
- * EXP-273: the action's own curated glyph (builtins set one too), falling back
+ * EXP-273 (NEW-2: a saved prompt): the action's own curated glyph (builtins set one too), falling back
  * to the generic action mark.
  *
  * EXP-721: the ONE resolver every surface that draws an action takes — the
@@ -16,5 +16,5 @@ import com.exponential.app.ui.icons.ExpIcons
  * you opened. [action] is nullable because a run (or a session) can
  * reference a row the actions shape hasn't caught up with yet.
  */
-fun actionGlyph(action: ActionDto?): ImageVector =
+fun actionGlyph(action: PromptDto?): ImageVector =
     action?.icon?.let { ExpIcons.byName(it) } ?: ExpIcons.actionDefault

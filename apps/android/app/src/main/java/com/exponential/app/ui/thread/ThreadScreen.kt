@@ -117,7 +117,8 @@ fun ThreadScreen(
     onOpenSession: (sessionId: String) -> Unit,
     onOpenIssue: (issueId: String) -> Unit,
     onOpenThread: (rootSessionId: String) -> Unit,
-    onOpenAgentSettings: (agentSessionId: String) -> Unit,
+    /** NEW-2: opens the agent DEFINITION's settings (its id). */
+    onOpenAgentSettings: (agentId: String) -> Unit,
     /** The "+"'s New issue: the New issue page on [boardId], linked to this
      *  root on create. Null hides the row. */
     onNewIssue: ((boardId: String, rootSessionId: String) -> Unit)? = null,
@@ -254,7 +255,7 @@ fun ThreadScreen(
                 onBack = onBack,
                 onAdd = { menuFor = ThreadMenuTarget(null) },
                 onIssueMenu = { menuFor = ThreadMenuTarget(it) },
-                onAgentSettings = { onOpenAgentSettings(viewModel.rootId) },
+                onAgentSettings = { viewModel.root.value?.agentId?.let(onOpenAgentSettings) },
                 // THE session composer (dispatcher roots): the session view's
                 // box targeting the ROOT, fed by the root's live state.
                 composer = { expanded, onExpandedChange ->

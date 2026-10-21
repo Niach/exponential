@@ -20,6 +20,7 @@ pub(crate) mod picker_label;
 pub(crate) mod picker_mcp;
 pub(crate) mod picker_repository;
 pub(crate) mod scope_picker;
+pub(crate) mod schedule_picker;
 pub(crate) mod search_list;
 pub(crate) mod menu_submenu;
 pub(crate) mod toast;
@@ -97,6 +98,7 @@ pub(crate) const ENTRIES: &[Entry] = &[
     Entry { id: picker_mcp::ID, owner: picker_mcp::OWNER, render: picker_mcp::render },
     Entry { id: picker_repository::ID, owner: picker_repository::OWNER, render: picker_repository::render },
     Entry { id: scope_picker::ID, owner: scope_picker::OWNER, render: scope_picker::render },
+    Entry { id: schedule_picker::ID, owner: schedule_picker::OWNER, render: schedule_picker::render },
     Entry { id: search_list::ID, owner: search_list::OWNER, render: search_list::render },
     Entry { id: menu_submenu::ID, owner: menu_submenu::OWNER, render: menu_submenu::render },
     Entry { id: toast::ID, owner: toast::OWNER, render: toast::render },

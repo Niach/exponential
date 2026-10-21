@@ -446,25 +446,91 @@ final class WireDecodingTests: XCTestCase {
         XCTAssertNil(ActionDto(entity: absentForm).promptPlaceholder)
     }
 
-    // The tRPC twin (`actions.get`/`.update` return the camelCase row).
-    func testActionDtoDecodesPromptPlaceholderLeniently() throws {
-        let withHint = try decode(ActionDto.self, #"""
+    // NEW-2: the tRPC prompt row (`prompts.get`/`.update` return the
+    // camelCase row with its body; `prompts.list` without one).
+    func testPromptDtoDecodesWithAndWithoutABody() throws {
+        let detail = try decode(PromptDto.self, #"""
         {
-          "id": "a1", "teamId": "w1", "name": "Release",
-          "icon": null, "body": "Ship", "sortOrder": 1,
-          "createdAt": "2026-01-01T00:00:00Z", "updatedAt": "2026-01-01T00:00:00Z",
-          "inputs": [], "promptPlaceholder": "Scope: which platforms"
-        }
-        """#)
-        XCTAssertEqual(withHint.promptPlaceholder, "Scope: which platforms")
-
-        let without = try decode(ActionDto.self, #"""
-        {
-          "id": "a1", "teamId": "w1", "name": "Release", "body": "Ship", "sortOrder": 1,
+          "id": "p1", "teamId": "w1", "name": "Release", "icon": "rocket",
+          "body": "Ship it", "sortOrder": 1,
           "createdAt": "2026-01-01T00:00:00Z", "updatedAt": "2026-01-01T00:00:00Z"
         }
         """#)
-        XCTAssertNil(without.promptPlaceholder)
+        XCTAssertEqual(detail.body, "Ship it")
+        XCTAssertEqual(detail.icon, "rocket")
+
+        let row = try decode(PromptDto.self, #"""
+        {
+          "id": "p1", "teamId": "w1", "name": "Release", "icon": null, "sortOrder": 1,
+          "createdAt": "2026-01-01T00:00:00Z", "updatedAt": "2026-01-01T00:00:00Z"
+        }
+        """#)
+        XCTAssertNil(row.body)
+        XCTAssertNil(row.icon)
+    }
+
+    // MARK: - Agents, events, prompts (NEW-2)
+
+    func testAgentDefinitionDecodesWireSortOrderAndStoresTriggersAsText() throws {
+        let agent = try decode(AgentDefinitionEntity.self, #"""
+        {"id":"a1","team_id":"w1","name":"Triage","icon":null,"color":null,
+         "triggers":[{"id":"t1","enabled":true,"kind":"event","name":"pr.merged"}],
+         "device_id":"dev-1","cli":null,"account":null,"model":null,"owner_id":"u1",
+         "sort_order":"3.5","created_at":"2026-10-21T09:00:00Z","updated_at":"2026-10-21T09:00:00Z"}
+        """#)
+        XCTAssertEqual(agent.sortOrder, 3.5)
+        XCTAssertEqual(AgentTrigger.parseList(agent.triggers).map(\.id), ["t1"])
+        XCTAssertEqual(agent.ownerId, "u1")
+
+        // Absent / null triggers = none; absent sort order = 0.
+        let bare = try decode(AgentDefinitionEntity.self, #"""
+        {"id":"a2","team_id":"w1","name":"Docs","triggers":null,
+         "created_at":"2026-10-21T09:00:00Z","updated_at":"2026-10-21T09:00:00Z"}
+        """#)
+        XCTAssertEqual(bare.triggers, "[]")
+        XCTAssertEqual(bare.sortOrder, 0)
+        XCTAssertNil(bare.deviceId)
+    }
+
+    func testEventDecodesPayloadObjectStringAndNull() throws {
+        let object = try decode(EventEntity.self, #"""
+        {"id":"e1","team_id":"w1","name":"deploy:prod","payload":{"ok":true},
+         "emitted_by":"session","session_id":"s1","user_id":"u1","created_at":"2026-10-21T09:00:00Z"}
+        """#)
+        XCTAssertEqual(object.payload, #"{"ok":true}"#)
+        XCTAssertEqual(object.emittedBy, "session")
+        XCTAssertEqual(object.sessionId, "s1")
+        let text = try decode(EventEntity.self, #"""
+        {"id":"e2","team_id":"w1","name":"issue.created","payload":"{\"n\":1}",
+         "emitted_by":"server","created_at":"2026-10-21T09:00:00Z"}
+        """#)
+        XCTAssertEqual(text.payload, #"{"n":1}"#)
+        let none = try decode(EventEntity.self, #"""
+        {"id":"e3","team_id":"w1","name":"x","payload":null,"created_at":"2026-10-21T09:00:00Z"}
+        """#)
+        XCTAssertNil(none.payload)
+        XCTAssertEqual(none.emittedBy, "server")
+    }
+
+    func testPromptDecodesWireSortOrder() throws {
+        let prompt = try decode(PromptEntity.self, #"""
+        {"id":"p1","team_id":"w1","name":"123","icon":"rocket","sort_order":"2",
+         "created_at":"2026-10-21T09:00:00Z","updated_at":"2026-10-21T09:00:00Z"}
+        """#)
+        XCTAssertEqual(prompt.name, "123")
+        XCTAssertEqual(prompt.sortOrder, 2)
+    }
+
+    func testSessionAgentIdPresentNullAndAbsent() throws {
+        func session(_ extra: String) throws -> SessionEntity {
+            try decode(SessionEntity.self, """
+            {"id":"s1","team_id":"w1","user_id":"u1","device_id":"d1"\(extra),
+             "created_at":"2026-10-21T09:00:00Z","updated_at":"2026-10-21T09:00:00Z"}
+            """)
+        }
+        XCTAssertEqual(try session(#","agent_id":"a1""#).agentId, "a1")
+        XCTAssertNil(try session(#","agent_id":null"#).agentId)
+        XCTAssertNil(try session("").agentId)
     }
 
     // MARK: - AuthConfig (/api/auth-config)

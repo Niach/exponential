@@ -165,7 +165,6 @@ struct ThreadComposerPlusMenu: View {
     private var entries: [ComposerMenu.Entry] {
         var out: [ComposerMenu.Entry] = []
         for entry in ComposerMenu.composerMenuLayout(conditions) {
-            if case let .row(row) = entry, row.id == .runAction { continue }
             if entry == .separator, out.last == nil || out.last == .separator { continue }
             out.append(entry)
         }

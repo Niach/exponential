@@ -25,7 +25,7 @@ private const val CREATE_ACTION_LABEL = "Create action"
 @Composable
 fun ActionCreateSheet(
     busy: Boolean,
-    onCreate: (ActionFields) -> Unit,
+    onCreate: (com.exponential.app.data.api.PromptFields) -> Unit,
     onDismiss: () -> Unit,
     form: ActionFormState = rememberActionFormState(),
 ) {

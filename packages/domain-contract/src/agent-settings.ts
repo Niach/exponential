@@ -1,10 +1,11 @@
-// EXP-1291 Threads v2: Team settings → Agents. Pure and byte-locked by
+// EXP-1291/NEW-2: Team settings → Agents. Pure and byte-locked by
 // `fixtures/agent-settings.json` (`summaryCases`, `validationCases`), which
 // every mirror replays: desktop `domain::agent_settings`, iOS ExpCore
 // `AgentSettings.swift`, Android `domain/AgentSettings.kt`.
 
 import fixture from "../fixtures/agent-settings.json" with { type: "json" }
 import contractJson from "../contract.json" with { type: "json" }
+import { scheduleSummary } from "./schedule-picker"
 
 export const AGENT_SETTINGS_FIELDS = fixture.fields
 export const AGENT_SETTINGS_COPY = fixture.copy
@@ -12,37 +13,23 @@ export const AGENT_SETTINGS_COPY = fixture.copy
 export interface AgentTriggerLike {
   kind: string
   enabled?: boolean
-  interval?: string
-  minuteOfDay?: number
-  weekday?: number
-  dayOfMonth?: number
-  event?: string
+  /** schedule: the 5-field cron and its IANA zone. */
+  cron?: string
+  tz?: string | null
+  /** event: the events row name it listens on. */
+  name?: string
 }
 
-function clock(minuteOfDay: number | undefined): string {
-  const minutes = Math.max(0, Math.min(1439, Math.floor(minuteOfDay ?? 0)))
-  const pad = (value: number) => String(value).padStart(2, `0`)
-  return `${pad(Math.floor(minutes / 60))}:${pad(minutes % 60)}`
-}
-
-/** One Schedule row's text. */
+/** One Triggers row's text. */
 export function triggerSummary(trigger: AgentTriggerLike): string {
   const copy = fixture.copy
   let text = ``
   if (trigger.kind === `schedule`) {
-    const time = clock(trigger.minuteOfDay)
-    if (trigger.interval === `weekly`) {
-      const weekday = copy.weekdays[((trigger.weekday ?? 1) - 1 + 7) % 7]
-      text = copy.schedule.weekly.replace(`{weekday}`, weekday).replace(`{time}`, time)
-    } else if (trigger.interval === `monthly`) {
-      text = copy.schedule.monthly
-        .replace(`{day}`, String(trigger.dayOfMonth ?? 1))
-        .replace(`{time}`, time)
-    } else {
-      text = copy.schedule.daily.replace(`{time}`, time)
-    }
+    // NEW-2: the schedule picker's sentence (`schedule-picker.json`).
+    text = scheduleSummary(trigger.cron ?? ``, trigger.tz)
   } else {
-    text = (copy.events as Record<string, string>)[trigger.event ?? ``] ?? trigger.event ?? ``
+    const name = trigger.name ?? ``
+    text = (copy.events as Record<string, string>)[name] ?? copy.event.replace(`{name}`, name)
   }
   return trigger.enabled === false ? `${text} · ${copy.paused}` : text
 }

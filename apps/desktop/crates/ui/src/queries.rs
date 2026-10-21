@@ -481,18 +481,18 @@ pub fn team_users(cx: &App, team_id: &str) -> Vec<domain::rows::User> {
     out
 }
 
-/// A team's actions from the synced `actions` shape (EXP-268), sorted
-/// `sortOrder` then `name` (collections hydrate unordered — the old server
-/// ordering must be re-applied client-side). EXP-1294: actions are saved
-/// prompts only; the virtual builtins are gone. Second value = the shape
-/// reached readiness (for the loading-vs-empty split).
-pub fn team_actions(cx: &App, team_id: &str) -> (Vec<api::actions::Action>, bool) {
+/// A team's saved prompts from the synced `prompts` shape (NEW-2: prompts
+/// replaced actions; the body never syncs), sorted `sortOrder` then `name`
+/// (collections hydrate unordered — the server ordering must be re-applied
+/// client-side). Second value = the shape reached readiness (for the
+/// loading-vs-empty split).
+pub fn team_prompts(cx: &App, team_id: &str) -> (Vec<api::prompts::Prompt>, bool) {
     let collections = Store::global(cx).collections();
-    let collection = collections.actions.read(cx);
-    let mut out: Vec<api::actions::Action> = collection
+    let collection = collections.prompts.read(cx);
+    let mut out: Vec<api::prompts::Prompt> = collection
         .iter()
         .filter(|row| row.team_id.as_deref() == Some(team_id))
-        .map(api::actions::from_row)
+        .map(api::prompts::from_row)
         .collect();
     out.sort_by(|a, b| {
         a.sort_order

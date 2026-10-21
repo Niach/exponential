@@ -177,35 +177,35 @@ impl NewAgentPane {
         self.pending.start(cx);
         cx.notify();
 
-        let input = api::sessions::SendInput {
-            team_id: Some(self.team_id.clone()),
-            device_id: form.device_id,
+        // NEW-2: an agent is a DEFINITION row (`agents.create`), never a
+        // session; it runs as conversation sessions on first message.
+        let input = api::agents::CreateInput {
+            team_id: self.team_id.clone(),
+            name: form.name.trim().to_string(),
+            icon: Some(self.icon.clone()),
+            color: Some(self.color.clone()),
+            instructions: form.instructions,
+            triggers: self.triggers.borrow().clone(),
+            device_id: form.device_id.unwrap_or_default(),
             cli: login.as_ref().map(|login| login.agent.id().to_string()),
             account: login.as_ref().and_then(coding::AccountOption::wire_account),
-            agent: Some(api::sessions::AgentInput {
-                name: form.name.trim().to_string(),
-                icon: self.icon.clone(),
-                color: self.color.clone(),
-                instructions: form.instructions,
-                triggers: self.triggers.borrow().clone(),
-            }),
-            ..Default::default()
+            model: None,
         };
         cx.spawn_in(window, async move |this, window| {
             let result = window
                 .background_executor()
-                .spawn(async move { api::sessions::send(&trpc, &input) })
+                .spawn(async move { api::agents::create(&trpc, &input) })
                 .await;
             match result {
-                Ok(output) => {
+                Ok(agent) => {
                     // Land on the agent's page once its row has synced (the
                     // nav clamps an unknown `Agent(id)` away).
-                    let agent_id = output.session_id;
-                    let sessions = window
-                        .update(|_, cx| Store::global(cx).collections().sessions.clone())
+                    let agent_id = agent.id;
+                    let agents = window
+                        .update(|_, cx| Store::global(cx).collections().agents.clone())
                         .ok();
-                    if let Some(sessions) = sessions {
-                        queries::await_row_visible(&sessions, &agent_id, window).await;
+                    if let Some(agents) = agents {
+                        queries::await_row_visible(&agents, &agent_id, window).await;
                     }
                     let _ = this.update_in(window, |this, window, cx| {
                         this.pending.finish();
@@ -361,7 +361,7 @@ impl NewAgentPane {
     /// "+ Add", then one row per trigger (summary opens it, switch pauses it).
     fn schedule_rows(&self, cx: &mut gpui::Context<Self>) -> Vec<gpui::Div> {
         let copy = &AGENT_SETTINGS.copy;
-        let label = field_label("schedule");
+        let label = field_label("triggers");
         let draft = self.draft(cx.entity().downgrade());
         let triggers = self.triggers.borrow().clone();
         if triggers.is_empty() {

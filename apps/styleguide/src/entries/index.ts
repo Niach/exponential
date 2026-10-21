@@ -16,6 +16,7 @@ import { entry as pickerLabel } from "./picker-label.tsx"
 import { entry as pickerMcp } from "./picker-mcp.tsx"
 import { entry as pickerRepository } from "./picker-repository.tsx"
 import { entry as scopePicker } from "./scope-picker.tsx"
+import { entry as schedulePicker } from "./schedule-picker.tsx"
 import { entry as toast } from "./toast.tsx"
 import { entry as jumpToBottom } from "./jump-to-bottom.tsx"
 import { entry as stripChip } from "./strip-chip.tsx"
@@ -69,6 +70,7 @@ export const ENTRIES: readonly StyleguideEntry[] = [
   pickerMcp,
   pickerRepository,
   scopePicker,
+  schedulePicker,
   searchList,
   menuSubmenu,
   toast,

@@ -53,8 +53,6 @@ const str = (value: unknown): string | undefined =>
 // search params, consumed once and stripped with a replace navigation:
 //
 //   issues  csv of issue ids (chips; 2+ = a batch)
-//   action  an action id (wins over `issues` when both arrive)
-//   pr      a pull request (or an issue it closes) a `pr` input opens on
 //   device  the machine to pre-pick
 //   text    inserted into the empty draft
 
@@ -77,8 +75,6 @@ export const Route = createFileRoute(`/t/$teamSlug/agent`)({
     search: Record<string, unknown>
   ): AgentSearch & { from?: string; dev?: DevView } => ({
     issues: str(search.issues),
-    action: str(search.action),
-    pr: str(search.pr),
     device: str(search.device),
     text: str(search.text),
     // The origin a play button names (`lib/detail-origin.ts`); kept so its
@@ -145,7 +141,7 @@ function AgentPage() {
     () => seedFromSearch(search),
     // Field-wise: the search object's identity is the router's business.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [search.issues, search.action, search.pr, search.device, search.text]
+    [search.issues, search.device, search.text]
   )
   const [seed, setSeed] = useState<LaunchSeed | null>(null)
   // The layout viewport does not shrink under a phone keyboard: the pinned

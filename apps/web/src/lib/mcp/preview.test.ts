@@ -92,8 +92,8 @@ function registeredToolNames(): string[] {
  *  caption alone. Derived by hand from contract `expToolPreview.tools` and
  *  locked against it below. */
 export const PREVIEW_KINDS: Record<string, EntityRefKind[]> = {
-  exponential_actions_delete: [],
-  exponential_actions_list: [`list`, `action`],
+  exponential_agents_list: [`list`, `agent`],
+  exponential_events_emit: [],
   exponential_attachments_delete: [],
   exponential_attachments_get: [`attachment`],
   exponential_attachments_list: [`list`, `attachment`, `issue`],
@@ -156,8 +156,8 @@ export const PREVIEW_KINDS: Record<string, EntityRefKind[]> = {
   exponential_teams_get: [`team`],
   exponential_teams_list: [`list`, `team`],
   exponential_teams_update: [`team`],
-  exponential_actions_get: [`action`],
-  exponential_actions_upsert: [`action`],
+  exponential_prompts_get: [`prompt`],
+  exponential_prompts_list: [`list`, `prompt`],
   exponential_guide_write: [],
   exponential_pr_close: [`issue`],
   exponential_pr_files: [`issue`],

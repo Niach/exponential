@@ -32,6 +32,7 @@ import {
   useWorkTabs,
 } from "@/hooks/use-work-tabs"
 import { useAgents, useSessionTitles, useThreadsList } from "@/hooks/use-session-tree"
+import { useSession } from "@/hooks/use-session"
 import {
   sessionState,
   toTreeSession,
@@ -172,9 +173,10 @@ export function WorkTabsStrip({
     }
     return map
   }, [groups])
-  const { agents } = useAgents(hasAgentTabs ? teamId : null)
+  const { data: authSession } = useSession()
+  const { agents } = useAgents(hasAgentTabs ? teamId : null, authSession?.user?.id)
   const agentsById = useMemo(
-    () => new Map(agents.map((agent) => [agent.sessionId, agent])),
+    () => new Map(agents.map((agent) => [agent.agentId, agent])),
     [agents]
   )
   const boardSlugById = useMemo(

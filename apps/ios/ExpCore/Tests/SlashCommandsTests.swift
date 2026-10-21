@@ -5,7 +5,10 @@ import XCTest
 // EXP-724 — the steer slash-command catalog and its two matching rules.
 // Mirrors the web `steer-commands.test.ts`, Android's `SlashCommandsTest` and
 // desktop's `slash_commands.rs` tests: same catalog lock, same query rules,
-// same insertion and send rules, same confirm copy.
+// same insertion and send rules. NEW-2 (owner 2026-10-21): the catalog = the
+// contract `steerCommands` (compact, model, effort; `clear` and `btw` gone)
+// and the commands an agent CLI injects (`config_state.commands`) are HIDDEN:
+// nothing merges them into the menu or the command lookup.
 final class SlashCommandsTests: XCTestCase {
 
     // MARK: - Catalog lock
@@ -18,6 +21,12 @@ final class SlashCommandsTests: XCTestCase {
         )
         XCTAssertEqual(SlashCommands.all.map(\.argHint), DomainContract.steerCommandArgHints)
         XCTAssertEqual(SlashCommands.all.map(\.confirm), DomainContract.steerCommandConfirm)
+    }
+
+    func testTheCatalogIsCompactModelEffort() {
+        XCTAssertEqual(SlashCommands.all.map(\.name), ["compact", "model", "effort"])
+        XCTAssertNil(SlashCommands.all.first { $0.name == "clear" })
+        XCTAssertNil(SlashCommands.all.first { $0.name == "btw" })
     }
 
     func testEveryCommandRunsOnKnownAgentsOnly() {
@@ -48,15 +57,11 @@ final class SlashCommandsTests: XCTestCase {
     // MARK: - Per-agent catalog
 
     func testCatalogIsFilteredByAgentInContractOrder() {
-        // The same two rows for every CONTRACT agent — the desktop maps
-        // `/clear` per agent — plus claude's `/btw` (EXP-1323). An id outside
-        // the contract (EXP-849: a row whose agent was retired, an external
-        // ACP binary) gets no curated rows.
+        // The same three rows for every CONTRACT agent; an id outside the
+        // contract (EXP-849: a retired agent, an external ACP binary) gets no
+        // curated rows.
         for agent in DomainContract.codingAgentValues {
-            XCTAssertEqual(
-                SlashCommands.catalog(for: agent).map(\.name),
-                agent == "claude" ? ["compact", "clear", "btw"] : ["compact", "clear"]
-            )
+            XCTAssertEqual(SlashCommands.catalog(for: agent).map(\.name), ["compact", "model", "effort"])
         }
         XCTAssertTrue(SlashCommands.catalog(for: "zed").isEmpty)
     }
@@ -76,32 +81,21 @@ final class SlashCommandsTests: XCTestCase {
         XCTAssertTrue(SlashCommands.catalog(for: "gemini").isEmpty)
     }
 
-    /// EXP-746, mirrored ×4 (web `an agent-less acp run is an external agent`,
-    /// Android and desktop the same name): "no agent" alone does not mean
-    /// claude — an EXTERNAL ACP agent syncs no agent either, and the phone
-    /// must not offer it `/compact` and `/clear`, confirm dialog and all, for
-    /// a run whose desktop-side catalog is empty.
+    /// EXP-746: "no agent" alone does not mean claude — an EXTERNAL ACP agent
+    /// syncs no agent either, and its curated catalog is empty. NEW-2: what it
+    /// advertises stays hidden too, so its menu is empty.
     func testAnAgentLessAcpRunIsAnExternalAgent() {
         XCTAssertFalse(DomainContract.codingAgentValues.contains(SlashCommands.externalAgent))
         XCTAssertEqual(SlashCommands.agentId(nil, acp: true), SlashCommands.externalAgent)
         XCTAssertEqual(SlashCommands.agentId("  ", acp: true), SlashCommands.externalAgent)
-        // A named agent keeps its own catalog on the ACP path.
         XCTAssertEqual(SlashCommands.agentId("codex", acp: true), "codex")
-        // A PTY run publishes no `config_state`, so an agent-less one there
-        // is still the claude run it always was.
         XCTAssertEqual(SlashCommands.agentId(nil, acp: false), SlashCommands.defaultAgent)
         XCTAssertEqual(SlashCommands.agentId("", acp: false), SlashCommands.defaultAgent)
 
         let external = SlashCommands.agentId(nil, acp: true)
         XCTAssertTrue(SlashCommands.catalog(for: external).isEmpty)
-        // Only what the agent advertised reaches the menu and the lookup — no
-        // `/clear`, so no confirm dialog for a command nothing would run.
-        let extra = [AgentConfigCommand(name: "review", description: "Review the diff")]
-        XCTAssertEqual(
-            SlashCommands.matches(draft: "/", agent: external, extra: extra).map(\.name),
-            ["review"]
-        )
-        XCTAssertNil(SlashCommands.command(for: "/clear", agent: external, extra: extra))
+        XCTAssertTrue(SlashCommands.matches(draft: "/", agent: external).isEmpty)
+        XCTAssertNil(SlashCommands.command(for: "/compact", agent: external))
     }
 
     // MARK: - Menu query rule
@@ -109,25 +103,20 @@ final class SlashCommandsTests: XCTestCase {
     func testABareSlashListsEverythingTheAgentCanRun() {
         XCTAssertEqual(
             SlashCommands.matches(draft: "/", agent: "claude").map(\.name),
-            ["compact", "clear", "btw"]
+            ["compact", "model", "effort"]
         )
     }
 
     func testPrefixFilteringIsCaseInsensitive() {
-        XCTAssertEqual(
-            SlashCommands.matches(draft: "/co", agent: "claude").map(\.name), ["compact"]
-        )
-        XCTAssertEqual(
-            SlashCommands.matches(draft: "/CO", agent: "claude").map(\.name), ["compact"]
-        )
-        XCTAssertEqual(
-            SlashCommands.matches(draft: "/c", agent: "claude").map(\.name), ["compact", "clear"]
-        )
+        XCTAssertEqual(SlashCommands.matches(draft: "/co", agent: "claude").map(\.name), ["compact"])
+        XCTAssertEqual(SlashCommands.matches(draft: "/CO", agent: "claude").map(\.name), ["compact"])
+        XCTAssertEqual(SlashCommands.matches(draft: "/m", agent: "codex").map(\.name), ["model"])
+        XCTAssertEqual(SlashCommands.matches(draft: "/E", agent: "claude").map(\.name), ["effort"])
     }
 
     func testTheMenuClosesOnceAnArgumentStarts() {
         XCTAssertTrue(SlashCommands.matches(draft: "/compact ", agent: "claude").isEmpty)
-        XCTAssertTrue(SlashCommands.matches(draft: "/compact now", agent: "claude").isEmpty)
+        XCTAssertTrue(SlashCommands.matches(draft: "/model opus", agent: "claude").isEmpty)
     }
 
     func testTheMenuNeedsTheSlashAtPositionZero() {
@@ -139,31 +128,21 @@ final class SlashCommandsTests: XCTestCase {
 
     func testANameThatMatchesNothingClosesTheMenu() {
         XCTAssertTrue(SlashCommands.matches(draft: "/zzz", agent: "claude").isEmpty)
+        // The retired rows match nothing any more.
+        XCTAssertTrue(SlashCommands.matches(draft: "/cl", agent: "claude").isEmpty)
+        XCTAssertTrue(SlashCommands.matches(draft: "/btw", agent: "claude").isEmpty)
         // Non-name characters are not a partial name at all.
         XCTAssertTrue(SlashCommands.matches(draft: "/co/", agent: "claude").isEmpty)
     }
 
-    func testTheMenuIsAgentScoped() {
-        // Names outside the catalog never show, whatever the CLI itself ships.
-        XCTAssertEqual(
-            SlashCommands.matches(draft: "/cl", agent: "claude").map(\.name), ["clear"]
-        )
-        XCTAssertEqual(SlashCommands.matches(draft: "/cl", agent: "codex").map(\.name), ["clear"])
-        XCTAssertTrue(SlashCommands.matches(draft: "/n", agent: "codex").isEmpty)
-        XCTAssertTrue(SlashCommands.matches(draft: "/mo", agent: "claude").isEmpty)
-        // A session with no agent is claude's catalog.
-        XCTAssertEqual(SlashCommands.matches(draft: "/cl", agent: nil).map(\.name), ["clear"])
-    }
-
     // MARK: - Insertion
 
-    func testInsertionLeavesRoomForAnArgumentOnlyWhenThereIsOne() {
-        let compact = SlashCommands.all.first { $0.name == "compact" }
-        XCTAssertEqual(compact?.argHint, "instructions")
-        XCTAssertEqual(compact?.insertion, "/compact ")
-        let clear = SlashCommands.all.first { $0.name == "clear" }
-        XCTAssertEqual(clear?.argHint, "")
-        XCTAssertEqual(clear?.insertion, "/clear")
+    func testInsertionLeavesRoomForTheArgument() {
+        for command in SlashCommands.all {
+            XCTAssertFalse(command.argHint.isEmpty, command.name)
+            XCTAssertEqual(command.insertion, "/\(command.name) ")
+        }
+        XCTAssertEqual(SlashCommands.all.first { $0.name == "compact" }?.argHint, "instructions")
     }
 
     // MARK: - Send rule
@@ -174,6 +153,8 @@ final class SlashCommandsTests: XCTestCase {
             SlashCommands.command(for: "/compact keep the plan", agent: "claude")?.name, "compact"
         )
         XCTAssertEqual(SlashCommands.command(for: "/COMPACT", agent: "claude")?.name, "compact")
+        XCTAssertEqual(SlashCommands.command(for: "/model opus", agent: "claude")?.name, "model")
+        XCTAssertEqual(SlashCommands.command(for: "/effort high", agent: "codex")?.name, "effort")
         XCTAssertNil(SlashCommands.command(for: "/compactify", agent: "claude"))
         XCTAssertNil(SlashCommands.command(for: "please /compact", agent: "claude"))
         XCTAssertNil(SlashCommands.command(for: "//compact", agent: "claude"))
@@ -183,113 +164,30 @@ final class SlashCommandsTests: XCTestCase {
     }
 
     func testTheSendRuleIsAgentScopedToo() {
-        XCTAssertEqual(SlashCommands.command(for: "/clear", agent: "claude")?.name, "clear")
-        XCTAssertEqual(SlashCommands.command(for: "/clear", agent: "codex")?.name, "clear")
-        XCTAssertNil(SlashCommands.command(for: "/clear", agent: "zed"))
-        // Outside the catalog, whatever the CLI itself ships.
+        XCTAssertNil(SlashCommands.command(for: "/compact", agent: "zed"))
+        // Outside the catalog, whatever the CLI itself ships — the retired
+        // rows and any skill / plugin command are prose.
+        XCTAssertNil(SlashCommands.command(for: "/clear", agent: "claude"))
+        XCTAssertNil(SlashCommands.command(for: "/btw what now", agent: "claude"))
         XCTAssertNil(SlashCommands.command(for: "/new", agent: "codex"))
-        XCTAssertNil(SlashCommands.command(for: "/model opus", agent: "claude"))
         XCTAssertNil(SlashCommands.command(for: "/init", agent: "codex"))
         XCTAssertNil(SlashCommands.command(for: "/review", agent: "claude"))
     }
 
-    // MARK: - Agent commands (EXP-746)
-
-    func testMergedListsTheContractCommandsFirst() {
-        let merged = SlashCommands.merged(
-            SlashCommands.catalog(for: "claude"),
-            agent: [
-                AgentConfigCommand(name: "review", description: "Review the diff", hint: "<path>"),
-                AgentConfigCommand(name: "cost", description: "Show the spend"),
-            ]
-        )
-        XCTAssertEqual(merged.map(\.name), ["compact", "clear", "btw", "review", "cost"])
-        // An agent row keeps its hint (so accepting it leaves the caret at the
-        // argument) and never claims a confirm dialog.
-        XCTAssertEqual(merged[3].argHint, "<path>")
-        XCTAssertEqual(merged[3].insertion, "/review ")
-        XCTAssertFalse(merged[3].confirm)
-        XCTAssertEqual(merged[4].insertion, "/cost")
-    }
-
-    func testAnAgentCommandThatShadowsAContractNameIsDropped() {
-        let merged = SlashCommands.merged(
-            SlashCommands.catalog(for: "claude"),
-            agent: [
-                AgentConfigCommand(name: "Compact", description: "the agent's own"),
-                AgentConfigCommand(name: "/clear", description: "slash-prefixed"),
-                AgentConfigCommand(name: "review", description: "Review the diff"),
-                AgentConfigCommand(name: "REVIEW", description: "a dupe of its own"),
-                AgentConfigCommand(name: "  ", description: "nameless"),
-            ]
-        )
-        XCTAssertEqual(merged.map(\.name), ["compact", "clear", "btw", "review"])
-        XCTAssertEqual(merged[0].description, DomainContract.steerCommandDescriptions[0])
-    }
-
-    /// The `/` menu and the transcript's command lookup read ONE catalog, so a
-    /// command the agent advertised is offered AND, once sent, comes back as a
-    /// command pill. Mirrors Android's `the menu and the command lookup both
-    /// see the advertised rows` and web's `the command lookup sees advertised
-    /// agent commands`.
-    func testTheMenuAndTheCommandLookupBothSeeTheAdvertisedRows() {
-        let extra = [AgentConfigCommand(name: "review", description: "Review the diff")]
-        XCTAssertEqual(
-            SlashCommands.matches(draft: "/", agent: "claude", extra: extra).map(\.name),
-            ["compact", "clear", "btw", "review"]
-        )
-        XCTAssertEqual(
-            SlashCommands.matches(draft: "/re", agent: "claude", extra: extra).map(\.name),
-            ["review"]
-        )
-        // The menu still closes on anything that is not a leading partial name.
-        XCTAssertTrue(SlashCommands.matches(draft: "/review ", agent: "claude", extra: extra).isEmpty)
-        XCTAssertEqual(
-            SlashCommands.matches(draft: "/c", agent: "claude", extra: []).map(\.name),
-            SlashCommands.matches(draft: "/c", agent: "claude").map(\.name)
-        )
-        // The sent message resolves back to the same row, argument and all.
-        XCTAssertEqual(
-            SlashCommands.command(for: "/review Sources/a.swift", agent: "claude", extra: extra)?.name,
-            "review"
-        )
-        XCTAssertEqual(
-            SlashCommands.command(for: "/REVIEW", agent: "claude", extra: extra)?.name,
-            "review"
-        )
-        XCTAssertEqual(
-            SlashCommands.command(for: "/review", agent: "claude", extra: extra)?.confirm,
-            false
-        )
-        // Without the advertisement the very same text is prose again, and the
-        // prose rules do not soften for an agent row.
-        XCTAssertNil(SlashCommands.command(for: "/review Sources/a.swift", agent: "claude"))
-        XCTAssertNil(SlashCommands.command(for: "please /review this", agent: "claude", extra: extra))
-        XCTAssertNil(SlashCommands.command(for: "/reviewer", agent: "claude", extra: extra))
-        // An empty advertisement is the contract catalog, unchanged.
-        XCTAssertEqual(
-            SlashCommands.command(for: "/compact keep the plan", agent: "claude", extra: [])?.name,
-            SlashCommands.command(for: "/compact keep the plan", agent: "claude")?.name
-        )
-    }
-
     // MARK: - Confirm
 
-    func testOnlyTheConversationDiscardingCommandsConfirm() {
-        let confirming = SlashCommands.all.filter(\.confirm).map(\.name)
-        XCTAssertEqual(confirming, ["clear"])
-        XCTAssertEqual(SlashCommands.command(for: "/clear", agent: "claude")?.confirm, true)
-        XCTAssertEqual(SlashCommands.command(for: "/clear", agent: "codex")?.confirm, true)
-        XCTAssertEqual(SlashCommands.command(for: "/compact", agent: "claude")?.confirm, false)
+    func testNothingConfirmsAnyMore() {
+        XCTAssertTrue(SlashCommands.all.filter(\.confirm).isEmpty)
     }
 
-    /// Byte-identical ×4 (EXP-724).
+    /// Byte-identical ×4 (EXP-724): the copy stays for a future confirming
+    /// contract row.
     func testConfirmCopyIsTheLockedLiterals() {
-        guard let clear = SlashCommands.all.first(where: { $0.name == "clear" }) else {
-            return XCTFail("no /clear row")
+        guard let compact = SlashCommands.all.first(where: { $0.name == "compact" }) else {
+            return XCTFail("no /compact row")
         }
-        XCTAssertEqual(SlashCommands.confirmTitle(clear), "Run /clear?")
-        XCTAssertEqual(SlashCommands.confirmButton(clear), "Run /clear")
+        XCTAssertEqual(SlashCommands.confirmTitle(compact), "Run /compact?")
+        XCTAssertEqual(SlashCommands.confirmButton(compact), "Run /compact")
         XCTAssertEqual(
             SlashCommands.confirmBody,
             "The agent forgets everything in this session so far. Files in the worktree are kept."

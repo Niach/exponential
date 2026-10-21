@@ -37,6 +37,7 @@ vi.mock(`@/hooks/use-session-tree`, () => ({
   useSessionTitles: () => ({ titles: new Map(), held: new Set(), ready: true }),
 }))
 vi.mock(`@/lib/trpc-client`, () => ({ trpc: {} }))
+vi.mock(`@/hooks/use-session`, () => ({ useSession: () => ({ data: { user: { id: `me` } } }) }))
 vi.mock(`@/hooks/use-work-tabs`, () => ({
   useWorkTabs: () => ({ tabs: tabs.value }),
   updateWorkTabs,
@@ -186,7 +187,7 @@ describe(`WorkTabsStrip session-tree chips (EXP-1293)`, () => {
       },
     ]
     agents.value = [
-      { sessionId: `ag1`, teamId: `t1`, name: `Triage`, icon: `bug`, color: `#a855f7`, busy: false, needsYou: false },
+      { agentId: `ag1`, teamId: `t1`, name: `Triage`, icon: `bug`, color: `#a855f7`, busy: false, needsYou: false },
     ]
   })
 

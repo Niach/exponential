@@ -29,9 +29,7 @@ import {
 } from "@/components/team/sidebar-running"
 import { SidebarAgentsIcons } from "@/components/team/sidebar-agents"
 import {
-  ACTIONS_LABEL,
   DRAFTS_LABEL,
-  NavActionsIcon,
   NavDraftsIcon,
   useDraftCount,
 } from "@/components/team/sidebar-nav-entries"
@@ -303,9 +301,6 @@ export function TeamSidebarRail({
         </RailItem>
         <RailItem label="Devices" link={{ to: `/t/$teamSlug/devices`, params }}>
           <NavDevicesIcon className="size-4" />
-        </RailItem>
-        <RailItem label={ACTIONS_LABEL} link={{ to: `/t/$teamSlug/actions`, params }}>
-          <NavActionsIcon className="size-4" />
         </RailItem>
         {draftCount > 0 && (
           <RailItem label={DRAFTS_LABEL} link={{ to: `/t/$teamSlug/drafts`, params }}>

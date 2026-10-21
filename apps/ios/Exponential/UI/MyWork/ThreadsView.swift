@@ -24,6 +24,7 @@ struct ThreadsView: View {
                 ThreadsListContent(
                     groups: lists.groups,
                     agents: lists.agents,
+                    agentConversations: lists.agentConversations,
                     clis: lists.clis,
                     words: lists.words,
                     devices: lists.devices,
@@ -57,6 +58,10 @@ struct ThreadsView: View {
 struct ThreadsListContent: View {
     let groups: [ThreadsListGroup]
     let agents: [AgentRow]
+    /// NEW-2: my conversation session with each agent, by agent id (an
+    /// agent row opens it; none yet = the row waits for NEW-7's first
+    /// message flow).
+    var agentConversations: [String: String] = [:]
     /// A root's agent CLI (the row's run mark), by root id.
     var clis: [String: String] = [:]
     /// EXP-1309: a root's quiet word, by root id.
@@ -153,7 +158,9 @@ struct ThreadsListContent: View {
         .accessibilityIdentifier("threads-group-agents")
         TeamBandedRows(rows: agents, teams: teams, teamId: \.teamId) { agent in
             Button {
-                onOpen(agent.sessionId)
+                if let conversation = agentConversations[agent.agentId] {
+                    onOpen(conversation)
+                }
             } label: {
                 // EXP-1309 (web `ThreadsListItem`): the working mark
                 // while it works, `needs input` while it waits on you.

@@ -156,7 +156,7 @@ describe(`the session Device pin`, () => {
   })
 
   it.each([
-    [`agent`, { kind: `agent` }],
+    [`agent`, { kind: `agent`, agentId: `11111111-1111-4111-8111-111111111111` }],
     [`aside`, { aside: true }],
   ])(`is hidden on an %s`, (_name, over) => {
     render(<SessionDevicePin teamId={TEAM} row={{ ...session, ...over } as never} />)

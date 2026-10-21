@@ -25,45 +25,52 @@ final class SessionsApiWireTests: XCTestCase {
             text: "Fix it",
             attachmentIds: ["att-1"],
             issueIds: ["i-1", "i-2"],
-            actionId: "a-1",
-            inputs: ["repo": "r-1"],
+            promptId: "p-1",
             repositoryId: "r-1"
         ))
         XCTAssertEqual(
             full.keys.sorted(),
-            ["account", "actionId", "attachmentIds", "cli", "computerUse", "deviceId", "effort",
-             "inputs", "issueIds", "mcpServerIds", "model", "planMode", "repositoryId", "teamId",
+            ["account", "attachmentIds", "cli", "computerUse", "deviceId", "effort",
+             "issueIds", "mcpServerIds", "model", "planMode", "promptId", "repositoryId", "teamId",
              "text", "ultracode"]
         )
         XCTAssertEqual(full["issueIds"] as? [String], ["i-1", "i-2"])
-        XCTAssertEqual(full["inputs"] as? [String: String], ["repo": "r-1"])
+        XCTAssertEqual(full["promptId"] as? String, "p-1")
         XCTAssertEqual(full["effort"] as? String, "")
         XCTAssertEqual(full["planMode"] as? Bool, true)
         XCTAssertEqual(full["computerUse"] as? Bool, false)
     }
 
-    func testNewAgentNestsItsFacetsWithWholeTriggers() throws {
-        let daily = TriggerWhen.schedule(ScheduleTrigger(interval: "daily", minuteOfDay: 540))
-        let object = try json(SessionsSendInput.newAgent(
-            teamId: "t-1",
-            deviceId: "dev-1",
-            options: SessionLaunchOptions(account: "p-1"),
-            agent: AgentFacetsInput(
-                name: "Caretaker", icon: "bot", color: "#4f46e5",
-                instructions: "Keep the board tidy",
-                triggers: [AgentTriggerInput(when: daily)]
-            )
+    /// NEW-2: a message to an agent names the agent and nothing of a runner
+    /// (it runs on the agent's own device); `agents.create` carries the
+    /// definition with its WHOLE trigger array.
+    func testAgentMessageAndCreateCarryOnlyTheirKeys() throws {
+        let message = try json(SessionsSendInput.agent(agentId: "ag-1", text: "Triage the inbox"))
+        XCTAssertEqual(message.keys.sorted(), ["agentId", "text"])
+        let files = try json(SessionsSendInput.agent(agentId: "ag-1", attachmentIds: ["att-1"]))
+        XCTAssertEqual(files.keys.sorted(), ["agentId", "attachmentIds"])
+
+        let bare = try json(AgentCreateInput(teamId: "t-1", name: "Caretaker", deviceId: "dev-1"))
+        XCTAssertEqual(bare.keys.sorted(), ["deviceId", "instructions", "name", "teamId", "triggers"])
+
+        let cron = TriggerWhen.schedule(ScheduleTrigger(cron: "0 9 * * *", tz: "Europe/Vienna"))
+        let object = try json(AgentCreateInput(
+            teamId: "t-1", name: "Caretaker", icon: "bot", color: "#4f46e5",
+            instructions: "Keep the board tidy",
+            triggers: [AgentTriggerInput(when: cron), AgentTriggerInput(when: .event(EventTrigger(name: "pr.merged")))],
+            deviceId: "dev-1", cli: "claude", account: "p-1", model: "opus"
         ))
-        XCTAssertEqual(object.keys.sorted(), ["account", "agent", "deviceId", "teamId"])
-        let agent = try XCTUnwrap(object["agent"] as? [String: Any])
         XCTAssertEqual(
-            agent.keys.sorted(), ["color", "icon", "instructions", "name", "triggers"]
+            object.keys.sorted(),
+            ["account", "cli", "color", "deviceId", "icon", "instructions", "model", "name", "teamId", "triggers"]
         )
-        let trigger = try XCTUnwrap((agent["triggers"] as? [[String: Any]])?.first)
-        XCTAssertNil(trigger["id"])
-        XCTAssertEqual(trigger["kind"] as? String, "schedule")
-        XCTAssertEqual(trigger["minuteOfDay"] as? Int, 540)
-        XCTAssertEqual(trigger["enabled"] as? Bool, true)
+        let triggers = try XCTUnwrap(object["triggers"] as? [[String: Any]])
+        XCTAssertNil(triggers[0]["id"])
+        XCTAssertEqual(triggers[0]["kind"] as? String, "schedule")
+        XCTAssertEqual(triggers[0]["cron"] as? String, "0 9 * * *")
+        XCTAssertEqual(triggers[0]["tz"] as? String, "Europe/Vienna")
+        XCTAssertEqual(triggers[0]["enabled"] as? Bool, true)
+        XCTAssertEqual(triggers[1].keys.sorted(), ["enabled", "kind", "name"])
     }
 
     func testChildAndMessageFormsCarryOnlyTheirKeys() throws {
@@ -156,25 +163,26 @@ final class SessionsApiWireTests: XCTestCase {
         XCTAssertEqual(question["answers"] as? [String], ["Web", "Android"])
     }
 
-    // Omit keeps, an explicit null clears (`account` / `model` only), and an
-    // empty trigger array still travels.
+    // `agents.update`: omit keeps, an explicit null clears (`account` /
+    // `model` only), and an empty trigger array still travels.
     func testUpdateAgentOmitVersusNull() throws {
-        let empty = try json(UpdateAgentInput(sessionId: "ag-1", patch: AgentPatch()))
-        XCTAssertEqual(empty.keys.sorted(), ["sessionId"])
+        let empty = try json(UpdateAgentInput(id: "ag-1", patch: AgentPatch()))
+        XCTAssertEqual(empty.keys.sorted(), ["id"])
         XCTAssertTrue(AgentPatch().isEmpty)
 
         let cleared = try json(UpdateAgentInput(
-            sessionId: "ag-1",
+            id: "ag-1",
             patch: AgentPatch(name: "Renamed", triggers: [], account: .some(nil), model: .some(nil))
         ))
-        XCTAssertEqual(cleared.keys.sorted(), ["account", "model", "name", "sessionId", "triggers"])
+        XCTAssertEqual(cleared.keys.sorted(), ["account", "id", "model", "name", "triggers"])
         XCTAssertTrue(cleared["account"] is NSNull)
         XCTAssertTrue(cleared["model"] is NSNull)
         XCTAssertEqual((cleared["triggers"] as? [Any])?.count, 0)
 
         let moved = try json(UpdateAgentInput(
-            sessionId: "ag-1", patch: AgentPatch(deviceId: "dev-2", account: .some("p-2"), sortOrder: 3)
+            id: "ag-1", patch: AgentPatch(deviceId: "dev-2", cli: "codex", account: .some("p-2"), sortOrder: 3)
         ))
+        XCTAssertEqual(moved["cli"] as? String, "codex")
         XCTAssertEqual(moved["deviceId"] as? String, "dev-2")
         XCTAssertEqual(moved["account"] as? String, "p-2")
         XCTAssertEqual(moved["sortOrder"] as? Double, 3)
@@ -191,5 +199,18 @@ final class SessionsApiWireTests: XCTestCase {
             from: Data(#"{"merged":false,"error":"Conflicts","txid":1}"#.utf8)
         )
         XCTAssertEqual(result, PullRequestMergeResult(merged: false, error: "Conflicts"))
+    }
+}
+
+// NEW-2: `agents.get` answers `{agent}` with the server-only instructions.
+final class AgentsApiWireTests: XCTestCase {
+    func testAgentDetailsDecodeFromTheGetEnvelopeRow() throws {
+        let details = try JSONDecoder().decode(AgentDetails.self, from: Data(#"""
+            {"id":"ag-1","teamId":"t-1","name":"Triage","instructions":"Keep it tidy",
+             "triggers":[],"deviceId":"dev-1","sortOrder":0}
+            """#.utf8))
+        XCTAssertEqual(details, AgentDetails(id: "ag-1", instructions: "Keep it tidy"))
+        let blank = try JSONDecoder().decode(AgentDetails.self, from: Data(#"{"id":"ag-2"}"#.utf8))
+        XCTAssertEqual(blank.instructions, "")
     }
 }

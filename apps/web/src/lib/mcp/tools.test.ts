@@ -17,13 +17,8 @@ const h = vi.hoisted(() => {
     subscriptions: { subscribe: vi.fn(), unsubscribe: vi.fn() },
     notifications: { markRead: vi.fn(), markAllRead: vi.fn() },
     repositories: { list: vi.fn(), add: vi.fn() },
-    actions: {
-      list: vi.fn(),
-      get: vi.fn(),
-      create: vi.fn(),
-      update: vi.fn(),
-      delete: vi.fn(),
-    },
+    prompts: { list: vi.fn(), get: vi.fn() },
+    agents: { list: vi.fn() },
     issues: {
       // EXP-684: statusId passthrough on create.
       create: vi.fn(),
@@ -564,14 +559,6 @@ const descriptors: Array<Descriptor> = [
     calledWith: { teamId: WS, fullName: `a/b` },
   },
   {
-    tool: `exponential_actions_delete`,
-    pick: () => caller.actions.delete,
-    args: { id: UUID },
-    resolved: { ok: true },
-    expected: { ok: true, id: UUID },
-    calledWith: { id: UUID },
-  },
-  {
     tool: `exponential_boards_delete`,
     pick: () => caller.boards.delete,
     args: { id: PROJ },
@@ -691,41 +678,30 @@ const descriptors: Array<Descriptor> = [
     expected: { ok: true, id: STATUS, reassigned: 3, reassignedToId: UUID },
     calledWith: { teamId: WS, statusId: STATUS, reassignToId: UUID },
   },
-  // ── EXP-1291: actions = saved prompts ──
+  // ── NEW-2: prompts (actions became saved prompts), agents ──
   {
-    tool: `exponential_actions_list`,
-    pick: () => caller.actions.list,
+    tool: `exponential_prompts_list`,
+    pick: () => caller.prompts.list,
     args: { teamId: WS },
-    resolved: { actions: [{ id: UUID, name: `Code review` }] },
-    // No virtual builtins any more: the rows as the router lists them.
+    resolved: { prompts: [{ id: UUID, name: `Code review` }] },
     expected: [{ id: UUID, name: `Code review` }],
     calledWith: { teamId: WS },
   },
   {
-    tool: `exponential_actions_get`,
-    pick: () => caller.actions.get,
+    tool: `exponential_prompts_get`,
+    pick: () => caller.prompts.get,
     args: { id: UUID },
-    resolved: { action: { id: UUID, name: `Code review`, body: `# Review` } },
+    resolved: { prompt: { id: UUID, name: `Code review`, body: `# Review` } },
     expected: { id: UUID, name: `Code review`, body: `# Review` },
     calledWith: { id: UUID },
   },
   {
-    tool: `exponential_actions_upsert`,
-    pick: () => caller.actions.create,
-    args: { teamId: WS, name: `Code review`, body: `# Review the repo` },
-    resolved: {
-      action: { id: UUID, name: `Code review`, body: `# Review the repo` },
-    },
-    expected: { id: UUID, name: `Code review`, body: `# Review the repo` },
-    calledWith: { teamId: WS, name: `Code review`, body: `# Review the repo` },
-  },
-  {
-    tool: `exponential_actions_upsert`,
-    pick: () => caller.actions.update,
-    args: { id: UUID, name: `Nightly review` },
-    resolved: { action: { id: UUID, name: `Nightly review` } },
-    expected: { id: UUID, name: `Nightly review` },
-    calledWith: { id: UUID, name: `Nightly review` },
+    tool: `exponential_agents_list`,
+    pick: () => caller.agents.list,
+    args: { teamId: WS },
+    resolved: { agents: [{ id: UUID, name: `Triage` }] },
+    expected: [{ id: UUID, name: `Triage` }],
+    calledWith: { teamId: WS },
   },
 ]
 
@@ -1923,7 +1899,7 @@ describe(`exponential_comments_create audience reporter`, () => {
     parentId: null,
     userId: `user-1`,
     hostUserId: null,
-    rootKind: `thread`,
+    rootAgentId: null,
     watched: null,
     ...over,
   })
@@ -2020,7 +1996,7 @@ const callerRow = (over: Record<string, unknown> = {}) => ({
   parentId: null,
   userId: USER.id,
   hostUserId: null,
-  rootKind: `thread`,
+  rootAgentId: null,
   watched: null,
   ...over,
 })
@@ -2060,6 +2036,10 @@ describe(`retired tools (EXP-1291)`, () => {
       `exponential_repositories_branch_diff`,
       `exponential_actions_create`,
       `exponential_actions_update`,
+      `exponential_actions_list`,
+      `exponential_actions_get`,
+      `exponential_actions_upsert`,
+      `exponential_actions_delete`,
     ]) {
       expect(names, name).not.toContain(name)
     }
@@ -2177,17 +2157,16 @@ describe(`exponential_sessions_get / list`, () => {
     expect(result.content[0].text).toContain(`X-Exp-Session-Id`)
   })
 
-  it(`lists threads by default and agents on request`, async () => {
+  it(`lists threads by default and one agent's conversations on request`, async () => {
     sessionsCore.listSessions.mockResolvedValue([{ id: ROOT }])
     await tool(`exponential_sessions_list`)({})
     expect(sessionsCore.listSessions).toHaveBeenCalledWith(USER.id, {
-      kind: `thread`,
       limit: 50,
       offset: 0,
     })
-    await tool(`exponential_sessions_list`)({ kind: `agent`, teamId: WS, live: true })
+    await tool(`exponential_sessions_list`)({ agentId: UUID, teamId: WS, live: true })
     expect(sessionsCore.listSessions).toHaveBeenLastCalledWith(USER.id, {
-      kind: `agent`,
+      agentId: UUID,
       teamId: WS,
       live: true,
       limit: 50,
@@ -2367,7 +2346,7 @@ describe(`exponential_issues_create sessionId (EXP-1291)`, () => {
   })
 
   it(`never files into a team agent's channel or another team's thread`, async () => {
-    for (const over of [{ teamId: `ws-1`, rootKind: `agent` }, { teamId: WS }]) {
+    for (const over of [{ teamId: `ws-1`, rootAgentId: UUID }, { teamId: WS }]) {
       dbRows.current = [callerRow(over)]
       const result = await collectTools(USER, SESSION).get(`exponential_issues_create`)!({
         boardId: PROJ,
@@ -2616,47 +2595,6 @@ describe(`pull request tools (EXP-1291)`, () => {
       .get(`exponential_pr_merge`)!({ pullRequestId: PR_ID })
     expect(result.isError).toBe(true)
     expect(prs.mergePullRequest).not.toHaveBeenCalled()
-  })
-})
-
-describe(`exponential_actions_upsert`, () => {
-  it(`refuses a create without teamId, name and body`, async () => {
-    const result = await tool(`exponential_actions_upsert`)({ name: `X` })
-    expect(result.isError).toBe(true)
-    expect(caller.actions.create).not.toHaveBeenCalled()
-  })
-
-  it(`refuses moving an action between teams`, async () => {
-    const result = await tool(`exponential_actions_upsert`)({ id: UUID, teamId: WS })
-    expect(result.isError).toBe(true)
-    expect(caller.actions.update).not.toHaveBeenCalled()
-  })
-
-  it(`accepts the issue pick and rejects retired input kinds at the schema`, () => {
-    const schema = collectToolDefs().get(`exponential_actions_upsert`)!.inputSchema!
-    expect(
-      schema.safeParse({
-        teamId: WS,
-        name: `A`,
-        body: `x`,
-        inputs: [{ key: `n`, label: `N`, type: `issue` }],
-      }).success
-    ).toBe(true)
-    for (const type of [`icon`, `text`, `textarea`]) {
-      expect(
-        schema.safeParse({
-          teamId: WS,
-          name: `A`,
-          body: `x`,
-          inputs: [{ key: `n`, label: `N`, type }],
-        }).success,
-        type
-      ).toBe(false)
-    }
-    // Triggers, repository and MCP picks are gone from actions.
-    for (const extra of [{ triggers: [] }, { repositoryId: REPO }, { mcpServerIds: [] }]) {
-      expect(schema.safeParse({ id: UUID, ...extra }).success).toBe(false)
-    }
   })
 })
 
