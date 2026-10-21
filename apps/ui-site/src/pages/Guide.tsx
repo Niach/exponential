@@ -88,6 +88,71 @@ return <ExponentialSurface surface={surface} theme="neutral" mode="light" host={
     },
   ],
 
+  solid: [
+    {
+      id: `install`,
+      label: `Install`,
+      body: (
+        <>
+          <p>
+            Two packages: <code>@exponential-at/ui</code> (the catalog, themes, reducer and host runtime) and{` `}
+            <code>@exponential-at/ui-solid</code> (the renderer, on Kobalte). Solid 1.9 with{` `}
+            <code>vite-plugin-solid</code>; the surface injects its own styles, so there is no stylesheet setup.
+          </p>
+          <DocsCode>{`npm install @exponential-at/ui @exponential-at/ui-solid solid-js`}</DocsCode>
+          <Unpublished>
+            Until then, pack the tarballs from a checkout of the repo and install those:
+          </Unpublished>
+          <DocsCode>{`bun samples/exponential-ui/pack-local.ts      # → samples/exponential-ui/.packs/*.tgz
+npm install ../exponential/samples/exponential-ui/.packs/exponential-at-ui-0.1.0.tgz \\
+            ../exponential/samples/exponential-ui/.packs/exponential-at-ui-solid-0.1.0.tgz`}</DocsCode>
+          <GuideFile path="solid/package.json" caption="the whole dependency list" />
+          <GuideFile path="solid/vite.config.ts" />
+        </>
+      ),
+    },
+    {
+      id: `paint`,
+      label: `Paint a surface`,
+      body: (
+        <>
+          <p>
+            <code>createSurface</code> reduces A2UI messages into a tree and a data model (a Solid store);{` `}
+            <code>&lt;ExponentialSurface&gt;</code> paints it in a theme and a mode. The plugin object takes icons,{` `}
+            <code>onAction</code>, <code>onInput</code>, <code>openUrl</code> and extra functions.
+          </p>
+          <GuideFile path="solid/src/App.tsx" />
+          <p>
+            The DOM, the compiled stylesheet and the themes are the React renderer's, checked case by case in
+            headless Chromium (DOM, computed styles, frames and pixels).
+          </p>
+        </>
+      ),
+    },
+    {
+      id: `with-host`,
+      label: `With a host`,
+      body: (
+        <>
+          <p>
+            One <code>ExponentialHost</code> per app reads messages from a transport and posts actions back;{` `}
+            <code>&lt;HostSurface&gt;</code> paints one of its surfaces by id, with a fallback until the agent has
+            created it.
+          </p>
+          <DocsCode language="tsx">{`const host = new ExponentialHost({ transport: new JsonlStreamTransport({ url: "/a2ui.jsonl", postUrl: "/action" }) })
+onMount(() => host.connect()); onCleanup(() => host.close())
+return <HostSurface host={host} surfaceId="main" theme="orange" fallback={<p>Waiting for the agent…</p>} />`}</DocsCode>
+          <p>
+            Extensions use <code>defineSolidExtension</code>; the hooks have Solid names (<code>createSurface</code>,{` `}
+            <code>createHostSurface</code>, <code>createField</code>). More in the{` `}
+            {SDK_README(`packages/exponential-ui-solid/README.md`, `Solid renderer's README`)}.
+          </p>
+          <GuideFile path="solid/src/TrendLine.tsx" />
+        </>
+      ),
+    },
+  ],
+
   swiftui: [
     {
       id: `install`,
@@ -325,6 +390,7 @@ cd packages/exponential-ui-compose
             head={[`Platform`, `Load`]}
             rows={[
               [`React`, <code key="c">{`<HostSurface theme={brandJson} … />`}</code>],
+              [`Solid`, <code key="c">{`<ExponentialSurface theme={brandJson} … />`}</code>],
               [`TypeScript`, <code key="c">{`validateTheme(json) · loadTheme(json, { themes: BUILTIN_THEMES })`}</code>],
               [`SwiftUI`, <code key="c">{`ThemeHandle.load(json:) · model.setTheme(…)`}</code>],
               [`Compose`, <code key="c">{`ThemeHandle.load(json, parents) · model.setTheme(…)`}</code>],
@@ -370,6 +436,7 @@ cd packages/exponential-ui-compose
             head={[`Platform`, `Register`]}
             rows={[
               [`React`, <code key="c">{`defineReactExtension({ catalog, components }) · registerExtension(…)`}</code>],
+              [`Solid`, <code key="c">{`defineSolidExtension({ catalog, components }) · registerExtension(…)`}</code>],
               [`SwiftUI`, <code key="c">{`ExponentialUI.register(extension: json, painters: [kind: painter])`}</code>],
               [`Compose`, <code key="c">{`ExponentialUi.register(extensionJson, mapOf(kind to painter))`}</code>],
               [`gpui`, <code key="c">{`view.register_painter("TrendLine", Box::new(MyTrendLine))`}</code>],

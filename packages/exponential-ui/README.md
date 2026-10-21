@@ -7,7 +7,8 @@ natives, the **model-facing descriptions** and prompt, the **token names**
 themes must define, the **runtime theme format** with the four built-in
 themes and the theme builder (VAPP-92), codegen for TypeScript, Swift, Kotlin
 and Rust, and the fixtures every renderer suite locks against. No renderer
-lives here (React: VAPP-87, the Rust core: VAPP-86, painters: VAPP-88/89/90).
+lives here (React: VAPP-87, Solid: FEED-128, the Rust core: VAPP-86,
+painters: VAPP-88/89/90).
 
 It also defines the **host API** every renderer shares (VAPP-91: transport,
 functions, bindings, negotiation, policy, declarative packages, the
@@ -46,7 +47,7 @@ nothing from the Exponential app.
 | `docs/round-3-contract.md` | round 3 (VAPP-102): ONE Row / Section / Chip / Segmented / Menu, the core-computed tree guides (`src/tree-guides.ts`, `fixtures/tree-guides.json`), the 16 names round 4 removed, the lite prune |
 | `src/host/` | the host API reference: router, decoders, policy, sources, packages, the `ExponentialHost` runtime + transports |
 | `src/connector/` | the Exponential connector (MCP OAuth + `exp:` sources over MCP) and `createVappHost` |
-| `conformance/` | the conformance suite: `manifest.json` (generated), `report.schema.json`, the runner guide; round 1's real-font harness beside it (`run.ts`, `dump.ts`, `compare.ts`, `fonts.json`) |
+| `conformance/` | the conformance suite: `manifest.json` (generated), `report.schema.json`, the runner guide; round 1's real-font harness beside it (`run.ts`, `dump.ts`, `compare.ts`, `fonts.json`); the shared web runner (`browser-suites.ts`) and the web-parity check (`parity.ts`: Solid against React) |
 | `release/` | the npm build + staging scripts and the release runbook (all registries) |
 | `vendor/a2ui/` | A2UI v0.9 schemas, byte-pinned (see its README) |
 | `vendor/json-render/` | attribution for the borrowed description wording |
@@ -264,13 +265,14 @@ The Exponential app is a host like any other: web `apps/web/src/lib/exponential-
 card, the app extension's painters from `@exp/ui`, the Devices package
 `packages/ui/exponential-ui/templates/devices.json` on `/exponential-ui-devices`).
 Samples outside the workspace: `samples/exponential-ui/` (a local A2UI
-server, a third-party theme, one extension component, four hosts).
+server, a third-party theme, one extension component, five hosts).
 
 ## Conformance
 
 `conformance/README.md`: 24 suites (version 2); a renderer is conformant
 when `bun run --filter @exponential-at/ui conformance:check <report>` says
-so. All four renderers and the core run it in CI (`exponential-ui.yml`).
+so. All five renderers and the core run it in CI (`exponential-ui.yml`);
+the Solid renderer also passes the web-parity check against React.
 
 ## Fixtures (the contract; the Rust core replays them with these test names)
 

@@ -7,6 +7,9 @@ ride Radix portals, inputs are host-owned, and the layout is the one the
 Rust core computes (the geometry fixture holds the browser to taffy's
 frames within a pixel). Published to npm from `release/` (VAPP-91); the
 workspace package.json stays private on the sources.
+Its SolidJS twin, `@exponential-at/ui-solid` (`packages/exponential-ui-solid`),
+paints the identical DOM on Kobalte and is gated against this renderer by
+the web-parity check (`@exponential-at/ui/conformance/parity.ts`).
 
 It depends on `@exponential-at/ui`, React 19 (React 18 would keep
 `javascript:` hrefs clickable), `radix-ui` and

@@ -2,7 +2,7 @@
 // renderer (`@exponential-at/ui-react`, a dev dependency for tests only) and
 // by this one, both in jsdom; the surface roots serialised with their
 // attributes SORTED and the framework-generated ids (Radix `radix-…`,
-// React `:r0:`/`«r0»`, Kobalte `kb-…`, Solid `cl-…`) renamed in order of
+// React `:r0:`/`«r0»`/`_r_0_`, Kobalte `kb-…`, Solid `cl-…`) renamed in order of
 // appearance (references to them — `aria-controls`, `aria-labelledby`,
 // `aria-describedby`, `for`, … — follow the rename). Every native port adds
 // a case with `expectDomParity` (src/parity.test.ts).
@@ -49,7 +49,7 @@ export interface ParityCase {
   solidHost?: SolidHostPlugin
 }
 
-const GENERATED_ID = /^(radix-|kb-|cl-|:r|«r|r[0-9a-z]+$)/
+const GENERATED_ID = /^(radix-|kb-|cl-|:r|«r|_r_|r[0-9a-z]+$)/
 const ID_REFS = new Set([`id`, `for`, `aria-controls`, `aria-labelledby`, `aria-describedby`, `aria-owns`, `aria-activedescendant`, `aria-details`, `aria-errormessage`, `aria-flowto`, `list`, `form`])
 
 const escapeAttr = (v: string) => v.replace(/&/g, `&amp;`).replace(/"/g, `&quot;`).replace(/</g, `&lt;`)

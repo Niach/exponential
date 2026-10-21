@@ -94,4 +94,7 @@ same one. The full rules are in `src/natives/shared.tsx`.
 bun run --filter @exponential-at/ui-solid typecheck
 bun run --filter @exponential-at/ui-solid test          # jsdom: surface, natives × catalog, DOM parity with React
 bun run --filter @exponential-at/ui-solid dev:harness   # http://localhost:4182/?view=kitchen-sink&theme=orange
+bun run --filter @exponential-at/ui-solid test:conformance  # the shared web runner → .conformance/exponential-ui-solid.json
+bun run --filter @exponential-at/ui-solid test:parity       # web parity vs React → .conformance/exponential-ui-parity-react-solid.json
+bun run --filter @exponential-at/ui-solid shots             # the kitchen sink → /tmp/feed128/solid-shots/ (--theme, --mode, --out)
 ```
