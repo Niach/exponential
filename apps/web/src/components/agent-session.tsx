@@ -231,6 +231,8 @@ const TASK_QUEUE_TEST_IDS = taskQueueSpec.testIds
 /** The centred reading column every transcript row sits in. EXP-1191: on
  *  md+ its gutter is the work column's, a phone keeps its 12. */
 const TRANSCRIPT_COLUMN = `${WORK_COLUMN_CLASS} px-3 md:px-5`
+/** NEW-6: how long an idle session's connect may show placeholders. */
+const TRANSCRIPT_STALL_MS = 8_000
 
 /** Prose scale — agent narration and the sender's own bubbles. Markdown
  *  bodies get the same size/leading from the `.agent-feed .tiptap-content`
@@ -782,6 +784,23 @@ export function AgentSessionView({
   }
 
   const feedPlaceholder = feed.length === 0
+  // NEW-6 (N-1): a session waiting on input with no live room shows no
+  // endless placeholders: once the connect has waited long enough while the
+  // row is not busy, the column says the transcript is not reachable.
+  const waitingForRoom =
+    feedPlaceholder &&
+    !session.busy &&
+    session.status !== `ended` &&
+    (phase.kind === `connecting` || phase.kind === `starting` || phase.kind === `history_pending`)
+  const [stalled, setStalled] = useState(false)
+  useEffect(() => {
+    if (!waitingForRoom) {
+      setStalled(false)
+      return
+    }
+    const timer = window.setTimeout(() => setStalled(true), TRANSCRIPT_STALL_MS)
+    return () => window.clearTimeout(timer)
+  }, [waitingForRoom])
   /** The transcript STREAMS: a live publisher mid-turn (`TranscriptStreamingContext`). */
   const streaming = live && !sessionEnded && turnState === `started`
 
@@ -854,6 +873,13 @@ export function AgentSessionView({
             ) : feedPlaceholder && starting ? (
               /* EXP-1271: the status row above says "Starting on …". */
               null
+            ) : waitingForRoom && stalled ? (
+              <CenteredState>
+                <EmptyState
+                  title="No live transcript"
+                  description="The device holding this session isn't publishing right now. Its conversation stays in the thread."
+                />
+              </CenteredState>
             ) : feedPlaceholder &&
               (phase.kind === `connecting` ||
                 phase.kind === `starting` ||
@@ -1032,7 +1058,9 @@ export function AgentSessionView({
             >
               <span className="min-w-0 flex-1">{blockedLabel}</span>
               {/* EXP-849: the way out of a wall is another login. */}
-              {!sessionEnded && <SessionAccountSwitchButton session={session} />}
+              {!sessionEnded && (session.blocked?.kind ?? `rate_limit`) === `rate_limit` && (
+                <SessionAccountSwitchButton session={session} />
+              )}
             </div>
           </div>
         )}

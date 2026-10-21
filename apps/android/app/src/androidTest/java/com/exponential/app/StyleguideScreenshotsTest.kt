@@ -85,7 +85,8 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  *   sg_onboarding-devices · sg_agent-home · sg_search-list ·
  *   sg_getting-started · sg_feedback-states · sg_work-card ·
  *   sg_script-card · sg_comment-call-card · sg_thread · sg_agent-channel ·
- *   sg_session · sg_trace · sg_code-block · sg_ask-dock · sg_plan-card
+ *   sg_session · sg_trace · sg_code-block · sg_ask-dock · sg_plan-card ·
+ *   sg_settings-team-agent · sg_settings-prompts · sg_settings-prompt
  *
  * EXP-1295 retired `sg_chat-action` and `sg_action-create` (the builtin
  * actions and the action create sheet left the catalog), renamed the
@@ -200,9 +201,6 @@ class StyleguideScreenshotsTest {
         // the lazy list can scroll to them (their titles are far down the list).
         private const val BULK_FIRST_ROW = "issue-row-APP-11"
         private const val BULK_SECOND_ROW = "issue-row-APP-13"
-
-        // One of the three seeded team actions, listed on the Actions segment.
-        private const val SEEDED_ACTION_NAME = "Nightly test triage"
 
         // EXP-825: the two codeable issues the sg_chat-issues shot chips —
         // APP-3 and APP-6, the same pair the web `chat-issues` recipe seeds
@@ -708,20 +706,6 @@ class StyleguideScreenshotsTest {
         flow.waitForGone(hasTestTag("device-settings-sheet"), NAV_TIMEOUT)
         flow.settle(longer = true)
 
-        // --- The Actions surface: four shots off its bottom-bar tab (EXP-1187:
-        // the More menu is gone on phones). EXP-1270: the Suggestions segment
-        // is gone, the surface is the list.
-        composeRule.onNode(hasTestTag("tab-actions")).performClick()
-        flow.waitFor(hasText(SEEDED_ACTION_NAME, substring = true), SYNC_TIMEOUT)
-
-        // --- The action page: a row opens ONE action (EXP-1291: a saved
-        // prompt, no tabs). A pushed detail: back pops to the Actions tab.
-        composeRule.onAllNodes(hasText(SEEDED_ACTION_NAME, substring = true)).onFirst().performClick()
-        flow.waitFor(hasTestTag("action-detail-title"), NAV_TIMEOUT)
-        Espresso.pressBack()
-        flow.waitForGone(hasTestTag("action-detail-title"), NAV_TIMEOUT)
-        flow.settle(longer = true)
-
         // --- sg_threads: the Threads tab (EXP-1291) over the seed's tree —
         // the Agents band, then Needs you · Running · Recent, each row ending
         // on its quiet word (EXP-1309). Gated on the private root's row (no
@@ -846,6 +830,24 @@ class StyleguideScreenshotsTest {
         flow.waitFor(hasText(AGENT_INSTRUCTIONS_FRAGMENT, substring = true), NETWORK_TIMEOUT)
         flow.settle()
         flow.screenshot("sg_settings-team-agent")
+        composeRule.onNode(hasContentDescription("Back")).performClick()
+        flow.waitFor(hasText(TEAM_BOARD_NAME, substring = true), NAV_TIMEOUT)
+        flow.settle()
+
+        // --- sg_settings-prompts / sg_settings-prompt (NEW-7): the team
+        // page's Prompts section (prompts replaced actions; the band with
+        // the owner's New prompt pill over one row per prompt), then New
+        // prompt: THE prompt page in create mode (web `settings-prompt`), so
+        // neither shot needs a seeded prompt id.
+        composeRule.onNode(hasTestTag("prompts-new")).performScrollTo()
+        flow.waitFor(hasTestTag("prompts-settings-list"), NAV_TIMEOUT)
+        flow.settle()
+        flow.screenshot("sg_settings-prompts")
+        composeRule.onNode(hasTestTag("prompts-new")).performClick()
+        flow.waitFor(hasTestTag("prompt-page"), NAV_TIMEOUT)
+        flow.waitFor(hasTestTag("prompt-edit-body"), NAV_TIMEOUT)
+        flow.settle()
+        flow.screenshot("sg_settings-prompt")
         composeRule.onNode(hasContentDescription("Back")).performClick()
         flow.waitFor(hasText(TEAM_BOARD_NAME, substring = true), NAV_TIMEOUT)
         flow.settle()

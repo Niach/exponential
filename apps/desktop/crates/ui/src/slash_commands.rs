@@ -107,6 +107,80 @@ pub(crate) fn menu_matches(draft: &str, agent: SessionAgent) -> Vec<MenuCommand>
     rows
 }
 
+/// NEW-2: a team prompt as the `/` menu lists it (the synced, body-less
+/// `prompts` row): its icon and name, after the builtins (web `SlashPrompt`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct SlashPrompt {
+    pub(crate) id: String,
+    pub(crate) name: String,
+    pub(crate) icon: Option<String>,
+}
+
+impl From<&api::prompts::Prompt> for SlashPrompt {
+    fn from(prompt: &api::prompts::Prompt) -> Self {
+        Self {
+            id: prompt.id.clone(),
+            name: prompt.name.clone(),
+            icon: prompt.icon.clone(),
+        }
+    }
+}
+
+/// Rows of prompts the menu draws at most (web `filterSlashPrompts`' cap).
+const PROMPT_LIMIT: usize = 50;
+
+/// The token a prompt answers to after the slash (web `promptSlashName`):
+/// its name, lowercased, whitespace runs as `-` (`Fix flaky tests` →
+/// `fix-flaky-tests`), so `/fix` and `/fix-fl` both find it.
+pub(crate) fn prompt_slash_name(name: &str) -> String {
+    name.trim()
+        .to_lowercase()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join("-")
+}
+
+/// Case-insensitive PREFIX filter over the prompts' slash names, the team's
+/// order preserved; an empty query offers every prompt (web
+/// `filterSlashPrompts`).
+pub(crate) fn filter_slash_prompts(prompts: &[SlashPrompt], query: &str) -> Vec<SlashPrompt> {
+    let needle = query.trim().to_lowercase();
+    prompts
+        .iter()
+        .filter(|prompt| prompt_slash_name(&prompt.name).starts_with(&needle))
+        .take(PROMPT_LIMIT)
+        .cloned()
+        .collect()
+}
+
+/// One row of THE `/` menu: a contract builtin or a team prompt.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum SlashItem {
+    Command(MenuCommand),
+    Prompt(SlashPrompt),
+}
+
+/// NEW-2: THE `/` menu's rows for `draft` (web `useSlashCommandMenu`): the
+/// builtins of `agent` (`None` = no session yet, the launch composer: no
+/// builtins), then the team's `prompts`, each prefix-filtered.
+pub(crate) fn slash_items(
+    draft: &str,
+    agent: Option<SessionAgent>,
+    prompts: &[SlashPrompt],
+) -> Vec<SlashItem> {
+    let Some(query) = slash_query(draft) else {
+        return Vec::new();
+    };
+    let commands = agent
+        .map(|agent| menu_matches(draft, agent))
+        .unwrap_or_default()
+        .into_iter()
+        .map(SlashItem::Command);
+    commands
+        .chain(filter_slash_prompts(prompts, query).into_iter().map(SlashItem::Prompt))
+        .collect()
+}
+
 /// The contract's `/effort` row.
 pub(crate) const EFFORT: &str = "effort";
 
@@ -222,6 +296,54 @@ mod tests {
             confirm: false,
         };
         assert_eq!(insertion(&bare), "/bare");
+    }
+
+    fn prompt(id: &str, name: &str) -> SlashPrompt {
+        SlashPrompt {
+            id: id.into(),
+            name: name.into(),
+            icon: None,
+        }
+    }
+
+    /// NEW-2 (web `promptSlashName`): lowercased, whitespace runs as `-`.
+    #[test]
+    fn a_prompt_answers_to_its_dashed_name() {
+        assert_eq!(prompt_slash_name("Fix flaky tests"), "fix-flaky-tests");
+        assert_eq!(prompt_slash_name("  Release   train "), "release-train");
+        assert_eq!(prompt_slash_name("Triage"), "triage");
+    }
+
+    /// NEW-2: the builtins first, then the team's prompts in team order,
+    /// each a case-insensitive prefix filter; the launch composer (no
+    /// session) lists prompts alone.
+    #[test]
+    fn the_menu_lists_builtins_then_prompts() {
+        let prompts = vec![
+            prompt("p1", "Fix flaky tests"),
+            prompt("p2", "Release train"),
+            prompt("p3", "Compact the docs"),
+        ];
+        let ids = |draft: &str, agent: Option<SessionAgent>| -> Vec<String> {
+            slash_items(draft, agent, &prompts)
+                .into_iter()
+                .map(|item| match item {
+                    SlashItem::Command(command) => format!("/{}", command.name),
+                    SlashItem::Prompt(prompt) => prompt.id,
+                })
+                .collect()
+        };
+        assert_eq!(
+            ids("/", Some(SessionAgent::Claude)),
+            vec!["/compact", "/model", "/effort", "p1", "p2", "p3"]
+        );
+        assert_eq!(ids("/co", Some(SessionAgent::Claude)), vec!["/compact", "p3"]);
+        assert_eq!(ids("/FIX-FL", Some(SessionAgent::Codex)), vec!["p1"]);
+        assert_eq!(ids("/", None), vec!["p1", "p2", "p3"]);
+        assert_eq!(ids("/re", None), vec!["p2"]);
+        // A substring is not a prefix; a closed token draws nothing.
+        assert!(ids("/train", None).is_empty());
+        assert!(ids("/release ", None).is_empty());
     }
 
     /// NEW-2: `/effort <level>` is a configure, never a message; `/model`

@@ -723,6 +723,9 @@ public struct MessageEntity: FetchableRecord, PersistableRecord, Identifiable, E
     /// EXP-1323: the session that posted it (a child asking its parent);
     /// nil = none.
     public let authorSessionId: String?
+    /// NEW-3: the conversation it belongs to (beside the kept `session_id`;
+    /// the server derives either from the other); nil on pre-NEW-3 rows.
+    public let conversationId: String?
 
     public init(
         id: String,
@@ -737,9 +740,11 @@ public struct MessageEntity: FetchableRecord, PersistableRecord, Identifiable, E
         consumedAt: String? = nil,
         createdAt: String,
         updatedAt: String,
-        authorSessionId: String? = nil
+        authorSessionId: String? = nil,
+        conversationId: String? = nil
     ) {
         self.authorSessionId = authorSessionId
+        self.conversationId = conversationId
         self.id = id
         self.sessionId = sessionId
         self.rootId = rootId
@@ -762,6 +767,7 @@ public struct MessageEntity: FetchableRecord, PersistableRecord, Identifiable, E
         case authorKind = "author_kind"
         case authorId = "author_id"
         case authorSessionId = "author_session_id"
+        case conversationId = "conversation_id"
         case answeredAt = "answered_at"
         case consumedAt = "consumed_at"
         case createdAt = "created_at"
@@ -785,6 +791,64 @@ extension MessageEntity: Codable {
         createdAt = try c.decode(String.self, forKey: .createdAt)
         updatedAt = try c.decode(String.self, forKey: .updatedAt)
         authorSessionId = try c.decodeIfPresent(String.self, forKey: .authorSessionId)
+        conversationId = try c.decodeIfPresent(String.self, forKey: .conversationId)
+    }
+}
+
+// MARK: - Conversation (NEW-3)
+
+// The chat primitive's row: `kind` dm | channel | session (contract
+// `conversationKind`). In step 1 every row is a session's own (kind
+// `session`, `session_id` set) and syncs on the session rule; dm/channel
+// readers (`conversation_members`) stay server-only until NEW-8.
+public struct ConversationEntity: FetchableRecord, PersistableRecord, Identifiable, Equatable, Sendable {
+    public static let databaseTableName = "conversations"
+
+    public let id: String
+    public let teamId: String
+    public let kind: String
+    public let sessionId: String?
+    public let title: String?
+    public let createdAt: String
+    public let updatedAt: String
+
+    public init(
+        id: String,
+        teamId: String,
+        kind: String = "session",
+        sessionId: String? = nil,
+        title: String? = nil,
+        createdAt: String,
+        updatedAt: String
+    ) {
+        self.id = id
+        self.teamId = teamId
+        self.kind = kind
+        self.sessionId = sessionId
+        self.title = title
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, kind, title
+        case teamId = "team_id"
+        case sessionId = "session_id"
+        case createdAt = "created_at"
+        case updatedAt = "updated_at"
+    }
+}
+
+extension ConversationEntity: Codable {
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        teamId = try c.decode(String.self, forKey: .teamId)
+        kind = try c.decodeIfPresent(String.self, forKey: .kind) ?? "session"
+        sessionId = try c.decodeIfPresent(String.self, forKey: .sessionId)
+        title = try c.decodeIfPresent(String.self, forKey: .title)
+        createdAt = try c.decode(String.self, forKey: .createdAt)
+        updatedAt = try c.decode(String.self, forKey: .updatedAt)
     }
 }
 

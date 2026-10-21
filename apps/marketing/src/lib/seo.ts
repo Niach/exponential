@@ -122,7 +122,7 @@ export const PAGES: PageSeo[] = [
     htmlFile: `docs/index.html`,
     sources: [`src/DocsPage.tsx`, `../../shots/board`],
     title: `Docs · Exponential`,
-    description: `Everything about Exponential: quickstart plus guides for issues and boards, coding agents, actions, the CLI and daemon, user feedback, the embeddable widget, MCP, the apps, and self-hosting.`,
+    description: `Everything about Exponential: quickstart plus guides for issues and boards, coding agents, prompts, the CLI and daemon, user feedback, the embeddable widget, MCP, the apps, and self-hosting.`,
     ogImage: `/og/og-docs.png`,
     jsonLd: breadcrumb([
       { name: `Home`, path: `/` },
@@ -182,13 +182,13 @@ export const PAGES: PageSeo[] = [
     path: `/docs/actions/`,
     htmlFile: `docs/actions/index.html`,
     sources: [`src/ActionsDocsPage.tsx`],
-    title: `Actions · Exponential docs`,
-    description: `Reusable team prompts your agents run on demand: authoring, typed inputs, the two builtins, and running one from the desktop, the web, or your phone.`,
+    title: `Prompts · Exponential docs`,
+    description: `Saved team prompts: a name, an icon and a body, kept in Settings → Prompts and run from the composer's / menu.`,
     ogImage: `/og/og-docs.png`,
     jsonLd: breadcrumb([
       { name: `Home`, path: `/` },
       { name: `Docs`, path: `/docs/` },
-      { name: `Actions`, path: `/docs/actions/` },
+      { name: `Prompts`, path: `/docs/actions/` },
     ]),
   },
   {
@@ -196,7 +196,7 @@ export const PAGES: PageSeo[] = [
     htmlFile: `docs/cli/index.html`,
     sources: [`src/CliDocsPage.tsx`],
     title: `CLI & daemon · Exponential docs`,
-    description: `Install the exponential CLI, sign in with a device code, and start coding sessions and actions from any terminal. Run the daemon to register a Linux or macOS server as an always-on agent machine, startable and steerable from the web.`,
+    description: `Install the exponential CLI, sign in with a device code, and start coding sessions from any terminal. Run the daemon to register a Linux or macOS server as an always-on agent machine, startable and steerable from the web.`,
     ogImage: `/og/og-docs.png`,
     jsonLd: breadcrumb([
       { name: `Home`, path: `/` },

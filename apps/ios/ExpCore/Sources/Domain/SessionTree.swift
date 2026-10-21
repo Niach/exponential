@@ -15,11 +15,16 @@ import Foundation
 // MARK: - Inputs
 
 /// A usage wall (`sessions.blocked` jsonb): set = the session is walled.
+/// NEW-1: `kind` = why (contract codingSessionBlocked.kinds: `rate_limit`,
+/// or a watchdog flag `device_offline` / `unclaimed` / `stuck`); nil = a
+/// usage wall written before the column carried it.
 public struct TreeSessionBlocked: Equatable, Sendable {
+    public let kind: String?
     public let window: String?
     public let resetsAt: String?
 
-    public init(window: String? = nil, resetsAt: String? = nil) {
+    public init(kind: String? = nil, window: String? = nil, resetsAt: String? = nil) {
+        self.kind = kind
         self.window = window
         self.resetsAt = resetsAt
     }
@@ -28,6 +33,7 @@ public struct TreeSessionBlocked: Equatable, Sendable {
     public static func parse(_ raw: String?) -> TreeSessionBlocked? {
         guard let object = SessionTree.jsonObject(raw) else { return nil }
         return TreeSessionBlocked(
+            kind: object["kind"] as? String,
             window: object["window"] as? String,
             resetsAt: object["resetsAt"] as? String
         )
@@ -953,6 +959,10 @@ public struct SessionThreadView: Equatable, Sendable {
     public let liveSessionId: String?
     public let busy: Bool
     public let needsYou: Bool
+    /// NEW-6 (N-1): a thread with ONE session (the root alone) shows that
+    /// session's raw work as the main thing: its id, and no Conversation
+    /// tab. Nil once a second session exists.
+    public let mainSessionId: String?
 
     public init(
         rootId: String,
@@ -965,9 +975,11 @@ public struct SessionThreadView: Equatable, Sendable {
         live: Bool,
         liveSessionId: String? = nil,
         busy: Bool,
-        needsYou: Bool
+        needsYou: Bool,
+        mainSessionId: String? = nil
     ) {
         self.liveSessionId = liveSessionId
+        self.mainSessionId = mainSessionId
         self.rootId = rootId
         self.title = title
         self.isPrivate = isPrivate
@@ -1323,7 +1335,7 @@ public enum SessionTree {
             sessionId: session.id,
             icon: state.icon,
             name: title,
-            kindWord: state.word,
+            kindWord: sessionKindWord(session, state: state),
             state: state,
             tone: state.tone,
             elapsed: elapsed,
@@ -1331,6 +1343,16 @@ public enum SessionTree {
             caption: cardCaption(session),
             testId: CardCopy.testId
         )
+    }
+
+    /// NEW-1: the card's state word; a blocked session names WHY
+    /// (`CardCopy.blockedKinds[blocked.kind]`; an unknown or absent kind =
+    /// `SessionState.blocked.word`). Web `sessionKindWord`.
+    public static func sessionKindWord(_ session: TreeSession, state: SessionState) -> String {
+        if state == .blocked, let kind = session.blocked?.kind, let word = CardCopy.blockedKinds[kind] {
+            return word
+        }
+        return state.word
     }
 
     /// EXP-1323: the card's second line — the trimmed caption; blank = nil;
@@ -1514,18 +1536,21 @@ public enum SessionTree {
                 || entry.label != nil
         }
         let live = tree.filter { $0.status != "ended" }
+        // NEW-6 (N-1): the root alone = the thread IS that session.
+        let single = tree.allSatisfy { $0.id == root.id }
         return SessionThreadView(
             rootId: root.id,
             title: title,
             isPrivate: !root.shared,
             focusId: focused?.id,
-            tabs: [.add, .conversation] + issueTabs + sessionTabs + [.guide(dot: guideDot)],
+            tabs: [.add] + (single ? [] : [.conversation]) + issueTabs + sessionTabs + [.guide(dot: guideDot)],
             rows: rows,
             composer: ThreadComposer(sessionId: root.id, placeholder: ThreadCopy.placeholder),
             live: !live.isEmpty,
             liveSessionId: root.status == "ended" ? nil : root.id,
             busy: live.contains { $0.busy },
-            needsYou: live.contains { $0.needsInput }
+            needsYou: live.contains { $0.needsInput },
+            mainSessionId: single ? root.id : nil
         )
     }
 

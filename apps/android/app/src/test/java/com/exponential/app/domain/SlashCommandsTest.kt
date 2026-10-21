@@ -127,4 +127,35 @@ class SlashCommandsTest {
             SlashCommands.CONFIRM_BODY,
         )
     }
+
+    // NEW-2: the team's prompts join the `/` menu after the builtins, keyed
+    // by their slash name (web `promptSlashName` / `filterSlashPrompts`).
+    @Test
+    fun `a prompt answers to its name lowercased with dashes`() {
+        assertEquals("fix-flaky-tests", SlashCommands.promptSlashName("Fix flaky tests"))
+        assertEquals("fix-flaky-tests", SlashCommands.promptSlashName("  Fix   flaky\ttests "))
+        assertEquals("review", SlashCommands.promptSlashName("Review"))
+    }
+
+    @Test
+    fun `prompts filter by slash-name prefix in team order`() {
+        val prompts = listOf(
+            SlashPrompt("p1", "Fix flaky tests"),
+            SlashPrompt("p2", "Review PR"),
+            SlashPrompt("p3", "Fix lint"),
+        )
+        assertEquals(listOf("p1", "p2", "p3"), SlashCommands.promptMatches("/", prompts).map { it.id })
+        assertEquals(listOf("p1", "p3"), SlashCommands.promptMatches("/fix", prompts).map { it.id })
+        assertEquals(listOf("p1"), SlashCommands.promptMatches("/FIX-FL", prompts).map { it.id })
+        // An argument (a space) or prose closes the menu.
+        assertTrue(SlashCommands.promptMatches("/fix ", prompts).isEmpty())
+        assertTrue(SlashCommands.promptMatches("x /fix", prompts).isEmpty())
+    }
+
+    @Test
+    fun `the menu lists the builtins then the prompts`() {
+        val prompts = listOf(SlashPrompt("p1", "Compact notes"))
+        val rows = SlashCommands.candidates("/comp", "claude", prompts)
+        assertEquals(listOf("command:compact", "prompt:p1"), rows.map { it.key })
+    }
 }

@@ -162,6 +162,10 @@ jobs:
       - name: Real-DB tests (threads, Guide, triggers, backfills)
         # EXP-1284: the suites that need the migrated DB + the custom
         # triggers; the unit job runs them too but they skip without a DB.
+        # NEW-6: the plan-card suite mints Guide upload URLs, which need a
+        # secret; any value does for a throwaway CI database.
+        env:
+          BETTER_AUTH_SECRET: ci-only-real-db-secret
         run: cd apps/web && bunx vitest run src/lib/**/*.real-db.test.ts
 
   desktop:

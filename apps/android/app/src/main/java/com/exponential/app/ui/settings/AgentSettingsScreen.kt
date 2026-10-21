@@ -42,8 +42,6 @@ import com.exponential.app.domain.AccountOptions
 import com.exponential.app.domain.AgentSettings
 import com.exponential.app.domain.AgentTrigger
 import com.exponential.app.domain.SessionTree
-import com.exponential.app.ui.actions.TriggerFormSheet
-import com.exponential.app.ui.actions.triggerGlyph
 import com.exponential.app.ui.components.CircleIconButton
 import com.exponential.app.ui.components.ColorPicker
 import com.exponential.app.ui.components.FailedActionToast
@@ -112,13 +110,73 @@ fun AgentsSettingsList(
 ) {
     val agents by viewModel.agents.collectAsStateWithLifecycle()
     val isOwner by viewModel.isTeamOwner.collectAsStateWithLifecycle()
-    AgentsSettingsListContent(
-        agents = agents,
-        canCreate = isOwner,
-        onOpenAgent = onOpenAgent,
-        onNewAgent = onNewAgent,
-        modifier = modifier,
-    )
+    val events by viewModel.events.collectAsStateWithLifecycle()
+    // NEW-2 (web Settings → Agents): the agents band over the team's Events.
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(24.dp)) {
+        AgentsSettingsListContent(
+            agents = agents,
+            canCreate = isOwner,
+            onOpenAgent = onOpenAgent,
+            onNewAgent = onNewAgent,
+        )
+        AgentEventsBand(events)
+    }
+}
+
+/**
+ * NEW-2: the Events band (web `AgentEventsBand`): the team's event stream
+ * newest first as flat rows — the trigger-event glyph, the name, who emitted
+ * it, a relative time. null [events] = still loading (skeleton rows).
+ */
+@Composable
+internal fun AgentEventsBand(events: List<AgentEventRow>?, modifier: Modifier = Modifier) {
+    Column(modifier = modifier.testTag("agent-events")) {
+        SectionHeader(AgentSettings.EVENTS_TITLE)
+        when {
+            events == null -> com.exponential.app.ui.components.SkeletonRows(modifier = Modifier.padding(vertical = 4.dp))
+            events.isEmpty() -> com.exponential.app.ui.components.EmptyState(
+                title = AgentSettings.NO_EVENTS,
+                icon = ExpIcons.triggerEvent,
+                size = at.exponential.ui.primitives.EmptyStateSize.List,
+            )
+            else -> {
+                val muted = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
+                val now = System.currentTimeMillis()
+                events.forEach { event ->
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("agent-event-${event.id}")
+                            .flatRow()
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                    ) {
+                        Icon(ExpIcons.triggerEvent, contentDescription = null, tint = muted, modifier = Modifier.size(16.dp))
+                        Text(
+                            event.name,
+                            style = MaterialTheme.typography.bodyMedium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            event.emitter,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = muted,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Text(
+                            com.exponential.app.ui.issue.compactRelativeTime(event.createdAt, now),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = muted,
+                        )
+                    }
+                }
+            }
+        }
+    }
 }
 
 /** The stateless list. */

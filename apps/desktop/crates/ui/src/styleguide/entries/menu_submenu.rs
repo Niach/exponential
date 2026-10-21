@@ -1,11 +1,12 @@
 //! SLOP-28 (EXP-1259 D5): `menu-submenu` (General components): a menu row
 //! with a › opens its submenu to the side (hover or Right; Left at the field's
 //! start or Escape hands the keys back). The composer's Implement issue ›
-//! and Run action › bodies are THE search list — ONE row height, at most
-//! eight rows, an action row = its icon and its NAME. The specimen draws the
-//! "+" menu's first group (`chat_screen::composer_menu_rows`, the real
-//! `controls::menu_row`s) beside the Run action submenu's surface; the live
-//! one is `search_list::MenuSearchList` inside a `PopupMenu`.
+//! and Message an agent › bodies are THE search list — ONE row height, at
+//! most eight rows, an agent row = its icon and its NAME. The specimen draws
+//! the "+" menu's first group (`composer-menu.json`'s first three rows, the
+//! real `controls::menu_row`s) beside the Message an agent submenu's
+//! surface; the live one is `search_list::MenuSearchList` inside a
+//! `PopupMenu`.
 
 use gpui::{
     div, px, AnyElement, App, Div, IntoElement as _, ParentElement as _, ScrollHandle,
@@ -13,24 +14,27 @@ use gpui::{
 };
 use gpui_component::{input::InputState, ActiveTheme as _};
 
-use crate::chat_screen::{ComposerMenuRow, MENU_ADD_FILE, MENU_IMPLEMENT_ISSUE};
+use crate::chat_screen::{ComposerMenuRow, MENU_ADD_FILE, MENU_IMPLEMENT_ISSUE, MENU_MESSAGE_AGENT};
 use crate::picker::search_list::{action_row_body, row, surface, SearchList};
 
 pub(crate) const ID: &str = "menu-submenu";
 pub(crate) const OWNER: &str = "SLOP-28";
 
-/// The demo actions: (name, curated icon).
-const ACTIONS: [(&str, &str); 5] = [
-    ("Fix merge conflicts", "git-branch"),
-    ("Create action", "sparkles"),
-    ("Release all", "rocket"),
-    ("Refresh docs and marketing", "megaphone"),
-    ("Tidy up", "wrench"),
+/// The agent list's field placeholder (web entry).
+pub(super) const SEARCH_AGENTS: &str = "Search agents";
+
+/// The demo agents: (name, curated icon) — the web entry's `AGENTS`.
+pub(super) const AGENTS: [(&str, &str); 4] = [
+    ("Release manager", "rocket"),
+    ("Docs writer", "megaphone"),
+    ("Triage", "wrench"),
+    ("Merge conflicts", "git-branch"),
 ];
 
 fn plus_rows(cx: &App) -> Div {
     let rows = [
         (ComposerMenuRow::ImplementIssue, MENU_IMPLEMENT_ISSUE, true),
+        (ComposerMenuRow::MessageAgent, MENU_MESSAGE_AGENT, true),
         (ComposerMenuRow::AddFile, MENU_ADD_FILE, false),
     ];
     let mut column = surface(cx).w(px(260.)).p_1();
@@ -39,8 +43,8 @@ fn plus_rows(cx: &App) -> Div {
         let mut item = crate::controls::menu_row(row_kind.icon(), label, trailing, false, cx)
             .px_2()
             .rounded(cx.theme().radius);
-        // The Implement issue row is the open one.
-        if index == 0 {
+        // The Message an agent row is the open one.
+        if index == 1 {
             item = item.bg(cx.theme().accent);
         }
         column = column.child(item);
@@ -50,13 +54,13 @@ fn plus_rows(cx: &App) -> Div {
 
 pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
     let input = window.use_keyed_state("styleguide-menu-submenu-input", cx, |window, cx| {
-        InputState::new(window, cx).placeholder("Search actions")
+        InputState::new(window, cx).placeholder(SEARCH_AGENTS)
     });
     let scroll = window
         .use_keyed_state("styleguide-menu-submenu-scroll", cx, |_, _| ScrollHandle::new())
         .read(cx)
         .clone();
-    let rows: Vec<AnyElement> = ACTIONS
+    let rows: Vec<AnyElement> = AGENTS
         .iter()
         .enumerate()
         .map(|(index, (name, icon))| {
@@ -83,6 +87,7 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
         .child(plus_rows(cx))
         .child(
             surface(cx)
+                // Level with the open Message an agent row.
                 .mt(px(36.))
                 .w(px(crate::picker::search_list::MENU_LIST_WIDTH))
                 .child(list),

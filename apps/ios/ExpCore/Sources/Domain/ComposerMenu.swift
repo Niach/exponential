@@ -10,8 +10,8 @@ import Foundation
 public enum ComposerMenu {
     public enum RowId: String, Equatable, Sendable, CaseIterable {
         case implementIssue = "implement-issue"
-        /// NEW-3: Message an agent ›; natives hold `agents` false until
-        /// NEW-7 draws the submenu.
+        /// NEW-3: Message an agent › (NEW-7: the iOS "+" sheet pushes THE
+        /// Picker rows of the team's agents).
         case messageAgent = "message-agent"
         case addFile = "add-file"
         case effort
@@ -37,7 +37,7 @@ public enum ComposerMenu {
         public var mcp: Bool
         /// The picked device advertises `computerUseRunCap`.
         public var computerUse: Bool
-        /// NEW-3: the team has at least one agent (false until NEW-7).
+        /// NEW-3: the team has at least one agent.
         public var agents: Bool
 
         public init(subagentModel: Bool, ultracode: Bool, mcp: Bool, computerUse: Bool, agents: Bool = false) {

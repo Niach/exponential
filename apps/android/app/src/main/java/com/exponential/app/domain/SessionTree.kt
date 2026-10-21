@@ -31,7 +31,9 @@ object SessionTree {
 
     // ── inputs (the synced rows, projected) ─────────────────────────────────
 
-    data class Blocked(val window: String? = null, val resetsAt: String? = null)
+    /** [kind] = contract `blockedKind`-ish: `rate_limit` (a usage wall) or a
+     *  watchdog flag (`device_offline` / `unclaimed` / `stuck`); null = a wall. */
+    data class Blocked(val window: String? = null, val resetsAt: String? = null, val kind: String? = null)
 
     data class GuideEntry(val text: String? = null, val label: String? = null)
 
@@ -295,6 +297,18 @@ object SessionTree {
      * Tapping it opens that session's raw view. [title] = its [sessionTitle]
      * (EXP-1341, never `Session N`); [now] = an ISO timestamp.
      */
+    /**
+     * NEW-1 (TS `sessionKindWord`): the card's state word; a blocked session
+     * names WHY (`copy.blockedKinds[blocked.kind]`), an unknown kind keeps
+     * `states.blocked` ("Usage limit").
+     */
+    fun sessionKindWord(session: Session, state: SessionState): String {
+        if (state == SessionState.Blocked) {
+            session.blocked?.kind?.let { kind -> CardCopy.BLOCKED_KINDS[kind] }?.let { return it }
+        }
+        return CardCopy.STATES.getValue(state)
+    }
+
     fun sessionCard(session: Session, title: String, now: String): SessionCard {
         val state = sessionState(session)
         val start = ms(session.startedAt)
@@ -313,7 +327,7 @@ object SessionTree {
             sessionId = session.id,
             icon = CardCopy.ICONS.getValue(state),
             name = title,
-            kindWord = CardCopy.STATES.getValue(state),
+            kindWord = sessionKindWord(session, state),
             state = state,
             tone = CardCopy.TONES.getValue(state),
             elapsed = elapsed,
@@ -555,6 +569,10 @@ object SessionTree {
         /** EXP-1323: the live tail (Tasks card + status line) reads this
          *  session's relay state; null once the root ended. */
         val liveSessionId: String? = null,
+        /** NEW-6 (N-1): a thread with ONE session (the root alone) shows that
+         *  session's raw work as the main thing: its id, and no Conversation
+         *  tab. Null once a second session exists. */
+        val mainSessionId: String? = null,
     )
 
     private fun JsonObject.str(key: String): String? =
@@ -956,6 +974,8 @@ object SessionTree {
             (entry.text ?: "").trim().isNotEmpty() || entry.label != null
         }
         val live = tree.filter { it.status != DomainContract.sessionStatusEnded }
+        // NEW-6 (N-1): the root alone = the thread IS that session.
+        val single = tree.all { it.id == root.id }
         return ThreadView(
             rootId = root.id,
             title = title,
@@ -963,7 +983,7 @@ object SessionTree {
             focusId = focused?.id,
             tabs = buildList {
                 add(ThreadTab.Add)
-                add(ThreadTab.Conversation)
+                if (!single) add(ThreadTab.Conversation)
                 addAll(issueTabs)
                 addAll(sessionTabs)
                 add(ThreadTab.Guide(guideDot))
@@ -974,6 +994,7 @@ object SessionTree {
             busy = live.any { it.busy },
             needsYou = live.any { it.needsInput },
             liveSessionId = if (root.status == DomainContract.sessionStatusEnded) null else root.id,
+            mainSessionId = if (single) root.id else null,
         )
     }
 
@@ -1521,7 +1542,7 @@ object SessionTree {
         status = row.status,
         busy = row.busy,
         needsInput = row.needsInput,
-        blocked = parseObject(row.blocked)?.let { Blocked(it.str("window"), it.str("resetsAt")) },
+        blocked = parseObject(row.blocked)?.let { Blocked(it.str("window"), it.str("resetsAt"), it.str("kind")) },
         shared = row.shared,
         title = row.title,
         guide = parseArray(row.guide)?.map { element ->

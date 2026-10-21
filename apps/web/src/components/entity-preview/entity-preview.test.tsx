@@ -141,10 +141,14 @@ describe(`entityRefRoute`, () => {
     expect(route({ kind: `board`, id: `b-9` })).toBeNull()
   })
 
-  it(`opens an action on its page`, () => {
+  it(`opens a prompt (and a legacy action ref, same id) in Settings → Prompts`, () => {
+    expect(route({ kind: `prompt`, id: `a-1` })).toEqual({
+      to: `/t/$teamSlug/settings/prompts/$promptId`,
+      params: { teamSlug: `acme`, promptId: `a-1` },
+    })
     expect(route({ kind: `action`, id: `a-1` })).toEqual({
-      to: `/t/$teamSlug/actions/$actionId`,
-      params: { teamSlug: `acme`, actionId: `a-1` },
+      to: `/t/$teamSlug/settings/prompts/$promptId`,
+      params: { teamSlug: `acme`, promptId: `a-1` },
     })
   })
 

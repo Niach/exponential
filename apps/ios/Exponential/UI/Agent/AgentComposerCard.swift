@@ -7,20 +7,20 @@ import UIKit
 /// EXP-825: the ONE launcher's card — the same `GlassComposer` the steer and
 /// comment composers wear. Slot order is leading · field · strip · tools:
 ///
-/// - leading: under an action that declares inputs, its typed pick fields
-///   (`ActionInputFieldsView`). EXP-1038: the subject chips are NOT here any
-///   more — they head the page, beside the contract verb
+/// - leading: the starting row after Start. EXP-1038: the subject chips are
+///   NOT here — they head the page, beside the contract verb
 ///   (`AgentComposerHeadline`, mounted by the host above this card);
 /// - field: the one-block markdown field with the `@` / `#` / `:` typeahead
 ///   (the host mounts `EditorAutocompleteMenu` under the card);
 /// - strip: the pending images (the steer composer's tiles + markers) and,
 ///   since wave D, the pending files (a file tile each);
 /// - tools: EXP-1249 — the ONE "+" (`ComposerPlusMenu`, a bottom sheet:
-///   Implement issue › · Run action › (SLOP-28: pushed search-list pages) ·
-///   Add file or image | Effort › · Ultracode | MCP servers › · Computer
-///   use); the submit is the round send GLYPH (EXP-827: icon-only on every
-///   client), whose contract title ("Start chat" / "Start coding" / "Run
-///   action") is its accessibility name.
+///   Implement issue › · Message an agent › (pushed pages) · Add file or
+///   image | Effort › · Ultracode | MCP servers › · Computer use); NEW-2:
+///   prompts are the `/` menu's (the host mounts it under the card); the
+///   submit is the round send GLYPH (EXP-827: icon-only on every client),
+///   whose title ("Start chat" / "Start coding" / "Start session" / "Send")
+///   is its accessibility name.
 struct AgentComposerCard: View {
     let model: AgentComposerModel
     /// Where the composer routes a tapped `#EXP-1` chip.
@@ -145,8 +145,8 @@ struct AgentComposerCard: View {
             }
         } submit: {
             // EXP-827: the round send GLYPH, icon-only ×4 — the subject chips
-            // already say what a send starts, and the contract's per-subject
-            // label (`Start coding` / `Run action`) stays
+            // already say what a send starts, and the per-subject label
+            // (`Start coding` / `Start session` / `Send`) stays
             // the button's NAME for VoiceOver. Same
             // `GlassComposerSubmitButton` the comment and steer composers wear.
             GlassComposerSubmitButton(
@@ -187,7 +187,7 @@ struct AgentComposerCard: View {
             withTransaction(transaction) { showAttachMenu = true }
         case .effort: showEffortPicker = true
         case .mcpServers: showMcpPicker = true
-        // Implement issue is a page of the sheet itself.
+        // Implement issue and Message an agent are pages of the sheet itself.
         case .implementIssue, .messageAgent, .subagents, .ultracode, .computerUse: break
         }
     }
@@ -232,12 +232,11 @@ struct AgentComposerCard: View {
         model.launch.mcpServerIds = McpServers.preselect(rows, saved: nil)
     }
 
-    // MARK: - Action inputs
+    // MARK: - Leading
 
     /// EXP-1038: the subject chips left the card — they are the run's SUBJECT
-    /// and now head the page (`AgentComposerHeadline`). What stays in the
-    /// leading slot is the picked action's typed pick fields, which belong
-    /// with the field they are filled next to.
+    /// and head the page (`AgentComposerHeadline`). The leading slot is the
+    /// starting row alone.
     @ViewBuilder
     private var leading: some View {
         // EXP-1271 (EXP-1259 D11): after Start the card LEADS with the
@@ -247,18 +246,19 @@ struct AgentComposerCard: View {
                 .padding(.horizontal, 12)
                 .padding(.top, 12)
         }
-        if let action = model.selectedAction, let inputs = action.inputs, !inputs.isEmpty {
-            ActionInputFieldsView(model: model, inputs: inputs)
-                .padding(.horizontal, 12)
-                .padding(.top, 12)
-        }
     }
 
     // MARK: - Return
 
-    /// The return key ACCEPTS an open `@`/`#`/`:` menu's top row (the row
-    /// every other client's Enter takes) and otherwise submits.
+    /// The return key ACCEPTS an open `/` menu's top prompt or an open
+    /// `@`/`#`/`:` menu's top row (the row every other client's Enter takes)
+    /// and otherwise submits.
     private func handleReturn() {
+        if let prompt = model.slashPrompts.first, model.draftEditor.isEditing {
+            model.pickPrompt(prompt.id)
+            model.draftText = ""
+            return
+        }
         let editor = model.draftEditor
         if editor.showsAutocompleteMenu {
             if let member = editor.mentionCandidates.first {
@@ -367,12 +367,13 @@ struct ComposerStartingRow: View {
 
 /// EXP-1038: the composer's HEADLINE — the run's subject as the page's main
 /// element rather than a chip buried in the card. The contract verb
-/// (`AgentComposerPrompt.headline`, ×4: "Run" · "Implement") reads straight
-/// into the chips beside it: one action chip, or the checked issues. The HOST
+/// (`AgentComposerPrompt.headline`, ×4: "Implement") reads straight into the
+/// chips beside it: the checked issues; a prompt's chip (NEW-2) or an
+/// agent's (NEW-3: its icon in its colour + its name) IS the headline. The HOST
 /// mounts this only with a subject: a chat's heading would repeat the field's
 /// own "Ask the agent…" placeholder, so there is no row at all (web
 /// `LaunchHeadline` returns null). The chips keep their remove affordances and their
-/// identifiers (`agent-composer-chip-action`,
+/// identifiers (`agent-composer-chip-prompt`, `agent-composer-chip-agent`,
 /// `agent-composer-chip-issue-<IDENT>`), so a pick still proves itself where
 /// the screenshot suites look for it; only their place changed.
 struct AgentComposerHeadline: View {
@@ -380,23 +381,25 @@ struct AgentComposerHeadline: View {
 
     var body: some View {
         let issues = model.checkedOptions
-        let action = model.selectedAction
+        let subject = model.subject
         HStack(alignment: .center, spacing: 8) {
-            Text(model.headline)
-                .font(.title2.weight(.semibold))
-                .foregroundStyle(.white)
-                // The verb never shrinks under the chips: they scroll.
-                .fixedSize(horizontal: true, vertical: false)
-                .accessibilityIdentifier("agent-composer-headline-verb")
-            if action != nil || !issues.isEmpty {
+            if !model.headline.isEmpty {
+                Text(model.headline)
+                    .font(.title2.weight(.semibold))
+                    .foregroundStyle(.white)
+                    // The verb never shrinks under the chips: they scroll.
+                    .fixedSize(horizontal: true, vertical: false)
+                    .accessibilityIdentifier("agent-composer-headline-verb")
+            }
+            if subject != AgentComposerPrompt.Subject.none {
                 // Several issue chips scroll sideways rather than wrapping —
                 // several issues must not push the field off the first screen.
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 6) {
-                        if let action {
-                            actionChip(action)
-                        } else {
-                            ForEach(issues) { issueChip($0) }
+                        switch subject {
+                        case .agent: agentChip
+                        case .prompt: promptChip
+                        default: ForEach(issues) { issueChip($0) }
                         }
                     }
                     .padding(.vertical, 2)
@@ -423,25 +426,49 @@ struct AgentComposerHeadline: View {
         .accessibilityIdentifier(id)
     }
 
-    /// The one action: its curated glyph · name · ✕. Same split: the ✕ clears
-    /// the action, the body does nothing.
-    private func actionChip(_ action: ActionDto) -> some View {
-        GlassPill(
-            action.name,
+    /// NEW-2: the one prompt: its curated glyph · name · ✕ (`Prompt…` while
+    /// its row is not synced). Same split: the ✕ clears it, the body does
+    /// nothing.
+    private var promptChip: some View {
+        let prompt = model.selectedPrompt
+        let name = prompt?.name ?? "Prompt…"
+        return GlassPill(
+            name,
             mode: .readonly,
             leading: {
-                AppIcon(action.icon ?? AppIcons.actionDefault, size: 12)
+                AppIcon(ActionIconDisplay.iconName(for: prompt?.icon), size: 12)
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
             },
             trailing: { chipClose }
         )
         .overlay(alignment: .trailing) {
-            chipRemoveButton(name: action.name, identifier: "agent-composer-chip-action-remove") {
-                model.clearAction()
+            chipRemoveButton(name: prompt?.name ?? "prompt", identifier: "agent-composer-chip-prompt-remove") {
+                model.clearPrompt()
             }
         }
         .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("agent-composer-chip-action")
+        .accessibilityIdentifier("agent-composer-chip-prompt")
+    }
+
+    /// NEW-3: the ONE agent chip — its icon in its colour · name · ✕.
+    private var agentChip: some View {
+        let agent = model.selectedAgent
+        let name = agent?.name ?? "Agent"
+        return GlassPill(
+            name,
+            mode: .readonly,
+            leading: {
+                AgentRowIcon(icon: agent?.icon ?? "", color: agent?.color ?? "")
+            },
+            trailing: { chipClose }
+        )
+        .overlay(alignment: .trailing) {
+            chipRemoveButton(name: name, identifier: "agent-composer-chip-agent-remove") {
+                model.clearAgent()
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("agent-composer-chip-agent")
     }
 
     /// The ✕ glyph a chip wears in its trailing slot. A readonly pill takes no

@@ -35,7 +35,7 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  * (apps/web/scripts/seed-screenshots.ts): signed in by [ScreenshotSessionRule]
  * (a reused session, EXP-1267; instance picker → password login only as the
  * fallback) → board → issue detail → live steering → the Agent page composer → PR review →
- * actions → inbox. Play caps phone screenshots at 8; EXP-393
+ * inbox (NEW-7: the actions slide left with the Actions tab). Play caps phone screenshots at 8; EXP-393
  * spent the budget on the surfaces that actually differentiate the product,
  * dropping the comments / agents-list / reviews-list shots for start coding,
  * steering and the diff + merge bar (the iOS set is identical).
@@ -286,14 +286,8 @@ class StoreScreenshotsTest {
         composeRule.onNode(hasContentDescription("Back")).performClick()
         flow.settle()
 
-        // --- Actions (EXP-253): a bottom-bar tab again since EXP-1187; the
-        // seed inserts three team actions (no client builtins are listed).
-        flow.waitFor(hasTestTag("tab-actions"), NAV_TIMEOUT)
-        composeRule.onNode(hasTestTag("tab-actions")).performClick()
-        flow.waitFor(hasTestTag("action-row"), SYNC_TIMEOUT)
-        flow.waitFor(hasText("Update dependencies", substring = true), SYNC_TIMEOUT)
-        flow.settle()
-        flow.screenshot("6_actions", popRects = true)
+        // NEW-7: the Actions slide is gone with the tab (prompts replaced
+        // actions: the composer's `/` menu and Settings → Prompts).
 
         // --- Inbox tab (EXP-58: Inbox + My Issues merged behind a
         // segmented control; Inbox is the default segment, seeded with 5

@@ -22,7 +22,7 @@ public enum SessionDeviceMove {
 
     /// What a move does, said once where the move is offered.
     public static let note =
-        "The session moves after its current turn. Its worktree and conversation go with it; logins stay on each device."
+        "The session ends here and continues on that device on the same branch; its conversation goes with it, logins stay on each device."
 
     /// A failed request, as a toast.
     public static let failureToast = "Couldn't move the session"

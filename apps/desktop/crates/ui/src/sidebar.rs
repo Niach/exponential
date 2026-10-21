@@ -273,9 +273,10 @@ pub(crate) fn select_file(window: &mut Window, cx: &mut App, path: Option<String
 }
 
 /// DEV-ONLY `EXP_DEV_SETTINGS` values: the [`crate::settings::SettingsSection`]
-/// variants in kebab form, plus `board:<uuid>` / `agent:<id>` for one
-/// board's / agent's pane and `agents` = the team's first agent (or the
-/// empty Agents pane; resolved by the settings screen once synced). The
+/// variants in kebab form, plus `board:<uuid>` / `agent:<id>` /
+/// `prompt:<id>` for one board's / agent's / prompt's pane, `agents` = the
+/// Agents index and `agent` = the team's first agent (resolved by the
+/// settings screen once synced). The
 /// settings screen clamps a section the signed-in user cannot see
 /// (`settings::effective_selection`), so an owner-only value on a member
 /// account still lands on the fallback pane rather than an empty one.
@@ -292,8 +293,14 @@ fn parse_dev_settings_section(spec: &str) -> Option<crate::settings::SettingsSec
         "repositories" => Some(S::Repositories),
         "tools" => Some(S::Tools),
         "agent-clis" => Some(S::AgentClis),
-        "agents" => Some(S::Agent(String::new())),
+        // NEW-6: the Agents index (web `settings/agents`: the agents + the
+        // Events band); `agent` = the team's first agent's page.
+        "agents" => Some(S::Agents),
+        "agent" => Some(S::Agent(String::new())),
         "new-agent" => Some(S::NewAgent),
+        // NEW-6: Settings → Prompts, and its create page.
+        "prompts" => Some(S::Prompts),
+        "new-prompt" => Some(S::NewPrompt),
         "local-repos" => Some(S::LocalRepos),
         "sessions" => Some(S::Sessions),
         "account" => Some(S::Account),
@@ -304,7 +311,8 @@ fn parse_dev_settings_section(spec: &str) -> Option<crate::settings::SettingsSec
         _ => spec
             .strip_prefix("board:")
             .map(|id| S::Board(id.to_string()))
-            .or_else(|| spec.strip_prefix("agent:").map(|id| S::Agent(id.to_string()))),
+            .or_else(|| spec.strip_prefix("agent:").map(|id| S::Agent(id.to_string())))
+            .or_else(|| spec.strip_prefix("prompt:").map(|id| S::Prompt(id.to_string()))),
     }
 }
 
@@ -877,8 +885,8 @@ impl RailView {
                     let action_id = action.id.clone();
                     self.entry(("rail-pin", index), lead, name, false, None, cx)
                         .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
-                            // `ActionsView::run`: no agent CLI, nothing to
-                            // run — the composer would refuse anyway.
+                            // No agent CLI, nothing to run — the composer
+                            // would refuse anyway.
                             if crate::coding_flow::no_agent_reason(cx).is_some() {
                                 return;
                             }
@@ -1236,8 +1244,7 @@ impl RailView {
             .into_any_element()
     }
 
-    /// [`Self::rail_screen_entry`] with the highlight decided by the CALLER —
-    /// the Actions entry, lit on one action's page too.
+    /// [`Self::rail_screen_entry`] with the highlight decided by the CALLER.
     #[allow(clippy::too_many_arguments)]
     fn rail_screen_entry_active(
         &self,
@@ -1306,17 +1313,17 @@ impl RailView {
         agent: &domain::session_tree::AgentRow,
         cx: &mut gpui::Context<Self>,
     ) -> gpui::AnyElement {
-        // NEW-2: the row is the agent DEFINITION; its channel is the
-        // viewer's own conversation session (none before the first message:
-        // the click opens the agent's page instead; NEW-6 redoes this).
-        let conversation = crate::session_data::my_conversation(&agent.agent_id, cx).map(|row| row.id);
+        // NEW-6: the row is the agent DEFINITION; a click opens its page
+        // (the viewer's own conversation with it, empty before the first
+        // message, whose composer then opens it).
         let active = matches!(
             resolved_screen(&self.nav, cx),
-            Some(Screen::Agent { session_id }) if conversation.as_deref() == Some(session_id.as_str())
+            Some(Screen::Agent { agent_id })
+                if crate::agent_screen::resolve_agent_id(&agent_id, cx) == agent.agent_id
         );
         let icon = crate::icons::agent_row_icon(agent);
         let settings_id = agent.agent_id.clone();
-        let open_settings_id = agent.agent_id.clone();
+        let open_id = agent.agent_id.clone();
         self.entry(
             ("rail-agent-row", index),
             icon.with_size(gpui_component::Size::Medium).flex_shrink_0().into_any_element(),
@@ -1326,16 +1333,14 @@ impl RailView {
             cx,
         )
         .group(AGENT_ROW_GROUP)
-        .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| match conversation.clone() {
-            Some(session_id) => navigate(window, cx, Screen::Agent { session_id }),
-            None => {
-                select_settings_section(
-                    window,
-                    cx,
-                    crate::settings::SettingsSection::Agent(open_settings_id.clone()),
-                );
-                navigate(window, cx, Screen::Settings);
-            }
+        .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
+            navigate(
+                window,
+                cx,
+                Screen::Agent {
+                    agent_id: open_id.clone(),
+                },
+            )
         }))
         .child(
                 div()
@@ -2123,20 +2128,8 @@ impl Render for RailView {
         // EXP-1105: yolo mode hides Files / Source Control unless a git
         // failure needs a person (see `yolo_rail`).
         let rail_gate = yolo_rail(team_yolo.unwrap_or(false), sc_failing);
-        // Actions is a root entry (lit on one action's page too, SLOP-2);
-        // Drafts follows while any draft is parked.
-        let actions_entry = self.rail_screen_entry_active(
-            "rail-actions",
-            Icon::from(registry::NAV_ACTIONS),
-            "Actions",
-            Screen::Actions,
-            None,
-            matches!(
-                resolved_screen(&self.nav, cx),
-                Some(Screen::Actions) | Some(Screen::Action { .. })
-            ),
-            cx,
-        );
+        // NEW-6: no Actions entry (prompts live in the composer's `/` menu
+        // and Settings → Prompts); Drafts follows while any draft is parked.
         let on_drafts = matches!(resolved_screen(&self.nav, cx), Some(Screen::Drafts));
         let drafts_entry = (draft_count > 0 || on_drafts).then(|| {
             self.rail_screen_entry(
@@ -2242,8 +2235,7 @@ impl Render for RailView {
                         None,
                         cx,
                     ))
-                    // Actions and Drafts (while any) close the nav entries.
-                    .child(actions_entry)
+                    // Drafts (while any) closes the nav entries.
                     .children(drafts_entry)
                     // EXP-778: Pinned sits between the nav entries and the
                     // Agents (rail order: entries / Pinned / Agents / boards /

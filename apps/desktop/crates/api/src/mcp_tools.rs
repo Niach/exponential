@@ -492,6 +492,21 @@ mod tests {
     use crate::StaticToken;
     use std::sync::Arc;
 
+    /// The captured request's `tools/call` name and arguments, compared as
+    /// VALUES: `serde_json` keeps source order only with `preserve_order`,
+    /// which feature unification turns on for the whole workspace (the
+    /// exponential-ui crate) but not for `cargo test -p api`, so a byte
+    /// comparison of the body passes in one build and fails in the other.
+    fn tool_call(request: &str) -> (String, serde_json::Value) {
+        let body = request.split("\r\n\r\n").nth(1).unwrap_or("");
+        let json: serde_json::Value = serde_json::from_str(body).unwrap_or_else(|err| panic!("{err}: {request}"));
+        let params = &json["params"];
+        (
+            params["name"].as_str().unwrap_or_default().to_string(),
+            params["arguments"].clone(),
+        )
+    }
+
     fn client(base: &str) -> TrpcClient {
         TrpcClient::new(base, Arc::new(StaticToken("tok".to_string())))
     }
@@ -549,9 +564,9 @@ mod tests {
             &request,
             "Accept: application/json, text/event-stream"
         ));
-        assert!(
-            request.ends_with(r#""arguments":{"limit":200,"op":"list"}}}"#),
-            "{request}"
+        assert_eq!(
+            tool_call(&request),
+            ("exponential_devices".to_string(), serde_json::json!({"limit": 200, "op": "list"}))
         );
     }
 
@@ -606,11 +621,9 @@ mod tests {
         assert_eq!(sent.message_id, None);
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.starts_with("POST /api/mcp HTTP/1.1"), "{request}");
-        assert!(
-            request.ends_with(
-                r#""params":{"name":"exponential_sessions_send","arguments":{"sessionId":"s0","text":"go on"}}}"#
-            ),
-            "{request}"
+        assert_eq!(
+            tool_call(&request),
+            ("exponential_sessions_send".to_string(), serde_json::json!({"sessionId": "s0", "text": "go on"}))
         );
     }
 
@@ -620,9 +633,9 @@ mod tests {
         for (call, expected) in [
             (
                 sessions_stop as fn(&TrpcClient, &str) -> Result<(), ApiError>,
-                r#""params":{"name":"exponential_sessions_send","arguments":{"sessionId":"s1","stop":true}}}"#,
+                ("exponential_sessions_send", serde_json::json!({"sessionId": "s1", "stop": true})),
             ),
-            (sessions_end, r#""params":{"name":"exponential_sessions","arguments":{"id":"s1","op":"end"}}}"#),
+            (sessions_end, ("exponential_sessions", serde_json::json!({"id": "s1", "op": "end"}))),
         ] {
             let (base, captured) = one_shot_server(
                 200,
@@ -630,7 +643,7 @@ mod tests {
             );
             call(&client(&base), "s1").unwrap();
             let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
-            assert!(request.ends_with(expected), "{request}");
+            assert_eq!(tool_call(&request), (expected.0.to_string(), expected.1));
         }
     }
 
@@ -662,11 +675,9 @@ mod tests {
         assert_eq!(tree.session("c1").map(|row| row.depth), Some(1));
         assert!(tree.session("nope").is_none());
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
-        assert!(
-            request.ends_with(
-                r#""params":{"name":"exponential_sessions","arguments":{"id":"c1","messages":0,"op":"get"}}}"#
-            ),
-            "{request}"
+        assert_eq!(
+            tool_call(&request),
+            ("exponential_sessions".to_string(), serde_json::json!({"id": "c1", "messages": 0, "op": "get"}))
         );
     }
 

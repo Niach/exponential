@@ -81,9 +81,6 @@ public enum SessionsSendInput: Sendable, Equatable {
     /// A message into an existing session (resumes it when idle; an ended
     /// thread continues in a new child server-side). Needs text or files.
     case message(sessionId: String, text: String? = nil, attachmentIds: [String]? = nil)
-    /// EXP-1323: a `/btw` aside — a child of `parentId` asked `text` (the
-    /// question) on the parent's own device, outside its conversation.
-    case aside(parentId: String, text: String)
     /// EXP-849: the mid-session account SWITCH — `{sessionId, account}`, no
     /// text. The server moves the synced `sessions.account`; the host device
     /// resumes the SAME row on that login between turns.
@@ -101,7 +98,7 @@ extension SessionsSendInput: Encodable {
     private enum Keys: String, CodingKey {
         case teamId, sessionId, parentId, deviceId
         case cli, account, model, effort, planMode, computerUse, ultracode, mcpServerIds
-        case text, attachmentIds, issueIds, promptId, repositoryId, agentId, aside
+        case text, attachmentIds, issueIds, promptId, repositoryId, agentId
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -145,10 +142,6 @@ extension SessionsSendInput: Encodable {
         case let .moveDevice(sessionId, deviceId):
             try c.encode(sessionId, forKey: .sessionId)
             try c.encode(deviceId, forKey: .deviceId)
-        case let .aside(parentId, text):
-            try c.encode(parentId, forKey: .parentId)
-            try c.encode(text, forKey: .text)
-            try c.encode(true, forKey: .aside)
         }
     }
 }

@@ -72,6 +72,8 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.domain.AgentComposerPrompt
+import com.exponential.app.domain.SlashCommands
+import com.exponential.app.domain.SlashPrompt
 import com.exponential.app.domain.AgentComposerSeed
 import com.exponential.app.domain.AgentHome
 import com.exponential.app.domain.FeedbackStates
@@ -210,6 +212,8 @@ fun AgentScreen(
     val teamRepos by dataViewModel.repos.collectAsStateWithLifecycle()
     val deviceWorktrees by dataViewModel.deviceWorktrees.collectAsStateWithLifecycle()
     val syncedDeviceRows by dataViewModel.deviceRows.collectAsStateWithLifecycle()
+    // NEW-3: the team's agents (Message an agent ›).
+    val agents by dataViewModel.agents.collectAsStateWithLifecycle()
 
     // EXP-1291: an accepted send answers with its session — a NEW ROOT, i.e.
     // the thread itself — and the page lands there ONCE.
@@ -222,6 +226,9 @@ fun AgentScreen(
     // ── Subject resolution ──────────────────────────────────────────────────
     val actionSubject = subject as? ComposerSubject.Prompt
     val issueSubject = subject as? ComposerSubject.Issues
+    // NEW-3: the picked agent's row (its chip); the send goes into my DM.
+    val agentSubject = subject as? ComposerSubject.Agent
+    val selectedAgent = agentSubject?.let { picked -> agents.firstOrNull { it.agentId == picked.id } }
     // NEW-2: the picked saved prompt's synced row (its chip).
     val selectedAction = actionSubject?.let { picked ->
         actionsState.actions?.firstOrNull { it.id == picked.id }
@@ -273,9 +280,11 @@ fun AgentScreen(
         null -> hasText || images.isNotEmpty()
         is ComposerSubject.Issues -> checkedCount in 1..MAX_BATCH_ISSUES && !multiRepo
         is ComposerSubject.Prompt -> selectedAction != null
+        // NEW-3: a DM runs on the agent's own device: something to say.
+        is ComposerSubject.Agent -> selectedAgent != null && (hasText || images.isNotEmpty())
     }
     val busy = sending || starting != null || runState is ActionRunState.Sending
-    val canSubmit = device != null && !agentNotReady && !busy && subjectOk &&
+    val canSubmit = (agentSubject != null || (device != null && !agentNotReady)) && !busy && subjectOk &&
         AgentComposerPrompt.withinLimit(
             draft,
             images.count { it.isImage },
@@ -284,6 +293,7 @@ fun AgentScreen(
     // The ONE pure place the subject turns into copy: the submit's contract
     // label and (EXP-1038) the headline verb above the field.
     val promptSubject = when {
+        agentSubject != null -> AgentComposerPrompt.Subject.Agent
         actionSubject != null -> AgentComposerPrompt.Subject.Action
         checkedCount > 0 -> AgentComposerPrompt.Subject.Issues(checkedCount)
         else -> AgentComposerPrompt.Subject.None
@@ -297,6 +307,8 @@ fun AgentScreen(
     }
     val blocker: String? = when {
         teamId == null -> "Pick a team first."
+        // NEW-3: a DM needs no device of mine (the agent's runs it).
+        agentSubject != null -> null
         // The pool is still resolving (steer config / the devices shape's
         // first snapshot): no verdict yet, so no "no desktop" note either.
         device == null && candidateDevices == null -> null
@@ -331,6 +343,14 @@ fun AgentScreen(
             composerField = TextFieldValue(draft, TextRange(start, end))
             composerArmed = false
         }
+    }
+    // NEW-2: the `/` menu of the launch composer = the team's prompts alone
+    // (no session yet, so no builtins), the web `promptSlashName` prefix rule.
+    val slashPrompts = remember(draft, actionsState) {
+        SlashCommands.promptMatches(
+            draft,
+            actionsState.actions.orEmpty().map { SlashPrompt(it.id, it.name, it.icon) },
+        )
     }
     val currentOnOpenIssue by rememberUpdatedState(onOpenIssue)
     val issueRefHandler = remember(issueRefCandidates) {
@@ -426,7 +446,11 @@ fun AgentScreen(
     LaunchedEffect(runState) {
         val failed = runState as? ActionRunState.Failed ?: return@LaunchedEffect
         val toastId = toaster.error(
-            FeedbackStates.errorTitle("start", "the session"),
+            if (agentSubject != null) {
+                FeedbackStates.errorTitle("send", "the message")
+            } else {
+                FeedbackStates.errorTitle("start", "the session")
+            },
             failed.message,
             ToastAction(FeedbackStates.RETRY) { retryStart() },
         )
@@ -481,6 +505,7 @@ fun AgentScreen(
     var effortPickerOpen by remember { mutableStateOf(false) }
     var subagentPickerOpen by remember { mutableStateOf(false) }
     var mcpPickerOpen by remember { mutableStateOf(false) }
+    var agentPickerOpen by remember { mutableStateOf(false) }
 
     AgentPageFrame(
         onBack = onBack,
@@ -542,6 +567,8 @@ fun AgentScreen(
                                 onRemoveIssue = viewModel::toggleIssue,
                                 actionChip = selectedAction,
                                 onClearAction = viewModel::clearPrompt,
+                                agentChip = selectedAgent,
+                                onClearAgent = viewModel::clearAgent,
                             )
                         }
                     }
@@ -605,6 +632,19 @@ fun AgentScreen(
                             onSubmit = { viewModel.submit(resumeCandidate != null) },
                         )
                     }
+                    // NEW-2: the launch composer's `/` = the team's prompts
+                    // alone; a pick is the subject (its chip), never text.
+                    if (slashPrompts.isNotEmpty()) {
+                        item(key = "__slash_prompts__") {
+                            SlashPromptRows(
+                                prompts = slashPrompts,
+                                onPick = { prompt ->
+                                    viewModel.pickPrompt(prompt.id)
+                                    viewModel.setDraft("")
+                                },
+                            )
+                        }
+                    }
                     if (menuOpen) {
                         item(key = "__autocomplete__") {
                             AutocompleteRows(
@@ -622,7 +662,9 @@ fun AgentScreen(
                             )
                         }
                     }
-                    item(key = "__options__") {
+                    // NEW-3: a DM runs on the agent's device and login: the
+                    // options line hides.
+                    if (agentSubject == null) item(key = "__options__") {
                         AgentOptionsRow(
                             devices = candidateDevices.orEmpty(),
                             device = device,
@@ -701,7 +743,7 @@ fun AgentScreen(
                     // no subject owns it — the team's servers alone decide.
                     mcp = mcpServers.isNotEmpty(),
                     computerUse = device?.canToggleComputerUse == true,
-                    agents = false,
+                    agents = agents.isNotEmpty(),
                 ),
             ),
             codex = launch.agent == "codex",
@@ -723,7 +765,8 @@ fun AgentScreen(
                     ComposerMenuRowId.Effort -> effortPickerOpen = true
                     ComposerMenuRowId.Subagents -> subagentPickerOpen = true
                     ComposerMenuRowId.McpServers -> mcpPickerOpen = true
-                    ComposerMenuRowId.MessageAgent, ComposerMenuRowId.Ultracode, ComposerMenuRowId.ComputerUse -> Unit
+                    ComposerMenuRowId.MessageAgent -> agentPickerOpen = true
+                    ComposerMenuRowId.Ultracode, ComposerMenuRowId.ComputerUse -> Unit
                 }
             },
             onUltracodeChange = viewModel::setUltracode,
@@ -761,6 +804,26 @@ fun AgentScreen(
             title = SUBAGENT_MODEL_LABEL,
             open = true,
             onOpenChange = { open -> if (!open) subagentPickerOpen = false },
+        )
+    }
+    if (agentPickerOpen) {
+        // NEW-3 (composer-menu.json `message-agent`): THE Picker rows of the
+        // team's agents (icon + colour + name, single pick).
+        Picker(
+            items = agents.map { agent ->
+                PickerItem(
+                    agent.agentId,
+                    agent.name,
+                    icon = ExpIcons.byName(agent.icon) ?: ExpIcons.settingsAgents,
+                    color = com.exponential.app.ui.parseColor(agent.color),
+                )
+            },
+            mode = PickerMode.Single,
+            value = setOfNotNull(agentSubject?.id),
+            onChange = { picked -> picked.firstOrNull()?.let(viewModel::pickAgent) },
+            title = MESSAGE_AGENT_TITLE,
+            open = true,
+            onOpenChange = { open -> if (!open) agentPickerOpen = false },
         )
     }
     if (mcpPickerOpen) {
@@ -883,5 +946,25 @@ internal fun AgentHomeDawn(modifier: Modifier = Modifier) {
                 .wrapContentHeight(align = Alignment.Top, unbounded = true)
                 .testTag(AgentHome.MARK_TEST_ID),
         )
+    }
+}
+
+/** NEW-3: the Message an agent › picker's title (composer-menu.json row label). */
+private const val MESSAGE_AGENT_TITLE = "Message an agent"
+
+/** NEW-2: the launch composer's `/` rows — the team's prompts (icon + name),
+ *  under the card like the `@` / `:` rows. */
+@Composable
+private fun SlashPromptRows(prompts: List<SlashPrompt>, onPick: (SlashPrompt) -> Unit) {
+    com.exponential.app.ui.components.GlassMenuSurface(modifier = Modifier.fillMaxWidth().testTag("agent-composer-slash-menu")) {
+        Column(modifier = Modifier.padding(vertical = 4.dp)) {
+            prompts.forEachIndexed { index, prompt ->
+                com.exponential.app.ui.session.SlashPromptRow(
+                    prompt = prompt,
+                    highlighted = index == 0,
+                    onClick = { onPick(prompt) },
+                )
+            }
+        }
     }
 }

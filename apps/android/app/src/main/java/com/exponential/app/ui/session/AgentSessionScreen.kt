@@ -1253,6 +1253,48 @@ private fun RunFaceContent(
                 }
 
 
+                // EXP-804 / NEW-1: the PERSISTED block off the session row
+                // (web `session-blocked-strip`): a usage wall reads `Rate
+                // limited · resets in …` with Switch account; a watchdog flag
+                // (device offline, not picked up, stuck) its card word, no
+                // countdown and no switch.
+                val persistedBlock = AgentUsagePresentation.parseBlocked(session?.blocked)
+                val blockedLabel = AgentUsagePresentation.blockedBadgeLabel(persistedBlock, nowMs)
+                if (blockedLabel != null) {
+                    ReadingColumn {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 6.dp)
+                                .testTag("session-blocked-strip"),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Text(
+                                blockedLabel,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = DesignTokens.Semantic.Yellow,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f),
+                            )
+                            if (session?.isEnded != true &&
+                                AgentUsagePresentation.isUsageWall(persistedBlock) &&
+                                accountSwitch.canSwitchAny(activity.turnState)
+                            ) {
+                                GlassPill(
+                                    SessionAccountSwitch.WALL_SWITCH_LABEL,
+                                    onClick = { usageSheetOpen = true },
+                                    size = PillSize.Sm,
+                                    mode = PillMode.Action,
+                                    icon = ExpIcons.uiSwap,
+                                    modifier = Modifier.testTag("blocked-switch-account"),
+                                )
+                            }
+                        }
+                    }
+                }
+
                 // EXP-784: the agent's rate-limit window — ONE banner from the
                 // latest-wins slot (never a run of identical feed rows), with how
                 // long until the reset when the agent named one. Gone the
@@ -4676,7 +4718,25 @@ internal fun SessionComposer(
     var slashSelected by remember { mutableIntStateOf(0) }
     var slashDismissedFor by remember { mutableStateOf<String?>(null) }
     var slashConfirm by remember { mutableStateOf<SlashCommand?>(null) }
-    val slashMatches by viewModel.slashMatches.collectAsStateWithLifecycle()
+    // NEW-2: the builtins, then the team's prompts (a prompt's pick puts its
+    // body in the draft).
+    val slashMatches by viewModel.slashCandidates.collectAsStateWithLifecycle()
+    val promptFailure by viewModel.promptFailure.collectAsStateWithLifecycle()
+    com.exponential.app.ui.components.FailedActionToast(promptFailure, onShown = viewModel::clearPromptFailure)
+    val acceptSlash: (com.exponential.app.domain.SlashCandidate) -> Unit = { candidate ->
+        when (candidate) {
+            is com.exponential.app.domain.SlashCandidate.Command -> {
+                viewModel.setDraft(candidate.command.insertion)
+                // Accepting closes the menu; it reopens as soon as the
+                // draft changes again (never auto-sends).
+                slashDismissedFor = candidate.command.insertion
+            }
+            is com.exponential.app.domain.SlashCandidate.Prompt -> {
+                slashDismissedFor = draft
+                viewModel.insertPrompt(candidate.prompt.id)
+            }
+        }
+    }
     val slashMenuOpen = slashMatches.isNotEmpty() && slashDismissedFor != draft
     // A changed candidate list can never leave the highlight past its end.
     LaunchedEffect(slashMatches) { slashSelected = 0 }
@@ -4840,14 +4900,9 @@ internal fun SessionComposer(
             when (composerMenu) {
                 ComposerMenu.Slash -> {
                     SlashCommandMenu(
-                        commands = slashMatches,
+                        candidates = slashMatches,
                         selected = slashSelected,
-                        onPick = { command ->
-                            viewModel.setDraft(command.insertion)
-                            // Accepting closes the menu; it reopens as soon as
-                            // the draft changes again (never auto-sends).
-                            slashDismissedFor = command.insertion
-                        },
+                        onPick = acceptSlash,
                     )
                     Spacer(Modifier.height(8.dp))
                 }
@@ -4984,11 +5039,7 @@ internal fun SessionComposer(
                         // Enter ACCEPTS while the menu is open; it never
                         // sends the half-typed command underneath it.
                         Key.Enter, Key.NumPadEnter -> {
-                            val picked = slashMatches.getOrNull(slashSelected)
-                            if (picked != null) {
-                                viewModel.setDraft(picked.insertion)
-                                slashDismissedFor = picked.insertion
-                            }
+                            slashMatches.getOrNull(slashSelected)?.let(acceptSlash)
                             true
                         }
                         Key.Escape -> {
@@ -5831,9 +5882,9 @@ private fun historyStatus(state: HistoryState?, device: String): String = when (
  */
 @Composable
 private fun SlashCommandMenu(
-    commands: List<SlashCommand>,
+    candidates: List<com.exponential.app.domain.SlashCandidate>,
     selected: Int,
-    onPick: (SlashCommand) -> Unit,
+    onPick: (com.exponential.app.domain.SlashCandidate) -> Unit,
 ) {
     GlassMenuSurface(modifier = Modifier.fillMaxWidth()) {
         Column(
@@ -5843,8 +5894,19 @@ private fun SlashCommandMenu(
                 // Scrolls with the content, matching M3's menu padding.
                 .padding(vertical = 4.dp),
         ) {
-            commands.forEachIndexed { index, command ->
+            candidates.forEachIndexed { index, candidate ->
                 val highlighted = index == selected
+                if (candidate is com.exponential.app.domain.SlashCandidate.Prompt) {
+                    // NEW-2: a team prompt — its icon and name (web
+                    // `PromptCandidateRow`).
+                    SlashPromptRow(
+                        prompt = candidate.prompt,
+                        highlighted = highlighted,
+                        onClick = { onPick(candidate) },
+                    )
+                    return@forEachIndexed
+                }
+                val command = (candidate as com.exponential.app.domain.SlashCandidate.Command).command
                 // A command that discards the conversation reads as
                 // destructive here, exactly as its confirm dialog does.
                 val nameColor = if (command.confirm) {
@@ -5863,7 +5925,7 @@ private fun SlashCommandMenu(
                                 Color.Transparent
                             },
                         )
-                        .clickable { onPick(command) }
+                        .clickable { onPick(candidate) }
                         .padding(horizontal = 12.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -5901,6 +5963,40 @@ private fun SlashCommandMenu(
                 }
             }
         }
+    }
+}
+
+/** NEW-2: one team prompt in a `/` menu: its curated glyph and its name. */
+@Composable
+internal fun SlashPromptRow(
+    prompt: com.exponential.app.domain.SlashPrompt,
+    highlighted: Boolean,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 44.dp)
+            .background(if (highlighted) Color.White.copy(alpha = 0.06f) else Color.Transparent)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 8.dp)
+            .testTag("slash-prompt-${prompt.id}"),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            prompt.icon?.let { ExpIcons.byName(it) } ?: ExpIcons.actionDefault,
+            contentDescription = null,
+            modifier = Modifier.size(16.dp),
+            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+        )
+        Spacer(Modifier.width(10.dp))
+        Text(
+            prompt.name,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 

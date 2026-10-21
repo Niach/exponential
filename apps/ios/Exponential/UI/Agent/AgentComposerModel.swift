@@ -8,21 +8,25 @@ import GRDB
 /// `AgentComposerSeed`; the send is ONE `sessions.send` that starts a new
 /// THREAD root in the ACTIVE team (phones: the current board's team):
 ///
-/// - The SUBJECT is issue chips OR one action chip (a saved prompt); picking
-///   the other kind REPLACES the current subject (exclusivity by swap, no
-///   disabled controls). No subject = the text is the request.
+/// - The SUBJECT is issue chips, OR one prompt chip (NEW-2: picked in the
+///   `/` menu, sent as `promptId`), OR one agent chip (NEW-3: the "+" menu's
+///   Message an agent ›, sent as `sessions.send({agentId})` into the
+///   caller's DM with it); picking another kind REPLACES the current subject
+///   (exclusivity by swap, no disabled controls). No subject = the text is
+///   the request.
 /// - The free text is OPTIONAL with a subject and required without one
 ///   (`AgentComposerPrompt`). Images and files ride it as the steer embed
 ///   format, uploaded BEFORE the send to the team route, their ids sent
 ///   beside it.
 /// - The machine pool (the Devices model's devices), the per-machine option
-///   seeding (`LaunchOptionsState`), the single-repository and issue-cap
-///   guards and the typed action inputs (`ActionInputValues`) live here.
+///   seeding (`LaunchOptionsState`) and the single-repository and issue-cap
+///   guards live here. An agent message needs none of them: it runs on the
+///   agent's own device and login.
 /// - The database is the bus: the call answers with the new root's id, so
 ///   the page opens the thread at once (`landedRootId`); the device picks
 ///   the queued row up from its shape.
 ///
-/// The pools (issues, boards, actions, pull requests) read LIVE off GRDB;
+/// The pools (issues, boards, prompts, agents, pull requests) read LIVE off GRDB;
 /// only the repo registry (tRPC) and the `@` vocabulary are fetched once.
 @MainActor @Observable
 final class AgentComposerModel {
@@ -44,10 +48,10 @@ final class AgentComposerModel {
     private(set) var checked: [String] = [] {
         didSet { if checked != oldValue { rebuildIssueOptions() } }
     }
-    /// The picked action; nil = issues or a free request.
-    private(set) var actionId: String?
-    /// Typed input values keyed by the def's `key`; `""` = cleared.
-    var inputValues: [String: String] = [:]
+    /// The picked prompt (NEW-2); nil = another subject or a free request.
+    private(set) var promptId: String?
+    /// The picked agent (NEW-3); nil = another subject or a free request.
+    private(set) var agentId: String?
     var pendingImages: [PendingSteerImage] = []
     /// Wave D: non-image files, uploaded beside the images and sent as
     /// `[<filename>](/api/attachments/<id>)` lines after the embeds.
@@ -73,6 +77,9 @@ final class AgentComposerModel {
     /// The new thread root a send started — the page opens it while visible
     /// and consumes it.
     var landedRootId: String?
+    /// NEW-3: the agent whose DM a send went into — the page opens it while
+    /// visible and consumes it.
+    var landedAgentId: String?
     /// The error toast still up, dismissed by the next send.
     private var errorToastId: UUID?
 
@@ -94,7 +101,8 @@ final class AgentComposerModel {
     /// The live pools, read off GRDB.
     private var issueRows: [IssueEntity] = []
     private var boardRows: [BoardEntity] = []
-    private var actionRows: [ActionDto] = []
+    private var promptRows: [PromptEntity] = []
+    private var agentRows: [AgentDefinitionEntity] = []
     private var pullRequestRows: [StartPullRequestOption.Candidate] = []
     @ObservationIgnored private var poolTask: Task<Void, Never>?
 
@@ -118,18 +126,18 @@ final class AgentComposerModel {
 
     // MARK: - Seed
 
-    /// The preselection a play button handed over. `action` wins over
+    /// The preselection a play button handed over. A prompt wins over
     /// `issues`; text lands only in an EMPTY draft; a device seed is a
     /// PREFERENCE (sticky until the user picks).
     func apply(_ seed: AgentComposerSeed) {
-        if let actionId = seed.actionId {
-            self.actionId = actionId
+        if let promptId = seed.promptId {
+            self.promptId = promptId
+            agentId = nil
             checked = []
-            inputValues = [:]
         } else if !seed.effectiveIssueIds.isEmpty {
-            self.actionId = nil
+            promptId = nil
+            agentId = nil
             checked = seed.effectiveIssueIds
-            inputValues = [:]
         }
         if let deviceId = seed.deviceId {
             preferredDeviceId = deviceId
@@ -177,6 +185,7 @@ final class AgentComposerModel {
             return copy
         }
         landedRootId = previous.landedRootId
+        landedAgentId = previous.landedAgentId
         touched = true
     }
 
@@ -195,29 +204,31 @@ final class AgentComposerModel {
         await loadMentionMembers(teamId: teamId)
     }
 
-    /// Issues, boards, actions and the open pull requests (with their
-    /// linked issues' identifiers) — one observation, every pool live.
+    /// Issues, boards, prompts, agents and the open pull requests (with
+    /// their linked issues' identifiers) — one observation, every pool live.
     private func observePools() {
         guard poolTask == nil, let pool = try? deps.db.pool(forAccountId: accountId) else { return }
         let observation = ValueObservation.tracking { db in
             let issues = try IssueEntity.fetchAll(db)
             let boards = try BoardEntity.fetchAll(db)
-            // NEW-2: the saved prompts (the `actions` shape is served empty).
-            let actions = try PromptEntity.fetchAll(db)
+            // NEW-2: the saved prompts and the agent definitions.
+            let prompts = try PromptEntity.fetchAll(db)
+            let agents = try AgentDefinitionEntity.fetchAll(db)
             let pulls = try PullRequestEntity
                 .filter(Column("state") == DomainContract.prStateOpen)
                 .fetchAll(db)
             let links = try PullRequestIssueEntity.fetchAll(db)
-            return (issues, boards, actions, pulls, links)
+            return (issues, boards, prompts, agents, pulls, links)
         }
         poolTask = Task { [weak self] in
             do {
-                for try await (issues, boards, actions, pulls, links) in observation.values(in: pool) {
+                for try await (issues, boards, prompts, agents, pulls, links) in observation.values(in: pool) {
                     guard let self else { return }
                     self.issueRows = issues
                     self.boardRows = boards
                     self.rebuildIssueOptions()
-                    self.actionRows = actions.map { ActionDto(prompt: $0) }
+                    self.promptRows = prompts
+                    self.agentRows = agents
                     let identifierById = Dictionary(
                         issues.map { ($0.id, $0.identifier ?? "") }, uniquingKeysWith: { a, _ in a }
                     )
@@ -314,13 +325,31 @@ final class AgentComposerModel {
         issues = IssueOption.build(issues: issueRows, boards: boardRows, teamId: teamId, exempt: Set(checked))
     }
 
-    /// The action picker's pool: the team's saved prompts, sortOrder-then-name
+    /// The `/` menu's pool: the team's saved prompts, sortOrder-then-name
     /// like the server list.
-    var actions: [ActionDto] {
+    var prompts: [PromptEntity] {
         guard let teamId else { return [] }
-        return actionRows
+        return promptRows
             .filter { $0.teamId == teamId }
             .sorted { ($0.sortOrder, $0.name) < ($1.sortOrder, $1.name) }
+    }
+
+    /// NEW-3: Message an agent ›'s rows — the team's agents in their order
+    /// (`SessionQueries.agents`: sortOrder, then name).
+    var agents: [AgentDefinitionEntity] {
+        guard let teamId else { return [] }
+        return agentRows
+            .filter { $0.teamId == teamId }
+            .sorted { ($0.sortOrder, $0.name) < ($1.sortOrder, $1.name) }
+    }
+
+    /// The `/` menu over the draft: the team's prompts alone (no session
+    /// yet, so no builtins).
+    var slashPrompts: [SlashPrompt] {
+        SlashCommands.promptMatches(
+            draft: draftText,
+            prompts: prompts.map { SlashPrompt(id: $0.id, name: $0.name, icon: $0.icon) }
+        )
     }
 
     /// The team's boards, sortOrder-then-name — the `board` inputs pick from
@@ -353,13 +382,19 @@ final class AgentComposerModel {
         return effectiveChecked.compactMap { byId[$0] }
     }
 
-    var selectedAction: ActionDto? {
-        guard let actionId else { return nil }
-        return actions.first(where: { $0.id == actionId })
+    var selectedPrompt: PromptEntity? {
+        guard let promptId else { return nil }
+        return prompts.first(where: { $0.id == promptId })
+    }
+
+    var selectedAgent: AgentDefinitionEntity? {
+        guard let agentId else { return nil }
+        return agents.first(where: { $0.id == agentId })
     }
 
     var subject: AgentComposerPrompt.Subject {
-        if actionId != nil { return .action }
+        if agentId != nil { return .agent }
+        if promptId != nil { return .prompt }
         let count = effectiveChecked.count
         return count == 0 ? .none : .issues(count: count)
     }
@@ -368,34 +403,30 @@ final class AgentComposerModel {
         AgentComposerPrompt.submitTitle(for: subject)
     }
 
-    /// EXP-1038: the headline verb over the composer ("Run" · "Implement"),
-    /// the contract's copy ×4 — the subject chips sit beside it.
+    /// EXP-1038: the headline verb over the composer ("Implement"; a prompt's
+    /// or an agent's chip is the headline itself), the contract's copy ×4.
     var headline: String {
         AgentComposerPrompt.headline(for: subject)
     }
 
     /// The field's prompt per subject: Home asks what to build
-    /// (composer-home.json `placeholder`); a picked action shows its own
-    /// hint; issue chips ask for what is optional next to them.
+    /// (composer-home.json `placeholder`); any subject asks for what is
+    /// optional next to it.
     var placeholder: String {
         if subject == AgentComposerPrompt.Subject.none { return HomeGreeting.placeholder }
-        return AgentComposerPrompt.placeholder(
-            for: subject, actionHint: selectedAction?.promptPlaceholder
-        )
+        return AgentComposerPrompt.placeholder(for: subject)
     }
 
     func isChecked(_ id: String) -> Bool {
         checked.contains(id)
     }
 
-    /// Check or uncheck an issue. Picking an issue REPLACES an action
-    /// subject (exclusivity by swap).
+    /// Check or uncheck an issue. Picking an issue REPLACES a prompt or an
+    /// agent subject (exclusivity by swap).
     func toggleIssue(_ id: String) {
         touched = true
-        if actionId != nil {
-            actionId = nil
-            inputValues = [:]
-        }
+        promptId = nil
+        agentId = nil
         if let index = checked.firstIndex(of: id) {
             checked.remove(at: index)
         } else {
@@ -403,45 +434,32 @@ final class AgentComposerModel {
         }
     }
 
-    /// Pick an action. Picking one REPLACES the issue chips; a different
-    /// action's defs start clean (values are keyed per def).
-    func pickAction(_ action: ActionDto) {
-        guard action.id != actionId else { return }
+    /// NEW-2: the `/` menu's pick — the prompt becomes the subject, REPLACING
+    /// the issue chips or an agent.
+    func pickPrompt(_ id: String) {
         touched = true
-        actionId = action.id
+        promptId = id
+        agentId = nil
         checked = []
-        inputValues = [:]
     }
 
-    func clearAction() {
+    func clearPrompt() {
         touched = true
-        actionId = nil
-        inputValues = [:]
+        promptId = nil
     }
 
-    // MARK: - Action inputs
-
-    /// The value a def shows: what the user set, else unset (`""`).
-    func value(for def: ActionInputDto) -> String {
-        inputValues[def.key] ?? ""
-    }
-
-    func setValue(_ value: String, for def: ActionInputDto) {
+    /// NEW-3: Message an agent ›'s pick — the agent becomes the subject (ONE
+    /// chip), REPLACING the issue chips or a prompt.
+    func pickAgent(_ id: String) {
         touched = true
-        inputValues[def.key] = value
+        agentId = id
+        promptId = nil
+        checked = []
     }
 
-    private var selectedActionInputs: [ActionInputDto] {
-        selectedAction?.inputs ?? []
-    }
-
-    /// The resolved input map the gates and the wire read.
-    private var resolvedInputValues: [String: String] {
-        var out: [String: String] = [:]
-        for def in selectedActionInputs {
-            out[def.key] = value(for: def)
-        }
-        return out
+    func clearAgent() {
+        touched = true
+        agentId = nil
     }
 
     // MARK: - Devices
@@ -552,42 +570,50 @@ final class AgentComposerModel {
     /// missing is the message itself (the disabled button says that).
     var blocker: String? {
         guard teamId != nil else { return "Pick a team first." }
+        // NEW-3: a DM runs on the agent's own device and login — no machine
+        // of the caller's is involved.
+        if agentId != nil {
+            if selectedAgent == nil { return "That agent is not available on this team." }
+            if !AgentComposerPrompt.withinLimit(draftText) {
+                return "The message is too long (\(AgentComposerPrompt.maxLength) characters at most)."
+            }
+            return nil
+        }
         // The pool is still resolving (the devices shape's first snapshot):
         // no verdict yet, so no "no desktop" note either.
         guard device != nil else { return devicesModel.devices == nil ? nil : noDeviceNote }
         if let note = LaunchVocabulary.notReadyNote(device: device, agent: launch.agent) {
             return note
         }
-        // A seeded action that never synced, or belongs to another team.
-        if actionId != nil, selectedAction == nil {
-            return "That action is not available on this team."
+        // A seeded prompt that never synced, or belongs to another team.
+        if promptId != nil, selectedPrompt == nil {
+            return "That prompt is not available on this team."
         }
         if multiRepo { return "Pick issues from a single repository per session." }
         if overCap { return "At most \(Self.maxIssues) issues per session." }
-        if let action = selectedAction, ActionInputValues.hasUnsupportedType(action.inputs ?? []) {
-            return "This action needs a newer app version."
-        }
         if !AgentComposerPrompt.withinLimit(draftText) {
             return "The message is too long (\(AgentComposerPrompt.maxLength) characters at most)."
         }
         return nil
     }
 
-    /// A free request needs text or an attachment; a subject never does.
+    /// A free request and an agent message need text or an attachment; an
+    /// issue or prompt subject never does.
     private var messageMissing: Bool {
-        subject == AgentComposerPrompt.Subject.none && trimmedDraft.isEmpty && pendingImages.isEmpty && pendingFiles.isEmpty
-    }
-
-    private var requiredInputsFilled: Bool {
-        ActionInputValues.requiredFilled(selectedActionInputs, values: resolvedInputValues)
+        let bare = trimmedDraft.isEmpty && pendingImages.isEmpty && pendingFiles.isEmpty
+        switch subject {
+        case .none, .agent: return bare
+        case .issues, .prompt: return false
+        }
     }
 
     var canSubmit: Bool {
-        guard blocker == nil, device != nil, !sending, !messageMissing else { return false }
+        guard blocker == nil, !sending, !messageMissing else { return false }
         switch subject {
-        case .none: return true
-        case .issues: return !effectiveChecked.isEmpty
-        case .action: return selectedAction != nil && requiredInputsFilled
+        case .agent: return selectedAgent != nil
+        case .none: return device != nil
+        case .issues: return device != nil && !effectiveChecked.isEmpty
+        case .prompt: return device != nil && selectedPrompt != nil
         }
     }
 
@@ -673,12 +699,17 @@ final class AgentComposerModel {
     /// the composer clears and the page opens the thread; on failure the
     /// draft, the chips and the strip stay and a toast offers Retry.
     func submit() {
-        guard canSubmit, let device, let teamId else { return }
+        guard canSubmit, let teamId else { return }
+        let messagedAgentId = subject == .agent ? agentId : nil
+        guard messagedAgentId != nil || device != nil else { return }
         sending = true
         touched = true
         imageError = nil
         dismissErrorToast()
-        starting = Starting(deviceLabel: LaunchVocabulary.deviceName(device), since: Date())
+        // A DM never starts on one of the caller's machines: no starting row.
+        if messagedAgentId == nil, let device {
+            starting = Starting(deviceLabel: LaunchVocabulary.deviceName(device), since: Date())
+        }
         Task {
             defer {
                 sending = false
@@ -723,6 +754,26 @@ final class AgentComposerModel {
                 attachmentIds: imageIds,
                 files: pendingFiles.compactMap(\.wireFile)
             )
+            if let messagedAgentId {
+                // NEW-3: into the caller's DM with the agent (opened on first
+                // use server-side); the page opens it.
+                do {
+                    _ = try await deps.sessionsApi.send(
+                        accountId: accountId,
+                        .agent(
+                            agentId: messagedAgentId,
+                            text: text,
+                            attachmentIds: attachmentIds.isEmpty ? nil : attachmentIds
+                        )
+                    )
+                    clearDraft()
+                    landedAgentId = messagedAgentId
+                } catch {
+                    failed(verb: "send", thing: "the message", error)
+                }
+                return
+            }
+            guard let device = self.device else { return }
             do {
                 let result = try await deps.sessionsApi.send(
                     accountId: accountId,
@@ -760,16 +811,18 @@ final class AgentComposerModel {
                 attachmentIds: attachments,
                 issueIds: effectiveChecked
             )
-        case .action:
-            // NEW-2: the picked saved PROMPT (`actionId` holds its id; NEW-7
-            // renames it): its body plus `text` = the first message.
+        case .prompt, .agent:
+            // NEW-2: the picked saved PROMPT: its body plus `text` = the first
+            // message, in the free request's repository. (An agent never gets
+            // here: `submit` sends it into the DM.)
             return .newThread(
                 teamId: teamId,
                 deviceId: deviceId,
                 options: launch.buildOptions(),
                 text: text,
                 attachmentIds: attachments,
-                promptId: actionId
+                promptId: promptId,
+                repositoryId: chatRepoId.isEmpty ? nil : chatRepoId
             )
         }
     }
@@ -800,8 +853,8 @@ final class AgentComposerModel {
         pendingImages = []
         pendingFiles = []
         checked = []
-        actionId = nil
-        inputValues = [:]
+        promptId = nil
+        agentId = nil
         seededDraft = ""
     }
 }

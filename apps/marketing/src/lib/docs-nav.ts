@@ -25,13 +25,13 @@ export const DOCS_NAV: DocsNavEntry[] = [
   },
   {
     path: `/docs/actions/`,
-    label: `Actions`,
-    blurb: `Reusable team prompts your agents run on demand from the desktop, the web, or your phone.`,
+    label: `Prompts`,
+    blurb: `Saved team prompts, run from the composer's / menu.`,
   },
   {
     path: `/docs/cli/`,
     label: `CLI & daemon`,
-    blurb: `Run coding sessions and actions from your terminal, or leave a server running as an always-on agent machine.`,
+    blurb: `Run coding sessions from your terminal, or leave a server running as an always-on agent machine.`,
   },
   {
     path: `/docs/feedback/`,

@@ -193,4 +193,44 @@ final class SlashCommandsTests: XCTestCase {
             "The agent forgets everything in this session so far. Files in the worktree are kept."
         )
     }
+
+    // MARK: - NEW-2: the team's prompts follow the builtins
+
+    func testPromptSlashNameLowercasesAndHyphenates() {
+        XCTAssertEqual(SlashCommands.promptSlashName("Fix flaky tests"), "fix-flaky-tests")
+        XCTAssertEqual(SlashCommands.promptSlashName("  Review   PR \t now "), "review-pr-now")
+        XCTAssertEqual(SlashCommands.promptSlashName("Deploy"), "deploy")
+    }
+
+    func testPromptsFilterByPrefixInTeamOrder() {
+        let prompts = [
+            SlashPrompt(id: "p1", name: "Fix flaky tests"),
+            SlashPrompt(id: "p2", name: "Compact notes"),
+            SlashPrompt(id: "p3", name: "fix typos"),
+        ]
+        XCTAssertEqual(SlashCommands.promptMatches(draft: "/fix", prompts: prompts).map(\.id), ["p1", "p3"])
+        XCTAssertEqual(SlashCommands.promptMatches(draft: "/fix-fl", prompts: prompts).map(\.id), ["p1"])
+        XCTAssertEqual(SlashCommands.promptMatches(draft: "/", prompts: prompts).map(\.id), ["p1", "p2", "p3"])
+        XCTAssertTrue(SlashCommands.promptMatches(draft: "/fix ", prompts: prompts).isEmpty)
+        XCTAssertTrue(SlashCommands.promptMatches(draft: "fix", prompts: prompts).isEmpty)
+    }
+
+    func testASlashDraftIsTheWholeToken() {
+        XCTAssertTrue(SlashCommands.isSlashDraft("/"))
+        XCTAssertTrue(SlashCommands.isSlashDraft("/fix-fl"))
+        XCTAssertFalse(SlashCommands.isSlashDraft("/fix "))
+        XCTAssertFalse(SlashCommands.isSlashDraft("fix"))
+    }
+
+    func testTheMenuIsTheBuiltinsThenThePrompts() {
+        let prompts = [SlashPrompt(id: "p1", name: "Compact notes"), SlashPrompt(id: "p2", name: "Deploy")]
+        XCTAssertEqual(
+            SlashCommands.candidates(draft: "/co", agent: "claude", prompts: prompts).map(\.id),
+            ["command:compact", "prompt:p1"]
+        )
+        XCTAssertEqual(
+            SlashCommands.candidates(draft: "/", agent: "claude", prompts: prompts).map(\.id),
+            ["command:compact", "command:model", "command:effort", "prompt:p1", "prompt:p2"]
+        )
+    }
 }

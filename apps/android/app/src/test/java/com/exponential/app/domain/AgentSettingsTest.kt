@@ -173,4 +173,17 @@ class AgentSettingsTest {
         val raw = JsonArray(listOf(event.toWireJson(), JsonPrimitive("junk"))).toString()
         assertEquals(listOf(event), parseAgentTriggers(raw))
     }
+
+    // NEW-2: the Events band's caption (web `eventEmitterLabel`).
+    @Test
+    fun eventEmitterLabelNamesTheSessionThePersonOrTheServer() {
+        val title: (String) -> String? = { id -> if (id == "s1") "Fix the build" else null }
+        val user: (String) -> String = { id -> if (id == "u1") "Ann" else id }
+        assertEquals("Fix the build", AgentSettings.eventEmitterLabel("session", "s1", null, title, user))
+        assertEquals("Session", AgentSettings.eventEmitterLabel("session", "s2", null, title, user))
+        assertEquals("Session", AgentSettings.eventEmitterLabel("session", null, null, title, user))
+        assertEquals("Ann", AgentSettings.eventEmitterLabel("user", null, "u1", title, user))
+        assertEquals("Someone", AgentSettings.eventEmitterLabel("user", null, null, title, user))
+        assertEquals("Exponential", AgentSettings.eventEmitterLabel("server", null, null, title, user))
+    }
 }

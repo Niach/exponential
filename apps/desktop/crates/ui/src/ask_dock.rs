@@ -4,8 +4,8 @@
 //! the composer's slot, in the session view (`steer_viewer`) and the thread
 //! (`thread_screen`) alike. `single`/`focused` = THE big card (the host
 //! paints it: [`crate::steer_viewer::ask_card_chrome`] + its options, the
-//! [`back_button`] leading the header when focused, the body capped by
-//! [`dock_body`]); `stack` = [`stack_card`]s `stackGap` apart, a click
+//! [`back_button`] leading the header when focused, the body inline in
+//! [`dock_body`], never scrolling on its own); `stack` = [`stack_card`]s `stackGap` apart, a click
 //! focuses one. A swap (stack ⇄ a card) animates the dock's height over
 //! motion `standard` with the standard easing and fades the new content in
 //! (decelerate). gpui has no reduce-motion signal (`theme::motion`), so
@@ -117,17 +117,10 @@ pub(crate) fn dock(
     outer.child(inner).into_any_element()
 }
 
-/// The big card's body: never taller than `bodyMaxHeightFraction` of the
-/// window, scrolling inside (the options stay below it).
-pub(crate) fn dock_body(id: impl Into<ElementId>, body: impl IntoElement, window: &Window) -> Stateful<Div> {
-    let cap = window.viewport_size().height * domain::ask_dock::body_max_height_fraction();
-    div()
-        .id(id)
-        .w_full()
-        .min_w_0()
-        .max_h(cap)
-        .overflow_y_scroll()
-        .child(body)
+/// The big card's body. NEW-6 (N-1): INLINE, never a scroll area of its
+/// own (no cap, no scrolled edge): the card grows, the conversation scrolls.
+pub(crate) fn dock_body(id: impl Into<ElementId>, body: impl IntoElement, _window: &Window) -> Stateful<Div> {
+    div().id(id).w_full().min_w_0().child(body)
 }
 
 /// The focused card's back arrow (ghost `icon-xs`, `ui-back`), leading the

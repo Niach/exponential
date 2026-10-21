@@ -45,7 +45,7 @@ object SessionDeviceMove {
     const val MOVING_LABEL = "Moving to {device}…"
 
     /** What a move does, said once where the move is offered. */
-    const val NOTE = "The session moves after its current turn. Its worktree and conversation go with it; logins stay on each device."
+    const val NOTE = "The session ends here and continues on that device on the same branch; its conversation goes with it, logins stay on each device."
 
     /** A person's failed move (the failure toast). */
     const val MOVE_FAILED_TOAST = "Couldn't move the session"

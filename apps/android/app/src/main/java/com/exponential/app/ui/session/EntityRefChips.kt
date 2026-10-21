@@ -335,14 +335,14 @@ private fun BoardCard(ref: EntityRef, open: (EntityTarget) -> Unit) {
 @Composable
 private fun PromptCard(ref: EntityRef, open: (EntityTarget) -> Unit) {
     val prompt = teamPrompts().firstOrNull { it.id == ref.id } ?: run {
-        SlimCard(ref, onOpen = { open(EntityTarget.Actions) })
+        SlimCard(ref, onOpen = { open(EntityTarget.Prompts) })
         return
     }
     EntityPreviewCard(
         icon = { HeaderGlyph(prompt.icon?.let { ExpIcons.byName(it) } ?: ExpIcons.actionDefault) },
         eyebrow = "Prompt",
         title = prompt.name,
-        onOpen = { open(EntityTarget.Action(prompt.id)) },
+        onOpen = { open(EntityTarget.Prompt(prompt.id)) },
     )
 }
 
@@ -620,7 +620,8 @@ private fun memberTarget(ref: EntityRef): EntityTarget? = when (ref.kind) {
     "issue" -> EntityTarget.Issue(ref.id)
     "board" -> EntityTarget.Board(ref.id)
     "session" -> EntityTarget.Session(ref.id)
-    "prompt", "action" -> EntityTarget.Action(ref.id)
+    "prompt", "action" -> EntityTarget.Prompt(ref.id)
+    "agent" -> EntityTarget.Agent(ref.id)
     "device" -> EntityTarget.Devices
     "label", "status", "member", "invite", "team", "repository" -> EntityTarget.TeamSettings
     "notification" -> EntityTarget.Inbox

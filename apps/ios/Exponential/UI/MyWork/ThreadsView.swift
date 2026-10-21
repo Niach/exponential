@@ -9,8 +9,8 @@ import SwiftUI
 /// count, over flat gapless rows, no dividers (EXP-1320). EXP-1358: the
 /// title sits in the sticky inline nav bar like every other tab root; in
 /// several teams each TEAM band (avatar + name) is OUTER and the group bands
-/// sit inside it. A row opens the thread, an agent row its channel (the same
-/// thread screen).
+/// sit inside it. A row opens the thread; an agent row (NEW-2: an `agents`
+/// definition) opens the caller's DM with it (`AgentChannelScreen`).
 struct ThreadsView: View {
     @Environment(SessionListsModel.self) private var lists
     @Environment(TeamState.self) private var teamState
@@ -35,6 +35,11 @@ struct ThreadsView: View {
                     // EXP-1323: a nested child row opens that session.
                     onOpenSession: { sessionId in
                         pushRoute(.agentSession(accountId: accountId, sessionId: sessionId))
+                    },
+                    // NEW-2: an agent row opens the caller's DM with it (the
+                    // same screen, empty until the first message).
+                    onOpenAgent: { agentId in
+                        pushRoute(.agentChannel(accountId: accountId, agentId: agentId))
                     }
                 )
             } else {
@@ -58,9 +63,8 @@ struct ThreadsView: View {
 struct ThreadsListContent: View {
     let groups: [ThreadsListGroup]
     let agents: [AgentRow]
-    /// NEW-2: my conversation session with each agent, by agent id (an
-    /// agent row opens it; none yet = the row waits for NEW-7's first
-    /// message flow).
+    /// NEW-2: my conversation session with each agent, by agent id (kept
+    /// for hosts that open the conversation itself).
     var agentConversations: [String: String] = [:]
     /// A root's agent CLI (the row's run mark), by root id.
     var clis: [String: String] = [:]
@@ -72,6 +76,10 @@ struct ThreadsListContent: View {
     let onOpen: (String) -> Void
     /// EXP-1323: a nested child row (depth > 0) opens its session view.
     var onOpenSession: (String) -> Void = { _ in }
+    /// NEW-2: an agent row opens the caller's DM with it (by the agent's
+    /// definition id); nil = its conversation through `onOpen`, when one
+    /// exists.
+    var onOpenAgent: ((String) -> Void)?
 
     var body: some View {
         if groups.isEmpty && agents.isEmpty {
@@ -158,7 +166,9 @@ struct ThreadsListContent: View {
         .accessibilityIdentifier("threads-group-agents")
         TeamBandedRows(rows: agents, teams: teams, teamId: \.teamId) { agent in
             Button {
-                if let conversation = agentConversations[agent.agentId] {
+                if let onOpenAgent {
+                    onOpenAgent(agent.agentId)
+                } else if let conversation = agentConversations[agent.agentId] {
                     onOpen(conversation)
                 }
             } label: {

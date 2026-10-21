@@ -563,6 +563,14 @@ public final class SyncManager: @unchecked Sendable {
             session: session
         ))
 
+        // NEW-3: the chat primitive (the 30th shape) — in step 1 every row is
+        // a session's own conversation, visible exactly when its session is.
+        tasks.append(makeShapeTask(
+            name: "conversations", path: "/api/shapes/conversations", table: "conversations",
+            type: ConversationEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token,
+            session: session
+        ))
+
         lock.withLock { pipelines[accountId] = tasks }
     }
 

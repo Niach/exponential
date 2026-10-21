@@ -14,6 +14,7 @@ import com.exponential.app.data.db.ActionEntity
 import com.exponential.app.data.db.AgentDefinitionEntity
 import com.exponential.app.data.db.EventEntity
 import com.exponential.app.data.db.PromptEntity
+import com.exponential.app.data.db.ConversationEntity
 import com.exponential.app.data.db.AttachmentEntity
 import com.exponential.app.data.db.CommentEntity
 import com.exponential.app.data.db.DatabaseHolder
@@ -428,6 +429,7 @@ class SyncManager @Inject constructor(
         val agentDefinitionDao = db.agentDefinitionDao()
         val eventDao = db.eventDao()
         val promptDao = db.promptDao()
+        val conversationDao = db.conversationDao()
 
         val shapes = listOf(
             launchShape(
@@ -704,6 +706,16 @@ class SyncManager @Inject constructor(
                 onInsert = { promptDao.upsert(it) },
                 onDelete = { promptDao.deleteById(it.id) },
                 onRefetch = { promptDao.clear() },
+            ),
+            // NEW-3: conversations (step 1: a session's own, the session rule).
+            launchShape(
+                shape = "conversations", path = "/api/shapes/conversations", tableName = "conversations",
+                serializer = ConversationEntity.serializer(),
+                offsetDao = offsetDao, db = db, baseUrl = baseUrl, token = token,
+                reporter = reporter("conversations"),
+                onInsert = { conversationDao.upsert(it) },
+                onDelete = { conversationDao.deleteById(it.id) },
+                onRefetch = { conversationDao.clear() },
             ),
         )
         return Pipeline(jobs = shapes.map { it.first }, clients = shapes.map { it.second })

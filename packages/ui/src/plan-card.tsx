@@ -6,18 +6,23 @@ import {
   optionRows,
   PLAN_CARD_COPY,
   PLAN_CARD_GEOMETRY,
+  PLAN_CARD_STEPPER,
   PLAN_CARD_TEST_IDS,
   PLAN_CARD_TILES,
   PLAN_CARD_UPLOAD_SCHEME,
+  stepLabel,
   type CardSurface,
 } from "@exp/domain-contract/plan-card"
+import { ASK_DOCK_COPY, PLAN_OPTIONS, type PlanOption } from "@exp/domain-contract/ask-dock"
 import type { ThreadPlanQuestion, ThreadQuestionOption } from "@exp/domain-contract/session-tree"
 import { ASK_OPTION_PICKED_CLASS, ASK_OPTION_ROW_CLASS } from "./ask-card"
 import { Button } from "./button"
 import { ChoiceTiles } from "./choice-tiles"
 import { cn } from "./cn"
+import { Composer } from "./composer"
 import { ICON_COMPONENTS, conceptIcon } from "./icons.generated"
 import { Input } from "./input"
+import { Textarea } from "./textarea"
 
 // EXP-1280 custom plan mode: THE rich plan / question card's form parts ×web
 // (fixtures/plan-card.json; desktop `crates/ui/src/plan_card.rs`, iOS
@@ -34,6 +39,14 @@ import { Input } from "./input"
 //                         the picks highlighted, the rest inert
 //   PlanCardQuestionBlock prompt (strong) + Choose one / Choose any + the
 //                         options + the `custom` free-text row
+//   PlanCardStepLine /    NEW-6 (N-1) the stepper: a pending plan with
+//   PlanCardStepButtons   `stepper.minQuestions`+ questions shows one at a
+//                         time, "Question n of m" above, Back / Next under
+//   PlanCardDecision      THE decision block: `copy.decide` over THE option
+//                         rows of ask-dock `planOptions` (single pick,
+//                         trailing check, never pills), the feedback field
+//                         once the reject row is picked, the small primary
+//                         button (the picked option's label)
 //
 // The pure helpers mirror the desktop's (`strip_pending_uploads`,
 // `toggle_pick`, `question_answer`, `closed_picks`).
@@ -309,6 +322,7 @@ export function PlanCardQuestionBlock({
   onCustom,
   attachmentSrc,
   closedFree,
+  className,
 }: {
   question: ThreadPlanQuestion
   picked: readonly string[]
@@ -319,9 +333,15 @@ export function PlanCardQuestionBlock({
   attachmentSrc: (attachmentId: string) => string
   /** A closed card's free answer (not an option), shown as a line. */
   closedFree?: ReactNode
+  /** Overrides the block's top gap (a stepped question sits under its step line). */
+  className?: string
 }) {
   return (
-    <div data-testid={PLAN_CARD_TEST_IDS.question} data-question={question.id} className="mt-3 flex flex-col">
+    <div
+      data-testid={PLAN_CARD_TEST_IDS.question}
+      data-question={question.id}
+      className={cn(`mt-3 flex flex-col`, className)}
+    >
       <div className="text-xs font-semibold text-foreground">{question.prompt}</div>
       <div className="mt-0.5">
         <PlanCardCaption>{question.multi ? PLAN_CARD_COPY.chooseAny : PLAN_CARD_COPY.chooseOne}</PlanCardCaption>
@@ -345,4 +365,142 @@ export function PlanCardQuestionBlock({
 /** The card's surface data ref (the answer snapshots it). */
 export function useSurfaceDataRef() {
   return useRef<Record<string, unknown> | null>(null)
+}
+
+/** NEW-6 (N-1): the stepper's line above the current question
+ *  (`copy.stepLabel`, `xs` muted). `step` is 0-based. */
+export function PlanCardStepLine({ step, count }: { step: number; count: number }) {
+  return (
+    <div data-testid={PLAN_CARD_TEST_IDS.step} className="mt-3 text-xs text-muted-foreground">
+      {stepLabel(step + 1, count)}
+    </div>
+  )
+}
+
+/** NEW-6 (N-1): Back / Next under the current question: small secondary
+ *  buttons, `stepper.buttonGap` apart, right-aligned; Back hidden on the
+ *  first step, Next on the last. `step` is 0-based. */
+export function PlanCardStepButtons({
+  step,
+  count,
+  onStep,
+}: {
+  step: number
+  count: number
+  onStep: (step: number) => void
+}) {
+  const back = step > 0
+  const next = step < count - 1
+  if (!back && !next) return null
+  return (
+    <div className="mt-3 flex justify-end" style={{ gap: PLAN_CARD_STEPPER.buttonGap }}>
+      {back && (
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          data-testid={PLAN_CARD_TEST_IDS.stepBack}
+          onClick={() => onStep(step - 1)}
+        >
+          {PLAN_CARD_COPY.back}
+        </Button>
+      )}
+      {next && (
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          data-testid={PLAN_CARD_TEST_IDS.stepNext}
+          onClick={() => onStep(step + 1)}
+        >
+          {PLAN_CARD_COPY.next}
+        </Button>
+      )}
+    </div>
+  )
+}
+
+/** THE decision rows: the plan options as option rows (label + description). */
+const DECISION_ROWS: ThreadQuestionOption[] = PLAN_OPTIONS.map((option) => ({
+  label: option.label,
+  description: option.description ?? null,
+  attachmentId: null,
+}))
+
+/** NEW-6 (N-1): THE plan card's decision block ×web: `copy.decide` (`xs`
+ *  semibold, like a prompt) over THE option rows of ask-dock `planOptions`
+ *  (single pick, a trailing check), the issue line while approving waits on
+ *  an answer, the feedback field ONLY once the reject row is picked, then
+ *  the small primary button named after the pick. `onDecide` absent = read
+ *  only (the rows inert, no button). */
+export function PlanCardDecision({
+  picked,
+  onPick,
+  approveIssue,
+  feedback,
+  onFeedback,
+  onDecide,
+}: {
+  /** The picked plan option's key. */
+  picked: string
+  onPick: (key: string) => void
+  /** Why approving waits (`copy.answerIssues`), else null. */
+  approveIssue: keyof typeof PLAN_CARD_COPY.answerIssues | null
+  feedback: string
+  onFeedback: (text: string) => void
+  onDecide?: (option: PlanOption) => void
+}) {
+  const option = PLAN_OPTIONS.find((o) => o.key === picked) ?? null
+  const blocked = option?.decision === `approved` ? approveIssue : null
+  return (
+    <div data-testid={PLAN_CARD_TEST_IDS.decision} className="mt-3 flex flex-col">
+      <div className="text-xs font-semibold text-foreground">{PLAN_CARD_COPY.decide}</div>
+      <PlanCardOptions
+        options={DECISION_ROWS}
+        multi={false}
+        picked={option ? [option.label] : []}
+        onPick={
+          onDecide
+            ? (next) => {
+                // A row stays picked (pressing it again keeps it).
+                const key = PLAN_OPTIONS.find((o) => o.label === next[0])?.key
+                if (key) onPick(key)
+              }
+            : undefined
+        }
+        attachmentSrc={(id) => id}
+        label={PLAN_CARD_COPY.decide}
+      />
+      {onDecide && blocked && (
+        <div data-testid={PLAN_CARD_TEST_IDS.issue} className="mt-1.5 text-[0.6875rem] text-yellow-400">
+          {PLAN_CARD_COPY.answerIssues[blocked]}
+        </div>
+      )}
+      {onDecide && option?.decision === `rejected` && (
+        <Composer className="mt-2">
+          <Textarea
+            value={feedback}
+            onChange={(event) => onFeedback(event.target.value)}
+            placeholder={ASK_DOCK_COPY.feedbackPlaceholder}
+            aria-label={PLAN_CARD_COPY.feedback}
+            rows={1}
+            data-testid={PLAN_CARD_TEST_IDS.feedback}
+            className="max-h-32 min-h-9 border-none bg-transparent px-3 pb-1 pt-3 text-sm shadow-none focus-visible:border-transparent"
+          />
+        </Composer>
+      )}
+      {onDecide && option && (
+        <Button
+          type="button"
+          size="sm"
+          className="mt-2 self-start"
+          data-slot="plan-card-decide"
+          disabled={blocked !== null}
+          onClick={() => onDecide(option)}
+        >
+          {option.label}
+        </Button>
+      )}
+    </div>
+  )
 }

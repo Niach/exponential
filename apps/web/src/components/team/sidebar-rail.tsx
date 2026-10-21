@@ -280,7 +280,7 @@ export function TeamSidebarRail({
   return (
     <div className="flex h-full w-12 flex-col" data-testid="sidebar-compact-rail">
       <div className="flex min-h-0 flex-1 flex-col items-center gap-1 overflow-x-hidden overflow-y-auto py-2 [scrollbar-width:none]">
-        {/* Order ×4 (EXP-1293): Agent, Inbox, Threads, Devices, Actions, Drafts. */}
+        {/* Order ×4 (EXP-1293, NEW-2): Agent, Inbox, Threads, Devices, Drafts. */}
         <RailItem
           label="Agent"
           link={{ to: `/t/$teamSlug/agent`, params }}

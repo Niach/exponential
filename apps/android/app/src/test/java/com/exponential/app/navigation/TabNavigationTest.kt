@@ -50,9 +50,10 @@ class TabNavigationTest {
     }
 
     @Test
-    fun `the tab routes are the bar's six destinations`() {
+    fun `the tab routes are the bar's five destinations`() {
+        // NEW-7: the Actions tab is gone (prompts replaced actions).
         assertEquals(
-            setOf("agent-tab", "home", "personal", "agents", "threads", "actions"),
+            setOf("agent-tab", "home", "personal", "agents", "threads"),
             MainTabs.routes,
         )
     }

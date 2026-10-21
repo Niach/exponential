@@ -73,7 +73,8 @@ describe(`ThreadAskDock`, () => {
     const { onDecide } = renderDock([ROWS[0]!])
     expect(screen.getByTestId(`ask-dock`).dataset.mode).toBe(`single`)
     expect(screen.queryByTestId(`ask-dock-back`)).toBeNull()
-    fireEvent.click(screen.getAllByTestId(`ask-option`)[0]!)
+    // NEW-6: the decision rows start on "Yes"; the button decides.
+    fireEvent.click(document.querySelector(`[data-slot="plan-card-decide"]`)!)
     expect(onDecide).toHaveBeenCalledWith(`p1`, { decision: `approved` })
   })
 
@@ -103,12 +104,15 @@ describe(`ThreadAskDock rich plan (EXP-1280)`, () => {
       ],
     } as ThreadRow
     const { onDecide } = renderDock([rich])
-    const options = screen.getAllByTestId(`ask-option`) as HTMLButtonElement[]
-    expect(options[0]!.disabled).toBe(true)
+    // One question = no step chrome.
+    expect(screen.queryByTestId(`plan-card-step`)).toBeNull()
+    const decide = document.querySelector<HTMLButtonElement>(`[data-slot="plan-card-decide"]`)!
+    expect(decide.disabled).toBe(true)
     expect(screen.getByTestId(`plan-card-issue`)).toBeTruthy()
     fireEvent.click(screen.getByRole(`radio`, { name: `Two` }))
     expect(screen.getByTestId(`plan-card-tile`).querySelector(`img`)?.getAttribute(`src`)).toBe(`/api/attachments/att-2`)
-    fireEvent.click(screen.getAllByTestId(`ask-option`)[0]!)
+    expect(decide.disabled).toBe(false)
+    fireEvent.click(decide)
     expect(onDecide).toHaveBeenCalledWith(`p9`, { decision: `approved`, answers: { q: [`Two`] } })
   })
 })

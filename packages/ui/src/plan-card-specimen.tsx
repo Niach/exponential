@@ -7,7 +7,8 @@ import { ThreadConversation } from "./session-thread-view"
 // EXP-1280: THE rich plan / question card specimen (fixtures/plan-card.json
 // ×4): session-thread.json's case "EXP-1280: a rich plan card…" through the
 // REAL row model and `ThreadConversation`: the pending plan (a picture in
-// the body, the inline surface, a picture-tile question + a multiple one),
+// the body, the inline surface, a picture-tile question + a multiple one,
+// NEW-6: stepped, so it shows "Question 1 of 2" and Next),
 // the answered multi-pick question (closed) and the approved plan with its
 // feedback. The styleguide entry and the app's `?dev=plan-card` capture
 // render it; the natives' specimens draw the same rows.

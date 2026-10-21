@@ -142,6 +142,28 @@ class AgentLaunchDataViewModel @Inject constructor(
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SheetActionsState())
 
     /**
+     * NEW-3: the team's agents (`listAgents`: rail order, icon + colour +
+     * name) — the "+" menu's Message an agent › rows.
+     */
+    val agents: StateFlow<List<com.exponential.app.domain.SessionTree.AgentRow>> =
+        combine(dbFlow, teamId) { db, teamId -> db to teamId }
+            .flatMapLatest { (db, teamId) ->
+                if (db == null || teamId == null) {
+                    flowOf(emptyList())
+                } else {
+                    db.agentDefinitionDao().observeByTeam(teamId).map { rows ->
+                        com.exponential.app.domain.SessionTree.listAgents(
+                            rows.map(com.exponential.app.domain.SessionTree::agentDefinition),
+                            emptyList(),
+                            teamId,
+                            null,
+                        )
+                    }
+                }
+            }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /**
      * The synced worktree inventory (EXP-481) behind the composer's "Resume
      * previous session" offer. Owned here — like the actions/board/PR lookup
      * sources — so the composer needs no plumbing of its own.

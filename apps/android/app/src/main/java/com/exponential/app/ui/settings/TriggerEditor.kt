@@ -1,4 +1,4 @@
-package com.exponential.app.ui.actions
+package com.exponential.app.ui.settings
 
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable

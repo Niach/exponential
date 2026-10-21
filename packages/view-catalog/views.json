@@ -887,23 +887,12 @@
       "title": "Actions",
       "blurb": "The action catalog: one row per reusable agent session, each with its play button. Phones reach it through its own Actions tab and list every team's actions grouped by team (EXP-1186/1187); web md+ and desktop through the sidebar's Actions entry.",
       "order": 2,
-      "ios": {
-        "shot": "06_actions",
-        "lane": "store"
-      },
-      "android": {
-        "shot": "6_actions",
-        "lane": "store"
-      },
       "notes": {
         "web": "NEW-2: no web capture. The web app has no Actions page any more: actions became PROMPTS, run from the composer's `/` menu and managed in Settings → Prompts (`settings-prompts`). The native and desktop captures stay until their NEW-2 lanes land.",
-        "web-mobile": "See web."
-      },
-      "desktop": {
-        "drive": {
-          "kind": "screen",
-          "value": "actions"
-        }
+        "web-mobile": "See web.",
+        "desktop": "NEW-6: no desktop capture. The IDE has no Actions page or rail entry any more: prompts run from the composer's `/` menu and are managed in Settings → Prompts (`settings-prompts`).",
+        "ios": "NEW-7: no iOS capture. The app has no Actions tab any more: prompts run from the composer's `/` menu and are managed in Settings → Prompts (`settings-prompts`); the App Store set drops the `06_actions` slide.",
+        "android": "NEW-7: no Android capture. The app has no Actions tab any more: prompts run from the composer's `/` menu and are managed in Settings → Prompts (`settings-prompts`); the Play listing drops the slide."
       }
     },
     {
@@ -1309,17 +1298,12 @@
       "title": "Action",
       "blurb": "One action as a page: its prompt (name, icon, repository, MCP servers, the markdown body the agent runs), its triggers and its sessions. The MCP servers list offers only team MCPs (no sign-in, or a member's shared connection) and every session of the action uses it.",
       "order": 1,
-      "desktop": {
-        "drive": {
-          "kind": "screen",
-          "value": "action:$action"
-        }
-      },
       "notes": {
         "web": "NEW-2: no web capture. The web app has no Actions page any more: actions became PROMPTS, run from the composer's `/` menu and managed in Settings → Prompts (`settings-prompts`). The native and desktop captures stay until their NEW-2 lanes land.",
         "web-mobile": "See web.",
         "ios": "The Prompt tab is not captured on its own; `action-triggers` and `action-runs` photograph the page.",
-        "android": "The Prompt tab is not captured on its own; `action-triggers` and `action-runs` photograph the page."
+        "android": "NEW-7: no Android capture. The action page is gone: a prompt's page is Settings → Prompts → the prompt (`settings-prompt`).",
+        "desktop": "NEW-6: no desktop capture. The IDE has no Actions page or rail entry any more: prompts run from the composer's `/` menu and are managed in Settings → Prompts (`settings-prompts`)."
       }
     },
     {
@@ -1691,22 +1675,27 @@
       "id": "settings-agents",
       "group": "settings",
       "title": "Settings · Agents",
-      "blurb": "Per-agent CLI path, model and effort, over the doctor’s live probe of git and the three agents.",
+      "blurb": "The team's agents index (NEW-2/NEW-6): the Agents band (one tinted row per `agents` definition, New agent for owners) over the team's Events band, newest first, each row its name, emitter and time.",
       "order": 16,
+      "web": {
+        "route": "/t/$teamSlug/settings/agents",
+        "anchor": {
+          "text": "Events",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "webMobile": "inherit",
       "desktop": {
         "drive": {
           "kind": "settings",
           "value": "agents"
-        },
-        "env": {
-          "EXP_DEV_AGENT_ACCOUNT": "demo@exponential.at"
         }
       },
       "notes": {
-        "web": "Agent binaries are a property of the MACHINE, not the team: only the client that spawns them configures them.",
-        "web-mobile": "See web.",
-        "ios": "See web.",
-        "android": "See web."
+        "web": "The demo team's three agents (Triage, Designer, Release) over the events the seed emitted (issue.created, pr.opened, …). Members see the same page without New agent.",
+        "ios": "NEW-7: the team settings page lists the agents and, under them, the team's Events band (`TeamEventsSection`: the trigger-event glyph, name, emitter, age; newest first, 50 at most); not captured on its own (`sg_settings-team` shows the page's top).",
+        "android": "NEW-7: the team settings page lists the agents (`sg_settings-team`); the Events band is web + desktop only in step 1."
       }
     },
     {
@@ -1889,11 +1878,24 @@
         "settleMs": 800
       },
       "webMobile": "inherit",
+      "ios": {
+        "shot": "sg_settings-prompts",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_settings-prompts",
+        "lane": "styleguide"
+      },
+      "desktop": {
+        "drive": {
+          "kind": "settings",
+          "value": "prompts"
+        }
+      },
       "notes": {
         "web": "The demo team's prompts (Release train, Fix flaky tests, Triage new issues, Update dependencies; seed-screenshots.ts must seed them). Members see the same list without New prompt.",
-        "ios": "NEW-2: no native prompts screen yet; the native lanes add theirs.",
-        "android": "NEW-2: no native prompts screen yet; the native lanes add theirs.",
-        "desktop": "NEW-2: no native prompts screen yet; the native lanes add theirs."
+        "ios": "NEW-7: the team settings page's Prompts section (the band with New prompt over one row per prompt), scrolled into view under Settings → the demo team, right after `sg_settings-team-agent`.",
+        "android": "NEW-7: the team settings page's Prompts section (the band with New prompt over one row per prompt), scrolled into view under Settings → Acme, right after `sg_settings-team-agent`."
       }
     },
     {
@@ -1911,11 +1913,25 @@
         "settleMs": 600
       },
       "webMobile": "inherit",
+      "ios": {
+        "shot": "sg_settings-prompt",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_settings-prompt",
+        "lane": "styleguide"
+      },
+      "desktop": {
+        "drive": {
+          "kind": "settings",
+          "value": "new-prompt"
+        }
+      },
       "notes": {
         "web": "New prompt: the same page an existing prompt opens (`/settings/prompts/$promptId`), in create mode so the capture needs no seeded id.",
-        "ios": "NEW-2: no native prompts screen yet; the native lanes add theirs.",
-        "android": "NEW-2: no native prompts screen yet; the native lanes add theirs.",
-        "desktop": "NEW-2: no native prompts screen yet; the native lanes add theirs."
+        "ios": "NEW-7: New prompt (the Prompts section's owner pill, `prompts-new`), the same page an existing prompt opens (`PromptSettingsPage`), in create mode so the capture needs no seeded id; the walk takes it right after `sg_settings-prompts`.",
+        "android": "NEW-7: New prompt (the Prompts section's owner pill), the same page an existing prompt opens (`settings/prompt/{id}`), in create mode so the capture needs no seeded id.",
+        "desktop": "NEW-6: New prompt (`EXP_DEV_SETTINGS=new-prompt`), the same page an existing prompt opens (`prompt:<id>`), in create mode so the capture needs no seeded id."
       }
     },
     {
@@ -4357,8 +4373,8 @@
       "webMobile": "inherit",
       "notes": {
         "web": "`typeSlashInComposer` types `/` into the home composer.",
-        "ios": "NEW-2: no native prompts screen yet; the native lanes add theirs.",
-        "android": "NEW-2: no native prompts screen yet; the native lanes add theirs.",
+        "ios": "NEW-7: the Home composer's `/` lists the team's prompts under the card (`agent-composer-slash-menu`), a pick = the prompt chip; not captured while the seed inserts legacy `actions` rows only (no `prompts`), which leaves the menu shut.",
+        "android": "NEW-7: the Agent home composer's `/` lists the team's prompts under the card (`agent-composer-slash-menu`); not captured while the seed inserts legacy `actions` rows only (no `prompts`), which leaves the menu shut.",
         "desktop": "NEW-2: no native prompts screen yet; the native lanes add theirs."
       }
     },
@@ -4380,7 +4396,7 @@
       "webMobile": "inherit",
       "notes": {
         "web": "`$guideThreadId` = DEMO_GUIDE_THREAD_ID (APP-15's thread: no open question or plan card, so the composer is there, not the ask dock); `typeSlashInSessionComposer` scrolls to the thread's composer and types `/`.",
-        "ios": "NEW-2: no native prompts screen yet; the native lanes add theirs.",
+        "ios": "NEW-7: the session composer's `/` menu (THE `SlashCommandMenu`: /compact, /model, /effort, then the team's prompts; a prompt's body lands in the draft, `prompts.get`); not captured: the walk never types into a live composer, and the seed has no `prompts` rows.",
         "android": "NEW-2: no native prompts screen yet; the native lanes add theirs.",
         "desktop": "NEW-2: no native prompts screen yet; the native lanes add theirs."
       }

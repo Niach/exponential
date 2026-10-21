@@ -437,6 +437,46 @@ pub struct SessionCard {
     pub test_id: String,
 }
 
+/// NEW-1: the `blocked.kind` of a blocked session (`None` when it carries
+/// none: a usage wall from before the kinds).
+pub fn blocked_kind(session: &SessionRow) -> Option<&str> {
+    session
+        .blocked
+        .as_ref()?
+        .get("kind")?
+        .as_str()
+        .map(str::trim)
+        .filter(|kind| !kind.is_empty())
+}
+
+/// NEW-1: whether a blocked session sits behind a USAGE wall (`rate_limit`,
+/// or no kind at all) — the only block another account can lift (the
+/// Switch account control shows for it alone).
+pub fn is_usage_wall(session: &SessionRow) -> bool {
+    session.blocked.is_some() && blocked_kind(session).is_none_or(|kind| kind == "rate_limit")
+}
+
+/// NEW-1 (TS `sessionKindWord`): the card's state word; a blocked session
+/// names WHY (`copy.blockedKinds[blocked.kind]`; an unknown kind or none =
+/// `states.blocked`).
+pub fn session_kind_word(session: &SessionRow, state: SessionState) -> String {
+    if state == SessionState::Blocked {
+        if let Some(word) = blocked_kind(session).and_then(|kind| SESSION_CARD.copy.blocked_kinds.get(kind)) {
+            return word.clone();
+        }
+    }
+    state.word().to_string()
+}
+
+/// NEW-1 (web `blockedBadgeLabel`): a WATCHDOG flag (`device_offline`,
+/// `unclaimed`, `stuck`) names itself with the card's word and has no reset
+/// to count down to; `None` for a usage wall (or an unknown kind), which
+/// keeps its own label + countdown.
+pub fn watchdog_blocked_word(session: &SessionRow) -> Option<String> {
+    let kind = blocked_kind(session).filter(|kind| *kind != "rate_limit")?;
+    SESSION_CARD.copy.blocked_kinds.get(kind).cloned()
+}
+
 /// The card for `session`; `title` = its [`session_title`] (EXP-1341,
 /// `fixtures/session-title.json`; never `Session N`).
 pub fn session_card(session: &SessionRow, title: &str, now_ms: i64) -> SessionCard {
@@ -464,7 +504,7 @@ pub fn session_card(session: &SessionRow, title: &str, now_ms: i64) -> SessionCa
         session_id: session.id.clone(),
         icon: state.icon().to_string(),
         name,
-        kind_word: state.word().to_string(),
+        kind_word: session_kind_word(session, state),
         state,
         tone: state.tone().to_string(),
         elapsed,
@@ -1019,6 +1059,10 @@ pub struct SessionThreadView {
     pub live_session_id: Option<String>,
     pub busy: bool,
     pub needs_you: bool,
+    /// NEW-6 (N-1): a thread with ONE session (the root alone, no child yet)
+    /// shows that session's raw work as the main thing: its id, and the
+    /// strip carries no Conversation tab. `None` once a second session exists.
+    pub main_session_id: Option<String>,
 }
 
 /// [`build_session_thread`]'s input: what the caller synced.
@@ -1055,6 +1099,13 @@ fn event_text(
         // NEW-1: a bus line about a session of the tree; an unsynced one drops.
         let name = card_str(card, "sessionId").and_then(&session_name)?;
         text = text.replacen("{session}", &name, 1);
+    }
+    if text.contains("{name}") {
+        // NEW-2: a trigger line names its event (an event trigger) and
+        // nothing else; a schedule firing has no name and draws no line (its
+        // body speaks).
+        let name = card_str(card, "name").filter(|name| !name.trim().is_empty())?;
+        text = text.replacen("{name}", name, 1);
     }
     Some(text)
 }
@@ -1348,7 +1399,7 @@ fn fold_forest<'a, T: ?Sized>(
         }
     }
     let mut seen: HashSet<&'a str> = HashSet::new();
-    let mut fold = |top: &'a T, seen: &mut HashSet<&'a str>| {
+    let fold = |top: &'a T, seen: &mut HashSet<&'a str>| {
         let mut nested = Vec::new();
         seen.insert(id(top));
         walk(id(top), 1, &children, &id, seen, &mut nested);
@@ -1596,7 +1647,12 @@ pub fn build_session_thread(input: SessionThreadInput<'_>, focus: Option<&str>) 
     }
 
     let live: Vec<&SessionRow> = tree.iter().copied().filter(|session| !session.is_ended()).collect();
-    let mut tabs = vec![ThreadTab::Add, ThreadTab::Conversation];
+    // NEW-6 (N-1): the root alone = the thread IS that session.
+    let single = tree.iter().all(|session| session.id == root.id);
+    let mut tabs = vec![ThreadTab::Add];
+    if !single {
+        tabs.push(ThreadTab::Conversation);
+    }
     tabs.extend(issue_tabs);
     tabs.extend(session_tabs);
     tabs.push(ThreadTab::Guide {
@@ -1617,6 +1673,7 @@ pub fn build_session_thread(input: SessionThreadInput<'_>, focus: Option<&str>) 
         live_session_id: (!root.is_ended()).then(|| root.id.clone()),
         busy: live.iter().any(|session| session.busy),
         needs_you: live.iter().any(|session| session.needs_input),
+        main_session_id: single.then(|| root.id.clone()),
     }
 }
 
@@ -2224,6 +2281,67 @@ mod tests {
 
     fn fixture(json: &str) -> Value {
         serde_json::from_str(json).unwrap()
+    }
+
+    /// NEW-2: a `trigger_fired` line shows for an EVENT firing ({name} =
+    /// the event name); a schedule firing (no name) draws no line.
+    #[test]
+    fn a_trigger_line_names_its_event_and_a_schedule_draws_none() {
+        let issues = HashMap::new();
+        let prs = HashMap::new();
+        let line = |card: Value| event_text(&card, &issues, &prs, |_| None);
+        assert_eq!(
+            line(serde_json::json!({"kind": "event", "event": "trigger_fired", "name": "issue.created", "agentId": "a", "triggerId": "t"}))
+                .as_deref(),
+            Some("Trigger fired: issue.created")
+        );
+        for name in [Value::Null, serde_json::json!("  ")] {
+            assert_eq!(
+                line(serde_json::json!({"kind": "event", "event": "trigger_fired", "name": name, "agentId": "a", "triggerId": "t"})),
+                None
+            );
+        }
+        assert_eq!(line(serde_json::json!({"kind": "event", "event": "trigger_fired"})), None);
+    }
+
+    /// NEW-1 (TS `sessionKindWord` / web `blockedBadgeLabel`): a blocked
+    /// session's word names its kind; an unknown kind or none reads
+    /// `Usage limit`; a watchdog flag has its word as the badge, a usage wall
+    /// none; only a usage wall offers Switch account.
+    #[test]
+    fn a_blocked_session_names_its_kind() {
+        let row = |blocked: serde_json::Value| -> SessionRow {
+            serde_json::from_value(serde_json::json!({"id": "s", "status": "running", "blocked": blocked})).unwrap()
+        };
+        for (kind, word) in [
+            ("rate_limit", "Usage limit"),
+            ("device_offline", "Device offline"),
+            ("unclaimed", "Not picked up"),
+            ("stuck", "Stuck"),
+        ] {
+            let session = row(serde_json::json!({"kind": kind}));
+            assert_eq!(session_state(&session), SessionState::Blocked, "{kind}");
+            assert_eq!(session_kind_word(&session, SessionState::Blocked), word, "{kind}");
+            assert_eq!(session_card(&session, "T", 0).kind_word, word, "{kind}");
+            assert_eq!(SESSION_CARD.copy.blocked_kinds.get(kind).map(String::as_str), Some(word));
+            if kind == "rate_limit" {
+                assert_eq!(watchdog_blocked_word(&session), None);
+                assert!(is_usage_wall(&session));
+            } else {
+                assert_eq!(watchdog_blocked_word(&session).as_deref(), Some(word), "{kind}");
+                assert!(!is_usage_wall(&session), "{kind}");
+            }
+        }
+        let future = row(serde_json::json!({"kind": "future_kind"}));
+        assert_eq!(session_kind_word(&future, SessionState::Blocked), "Usage limit");
+        assert_eq!(watchdog_blocked_word(&future), None);
+        let legacy = row(serde_json::json!({"window": "weekly"}));
+        assert_eq!(session_kind_word(&legacy, SessionState::Blocked), "Usage limit");
+        assert!(is_usage_wall(&legacy));
+        // Not blocked: the plain state word, no wall.
+        let free: SessionRow = serde_json::from_value(serde_json::json!({"id": "s", "status": "running"})).unwrap();
+        assert_eq!(session_kind_word(&free, session_state(&free)), session_state(&free).word());
+        assert!(!is_usage_wall(&free));
     }
 
     #[test]

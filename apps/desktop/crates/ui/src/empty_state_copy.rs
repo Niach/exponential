@@ -10,7 +10,6 @@ pub(crate) const MY_ISSUES: &str = "No issues assigned to you";
 pub(crate) const DRAFTS: &str = "No drafts";
 // EXP-1294: the Threads page (the empty-state.json `threads` state).
 pub(crate) const THREADS: &str = "No sessions yet";
-pub(crate) const ACTIONS: &str = "No actions yet";
 pub(crate) const BOARDS: &str = "No boards yet";
 pub(crate) const BOARDS_DESCRIPTION: &str = "Create a board to start tracking work.";
 pub(crate) const BOARDS_ACTION: &str = "Create a board";
@@ -63,7 +62,6 @@ mod tests {
             ("my-issues", MY_ISSUES),
             ("drafts", DRAFTS),
             ("threads", THREADS),
-            ("actions", ACTIONS),
             ("boards", BOARDS),
             ("issues", ISSUES),
             ("no-team", NO_TEAM),

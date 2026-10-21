@@ -25,7 +25,7 @@ export interface TreeSession {
   status: string
   busy: boolean
   needsInput: boolean
-  blocked: { window?: string | null; resetsAt?: string | null } | null
+  blocked: { kind?: string | null; window?: string | null; resetsAt?: string | null } | null
   shared: boolean
   title: string | null
   guide: { text?: string | null; label?: string | null }[] | null
@@ -155,6 +155,17 @@ export interface SessionCard {
   testId: string
 }
 
+/** NEW-1: the card's state word; a blocked session names WHY
+ *  (`copy.blockedKinds[blocked.kind]`, an unknown kind = `states.blocked`). */
+export function sessionKindWord(session: Pick<TreeSession, `blocked`>, state: SessionState): string {
+  if (state === `blocked`) {
+    const kind = session.blocked?.kind
+    const word = kind ? (SESSION_CARD_COPY.blockedKinds as Record<string, string>)[kind] : undefined
+    if (word) return word
+  }
+  return SESSION_CARD_COPY.states[state]
+}
+
 /**
  * THE session card = the Work card's header row (EXP-1240): icon, name,
  * the muted state word, trailing elapsed, a spinner while `running`. Tapping
@@ -176,7 +187,7 @@ export function sessionCard(
     sessionId: session.id,
     icon: SESSION_CARD_ICONS[state],
     name: title,
-    kindWord: SESSION_CARD_COPY.states[state],
+    kindWord: sessionKindWord(session, state),
     state,
     tone: cardFixture.tones[state],
     elapsed,
@@ -537,6 +548,11 @@ export interface SessionThreadView {
   liveSessionId: string | null
   busy: boolean
   needsYou: boolean
+  /** NEW-6 (N-1): a thread with ONE session (the root alone, no child yet)
+   *  shows that session's raw work as the main thing: its id, and the
+   *  strip carries no Conversation tab. Null once a second session exists
+   *  (the Conversation tab appears, the chips name the children). */
+  mainSessionId: string | null
 }
 
 function eventText(
@@ -916,6 +932,10 @@ export function buildSessionThread(input: {
     (entry) => (entry.text ?? ``).trim().length > 0 || (entry.label ?? null) !== null
   )
   const live = tree.filter((s) => s.status !== `ended`)
+  // NEW-6 (N-1): the root alone = the thread IS that session (no
+  // Conversation tab, its raw work is the body); a second session brings
+  // the Conversation tab and the chips.
+  const single = tree.every((s) => s.id === root.id)
   return {
     rootId: root.id,
     title,
@@ -923,7 +943,7 @@ export function buildSessionThread(input: {
     focusId: focus?.id ?? null,
     tabs: [
       { kind: `add` },
-      { kind: `conversation` },
+      ...(single ? [] : [{ kind: `conversation` as const }]),
       ...issueTabs,
       ...sessionTabs,
       { kind: `guide`, dot: guideDot },
@@ -934,6 +954,7 @@ export function buildSessionThread(input: {
     liveSessionId: root.status === `ended` ? null : root.id,
     busy: live.some((s) => s.busy),
     needsYou: live.some((s) => s.needsInput),
+    mainSessionId: single ? root.id : null,
   }
 }
 

@@ -149,19 +149,12 @@ struct ThreadConversationView: View {
             let fromAgent = author == DomainContract.messageAuthorKindAgent
             let user = fromAgent ? nil : rows.user(id: authorId)
             ChannelMessageRow(
-                name: fromAgent ? (rows.root.name ?? "") : (user?.name ?? user?.email ?? ""),
+                name: fromAgent ? rows.agentName : (user?.name ?? user?.email ?? ""),
                 time: channelTime(messageId: id, queued: queued),
                 lead: {
                     if fromAgent {
-                        AppIcon(
-                            BoardTypeDisplay.iconName(for: rows.root.icon)
-                                ?? SessionTree.ListCopy.agentDefaultIcon,
-                            size: 16,
-                            weight: .medium
-                        )
-                        .foregroundStyle(
-                            Color(hex: rows.root.color ?? SessionTree.ListCopy.agentDefaultColor) ?? .white
-                        )
+                        AppIcon(rows.agentIcon, size: 16, weight: .medium)
+                            .foregroundStyle(Color(hex: rows.agentColor) ?? .white)
                     } else {
                         UserAvatar(user: user, id: authorId, size: ChannelMessageMetrics.leadSize)
                     }
@@ -632,9 +625,13 @@ struct ThreadCardAnswer {
 /// ask dock's big card while it waits (`caption` / `onBack` /
 /// `bodyMaxHeight`). A question offers its options AND THE `custom` field
 /// (`copy.custom`, the typed text IS the answer) unless the card says
-/// `custom: false`, answered with ONE Answer button; a plan offers
-/// `AskDock.planOptions` and a decided one
-/// names `planDecisionLabel`. EXP-1280 (plan-card.json): the rich card adds
+/// `custom: false`, answered with ONE Answer button; a pending plan ends on
+/// THE decision block (NEW-6 N-1, `PlanCardDecision`: `copy.decide` over the
+/// `AskDock.planOptions` rows, the feedback field once the reject row is
+/// picked, the small primary button named after the pick) and steps through
+/// 2+ questions one at a time ("Question n of m", Back / Next; the last step
+/// carries the decision block); a decided one names `planDecisionLabel` and
+/// lists every question closed. EXP-1280 (plan-card.json): the rich card adds
 /// the inline surface and the question blocks under the body
 /// (`PlanCardForm.swift`); approving waits until every question is answered
 /// (`PlanCard.answerIssue`), and the answer carries `answers` +
@@ -650,6 +647,10 @@ struct ThreadAskCard: View {
     var onSubmit: (ThreadCardAnswer) -> Void = { _ in }
 
     @State private var draft = PlanCardDraft()
+    /// NEW-6 (N-1): the stepper's current question (0-based, local UI state)
+    /// and the decision block's pick (an ask-dock `planOptions` key).
+    @State private var step = 0
+    @State private var choice = AskDock.planOptions.first?.key ?? ""
 
     var body: some View {
         switch row {
@@ -779,81 +780,115 @@ struct ThreadAskCard: View {
     @ViewBuilder
     private func planCard(_ card: ThreadPlanRow) -> some View {
         let decided = card.decision != nil
-        let issue = decided ? nil : PlanCard.answerIssue(
-            questions: card.questions,
-            input: PlanCard.AnswerInput(planAnswers: draft.planAnswers(card.questions), decision: "approved")
-        )
+        let busy = answeringId == card.id
         QuestionCard(
             question: AgentQuestion(
                 id: 0,
                 wireId: card.id,
                 text: PlanCard.renderableMarkdown(card.plan),
-                options: AskDock.planQuestionOptions,
+                options: [],
                 planMode: true,
                 resolved: decided,
                 answers: card.decision.map { [AskDock.planDecisionLabel(decision: $0, fresh: card.fresh)] } ?? []
             ),
             active: !decided,
             canAnswer: canAnswer,
-            locked: answeringId == card.id,
-            pending: answeringId == card.id,
+            locked: busy,
+            pending: busy,
             failed: false,
-            onAnswer: { keys, _ in
-                let option = AskDock.planOption(key: keys.first)
-                let approved = option?.decision == PlanDecision.approved.rawValue
-                submitPlan(card, decision: approved ? .approved : .rejected, fresh: approved && option?.fresh == true)
-            },
+            onAnswer: { _, _ in },
             markdownContext: markdownContext,
             caption: caption,
             onBack: onBack,
             bodyMaxHeight: bodyMaxHeight,
             form: planForm(card),
-            approveIssue: issue.map(PlanCard.Copy.issue),
+            // NEW-6 (N-1): the decision block lives in the form.
+            hidesOptions: true,
             resolutionNote: card.feedback,
-            richBody: true,
-            feedback: $draft.feedback
+            richBody: true
         )
     }
 
-    /// A plan's form: the surface, then one block per question.
+    /// A plan's form: the surface, then the questions — all of them, or
+    /// (NEW-6 N-1, a pending plan with 2+) the current one between its step
+    /// line and Back / Next — then, on the last step of a pending card, THE
+    /// decision block.
     private func planForm(_ card: ThreadPlanRow) -> AnyView? {
-        guard card.surface != nil || !card.questions.isEmpty else { return nil }
-        let editable = canAnswer && card.decision == nil
+        let decided = card.decision != nil
+        let busy = answeringId == card.id
+        let editable = canAnswer && !decided
+        let stepped = PlanCard.stepperApplies(kind: "plan", decision: card.decision, questionCount: card.questions.count)
+        let count = card.questions.count
+        let current = min(step, max(count - 1, 0))
+        let lastStep = !stepped || current == count - 1
+        let showsDecision = !decided && lastStep && !busy && canAnswer
+        guard card.surface != nil || !card.questions.isEmpty || showsDecision else { return nil }
+        let issue = decided ? nil : PlanCard.answerIssue(
+            questions: card.questions,
+            input: PlanCard.AnswerInput(planAnswers: draft.planAnswers(card.questions), decision: "approved")
+        )
         return AnyView(VStack(alignment: .leading, spacing: PlanCard.Card.blockGap) {
             if let surface = card.surface {
                 // Decided: the person's stamped `surfaceData` over the
                 // agent's initial values (web `data={row.surfaceData}`).
                 PlanCardSurfaceView(
                     surface: surface, handle: draft.surface, editable: editable,
-                    data: card.decision != nil ? card.surfaceData : nil
+                    data: decided ? card.surfaceData : nil
                 )
             }
-            ForEach(card.questions) { question in
-                PlanCardQuestionBlock(
-                    questionId: question.id,
-                    prompt: question.prompt,
-                    caption: question.multi ? PlanCard.Copy.chooseAny : PlanCard.Copy.chooseOne,
-                    multi: question.multi,
-                    custom: question.custom,
-                    options: question.options,
-                    picked: card.decision != nil ? (card.answers?[question.id] ?? []) : draft.answer(question.id),
-                    editable: editable,
-                    customText: Binding(
-                        get: { draft.custom[question.id] ?? "" },
-                        set: { draft.custom[question.id] = $0 }
-                    ),
-                    onToggle: {
-                        draft.toggle(question.id, label: $0, multi: question.multi, order: question.options.map(\.label))
-                    },
-                    onType: { draft.type(question.id, text: $0, multi: question.multi) }
+            if stepped, card.questions.indices.contains(current) {
+                VStack(alignment: .leading, spacing: PlanCard.Card.optionsGap) {
+                    PlanCardStepLine(step: current, count: count)
+                    questionBlock(card.questions[current], card: card, editable: editable)
+                    PlanCardStepButtons(step: current, count: count) { next in step = next }
+                }
+            } else {
+                ForEach(card.questions) { question in
+                    questionBlock(question, card: card, editable: editable)
+                }
+            }
+            if showsDecision {
+                PlanCardDecision(
+                    picked: choice,
+                    onPick: { choice = $0 },
+                    approveIssue: issue.map(PlanCard.Copy.issue),
+                    feedback: $draft.feedback,
+                    onDecide: { option in
+                        let approved = option.decision == PlanDecision.approved.rawValue
+                        if approved, issue != nil { return }
+                        submitPlan(card, decision: approved ? .approved : .rejected, fresh: approved && option.fresh)
+                    }
                 )
             }
         })
     }
 
+    private func questionBlock(_ question: ThreadPlanQuestion, card: ThreadPlanRow, editable: Bool) -> some View {
+        PlanCardQuestionBlock(
+            questionId: question.id,
+            prompt: question.prompt,
+            caption: question.multi ? PlanCard.Copy.chooseAny : PlanCard.Copy.chooseOne,
+            multi: question.multi,
+            custom: question.custom,
+            options: question.options,
+            picked: card.decision != nil ? (card.answers?[question.id] ?? []) : draft.answer(question.id),
+            editable: editable,
+            customText: Binding(
+                get: { draft.custom[question.id] ?? "" },
+                set: { draft.custom[question.id] = $0 }
+            ),
+            onToggle: {
+                draft.toggle(question.id, label: $0, multi: question.multi, order: question.options.map(\.label))
+            },
+            onType: { draft.type(question.id, text: $0, multi: question.multi) }
+        )
+    }
+
     private func submitPlan(_ card: ThreadPlanRow, decision: PlanDecision, fresh: Bool) {
         let answers = draft.planAnswers(card.questions)
-        let typed = draft.feedback.trimmingCharacters(in: .whitespacesAndNewlines)
+        // NEW-6 (N-1): the feedback rides the reject only (its field shows
+        // only then).
+        let typed = decision == .rejected ? draft.feedback.trimmingCharacters(in: .whitespacesAndNewlines) : ""
         let feedback: String? = typed.isEmpty ? nil : typed
         onSubmit(ThreadCardAnswer(
             messageId: card.id,

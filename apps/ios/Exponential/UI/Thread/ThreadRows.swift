@@ -1,4 +1,5 @@
 import ExpCore
+import ExpUI
 import Foundation
 import GRDB
 import SwiftUI
@@ -42,8 +43,21 @@ struct ThreadRows: Sendable {
     /// EXP-1334: the root's device row (the composer's Computer use row
     /// shows only when it advertises the per-run cap).
     var rootDevice: DeviceEntity?
+    /// NEW-2: an agent conversation's DEFINITION row (`agents`, the root's
+    /// `agent_id`): its name, icon and colour head the screen; nil = a
+    /// thread, or a definition not synced yet (the root's mirrored legacy
+    /// facets stand in).
+    var agent: AgentDefinitionEntity?
 
     var isAgent: Bool { root.isAgent }
+
+    /// The agent's name / icon / colour: the definition's, else the root's
+    /// mirrored legacy facets (`kind = agent` shim), else the defaults.
+    var agentName: String { agent?.name ?? root.name ?? "" }
+    var agentIcon: String {
+        BoardTypeDisplay.iconName(for: agent?.icon ?? root.icon) ?? SessionTree.ListCopy.agentDefaultIcon
+    }
+    var agentColor: String { agent?.color ?? root.color ?? SessionTree.ListCopy.agentDefaultColor }
 
     func session(id: String) -> SessionEntity? {
         sessions.first { $0.id == id }
@@ -117,8 +131,8 @@ struct ThreadRows: Sendable {
     /// (web `agents/$agentId`, Android `ThreadUiCopy.messageAgent`), else the
     /// thread's own.
     func composerPlaceholder(_ view: SessionThreadView) -> String {
-        guard isAgent, let name = root.name, !name.isEmpty else { return view.composer.placeholder }
-        return "Message \(name)"
+        guard isAgent, !agentName.isEmpty else { return view.composer.placeholder }
+        return "Message \(agentName)"
     }
 
     /// EXP-1306: the stack rail's names — per PR id of the Guide PR's open
@@ -224,6 +238,7 @@ struct ThreadRows: Sendable {
             teamPullRequests: teamPullRequests,
             issueParents: try issueParents(db: db, issueIds: issues.map(\.id)),
             rootDevice: try DeviceEntity.filter(Column("device_id") == root.deviceId).fetchOne(db),
+            agent: try root.agentId.flatMap { try AgentDefinitionEntity.fetchOne(db, key: $0) },
             stackIssueIds: stackIssueIds,
             stackIssues: stackIssues
         )

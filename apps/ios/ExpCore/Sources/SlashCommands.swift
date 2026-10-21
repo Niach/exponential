@@ -54,6 +54,40 @@ public struct SlashCommand: Equatable, Sendable, Identifiable {
     public var token: String { "/\(name)" }
 }
 
+/// NEW-2: a team prompt as the `/` menu lists it (the synced, body-less
+/// `prompts` row): its icon and name, after the builtins. Web `SlashPrompt`.
+public struct SlashPrompt: Equatable, Sendable, Identifiable {
+    public let id: String
+    public let name: String
+    /// Curated registry icon name; nil = the generic prompt glyph.
+    public let icon: String?
+
+    public init(id: String, name: String, icon: String? = nil) {
+        self.id = id
+        self.name = name
+        self.icon = icon
+    }
+
+    /// The token it answers to after the slash (`SlashCommands.promptSlashName`).
+    public var slashName: String { SlashCommands.promptSlashName(name) }
+}
+
+/// One row of the `/` menu (web `SlashCandidate`): a builtin command, or a
+/// team prompt. Accepting a command rewrites the draft; accepting a prompt is
+/// the host's (a live session puts its body in the draft, the launch
+/// composer makes it the new session's subject).
+public enum SlashCandidate: Equatable, Sendable, Identifiable {
+    case command(SlashCommand)
+    case prompt(SlashPrompt)
+
+    public var id: String {
+        switch self {
+        case let .command(command): "command:\(command.name)"
+        case let .prompt(prompt): "prompt:\(prompt.id)"
+        }
+    }
+}
+
 public enum SlashCommands {
     /// The whole catalog in contract order — the order the menu lists in.
     public static let all: [SlashCommand] = {
@@ -124,6 +158,42 @@ public enum SlashCommands {
         return catalog(for: agent).filter {
             needle.isEmpty || $0.name.lowercased().hasPrefix(needle)
         }
+    }
+
+    /// NEW-2: the token a prompt answers to after the slash — its name,
+    /// lowercased, whitespace runs as `-` (`Fix flaky tests` →
+    /// `fix-flaky-tests`), so `/fix` and `/fix-fl` both find it. Web
+    /// `promptSlashName`.
+    public static func promptSlashName(_ name: String) -> String {
+        name.trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .split(whereSeparator: { $0.isWhitespace })
+            .joined(separator: "-")
+    }
+
+    /// The prompts a draft offers: a case-insensitive PREFIX filter over the
+    /// slash names, the team's order kept, at most `limit` (web
+    /// `filterSlashPrompts`); empty when the draft opens no menu.
+    public static func promptMatches(draft: String, prompts: [SlashPrompt], limit: Int = 50) -> [SlashPrompt] {
+        guard let query = partialName(in: draft) else { return [] }
+        let needle = query.lowercased()
+        return Array(prompts.filter { $0.slashName.hasPrefix(needle) }.prefix(limit))
+    }
+
+    /// Whether the WHOLE draft is a menu-opening `/name` token (web
+    /// `matchSlashDraft(...) !== null`): a picked prompt's body replaces the
+    /// draft only while it still is one.
+    public static func isSlashDraft(_ draft: String) -> Bool {
+        partialName(in: draft) != nil
+    }
+
+    /// THE `/` menu's rows ×4 (NEW-2): a live session's builtins for its
+    /// agent (`matches`), then the team's prompts. CLI-injected commands are
+    /// never offered. The launch composer (no session yet) lists the prompts
+    /// alone (`promptMatches`).
+    public static func candidates(draft: String, agent: String?, prompts: [SlashPrompt]) -> [SlashCandidate] {
+        matches(draft: draft, agent: agent).map(SlashCandidate.command)
+            + promptMatches(draft: draft, prompts: prompts).map(SlashCandidate.prompt)
     }
 
     /// The command a message about to be sent IS, if any: its first

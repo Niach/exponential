@@ -173,7 +173,7 @@ export function SessionComposer({
   users = [],
   busy = false,
   canStop = false,
-  testId,
+  testId = `session-composer`,
   className,
   opaque = false,
   hideReplies = false,

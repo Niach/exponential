@@ -9,11 +9,13 @@ enum AppRoute: Hashable {
     /// button — no longer a tab of its own.
     case search
     case agents
-    /// Team actions (EXP-253) — its own tab since EXP-686.
-    case actions
-    /// One action's page (EXP-1291: a saved prompt's editor) — pushed from
-    /// an Actions row or an `action` entity ref.
-    case action(accountId: String, id: String)
+    /// NEW-2: one prompt's page in Settings → Prompts (`id` nil = New
+    /// prompt) — pushed from a Prompts row or a `prompt` entity ref.
+    case prompt(accountId: String, teamId: String, id: String?)
+    /// NEW-2/NEW-3: a team agent's page = the CALLER's DM with it (the
+    /// definition's id; the conversation is resolved — or, none yet, opened
+    /// by the first message — on the page).
+    case agentChannel(accountId: String, agentId: String)
     /// My Work (EXP-58): Inbox + My Issues merged behind one destination.
     case myWork
     /// EXP-1291: the Threads tab (it replaced Reviews) — the agents, then
@@ -70,7 +72,7 @@ enum AppRoute: Hashable {
 /// up and handed back on return, EXCEPT Home's: it always lands on its root
 /// (Android parity: `popUpTo(agent-tab)` never restores it).
 enum MainTab: Hashable {
-    case agent, issues, inbox, devices, threads, actions
+    case agent, issues, inbox, devices, threads
 
     /// Whether this tab's pushes are parked across a switch.
     var keepsPushes: Bool { self != .agent }
@@ -589,7 +591,6 @@ struct MainNavigator: View {
                     agentActive: tab == .agent,
                     issuesActive: tab == .issues,
                     devicesActive: tab == .devices,
-                    actionsActive: tab == .actions,
                     myWorkActive: tab == .inbox,
                     threadsActive: tab == .threads,
                     unreadCount: unreadCount,
@@ -603,11 +604,11 @@ struct MainNavigator: View {
                     composeEnabled: composeTarget != nil,
                     // EXP-1210: every entry SWITCHES the root (a re-tap pops
                     // back to it); EXP-1212: through the draft hold like
-                    // every other path change. EXP-1187: Actions is a
-                    // top-level tab; Settings is the Issues header's gear only.
+                    // every other path change. NEW-7: the Actions tab is
+                    // gone (prompts = Settings → Prompts and the `/` menu);
+                    // Settings is the Issues header's gear only.
                     onIssues: { selectTab(.issues) },
                     onDevices: { selectTab(.devices) },
-                    onActions: { selectTab(.actions) },
                     onMyWork: { selectTab(.inbox) },
                     onThreads: { selectTab(.threads) },
                     onCompose: {
@@ -697,7 +698,6 @@ struct MainNavigator: View {
     private static func tab(for route: AppRoute) -> MainTab? {
         switch route {
         case .agents: return .devices
-        case .actions: return .actions
         case .myWork: return .inbox
         case .threads: return .threads
         case let .agent(_, seed) where seed == .empty: return .agent
@@ -731,14 +731,11 @@ struct MainNavigator: View {
         case .threads:
             ThreadsView()
                 .environment(\.accountId, accountId)
-        case .actions:
-            ActionsListView()
-                .environment(\.accountId, accountId)
         }
     }
 
     /// Compose targets the board in view: a pushed board list wins, and every
-    /// other bar-visible surface (Issues root, Devices, Actions, Inbox,
+    /// other bar-visible surface (Issues root, Devices, Inbox,
     /// Threads) falls back to the CURRENT board — the one the Issues
     /// tab is pointed at, resolved from the last-used board, else the first of
     /// the active team (EXP-973). Filing an issue is never route-dependent;
@@ -910,11 +907,12 @@ extension MainNavigator {
         case .agents:
             AgentsView()
                 .environment(\.accountId, deps.auth.activeAccountId ?? "")
-        case .actions:
-            ActionsListView()
-                .environment(\.accountId, deps.auth.activeAccountId ?? "")
-        case let .action(accountId, id):
-            ActionDetailView(actionId: id)
+        case let .prompt(accountId, teamId, id):
+            PromptSettingsPage(teamId: teamId, promptId: id)
+                .environment(\.accountId, accountId)
+        case let .agentChannel(accountId, agentId):
+            AgentChannelScreen(agentId: agentId)
+                .id(agentId)
                 .environment(\.accountId, accountId)
         case .myWork:
             MyWorkView()
@@ -1150,8 +1148,8 @@ extension MainNavigator {
 
     private func applyBoardSelection(accountId: String, boardId: String) {
         currentBoard = CurrentBoardRef(accountId: accountId, boardId: boardId)
-        // EXP-400: the tab bar's team-scoped surfaces (Home's composer,
-        // Actions) key off the active team — without a
+        // EXP-400: the tab bar's team-scoped surfaces (Home's composer)
+        // key off the active team — without a
         // re-point here a cross-team pick left them all serving the previous
         // team. A cross-server pick activates the picked account instead
         // (Android parity): `.id(activeAccountId)` recreates this navigator

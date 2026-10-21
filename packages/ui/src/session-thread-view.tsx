@@ -28,21 +28,28 @@ import {
   threadPendingAsks,
 } from "@exp/domain-contract/ask-dock"
 import { AgentRunMark, type RunMarkState } from "./agent-brand-mark"
-import { answerIssue, joinAnswers, PLAN_CARD_COPY, PLAN_CARD_TEST_IDS } from "@exp/domain-contract/plan-card"
-import { AskAnsweredLine, AskCard, AskPrompt, type AskOption } from "./ask-card"
-import { Composer } from "./composer"
+import {
+  answerIssue,
+  joinAnswers,
+  PLAN_CARD_COPY,
+  PLAN_CARD_TEST_IDS,
+  stepperApplies,
+} from "@exp/domain-contract/plan-card"
+import { AskAnsweredLine, AskCard, AskPrompt } from "./ask-card"
 import {
   closedPicks,
   PlanCardCaption,
   PlanCardCustomField,
+  PlanCardDecision,
   PlanCardOptions,
   PlanCardQuestionBlock,
+  PlanCardStepButtons,
+  PlanCardStepLine,
   PlanCardSurface,
   questionAnswer,
   stripPendingUploads,
   useSurfaceDataRef,
 } from "./plan-card"
-import { Textarea } from "./textarea"
 import { AskDock, AskDockBody } from "./ask-dock"
 import { Button } from "./button"
 import { cn } from "./cn"
@@ -171,7 +178,8 @@ export function ThreadTabs({
   layout: forced,
   className,
 }: {
-  conversation: { label: string; active: boolean; onSelect: () => void }
+  /** NEW-6 (N-1): absent on a single-session thread (no Conversation tab). */
+  conversation?: { label: string; active: boolean; onSelect: () => void }
   /** The issue chips, strip order (top-level linked issues). */
   issues: readonly ThreadStripItem[]
   /** The "+" (a Menu around `ThreadTabsAddButton`); absent = read-only. */
@@ -330,7 +338,8 @@ export function ThreadTabs({
       {/* The "+" is a MENU trigger, not a tab: it sits beside the tablist. */}
       {add && <span className="flex shrink-0 items-center">{add}</span>}
       <div role="tablist" className="flex min-w-0 flex-1 items-center gap-1">
-      <Button
+      {conversation && (
+        <Button
         type="button"
         variant="ghost"
         role="tab"
@@ -346,6 +355,7 @@ export function ThreadTabs({
         <ConversationIcon className="size-3.5 shrink-0" />
         {!pager && conversation.label}
       </Button>
+      )}
       {(issues.length > 0 || sessions.length > 0) && !pager && divider}
       <div
         ref={middleRef}
@@ -1404,11 +1414,14 @@ export type ThreadPlanDecision = {
 
 /** EXP-1316/1280: a plan row = THE plan card ×4 (plan-card.json): the
  *  markdown (pictures inline, a pending upload renders nothing), the inline
- *  surface, one block per question, then THE plan options (`PLAN_OPTIONS`:
- *  Yes / Yes, and start with a fresh context / No, keep planning) + the
- *  feedback field. Approving waits on every question (`answerIssue`);
- *  rejecting never does. Closed once decided: the picks highlighted, the
- *  decision label + the feedback. */
+ *  surface, the questions, then THE decision block (`PlanCardDecision`:
+ *  `copy.decide` over the `PLAN_OPTIONS` rows, the feedback field once the
+ *  reject row is picked, the small primary button). NEW-6 (N-1): a pending
+ *  plan with `stepper.minQuestions`+ questions steps through them one at a
+ *  time ("Question n of m", Back / Next) and the LAST step carries the
+ *  decision block. Approving waits on every question (`answerIssue`);
+ *  rejecting never does. Closed once decided: every question with its
+ *  picks highlighted, the decision label + the feedback. */
 function ThreadPlanCard({
   row,
   renderText,
@@ -1430,6 +1443,8 @@ function ThreadPlanCard({
   const [picks, setPicks] = useState<Record<string, string[]>>({})
   const [custom, setCustom] = useState<Record<string, string>>({})
   const [feedback, setFeedback] = useState(``)
+  const [choice, setChoice] = useState<string>(PLAN_OPTIONS[0]?.key ?? ``)
+  const [step, setStep] = useState(0)
   const surfaceData = useSurfaceDataRef()
   const interactive = !decided && !busy && onDecide !== undefined
   const answers = useMemo(() => {
@@ -1444,21 +1459,14 @@ function ThreadPlanCard({
     { kind: `plan`, plan: row.plan, questions: row.questions },
     { decision: `approved`, answers }
   )
-  const options = useMemo<AskOption[]>(
-    () =>
-      PLAN_OPTIONS.map((option) => ({
-        key: option.key,
-        label: option.label,
-        ...(option.description ? { description: option.description } : {}),
-        ...(option.decision === `approved` && approveIssue ? { disabled: true } : {}),
-      })),
-    [approveIssue]
-  )
-  const decide = (key: string) => {
-    const option = PLAN_OPTIONS.find((o) => o.key === key)
-    if (!option || !interactive) return
+  const stepped = !decided && stepperApplies({ kind: `plan`, plan: row.plan, questions: row.questions })
+  const count = row.questions.length
+  const current = Math.min(step, Math.max(count - 1, 0))
+  const lastStep = !stepped || current === count - 1
+  const decide = (option: (typeof PLAN_OPTIONS)[number]) => {
+    if (!interactive) return
     if (option.decision === `approved` && approveIssue) return
-    const note = feedback.trim()
+    const note = option.decision === `rejected` ? feedback.trim() : ``
     onDecide?.({
       decision: option.decision === `rejected` ? `rejected` : `approved`,
       ...(option.decision === `approved` && option.fresh ? { fresh: true } : {}),
@@ -1466,6 +1474,23 @@ function ThreadPlanCard({
       ...(Object.keys(answers).length > 0 ? { answers } : {}),
       ...(row.surface && surfaceData.current ? { surfaceData: surfaceData.current } : {}),
     })
+  }
+  const block = (question: (typeof row.questions)[number], className?: string) => {
+    const picked = decided ? (row.answers?.[question.id] ?? []) : (picks[question.id] ?? [])
+    const free = decided ? freeAnswers(question.options, picked) : []
+    return (
+      <PlanCardQuestionBlock
+        key={question.id}
+        question={question}
+        picked={picked}
+        customText={custom[question.id] ?? ``}
+        onPick={interactive ? (next) => setPicks((prev) => ({ ...prev, [question.id]: next })) : undefined}
+        onCustom={(text) => setCustom((prev) => ({ ...prev, [question.id]: text }))}
+        attachmentSrc={attachmentSrc}
+        closedFree={free.length > 0 ? <AskAnsweredLine answer={joinAnswers(free)} /> : undefined}
+        className={className}
+      />
+    )
   }
   return (
     <AskCard
@@ -1488,56 +1513,29 @@ function ThreadPlanCard({
             testKey={row.id}
           />
         )}
-        {row.questions.map((question) => {
-          const picked = decided ? (row.answers?.[question.id] ?? []) : (picks[question.id] ?? [])
-          const free = decided ? freeAnswers(question.options, picked) : []
-          return (
-            <PlanCardQuestionBlock
-              key={question.id}
-              question={question}
-              picked={picked}
-              customText={custom[question.id] ?? ``}
-              onPick={
-                interactive ? (next) => setPicks((prev) => ({ ...prev, [question.id]: next })) : undefined
-              }
-              onCustom={(text) => setCustom((prev) => ({ ...prev, [question.id]: text }))}
-              attachmentSrc={attachmentSrc}
-              closedFree={free.length > 0 ? <AskAnsweredLine answer={joinAnswers(free)} /> : undefined}
-            />
-          )
-        })}
+        {!stepped && row.questions.map((question) => block(question))}
       </DockBody>
-      <AskPrompt
-        variant="plan"
-        options={options}
-        answerable={!decided && onDecide !== undefined}
-        locked={busy ? { labels: [] } : null}
-        resolved={
-          decided
-            ? { answer: planDecisionLabel(row.decision as `approved` | `rejected`, row.fresh) }
-            : null
-        }
-        onAnswer={(keys) => {
-          if (keys[0]) decide(keys[0])
-        }}
-      >
-        {approveIssue && (
-          <div data-testid={PLAN_CARD_TEST_IDS.issue} className="mt-1.5 text-[0.6875rem] text-yellow-400">
-            {PLAN_CARD_COPY.answerIssues[approveIssue]}
-          </div>
-        )}
-        <Composer className="mt-2">
-          <Textarea
-            value={feedback}
-            onChange={(event) => setFeedback(event.target.value)}
-            placeholder={ASK_DOCK_COPY.feedbackPlaceholder}
-            aria-label={PLAN_CARD_COPY.feedback}
-            rows={1}
-            data-testid={PLAN_CARD_TEST_IDS.feedback}
-            className="max-h-32 min-h-9 border-none bg-transparent px-3 pb-1 pt-3 text-sm shadow-none focus-visible:border-transparent"
-          />
-        </Composer>
-      </AskPrompt>
+      {stepped && row.questions[current] && (
+        <>
+          <PlanCardStepLine step={current} count={count} />
+          {block(row.questions[current], `mt-1`)}
+          <PlanCardStepButtons step={current} count={count} onStep={setStep} />
+        </>
+      )}
+      {!decided && lastStep && !busy && (
+        <PlanCardDecision
+          picked={choice}
+          onPick={setChoice}
+          approveIssue={approveIssue}
+          feedback={feedback}
+          onFeedback={setFeedback}
+          onDecide={onDecide ? decide : undefined}
+        />
+      )}
+      {busy && !decided && <AskPrompt options={[]} answerable={false} locked={{ labels: [] }} onAnswer={noop} />}
+      {decided && (
+        <AskAnsweredLine answer={planDecisionLabel(row.decision as `approved` | `rejected`, row.fresh)} />
+      )}
       {decided && row.feedback && (
         <div data-testid={PLAN_CARD_TEST_IDS.feedback} className="mt-1 text-xs text-muted-foreground">
           {PLAN_CARD_COPY.feedbackLine.replace(`{feedback}`, () => row.feedback ?? ``)}
