@@ -829,8 +829,11 @@ async function seedSessionTree(ctx: {
     } = {}
   ): typeof sessionIssues.$inferInsert => {
     const row = issue(identifier)
+    // NEW-1: a link is a row on the session that HOLDS the issue (`to` = the
+    // child it was forwarded to); the root's strip is the union over its
+    // tree. `assigned_session_id` is a never-written read shim.
     return {
-      sessionId,
+      sessionId: extra.to ?? sessionId,
       issueId: row.id,
       teamId,
       boardId: row.boardId,
@@ -839,7 +842,6 @@ async function seedSessionTree(ctx: {
       source: extra.source ?? `user`,
       addedBy: demoId,
       addedBySessionId: extra.by,
-      assignedSessionId: extra.to,
       sortOrder,
       createdAt: extra.at,
       updatedAt: extra.at,
