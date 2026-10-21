@@ -93,7 +93,7 @@ export function HomePage() {
                desktop, steered live (merged Agents + Mobile, EXP-176) ── */}
         <AgentsSection />
 
-        {/* ── Actions: reusable AI tasks on your own agents (EXP-337) ── */}
+        {/* ── Prompts: saved team prompts, run from / (NEW-2) ── */}
         <ActionsSection />
 
         {/* ── Collaboration: widget → board, realtime with the team
