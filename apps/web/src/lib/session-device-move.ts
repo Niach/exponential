@@ -1,11 +1,9 @@
 // EXP-1252: moving a live SESSION to another device, from its composer's
 // options line (the launch line's Device pin, placed before Model).
 //
-// A move = ONE `sessions.send({ sessionId, deviceId })` with no text: the
-// server writes the synced `sessions.move_to_device_id` and the source
-// device hands the SAME row over after its current turn (worktree +
-// conversation travel, logins stay). Picking the current device while a
-// move is pending cancels it (the same call).
+// A move = ONE `sessions.send({ sessionId, deviceId })` with no text
+// (NEW-1): a queued row re-targets; a live one ENDS here and continues on
+// the target in a new session on the same branch (logins stay).
 //
 // The rows are THE launch composer's machines for this team (own + shared
 // into it, `useSteerDevices`), each with its refusal. Every sentence is

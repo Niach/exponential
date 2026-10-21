@@ -25,7 +25,7 @@ export interface TreeSession {
   status: string
   busy: boolean
   needsInput: boolean
-  blocked: { window?: string | null; resetsAt?: string | null } | null
+  blocked: { kind?: string | null; window?: string | null; resetsAt?: string | null } | null
   shared: boolean
   title: string | null
   guide: { text?: string | null; label?: string | null }[] | null
@@ -155,6 +155,17 @@ export interface SessionCard {
   testId: string
 }
 
+/** NEW-1: the card's state word; a blocked session names WHY
+ *  (`copy.blockedKinds[blocked.kind]`, an unknown kind = `states.blocked`). */
+export function sessionKindWord(session: Pick<TreeSession, `blocked`>, state: SessionState): string {
+  if (state === `blocked`) {
+    const kind = session.blocked?.kind
+    const word = kind ? (SESSION_CARD_COPY.blockedKinds as Record<string, string>)[kind] : undefined
+    if (word) return word
+  }
+  return SESSION_CARD_COPY.states[state]
+}
+
 /**
  * THE session card = the Work card's header row (EXP-1240): icon, name,
  * the muted state word, trailing elapsed, a spinner while `running`. Tapping
@@ -176,7 +187,7 @@ export function sessionCard(
     sessionId: session.id,
     icon: SESSION_CARD_ICONS[state],
     name: title,
-    kindWord: SESSION_CARD_COPY.states[state],
+    kindWord: sessionKindWord(session, state),
     state,
     tone: cardFixture.tones[state],
     elapsed,

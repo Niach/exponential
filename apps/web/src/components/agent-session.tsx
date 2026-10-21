@@ -1058,7 +1058,9 @@ export function AgentSessionView({
             >
               <span className="min-w-0 flex-1">{blockedLabel}</span>
               {/* EXP-849: the way out of a wall is another login. */}
-              {!sessionEnded && <SessionAccountSwitchButton session={session} />}
+              {!sessionEnded && (session.blocked?.kind ?? `rate_limit`) === `rate_limit` && (
+                <SessionAccountSwitchButton session={session} />
+              )}
             </div>
           </div>
         )}

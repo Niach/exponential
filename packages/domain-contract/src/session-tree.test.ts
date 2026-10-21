@@ -31,6 +31,20 @@ describe(`session-tree fixtures (EXP-1291)`, () => {
       expect(sessionCard(session, title, now)).toEqual(entry.expected as never)
     })
   }
+  test(`session card: a blocked session names its kind (copy.blockedKinds)`, () => {
+    const base = card.cases.find((entry) => entry.expected.state === `blocked`)!.input as never as {
+      session: Record<string, unknown>
+      title: string
+      now: string
+    }
+    const word = (blocked: Record<string, unknown>) =>
+      sessionCard({ ...base.session, blocked } as never, base.title, base.now).kindWord
+    for (const [kind, text] of Object.entries(card.copy.blockedKinds)) {
+      expect(word({ kind })).toBe(text)
+    }
+    expect(word({ kind: `future_kind` })).toBe(card.copy.states.blocked)
+    expect(word({ window: `weekly` })).toBe(card.copy.states.blocked)
+  })
   for (const entry of thread.cases) {
     test(`thread: ${entry.name}`, () => {
       expect(buildSessionThread(entry.input as never, (entry as { options?: never }).options)).toEqual(entry.expected as never)

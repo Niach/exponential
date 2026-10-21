@@ -38,11 +38,11 @@ const ISSUES = [
   { id: `i10`, identifier: `EXP-1271`, title: `Remote starts never take the window`, ...BACKLOG },
 ]
 
-const ACTIONS = [
-  { id: `builtin:fix-conflicts`, name: `Fix merge conflicts`, icon: `git-branch` },
-  { id: `builtin:create-action`, name: `Create action`, icon: `sparkles` },
-  { id: `a1`, name: `Release all`, icon: `rocket` },
-  { id: `a2`, name: `Refresh docs and marketing`, icon: `megaphone` },
+const AGENTS = [
+  { id: `g1`, name: `Release manager`, icon: `rocket` },
+  { id: `g2`, name: `Docs writer`, icon: `megaphone` },
+  { id: `g3`, name: `Triage`, icon: `wrench` },
+  { id: `g4`, name: `Merge conflicts`, icon: `git-branch` },
 ]
 
 function Surface({
@@ -72,7 +72,7 @@ export const entry: StyleguideEntry = {
   section: `general`,
   owner: `SLOP-28`,
   title: `Search list`,
-  blurb: `ONE component for every place that searches a list and picks from it (fixture \`search-list.json\` ×4): the \`#\` issue typeahead in every editor and composer, the composer "+" menu's Implement issue › and Run action › submenus, the issue pickers and the global issue search. An input row (${searchList.input.height}px, the search glyph, the field, the muted count once a query is typed) over the Picker rows at ONE height (${searchList.row.height}px, ${searchList.row.heightPhone} on phones), at most ${searchList.maxVisibleRows} visible, the rest scrolling under a ${searchList.fadeHeight}px bottom fade. The top row is preselected; ↑/↓ move, Enter or Tab pick, a hover selects. Results come from the shared engine at its default limit (no 6/8 cap). Typing \`#\` opens it at the caret (a ${searchList.popoverWidth}px popover; phones: a bottom sheet) with ITS input focused and prefilled with the token after the \`#\`, spaces allowed; a pick writes \`#IDENT \`, Escape returns to the editor leaving the text, Backspace in the empty input deletes the \`#\`.`,
+  blurb: `ONE component for every place that searches a list and picks from it (fixture \`search-list.json\` ×4): the \`#\` issue typeahead in every editor and composer, the composer "+" menu's Implement issue › and Message an agent › submenus, the issue pickers and the global issue search. An input row (${searchList.input.height}px, the search glyph, the field, the muted count once a query is typed) over the Picker rows at ONE height (${searchList.row.height}px, ${searchList.row.heightPhone} on phones), at most ${searchList.maxVisibleRows} visible, the rest scrolling under a ${searchList.fadeHeight}px bottom fade. The top row is preselected; ↑/↓ move, Enter or Tab pick, a hover selects. Results come from the shared engine at its default limit (no 6/8 cap). Typing \`#\` opens it at the caret (a ${searchList.popoverWidth}px popover; phones: a bottom sheet) with ITS input focused and prefilled with the token after the \`#\`, spaces allowed; a pick writes \`#IDENT \`, Escape returns to the editor leaving the text, Backspace in the empty input deletes the \`#\`.`,
   status: {
     web: {
       state: `ok`,
@@ -134,14 +134,14 @@ export const entry: StyleguideEntry = {
           }
         />
       </Surface>
-      <Surface width={416} caption="Run action ›: the action's icon and its name, nothing else.">
+      <Surface width={416} caption="Message an agent ›: the agent's icon and its name, nothing else.">
         <SearchList
           mode="single"
           density="pointer"
-          items={actionPickerItems(ACTIONS)}
+          items={actionPickerItems(AGENTS)}
           value={null}
           onChange={noop}
-          placeholder="Search actions"
+          placeholder="Search agents"
         />
       </Surface>
       <Surface width={390} caption="A phone: the same list in a bottom sheet, 44px rows.">

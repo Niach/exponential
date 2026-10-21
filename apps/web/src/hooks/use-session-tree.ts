@@ -212,6 +212,10 @@ export function useThreadsList(teamId: string | readonly string[] | null | undef
   const { tree, isReady } = useTeamSessions(teamIds)
   const context = useTitleContext(teamIds)
   const reads = useSessionReads()
+  // NEW-1: Recent = the last `recent.hours`, then the last `recent.max`;
+  // a minute's grain is enough for a 24 h window.
+  const now = useNow(60_000)
+  const nowIso = now.toISOString()
   return useMemo(() => {
     const groups = partitionThreads({
       sessions: tree,
@@ -220,6 +224,7 @@ export function useThreadsList(teamId: string | readonly string[] | null | undef
       messages: context.messages,
       teamId: null,
       reads,
+      now: nowIso,
     })
     // EXP-1316: a row holds its title only while ITS ladder still waits on
     // a shape (an issue-linked row until the issues land); a row named by
@@ -232,7 +237,7 @@ export function useThreadsList(teamId: string | readonly string[] | null | undef
       messagesReady: context.messagesReady,
     })
     return { groups: holdTitles(groups, held), isReady: isReady && held.size === 0 }
-  }, [tree, context, isReady, reads])
+  }, [tree, context, isReady, reads, nowIso])
 }
 
 /** NEW-2: the rail's Agents section: the team's `agents` definitions, like
@@ -415,14 +420,20 @@ export function useSessionThread(
 } {
   const { rows, tree, isReady } = useTreeSessions(rootId)
   const root = rows.find((row) => row.id === rootId) ?? null
+  // NEW-1: a row sits on the session that HOLDS the issue; the thread's
+  // issues = the union over its tree (`treeIssues`).
+  const treeIds = rootId
+    ? [...new Set([rootId, ...rows.map((row) => row.id)])].sort()
+    : []
+  const treeKey = treeIds.join(`,`)
   const { data: links, isReady: linksReady } = useLiveQuery(
     (query) =>
-      rootId
+      treeIds.length > 0
         ? query
             .from({ links: sessionIssueCollection })
-            .where(({ links }) => eq(links.sessionId, rootId))
+            .where(({ links }) => inArray(links.sessionId, treeIds))
         : undefined,
-    [rootId]
+    [treeKey]
   )
   const issueIds = ((links ?? []) as SessionIssueRow[]).map((link) => link.issueId)
   const issueKey = [...issueIds].sort().join(`,`)
@@ -546,6 +557,29 @@ export function useSessionMessages(sessionId: string | null | undefined): Messag
   )
 }
 
+/** Every message of ONE tree (`root_id`): an agent's conversation shows
+ *  its children's question / plan cards like a thread does. */
+export function useTreeMessages(rootId: string | null | undefined): MessageRow[] {
+  const { data } = useLiveQuery(
+    (query) =>
+      rootId
+        ? query
+            .from({ messages: messageCollection })
+            .where(({ messages }) => eq(messages.rootId, rootId))
+        : undefined,
+    [rootId]
+  )
+  return useMemo(
+    () =>
+      ((data ?? []) as MessageRow[]).sort(
+        (a, b) =>
+          new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime() ||
+          (a.id < b.id ? -1 : 1)
+      ),
+    [data]
+  )
+}
+
 /** EXP-1341: THE display title (`sessionTitles`, fixture
  *  `session-title.json`) of any set of session rows: their roots' issue
  *  links, the linked issues, and the rows' own messages, read in three live
@@ -557,17 +591,16 @@ export function useSessionTitles(rows: readonly SessionRow[]): {
   ready: boolean
 } {
   const ids = [...new Set(rows.map((row) => row.id))].sort()
-  const rootIds = [...new Set(rows.map((row) => row.rootId ?? row.id))].sort()
   const key = ids.join(`,`)
-  const rootKey = rootIds.join(`,`)
+  // NEW-1: a session's title reads its OWN rows (root or child alike).
   const { data: links, isReady: linksReady } = useLiveQuery(
     (query) =>
-      rootIds.length > 0
+      ids.length > 0
         ? query
             .from({ links: sessionIssueCollection })
-            .where(({ links }) => inArray(links.sessionId, rootIds))
+            .where(({ links }) => inArray(links.sessionId, ids))
         : undefined,
-    [rootKey]
+    [key]
   )
   const issueIds = [
     ...new Set(((links ?? []) as SessionIssueRow[]).map((link) => link.issueId)),
@@ -602,7 +635,7 @@ export function useSessionTitles(rows: readonly SessionRow[]): {
     const held = unsettledTitleRoots({
       sessions,
       sessionIssues,
-      linksReady: rootIds.length > 0 && linksReady,
+      linksReady: ids.length > 0 && linksReady,
       issuesReady,
       messagesReady: ids.length > 0 && messagesReady,
     })
@@ -631,7 +664,9 @@ export function useSessionCard(row: SessionRow | null): SessionCard | null {
   }, [row, titles, now])
 }
 
-/** The threads (roots) one issue sits in, newest activity first. */
+/** The threads (roots) one issue sits in, newest activity first. NEW-1: a
+ *  `session_issues` row sits on the session HOLDING the issue (a child as
+ *  often as a root), so the holders resolve to their roots. */
 export function useThreadsOfIssue(issueId: string | null | undefined): SessionRow[] {
   const { data } = useLiveQuery(
     (query) =>
@@ -646,11 +681,24 @@ export function useThreadsOfIssue(issueId: string | null | undefined): SessionRo
         : undefined,
     [issueId]
   )
+  const holders = (data ?? []) as SessionRow[]
+  const rootIds = [...new Set(holders.map((row) => row.rootId ?? row.id))].sort()
+  const rootKey = rootIds.join(`,`)
+  const { data: roots } = useLiveQuery(
+    (query) =>
+      rootIds.length > 0
+        ? query
+            .from({ sessions: sessionCollection })
+            .where(({ sessions }) => inArray(sessions.id, rootIds))
+        : undefined,
+    [rootKey]
+  )
   return useMemo(
     () =>
-      ((data ?? []) as SessionRow[]).sort(
-        (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
-      ),
-    [data]
+      ((roots ?? []) as SessionRow[])
+        .filter((row) => rootIds.includes(row.id))
+        .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [roots, rootKey]
   )
 }

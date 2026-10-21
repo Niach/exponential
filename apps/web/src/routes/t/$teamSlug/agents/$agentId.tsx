@@ -15,7 +15,7 @@ import { AgentChannel, AgentComposer } from "@/components/thread/agent-channel"
 import { useFollowScroll } from "@/hooks/use-follow-scroll"
 import { useAgentRow } from "@/hooks/use-agent-row"
 import { useSession } from "@/hooks/use-session"
-import { useSessionMessages, useTeamSessions } from "@/hooks/use-session-tree"
+import { useTeamSessions, useTreeMessages } from "@/hooks/use-session-tree"
 import { useTeamBySlug, useTeamUsers } from "@/hooks/use-team-data"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import { pageTitle, usePageTitle } from "@/lib/page-title"
@@ -65,7 +65,9 @@ function AgentChannelPage() {
       ) ?? null,
     [teamSessions, agentId, me]
   )
-  const messages = useSessionMessages(conversation?.id)
+  // The conversation's whole tree: a child's question / plan card surfaces
+  // here and answers in place (`sessions.answer`, straight to that child).
+  const messages = useTreeMessages(conversation?.id)
   const follow = useFollowScroll([messages, conversation?.id])
   const { users } = useTeamUsers(team?.id)
   usePageTitle(agent?.name ? pageTitle(agent.name, THREADS_LIST_COPY.agents) : undefined)

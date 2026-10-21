@@ -81,10 +81,12 @@ export function entityRefRoute(
         ? { to: `/t/$teamSlug/boards/$boardSlug`, params: { teamSlug, boardSlug } }
         : null
     }
+    // NEW-2: prompts replaced actions (same ids): both open the prompt.
     case `action`:
+    case `prompt`:
       return {
-        to: `/t/$teamSlug/actions/$actionId`,
-        params: { teamSlug, actionId: ref.id },
+        to: `/t/$teamSlug/settings/prompts/$promptId`,
+        params: { teamSlug, promptId: ref.id },
       }
     case `comment`: {
       const issueId = ctx.commentIssueId(ref.id)

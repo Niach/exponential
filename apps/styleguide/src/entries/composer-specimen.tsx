@@ -167,10 +167,10 @@ const SAMPLE_CHECKED: Record<string, boolean> = {
 
 /** The "+" rows straight from the fixture, every condition met (EXP-1293:
  *  minus Subagents, which `sessions.send` does not carry). In a session the
- *  subject rows (Implement issue ›, Run action ›) go: they exist only
- *  before a start. */
+ *  subject rows (Implement issue ›, Message an agent ›) go: they exist
+ *  only before a start. */
 export function composerMenuEntries(phase: ComposerPhase): MenuEntry[] {
-  const subjectRows = new Set([`implement-issue`, `run-action`])
+  const subjectRows = new Set([`implement-issue`, `message-agent`])
   return composerMenu.rows
     .filter((row) => row.id !== `subagents`)
     .filter((row) => phase === `start` || !subjectRows.has(row.id ?? ``))

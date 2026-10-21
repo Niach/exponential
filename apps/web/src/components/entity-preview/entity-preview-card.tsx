@@ -22,8 +22,8 @@ import {
   type EntityPreviewRow,
   type LiveDotTone,
 } from "@exp/ui"
+import type { SyncedPrompt } from "@exp/db-schema/schema"
 import type {
-  Action,
   Attachment,
   Board,
   Comment,
@@ -102,8 +102,8 @@ export function EntityRefPreviewCard({
       return <IssuePreviewCard issueId={(row as ResolvedIssueRef).id} />
     case `board`:
       return <BoardCard board={row as Board} />
-    case `action`:
-      return <ActionCard action={row as Action} />
+    case `prompt`:
+      return <PromptCard prompt={row as SyncedPrompt} />
     case `comment`:
       return <CommentCard comment={row as Comment} />
     case `session`:
@@ -206,18 +206,16 @@ function BoardCard({ board }: { board: Board }) {
   )
 }
 
-// ── Action ──────────────────────────────────────────────────────────────────
+// ── Prompt ──────────────────────────────────────────────────────────────────
 
-function ActionCard({ action }: { action: Action }) {
-  const Icon = getActionIcon(action)
-  const inputs = Array.isArray(action.inputs) ? action.inputs.length : 0
+function PromptCard({ prompt }: { prompt: SyncedPrompt }) {
+  const Icon = getActionIcon(prompt)
   return (
     <EntityPreviewCard
       icon={<Icon className="size-3.5" />}
-      eyebrow={nounEyebrow(`action`)}
-      title={action.name}
-      facts={<Pill size="sm">{`${inputs} ${inputs === 1 ? `input` : `inputs`}`}</Pill>}
-      testId="entity-preview-action"
+      eyebrow={nounEyebrow(`prompt`)}
+      title={prompt.name}
+      testId="entity-preview-prompt"
     />
   )
 }

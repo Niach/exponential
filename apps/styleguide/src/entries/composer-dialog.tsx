@@ -18,7 +18,7 @@ import type { StyleguideEntry } from "./types.ts"
 
 const { composerUi } = contract
 
-const ActionIcon = conceptIcon(`pr-merged`)
+const PromptIcon = conceptIcon(`nav-actions`)
 
 function Caption({ children }: { children: string }) {
   return <p className="text-xs text-muted-foreground">{children}</p>
@@ -29,7 +29,7 @@ export const entry: StyleguideEntry = {
   section: `special`,
   owner: `EXP-1019`,
   title: `Composer dialog`,
-  blurb: `THE launcher, opened over wherever the play button was pressed instead of navigating away from it, and (EXP-1334) THE composer of a thread and a session view: one card everywhere. The SUBJECT leads a start: the contract's verb (Run for an action, Implement for issues, ×4) followed by the removable subject chips; the field under it is the SECONDARY half ("Additional instructions (optional)…", or an action's own promptPlaceholder). In the card: the "+" = the options menu (EXP-1249: Implement issue › and Run action › before a start only, Add file or image, Effort ›, Ultracode, MCP servers ›, Computer use; in a session the same rows change the live session through sessions.configure), then the inline edit tools (Add image, Attach files, #, emoji), Send ⇄ Stop on the right. Under the card the muted options line (see Composer options). A start = ONE sessions.send; the dialog shuts and the new thread opens.`,
+  blurb: `THE launcher, opened over wherever the play button was pressed instead of navigating away from it, and (EXP-1334) THE composer of a thread and a session view: one card everywhere. The SUBJECT leads a start: Implement + the removable issue chips, or (NEW-2) a prompt picked off the / menu, its chip alone; the field under it is the SECONDARY half ("Additional instructions (optional)…"). In the card: the "+" = the options menu (EXP-1249: Implement issue › and Message an agent › before a start only, Add file or image, Effort ›, Ultracode, MCP servers ›, Computer use; in a session the same rows change the live session through sessions.configure), then the inline edit tools (Add image, Attach files, #, emoji), Send ⇄ Stop on the right. Under the card the muted options line (see Composer options). A start = ONE sessions.send; the dialog shuts and the new thread opens.`,
   status: {
     web: {
       state: `ok`,
@@ -60,15 +60,14 @@ export const entry: StyleguideEntry = {
     <div className="grid gap-10">
       <div className="flex flex-wrap items-start gap-8">
         <div className="grid w-[36rem] max-w-full gap-2">
-          <Caption>An action: one chip, and the send is the only thing left to do.</Caption>
+          <Caption>A prompt off the / menu: its chip IS the headline, and the send is the only thing left to do.</Caption>
           <div className="flex flex-wrap items-center gap-2 px-1">
-            <span className="text-lg font-semibold">{composerUi.runHeadline}</span>
             <Pill size="sm" mode="readonly">
-              <ActionIcon aria-hidden />
+              <PromptIcon aria-hidden />
               Triage new issues
             </Pill>
           </div>
-          <ComposerSpecimen phase="start" placeholder={composerUi.instructionsPlaceholder} submitLabel="Run action" />
+          <ComposerSpecimen phase="start" placeholder={composerUi.instructionsPlaceholder} submitLabel="Start session" />
         </div>
         <div className="grid gap-2">
           <MenuPanel entries={composerMenuEntries(`start`)} density="pointer" />
