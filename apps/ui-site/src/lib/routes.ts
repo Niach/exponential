@@ -97,7 +97,7 @@ export const ROUTES: readonly Route[] = [
     `/themes/`,
     () => import("../pages/Themes"),
     `Themes · ${SITE_NAME}`,
-    `Runtime themes: tokens and component recipes in one JSON file every renderer loads. The built-in neutral, exponential and playful themes, side by side.`,
+    `Runtime themes: tokens and component recipes in one JSON file every renderer loads. The built-in neutral, exponential, playful and orange themes, side by side.`,
     [`src/pages/Themes.tsx`, `../../packages/exponential-ui/themes`],
     crumbs({ name: `Themes`, path: `/themes/` })
   ),

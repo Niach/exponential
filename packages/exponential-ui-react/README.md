@@ -24,7 +24,7 @@ function Chat({ messages }) {
   return (
     <ExponentialSurface
       surface={surface}
-      theme="exponential"                     // or "neutral" | "playful" | a theme JSON | a ResolvedTheme
+      theme="exponential"                     // or "neutral" | "playful" | "orange" | a theme JSON | a ResolvedTheme
       mode="system"                           // light | dark | system (default; follows the platform live)
       locale="de-AT"                          // formatting, calendar names, week start, text direction
       timeZone="Europe/Vienna"                // dates and relative times (default: the platform's)
@@ -39,19 +39,17 @@ function Chat({ messages }) {
 
 ## Layout
 
+The stylesheet and the bind pass come from the core's web layer, `@exponential-at/ui/web` (FEED-128: `compileTheme`, `BASE_CSS`, the node sheet, `bindTree`, the URL/media policy, the natives' pure helpers), so every web renderer paints with byte-identical CSS; this package re-exports those names (`compileTheme`, `BASE_CSS`, `bindTree`, `linkHref`…) and keeps only the React half.
+
 | path | what |
 |---|---|
 | `src/surface.tsx` | `<ExponentialSurface>`: root (theme scope + variables, `data-xui-mode`, `dir`, `data-xq`), the two `<style>`s, the `xui` container with the tree + the overlay and toast LAYERS, the live regions, the settings (locale, strings, mode/density/contrast) and the host command handle |
 | `src/use-surface.ts` | `useSurface`: the TS reducer as React state; A2UI messages in, normalized tree + data model out |
-| `src/theme-css.ts` | a resolved theme → one scoped sheet (`--xui-*` variables per mode, recipe classes, the shadcn/glass aliases) |
-| `src/box-css.ts` | a surface's node sheet (template subtrees included): the whitelisted `style`s, the `@media` grammar (width → container queries, height/orientation → `data-xq`, hover/reduced-motion → media), the state blocks, dynamic values → `var(--xd-n)` |
-| `src/base-css.ts` | layer `xui-base`: the three CSS-equals-taffy rules + each native's structure |
 | `src/node-view.tsx` | the BIND pass per node (`visible`, props, dynamic style values, recipe props, `$string`, responsive native props), painter picked, root attributes, the action runner (`set` then the event), keyed templates |
 | `src/natives/` | the 46 native painters (Box, Text, Button… Form, NumberField, ChipInput, Date/Range/TimePicker, FileUpload, CodeBlock, Table, Chart, Menu, Segmented, Toast, Resizable, TreeGuides, Unknown); `natives.test.ts` gates them against the catalog |
 | `src/form.tsx` | the Form native + the field protocol every named control speaks (`useField`) |
 | `src/platform.ts` | live platform preferences (`matchMedia`) and the measured surface box |
-| `src/data.ts` | the data model (JSON pointers), `{path}` bindings, the basic + core client functions (the format functions through the surface Formatter), `bindTree` |
-| `src/inputs.ts` | `useHostOwnedValue`: local state, 150 ms debounce, revisions, echo rule |
+| `src/inputs.ts` | `useHostOwnedValue`: the hook around the web layer's `HostOwnedController` (150 ms debounce, revisions, echo rule) |
 | `src/list.tsx` | `WindowedList`: one axis, item key, estimated extent, gap + dividers, overscan, sticky rows, one ResizeObserver, `scrollToIndex` |
 | `src/extensions.ts` | `registerExtension` / `defineReactExtension` |
 | `src/primitives/` | the shadcn set (moved from `@exp/ui`, which re-exports it) + `tailwind.css`; `bun run build:css` → `dist/exponential-ui-react.css` |

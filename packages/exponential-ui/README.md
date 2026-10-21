@@ -4,7 +4,7 @@ The data half of Exponential UI (VAPP-84): the **core catalog** of
 components an A2UI surface may use, the **A2UI basic catalog** vendored and
 mapped onto it, the **macro table** that turns composite components into
 natives, the **model-facing descriptions** and prompt, the **token names**
-themes must define, the **runtime theme format** with the three built-in
+themes must define, the **runtime theme format** with the four built-in
 themes and the theme builder (VAPP-92), codegen for TypeScript, Swift, Kotlin
 and Rust, and the fixtures every renderer suite locks against. No renderer
 lives here (React: VAPP-87, the Rust core: VAPP-86, painters: VAPP-88/89/90).
@@ -34,7 +34,7 @@ nothing from the Exponential app.
 | `catalog/host.json` | the host API contract (VAPP-91): message kinds, ops, error codes, function decisions, URL schemes, MCP carrier, package format |
 | `catalog/core.schema.json` | generated: the catalog as JSON Schema in A2UI's catalog shape |
 | `catalog/theme.schema.json` | generated: a theme file as JSON Schema |
-| `themes/` | the built-in themes: `neutral` (stock shadcn, the root), `exponential` (GENERATED: design-tokens values + `exponential.recipes.json`), `playful` (the test theme) |
+| `themes/` | the built-in themes: `neutral` (stock shadcn, the root), `exponential` (GENERATED: design-tokens values + `exponential.recipes.json`), `playful` (the test theme), `orange` (the brand reference: `exponential` with an orange primary) |
 | `builder/` | the theme builder page (`dev:builder` / `build:builder`); ui.exponential.at mounts it (VAPP-93) |
 | `src/` | the TS reference implementation (below) |
 | `generated/*.{swift,kt,rs}` | generated constants for the three native targets; `*Themes*` = the built-ins RESOLVED, embedded as JSON |
@@ -141,7 +141,10 @@ measure contract (`src/geometry.ts`, `fixtures/control-geometry.json`).
   `styles.css` palettes + `themes/exponential.recipes.json` so the app and
   the SDK cannot drift; `playful` = the deliberately different test theme
   (pill buttons, no card borders, underlined tabs, Nunito) the conformance
-  suite renders on every painter. The natives get all three RESOLVED in
+  suite renders on every painter; `orange` = the brand-coloured reference
+  theme, `extends: exponential` with only the colours changed (primary, ring,
+  the accent pair, the chart scale), the smallest brand theme there is. The
+  natives get all four RESOLVED in
   `generated/ExponentialUIThemes.generated.*` (parse once at startup).
 - **Builder** (`builder/`, `bun run --filter @exponential-at/ui dev:builder`
   → :4180): pick a base, edit tokens and recipes with the recipe sheet and
@@ -179,6 +182,12 @@ measure contract (`src/geometry.ts`, `fixtures/control-geometry.json`).
   components (+ macro templates), no core name shadowed.
 - `catalogPrompt({extensions?, lite?, terse?})` — the compact system prompt.
 - `coreSchema(iconNames)` / `extensionSchema(ext, iconNames)` — JSON Schema.
+
+## The web layer (`@exponential-at/ui/web`)
+
+FEED-128: the FRAMEWORK-FREE half of a web renderer, so React and Solid compile byte-identical stylesheets and share one bind pass. `src/web/`: `theme-css.ts` (`compileTheme`: a resolved theme → one scoped sheet; `globalsCss(theme, {light?, dark?})`: the theme as UNSCOPED shadcn globals with literal values, `:root` + `.dark`, for an app that is not Exponential UI), `box-css.ts` (the per-node sheet), `base-css.ts` (`BASE_CSS`, layer `xui-base`), `data.ts` (JSON pointers, bindings, client functions, `bindTree`), `urls.ts` + `media.ts` (URL/media policy, the bounded blob cache, `fetchLimited`), `host-types.ts` (`HostPlugin<Icon, Markdown>`, the events), and the natives' pure helpers (`coerce`, `table`, `dates`, `inputs` = `HostOwnedController`, `markdown` = the parser to a tree, `form` = the field registry, `list`, `listbox`). Nothing in it imports a UI framework.
+
+The DOM contract every web renderer keeps: a `.xui-surface.<scope>` root with `data-xui-mode`; `data-xui-id` (placed nodes and parts), `data-xui-part="<Component>/<part>"`, recipe props as `data-r-*` (natives) / `data-m-*` (macro parts), forced states as `data-xs`; `xui-<Component>-<part>` part classes (`partClass`); and the cascade order `LAYERS` (`xui-base` < `xui-recipe` < `xui-node` < `xui-part`).
 
 ## The host API (VAPP-91)
 

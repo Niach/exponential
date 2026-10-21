@@ -95,7 +95,7 @@ theme, a mode or a width there widens every runner at once:
 | axis | values |
 |---|---|
 | fixtures | `kitchen-sink` (every component), `responsive` (the kitchen sink's responsive section, `layout-geometry-round1.json`), `dashboard` (`dashboard.json` + `dashboard.data.json`: an agent project dashboard, VAPP-103) |
-| themes | the built-ins: `exponential`, `neutral`, `playful` |
+| themes | the built-ins: `exponential`, `neutral`, `playful`, `orange` |
 | modes | `dark`, `light` (a mode changes colours only by contract; the light cases lock that no theme mode or recipe moves a box) |
 | widths | 390, 600, 900, 1280 |
 | directions | `ltr`, `rtl` |
