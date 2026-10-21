@@ -50,9 +50,6 @@ public enum AgentSettings {
         public static let noSchedule = "Waits for messages"
         public static let paused = "Paused"
         public static let deleteConfirm = "Delete this agent? Its conversation is deleted with it."
-        /// `copy.schedule.cron` / `.cronTz`.
-        public static let scheduleCron = "Cron {cron}"
-        public static let scheduleCronTz = "Cron {cron} ({tz})"
         /// Contract `eventBuiltinNames` → the Triggers row's sentence.
         public static let events: [String: String] = [
             "issue.created": "When an issue is created",
@@ -77,18 +74,14 @@ public enum AgentSettings {
         public static let page = "agent-settings-page"
     }
 
-    /// One Triggers row's text; a disabled trigger appends ` · Paused`.
+    /// One Triggers row's text (a schedule = `SchedulePicker.scheduleSummary`);
+    /// a disabled trigger appends ` · Paused`.
     public static func triggerSummary(_ when: TriggerWhen, enabled: Bool) -> String {
         let text: String
         switch when {
         case let .schedule(schedule):
-            if let tz = schedule.tz, !tz.isEmpty {
-                text = Copy.scheduleCronTz
-                    .replacingOccurrences(of: "{cron}", with: schedule.cron)
-                    .replacingOccurrences(of: "{tz}", with: tz)
-            } else {
-                text = Copy.scheduleCron.replacingOccurrences(of: "{cron}", with: schedule.cron)
-            }
+            // NEW-2: THE schedule picker's sentence (`SchedulePicker`).
+            text = SchedulePicker.scheduleSummary(cron: schedule.cron, tz: schedule.tz)
         case let .event(event):
             text = Copy.events[event.name]
                 ?? Copy.event.replacingOccurrences(of: "{name}", with: event.name)

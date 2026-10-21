@@ -50,8 +50,6 @@ object AgentSettings {
         const val NO_SCHEDULE = "Waits for messages"
         const val PAUSED = "Paused"
         const val DELETE_CONFIRM = "Delete this agent? Its conversation is deleted with it."
-        const val SCHEDULE_CRON = "Cron {cron}"
-        const val SCHEDULE_CRON_TZ = "Cron {cron} ({tz})"
         /** Event summaries by contract `eventBuiltinNames`. */
         val EVENTS: Map<String, String> = mapOf(
             "issue.created" to "When an issue is created",
@@ -88,13 +86,8 @@ object AgentSettings {
     /** One Triggers row's text. */
     fun triggerSummary(trigger: TriggerLike): String {
         val text = if (trigger.kind == "schedule") {
-            val cron = trigger.cron ?: ""
-            val tz = trigger.tz
-            if (!tz.isNullOrEmpty()) {
-                Copy.SCHEDULE_CRON_TZ.replace("{cron}", cron).replace("{tz}", tz)
-            } else {
-                Copy.SCHEDULE_CRON.replace("{cron}", cron)
-            }
+            // NEW-2: nobody speaks cron — THE schedule picker's sentence.
+            SchedulePicker.scheduleSummary(trigger.cron ?: "", trigger.tz)
         } else {
             val name = trigger.name ?: ""
             Copy.EVENTS[name] ?: Copy.EVENT.replace("{name}", name)

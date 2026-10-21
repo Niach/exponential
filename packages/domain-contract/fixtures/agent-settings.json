@@ -1,5 +1,5 @@
 {
-  "$comment": "EXP-1291 Threads v2: Team settings → Agents ×4, managed exactly like boards. The list = Settings rows (icon + color + name like a board row, then `New agent`); an agent page = the board page layout, `fields` top to bottom: identity (the board form's ONE field: icon picker + color swatch + name), Device (required; the device picker, online devices of the team the caller may start on), Account (the device's account picker, optional = the device's last used login; EXP-1306: the row's VALUE reads exactly like the composer's account picker chip = the picked login's agent brand mark + its email (`options` = the logins the device reports, `accountName` ladder; the agent-named stand-in row a profile-less device gets in the composer never counts), never the agent's name alone and never dimmed while editable; `agentAccountValue({options, account, cli})` replays `accountValueCases`: the option whose id == the pinned `account` (and whose agent == `cli` when set), else `cli`'s first option, else the last used option (isLastUsed), else the first; none = null and the row reads `copy.accountLastUsed` muted), Triggers (NEW-2: one row per trigger reading `triggerSummary`, a toggle per row, `+ Add` opens the trigger editor: a schedule = a 5-field cron with minutes in an IANA zone (#N-2), an event = the name of an `events` row (the builtins `contract.events.builtinNames` or any custom name); none = the agent only waits for messages), Instructions (markdown, server-only: `sessions.getAgent`, placeholder `copy.instructionsPlaceholder`), Delete (owner-only, confirms with `copy.deleteConfirm`). Owner-only controls are hidden from members (they read). Save = `agents.create` for a new agent, `agents.update` after (NEW-2: an agent is a definition row; its conversations follow it). triggerSummary(trigger) (TS reference packages/domain-contract/src/agent-settings.ts; mirrors desktop domain::agent_settings, iOS AgentSettings.swift, Android AgentSettings.kt) replays `summaryCases`: schedule = `copy.schedule.cron` with {cron} and, when a `tz` is set, `copy.schedule.cronTz` with {cron} and {tz}; event = `copy.events[name]` for a builtin name, else `copy.event` with {name}; a disabled trigger appends ' · Paused'. validateAgentForm(form) replays `validationCases`: errors keyed by field, in field order: name blank (after trim) → copy.errors.nameRequired, over agentNameMax (contract sessionsSend) → copy.errors.nameTooLong, no device → copy.errors.deviceRequired, instructions over agentInstructionsMaxBytes UTF-8 bytes → copy.errors.instructionsTooLong; [] = valid.",
+  "$comment": "EXP-1291 Threads v2: Team settings → Agents ×4, managed exactly like boards. The list = Settings rows (icon + color + name like a board row, then `New agent`); an agent page = the board page layout, `fields` top to bottom: identity (the board form's ONE field: icon picker + color swatch + name), Device (required; the device picker, online devices of the team the caller may start on), Account (the device's account picker, optional = the device's last used login; EXP-1306: the row's VALUE reads exactly like the composer's account picker chip = the picked login's agent brand mark + its email (`options` = the logins the device reports, `accountName` ladder; the agent-named stand-in row a profile-less device gets in the composer never counts), never the agent's name alone and never dimmed while editable; `agentAccountValue({options, account, cli})` replays `accountValueCases`: the option whose id == the pinned `account` (and whose agent == `cli` when set), else `cli`'s first option, else the last used option (isLastUsed), else the first; none = null and the row reads `copy.accountLastUsed` muted), Triggers (NEW-2: one row per trigger reading `triggerSummary`, a toggle per row, `+ Add` opens the trigger editor: a schedule = THE schedule picker (`schedule-picker.json`: Repeat · Days/Day · Time · Time zone rows; the stored form is a 5-field cron in an IANA zone, #N-2, never typed), an event = the name of an `events` row (the builtins `contract.events.builtinNames` or any custom name); none = the agent only waits for messages), Instructions (markdown, server-only: `sessions.getAgent`, placeholder `copy.instructionsPlaceholder`), Delete (owner-only, confirms with `copy.deleteConfirm`). Owner-only controls are hidden from members (they read). Save = `agents.create` for a new agent, `agents.update` after (NEW-2: an agent is a definition row; its conversations follow it). triggerSummary(trigger) (TS reference packages/domain-contract/src/agent-settings.ts; mirrors desktop domain::agent_settings, iOS AgentSettings.swift, Android AgentSettings.kt) replays `summaryCases`: schedule = `scheduleSummary(cron, tz)` of `schedule-picker.json` (`Every day at 09:00 (Europe/Vienna)`; a cron the rows cannot express reads `Cron …`); event = `copy.events[name]` for a builtin name, else `copy.event` with {name}; a disabled trigger appends ' · Paused'. validateAgentForm(form) replays `validationCases`: errors keyed by field, in field order: name blank (after trim) → copy.errors.nameRequired, over agentNameMax (contract sessionsSend) → copy.errors.nameTooLong, no device → copy.errors.deviceRequired, instructions over agentInstructionsMaxBytes UTF-8 bytes → copy.errors.instructionsTooLong; [] = valid.",
   "fields": [
     {
       "key": "identity",
@@ -49,10 +49,6 @@
     "noSchedule": "Waits for messages",
     "paused": "Paused",
     "deleteConfirm": "Delete this agent? Its conversation is deleted with it.",
-    "schedule": {
-      "cron": "Cron {cron}",
-      "cronTz": "Cron {cron} ({tz})"
-    },
     "events": {
       "issue.created": "When an issue is created",
       "issue.status_changed": "When an issue's status changes",
@@ -80,7 +76,7 @@
         "cron": "0 9 * * *",
         "enabled": true
       },
-      "expected": "Cron 0 9 * * *"
+      "expected": "Every day at 09:00"
     },
     {
       "trigger": {
@@ -97,7 +93,7 @@
         "cron": "0 0 * * 0",
         "enabled": false
       },
-      "expected": "Cron 0 0 * * 0 · Paused"
+      "expected": "Every Sunday at 00:00 · Paused"
     },
     {
       "trigger": {

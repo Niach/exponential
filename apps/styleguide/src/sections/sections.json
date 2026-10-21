@@ -3,7 +3,7 @@
   "sections": [
     { "id": "style", "order": 1, "title": "1 Style", "blurb": "The values the controls are made of: colour, shape, type, motion and the icon registry.", "entries": [] },
     { "id": "general", "order": 2, "title": "2 General components", "blurb": "The Exponential app's own controls. The generic set (buttons, fields, rows, pills, dialogs, meters) lives on ui.exponential.at/components and renders through the SDK.", "entries": [
-      "picker-board", "picker-issue", "picker-action", "picker-account", "picker-device", "picker-assignee", "picker-icon", "picker-status", "picker-priority", "picker-label", "picker-mcp", "picker-repository", "scope-picker",
+      "picker-board", "picker-issue", "picker-action", "picker-account", "picker-device", "picker-assignee", "picker-icon", "picker-status", "picker-priority", "picker-label", "picker-mcp", "picker-repository", "scope-picker", "schedule-picker",
       "search-list", "menu-submenu",
       "toast",
       "jump-to-bottom",
@@ -36,6 +36,7 @@
     "picker-mcp": "EXP-792",
     "picker-repository": "SLOP-7",
     "scope-picker": "FEED-76",
+    "schedule-picker": "NEW-2",
     "issue-context-menu": "EXP-1074",
     "toast": "EXP-1031",
     "jump-to-bottom": "EXP-1191",

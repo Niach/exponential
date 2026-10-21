@@ -1843,7 +1843,7 @@
       "id": "settings-team-agent",
       "group": "settings",
       "title": "Settings · Agent",
-      "blurb": "One team agent up close (EXP-1293), laid out like a board's settings page: icon, colour and name in one row, then Device, Account and Triggers (a cron schedule and an event), the instructions card and Delete agent. The settings nav lists the team's agents under Boards with New agent.",
+      "blurb": "One team agent up close (EXP-1293), laid out like a board's settings page: icon, colour and name in one row, then Device, Account and Triggers (a schedule read by the schedule picker's sentence and an event), the instructions card and Delete agent. The settings nav lists the team's agents under Boards with New agent.",
       "order": 23,
       "web": {
         "route": "/t/$teamSlug/settings/agents/$agentId",
@@ -1869,7 +1869,7 @@
         }
       },
       "notes": {
-        "web": "`$agentId` resolves to DEMO_AGENT_ID, the Triage agent (an `agents` row on the shared build server; triggers: cron `0 9 * * *` in Europe/Vienna + `issue.created`). The instructions are server-only (`agents.get`), so the card fills after that query.",
+        "web": "`$agentId` resolves to DEMO_AGENT_ID, the Triage agent (an `agents` row on the shared build server; triggers: a daily 09:00 schedule in Europe/Vienna, stored as cron `0 9 * * *`, + `issue.created`). The instructions are server-only (`agents.get`), so the card fills after that query.",
         "ios": "EXP-1309: the LIVE walk over the seed web/desktop photograph (signed in, the relay stub online), never fixture rows: Settings → team → Agents → Triage.",
         "android": "See ios."
       }

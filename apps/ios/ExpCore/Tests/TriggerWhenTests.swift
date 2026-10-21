@@ -182,7 +182,7 @@ final class TriggerWhenTests: XCTestCase {
     }
 
     func testSummaryReadsTheAgentSettingsSentence() {
-        XCTAssertEqual(AgentTrigger(id: "a", when: daily).summary, "Cron 0 9 * * *")
+        XCTAssertEqual(AgentTrigger(id: "a", when: daily).summary, "Every day at 09:00")
         XCTAssertEqual(AgentTrigger(id: "b", enabled: false, when: created).summary, "When an issue is created · Paused")
     }
 

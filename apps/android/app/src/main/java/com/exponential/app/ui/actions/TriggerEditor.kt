@@ -7,52 +7,59 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.exponential.app.domain.AgentSettings
 import com.exponential.app.domain.DomainContract
+import com.exponential.app.domain.ScheduleDraft
+import com.exponential.app.domain.SchedulePicker
 import com.exponential.app.domain.TriggerWhen
+import com.exponential.app.domain.freshScheduleDraft
+import com.exponential.app.domain.scheduleDraftCron
+import com.exponential.app.domain.scheduleDraftFromCron
+import com.exponential.app.domain.validateScheduleDraft
 import com.exponential.app.ui.components.GlassSegmentedControl
 import com.exponential.app.ui.components.GroupDivider
 import com.exponential.app.ui.components.OptionGroup
 import com.exponential.app.ui.components.PickerRow
+import com.exponential.app.ui.components.ScheduleFields
 import com.exponential.app.ui.components.TextFieldRow
 
 // The trigger editor's fields (EXP-583; EXP-1291: triggers live on the team
 // AGENT, whose device/account/model are the runner): ONE draft and its
 // when-part card (Schedule | On event), rendered by the agent page's
 // Triggers "Add" / row tap sheet ([TriggerFormSheet]). NEW-2 (web
-// `trigger-fields.tsx`): a schedule = ONE 5-field cron + its IANA zone, an
-// event = ONE event name (the contract builtins offered, any custom name
-// allowed). The server fires them; no filters.
+// `trigger-fields.tsx`): a schedule STORES ONE 5-field cron + its IANA zone
+// but is edited through THE schedule picker ([ScheduleFields],
+// `schedule-picker.json`: nobody speaks cron; the expression is visible only
+// for a custom, MCP-written one), an event = ONE event name (the contract
+// builtins offered, any custom name allowed). The server fires them; no
+// filters.
 
 internal const val TRIGGER_KIND_SCHEDULE = "schedule"
 internal const val TRIGGER_KIND_EVENT = "event"
 
-/** The cron field's placeholder (web `CRON_PLACEHOLDER`). */
-internal const val CRON_PLACEHOLDER = "0 9 * * 1-5"
+/** A custom schedule's Cron row placeholder (the fixture's `cronPlaceholder`). */
+internal const val CRON_PLACEHOLDER = SchedulePicker.Copy.CRON_PLACEHOLDER
 
 /** The editor state; [triggerDraftToWhen] converts at submit (an invalid or
  *  unknown draft reads as null). */
 internal data class TriggerDraft(
     val kind: String = TRIGGER_KIND_SCHEDULE,
-    /** `m h dom mon dow`. */
-    val cron: String = "",
-    /** IANA zone; blank = UTC. */
-    val tz: String = java.util.TimeZone.getDefault().id,
+    /** The schedule picker's rows (a new one = daily 09:00 in the device's zone). */
+    val schedule: ScheduleDraft = freshScheduleDraft(java.util.TimeZone.getDefault().id),
     /** The events row name. */
     val name: String = "",
 )
 
-private val CRON_SHAPE = Regex("^(\\S+\\s+){4}\\S+$")
 private val EVENT_NAME_SHAPE = Regex("^[A-Za-z0-9][A-Za-z0-9._:/-]*$")
 
 /** A draft seeded from an existing [trigger]; null seeds an empty schedule. */
 internal fun triggerDraftFor(trigger: TriggerWhen?): TriggerDraft = when (trigger) {
-    null -> TriggerDraft()
-    is TriggerWhen.Schedule -> TriggerDraft(kind = TRIGGER_KIND_SCHEDULE, cron = trigger.cron, tz = trigger.tz.orEmpty())
+    null -> TriggerDraft(schedule = freshScheduleDraft(java.util.TimeZone.getDefault().id))
+    is TriggerWhen.Schedule -> TriggerDraft(
+        kind = TRIGGER_KIND_SCHEDULE,
+        schedule = scheduleDraftFromCron(trigger.cron, trigger.tz),
+    )
     is TriggerWhen.Event -> TriggerDraft(kind = TRIGGER_KIND_EVENT, name = trigger.name)
 }
 
-/** Whether [tz] names a zone this JVM knows (blank = UTC, valid). */
-private fun validTimeZone(tz: String): Boolean =
-    tz.isEmpty() || (tz.length <= DomainContract.agentTriggerTzMax && runCatching { java.time.ZoneId.of(tz) }.isSuccess)
 
 /**
  * The draft's when-part, or null while it does not satisfy the server's
@@ -61,12 +68,18 @@ private fun validTimeZone(tz: String): Boolean =
 internal fun triggerDraftToWhen(draft: TriggerDraft): TriggerWhen? =
     when (draft.kind) {
         TRIGGER_KIND_SCHEDULE -> {
-            val cron = draft.cron.trim().replace(Regex("\\s+"), " ")
-            val tz = draft.tz.trim()
-            if (cron.length !in 9..DomainContract.agentTriggerCronMax || !CRON_SHAPE.matches(cron) || !validTimeZone(tz)) {
+            val cron = scheduleDraftCron(draft.schedule)
+            val tz = draft.schedule.tz.trim()
+            if (
+                validateScheduleDraft(draft.schedule).isNotEmpty() ||
+                cron.length > DomainContract.agentTriggerCronMax ||
+                tz.isEmpty() ||
+                tz.length > DomainContract.agentTriggerTzMax
+            ) {
                 null
             } else {
-                TriggerWhen.Schedule(cron = cron, tz = tz.ifEmpty { null })
+                // The zone is always written: the rows read in it.
+                TriggerWhen.Schedule(cron = cron, tz = tz)
             }
         }
         TRIGGER_KIND_EVENT -> {
@@ -86,7 +99,7 @@ private fun eventLabel(name: String): String = AgentSettings.Copy.EVENTS[name] ?
 /**
  * The when-part half of the editor, as ONE grouped card (EXP-698): the
  * segmented kind switch is its first row, and under a hairline come the picked
- * kind's rows — the schedule pane (cron + time zone) or the event pane (the
+ * kind's rows — the schedule pane (THE schedule picker) or the event pane (the
  * builtin picker + the free-text name).
  */
 @Composable
@@ -109,20 +122,9 @@ internal fun TriggerWhenFields(
 
         if (draft.kind == TRIGGER_KIND_SCHEDULE) {
             GroupDivider()
-            TextFieldRow(
-                label = "Cron",
-                value = draft.cron,
-                onValueChange = { onChange(draft.copy(cron = it.take(DomainContract.agentTriggerCronMax))) },
-                placeholder = CRON_PLACEHOLDER,
-                modifier = Modifier.testTag("trigger-cron"),
-            )
-            GroupDivider()
-            TextFieldRow(
-                label = "Time zone",
-                value = draft.tz,
-                onValueChange = { onChange(draft.copy(tz = it.take(DomainContract.agentTriggerTzMax))) },
-                placeholder = "UTC",
-                modifier = Modifier.testTag("trigger-tz"),
+            ScheduleFields(
+                draft = draft.schedule,
+                onChange = { onChange(draft.copy(schedule = it)) },
             )
         } else if (draft.kind == TRIGGER_KIND_EVENT) {
             GroupDivider()

@@ -19,54 +19,48 @@ import {
   FieldError,
   GlassGroup,
   GlassTabsRow,
-  Input,
   Picker,
+  ScheduleFields,
   TabsTrigger,
+  emptyScheduleDraft,
+  scheduleDraftCron,
+  scheduleDraftFromCron,
+  validateScheduleDraft,
+  type ScheduleDraft,
 } from "@exp/ui"
 
 // The reusable trigger editing PIECES (EXP-530; NEW-2: a trigger lives on
 // its `agents` row, which owns the device and account, so only the WHEN is
-// edited): a schedule = ONE 5-field cron + its IANA zone, an event = ONE
-// event name (the contract builtins offered, any custom name allowed). Plus
-// the account-pin helpers the agent page's Account row shares. CONTROLLED:
-// the parent holds a `TriggerDraft` and seeds it on open.
+// edited): a schedule = THE schedule picker (`@exp/ui` `ScheduleFields`,
+// `fixtures/schedule-picker.json` ×4 — nobody types cron; the stored form is
+// a 5-field cron in an IANA zone), an event = ONE event name (the contract
+// builtins offered, any custom name allowed). Plus the account-pin helpers
+// the agent page's Account row shares. CONTROLLED: the parent holds a
+// `TriggerDraft` and seeds it on open.
 
 export interface TriggerDraft {
   kind: `schedule` | `event`
-  /** `m h dom mon dow`. */
-  cron: string
-  /** IANA zone; `` = UTC. */
-  tz: string
+  /** The schedule picker's rows (the cron is derived). */
+  schedule: ScheduleDraft
   /** The events row name. */
   name: string
 }
 
-/** The browser's zone, the default a new schedule reads in. */
-export function browserTimeZone(): string {
-  try {
-    return Intl.DateTimeFormat().resolvedOptions().timeZone || `UTC`
-  } catch {
-    return `UTC`
-  }
-}
-
-export const CRON_PLACEHOLDER = `0 9 * * 1-5`
-
 export function emptyTriggerDraft(): TriggerDraft {
-  return { kind: `schedule`, cron: ``, tz: browserTimeZone(), name: `` }
+  return { kind: `schedule`, schedule: emptyScheduleDraft(), name: `` }
 }
 
 export function draftFromTrigger(trigger: TriggerWhen | null): TriggerDraft {
   const draft = emptyTriggerDraft()
   if (!trigger) return draft
   if (trigger.kind === `schedule`) {
-    return { ...draft, kind: `schedule`, cron: trigger.cron ?? ``, tz: trigger.tz ?? `` }
+    return { ...draft, kind: `schedule`, schedule: scheduleDraftFromCron(trigger.cron, trigger.tz) }
   }
   return { ...draft, kind: `event`, name: trigger.name ?? `` }
 }
 
 export interface TriggerDraftError {
-  field: `cron` | `tz` | `name`
+  field: `days` | `cron` | `tz` | `name`
   message: string
 }
 
@@ -77,12 +71,13 @@ const firstIssue = (result: { success: boolean; error?: { issues: { message: str
 export function validateTriggerDraft(draft: TriggerDraft): TriggerDraftError[] {
   const errors: TriggerDraftError[] = []
   if (draft.kind === `schedule`) {
-    if (!draft.cron.trim()) errors.push({ field: `cron`, message: `Enter a cron expression` })
-    else if (firstIssue(cronSchema.safeParse(draft.cron)) || !parseCron(draft.cron.trim())) {
+    errors.push(...validateScheduleDraft(draft.schedule))
+    const cron = scheduleDraftCron(draft.schedule)
+    if (errors.length === 0 && (firstIssue(cronSchema.safeParse(cron)) || !parseCron(cron))) {
       errors.push({ field: `cron`, message: `Use five fields: minute hour day month weekday` })
     }
-    if (draft.tz.trim() && firstIssue(timeZoneSchema.safeParse(draft.tz))) {
-      errors.push({ field: `tz`, message: `Use an IANA time zone, like Europe/Vienna` })
+    if (firstIssue(timeZoneSchema.safeParse(draft.schedule.tz))) {
+      errors.push({ field: `tz`, message: `Pick a time zone` })
     }
     return errors
   }
@@ -96,14 +91,10 @@ export function validateTriggerDraft(draft: TriggerDraft): TriggerDraftError[] {
 /** The draft as a strict `TriggerWhen` (call after `validateTriggerDraft`). */
 export function draftToTrigger(draft: TriggerDraft): TriggerWhen {
   if (draft.kind === `schedule`) {
-    const cron = draft.cron.trim().replace(/\s+/g, ` `)
-    const tz = draft.tz.trim()
-    return { kind: `schedule`, cron, ...(tz ? { tz } : {}) }
+    return { kind: `schedule`, cron: scheduleDraftCron(draft.schedule), tz: draft.schedule.tz }
   }
   return { kind: `event`, name: draft.name.trim() }
 }
-
-const ROW_INPUT = `h-auto rounded-none border-0 bg-transparent px-4 py-3 text-sm shadow-none focus-visible:border-0 focus-visible:ring-0 md:text-sm`
 
 /** The label the event Picker reads for a name: a builtin's sentence, else
  *  the name itself. */
@@ -126,7 +117,7 @@ export function TriggerWhenFields({
     errors.find((error) => error.field === field)?.message ?? null
   const fieldErrors =
     draft.kind === `schedule`
-      ? [errorOf(`cron`), errorOf(`tz`)].filter(Boolean)
+      ? [errorOf(`days`), errorOf(`cron`), errorOf(`tz`)].filter(Boolean)
       : [errorOf(`name`)].filter(Boolean)
 
   return (
@@ -144,30 +135,14 @@ export function TriggerWhenFields({
         </GlassTabsRow>
 
         {draft.kind === `schedule` && (
-          <>
-            <Input
-              aria-label="Cron"
-              value={draft.cron}
-              onChange={(e) => set({ cron: e.target.value })}
-              placeholder={CRON_PLACEHOLDER}
-              spellCheck={false}
-              autoComplete="off"
-              aria-invalid={Boolean(errorOf(`cron`)) || undefined}
-              className={`${ROW_INPUT} font-mono`}
-              data-testid="trigger-cron"
-            />
-            <Input
-              aria-label="Time zone"
-              value={draft.tz}
-              onChange={(e) => set({ tz: e.target.value })}
-              placeholder="UTC"
-              spellCheck={false}
-              autoComplete="off"
-              aria-invalid={Boolean(errorOf(`tz`)) || undefined}
-              className={ROW_INPUT}
-              data-testid="trigger-tz"
-            />
-          </>
+          <ScheduleFields
+            value={draft.schedule}
+            onChange={(schedule) => set({ schedule })}
+            errors={errors.filter(
+              (error): error is TriggerDraftError & { field: `days` | `cron` } =>
+                error.field === `days` || error.field === `cron`
+            )}
+          />
         )}
 
         {draft.kind === `event` && (

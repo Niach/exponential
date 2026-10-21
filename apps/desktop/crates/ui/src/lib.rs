@@ -39,6 +39,8 @@ mod attachment_markdown_preview;
 mod attachments_row;
 mod trigger_dialog;
 mod trigger_editor;
+// NEW-2: THE schedule picker rows (schedule-picker.json ×4).
+mod schedule_fields;
 mod board;
 mod board_form;
 mod changelog;

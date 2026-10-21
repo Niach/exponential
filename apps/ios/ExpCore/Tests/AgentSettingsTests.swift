@@ -43,9 +43,8 @@ final class AgentSettingsTests: XCTestCase {
         XCTAssertEqual(copy["noSchedule"] as? String, AgentSettings.Copy.noSchedule)
         XCTAssertEqual(copy["paused"] as? String, AgentSettings.Copy.paused)
         XCTAssertEqual(copy["deleteConfirm"] as? String, AgentSettings.Copy.deleteConfirm)
-        let schedule = try XCTUnwrap(copy["schedule"] as? [String: String])
-        XCTAssertEqual(schedule["cron"], AgentSettings.Copy.scheduleCron)
-        XCTAssertEqual(schedule["cronTz"], AgentSettings.Copy.scheduleCronTz)
+        // NEW-2: a schedule's sentence moved to the schedule picker.
+        XCTAssertNil(copy["schedule"])
         XCTAssertEqual(copy["events"] as? [String: String], AgentSettings.Copy.events)
         XCTAssertEqual(Set(AgentSettings.Copy.events.keys), Set(DomainContract.eventBuiltinNames))
         XCTAssertEqual(copy["event"] as? String, AgentSettings.Copy.event)

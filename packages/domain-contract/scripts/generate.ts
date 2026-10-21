@@ -132,6 +132,7 @@ interface Contract {
     tzMax: number
     catchUpHours: number
   }
+  timeZones: { names: string[] }
   events: {
     builtinNames: string[]
     emitterValues: string[]
@@ -509,6 +510,7 @@ ${swiftStringArray("actionInputTypeValues", contract.actionInputType.values)}
 ${swiftStringArray("mcpTransportValues", contract.mcpTransport.values)}
 ${swiftStringArray("mcpAuthValues", contract.mcpAuth.values)}
 ${swiftStringArray("agentTriggerKindValues", contract.agentTrigger.kindValues)}
+${swiftStringArray("timeZoneNames", contract.timeZones.names)}
 ${swiftStringArray("eventBuiltinNames", contract.events.builtinNames)}
 ${swiftStringArray("eventEmitterValues", contract.events.emitterValues)}
 ${swiftStringArray("steerCommandNames", steerCommandNames)}
@@ -673,6 +675,7 @@ ${kotlinStringArray("actionInputTypeValues", contract.actionInputType.values)}
 ${kotlinStringArray("mcpTransportValues", contract.mcpTransport.values)}
 ${kotlinStringArray("mcpAuthValues", contract.mcpAuth.values)}
 ${kotlinStringArray("agentTriggerKindValues", contract.agentTrigger.kindValues)}
+${kotlinStringArray("timeZoneNames", contract.timeZones.names)}
 ${kotlinStringArray("eventBuiltinNames", contract.events.builtinNames)}
 ${kotlinStringArray("eventEmitterValues", contract.events.emitterValues)}
 ${kotlinStringArray("steerCommandNames", steerCommandNames)}
@@ -839,6 +842,7 @@ ${rustStrSlice("actionInputTypeValues", contract.actionInputType.values)}
 ${rustStrSlice("mcpTransportValues", contract.mcpTransport.values)}
 ${rustStrSlice("mcpAuthValues", contract.mcpAuth.values)}
 ${rustStrSlice("agentTriggerKindValues", contract.agentTrigger.kindValues)}
+${rustStrSlice("timeZoneNames", contract.timeZones.names)}
 ${rustStrSlice("eventBuiltinNames", contract.events.builtinNames)}
 ${rustStrSlice("eventEmitterValues", contract.events.emitterValues)}
 ${rustStrSlice("steerCommandNames", steerCommandNames)}

@@ -4,9 +4,11 @@ import SwiftUI
 
 // EXP-615: the ONE trigger editor — the Schedule | On event switch over the
 // when-part of a trigger. NEW-2: triggers live on a team AGENT definition and
-// the SERVER fires them: a schedule = a 5-field cron (`m h dom mon dow`) read
-// in an IANA time zone (blank = UTC), an event = the name of an `events` row
-// (a builtin, contract `eventBuiltinNames`, or any custom name).
+// the SERVER fires them: a schedule STORES a 5-field cron (`m h dom mon dow`)
+// + an IANA zone, edited ONLY through THE schedule picker (ExpUI
+// `ScheduleFields`, `fixtures/schedule-picker.json`; nobody speaks cron, a raw
+// expression shows only for a custom one); an event = the name of an
+// `events` row (a builtin, contract `eventBuiltinNames`, or any custom name).
 
 /// One trigger's own glyph, by kind (a Triggers row's leading mark).
 enum TriggerGlyph {
@@ -21,9 +23,9 @@ struct TriggerDraft: Equatable {
     static let customEvent = "custom"
 
     var kind = "schedule"
-    var cron = "0 9 * * 1-5"
-    /// IANA zone; blank = UTC. A new trigger seeds the phone's own zone.
-    var tz = TimeZone.current.identifier
+    /// The schedule picker's draft; a new trigger = daily at 09:00 in the
+    /// phone's own zone.
+    var schedule = ScheduleDraft.fresh(tz: TimeZone.current.identifier)
     /// A builtin event name, or `customEvent`.
     var eventPick = DomainContract.eventBuiltinNames.first ?? customEvent
     var customName = ""
@@ -35,8 +37,7 @@ struct TriggerDraft: Equatable {
         switch trigger {
         case let .schedule(s)?:
             kind = "schedule"
-            cron = s.cron
-            tz = s.tz ?? ""
+            schedule = ScheduleDraft(cron: s.cron, tz: s.tz)
         case let .event(e)?:
             kind = "event"
             if DomainContract.eventBuiltinNames.contains(e.name) {
@@ -50,30 +51,21 @@ struct TriggerDraft: Equatable {
         }
     }
 
-    private var trimmedCron: String {
-        cron.trimmingCharacters(in: .whitespacesAndNewlines)
-            .split(whereSeparator: \.isWhitespace).joined(separator: " ")
-    }
-
-    private var trimmedTz: String { tz.trimmingCharacters(in: .whitespacesAndNewlines) }
-
     private var eventName: String {
         eventPick == Self.customEvent
             ? customName.trimmingCharacters(in: .whitespacesAndNewlines)
             : eventPick
     }
 
-    /// What the server's strict schema would take: five cron fields within
-    /// the contract cap (a known zone or none), or a non-blank event name
+    /// What the server's strict schema would take: a schedule the picker
+    /// validates within the contract caps, or a non-blank event name
     /// within its cap of letters, digits and `. _ : / -`.
     var isValid: Bool {
         if kind == "schedule" {
-            let cron = trimmedCron
-            guard cron.split(separator: " ").count == 5,
-                  cron.count <= DomainContract.agentTriggerCronMax
-            else { return false }
-            return trimmedTz.isEmpty
-                || (trimmedTz.count <= DomainContract.agentTriggerTzMax && TimeZone(identifier: trimmedTz) != nil)
+            return schedule.errors.isEmpty
+                && schedule.wireCron.count <= DomainContract.agentTriggerCronMax
+                && !schedule.tz.isEmpty
+                && schedule.tz.count <= DomainContract.agentTriggerTzMax
         }
         let name = eventName
         guard let first = name.unicodeScalars.first,
@@ -87,7 +79,7 @@ struct TriggerDraft: Equatable {
     /// The configured trigger in wire form.
     var trigger: TriggerWhen {
         if kind == "schedule" {
-            return .schedule(ScheduleTrigger(cron: trimmedCron, tz: trimmedTz.isEmpty ? nil : trimmedTz))
+            return .schedule(ScheduleTrigger(cron: schedule.wireCron, tz: schedule.tz))
         }
         return .event(EventTrigger(name: eventName))
     }
@@ -126,9 +118,7 @@ struct TriggerForm: View {
 
     @ViewBuilder
     private var scheduleRows: some View {
-        textRow("Cron", placeholder: "0 9 * * 1-5", text: $draft.cron, id: "trigger-cron")
-            .font(.system(.body, design: .monospaced))
-        textRow("Time zone", placeholder: "UTC", text: $draft.tz, id: "trigger-tz")
+        ScheduleFields(draft: $draft.schedule)
     }
 
     @ViewBuilder

@@ -23,7 +23,8 @@ import {
 
 // The "New trigger" / "Edit trigger" form (EXP-583). EXP-1293: a trigger
 // lives on a team AGENT, which already owns its device and account, so the
-// form edits the WHEN alone (NEW-2: a cron + zone, or an event name). Saving
+// form edits the WHEN alone (NEW-2: THE schedule picker's rows, stored as a
+// cron + zone, or an event name). Saving
 // hands the when-part back; the agent page owns the whole `triggers` array
 // and how it persists (create mode keeps it local, an existing agent writes
 // `agents.update`). Invalid input = an inline error; a failed save keeps the

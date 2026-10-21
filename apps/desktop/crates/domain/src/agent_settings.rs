@@ -17,6 +17,7 @@ use std::sync::LazyLock;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::schedule_picker::schedule_summary;
 use crate::contract::{
     SESSIONS_SEND_AGENT_INSTRUCTIONS_MAX_BYTES, SESSIONS_SEND_AGENT_NAME_MAX,
 };
@@ -35,15 +36,6 @@ pub struct AgentSettingsField {
     pub required: bool,
     #[serde(default)]
     pub owner_only: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AgentScheduleCopy {
-    /// `Cron {cron}`.
-    pub cron: String,
-    /// `Cron {cron} ({tz})`.
-    pub cron_tz: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -70,7 +62,6 @@ pub struct AgentSettingsCopy {
     pub no_schedule: String,
     pub paused: String,
     pub delete_confirm: String,
-    pub schedule: AgentScheduleCopy,
     /// Event trigger text by builtin event name (contract
     /// `events.builtinNames`).
     pub events: BTreeMap<String, String>,
@@ -105,21 +96,14 @@ pub static AGENT_SETTINGS: LazyLock<AgentSettingsSpec> = LazyLock::new(|| {
 });
 
 /// One Triggers row's text for an `AgentTrigger` jsonb (NEW-2): a schedule
-/// reads `Cron {cron}` (` ({tz})` when zoned), a builtin event its copy, any
+/// reads the schedule picker's [`schedule_summary`] (`Every day at 09:00`,
+/// ` ({tz})` when zoned), a builtin event its copy, any
 /// other event `On {name}`; a disabled trigger appends ` · Paused`.
 pub fn trigger_summary(trigger: &Value) -> String {
     let copy = &AGENT_SETTINGS.copy;
     let text_of = |key: &str| trigger.get(key).and_then(Value::as_str).unwrap_or_default();
     let text = if text_of("kind") == "schedule" {
-        let cron = text_of("cron");
-        match text_of("tz") {
-            "" => copy.schedule.cron.replacen("{cron}", cron, 1),
-            tz => copy
-                .schedule
-                .cron_tz
-                .replacen("{cron}", cron, 1)
-                .replacen("{tz}", tz, 1),
-        }
+        schedule_summary(text_of("cron"), Some(text_of("tz")))
     } else {
         let name = text_of("name");
         copy.events

@@ -134,9 +134,8 @@ class AgentSettingsTest {
         assertEquals(copy.str("noSchedule"), AgentSettings.Copy.NO_SCHEDULE)
         assertEquals(copy.str("paused"), AgentSettings.Copy.PAUSED)
         assertEquals(copy.str("deleteConfirm"), AgentSettings.Copy.DELETE_CONFIRM)
-        val schedule = copy.getValue("schedule").jsonObject
-        assertEquals(schedule.str("cron"), AgentSettings.Copy.SCHEDULE_CRON)
-        assertEquals(schedule.str("cronTz"), AgentSettings.Copy.SCHEDULE_CRON_TZ)
+        // NEW-2: a schedule's summary is the schedule picker's (SchedulePickerTest).
+        assertTrue(copy["schedule"] == null)
         assertEquals(copy.str("event"), AgentSettings.Copy.EVENT)
         val events = copy.getValue("events").jsonObject
         assertEquals(events.keys, AgentSettings.Copy.EVENTS.keys)

@@ -28,7 +28,7 @@ import com.exponential.app.ui.components.SheetPrimaryAction
 /**
  * The "New trigger" / "Edit trigger" form of an AGENT's Triggers (EXP-583;
  * EXP-1291: the trigger carries only its WHEN — the agent itself is the
- * runner): Schedule (cron + zone) | On event (a name). Owner-only; the
+ * runner): Schedule (THE schedule picker) | On event (a name). Owner-only; the
  * caller renders it and writes the agent's WHOLE trigger array
  * (`agents.update({triggers})`), a refusal toasts with the sheet open.
  * [onSubmit] hands back [editing]'s id (null = a new trigger) + the when-part.

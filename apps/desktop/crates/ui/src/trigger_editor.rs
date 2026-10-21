@@ -4,7 +4,8 @@
 //! element of an agent's `triggers`.
 //!
 //! A trigger carries only its WHEN: a schedule = a 5-field `cron` and an
-//! optional IANA `tz`; an event = the `name` of an `events` row (a builtin
+//! IANA `tz`, edited through THE schedule picker's rows
+//! ([`crate::schedule_fields`]; nobody speaks cron); an event = the `name` of an `events` row (a builtin
 //! like `issue.created`, or anything `events_emit` posts). The section is
 //! ONE glass group whose first row is the Schedule · On event strip, over
 //! that kind's own field rows. (NEW-6 redoes these screens.)
@@ -32,6 +33,7 @@ use serde_json::{json, Value};
 use domain::agent_settings::AGENT_SETTINGS;
 
 use crate::controls::glass_input;
+use crate::schedule_fields::ScheduleFieldsState;
 use crate::surface;
 
 /// Which pane the section shows. A stored trigger exists to fire, so its
@@ -43,15 +45,10 @@ pub(crate) enum TriggerMode {
     Event,
 }
 
-/// A new schedule's cron: weekdays at 09:00.
-const DEFAULT_CRON: &str = "0 9 * * 1-5";
-
 pub(crate) struct TriggerEditorState {
     pub(crate) mode: TriggerMode,
-    /// The 5-field cron (`m h dom mon dow`).
-    cron: Entity<InputState>,
-    /// The optional IANA zone (blank = the server's UTC).
-    tz: Entity<InputState>,
+    /// The schedule picker's rows (cron + zone on the wire).
+    pub(crate) schedule: ScheduleFieldsState,
     /// The event name the trigger listens on.
     name: Entity<InputState>,
 }
@@ -238,8 +235,7 @@ impl TriggerEditorState {
         };
         Self {
             mode: TriggerMode::Schedule,
-            cron: input(DEFAULT_CRON, DEFAULT_CRON, window, cx),
-            tz: input("Europe/Vienna", "", window, cx),
+            schedule: ScheduleFieldsState::new(window, cx),
             name: input(domain::contract::EVENT_BUILTIN_NAMES[0], domain::contract::EVENT_BUILTIN_NAMES[0], window, cx),
         }
     }
@@ -251,9 +247,7 @@ impl TriggerEditorState {
         match trigger.get("kind").and_then(Value::as_str) {
             Some("schedule") => {
                 self.mode = TriggerMode::Schedule;
-                let (cron, tz) = (text("cron"), text("tz"));
-                self.cron.update(cx, |input, cx| input.set_value(cron, window, cx));
-                self.tz.update(cx, |input, cx| input.set_value(tz, window, cx));
+                self.schedule.seed(&text("cron"), &text("tz"), window, cx);
             }
             Some("event") => {
                 self.mode = TriggerMode::Event;
@@ -268,11 +262,20 @@ impl TriggerEditorState {
     /// adds the id and the flag around it).
     pub(crate) fn to_trigger(&self, cx: &App) -> Value {
         match self.mode {
-            TriggerMode::Schedule => when_schedule(
-                self.cron.read(cx).value().as_ref(),
-                self.tz.read(cx).value().as_ref(),
-            ),
+            TriggerMode::Schedule => {
+                let (cron, tz) = self.schedule.wire(cx);
+                when_schedule(&cron, &tz)
+            }
             TriggerMode::Event => when_event(self.name.read(cx).value().as_ref()),
+        }
+    }
+
+    /// Why the form cannot save yet (empty = savable): only the schedule
+    /// pane validates (a weekly needs a day, a custom cron five fields).
+    pub(crate) fn errors(&self, cx: &App) -> Vec<String> {
+        match self.mode {
+            TriggerMode::Schedule => self.schedule.errors(cx),
+            TriggerMode::Event => Vec::new(),
         }
     }
 
@@ -293,14 +296,10 @@ impl TriggerEditorState {
         let mut rows = vec![self.render_mode_strip(prefix, access, cx)];
         match self.mode {
             TriggerMode::Schedule => {
-                rows.push(surface::glass_input_row(
-                    "Cron",
-                    surface::glass_row_input(glass_input(&self.cron, window, cx)).into_any_element(),
-                    cx,
-                ));
-                rows.push(surface::glass_input_row(
-                    "Time zone",
-                    surface::glass_row_input(glass_input(&self.tz, window, cx)).into_any_element(),
+                rows.extend(self.schedule.render_rows(
+                    prefix,
+                    move |view: &mut V| &mut access(view).schedule,
+                    window,
                     cx,
                 ));
             }
@@ -380,7 +379,9 @@ impl TriggerEditorState {
     }
 }
 
-/// A schedule's when-part: the trimmed cron, the zone only when set.
+/// A schedule's when-part: the trimmed cron and the zone (the editor always
+/// has one — the schedule picker's zone is never blank; a blank one is
+/// still left off rather than sent empty).
 fn when_schedule(cron: &str, tz: &str) -> Value {
     let mut trigger = json!({"kind": "schedule", "cron": cron.trim()});
     if !tz.trim().is_empty() {
@@ -466,14 +467,28 @@ mod tests {
     }
 
     /// NEW-2: the form's when-parts are the server's strict shapes: a
-    /// schedule = cron (+ tz only when set), an event = its name.
+    /// schedule = the picker's canonical cron + its zone (always set), an
+    /// event = its name.
     #[test]
     fn when_parts_are_the_strict_wire_shapes() {
-        assert_eq!(when_schedule(" 0 9 * * 1-5 ", ""), json!({"kind": "schedule", "cron": "0 9 * * 1-5"}));
+        use domain::schedule_picker::{cron_from_schedule, default_schedule, schedule_from_cron};
+        // A fresh draft: the defaults, in the zone the picker always holds.
+        assert_eq!(
+            when_schedule(&cron_from_schedule(&default_schedule()), "UTC"),
+            json!({"kind": "schedule", "cron": "0 9 * * *", "tz": "UTC"})
+        );
+        // A stored `1-5` re-saves in the canonical form.
+        let weekdays = schedule_from_cron("0 9 * * 1-5").unwrap();
+        assert_eq!(
+            when_schedule(&cron_from_schedule(&weekdays), "Europe/Vienna"),
+            json!({"kind": "schedule", "cron": "0 9 * * 1,2,3,4,5", "tz": "Europe/Vienna"})
+        );
+        // A custom cron rides as typed (trimmed), with its zone.
         assert_eq!(
             when_schedule("*/10 * * * *", " Europe/Vienna "),
             json!({"kind": "schedule", "cron": "*/10 * * * *", "tz": "Europe/Vienna"})
         );
+        assert_eq!(when_schedule(" 0 9 * * 1-5 ", ""), json!({"kind": "schedule", "cron": "0 9 * * 1-5"}));
         assert_eq!(when_event(" ui-changed "), json!({"kind": "event", "name": "ui-changed"}));
         // The builtin event picker reads the fixture's copy for every name.
         for name in domain::contract::EVENT_BUILTIN_NAMES {

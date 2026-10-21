@@ -97,7 +97,8 @@ fn open_inner(window: &mut Window, cx: &mut App, target: Target, existing: Optio
     // The window opens at the cap and then FITS its form (P66): no slack
     // under a short schedule form, the form's own scroll past the cap.
     let max_height = window.viewport_size().height * 0.85;
-    let height = max_height.min(px(400.));
+    // NEW-2: the schedule picker = up to five rows under the strip.
+    let height = max_height.min(px(460.));
     let spec = DialogSpec::new(
         if editing { "Edit trigger" } else { "New trigger" },
         size(px(520.), height),
@@ -192,6 +193,11 @@ impl TriggerDialogView {
 
     fn write(&mut self, write: Write, window: &mut Window, cx: &mut gpui::Context<Self>) {
         if self.submitting {
+            return;
+        }
+        // NEW-2: an unsavable schedule (a weekly with no day, a custom cron
+        // that is not five fields) never writes; a delete always may.
+        if matches!(write, Write::Save) && !self.editor.errors(cx).is_empty() {
             return;
         }
         // The array a save replaces is the agent's CURRENT one, read at
@@ -312,6 +318,7 @@ impl Render for TriggerDialogView {
             .editor
             .render("trigger-dialog", |this: &mut Self| &mut this.editor, window, cx);
         let editing = self.existing.is_some();
+        let savable = self.editor.errors(cx).is_empty();
 
         let footer = h_flex()
             .flex_shrink_0()
@@ -352,7 +359,7 @@ impl Render for TriggerDialogView {
                     } else {
                         "Add trigger"
                     }))
-                    .disabled(self.submitting)
+                    .disabled(self.submitting || !savable)
                     .loading(self.submitting)
                     .on_click(cx.listener(|this, _, window, cx| this.write(Write::Save, window, cx))),
             );

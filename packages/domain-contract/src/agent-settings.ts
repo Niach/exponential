@@ -5,6 +5,7 @@
 
 import fixture from "../fixtures/agent-settings.json" with { type: "json" }
 import contractJson from "../contract.json" with { type: "json" }
+import { scheduleSummary } from "./schedule-picker"
 
 export const AGENT_SETTINGS_FIELDS = fixture.fields
 export const AGENT_SETTINGS_COPY = fixture.copy
@@ -24,10 +25,8 @@ export function triggerSummary(trigger: AgentTriggerLike): string {
   const copy = fixture.copy
   let text = ``
   if (trigger.kind === `schedule`) {
-    const cron = trigger.cron ?? ``
-    text = trigger.tz
-      ? copy.schedule.cronTz.replace(`{cron}`, cron).replace(`{tz}`, trigger.tz)
-      : copy.schedule.cron.replace(`{cron}`, cron)
+    // NEW-2: the schedule picker's sentence (`schedule-picker.json`).
+    text = scheduleSummary(trigger.cron ?? ``, trigger.tz)
   } else {
     const name = trigger.name ?? ``
     text = (copy.events as Record<string, string>)[name] ?? copy.event.replace(`{name}`, name)

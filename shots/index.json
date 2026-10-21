@@ -4052,15 +4052,15 @@
         "file": "shots/settings-team-agent/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 46114,
-        "sha256": "6d588f1d27f8bbf413ac2f854a2ed1da4e6c5e289454b1d94ba87c3b3c3b9988"
+        "bytes": 46636,
+        "sha256": "d8e8e12f4837ab9cbe3d9aaba69efa45f2421665ccf6bcf8d0b34b05b97b63c5"
       },
       "web-mobile": {
         "file": "shots/settings-team-agent/web-mobile.webp",
         "width": 832,
         "height": 1800,
-        "bytes": 42556,
-        "sha256": "0388d83392049a020bb440f29e8ff0b18efb7a8a0fce4c8ff26a1f78292d01b1"
+        "bytes": 43344,
+        "sha256": "305597bb110bc3e22a4350780c46c910267f0e231b3b23ca7a26dbe287eb7981"
       }
     },
     "settings-tools": {

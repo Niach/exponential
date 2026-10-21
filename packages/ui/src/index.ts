@@ -128,6 +128,9 @@ export * from "./sub-shell"
 export * from "./strip-chip"
 export * from "./switch"
 export * from "./scope-picker"
+// NEW-2: THE schedule picker (`fixtures/schedule-picker.json`), the rows a
+// schedule trigger is edited through ×4.
+export * from "./schedule-fields"
 export * from "./tabs"
 export * from "./team-avatar"
 export * from "./textarea"
