@@ -163,19 +163,17 @@ public struct TreeSessionRead: Equatable, Sendable {
     }
 }
 
-/// One `session_issues` link (root ↔ issue).
+/// One `session_issues` link (session ↔ issue). NEW-1: the row sits on the
+/// session that HOLDS the issue (root or child alike).
 public struct TreeSessionIssue: Equatable, Sendable {
     public let sessionId: String
     public let issueId: String
     public let sortOrder: Double
-    /// EXP-1341: the tree session working on it (nil = the root's own).
-    public let assignedSessionId: String?
 
-    public init(sessionId: String, issueId: String, sortOrder: Double, assignedSessionId: String? = nil) {
+    public init(sessionId: String, issueId: String, sortOrder: Double) {
         self.sessionId = sessionId
         self.issueId = issueId
         self.sortOrder = sortOrder
-        self.assignedSessionId = assignedSessionId
     }
 }
 
@@ -537,10 +535,13 @@ public struct TreeMessage: Equatable, Sendable, Identifiable {
 public struct TreePullRequest: Equatable, Sendable, Identifiable {
     public let id: String
     public let number: Int
+    /// NEW-1: `open` | `merged` | `closed` (`treeState` reads it; nil = unknown).
+    public let state: String?
 
-    public init(id: String, number: Int) {
+    public init(id: String, number: Int, state: String? = nil) {
         self.id = id
         self.number = number
+        self.state = state
     }
 }
 
@@ -1130,6 +1131,15 @@ public enum SessionTree {
     /// fixtures/session-card.json `copy` + `testIds`.
     public enum CardCopy {
         public static let testId = "session-card"
+        /// NEW-1: `copy.blockedKinds` — the state word per `blocked.kind`
+        /// (contract codingSessionBlocked.kinds); an unknown kind reads
+        /// `SessionState.blocked.word`.
+        public static let blockedKinds: [String: String] = [
+            "rate_limit": "Usage limit",
+            "device_offline": "Device offline",
+            "unclaimed": "Not picked up",
+            "stuck": "Stuck",
+        ]
     }
 
     /// fixtures/session-thread.json `copy` + `testIds` (titles: `SessionTitle`).
@@ -1138,7 +1148,8 @@ public enum SessionTree {
         public static let placeholder = "Type / for commands"
         public static let conversation = "Conversation"
         public static let guide = "Guide"
-        /// `{issue}` = the identifier, `{pr}` = `#<number>`.
+        /// `{issue}` = the identifier, `{pr}` = `#<number>`, `{session}` =
+        /// the named session's card name (NEW-1).
         public static let events: [String: String] = [
             "issue_linked": "Linked {issue}",
             "issue_filed": "Filed {issue}",
@@ -1147,6 +1158,11 @@ public enum SessionTree {
             "pr_merged": "Merged PR {pr}",
             "pr_closed": "Closed PR {pr}",
             "session_ended": "Session ended",
+            "session_claimed": "{session} started",
+            "session_blocked": "{session} hit a usage limit",
+            "session_unclaimed": "{session} was not picked up",
+            "session_stuck": "{session} looks stuck",
+            "device_offline": "{session} paused: device offline",
         ]
         public static let tabsTestId = "thread-tabs"
         /// EXP-1334: a zone's "+N" chip reads out as web's
@@ -1316,7 +1332,7 @@ public enum SessionTree {
         for session in sessions { byId[session.id] = session }
         byId[root.id] = root
         let titles = SessionTitle.titles(Array(byId.values), sessionIssues: sessionIssues, issues: issues, messages: messages)
-        let linked = rootIssues(root.id, sessionIssues: sessionIssues, issues: issues)
+        let linked = treeIssues(tree, sessionIssues: sessionIssues, issues: issues)
         var issueMap: [String: TreeIssue] = [:]
         for issue in issues { issueMap[issue.id] = issue }
         var prMap: [String: TreePullRequest] = [:]
@@ -1437,9 +1453,17 @@ public enum SessionTree {
                     rows.append(row)
                 }
             case "event":
-                if let text = eventText(card, issues: issueMap, pullRequests: prMap) {
+                let text = eventText(card, issues: issueMap, pullRequests: prMap) { id in
+                    byId[id].map { sessionCard($0, title: titles[$0.id] ?? "", now: now).name }
+                }
+                if let text {
                     rows.append(.event(id: message.id, event: card.event ?? "", text: text))
                 }
+            // NEW-1: a child's ask mirrored into its parent (`ask`): the
+            // child's own card already surfaces in the Conversation, so the
+            // mirror draws nothing here.
+            case "ask":
+                break
             default:
                 break
             }
@@ -1650,7 +1674,8 @@ public enum SessionTree {
         issues: [TreeIssue],
         messages: [TreeMessage],
         teamId: String?,
-        reads: [TreeSessionRead] = []
+        reads: [TreeSessionRead] = [],
+        now: String? = nil
     ) -> [ThreadsListGroup] {
         // EXP-1323: unread = the newest agent-authored message (a root: any
         // session of its tree; a child: its own) is newer than the viewer's
@@ -1739,14 +1764,62 @@ public enum SessionTree {
             }
             buckets[key, default: []].append((row, children, activityMs))
         }
+        // NEW-1: Recent = every tree active in the last `recent.hours`,
+        // filled up to the last `recent.max` by activity (no clock = the
+        // last `recent.max` only). Ended trees stay openable.
+        let at = ms(now)
         return ThreadsListGroup.Key.allCases.compactMap { key in
-            let rows = (buckets[key] ?? []).sorted { a, b in
+            var entries = (buckets[key] ?? []).sorted { a, b in
                 if a.activityMs != b.activityMs { return a.activityMs > b.activityMs }
                 return a.row.sessionId < b.row.sessionId
             }
-            .flatMap { [$0.row] + $0.children }
+            if key == .recent {
+                entries = entries.enumerated().filter { index, entry in
+                    index < ListRules.recentMax
+                        || (at.map { $0 - entry.activityMs <= ListRules.recentHours * 60 * 60 * 1000 } ?? false)
+                }.map(\.element)
+            }
+            let rows = entries.flatMap { [$0.row] + $0.children }
             return rows.isEmpty ? nil : ThreadsListGroup(key: key, title: key.title, rows: rows)
         }
+    }
+
+    /// NEW-1: fixtures/threads-list.json `recent` + `treeState`.
+    public enum ListRules {
+        public static let recentHours: Double = 24
+        public static let recentMax = 20
+        public static let staleHours: Double = 24
+    }
+
+    /// NEW-1 (plan 3.13): a tree's derived state (threads-list.json
+    /// `treeState`).
+    public enum TreeState: String, Equatable, Sendable, CaseIterable {
+        case needsYou = "needs_you"
+        case running
+        case done
+        case stale
+        case idle
+    }
+
+    /// NEW-1: `needs_you` = a live session waits on a person (a card, a
+    /// usage wall or a watchdog flag all set `needsInput`); `running` = any
+    /// session queued or running; `done` = every session ended and every PR
+    /// of the thread merged (none = never done); `stale` = nothing touched
+    /// for `staleHours`; else `idle`.
+    public static func treeState(
+        _ tree: [TreeSession],
+        pullRequests: [TreePullRequest],
+        now: String?
+    ) -> TreeState {
+        let live = tree.filter { $0.status != "ended" }
+        if live.contains(where: { $0.needsInput }) { return .needsYou }
+        if live.contains(where: { $0.status == "queued" || $0.status == "running" }) { return .running }
+        if live.isEmpty, !pullRequests.isEmpty, pullRequests.allSatisfy({ $0.state == "merged" }) {
+            return .done
+        }
+        let newest = tree.reduce(0.0) { Swift.max($0, ms($1.updatedAt) ?? 0) }
+        if let at = ms(now), at - newest > ListRules.staleHours * 60 * 60 * 1000 { return .stale }
+        return .idle
     }
 
     /// EXP-1323: the Threads nav dot = any thread (depth 0) row is unread.
@@ -1928,39 +2001,55 @@ public enum SessionTree {
 
     // MARK: - Helpers
 
-    private static func rootIssues(
-        _ rootId: String,
+    /// NEW-1: a thread's issues = the UNION over its tree's rows: the
+    /// sessions in tree order (the root first, then creation order), each
+    /// one's rows by `sortOrder` then `issueId`, every issue once.
+    public static func treeIssues(
+        _ tree: [TreeSession],
         sessionIssues: [TreeSessionIssue],
         issues: [TreeIssue]
     ) -> [TreeIssue] {
         var byId: [String: TreeIssue] = [:]
         for issue in issues { byId[issue.id] = issue }
-        return sessionIssues
-            .enumerated()
-            .filter { $0.element.sessionId == rootId }
-            .sorted { a, b in
-                a.element.sortOrder != b.element.sortOrder
-                    ? a.element.sortOrder < b.element.sortOrder
-                    : a.offset < b.offset
+        var bySession: [String: [TreeSessionIssue]] = [:]
+        for link in sessionIssues { bySession[link.sessionId, default: []].append(link) }
+        var seen = Set<String>()
+        var out: [TreeIssue] = []
+        for session in tree {
+            let rows = (bySession[session.id] ?? []).sorted { a, b in
+                a.sortOrder != b.sortOrder ? a.sortOrder < b.sortOrder : a.issueId < b.issueId
             }
-            .compactMap { byId[$0.element.issueId] }
+            for link in rows {
+                guard let issue = byId[link.issueId], !seen.contains(issue.id) else { continue }
+                seen.insert(issue.id)
+                out.append(issue)
+            }
+        }
+        return out
     }
 
     private static func eventText(
         _ card: TreeMessageCard,
         issues: [String: TreeIssue],
-        pullRequests: [String: TreePullRequest]
+        pullRequests: [String: TreePullRequest],
+        sessionName: (String) -> String? = { _ in nil }
     ) -> String? {
         guard let template = ThreadCopy.events[card.event ?? ""] else { return nil }
-        if template.contains("{issue}") {
+        var text = template
+        if text.contains("{issue}") {
             guard let issue = card.issueId.flatMap({ issues[$0] }) else { return nil }
-            return template.replacingOccurrences(of: "{issue}", with: issue.identifier)
+            text = text.replacingOccurrences(of: "{issue}", with: issue.identifier)
         }
-        if template.contains("{pr}") {
+        if text.contains("{pr}") {
             guard let pr = card.pullRequestId.flatMap({ pullRequests[$0] }) else { return nil }
-            return template.replacingOccurrences(of: "{pr}", with: "#\(pr.number)")
+            text = text.replacingOccurrences(of: "{pr}", with: "#\(pr.number)")
         }
-        return template
+        if text.contains("{session}") {
+            // NEW-1: a bus line about a session of the tree; an unsynced one drops.
+            guard let name = card.sessionId.flatMap(sessionName), !name.isEmpty else { return nil }
+            text = text.replacingOccurrences(of: "{session}", with: name)
+        }
+        return text
     }
 
     /// Epoch milliseconds of a wire timestamp; nil when missing or unreadable.

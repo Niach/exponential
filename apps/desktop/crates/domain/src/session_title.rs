@@ -1,12 +1,12 @@
-//! EXP-1341: THE display title of any session ×4 (never `Session N`) — the
+//! EXP-1341/NEW-1: THE display title of any session ×4 (never `Session N`) — the
 //! Rust twin of `packages/domain-contract/src/session-title.ts` (iOS ExpCore
 //! `SessionTitle.swift`, Android `domain/SessionTitle.kt`), byte-locked by
 //! `fixtures/session-title.json`. The first rung that yields text wins:
 //!
 //! 1. the explicit name: `name` (an agent's facet), else `title` (a name
 //!    passed to `sessions_send`, else the agent CLI's own auto-title);
-//! 2. the session's issues: a ROOT = its links, a CHILD = the links
-//!    ASSIGNED to it (`assigned_session_id`), `#APP-1 Title` / `… + n`;
+//! 2. the session's issues = its OWN rows (`session_id` = the holder, root
+//!    or child alike, NEW-1), `#APP-1 Title` / `… + n`;
 //! 3. `Run <action>`;
 //! 4. the first prompt's first usable line (a person's or another
 //!    session's input, never a card, never an image embed);
@@ -101,9 +101,9 @@ pub fn title_from_parts(
     }
 }
 
-/// A root's links (`session_id == id`), or the links ASSIGNED to a child
-/// (`assigned_session_id == id`), by sort order then issue id, resolved
-/// through `issues` (unknown ids skipped).
+/// The session's OWN rows (`session_id == id`, root or child alike, NEW-1;
+/// the legacy `assigned_session_id` is ignored), by sort order then issue
+/// id, resolved through `issues` (unknown ids skipped).
 pub fn session_issues<'i>(
     session: &SessionRow,
     links: &[&SessionIssueRow],
@@ -111,17 +111,10 @@ pub fn session_issues<'i>(
 ) -> Vec<&'i TreeIssue> {
     let by_id: HashMap<&str, &TreeIssue> =
         issues.iter().map(|issue| (issue.id.as_str(), issue)).collect();
-    let is_root = session.id == session.root_id_or_self();
     let mut own: Vec<&SessionIssueRow> = links
         .iter()
         .copied()
-        .filter(|link| {
-            if is_root {
-                link.session_id == session.id
-            } else {
-                link.assigned_session_id.as_deref() == Some(session.id.as_str())
-            }
-        })
+        .filter(|link| link.session_id == session.id)
         .collect();
     own.sort_by(|a, b| {
         a.sort_order
@@ -244,7 +237,6 @@ mod tests {
                         "session_id": link["sessionId"],
                         "issue_id": link["issueId"],
                         "sort_order": link["sortOrder"],
-                        "assigned_session_id": link["assignedSessionId"],
                     }))
                     .unwrap()
                 })

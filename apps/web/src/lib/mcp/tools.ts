@@ -135,7 +135,12 @@ import { visibleDeviceRows } from "@/lib/trpc/devices"
 // EXP-1291: the session tree's core (lib/sessions/**) and the PR model
 // (lib/pull-requests.ts). These tools only add grants and resolve the caller.
 import { sendSession } from "@/lib/sessions/send"
-import { assertCanSteer, loadSessionForUser } from "@/lib/sessions/access"
+import {
+  assertCanSteer,
+  isSessionPrincipal,
+  loadSessionForUser,
+  sessionDeviceOwner,
+} from "@/lib/sessions/access"
 import { getSessionTree, listSessions } from "@/lib/sessions/tree"
 import { endSession, stopSession } from "@/lib/sessions/lifecycle"
 import { linkIssues, unlinkIssue } from "@/lib/sessions/issues"
@@ -575,9 +580,6 @@ export function registerExponentialTools(
   async function loadCallerSession(): Promise<CallerSession | null> {
     if (!sessionId) return null
     const root = alias(sessions, `root`)
-    // The host device's row (devices are per (user, deviceId)): its
-    // reported version says whether it feeds the session's own cards.
-    const host = alias(devices, `host`)
     const [row] = await db
       .select({
         id: sessions.id,
@@ -585,36 +587,33 @@ export function registerExponentialTools(
         rootId: sessions.rootId,
         parentId: sessions.parentId,
         userId: sessions.userId,
-        hostUserId: sessions.hostUserId,
+        deviceId: sessions.deviceId,
         rootKind: root.kind,
-        rootSpawnedBy: root.spawnedBySessionId,
         planMode: sessions.planMode,
-        hostVersion: host.version,
+        // NEW-1: a live session watches this one (its spawner).
+        watched: sql<boolean>`EXISTS (SELECT 1 FROM sessions w WHERE w.status <> 'ended' AND w.wake_on @> jsonb_build_array(${sessions.id}::text))`,
       })
       .from(sessions)
       .leftJoin(root, eq(root.id, sessions.rootId))
-      .leftJoin(
-        host,
-        and(
-          eq(host.deviceId, sessions.deviceId),
-          eq(
-            host.userId,
-            sql`coalesce(${sessions.hostUserId}, ${sessions.userId})`
-          )
-        )
-      )
       .where(eq(sessions.id, sessionId))
       .limit(1)
     if (!row) return null
-    if (row.userId !== user.id && row.hostUserId !== user.id) return null
+    if (!(await isSessionPrincipal(user.id, row))) return null
+    // The host device's row (devices are per (user, deviceId)): its
+    // reported version says whether it feeds the session's own cards.
+    const [host] = await db
+      .select({ version: devices.version })
+      .from(devices)
+      .where(and(eq(devices.deviceId, row.deviceId), eq(devices.userId, await sessionDeviceOwner(row))))
+      .limit(1)
     return {
       id: row.id,
       teamId: row.teamId,
       rootId: row.rootId,
       rootKind: row.rootKind ?? `thread`,
-      unattended: row.parentId !== null || row.rootSpawnedBy != null,
+      unattended: row.parentId !== null || row.watched === true,
       planMode: row.planMode === true,
-      cards: hostFeedsOwnCards(row.hostVersion),
+      cards: hostFeedsOwnCards(host?.version),
     }
   }
 
@@ -1259,9 +1258,10 @@ export function registerExponentialTools(
           if (target.teamId !== board.teamId) {
             throw new Error(`Session not found in this board's team`)
           }
-          rootId = target.rootId
+          rootId = target.id
         } else if (own && own.teamId === board.teamId && own.rootKind === `thread`) {
-          rootId = own.rootId
+          // NEW-1: the filer holds the issue (a row on the caller's session).
+          rootId = own.id
         }
         const result = await caller(user, request).issues.create({
           ...rest,
@@ -1275,7 +1275,7 @@ export function registerExponentialTools(
         try {
           await db.transaction((tx) =>
             linkIssues(tx, {
-              rootId: rootId!,
+              sessionId: rootId!,
               issueIds: [result.issue.id],
               source: `agent`,
               addedBy: user.id,
@@ -2176,8 +2176,9 @@ export function registerExponentialTools(
     return session
   }
 
-  /** The thread root a link tool writes on: the named session's root (a
-   * steer right on it), else the caller's own root. */
+  /** The session a link tool writes on (NEW-1: the row sits on the session
+   * that HOLDS the issue): the named session (a steer right on it), else the
+   * caller's own. */
   async function linkTarget(
     sessionIdArg: string | undefined,
     tool: string
@@ -2185,11 +2186,11 @@ export function registerExponentialTools(
     if (sessionIdArg) {
       const session = await loadGrantedSession(sessionIdArg)
       await assertCanSteer(user.id, session)
-      return { rootId: session.rootId, teamId: session.teamId }
+      return { rootId: session.id, teamId: session.teamId }
     }
     const own = await loadCallerSession()
     if (!own) throw new Error(noSessionMessage(tool, `sessionId`))
-    return { rootId: own.rootId, teamId: own.teamId }
+    return { rootId: own.id, teamId: own.teamId }
   }
 
   /** Issue refs (UUID or identifier) → ids, grant-checked and confined to
@@ -2214,7 +2215,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_sessions_send`,
     {
-      description: `THE one call for sessions. sessionId = message it (idle resumes, an ended one continues in a child; account alone = switch its claude login; deviceId = move it there after its turn; issueIds = forward them). parentId = start a child (issueIds = its share). Neither = a new thread (text, issueIds, actionId+inputs, repositoryId) or, with agent {name, icon, color, instructions?, triggers?}, a team agent. name = a new session's title. New sessions need deviceId (exponential_devices_list); the other fields pick the runner. teamId defaults to your session's team; @email in text mentions. Queued at once: never resend.`,
+      description: `THE one call for sessions. sessionId = message it (idle resumes; ended = continues on its branch; answer = answer its open question/plan {answer|answers|decision}, first wins; issueIds = forward; account = switch login; deviceId = move). parentId = start a child. Neither = a new thread (text, issueIds, actionId+inputs, repositoryId) or, with agent, a team agent; its transitions wake you, as do wakeOn sessions. New sessions need deviceId; teamId defaults to yours. Never resend, never wait.`,
       _meta: ALWAYS_LOAD_META,
       inputSchema: strictInput({
         teamId: uuidString.optional(),
@@ -2238,6 +2239,8 @@ export function registerExponentialTools(
         repositoryId: uuidString.optional(),
         // Loose for the context budget; sessionsSendInputSchema validates all.
         agent: z.record(z.string(), z.unknown()).optional(),
+        answer: z.record(z.string(), z.unknown()).optional(),
+        wakeOn: z.array(uuidString).min(1).max(20).optional(),
       }),
     },
     async ({ issueIds: issueRefs, ...rest }) => {
@@ -2558,7 +2561,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_sessions_link`,
     {
-      description: `Link issues (UUIDs or identifiers) to a thread: the root of sessionId, default your own session's. Same team only.`,
+      description: `Link issues (UUIDs or identifiers) to a session (sessionId, default your own): it holds them, a session with a repository takes them (In progress). Same team only.`,
       inputSchema: strictInput({
         issueIds: z.array(z.string().min(1)).min(1).max(30),
         sessionId: uuidString.optional(),
@@ -2571,7 +2574,7 @@ export function registerExponentialTools(
         const own = await loadCallerSession()
         const result = await db.transaction((tx) =>
           linkIssues(tx, {
-            rootId,
+            sessionId: rootId,
             issueIds,
             source: own ? `agent` : `user`,
             addedBy: user.id,
@@ -2589,7 +2592,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_sessions_unlink`,
     {
-      description: `Unlink an issue (UUID or identifier) from a thread: the root of sessionId, default your own session's.`,
+      description: `Unlink an issue (UUID or identifier) from a session (sessionId, default your own; else from whichever session of its thread holds it). Its last worker dropping it sends it back to backlog.`,
       inputSchema: strictInput({
         issueId: z.string().min(1),
         sessionId: uuidString.optional(),
@@ -2602,8 +2605,9 @@ export function registerExponentialTools(
         const own = await loadCallerSession()
         const result = await db.transaction((tx) =>
           unlinkIssue(tx, {
-            rootId,
+            sessionId: rootId,
             issueId: issueId!,
+            removedBy: user.id,
             removedBySessionId: own?.id ?? null,
           })
         )

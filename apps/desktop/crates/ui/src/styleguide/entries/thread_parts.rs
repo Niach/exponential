@@ -556,6 +556,7 @@ pub(super) fn threads_list_case() -> (Vec<ThreadsListGroup>, PrSnapshot) {
         messages: &messages.iter().collect::<Vec<_>>(),
         team_id: input["teamId"].as_str(),
         reads: &reads.iter().collect::<Vec<_>>(),
+        now_ms: None,
     });
     let snapshot = PrSnapshot {
         pulls: list_pull_requests(),

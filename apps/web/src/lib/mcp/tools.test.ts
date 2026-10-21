@@ -259,6 +259,12 @@ vi.mock(`@/lib/sessions/send`, () => ({ sendSession: h.sessionsCore.sendSession 
 vi.mock(`@/lib/sessions/access`, () => ({
   loadSessionForUser: h.sessionsCore.loadSessionForUser,
   assertCanSteer: h.sessionsCore.assertCanSteer,
+  // NEW-1: the host is derived from the devices rows; the mocked rows carry
+  // it as `hostUserId` so the cases read as before.
+  isSessionPrincipal: async (userId: string, row: { userId: string; hostUserId?: string | null }) =>
+    row.userId === userId || row.hostUserId === userId,
+  sessionDeviceOwner: async (row: { userId: string; hostUserId?: string | null }) =>
+    row.hostUserId ?? row.userId,
 }))
 vi.mock(`@/lib/sessions/tree`, () => ({
   getSessionTree: h.sessionsCore.getSessionTree,
@@ -1918,7 +1924,7 @@ describe(`exponential_comments_create audience reporter`, () => {
     userId: `user-1`,
     hostUserId: null,
     rootKind: `thread`,
-    rootSpawnedBy: null,
+    watched: null,
     ...over,
   })
 
@@ -1938,7 +1944,7 @@ describe(`exponential_comments_create audience reporter`, () => {
 
   it.each([
     [`a child session`, { parentId: UUID }],
-    [`a spawned root`, { rootSpawnedBy: UUID }],
+    [`a spawned root`, { watched: true }],
   ])(`refuses an unattended session (%s)`, async (_label, over) => {
     dbRows.current = [ownSession(over)]
     const result = await collectTools(USER, SESSION).get(
@@ -2015,7 +2021,7 @@ const callerRow = (over: Record<string, unknown> = {}) => ({
   userId: USER.id,
   hostUserId: null,
   rootKind: `thread`,
-  rootSpawnedBy: null,
+  watched: null,
   ...over,
 })
 const sessionRow = (over: Record<string, unknown> = {}) => ({
@@ -2105,7 +2111,7 @@ describe(`exponential_sessions_send`, () => {
   it(`applies the sessions.send rules (a message needs text)`, async () => {
     const result = await tool(`exponential_sessions_send`)({ sessionId: SESSION })
     expect(result.isError).toBe(true)
-    expect(result.content[0].text).toContain(`a message needs text, attachments, issues, an account or a device`)
+    expect(result.content[0].text).toContain(`a message needs text, attachments, issues, an answer, an account or a device`)
     expect(sessionsCore.sendSession).not.toHaveBeenCalled()
   })
 
@@ -2248,9 +2254,10 @@ describe(`exponential_sessions_link / unlink`, () => {
     const result = await collectTools(USER, SESSION).get(`exponential_sessions_link`)!({
       issueIds: [UUID],
     })
-    expect(parseOk(result)).toEqual({ sessionId: ROOT, issueIds: [UUID], linked: [UUID] })
+    // NEW-1: the caller's OWN session holds the rows.
+    expect(parseOk(result)).toEqual({ sessionId: SESSION, issueIds: [UUID], linked: [UUID] })
     expect(sessionsCore.linkIssues).toHaveBeenCalledWith(db, {
-      rootId: ROOT,
+      sessionId: SESSION,
       issueIds: [UUID],
       source: `agent`,
       addedBy: USER.id,
@@ -2259,7 +2266,7 @@ describe(`exponential_sessions_link / unlink`, () => {
     expect(noteAgentIssueActivity).toHaveBeenCalledWith(UUID, USER.id)
   })
 
-  it(`writes on a named session's root after the steer check`, async () => {
+  it(`writes on the named session after the steer check`, async () => {
     sessionsCore.loadSessionForUser.mockResolvedValue(
       sessionRow({ id: CHILD, rootId: ROOT, teamId: `ws-1` })
     )
@@ -2268,7 +2275,7 @@ describe(`exponential_sessions_link / unlink`, () => {
     expect(sessionsCore.assertCanSteer).toHaveBeenCalled()
     expect(sessionsCore.linkIssues).toHaveBeenCalledWith(
       db,
-      expect.objectContaining({ rootId: ROOT, source: `user`, addedBySessionId: null })
+      expect.objectContaining({ sessionId: CHILD, source: `user`, addedBySessionId: null })
     )
   })
 
@@ -2286,16 +2293,17 @@ describe(`exponential_sessions_link / unlink`, () => {
     expect(sessionsCore.linkIssues).not.toHaveBeenCalled()
   })
 
-  it(`unlinks from the caller's root`, async () => {
+  it(`unlinks from the caller's own session`, async () => {
     dbRows.current = [callerRow({ teamId: `ws-1` })]
     sessionsCore.unlinkIssue.mockResolvedValue({ unlinked: true })
     const result = await collectTools(USER, SESSION).get(`exponential_sessions_unlink`)!({
       issueId: UUID,
     })
-    expect(parseOk(result)).toEqual({ sessionId: ROOT, issueId: UUID, unlinked: true })
+    expect(parseOk(result)).toEqual({ sessionId: SESSION, issueId: UUID, unlinked: true })
     expect(sessionsCore.unlinkIssue).toHaveBeenCalledWith(db, {
-      rootId: ROOT,
+      sessionId: SESSION,
       issueId: UUID,
+      removedBy: USER.id,
       removedBySessionId: SESSION,
     })
   })
@@ -2319,9 +2327,10 @@ describe(`exponential_issues_create sessionId (EXP-1291)`, () => {
       boardId: PROJ,
       title: `Follow-up`,
     })
-    expect(parseOk(result)).toEqual({ id: UUID, identifier: `EXP-9`, sessionId: ROOT })
+    // NEW-1: the filer holds the issue.
+    expect(parseOk(result)).toEqual({ id: UUID, identifier: `EXP-9`, sessionId: SESSION })
     expect(sessionsCore.linkIssues).toHaveBeenCalledWith(db, {
-      rootId: ROOT,
+      sessionId: SESSION,
       issueIds: [UUID],
       source: `agent`,
       addedBy: USER.id,
@@ -2330,7 +2339,7 @@ describe(`exponential_issues_create sessionId (EXP-1291)`, () => {
     })
   })
 
-  it(`files into a named session's thread after the steer check`, async () => {
+  it(`files into the named session after the steer check`, async () => {
     sessionsCore.loadSessionForUser.mockResolvedValue(
       sessionRow({ id: CHILD, rootId: ROOT, teamId: `ws-1` })
     )
@@ -2342,7 +2351,7 @@ describe(`exponential_issues_create sessionId (EXP-1291)`, () => {
     expect(sessionsCore.assertCanSteer).toHaveBeenCalled()
     expect(sessionsCore.linkIssues).toHaveBeenCalledWith(
       db,
-      expect.objectContaining({ rootId: ROOT, filed: true, addedBySessionId: null })
+      expect.objectContaining({ sessionId: CHILD, filed: true, addedBySessionId: null })
     )
   })
 

@@ -14,8 +14,6 @@ import {
   hexColorSchema,
   MESSAGE_BODY_MAX,
   messageCardSchema,
-  PLAN_CARD_LABEL_MAX,
-  planCardAnswersSchema,
   QUESTION_CARD_OPTIONS_MAX,
   questionCardOptionDescriptionsSchema,
   questionCardOptionSchema,
@@ -41,9 +39,13 @@ import {
   loadSessionForUser,
 } from "@/lib/sessions/access"
 import { composeSessionBrief } from "@/lib/sessions/brief"
-import { briefHandoff, completeHandoff, finishHandoff } from "@/lib/sessions/handoff"
 import { configureSession, mcpPicks } from "@/lib/sessions/configure"
-import { answeredCard } from "@/lib/sessions/card-answer"
+import {
+  cardAnswerInput,
+  loadCardForAnswer,
+  stampAnsweredCard,
+} from "@/lib/sessions/answer"
+import { BUS_COPY, busAsk, busLine, busRelayTurn } from "@/lib/sessions/bus"
 import {
   issueIdentifiers,
   linkIssues,
@@ -51,15 +53,14 @@ import {
   unlinkIssue,
 } from "@/lib/sessions/issues"
 import {
+  endDeadSessionInTx,
   endSession,
-  postReportToParent,
-  settleFollowUpIssuesInTx,
   relayKillSessionsBestEffort,
   stopSession,
 } from "@/lib/sessions/lifecycle"
 import { parseMcpSessionHeader } from "@/lib/mcp/session-header"
-import { normalizeCaption } from "@/lib/sessions/caption"
 import { answeredOwnCard, pendingInput, postAgentMessage } from "@/lib/sessions/messages"
+import { clearBlockedInTx } from "@/lib/sessions/watchdog"
 import {
   dismissReplies,
   dismissSuggestion,
@@ -82,15 +83,17 @@ import {
   notifySessionBlocked,
 } from "@/lib/integrations/notifications"
 
-// EXP-1291 Threads v2: THE session router. A thread IS a root session; a
-// team agent is a root of kind `agent`; children are sub-sessions. ONE
-// entrypoint starts and messages them all: `sessions.send` (the composer,
-// Start on an issue, an action, a trigger firing, an agent spawn, a
-// follow-up). The database is the bus: a new session is a `queued` row
-// naming its device, a message a `messages` row; the device picks both up
-// off the `sessions` / `messages` shapes and reports back through the
-// DEVICE procedures below (claim/report/reply/consume). Reads ride the
-// shapes; tRPC returns ids + txids only.
+// EXP-1291/NEW-1: THE session router. A thread IS a root session that
+// WORKS; a team agent is a root of kind `agent`; children are sub-sessions.
+// ONE entrypoint starts and messages them all: `sessions.send` (the
+// composer, Start on an issue, an action, a trigger firing, an agent spawn,
+// a follow-up, an answer over the bus). The database is the bus: a new
+// session is a `queued` row naming its device, a message a `messages` row;
+// the device picks both up off the `sessions` / `messages` shapes and
+// reports back through the DEVICE procedures below (claim/report/reply/
+// consume), each of which posts the transition into the parent's
+// conversation (`lib/sessions/bus.ts`). Reads ride the shapes; tRPC
+// returns ids + txids only.
 
 const uuid = z.string().uuid()
 
@@ -105,105 +108,6 @@ async function loadAgent(userId: string, sessionId: string): Promise<Session> {
     throw new TRPCError({ code: `NOT_FOUND`, message: `Agent not found` })
   }
   return agent
-}
-
-type Database = typeof import("@/db/connection").db
-
-const cardAnswerInput = z.object({
-  messageId: uuid,
-  answer: z.string().max(MESSAGE_BODY_MAX).optional(),
-  decision: z.enum([`approved`, `rejected`]).optional(),
-  fresh: z.boolean().optional(),
-  feedback: z.string().max(MESSAGE_BODY_MAX).optional(),
-  // EXP-1280: a plan's answers by question id, a question's picked labels;
-  // the inline surface's data model at answer time.
-  answers: z
-    .union([
-      planCardAnswersSchema,
-      z.array(z.string().max(PLAN_CARD_LABEL_MAX)).max(QUESTION_CARD_OPTIONS_MAX),
-    ])
-    .optional(),
-  surfaceData: z.record(z.string(), z.unknown()).optional(),
-})
-
-// COMPAT (EXP-1280): delete once CLIENT_MIN_VERSION_IOS > 0.14.62 AND
-// CLIENT_MIN_VERSION_ANDROID > 0.14.64 AND CLIENT_MIN_VERSION_DESKTOP/_CLI >
-// 0.14.72 (the last clients shipped before the rich plan card's questions).
-// Their Approve sends a decision and no `answers`: on a plan with questions
-// that is a plain approval (the agent reads the plan as approved, the
-// questions unanswered), never the `missing` refusal a current client's
-// form would get for leaving one blank.
-const PLAN_ANSWERS_LEGACY_CLIENTS = {
-  ios: `0.14.62`,
-  android: `0.14.64`,
-  desktop: `0.14.72`,
-  cli: `0.14.72`,
-} as const
-
-/** The card message + its session (steer-gated) + the answered card. */
-async function loadCardForAnswer(
-  database: Database,
-  userId: string,
-  input: z.infer<typeof cardAnswerInput>,
-  request?: Pick<Request, `headers`> | null
-) {
-  const [message] = await database.select().from(messages).where(eq(messages.id, input.messageId)).limit(1)
-  if (!message) throw new TRPCError({ code: `NOT_FOUND`, message: `Message not found` })
-  const session = await loadSessionForUser(userId, message.sessionId)
-  await assertCanSteer(userId, session)
-  const legacyPlanApproval =
-    !!request && clientAtOrBelow(request, PLAN_ANSWERS_LEGACY_CLIENTS)
-  const answered = answeredCard(message.card as MessageCard | null, {
-    ...input,
-    legacyPlanApproval,
-  })
-  if (!answered.ok) throw new TRPCError({ code: answered.code, message: answered.message })
-  return { message, session, card: answered.card }
-}
-
-/** Stamp `card` + `answered_at` while still unanswered; needs-you clears
- *  once nothing else waits on a person. `claimed` = this call stamped it.
- *  EXP-1280: an approved plan takes the session out of plan mode (the
- *  `pr_open` gate opens) in the same transaction. */
-async function stampAnsweredCard(
-  database: Database,
-  messageId: string,
-  sessionId: string,
-  card: MessageCard
-): Promise<{ claimed: boolean; txid: number }> {
-  return database.transaction(async (tx) => {
-    const txid = await generateTxId(tx)
-    const now = new Date()
-    const claimed = await tx
-      .update(messages)
-      .set({ card, answeredAt: now, updatedAt: now })
-      .where(and(eq(messages.id, messageId), isNull(messages.answeredAt)))
-      .returning({ id: messages.id })
-    if (claimed.length === 0) return { claimed: false, txid }
-    if (card.kind === `plan` && card.decision === `approved`) {
-      await tx
-        .update(sessions)
-        .set({ planMode: false, updatedAt: now })
-        .where(and(eq(sessions.id, sessionId), eq(sessions.planMode, true)))
-    }
-    const [{ pending } = { pending: 0 }] = await tx
-      .select({ pending: sql<number>`count(*)::int` })
-      .from(messages)
-      .where(
-        and(
-          eq(messages.sessionId, sessionId),
-          isNull(messages.answeredAt),
-          sql`${messages.card}->>'kind' IN ('question', 'plan')`
-        )
-      )
-    if (Number(pending) === 0) {
-      await tx
-        .update(sessions)
-        .set({ needsInput: false, updatedAt: now })
-        .where(eq(sessions.id, sessionId))
-    }
-    return { claimed: true, txid }
-  })
 }
 
 // COMPAT (EXP-1334): delete once CLIENT_MIN_VERSION_IOS > 0.14.61 AND
@@ -351,7 +255,8 @@ export const sessionsRouter = router({
       return { txid }
     }),
 
-  /** Link issues to a thread (always lands on the ROOT; the header "+"). */
+  /** Link issues to a session (NEW-1: the rows sit on the session that
+   *  holds them; the thread header's "+" names the root). */
   linkIssues: authedProcedure
     .input(z.object({ sessionId: uuid, issueIds: z.array(uuid).min(1).max(30) }))
     .mutation(async ({ ctx, input }) => {
@@ -361,7 +266,7 @@ export const sessionsRouter = router({
       const { txid, identifiers } = await ctx.db.transaction(async (tx) => {
         const txid = await generateTxId(tx)
         const { linked } = await linkIssues(tx, {
-          rootId: session.rootId,
+          sessionId: session.id,
           issueIds: input.issueIds,
           source: `user`,
           addedBy: userId,
@@ -370,14 +275,14 @@ export const sessionsRouter = router({
         return { txid, identifiers: await issueIdentifiers(tx, linked) }
       })
       // EXP-1334: a manual link is the person asking for the work: `Link
-      // #A #B` on the ROOT wakes the dispatcher, which routes it (MCP and
-      // start links stay quiet). The link stands even if the message fails.
+      // #A #B` wakes the session, which takes it (MCP and start links stay
+      // quiet). The link stands even if the message fails.
       const text = manualLinkText(identifiers)
       if (text && !(await legacyLinkOnEndedRoot(ctx, session))) {
         try {
-          await sendSession({ userId, input: { sessionId: session.rootId, text } })
+          await sendSession({ userId, input: { sessionId: session.id, text } })
         } catch (err) {
-          console.warn(`[sessions.linkIssues] the link message to ${session.rootId} failed`, err)
+          console.warn(`[sessions.linkIssues] the link message to ${session.id} failed`, err)
         }
       }
       return { txid }
@@ -391,7 +296,7 @@ export const sessionsRouter = router({
       await assertCanSteer(userId, session)
       return ctx.db.transaction(async (tx) => {
         const txid = await generateTxId(tx)
-        await unlinkIssue(tx, { rootId: session.rootId, issueId: input.issueId })
+        await unlinkIssue(tx, { sessionId: session.id, issueId: input.issueId, removedBy: userId })
         return { txid }
       })
     }),
@@ -551,7 +456,6 @@ export const sessionsRouter = router({
             ...(moved
               ? {
                   deviceId: input.deviceId,
-                  hostUserId: moved.hostUserId,
                   shared: moved.shared,
                   status: `queued` as const,
                   busy: false,
@@ -616,13 +520,8 @@ export const sessionsRouter = router({
     .input(z.object({ sessionId: uuid }))
     .query(async ({ ctx, input }) => {
       const session = await loadSessionForUser(ctx.session.user.id, input.sessionId)
-      assertDeviceHost(ctx.session.user.id, session)
-      return {
-        ...(await composeSessionBrief(session.id)),
-        // EXP-1252: a moved session's package to restore (`GET
-        // /api/sessions/{id}/handoff`), null otherwise.
-        handoff: briefHandoff(session),
-      }
+      await assertDeviceHost(ctx.session.user.id, session)
+      return composeSessionBrief(session.id)
     }),
 
   /** EXP-1334: the session's server-only MCP pick (sorted ids) — for
@@ -650,7 +549,7 @@ export const sessionsRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const session = await loadSessionForUser(ctx.session.user.id, input.sessionId)
-      assertDeviceHost(ctx.session.user.id, session)
+      await assertDeviceHost(ctx.session.user.id, session)
       // CONFLICT (not FORBIDDEN): the daemon's `claim_lost` treats 404/409
       // as "moved away", anything else as a start failure it posts about.
       if (input.deviceId !== undefined && input.deviceId !== session.deviceId) {
@@ -671,12 +570,15 @@ export const sessionsRouter = router({
         // ANOTHER device to running here — two engines on one session. A
         // 0.14.72 daemon sends no `deviceId`: the snapshot's device stands
         // in, which the same guard still holds to. CONFLICT = `claim_lost`.
+        // NEW-1: the watchdog's `unclaimed` flag clears with the claim.
+        const unclaimed = session.blocked?.kind === `unclaimed`
         const claimed = await tx
           .update(sessions)
           .set({
             ...(session.status === `queued` ? { status: `running` as const } : {}),
             startedAt: session.startedAt ?? now,
             ...(input.branch ? { branch: input.branch } : {}),
+            ...(unclaimed ? { blocked: null, needsInput: false } : {}),
             updatedAt: now,
           })
           .where(
@@ -705,12 +607,24 @@ export const sessionsRouter = router({
               ORDER BY created_at, id LIMIT 1
             ) AND consumed_at IS NULL`)
         }
+        // NEW-1: the bus's `session_claimed` line (informational) on the
+        // FIRST claim only.
+        if (session.status === `queued`) {
+          await busLine(tx, session, `session_claimed`, BUS_COPY.session_claimed, {
+            waking: false,
+            // A root nobody listens to needs no "started" line of its own.
+            selfFallback: false,
+          })
+        }
         return { txid }
       })
     }),
 
   /** Device-written state: running ⇄ idle, busy, needs_input, blocked,
-   *  branch, the CLI's auto-title; `ended` when the agent process is gone. */
+   *  branch, the CLI's auto-title; `ended` when the agent process is gone.
+   *  NEW-1: a wall is said ONCE in the parent (the bus); a blocked row
+   *  stays under Needs you until the device clears it; any report clears a
+   *  watchdog `stuck` flag; an ending reports through the bus. */
   report: authedProcedure
     .input(
       z.object({
@@ -733,13 +647,9 @@ export const sessionsRouter = router({
         // rotation may move it off the row's), so the row says it and a
         // person's later pick of the old one is a real switch.
         account: z.string().min(1).max(64).optional(),
-        // EXP-1331: the live status line (throttled by the device; null
-        // clears it). Trimmed and capped at 80 here.
-        caption: z.string().max(1000).nullable().optional(),
         // EXP-1334: the agent's OWN plan-mode move (claude leaving plan mode
         // once a plan is approved, or entering it): the row follows the
-        // run, so every client's toggle says the mode it is really in. A
-        // dispatcher never plans: ignored there.
+        // run, so every client's toggle says the mode it is really in.
         planMode: z.boolean().optional(),
         // EXP-1334: the agent's model as the run reports it (a `/model`
         // switch mid-session), so a resume launches on it. Outside the
@@ -749,7 +659,7 @@ export const sessionsRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const session = await loadSessionForUser(ctx.session.user.id, input.sessionId)
-      assertDeviceHost(ctx.session.user.id, session)
+      await assertDeviceHost(ctx.session.user.id, session)
       if (
         session.status === `ended` ||
         (input.deviceId !== undefined && input.deviceId !== session.deviceId)
@@ -766,9 +676,16 @@ export const sessionsRouter = router({
       const { handled = false, ...wall } = input.blocked ?? {}
       const blocked = (input.blocked ? wall : input.blocked) as CodingSessionBlocked | null | undefined
       const newlyBlocked = !!blocked && !session.blocked && !handled
+      // The device's wall replaces a watchdog flag; its next report with
+      // no `blocked` clears a `stuck` flag (activity = not stuck).
+      const nextBlocked =
+        input.blocked !== undefined
+          ? (blocked ?? null)
+          : session.blocked?.kind === `stuck`
+            ? null
+            : session.blocked
       const model =
         input.model !== undefined &&
-        !session.dispatch &&
         isRunnerModel(session.cli ?? (await effectiveCli(session)), input.model)
           ? input.model
           : undefined
@@ -776,51 +693,52 @@ export const sessionsRouter = router({
         (input.busy === false && session.busy) || status === `idle` || ending
       const txid = await ctx.db.transaction(async (tx) => {
         const txid = await generateTxId(tx)
-        // Guarded on the row's live status: a device end racing an explicit
-        // End must not end it twice (= two report cards on the parent).
-        const updated = await tx
+        if (ending) {
+          // The agent process went away = the session ended: like an
+          // explicit End of this one row (once: only when THIS report flips
+          // it). The bus posts its report.
+          await endDeadSessionInTx(tx, session)
+          return txid
+        }
+        const needsInput =
+          nextBlocked !== null
+            ? true
+            : input.needsInput !== undefined
+              ? input.needsInput
+              : session.blocked !== null && nextBlocked === null
+                ? false
+                : undefined
+        await tx
           .update(sessions)
           .set({
             ...(status ? { status } : {}),
-            ...(ending
-              ? { endedAt: now, busy: false, needsInput: false }
-              : {
-                  // #FEED-85: idle with no explicit busy = the turn is over.
-                  ...(input.busy !== undefined
-                    ? { busy: input.busy }
-                    : status === `idle`
-                      ? { busy: false }
-                      : {}),
-                  ...(input.needsInput !== undefined ? { needsInput: input.needsInput } : {}),
-                }),
-            ...(input.blocked !== undefined ? { blocked: blocked ?? null } : {}),
+            // #FEED-85: idle with no explicit busy = the turn is over.
+            ...(input.busy !== undefined
+              ? { busy: input.busy }
+              : status === `idle`
+                ? { busy: false }
+                : {}),
+            ...(needsInput !== undefined ? { needsInput } : {}),
+            ...(nextBlocked !== session.blocked ? { blocked: nextBlocked } : {}),
             ...(input.branch ? { branch: input.branch } : {}),
             ...(input.account ? { account: input.account } : {}),
-            ...(input.planMode !== undefined && !session.dispatch ? { planMode: input.planMode } : {}),
+            ...(input.planMode !== undefined ? { planMode: input.planMode } : {}),
             ...(model ? { model } : {}),
             // The CLI's auto-name only fills a blank title (a person's or
             // the agent's own title wins).
             ...(input.title?.trim() && !session.title ? { title: input.title.trim() } : {}),
             ...(turnEnded ? { lastTurnAt: now } : {}),
-            // The caption is the device's; a turn's end clears a stale one
-            // unless the device says otherwise (an aside keeps its answer).
-            ...(input.caption !== undefined
-              ? { caption: normalizeCaption(input.caption) }
-              : turnEnded && !session.aside && !session.moveToDeviceId && session.caption
-                ? { caption: null }
-                : {}),
             updatedAt: now,
           })
           .where(and(eq(sessions.id, session.id), ne(sessions.status, `ended`)))
-          .returning({ id: sessions.id })
-        // EXP-1329: the agent process went away = the child ended: report
-        // to its parent like an explicit End (once: only when THIS report
-        // flipped the row).
-        if (ending && updated.length > 0) await postReportToParent(tx, session)
-        // EXP-1350: a work child's turn ended (or it did): its follow-up's
-        // issues may go back to In Review.
-        if (updated.length > 0 && turnEnded && session.parentId !== null && !session.dispatch) {
-          await settleFollowUpIssuesInTx(tx, session, [session.id], session.userId)
+        if (session.blocked !== null && nextBlocked === null) {
+          // An open card still waits: needs_input re-derives.
+          await clearBlockedInTx(tx, [session.id])
+        }
+        if (newlyBlocked) {
+          await busLine(tx, session, `session_blocked`, BUS_COPY.session_blocked(blocked!), {
+            waking: true,
+          })
         }
         return txid
       })
@@ -840,7 +758,7 @@ export const sessionsRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const session = await loadSessionForUser(ctx.session.user.id, input.sessionId)
-      assertDeviceHost(ctx.session.user.id, session)
+      await assertDeviceHost(ctx.session.user.id, session)
       const card = (input.card ?? null) as MessageCard | null
       if (card && !DEVICE_CARD_KINDS.has(card.kind)) {
         throw new TRPCError({ code: `BAD_REQUEST`, message: `A device cannot post ${card.kind} cards` })
@@ -875,35 +793,18 @@ export const sessionsRouter = router({
             .update(sessions)
             .set({ needsInput: true, updatedAt: new Date() })
             .where(eq(sessions.id, session.id))
+          // NEW-1: the card reaches the parent and watchers (one row, two
+          // views); a parent may answer what it knows.
+          await busAsk(tx, session, messageId, card as Extract<MessageCard, { kind: `question` | `plan` }>)
+        } else if (!card) {
+          // NEW-1: the turn's reply reaches the parent and watchers.
+          await busRelayTurn(tx, session, input.body)
         }
         return { messageId, txid }
       })
       if (input.body.includes(`@`)) fireAndForgetSessionMessageNotify({ messageId: result.messageId })
       return result
     }),
-
-  /** EXP-1252: the SOURCE host's outcome of a pending move. `moved` (the
-   *  package is uploaded) re-stamps the row onto the target, queued;
-   *  `failed` clears the move and the session stays here. */
-  handoff: authedProcedure
-    .input(
-      z.object({
-        sessionId: uuid,
-        deviceId: z.string().min(1).max(128),
-        outcome: z.enum([`moved`, `failed`]),
-        reason: z.string().max(2000).optional(),
-      })
-    )
-    .mutation(({ ctx, input }) =>
-      completeHandoff({ userId: ctx.session.user.id, ...input })
-    ),
-
-  /** EXP-1252: the TARGET restored the package; the server drops it. */
-  handoffDone: authedProcedure
-    .input(z.object({ sessionId: uuid }))
-    .mutation(({ ctx, input }) =>
-      finishHandoff({ userId: ctx.session.user.id, sessionId: input.sessionId })
-    ),
 
   /** The device delivered these pending inputs (person messages, another
    *  session's question or report) into the agent. EXP-1280: also the
@@ -913,7 +814,7 @@ export const sessionsRouter = router({
     .input(z.object({ sessionId: uuid, messageIds: z.array(uuid).min(1).max(100) }))
     .mutation(async ({ ctx, input }) => {
       const session = await loadSessionForUser(ctx.session.user.id, input.sessionId)
-      assertDeviceHost(ctx.session.user.id, session)
+      await assertDeviceHost(ctx.session.user.id, session)
       return ctx.db.transaction(async (tx) => {
         const txid = await generateTxId(tx)
         const now = new Date()

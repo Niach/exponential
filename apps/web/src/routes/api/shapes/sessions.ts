@@ -5,12 +5,14 @@ import {
 } from "@/lib/team-membership"
 import { createShapeRouteHandler } from "@/lib/shape-route"
 
-// EXP-1291 — the session tree (threads, agents and their sub-sessions). ONE
-// visibility rule: `shared OR user_id = me` inside the member's teams. A
-// device picks up its `queued` rows from this shape (the DB is the bus).
-// SERVER-ONLY, behind the allowlist: `host_user_id`, `mcp_server_ids`,
-// `work_launch`, `handoff` and an agent's `instructions` (tRPC
-// `sessions.getAgent`).
+// EXP-1291/NEW-1 — the session tree (threads, agents and their
+// sub-sessions). ONE visibility rule: `shared OR user_id = me` inside the
+// member's teams. A device picks up its `queued` rows from this shape (the
+// DB is the bus). SERVER-ONLY, behind the allowlist: `mcp_server_ids`,
+// `wake_on` and an agent's `instructions` (tRPC `sessions.getAgent`). The
+// never-written LEGACY read shims (`dispatch`, `caption`, `aside`,
+// `move_to_device_id`, `handoff_restored_at`, `spawned_by_session_id`)
+// stay listed for the iOS store build and the ≤0.14.74 devices (NEW-8).
 export const SESSION_COLUMNS = [
   `id`,
   `team_id`,

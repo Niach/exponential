@@ -18,6 +18,14 @@ const h = vi.hoisted(() => ({
 
 vi.mock(`@/db/connection`, () => ({ db: {} }))
 vi.mock(`@/lib/auth`, () => ({ auth: {} }))
+// NEW-1: the host of a session is derived from the devices rows; here the
+// seeded session rows carry it as `hostUserId`.
+const seededSessions = vi.hoisted(() => ({ current: [] as Array<Record<string, unknown>> }))
+vi.mock(`@/lib/sessions/host`, () => ({
+  isSessionPrincipal: async (userId: string, row: { id: string; userId: string }) =>
+    row.userId === userId ||
+    seededSessions.current.find((entry) => entry.id === row.id)?.hostUserId === userId,
+}))
 vi.mock(`@/lib/team-membership`, () => ({
   assertTeamMember: h.assertTeamMember,
   assertTeamOwner: h.assertTeamOwner,
@@ -747,6 +755,7 @@ describe(`mcpServers.resolveForLaunch`, () => {
       sessions: over.sessions ?? [run()],
       apikeys: over.apikeys ?? [],
     })
+    seededSessions.current = over.sessions ?? [run()]
   }
   const inRun = (userId = `actor`, keyId?: string) =>
     callerFor(userId, { sessionId: RUN, keyId })

@@ -87,15 +87,13 @@ export function titleShapesReady(input: {
  *  action it waits for its first prompt (the messages). */
 export function unsettledTitleRoots(input: {
   sessions: readonly Pick<TreeSession, `id` | `rootId` | `name` | `actionName` | `title`>[]
-  sessionIssues: readonly Pick<TreeSessionIssue, `sessionId` | `assignedSessionId`>[]
+  sessionIssues: readonly Pick<TreeSessionIssue, `sessionId`>[]
   linksReady: boolean
   issuesReady: boolean
   messagesReady: boolean
 }): Set<string> {
-  const rootLinked = new Set(input.sessionIssues.map((link) => link.sessionId))
-  const assigned = new Set(
-    input.sessionIssues.flatMap((link) => (link.assignedSessionId ? [link.assignedSessionId] : []))
-  )
+  // NEW-1: a session's own issues = the rows it holds (root or child alike).
+  const holding = new Set(input.sessionIssues.map((link) => link.sessionId))
   const held = new Set<string>()
   for (const session of input.sessions) {
     if (session.name?.trim() || session.title?.trim()) continue
@@ -103,8 +101,7 @@ export function unsettledTitleRoots(input: {
       held.add(session.id)
       continue
     }
-    const ownIssues =
-      session.id === session.rootId ? rootLinked.has(session.id) : assigned.has(session.id)
+    const ownIssues = holding.has(session.id)
     if (ownIssues) {
       if (!input.issuesReady) held.add(session.id)
       continue

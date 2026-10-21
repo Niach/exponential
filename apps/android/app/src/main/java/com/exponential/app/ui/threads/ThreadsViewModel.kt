@@ -62,6 +62,8 @@ class ThreadsViewModel @Inject constructor(
             input.messages,
             teamId = null,
             reads = input.reads,
+            // NEW-1: Recent's 24 h window (read on every input change).
+            now = SessionTree.nowIso(),
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 

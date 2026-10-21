@@ -1,11 +1,10 @@
 {
-  "$comment": "EXP-1291 Threads v2: the FIRST prompt of every new session is composed on the SERVER (`sessions.brief`, read by the device at pickup), so all four clients and every start path (composer, Start on an issue, an action, a trigger firing, an agent spawn, a follow-up child) produce byte-identical input. composeBrief(input) (TS reference packages/domain-contract/src/session-brief.ts; the server calls it, no client mirror needed beyond reading this spec) replays `cases`: sections in this order, each '## <heading>' + a blank line + its body, joined by a blank line, empty sections omitted: Request (the person's text, trimmed; image embed lines kept) · Dispatch (a dispatcher whose start is work by construction, `handOff`: plan mode, linked issues or an action; body = `handOff`; placed BEFORE the action so the byte cap can never trim it) · Plan (EXP-1280: a session started in plan mode, `planMode`; body = `plan`; right after Dispatch for the same reason) · Action '<name>' (the action body trimmed, then for each filled input in declaration order '- <label>: <display>' after an 'Inputs:' line and a blank line) · Issues (one '- <identifier> <title>' per issue in link order) · Parent (a child only: templates `parent` with {title} = the parent's title, {depth}/{maxDepth} = its depth and contract sessionsSend.treeMaxDepth, {branch} = the parent's branch; without a branch the `parentNoBranch` template). Nothing at all = `empty`. The result is cut at sessionsSend.briefMaxBytes UTF-8 bytes at the last newline that fits, ending in a '…' line.",
+  "$comment": "EXP-1291/NEW-1: the FIRST prompt of every new session is composed on the SERVER (`sessions.brief`, read by the device at pickup), so all four clients and every start path (composer, Start on an issue, an action, a trigger firing, an agent spawn, a follow-up child) produce byte-identical input. composeBrief(input) (TS reference packages/domain-contract/src/session-brief.ts; the server calls it, no client mirror needed beyond reading this spec) replays `cases`: sections in this order, each '## <heading>' + a blank line + its body, joined by a blank line, empty sections omitted: Request (the person's text, trimmed; image embed lines kept) · Plan (EXP-1280: a session started in plan mode, `planMode`; body = `plan`; right behind the Request so the byte cap can never trim it) · Action '<name>' (the action body trimmed, then for each filled input in declaration order '- <label>: <display>' after an 'Inputs:' line and a blank line) · Issues (one '- <identifier> <title>' per issue in link order) · Parent (a child only: templates `parent` with {title} = the parent's title, {depth}/{maxDepth} = its depth and contract sessionsSend.treeMaxDepth, {branch} = the parent's branch; without a branch the `parentNoBranch` template). Nothing at all = `empty`. The result is cut at sessionsSend.briefMaxBytes UTF-8 bytes at the last newline that fits, ending in a '…' line.",
   "headings": {
     "request": "Request",
     "action": "Action: {name}",
     "issues": "Issues",
     "parent": "Parent",
-    "dispatch": "Dispatch",
     "plan": "Plan"
   },
   "inputsLine": "Inputs:",
@@ -100,32 +99,6 @@
       "expected": "## Request\n\nLook around.\n\n## Parent\n\nYou are a sub-session (depth 2 of 3) of \"Research\"."
     },
     {
-      "name": "a dispatcher started on an issue in plan mode hands it off",
-      "input": {
-        "text": "Fix it.",
-        "issues": [
-          {
-            "identifier": "APP-5",
-            "title": "Reduce cold start below 800 ms"
-          }
-        ],
-        "handOff": true
-      },
-      "expected": "## Request\n\nFix it.\n\n## Dispatch\n\nThis start is work: hand it to child sessions in this turn with `exponential_sessions_send({parentId: <your session>, name, issueIds, text: <a self-contained brief>})`: ONE child for issues that overlap or depend on each other, separate children for independent ones (each inherits the model, effort and plan mode picked for the work and the Action). Then reply in one line. Do not research it yourself first.\n\n## Issues\n\n- APP-5 Reduce cold start below 800 ms"
-    },
-    {
-      "name": "a dispatcher started on an action keeps the hand-off ahead of the action body",
-      "input": {
-        "action": {
-          "name": "Tidy up",
-          "body": "Close stale issues.",
-          "inputs": []
-        },
-        "handOff": true
-      },
-      "expected": "## Dispatch\n\nThis start is work: hand it to child sessions in this turn with `exponential_sessions_send({parentId: <your session>, name, issueIds, text: <a self-contained brief>})`: ONE child for issues that overlap or depend on each other, separate children for independent ones (each inherits the model, effort and plan mode picked for the work and the Action). Then reply in one line. Do not research it yourself first.\n\n## Action: Tidy up\n\nClose stale issues."
-    },
-    {
       "name": "nothing at all",
       "input": {
         "text": "   "
@@ -147,6 +120,5 @@
       "expected": "## Request\n\nMake the picker faster.\n\n## Plan\n\nThis session is in plan mode (EXP-1280): research and design first. You may draft UI on your branch only to picture it; no commits, pushes or PRs until a person approves (`exponential_pr_open` refuses). Present the plan with `exponential_plan_propose` (`plan` markdown with `![alt](upload:<label>)` pictures, `pictures`, choice `questions`, an optional Exponential UI `surface`) as the LAST call of your turn, then stop: the decision, answers and feedback arrive as your next message. Rejected = keep planning.\n\n## Issues\n\n- APP-5 Reduce cold start below 800 ms"
     }
   ],
-  "handOff": "This start is work: hand it to child sessions in this turn with `exponential_sessions_send({parentId: <your session>, name, issueIds, text: <a self-contained brief>})`: ONE child for issues that overlap or depend on each other, separate children for independent ones (each inherits the model, effort and plan mode picked for the work and the Action). Then reply in one line. Do not research it yourself first.",
   "plan": "This session is in plan mode (EXP-1280): research and design first. You may draft UI on your branch only to picture it; no commits, pushes or PRs until a person approves (`exponential_pr_open` refuses). Present the plan with `exponential_plan_propose` (`plan` markdown with `![alt](upload:<label>)` pictures, `pictures`, choice `questions`, an optional Exponential UI `surface`) as the LAST call of your turn, then stop: the decision, answers and feedback arrive as your next message. Rejected = keep planning."
 }

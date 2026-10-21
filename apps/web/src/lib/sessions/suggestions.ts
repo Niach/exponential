@@ -11,7 +11,7 @@ import { db } from "@/db/connection"
 import { boards, issues, messages, sessionIssues, sessions } from "@/db/schema"
 import { generateTxId } from "@/lib/trpc"
 import { boardVisible } from "@/lib/board-visibility"
-import { assertCanSteer, loadSessionForUser } from "@/lib/sessions/access"
+import { assertCanSteer, isSessionPrincipal, loadSessionForUser } from "@/lib/sessions/access"
 import { assertIssuesInTeam, linkIssues } from "@/lib/sessions/issues"
 import { insertMessage } from "@/lib/sessions/messages"
 import { sendSession } from "@/lib/sessions/send"
@@ -89,7 +89,7 @@ export async function postSuggestions(args: {
     })
   }
   const session = await loadSessionForUser(args.userId, args.callerSessionId)
-  if (session.userId !== args.userId && session.hostUserId !== args.userId) {
+  if (!(await isSessionPrincipal(args.userId, session))) {
     throw new TRPCError({ code: `FORBIDDEN`, message: `Suggest only on your own session` })
   }
   return db.transaction(async (tx) => {
@@ -131,7 +131,7 @@ export async function postReplies(args: {
     throw new TRPCError({ code: `BAD_REQUEST`, message: `Offer 1 to ${REPLIES_MAX} replies` })
   }
   const session = await loadSessionForUser(args.userId, args.callerSessionId)
-  if (session.userId !== args.userId && session.hostUserId !== args.userId) {
+  if (!(await isSessionPrincipal(args.userId, session))) {
     throw new TRPCError({ code: `FORBIDDEN`, message: `Offer replies only on your own session` })
   }
   const items: ReplyItem[] = args.replies.map((text) => ({ id: crypto.randomUUID(), text }))
@@ -247,11 +247,11 @@ export async function startSuggestion(
         await stampItem(tx, message.id, item.id, { sessionId: started.sessionId })
         if (item.issueIds?.length) {
           await linkIssues(tx, {
-            rootId: started.rootId,
+            // NEW-1: the child holds them (its PR closes them).
+            sessionId: started.sessionId,
             issueIds: item.issueIds,
             source: `user`,
             addedBy: userId,
-            // EXP-1334: the child's share, so its PR moves these issues.
             addedBySessionId: started.sessionId,
           })
         }

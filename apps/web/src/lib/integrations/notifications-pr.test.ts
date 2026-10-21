@@ -55,6 +55,13 @@ vi.mock(`@/lib/integrations/fcm`, () => ({
   sendToUsers: h.sendToUsers,
 }))
 
+// NEW-1: the host of a session is derived from the devices rows; the queued
+// session rows carry it as `hostUserId` so the cases read as before.
+vi.mock(`@/lib/sessions/host`, () => ({
+  resolveSessionHost: async (row: { userId: string; hostUserId?: string | null }) =>
+    row.hostUserId ?? row.userId,
+}))
+
 vi.mock(`@/lib/email`, () => ({
   emailEnabled: false,
   sendReporterResolutionEmail: vi.fn(),

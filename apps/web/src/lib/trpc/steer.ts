@@ -44,7 +44,7 @@ export const steerRouter = router({
 
     // Visibility first (member AND shared-or-starter): NOT_FOUND otherwise.
     const session = await loadSessionForUser(userId, input.sessionId)
-    const deviceOwner = sessionDeviceOwner(session)
+    const deviceOwner = await sessionDeviceOwner(session)
 
     if (input.kind === `publisher`) {
       // Only the account the device runs under publishes (an ended session

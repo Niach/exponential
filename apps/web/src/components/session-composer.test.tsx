@@ -179,7 +179,7 @@ describe(`SessionComposer /btw`, () => {
     expect(screen.getByText(`/btw`)).toBeTruthy()
   })
 
-  it(`sends the question as an aside child, never as a message, and clears the draft`, async () => {
+  it(`sends the question as a child, never as a message, and clears the draft`, async () => {
     mocks.send.mockResolvedValue({ sessionId: `s2`, txid: 1 })
     const field = renderComposer()
     type(field, `/btw what does useCart return?`)
@@ -189,7 +189,6 @@ describe(`SessionComposer /btw`, () => {
       teamId: `t1`,
       parentId: `s1`,
       text: `what does useCart return?`,
-      aside: true,
     })
     await waitFor(() => expect(field.value).toBe(``))
   })

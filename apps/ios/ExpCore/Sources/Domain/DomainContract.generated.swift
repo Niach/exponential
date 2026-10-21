@@ -27,7 +27,7 @@ public enum DomainContract {
     public static let prStateValues: [String] = ["open", "closed", "merged", "draft"]
     public static let sessionKindValues: [String] = ["thread", "agent"]
     public static let sessionStatusValues: [String] = ["queued", "running", "idle", "ended"]
-    public static let codingSessionBlockedKinds: [String] = ["rate_limit"]
+    public static let codingSessionBlockedKinds: [String] = ["rate_limit", "device_offline", "unclaimed", "stuck"]
     public static let codingSessionBlockedWindows: [String] = ["session", "weekly", "model"]
     public static let toolKindValues: [String] = ["read", "edit", "delete", "move", "search", "execute", "think", "fetch", "switch_mode", "wait", "script", "other"]
     public static let toolKindEditValues: [String] = ["edit", "delete", "move"]
@@ -40,8 +40,8 @@ public enum DomainContract {
     public static let issueRelationSourceValues: [String] = ["user", "reference"]
     public static let sessionIssueSourceValues: [String] = ["user", "agent"]
     public static let messageAuthorKindValues: [String] = ["user", "agent", "system"]
-    public static let messageCardKindValues: [String] = ["question", "plan", "subagent", "session", "picture", "event", "thread_started", "report", "suggestions", "replies"]
-    public static let messageEventKindValues: [String] = ["issue_linked", "issue_filed", "issue_unlinked", "pr_opened", "pr_merged", "pr_closed", "session_ended"]
+    public static let messageCardKindValues: [String] = ["question", "plan", "subagent", "session", "picture", "event", "thread_started", "report", "suggestions", "replies", "ask"]
+    public static let messageEventKindValues: [String] = ["issue_linked", "issue_filed", "issue_unlinked", "pr_opened", "pr_merged", "pr_closed", "session_ended", "session_claimed", "session_blocked", "session_unclaimed", "session_stuck", "device_offline"]
     public static let codingAgentValues: [String] = ["claude", "codex"]
     public static let codingModelValues: [String] = ["fable", "opus", "sonnet", "haiku"]
     public static let codingEffortValues: [String] = ["low", "medium", "high", "xhigh", "max"]
@@ -252,6 +252,7 @@ public enum DomainContract {
     public static let messageCardKindReport: String = "report"
     public static let messageCardKindSuggestions: String = "suggestions"
     public static let messageCardKindReplies: String = "replies"
+    public static let messageCardKindAsk: String = "ask"
     public static let messageEventKindIssueLinked: String = "issue_linked"
     public static let messageEventKindIssueFiled: String = "issue_filed"
     public static let messageEventKindIssueUnlinked: String = "issue_unlinked"
@@ -259,4 +260,9 @@ public enum DomainContract {
     public static let messageEventKindPrMerged: String = "pr_merged"
     public static let messageEventKindPrClosed: String = "pr_closed"
     public static let messageEventKindSessionEnded: String = "session_ended"
+    public static let messageEventKindSessionClaimed: String = "session_claimed"
+    public static let messageEventKindSessionBlocked: String = "session_blocked"
+    public static let messageEventKindSessionUnclaimed: String = "session_unclaimed"
+    public static let messageEventKindSessionStuck: String = "session_stuck"
+    public static let messageEventKindDeviceOffline: String = "device_offline"
 }

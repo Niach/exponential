@@ -45,7 +45,7 @@ import { startDeviceCommandSweepScheduler } from "@/lib/device-command-sweep"
 import { kickImportWorker } from "@/lib/import/kick"
 import { startEmailDigestScheduler } from "@/lib/notification-email-digest"
 import { startBoardTrashScheduler } from "@/lib/board-trash"
-import { startSessionSweepScheduler } from "@/lib/sessions/lifecycle"
+import { startSessionWatchdog } from "@/lib/sessions/watchdog"
 import { startSessionAttachmentSweepScheduler } from "@/lib/session-attachment-sweep"
 import { startAttachmentSizeBackfillScheduler } from "@/lib/attachment-size-backfill"
 import {
@@ -82,10 +82,11 @@ startEmailDigestScheduler()
 // guard only; the row delete is the atomic multi-instance claim.
 startBoardTrashScheduler()
 
-// Sessions (EXP-1291): a `running` session whose device stopped heartbeating
-// goes idle — a crashed device never reports its turn's end, and the row
-// would otherwise pin a phantom spinner forever. A message resumes it.
-startSessionSweepScheduler()
+// Sessions (NEW-1): the watchdog, every minute — a queued session nobody
+// claims, a live one whose device stopped heartbeating, a busy one that
+// reports nothing, pending input nobody delivers: flagged on the row, said
+// once in the parent's conversation, nudged to the device.
+startSessionWatchdog()
 
 // Conversation + Guide uploads (EXP-1291): periodic reclaim of owner-less
 // attachments rows no Guide references, past the grace window — unreachable

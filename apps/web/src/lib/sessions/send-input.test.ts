@@ -20,10 +20,36 @@ describe(`sessionsSendInputSchema — a message`, () => {
     expect(parsed.success).toBe(true)
   })
 
-  it(`refuses a message with neither text, attachments nor an account`, () => {
+  it(`refuses a message with neither text, attachments, an answer nor an account`, () => {
     const parsed = sessionsSendInputSchema.safeParse({ sessionId: SESSION, text: `   ` })
     expect(parsed.success).toBe(false)
-    expect(parsed.error?.issues[0]?.message).toBe(`a message needs text, attachments, issues, an account or a device`)
+    expect(parsed.error?.issues[0]?.message).toBe(
+      `a message needs text, attachments, issues, an answer, an account or a device`
+    )
+  })
+
+  // NEW-1: the bus's answer op and the watch list.
+  it(`takes an answer alone on a message, never on a start`, () => {
+    expect(
+      sessionsSendInputSchema.safeParse({ sessionId: SESSION, answer: { answers: [`Yes`] } }).success
+    ).toBe(true)
+    expect(
+      sessionsSendInputSchema.safeParse({
+        sessionId: SESSION,
+        answer: { decision: `approved`, answers: { q1: [`A`] }, feedback: `go` },
+      }).success
+    ).toBe(true)
+    const start = sessionsSendInputSchema.safeParse({ text: `go`, answer: { answer: `x` } })
+    expect(start.success).toBe(false)
+    expect(start.error?.issues.map((issue) => issue.message)).toContain(
+      `an answer goes to a session (sessionId)`
+    )
+  })
+
+  it(`takes wakeOn alone (a watch), on a message and as a bare call`, () => {
+    expect(sessionsSendInputSchema.safeParse({ sessionId: SESSION, wakeOn: [SESSION] }).success).toBe(true)
+    expect(sessionsSendInputSchema.safeParse({ wakeOn: [SESSION] }).success).toBe(true)
+    expect(sessionsSendInputSchema.safeParse({ sessionId: SESSION, wakeOn: [] }).success).toBe(false)
   })
 
   it(`takes a device alone (EXP-1252: a move), with an account too`, () => {
@@ -38,26 +64,12 @@ describe(`sessionsSendInputSchema — a message`, () => {
   })
 })
 
-// EXP-1330: a `/btw` aside = a child (`parentId`) carrying the question.
-describe(`sessionsSendInputSchema — an aside`, () => {
-  it(`takes parentId + text`, () => {
-    expect(
-      sessionsSendInputSchema.safeParse({ parentId: SESSION, text: `why?`, aside: true }).success
-    ).toBe(true)
-  })
-
-  it(`refuses an aside without a parent or a question`, () => {
-    for (const input of [
-      { text: `why?`, aside: true },
-      { parentId: SESSION, text: `  `, aside: true },
-      { sessionId: SESSION, text: `why?`, aside: true },
-    ]) {
-      const parsed = sessionsSendInputSchema.safeParse(input)
-      expect(parsed.success).toBe(false)
-      expect(parsed.error?.issues.map((issue) => issue.message)).toContain(
-        `an aside needs a parentId and a question`
-      )
-    }
+// NEW-1: the `/btw` aside is gone; an unknown key is stripped, never refused.
+describe(`sessionsSendInputSchema — no asides`, () => {
+  it(`strips a legacy aside flag and starts a plain child`, () => {
+    const parsed = sessionsSendInputSchema.safeParse({ parentId: SESSION, text: `why?`, aside: true })
+    expect(parsed.success).toBe(true)
+    expect(parsed.data && `aside` in parsed.data).toBe(false)
   })
 })
 
@@ -90,8 +102,8 @@ describe(`sessionsConfigureInputSchema model (EXP-1334)`, () => {
   })
 })
 
-// EXP-1341: `name` names a NEW session; `issueIds` assign (child) or forward
-// (message).
+// EXP-1341/NEW-1: `name` names a NEW session; `issueIds` = a child's own rows
+// or a message's forward.
 describe(`sessionsSendInputSchema — name and issues`, () => {
   const ISSUE = `7e1c2b7a-5d4e-4f60-8a9b-0c1d2e3f4a5b`
 
@@ -121,14 +133,10 @@ describe(`sessionsSendInputSchema — name and issues`, () => {
     expect(sessionsSendInputSchema.safeParse({ text: `go`, name: `   ` }).success).toBe(false)
   })
 
-  it(`takes issueIds on a child (assigned) and on a message (forwarded, even alone)`, () => {
+  it(`takes issueIds on a child (its rows) and on a message (forwarded, even alone)`, () => {
     expect(
       sessionsSendInputSchema.safeParse({ parentId: SESSION, text: `go`, issueIds: [ISSUE] }).success
     ).toBe(true)
     expect(sessionsSendInputSchema.safeParse({ sessionId: SESSION, issueIds: [ISSUE] }).success).toBe(true)
-    expect(
-      sessionsSendInputSchema.safeParse({ parentId: SESSION, text: `why?`, aside: true, issueIds: [ISSUE] })
-        .success
-    ).toBe(false)
   })
 })
