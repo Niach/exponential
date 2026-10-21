@@ -42,9 +42,9 @@ import XCTest
 ///     Recent, each row's quiet word off its pull requests);
 ///     `sg_agent-channel` = the Triage agent's channel off its Agents row;
 ///     `sg_thread` = the cold-start thread (DEMO_THREAD_ID); `sg_session` =
-///     its "Profile the launch path" session card's raw view
-///     (DEMO_SESSION_ID, fed by the relay stub), its pending question in
-///     the composer's place;
+///     its "Profile the launch path" session card's page in that thread
+///     (EXP-1343; DEMO_SESSION_ID, fed by the relay stub), its pending
+///     question in the composer's place;
 ///   * `sg_settings-team-agent` = Settings → team → Agents → Triage;
 ///   * `sg_pr-row` = the issue page's pull-request row, `sg_guide` = the
 ///     Guide tab of APP-15's thread (web's `guide` thread, EXP-1303),
@@ -155,6 +155,8 @@ final class StyleguideScreenshots: XCTestCase {
     private static let agentRequest = "Label the Android ones too"
     /// The cold-start thread's child session (`DEMO_SESSION_ID`).
     private static let sessionTitle = "Profile the launch path"
+    /// Its id (`DEMO_SESSION_ID`): the strip chip of its thread page.
+    private static let sessionId = "7c1f0a52-6f3c-4e19-9a2b-2d5d0f7c8e41"
 
     @MainActor
     func testCaptureStyleguideScreenshots() throws {
@@ -1009,35 +1011,32 @@ final class StyleguideScreenshots: XCTestCase {
         }
         expect(sessionCard, within: Wait.nav, "The cold-start thread drew no \"\(Self.sessionTitle)\" card")
         sessionCard.tap()
-        // THE ask dock: the card takes the composer's slot once the relay
-        // feed is live and answerable. Poll the dock itself (`ask-dock`,
-        // fixtures/ask-dock.json) over the first-sync wait while the feed
-        // settles, then the question card inside it.
+        // EXP-1343: a session chip of THIS thread opens as its page under
+        // the thread's ONE header (the thread title, Stop while live) — no
+        // pushed session screen, no back row (Android's `sg_session` is the
+        // same page). THE ask dock: the relay feed's pending question takes
+        // the composer's place once the feed is live and answerable. Gate on
+        // its first option row (`agent-question-option-1`, drawn only by the
+        // relay feed's card; the Conversation's dock draws plan-card rows):
+        // SwiftUI folds the dock's single-child containers into `ask-dock`,
+        // so the card's own `agent-feed-question` id is not queryable here,
+        // and the neighbouring Conversation page's dock is `ask-dock` too.
         expect(
-            anyElement(app, identified: "ask-dock"),
+            app.buttons["agent-question-option-1"].firstMatch,
             within: Wait.firstSync,
-            "The session drew no ask dock — is `bun run screenshots:desktop` publishing its feed?"
+            "The session drew no pending question in its ask dock — is `bun run screenshots:desktop` publishing its feed?"
         )
         expect(
-            anyElement(app, identified: "agent-feed-question"),
-            within: Wait.network,
-            "The session drew no pending question — is `bun run screenshots:desktop` publishing its feed?"
-        )
-        // EXP-1310: the header's back row names the thread, Stop beside it.
-        expect(
-            anyElement(app, identified: "session-back"),
+            anyElement(app, identified: "thread-tab-session-\(Self.sessionId)"),
             within: Wait.sync,
-            "The session header drew no back row to its thread"
+            "The session did not open as the thread's \"\(Self.sessionTitle)\" page"
         )
-        expect(anyElement(app, identified: "session-stop"), within: Wait.sync, "The session header drew no Stop")
+        expect(anyElement(app, identified: "session-stop"), within: Wait.sync, "The thread header drew no Stop for the session")
         snapshot("sg_session", settle: 2)
-        // Back twice (session → thread → list) on the system back button
-        // (`goBack`: by name, never the bar's Stop, the thread back row or
-        // the thread header's `…`).
-        for _ in 0..<2 {
-            goBack(app)
-            settle(1)
-        }
+        // Back once (the session page → the Threads list) on the system
+        // back button (`goBack`: by name, never the bar's Stop or `…`).
+        goBack(app)
+        settle(1)
     }
 
     /// A Threads row whose (combined) label contains `fragment`.
