@@ -74,6 +74,7 @@ import { Route as ApiShapesIssueDraftsRouteImport } from './routes/api/shapes/is
 import { Route as ApiShapesEventsRouteImport } from './routes/api/shapes/events'
 import { Route as ApiShapesDevicesRouteImport } from './routes/api/shapes/devices'
 import { Route as ApiShapesDeviceWorktreesRouteImport } from './routes/api/shapes/device-worktrees'
+import { Route as ApiShapesConversationsRouteImport } from './routes/api/shapes/conversations'
 import { Route as ApiShapesCommentsRouteImport } from './routes/api/shapes/comments'
 import { Route as ApiShapesBoardsRouteImport } from './routes/api/shapes/boards'
 import { Route as ApiShapesAttachmentsRouteImport } from './routes/api/shapes/attachments'
@@ -466,6 +467,11 @@ const ApiShapesDeviceWorktreesRoute =
     path: '/api/shapes/device-worktrees',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiShapesConversationsRoute = ApiShapesConversationsRouteImport.update({
+  id: '/api/shapes/conversations',
+  path: '/api/shapes/conversations',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiShapesCommentsRoute = ApiShapesCommentsRouteImport.update({
   id: '/api/shapes/comments',
   path: '/api/shapes/comments',
@@ -838,6 +844,7 @@ export interface FileRoutesByFullPath {
   '/api/shapes/attachments': typeof ApiShapesAttachmentsRoute
   '/api/shapes/boards': typeof ApiShapesBoardsRoute
   '/api/shapes/comments': typeof ApiShapesCommentsRoute
+  '/api/shapes/conversations': typeof ApiShapesConversationsRoute
   '/api/shapes/device-worktrees': typeof ApiShapesDeviceWorktreesRoute
   '/api/shapes/devices': typeof ApiShapesDevicesRoute
   '/api/shapes/events': typeof ApiShapesEventsRoute
@@ -959,6 +966,7 @@ export interface FileRoutesByTo {
   '/api/shapes/attachments': typeof ApiShapesAttachmentsRoute
   '/api/shapes/boards': typeof ApiShapesBoardsRoute
   '/api/shapes/comments': typeof ApiShapesCommentsRoute
+  '/api/shapes/conversations': typeof ApiShapesConversationsRoute
   '/api/shapes/device-worktrees': typeof ApiShapesDeviceWorktreesRoute
   '/api/shapes/devices': typeof ApiShapesDevicesRoute
   '/api/shapes/events': typeof ApiShapesEventsRoute
@@ -1085,6 +1093,7 @@ export interface FileRoutesById {
   '/api/shapes/attachments': typeof ApiShapesAttachmentsRoute
   '/api/shapes/boards': typeof ApiShapesBoardsRoute
   '/api/shapes/comments': typeof ApiShapesCommentsRoute
+  '/api/shapes/conversations': typeof ApiShapesConversationsRoute
   '/api/shapes/device-worktrees': typeof ApiShapesDeviceWorktreesRoute
   '/api/shapes/devices': typeof ApiShapesDevicesRoute
   '/api/shapes/events': typeof ApiShapesEventsRoute
@@ -1211,6 +1220,7 @@ export interface FileRouteTypes {
     | '/api/shapes/attachments'
     | '/api/shapes/boards'
     | '/api/shapes/comments'
+    | '/api/shapes/conversations'
     | '/api/shapes/device-worktrees'
     | '/api/shapes/devices'
     | '/api/shapes/events'
@@ -1332,6 +1342,7 @@ export interface FileRouteTypes {
     | '/api/shapes/attachments'
     | '/api/shapes/boards'
     | '/api/shapes/comments'
+    | '/api/shapes/conversations'
     | '/api/shapes/device-worktrees'
     | '/api/shapes/devices'
     | '/api/shapes/events'
@@ -1457,6 +1468,7 @@ export interface FileRouteTypes {
     | '/api/shapes/attachments'
     | '/api/shapes/boards'
     | '/api/shapes/comments'
+    | '/api/shapes/conversations'
     | '/api/shapes/device-worktrees'
     | '/api/shapes/devices'
     | '/api/shapes/events'
@@ -1573,6 +1585,7 @@ export interface RootRouteChildren {
   ApiShapesAttachmentsRoute: typeof ApiShapesAttachmentsRoute
   ApiShapesBoardsRoute: typeof ApiShapesBoardsRoute
   ApiShapesCommentsRoute: typeof ApiShapesCommentsRoute
+  ApiShapesConversationsRoute: typeof ApiShapesConversationsRoute
   ApiShapesDeviceWorktreesRoute: typeof ApiShapesDeviceWorktreesRoute
   ApiShapesDevicesRoute: typeof ApiShapesDevicesRoute
   ApiShapesEventsRoute: typeof ApiShapesEventsRoute
@@ -2067,6 +2080,13 @@ declare module '@tanstack/react-router' {
       path: '/api/shapes/device-worktrees'
       fullPath: '/api/shapes/device-worktrees'
       preLoaderRoute: typeof ApiShapesDeviceWorktreesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/shapes/conversations': {
+      id: '/api/shapes/conversations'
+      path: '/api/shapes/conversations'
+      fullPath: '/api/shapes/conversations'
+      preLoaderRoute: typeof ApiShapesConversationsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/shapes/comments': {
@@ -2666,6 +2686,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiShapesAttachmentsRoute: ApiShapesAttachmentsRoute,
   ApiShapesBoardsRoute: ApiShapesBoardsRoute,
   ApiShapesCommentsRoute: ApiShapesCommentsRoute,
+  ApiShapesConversationsRoute: ApiShapesConversationsRoute,
   ApiShapesDeviceWorktreesRoute: ApiShapesDeviceWorktreesRoute,
   ApiShapesDevicesRoute: ApiShapesDevicesRoute,
   ApiShapesEventsRoute: ApiShapesEventsRoute,

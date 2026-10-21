@@ -1,6 +1,6 @@
 import { and, eq, isNotNull, ne, or, sql, type SQL } from "drizzle-orm"
 import type { MessageAuthorKind, MessageCard } from "@exp/db-schema/domain"
-import { messages, sessions, type Session } from "@/db/schema"
+import { conversations, messages, sessions, type Session } from "@/db/schema"
 import type { Tx } from "@/lib/sessions/tx"
 
 // EXP-1291: every Conversation row goes through `insertMessage`. The
@@ -28,6 +28,18 @@ async function sessionMirror(tx: Tx, session: string | SessionMirror): Promise<S
   return row
 }
 
+/** NEW-3: the session's own conversation (kind `session`, created with the
+ *  session by the `create_session_conversation` trigger). */
+export async function sessionConversationId(tx: Tx, sessionId: string): Promise<string> {
+  const [row] = await tx
+    .select({ id: conversations.id })
+    .from(conversations)
+    .where(eq(conversations.sessionId, sessionId))
+    .limit(1)
+  if (!row) throw new Error(`Session ${sessionId} has no conversation`)
+  return row.id
+}
+
 export async function insertMessage(
   tx: Tx,
   session: string | SessionMirror,
@@ -46,6 +58,7 @@ export async function insertMessage(
   const [row] = await tx
     .insert(messages)
     .values({
+      conversationId: await sessionConversationId(tx, mirror.id),
       sessionId: mirror.id,
       rootId: mirror.rootId,
       teamId: mirror.teamId,

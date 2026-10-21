@@ -10,6 +10,9 @@ import Foundation
 public enum ComposerMenu {
     public enum RowId: String, Equatable, Sendable, CaseIterable {
         case implementIssue = "implement-issue"
+        /// NEW-3: Message an agent ›; natives hold `agents` false until
+        /// NEW-7 draws the submenu.
+        case messageAgent = "message-agent"
         case addFile = "add-file"
         case effort
         case subagents
@@ -34,12 +37,15 @@ public enum ComposerMenu {
         public var mcp: Bool
         /// The picked device advertises `computerUseRunCap`.
         public var computerUse: Bool
+        /// NEW-3: the team has at least one agent (false until NEW-7).
+        public var agents: Bool
 
-        public init(subagentModel: Bool, ultracode: Bool, mcp: Bool, computerUse: Bool) {
+        public init(subagentModel: Bool, ultracode: Bool, mcp: Bool, computerUse: Bool, agents: Bool = false) {
             self.subagentModel = subagentModel
             self.ultracode = ultracode
             self.mcp = mcp
             self.computerUse = computerUse
+            self.agents = agents
         }
     }
 
@@ -61,11 +67,12 @@ public enum ComposerMenu {
     }
 
     private enum When {
-        case subagentModel, ultracode, mcp, computerUse
+        case subagentModel, ultracode, mcp, computerUse, agents
     }
 
     private static let rows: [(Row?, When?)] = [
         (Row(id: .implementIssue, kind: .submenu, label: "Implement issue", codexLabel: nil, icon: "editor-issue-ref"), nil),
+        (Row(id: .messageAgent, kind: .submenu, label: "Message an agent", codexLabel: nil, icon: "settings-agents"), .agents),
         (Row(id: .addFile, kind: .item, label: "Add file or image", codexLabel: nil, icon: "ui-attach"), nil),
         (nil, nil),
         (Row(id: .effort, kind: .submenu, label: "Effort", codexLabel: "Reasoning", icon: "ui-estimate"), nil),
@@ -113,6 +120,7 @@ public enum ComposerMenu {
                 case .ultracode: conditions.ultracode
                 case .mcp: conditions.mcp
                 case .computerUse: conditions.computerUse
+                case .agents: conditions.agents
                 }
                 if !holds { continue }
             }

@@ -35,7 +35,8 @@ struct ComposerPlusMenu: View {
             subagentModel: false,
             ultracode: launch.agent == "claude",
             mcp: !mcpServers.isEmpty,
-            computerUse: model.device?.canToggleComputerUse == true
+            computerUse: model.device?.canToggleComputerUse == true,
+            agents: false
         )
     }
 
@@ -206,6 +207,7 @@ struct ComposerPlusMenu: View {
         case "action-default": AppIcons.actionDefault
         case "ui-mcp": AppIcons.uiMcp
         case "nav-computer": AppIcons.navComputer
+        case "settings-agents": AppIcons.settingsAgents
         default: AppIcons.uiAdd
         }
     }

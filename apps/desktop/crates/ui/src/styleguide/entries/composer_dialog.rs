@@ -348,6 +348,7 @@ pub(super) fn plus_menu_rows(phase: Phase) -> Vec<ComposerMenuRow> {
         ultracode: true,
         mcp: true,
         computer_use: true,
+        agents: false,
     }))
     .into_iter()
     .filter(|row| *row != ComposerMenuRow::Subagents)
@@ -385,7 +386,7 @@ fn plus_menu(
             ComposerMenuRow::Effort => {
                 menu.submenu_with_icon(Some(menu_icon(row)), "Effort · High", window, cx, |sub, _, _| sub)
             }
-            ComposerMenuRow::Subagents => menu,
+            ComposerMenuRow::Subagents | ComposerMenuRow::MessageAgent => menu,
             ComposerMenuRow::Ultracode => menu.item(
                 pointer_toggle_item(format!("{prefix}-ultracode"), None, MENU_ULTRACODE, false, |_, _, _| {})
                     .icon(menu_icon(row)),

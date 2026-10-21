@@ -12,6 +12,8 @@ package com.exponential.app.domain
 
 enum class ComposerMenuRowId(val wire: String) {
     ImplementIssue("implement-issue"),
+    /** NEW-3: Message an agent ›; `agents` stays false until NEW-7 draws it. */
+    MessageAgent("message-agent"),
     AddFile("add-file"),
     Effort("effort"),
     Subagents("subagents"),
@@ -28,6 +30,7 @@ enum class ComposerMenuCondition(val wire: String) {
     Ultracode("ultracode"),
     Mcp("mcp"),
     ComputerUse("computerUse"),
+    Agents("agents"),
 }
 
 data class ComposerMenuConditions(
@@ -35,12 +38,15 @@ data class ComposerMenuConditions(
     val ultracode: Boolean,
     val mcp: Boolean,
     val computerUse: Boolean,
+    /** NEW-3: the team has at least one agent (false until NEW-7). */
+    val agents: Boolean = false,
 ) {
     fun holds(condition: ComposerMenuCondition): Boolean = when (condition) {
         ComposerMenuCondition.SubagentModel -> subagentModel
         ComposerMenuCondition.Ultracode -> ultracode
         ComposerMenuCondition.Mcp -> mcp
         ComposerMenuCondition.ComputerUse -> computerUse
+        ComposerMenuCondition.Agents -> agents
     }
 }
 
@@ -96,6 +102,10 @@ object ComposerMenu {
     /** Every row in fixture order (`rows`). */
     val ROWS: List<ComposerMenuEntry> = listOf(
         ComposerMenuEntry.Row(ComposerMenuRowId.ImplementIssue, ComposerMenuRowKind.Submenu, "Implement issue", icon = "editor-issue-ref"),
+        ComposerMenuEntry.Row(
+            ComposerMenuRowId.MessageAgent, ComposerMenuRowKind.Submenu, "Message an agent",
+            icon = "settings-agents", condition = ComposerMenuCondition.Agents,
+        ),
         ComposerMenuEntry.Row(ComposerMenuRowId.AddFile, ComposerMenuRowKind.Item, "Add file or image", icon = "ui-attach"),
         ComposerMenuEntry.Separator,
         ComposerMenuEntry.Row(ComposerMenuRowId.Effort, ComposerMenuRowKind.Submenu, "Effort", codexLabel = "Reasoning", icon = "ui-estimate"),

@@ -1289,6 +1289,13 @@
       "when": 1792567893939,
       "tag": "0183_new2_sessions_agent_id",
       "breakpoints": true
+    },
+    {
+      "idx": 184,
+      "version": "7",
+      "when": 1792578856553,
+      "tag": "0184_new3_conversations",
+      "breakpoints": true
     }
   ]
 }

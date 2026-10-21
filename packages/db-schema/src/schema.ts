@@ -33,6 +33,9 @@ import {
   type MessageCard,
   messageAuthorKindSchema,
   messageAuthorKindValues,
+  conversationKindValues,
+  conversationKindSchema,
+  type ConversationKind,
   sessionIssueSourceSchema,
   sessionIssueSourceValues,
   sessionKindSchema,
@@ -151,6 +154,8 @@ export const messageAuthorKindEnum = pgEnum(
   `message_author_kind`,
   messageAuthorKindValues
 )
+// NEW-3: conversations.kind.
+export const conversationKindEnum = pgEnum(`conversation_kind`, conversationKindValues)
 
 // EXP-741: who posted a comment (a person, or an agent over MCP).
 export const commentSourceEnum = pgEnum(`comment_source`, commentSourceValues)
@@ -2027,6 +2032,60 @@ export const sessionIssues = pgTable(
   ]
 )
 
+// NEW-3: CONVERSATIONS, the chat primitive (plan 3.9). A row = where
+// messages live: kind `session` = a session's own conversation (EVERY
+// session has exactly one, created by the `create_session_conversation`
+// trigger, `session_id` set; an agent DM IS the agent's conversation session
+// for that member, NEW-2), `dm` / `channel` = people talking to people
+// (step 2, NEW-8: `session_id` NULL, members in `conversation_members`).
+// Visibility: a session conversation follows the session rule through the
+// mirrored `shared` / `owner_id` (trigger-written, immutable like a
+// message's), a dm/channel = its members. Synced (`/api/shapes/conversations`).
+export const conversations = pgTable(
+  `conversations`,
+  {
+    id: uuidPk(),
+    teamId: uuid(`team_id`)
+      .notNull()
+      .references(() => teams.id, { onDelete: `cascade` }),
+    kind: conversationKindEnum().notNull().$type<ConversationKind>(),
+    // The session this conversation belongs to (kind `session`), one each.
+    sessionId: uuid(`session_id`).references((): AnyPgColumn => sessions.id, {
+      onDelete: `cascade`,
+    }),
+    // A channel's name; NULL on a dm and a session conversation.
+    title: varchar({ length: 255 }),
+    // Mirrors of the session (trigger-written, immutable); NULL/false on a
+    // dm/channel, whose readers are its members.
+    shared: boolean().notNull().default(false),
+    ownerId: text(`owner_id`).references(() => users.id, { onDelete: `cascade` }),
+    ...timestamps,
+  },
+  (table) => [
+    uniqueIndex(`uniq_conversations_session`).on(table.sessionId),
+    index(`idx_conversations_team`).on(table.teamId),
+  ]
+)
+
+// NEW-3: who is in a dm/channel (step 2 writes rows; a session conversation
+// has none: the session rule decides). SERVER-ONLY until NEW-8.
+export const conversationMembers = pgTable(
+  `conversation_members`,
+  {
+    conversationId: uuid(`conversation_id`)
+      .notNull()
+      .references(() => conversations.id, { onDelete: `cascade` }),
+    userId: text(`user_id`)
+      .notNull()
+      .references(() => users.id, { onDelete: `cascade` }),
+    createdAt: timestamp(`created_at`, { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.conversationId, table.userId] }),
+    index(`idx_conversation_members_user`).on(table.userId),
+  ]
+)
+
 // The Conversation: one row per person message, per agent turn reply (the
 // turn's FINAL text, written by the device), per card. The raw tool
 // transcript stays on the device (journal + relay) and shows only when a
@@ -2036,6 +2095,14 @@ export const messages = pgTable(
   `messages`,
   {
     id: uuidPk(),
+    // NEW-3: the conversation the row lives in (kind `session` in step 1:
+    // the session's own; `populate_message_session_mirrors` derives it from
+    // `session_id` and vice versa, so either suffices at insert).
+    conversationId: uuid(`conversation_id`)
+      .notNull()
+      .references(() => conversations.id, { onDelete: `cascade` }),
+    // NEW-3: the step-1 read shim of the session's conversation (the shipped
+    // clients key the Conversation on it); NEW-8 drops it with the shim.
     sessionId: uuid(`session_id`)
       .notNull()
       .references(() => sessions.id, { onDelete: `cascade` }),
@@ -2074,6 +2141,7 @@ export const messages = pgTable(
   },
   (table) => [
     index(`idx_messages_session_created`).on(table.sessionId, table.createdAt),
+    index(`idx_messages_conversation_created`).on(table.conversationId, table.createdAt),
     index(`idx_messages_root`).on(table.rootId),
     index(`idx_messages_team`).on(table.teamId),
     // The device's pickup of a PERSON's queued messages. EXP-1323 widened
@@ -3059,6 +3127,15 @@ export const selectEventSchema = createSelectSchema(events, {
   payload: z.custom<Record<string, unknown>>((value) => value !== null && typeof value === `object`),
 })
 export const selectPromptSchema = createSelectSchema(prompts)
+// NEW-3
+export const selectConversationSchema = createSelectSchema(conversations, {
+  kind: conversationKindSchema,
+})
+export const selectConversationMemberSchema = createSelectSchema(conversationMembers)
+export const selectSyncedConversationSchema = selectConversationSchema.omit({
+  shared: true,
+  ownerId: true,
+})
 export const selectSyncedPromptSchema = selectPromptSchema.omit({ body: true })
 export const selectSessionIssueSchema = createSelectSchema(sessionIssues, {
   source: sessionIssueSourceSchema,
@@ -3180,6 +3257,9 @@ export type IssueEvent = InferSelectModel<typeof issueEvents>
 export type Session = InferSelectModel<typeof sessions>
 export type SessionIssue = InferSelectModel<typeof sessionIssues>
 export type Message = InferSelectModel<typeof messages>
+// NEW-3
+export type Conversation = InferSelectModel<typeof conversations>
+export type ConversationMember = InferSelectModel<typeof conversationMembers>
 export type PullRequest = InferSelectModel<typeof pullRequests>
 export type PullRequestIssue = InferSelectModel<typeof pullRequestIssues>
 export type Repository = InferSelectModel<typeof repositories>

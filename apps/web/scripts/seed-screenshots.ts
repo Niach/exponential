@@ -51,6 +51,7 @@ import {
   labels,
   mcpServers,
   messages,
+  conversations,
   notifications,
   boards,
   pullRequestIssues,
@@ -866,6 +867,21 @@ async function seedSessionTree(ctx: {
   ])
 
   // ── conversations ──────────────────────────────────────────────────────
+  // NEW-3: every seeded session got its conversation from the
+  // `create_session_conversation` trigger; a message names it.
+  const conversationBySession = new Map(
+    (
+      await db
+        .select({ id: conversations.id, sessionId: conversations.sessionId })
+        .from(conversations)
+        .where(eq(conversations.teamId, teamId))
+    ).map((row) => [row.sessionId ?? ``, row.id])
+  )
+  const conversationOf = (sessionId: string): string => {
+    const id = conversationBySession.get(sessionId)
+    if (!id) throw new Error(`seed: session ${sessionId} has no conversation`)
+    return id
+  }
   type MessageSpec = {
     sessionId: string
     author: `user` | `agent`
@@ -877,6 +893,7 @@ async function seedSessionTree(ctx: {
     rootId?: string
   }
   const message = (spec: MessageSpec): typeof messages.$inferInsert => ({
+    conversationId: conversationOf(spec.sessionId),
     sessionId: spec.sessionId,
     rootId: spec.rootId ?? spec.sessionId,
     teamId,
@@ -1066,6 +1083,7 @@ async function seedSessionTree(ctx: {
   // EXP-1323: the cold-start thread's suggested tasks card (one started, two
   // open) and the started child's report, posted by that child.
   const thread = (spec: Partial<typeof messages.$inferInsert> & { at: Date }) => ({
+    conversationId: conversationOf(spec.sessionId ?? ids.coldStart),
     sessionId: ids.coldStart,
     rootId: ids.coldStart,
     teamId,

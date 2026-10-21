@@ -10,6 +10,7 @@ import {
   selectSyncedAgentSchema,
   selectEventSchema,
   selectSyncedPromptSchema,
+  selectSyncedConversationSchema,
   selectSyncedSessionSchema,
   selectSyncedSessionIssueSchema,
   selectSyncedMessageSchema,
@@ -333,6 +334,17 @@ export const sessionIssueCollection = createCollection(
     id: `session_issues`,
     shapeOptions: shapeOptions(`/api/shapes/session-issues`),
     schema: selectSyncedSessionIssueSchema,
+    getKey: (item) => item.id,
+  })
+)
+
+// NEW-3: the chat primitive's rows: a session's own conversation (kind
+// `session`) in step 1; a message names its `conversationId`.
+export const conversationCollection = createCollection(
+  electricCollectionOptions({
+    id: `conversations`,
+    shapeOptions: shapeOptions(`/api/shapes/conversations`),
+    schema: selectSyncedConversationSchema,
     getKey: (item) => item.id,
   })
 )

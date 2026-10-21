@@ -49,7 +49,7 @@ Workspace names: `@exp/<dir>`; `apps/desktop` = Cargo.
 
 **Vocabulary (EXP-180):** the product says **team** and **board** EVERYWHERE: copy, URLs (`/t/$teamSlug/boards/$boardSlug/issues/$id`), identifiers, DB, routers, shapes, MCP tools; copy says **session**, never "run" (code may). Boards have no types; `repository_id` NULLABLE; coding gates on repo PRESENCE.
 
-**Client parity:** all four clients sync the same 29 Electric shapes (`routes/api/shapes/`). `pins` (EXP-778) + `issue_drafts` (EXP-878) + `session_reads` (EXP-1323) = per-user static, never trash-scoped: a row renders only when its target/board resolves; draft attachments (`draft_id`, issue_id NULL) never sync (`issueDrafts.listAttachments`; eager upload `/api/issue-drafts/{id}/files`), reparent on `issues.create({draftId})`, which stamps synced `issues.draft_id` (EXP-1231: an open page elsewhere lands on the issue, consumed id upsert = CONFLICT). NEW-2: `agents` excludes `instructions`/`trigger_state`, `prompts` the `body` (tRPC `prompts.get`), `sessions` `wake_on`/`mcp_server_ids`; `events` = team-scoped; the EMPTY `actions` shape = a read shim (NEW-8). `devices` + `device_worktrees` (EXP-481) sync `user_id = me OR shared_team_ids && (member teams)` via trigger mirrors; devices rows = SERVER-AUTHORITATIVE (persisted `launch_defaults`; online = `last_seen_at` within `contract.device.onlineWindowSeconds`). `repositories`, `user_notification_prefs`, `email_deliveries`, `conversion_events`, `device_commands`, `passkeys` and the widget tables = **server-only (tRPC), never synced**.
+**Client parity:** all four clients sync the same 30 Electric shapes (`routes/api/shapes/`). NEW-3: `conversations` (dm|channel|session; each session owns one trigger-created `session` row, session-visible; dm/channel + `conversation_members` = NEW-8) + `messages.conversation_id` (`session_id` = shim); composer Message an agent › = `sessions.send({agentId})`. `pins` (EXP-778) + `issue_drafts` (EXP-878) + `session_reads` (EXP-1323) = per-user static, never trash-scoped: a row renders only when its target/board resolves; draft attachments (`draft_id`, issue_id NULL) never sync (`issueDrafts.listAttachments`; eager upload `/api/issue-drafts/{id}/files`), reparent on `issues.create({draftId})`, which stamps synced `issues.draft_id` (EXP-1231: an open page elsewhere lands on the issue, consumed id upsert = CONFLICT). NEW-2: `agents` excludes `instructions`/`trigger_state`, `prompts` the `body` (tRPC `prompts.get`), `sessions` `wake_on`/`mcp_server_ids`; `events` = team-scoped; the EMPTY `actions` shape = a read shim (NEW-8). `devices` + `device_worktrees` (EXP-481) sync `user_id = me OR shared_team_ids && (member teams)` via trigger mirrors; devices rows = SERVER-AUTHORITATIVE (persisted `launch_defaults`; online = `last_seen_at` within `contract.device.onlineWindowSeconds`). `repositories`, `user_notification_prefs`, `email_deliveries`, `conversion_events`, `device_commands`, `passkeys` and the widget tables = **server-only (tRPC), never synced**.
 
 **Nothing is anonymously readable:** every shape = member-only (anonymous → impossible-match sentinel); no public tRPC; attachment reads need membership. ONLY anonymous: widget (`/api/widget/*`), the reporter magic-link page (`/api/support/{thread,reply,attachment}` + `/support/$token`, SLOP-4), invites, auth, `/about` + `/NOTICES.txt`, MCP OAuth CIMD + state-gated callback (`/api/mcp-oauth/{client.json,callback}`, EXP-792), `/api/{guide-uploads,attachment-uploads}/$token` (HMAC uploads, EXP-879/929), `/api/cli/install-token/redeem` (EXP-1111). Board-scoped shapes = TEAM-scoped with a STATIC trash predicate (REV2-5): `team_id IN (member teams) AND board_deleted_at IS NULL` (trigger-fanned mirror on every issue child); **shape identities rotate ONLY on membership changes**. Issue-less notifications keep NULL `board_deleted_at` and always sync; the session tree uses the visibility rule instead; the notifications shape = static per user (`user_id = me AND board_deleted_at IS NULL`; fan-out filters recipients at delivery); issue-less rows (`agent_message`, `session_blocked`) carry a synced `team_id`.
 
@@ -59,7 +59,7 @@ The app = **noindex** (`__root.tsx` meta + `X-Robots-Tag`); marketing owns the i
 
 ## Shared Contracts
 
-**Icons (EXP-273/317):** ONE icon set, Lucide, byte-identical ×4, generated from `packages/icons/icons.json` into COMMITTED per-platform outputs (web: `@exp/ui` `icons.generated.ts`). Change an icon in `icons.json` + regenerate; never hand-edit generated files nor add per-platform glyph maps. `pickable` (contract `boardIcon`) + `devicePickable` (`deviceIcon`) = **APPEND-ONLY**: reordering orphans rows. Multi-client surfaces name a CONCEPT (`conceptIcon(\`nav-search\`)`, `registry::NAV_SEARCH`, `ExpIcons.navSearch`), never a raw glyph; iOS renders via `AppIcon`, never `Image(systemName:)`; `icons.test.ts` gates it. Desktop assets hold hand-kept BRAND marks; MCP catalog marks = icons.json `brand` (rows = contract `mcpCatalog`).
+**Icons (EXP-273/317):** ONE icon set, Lucide, byte-identical ×4, generated from `packages/icons/icons.json` into COMMITTED per-platform outputs (web: `@exp/ui` `icons.generated.ts`). Change an icon in `icons.json` + regenerate; never hand-edit generated files or add per-platform glyph maps. `pickable` (contract `boardIcon`) + `devicePickable` (`deviceIcon`) = **APPEND-ONLY**: reordering orphans rows. Multi-client surfaces name a CONCEPT (`conceptIcon(\`nav-search\`)`, `registry::NAV_SEARCH`, `ExpIcons.navSearch`), never a raw glyph; iOS renders via `AppIcon`, never `Image(systemName:)`; `icons.test.ts` gates it. Desktop assets hold hand-kept BRAND marks; MCP catalog marks = icons.json `brand` (rows = contract `mcpCatalog`).
 
 **Enums:** canonical values live in `packages/domain-contract/contract.json`; a `db-schema/src/domain.ts` change = update `contract.json` + regenerate.
 
@@ -90,13 +90,13 @@ Workspace scripts: `bun --filter @exp/web <script>`; `cargo` in `apps/desktop`. 
 
 ## Deploys
 
-Coolify (`coolify.home.straehhuber.com`, Hetzner, **home-LAN-only**): `coolify deploy uuid <uuid>` after a green Actions run. `build-web.yml` publishes `ghcr.io/niach/exponential-web` on master pushes + `v*` tags; ONE image for cloud, staging and self-host; licence rules: `docs/third-party-licences.md` (gated). Native releases = tags `{android,desktop,cli,ios}-v*` → `build-*.yml` (desktop: prod + staging × 3 OSes, `make_latest`, self-update `crates/updater`; cli: bare binaries, `EXP_INSTANCE`).
+Coolify (`coolify.home.straehhuber.com`, Hetzner, **home-LAN-only**): `coolify deploy uuid <uuid>` after a green Actions run. `build-web.yml` publishes `ghcr.io/niach/exponential-web` on master pushes + `v*` tags; ONE image for cloud, staging and self-host; licence rules: `docs/third-party-licences.md` (gated). Native releases = tags `{android,desktop,cli,ios}-v*` → `build-*.yml` (desktop: prod+staging ×3 OSes, `make_latest`, self-update `crates/updater`; cli: bare binaries, `EXP_INSTANCE`).
 
-**The operations runbook lives outside the repo.**
+**The ops runbook lives outside the repo.**
 
-Every user-facing release PREPENDS a `ChangelogEntry` to `lib/changelog.ts` (mirror `crates/ui/src/changelog.rs`).
+Every release PREPENDS a `ChangelogEntry` to `lib/changelog.ts` (mirror `crates/ui/src/changelog.rs`).
 
-After schema changes: `bun run migrate:generate && bun run migrate`; custom triggers auto-apply at boot (`applyCustomSql`).
+Schema changes: `bun run migrate:generate && bun run migrate`; custom triggers apply at boot (`applyCustomSql`).
 
 ## Web App Structure (`apps/web/src/`)
 
@@ -108,7 +108,7 @@ The shadcn set, theme `styles.css`, `cn`, icon registry and shared primitives (`
 
 ### Conventions
 
-Better Auth user IDs (all user FKs) = `text`; app tables use UUID PKs + timezone `created_at`/`updated_at`; sort orders = `doublePrecision`.
+Better Auth user IDs (all user FKs) = `text`; app tables = UUID PKs + timezone `created_at`/`updated_at`; sort orders = `doublePrecision`.
 
 ### Non-obvious fields
 
@@ -116,7 +116,7 @@ Issues DUAL-WRITE `status` (the builtin ANCHOR enum) and `statusId` (nullable FK
 
 ### Enum behavior
 
-`issue_status`: `pr_open` flips linked issues (`pull_request_issues`) to the team's PR-open target (default `in_review`), merge to the PR-merge target (default `done`). `session_status` queued → running ⇄ idle → ended: `queued` = unclaimed, `idle` = between turns (a message resumes the SAME row), `ended` = explicit End or the process gone (agent conversations never end); `busy` (device-written) = the ONLY list-spinner input ×4; `needs_input` (a card waits) feeds Needs you; `blocked` (EXP-804 jsonb, a walled session stays live). `exponential_sessions_end` = the LAST call of sessions nobody started by hand (its summary = the final message); a person-started one calls it only when asked.
+`issue_status`: `pr_open` flips linked issues (`pull_request_issues`) to the team's PR-open target (default `in_review`), merge to the PR-merge target (default `done`). `session_status` queued → running ⇄ idle → ended: `queued` = unclaimed, `idle` = between turns (a message resumes the SAME row), `ended` = explicit End or the process gone (agent conversations never end); `busy` (device-written) = the ONLY list-spinner input ×4; `needs_input` (a card waits) feeds Needs you; `blocked` (EXP-804 jsonb, a walled session stays live).
 
 ### Custom triggers
 
@@ -126,11 +126,11 @@ Issues DUAL-WRITE `status` (the builtin ANCHOR enum) and `statusId` (nullable FK
 
 ### Electric shape proxies
 
-One proxy per synced table in `routes/api/shapes/`. **Every proxy pins a server-side `columns` allowlist clients cannot widen; new server-only columns go BEHIND it**. `users` pins `id,name,email,image,created_at,updated_at`; `teams` its contract list (`comp_tier`, `agent_prompt` never); `issue-subscribers` drops reporter `email`, `actions` `body`, board-scoped shapes their scoping columns; a shape may FILTER on an excluded column. Hardening: `cache-control: private, no-store` + `vary: authorization, x-api-key, cookie`; bad token credentials → 401, never the anonymous clause; `buildWhereClause` SORTS id lists (= the shape identity); membership ids stay OUT of board-scoped clauses (`buildTeamScopedChildWhere`). A FIFO semaphore (`electric-proxy.ts`) bounds snapshot-class forwarding (REV-27), never long-polls.
+One proxy per synced table in `routes/api/shapes/`. **Every proxy pins a server-side `columns` allowlist clients cannot widen; server-only columns go BEHIND it**. `users` pins `id,name,email,image,created_at,updated_at`; `teams` its contract list (`comp_tier`, `agent_prompt` never); `issue-subscribers` drops reporter `email`, `actions` `body`, board-scoped shapes their scoping columns; a shape may FILTER on an excluded column. Hardening: `cache-control: private, no-store` + `vary: authorization, x-api-key, cookie`; bad token credentials → 401, never the anonymous clause; `buildWhereClause` SORTS id lists (= the shape identity); membership ids stay OUT of board-scoped clauses (`buildTeamScopedChildWhere`). A FIFO semaphore (`electric-proxy.ts`) bounds snapshot forwarding (REV-27), never long-polls.
 
 ### Board trash (48h soft delete) + archive (EXP-500)
 
-Owner-only `boards.delete` stamps `deleted_at`; **archive = same machinery minus the purge** (`archived_at` + a `board_archived_at` child mirror). Both vanish server-side: `boardVisible()` (`lib/board-visibility.ts`, every boards join) + the shapes' static `IS NULL` suffixes + trigger-fanned mirrors (REV2-103). Both keep the `(team_id, slug)` reservation; web-only cards restore them. The purge sweep (`lib/board-trash.ts`) keys on `deleted_at`.
+Owner-only `boards.delete` stamps `deleted_at`; **archive = the same minus the purge** (`archived_at` + a `board_archived_at` child mirror). Both vanish server-side: `boardVisible()` (`lib/board-visibility.ts`, every boards join) + the shapes' static `IS NULL` suffixes + trigger-fanned mirrors (REV2-103). Both keep the `(team_id, slug)` reservation; web-only cards restore them. The purge sweep (`lib/board-trash.ts`) keys on `deleted_at`.
 
 ### Custom issue statuses (EXP-314)
 
@@ -147,14 +147,14 @@ Per-TEAM rows, six fixed categories (backlog/unstarted/started/completed/cancell
 
 ## Environment Variables
 
-**Root `.env.example` = CANONICAL**, `selfhost/.env.example` its subset, relays own `apps/*/.env.example`. Not obvious there:
+**Root `.env.example` = CANONICAL**, `selfhost/.env.example` its subset, relays own `apps/*/.env.example`. Not obvious:
 
 - `CLOUD_INSTANCE` = the opt-IN cloud marker (EXP-364): `'true'` = billing, plan limits, in-app widget, conversion tracking; unset = self-hosted, every FEATURE limit unlocked; `INITIAL_ADMIN_EMAILS` auto-promotes global admins.
 - `AUTH_PASSWORD_ENABLED`/`AUTH_SIGNUP_ENABLED`: password login defaults true, public signup on in dev, OFF in production builds (`selfhost/docker-compose.yaml` re-defaults `true`). Auth posture = BUILD-derived (`lib/production-build.ts` `isProductionBuild`, REV-5), never runtime `NODE_ENV`. EXP-857: `AUTH_EMAIL_OTP_ENABLED` defaults on WITH a mail transport, `AUTH_PASSKEY_ENABLED` WITH an https base (rpID = host; Android origins from `ANDROID_APP_LINK_FINGERPRINTS`); login = ONE "Continue with …" list ×4.
-- Mail: SES (`AWS_SES_REGION` + creds) OR `SMTP_*`, SES wins; neither = no mail.
+- Mail: SES (`AWS_SES_REGION` + creds) OR `SMTP_*`, SES wins; neither = none.
 - OIDC: `OIDC_PROVIDERS` (JSON array) = primary; `AUTH_OIDC_ENABLED`/`OIDC_*` = legacy, read only when unset.
 - GitHub = ONE flow (SLOP-7): a Better Auth `github` provider on the App's OAuth client (`GITHUB_APP_CLIENT_ID/SECRET`; `GITHUB_LOGIN_ENABLED` adds the login button); members link it (`linkSocial`), installations + pushable repos list LIVE off their token (`integrations.github.*`), `repositories` store `installation_id`+`full_name`; `/integrations/github` = the one guided step. `GITHUB_POLLING=true` = outbound merge cron for NAT'd self-hosts.
-- `STEER_RELAY_URL` unset = remote start/steer off; HS256 `STEER_RELAY_SECRET` must match the relay; BOTH relays need `TRUST_PROXY=true` behind a proxy.
+- `STEER_RELAY_URL` unset = remote start/steer off; HS256 `STEER_RELAY_SECRET` must match the relay; both relays need `TRUST_PROXY=true` behind a proxy.
 - `CLIENT_MIN_VERSION_{ANDROID,IOS,DESKTOP,CLI}` gate with HTTP 426 + a blocking update screen (unset = off); MARKETING versions, never build numbers.
 - Widget rate limits (`WIDGET_RATE_LIMIT_*`, `WIDGET_CONFIG_RATE_LIMIT_*`, REV-25): the per-KEY ones = self-host-only; cloud = per-TEAM plan ceiling (`lib/widget/submit-limit.ts`).
 
@@ -184,24 +184,24 @@ Desktop IDE = master-only + autopull (no branch switch; changes land via PRs or 
 
 ## Billing (per-seat, Creem—cloud only)
 
-Subscriptions bind to a TEAM (`creem_subscriptions.team_id` + `seats`, Creem `units` = seats), not the purchaser (REV2-55, `lib/billing/billing-handover.ts`): account deletion is never billing-blocked (cancels a SOLO team's subscription); team deletes REFUSE a live subscription (a period-end cancellation passes). ONE subscription per team; `billing.updateSeats`/`changePlan` prorate immediately. Free = 3 seats, 250MB, 1 widget; **Team** = the ONE paid tier, €15/seat/mo or €12 yearly: 10GB, unlimited widgets (`PlanTier` free|team|unlimited). Boards/repos/runs, push + steer = never plan-gated; over-seat teams only block invites.
+Subscriptions bind to a TEAM (`creem_subscriptions.team_id` + `seats`, Creem `units` = seats), not the purchaser (REV2-55, `lib/billing/billing-handover.ts`): account deletion is never billing-blocked (cancels a SOLO team's subscription); team deletes REFUSE a live subscription (a period-end cancellation passes). ONE subscription per team; `billing.updateSeats`/`changePlan` prorate immediately. Free = 3 seats, 250MB, 1 widget; **Team** = the ONE paid tier, €15/seat/mo or €12 yearly: 10GB, unlimited widgets (`PlanTier` free|team|unlimited). Boards/repos/runs, push + steer never plan-gated; over-seat teams only block invites.
 
-**Limits exist only when `CLOUD_INSTANCE=true`**. Enterprise: no published pricing, `/contact/`. Self-host's one limit: no mobile push.
+**Limits exist only when `CLOUD_INSTANCE=true`**. Enterprise: no public pricing, `/contact/`. Self-host's one limit: no mobile push.
 
 ## Feedback widget (SLOP-4: ONE path, a submission IS an issue)
 
-`packages/widget` (Preact + snapdom) builds a loader + lazy panel into `apps/web/public/widget/v1/`; API = `window.ExponentialWidget`.
+`packages/widget` (Preact + snapdom) builds a loader + lazy panel into `apps/web/public/widget/v1/`; API `window.ExponentialWidget`.
 
-Server-only `widget_configs` (public `expw_` key + domain allowlist, `board_id` NOT NULL) + `widget_submissions` (`issue_id` NOT NULL = the "Reported via widget" card ×4 + the reporter identity); public CORS routes `/api/widget/{config,submit}` (origin/rate-limit/honeypot in `lib/widget/`). ONE form: `message` + optional pictures/name/email (`form_config`), `labelIds` ≤10, `customFields`, `theme`, `launcher`; ONE capture button. Submit = issue + attachments (null `uploader_id`) + submission row in ONE transaction, `source='widget'`, `creator_id` NULL; reporter text is UNTRUSTED and escaped ONCE server-side into literal GFM (`lib/reporter-text.ts`, fixture-locked). **The conversation = comments**: a member comment with `audience=reporter` is emailed (`email_delivery_id` audit) with the magic link `/support/<token>` (`lib/reporter/token.ts`, HMAC over the ISSUE id, minted only when a reporter email exists); the reporter page reads the issue's reporter-audience comments + their own pictures and replies as `source=reporter` comments (a reply on a completed issue reopens it → `backlog`); notify = issue-scoped `reporter_reply`; the "Reply to reporter" toggle = the composer's leading-row pill ×4, only with a reporter email. The ONLY cloud upsell = the Widget settings' usage bar (owner-only, web + IDE read-only). The in-app widget = behind the sidebar "Report bug" button (cloud-only; key in `lib/runtime-config.ts`, `FEEDBACK_WIDGET_KEY` overrides).
+Server-only `widget_configs` (public `expw_` key + domain allowlist, `board_id` NOT NULL) + `widget_submissions` (`issue_id` NOT NULL = the "Reported via widget" card ×4 + the reporter identity); public CORS routes `/api/widget/{config,submit}` (origin/rate-limit/honeypot in `lib/widget/`). ONE form: `message` + optional pictures/name/email (`form_config`), `labelIds` ≤10, `customFields`, `theme`, `launcher`; ONE capture button. Submit = issue + attachments (null `uploader_id`) + submission row in ONE transaction, `source='widget'`, `creator_id` NULL; reporter text is UNTRUSTED and escaped ONCE server-side into literal GFM (`lib/reporter-text.ts`, fixture-locked). **The conversation = comments**: a member comment with `audience=reporter` is emailed (`email_delivery_id` audit) with the magic link `/support/<token>` (`lib/reporter/token.ts`, HMAC over the ISSUE id, minted only when a reporter email exists); the reporter page reads the issue's reporter-audience comments + their own pictures and replies as `source=reporter` comments (a reply on a completed issue reopens it → `backlog`); notify = issue-scoped `reporter_reply`; the "Reply to reporter" toggle = the composer's leading-row pill ×4, only with a reporter email. The ONLY cloud upsell = the Widget settings' usage bar (owner-only). The in-app widget = the sidebar "Report bug" button (cloud-only; key in `lib/runtime-config.ts`, `FEEDBACK_WIDGET_KEY` overrides).
 
-**Conversion tracking (EXP-362, cloud only):** `lib/conversion/` + `adminConversions`; visitors = daily-salted HMAC(ip+ua), attribution = `ref`/`utm_*`, `events.ts` = the vocabulary.
+**Conversion tracking (EXP-362, cloud only):** `lib/conversion/` + `adminConversions`; visitors = daily-salted HMAC(ip+ua), attribution `ref`/`utm_*`, vocabulary `events.ts`.
 
 ## Style Conventions
 
 - Template literals; functional components only
-- Feedback ×4 = `feedback-states.json`: a person's failed action = toast, background never (`Couldn't <verb> <thing>`), invalid input inline, skeletons, not "Loading…"; motion = tokens
+- Feedback ×4 = `feedback-states.json`: a person's failed action = toast, never background (`Couldn't <verb> <thing>`), invalid input inline, skeletons, never "Loading…"; motion = tokens
 - shadcn/ui from `@exp/ui` ALWAYS over raw `<input>`/`<button>`/`<textarea>`/`<label>`; icons by CONCEPT
 
 ## Agent context budget (EXP-353)
 
-Keep this file under 40k chars. MCP clients DEFER tool defs behind tool search (`_meta["anthropic/alwaysLoad"]` opts in): the always-loaded set == `lib/mcp/always-load.ts`, <10k serialized, whole surface <60k, per-tool <1.8k, `MCP_SERVER_INSTRUCTIONS` <2k with a self-contained first 512 (`lib/mcp/context-budget.test.ts`). **Compress, never append**: a rule over its rationale.
+Keep this file under 40k chars. MCP clients DEFER tool defs behind tool search (`_meta["anthropic/alwaysLoad"]` opts in): always-loaded == `lib/mcp/always-load.ts`, <10k serialized, surface <60k, per-tool <1.8k, `MCP_SERVER_INSTRUCTIONS` <2k, self-contained first 512 (`lib/mcp/context-budget.test.ts`).
