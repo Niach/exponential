@@ -7,9 +7,10 @@ import { describe, expect, it } from "vitest"
 import { readFileSync, readdirSync } from "node:fs"
 import { join } from "node:path"
 import { coreCatalog, DEFAULT_STRINGS } from "@exponential-at/ui"
-import { NATIVES } from "./natives"
+import { NATIVES, PENDING_NATIVES } from "./natives"
+import { NATIVE_ORDER, OWNERS } from "./natives/owners"
 import { FALLBACK_ICONS } from "./icons"
-import { Pending, PENDING_NATIVES } from "./natives/pending"
+import { Pending } from "./natives/pending"
 
 describe(`natives × catalog`, () => {
   const natives = Object.entries(coreCatalog.components)
@@ -30,6 +31,20 @@ describe(`natives × catalog`, () => {
   })
   it(`PENDING_NATIVES lists exactly the entries still painted by Pending`, () => {
     expect(Object.entries(NATIVES).filter(([, p]) => p === Pending).map(([n]) => n).sort()).toEqual([...PENDING_NATIVES].sort())
+  })
+  it(`the owners table covers the 48 natives once, in React's order`, () => {
+    const owned = Object.values(OWNERS).flat()
+    expect([...owned].sort()).toEqual([...NATIVE_ORDER].sort())
+    expect(Object.keys(NATIVES)).toEqual([...NATIVE_ORDER])
+  })
+  it(`every natives file paints only what it owns`, async () => {
+    for (const [file, names] of Object.entries(OWNERS)) {
+      if ([`layout`, `text`, `form`].includes(file)) continue
+      const mod = (await import(`./natives/${file}`)) as Record<string, Record<string, unknown>>
+      const record = mod[`NATIVES_${file.replace(/-/g, `_`).toUpperCase()}`]
+      expect(record, file).toBeDefined()
+      for (const key of Object.keys(record)) expect(names, `${file} paints ${key}`).toContain(key)
+    }
   })
   it(`every builtinIcons glyph has a registry-free fallback`, () => {
     for (const [slot, icon] of Object.entries(coreCatalog.builtinIcons as Record<string, string>)) {
