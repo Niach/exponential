@@ -120,4 +120,11 @@ class AgentComposerPromptTest {
             AgentComposerPrompt.headline(AgentComposerPrompt.Subject.Action),
         )
     }
+
+    // NEW-3: Message an agent › — the submit reads Send, the chip is the headline.
+    @Test
+    fun `an agent subject sends with no verb`() {
+        assertEquals("Send", AgentComposerPrompt.submitTitle(AgentComposerPrompt.Subject.Agent))
+        assertEquals("", AgentComposerPrompt.headline(AgentComposerPrompt.Subject.Agent))
+    }
 }

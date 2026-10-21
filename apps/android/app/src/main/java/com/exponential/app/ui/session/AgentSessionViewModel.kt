@@ -165,6 +165,7 @@ class AgentSessionViewModel @AssistedInject constructor(
     private val devicesApi: DevicesApi,
     private val mcpServersApi: com.exponential.app.data.api.McpServersApi,
     private val issueImagesApi: IssueImagesApi,
+    private val promptsApi: com.exponential.app.data.api.PromptsApi,
     private val store: SteerConnectionStore,
     stats: SyncStats,
 ) : ViewModel() {
@@ -778,6 +779,61 @@ class AgentSessionViewModel @AssistedInject constructor(
             SlashCommands.agentId(row?.cli, config != null),
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** NEW-2: the session's team's prompts, the `/` menu's rows after the
+     *  builtins (the synced, body-less `prompts`). */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val teamPrompts: Flow<List<com.exponential.app.domain.SlashPrompt>> =
+        session.map { it?.teamId?.takeIf { id -> id.isNotEmpty() } }
+            .distinctUntilChanged()
+            .flatMapLatest { team ->
+                if (team == null) {
+                    flowOf(emptyList())
+                } else {
+                    dbFlow.scopedQuery(emptyList<com.exponential.app.data.db.PromptEntity>()) {
+                        it.promptDao().observeByTeam(team)
+                    }
+                }
+            }
+            .map { rows -> rows.map { com.exponential.app.domain.SlashPrompt(it.id, it.name, it.icon) } }
+
+    /**
+     * NEW-2: THE `/` menu's rows ×4 = the builtins [slashMatches] offers,
+     * then the team's prompts whose slash name the draft prefixes
+     * ([SlashCommands.candidates]).
+     */
+    val slashCandidates: StateFlow<List<com.exponential.app.domain.SlashCandidate>> = combine(
+        draft,
+        session,
+        sessionConfig,
+        teamPrompts,
+    ) { text, row, config, prompts ->
+        SlashCommands.candidates(text, SlashCommands.agentId(row?.cli, config != null), prompts)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    private val _promptFailure = MutableStateFlow<com.exponential.app.ui.components.FailedAction?>(null)
+    /** FEED-79: a picked prompt whose body could not load, raised once. */
+    val promptFailure: StateFlow<com.exponential.app.ui.components.FailedAction?> = _promptFailure
+
+    fun clearPromptFailure() {
+        _promptFailure.value = null
+    }
+
+    /** NEW-2: a picked prompt's body (`prompts.get`; the synced row has none)
+     *  replaces the draft, never auto-sent. */
+    fun insertPrompt(promptId: String) {
+        viewModelScope.launch {
+            val accountId = auth.activeAccountId.value ?: return@launch
+            try {
+                setDraft(promptsApi.get(accountId, promptId).body)
+            } catch (t: Throwable) {
+                if (t is CancellationException) throw t
+                _promptFailure.value = com.exponential.app.ui.components.FailedAction(
+                    "load", "the prompt", trpcErrorMessage(t, ""),
+                ) { insertPrompt(promptId) }
+            }
+        }
+    }
 
     /** The catalog command the draft would RUN if sent, if any (EXP-724) — the
      *  screen confirms before sending the ones that discard context. EXP-746:

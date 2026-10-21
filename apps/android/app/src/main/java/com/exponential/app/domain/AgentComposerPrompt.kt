@@ -66,6 +66,10 @@ object AgentComposerPrompt {
          * request — its own verb and send. Unpicked it is a plain [Action].
          */
         data object FixConflicts : Subject
+
+        /** NEW-3 (composer-menu.json `message-agent`): a message into the
+         *  caller's DM with a team agent. */
+        data object Agent : Subject
     }
 
     /**
@@ -77,7 +81,11 @@ object AgentComposerPrompt {
         is Subject.Issues -> if (subject.count > 1) "Start batch · ${subject.count}" else "Start coding"
         Subject.Action -> "Run action"
         Subject.FixConflicts -> DomainContract.composerUiFixConflictsSubmit
+        Subject.Agent -> AGENT_SUBMIT
     }
+
+    /** NEW-3: the submit while an agent is the subject (web `submitLabelFor`). */
+    const val AGENT_SUBMIT = "Send"
 
     /**
      * EXP-1038: the composer's HEADLINE verb, above the field and beside the
@@ -91,5 +99,7 @@ object AgentComposerPrompt {
         is Subject.Issues -> DomainContract.composerUiImplementHeadline
         Subject.Action -> DomainContract.composerUiRunHeadline
         Subject.FixConflicts -> DomainContract.composerUiFixConflictsHeadline
+        // NEW-3 (web `launchHeadlineVerb`): the agent's chip IS the headline.
+        Subject.Agent -> ""
     }
 }

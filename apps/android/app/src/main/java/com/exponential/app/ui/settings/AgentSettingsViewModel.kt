@@ -81,6 +81,42 @@ class AgentSettingsViewModel @Inject constructor(
         if (team == null) emptyList() else SessionTree.listAgents(defs.map(SessionTree::agentDefinition), sessions, team, me)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    /**
+     * NEW-2: the selected team's Events band (web `AgentEventsBand`): newest
+     * first, capped at [AgentSettings.EVENTS_CAP], each with who emitted it
+     * ([AgentSettings.eventEmitterLabel]). null = still loading.
+     */
+    val events: StateFlow<List<AgentEventRow>?> = combine(teamId, dbFlow) { team, db -> team to db }
+        .flatMapLatest { (team, db) ->
+            if (team == null || db == null) {
+                flowOf(null)
+            } else {
+                combine(
+                    db.eventDao().observeByTeam(team),
+                    db.sessionDao().observeAll(),
+                    db.userDao().observeAll(),
+                ) { events, sessions, users ->
+                    val titles = sessions.associate { it.id to (it.title ?: it.name) }
+                    val names = users.associate { it.id to it }
+                    events.take(AgentSettings.EVENTS_CAP).map { event ->
+                        AgentEventRow(
+                            id = event.id,
+                            name = event.name,
+                            emitter = AgentSettings.eventEmitterLabel(
+                                event.emittedBy,
+                                event.sessionId,
+                                event.userId,
+                                sessionTitle = { id -> titles[id] },
+                                userName = { id -> com.exponential.app.ui.components.userDisplayName(names[id], id) },
+                            ),
+                            createdAt = event.createdAt,
+                        )
+                    }
+                }
+            }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
     /** The page's synced agent definition (null for `New agent` / while loading). */
     val agent: StateFlow<AgentDefinitionEntity?> = (
         agentId?.let { id ->
@@ -267,3 +303,12 @@ internal fun triggerBase(row: AgentDefinitionEntity?, written: Pair<Long, List<A
     val syncedMs = row?.updatedAt?.let { WireTimestamps.parseEpochMs(it) } ?: return written.second
     return if (syncedMs >= written.first) synced else written.second
 }
+
+/** NEW-2: one row of the Events band. */
+data class AgentEventRow(
+    val id: String,
+    val name: String,
+    /** Who emitted it (the session's title, the person, or the server). */
+    val emitter: String,
+    val createdAt: String,
+)

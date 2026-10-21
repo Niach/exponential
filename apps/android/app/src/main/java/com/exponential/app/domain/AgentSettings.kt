@@ -15,6 +15,28 @@ package com.exponential.app.domain
  */
 object AgentSettings {
 
+    /** NEW-2: the Events band under the agents list (web `AgentEventsBand`):
+     *  the team's events newest first, at most this many. */
+    const val EVENTS_CAP = 50
+    const val EVENTS_TITLE = "Events"
+    const val NO_EVENTS = "No events yet"
+
+    /**
+     * Who emitted an event, as its row's caption (web `eventEmitterLabel`):
+     * the emitting session's title, the person's name, or the server.
+     */
+    fun eventEmitterLabel(
+        emittedBy: String,
+        sessionId: String?,
+        userId: String?,
+        sessionTitle: (String) -> String?,
+        userName: (String) -> String,
+    ): String = when (emittedBy) {
+        "session" -> sessionId?.let(sessionTitle)?.takeIf { it.isNotEmpty() } ?: "Session"
+        "user" -> userId?.let(userName) ?: "Someone"
+        else -> "Exponential"
+    }
+
     /** One page field: [key] identity | device | account | triggers |
      *  instructions | delete; [control] names the widget. */
     data class Field(

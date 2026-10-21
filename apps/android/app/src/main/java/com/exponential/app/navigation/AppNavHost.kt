@@ -81,8 +81,6 @@ import com.exponential.app.ui.onboarding.OnboardingScreen
 import com.exponential.app.ui.personal.PersonalScreen
 import com.exponential.app.ui.issue.IssueListMode
 import com.exponential.app.ui.issue.IssueListScreen
-import com.exponential.app.ui.actions.ActionDetailScreen
-import com.exponential.app.ui.actions.ActionsScreen
 import com.exponential.app.ui.search.SearchScreen
 import com.exponential.app.ui.thread.ThreadScreen
 import com.exponential.app.ui.threads.ThreadsScreen
@@ -90,6 +88,9 @@ import com.exponential.app.ui.threads.ThreadsViewModel
 import com.exponential.app.ui.session.AgentSessionScreen
 import com.exponential.app.ui.issue.IssueScreen
 import com.exponential.app.ui.settings.AgentSettingsScreen
+import com.exponential.app.ui.settings.PromptSettingsScreen
+import com.exponential.app.ui.settings.PromptsSettingsScreen
+import com.exponential.app.ui.thread.AgentConversationScreen
 import com.exponential.app.ui.settings.AgentsSettingsScreen
 import com.exponential.app.ui.session.AgentsScreen
 import com.exponential.app.ui.settings.AboutScreen
@@ -112,7 +113,7 @@ import dagger.hilt.android.EntryPointAccessors
 /**
  * The single navigation surface, mirroring the iOS `AppNavigator`: a gradient
  * [AppBackground] behind one push-stack `NavHost`, with the floating bottom
- * pill (Issues · Inbox · Devices · Reviews · Actions + the Chat | New issue
+ * pill (Issues · Inbox · Devices · Threads + the Chat | New issue
  * capsule) overlaid on the top-level routes; the app lands on the Agent page,
  * which the Chat arm selects like a tab. EXP-1210: the tabs are ROOT siblings
  * ([MainTabs], [selectTab]) — no back button, no slide between them. Replaces
@@ -503,10 +504,12 @@ private fun AuthenticatedNav(
                 is EntityTarget.Issue -> navController.navigate(issueRoute(target.id, commentId = target.commentId))
                 is EntityTarget.Board -> navController.navigate("board/${target.id}")
                 is EntityTarget.Session -> navController.navigate(Routes.session(target.id))
-                // SLOP-2: an `action` ref opens that action's page.
-                is EntityTarget.Action -> navController.navigate("action/${target.id}")
+                // NEW-7: a `prompt` ref opens its Settings page.
+                is EntityTarget.Prompt -> navController.navigate(Routes.promptSettings(target.id))
+                EntityTarget.Prompts -> navController.navigate(Routes.PROMPTS_SETTINGS)
+                // NEW-7: an `agent` ref opens my conversation with it.
+                is EntityTarget.Agent -> navController.navigate(Routes.agentDm(target.id))
                 // EXP-1210: a tab is never pushed — its ref switches to it.
-                EntityTarget.Actions -> navController.selectTab(MainTabs.ACTIONS, tabSwitch)
                 EntityTarget.Devices -> navController.selectTab(MainTabs.DEVICES, tabSwitch)
                 EntityTarget.TeamSettings -> navController.navigate("team-settings")
                 EntityTarget.Inbox -> navController.selectTab(MainTabs.INBOX, tabSwitch)
@@ -603,22 +606,6 @@ private fun AuthenticatedNav(
             // the settings gear, and runs start from the Agent page composer.
             AgentsScreen()
         }
-        composable("actions") {
-            // Team actions (EXP-253) — its own bottom-bar tab since EXP-686.
-            ActionsScreen(
-                onOpenAgent = openAgent,
-                onOpenAction = { id -> navController.navigate("action/$id") },
-            )
-        }
-        composable("action/{actionId}") {
-            // SLOP-2: one action — Prompt | Triggers | Runs on a pager. The
-            // ViewModel reads actionId from its SavedStateHandle like the
-            // issue-detail route does; a run opened from Runs pops back here.
-            ActionDetailScreen(
-                onBack = { navController.popBackStack() },
-                onOpenAgent = openAgent,
-            )
-        }
         composable(
             // EXP-825: the SEEDED Agent page — a pushed detail over any tab
             // (the empty one is AGENT_TAB_ROUTE) whose six nullable query args carry the preselection seed
@@ -665,6 +652,9 @@ private fun AuthenticatedNav(
             // its thread, an agent row its channel (the same screen).
             ThreadsScreen(
                 onOpenThread = { id -> navController.navigate(Routes.thread(id)) },
+                // NEW-7: an agent with no conversation of mine yet opens its
+                // empty DM (the first send creates it).
+                onOpenAgent = { id -> navController.navigate(Routes.agentDm(id)) },
                 onOpenSession = { id -> navController.navigate(Routes.session(id)) },
             )
         }
@@ -722,6 +712,8 @@ private fun AuthenticatedNav(
                 onBack = { navController.popBackStack() },
                 onOpenAgent = { id -> navController.navigate(Routes.agentSettings(id)) },
                 onNewAgent = { navController.navigate(Routes.AGENT_NEW) },
+                onOpenPrompt = { id -> navController.navigate(Routes.promptSettings(id)) },
+                onNewPrompt = { navController.navigate(Routes.PROMPT_NEW) },
             )
         }
         composable("share-compose") {
@@ -890,6 +882,47 @@ private fun AuthenticatedNav(
                 onDeleted = { navController.popBackStack() },
             )
         }
+        composable(Routes.AGENT_DM_PATTERN) {
+            // NEW-7: my DM with an agent; once it exists it IS the thread
+            // screen's agent channel, which replaces this entry.
+            AgentConversationScreen(
+                onBack = { navController.popBackStack() },
+                onOpenConversation = { id ->
+                    val here = navController.currentBackStackEntry?.destination?.id
+                    navController.navigate(Routes.thread(id)) {
+                        if (here != null) popUpTo(here) { inclusive = true }
+                    }
+                },
+                onOpenAgentSettings = { id -> navController.navigate(Routes.agentSettings(id)) },
+            )
+        }
+        composable(Routes.PROMPTS_SETTINGS) {
+            PromptsSettingsScreen(
+                onBack = { navController.popBackStack() },
+                onOpenPrompt = { id -> navController.navigate(Routes.promptSettings(id)) },
+                onNewPrompt = { navController.navigate(Routes.PROMPT_NEW) },
+            )
+        }
+        composable(Routes.PROMPT_SETTINGS_PATTERN) {
+            PromptSettingsScreen(
+                onBack = { navController.popBackStack() },
+                onCreated = {},
+                onDeleted = { navController.popBackStack() },
+            )
+        }
+        composable(Routes.PROMPT_NEW) {
+            PromptSettingsScreen(
+                onBack = { navController.popBackStack() },
+                // A created prompt replaces the `new` page with its own.
+                onCreated = { id ->
+                    val newId = navController.currentBackStackEntry?.destination?.id
+                    navController.navigate(Routes.promptSettings(id)) {
+                        if (newId != null) popUpTo(newId) { inclusive = true }
+                    }
+                },
+                onDeleted = { navController.popBackStack() },
+            )
+        }
         composable("invite/{token}") { entry ->
             val token = entry.arguments?.getString("token").orEmpty()
             InviteAcceptScreen(
@@ -950,7 +983,6 @@ private fun AuthenticatedNav(
             agentActive = currentTab == MainTabs.AGENT,
             issuesActive = currentTab == MainTabs.ISSUES,
             devicesActive = currentTab == MainTabs.DEVICES,
-            actionsActive = currentTab == MainTabs.ACTIONS,
             personalActive = currentTab == MainTabs.INBOX,
             threadsActive = currentTab == MainTabs.THREADS,
             unreadCount = unreadCount,
@@ -965,12 +997,11 @@ private fun AuthenticatedNav(
             // selected while it is up.
             composeEnabled = composeBoardId != null,
             // EXP-1210: every entry SWITCHES to a sibling root (a re-tap pops
-            // back to it); EXP-1187: Actions is a top-level tab (Settings = the
+            // back to it); NEW-7: the Actions tab is gone (Settings = the
             // Issues header's gear).
             onChat = { navController.selectTab(MainTabs.AGENT, tabSwitch) },
             onIssues = { navController.selectTab(MainTabs.ISSUES, tabSwitch) },
             onDevices = { navController.selectTab(MainTabs.DEVICES, tabSwitch) },
-            onActions = { navController.selectTab(MainTabs.ACTIONS, tabSwitch) },
             onPersonal = { navController.selectTab(MainTabs.INBOX, tabSwitch) },
             onThreads = { navController.selectTab(MainTabs.THREADS, tabSwitch) },
             onCompose = {

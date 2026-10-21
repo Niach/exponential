@@ -1,4 +1,4 @@
-package com.exponential.app.ui.actions
+package com.exponential.app.ui.settings
 
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -14,7 +14,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
+import com.exponential.app.domain.TriggerWhen
 import com.exponential.app.domain.AgentTrigger
 import com.exponential.app.domain.Prompts
 import com.exponential.app.ui.components.GlassPill
@@ -110,4 +112,10 @@ fun TriggerFormSheet(
             Spacer(Modifier.height(24.dp))
         }
     }
+}
+
+/** The glyph of a trigger kind (the agent Triggers rows). */
+internal fun triggerGlyph(whenPart: TriggerWhen): ImageVector = when (whenPart) {
+    is TriggerWhen.Schedule -> ExpIcons.triggerSchedule
+    is TriggerWhen.Event -> ExpIcons.triggerEvent
 }

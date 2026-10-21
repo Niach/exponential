@@ -183,11 +183,17 @@ fun ThreadScreen(
         )
     }
     val rootRow = root
+    // NEW-2: the agent's DEFINITION row names the header (its coloured icon +
+    // name); the session's legacy facets only stand in until it syncs.
+    val agentDefinition by viewModel.agentDefinition.collectAsStateWithLifecycle()
     val agent = if (isAgent && rootRow != null) {
+        val def = agentDefinition
         ThreadAgent(
-            name = rootRow.name?.takeIf { it.isNotBlank() } ?: SessionTree.ListCopy.AGENTS,
-            icon = rootRow.icon,
-            color = rootRow.color,
+            name = def?.name?.takeIf { it.isNotBlank() }
+                ?: rootRow.name?.takeIf { it.isNotBlank() }
+                ?: SessionTree.ListCopy.AGENTS,
+            icon = def?.icon ?: rootRow.icon,
+            color = def?.color ?: rootRow.color,
         )
     } else {
         null
@@ -484,10 +490,19 @@ fun ThreadContent(
     // sub-issue is a page too (right after its chip's). EXP-1343: phones
     // page through EVERY strip tab in strip order, the session chips (and
     // their folded sessions) included.
-    val pages = remember(agent != null, view?.tabs) { threadPages(if (agent != null) null else view?.tabs) }
+    // NEW-6 (N-1): a thread with ONE session (the root alone) IS that
+    // session: its page is the main thing (first, the fallback) and the
+    // strip carries no Conversation tab; a second session brings it back.
+    // An agent conversation stays the Conversation.
+    val mainSessionId = if (agent != null) null else view?.mainSessionId
+    val pages = remember(agent != null, view?.tabs, mainSessionId) {
+        threadMainPages(threadPages(if (agent != null) null else view?.tabs), mainSessionId)
+    }
     // A tab that left the strip (an issue unlinked elsewhere) falls back to
-    // the conversation.
-    val selected = pages.firstOrNull { threadTabKey(it) == selectedKey } ?: SessionTree.ThreadTab.Conversation
+    // the first page: the conversation, or the main session's page.
+    val selected = pages.firstOrNull { threadTabKey(it) == selectedKey }
+        ?: pages.firstOrNull()
+        ?: SessionTree.ThreadTab.Conversation
     val pageKeys = remember(pages) { pages.mapTo(mutableSetOf()) { threadTabKey(it) } }
     // EXP-1343: a session of this thread with a page opens AS that page; any
     // other (another root's card) keeps its own route.
@@ -534,7 +549,16 @@ fun ThreadContent(
                             ThreadTabStrip(
                                 tabs = view.tabs,
                                 selectedKey = threadTabKey(selected),
-                                onSelect = onSelectKey,
+                                // NEW-6: on a single-session thread the open
+                                // chip (or Guide) tapped again returns to the
+                                // session's work.
+                                onSelect = { key ->
+                                    if (mainSessionId != null && key == threadTabKey(selected)) {
+                                        onSelectKey(threadTabKey(pages.first()))
+                                    } else {
+                                        onSelectKey(key)
+                                    }
+                                },
                                 onAdd = onAdd,
                                 issueStatus = issueStatus,
                                 issueTitle = issueTitle,
@@ -650,6 +674,22 @@ internal fun threadPages(tabs: List<SessionTree.ThreadTab>?): List<SessionTree.T
             else -> listOf(tab)
         }
     }.distinctBy(::threadTabKey)
+}
+
+/**
+ * NEW-6 (N-1): [pages] with the single-session thread's MAIN page first (the
+ * root's own session page, never a strip chip); null [mainSessionId] = the
+ * pages as they are (the Conversation leads).
+ */
+internal fun threadMainPages(
+    pages: List<SessionTree.ThreadTab>,
+    mainSessionId: String?,
+): List<SessionTree.ThreadTab> {
+    if (mainSessionId == null) return pages
+    val main = SessionTree.ThreadTab.SessionTab(mainSessionId, name = "", markState = SessionTree.SessionState.Waiting)
+    return listOf(main) + pages.filter {
+        it != SessionTree.ThreadTab.Conversation && threadTabKey(it) != threadTabKey(main)
+    }
 }
 
 /** EXP-1307: the Guide `…` for [pr] — [SessionTree.guideMenuEntries] over

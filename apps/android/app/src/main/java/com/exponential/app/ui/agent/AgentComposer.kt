@@ -247,6 +247,9 @@ internal fun AgentComposerHeadline(
     removeIssueDescription: (IssueOption) -> String = { "Remove ${it.identifier}" },
     onClearAction: () -> Unit,
     modifier: Modifier = Modifier,
+    /** NEW-3: the agent subject (Message an agent ›) — ONE chip, no verb. */
+    agentChip: com.exponential.app.domain.SessionTree.AgentRow? = null,
+    onClearAgent: () -> Unit = {},
 ) {
     Row(
         modifier = modifier
@@ -256,15 +259,40 @@ internal fun AgentComposerHeadline(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Text(
-            headline,
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.onSurface,
-            maxLines = 1,
-            modifier = Modifier.testTag("agent-composer-headline-verb"),
-        )
-        if (actionChip != null || issueChips.isNotEmpty()) {
+        // NEW-3: an agent's chip IS the headline (no verb).
+        if (headline.isNotEmpty()) {
+            Text(
+                headline,
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                modifier = Modifier.testTag("agent-composer-headline-verb"),
+            )
+        }
+        if (agentChip != null) {
+            // The agent: its icon in its colour · name · ✕ (only the ✕
+            // clears it, like the prompt chip).
+            GlassPill(
+                agentChip.name,
+                leading = {
+                    Icon(
+                        ExpIcons.byName(agentChip.icon) ?: ExpIcons.settingsAgents,
+                        contentDescription = null,
+                        tint = remember(agentChip.color) { com.exponential.app.ui.parseColor(agentChip.color) },
+                        modifier = Modifier.size(com.exponential.app.ui.components.GlassPillDefaults.glyphSize(com.exponential.app.ui.components.PillSize.Md)),
+                    )
+                },
+                trailing = {
+                    ChipClose(
+                        contentDescription = "Remove ${agentChip.name}",
+                        testTag = "agent-composer-chip-agent-remove",
+                        onClick = onClearAgent,
+                    )
+                },
+                modifier = Modifier.testTag("agent-composer-chip-agent"),
+            )
+        } else if (actionChip != null || issueChips.isNotEmpty()) {
             // Several issue chips scroll sideways rather than wrapping — a
             // batch must not push the field off the first screen. The verb
             // keeps its width (`fill = false`), the chips take what is left.

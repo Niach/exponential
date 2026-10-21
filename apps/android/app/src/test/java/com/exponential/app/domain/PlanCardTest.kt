@@ -89,6 +89,10 @@ class PlanCardTest {
         assertEquals(copy.str("answering"), PlanCard.Copy.ANSWERING)
         assertEquals(copy.str("feedbackLine"), PlanCard.Copy.FEEDBACK_LINE)
         assertEquals("Feedback: Go.", PlanCard.Copy.feedbackLine("Go."))
+        assertEquals(copy.str("stepLabel"), PlanCard.Copy.STEP_LABEL)
+        assertEquals(copy.str("back"), PlanCard.Copy.BACK)
+        assertEquals(copy.str("next"), PlanCard.Copy.NEXT)
+        assertEquals(copy.str("decide"), PlanCard.Copy.DECIDE)
         val specimen = copy.getValue("specimen").jsonObject
         assertEquals(
             specimen.mapValues { it.value.jsonPrimitive.content },
@@ -113,6 +117,10 @@ class PlanCardTest {
                 "surface" to PlanCard.TestIds.SURFACE,
                 "feedback" to PlanCard.TestIds.FEEDBACK,
                 "issue" to PlanCard.TestIds.ISSUE,
+                "step" to PlanCard.TestIds.STEP,
+                "stepBack" to PlanCard.TestIds.STEP_BACK,
+                "stepNext" to PlanCard.TestIds.STEP_NEXT,
+                "decision" to PlanCard.TestIds.DECISION,
             ),
         )
         assertNumbers(
@@ -152,6 +160,26 @@ class PlanCardTest {
             ),
         )
         assertEquals(fixture.str("uploadScheme"), PlanCard.UPLOAD_SCHEME)
+        assertNumbers(
+            JsonObject(fixture.getValue("stepper").jsonObject.filterKeys { !it.startsWith("$") }),
+            mapOf(
+                "minQuestions" to PlanCard.Stepper.MIN_QUESTIONS,
+                "buttonGap" to PlanCard.Stepper.BUTTON_GAP,
+            ),
+        )
+    }
+
+    /** NEW-6 (N-1): only a PENDING plan with `stepper.minQuestions`+
+     *  questions steps; the step line fills `copy.stepLabel`. */
+    @Test
+    fun `the stepper applies to a pending plan with enough questions`() {
+        val min = PlanCard.Stepper.MIN_QUESTIONS
+        assertEquals(true, PlanCard.stepperApplies(isPlan = true, decision = null, questionCount = min))
+        assertEquals(false, PlanCard.stepperApplies(isPlan = true, decision = null, questionCount = min - 1))
+        assertEquals(false, PlanCard.stepperApplies(isPlan = true, decision = "approved", questionCount = min))
+        assertEquals(false, PlanCard.stepperApplies(isPlan = true, decision = "rejected", questionCount = min))
+        assertEquals(false, PlanCard.stepperApplies(isPlan = false, decision = null, questionCount = min))
+        assertEquals("Question 1 of 2", PlanCard.stepLabel(1, 2))
     }
 
     /** Every key of the fixture object has a mirror, and each equals it. */

@@ -70,6 +70,8 @@ fun ThreadsScreen(
     onOpenThread: (rootSessionId: String) -> Unit,
     /** EXP-1323: a nested child row opens that session's view. */
     onOpenSession: (sessionId: String) -> Unit = onOpenThread,
+    /** NEW-7: an agent with no conversation of mine yet = its empty DM. */
+    onOpenAgent: (agentId: String) -> Unit = {},
     viewModel: ThreadsViewModel = hiltViewModel(),
 ) {
     val groups by viewModel.groups.collectAsStateWithLifecycle()
@@ -88,6 +90,7 @@ fun ThreadsScreen(
             words = words,
             onOpenThread = onOpenThread,
             onOpenSession = onOpenSession,
+            onOpenAgent = onOpenAgent,
             modifier = Modifier.padding(padding),
         )
     }
@@ -108,6 +111,8 @@ fun ThreadsContent(
     modifier: Modifier = Modifier,
     /** EXP-1323: a nested child row (depth > 0) opens that session. */
     onOpenSession: (sessionId: String) -> Unit = onOpenThread,
+    /** NEW-7: an agent row with no conversation yet opens the empty DM. */
+    onOpenAgent: (agentId: String) -> Unit = {},
 ) {
     Column(modifier = modifier.fillMaxSize()) {
         // The root screens' header (Actions parity): a plain large title.
@@ -132,7 +137,10 @@ fun ThreadsContent(
                     SectionHeader(SessionTree.ListCopy.AGENTS, leading = { BandGlyph(ExpIcons.settingsAgents, Muted) })
                 }
                 items(agents, key = { "agent_${it.agentId}" }) { agent ->
-                    AgentListRow(agent, onClick = { conversations[agent.agentId]?.let(onOpenThread) })
+                    AgentListRow(
+                        agent,
+                        onClick = { conversations[agent.agentId]?.let(onOpenThread) ?: onOpenAgent(agent.agentId) },
+                    )
                 }
                 item(key = "__agents_gap__") { Spacer(Modifier.height(12.dp)) }
             }

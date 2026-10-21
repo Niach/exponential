@@ -16,7 +16,7 @@ data class CardSurface(val root: JsonObject, val data: JsonObject?)
  * `domain::plan_card`, iOS ExpCore `PlanCard.swift`). The render rules live
  * in fixtures/plan-card.json's `$comment`; `PlanCardTest` replays
  * `answerIssueCases`, `pictureForCases`, `optionRowsCases` and proves the
- * copy / tiles / test ids below equal the fixture's.
+ * copy / tiles / test ids / stepper below equal the fixture's.
  */
 object PlanCard {
 
@@ -38,6 +38,10 @@ object PlanCard {
         const val ISSUE_MISSING = "Answer every question to approve"
         const val ISSUE_MULTI = "This question takes one answer"
         const val ISSUE_UNKNOWN = "Pick one of the options"
+        const val STEP_LABEL = "Question {n} of {m}"
+        const val BACK = "Back"
+        const val NEXT = "Next"
+        const val DECIDE = "Your decision"
 
         /** The answered card's ONE feedback line. */
         fun feedbackLine(text: String): String = FEEDBACK_LINE.replace("{feedback}", text)
@@ -52,7 +56,31 @@ object PlanCard {
         const val SURFACE = "plan-card-surface"
         const val FEEDBACK = "plan-card-feedback"
         const val ISSUE = "plan-card-issue"
+        const val STEP = "plan-card-step"
+        const val STEP_BACK = "plan-card-step-back"
+        const val STEP_NEXT = "plan-card-step-next"
+        const val DECISION = "plan-card-decision"
     }
+
+    /** NEW-6 (N-1): the question stepper (fixture `stepper`; dp). */
+    object Stepper {
+        const val MIN_QUESTIONS = 2
+        const val BUTTON_GAP = 8
+    }
+
+    /** NEW-6 (N-1): whether a card shows its questions one at a time: a
+     *  PENDING plan (no decision yet) with [Stepper.MIN_QUESTIONS] or more
+     *  questions. A question card, a decided plan and a plan with fewer
+     *  questions never do (web `stepperApplies`). */
+    fun stepperApplies(isPlan: Boolean, decision: String?, questionCount: Int): Boolean {
+        if (!isPlan) return false
+        if (decision == "approved" || decision == "rejected") return false
+        return questionCount >= Stepper.MIN_QUESTIONS
+    }
+
+    /** The step line `copy.stepLabel`: [step] 1-based of [count]. */
+    fun stepLabel(step: Int, count: Int): String =
+        Copy.STEP_LABEL.replace("{n}", step.toString()).replace("{m}", count.toString())
 
     /** The tile geometry (dp; [PICTURE_ASPECT] = width / height). */
     object Tiles {

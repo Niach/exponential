@@ -834,6 +834,9 @@ data class SessionIssueEntity(
 @Serializable
 data class MessageEntity(
     @PrimaryKey val id: String,
+    // NEW-3: the conversation the row lives in (`session_id` = the step-1 shim).
+    @ColumnInfo(name = "conversation_id") @SerialName("conversation_id") @JsonNames("conversationId")
+    val conversationId: String? = null,
     @ColumnInfo(name = "session_id") @SerialName("session_id") @JsonNames("sessionId") val sessionId: String = "",
     @ColumnInfo(name = "root_id") @SerialName("root_id") @JsonNames("rootId") val rootId: String = "",
     @ColumnInfo(name = "team_id") @SerialName("team_id") @JsonNames("teamId") val teamId: String = "",
@@ -850,6 +853,25 @@ data class MessageEntity(
     @Serializable(with = JsonAsStringSerializer::class) val card: String? = null,
     @ColumnInfo(name = "answered_at") @SerialName("answered_at") @JsonNames("answeredAt") val answeredAt: String? = null,
     @ColumnInfo(name = "consumed_at") @SerialName("consumed_at") @JsonNames("consumedAt") val consumedAt: String? = null,
+    @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String = "",
+    @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String = "",
+)
+
+// NEW-3: the chat primitive. Step 1: every row is a session's own (kind
+// `session`), visible exactly when its session is; dm/channel rows arrive
+// with NEW-8.
+@Entity(
+    tableName = "conversations",
+    indices = [Index("team_id"), Index("session_id")],
+)
+@Serializable
+data class ConversationEntity(
+    @PrimaryKey val id: String,
+    @ColumnInfo(name = "team_id") @SerialName("team_id") @JsonNames("teamId") val teamId: String = "",
+    // Contract `conversationKind`: dm | channel | session.
+    val kind: String = com.exponential.app.domain.DomainContract.conversationKindSession,
+    @ColumnInfo(name = "session_id") @SerialName("session_id") @JsonNames("sessionId") val sessionId: String? = null,
+    val title: String? = null,
     @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String = "",
     @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String = "",
 )

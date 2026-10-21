@@ -34,6 +34,34 @@ data class SlashCommand(
     val insertion: String get() = if (argHint.isEmpty()) "/$name" else "/$name "
 }
 
+/** NEW-2: a team prompt as the `/` menu lists it (the synced, body-less
+ *  `prompts` row): its icon and name, after the builtins. Web `SlashPrompt`. */
+data class SlashPrompt(
+    val id: String,
+    val name: String,
+    /** Curated registry icon name; null = the generic prompt glyph. */
+    val icon: String? = null,
+) {
+    /** The token it answers to after the slash ([SlashCommands.promptSlashName]). */
+    val slashName: String get() = SlashCommands.promptSlashName(name)
+}
+
+/** One row of the `/` menu (web `SlashCandidate`): a builtin command, or a
+ *  team prompt. Accepting a command rewrites the draft; accepting a prompt is
+ *  the host's (a live session puts its body in the draft, the launch composer
+ *  makes it the new session's subject). */
+sealed interface SlashCandidate {
+    val key: String
+
+    data class Command(val command: SlashCommand) : SlashCandidate {
+        override val key: String get() = "command:${command.name}"
+    }
+
+    data class Prompt(val prompt: SlashPrompt) : SlashCandidate {
+        override val key: String get() = "prompt:${prompt.id}"
+    }
+}
+
 object SlashCommands {
 
     /** Every row, agent-agnostic, in contract order. */
@@ -98,6 +126,36 @@ object SlashCommands {
     }
 
     /**
+     * NEW-2: the token a prompt answers to after the slash: its name,
+     * lowercased, whitespace runs as `-` (`Fix flaky tests` →
+     * `fix-flaky-tests`), so `/fix` and `/fix-fl` both find it. Web
+     * `promptSlashName`.
+     */
+    fun promptSlashName(name: String): String =
+        name.trim().lowercase().split(WHITESPACE).filter { it.isNotEmpty() }.joinToString("-")
+
+    /**
+     * The prompts a draft offers: a case-insensitive PREFIX filter over the
+     * slash names, the team's order kept, at most [limit] (web
+     * `filterSlashPrompts`); empty when the draft opens no menu.
+     */
+    fun promptMatches(draft: String, prompts: List<SlashPrompt>, limit: Int = 50): List<SlashPrompt> {
+        if (!MENU_DRAFT.matches(draft)) return emptyList()
+        val needle = draft.drop(1).lowercase()
+        return prompts.filter { it.slashName.startsWith(needle) }.take(limit)
+    }
+
+    /**
+     * THE `/` menu's rows ×4 (NEW-2): a live session's builtins for its
+     * [agent] ([matches]), then the team's prompts. CLI-injected commands are
+     * never offered. The launch composer (no session yet) lists the prompts
+     * alone ([promptMatches]).
+     */
+    fun candidates(draft: String, agent: String?, prompts: List<SlashPrompt>): List<SlashCandidate> =
+        matches(draft, agent).map { SlashCandidate.Command(it) } +
+            promptMatches(draft, prompts).map { SlashCandidate.Prompt(it) }
+
+    /**
      * The catalog row [text] would run, if any: its first whitespace token
      * must equal `/name` (case-insensitive) for a row applicable to [agent].
      * Prose that merely mentions a command, and paths like `/api/foo`, are not
@@ -129,4 +187,6 @@ object SlashCommands {
     /** The whole draft is a command being typed: `/`, then name characters
      *  only. The first space closes the menu (the argument is being typed). */
     private val MENU_DRAFT = Regex("^/[A-Za-z0-9-]*$")
+
+    private val WHITESPACE = Regex("\\s+")
 }

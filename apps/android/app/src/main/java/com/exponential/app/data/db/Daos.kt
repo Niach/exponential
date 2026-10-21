@@ -436,6 +436,22 @@ interface SessionReadDao {
     suspend fun clear()
 }
 
+// NEW-3: conversations (step 1: one per session).
+@Dao
+interface ConversationDao {
+    @Query("SELECT * FROM conversations WHERE session_id = :sessionId LIMIT 1")
+    fun observeBySession(sessionId: String): Flow<ConversationEntity?>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(item: ConversationEntity)
+
+    @Query("DELETE FROM conversations WHERE id = :id")
+    suspend fun deleteById(id: String)
+
+    @Query("DELETE FROM conversations")
+    suspend fun clear()
+}
+
 // NEW-2: the team agents (definitions), rail order.
 @Dao
 interface AgentDefinitionDao {

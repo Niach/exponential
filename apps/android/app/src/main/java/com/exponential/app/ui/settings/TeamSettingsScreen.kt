@@ -178,6 +178,9 @@ fun TeamSettingsScreen(
     // agent's page, `New agent` the create form).
     onOpenAgent: (agentSessionId: String) -> Unit = {},
     onNewAgent: () -> Unit = {},
+    // NEW-7: Settings → Prompts (prompts replaced actions).
+    onOpenPrompt: (promptId: String) -> Unit = {},
+    onNewPrompt: () -> Unit = {},
     viewModel: TeamSettingsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -222,6 +225,7 @@ fun TeamSettingsScreen(
         ) {
             BoardsSection(state, viewModel, isOwner, onConfirm = { confirm = it })
             AgentsSettingsList(onOpenAgent = onOpenAgent, onNewAgent = onNewAgent)
+            PromptsSettingsList(onOpenPrompt = onOpenPrompt, onNewPrompt = onNewPrompt)
             RepositoriesSection(state, viewModel, isOwner, onConfirm = { confirm = it })
             MembersSection(state, isOwner, onConfirm = { confirm = it }, onRevokeInvite = viewModel::revokeInvite)
             LabelsSection(state, viewModel, onConfirm = { confirm = it })

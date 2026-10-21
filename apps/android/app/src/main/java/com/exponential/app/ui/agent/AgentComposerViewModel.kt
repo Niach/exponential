@@ -113,6 +113,10 @@ sealed interface ComposerSubject {
 
     /** NEW-2: a saved prompt (`sessions.send({promptId})`); no inputs. */
     data class Prompt(val id: String) : ComposerSubject
+
+    /** NEW-3: a team agent (`sessions.send({agentId})`): the message goes
+     *  into the caller's DM with it, on the agent's own device and login. */
+    data class Agent(val id: String) : ComposerSubject
 }
 
 /**
@@ -569,6 +573,20 @@ class AgentComposerViewModel @Inject constructor(
         reseedPlanMode()
     }
 
+    /** NEW-3: Message an agent ›'s pick — the agent replaces whatever subject
+     *  is up (picking an issue or a prompt swaps it back out). */
+    fun pickAgent(agentId: String) {
+        _subject.value = ComposerSubject.Agent(agentId)
+        steerLaunch.clearFailure()
+        reseedPlanMode()
+    }
+
+    fun clearAgent() {
+        if (_subject.value is ComposerSubject.Agent) _subject.value = null
+        steerLaunch.clearFailure()
+        reseedPlanMode()
+    }
+
     fun setDraft(text: String) {
         if (text == _draft.value) return
         _draft.value = text
@@ -816,6 +834,10 @@ class AgentComposerViewModel @Inject constructor(
      */
     fun submit(@Suppress("UNUSED_PARAMETER") resumeOffered: Boolean = false) {
         if (_sending.value) return
+        (_subject.value as? ComposerSubject.Agent)?.let { agent ->
+            submitToAgent(agent.id)
+            return
+        }
         val target = device.value ?: return
         val teamId = teamId.value ?: return
         val accountId = auth.activeAccountId.value ?: return
@@ -865,6 +887,60 @@ class AgentComposerViewModel @Inject constructor(
             } finally {
                 _sending.value = false
                 if (!accepted) _starting.value = null
+            }
+        }
+    }
+
+    /**
+     * NEW-3: the agent subject's send — `sessions.send({agentId, text,
+     * attachmentIds})` into the caller's DM with it (created on first use; it
+     * runs on the agent's device and login, so no runner picks). The pending
+     * files upload against the team first; the accepted send lands on the DM
+     * (the delegate's `startedSessionId`) and clears the draft.
+     */
+    private fun submitToAgent(agentId: String) {
+        val teamId = teamId.value ?: return
+        val accountId = auth.activeAccountId.value ?: return
+        viewModelScope.launch {
+            _sending.value = true
+            try {
+                try {
+                    var current = _images.value
+                    for ((index, image) in current.withIndex()) {
+                        if (image.uploadedId == null) {
+                            val uploaded = imagesApi.uploadTeamSessionImage(
+                                accountId,
+                                teamId,
+                                image.bytes,
+                                image.filename,
+                                image.contentType,
+                            )
+                            current = current.mapIndexed { i, entry ->
+                                if (i == index) entry.copy(uploadedId = uploaded.id, uploadedName = uploaded.filename) else entry
+                            }
+                            _images.value = current
+                        }
+                    }
+                } catch (t: Throwable) {
+                    if (t is CancellationException) throw t
+                    _uploadFailure.value = trpcErrorMessage(t, "")
+                    return@launch
+                }
+                val uploadedSet = _images.value
+                val text = AgentComposerPrompt.build(
+                    _draft.value,
+                    uploadedSet.uploadedImageIds(),
+                    uploadedSet.uploadedSteerFiles(),
+                ).orEmpty()
+                steerLaunch.send(
+                    SessionsSendInput.toAgent(
+                        agentId = agentId,
+                        text = text,
+                        attachmentIds = uploadedSet.mapNotNull { it.uploadedId },
+                    ),
+                )
+            } finally {
+                _sending.value = false
             }
         }
     }

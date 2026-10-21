@@ -19,6 +19,7 @@ import coil3.memory.MemoryCache
 import com.exponential.app.domain.PlanCard
 import com.exponential.app.domain.SessionTree
 import com.exponential.app.ui.theme.TextEmphasis
+import com.exponential.app.ui.thread.PlanAskCard
 import com.exponential.app.ui.thread.ThreadAskCard
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -30,7 +31,9 @@ import kotlinx.serialization.json.JsonObject
  * the inline Exponential UI surface), the ANSWERED multi question n2
  * (closed: its picks highlighted) and the APPROVED plan n3 (its feedback
  * line) — drawn by the REAL [ThreadAskCard] under plan-card.json
- * `copy.specimen`'s captions. The pictures are THE stand-ins ×4 (web
+ * `copy.specimen`'s captions. NEW-6 (N-1): the pending plan has two
+ * questions, so it is STEPPED ("Question 1 of 2" + Next) and is drawn again
+ * on its LAST step (the decision block), like the desktop specimen. The pictures are THE stand-ins ×4 (web
  * `plan-card-specimen.tsx` TONES), drawn here and seeded into Coil's memory
  * cache under the exact `/api/attachments/att-N` key a signed-out load uses.
  */
@@ -69,6 +72,15 @@ internal fun PlanCardSpecimens() {
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
         )
         ThreadAskCard(row, onAnswer = { _, _, _ -> }, onDecidePlan = { _, _, _ -> })
+        val plan = row as? SessionTree.ThreadRow.Plan
+        if (plan != null && PlanCard.stepperApplies(true, plan.decision, plan.questions.size)) {
+            PlanAskCard(
+                plan,
+                onAnswer = { _, _, _ -> },
+                onDecidePlan = { _, _, _ -> },
+                initialStep = plan.questions.size - 1,
+            )
+        }
     }
 }
 
