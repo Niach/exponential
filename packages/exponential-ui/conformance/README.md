@@ -59,12 +59,16 @@ passed, failed: [names], skipped?}}}`. Our runners write it to
 |---|---|---|
 | `exponential-ui` (Rust core) | `apps/desktop/crates/exponential-ui/tests/conformance.rs` | `cargo test -p exponential-ui --test conformance` |
 | `@exponential-at/ui-react` | `packages/exponential-ui-react/browser/suites.test.ts` | `bun run --filter @exponential-at/ui-react test:conformance` (headless Chromium) |
+| `@exponential-at/ui-solid` | `packages/exponential-ui-solid/browser/suites.test.ts` | `bun run --filter @exponential-at/ui-solid test:conformance` (headless Chromium) |
+| `@exponential-at/ui-element` | `packages/exponential-ui-element/browser/suites.test.ts` | `bun run --filter @exponential-at/ui-element test:conformance` (headless Chromium) |
 | `exponential-ui-gpui` | `apps/desktop/crates/exponential-ui-gpui/tests/suites.rs` | `cargo test -p exponential-ui-gpui --test suites` |
 | `ExponentialUI` (SwiftUI) | `packages/exponential-ui-swift/Tests/ExponentialUITests/ConformanceTests.swift` | `swift test` |
 | `at.exponential:ui-compose` | `packages/exponential-ui-compose/ui-compose/src/test/…/ConformanceTest.kt` | `./gradlew :ui-compose:testDebugUnitTest` |
 
-CI (`.github/workflows/exponential-ui.yml`) runs all four renderers plus the
-core on every SDK pull request and fails unless every report is conformant.
+CI (`.github/workflows/exponential-ui.yml`) runs all six renderers plus the
+core on every SDK pull request and fails unless every report is conformant;
+the two non-React web renderers (Solid, the web component) must also pass
+the web-parity gate against React (below).
 
 Version 2 (round 2, `docs/round-2-contract.md` §8) added the last nine
 suites: round 1's bind/style/code fixtures every runner already replayed,
@@ -170,8 +174,10 @@ in `.conformance/parity/`.
 ```bash
 bun run --filter @exponential-at/ui conformance:parity              # React vs React, the self-check (~3 min)
 bun run --filter @exponential-at/ui conformance:parity -- --candidate packages/exponential-ui-solid/harness/serve.ts
+bun run --filter @exponential-at/ui conformance:parity -- --candidate packages/exponential-ui-element/harness/serve.ts
 bun run --filter @exponential-at/ui parity:check .conformance/exponential-ui-parity-react-react.json
 bun run --filter @exponential-at/ui-solid test:parity               # Solid's gate calls runParity
+bun run --filter @exponential-at/ui-element test:parity             # the web component's gate, the same call
 ```
 
 ## Listing

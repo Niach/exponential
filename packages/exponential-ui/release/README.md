@@ -7,7 +7,7 @@ uploads what it would have published as a workflow artifact.
 
 | registry | what | secret(s) | first-time setup |
 |---|---|---|---|
-| npm | `@exponential-at/ui`, `@exponential-at/ui-react`, `@exponential-at/ui-solid` | `NPM_TOKEN` (automation token) | create the `@exponential-at` org on npmjs.com |
+| npm | `@exponential-at/ui`, `@exponential-at/ui-react`, `@exponential-at/ui-solid`, `@exponential-at/ui-element` | `NPM_TOKEN` (automation token) | create the `@exponential-at` org on npmjs.com |
 | crates.io | `exponential-ui` | `CARGO_REGISTRY_TOKEN` | claim the crate name with the first publish |
 | SwiftPM | `ExponentialUI` (the xcframework zip on the GitHub release + the tagged repo `Niach/exponential-ui-swift`) | `SWIFT_DIST_TOKEN` (contents:write on that repo) | create the empty public repo |
 | Maven Central | `at.exponential:ui-compose`, `:ui-compose-primitives` | `MAVEN_CENTRAL_USERNAME` + `MAVEN_CENTRAL_PASSWORD` (a Central Portal user token), `SIGNING_KEY` (ASCII-armoured GPG private key) + `SIGNING_PASSWORD` | verify the `at.exponential` namespace (DNS TXT on exponential.at) |
@@ -27,8 +27,8 @@ once both have matching crates.io releases).
    `-PuiVersion` (`ORG_GRADLE_PROJECT_uiVersion`); the `0.1.0` in
    `ui-compose/build.gradle.kts` and `primitives/build.gradle.kts` is only the
    local default. The Swift distribution package is generated per release.
-2. Green: `.github/workflows/exponential-ui.yml` (all five renderers
-   conformant, Solid at parity with React) on the release commit.
+2. Green: `.github/workflows/exponential-ui.yml` (all six renderers
+   conformant, Solid and the web component at parity with React) on the release commit.
 3. `git tag ui-v0.2.0 && git push origin ui-v0.2.0` (one tag per push, see the
    repo's release notes on tag pushes).
 
@@ -37,7 +37,8 @@ once both have matching crates.io releases).
 - **npm**: `bun packages/exponential-ui/release/prepare-npm.ts <version> dist-npm`
   builds each package (`build-npm.ts`: one ESM bundle per entry, dependencies
   external, JSON inlined, `tsc` declarations; `build:css` for the React
-  stylesheet; Solid's JSX through Vite + `vite-plugin-solid`) and stages a
+  stylesheet; Solid's JSX through Vite + `vite-plugin-solid`; the element's
+  `dist/standalone.js` through its `scripts/build-standalone.ts`) and stages a
   PUBLISHABLE package.json (no `private`, entry points on `dist/`, `workspace:*` pinned to the version, LICENSE + NOTICE).
   The workspace package.json files stay private with `main` on the sources.
   Locally: `bun samples/exponential-ui/pack-local.ts` packs the same tarballs.

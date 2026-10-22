@@ -5,10 +5,16 @@
 //   bun packages/exponential-ui/release/build-npm.ts packages/exponential-ui
 //   bun packages/exponential-ui/release/build-npm.ts packages/exponential-ui-react
 //   bun packages/exponential-ui/release/build-npm.ts packages/exponential-ui-solid
+//   bun packages/exponential-ui/release/build-npm.ts packages/exponential-ui-element
 //
 // FEED-128: Solid's JSX needs its compiler (Bun's bundler has none), so
 // `@exponential-at/ui-solid` builds through Vite + `vite-plugin-solid` in
 // library mode into the SAME layout (dist/<entry>.js + dist/types).
+//
+// FEED-130: `@exponential-at/ui-element` has no JSX (it mounts ui-solid, a
+// dependency, so external): the plain Bun path with code splitting (`.` and
+// `./define` share ONE element class), then `scripts/build-standalone.ts`
+// writes dist/standalone.js, everything inlined.
 
 import { execSync } from "node:child_process"
 import { existsSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs"
@@ -18,7 +24,14 @@ export const ENTRIES: Record<string, Record<string, string>> = {
   "@exponential-at/ui": { index: `src/index.ts`, web: `src/web/index.ts` },
   "@exponential-at/ui-react": { index: `src/index.ts`, primitives: `src/primitives/index.ts` },
   "@exponential-at/ui-solid": { index: `src/index.ts` },
+  "@exponential-at/ui-element": { index: `src/index.ts`, define: `src/define.ts` },
 }
+
+/** The packages whose entries share chunks (one module state across entries). */
+const SPLIT = new Set([`@exponential-at/ui-element`])
+
+/** The packages that also ship a self-contained `dist/standalone.js`. */
+const STANDALONE = new Set([`@exponential-at/ui-element`])
 
 /** The packages whose JSX is Solid's (built with Vite, not Bun). */
 const SOLID = new Set([`@exponential-at/ui-solid`])
@@ -28,6 +41,7 @@ export async function buildNpm(dir: string): Promise<void> {
   const entries = ENTRIES[pkg.name]
   if (!entries) throw new Error(`${pkg.name} is not an npm package of the SDK`)
   rmSync(join(dir, `dist`, `index.js`), { force: true })
+  if (SPLIT.has(pkg.name)) rmSync(join(dir, `dist`), { recursive: true, force: true })
   rmSync(join(dir, `dist`, `types`), { recursive: true, force: true })
   // The package's own name too: a sub-entry (`@exponential-at/ui/web`)
   // imports its root by name, so the root's module state stays ONE copy.
@@ -48,12 +62,18 @@ export async function buildNpm(dir: string): Promise<void> {
     target: `browser`,
     external,
     sourcemap: `linked`,
+    splitting: SPLIT.has(pkg.name),
     define: { "process.env.NODE_ENV": `"production"` },
   })
   if (!result.success) throw new Error(result.logs.map((l) => String(l)).join(`\n`))
   execSync(`bunx tsc -p tsconfig.build.json`, { cwd: dir, stdio: `inherit` })
   fixDeclarationSpecifiers(join(dir, `dist`, `types`))
-  console.log(`built ${pkg.name}: ${result.outputs.map((o) => o.path.replace(`${dir}/`, ``)).join(`, `)}`)
+  const built = result.outputs.filter((o) => o.kind !== `sourcemap`).map((o) => o.path.replace(`${dir}/`, ``))
+  if (STANDALONE.has(pkg.name)) {
+    const { buildStandalone } = (await import(join(dir, `scripts`, `build-standalone.ts`))) as { buildStandalone: (dir: string) => Promise<string> }
+    built.push((await buildStandalone(dir)).replace(`${dir}/`, ``))
+  }
+  console.log(`built ${pkg.name}: ${built.join(`, `)}`)
 }
 
 /** Vite library mode with `vite-plugin-solid` (DOM output): one ESM file
