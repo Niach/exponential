@@ -16,7 +16,7 @@ pub const MESSAGE_KINDS: &[&str] = &["createSurface", "updateComponents", "updat
 /// What the router turns a message into.
 pub const OP_KINDS: &[&str] = &["create", "components", "data", "bind", "delete", "send"];
 pub const HOST_ERROR_CODES: &[&str] =
-    &["VALIDATION_FAILED", "INVALID_MESSAGE", "UNSUPPORTED_CATALOG", "SURFACE_NOT_FOUND", "TEMPLATE_NOT_FOUND", "FUNCTION_NOT_FOUND", "FUNCTION_DENIED", "RENDER_FAILED"];
+    &["VALIDATION_FAILED", "INVALID_MESSAGE", "UNSUPPORTED_CATALOG", "SURFACE_NOT_FOUND", "TEMPLATE_NOT_FOUND", "FUNCTION_NOT_FOUND", "FUNCTION_DENIED", "SOURCE_DENIED", "RENDER_FAILED"];
 pub const VALIDATION_FAILED: &str = "VALIDATION_FAILED";
 pub const INVALID_MESSAGE: &str = "INVALID_MESSAGE";
 pub const UNSUPPORTED_CATALOG: &str = "UNSUPPORTED_CATALOG";
@@ -24,6 +24,8 @@ pub const SURFACE_NOT_FOUND: &str = "SURFACE_NOT_FOUND";
 pub const TEMPLATE_NOT_FOUND: &str = "TEMPLATE_NOT_FOUND";
 pub const FUNCTION_NOT_FOUND: &str = "FUNCTION_NOT_FOUND";
 pub const FUNCTION_DENIED: &str = "FUNCTION_DENIED";
+/// VAPP-107: a `bindDataModel` outside a package surface's `sources`.
+pub const SOURCE_DENIED: &str = "SOURCE_DENIED";
 /// A component's painter failed (`paint.errorCode`).
 pub const RENDER_FAILED: &str = "RENDER_FAILED";
 pub const FUNCTION_DECISIONS: &[&str] = &["allow", "ask", "deny", "not_found"];
