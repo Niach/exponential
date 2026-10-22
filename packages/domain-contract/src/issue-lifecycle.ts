@@ -5,7 +5,7 @@
 
 import fixture from "../fixtures/issue-lifecycle.json" with { type: "json" }
 
-export type IssueLifecycleEvent = `taken` | `pr_opened` | `pr_merged` | `unlinked`
+export type IssueLifecycleEvent = `taken` | `pr_opened` | `pr_merged` | `unlinked` | `filed`
 
 export type IssueLifecycleTarget = `backlog` | `in_progress` | `in_review` | `done`
 
@@ -36,6 +36,8 @@ export function issueLifecycleTarget(
   event: IssueLifecycleEvent,
   state: IssueLifecycleState
 ): IssueLifecycleTarget | null {
+  // `filed` (a session created the issue) holds without taking: never a move.
+  if (event === `filed`) return null
   const rule = RULES.find((entry) => entry.event === event)
   if (!rule || !rule.from.includes(state.status)) return null
   if (event === `unlinked` && (state.openPr || state.workers > 0)) return null

@@ -1217,7 +1217,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_issues_create`,
     {
-      description: `Create a new issue in a board the MCP user has access to. Description must be plain text (no embedded images on creation). For a custom status pass statusId (not status); see exponential_statuses_list. parentId files it as a sub-issue of that issue. sessionId links it to that session's thread (default: your own session's thread).`,
+      description: `Create a new issue in a board the MCP user has access to. Description must be plain text (no embedded images on creation). For a custom status pass statusId (not status); see exponential_statuses_list. parentId files it as a sub-issue of that issue. sessionId makes that session hold it (default: your own); filing never moves its status, a later link or start does.`,
       inputSchema: strictInput({
         boardId: uuidString,
         title: z.string().min(1).max(500),
