@@ -27,6 +27,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.flow.first
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -175,6 +180,40 @@ enum class PickerPresentation {
  * dialog windows). A picker's own `presentation` argument overrides it.
  */
 val LocalPickerPresentation = compositionLocalOf { PickerPresentation.Sheet }
+
+/**
+ * N-14 — where an open picker's rows render (`picker-presentation.json`
+ * `body`): [Surface] = the sheet; [RowSlot] = inline, under the WHOLE row host
+ * ([InlinePickerRow]); [UnderTrigger] = inline, directly under the trigger at
+ * the host's width.
+ */
+enum class PickerBody {
+    Surface,
+    RowSlot,
+    UnderTrigger,
+}
+
+data class PickerPlacement(val presentation: PickerPresentation, val body: PickerBody)
+
+/**
+ * N-14 — THE placement rule, replayed against the fixture's `placementCases`
+ * ×4: the host decides (inside a sheet = inline), a caller's [requested]
+ * presentation wins, and an inline picker in a row host opens into the row's
+ * slot. The fixture's `popover` is Android's [PickerPresentation.Sheet].
+ */
+fun pickerPlacement(
+    inDialog: Boolean,
+    inRow: Boolean,
+    requested: PickerPresentation?,
+): PickerPlacement {
+    val presentation = requested ?: if (inDialog) PickerPresentation.Inline else PickerPresentation.Sheet
+    val body = when {
+        presentation == PickerPresentation.Sheet -> PickerBody.Surface
+        inRow -> PickerBody.RowSlot
+        else -> PickerBody.UnderTrigger
+    }
+    return PickerPlacement(presentation, body)
+}
 
 object PickerRules {
 
@@ -363,7 +402,8 @@ fun <T : Any> Picker(
      * the assignee picker's avatar (a picker glyph is an icon, never a photo).
      */
     renderItem: (@Composable RowScope.(item: PickerItem<T>) -> Unit)? = null,
-    presentation: PickerPresentation = LocalPickerPresentation.current,
+    /** The caller's explicit presentation; null = the host decides (N-6). */
+    presentation: PickerPresentation? = null,
     trigger: @Composable (open: () -> Unit) -> Unit = {},
 ) {
     var internalOpen by remember { mutableStateOf(false) }
@@ -377,9 +417,19 @@ fun <T : Any> Picker(
         onOpenChange?.invoke(next)
     }
 
+    // N-14: the placement rule decides sheet / row slot / under the trigger.
+    val rowSlot = LocalInlinePickerSlot.current
+    val placement = pickerPlacement(
+        inDialog = LocalPickerPresentation.current == PickerPresentation.Inline,
+        inRow = rowSlot != null,
+        requested = presentation,
+    )
+    val inline = placement.presentation == PickerPresentation.Inline
+    val slotKey = remember { Any() }
+
     // N-6: inline, the trigger discloses AND folds; the sheet only opens
-    // (its drag handle closes it).
-    val inline = presentation == PickerPresentation.Inline
+    // (its drag handle closes it). The trigger itself is the caller's and is
+    // never wrapped (N-14): collapsed, it renders exactly as the sheet one.
     trigger { if (enabled) setOpen(if (inline) !isOpen else true) }
 
     if (!isOpen) return
@@ -480,13 +530,31 @@ fun <T : Any> Picker(
         }
         if (caption != null) caption()
     }
-    if (inline) {
+    val inlineRows: @Composable () -> Unit = {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .heightIn(max = PickerDefaults.InlineMaxHeight),
             content = body,
         )
+    }
+    if (placement.body == PickerBody.RowSlot && rowSlot != null) {
+        // N-14: the rows go UNDER THE WHOLE ROW, never beside the trigger in
+        // the scrolling row. Claiming replaces another picker's rows; losing
+        // the slot to one folds this picker; leaving composition (a fold, a
+        // single pick) releases it, and the row is exactly as before.
+        val latestRows = rememberUpdatedState(inlineRows)
+        val latestSetOpen = rememberUpdatedState(setOpen)
+        DisposableEffect(rowSlot, slotKey) {
+            rowSlot.claim(slotKey) { latestRows.value() }
+            onDispose { rowSlot.release(slotKey) }
+        }
+        LaunchedEffect(rowSlot, slotKey) {
+            snapshotFlow { rowSlot.isShowing(slotKey) }.first { !it }
+            latestSetOpen.value(false)
+        }
+    } else if (inline) {
+        inlineRows()
     } else {
         GlassSheet(title = title, onDismiss = { setOpen(false) }, modifier = sheetModifier, primaryAction = primaryAction, content = body)
     }

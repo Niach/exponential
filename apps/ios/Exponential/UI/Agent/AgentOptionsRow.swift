@@ -19,14 +19,18 @@ struct AgentOptionsRow: View {
     private var launch: LaunchOptionsState { model.launch }
 
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                devicePill
-                accountPill
-                modelPill
-                planPill
+        // N-14: THE row host — inside a sheet a pin's rows disclose in the
+        // slot under the whole row, so the pins never move.
+        InlinePickerRow {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    devicePill
+                    accountPill
+                    modelPill
+                    planPill
+                }
+                .padding(.horizontal, 2)
             }
-            .padding(.horizontal, 2)
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("agent-options-row")

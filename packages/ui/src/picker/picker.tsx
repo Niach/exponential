@@ -5,6 +5,8 @@ import { useContext } from "react"
 
 import { Combobox, type ComboboxPresentation } from "../combobox"
 import { PickerItemBody, type PickerItem } from "./picker-item"
+import { InlinePickerRowContext } from "./inline-picker-row"
+import { pickerPlacement } from "./picker-placement"
 import type { PickerTriggerVariant } from "./picker-trigger"
 
 export * from "./picker-item"
@@ -212,10 +214,17 @@ export function Picker<T extends string = string>(props: PickerProps<T>) {
     renderItem,
   } = props
   const testId = props[`data-testid`]
-  // N-6: the host decides — a picker inside a dialog opens inline.
+  // N-6: the host decides — a picker inside a dialog opens inline. N-14:
+  // inside a row host (the composer options row) the inline rows go into
+  // the slot under the whole row (picker-presentation.json).
   const inDialog = useContext(DialogPresentationContext) !== null
-  const resolvedPresentation: PickerPresentation =
-    presentation ?? (inDialog ? `inline` : `popover`)
+  const inRow = useContext(InlinePickerRowContext) !== null
+  const placement = pickerPlacement({
+    inDialog,
+    inRow,
+    requested: presentation ?? null,
+  })
+  const resolvedPresentation: PickerPresentation = placement.presentation
 
   const selection =
     props.mode === `multi`
@@ -241,6 +250,7 @@ export function Picker<T extends string = string>(props: PickerProps<T>) {
       data-picker-mode={props.mode}
       data-picker-search={search ? `true` : undefined}
       data-picker-presentation={resolvedPresentation === `inline` ? `inline` : undefined}
+      data-picker-body={placement.body}
       className="contents"
     >
       <Combobox
@@ -269,6 +279,7 @@ export function Picker<T extends string = string>(props: PickerProps<T>) {
         open={open}
         onOpenChange={onOpenChange}
         presentation={resolvedPresentation}
+        inlineBody={placement.body === `surface` ? undefined : placement.body}
         hideTrigger={hideTrigger}
         align={align}
         width={width}

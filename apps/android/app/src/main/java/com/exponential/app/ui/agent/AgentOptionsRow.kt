@@ -1,13 +1,9 @@
 package com.exponential.app.ui.agent
 
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -41,6 +37,7 @@ import com.exponential.app.ui.components.PillMode
 import com.exponential.app.ui.components.deviceIcon
 import com.exponential.app.ui.components.picker.DevicePicker
 import com.exponential.app.ui.components.picker.DevicePickerDevice
+import com.exponential.app.ui.components.picker.InlinePickerRow
 import com.exponential.app.ui.components.deviceOptionLabel
 import com.exponential.app.ui.components.modelLabel
 import com.exponential.app.ui.components.modelOptionsFor
@@ -83,11 +80,11 @@ internal fun AgentOptionsRow(
     // A resume never re-enters plan mode (EXP-202) — the switch hides while
     // one is on, like the machine's own clamp.
     val resumeActive = resume && resumeCandidate != null
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState())
-            .testTag("agent-options-row"),
+    // N-14: inside a sheet the pins disclose their rows into the row's slot,
+    // UNDER the whole row and as wide as it, so no pin and no sibling moves.
+    InlinePickerRow(
+        modifier = modifier,
+        rowModifier = Modifier.testTag("agent-options-row"),
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         // The machine the run lands on — always named once one resolves (the
