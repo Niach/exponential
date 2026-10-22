@@ -26,6 +26,7 @@
     "typecheck": "tsc --noEmit",
     "dev:harness": "bun ./harness/serve.ts",
     "shots": "bun run ./scripts/shots.ts",
+    "shots:primitives": "bun run ./scripts/primitive-shots.ts",
     "test:parity": "vitest run --config vitest.browser.config.ts browser/parity.test.ts",
     "test:parity:primitives": "EXPONENTIAL_UI_PARITY_GROUP=primitive vitest run --config vitest.browser.config.ts browser/parity.test.ts"
   },
