@@ -18,7 +18,6 @@ import { db } from "@/db/connection"
 import { deleteStorageObjectsViaBun } from "@/lib/storage/bun-s3-cleanup"
 import { collectAttachmentStorageKeys } from "@/lib/storage/issue-attachments"
 import { reportSchedulerRun } from "@/lib/metrics/registry"
-import { postMovedMessage } from "@/lib/sessions/messages"
 
 type Tx = Parameters<Parameters<(typeof db)[`transaction`]>[0]>[0]
 
@@ -79,101 +78,22 @@ export async function reclaimOrphanSessionAttachmentsInTx(
   return { storageKeys: collectAttachmentStorageKeys(rows) }
 }
 
-/** EXP-1252: a week-old handoff package (`sessions.handoff.blob`) nobody
- *  restored (a target that never came back, a cancelled move's upload) is
- *  dropped from its row; the keys come back for the S3 delete. EXP-1349: a
- *  move still PENDING (`move_to_device_id` set: the source never reported
- *  it) is never just stripped of its package: the move expires instead
- *  (cleared, the failure line posted) and the session stays on its source,
- *  whose worktree never left. A pending move's age is its REQUEST's
- *  (`handoff.request.requestedAt`, send.ts), never its package's: a new
- *  request carries an older, unrestored blob forward (a cancelled move's
- *  upload, a claim whose restore failed), and that blob's week must not
- *  expire the move just asked for. */
-export const HANDOFF_BLOB_RETENTION_MS = 7 * 24 * 60 * 60 * 1000
-
-/** The Conversation line of a move the sweep expired. */
-export const EXPIRED_MOVE_TEXT = `Couldn't move the session: the move did not finish within a week`
-
-export async function reclaimStaleHandoffBlobsInTx(
-  tx: Tx,
-  cutoff: Date
-): Promise<{ storageKeys: string[]; expiredMoves: number }> {
-  // A request-less pending row (none since send.ts writes the request with
-  // the move) falls back to its package's age, as before.
-  const expired = await tx.execute(sql`
-    WITH stale AS (
-      SELECT id, handoff->'blob'->>'storageKey' AS storage_key
-      FROM sessions
-      WHERE move_to_device_id IS NOT NULL
-        AND COALESCE(
-          (handoff->'request'->>'requestedAt')::timestamptz,
-          (handoff->'blob'->>'uploadedAt')::timestamptz
-        ) <= ${cutoff}
-      LIMIT ${MAX_BATCH}
-      FOR UPDATE
-    )
-    UPDATE sessions s
-    SET move_to_device_id = NULL,
-      handoff = NULL,
-      handoff_restored_at = NULL,
-      caption = NULL,
-      updated_at = now()
-    FROM stale
-    WHERE s.id = stale.id
-    RETURNING s.id, stale.storage_key
-  `)
-  const expiredRows = expired.rows as Array<{ id: string; storage_key: string | null }>
-  for (const row of expiredRows) await postMovedMessage(tx, row.id, EXPIRED_MOVE_TEXT)
-  const updated = await tx.execute(sql`
-    WITH stale AS (
-      SELECT id, handoff->'blob'->>'storageKey' AS storage_key
-      FROM sessions
-      WHERE jsonb_typeof(handoff->'blob') = 'object'
-        AND (handoff->'blob'->>'uploadedAt')::timestamptz <= ${cutoff}
-        AND move_to_device_id IS NULL
-      LIMIT ${MAX_BATCH}
-      FOR UPDATE
-    )
-    UPDATE sessions s
-    SET handoff = CASE
-        WHEN jsonb_typeof(s.handoff->'request') = 'object'
-          THEN jsonb_build_object('request', s.handoff->'request', 'blob', NULL)
-        ELSE NULL
-      END,
-      updated_at = now()
-    FROM stale
-    WHERE s.id = stale.id
-    RETURNING stale.storage_key
-  `)
-  const storageKeys = [
-    ...expiredRows,
-    ...(updated.rows as Array<{ storage_key: string | null }>),
-  ]
-    .map((row) => row.storage_key)
-    .filter((key): key is string => !!key)
-  return { storageKeys, expiredMoves: expiredRows.length }
-}
+// NEW-43: the handoff-blob half of this sweep (EXP-1252/EXP-1349) went with
+// `sessions.handoff` (NEW-1 dropped the column, no handoff package exists any
+// more); only the orphan-attachment reclaim runs.
 
 export async function runSessionAttachmentSweep(
   now: Date = new Date()
-): Promise<{ attachmentsDeleted: number; objectsDeleted: number; handoffsDeleted: number }> {
+): Promise<{ attachmentsDeleted: number; objectsDeleted: number }> {
   const cutoff = new Date(now.getTime() - ORPHAN_SESSION_ATTACHMENT_RETENTION_MS)
   const { storageKeys } = await db.transaction((tx) =>
     reclaimOrphanSessionAttachmentsInTx(tx, cutoff)
   )
-  const handoffCutoff = new Date(now.getTime() - HANDOFF_BLOB_RETENTION_MS)
-  const handoffs = await db.transaction((tx) => reclaimStaleHandoffBlobsInTx(tx, handoffCutoff))
-  const keys = [...storageKeys, ...handoffs.storageKeys]
-  if (keys.length === 0) return { attachmentsDeleted: 0, objectsDeleted: 0, handoffsDeleted: 0 }
+  if (storageKeys.length === 0) return { attachmentsDeleted: 0, objectsDeleted: 0 }
   // Best-effort, per-key error-swallowed (bun-s3-cleanup.ts: this module
   // must not reach aws-sdk).
-  await deleteStorageObjectsViaBun(keys)
-  return {
-    attachmentsDeleted: storageKeys.length,
-    objectsDeleted: keys.length,
-    handoffsDeleted: handoffs.storageKeys.length,
-  }
+  await deleteStorageObjectsViaBun(storageKeys)
+  return { attachmentsDeleted: storageKeys.length, objectsDeleted: storageKeys.length }
 }
 
 let started = false
@@ -188,7 +108,7 @@ async function sweep(): Promise<void> {
     reportSchedulerRun(`session-attachment-sweep`, {
       ok: true,
       durationMs: performance.now() - startMs,
-      detail: `${result.attachmentsDeleted} deleted, ${result.handoffsDeleted} handoffs, ${result.objectsDeleted} objects deleted`,
+      detail: `${result.attachmentsDeleted} deleted, ${result.objectsDeleted} objects deleted`,
     })
     if (result.attachmentsDeleted > 0) {
       console.log(
