@@ -348,6 +348,46 @@
           "action": null
         }
       ]
+    },
+    {
+      "name": "a Queue of only CLI background watchers still makes the tasks card",
+      "sources": [
+        {
+          "kind": "tasks",
+          "queue": {
+            "todo": {
+              "title": "2 to do",
+              "items": [
+                {
+                  "label": "sleep 600",
+                  "description": "4m 10s",
+                  "state": "running"
+                },
+                {
+                  "label": "gh run watch 18420",
+                  "description": "3m 10s",
+                  "state": "running"
+                }
+              ]
+            },
+            "completed": null
+          }
+        }
+      ],
+      "expected": [
+        {
+          "id": "tasks",
+          "kind": "tasks",
+          "tint": "muted",
+          "icon": "trace-todo",
+          "label": "2 to do",
+          "caption": null,
+          "meta": "4m 10s",
+          "title": "sleep 600",
+          "expandable": true,
+          "action": null
+        }
+      ]
     }
   ],
   "cases": [

@@ -276,6 +276,53 @@
         },
         "completed": null
       }
+    },
+    {
+      "name": "only CLI background watchers (no todo list) still make the queue",
+      "input": {
+        "tasks": [],
+        "backgroundTasks": [
+          {
+            "id": "b3",
+            "kind": "shell",
+            "description": "sleep 600",
+            "startedAt": 1792000000000
+          },
+          {
+            "id": "b4",
+            "kind": "shell",
+            "description": "gh run watch 18420",
+            "startedAt": 1792000060000
+          }
+        ],
+        "waits": [],
+        "now": 1792000250000
+      },
+      "expected": {
+        "todo": {
+          "title": "2 to do",
+          "icon": "trace-todo",
+          "items": [
+            {
+              "key": "background:b3",
+              "kind": "background",
+              "state": "running",
+              "icon": "trace-background",
+              "label": "sleep 600",
+              "description": "4m 10s"
+            },
+            {
+              "key": "background:b4",
+              "kind": "background",
+              "state": "running",
+              "icon": "trace-background",
+              "label": "gh run watch 18420",
+              "description": "3m 10s"
+            }
+          ]
+        },
+        "completed": null
+      }
     }
   ]
 }
