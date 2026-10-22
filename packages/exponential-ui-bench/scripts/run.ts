@@ -6,7 +6,9 @@
 // lists one; an attached iPhone makes the Swift iOS runner a device run),
 // merges their fragments into results/<machine>.json (`scripts/machine.ts`
 // prints the id), regenerates results/index.ts for the Numbers page and
-// prints the ratchet's verdicts (never failing here: CI gates).
+// prints the ratchet's verdicts (never failing here: CI gates). `--merge-only`
+// skips the runners and merges every fragment already in .bench/ (CI
+// artifacts, or runs done one by one).
 import { execSync, spawnSync } from "node:child_process"
 import { existsSync, readdirSync, statSync } from "node:fs"
 import { homedir } from "node:os"
@@ -23,6 +25,7 @@ const scenario = flag(`--scenario`)
 const repeat = flag(`--repeat`)
 const wanted = flag(`--renderers`) ?? `auto`
 const merge = !args.includes(`--no-merge`)
+const mergeOnly = args.includes(`--merge-only`)
 if (flag(`--machine`)) process.env.EXPONENTIAL_UI_BENCH_MACHINE = flag(`--machine`)
 
 const sh = (cmd: string) => {
@@ -44,7 +47,7 @@ function auto(): string[] {
   return list
 }
 
-const runners = wanted === `all` ? [`react`, `core`, `gpui`, `swift`, `swift-ios`, `compose-jvm`, `compose-android`] : wanted === `auto` ? auto() : wanted.split(`,`)
+const runners = mergeOnly ? [] : wanted === `all` ? [`react`, `core`, `gpui`, `swift`, `swift-ios`, `compose-jvm`, `compose-android`] : wanted === `auto` ? auto() : wanted.split(`,`)
 const started = Date.now()
 const failed: string[] = []
 for (const name of runners) {
@@ -62,7 +65,7 @@ for (const name of runners) {
 
 const fragments: Fragment[] = existsSync(SCRATCH)
   ? readdirSync(SCRATCH)
-      .filter((f) => f.endsWith(`.json`) && statSync(join(SCRATCH, f)).mtimeMs >= started - 1000)
+      .filter((f) => f.endsWith(`.json`) && (mergeOnly || statSync(join(SCRATCH, f)).mtimeMs >= started - 1000))
       .map((f) => readFragment(join(SCRATCH, f)))
   : []
 const machine = machineInfo()
