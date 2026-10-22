@@ -7,10 +7,11 @@ fork never runs any workflow (the same job skips, everything needs it).
 
 | Label | Machine | Takes |
 |---|---|---|
-| `exp-linux` | the Mint, 2 Docker runners (`linux/`) | test: desktop, android · build-web amd64 · build-desktop Linux · build-android · exponential-ui rust, compose |
+| `exp-linux` | the Mint, 2 Docker runners (`linux/`) | test: desktop, android · build-web amd64 · build-desktop Linux · build-android · exponential-ui rust |
 | `exp-mac` | the MacBook, native (`mac/`) | test-ios · exponential-ui swift, swift-ios |
 
-Stays on GitHub: the web unit shards (4 free parallel runners beat one
+Stays on GitHub: the exponential-ui compose leg (its snapshots are pixel-exact
+to the ubuntu image they are recorded on), the web unit shards (4 free parallel runners beat one
 machine), every signed Apple artifact (build-ios, the desktop .app, release-ui:
 App Store review rejects a beta-macOS host and the signing steps rewrite the
 user's keychain list), build-cli (its glibc floor is Ubuntu 22.04), arm64 and

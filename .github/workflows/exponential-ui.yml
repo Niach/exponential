@@ -54,7 +54,7 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  # EXP-1364: fork PRs never run here; the Rust + Compose legs run on the Mint
+  # EXP-1364: fork PRs never run here; the Rust leg runs on the Mint
   # and the Swift legs on the MacBook when they are up.
   pick:
     uses: ./.github/workflows/pick-runner.yml
@@ -267,7 +267,9 @@ jobs:
 
   compose:
     needs: pick
-    runs-on: ${{ fromJSON(needs.pick.outputs.linux) }}
+    # GitHub-hosted only: the Roborazzi images + snapshots are pixel-exact to
+    # the ubuntu image record-compose-fixtures.yml records them on.
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
