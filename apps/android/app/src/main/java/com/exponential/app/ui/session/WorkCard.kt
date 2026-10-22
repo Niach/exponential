@@ -65,12 +65,13 @@ import com.exponential.app.ui.theme.TextEmphasis
 // callbacks; a task row does nothing. Web `@exp/ui` `WorkCard`.
 
 /** The run thread's card shell (web `rounded-lg border-glass-stroke-card
- *  bg-glass-row`), shared by the Work, Script and Comment cards. */
+ *  bg-glass-card-opaque`), shared by the Work, Script, Comment, session and
+ *  suggestions cards. N-12: ONE gray ×4, the opaque card composite. */
 internal fun Modifier.threadCard(): Modifier {
     val shape = RoundedCornerShape(DesignTokens.Radius.Lg)
     return this
         .clip(shape)
-        .background(GlassTokens.RowFill, shape)
+        .background(GlassTokens.OpaqueCardFill, shape)
         .border(GlassTokens.Hairline, GlassTokens.StrokeCard, shape)
 }
 

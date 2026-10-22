@@ -19,7 +19,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** N-12: [Dock] replays `fixtures/dock.json` (rowCases, cases, autoOpenCases), comparing WHOLE objects. */
+/** N-12: [Dock] replays `fixtures/dock.json` (rowCases, cases, autoOpenCases, suggestionCases), comparing WHOLE objects. */
 class DockTest {
 
     private val fixture: JsonObject by lazy {
@@ -71,6 +71,13 @@ class DockTest {
         )
         "queued" -> Dock.Source.Queued(
             json.getValue("messages").jsonArray.map { Dock.QueuedMessage(it.jsonObject.str("id")!!, it.jsonObject.str("text")!!) },
+        )
+        "suggestions" -> Dock.Source.Suggestions(
+            id = json.str("id")!!,
+            label = json.str("label")!!,
+            caption = json.str("caption"),
+            title = json.str("title")!!,
+            open = json.getValue("open").jsonPrimitive.int,
         )
         else -> Dock.Source.Banner(
             id = json.str("id")!!,
@@ -128,6 +135,7 @@ class DockTest {
                 "queued" to Dock.Icons.QUEUED,
                 "open" to Dock.Icons.OPEN,
                 "close" to Dock.Icons.CLOSE,
+                "suggestions" to Dock.Icons.SUGGESTIONS,
             ),
             icons,
         )
@@ -200,6 +208,37 @@ class DockTest {
                 },
             )
             assertEquals(case.str("name"), case.str("expected"), actual)
+        }
+    }
+
+    @Test
+    fun `suggestion cases`() {
+        val cases = array("suggestionCases")
+        assertTrue(cases.isNotEmpty())
+        for (case in cases) {
+            // Only `suggestions` rows carry a header and items; any other row is none of the Dock's.
+            val rows = case.getValue("rows").jsonArray.map { it.jsonObject }
+                .filter { it.str("type") == "suggestions" }
+                .map { o ->
+                    Dock.SuggestionRow(
+                        id = o.str("id")!!,
+                        header = o.str("header")!!,
+                        items = o.getValue("items").jsonArray.map { it.jsonObject.str("state")!! to it.jsonObject.str("title")!! },
+                    )
+                }
+            val actual = JsonArray(
+                Dock.suggestionSources(rows).map { source ->
+                    buildJsonObject {
+                        put("kind", "suggestions")
+                        put("id", source.id)
+                        put("label", source.label)
+                        put("caption", nullable(source.caption))
+                        put("title", source.title)
+                        put("open", source.open)
+                    }
+                },
+            )
+            assertEquals(case.str("name"), case.getValue("expected"), actual)
         }
     }
 

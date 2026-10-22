@@ -220,9 +220,20 @@ fun ThreadScreen(
     // Conversation and floats as a DockCard over the composer; the asking
     // session's name is the caption (the dispatcher's own = none).
     val sessionName: (String) -> String? = remember(view) { AskDock.threadSessionNames(view?.tabs.orEmpty()) }
-    val askPending = remember(view, sessionName) {
-        view?.let { v -> AskDock.threadPendingAsks(v.rows, sessionName) }.orEmpty()
-    }
+    // The suggested-tasks rows with an open item ride the Dock too.
+    val dockedIds = remember(view, sessionName) { threadDockedIds(view?.rows.orEmpty(), sessionName) }
+    val openThreadSession: (String) -> Unit = { id -> if (viewModel.isOtherRoot(id)) onOpenThread(id) else onOpenSession(id) }
+    val suggestionActions = ThreadSuggestionActions(
+        onStart = { rowId, itemId, deviceId, model -> viewModel.startSuggestion(rowId, itemId, deviceId, model) },
+        onStartAll = viewModel::startAllSuggestions,
+        onHere = viewModel::suggestionHere,
+        onDismiss = viewModel::dismissSuggestion,
+        onFile = viewModel::fileSuggestion,
+        devices = startDevices.map { SuggestionDevice(it.deviceId, it.deviceLabel, deviceIcon(it)) },
+        // Contract `codingModel` (fable · opus · sonnet · haiku), never a Default row.
+        models = DomainContract.codingModelValues.map { it to modelLabel(it) },
+        pending = suggestionPending,
+    )
     val onAnswer: ThreadAnswer = { id, answer, settled ->
         viewModel.answer(id, answer.answer, settled, answer.answers, answer.surfaceData)
     }
@@ -252,7 +263,7 @@ fun ThreadScreen(
                 },
                 onAnswer = onAnswer,
                 onDecidePlan = onDecidePlan,
-                dockedIds = remember(askPending) { askPending.mapTo(mutableSetOf()) { it.id } },
+                dockedIds = dockedIds,
                 issueTitle = { id -> issueTitles[id] },
                 canUnqueue = { row -> row.authorId != null && row.authorId == me },
                 onUnqueue = viewModel::unqueue,
@@ -285,6 +296,8 @@ fun ThreadScreen(
                                 sources = sessionDock.sources,
                                 sessionSheet = sessionDock.sheet,
                                 action = sessionDock.action,
+                                suggestions = suggestionActions,
+                                onOpenSession = openThreadSession,
                             )
                         },
                     )
@@ -328,18 +341,8 @@ fun ThreadScreen(
                     )
                 },
                 guideMenu = { guidePr?.let { pr -> GuideMenu(pr, isMember) { closePrConfirm = pr } } },
-                onOpenSession = { id -> if (viewModel.isOtherRoot(id)) onOpenThread(id) else onOpenSession(id) },
-                suggestions = ThreadSuggestionActions(
-                    onStart = { rowId, itemId, deviceId, model -> viewModel.startSuggestion(rowId, itemId, deviceId, model) },
-                    onStartAll = viewModel::startAllSuggestions,
-                    onHere = viewModel::suggestionHere,
-                    onDismiss = viewModel::dismissSuggestion,
-                    onFile = viewModel::fileSuggestion,
-                    devices = startDevices.map { SuggestionDevice(it.deviceId, it.deviceLabel, deviceIcon(it)) },
-                    // Contract `codingModel` (fable · opus · sonnet · haiku), never a Default row.
-                    models = DomainContract.codingModelValues.map { it to modelLabel(it) },
-                    pending = suggestionPending,
-                ),
+                onOpenSession = openThreadSession,
+                suggestions = suggestionActions,
                 tail = liveActivity?.let { activity -> { SessionLiveTail(activity, root) } },
             )
         }

@@ -29,6 +29,7 @@ object Dock {
         const val QUEUED = "ui-queued"
         const val OPEN = "ui-chevron-right"
         const val CLOSE = "ui-close"
+        const val SUGGESTIONS = "ui-checklist"
     }
 
     object TestIds {
@@ -49,15 +50,15 @@ object Dock {
     const val SHEET_RADIUS = 24
 
     enum class Kind(val wire: String) {
-        Plan("plan"), Question("question"), Tasks("tasks"), Queued("queued"), Banner("banner");
+        Plan("plan"), Question("question"), Tasks("tasks"), Queued("queued"), Suggestions("suggestions"), Banner("banner");
 
         val isAsk: Boolean get() = this == Plan || this == Question
     }
 
     enum class Tint(val wire: String) { Plan("plan"), Question("question"), Muted("muted"), Warning("warning") }
 
-    /** The `order`: queued, tasks, banner, then the asks. */
-    val ORDER: List<String> = listOf("queued", "tasks", "banner", "ask")
+    /** The `order`: queued, tasks, suggestions, banner, then the asks. */
+    val ORDER: List<String> = listOf("queued", "tasks", "suggestions", "banner", "ask")
 
     sealed interface Source {
         data class Ask(
@@ -77,6 +78,20 @@ object Dock {
         data class Tasks(val queue: TaskQueue?) : Source
 
         data class Queued(val messages: List<QueuedMessage>) : Source
+
+        /** EXP-1323's suggested-tasks row while any item is open. */
+        data class Suggestions(
+            /** The suggestions row's id (a `messages.id`). */
+            val id: String,
+            /** The header's count (`3 suggested tasks`). */
+            val label: String,
+            /** The header's `started` part, else null. */
+            val caption: String?,
+            /** The first open item's title. */
+            val title: String,
+            /** How many items are still open. */
+            val open: Int,
+        ) : Source
 
         data class Banner(
             val id: String,
@@ -127,7 +142,7 @@ object Dock {
 
     private fun order(kind: Kind): Int = ORDER.indexOf(if (kind.isAsk) "ask" else kind.wire)
 
-    /** The cards in the Dock's order (queued, tasks, banners, then the asks
+    /** The cards in the Dock's order (queued, tasks, suggestions, banners, then the asks
      *  oldest first, ties by id). An empty queue or no queued message draws nothing. */
     fun dockRows(sources: List<Source>): List<Row> {
         val rows = mutableListOf<Pair<Row, Long>>()
@@ -164,6 +179,18 @@ object Dock {
                         action = null,
                     ) to 0L
                 }
+                is Source.Suggestions -> rows += Row(
+                    id = source.id,
+                    kind = Kind.Suggestions,
+                    tint = Tint.Muted,
+                    icon = Icons.SUGGESTIONS,
+                    label = source.label,
+                    caption = source.caption,
+                    meta = null,
+                    title = source.title,
+                    expandable = true,
+                    action = null,
+                ) to 0L
                 is Source.Banner -> rows += Row(
                     id = "banner:${source.id}",
                     kind = Kind.Banner,
@@ -227,5 +254,26 @@ object Dock {
     fun dockAutoOpen(previous: Collection<String>, rows: List<Pair<String, Kind>>): String? {
         val seen = previous.toSet()
         return rows.lastOrNull { (id, kind) -> kind.isAsk && id !in seen }?.first
+    }
+
+    /** One suggestions row as [suggestionSources] reads it. */
+    data class SuggestionRow(val id: String, val header: String, val items: List<Pair<String, String>>)
+
+    /** EXP-1323's suggested-tasks rows with any OPEN item, as Dock sources:
+     *  the header splits at ` · ` into the label (the count) and the started
+     *  caption; the title is the first open item's. A row with no open item
+     *  is none of the Dock's (it stays in the Conversation). [rows] items are
+     *  (state, title) pairs. */
+    fun suggestionSources(rows: List<SuggestionRow>): List<Source.Suggestions> = rows.mapNotNull { row ->
+        val open = row.items.filter { it.first == "open" }
+        if (open.isEmpty()) return@mapNotNull null
+        val parts = row.header.split(" · ")
+        Source.Suggestions(
+            id = row.id,
+            label = parts[0],
+            caption = parts.getOrNull(1),
+            title = open.first().second,
+            open = open.size,
+        )
     }
 }
