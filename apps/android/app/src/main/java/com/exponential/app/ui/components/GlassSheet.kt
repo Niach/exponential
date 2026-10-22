@@ -123,6 +123,8 @@ fun GlassSheet(
     modifier: Modifier = Modifier,
     height: SheetHeight = SheetHeight.Fitted,
     primaryAction: SheetPrimaryAction? = null,
+    /** N-12: the Dock sheet wears the card's fill (ONE gray ×4). */
+    containerColor: Color = GlassSheetDefaults.ContainerColor,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -144,7 +146,7 @@ fun GlassSheet(
         properties = ModalBottomSheetProperties(shouldDismissOnBackPress = false),
         modifier = if (full) Modifier.statusBarsPadding() else Modifier,
         shape = RoundedCornerShape(topStart = GlassSheetDefaults.CornerRadius, topEnd = GlassSheetDefaults.CornerRadius),
-        containerColor = GlassSheetDefaults.ContainerColor,
+        containerColor = containerColor,
         dragHandle = { BottomSheetDefaults.DragHandle(color = GlassSheetDefaults.DragHandleColor) },
     ) {
         // The sheet's own back, the same hide-then-dismiss the swipe takes.

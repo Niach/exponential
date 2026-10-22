@@ -62,12 +62,10 @@ fun GlassComposer(
         modifier = modifier
             .fillMaxWidth()
             .clip(shape)
-            .background(if (opaque) GlassTokens.OpaqueCardFill else GlassTokens.CardFill, shape)
-            .border(
-                GlassTokens.Hairline,
-                if (opaque) GlassTokens.StrokeStrong else GlassTokens.StrokeCard,
-                shape,
-            )
+            // N-12: ONE gray ×4: the card composite under the card hairline,
+            // floating or not ([opaque] keeps its API; the look is one).
+            .background(GlassTokens.OpaqueCardFill, shape)
+            .border(GlassTokens.Hairline, GlassTokens.StrokeCard, shape)
             .padding(
                 horizontal = GlassComposerDefaults.HorizontalPadding,
                 vertical = GlassComposerDefaults.VerticalPadding,

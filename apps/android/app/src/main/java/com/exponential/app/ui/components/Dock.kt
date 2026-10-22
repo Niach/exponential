@@ -66,7 +66,7 @@ import com.exponential.app.ui.theme.TextEmphasis
 
 // N-12: THE Dock ×Android (fixtures/dock.json ×4; web packages/ui dock.tsx,
 // desktop dock.rs, iOS Dock.swift): the DockCards (a waiting plan or
-// question, THE Queue, the queued messages, a status banner) piled like the
+// question, THE Queue, the queued messages, the suggested tasks, a status banner) piled like the
 // toasts ([ToastStack.stackLayout] with [Dock.STACK], anchored at the
 // bottom: the front card last, the older ones peeking out above it, `visible`
 // at most; a tap fans them `gap` apart, the next tap opens a card) over THE
@@ -94,6 +94,7 @@ internal fun dockIcon(concept: String): ImageVector = when (concept) {
     Dock.Icons.QUESTION -> ExpIcons.uiHelp
     Dock.Icons.TASKS -> ExpIcons.traceTodo
     Dock.Icons.QUEUED -> ExpIcons.uiQueued
+    Dock.Icons.SUGGESTIONS -> ExpIcons.uiChecklist
     "ui-usage" -> ExpIcons.uiUsage
     "coding-compact" -> ExpIcons.codingCompact
     "ui-device-offline" -> ExpIcons.uiDeviceOffline
@@ -236,8 +237,9 @@ fun DockCard(
         modifier = modifier
             .fillMaxWidth()
             .clip(shape)
+            // ONE gray ×4: the card composite under the card hairline.
             .background(GlassTokens.OpaqueCardFill, shape)
-            .border(GlassTokens.Hairline, GlassTokens.StrokeStrong, shape)
+            .border(GlassTokens.Hairline, GlassTokens.StrokeCard, shape)
             .then(if (pressable) Modifier.clickable(role = Role.Button) { onOpen?.invoke() } else Modifier)
             .then(
                 if (hidden) {
@@ -333,7 +335,13 @@ fun DockSheet(
     onDismiss: () -> Unit,
     content: @Composable ColumnScope.(DockSheetScope) -> Unit,
 ) {
-    GlassSheet(title = null, onDismiss = onDismiss, modifier = Modifier.testTag(Dock.TestIds.SHEET)) {
+    // ONE gray ×4: the sheet wears the card's fill, not the sheet's darker ground.
+    GlassSheet(
+        title = null,
+        onDismiss = onDismiss,
+        modifier = Modifier.testTag(Dock.TestIds.SHEET),
+        containerColor = GlassTokens.OpaqueCardFill,
+    ) {
         DockSheetChrome(row = row, onClose = onDismiss, content = content)
     }
 }
@@ -439,7 +447,7 @@ fun DockSheetSpecimenFrame(
             .fillMaxWidth()
             .height(height)
             .clip(shape)
-            .background(GlassSheetDefaults.ContainerColor, shape)
+            .background(GlassTokens.OpaqueCardFill, shape)
             .border(GlassTokens.Hairline, GlassTokens.StrokeCard, shape)
             .padding(top = 12.dp),
     ) {

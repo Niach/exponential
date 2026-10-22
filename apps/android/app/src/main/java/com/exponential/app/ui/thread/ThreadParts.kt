@@ -5,6 +5,9 @@ import androidx.compose.foundation.layout.ColumnScope
 import com.exponential.app.ui.components.DockSheetScope
 import com.exponential.app.ui.components.DockAutoOpen
 import com.exponential.app.ui.components.DockCards
+import com.exponential.app.ui.components.DockSheetBody
+import com.exponential.app.ui.components.DockSheetFooter
+import com.exponential.app.ui.theme.fullBleed
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.RowScope
 import com.exponential.app.ui.components.GlassPill
@@ -1289,7 +1292,9 @@ fun ThreadAskCard(row: SessionTree.ThreadRow, onAnswer: ThreadAnswer, onDecidePl
  * waiting cards ([AskDock.threadPendingAsks] over [rows], the asking
  * session's name as the caption) plus the host's other [sources] (the root's
  * Queue, queued messages, banners) as DockCards above the composer; an ask
- * opens as its sheet ([PlanAskCard] in sheet mode), the rest through
+ * opens as its sheet ([PlanAskCard] in sheet mode), a suggested-tasks row
+ * with an open item (only with [suggestions]; null = read-only, the rows stay
+ * in the Conversation) as [ThreadSuggestionsSheet], the rest through
  * [sessionSheet]. A plan or question that arrives while the view is in front
  * opens itself ([autoOpen]). [initialOpenId] / [initialExpanded] seed the
  * styleguide's states.
@@ -1308,13 +1313,18 @@ fun ThreadDock(
     autoOpenReady: Boolean = true,
     initialOpenId: String? = null,
     initialExpanded: Boolean = false,
+    suggestions: ThreadSuggestionActions? = null,
+    onOpenSession: ((String) -> Unit)? = null,
 ) {
     val asks = remember(rows, sessionName) {
         AskDock.threadPendingAsks(rows, sessionName).map { ask ->
             Dock.Source.Ask(ask.id, ask.kind, ask.text, ask.sessionName, ask.questions ?: 0, ask.createdAt)
         }
     }
-    val docked = Dock.dockRows(asks + sources)
+    val suggested = remember(rows, suggestions != null) {
+        if (suggestions != null) threadSuggestionSources(rows) else emptyList()
+    }
+    val docked = Dock.dockRows(asks + suggested + sources)
     var openId by remember { mutableStateOf(initialOpenId) }
     DockAutoOpen(docked, autoOpen, autoOpenReady) { openId = it }
     val byId = remember(rows) { rows.associateBy { it.id } }
@@ -1329,10 +1339,33 @@ fun ThreadDock(
         val threadRow = byId[row.id]
         if (row.kind.isAsk && threadRow != null) {
             PlanAskCard(threadRow, onAnswer, onDecidePlan, sheet = scope)
+        } else if (threadRow is SessionTree.ThreadRow.Suggestions) {
+            ThreadSuggestionsSheet(threadRow, suggestions, onOpenSession)
         } else {
             sessionSheet?.invoke(this, row, scope, close)
         }
     }
+}
+
+/** dock.json `suggestionSources` over a thread's rows. */
+fun threadSuggestionSources(rows: List<SessionTree.ThreadRow>): List<Dock.Source.Suggestions> =
+    Dock.suggestionSources(
+        rows.filterIsInstance<SessionTree.ThreadRow.Suggestions>().map { row ->
+            Dock.SuggestionRow(row.id, row.header, row.items.map { it.state.wire to it.title })
+        },
+    )
+
+/** N-12: the Conversation rows THE Dock holds (they leave the transcript):
+ *  the waiting asks and the suggestion rows with an open item (web
+ *  `threadDockedIds`). */
+fun threadDockedIds(
+    rows: List<SessionTree.ThreadRow>,
+    sessionName: (sessionId: String) -> String?,
+    withSuggestions: Boolean = true,
+): Set<String> {
+    val ids = AskDock.threadPendingAsks(rows, sessionName).mapTo(mutableSetOf()) { it.id }
+    if (withSuggestions) threadSuggestionSources(rows).mapTo(ids) { it.id }
+    return ids
 }
 
 /** A `picture` card: the attachment through the markdown image path (auth,
@@ -1417,8 +1450,10 @@ fun suggestionKey(rowId: String, itemId: String? = null): String =
 /**
  * EXP-1323: THE suggested tasks card ×4 = the Work card's shell: a header
  * (`3 suggested tasks`, `· 2 started`, Start all while more than one is open),
- * then hairline-divided items. Open = title, text, × · and (phones STACK the
- * buttons) Options · Do it here · Start; started = the child's session card
+ * then hairline-divided items. N-12: while any item is open the row is a
+ * DockCard and this list is its sheet ([ThreadSuggestionsSheet]); in the
+ * Conversation the card stays for the rows with no open item. Open = title,
+ * text, the ⋯ menu and Start, one row on every width; started = the child's session card
  * (its caption under the name) opening it; here = `Sent here`; filed =
  * `Filed EXP-9`.
  */
@@ -1533,75 +1568,45 @@ private fun SuggestionItemRow(
         }
         SessionTree.SuggestionState.Open -> {
             val busy = actions != null && suggestionKey(rowId, item.id) in actions.pending
-            Column(
+            // N-12 ×4: ONE row on every width: the words, the ⋯ menu, Start.
+            Row(
                 modifier = tag.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.Top,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            item.title,
-                            style = style.copy(fontWeight = FontWeight.Medium),
-                            color = MaterialTheme.colorScheme.onSurface,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        if (item.text.isNotEmpty()) {
-                            Spacer(Modifier.height(2.dp))
-                            Text(item.text, style = style, color = Muted)
-                        }
-                    }
-                    if (actions != null) {
-                        Box(
-                            modifier = Modifier
-                                .size(24.dp)
-                                .clip(CircleShape)
-                                .clickable(
-                                    enabled = !busy,
-                                    role = Role.Button,
-                                    onClickLabel = SessionTree.SuggestionsCopy.DISMISS,
-                                    onClick = { actions.onDismiss(rowId, item.id) },
-                                )
-                                .testTag("thread-suggestion-dismiss"),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Icon(
-                                ExpIcons.uiClose,
-                                contentDescription = SessionTree.SuggestionsCopy.DISMISS,
-                                tint = Muted,
-                                modifier = Modifier.size(12.dp),
-                            )
-                        }
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        item.title,
+                        style = style.copy(fontWeight = FontWeight.Medium),
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    if (item.text.isNotEmpty()) {
+                        Spacer(Modifier.height(2.dp))
+                        Text(item.text, style = style, color = Muted)
                     }
                 }
                 if (actions != null) {
-                    // Phones STACK the buttons under the text (web `flex-col`).
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        GlassPill(
-                            label = SessionTree.SuggestionsCopy.OPTIONS,
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        CircleIconButton(
+                            ExpIcons.uiMore,
+                            SessionTree.SuggestionsCopy.OPTIONS,
                             onClick = onOptions,
-                            size = PillSize.Md,
                             enabled = !busy,
-                            trailing = {
-                                Icon(ExpIcons.uiChevronDown, contentDescription = null, modifier = Modifier.size(12.dp))
-                            },
-                            modifier = Modifier.fillMaxWidth().testTag("thread-suggestion-options"),
-                        )
-                        GlassPill(
-                            label = SessionTree.SuggestionsCopy.HERE,
-                            onClick = { actions.onHere(rowId, item.id) },
-                            size = PillSize.Md,
-                            enabled = !busy,
-                            modifier = Modifier.fillMaxWidth().testTag("thread-suggestion-here"),
+                            borderless = true,
+                            size = 24.dp,
+                            glyphSize = 14.dp,
+                            modifier = Modifier.testTag("thread-suggestion-options"),
                         )
                         GlassPill(
                             label = SessionTree.SuggestionsCopy.START,
                             onClick = { actions.onStart(rowId, item.id, null, null) },
-                            size = PillSize.Md,
+                            size = PillSize.Sm,
                             primary = true,
                             loading = busy,
                             enabled = !busy,
-                            modifier = Modifier.fillMaxWidth().testTag("thread-suggestion-start"),
+                            modifier = Modifier.testTag("thread-suggestion-start"),
                         )
                     }
                 }
@@ -1610,13 +1615,69 @@ private fun SuggestionItemRow(
     }
 }
 
+/**
+ * N-12: THE suggestions sheet (a DockCard opened, dock.json `suggestions`):
+ * the items as the card lists them; the pinned footer = Start all while more
+ * than one is open. Draw inside [DockCards]' sheet slot.
+ */
+@Composable
+fun ColumnScope.ThreadSuggestionsSheet(
+    row: SessionTree.ThreadRow.Suggestions,
+    actions: ThreadSuggestionActions?,
+    onOpenSession: ((String) -> Unit)?,
+) {
+    var optionsFor by remember(row.id) { mutableStateOf<SessionTree.SuggestionRow?>(null) }
+    DockSheetBody {
+        Column(modifier = Modifier.fillMaxWidth().fullBleed(12.dp).testTag("thread-suggestions-sheet")) {
+            row.items.forEachIndexed { index, item ->
+                if (index > 0) HorizontalDivider(thickness = GlassTokens.Hairline, color = GlassTokens.StrokeRow)
+                SuggestionItemRow(
+                    rowId = row.id,
+                    item = item,
+                    actions = actions,
+                    onOpenSession = onOpenSession,
+                    onOptions = { optionsFor = item },
+                )
+            }
+        }
+    }
+    if (row.startAll && actions != null) {
+        DockSheetFooter {
+            val key = suggestionKey(row.id)
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                GlassPill(
+                    label = SessionTree.SuggestionsCopy.START_ALL,
+                    onClick = { actions.onStartAll(row.id) },
+                    size = PillSize.Md,
+                    primary = true,
+                    loading = key in actions.pending,
+                    enabled = key !in actions.pending,
+                    modifier = Modifier.testTag("thread-suggestions-start-all"),
+                )
+            }
+        }
+    }
+    val target = optionsFor
+    if (target != null && actions != null) {
+        SuggestionOptionsSheet(
+            item = target,
+            actions = actions,
+            onPick = { pick ->
+                optionsFor = null
+                pick(row.id, target.id)
+            },
+            onDismiss = { optionsFor = null },
+        )
+    }
+}
+
 /** What an Options pick does to (rowId, itemId). */
 private typealias SuggestionPick = (rowId: String, itemId: String) -> Unit
 
 /**
- * EXP-1323: an open item's Options = THE menu as its phone sheet (the "+"'s
- * idiom): Start on… › (the runnable devices) · Start with… › (the models,
- * never a Default row) · File as issue · Dismiss. A submenu row pushes its
+ * EXP-1323: an open item's ⋯ = THE menu as its phone sheet (the "+"'s
+ * idiom): Do it here · Start on… › (the runnable devices) · Start with… ›
+ * (the models, never a Default row) · File as issue · Dismiss. A submenu row pushes its
  * page inside the sheet; back returns to the rows.
  */
 @Composable
@@ -1663,6 +1724,10 @@ private fun SuggestionOptionsSheet(
                 val chevron: @Composable RowScope.() -> Unit = {
                     Icon(ExpIcons.uiChevronRight, contentDescription = null, tint = iconTint, modifier = Modifier.size(16.dp))
                 }
+                GlassSheetRow(
+                    label = SessionTree.SuggestionsCopy.HERE,
+                    onClick = { onPick(actions.onHere) },
+                )
                 GlassSheetRow(
                     label = SessionTree.SuggestionsCopy.START_ON,
                     onClick = { page = PAGE_DEVICE },
