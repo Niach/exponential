@@ -1,2 +1,1 @@
-// FEED-131: placeholder, filled by its lane.
-export {}
+export { cn, getInitials } from "@exponential-at/ui/web/primitives"

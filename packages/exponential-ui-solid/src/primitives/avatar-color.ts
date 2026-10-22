@@ -1,2 +1,1 @@
-// FEED-131: placeholder, filled by its lane.
-export {}
+export { AVATAR_HUE_COUNT, avatarHueIndex } from "@exponential-at/ui/web/primitives"
