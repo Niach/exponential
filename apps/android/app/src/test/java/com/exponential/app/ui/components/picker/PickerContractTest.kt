@@ -7,6 +7,7 @@ import com.exponential.app.ui.components.toPickerDevice
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.GlassTokens
 import java.io.File
+import androidx.compose.ui.unit.dp
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -178,7 +179,7 @@ class PickerContractTest {
         // true of a footer INSIDE the weighted box, which is the broken layout
         // this case exists to catch. Kotlin's indentation is the nesting here,
         // so the two lines are compared by their depth.
-        val branch = sourceBlock("Picker.kt", "if (panel != null) {", "return@GlassSheet")
+        val branch = sourceBlock("Picker.kt", "if (panel != null) {", "return@body")
         val box = branch.single { it.trim().startsWith("Box(modifier = Modifier.weight(1f, fill = false))") }
         val panelCall = branch.single { it.trim().startsWith("panel { picked ->") }
         val footer = branch.single { it.trim() == "footer?.invoke()" }
@@ -382,6 +383,25 @@ class PickerContractTest {
         val selected = sheet.indexOf("} else if (selected) {")
         assertTrue(selected > 0)
         assertTrue(sheet.indexOf("ExpIcons.uiCheck", selected) > selected)
+    }
+
+    @Test
+    fun anInlinePresentationIsTheSheetBodyInTheHostsFlow() {
+        // N-6: the second presentation, same rows, no sheet — the host (a
+        // form sheet) grows with the rows up to the shared cap (web
+        // `max-h-72`, iOS `inlineMaxHeight`, the IDE's rows cap), then they
+        // scroll. One body serves both, so the two can never drift.
+        assertEquals(listOf(PickerPresentation.Sheet, PickerPresentation.Inline), PickerPresentation.entries.toList())
+        assertEquals(288.dp, PickerDefaults.InlineMaxHeight)
+        val picker = moduleFile("src/main/java/com/exponential/app/ui/components/picker/Picker.kt").readText()
+        assertTrue(picker.contains("val body: @Composable ColumnScope.() -> Unit"))
+        assertTrue(picker.contains(".heightIn(max = PickerDefaults.InlineMaxHeight)"))
+        assertTrue(picker.contains("primaryAction = primaryAction, content = body)"))
+        // The host decides: outside a sheet the default is the sheet; a
+        // GlassSheet provides Inline to its content.
+        assertTrue(picker.contains("presentation: PickerPresentation = LocalPickerPresentation.current"))
+        val sheet = moduleFile("src/main/java/com/exponential/app/ui/components/GlassSheet.kt").readText()
+        assertTrue(sheet.contains("LocalPickerPresentation provides PickerPresentation.Inline"))
     }
 
     @Test

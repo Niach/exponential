@@ -103,6 +103,32 @@ public enum PickerMode: Equatable, Sendable {
     case multi
 }
 
+/// N-6 — where a picker's rows open. `.sheet` is the phone's bottom sheet;
+/// `.inline` puts the SAME rows in the host's flow under the trigger (no
+/// sheet), for a host that already is a surface and cannot afford a second
+/// one — a form sheet's row: the trigger discloses the rows, the host grows,
+/// a single pick folds them away. The web's `presentation="inline"`, the
+/// IDE's `inline()`.
+public enum PickerPresentation: String, CaseIterable, Equatable, Sendable {
+    case sheet
+    case inline
+}
+
+/// N-6 — THE HOST DECIDES: a `GlassSheetChrome` sets `.inline` on its
+/// content, so every picker inside a sheet opens in the sheet's flow (the
+/// web's `DialogContent` rule, the IDE's dialog windows). A picker's own
+/// `presentation` argument overrides it.
+public struct PickerPresentationKey: EnvironmentKey {
+    public static let defaultValue: PickerPresentation = .sheet
+}
+
+extension EnvironmentValues {
+    public var pickerPresentation: PickerPresentation {
+        get { self[PickerPresentationKey.self] }
+        set { self[PickerPresentationKey.self] = newValue }
+    }
+}
+
 /// How a picked row reads. Exactly one idiom per MODE, derived from the mode
 /// and never chosen by a caller (`GlassPickerTokens.selectionStyle(for:)`) —
 /// a call site that got to pick is how the three sheets EXP-1021 replaced
@@ -145,6 +171,10 @@ public enum GlassPickerTokens {
         case .multi: .highlight
         }
     }
+
+    /// N-6: the most an INLINE presentation's rows take before they scroll
+    /// (web `max-h-72`, the IDE's rows cap): the host grows up to this.
+    public static let inlineMaxHeight: CGFloat = 288
 
     /// 44pt — the same tap target every glass sheet row has.
     public static let rowMinHeight: CGFloat = 44
@@ -331,6 +361,10 @@ public struct GlassPicker<Value: Hashable & Sendable, Trigger: View>: View {
     /// whose flow is pinned by one (the composer's `#` and ▶ tools). The
     /// trigger keeps `picker`; only the presented list takes this.
     public let sheetIdentifier: String?
+    /// N-6: the sheet, or the rows inline under the trigger; `nil` = the
+    /// host decides (`\.pickerPresentation`).
+    public let presentation: PickerPresentation?
+    @Environment(\.pickerPresentation) private var hostPresentation
     private let trigger: () -> Trigger
 
     /// The sheet's presentation while no caller controls it. The primitive
@@ -358,6 +392,7 @@ public struct GlassPicker<Value: Hashable & Sendable, Trigger: View>: View {
         renderMark: ((PickerItem<Value>) -> AnyView?)? = nil,
         renderItem: ((PickerItem<Value>) -> AnyView?)? = nil,
         sheetIdentifier: String? = nil,
+        presentation: PickerPresentation? = nil,
         @ViewBuilder trigger: @escaping () -> Trigger
     ) {
         self.items = items
@@ -380,6 +415,7 @@ public struct GlassPicker<Value: Hashable & Sendable, Trigger: View>: View {
         self.renderMark = renderMark
         self.renderItem = renderItem
         self.sheetIdentifier = sheetIdentifier
+        self.presentation = presentation
         self.trigger = trigger
     }
 
@@ -389,6 +425,57 @@ public struct GlassPicker<Value: Hashable & Sendable, Trigger: View>: View {
     }
 
     public var body: some View {
+        if (presentation ?? hostPresentation) == .inline {
+            inlineBody
+        } else {
+            sheetBody
+        }
+    }
+
+    /// N-6: the trigger, and under it (while disclosed) the sheet's body in
+    /// the host's flow — no sheet. A tap on the trigger discloses or folds;
+    /// a single pick folds (`fold`); a multi pick stays.
+    private var inlineBody: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if !hideTrigger {
+                Button {
+                    presented.wrappedValue.toggle()
+                } label: {
+                    trigger()
+                }
+                .buttonStyle(.plain)
+                .disabled(disabled)
+            }
+            if presented.wrappedValue {
+                GlassPickerSheetBody(
+                    items: items,
+                    mode: mode,
+                    value: value,
+                    onChange: onChange,
+                    search: search,
+                    emptyText: emptyText,
+                    title: title,
+                    searchPlaceholder: searchPlaceholder,
+                    query: query,
+                    loading: loading,
+                    panel: panel,
+                    footer: footer,
+                    footerReplacesEmpty: footerReplacesEmpty,
+                    renderMark: renderMark,
+                    renderItem: renderItem,
+                    inline: true,
+                    fold: {
+                        presented.wrappedValue = false
+                        onDismiss?()
+                    }
+                )
+                .frame(maxHeight: GlassPickerTokens.inlineMaxHeight)
+            }
+        }
+        .accessibilityIdentifier("picker")
+    }
+
+    private var sheetBody: some View {
         Group {
             if hideTrigger {
                 // A host-driven picker still needs a node to hang the sheet
@@ -527,6 +614,10 @@ private struct GlassPickerSheetBody<Value: Hashable & Sendable>: View {
     let footerReplacesEmpty: Bool
     let renderMark: ((PickerItem<Value>) -> AnyView?)?
     let renderItem: ((PickerItem<Value>) -> AnyView?)?
+    /// N-6: drawn in a host's flow (no sheet chrome) — `fold` is what a
+    /// single pick calls instead of dismissing a sheet.
+    var inline: Bool = false
+    var fold: (() -> Void)? = nil
 
     @Environment(\.dismiss) private var dismiss
     @State private var localQuery = ""
@@ -536,6 +627,38 @@ private struct GlassPickerSheetBody<Value: Hashable & Sendable>: View {
     }
 
     var body: some View {
+        if inline {
+            inlineBody
+        } else {
+            sheetChrome
+        }
+    }
+
+    /// N-6: the filter field and the rows with no chrome around them — the
+    /// host is the surface.
+    private var inlineBody: some View {
+        VStack(spacing: 0) {
+            if search, panel == nil {
+                GlassSheetSearchField(
+                    placeholder: searchPlaceholder
+                        ?? "Search \(title?.lowercased() ?? "options")",
+                    text: queryBinding
+                )
+                .padding(.horizontal, GlassPickerTokens.searchHPadding)
+                .padding(.vertical, GlassPickerTokens.searchVPadding)
+            }
+            ScrollView {
+                if let panel {
+                    panel()
+                } else {
+                    rows
+                }
+            }
+        }
+        .accessibilityIdentifier("picker-inline")
+    }
+
+    private var sheetChrome: some View {
         GlassSheetChrome(
             title: title,
             pinnedHeader: {
@@ -565,6 +688,11 @@ private struct GlassPickerSheetBody<Value: Hashable & Sendable>: View {
     /// the query, in its own order.
     private var visible: [PickerItem<Value>] {
         query == nil ? PickerSearch.filter(items, query: localQuery) : items
+    }
+
+    /// A single pick's close: the inline fold, else the sheet's dismiss.
+    private func close() {
+        if let fold { fold() } else { dismiss() }
     }
 
     private var rows: some View {
@@ -598,7 +726,7 @@ private struct GlassPickerSheetBody<Value: Hashable & Sendable>: View {
                         content: renderItem?(item)
                     ) {
                         onChange(PickerSelection.picking(item.value, in: value, mode: mode))
-                        if PickerSelection.closesOnPick(mode) { dismiss() }
+                        if PickerSelection.closesOnPick(mode) { close() }
                     }
                 }
             }

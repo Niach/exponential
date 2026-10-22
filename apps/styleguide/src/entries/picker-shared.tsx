@@ -54,10 +54,15 @@ export function typedPickerStatus(
 export function PickerSpecimen({
   trigger,
   surface,
+  inline,
   caption,
 }: {
   trigger: ReactNode
   surface: ReactNode
+  /** N-6: the INLINE presentation, disclosed — what every picker inside a
+   *  dialog (the IDE's dialog windows, the phones' sheets) wears: the same
+   *  rows in the host's flow under the trigger. One entry shows it. */
+  inline?: ReactNode
   caption?: string
 }) {
   return (
@@ -66,6 +71,14 @@ export function PickerSpecimen({
       <div className="w-[18rem] overflow-hidden rounded-lg border border-glass-stroke bg-popover">
         {surface}
       </div>
+      {inline !== undefined && (
+        <div
+          data-testid="picker-inline-specimen"
+          className="w-[18rem] rounded-lg border border-glass-stroke p-2"
+        >
+          {inline}
+        </div>
+      )}
       {caption !== undefined && (
         <p className="text-xs text-muted-foreground">{caption}</p>
       )}

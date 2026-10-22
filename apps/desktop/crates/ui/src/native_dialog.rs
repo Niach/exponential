@@ -192,6 +192,14 @@ pub(crate) fn opener_of_window(window_id: WindowId, cx: &App) -> Option<AnyWindo
     })
 }
 
+/// N-6: whether `window` IS a dialog window (one this registry opened). The
+/// host rule reads it: a dialog is a small window that already is a
+/// surface, so its menus open in a menu window (`menu_window`) and its
+/// pickers open inline (`picker::Picker`).
+pub(crate) fn is_dialog_window(window: &Window, cx: &App) -> bool {
+    opener_of_window(window.window_handle().window_id(), cx).is_some()
+}
+
 /// EXP-287: a shell window is going away — close the dialogs it opened.
 /// Nothing else would: a dialog is an independent `WindowKind::Normal` window
 /// now, with its own taskbar button and no auto-dismissal, so an orphan would

@@ -7,6 +7,8 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
@@ -24,6 +26,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -152,6 +155,27 @@ enum class PickerMode {
  * does, and whether it closes the sheet. They are the primitive's only
  * behaviour, so the JVM contract test can pin them without a renderer.
  */
+/**
+ * N-6 — where a picker's rows open. [Sheet] is the phone's bottom sheet;
+ * [Inline] puts the SAME rows in the host's flow under the trigger (no
+ * sheet), for a host that already is a surface and cannot afford a second
+ * one — a form sheet's row: the trigger discloses the rows, the host grows
+ * up to [PickerDefaults.InlineMaxHeight], a single pick folds them away. The
+ * web's `presentation="inline"`, iOS `.inline`, the IDE's `inline()`.
+ */
+enum class PickerPresentation {
+    Sheet,
+    Inline,
+}
+
+/**
+ * N-6 — THE HOST DECIDES: [com.exponential.app.ui.components.GlassSheet]
+ * provides [PickerPresentation.Inline] to its content, so every picker inside
+ * a sheet opens in the sheet's flow (the web's `DialogContent` rule, the IDE's
+ * dialog windows). A picker's own `presentation` argument overrides it.
+ */
+val LocalPickerPresentation = compositionLocalOf { PickerPresentation.Sheet }
+
 object PickerRules {
 
     /** A row matches when ANY of its keywords contains the query. */
@@ -198,6 +222,10 @@ object PickerRules {
 object PickerDefaults {
     /** The 44dp minimum touch target every sheet row already wears. */
     val RowHeight: Dp = 44.dp
+
+    /** N-6: the most an INLINE presentation's rows take before they scroll
+     *  (web `max-h-72`, iOS `inlineMaxHeight`, the IDE's rows cap). */
+    val InlineMaxHeight: Dp = 288.dp
 
     /** Rows line up with the sheet title's gutter (20dp = 8 outer + 12 inner). */
     val RowOuterPadding: Dp = 8.dp
@@ -335,6 +363,7 @@ fun <T : Any> Picker(
      * the assignee picker's avatar (a picker glyph is an icon, never a photo).
      */
     renderItem: (@Composable RowScope.(item: PickerItem<T>) -> Unit)? = null,
+    presentation: PickerPresentation = LocalPickerPresentation.current,
     trigger: @Composable (open: () -> Unit) -> Unit = {},
 ) {
     var internalOpen by remember { mutableStateOf(false) }
@@ -348,7 +377,10 @@ fun <T : Any> Picker(
         onOpenChange?.invoke(next)
     }
 
-    trigger { if (enabled) setOpen(true) }
+    // N-6: inline, the trigger discloses AND folds; the sheet only opens
+    // (its drag handle closes it).
+    val inline = presentation == PickerPresentation.Inline
+    trigger { if (enabled) setOpen(if (inline) !isOpen else true) }
 
     if (!isOpen) return
 
@@ -357,7 +389,9 @@ fun <T : Any> Picker(
         if (search && filter) PickerRules.filter(items, currentQuery) else items
     }
 
-    GlassSheet(title = title, onDismiss = { setOpen(false) }, modifier = sheetModifier, primaryAction = primaryAction) {
+    // N-6: ONE body for both presentations — the sheet's content, or the
+    // same column in the host's flow.
+    val body: @Composable ColumnScope.() -> Unit = body@{
         if (panel != null) {
             // The panel is the ONE child here that may GROW, and only into
             // what the footer leaves: `GlassSheet` caps its column (85 % of
@@ -383,7 +417,7 @@ fun <T : Any> Picker(
             // under the label rows.
             footer?.invoke()
             Spacer(Modifier.height(8.dp))
-            return@GlassSheet
+            return@body
         }
         if (search) {
             // SLOP-28 (EXP-1259 D4): THE search list's input row — the same
@@ -445,6 +479,16 @@ fun <T : Any> Picker(
         }
         }
         if (caption != null) caption()
+    }
+    if (inline) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = PickerDefaults.InlineMaxHeight),
+            content = body,
+        )
+    } else {
+        GlassSheet(title = title, onDismiss = { setOpen(false) }, modifier = sheetModifier, primaryAction = primaryAction, content = body)
     }
 }
 

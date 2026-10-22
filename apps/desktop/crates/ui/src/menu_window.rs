@@ -121,7 +121,7 @@ pub(crate) fn plan_side(
 /// window is a dialog. A dialog window is small by design and its menus
 /// are the ones that clip; everywhere else the in-window menu has room.
 pub(crate) fn wanted(window: &Window, cx: &App) -> bool {
-    crate::native_dialog::opener_of_window(window.window_handle().window_id(), cx).is_some()
+    crate::native_dialog::is_dialog_window(window, cx)
 }
 
 /// The layer's screen rect: the host's rect grown by `margin` on every side,
