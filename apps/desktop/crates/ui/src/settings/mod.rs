@@ -231,6 +231,9 @@ pub(crate) enum SettingsSection {
     /// VAPP-110: one app's settings page (identity, description, Delete);
     /// the payload is the `apps` row id. The creator's and the owners'.
     App(String),
+    /// VAPP-110: the app page in CREATE mode (web `settings/apps/new`): the
+    /// Apps group's "New app" row. Create opens the editor.
+    NewApp,
     /// NEW-6: the team's saved prompts (web `settings/prompts`) — the
     /// Agents group's Prompts entry. Member-visible (members read them);
     /// writes are owner-only inside the pane.
@@ -420,7 +423,9 @@ fn section_icon(section: &SettingsSection) -> Icon {
         | SettingsSection::NewAgent => {
             Icon::from(registry::SETTINGS_AGENTS)
         }
-        SettingsSection::Apps | SettingsSection::App(_) => Icon::from(registry::NAV_APPS),
+        SettingsSection::Apps | SettingsSection::App(_) | SettingsSection::NewApp => {
+            Icon::from(registry::NAV_APPS)
+        }
         SettingsSection::Prompts | SettingsSection::Prompt(_) | SettingsSection::NewPrompt => {
             Icon::from(registry::NAV_ACTIONS)
         }
@@ -496,8 +501,8 @@ fn valid_agent_ids(
     )
 }
 
-/// VAPP-110: the apps of the active team the viewer manages (a selected
-/// `App(id)` clamps to them), `None` while the apps collection loads.
+/// VAPP-110: the apps of the active team (a selected `App(id)` clamps to
+/// them), `None` while the apps collection loads.
 fn valid_app_ids(
     cx: &App,
     nav: &Entity<Navigation>,
@@ -508,7 +513,7 @@ fn valid_app_ids(
     let Some(team_id) = active_team_id(nav, cx) else {
         return Some(Default::default());
     };
-    Some(crate::apps_view::managed_apps(&team_id, cx).into_iter().map(|app| app.id).collect())
+    Some(crate::apps_view::team_apps(&team_id, cx).into_iter().map(|app| app.id).collect())
 }
 
 /// EXP-1294: `Agent("")` (the DEV `EXP_DEV_SETTINGS=agent` seed) = the
@@ -523,11 +528,23 @@ fn first_agent_resolved(
             .and_then(|team_id| crate::session_data::agents_in_team(&team_id, cx).into_iter().next())
             .map(|agent| SettingsSection::Agent(agent.agent_id))
             .unwrap_or(SettingsSection::Agent(id)),
-        // VAPP-110: `App("")` = the first app the viewer manages.
-        SettingsSection::App(id) if id.is_empty() => active_team_id(nav, cx)
-            .and_then(|team_id| crate::apps_view::managed_apps(&team_id, cx).into_iter().next())
-            .map(|app| SettingsSection::App(app.id))
-            .unwrap_or(SettingsSection::Apps),
+        // VAPP-110: `App("")` = the team's first app; a slug (the dev
+        // `app:<slug>`) names its app.
+        SettingsSection::App(id) => {
+            let apps = active_team_id(nav, cx)
+                .map(|team_id| crate::apps_view::team_apps(&team_id, cx))
+                .unwrap_or_default();
+            let hit = if id.is_empty() {
+                apps.first()
+            } else {
+                apps.iter().find(|app| app.id == id || app.slug == id)
+            };
+            match hit {
+                Some(app) => SettingsSection::App(app.id.clone()),
+                None if id.is_empty() => SettingsSection::Apps,
+                None => SettingsSection::App(id),
+            }
+        }
         other => other,
     }
 }
@@ -675,7 +692,7 @@ impl SettingsView {
         let prompts = cx.new(|cx| PromptsPane::new(nav.clone(), cx));
         let agents_index = cx.new(|cx| agents_index::AgentsIndexPane::new(nav.clone(), cx));
         let apps_index = cx.new(|cx| crate::apps_view::AppsIndexPane::new(nav.clone(), cx));
-        let app_detail = cx.new(|cx| app_detail::AppDetailPane::new(shared.clone(), window, cx));
+        let app_detail = cx.new(|cx| app_detail::AppDetailPane::new(nav.clone(), shared.clone(), window, cx));
         let widget = cx.new(|cx| WidgetPane::new(nav.clone(), cx));
         let mcp_servers = cx.new(|cx| McpServersPane::new(nav.clone(), window, cx));
         let tools = cx.new(|cx| ToolsPane::new(window, cx));
@@ -879,7 +896,7 @@ impl Render for SettingsView {
             }
             SettingsSection::Agents => self.agents_index.clone().into_any_element(),
             SettingsSection::Apps => self.apps_index.clone().into_any_element(),
-            SettingsSection::App(_) => self.app_detail.clone().into_any_element(),
+            SettingsSection::App(_) | SettingsSection::NewApp => self.app_detail.clone().into_any_element(),
             SettingsSection::Prompts => self.prompts.clone().into_any_element(),
             SettingsSection::NewPrompt => {
                 let team_id = active_team_id(&self.nav, cx).unwrap_or_default();
@@ -1117,7 +1134,7 @@ impl Render for SettingsNavPanel {
         // VAPP-110: the Apps group's rows = the apps the viewer manages.
         let apps = team_id
             .as_deref()
-            .map(|team_id| crate::apps_view::managed_apps(team_id, cx))
+            .map(|team_id| crate::apps_view::team_apps(team_id, cx))
             .unwrap_or_default();
 
         let mut list = v_flex().p_2().gap_0p5();
@@ -1182,24 +1199,21 @@ impl Render for SettingsNavPanel {
                         })),
                     );
                 }
-                // "New app" opens the form (the rail's `+` does too).
-                let new_team = team_id.clone().unwrap_or_default();
+                // "New app" = the app page in create mode (web parity).
+                let selected = effective == SettingsSection::NewApp;
                 list = list.child(
                     Self::row(
                         "settings-nav-new-app",
                         domain::apps::APPS.copy.new_app.clone(),
                         Some(Icon::new(registry::UI_ADD)),
-                        false,
+                        selected,
                         cx,
                     )
-                    .text_color(cx.theme().muted_foreground)
-                    .on_click(move |_, window, cx| {
-                        crate::app_form_dialog::open(
-                            window,
-                            cx,
-                            crate::app_form_dialog::AppFormTarget::New { team_id: new_team.clone() },
-                        );
-                    }),
+                    .when(!selected, |row| row.text_color(cx.theme().muted_foreground))
+                    .on_click(cx.listener(|_, _, window, cx| {
+                        select_settings_section(window, cx, SettingsSection::NewApp);
+                        navigate(window, cx, Screen::Settings);
+                    })),
                 );
                 continue;
             }

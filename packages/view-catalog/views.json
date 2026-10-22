@@ -1953,8 +1953,13 @@
         "settleMs": 800
       },
       "webMobile": "inherit",
+      "desktop": {
+        "drive": {
+          "kind": "settings",
+          "value": "apps"
+        }
+      },
       "notes": {
-        "desktop": "VAPP-114: the IDE's Settings → Apps lands with Screen::Apps.",
         "ios": "Phones have no settings mirror in slice 1 (the Apps list is the management surface).",
         "android": "Phones have no settings mirror in slice 1 (the Apps list is the management surface)."
       }
@@ -1974,9 +1979,15 @@
         "settleMs": 800
       },
       "webMobile": "inherit",
+      "desktop": {
+        "drive": {
+          "kind": "settings",
+          "value": "app:team-dashboard"
+        }
+      },
       "notes": {
         "web": "`$appId` resolves to DEMO_APP_ID (apps/web/scripts/screenshot-demo.ts), the Team dashboard app.",
-        "desktop": "VAPP-114: the IDE's Settings → App lands with Screen::Apps.",
+        "desktop": "`app:<slug>` resolves the app in the active team: the seeded Team dashboard.",
         "ios": "Phones have no settings mirror in slice 1.",
         "android": "Phones have no settings mirror in slice 1."
       }
@@ -2131,16 +2142,10 @@
         "settleMs": 800
       },
       "webMobile": "inherit",
-      "desktop": {
-        "drive": {
-          "kind": "settings",
-          "value": "apps"
-        }
-      },
       "notes": {
         "ios": "VAPP-112: the iOS Apps list lands with the phone app host.",
         "android": "VAPP-116: the Android Apps list lands with the phone app host.",
-        "desktop": "The IDE lists apps the way it lists agents: a rail group, and Settings → Apps whose index is this list band."
+        "desktop": "The IDE has no Apps page: the rail lists the apps as a group (like Agents), and Settings → Apps (`settings-apps`) draws this list band."
       }
     },
     {

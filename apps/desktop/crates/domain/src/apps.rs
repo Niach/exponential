@@ -60,6 +60,10 @@ pub struct AppsCopy {
     pub delete: String,
     pub menu: AppsMenuCopy,
     pub tabs: AppsTabsCopy,
+    /// The app settings page's button to the editor.
+    pub open_editor: String,
+    /// Settings → Apps' title.
+    pub settings_title: String,
 }
 
 /// The BUILT-IN app every client ships (the Devices package).

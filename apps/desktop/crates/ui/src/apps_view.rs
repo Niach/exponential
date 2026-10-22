@@ -75,8 +75,26 @@ impl AppEntry {
         }
     }
 
+    /// The list's glyph (web `BoardGlyph`); the built-in Devices app wears
+    /// the Devices nav glyph.
     pub(crate) fn icon(&self) -> Icon {
+        if self.builtin {
+            return Icon::new(registry::NAV_DEVICES);
+        }
         crate::icons::app_icon(self.icon.as_deref(), self.color.as_deref())
+    }
+
+    /// The rail row's glyph (web `AppIcon`): the curated set with the
+    /// action fallback, in the app's colour; Devices for the built-in app.
+    pub(crate) fn rail_icon(&self) -> Icon {
+        if self.builtin {
+            return Icon::new(registry::NAV_DEVICES);
+        }
+        let icon = crate::icons::action_icon(self.icon.as_deref());
+        match self.color.as_deref().and_then(crate::settings::parse_hex_color) {
+            Some(tint) => icon.text_color(tint),
+            None => icon,
+        }
     }
 
     /// The version pill's text: `Built-in`, `v{n}` or `No version yet`.
@@ -154,25 +172,36 @@ pub(crate) fn delete_prompt(name: &str) -> Prompt {
     }
 }
 
-pub(crate) fn confirm_delete(app_id: String, name: String, window: &mut Window, cx: &mut App) {
+pub(crate) fn confirm_delete(
+    app_id: String,
+    name: String,
+    then: impl Fn(&mut Window, &mut App) + 'static,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    let opener = window.window_handle();
+    let then = std::rc::Rc::new(then);
     let spec = crate::native_dialog::AlertSpec::from_prompt(APPS.copy.menu.delete.clone(), &delete_prompt(&name))
-        .on_ok(move |window, cx| {
+        .on_ok(move |_, cx| {
             let Some(trpc) = crate::queries::trpc_client(cx) else {
                 crate::action_error::failed_action("delete", "the app", None, cx);
                 return true;
             };
             let app_id = app_id.clone();
-            window
-                .spawn(cx, async move |cx| {
-                    let result = cx
-                        .background_executor()
-                        .spawn(async move { api::apps::delete(&trpc, &app_id) })
-                        .await;
-                    if let Err(err) = result {
-                        let _ = cx.update(|_, cx| crate::action_error::failed_action_err("delete", "the app", &err, cx));
+            let then = then.clone();
+            cx.spawn(async move |cx| {
+                let result = cx
+                    .background_executor()
+                    .spawn(async move { api::apps::delete(&trpc, &app_id) })
+                    .await;
+                let _ = cx.update(|cx| match result {
+                    Ok(_) => {
+                        let _ = opener.update(cx, |_, window, cx| then(window, cx));
                     }
-                })
-                .detach();
+                    Err(err) => crate::action_error::failed_action_err("delete", "the app", &err, cx),
+                });
+            })
+            .detach();
             true
         });
     crate::native_dialog::open_alert(window, cx, spec);
@@ -205,7 +234,7 @@ fn row_menu(index: usize, row: AppRow, cx: &App) -> gpui::AnyElement {
                     .item(
                         crate::controls::danger_menu_item(delete.clone(), Icon::new(registry::UI_DELETE), cx)
                             .on_click(move |_: &ClickEvent, window, cx| {
-                                confirm_delete(delete_id.clone(), delete_name.clone(), window, cx)
+                                confirm_delete(delete_id.clone(), delete_name.clone(), |_, _| {}, window, cx)
                             }),
                     )
                 }),
@@ -214,9 +243,12 @@ fn row_menu(index: usize, row: AppRow, cx: &App) -> gpui::AnyElement {
 }
 
 /// One app row (web `ListRow`): glyph · name · the version pill · `…`.
-fn app_row(index: usize, entry: &AppEntry, manage: bool, cx: &App) -> gpui::AnyElement {
+fn app_row(index: usize, entry: &AppEntry, manage: bool, to_settings: bool, cx: &App) -> gpui::AnyElement {
     let row_hover = cx.theme().list_hover;
     let target = entry.id.clone();
+    // Settings → Apps opens an app's settings page (the built-in app has
+    // none: its editor).
+    let to_settings = to_settings && !entry.builtin;
     crate::surface::list_row(
         crate::surface::flat_row()
             .id(SharedString::from(format!("{}-{}", APPS.test_ids.row, entry.slug)))
@@ -231,7 +263,16 @@ fn app_row(index: usize, entry: &AppEntry, manage: bool, cx: &App) -> gpui::AnyE
             .cursor_pointer()
             .hover(move |this| this.bg(row_hover))
             .on_click(move |_: &ClickEvent, window, cx| {
-                crate::navigation::navigate(window, cx, Screen::App { app: target.clone() });
+                if to_settings {
+                    crate::sidebar::select_settings_section(
+                        window,
+                        cx,
+                        crate::settings::SettingsSection::App(target.clone()),
+                    );
+                    crate::navigation::navigate(window, cx, Screen::Settings);
+                } else {
+                    crate::navigation::navigate(window, cx, Screen::App { app: target.clone() });
+                }
             })
             .child(entry.icon().small().flex_shrink_0())
             .child(
@@ -250,7 +291,14 @@ fn app_row(index: usize, entry: &AppEntry, manage: bool, cx: &App) -> gpui::AnyE
 
 /// The page body (the band + the rows, or the empty state); the styleguide
 /// draws it too.
-pub(crate) fn apps_list(team_id: Option<&str>, entries: &[AppEntry], me: Option<&str>, owner: bool, cx: &App) -> gpui::Div {
+pub(crate) fn apps_list(
+    team_id: Option<&str>,
+    entries: &[AppEntry],
+    me: Option<&str>,
+    owner: bool,
+    to_settings: bool,
+    cx: &App,
+) -> gpui::Div {
     let new_team = team_id.map(str::to_string);
     let new_app = crate::surface::glass_pill_button(APPS.test_ids.new_app.clone(), crate::surface::PillSize::Sm, cx)
         .icon(registry::UI_ADD)
@@ -270,7 +318,7 @@ pub(crate) fn apps_list(team_id: Option<&str>, entries: &[AppEntry], me: Option<
             .min_w_0()
             .children(entries.iter().enumerate().map(|(index, entry)| {
                 let manage = can_manage(entry, me, owner);
-                app_row(index, entry, manage, cx)
+                app_row(index, entry, manage, to_settings, cx)
             }))
             .into_any_element()
     };
@@ -283,14 +331,10 @@ pub(crate) fn can_manage(entry: &AppEntry, me: Option<&str>, owner: bool) -> boo
     !entry.builtin && (owner || entry.row.as_ref().and_then(|row| row.created_by.as_deref()).is_some_and(|by| Some(by) == me))
 }
 
-/// The apps of `team_id` the viewer manages (the settings group's rows).
-pub(crate) fn managed_apps(team_id: &str, cx: &App) -> Vec<AppEntry> {
-    let me = crate::queries::active_account(cx).map(|account| account.user_id);
-    let owner = crate::settings::is_owner(cx, team_id);
-    app_entries(team_id, cx)
-        .into_iter()
-        .filter(|entry| can_manage(entry, me.as_deref(), owner))
-        .collect()
+/// The team's own apps (the built-in one has no settings page): the
+/// settings group's rows.
+pub(crate) fn team_apps(team_id: &str, cx: &App) -> Vec<AppEntry> {
+    app_entries(team_id, cx).into_iter().filter(|entry| !entry.builtin).collect()
 }
 
 /// Settings → Apps, the index (the Agents index's twin): the list band.
@@ -326,7 +370,7 @@ impl Render for AppsIndexPane {
                 let me = crate::queries::active_account(cx).map(|account| account.user_id);
                 let owner = crate::settings::is_owner(cx, &team_id);
                 let entries = app_entries(&team_id, cx);
-                apps_list(Some(&team_id), &entries, me.as_deref(), owner, cx)
+                apps_list(Some(&team_id), &entries, me.as_deref(), owner, true, cx)
             }
         }
     }

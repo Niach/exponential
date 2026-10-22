@@ -298,9 +298,12 @@ fn parse_dev_settings_section(spec: &str) -> Option<crate::settings::SettingsSec
         "agents" => Some(S::Agents),
         "agent" => Some(S::Agent(String::new())),
         "new-agent" => Some(S::NewAgent),
-        // VAPP-110: the Apps index; `app` = the team's first managed app.
+        // VAPP-110: the Apps index, New app, and one app's page (`app` =
+        // the team's first app, `app:<slug or id>` that one).
         "apps" => Some(S::Apps),
+        "new-app" => Some(S::NewApp),
         "app" => Some(S::App(String::new())),
+        spec if spec.starts_with("app:") => Some(S::App(spec["app:".len()..].to_string())),
         // NEW-6: Settings → Prompts, and its create page.
         "prompts" => Some(S::Prompts),
         "new-prompt" => Some(S::NewPrompt),
@@ -1326,7 +1329,7 @@ impl RailView {
         let settings_id = entry.id.clone();
         self.entry(
             ("rail-app-row", index),
-            entry.icon().with_size(gpui_component::Size::Medium).flex_shrink_0().into_any_element(),
+            entry.rail_icon().with_size(gpui_component::Size::Medium).flex_shrink_0().into_any_element(),
             SharedString::from(entry.name.clone()),
             active,
             None,
