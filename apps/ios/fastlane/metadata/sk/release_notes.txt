@@ -1,4 +1,4 @@
-- Rýchlejšie všade: aplikácia sa v nečinnosti už neustále nesynchronizuje a zoznamy, zobrazenie session aj editory odvádzajú pri každom stlačení klávesu a každom cykle synchronizácie oveľa menej práce
-- Nadpis Threads je v pevnej lište hore, rovnako ako pri všetkých ostatných kartách
-- Presun session: zdrojové zariadenie si ponechá worktree aj branch, kým ich cieľové zariadenie úplne neobnoví, a až potom upratuje
-- Opravy z review: board, ktorý sa ešte synchronizuje, už nezabliká bannerom "Syncing team" a premenovaný stav sa do štítkov #EXP prepíše okamžite
+- Nový systém session: thread je jedna session, ktorá pracuje sama a prebúdzajú ju správy, s kartou plánu, ktorá sa pýta vždy na jednu otázku
+- Agenti sú definície s vlastnou konverzáciou pre každého člena, triggermi spúšťanými serverom a streamom Events; napíšte agentovi priamo z composera
+- Prompty nahrádzajú akcie: nájdete ich v / menu a v Nastavenia → Prompty
+- Zobrazenia sessions, "potrebuje vás" a bežiacich sa na každej obrazovke riadia novým systémom

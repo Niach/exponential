@@ -1,4 +1,4 @@
-- Hurtigere overalt: appen synkroniserer ikke længere i fast takt, når den er inaktiv, og lister, sessionsvisningen og editorerne laver langt mindre arbejde pr. tastetryk og pr. synkroniseringsrunde
-- Threads-titlen sidder i den faste bjælke øverst, ligesom på alle andre faner
-- Flyt en session: kildeenheden beholder sin worktree og branch, indtil målenheden har gendannet dem fuldt ud, og rydder derefter op
-- Rettelser fra review: et board, der stadig synkroniserer, får ikke længere banneret "Syncing team" til at blinke, og en omdøbt status når straks #EXP-chipsene
+- Det nye sessionsystem: en thread er én session, der arbejder selv og vækkes af beskeder, med et plankort, der stiller ét spørgsmål ad gangen
+- Agenter er definitioner med deres egen samtale pr. medlem, servertriggere og en Events-strøm; skriv til en agent fra composeren
+- Prompts erstatter handlinger: find dem i / menu og under Indstillinger → Prompts
+- Visningerne for sessions, kræver dig og kørende følger det nye system på alle skærme

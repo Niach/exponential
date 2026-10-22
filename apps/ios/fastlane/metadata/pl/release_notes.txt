@@ -1,4 +1,4 @@
-- Szybciej wszędzie: aplikacja nie synchronizuje się już bez przerwy w stanie bezczynności, a listy, widok sesji i edytory wykonują znacznie mniej pracy przy każdym naciśnięciu klawisza i każdym cyklu synchronizacji
-- Tytuł Threads znajduje się w przypiętym pasku u góry, tak jak w każdej innej karcie
-- Przenoszenie sesji: urządzenie źródłowe zachowuje swój worktree i branch, dopóki urządzenie docelowe w pełni ich nie przywróci, a dopiero potem sprząta
-- Poprawki z review: tablica, która wciąż się synchronizuje, nie miga już banerem "Syncing team", a zmieniona nazwa statusu od razu trafia do chipów #EXP
+- Nowy system sesji: thread to jedna sesja, która pracuje sama i budzą ją wiadomości, z kartą planu zadającą jedno pytanie naraz
+- Agenci to definicje z własną rozmową dla każdego członka, triggerami uruchamianymi przez serwer i strumieniem Events; napisz do agenta prosto z composera
+- Prompty zastępują akcje: znajdziesz je w / menu oraz w Ustawienia → Prompty
+- Widoki sesji, "czeka na ciebie" i uruchomionych działają według nowego systemu na każdym ekranie

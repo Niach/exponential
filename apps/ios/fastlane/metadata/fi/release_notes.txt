@@ -1,4 +1,4 @@
-- Nopeampi kaikkialla: sovellus ei enää synkronoi tauotta ollessaan käyttämättä, ja listat, sessionäkymä ja editorit tekevät paljon vähemmän työtä jokaista näppäinpainallusta ja synkronointikierrosta kohden
-- Threads-otsikko on kiinteässä palkissa ylhäällä, kuten kaikilla muillakin välilehdillä
-- Session siirto: lähdelaite säilyttää worktreen ja branchin, kunnes kohdelaite on palauttanut ne kokonaan, ja siivoaa vasta sitten
-- Korjauksia katselmoinnista: vielä synkronoituva board ei enää näytä hetkeksi "Syncing team" -banneria, ja uudelleennimetty tila päivittyy #EXP-siruihin heti
+- Uusi sessiojärjestelmä: thread on yksi sessio, joka työskentelee itse ja herää viesteistä, ja sen suunnitelmakortti kysyy yhden kysymyksen kerrallaan
+- Agentit ovat määrityksiä, joilla on oma keskustelu jokaisen jäsenen kanssa, palvelimen laukaisemat triggerit ja Events-virta; lähetä agentille viesti suoraan composerista
+- Promptit korvaavat toiminnot: löydät ne / menu -valikosta ja kohdasta Asetukset → Promptit
+- Sessiot-, tarvitsee sinua- ja käynnissä-näkymät noudattavat uutta järjestelmää jokaisella näytöllä
