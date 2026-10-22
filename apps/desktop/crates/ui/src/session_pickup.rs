@@ -267,10 +267,9 @@ fn run_pass(cx: &mut App) {
                     StepOutcome::Failed
                 }
             },
-            PickupAction::Resume { session, message } => woke(
-                &session_id,
-                pickup::resume_session(session, std::slice::from_ref(message), &deps),
-            ),
+            PickupAction::Resume { session, messages } => {
+                woke(&session_id, pickup::resume_session(session, messages, &deps))
+            }
             PickupAction::Deliver { messages, .. } => {
                 woke(&session_id, pickup::deliver_messages(&session_id, messages, &deps))
             }

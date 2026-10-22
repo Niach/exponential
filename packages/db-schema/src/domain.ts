@@ -374,7 +374,8 @@ export const prStateValues = [`open`, `closed`, `merged`, `draft`] as const
 // killable — so this composes with status the way `needs_input` does rather
 // than being a status of its own. Written by the device the moment its agent
 // reports the wall (claude's `<synthetic>` credit frame, EXP-784) and cleared
-// on the next assistant token. `kind` is the discriminator (contract
+// on the next assistant token (FEED-129: or by the server watchdog once
+// `resetsAt` passed, for a walled run whose engine went away). `kind` is the discriminator (contract
 // codingSessionBlocked.kinds), `window` names WHICH usage window ran out
 // (contract codingSessionBlocked.windows, the same vocabulary
 // DeviceUsageWindow.key uses). `resetsAt` is an ISO string or null when the
