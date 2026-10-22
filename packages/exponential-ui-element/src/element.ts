@@ -26,7 +26,7 @@ import { setPointer, type DataModel } from "@exponential-at/ui/web"
 import { ExponentialSurface, createHostSurface, createSurface, extensionCatalogs, hostPlugin, px } from "@exponential-at/ui-solid"
 import type { A2uiMessage, ExponentialSurfaceProps, HostPlugin, SolidExtension, SurfaceHandle, SurfaceState, ThemeInput } from "@exponential-at/ui-solid"
 import { emit, emitWaiting, joinPending } from "./events"
-import { createHost, transportKey } from "./transport"
+import { createHost, decideTransport, transportKey } from "./transport"
 
 export const TAG = `exponential-surface`
 
@@ -110,6 +110,8 @@ export class ExponentialSurfaceElement extends HTMLElement {
   /** The host built from `src` (owned: connected and closed here). */
   #built?: { key: string; host: ExponentialHost }
   #status = createSignal<{ status: TransportStatus; detail?: string } | undefined>(undefined)
+  /** VAPP-107: why `src`/`post` built no host (the URL policy denied one). */
+  #denied = createSignal<string | undefined>(undefined)
   #liveHost?: ExponentialHost
   #currentSurface: Accessor<SurfaceState | null> = () => null
   #handle: SurfaceHandle | null = null
@@ -334,9 +336,14 @@ export class ExponentialSurfaceElement extends HTMLElement {
   get issues(): SurfaceState[`issues`] {
     return this.surfaceState?.issues ?? []
   }
-  /** The host's transport state (a host property or one built from `src`). */
+  /** The host's transport state (a host property or one built from `src`);
+   *  `closed` when the URL policy denied `src`/`post` (see `statusDetail`). */
   get status(): TransportStatus | undefined {
-    return (this.#liveHost ?? this.#host[0]())?.status
+    return (this.#liveHost ?? this.#host[0]())?.status ?? this.#status[0]()?.status
+  }
+  /** The transport's detail (an error, or `src denied by the URL policy (private)`). */
+  get statusDetail(): string | undefined {
+    return (this.#liveHost ?? this.#host[0]())?.statusDetail ?? this.#status[0]()?.detail
   }
   /** The state painted: the `surface` property, the host's surface, or the
    *  store `apply()` made. */
@@ -352,23 +359,35 @@ export class ExponentialSurfaceElement extends HTMLElement {
   }
 
   /** The host in use: the property, else one built from `src` (rebuilt when
-   *  src/post/transport change; the old one is closed). */
+   *  src/post/transport change; the old one is closed). VAPP-107: `src` and
+   *  `post` pass the page's URL policy (`plugin.urls`) first; a denied one
+   *  builds no host (the status says why). */
   #activeHost(): ExponentialHost | undefined {
     const given = this.#host[0]()
     if (given) {
       this.#dropBuilt()
+      this.#denied[1](undefined)
       return given
     }
     const src = this.#src[0]()
     if (!src) {
       this.#dropBuilt()
+      this.#denied[1](undefined)
       return undefined
     }
     const attrs = { src, post: this.#post[0](), transport: this.#transport[0]() }
+    const policy = this.#plugin[0]()?.urls
+    const decision = decideTransport(attrs, policy)
+    if (!decision.allowed) {
+      this.#dropBuilt()
+      this.#denied[1](decision.reason)
+      return undefined
+    }
+    this.#denied[1](undefined)
     const key = transportKey(attrs)
     if (this.#built?.key !== key) {
       this.#dropBuilt()
-      this.#built = { key, host: createHost(attrs, extensionCatalogs(untrack(() => this.#extensions[0]()) ?? [])) }
+      this.#built = { key, host: createHost(attrs, extensionCatalogs(untrack(() => this.#extensions[0]()) ?? []), policy) }
     }
     return this.#built.host
   }
@@ -550,6 +569,7 @@ export class ExponentialSurfaceElement extends HTMLElement {
     this.#handle = null
     this.#currentSurface = () => null
     this.#dropBuilt()
+    this.#status[1](undefined)
   }
 
   #view() {
@@ -561,7 +581,11 @@ export class ExponentialSurfaceElement extends HTMLElement {
       const h = host()
       this.#liveHost = h
       if (!h) {
-        this.#status[1](undefined)
+        // A denied src/post: closed, with the reason, as a transport error would be.
+        const reason = this.#denied[0]()
+        const s = reason ? { status: `closed` as const, detail: reason } : undefined
+        this.#status[1](s)
+        if (s) emit(this, `xui-status`, s)
         return
       }
       let last: { status: TransportStatus; detail?: string } | undefined
@@ -665,10 +689,11 @@ export class ExponentialSurfaceElement extends HTMLElement {
       },
       handleRef,
     }
-    // A host surface paints only once the host has it.
+    // A host surface paints only once the host has it; a src/post the URL
+    // policy denied (no host) paints nothing either.
     return createComponent(Show as unknown as (p: { when: boolean; children: JSX.Element }) => JSX.Element, {
       get when() {
-        return !host() || el.#surface[0]() !== undefined || current() !== null
+        return (!host() && !el.#denied[0]()) || el.#surface[0]() !== undefined || current() !== null
       },
       get children() {
         return createComponent(ExponentialSurface, props)

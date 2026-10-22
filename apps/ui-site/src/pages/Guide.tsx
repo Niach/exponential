@@ -819,9 +819,11 @@ cd packages/exponential-ui-compose
           </p>
           <p>
             Every renderer replays the same fixtures, so what a surface can and cannot do is identical on React,
-            SolidJS, SwiftUI, Compose and gpui. The two web renderers share one URL and media filter (the web layer
-            of <code>@exponential-at/ui</code>). The Rust core behind the three native painters is fuzzed nightly;
-            the TypeScript reference runs property tests on the same modules.
+            SolidJS, the <code>{`<exponential-surface>`}</code> web component, SwiftUI, Compose and gpui. The web
+            renderers share one URL and media filter (the web layer of <code>@exponential-at/ui</code>); the web
+            component's <code>src</code> and <code>post</code> pass it too, before a transport exists, and its
+            standalone bundle carries it. The Rust core behind the three native painters is fuzzed nightly; the
+            TypeScript reference runs property tests on the same modules.
           </p>
           <DocsTable
             head={[`A surface can`, `A surface cannot`]}
@@ -886,7 +888,7 @@ cd packages/exponential-ui-compose
               [`Template items`, String(LIMITS.maxTemplateItems), `the rest is not rendered`],
               [`A data pointer`, `${LIMITS.maxPointerBytes} bytes, ${LIMITS.maxPointerSegments} segments`, `the write is refused`],
               [`An image`, `${Math.round(MEDIA_LIMITS.maxBytes / 1048576)} MiB, ${MEDIA_LIMITS.timeoutMs / 1000} s, ${Math.round(MEDIA_LIMITS.maxPixels / 1048576)} Mpx across every frame`, `fails like a 404; the fallback paints`],
-              [`Video / audio without mediaStreamUrl (React, SolidJS)`, `the same bytes and seconds for the whole download`, `fails like a 404`],
+              [`Video / audio without mediaStreamUrl (React, SolidJS, the web component)`, `the same bytes and seconds for the whole download`, `fails like a 404`],
             ]}
           />
           <p>
