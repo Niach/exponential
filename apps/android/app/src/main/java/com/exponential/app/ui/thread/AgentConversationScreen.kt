@@ -137,7 +137,6 @@ fun AgentConversationScreen(
     onBack: () -> Unit,
     /** The conversation exists (synced, or my first send created it): open it in place. */
     onOpenConversation: (sessionId: String) -> Unit,
-    onOpenAgentSettings: (agentId: String) -> Unit,
     viewModel: AgentConversationViewModel = hiltViewModel(),
 ) {
     val agent by viewModel.agent.collectAsStateWithLifecycle()
@@ -172,7 +171,6 @@ fun AgentConversationScreen(
                         icon = row?.icon,
                         color = row?.color,
                         onBack = onBack,
-                        onSettings = row?.let { { onOpenAgentSettings(it.id) } },
                         modifier = Modifier.statusBarsPadding(),
                     )
                 }

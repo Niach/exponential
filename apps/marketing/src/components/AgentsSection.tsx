@@ -1,5 +1,6 @@
 /* ─── Agents — your devices run your agents, you steer from anywhere ───
-   SLOP-6: the product in its four nouns (People · Devices · Apps · Actions),
+   SLOP-6: the product in its four nouns (People · Devices · Apps · Agents;
+   NEW-2: agents and prompts took the Actions noun),
    one sentence each, over REAL captures from the committed store (shots/):
    the same session on the desktop IDE and on an iPhone. No bespoke mockups and
    no scripted stage; every claim maps onto a shipped surface. */
@@ -33,8 +34,8 @@ const NOUNS = [
   },
   {
     icon: IcBot,
-    title: `Actions`,
-    text: `Save a task as an action and run it on demand, or give it a trigger so a device runs it on a schedule or when something changes on a board.`,
+    title: `Agents`,
+    text: `Save a prompt and run it from the composer, or give an agent instructions and a trigger so a device runs it on a schedule or when something changes on a board, then message it like a teammate.`,
   },
 ]
 

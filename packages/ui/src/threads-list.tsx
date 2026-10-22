@@ -26,8 +26,9 @@ import { treeGuides } from "./tree-guides"
 // (EXP-1339). The lists language: a filled group band (no count) per group
 // (Needs you · Running · Recent) over flat gapless rows, no dividers
 // (EXP-1320). A row = the lead (the agent's working mark while busy, its
-// amber badge when it needs you, else the PR glyph its word names: merged =
-// the violet glyph), the title (it names the issue), the trailing word
+// amber badge when it needs you, else the root's PR glyph: any open PR, a
+// stacked one too, = pr-open emerald, a merged one = the violet glyph, NEW-41
+// ×4), the title (it names the issue), the trailing word
 // (never `merged`, never a lock, EXP-1339), then the root's device glyph
 // (EXP-1318). Phones put the team's Agents band on top. EXP-1323: a live
 // tree nests its children under the root (`SessionRow` depth + TreeGuides,
@@ -76,17 +77,30 @@ export function threadRunMarkState(row: {
   return undefined
 }
 
+/** The root's PR glyph for a thread row's lead (threads-list.json, NEW-41
+ *  ×4): any open PR (a stacked one too) = pr-open emerald, else a merged
+ *  one = pr-merged violet, else none. */
+export function threadLeadPrState(prs: readonly ThreadsListPr[]): `open` | `merged` | null {
+  if (prs.some((pr) => pr.state === `open`)) return `open`
+  if (prs.some((pr) => pr.state === `merged`)) return `merged`
+  return null
+}
+
 function rowLead(
   row: Pick<ThreadsListRow, `busy` | `needsYou`>,
   cli: string | null,
-  word: ThreadRowWord | null
+  word: ThreadRowWord | null,
+  prs: readonly ThreadsListPr[]
 ): ReactNode {
   // EXP-1344: the contract's `threadRowMarkState` order, needs-you beats busy.
   const mark = threadRunMarkState(row)
   if (mark === `needs_input`) return <AgentRunMark agent={cli} state="needs_input" ringClassName="ring-background" />
   if (mark === `working`) return <AgentWorkingMark agent={cli} />
-  if (word === `readyToMerge`) return <PrOpenIcon className="size-3.5 text-emerald-500" />
-  if (word === `merged`) return <PrMergedIcon className="size-3.5 text-violet-400" />
+  // NEW-41: the PR glyph follows the root's PRs, not the word (a stacked
+  // open PR reads `stack` yet leads emerald, like the IDE).
+  const pr = threadLeadPrState(prs)
+  if (pr === `open`) return <PrOpenIcon className="size-3.5 text-emerald-500" />
+  if (pr === `merged`) return <PrMergedIcon className="size-3.5 text-violet-400" />
   const state: RunMarkState | undefined = word === null ? `ended` : undefined
   return <AgentRunMark agent={cli} state={state} ringClassName="ring-background" />
 }
@@ -237,11 +251,12 @@ function GroupRows({
             />
           )
         }
-        const word = threadWordOf(row, prsByRoot.get(row.sessionId) ?? [], teamPrs)
+        const prs = prsByRoot.get(row.sessionId) ?? []
+        const word = threadWordOf(row, prs, teamPrs)
         return (
           <ThreadsListItem
             key={row.sessionId}
-            lead={rowLead(row, cliByRoot.get(row.sessionId) ?? null, word)}
+            lead={rowLead(row, cliByRoot.get(row.sessionId) ?? null, word, prs)}
             title={row.title}
             unread={row.unread}
             caption={row.caption}

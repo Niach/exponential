@@ -117,8 +117,6 @@ fun ThreadScreen(
     onOpenSession: (sessionId: String) -> Unit,
     onOpenIssue: (issueId: String) -> Unit,
     onOpenThread: (rootSessionId: String) -> Unit,
-    /** NEW-2: opens the agent DEFINITION's settings (its id). */
-    onOpenAgentSettings: (agentId: String) -> Unit,
     /** The "+"'s New issue: the New issue page on [boardId], linked to this
      *  root on create. Null hides the row. */
     onNewIssue: ((boardId: String, rootSessionId: String) -> Unit)? = null,
@@ -261,7 +259,6 @@ fun ThreadScreen(
                 onBack = onBack,
                 onAdd = { menuFor = ThreadMenuTarget(null) },
                 onIssueMenu = { menuFor = ThreadMenuTarget(it) },
-                onAgentSettings = { viewModel.root.value?.agentId?.let(onOpenAgentSettings) },
                 // THE session composer (dispatcher roots): the session view's
                 // box targeting the ROOT, fed by the root's live state.
                 composer = { expanded, onExpandedChange ->
@@ -460,7 +457,6 @@ fun ThreadContent(
     onBack: (() -> Unit)?,
     onAdd: (() -> Unit)?,
     onIssueMenu: ((SessionTree.ThreadTab.IssueTab) -> Unit)?,
-    onAgentSettings: (() -> Unit)?,
     /** THE floating reply box, folded or expanded. */
     composer: @Composable (expanded: Boolean, onExpandedChange: (Boolean) -> Unit) -> Unit,
     issuePage: @Composable (issueId: String, padding: PaddingValues) -> Unit,
@@ -528,7 +524,6 @@ fun ThreadContent(
                         icon = agent.icon,
                         color = agent.color,
                         onBack = onBack,
-                        onSettings = onAgentSettings,
                         modifier = Modifier.statusBarsPadding(),
                     )
                 }

@@ -89,7 +89,6 @@ import com.exponential.app.ui.components.effortLabel
 import com.exponential.app.ui.components.effortValuesFor
 import com.exponential.app.ui.components.subagentModelLabel
 import com.exponential.app.ui.components.subagentModelOptions
-import com.exponential.app.ui.components.supportsSubagentModel
 import com.exponential.app.ui.components.picker.McpServerPicker
 import com.exponential.app.ui.components.picker.Picker
 import com.exponential.app.ui.components.picker.PickerItem
@@ -737,7 +736,10 @@ fun AgentScreen(
         ComposerPlusMenuSheet(
             layout = ComposerMenu.composerMenuLayout(
                 ComposerMenuConditions(
-                    subagentModel = supportsSubagentModel(launch.agent),
+                    // NEW-39 / web composer-plus-menu.tsx: `sessions.send`
+                    // carries no subagent model, the row hides; the picker
+                    // stays as the shim.
+                    subagentModel = false,
                     ultracode = claude,
                     // EXP-1291: actions no longer carry their own MCP list, so
                     // no subject owns it — the team's servers alone decide.

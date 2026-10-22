@@ -33,6 +33,8 @@ final class SessionListsModel {
     /// EXP-1309: a Threads row's quiet word off its pull requests, by root id
     /// (`SessionTree.threadRowWord`).
     private(set) var words: [String: ThreadRowWord] = [:]
+    /// NEW-41: each root's pull-request states (the Threads tab's lead glyph).
+    private(set) var prStates: [String: [String]] = [:]
     /// EXP-1316: a thread row's device glyph (the ROOT's `device_id` against
     /// the synced devices rows), by root id; absent = no glyph.
     private(set) var devices: [String: ThreadRowDevice] = [:]
@@ -98,6 +100,7 @@ final class SessionListsModel {
         identifiers = [:]
         clis = [:]
         words = [:]
+        prStates = [:]
         devices = [:]
         liveByTeam = [:]
         loaded = false
@@ -125,6 +128,7 @@ final class SessionListsModel {
         var identifiers: [String: String]
         var clis: [String: String]
         var words: [String: ThreadRowWord]
+        var prStates: [String: [String]]
         var devices: [String: ThreadRowDevice]
         var liveByTeam: [String: SessionTree.TeamLiveSessions]
     }
@@ -137,6 +141,7 @@ final class SessionListsModel {
         identifiers = derived.identifiers
         clis = derived.clis
         words = derived.words
+        prStates = derived.prStates
         devices = derived.devices
         liveByTeam = derived.liveByTeam
         loaded = true
@@ -231,14 +236,18 @@ final class SessionListsModel {
             $0.rootSessionId ?? ""
         }
         var words: [String: ThreadRowWord] = [:]
+        var prStates: [String: [String]] = [:]
         // EXP-1323: a nested child row carries no word (web + IDE).
         for row in groups.flatMap(\.rows) where row.depth == 0 {
+            let prs = prsByRoot[row.sessionId] ?? []
             words[row.sessionId] = SessionTree.threadRowWord(
                 busy: row.busy,
                 needsYou: row.needsYou,
-                prs: prsByRoot[row.sessionId] ?? [],
+                prs: prs,
                 teamPrs: prsByTeam[row.teamId] ?? []
             )
+            // NEW-41: the lead's PR glyph follows the root's PRs, not the word.
+            prStates[row.sessionId] = prs.map(\.state)
         }
         // The root's device row (the starter's own first, like the session
         // view's host row); an unknown or invisible device draws nothing.
@@ -274,6 +283,7 @@ final class SessionListsModel {
             identifiers: identifiers,
             clis: rows.clis,
             words: words,
+            prStates: prStates,
             devices: devices,
             liveByTeam: SessionTree.liveByTeam(rows.sessions, userId: userId)
         )

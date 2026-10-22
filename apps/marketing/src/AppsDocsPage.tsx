@@ -80,9 +80,10 @@ export function AppsDocsPage() {
             <p>
               The sidebar mirrors the web app: the team switcher,{` `}
               <strong>Search</strong> and <strong>New issue</strong> at the
-              top, then Inbox, Devices, Actions, Reviews
-              and <strong>Agent</strong>, your <strong>Pinned</strong> issues
-              and actions, the boards, and under{` `}
+              top, then <strong>Agent</strong>, Inbox,{` `}
+              <strong>Threads</strong>, Devices and Drafts, the team&apos;s{` `}
+              <strong>Agents</strong>, the boards, the{` `}
+              <strong>Active</strong> threads, and under{` `}
               <strong>This device</strong> the machine&apos;s own{` `}
               <strong>Files</strong> and <strong>Source Control</strong>. At
               the bottom sit the <strong>What&apos;s new</strong> card,{` `}
@@ -98,10 +99,9 @@ export function AppsDocsPage() {
             <p>
               The working area is a rounded card on a darker ground, the same
               cutout layout the web app uses. Work opens as tabs along its
-              top. An issue and its coding session share one tab, with an{` `}
-              <strong>Issue | Session</strong> switch in the header. Every live
-              session of yours gets a tab too, grouped by agent, and can&apos;t be
-              closed while it runs. Terminals fill the card instead, and open
+              top: an issue, or a <strong>thread</strong> with its own strip
+              (Conversation, the issue chips, the session chips, the Guide)
+              under the title. Terminals fill the card instead, and open
               terminals get a bar of tabs under it — a bar that is not there
               at all while none is open.
             </p>
@@ -109,7 +109,7 @@ export function AppsDocsPage() {
             <DocShot
               view="steering"
               platform="desktop"
-              caption="A coding session in the desktop IDE: its tab along the top, the shared header, and the sidebar beside it"
+              caption="A session in the desktop IDE: the thread's tab along the top, its strip, and the sidebar beside it"
             />
             <h3>System notifications</h3>
             <p>
@@ -128,7 +128,7 @@ export function AppsDocsPage() {
             <p>
               Native <a href={LINKS.downloads.ios}>iOS</a> and{` `}
               <a href={LINKS.downloads.android}>Android</a> apps with
-              everything synced in real time. Five tabs:
+              everything synced in real time. Four tabs:
             </p>
             <ul>
               <li>
@@ -136,27 +136,23 @@ export function AppsDocsPage() {
                 comment.
               </li>
               <li>
-                <strong>My Work</strong>: your inbox and the issues assigned
-                to you, in one place.
+                <strong>Inbox</strong>: your notifications and the issues
+                assigned to you, in one place.
               </li>
               <li>
                 <strong>Devices</strong>: your machines, the team&apos;s
                 shared ones, and the agent accounts they hold.
               </li>
               <li>
-                <strong>Actions</strong>: the team&apos;s{` `}
-                <a href="/docs/actions/">actions</a> and the suggestions to start
-                from.
-              </li>
-              <li>
-                <strong>Reviews</strong>: every issue with an open PR, with a
-                one-click merge.
+                <strong>Threads</strong>: the team&apos;s{` `}
+                <a href="/docs/actions/#triggers">agents</a> on top, then
+                every thread under Needs you, Running and Recent.
               </li>
             </ul>
             <p>
               The round chat button beside the tab pill opens the{` `}
-              <a href="/docs/coding/#start-coding">Agent page</a>: its
-              composer, and your running and past sessions. On a board,{` `}
+              <a href="/docs/coding/#start-coding">Agent page</a>: the one
+              composer. On a board,{` `}
               <strong>New issue</strong> sits beside it. Search sits in the
               board header. Select
               issues and the bulk bar takes the tab bar&apos;s place, with
@@ -206,32 +202,27 @@ export function AppsDocsPage() {
               question, veto an approach, add a constraint you forgot.
             </p>
             <p>
-              You can also start one from here: the composer&apos;s issue and
-              action chips, its device and agent pickers, and the steer
-              composer — <code>/</code> slash commands, and{` `}
-              <code>@</code> for a teammate, <code>#</code> for an issue and
-              {` `}<code>:</code> for an emoji — are the same on the phone as
-              on the desktop. On the phone, <strong>Stop</strong> sits in a
-              session&apos;s top bar, and its <strong>…</strong> menu holds{` `}
-              <strong>Usage</strong> (how much
-              of the agent&apos;s limits this session and this week have spent).
-              The phone&apos;s work screen is one screen with four faces,{` `}
-              <strong>Issue</strong>, <strong>Session</strong>,{` `}
-              <strong>Changes</strong> and <strong>Results</strong>, swapped
-              held as screen state under one bottom bar. The bar is three
-              slots: a context slot on the left (the usage ring on Session, the
-              file list on Changes), a capsule in the middle (the composer on
-              Session, <strong>Merge PR</strong> on Changes) and the face
-              switcher circle on the right. So an open PR the session opened, on
-              an issue or from an action or chat, merges from the{` `}
-              <strong>Changes</strong> face, with{` `}
-              <strong>Fix conflicts</strong> taking the capsule if the merge
-              hits conflicts. <strong>Results</strong> appears once the session
-              has published screenshots.
+              You can also start one from here: the composer&apos;s issue
+              and prompt chips, its <strong>+</strong> menu, its device and
+              agent pickers, and the session composer — <code>/</code> for
+              the prompts and commands, <code>@</code> for a teammate,{` `}
+              <code>#</code> for an issue and <code>:</code> for an emoji —
+              are the same on the phone as on the desktop. On the phone,{` `}
+              <strong>Stop</strong> sits in a session&apos;s top bar, and the
+              context ring beside the composer opens{` `}
+              <strong>Usage</strong> (how much of the agent&apos;s limits this
+              session and this week have spent). A thread is one screen
+              paged by its strip: the <strong>Conversation</strong>, each
+              linked issue, each session&apos;s work, and the{` `}
+              <strong>Guide</strong>, swiped or tapped, with the composer
+              floating over whichever page is up. The Guide carries the{` `}
+              <strong>Merge</strong> capsule while the pull request is open
+              (<strong>Merge stack</strong> for a stacked one), so a PR the
+              thread opened merges from the phone too.
             </p>
             <p>
-              The full flow (starting sessions, plan mode, batches, review) is
-              in <a href="/docs/coding/">Coding agents</a>.
+              The full flow (starting sessions, plan mode, several issues at
+              once, review) is in <a href="/docs/coding/">Coding agents</a>.
             </p>
           </DocsSection>
         </DocsLayout>
