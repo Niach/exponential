@@ -3,12 +3,12 @@ import Foundation
 /// N-12: THE Dock ×4 (`packages/domain-contract/fixtures/dock.json`, TS
 /// reference `src/dock.ts`): the floating band over the transcript's bottom
 /// edge holding the DockCards (a waiting plan or question, THE Queue, the
-/// queued messages, a status banner) above THE composer, which never leaves.
+/// queued messages, the suggested tasks, a status banner) above THE composer, which never leaves.
 /// Several cards pile like the toasts (`Stack.layout` with `Dock.stack`); a
 /// tap opens a card's bottom sheet. `DockTests` replays every fixture case.
 public enum Dock {
     public enum Kind: String, Equatable, Sendable {
-        case plan, question, tasks, queued, banner
+        case plan, question, tasks, queued, suggestions, banner
     }
 
     public enum Tint: String, Equatable, Sendable {
@@ -59,6 +59,11 @@ public enum Dock {
         case tasks(QueueSummary?)
         /// The queued messages' texts, oldest first.
         case queued([String])
+        /// EXP-1323's suggested-tasks row while any item is open
+        /// (`suggestionSources`): `label` = the header's count, `caption` =
+        /// its started part, `title` = the first open item's, `open` = how
+        /// many are still open.
+        case suggestions(id: String, label: String, caption: String?, title: String, open: Int)
         /// A status strip: `action` = its one button word, else nil.
         case banner(id: String, icon: String, label: String, text: String, tone: Tint, action: String?)
     }
@@ -132,6 +137,7 @@ public enum Dock {
         public static let queued = "ui-queued"
         public static let open = "ui-chevron-right"
         public static let close = "ui-close"
+        public static let suggestions = "ui-checklist"
     }
 
     public enum TestIds {
@@ -149,8 +155,8 @@ public enum Dock {
     /// The sheet: at most this fraction of the viewport; top corner radius.
     public static let sheetMaxHeightFraction: Double = 0.85
     public static let sheetRadius: Double = 24
-    /// `order`: queued, tasks, banners, then the asks.
-    public static let order: [String] = ["queued", "tasks", "banner", "ask"]
+    /// `order`: queued, tasks, suggestions, banners, then the asks.
+    public static let order: [String] = ["queued", "tasks", "suggestions", "banner", "ask"]
 
     // MARK: - Model
 
@@ -162,12 +168,13 @@ public enum Dock {
         switch kind {
         case .queued: order.firstIndex(of: "queued") ?? 0
         case .tasks: order.firstIndex(of: "tasks") ?? 1
-        case .banner: order.firstIndex(of: "banner") ?? 2
-        case .plan, .question: order.firstIndex(of: "ask") ?? 3
+        case .suggestions: order.firstIndex(of: "suggestions") ?? 2
+        case .banner: order.firstIndex(of: "banner") ?? 3
+        case .plan, .question: order.firstIndex(of: "ask") ?? 4
         }
     }
 
-    /// The cards, in the Dock's order (queued, tasks, banners, then the asks
+    /// The cards, in the Dock's order (queued, tasks, suggestions, banners, then the asks
     /// oldest first, ties by id). An empty queue or no queued message draws
     /// nothing.
     public static func rows(_ sources: [Source]) -> [Row] {
@@ -187,6 +194,11 @@ public enum Dock {
                     id: "tasks", kind: .tasks, tint: .muted, icon: Icons.tasks, label: queue.todoTitle,
                     caption: queue.completedTitle, meta: first.description, title: first.label,
                     expandable: true, action: nil
+                ), 0))
+            case let .suggestions(id, label, caption, title, _):
+                rows.append((Row(
+                    id: id, kind: .suggestions, tint: .muted, icon: Icons.suggestions, label: label,
+                    caption: caption, meta: nil, title: title, expandable: true, action: nil
                 ), 0))
             case let .banner(id, icon, label, text, tone, action):
                 rows.append((Row(
@@ -241,6 +253,49 @@ public enum Dock {
             return row.id
         }
         return nil
+    }
+
+    /// One suggested-tasks row as `suggestionSources` reads it: its id, the
+    /// header, the items' states and titles.
+    public struct SuggestionInput: Equatable, Sendable {
+        public let id: String
+        public let header: String
+        public let items: [(state: String, title: String)]
+
+        public init(id: String, header: String, items: [(state: String, title: String)]) {
+            self.id = id
+            self.header = header
+            self.items = items
+        }
+
+        public static func == (a: Self, b: Self) -> Bool {
+            a.id == b.id && a.header == b.header
+                && a.items.map(\.state) == b.items.map(\.state) && a.items.map(\.title) == b.items.map(\.title)
+        }
+    }
+
+    /// EXP-1323's suggested-tasks rows with any OPEN item, as Dock sources:
+    /// the header splits at ` · ` into the label (the count) and the started
+    /// caption; the title is the first open item's. A row with no open item
+    /// is none of the Dock's (it stays in the Conversation).
+    public static func suggestionSources(_ rows: [SuggestionInput]) -> [Source] {
+        rows.compactMap { row in
+            let open = row.items.filter { $0.state == SuggestionRow.State.open.rawValue }
+            guard let first = open.first else { return nil }
+            let parts = row.header.components(separatedBy: " · ")
+            return .suggestions(
+                id: row.id, label: parts[0], caption: parts.count > 1 ? parts[1] : nil,
+                title: first.title, open: open.count
+            )
+        }
+    }
+
+    /// The Conversation's suggested-tasks rows as Dock sources.
+    public static func suggestionSources(_ rows: [ThreadRow]) -> [Source] {
+        suggestionSources(rows.compactMap { row in
+            guard case let .suggestions(id, _, header, _, items) = row else { return nil }
+            return SuggestionInput(id: id, header: header, items: items.map { ($0.state.rawValue, $0.title) })
+        })
     }
 
     /// The pile's geometry (oldest first), bottom-anchored.

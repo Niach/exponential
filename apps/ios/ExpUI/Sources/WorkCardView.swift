@@ -69,7 +69,7 @@ public struct WorkCardView<Footer: View>: View {
         }
         .font(.caption)
         .foregroundStyle(.white)
-        .background(GlassTokens.fillRow)
+        .background(GlassTokens.opaqueCardFill)
         .clipShape(RoundedRectangle(cornerRadius: GlassTokens.groupRadius))
         .overlay(
             RoundedRectangle(cornerRadius: GlassTokens.groupRadius)
@@ -413,7 +413,7 @@ public struct SessionCardView: View {
         }
         .font(.caption)
         .foregroundStyle(.white)
-        .background(bare ? Color.clear : GlassTokens.fillRow)
+        .background(bare ? Color.clear : GlassTokens.opaqueCardFill)
         .clipShape(RoundedRectangle(cornerRadius: bare ? 0 : GlassTokens.groupRadius))
         .overlay(
             RoundedRectangle(cornerRadius: GlassTokens.groupRadius)

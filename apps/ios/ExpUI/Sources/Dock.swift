@@ -4,7 +4,7 @@ import SwiftUI
 // N-12: THE Dock ×iOS (fixtures/dock.json ×4: web `@exp/ui` dock.tsx, desktop
 // `dock.rs`, Android `Dock.kt`): the floating band over the transcript's
 // bottom edge: the DockCards (a waiting plan or question, THE Queue, the
-// queued messages, a status banner) piled like the toasts (`Dock.layout`,
+// queued messages, the suggested tasks, a status banner) piled like the toasts (`Dock.layout`,
 // anchored at the bottom: the front card last, the older ones peeking out
 // above it, `visible` at most; a tap fans them `gap` apart, the next tap on a
 // card opens it), then THE composer, which never leaves. An opened card is
@@ -43,6 +43,7 @@ public enum DockMetrics {
         case Dock.Icons.question: AppIcons.uiHelp
         case Dock.Icons.tasks: AppIcons.traceTodo
         case Dock.Icons.queued: AppIcons.uiQueued
+        case Dock.Icons.suggestions: AppIcons.uiChecklist
         case "ui-usage": AppIcons.uiUsage
         case "coding-compact": AppIcons.codingCompact
         case "ui-device-offline": AppIcons.uiDeviceOffline
@@ -262,7 +263,8 @@ public struct DockCard: View {
         }
         .opacity(hidden ? 0 : 1)
         .padding(DockMetrics.cardPadding)
-        .glassCard(isOpaque: true)
+        // ONE gray ×4: THE card fill under the card hairline.
+        .glassCard()
         .contentShape(Rectangle())
 
         Group {
@@ -334,7 +336,10 @@ public struct DockSheetChrome<Body: View, Footer: View>: View {
                     .accessibilityElement(children: .contain)
                     .accessibilityIdentifier(Dock.TestIds.sheetFooter)
             },
-            actionDivider: true
+            actionDivider: true,
+            // ONE gray ×4: the sheet wears the card's fill, not the phone
+            // sheet's darker ground.
+            background: GlassTokens.opaqueCardFill
         )
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(Dock.TestIds.sheet)
@@ -444,7 +449,7 @@ public struct DockSheetSpecimenFrame<Body: View, Footer: View>: View {
             }
         }
         .frame(height: height)
-        .background(GlassSheetTokens.background)
+        .background(GlassTokens.opaqueCardFill)
         .clipShape(UnevenRoundedRectangle(
             topLeadingRadius: CGFloat(Dock.sheetRadius), topTrailingRadius: CGFloat(Dock.sheetRadius)
         ))
