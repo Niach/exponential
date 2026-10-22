@@ -2908,9 +2908,9 @@ impl DaemonHost {
                     // session — a foreground `code` — or the wake was refused
                     // for these messages) backs off too, or every settle
                     // would replan the same Resume at once.
-                    coding::pickup::PickupAction::Resume { session, message } => woke(
-                        coding::pickup::resume_session(session, std::slice::from_ref(message), &deps),
-                    ),
+                    coding::pickup::PickupAction::Resume { session, messages } => {
+                        woke(coding::pickup::resume_session(session, messages, &deps))
+                    }
                     coding::pickup::PickupAction::Deliver { session_id, messages } => {
                         woke(coding::pickup::deliver_messages(session_id, messages, &deps))
                     }

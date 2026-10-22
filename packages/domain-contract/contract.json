@@ -239,7 +239,7 @@
     "values": ["queued", "running", "idle", "ended"]
   },
   "codingSessionBlocked": {
-    "$comment": "NEW-1: rate_limit = the usage wall (device-written); device_offline, unclaimed, stuck = the server watchdog (sessionWatchdog).",
+    "$comment": "NEW-1: rate_limit = the usage wall (device-written; FEED-129: the server watchdog clears one whose resetsAt passed); device_offline, unclaimed, stuck = the server watchdog (sessionWatchdog).",
     "kinds": ["rate_limit", "device_offline", "unclaimed", "stuck"],
     "windows": ["session", "weekly", "model"]
   },
@@ -260,7 +260,7 @@
     "treeMaxSessions": 10
   },
   "sessionWatchdog": {
-    "$comment": "NEW-1: the server watchdog (every minute). A queued session nobody claimed for unclaimedMinutes = blocked:unclaimed + Needs you; a live session with pending input older than nudgeMinutes = the device is nudged again; a busy session with no device report for stuckMinutes = blocked:stuck; a host device silent past device.onlineWindowSeconds = its live sessions idle + blocked:device_offline until its next heartbeat.",
+    "$comment": "NEW-1: the server watchdog (every minute). A queued session nobody claimed for unclaimedMinutes = blocked:unclaimed + Needs you; a live session with pending input older than nudgeMinutes = the device is nudged again; a busy session with no device report for stuckMinutes = blocked:stuck; a host device silent past device.onlineWindowSeconds = its live sessions idle + blocked:device_offline until its next heartbeat; a rate_limit wall whose resetsAt passed = cleared (FEED-129).",
     "unclaimedMinutes": 5,
     "nudgeMinutes": 2,
     "stuckMinutes": 30

@@ -13,7 +13,7 @@ use api::token_store::{SecretKind, TokenStore};
 use api::trpc::TrpcClient;
 use api::StaticToken;
 
-use crate::git_worktree::{GitError, TokenUrl};
+use crate::git_worktree::{GitError, Parked, TokenUrl};
 use crate::launcher::{CodingDeps, WorktreeProvider};
 use crate::settings::Settings;
 
@@ -130,6 +130,7 @@ impl WorktreeProvider for FakeWorktrees {
         branch: &str,
         _url: &TokenUrl,
         expires_at: Option<&str>,
+        _parked: Parked,
     ) -> Result<PathBuf, GitError> {
         self.seen.lock().unwrap().push((
             full_name.to_string(),
