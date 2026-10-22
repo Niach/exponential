@@ -1,5 +1,8 @@
 package com.exponential.app.ui.session
 
+import com.exponential.app.domain.TaskQueue
+import androidx.compose.runtime.Stable
+import androidx.compose.foundation.shape.CircleShape
 import com.exponential.app.data.api.AnswerInput
 import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.domain.EmptyStateCopy
@@ -329,6 +332,12 @@ import com.exponential.app.ui.components.GlassTextField
 import com.exponential.app.ui.components.PendingAttachmentStrip
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.domain.AskDock as AskDockModel
+import com.exponential.app.domain.Dock
+import com.exponential.app.ui.components.DockAutoOpen
+import com.exponential.app.ui.components.DockCards
+import com.exponential.app.ui.components.DockSheetBody
+import com.exponential.app.ui.components.DockSheetScope
+import com.exponential.app.ui.thread.PlanAskCard
 import com.exponential.app.ui.emoji.rememberEmojiData
 import com.exponential.app.ui.emoji.rememberEmojiPrefs
 import com.exponential.app.ui.issue.NeedsInputAmber
@@ -883,9 +892,9 @@ private fun RunFaceContent(
             question.wireId, question.askId, listOf(key), listOf(label), text,
         )
     }
-    // THE ask dock (ask-dock.json): the card waiting on this viewer leaves
-    // the transcript and takes the composer's slot (the session view feeds
-    // the dock its ONE answerable card, so it is always `single`).
+    // N-12: THE Dock (dock.json): the card waiting on this viewer leaves the
+    // transcript and floats as a DockCard over the composer; a tap opens its
+    // sheet. The relay's own card is the front-most source.
     val dockable = phase == AgentPhase.Live && !sessionEnded
     val toolAsks by viewModel.toolAsks.collectAsStateWithLifecycle()
     val dockActive = remember(feed) { activeQuestionIds(feed) }
@@ -901,69 +910,75 @@ private fun RunFaceContent(
         onAnswer = onAnswer,
         onPlanFollowUp = onPlanFollowUp,
     )
-    val dock: (@Composable () -> Unit)? = dockedRow?.let { row ->
-        {
-            val pending = AskDockModel.Pending(
-                id = row.id.toString(),
-                kind = if ((row as? AgentFeedRow.Single)?.item.let { it as? AgentFeedItem.Question }?.planMode == true) {
-                    AskDockModel.Kind.Plan
+    val relaySource: Dock.Source.Ask? = dockedRow?.let { row ->
+        val item = when (row) {
+            is AgentFeedRow.QuestionStepper -> row.steps.firstOrNull { it.id in dockActive } ?: row.steps.firstOrNull()
+            is AgentFeedRow.Single -> row.item as? AgentFeedItem.Question
+            else -> null
+        } ?: return@let null
+        val key = if (row is AgentFeedRow.QuestionStepper) row.askId else row.id.toString()
+        Dock.Source.Ask(
+            id = "relay:$key",
+            kind = if (item.planMode) AskDockModel.Kind.Plan else AskDockModel.Kind.Question,
+            text = item.text,
+            sessionName = null,
+            questions = 0,
+            createdAt = Long.MAX_VALUE,
+        )
+    }
+    // EXP-1280: a card a TOOL posted (plan_propose / sessions_ask) has no
+    // relay ask: THE rich card answers it through `sessions.answer`.
+    val toolPending = if (sessionEnded) emptyList() else AskDockModel.threadPendingAsks(toolAsks) { null }
+    val toolById = remember(toolAsks) { toolAsks.associateBy { it.id } }
+    val askSources: List<Dock.Source> = listOfNotNull(relaySource) + toolPending.map { ask ->
+        Dock.Source.Ask(ask.id, ask.kind, ask.text, null, ask.questions ?: 0, ask.createdAt)
+    }
+    val dock: @Composable (SessionDock) -> Unit = { sessionDock ->
+        SessionDockCards(
+            sessionDock = sessionDock,
+            asks = askSources,
+            askSheet = { row, scope, _ ->
+                val relay = dockedRow
+                if (relaySource != null && row.id == relaySource.id && relay != null) {
+                    DockSheetBody {
+                        CompositionLocalProvider(LocalAskCardPlain provides true) { AnswerCardRow(relay, dockCards) }
+                    }
                 } else {
-                    AskDockModel.Kind.Question
-                },
-                text = "",
-                sessionName = null,
-                createdAt = 0L,
-            )
-            AskDock(
-                view = AskDockModel.askDock(listOf(pending), null),
-                onFocus = {},
-                onBack = {},
-            ) { AnswerCardRow(row, dockCards) }
-        }
-    } ?: toolAsks.takeIf { it.isNotEmpty() && !sessionEnded }?.let { asks ->
-        // EXP-1280: a card a TOOL posted (plan_propose / sessions_ask) has no
-        // relay ask: THE rich card answers it through `sessions.answer`.
-        {
-            var focusedAsk by remember { mutableStateOf<String?>(null) }
-            val byId = remember(asks) { asks.associateBy { it.id } }
-            AskDock(
-                view = AskDockModel.askDock(AskDockModel.threadPendingAsks(asks) { null }, focusedAsk),
-                onFocus = { focusedAsk = it },
-                onBack = { focusedAsk = null },
-            ) { id ->
-                byId[id]?.let { row ->
-                    com.exponential.app.ui.thread.ThreadAskCard(
-                        row = row,
-                        onAnswer = { messageId, a, settled ->
-                            viewModel.answerCard(
-                                AnswerInput(
-                                    messageId = messageId,
-                                    answer = a.answer,
-                                    answers = a.answers?.let(AnswerInput::questionAnswers),
-                                    surfaceData = a.surfaceData,
-                                ),
-                                "question",
-                                settled,
-                            )
-                        },
-                        onDecidePlan = { messageId, d, settled ->
-                            viewModel.answerCard(
-                                AnswerInput(
-                                    messageId = messageId,
-                                    decision = if (d.approved) "approved" else "rejected",
-                                    fresh = if (d.approved && d.fresh) true else null,
-                                    feedback = d.feedback,
-                                    answers = d.answers?.let(AnswerInput::planAnswers),
-                                    surfaceData = d.surfaceData,
-                                ),
-                                "plan",
-                                settled,
-                            )
-                        },
-                    )
+                    toolById[row.id]?.let { threadRow ->
+                        PlanAskCard(
+                            row = threadRow,
+                            onAnswer = { messageId, a, settled ->
+                                viewModel.answerCard(
+                                    AnswerInput(
+                                        messageId = messageId,
+                                        answer = a.answer,
+                                        answers = a.answers?.let(AnswerInput::questionAnswers),
+                                        surfaceData = a.surfaceData,
+                                    ),
+                                    "question",
+                                    settled,
+                                )
+                            },
+                            onDecidePlan = { messageId, d, settled ->
+                                viewModel.answerCard(
+                                    AnswerInput(
+                                        messageId = messageId,
+                                        decision = if (d.approved) "approved" else "rejected",
+                                        fresh = if (d.approved && d.fresh) true else null,
+                                        feedback = d.feedback,
+                                        answers = d.answers?.let(AnswerInput::planAnswers),
+                                        surfaceData = d.surfaceData,
+                                    ),
+                                    "plan",
+                                    settled,
+                                )
+                            },
+                            sheet = scope,
+                        )
+                    }
                 }
-            }
-        }
+            },
+        )
     }
     // The placeholder states (no feed yet): connecting, a paused host, an
     // ended run's history fetch, an old desktop.
@@ -1184,248 +1199,6 @@ private fun RunFaceContent(
             merge = mergeBarSlot,
             dock = dock,
             modifier = Modifier.onSizeChanged { if (it.height != bandHeightPx) bandHeightPx = it.height },
-            banners = {
-                // ── Status banners (feed retained above) ─────────────────────────
-                val pausedBanner = hostOffline && phase.isWaitingForStream
-                // EXP-550: an offline host outranks the "reconnecting" /
-                // "starting" captions — the reason the stream is quiet is the
-                // machine, not the connection, and the run resumes when it is
-                // back. Only shown with a feed above it; an empty feed already
-                // renders the centered offline state.
-                if (pausedBanner) {
-                    if (feed.isNotEmpty()) {
-                        BannerRow {
-                            Icon(
-                                ExpIcons.uiDeviceOffline,
-                                contentDescription = null,
-                                tint = LostGray,
-                                modifier = Modifier.size(13.dp),
-                            )
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    "${hostDevice.displayLabel} is offline",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                )
-                                Text(
-                                    DEVICE_OFFLINE_DETAIL,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                                )
-                            }
-                        }
-                    }
-                } else {
-                    when (val p = phase) {
-                        is AgentPhase.Ended -> BannerRow {
-                            Text(
-                                p.detail ?: "Session ended",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                            )
-                        }
-                        is AgentPhase.Closed -> BannerRow {
-                            if (p.reconnecting) {
-                                // EXP-1259 D8.1: the band's inline spinner.
-                                InlineSpinner()
-                            }
-                            Text(
-                                p.detail
-                                    ?: if (p.reconnecting) "Connection lost. Reconnecting…" else "Disconnected",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                                modifier = Modifier.weight(1f),
-                            )
-                        }
-                        AgentPhase.Starting -> if (feed.isNotEmpty()) {
-                            BannerRow {
-                                // EXP-1259 D8.1: the band's inline spinner.
-                                InlineSpinner()
-                                Text(
-                                    "The agent is starting. Waiting for the live stream…",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                                )
-                            }
-                        }
-                        else -> Unit
-                    }
-                }
-
-
-                // EXP-804 / NEW-1: the PERSISTED block off the session row
-                // (web `session-blocked-strip`): a usage wall reads `Rate
-                // limited · resets in …` with Switch account; a watchdog flag
-                // (device offline, not picked up, stuck) its card word, no
-                // countdown and no switch.
-                val persistedBlock = AgentUsagePresentation.parseBlocked(session?.blocked)
-                val blockedLabel = AgentUsagePresentation.blockedBadgeLabel(persistedBlock, nowMs)
-                if (blockedLabel != null) {
-                    ReadingColumn {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 6.dp)
-                                .testTag("session-blocked-strip"),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            Text(
-                                blockedLabel,
-                                style = MaterialTheme.typography.labelMedium,
-                                color = DesignTokens.Semantic.Yellow,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f),
-                            )
-                            if (session?.isEnded != true &&
-                                AgentUsagePresentation.isUsageWall(persistedBlock) &&
-                                accountSwitch.canSwitchAny(activity.turnState)
-                            ) {
-                                GlassPill(
-                                    SessionAccountSwitch.WALL_SWITCH_LABEL,
-                                    onClick = { usageSheetOpen = true },
-                                    size = PillSize.Sm,
-                                    mode = PillMode.Action,
-                                    icon = ExpIcons.uiSwap,
-                                    modifier = Modifier.testTag("blocked-switch-account"),
-                                )
-                            }
-                        }
-                    }
-                }
-
-                // EXP-784: the agent's rate-limit window — ONE banner from the
-                // latest-wins slot (never a run of identical feed rows), with how
-                // long until the reset when the agent named one. Gone the
-                // moment an empty/`ok` status clears the slot; never up for a
-                // bare warning (EXP-818) and, on the 30s clock, dropped a minute
-                // past the reset it named (EXP-831).
-                val rateLimit = activity.rateLimit
-                if (rateLimit != null && phase !is AgentPhase.Ended &&
-                    rateLimitBannerShows(rateLimit, nowMs)
-                ) {
-                    val caption = rateLimitCaption(rateLimit.message, rateLimit.resetsAt, nowMs)
-                    // Web `RateLimitBanner` is the reference: ONE row, 6dp gaps,
-                    // centered — the usage glyph + the message in the semantic
-                    // yellow (one truncating line), the relative countdown as a
-                    // separate muted caption, then the Switch account pill.
-                    ReadingColumn {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .glassRow()
-                                .padding(horizontal = 12.dp, vertical = 10.dp)
-                                .testTag("agent-rate-limit")
-                                .semantics(mergeDescendants = true) {
-                                    contentDescription = caption.accessibilityLabel
-                                },
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        ) {
-                            Icon(
-                                ExpIcons.uiUsage,
-                                contentDescription = null,
-                                modifier = Modifier.size(12.dp),
-                                tint = DesignTokens.Semantic.Yellow,
-                            )
-                            Text(
-                                caption.message,
-                                style = MaterialTheme.typography.labelMedium,
-                                color = DesignTokens.Semantic.Yellow,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f, fill = false),
-                            )
-                            Text(
-                                caption.detail,
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
-                                softWrap = false,
-                            )
-                            Spacer(Modifier.weight(1f))
-                            // EXP-849: the PRIMARY move on a usage wall is another
-                            // account, not waiting for the reset — the button opens the
-                            // account rows (with their own numbers) and the switch
-                            // clears this notice by continuing the run over there.
-                            // Absent unless a switch is actually possible, so the wall
-                            // never offers a dead end.
-                            if (accountSwitch.canSwitchAny(activity.turnState)) {
-                                GlassPill(
-                                    SessionAccountSwitch.WALL_SWITCH_LABEL,
-                                    onClick = { usageSheetOpen = true },
-                                    size = PillSize.Sm,
-                                    mode = PillMode.Action,
-                                    icon = ExpIcons.uiSwap,
-                                    primary = true,
-                                    modifier = Modifier.testTag("rate-limit-switch-account"),
-                                )
-                            }
-                        }
-                    }
-                    Spacer(Modifier.height(8.dp))
-                }
-
-                // EXP-724: the agent is compacting its context — an indeterminate
-                // strip, never a feed row, so the 10-170s of silence has a visible
-                // reason. It closes on `compaction ended` (which leaves the quiet
-                // marker in the feed), on the connection's 180s backstop, and with
-                // the session itself.
-                if (activity.compacting != null && phase !is AgentPhase.Ended) {
-                    ReadingColumn {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .glassRow()
-                                .padding(horizontal = 12.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        ) {
-                            Icon(
-                                ExpIcons.codingCompact,
-                                contentDescription = null,
-                                modifier = Modifier.size(14.dp),
-                                tint = MaterialTheme.colorScheme.onSurface.copy(
-                                    alpha = TextEmphasis.Secondary,
-                                ),
-                            )
-                            Column(
-                                modifier = Modifier.weight(1f),
-                                verticalArrangement = Arrangement.spacedBy(6.dp),
-                            ) {
-                                Text(
-                                    COMPACTING_LABEL,
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                )
-                                LinearProgressIndicator(
-                                    modifier = Modifier.fillMaxWidth().height(3.dp),
-                                    color = Color.White,
-                                    trackColor = Color.White.copy(alpha = 0.12f),
-                                )
-                            }
-                        }
-                    }
-                    Spacer(Modifier.height(8.dp))
-                }
-
-                // EXP-1321/1324: THE Queue — the agent's tasks, its background
-                // work and its open waits as two Trace folds, the last block
-                // before the queued messages. Same live gate the strips had: a
-                // finished run has nothing left to do.
-                if (phase == AgentPhase.Live && !sessionEnded) {
-                    SessionTaskQueue(
-                        feed = feed,
-                        taskList = activity.taskList,
-                        backgroundTasks = activity.backgroundTasks,
-                        todoOpen = queueTodoOpen,
-                        onTodoOpenChange = { queueTodoOpen = it },
-                        completedOpen = queueCompletedOpen,
-                        onCompletedOpenChange = { queueCompletedOpen = it },
-                    )
-                }
-            },
         )
         }
     }
@@ -2561,22 +2334,18 @@ private const val WORKING_CLOCK_TICK_MS = 1_000L
 private const val WORKING_PULSE_MS = 1_400
 
 /**
- * EXP-1321/1324: THE Queue at the bottom of the transcript — the agent's own
+ * EXP-1321/1324: THE Queue's model (N-12: a DockCard, its sheet the Trace) — the agent's own
  * task list, the machine's background tasks (their elapsed time ticking each
  * second; the wire's `startedAt`, else the first time this client saw the
  * id) and the open `wait` calls, as ONE [TaskQueueView]. Absent when nothing
  * is left to do.
  */
 @Composable
-private fun SessionTaskQueue(
+internal fun rememberSessionTaskQueue(
     feed: List<AgentFeedItem>,
     taskList: List<TaskListEntry>,
     backgroundTasks: List<BackgroundTask>,
-    todoOpen: Boolean,
-    onTodoOpenChange: (Boolean) -> Unit,
-    completedOpen: Boolean,
-    onCompletedOpenChange: (Boolean) -> Unit,
-) {
+): TaskQueue? {
     // First sight per background id, for a publisher that sends no start:
     // stamped off the wall clock as the list arrives (the ticking `now` may
     // stand still between ticks), and never inside a remember calculation.
@@ -2587,7 +2356,7 @@ private fun SessionTaskQueue(
     val ticking = backgroundTasks.any { it.kind != BACKGROUND_TASK_KIND_AGENT }
     val now = rememberTickingNow(ticking)
     val waits = remember(feed) { openWaits(feed) }
-    val queue = remember(taskList, backgroundTasks, waits, now) {
+    return remember(taskList, backgroundTasks, waits, now) {
         TaskQueues.of(
             TaskQueueInput(
                 tasks = taskList.map { TaskQueueTaskInput(it.content, it.status) },
@@ -2603,18 +2372,172 @@ private fun SessionTaskQueue(
                 now = now,
             ),
         )
-    } ?: return
-    ReadingColumn {
-        TaskQueueView(
-            queue = queue,
-            todoOpen = todoOpen,
-            onTodoOpenChange = onTodoOpenChange,
-            completedOpen = completedOpen,
-            onCompletedOpenChange = onCompletedOpenChange,
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 6.dp),
-        )
     }
-    Spacer(Modifier.height(8.dp))
+}
+
+/**
+ * N-12: THE session's own DockCards (web `useSessionDock`): THE Queue
+ * (task-queue.json, its sheet = the Trace), the queued messages (its sheet =
+ * the list with the remove glyphs) and the status banners (paused on an
+ * offline device, the lost connection, the usage wall + Switch account,
+ * compacting, the rate-limit window, starting) in the host's words. The
+ * session view and the thread (its ROOT's view model) share it.
+ */
+@Stable
+internal class SessionDock(
+    val sources: List<Dock.Source>,
+    val sheet: @Composable ColumnScope.(Dock.Row, DockSheetScope, () -> Unit) -> Unit,
+    val action: @Composable (Dock.Row) -> Unit,
+)
+
+@Composable
+internal fun rememberSessionDock(viewModel: AgentSessionViewModel, onOpenUsage: (() -> Unit)?): SessionDock {
+    val session by viewModel.session.collectAsStateWithLifecycle()
+    val phase by viewModel.phase.collectAsStateWithLifecycle()
+    val activity by viewModel.activity.collectAsStateWithLifecycle()
+    val hostDevice by viewModel.hostDevice.collectAsStateWithLifecycle()
+    val hostOffline by viewModel.hostDeviceOffline.collectAsStateWithLifecycle()
+    val accountSwitch by viewModel.accountSwitch.collectAsStateWithLifecycle()
+    val serverQueue by viewModel.queuedMessages.collectAsStateWithLifecycle()
+    val sessionEnded = session?.isEnded == true
+    val feed = activity.feed
+    val nowMs = rememberUsageClock()
+    var todoOpen by rememberSaveable { mutableStateOf(true) }
+    var completedOpen by rememberSaveable { mutableStateOf(false) }
+    // EXP-861/1291: the server's not-yet-consumed rows are the queue (X =
+    // `sessions.unqueue`); the device's own relay queue while it reports one.
+    val relayQueue = phase == AgentPhase.Live && !sessionEnded && activity.queue.isNotEmpty()
+    val queue: List<QueuedMessage> = when {
+        serverQueue.isNotEmpty() -> serverQueue
+        relayQueue -> activity.queue
+        else -> emptyList()
+    }
+    val onRemove: (String) -> Unit = if (serverQueue.isNotEmpty()) viewModel::unqueueMessage else viewModel::unqueue
+    // EXP-1321/1324: THE Queue, only while the run is live.
+    val taskQueue = rememberSessionTaskQueue(feed, activity.taskList, activity.backgroundTasks)
+        .takeIf { phase == AgentPhase.Live && !sessionEnded }
+    val paused = hostOffline && phase.isWaitingForStream
+    val persistedBlock = AgentUsagePresentation.parseBlocked(session?.blocked)
+    val blockedLabel = AgentUsagePresentation.blockedBadgeLabel(persistedBlock, nowMs)
+    val rateLimit = activity.rateLimit
+    val sources = buildList<Dock.Source> {
+        add(Dock.Source.Queued(queue.map { Dock.QueuedMessage(it.id, it.text.replace(QUEUE_LINE_WHITESPACE, " ").trim()) }))
+        add(Dock.Source.Tasks(taskQueue))
+        if (paused && feed.isNotEmpty()) {
+            add(
+                Dock.Source.Banner(
+                    "paused", "ui-device-offline", "${hostDevice.displayLabel} is offline",
+                    DEVICE_OFFLINE_DETAIL, Dock.Tint.Muted, null,
+                ),
+            )
+        }
+        val p = phase
+        if (p is AgentPhase.Closed && !paused) {
+            add(
+                Dock.Source.Banner(
+                    "closed", "ui-refresh", "Connection lost",
+                    p.detail ?: if (p.reconnecting) "Connection lost. Reconnecting…" else "Disconnected",
+                    Dock.Tint.Muted, null,
+                ),
+            )
+        }
+        if (blockedLabel != null) {
+            val canSwitch = !sessionEnded && AgentUsagePresentation.isUsageWall(persistedBlock) &&
+                accountSwitch.canSwitchAny(activity.turnState)
+            add(
+                Dock.Source.Banner(
+                    "blocked", "ui-usage", "Usage limit", blockedLabel, Dock.Tint.Warning,
+                    if (canSwitch) SessionAccountSwitch.WALL_SWITCH_LABEL else null,
+                ),
+            )
+        }
+        val compacting = activity.compacting
+        if (compacting != null && phase !is AgentPhase.Ended) {
+            add(
+                Dock.Source.Banner(
+                    "compacting", "coding-compact", "Compacting",
+                    if (compacting.trigger == "manual") "$COMPACTING_LABEL · requested" else COMPACTING_LABEL,
+                    Dock.Tint.Muted, null,
+                ),
+            )
+        }
+        if (rateLimit != null && phase !is AgentPhase.Ended && rateLimitBannerShows(rateLimit, nowMs)) {
+            val caption = rateLimitCaption(rateLimit.message, rateLimit.resetsAt, nowMs)
+            add(
+                Dock.Source.Banner(
+                    "rate-limit", "ui-usage", "Rate limit", "${caption.message} · ${caption.detail}",
+                    Dock.Tint.Warning, null,
+                ),
+            )
+        }
+        if (phase == AgentPhase.Starting && !paused && feed.isNotEmpty()) {
+            add(
+                Dock.Source.Banner(
+                    "starting", "ui-loading", "Starting", "The agent is starting. Waiting for the live stream…",
+                    Dock.Tint.Muted, null,
+                ),
+            )
+        }
+    }
+    return SessionDock(
+        sources = sources,
+        sheet = { row, _, _ ->
+            when (row.kind) {
+                Dock.Kind.Tasks -> DockSheetBody {
+                    if (taskQueue != null) {
+                        TaskQueueView(
+                            queue = taskQueue,
+                            todoOpen = todoOpen,
+                            onTodoOpenChange = { todoOpen = it },
+                            completedOpen = completedOpen,
+                            onCompletedOpenChange = { completedOpen = it },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                }
+                Dock.Kind.Queued -> DockSheetBody { QueueStrip(messages = queue, onRemove = onRemove, plain = true) }
+                else -> Unit
+            }
+        },
+        action = { row ->
+            if (row.id == "banner:blocked" && row.action != null && onOpenUsage != null) {
+                GlassPill(
+                    row.action,
+                    onClick = onOpenUsage,
+                    size = PillSize.Sm,
+                    mode = PillMode.Action,
+                    icon = ExpIcons.uiSwap,
+                    modifier = Modifier.testTag("blocked-switch-account"),
+                )
+            }
+        },
+    )
+}
+
+/**
+ * N-12: THE Dock's cards in a session view: [asks] (the relay's own card, a
+ * tool-posted plan or question; [askSheet] opens them) in front of the
+ * session's own sources; a plan or question that arrives while the view is
+ * in front opens its sheet ([DockAutoOpen]).
+ */
+@Composable
+internal fun SessionDockCards(
+    sessionDock: SessionDock,
+    asks: List<Dock.Source> = emptyList(),
+    askSheet: (@Composable ColumnScope.(Dock.Row, DockSheetScope, () -> Unit) -> Unit)? = null,
+    autoOpen: Boolean = true,
+) {
+    val rows = Dock.dockRows(asks + sessionDock.sources)
+    var openId by rememberSaveable { mutableStateOf<String?>(null) }
+    DockAutoOpen(rows, autoOpen) { openId = it }
+    DockCards(
+        rows = rows,
+        openId = openId,
+        onOpenChange = { openId = it },
+        action = sessionDock.action,
+    ) { row, scope, close ->
+        if (row.kind.isAsk && askSheet != null) askSheet(row, scope, close) else sessionDock.sheet(this, row, scope, close)
+    }
 }
 
 /**
@@ -2625,8 +2548,6 @@ private fun SessionTaskQueue(
  */
 @Composable
 internal fun SessionLiveTail(activity: ActivityFeedState, session: SessionEntity?) {
-    var todoOpen by remember { mutableStateOf(true) }
-    var completedOpen by remember { mutableStateOf(false) }
     val working = agentWorking(
         live = true,
         sessionEnded = session?.isEnded == true,
@@ -2636,20 +2557,10 @@ internal fun SessionLiveTail(activity: ActivityFeedState, session: SessionEntity
         blocked = AgentUsagePresentation.parseBlocked(session?.blocked) != null,
         compacting = activity.compacting != null,
     )
+    // N-12: THE Queue moved into THE Dock; the tail keeps the Working row.
     Column(
         modifier = Modifier.fillMaxWidth().testTag("thread-live-tail"),
     ) {
-        if (session?.isEnded != true) {
-            SessionTaskQueue(
-                feed = activity.feed,
-                taskList = activity.taskList,
-                backgroundTasks = activity.backgroundTasks,
-                todoOpen = todoOpen,
-                onTodoOpenChange = { todoOpen = it },
-                completedOpen = completedOpen,
-                onCompletedOpenChange = { completedOpen = it },
-            )
-        }
         if (working) {
             WorkingIndicatorRow(
                 startedAt = activity.turnStartedAt,
@@ -2670,12 +2581,11 @@ internal fun SessionLiveTail(activity: ActivityFeedState, session: SessionEntity
  * screen reader.
  */
 @Composable
-private fun QueueStrip(messages: List<QueuedMessage>, onRemove: (String) -> Unit) {
+private fun QueueStrip(messages: List<QueuedMessage>, onRemove: (String) -> Unit, plain: Boolean = false) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .glassRow()
-            .padding(start = 12.dp, end = 4.dp, top = 2.dp, bottom = 2.dp)
+            .then(if (plain) Modifier else Modifier.glassRow().padding(start = 12.dp, end = 4.dp, top = 2.dp, bottom = 2.dp))
             .semantics { contentDescription = QUEUE_STRIP_TITLE }
             .testTag("queue-strip"),
     ) {
@@ -3329,6 +3239,9 @@ private fun AnsweredAskCard(
     }
 }
 
+/** N-12: an AskCard drawn inside THE Dock's sheet: no glass, no header. */
+internal val LocalAskCardPlain = androidx.compose.runtime.staticCompositionLocalOf { false }
+
 /**
  * EXP-1191: the ask's chrome, web `AskCard` parity — ONE glass card (12dp
  * padding) holding ONE top-aligned row: the 14dp glyph (a question's semantic
@@ -3344,11 +3257,14 @@ internal fun AskCard(
     heading: String?,
     meta: String?,
     modifier: Modifier = Modifier,
-    /** The ask dock's focused card (ask-dock.json): the back arrow LEADS the
-     *  header row, before the kind glyph. */
-    onBack: (() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
+    // N-12: inside THE Dock's sheet the header is the sheet's own; the card
+    // draws its content alone.
+    if (LocalAskCardPlain.current) {
+        Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) { content() }
+        return
+    }
     val tint = if (plan) MaterialTheme.colorScheme.primary else DesignTokens.Semantic.Yellow
     Row(
         modifier = modifier
@@ -3358,19 +3274,6 @@ internal fun AskCard(
         verticalAlignment = Alignment.Top,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        if (onBack != null) {
-            // Web `-my-1 -ml-1`: the 24dp button is pulled 4dp up, down and
-            // left, so it never grows the header line.
-            Box(
-                Modifier.layout { measurable, constraints ->
-                    val placeable = measurable.measure(constraints)
-                    val pull = 4.dp.roundToPx()
-                    layout(placeable.width - pull, placeable.height - 2 * pull) {
-                        placeable.placeRelative(-pull, -pull)
-                    }
-                },
-            ) { AskDockBackButton(onBack) }
-        }
         Icon(
             if (plan) ExpIcons.codingPlan else ExpIcons.uiHelp,
             contentDescription = null,
@@ -3488,9 +3391,8 @@ internal fun QuestionCard(
     // and renders the retry hint below instead of the sent row.
     val locked = state.locksCard()
     val answerable = active && answerEnabled && !locked
-    // THE ask dock (ask-dock.json): a card drawn in the composer's slot caps
-    // its body and may lead with the back arrow.
-    val docked = LocalAskDockCard.current
+    // N-12: inside THE Dock's sheet the whole body shows (the sheet scrolls).
+    val docked = LocalAskCardPlain.current
     // Web `AskCard` parity (EXP-1191): ONE glass card, the glyph INSIDE it
     // beside the text, everything else — heading, body, options, status
     // lines — in the column the glyph leads, so options indent under the text.
@@ -3501,7 +3403,6 @@ internal fun QuestionCard(
         // EXP-627: the store slide's pop-out rect is measured off the
         // question card (`PopRects`), iOS parity.
         modifier = Modifier.testTag("agent-feed-question"),
-        onBack = docked?.onBack,
     ) {
         if (priorSteps.isNotEmpty()) {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -3514,17 +3415,7 @@ internal fun QuestionCard(
                 }
             }
         }
-        if (docked != null) {
-            // Docked: the body never exceeds the fixture's
-            // `bodyMaxHeightFraction` of the screen and scrolls inside; the
-            // options stay below it (no Show more).
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .heightIn(max = docked.bodyMaxHeight)
-                    .verticalScroll(rememberScrollState()),
-            ) { MarkdownView(item.text) }
-        } else if (item.planMode) {
+        if (docked || item.planMode) {
             // The plan is GFM markdown — always fully rendered, never
             // folded behind a Show more (EXP-197).
             MarkdownView(item.text)
@@ -4564,12 +4455,9 @@ internal fun SessionComposer(
     banners: @Composable ColumnScope.() -> Unit = {},
     beforeMenus: @Composable ColumnScope.() -> Unit = {},
     beforeComposer: @Composable ColumnScope.() -> Unit = {},
-    /** THE ask dock (ask-dock.json): drawn in the composer's slot while a
-     *  card waits on the viewer; null = the slot stays empty. */
-    dock: (@Composable () -> Unit)? = null,
-    /** Whether a card waits on the viewer (the thread: ANY pending card in
-     *  the tree); null = this session's own live feed decides. */
-    askPending: Boolean? = null,
+    /** N-12: THE Dock's cards above the composer, handed this session's own
+     *  sources ([SessionDock]); null = those alone ([SessionDockCards]). */
+    dock: (@Composable (SessionDock) -> Unit)? = null,
 ) {
     val session by viewModel.session.collectAsStateWithLifecycle()
     val phase by viewModel.phase.collectAsStateWithLifecycle()
@@ -4608,17 +4496,12 @@ internal fun SessionComposer(
     }
     val catalogAgent = SlashCommands.agentId(session?.cli, sessionConfig != null)
     val sessionEnded = session?.isEnded == true
-    // The session view's ONE rule ×4: a card waiting on this viewer takes the
-    // composer's place (EXP-820, `SessionTree.composerYieldsToCard`).
     val awaitingInput = phase == AgentPhase.Live &&
         remember(activity.feed) { activeQuestionIds(activity.feed) }.isNotEmpty()
-    val composerHidden = if (askPending != null) {
-        askPending
-    } else {
-        SessionTree.composerYieldsToCard(
-            live = phase == AgentPhase.Live && !sessionEnded,
-            pendingAsk = awaitingInput,
-        )
+    // N-12: the composer never yields its slot; THE Dock sits above it.
+    val composerHidden = false
+    val sessionDock = rememberSessionDock(viewModel, onOpenUsage).let { sd ->
+        if (showQueue) sd else SessionDock(sd.sources.filter { it !is Dock.Source.Queued }, sd.sheet, sd.action)
     }
     // EXP-790: mid-turn, the empty field's send glyph is a Stop.
     val agentWorking = agentWorking(
@@ -4871,26 +4754,6 @@ internal fun SessionComposer(
                 }
             }
 
-            // EXP-861: what the device holds for the agent's next turn — one
-            // line per queued message, each with the X that revokes it.
-            // Never while the run is over: an ended run delivers nothing. The
-            // composer stays live beneath it.
-            // EXP-1291: messages ride `sessions.send` now, so the server's
-            // not-yet-consumed rows are the queue (X = `sessions.unqueue`);
-            // the device's own relay queue still shows while it reports one.
-            val serverQueue by viewModel.queuedMessages.collectAsStateWithLifecycle()
-            if (showQueue && serverQueue.isNotEmpty()) {
-                ReadingColumn {
-                    QueueStrip(messages = serverQueue, onRemove = viewModel::unqueueMessage)
-                }
-                Spacer(Modifier.height(8.dp))
-            } else if (showQueue && phase == AgentPhase.Live && !sessionEnded && activity.queue.isNotEmpty()) {
-                ReadingColumn {
-                    QueueStrip(messages = activity.queue, onRemove = viewModel::unqueue)
-                }
-                Spacer(Modifier.height(8.dp))
-            }
-
             beforeMenus()
 
             // EXP-724/EXP-802: both menus are a normal child above the
@@ -4927,6 +4790,10 @@ internal fun SessionComposer(
                 ComposerMenu.None -> Unit
             }
             beforeComposer()
+            // N-12: THE Dock's cards, 6dp over the composer.
+            Box(Modifier.fillMaxWidth().padding(bottom = 6.dp).testTag(Dock.TestIds.DOCK)) {
+                if (dock != null) dock(sessionDock) else SessionDockCards(sessionDock)
+            }
             // EXP-1211: the quick replies sit directly above the card, and
             // hide whenever the composer does (the ask dock).
             val replies = composerReplies
@@ -5097,9 +4964,6 @@ internal fun SessionComposer(
                 merge = merge,
             )
         } else {
-            if (dock != null) {
-                Box(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) { dock() }
-            }
             if (trailing != null || merge != null) {
                 FloatingBottomBar(right = trailing, afterCentre = merge) {
                     Spacer(Modifier.weight(1f))
@@ -5412,7 +5276,112 @@ private fun ExpandedSteerComposer(
                 enabled = !sending,
                 modifier = Modifier.testTag(com.exponential.app.domain.ComposerMenu.PLUS_TEST_ID),
             )
-            Spacer(Modifier.weight(1f))
+            // N-12: THE composer row ×4: "+" · the Device glyph · the model ·
+            // the Plan switch … the context ring · Send ⇄ Stop, all inside
+            // the card; nothing under it.
+            Row(
+                modifier = Modifier.weight(1f).testTag("steer-options-line"),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                // EXP-1252: the Device pin BEFORE Model — the launch line's device
+                // picker, its trigger the same inline pin as Model. A disabled pin
+                // floats its reason on tap (the account rows' rule).
+                if (deviceMove.visible) {
+                    val toaster = LocalToaster.current
+                    val blocked = deviceMove.blockedReason
+                    val current = deviceMove.rows.firstOrNull { it.current }
+                    DevicePicker(
+                        devices = deviceMove.rows.map { row ->
+                            DevicePickerDevice(
+                                id = row.id,
+                                name = row.name,
+                                icon = row.icon,
+                                isServer = row.isServer,
+                                description = row.reason,
+                                disabled = row.reason != null,
+                            )
+                        },
+                        value = deviceMove.deviceId,
+                        onChange = onMoveDevice,
+                        title = SessionDeviceMove.PICKER_TITLE,
+                        onOpenChange = { open -> onMenuOpenChange(COMPOSER_MENU_DEVICE, open) },
+                        trigger = { open ->
+                            ComposerPin(
+                                // N-12: the GLYPH alone; the name lives in the picker.
+                                label = null,
+                                icon = deviceIcon(current?.icon, isServer = current?.isServer == true),
+                                enabled = blocked == null,
+                                contentDescription = "${SessionDeviceMove.PICKER_TITLE} ${deviceMove.label}",
+                                // The move's note (or the refusal) rides the pin as its
+                                // a11y hint, like the account switch: no picker footer.
+                                hint = blocked ?: SessionDeviceMove.NOTE,
+                                testTag = "steer-device",
+                                onClick = open,
+                                onDisabledClick = blocked?.let { reason -> { toaster.error(reason) } },
+                            )
+                        },
+                    )
+                }
+                if (model != null) {
+                    // EXP-1345: THE picker (a bottom sheet, the picked row's TRAILING
+                    // check). codex: the model is what it is — the same read-out,
+                    // disabled (desktop keeps the chevron, dimmed).
+                    com.exponential.app.ui.components.picker.ModelPicker(
+                        options = modelChoices.map { com.exponential.app.ui.components.picker.ModelPickerOption(it, modelLabel(it)) },
+                        value = model,
+                        onChange = { alias -> if (live && alias != model) onPickModel(alias) },
+                        enabled = modelPickable,
+                        open = modelPickable && modelMenuOpen,
+                        onOpenChange = { next ->
+                            modelMenuOpen = next
+                            // EXP-931: an open menu is not a blur.
+                            onMenuOpenChange(COMPOSER_MENU_MODEL, next)
+                        },
+                        trigger = { open ->
+                            ComposerModelPin(
+                                label = modelLabel(model),
+                                enabled = modelPickable,
+                                onClick = open,
+                            )
+                        },
+                    )
+                }
+                if (supportsPlanMode(menu.agent)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            // An ended session's switch is a read-out (web `disabled`).
+                            .clickable(enabled = !menu.readOnly, role = Role.Switch) {
+                                menu.onConfigure(AgentSessionViewModel.ConfigurePicks(planMode = !planMode))
+                            }
+                            .padding(horizontal = 4.dp, vertical = 6.dp)
+                            .testTag("steer-plan-mode"),
+                    ) {
+                        Text(
+                            PLAN_LABEL,
+                            style = MaterialTheme.typography.labelLarge,
+                            color = Color.White.copy(alpha = if (menu.readOnly) TextEmphasis.Quaternary else TextEmphasis.Secondary),
+                            maxLines = 1,
+                        )
+                        GlassSwitch(checked = planMode, onCheckedChange = null, size = GlassSwitchSize.Pill)
+                    }
+                }
+            }
+            if (hasUsage) {
+                Box(
+                    modifier = Modifier
+                        .size(32.dp)
+                        .clip(CircleShape)
+                        .clickable(role = Role.Button, onClick = onOpenUsage)
+                        .testTag("steer-context-ring"),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    ContextRing(percent = contextPercent, size = 16.dp)
+                }
+            }
             ComposerSubmitButton(
                 if (stop) ExpIcons.uiStop else ExpIcons.uiSubmit,
                 contentDescription = if (stop) "Stop" else "Send",
@@ -5442,106 +5411,6 @@ private fun ExpandedSteerComposer(
             // The composer card owns the chrome; the field is just its text.
             bordered = false,
         )
-    }
-    // The options line under the card: model ▾ · Plan switch · ring.
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(start = 16.dp, end = 16.dp, bottom = 4.dp)
-            .testTag("steer-options-line"),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        // EXP-1252: the Device pin BEFORE Model — the launch line's device
-        // picker, its trigger the same inline pin as Model. A disabled pin
-        // floats its reason on tap (the account rows' rule).
-        if (deviceMove.visible) {
-            val toaster = LocalToaster.current
-            val blocked = deviceMove.blockedReason
-            val current = deviceMove.rows.firstOrNull { it.current }
-            DevicePicker(
-                devices = deviceMove.rows.map { row ->
-                    DevicePickerDevice(
-                        id = row.id,
-                        name = row.name,
-                        icon = row.icon,
-                        isServer = row.isServer,
-                        description = row.reason,
-                        disabled = row.reason != null,
-                    )
-                },
-                value = deviceMove.deviceId,
-                onChange = onMoveDevice,
-                title = SessionDeviceMove.PICKER_TITLE,
-                onOpenChange = { open -> onMenuOpenChange(COMPOSER_MENU_DEVICE, open) },
-                trigger = { open ->
-                    ComposerPin(
-                        label = deviceMove.label,
-                        icon = deviceIcon(current?.icon, isServer = current?.isServer == true),
-                        enabled = blocked == null,
-                        contentDescription = "${SessionDeviceMove.PICKER_TITLE} ${deviceMove.label}",
-                        // The move's note (or the refusal) rides the pin as its
-                        // a11y hint, like the account switch: no picker footer.
-                        hint = blocked ?: SessionDeviceMove.NOTE,
-                        testTag = "steer-device",
-                        onClick = open,
-                        onDisabledClick = blocked?.let { reason -> { toaster.error(reason) } },
-                    )
-                },
-            )
-        }
-        if (model != null) {
-            // EXP-1345: THE picker (a bottom sheet, the picked row's TRAILING
-            // check). codex: the model is what it is — the same read-out,
-            // disabled (desktop keeps the chevron, dimmed).
-            com.exponential.app.ui.components.picker.ModelPicker(
-                options = modelChoices.map { com.exponential.app.ui.components.picker.ModelPickerOption(it, modelLabel(it)) },
-                value = model,
-                onChange = { alias -> if (live && alias != model) onPickModel(alias) },
-                enabled = modelPickable,
-                open = modelPickable && modelMenuOpen,
-                onOpenChange = { next ->
-                    modelMenuOpen = next
-                    // EXP-931: an open menu is not a blur.
-                    onMenuOpenChange(COMPOSER_MENU_MODEL, next)
-                },
-                trigger = { open ->
-                    ComposerModelPin(
-                        label = modelLabel(model),
-                        enabled = modelPickable,
-                        onClick = open,
-                    )
-                },
-            )
-        }
-        if (supportsPlanMode(menu.agent)) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                modifier = Modifier
-                    .clip(RoundedCornerShape(6.dp))
-                    // An ended session's switch is a read-out (web `disabled`).
-                    .clickable(enabled = !menu.readOnly, role = Role.Switch) {
-                        menu.onConfigure(AgentSessionViewModel.ConfigurePicks(planMode = !planMode))
-                    }
-                    .padding(horizontal = 4.dp, vertical = 6.dp)
-                    .testTag("steer-plan-mode"),
-            ) {
-                Text(
-                    PLAN_LABEL,
-                    style = MaterialTheme.typography.labelLarge,
-                    color = Color.White.copy(alpha = if (menu.readOnly) TextEmphasis.Quaternary else TextEmphasis.Secondary),
-                    maxLines = 1,
-                )
-                GlassSwitch(checked = planMode, onCheckedChange = null, size = GlassSwitchSize.Pill)
-            }
-        }
-        Spacer(Modifier.weight(1f))
-        if (hasUsage) {
-            IconButton(onClick = onOpenUsage) {
-                ContextRing(percent = contextPercent, size = 20.dp)
-            }
-        }
     }
     }
 
@@ -5671,7 +5540,7 @@ private fun ComposerModelPin(label: String, enabled: Boolean, onClick: () -> Uni
  */
 @Composable
 private fun ComposerPin(
-    label: String,
+    label: String?,
     enabled: Boolean,
     contentDescription: String,
     testTag: String,
@@ -5706,12 +5575,14 @@ private fun ComposerPin(
                 tint = Color.White.copy(alpha = textAlpha),
             )
         }
-        Text(
-            label,
-            style = MaterialTheme.typography.labelLarge,
-            color = Color.White.copy(alpha = textAlpha),
-            maxLines = 1,
-        )
+        if (label != null) {
+            Text(
+                label,
+                style = MaterialTheme.typography.labelLarge,
+                color = Color.White.copy(alpha = textAlpha),
+                maxLines = 1,
+            )
+        }
         Icon(
             ExpIcons.uiChevronDown,
             contentDescription = null,

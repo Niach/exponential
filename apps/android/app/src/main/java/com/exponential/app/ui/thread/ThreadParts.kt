@@ -1,5 +1,10 @@
 package com.exponential.app.ui.thread
 
+import com.exponential.app.domain.Dock
+import androidx.compose.foundation.layout.ColumnScope
+import com.exponential.app.ui.components.DockSheetScope
+import com.exponential.app.ui.components.DockAutoOpen
+import com.exponential.app.ui.components.DockCards
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.RowScope
 import com.exponential.app.ui.components.GlassPill
@@ -1274,38 +1279,59 @@ private fun UnqueueButton(onUnqueue: () -> Unit) {
  */
 @Composable
 fun ThreadAskCard(row: SessionTree.ThreadRow, onAnswer: ThreadAnswer, onDecidePlan: ThreadPlanDecision) {
-    Box(Modifier.testTag(if (row is SessionTree.ThreadRow.Plan) "thread-plan-card" else "thread-question-card")) {
+    Column(Modifier.testTag(if (row is SessionTree.ThreadRow.Plan) "thread-plan-card" else "thread-question-card")) {
         PlanAskCard(row, onAnswer, onDecidePlan)
     }
 }
 
 /**
- * THE ask dock ×thread (ask-dock.json; web `ThreadAskDock`): the tree's
+ * N-12: THE Dock in a thread (dock.json; web `ThreadDock`): the tree's
  * waiting cards ([AskDock.threadPendingAsks] over [rows], the asking
- * session's name as the caption) in the composer's slot. One = THE big card;
- * several = the stack, a tap focuses one ([initialFocusedId] seeds it, the
- * styleguide's focused specimen), the back arrow returns; a focused card that
- * got answered falls back to the stack.
+ * session's name as the caption) plus the host's other [sources] (the root's
+ * Queue, queued messages, banners) as DockCards above the composer; an ask
+ * opens as its sheet ([PlanAskCard] in sheet mode), the rest through
+ * [sessionSheet]. A plan or question that arrives while the view is in front
+ * opens itself ([autoOpen]). [initialOpenId] / [initialExpanded] seed the
+ * styleguide's states.
  */
 @Composable
-fun ThreadAskDock(
+fun ThreadDock(
     rows: List<SessionTree.ThreadRow>,
     sessionName: (sessionId: String) -> String?,
     onAnswer: ThreadAnswer,
     onDecidePlan: ThreadPlanDecision,
     modifier: Modifier = Modifier,
-    initialFocusedId: String? = null,
+    sources: List<Dock.Source> = emptyList(),
+    sessionSheet: (@Composable ColumnScope.(Dock.Row, DockSheetScope, () -> Unit) -> Unit)? = null,
+    action: (@Composable (Dock.Row) -> Unit)? = null,
+    autoOpen: Boolean = true,
+    initialOpenId: String? = null,
+    initialExpanded: Boolean = false,
 ) {
-    val pending = remember(rows, sessionName) { AskDock.threadPendingAsks(rows, sessionName) }
-    var focused by remember { mutableStateOf(initialFocusedId) }
-    LaunchedEffect(pending) { if (focused != null && pending.none { it.id == focused }) focused = null }
+    val asks = remember(rows, sessionName) {
+        AskDock.threadPendingAsks(rows, sessionName).map { ask ->
+            Dock.Source.Ask(ask.id, ask.kind, ask.text, ask.sessionName, ask.questions ?: 0, ask.createdAt)
+        }
+    }
+    val docked = Dock.dockRows(asks + sources)
+    var openId by remember { mutableStateOf(initialOpenId) }
+    DockAutoOpen(docked, autoOpen) { openId = it }
     val byId = remember(rows) { rows.associateBy { it.id } }
-    com.exponential.app.ui.session.AskDock(
-        view = AskDock.askDock(pending, focused),
-        onFocus = { focused = it },
-        onBack = { focused = null },
+    DockCards(
+        rows = docked,
+        openId = openId,
+        onOpenChange = { openId = it },
         modifier = modifier,
-    ) { id -> byId[id]?.let { row -> ThreadAskCard(row, onAnswer, onDecidePlan) } }
+        action = action,
+        initialExpanded = initialExpanded,
+    ) { row, scope, close ->
+        val threadRow = byId[row.id]
+        if (row.kind.isAsk && threadRow != null) {
+            PlanAskCard(threadRow, onAnswer, onDecidePlan, sheet = scope)
+        } else {
+            sessionSheet?.invoke(this, row, scope, close)
+        }
+    }
 }
 
 /** A `picture` card: the attachment through the markdown image path (auth,

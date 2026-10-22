@@ -215,10 +215,10 @@ fun ThreadScreen(
         IssueRefHandler(linkCandidates, searchServer = viewModel::searchIssues) { target -> openIssueHere(target.issueId) }
     }
 
-    // THE ask dock (ask-dock.json): every card waiting in the tree (any
+    // N-12: THE Dock (dock.json): every card waiting in the tree (any
     // session's plan with no decision, unanswered question) leaves the
-    // Conversation and takes the composer's slot; the asking session's name
-    // is the caption (the dispatcher's own = none).
+    // Conversation and floats as a DockCard over the composer; the asking
+    // session's name is the caption (the dispatcher's own = none).
     val sessionName: (String) -> String? = remember(view) { AskDock.threadSessionNames(view?.tabs.orEmpty()) }
     val askPending = remember(view, sessionName) {
         view?.let { v -> AskDock.threadPendingAsks(v.rows, sessionName) }.orEmpty()
@@ -272,14 +272,18 @@ fun ThreadScreen(
                         showQueue = false,
                         onOpenUsage = { usageSheetOpen = true },
                         modifier = Modifier.testTag(SessionTree.ThreadCopy.TEST_ID_COMPOSER),
-                        // The composer yields to ANY waiting card of the tree.
-                        askPending = askPending.isNotEmpty(),
-                        dock = {
-                            ThreadAskDock(
+                        // N-12: THE Dock: the tree's waiting cards, then the
+                        // root's Queue and banners (its queued rows sit in the
+                        // Conversation), over the composer that never leaves.
+                        dock = { sessionDock ->
+                            ThreadDock(
                                 rows = view?.rows.orEmpty(),
                                 sessionName = sessionName,
                                 onAnswer = onAnswer,
                                 onDecidePlan = onDecidePlan,
+                                sources = sessionDock.sources,
+                                sessionSheet = sessionDock.sheet,
+                                action = sessionDock.action,
                             )
                         },
                     )

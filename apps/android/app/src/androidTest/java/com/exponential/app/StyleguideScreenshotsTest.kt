@@ -1033,9 +1033,10 @@ class StyleguideScreenshotsTest {
         show(TraceSpecimenKind.CodeBlock.testId) { TraceSpecimenScreen(TraceSpecimenKind.CodeBlock) }
         flow.screenshot("sg_code-block")
 
-        // --- sg_ask-dock: THE ask dock (ask-dock.json) — one waiting plan,
-        // the stack of two plans + a question, one focused with the back
-        // arrow — drawn by the real ThreadAskDock on a capture-only screen.
+        // --- sg_ask-dock: THE Dock (dock.json + ask-dock.json) — one waiting
+        // plan, the pile, the pile fanned, the plan's sheet — drawn by the
+        // real DockCard / DockPile / DockSheetSpecimenFrame on a capture-only
+        // screen.
         show(AskDockSpecimenScreenTestId) { AskDockSpecimenScreen() }
         flow.screenshot("sg_ask-dock")
 

@@ -22,7 +22,7 @@ import kotlinx.serialization.json.doubleOrNull
  * byte-locked by the fixtures `SessionTreeTest` replays:
  *   fixtures/session-card.json   → [sessionCard]
  *   fixtures/session-thread.json → [buildSessionThread], [guidePullRequest],
- *                                  [composerYieldsToCard], [guideMenuEntries]
+ *                                  [guideMenuEntries]
  *   fixtures/threads-list.json   → [partitionThreads] + [listAgents] + [treeState]
  * The copy / icons / tones / testIds below are the fixtures' (the test
  * proves equality).
@@ -1335,10 +1335,6 @@ object SessionTree {
         }
         return if (items.isEmpty()) null else ComposerReplies(newest.id, items)
     }
-
-    /** EXP-820 ×4: a question or plan card waiting on the viewer takes the
-     *  session composer's place (`composerCases`). */
-    fun composerYieldsToCard(live: Boolean, pendingAsk: Boolean): Boolean = live && pendingAsk
 
     // ── EXP-1334: the thread strip never scrolls ────────────────────────────
 

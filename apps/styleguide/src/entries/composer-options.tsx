@@ -44,10 +44,10 @@ export const entry: StyleguideEntry = {
       note: `N-12: the session view already has the in-card row; the thread (ThreadScreen options line) and the device pin's name (icon-only) follow with the iOS child`,
     },
     android: {
-      state: `leftover`,
+      state: `ok`,
       symbol: `SessionComposer`,
       file: `apps/android/app/src/main/java/com/exponential/app/ui/session/AgentSessionScreen.kt`,
-      note: `N-12: the pins and the ring (20dp, should be 16) still sit on the options line; the Android child moves them into the card`,
+      note: `N-12: "+" · the Device glyph · the model · Plan … the 16dp ring · Send ⇄ Stop in the card's row (ExpandedSteerComposer); nothing under the card in a session or a thread`,
     },
   },
   island: () => (
