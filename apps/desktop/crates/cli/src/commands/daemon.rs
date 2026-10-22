@@ -2768,10 +2768,20 @@ fn action_session_id(action: &coding::pickup::PickupAction) -> &str {
 }
 
 /// Did a wake (a Resume, or a delivery that had to re-spawn) hand anything
-/// to an engine? Nothing handed = not settled: the caller backs the row off.
-fn woke(result: Result<Vec<String>, String>) -> bool {
+/// to an engine? Nothing handed = not settled: the caller backs the row off
+/// ([`PICKUP_RETRY`]) — a claim a sibling process holds included, since that
+/// process may be on its way out (a daemon being replaced) and its claim
+/// stale by the retry.
+fn woke(result: Result<Vec<String>, coding::pickup::WakeError>) -> bool {
     match result {
         Ok(handed) => !handed.is_empty(),
+        Err(coding::pickup::WakeError::Contended) => {
+            log::info!(
+                "pickup: the session is held by another process here — retrying in {}s",
+                PICKUP_RETRY.as_secs()
+            );
+            false
+        }
         Err(err) => {
             log::warn!("pickup: {err}");
             false
@@ -2985,6 +2995,12 @@ impl DaemonHost {
                 Ok(Some(_))
             ) {
                 log::info!("reclaim: session {} runs in another process here — skipped", row.id);
+                // A left-behind row a sibling still holds stays on the list
+                // within the grace: that sibling may be the process being
+                // replaced, its claim stale a few seconds later.
+                if left_behind.contains(&row.id) && Instant::now() < self.pickup.reclaim_until {
+                    lock_or_recover(&self.pickup.reclaiming).insert(row.id.clone());
+                }
                 continue;
             }
             match coding::pickup::reclaim_step(row, pending.contains(row.id.as_str())) {
