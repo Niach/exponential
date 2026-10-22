@@ -29,16 +29,16 @@ import {
   DEFAULT_THEME_ID,
 } from "@exponential-at/ui"
 import type { ModeName, ResolvedTheme, ScrollAlign, ThemeIssue, ThemeSource, UiNode, SurfaceCommand } from "@exponential-at/ui"
-import { BASE_CSS } from "./base-css"
-import { compileNodeSheet, queryToken, surfaceClass } from "./box-css"
+import { BASE_CSS } from "@exponential-at/ui/web"
+import { compileNodeSheet, queryToken, surfaceClass } from "@exponential-at/ui/web"
 import { SurfaceContext, type SurfaceContextValue } from "./context"
-import { CLIENT_FUNCTIONS, memoFormatter, setPointer, type DataModel } from "./data"
+import { CLIENT_FUNCTIONS, memoFormatter, setPointer, type DataModel } from "@exponential-at/ui/web"
 import { extensionCatalogs, extensionMacroNames, registeredExtensions, subscribeExtensions, type ReactExtension } from "./extensions"
 import type { HostPlugin } from "./host"
 import { NodeView } from "./node-view"
 import { useMediaQuery } from "./platform"
-import { openAllowed } from "./urls"
-import { compiledTheme } from "./theme-css"
+import { openAllowed } from "@exponential-at/ui/web"
+import { compiledTheme } from "@exponential-at/ui/web"
 import type { SurfaceState } from "./use-surface"
 
 export type ThemeInput = ResolvedTheme | ThemeSource | string
@@ -64,7 +64,7 @@ export interface ExponentialSurfaceProps {
    *  data template's component lives here, never in the tree. */
   templates?: Readonly<Record<string, UiNode>>
   data?: DataModel
-  /** A built-in id (`exponential` | `neutral` | `playful`), a theme file
+  /** A built-in id (`exponential` | `neutral` | `playful` | `orange`), a theme file
    *  (resolved against the built-ins) or a resolved theme. */
   theme?: ThemeInput
   /** `light | dark | system` (default `system`: the platform's preference,

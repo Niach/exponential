@@ -1,8 +1,8 @@
 import * as React from "react"
 import { Popover as PopoverPrimitive } from "radix-ui"
+import { POPOVER_CLASSES } from "@exponential-at/ui/web/primitives"
 
 import { cn } from "./cn"
-import { MENU_SURFACE_CLASS } from "./menu-surface"
 
 function Popover({
   ...props
@@ -28,14 +28,7 @@ function PopoverContent({
         data-slot="popover-content"
         align={align}
         sideOffset={sideOffset}
-        className={cn(
-          // EXP-698 menu recipe: opaque card composite, 12 radius, NO blur and
-          // NO shadow. A popover keeps its `p-4` form padding; menu-shaped
-          // hosts (Command lists) pass `p-0` as they always have.
-          MENU_SURFACE_CLASS,
-          `w-72 origin-(--radix-popover-content-transform-origin) p-4 outline-hidden`,
-          className
-        )}
+        className={cn(POPOVER_CLASSES.content, className)}
         {...props}
       />
     </PopoverPrimitive.Portal>

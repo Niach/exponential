@@ -7,6 +7,7 @@
 //            of the tarballs, `tsc --noEmit`, `vite build`, then the extension
 //            (defineExtension + its macro reduced) and the vapp (validatePackage)
 //            checked at runtime against the packed package
+//   solid    the same as react with `@exponential-at/ui-solid` (Vite + vite-plugin-solid)
 //   agent    the same tarballs, `tsc --noEmit`, then the server started and asked
 //            for a valid and an invalid surface over MCP
 //   theme    validateTheme + loadTheme over the built-ins: no issues
@@ -16,7 +17,7 @@
 //            `:app:compileDebugKotlin` (needs an Android SDK: ANDROID_HOME)
 //   gpui     `cargo check` with the path dependencies made absolute
 //
-//   bun apps/ui-site/guides/check.ts [react|agent|theme|swift|compose|gpui|all] [--keep]
+//   bun apps/ui-site/guides/check.ts [react|solid|agent|theme|swift|compose|gpui|all] [--keep]
 
 import { execFileSync, execSync, spawn } from "node:child_process"
 import { cpSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs"
@@ -26,7 +27,7 @@ import { join, resolve } from "node:path"
 const GUIDES = import.meta.dir
 const REPO = resolve(GUIDES, `..`, `..`, `..`)
 const VERSION = `0.1.0`
-const CHECKS = [`react`, `agent`, `theme`, `gpui`, `swift`, `compose`] as const
+const CHECKS = [`react`, `solid`, `agent`, `theme`, `gpui`, `swift`, `compose`] as const
 type Check = (typeof CHECKS)[number]
 
 const args = process.argv.slice(2)
@@ -74,10 +75,15 @@ async function waitFor(what: string, ready: () => boolean, busy: string): Promis
 }
 
 // ---------------------------------------------------------------------------
-// npm tarballs (shared by react + agent)
+// npm tarballs (shared by react, solid + agent)
 
-let packed: { ui: string; uiReact: string } | undefined
-async function tarballs(): Promise<{ ui: string; uiReact: string }> {
+interface Tarballs {
+  ui: string
+  uiReact: string
+  uiSolid: string
+}
+let packed: Tarballs | undefined
+async function tarballs(): Promise<Tarballs> {
   if (packed) return packed
   const { prepareNpm } = await import(`../../../packages/exponential-ui/release/prepare-npm`)
   const dir = mkdtempSync(join(tmpdir(), `xui-guide-packs-`))
@@ -86,17 +92,18 @@ async function tarballs(): Promise<{ ui: string; uiReact: string }> {
   const files = readdirSync(dir).filter((f) => f.endsWith(`.tgz`))
   const ui = files.find((f) => f === `exponential-at-ui-${VERSION}.tgz`)
   const uiReact = files.find((f) => f === `exponential-at-ui-react-${VERSION}.tgz`)
-  if (!ui || !uiReact) throw new Error(`tarballs missing in ${dir}: ${files.join(`, `)}`)
-  packed = { ui: join(dir, ui), uiReact: join(dir, uiReact) }
+  const uiSolid = files.find((f) => f === `exponential-at-ui-solid-${VERSION}.tgz`)
+  if (!ui || !uiReact || !uiSolid) throw new Error(`tarballs missing in ${dir}: ${files.join(`, `)}`)
+  packed = { ui: join(dir, ui), uiReact: join(dir, uiReact), uiSolid: join(dir, uiSolid) }
   return packed
 }
 
 /** The guide's `^0.1.0` registry deps → the local tarballs (what `npm
  *  install` would fetch once the packages are published). */
-function useTarballs(dir: string, t: { ui: string; uiReact: string }): void {
+function useTarballs(dir: string, t: Tarballs): void {
   const path = join(dir, `package.json`)
   const pkg = JSON.parse(readFileSync(path, `utf8`)) as { dependencies: Record<string, string>; overrides?: Record<string, string> }
-  for (const [name, file] of [[`@exponential-at/ui`, t.ui], [`@exponential-at/ui-react`, t.uiReact]] as const)
+  for (const [name, file] of [[`@exponential-at/ui`, t.ui], [`@exponential-at/ui-react`, t.uiReact], [`@exponential-at/ui-solid`, t.uiSolid]] as const)
     if (pkg.dependencies[name]) pkg.dependencies[name] = `file:${file}`
   pkg.overrides = { "@exponential-at/ui": `file:${t.ui}` }
   writeFileSync(path, JSON.stringify(pkg, null, 2))
@@ -106,8 +113,9 @@ const npmInstall = (dir: string) => run(`npm install --no-audit --no-fund --logl
 
 // ---------------------------------------------------------------------------
 
-async function react(): Promise<void> {
-  const dir = fresh(`react`)
+/** react + solid: the same build and the same runtime checks. */
+async function webGuide(guide: `react` | `solid`): Promise<void> {
+  const dir = fresh(guide)
   useTarballs(dir, await tarballs())
   npmInstall(dir)
   run(`npx tsc --noEmit`, dir)
@@ -141,6 +149,9 @@ console.log("extension + vapp: no issues")
   )
   run(`node runtime-check.mjs`, dir)
 }
+
+const react = () => webGuide(`react`)
+const solid = () => webGuide(`solid`)
 
 async function agent(): Promise<void> {
   const dir = fresh(`agent`)
@@ -230,7 +241,7 @@ async function gpui(): Promise<void> {
   run(`cargo check --quiet`, dir)
 }
 
-const RUNNERS: Record<Check, () => Promise<void>> = { react, agent, theme, gpui, swift, compose }
+const RUNNERS: Record<Check, () => Promise<void>> = { react, solid, agent, theme, gpui, swift, compose }
 const failed: string[] = []
 for (const name of which === `all` ? CHECKS : [which as Check]) {
   try {

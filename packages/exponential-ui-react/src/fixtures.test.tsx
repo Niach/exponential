@@ -14,7 +14,7 @@ import extensionFixture from "@exponential-at/ui/fixtures/catalog-extension.json
 import kitchenSink from "@exponential-at/ui/fixtures/kitchen-sink.json"
 import { ExponentialSurface } from "./surface"
 import { defineReactExtension } from "./extensions"
-import { compileTheme } from "./theme-css"
+import { compileTheme } from "@exponential-at/ui/web"
 import type { ExtensionComponentProps } from "./host"
 
 interface ComponentCase {
@@ -167,9 +167,9 @@ describe(`kitchen sink × built-in themes`, () => {
       })
     }
   }
-  it(`the three themes produce three different recipe sheets from one tree`, () => {
+  it(`the four themes produce four different recipe sheets from one tree`, () => {
     const sheets = BUILTIN_THEME_IDS.map((id) => compileTheme(builtinTheme(id)).css)
-    expect(new Set(sheets).size).toBe(3)
+    expect(new Set(sheets).size).toBe(4)
     expect(sheets[2]).toContain(`.xui-Button-root{`)
     expect(sheets[2]).toContain(`border-radius:var(--xui-radius-full)`)
   })

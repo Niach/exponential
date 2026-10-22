@@ -21,7 +21,7 @@ const canon = (v: unknown) => JSON.stringify(v)
 describe(`theme-resolved.json`, () => {
   test(`every built-in resolves to the recorded theme byte for byte`, () => {
     const themes = resolvedFixture.themes as unknown as Record<string, ResolvedTheme>
-    expect(Object.keys(themes)).toEqual([`neutral`, `exponential`, `playful`])
+    expect(Object.keys(themes)).toEqual([`neutral`, `exponential`, `playful`, `orange`])
     for (const [id, expected] of Object.entries(themes)) expect(canon(builtinTheme(id)), id).toBe(canon(expected))
   })
 })
@@ -96,10 +96,10 @@ describe(`theme-recipes.json`, () => {
     }
   })
 
-  test(`the three themes give the kitchen-sink controls different looks (recipes drive the painters)`, () => {
+  test(`the four themes give the kitchen-sink controls different looks (recipes drive the painters)`, () => {
     const button = cases.find((c) => c.component === `Button` && c.part === `root` && c.props.variant === `default` && c.props.size === `default`)!
     const looks = new Set(Object.values(button.visuals).map((m) => canon(m.light.default)))
-    expect(looks.size).toBe(3)
+    expect(looks.size).toBe(4)
     const card = cases.find((c) => c.component === `Card` && c.part === `root`)!
     expect(card.visuals.playful.light.default.borderWidth).toBe(0)
     expect(card.visuals.neutral.light.default.borderWidth).toBe(1)

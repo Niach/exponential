@@ -5,6 +5,7 @@ import { Button } from "./button"
 import { cn } from "./cn"
 import { ComposerTool } from "./composer"
 import { conceptIcon } from "./icons.generated"
+import { InlinePickerRow } from "./picker/inline-picker-row"
 import { Pill } from "./pill"
 
 // EXP-1334: ONE composer for a start, a thread and a session (owner
@@ -50,18 +51,22 @@ export function ComposerFrame({
 
 /** The muted options line under the card: inline pickers, the Plan switch,
  *  a trailing item pushed right with `ml-auto`. Phones keep it on ONE
- *  horizontally scrolling row; md+ wraps. */
+ *  horizontally scrolling row; md+ wraps. N-14: THE row host — in a dialog
+ *  its pins disclose their rows into ONE slot under the whole row, as wide
+ *  as the row, so no pin or sibling moves (picker-presentation.json). */
 export function ComposerOptionsRow({ className, ...props }: ComponentProps<`div`>) {
   return (
-    <div
-      data-slot="composer-options"
-      className={cn(
-        `flex flex-wrap items-center gap-x-3 gap-y-1 px-1 text-xs text-muted-foreground`,
-        `max-md:flex-nowrap max-md:overflow-x-auto max-md:whitespace-nowrap max-md:[scrollbar-width:none] max-md:[&>*]:shrink-0`,
-        className
-      )}
-      {...props}
-    />
+    <InlinePickerRow slotClassName="text-sm text-foreground">
+      <div
+        data-slot="composer-options"
+        className={cn(
+          `flex flex-wrap items-center gap-x-3 gap-y-1 px-1 text-xs text-muted-foreground`,
+          `max-md:flex-nowrap max-md:overflow-x-auto max-md:whitespace-nowrap max-md:[scrollbar-width:none] max-md:[&>*]:shrink-0`,
+          className
+        )}
+        {...props}
+      />
+    </InlinePickerRow>
   )
 }
 

@@ -228,7 +228,7 @@ Launch extras (`adb shell am start -n at.exponential.ui.kitchensink/.MainActivit
 | extra | effect |
 |---|---|
 | `--es shot <view>` | hides the chrome. What `bun run shots --platform android --views exponential-ui-kitchen-sink` captures (release build). |
-| `--es theme exponential\|neutral\|playful\|brand`, `--es mode light\|dark` | the look |
+| `--es theme exponential\|neutral\|playful\|orange\|brand`, `--es mode light\|dark` | the look |
 | `--ez rtl true` | the root `direction` becomes `rtl` |
 | `--ei width <dp>` | pins the surface width |
 | `--es overlays painted` | painted layers |

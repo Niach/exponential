@@ -7,6 +7,9 @@ ride Radix portals, inputs are host-owned, and the layout is the one the
 Rust core computes (the geometry fixture holds the browser to taffy's
 frames within a pixel). Published to npm from `release/` (VAPP-91); the
 workspace package.json stays private on the sources.
+Its SolidJS twin, `@exponential-at/ui-solid` (`packages/exponential-ui-solid`),
+paints the identical DOM, renderer and primitives, and is gated against this
+renderer by the web-parity check (`@exponential-at/ui/conformance/parity.ts`).
 
 It depends on `@exponential-at/ui`, React 19 (React 18 would keep
 `javascript:` hrefs clickable), `radix-ui` and
@@ -24,7 +27,7 @@ function Chat({ messages }) {
   return (
     <ExponentialSurface
       surface={surface}
-      theme="exponential"                     // or "neutral" | "playful" | a theme JSON | a ResolvedTheme
+      theme="exponential"                     // or "neutral" | "playful" | "orange" | a theme JSON | a ResolvedTheme
       mode="system"                           // light | dark | system (default; follows the platform live)
       locale="de-AT"                          // formatting, calendar names, week start, text direction
       timeZone="Europe/Vienna"                // dates and relative times (default: the platform's)
@@ -39,22 +42,20 @@ function Chat({ messages }) {
 
 ## Layout
 
+The stylesheet and the bind pass come from the core's web layer, `@exponential-at/ui/web` (FEED-128: `compileTheme`, `BASE_CSS`, the node sheet, `bindTree`, the URL/media policy, the natives' pure helpers), so every web renderer paints with byte-identical CSS; this package re-exports those names (`compileTheme`, `BASE_CSS`, `bindTree`, `linkHref`…) and keeps only the React half.
+
 | path | what |
 |---|---|
 | `src/surface.tsx` | `<ExponentialSurface>`: root (theme scope + variables, `data-xui-mode`, `dir`, `data-xq`), the two `<style>`s, the `xui` container with the tree + the overlay and toast LAYERS, the live regions, the settings (locale, strings, mode/density/contrast) and the host command handle |
 | `src/use-surface.ts` | `useSurface`: the TS reducer as React state; A2UI messages in, normalized tree + data model out |
-| `src/theme-css.ts` | a resolved theme → one scoped sheet (`--xui-*` variables per mode, recipe classes, the shadcn/glass aliases) |
-| `src/box-css.ts` | a surface's node sheet (template subtrees included): the whitelisted `style`s, the `@media` grammar (width → container queries, height/orientation → `data-xq`, hover/reduced-motion → media), the state blocks, dynamic values → `var(--xd-n)` |
-| `src/base-css.ts` | layer `xui-base`: the three CSS-equals-taffy rules + each native's structure |
 | `src/node-view.tsx` | the BIND pass per node (`visible`, props, dynamic style values, recipe props, `$string`, responsive native props), painter picked, root attributes, the action runner (`set` then the event), keyed templates |
 | `src/natives/` | the 46 native painters (Box, Text, Button… Form, NumberField, ChipInput, Date/Range/TimePicker, FileUpload, CodeBlock, Table, Chart, Menu, Segmented, Toast, Resizable, TreeGuides, Unknown); `natives.test.ts` gates them against the catalog |
 | `src/form.tsx` | the Form native + the field protocol every named control speaks (`useField`) |
 | `src/platform.ts` | live platform preferences (`matchMedia`) and the measured surface box |
-| `src/data.ts` | the data model (JSON pointers), `{path}` bindings, the basic + core client functions (the format functions through the surface Formatter), `bindTree` |
-| `src/inputs.ts` | `useHostOwnedValue`: local state, 150 ms debounce, revisions, echo rule |
+| `src/inputs.ts` | `useHostOwnedValue`: the hook around the web layer's `HostOwnedController` (150 ms debounce, revisions, echo rule) |
 | `src/list.tsx` | `WindowedList`: one axis, item key, estimated extent, gap + dividers, overscan, sticky rows, one ResizeObserver, `scrollToIndex` |
 | `src/extensions.ts` | `registerExtension` / `defineReactExtension` |
-| `src/primitives/` | the shadcn set (moved from `@exp/ui`, which re-exports it) + `tailwind.css`; `bun run build:css` → `dist/exponential-ui-react.css` |
+| `src/primitives/` | the shadcn set (moved from `@exp/ui`, which re-exports it) as thin React wrappers over the class recipes of `@exponential-at/ui/web/primitives` (FEED-131: no class literal here, the Solid twin reads the same recipes) + `tailwind.css` (scans the recipes too); `bun run build:css` → `dist/exponential-ui-react.css` |
 | `harness/` | the browser harness the Chromium suites and the screenshot script drive (`dev:harness` → :4181; views kitchen-sink, geometry, overlay, catalog, conditions, tree, round2, bench) |
 | `browser/` | the headless-Chromium suites: geometry, overlays, typing, round 1 (conditions, overlays × breakpoints, kitchen sink × themes × widths, keyboard) (`test:browser`) |
 | `fixtures/kitchen-sink.data.json` | the data model the kitchen sink renders against (harness + the app's view) |
@@ -315,10 +316,13 @@ A step = the scroll, the window's render flushed and the layout read back
 
 `src/primitives/` holds the generic shadcn/Radix components the app and
 extension authors share (button, input, select, dialog, sheet, tabs, the glass
-rows, pill, meter, composer, calendar, … plus round 1's alert-dialog,
+rows, pill, meter, composer, calendar, table, command, toast, … plus round 1's alert-dialog,
 breadcrumb, kbd, scroll-area), themed only through the surface's variables;
 only what the app imports lives here (the catalog's natives own Radix
-directly). `@exp/ui` re-exports every one
+directly). Their class strings and pure helpers live in
+`@exponential-at/ui/web/primitives` (FEED-131), shared with the Solid twin
+(`@exponential-at/ui-solid/primitives`, every module but glass-rows,
+typeahead, composer, trace, pill and segmented-bar). `@exp/ui` re-exports every one
 (its old paths are one-line shims), and its `styles.css` scans this directory
 so the app's Tailwind build still emits their classes. An embedder without
 Tailwind takes the compiled `dist/exponential-ui-react.css`

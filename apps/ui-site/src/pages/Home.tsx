@@ -1,7 +1,7 @@
 /* ui.exponential.at: generative UI in one screen. The live demo (the SDK
    lane's HomeDemo: a prompt, an A2UI replay in the React renderer and the
    same surface's native shots) sits in the hero; the rest is the pitch, the
-   four renderers, the entry points and the packages. */
+   five renderers, the entry points and the packages. */
 import manifest from "@exponential-at/ui/conformance/manifest.json"
 import promptBudget from "@exponential-at/ui/fixtures/prompt-budget.json"
 import { CardGrid, DocsTable, IcArrow } from "../components/Content"
@@ -28,7 +28,7 @@ const STEPS = [
   {
     num: `03`,
     title: `A renderer paints it natively`,
-    body: `React, SwiftUI, Compose or gpui, with the platform's own views, in your theme, from one shared layout.`,
+    body: `React, Solid, SwiftUI, Compose or gpui, with the platform's own views, in your theme, from one shared layout.`,
   },
 ]
 
@@ -60,7 +60,7 @@ const PITCH = [
   },
   {
     title: `Open source`,
-    body: `Apache-2.0: catalog, themes, host API and all four renderers.`,
+    body: `Apache-2.0: catalog, themes, host API and all five renderers.`,
     href: LINKS.repo,
   },
 ]
@@ -113,8 +113,8 @@ export default function HomePage(_: PageProps) {
 
       <section className="home-section">
         <div className="shell">
-          <div className="section-eyebrow">Four renderers</div>
-          <h2 className="section-title">One surface, four native toolkits.</h2>
+          <div className="section-eyebrow">Five renderers</div>
+          <h2 className="section-title">One surface, five native toolkits.</h2>
           <div className="home-renderers">
             {RENDERERS.map((r) => (
               <a key={r.pkg} className="home-renderer glass-card" href={guidePath(r.guide)}>

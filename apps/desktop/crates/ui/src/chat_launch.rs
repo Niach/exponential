@@ -164,10 +164,11 @@ pub(crate) fn agent_send_input(
 #[derive(Clone, Debug)]
 pub(crate) enum RepoState {
     Loading,
-    /// `Ready(None)` = no repository linked (excluded from the session).
+    /// `Ready(None)` = no repository linked: the issue stays checked and
+    /// the repository gate names it (#N-15).
     Ready(Option<api::repositories::IssueRepository>),
-    /// Transport failure — the issue can't resolve a repo, so it is
-    /// excluded like a repo-less one (the message says why).
+    /// Transport failure — the issue can't resolve a repo; it stays checked
+    /// and the gate says why (#N-15).
     Error(String),
 }
 
@@ -198,6 +199,13 @@ pub(crate) fn repo_blocker(
                         .filter(|branch| !branch.trim().is_empty()),
                 );
             }
+            // #N-15: say WHICH issue cannot start and why.
+            Some(RepoState::Ready(None)) => {
+                return Some(format!("{} has no repository linked.", row.identifier));
+            }
+            Some(RepoState::Error(err)) => {
+                return Some(format!("Couldn't check {}'s repository: {err}", row.identifier));
+            }
             _ => return Some("Checking linked repositories…".into()),
         }
     }
@@ -225,6 +233,51 @@ pub(crate) fn issues_repository(
 mod tests {
     use super::*;
     use coding::CodingAgent;
+
+    fn issue_row(id: &str, identifier: &str) -> IssueRow {
+        IssueRow {
+            issue_id: id.to_string(),
+            board_id: "b".to_string(),
+            identifier: identifier.to_string(),
+            title: "t".to_string(),
+            description: None,
+            created_at: None,
+            updated_at: None,
+            status: domain::enums::IssueStatus::Backlog,
+            priority: domain::enums::IssuePriority::None,
+            resolved: domain::statuses::constructed_default(domain::enums::IssueStatus::Backlog),
+            state_hint: None,
+        }
+    }
+
+    /// #N-15: a seeded issue whose repository cannot resolve stays the
+    /// subject, and the gate names it instead of "Select at least one
+    /// issue." (the old probe unchecked it and left the chip up).
+    #[test]
+    fn the_repository_gate_names_an_issue_that_cannot_resolve() {
+        let rows = vec![issue_row("i1", "APP-3")];
+        let checked: HashSet<String> = ["i1".to_string()].into_iter().collect();
+        let mut repos = std::collections::HashMap::new();
+        assert_eq!(issue_count_blocker(checked.len()), None);
+        repos.insert("i1".to_string(), RepoState::Loading);
+        assert_eq!(repo_blocker(&rows, &checked, &repos).as_deref(), Some("Checking linked repositories…"));
+        repos.insert("i1".to_string(), RepoState::Ready(None));
+        assert_eq!(repo_blocker(&rows, &checked, &repos).as_deref(), Some("APP-3 has no repository linked."));
+        repos.insert("i1".to_string(), RepoState::Error("HTTP 412".to_string()));
+        assert_eq!(
+            repo_blocker(&rows, &checked, &repos).as_deref(),
+            Some("Couldn't check APP-3's repository: HTTP 412")
+        );
+        repos.insert(
+            "i1".to_string(),
+            RepoState::Ready(Some(api::repositories::IssueRepository {
+                repository_id: "r".to_string(),
+                full_name: "acme/app".to_string(),
+                default_branch: "main".to_string(),
+            })),
+        );
+        assert_eq!(repo_blocker(&rows, &checked, &repos), None);
+    }
 
     fn options() -> LaunchOptions {
         LaunchOptions {

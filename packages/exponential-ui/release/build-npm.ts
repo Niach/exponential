@@ -4,15 +4,29 @@
 //
 //   bun packages/exponential-ui/release/build-npm.ts packages/exponential-ui
 //   bun packages/exponential-ui/release/build-npm.ts packages/exponential-ui-react
+//   bun packages/exponential-ui/release/build-npm.ts packages/exponential-ui-solid
+//
+// FEED-128: Solid's JSX needs its compiler (Bun's bundler has none), so
+// `@exponential-at/ui-solid` builds through Vite + `vite-plugin-solid` in
+// library mode into the SAME layout (dist/<entry>.js + dist/types).
+// FEED-131: both web renderers ship their primitives' stylesheet
+// (`./styles.css`): the build runs the package's `build:css` into dist/.
 
 import { execSync } from "node:child_process"
 import { existsSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs"
 import { dirname, join, resolve } from "node:path"
 
 export const ENTRIES: Record<string, Record<string, string>> = {
-  "@exponential-at/ui": { index: `src/index.ts` },
+  "@exponential-at/ui": { index: `src/index.ts`, web: `src/web/index.ts`, "web/primitives": `src/web/primitives/index.ts` },
   "@exponential-at/ui-react": { index: `src/index.ts`, primitives: `src/primitives/index.ts` },
+  "@exponential-at/ui-solid": { index: `src/index.ts`, primitives: `src/primitives/index.ts` },
 }
+
+/** The packages that ship a compiled stylesheet (`build:css` → dist/<name>.css). */
+const STYLESHEET = new Set([`@exponential-at/ui-react`, `@exponential-at/ui-solid`])
+
+/** The packages whose JSX is Solid's (built with Vite, not Bun). */
+const SOLID = new Set([`@exponential-at/ui-solid`])
 
 export async function buildNpm(dir: string): Promise<void> {
   const pkg = JSON.parse(readFileSync(join(dir, `package.json`), `utf8`)) as { name: string; dependencies?: Record<string, string>; peerDependencies?: Record<string, string> }
@@ -20,7 +34,17 @@ export async function buildNpm(dir: string): Promise<void> {
   if (!entries) throw new Error(`${pkg.name} is not an npm package of the SDK`)
   rmSync(join(dir, `dist`, `index.js`), { force: true })
   rmSync(join(dir, `dist`, `types`), { recursive: true, force: true })
-  const external = [...Object.keys(pkg.dependencies ?? {}), ...Object.keys(pkg.peerDependencies ?? {})].flatMap((d) => [d, `${d}/*`])
+  // The package's own name too: a sub-entry (`@exponential-at/ui/web`)
+  // imports its root by name, so the root's module state stays ONE copy.
+  const external = [pkg.name, ...Object.keys(pkg.dependencies ?? {}), ...Object.keys(pkg.peerDependencies ?? {})].flatMap((d) => [d, `${d}/*`])
+  if (SOLID.has(pkg.name)) {
+    const outputs = await buildSolid(dir, entries, external)
+    execSync(`bunx tsc -p tsconfig.build.json`, { cwd: dir, stdio: `inherit` })
+    fixDeclarationSpecifiers(join(dir, `dist`, `types`))
+    buildStylesheet(dir, pkg.name)
+    console.log(`built ${pkg.name}: ${outputs.join(`, `)}`)
+    return
+  }
   const result = await Bun.build({
     entrypoints: Object.values(entries).map((e) => join(dir, e)),
     outdir: join(dir, `dist`),
@@ -35,7 +59,45 @@ export async function buildNpm(dir: string): Promise<void> {
   if (!result.success) throw new Error(result.logs.map((l) => String(l)).join(`\n`))
   execSync(`bunx tsc -p tsconfig.build.json`, { cwd: dir, stdio: `inherit` })
   fixDeclarationSpecifiers(join(dir, `dist`, `types`))
+  buildStylesheet(dir, pkg.name)
   console.log(`built ${pkg.name}: ${result.outputs.map((o) => o.path.replace(`${dir}/`, ``)).join(`, `)}`)
+}
+
+/** The package's `build:css`, when it ships a stylesheet. */
+function buildStylesheet(dir: string, name: string): void {
+  if (STYLESHEET.has(name)) execSync(`bun run build:css`, { cwd: dir, stdio: `inherit` })
+}
+
+/** Vite library mode with `vite-plugin-solid` (DOM output): one ESM file
+ *  per entry at dist/<name>.js, every dependency external (`d` and `d/…`). */
+async function buildSolid(dir: string, entries: Record<string, string>, external: string[]): Promise<string[]> {
+  const { build } = await import(`vite`)
+  const { default: solid } = await import(`vite-plugin-solid`)
+  const roots = external.filter((d) => !d.endsWith(`/*`))
+  // Vite's `build()` sets `process.env.NODE_ENV` to "production" when it is
+  // unset, and a child `npm install` spawned later in the same process
+  // (guides/check.ts) would then skip devDependencies: restore it.
+  const nodeEnv = process.env.NODE_ENV
+  const result = await build({
+    configFile: false,
+    root: dir,
+    logLevel: `warn`,
+    plugins: [solid()],
+    define: { "process.env.NODE_ENV": `"production"` },
+    build: {
+      outDir: join(dir, `dist`),
+      emptyOutDir: false,
+      minify: false,
+      target: `es2022`,
+      sourcemap: true,
+      lib: { entry: Object.fromEntries(Object.entries(entries).map(([name, e]) => [name, join(dir, e)])), formats: [`es`], fileName: (_format, name) => `${name}.js` },
+      rollupOptions: { external: (id) => roots.some((d) => id === d || id.startsWith(`${d}/`)) },
+    },
+  })
+  if (nodeEnv === undefined) delete process.env.NODE_ENV
+  else process.env.NODE_ENV = nodeEnv
+  const outputs = (Array.isArray(result) ? result : [result]).flatMap((r) => (`output` in r ? r.output : []))
+  return outputs.filter((o) => o.type === `chunk`).map((o) => `dist/${o.fileName}`)
 }
 
 /** Every `.d.ts` under `root`. */

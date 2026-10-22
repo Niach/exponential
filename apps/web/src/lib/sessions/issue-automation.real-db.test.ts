@@ -187,6 +187,44 @@ describe.skipIf(!ready.ok)(`EXP-1334 status automation`, () => {
     expect(manualLinkText([])).toBeNull()
   })
 
+  it(`a worker filing an issue holds it without taking it; a later link or a person's message takes it`, async () => {
+    const w = await world()
+    const named = await w.issue(`Named in the brief`)
+    const rootId = await w.thread([named.id])
+    expect(await w.status(named.id)).toMatchObject({ status: `in_progress` })
+    // The worker FILES an issue (issues create with its session): the row
+    // lands on it, nothing moves (issue-lifecycle.json `filed`: the N-10
+    // rule, In progress only when a session really takes it up).
+    const filed = await w.issue(`Filed while working`)
+    await db.transaction((tx) =>
+      linkIssues(tx, { sessionId: rootId, issueIds: [filed.id], source: `agent`, addedBy: w.owner, addedBySessionId: rootId, filed: true })
+    )
+    expect(
+      await db
+        .select({ issueId: sessionIssues.issueId })
+        .from(sessionIssues)
+        .where(and(eq(sessionIssues.sessionId, rootId), eq(sessionIssues.issueId, filed.id)))
+    ).toHaveLength(1)
+    expect(await w.status(filed.id)).toMatchObject({ status: `backlog` })
+    expect(
+      await db
+        .select({ id: issueEvents.id })
+        .from(issueEvents)
+        .where(and(eq(issueEvents.issueId, filed.id), eq(issueEvents.type, `status_changed`)))
+    ).toHaveLength(0)
+    // A filed row is still the worker's: a person's message into it takes
+    // the whole set it holds, the filed issue included.
+    await sendSession({ userId: w.owner, input: { sessionId: rootId, text: `now do it` } })
+    expect(await w.status(filed.id)).toEqual({ status: `in_progress`, builtinKey: `in_progress` })
+    // Filing on an issue already in review moves nothing either.
+    const reviewed = await w.issue(`Reviewed`)
+    await db.update(issues).set({ status: `in_review` }).where(eq(issues.id, reviewed.id))
+    await db.transaction((tx) =>
+      linkIssues(tx, { sessionId: rootId, issueIds: [reviewed.id], source: `agent`, addedBy: w.owner, addedBySessionId: rootId, filed: true })
+    )
+    expect(await w.status(reviewed.id)).toMatchObject({ status: `in_review` })
+  })
+
   it(`a PR closes its session's share of the thread`, async () => {
     const w = await world()
     const named = await w.issue(`Named in the brief`)

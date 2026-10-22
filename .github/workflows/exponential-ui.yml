@@ -12,7 +12,12 @@ name: exponential-ui
 # fresh project (`apps/ui-site/guides/check.ts`, VAPP-93). VAPP-103: the
 # SwiftUI painter also builds and tests on an iOS Simulator (the UIKit paths)
 # with the KitchenSink example, and the Compose painter runs its instrumented
-# tests on an Android emulator.
+# tests on an Android emulator. FEED-128: the Solid renderer runs the same
+# web runner and the web-parity check against React (DOM, computed styles,
+# frames and pixels at zero tolerance, `parity:check`). FEED-131: both web
+# jobs compile the primitives' stylesheet first (`build:css`); the parity run
+# covers the primitive specimens too, and the Solid browser suites drive the
+# primitives' interactions against React's.
 #
 # The pull request AND the push to master (path-filtered to the SDK, both).
 
@@ -22,6 +27,7 @@ on:
     paths:
       - 'packages/exponential-ui/**'
       - 'packages/exponential-ui-react/**'
+      - 'packages/exponential-ui-solid/**'
       - 'packages/exponential-ui-swift/**'
       - 'packages/exponential-ui-compose/**'
       - 'apps/desktop/crates/exponential-ui/**'
@@ -34,6 +40,7 @@ on:
     paths:
       - 'packages/exponential-ui/**'
       - 'packages/exponential-ui-react/**'
+      - 'packages/exponential-ui-solid/**'
       - 'packages/exponential-ui-swift/**'
       - 'packages/exponential-ui-compose/**'
       - 'apps/desktop/crates/exponential-ui/**'
@@ -54,7 +61,14 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # EXP-1364: fork PRs never run here; the Rust leg runs on the Mint
+  # and the Swift legs on the MacBook when they are up.
+  pick:
+    uses: ./.github/workflows/pick-runner.yml
+    secrets: inherit
+
   react:
+    needs: pick
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -66,6 +80,8 @@ jobs:
       - run: bunx playwright install --with-deps chromium
       - name: Catalog package tests (TS reference, host fixtures)
         run: bun run --filter @exponential-at/ui test
+      - name: The primitives' stylesheet
+        run: bun run --filter @exponential-at/ui-react build:css
       - name: React renderer tests
         run: bun run --filter @exponential-at/ui-react test
       - name: React conformance (headless Chromium)
@@ -83,8 +99,47 @@ jobs:
           path: .conformance/
           include-hidden-files: true  # .conformance/ is a dot-directory; upload-artifact v4 skips hidden paths by default
 
-  rust:
+  solid:
+    needs: pick
     runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: bun install --frozen-lockfile
+      - run: bunx playwright install --with-deps chromium
+      - name: The primitives' stylesheets (React's, then Solid's byte-identical copy)
+        run: bun run --filter @exponential-at/ui-react build:css && bun run --filter @exponential-at/ui-solid build:css
+      - name: Solid renderer tests (jsdom, DOM parity with React)
+        run: bun run --filter @exponential-at/ui-solid test
+      - name: Solid conformance (headless Chromium)
+        env:
+          EXPONENTIAL_UI_CONFORMANCE_REPORT: ${{ github.workspace }}/.conformance/exponential-ui-solid.json
+        run: bun run --filter @exponential-at/ui-solid test:conformance
+      - name: Web parity, React vs Solid (renderer + primitives)
+        env:
+          EXPONENTIAL_UI_PARITY_REPORT: ${{ github.workspace }}/.conformance/exponential-ui-parity-react-solid.json
+        run: |
+          bun run --filter @exponential-at/ui-solid test:parity
+          bun run --filter @exponential-at/ui parity:check "$EXPONENTIAL_UI_PARITY_REPORT"
+      - name: Solid browser suites (overlays, inputs, tables, primitives' interactions vs React)
+        working-directory: packages/exponential-ui-solid
+        # Every browser/*.test.ts but the two runs above.
+        run: bunx vitest run --config vitest.browser.config.ts --exclude browser/suites.test.ts --exclude browser/parity.test.ts
+      - name: Guide (Solid) from a fresh project
+        run: bun apps/ui-site/guides/check.ts solid
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: conformance-solid
+          path: .conformance/
+          include-hidden-files: true  # .conformance/ is a dot-directory; upload-artifact v4 skips hidden paths by default
+
+  rust:
+    needs: pick
+    runs-on: ${{ fromJSON(needs.pick.outputs.linux) }}
     steps:
       - uses: actions/checkout@v4
       - name: Linux system deps (wgpu/gpui)
@@ -95,6 +150,7 @@ jobs:
             libx11-dev libxi-dev libxtst-dev libpipewire-0.3-dev clang
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+        if: runner.environment == 'github-hosted'
         with:
           workspaces: apps/desktop
       - name: Core + facade tests (core conformance)
@@ -118,7 +174,8 @@ jobs:
 
   swift:
     # Same image as test-ios.yml / build-ios.yml.
-    runs-on: macos-26
+    needs: pick
+    runs-on: ${{ fromJSON(needs.pick.outputs.mac) }}
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
@@ -126,6 +183,7 @@ jobs:
         with:
           targets: aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios,aarch64-apple-darwin,x86_64-apple-darwin
       - uses: Swatinem/rust-cache@v2
+        if: runner.environment == 'github-hosted'
         with:
           workspaces: apps/desktop
       - name: Build the xcframework (iOS device + simulator + macOS)
@@ -154,12 +212,13 @@ jobs:
     # The UIKit paths (`#if canImport(UIKit)`) only compile for iOS: build +
     # test the package on a Simulator against the swift job's xcframework,
     # then build the KitchenSink example.
-    needs: swift
-    runs-on: macos-26
+    needs: [pick, swift]
+    runs-on: ${{ fromJSON(needs.pick.outputs.mac) }}
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - name: Select the newest RELEASE Xcode 26.x
+        if: runner.environment == 'github-hosted'
         run: |
           XCODE_APP="$(ls -d /Applications/Xcode_26.*.app 2>/dev/null | sort -V | tail -1)"
           [ -n "$XCODE_APP" ] || { echo "::error::No release Xcode 26.x on this image" >&2; exit 1; }
@@ -177,6 +236,15 @@ jobs:
           ios=sorted((k for k in d if "iOS" in k), key=lambda k: [int(x) for x in k.rsplit("iOS-",1)[1].split("-")])
           print(next(x["udid"] for k in reversed(ios) for x in d[k] if x["name"].startswith("iPhone")))')"
           echo "id=$DEVICE" >> "$GITHUB_OUTPUT"
+          # Boot it up front: a cold boot inside `xcodebuild test` on a busy
+          # Mac (the self-hosted runner, other simulators up) fails with
+          # "Failed to prepare device ... Invalid connectionUUID".
+          if xcrun simctl list devices | grep "$DEVICE" | grep -q Booted; then
+            echo "booted_here=false" >> "$GITHUB_OUTPUT"
+          else
+            xcrun simctl bootstatus "$DEVICE" -b
+            echo "booted_here=true" >> "$GITHUB_OUTPUT"
+          fi
       - name: Package tests on the iOS Simulator
         working-directory: packages/exponential-ui-swift
         run: |
@@ -190,10 +258,14 @@ jobs:
           xcodebuild build -project KitchenSink.xcodeproj -scheme KitchenSink \
             -destination "platform=iOS Simulator,id=${{ steps.sim.outputs.id }}" \
             -derivedDataPath "$RUNNER_TEMP/dd-sink" CODE_SIGNING_ALLOWED=NO | tail -20
+      - name: Shut the simulator down again (self-hosted)
+        if: always() && runner.environment == 'self-hosted' && steps.sim.outputs.booted_here == 'true'
+        run: xcrun simctl shutdown "${{ steps.sim.outputs.id }}" || true
 
   compose-emulator:
     # Instrumented tests (ui-compose/src/androidTest) on an x86_64 emulator
     # against the facade's x86_64 .so.
+    needs: pick
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -202,6 +274,7 @@ jobs:
         with:
           targets: x86_64-linux-android
       - uses: Swatinem/rust-cache@v2
+        if: runner.environment == 'github-hosted'
         with:
           workspaces: apps/desktop
       - name: Set up JDK 21
@@ -221,6 +294,7 @@ jobs:
           SKIP_BINDINGS: '1'
         run: bash apps/desktop/crates/exponential-ui-ffi/build-android.sh
       - name: Gradle cache
+        if: runner.environment == 'github-hosted'
         uses: actions/cache@v4
         with:
           path: |
@@ -251,11 +325,15 @@ jobs:
           script: ./gradlew :ui-compose:connectedDebugAndroidTest --no-daemon
 
   compose:
+    needs: pick
+    # GitHub-hosted only: the Roborazzi images + snapshots are pixel-exact to
+    # the ubuntu image record-compose-fixtures.yml records them on.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+        if: runner.environment == 'github-hosted'
         with:
           workspaces: apps/desktop
       - name: Host build of the facade (the JVM tests load it through JNA)
@@ -288,7 +366,7 @@ jobs:
           include-hidden-files: true  # .conformance/ is a dot-directory; upload-artifact v4 skips hidden paths by default
 
   conformant:
-    needs: [react, rust, swift, compose]
+    needs: [react, solid, rust, swift, compose]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -300,4 +378,5 @@ jobs:
           path: .conformance
           merge-multiple: true
       - name: Every renderer is Exponential UI conformant
-        run: bun run --filter @exponential-at/ui conformance:check $(ls "$GITHUB_WORKSPACE"/.conformance/*.json)
+        # The parity report (conformance-solid) is checked in its job, not here.
+        run: bun run --filter @exponential-at/ui conformance:check $(ls "$GITHUB_WORKSPACE"/.conformance/*.json | grep -v '/exponential-ui-parity-')

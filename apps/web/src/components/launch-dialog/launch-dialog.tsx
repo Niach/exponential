@@ -148,9 +148,12 @@ function LaunchDialogBody({
   useEffect(() => () => onPendingStartChange(false), [onPendingStartChange])
 
   return (
+    // N-14 (picker-presentation.json): the host grows DOWNWARD when a pin
+    // discloses its rows, so the dialog is top-anchored like the IDE's
+    // composer dialog (8% of the viewport), not centred.
     <DialogContent
       mobile="sheet-full"
-      className="flex max-h-[85vh] flex-col gap-0 sm:max-w-2xl"
+      className="flex max-h-[85vh] flex-col gap-0 sm:top-[8%] sm:max-w-2xl sm:translate-y-0"
       data-testid="launch-dialog"
       onEscapeKeyDown={(event) => {
         if (sent) event.preventDefault()

@@ -87,6 +87,131 @@ return <ExponentialSurface surface={surface} theme="neutral" mode="light" host={
         </>
       ),
     },
+    {
+      id: `primitives`,
+      label: `Primitives`,
+      body: (
+        <>
+          <p>
+            The app around a surface can use the same components: <code>@exponential-at/ui-react/primitives</code>{` `}
+            is the shadcn set on Radix (button, dialog, select, table, command, toast, calendar…). Import its compiled
+            stylesheet once. Inside a surface they wear its theme; outside one,{` `}
+            <code>globalsCss(theme)</code> from <code>@exponential-at/ui/web</code> writes the theme as shadcn
+            variables.
+          </p>
+          <DocsCode language="tsx">{`import "@exponential-at/ui-react/styles.css"
+import { builtinTheme } from "@exponential-at/ui"
+import { globalsCss } from "@exponential-at/ui/web"
+import { Button, Dialog, DialogContent, DialogTitle, DialogTrigger, Toaster, toast } from "@exponential-at/ui-react/primitives"
+
+const globals = globalsCss(builtinTheme("orange"))   // :root + .dark, put it in a <style>
+<Dialog>
+  <DialogTrigger asChild><Button>Open</Button></DialogTrigger>
+  <DialogContent><DialogTitle>Saved views</DialogTitle></DialogContent>
+</Dialog>
+<Button variant="outline" onClick={() => toast.success("Saved")}>Save</Button>
+<Toaster />`}</DocsCode>
+        </>
+      ),
+    },
+  ],
+
+  solid: [
+    {
+      id: `install`,
+      label: `Install`,
+      body: (
+        <>
+          <p>
+            Two packages: <code>@exponential-at/ui</code> (the catalog, themes, reducer and host runtime) and{` `}
+            <code>@exponential-at/ui-solid</code> (the renderer). Solid 1.9 with{` `}
+            <code>vite-plugin-solid</code>; the surface injects its own styles, so there is no stylesheet setup.
+          </p>
+          <DocsCode>{`npm install @exponential-at/ui @exponential-at/ui-solid solid-js`}</DocsCode>
+          <Unpublished>
+            Until then, pack the tarballs from a checkout of the repo and install those:
+          </Unpublished>
+          <DocsCode>{`bun samples/exponential-ui/pack-local.ts      # → samples/exponential-ui/.packs/*.tgz
+npm install ../exponential/samples/exponential-ui/.packs/exponential-at-ui-0.1.0.tgz \\
+            ../exponential/samples/exponential-ui/.packs/exponential-at-ui-solid-0.1.0.tgz`}</DocsCode>
+          <GuideFile path="solid/package.json" caption="the whole dependency list" />
+          <GuideFile path="solid/vite.config.ts" />
+        </>
+      ),
+    },
+    {
+      id: `paint`,
+      label: `Paint a surface`,
+      body: (
+        <>
+          <p>
+            <code>createSurface</code> reduces A2UI messages into a tree and a data model (a Solid store);{` `}
+            <code>&lt;ExponentialSurface&gt;</code> paints it in a theme and a mode. The plugin object takes icons,{` `}
+            <code>onAction</code>, <code>onInput</code>, <code>openUrl</code> and extra functions.
+          </p>
+          <GuideFile path="solid/src/App.tsx" />
+          <p>
+            The DOM, the compiled stylesheet and the themes are the React renderer's, checked case by case in
+            headless Chromium (DOM, computed styles, frames and pixels).
+          </p>
+        </>
+      ),
+    },
+    {
+      id: `with-host`,
+      label: `With a host`,
+      body: (
+        <>
+          <p>
+            One <code>ExponentialHost</code> per app reads messages from a transport and posts actions back;{` `}
+            <code>&lt;HostSurface&gt;</code> paints one of its surfaces by id, with a fallback until the agent has
+            created it.
+          </p>
+          <DocsCode language="tsx">{`const host = new ExponentialHost({ transport: new JsonlStreamTransport({ url: "/a2ui.jsonl", postUrl: "/action" }) })
+onMount(() => host.connect()); onCleanup(() => host.close())
+return <HostSurface host={host} surfaceId="main" theme="orange" fallback={<p>Waiting for the agent…</p>} />`}</DocsCode>
+          <p>
+            Extensions use <code>defineSolidExtension</code>; the hooks have Solid names (<code>createSurface</code>,{` `}
+            <code>createHostSurface</code>, <code>createField</code>). More in the{` `}
+            {SDK_README(`packages/exponential-ui-solid/README.md`, `Solid renderer's README`)}.
+          </p>
+          <GuideFile path="solid/src/TrendLine.tsx" />
+        </>
+      ),
+    },
+    {
+      id: `primitives`,
+      label: `Primitives`,
+      body: (
+        <>
+          <p>
+            <code>@exponential-at/ui-solid/primitives</code> is the React primitive set on Solid, with the same DOM and
+            classes (one set of recipes, checked against React in headless Chromium).{` `}
+            <code>@exponential-at/ui-solid/styles.css</code> is the same stylesheet as React's;{` `}
+            <code>globalsCss(theme)</code> from <code>@exponential-at/ui/web</code> themes them outside a surface.
+            The names differ in three ways: <code>class</code> for <code>className</code>, <code>as</code> for{` `}
+            <code>asChild</code>, and <code>create*</code> for the <code>use*</code> hooks.
+          </p>
+          <DocsCode language="tsx">{`import "@exponential-at/ui-solid/styles.css"
+import { builtinTheme } from "@exponential-at/ui"
+import { globalsCss } from "@exponential-at/ui/web"
+import { Button, Dialog, DialogContent, DialogTitle, DialogTrigger, Toaster, toast } from "@exponential-at/ui-solid/primitives"
+
+const globals = globalsCss(builtinTheme("orange"))   // :root + .dark, put it in a <style>
+<Dialog>
+  <DialogTrigger as={Button}>Open</DialogTrigger>
+  <DialogContent><DialogTitle>Saved views</DialogTitle></DialogContent>
+</Dialog>
+<Button variant="outline" class="ml-2" onClick={() => toast.success("Saved")}>Save</Button>
+<Toaster />`}</DocsCode>
+          <p>
+            Six React modules are the Exponential app's own and have no Solid twin: <code>glass-rows</code>,{` `}
+            <code>typeahead</code>, <code>composer</code>, <code>trace</code>, <code>pill</code> and{` `}
+            <code>segmented-bar</code>.
+          </p>
+        </>
+      ),
+    },
   ],
 
   swiftui: [
@@ -326,6 +451,7 @@ cd packages/exponential-ui-compose
             head={[`Platform`, `Load`]}
             rows={[
               [`React`, <code key="c">{`<HostSurface theme={brandJson} … />`}</code>],
+              [`Solid`, <code key="c">{`<ExponentialSurface theme={brandJson} … />`}</code>],
               [`TypeScript`, <code key="c">{`validateTheme(json) · loadTheme(json, { themes: BUILTIN_THEMES })`}</code>],
               [`SwiftUI`, <code key="c">{`ThemeHandle.load(json:) · model.setTheme(…)`}</code>],
               [`Compose`, <code key="c">{`ThemeHandle.load(json, parents) · model.setTheme(…)`}</code>],
@@ -371,6 +497,7 @@ cd packages/exponential-ui-compose
             head={[`Platform`, `Register`]}
             rows={[
               [`React`, <code key="c">{`defineReactExtension({ catalog, components }) · registerExtension(…)`}</code>],
+              [`Solid`, <code key="c">{`defineSolidExtension({ catalog, components }) · registerExtension(…)`}</code>],
               [`SwiftUI`, <code key="c">{`ExponentialUI.register(extension: json, painters: [kind: painter])`}</code>],
               [`Compose`, <code key="c">{`ExponentialUi.register(extensionJson, mapOf(kind to painter))`}</code>],
               [`gpui`, <code key="c">{`view.register_painter("TrendLine", Box::new(MyTrendLine))`}</code>],

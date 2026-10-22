@@ -28,6 +28,9 @@ import androidx.compose.material3.ModalBottomSheetProperties
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import com.exponential.app.ui.components.picker.PickerPresentation
+import com.exponential.app.ui.components.picker.LocalPickerPresentation
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -181,8 +184,12 @@ fun GlassSheet(
             }
             // fill = false on a fitted sheet: the slot takes what the content
             // needs, up to whatever the 85 % cap leaves over.
-            Column(modifier = Modifier.weight(1f, fill = full)) {
-                content()
+            // N-6: the host rule — a picker inside this sheet opens INLINE in
+            // the sheet's flow, never as a second sheet.
+            CompositionLocalProvider(LocalPickerPresentation provides PickerPresentation.Inline) {
+                Column(modifier = Modifier.weight(1f, fill = full)) {
+                    content()
+                }
             }
             // FEED-79: a failed action's toast draws above this sheet.
             OverlayToastHost()

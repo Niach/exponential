@@ -1,0 +1,43 @@
+{
+  "$comment": "FEED-128: the brand-coloured reference theme: the Exponential glass look with an orange primary. It changes only colours (primary, ring, the accent pair, the chart scale) per mode; every size, family and recipe comes from `exponential`, so it also shows what the smallest brand theme looks like.",
+  "$schema": "https://ui.exponential.at/schemas/theme/v1.json",
+  "id": "orange",
+  "name": "Orange",
+  "extends": "exponential",
+  "modes": {
+    "light": {
+      "color": {
+        "primary": "#ea580c",
+        "primaryForeground": "#ffffff",
+        "accent": "#ffedd5",
+        "accentForeground": "#7c2d12",
+        "ring": "#fb923c",
+        "chart1": "#ea580c",
+        "chart2": "#f59e0b",
+        "chart3": "#b91c1c",
+        "chart4": "#0ea5e9",
+        "chart5": "#7c3aed",
+        "chart6": "#0d9488",
+        "chart7": "#db2777",
+        "chart8": "#65a30d"
+      }
+    },
+    "dark": {
+      "color": {
+        "primary": "#fb923c",
+        "primaryForeground": "#431407",
+        "accent": "#431407",
+        "accentForeground": "#fed7aa",
+        "ring": "#f97316",
+        "chart1": "#fb923c",
+        "chart2": "#fbbf24",
+        "chart3": "#f87171",
+        "chart4": "#38bdf8",
+        "chart5": "#a78bfa",
+        "chart6": "#2dd4bf",
+        "chart7": "#f472b6",
+        "chart8": "#a3e635"
+      }
+    }
+  }
+}

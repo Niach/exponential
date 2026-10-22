@@ -3367,7 +3367,7 @@ open class Theme: ThemeProtocol, @unchecked Sendable {
 
     
     /**
-     * A built-in theme (`neutral`, `exponential`, `playful`).
+     * A built-in theme (`neutral`, `exponential`, `playful`, `orange`).
      */
 public static func builtin(id: String)throws  -> Theme  {
     return try  FfiConverterTypeTheme_lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
@@ -7788,7 +7788,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_exponential_ui_ffi_checksum_constructor_surface_with_theme() != 19728) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_constructor_theme_builtin() != 29878) {
+    if (uniffi_exponential_ui_ffi_checksum_constructor_theme_builtin() != 49233) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_constructor_theme_load() != 18071) {

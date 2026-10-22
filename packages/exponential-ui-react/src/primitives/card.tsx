@@ -1,17 +1,13 @@
 import * as React from "react"
+import { CARD_CLASSES } from "@exponential-at/ui/web/primitives"
 
 import { cn } from "./cn"
-import { GLASS_CARD_CLASS } from "./glass-card"
 
 function Card({ className, ...props }: React.ComponentProps<`div`>) {
   return (
     <div
       data-slot="card"
-      className={cn(
-        GLASS_CARD_CLASS,
-        `flex flex-col gap-6 backdrop-blur-md py-6 text-card-foreground shadow-sm`,
-        className
-      )}
+      className={cn(CARD_CLASSES.root, className)}
       {...props}
     />
   )
@@ -21,10 +17,7 @@ function CardHeader({ className, ...props }: React.ComponentProps<`div`>) {
   return (
     <div
       data-slot="card-header"
-      className={cn(
-        `@container/card-header grid auto-rows-min grid-rows-[auto_auto] items-start gap-2 px-6 has-data-[slot=card-action]:grid-cols-[1fr_auto] [.border-b]:pb-6`,
-        className
-      )}
+      className={cn(CARD_CLASSES.header, className)}
       {...props}
     />
   )
@@ -34,7 +27,7 @@ function CardTitle({ className, ...props }: React.ComponentProps<`div`>) {
   return (
     <div
       data-slot="card-title"
-      className={cn(`leading-none font-semibold`, className)}
+      className={cn(CARD_CLASSES.title, className)}
       {...props}
     />
   )
@@ -44,7 +37,7 @@ function CardDescription({ className, ...props }: React.ComponentProps<`div`>) {
   return (
     <div
       data-slot="card-description"
-      className={cn(`text-sm text-muted-foreground`, className)}
+      className={cn(CARD_CLASSES.description, className)}
       {...props}
     />
   )
@@ -54,10 +47,7 @@ function CardAction({ className, ...props }: React.ComponentProps<`div`>) {
   return (
     <div
       data-slot="card-action"
-      className={cn(
-        `col-start-2 row-span-2 row-start-1 self-start justify-self-end`,
-        className
-      )}
+      className={cn(CARD_CLASSES.action, className)}
       {...props}
     />
   )
@@ -67,7 +57,7 @@ function CardContent({ className, ...props }: React.ComponentProps<`div`>) {
   return (
     <div
       data-slot="card-content"
-      className={cn(`px-6`, className)}
+      className={cn(CARD_CLASSES.content, className)}
       {...props}
     />
   )
@@ -77,7 +67,7 @@ function CardFooter({ className, ...props }: React.ComponentProps<`div`>) {
   return (
     <div
       data-slot="card-footer"
-      className={cn(`flex items-center px-6 [.border-t]:pt-6`, className)}
+      className={cn(CARD_CLASSES.footer, className)}
       {...props}
     />
   )

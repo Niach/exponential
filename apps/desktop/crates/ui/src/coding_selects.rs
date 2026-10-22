@@ -6,6 +6,7 @@
 //! deleted (rework decision 6): every surface picks from these lists, so the
 //! argv can never carry a value the CLI rejects.
 
+use crate::controls::PointerMenuButtonExt as _;
 use gpui::{
     div, prelude::FluentBuilder as _, px, App, AppContext as _, Entity, ParentElement as _, SharedString,
     Styled as _, Window,
@@ -306,7 +307,7 @@ pub(crate) fn agent_picker(
                 .size(gpui::px(glyph))
                 .text_color(cx.theme().muted_foreground),
         )
-        .dropdown_menu(move |menu, _window, _cx| {
+        .pointer_menu(move |menu, _window, _cx| {
             let on_pick = on_pick.clone();
             agent_menu_items(menu, &agents, Some(current), move |agent, window, cx| {
                 on_pick(agent, window, cx)

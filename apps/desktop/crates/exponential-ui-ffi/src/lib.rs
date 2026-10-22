@@ -1948,7 +1948,7 @@ pub struct Theme {
 
 #[uniffi::export]
 impl Theme {
-    /// A built-in theme (`neutral`, `exponential`, `playful`).
+    /// A built-in theme (`neutral`, `exponential`, `playful`, `orange`).
     #[uniffi::constructor]
     pub fn builtin(id: String) -> Result<Arc<Self>, UiError> {
         guarded("builtin", || {
