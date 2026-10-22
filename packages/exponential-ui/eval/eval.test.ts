@@ -1,9 +1,11 @@
 // VAPP-108: the eval on record. Pure: the fixtures and the report, no model,
 // no browser. Fails when a corpus prompt has no fixture, when the scored
 // rows drift from eval/report.json (rerun `bun run eval`), when the parser
-// stops accepting the reply shapes a model sends, and when the Devices
-// template drifts from the native page past the tolerances parity.ts
-// measured (rerun `bun run eval:parity` after a shots refresh).
+// stops accepting the reply shapes a model sends, when the Solid render of
+// a surface differs from the React one beyond the findings on record (rerun
+// `bun run eval:render`), and when the Devices template drifts from the
+// native page past the tolerances parity.ts measured (rerun
+// `bun run eval:parity` after a shots refresh).
 
 import { describe, expect, test } from "bun:test"
 import corpus from "./corpus.json" with { type: "json" }
@@ -11,6 +13,15 @@ import report from "./report.json" with { type: "json" }
 import { RUBRICS, aggregate, authoredDepth, parseReply, rubricScores, scoreFixture, spacingStats, surfaceOf, type Corpus } from "./lib"
 import { readFixture, scoreAll } from "./score"
 import type { ParityRow } from "./parity"
+import { RENDERERS, type RenderMeasure } from "./render"
+
+/** Where Solid differs from React on the corpus, by surface: the findings
+ *  the eval produced (the web-parity gate had no case for them). */
+const RENDER_FINDINGS: Record<string, RegExp[]> = {
+  // React's Select throws on an option whose value is "" (Radix Select.Item refuses the empty string) and paints
+  // its error placeholder; Solid's own Select paints the control. 2 Selects × (label + trigger) = 4 nodes.
+  "issue-list-filters": [/^nodes: react 34, solid 38$/, /^pixels: \d+ differ/],
+}
 
 const prompts = (corpus as Corpus).prompts
 
@@ -50,15 +61,39 @@ describe(`the report`, () => {
     for (const r of RUBRICS) expect(a.rubric[r].passed).toBeLessThanOrEqual(a.rubric[r].expected)
   })
 
-  test(`every surface rendered on the web at each of its widths (render.ts ran)`, () => {
-    const render = report.render as Record<string, { width: number; nodes: number; height: number; overflowsX: boolean }[]>
+  test(`every surface rendered on the web with React and Solid at each of its widths (render.ts ran)`, () => {
+    const render = report.render as Record<string, RenderMeasure[]>
     for (const p of prompts) {
       const measures = render[p.id]
       expect(measures, p.id).toBeDefined()
       expect(measures.map((m) => m.width), p.id).toEqual(p.widths ?? [1280])
       for (const m of measures) {
-        expect(m.nodes, `${p.id}@${m.width}`).toBeGreaterThan(0)
-        expect(m.overflowsX, `${p.id}@${m.width} overflows sideways`).toBe(false)
+        for (const renderer of RENDERERS) {
+          expect(m[renderer].nodes, `${p.id}@${m.width} ${renderer}`).toBeGreaterThan(0)
+          expect(m[renderer].overflowsX, `${p.id}@${m.width} ${renderer} overflows sideways`).toBe(false)
+          expect(m[renderer].picture).toBe(`eval/out/${p.id}/${renderer}-${m.width}.png`)
+        }
+      }
+    }
+  })
+
+  test(`Solid paints what React paints: the same boxes and the same pixels, except the findings on record`, () => {
+    const render = report.render as Record<string, RenderMeasure[]>
+    for (const p of prompts) {
+      for (const m of render[p.id]) {
+        const known = RENDER_FINDINGS[p.id]
+        if (!known) {
+          expect(m.differences, `${p.id}@${m.width}`).toEqual([])
+          expect(m.equal, `${p.id}@${m.width}`).toBe(true)
+          expect(m.pixelDiff.pixels, `${p.id}@${m.width}`).toBe(0)
+          expect(m.react.height).toBe(m.solid.height)
+          expect(m.react.gaps).toEqual(m.solid.gaps)
+          continue
+        }
+        // A finding stays on record until the renderer is fixed and render.ts rerun (this list then shrinks).
+        expect(m.equal, `${p.id}@${m.width}`).toBe(false)
+        for (const re of known) expect(m.differences.some((d) => re.test(d)), `${p.id}@${m.width}: ${re} in ${m.differences.join(`; `)}`).toBe(true)
+        expect(m.differences.length).toBe(known.length)
       }
     }
   })

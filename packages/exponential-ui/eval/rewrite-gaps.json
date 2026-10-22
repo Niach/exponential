@@ -1,6 +1,10 @@
 {
   "$comment": "VAPP-108: the rewrite gap list. Every app screen of packages/view-catalog/views.json (the exponential-ui-catalog group excepted: those ARE the catalog) classified by what the core catalog needs before the screen could be written as an Exponential UI surface: `expressible` = today's catalog + the app extension (IconDisc, LiveDot) draw it; `macro` = one or more missing layout macros (named) would make it one surface without Box + style; `extension` = an app-specific component the app extension must add (a painter per platform, never the core catalog); `native` = a new core NATIVE (a renderer-level control: an editor, a terminal, a diff, a tree with drag) the catalog does not have. `with` names what is missing. gaps.test.ts keeps this list in lockstep with views.json.",
   "classes": ["expressible", "macro", "extension", "native"],
+  "renderers": {
+    "$comment": "Which gaps concern which web renderer now that there are two (FEED-128: @exponential-at/ui-solid). A `macro` expands in the shared reducer before any renderer sees it: no renderer work. An `extension` component is painted by the app extension, which exists for React only (defineReactExtension): a Solid twin (defineSolidExtension) is needed before an extension-class screen runs on Solid. A `native` is a renderer-level control every renderer must paint: Solid included, so each native candidate is one more Solid painter.",
+    "solid": { "classes": ["extension", "native"], "candidates": ["Tree"] }
+  },
   "candidates": {
     "Page": "a page: title row (back, title, trailing actions) over a padded scrolling body; the AppBar + Stack + style every settings-like surface rebuilds",
     "Toolbar": "ONE row of controls (search, filters, the primary action) that wraps on phones; align: center implied",
@@ -80,6 +84,7 @@
     { "id": "session-row", "class": "expressible", "with": "Row (two densities) + depth + a trailing Icon; the session mark is IconDisc (app extension)" },
     { "id": "pr-row", "class": "expressible", "with": "Row + Ring lead + depth (tree guides); the stack rail is Section tree" },
     { "id": "composer-menu", "class": "expressible", "with": "Menu with submenus (searchable) over a Button" },
+    { "id": "composer-dialog-menu", "class": "expressible", "with": "the same Menu with submenus inside a Dialog; that a desktop dialog's menu needs a window of its own is the host's (the gpui renderer), not the catalog's" },
     { "id": "composer-slash-menu", "class": "expressible", "with": "SearchList in a Popover" },
     { "id": "session-slash-menu", "class": "expressible", "with": "SearchList in a Popover" },
     { "id": "work-card", "class": "macro", "with": "StatTile-like header (icon, name, kind, progress, elapsed) over Meter + Collapsible phases + Trace; a Card with a leading icon row" },

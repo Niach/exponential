@@ -179,6 +179,21 @@ return <HostSurface host={host} surfaceId="main" theme="orange" fallback={<p>Wai
       ),
     },
     {
+      id: `define`,
+      label: `A surface in TypeScript`,
+      body: (
+        <>
+          <p>
+            <code>defineSurface</code> from <code>@exponential-at/ui</code> works unchanged in a Solid project: the
+            typed tree becomes the same messages an agent sends, and <code>createSurface</code> applies them. Nothing
+            Solid-specific is needed; the file compiles under this project&apos;s tsconfig and runs under Node.
+          </p>
+          <GuideFile path="solid/src/defined.ts" caption="the typed DSL, as in the TypeScript guide" />
+          <GuideFile path="solid/src/Defined.tsx" caption="painted by the Solid renderer" />
+        </>
+      ),
+    },
+    {
       id: `primitives`,
       label: `Primitives`,
       body: (

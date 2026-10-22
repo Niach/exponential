@@ -23,7 +23,8 @@ const SECTIONS: DocsSectionType[] = [
 ]
 
 type Row = (typeof report.rows)[number]
-type Measure = { width: number; height: number; nodes: number; gaps: number[]; distinctGaps: number[]; textInset: number | null; overflowsX: boolean }
+type RendererMeasure = { height: number; nodes: number; gaps: number[]; distinctGaps: number[]; textInset: number | null; overflowsX: boolean }
+type Measure = { width: number; react: RendererMeasure; solid: RendererMeasure; equal: boolean; differences: string[]; pixelDiff: { pixels: number; share: number } }
 type ParityRow = {
   platform: string
   native: { band: { height: number; titleX: number }; firstRow: { titleX: number; gapBelowBand: number } }
@@ -36,6 +37,8 @@ const a = report.aggregate
 const n = (x: number) => x.toLocaleString(`en-US`)
 const pct = (x: number, d: number) => (d ? `${Math.round((x / d) * 100)} %` : `–`)
 const render = report.render as Record<string, Measure[]>
+const renderFindings = report.rows.flatMap((r) => (render[r.id] ?? []).filter((m) => !m.equal).map((m) => ({ title: r.title, width: m.width, differences: m.differences })))
+const SOLID_GAP_CLASSES = gaps.renderers.solid.classes as string[]
 const parity = (report.parity as { rows: ParityRow[] }).rows
 const css = (storePx: number) => `${Math.round((storePx / 1.25) * 10) / 10} px`
 const RUBRIC_LABEL: Record<string, string> = {
@@ -76,12 +79,12 @@ export default function EvalPage({ path }: PageProps) {
             empty state, a phone inbox rendered at four widths. <code>record.ts</code> sends each prompt to Claude with{` `}
             <code>catalogPrompt()</code> as the system prompt and caches the reply as a fixture; <code>score.ts</code>{` `}
             validates every reply with the same reducer the renderers use and scores it; <code>render.ts</code> paints
-            it in the React renderer and measures the boxes; <code>parity.ts</code> measures the Devices template
-            against the native page on the stored shots.
+            it in the React renderer and the Solid renderer, measures the boxes of each and compares the two;{` `}
+            <code>parity.ts</code> measures the Devices template against the native page on the stored shots.
           </p>
           <DocsCode>{`bun run --filter @exponential-at/ui eval:record   # once, needs ANTHROPIC_API_KEY
 bun run --filter @exponential-at/ui eval          # score the fixtures → eval/report.json
-bun run --filter @exponential-at/ui eval:render   # web renders at every width (Playwright)
+bun run --filter @exponential-at/ui eval:render   # web renders, React + Solid, at every width (Playwright)
 bun run --filter @exponential-at/ui eval:parity   # the Devices template vs the native page`}</DocsCode>
           <p>
             Recorded by: {Object.entries(a.recordedBy).map(([k, v]) => `${v} ${k === `api` ? `over the API` : `by the session's own model from the same prompt`}`).join(`, `)}.
@@ -149,15 +152,23 @@ bun run --filter @exponential-at/ui eval:parity   # the Devices template vs the 
         <DocsSection id="render" num="05" label="Rendered on the web">
           <h2>Rendered on the web</h2>
           <p>
-            Every surface painted by the React renderer in the exponential theme at its widths; the gaps are the
-            measured distances between the root&apos;s children, the inset is where the first text starts.
+            Every surface painted by the React renderer and the Solid renderer in the exponential theme at its widths;
+            the gaps are the measured distances between the root&apos;s children, the inset is where the first text
+            starts. The two renderers must measure the same boxes and paint the same pixels (the web-parity gate makes
+            them so); a difference is a finding.
           </p>
           <DocsTable
-            head={[`Surface`, `Width`, `Painted nodes`, `Height`, `Gaps between root children`, `First text inset`]}
+            head={[`Surface`, `Width`, `Painted nodes`, `Height`, `Gaps between root children`, `First text inset`, `Solid`]}
             rows={report.rows.flatMap((r) =>
-              (render[r.id] ?? []).map((m) => [r.title, `${m.width} px`, m.nodes, `${m.height} px`, m.distinctGaps.filter((g) => g >= 0).map((g) => `${g} px`).join(`, `) || `–`, m.textInset === null ? `–` : `${m.textInset} px`])
+              (render[r.id] ?? []).map((m) => [r.title, `${m.width} px`, m.react.nodes, `${m.react.height} px`, m.react.distinctGaps.filter((g) => g >= 0).map((g) => `${g} px`).join(`, `) || `–`, m.react.textInset === null ? `–` : `${m.react.textInset} px`, m.equal ? `equal` : `differs`])
             )}
           />
+          <h3>Where Solid differs from React</h3>
+          {renderFindings.length ? (
+            <DocsTable head={[`Surface`, `Width`, `What differs`]} rows={renderFindings.map((f) => [f.title, `${f.width} px`, f.differences.join(`; `)])} />
+          ) : (
+            <p>Nowhere: every surface measured and painted the same on both renderers.</p>
+          )}
         </DocsSection>
 
         <DocsSection id="parity" num="06" label="Spacing parity with the app">
@@ -206,10 +217,22 @@ bun run --filter @exponential-at/ui eval:parity   # the Devices template vs the 
             head={[`Class`, `Screens`]}
             rows={gaps.classes.map((c) => [CLASS_LABEL[c] ?? c, gaps.screens.filter((s) => s.class === c).length])}
           />
+          <p>
+            Two of the classes also concern the Solid renderer: an app extension component exists for React only and
+            needs a Solid twin; a new native is a painter every renderer adds. A macro expands in the shared reducer
+            and is no renderer work. {gaps.screens.filter((s) => SOLID_GAP_CLASSES.includes(s.class)).length} screens
+            are in those classes.
+          </p>
           <h3>The candidate macros</h3>
-          <DocsTable head={[`Macro`, `What it is`]} rows={Object.entries(gaps.candidates).map(([k, v]) => [<code key={k}>{k}</code>, v])} />
+          <DocsTable
+            head={[`Macro`, `What it is`, `Solid`]}
+            rows={Object.entries(gaps.candidates).map(([k, v]) => [<code key={k}>{k}</code>, v, (gaps.renderers.solid.candidates as string[]).includes(k) ? `a Solid painter too` : `reducer only`])}
+          />
           <h3>Every screen</h3>
-          <DocsTable head={[`Screen`, `Class`, `With`]} rows={gaps.screens.map((s) => [<code key={s.id}>{s.id}</code>, CLASS_LABEL[s.class] ?? s.class, s.with])} />
+          <DocsTable
+            head={[`Screen`, `Class`, `With`, `Solid`]}
+            rows={gaps.screens.map((s) => [<code key={s.id}>{s.id}</code>, CLASS_LABEL[s.class] ?? s.class, s.with, SOLID_GAP_CLASSES.includes(s.class) ? `yes` : `–`])}
+          />
         </DocsSection>
       </DocsLayout>
     </>

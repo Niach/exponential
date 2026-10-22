@@ -1,6 +1,6 @@
 // VAPP-108: the rewrite gap list stays in lockstep with the view catalog:
 // every app screen classified once, every named candidate macro defined,
-// no stale ids.
+// no stale ids; the gaps that also concern the Solid renderer are named.
 
 import { describe, expect, test } from "bun:test"
 import views from "../../view-catalog/views.json" with { type: "json" }
@@ -22,6 +22,16 @@ describe(`rewrite gaps`, () => {
   test(`every macro the list wants is a named candidate`, () => {
     const names = Object.keys(gaps.candidates)
     for (const s of gaps.screens.filter((s) => s.class === `macro`)) expect(names.some((n) => s.with.includes(n.split(`.`)[0])), `${s.id}: ${s.with}`).toBe(true)
+  })
+
+  test(`the gaps that also concern Solid are classes and candidates the list knows`, () => {
+    const solid = gaps.renderers.solid
+    for (const c of solid.classes) expect(gaps.classes).toContain(c)
+    for (const name of solid.candidates) expect(Object.keys(gaps.candidates)).toContain(name)
+    // Macros are the reducer's: never a renderer gap. Natives always are.
+    expect(solid.classes).not.toContain(`macro`)
+    expect(solid.classes).toContain(`native`)
+    expect(gaps.screens.filter((s) => (solid.classes as string[]).includes(s.class)).length).toBeGreaterThan(0)
   })
 
   test(`the counts the issue quotes`, () => {

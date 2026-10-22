@@ -88,10 +88,11 @@ jobs:
         env:
           EXPONENTIAL_UI_CONFORMANCE_REPORT: ${{ github.workspace }}/.conformance/exponential-ui-react.json
         run: bun run --filter @exponential-at/ui-react test:conformance
-      - name: Guides (React, agent, theme) from a fresh project
+      - name: Guides (React, agent, define, theme) from a fresh project
         run: |
           bun apps/ui-site/guides/check.ts react
           bun apps/ui-site/guides/check.ts agent
+          bun apps/ui-site/guides/check.ts define
           bun apps/ui-site/guides/check.ts theme
       - uses: actions/upload-artifact@v4
         with:

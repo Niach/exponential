@@ -7,7 +7,9 @@
 //            of the tarballs, `tsc --noEmit`, `vite build`, then the extension
 //            (defineExtension + its macro reduced) and the vapp (validatePackage)
 //            checked at runtime against the packed package
-//   solid    the same as react with `@exponential-at/ui-solid` (Vite + vite-plugin-solid)
+//   solid    the same as react with `@exponential-at/ui-solid` (Vite + vite-plugin-solid),
+//            plus the typed DSL from the Solid project (VAPP-108: src/defined.ts run by
+//            node must print a valid surface; src/Defined.tsx feeds it to the renderer)
 //   agent    the same tarballs, `tsc --noEmit`, then the server started and asked
 //            for a valid and an invalid surface over MCP
 //   define   the same tarballs, `tsc --noEmit`, then `node surface.ts` must print
@@ -150,6 +152,24 @@ console.log("extension + vapp: no issues")
 `
   )
   run(`node runtime-check.mjs`, dir)
+  // VAPP-108: the typed DSL from this project, unchanged (tsc covered
+  // src/defined.ts + src/Defined.tsx above; node runs the DSL half).
+  if (existsSync(join(dir, `src`, `defined.ts`))) {
+    const out = execFileSync(`node`, [`src/defined.ts`], { cwd: dir, encoding: `utf8` })
+    await checkDefinedOutput(out, `${guide}: src/defined.ts`)
+  }
+}
+
+/** The JSONL a defineSurface script printed: createSurface + updateComponents
+ *  (+ updateDataModel), the components valid under the reducer. */
+async function checkDefinedOutput(out: string, what: string): Promise<number> {
+  const { reduceSurface } = await import(`../../../packages/exponential-ui/src/index.ts`)
+  const lines = out.trim().split(`\n`).map((l) => JSON.parse(l) as { createSurface?: unknown; updateComponents?: { catalogId?: string; components: never[] } })
+  if (lines.length !== 3 || !lines[0].createSurface || !lines[1].updateComponents) throw new Error(`${what} did not print createSurface + updateComponents + updateDataModel:\n${out}`)
+  const { issues } = reduceSurface(lines[1].updateComponents.components, { catalogId: (lines[0].createSurface as { catalogId: string }).catalogId })
+  if (issues.length) throw new Error(`${what}: the defined surface has issues: ${issues.map((i) => `${i.id}: ${i.message}`).join(`; `)}`)
+  console.log(`${what}: node printed a valid surface (${lines[1].updateComponents.components.length} components)`)
+  return lines[1].updateComponents.components.length
 }
 
 const react = () => webGuide(`react`)
@@ -204,12 +224,7 @@ async function define(): Promise<void> {
   run(`npx tsc --noEmit`, dir)
   // The surface it prints must be the valid JSONL a host consumes.
   const out = execFileSync(`node`, [`surface.ts`], { cwd: dir, encoding: `utf8` })
-  const { reduceSurface } = await import(`../../../packages/exponential-ui/src/index.ts`)
-  const lines = out.trim().split(`\n`).map((l) => JSON.parse(l) as { createSurface?: unknown; updateComponents?: { catalogId?: string; components: never[] } })
-  if (lines.length !== 3 || !lines[0].createSurface || !lines[1].updateComponents) throw new Error(`surface.ts did not print createSurface + updateComponents + updateDataModel:\n${out}`)
-  const { issues } = reduceSurface(lines[1].updateComponents.components, { catalogId: (lines[0].createSurface as { catalogId: string }).catalogId })
-  if (issues.length) throw new Error(`the defined surface has issues: ${issues.map((i) => `${i.id}: ${i.message}`).join(`; `)}`)
-  console.log(`define: tsc clean, node surface.ts printed a valid surface (${lines[1].updateComponents.components.length} components)`)
+  await checkDefinedOutput(out, `define: surface.ts`)
 }
 
 async function theme(): Promise<void> {

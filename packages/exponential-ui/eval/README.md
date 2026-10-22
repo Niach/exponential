@@ -12,9 +12,9 @@ a model.
 | `lib.ts` | the pure half: the reply parser (JSONL, a fenced block, an array, prose around them), the surface, the validator pass, the rubric, the spacing stats, the aggregate |
 | `record.ts` | `bun run eval:record [--only id] [--force] [--model] [--variant] [--effort]`: records the corpus (Anthropic SDK, `claude-opus-5-5` by default, streaming, the system prompt cached, `fallbacks: "default"`); credentials from the environment |
 | `score.ts` | `bun run eval`: scores every fixture → `report.json` (the numbers the issue, the site's `/eval/` page and `eval.test.ts` read) |
-| `render.ts` | `bun run eval:render`: paints every surface in the React harness (Playwright) at each width → `out/<id>/web-<w>.png` (gitignored) and the measured boxes into `report.json` |
+| `render.ts` | `bun run eval:render`: paints every surface in BOTH web harnesses, React and Solid (Playwright, still pictures as the web-parity gate takes them) at each width → `out/<id>/{react,solid}-<w>.png` (gitignored), the measured boxes of each into `report.json`, and their comparison: the boxes must agree and the pictures be pixel-identical; a difference is a finding (`differences`), which `eval.test.ts` keeps on record until the renderer is fixed |
 | `parity.ts` | `bun run eval:parity`: the Devices template vs the native Devices page on the stored shots (web + desktop): band height, title inset, first row inset, the gap under the band, a pixel diff of the band → `report.json` |
-| `rewrite-gaps.json` | every app screen classified expressible / macro / extension / native, with the candidate macros; `gaps.test.ts` keeps it in lockstep with `views.json` |
+| `rewrite-gaps.json` | every app screen classified expressible / macro / extension / native, with the candidate macros, and which gap classes also concern the Solid renderer (`renderers.solid`: extensions need a Solid twin, natives a Solid painter; macros are the reducer's); `gaps.test.ts` keeps it in lockstep with `views.json` |
 | `report.json` | the eval on record (generated; `eval.test.ts` fails when the rows drift from the fixtures) |
 
 Rerun order after a prompt or catalog change: `eval:record` (by hand, with a
