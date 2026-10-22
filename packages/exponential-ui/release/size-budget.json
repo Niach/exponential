@@ -33,27 +33,27 @@
     "gzip": 86016
   },
   "android/arm64-v8a": {
-    "bytes": 5007360
+    "bytes": 4864000
   },
   "android/armeabi-v7a": {
-    "bytes": 3666944
+    "bytes": 3597312
   },
   "android/x86_64": {
-    "bytes": 6090752
+    "bytes": 5918720
   },
   "xcframework/ios-arm64": {
-    "bytes": 46733312
+    "bytes": 6324224
   },
   "xcframework/ios-arm64_x86_64-simulator": {
-    "bytes": 93640704
+    "bytes": 13156352
   },
   "xcframework/macos-arm64_x86_64": {
-    "bytes": 94602240
+    "bytes": 13302784
   },
   "crate/darwin/bench-example": {
-    "bytes": 4358144
+    "bytes": 4323328
   },
   "crate/darwin/exponential-ui-ffi": {
-    "bytes": 6598656
+    "bytes": 6562816
   }
 }

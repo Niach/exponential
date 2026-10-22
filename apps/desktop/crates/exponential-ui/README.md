@@ -137,6 +137,14 @@ unchanged text.
   placeholder).
 - The `shaping` feature adds `ShapingMeasure`: text shaped in-process on the
   system fonts with cosmic-text (baselines from the first layout run).
+- VAPP-106, size: the embedded catalog is the RUNTIME one (no descriptions
+  or examples); the `descriptions` feature (off) adds them as
+  `catalog::descriptions()` for a host that builds its own prompt. The
+  default-on `builtin-themes` feature embeds the non-default resolved
+  themes (`neutral`, `playful`, ~140 KB of .rodata); `--no-default-features`
+  keeps only `exponential`, and a host theme that `extends` another
+  built-in then falls back to the default with an issue. Sizes on record:
+  `packages/exponential-ui/release/sizes.json`.
 
 ## Surface API
 

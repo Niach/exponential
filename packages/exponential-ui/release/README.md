@@ -78,6 +78,15 @@ publishing).
 | `android` | each ABI's `libexponential_ui_ffi.so`, the AAR when Gradle built one | after `build-android.sh` |
 | `crate` | `cargo bloat --crates` on the core's `bench` example (the top crates by `.text`), the host build of the facade | `cargo install cargo-bloat` |
 
+What the native numbers rest on (VAPP-106): the device builds compile the
+facade as ONE crate type (`cargo rustc --crate-type staticlib|cdylib`),
+because cargo skips the profile's LTO when a target also builds an rlib, and
+`build-ios.sh` strips a copy of each archive (`strip -S -x`: the debug info
+and local symbols of the prebuilt std objects) before `lipo`; the `.so` is
+stripped by the profile. The crate's `builtin-themes` (default on) and
+`descriptions` (off) features gate the embedded data; the device builds keep
+the defaults (the Swift and Compose conformance suites paint `playful`).
+
 Updating the record: `size.ts <section> --write` rewrites that section of
 `sizes.json`; a change that shrinks something lowers its budget in the same
 commit (the ratchet never loosens by accident), a change that must grow

@@ -83,13 +83,13 @@
       "host": "darwin-arm64",
       "entries": {
         "android/arm64-v8a": {
-          "bytes": 4768208
+          "bytes": 4631848
         },
         "android/armeabi-v7a": {
-          "bytes": 3491644
+          "bytes": 3425864
         },
         "android/x86_64": {
-          "bytes": 5800640
+          "bytes": 5635960
         }
       }
     },
@@ -98,20 +98,20 @@
       "host": "darwin-arm64",
       "entries": {
         "xcframework/ios-arm64": {
-          "bytes": 44507248
+          "bytes": 6022752
         },
         "xcframework/ios-arm64_x86_64-simulator": {
-          "bytes": 89181376,
+          "bytes": 12529632,
           "parts": {
-            "x86_64": 44680816,
-            "arm64": 44500512
+            "x86_64": 6511776,
+            "arm64": 6017808
           }
         },
         "xcframework/macos-arm64_x86_64": {
-          "bytes": 90096448,
+          "bytes": 12668520,
           "parts": {
-            "x86_64": 45297760,
-            "arm64": 44798640
+            "x86_64": 6633624,
+            "arm64": 6034848
           }
         }
       }
@@ -121,11 +121,11 @@
       "host": "darwin-arm64",
       "entries": {
         "crate/darwin/bench-example": {
-          "bytes": 4149848,
+          "bytes": 4116824,
           "parts": {
             ".text": 2516582,
             "exponential_ui": 1782579,
-            "std": 410214,
+            "std": 409907,
             "taffy": 132506,
             "serde_json": 81203,
             "serde_core": 14848,
@@ -142,7 +142,7 @@
           }
         },
         "crate/darwin/exponential-ui-ffi": {
-          "bytes": 6283680
+          "bytes": 6250128
         }
       }
     }
