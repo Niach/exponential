@@ -24,6 +24,8 @@
 //! - Windows: `PopUp` is a topmost tool window, placed likewise.
 //! - X11: `PopUp` is an override-redirect window — the one window kind
 //!   whose origin survives the WM (EXP-308 lost it for `Normal` dialogs).
+//!   The WM never focuses one and gpui ignores `focus` there, so the layer
+//!   activates itself and hands the keyboard back on close (N-14).
 //! - Wayland: toplevels cannot be positioned at all; gpui's own
 //!   `WindowKind::AnchoredPopup` (an `xdg_popup`) is the only placed
 //!   surface there and is the follow-up. Today the open fails there and the
@@ -256,8 +258,19 @@ pub(crate) fn close(cx: &mut App) {
     let host = open.host;
     log::info!("[menu-window] closing the layer of {}", open.id);
     cx.defer(move |cx| {
+        // N-14: a layer that held the keyboard hands it back to its host
+        // (on X11 nothing else would: the focus would revert to the root).
+        // One that had lost it (a click in another app) leaves it there.
+        let had_key = layer
+            .update(cx, |_, window, _| window.is_window_active())
+            .unwrap_or(false);
         let _ = layer.update(cx, |_, window, _| window.remove_window());
-        let _ = host.update(cx, |_, window, _| window.refresh());
+        let _ = host.update(cx, |_, window, _| {
+            if had_key && cfg!(target_os = "linux") {
+                window.activate_window();
+            }
+            window.refresh();
+        });
     });
 }
 
@@ -344,12 +357,24 @@ pub(crate) fn open(
                 MenuLayer::new(menu, anchor_in_layer, wanted, layer_id, select_first, window, cx)
             });
             // Root first (§3.3): it hosts the overlay layers a menu's own
-            // popovers paint into.
-            cx.new(|cx| Root::new(layer, window, cx).bg(gpui::transparent_black()))
+            // popovers paint into. N-14: WITHOUT the Linux client-side
+            // decoration wrapper — it framed the whole transparent layer in
+            // a 1px border and a shadow (macOS never draws it).
+            cx.new(|cx| {
+                Root::new(layer, window, cx)
+                    .bordered(false)
+                    .bg(gpui::transparent_black())
+            })
         });
         match opened {
             Ok(handle) => {
                 log::info!("[menu-window] layer up for {id}");
+                // N-14: X11 ignores `focus` and never gives an
+                // override-redirect window the keyboard — the keys went on
+                // to the dialog (Escape closed the DIALOG, the arrows and
+                // the submenu's search typed nowhere). Take it explicitly.
+                #[cfg(target_os = "linux")]
+                let _ = handle.update(cx, |_, window, _| window.activate_window());
                 state.update(cx, |state, _| {
                     state.open = Some(OpenLayer {
                         layer: handle.into(),
