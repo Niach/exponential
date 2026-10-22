@@ -21,3 +21,44 @@ export const SELECT_CLASSES = {
   scrollButton: `flex cursor-default items-center justify-center py-1`,
   scrollIcon: `size-4`,
 } as const
+
+// FEED-131 — Radix Select's INLINE styles, in the order Radix writes them
+// (kebab-case keys): the Solid twin paints Radix's DOM by hand and the
+// web-parity gate diffs the `style` attribute strings.
+export const SELECT_INLINE = {
+  value: { "pointer-events": `none` },
+  /** The item-aligned position's fixed wrapper (before `position()` runs). */
+  wrapper: { display: `flex`, "flex-direction": `column`, position: `fixed` },
+  viewport: { position: `relative`, flex: `1`, overflow: `hidden auto` },
+  scrollButton: { "flex-shrink": `0` },
+  /** The wrapper's `justify-content` once an expand-on-scroll pinned it to the bottom. */
+  expandEnd: `flex-end`,
+} as const
+
+export const SELECT_VIEWPORT_ATTR = `data-radix-select-viewport`
+/** Radix Select's viewport sheet (the native scrollbar hidden). */
+export const SELECT_VIEWPORT_CSS = `[${SELECT_VIEWPORT_ATTR}]{scrollbar-width:none;-ms-overflow-style:none;-webkit-overflow-scrolling:touch;}[${SELECT_VIEWPORT_ATTR}]::-webkit-scrollbar{display:none}`
+
+/** The content's style, `item-aligned`: box sizing + max height, the
+ *  dismissable layer's pointer events, the flex column, no outline. */
+export function selectItemAlignedContentStyle(pointerEvents: string | undefined): Record<string, string | undefined> {
+  return { "box-sizing": `border-box`, "max-height": `100%`, "pointer-events": pointerEvents, display: `flex`, "flex-direction": `column`, outline: `none` }
+}
+
+/** The content's style, `popper`: Radix's PopperContent order (its
+ *  `--radix-select-*` aliases, `animation: none` until placed). */
+export function selectPopperContentStyle(pointerEvents: string | undefined, positioned: boolean): Record<string, string | undefined> {
+  return {
+    "box-sizing": `border-box`,
+    "pointer-events": pointerEvents,
+    display: `flex`,
+    "flex-direction": `column`,
+    outline: `none`,
+    "--radix-select-content-transform-origin": `var(--radix-popper-transform-origin)`,
+    "--radix-select-content-available-width": `var(--radix-popper-available-width)`,
+    "--radix-select-content-available-height": `var(--radix-popper-available-height)`,
+    "--radix-select-trigger-width": `var(--radix-popper-anchor-width)`,
+    "--radix-select-trigger-height": `var(--radix-popper-anchor-height)`,
+    animation: positioned ? undefined : `none`,
+  }
+}
