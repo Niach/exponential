@@ -91,6 +91,8 @@ import com.exponential.app.ui.settings.AgentSettingsScreen
 import com.exponential.app.ui.settings.PromptSettingsScreen
 import com.exponential.app.ui.settings.PromptsSettingsScreen
 import com.exponential.app.ui.thread.AgentConversationScreen
+import com.exponential.app.ui.apps.AppEditorScreen
+import com.exponential.app.ui.apps.AppsScreen
 import com.exponential.app.ui.settings.AgentsSettingsScreen
 import com.exponential.app.ui.session.AgentsScreen
 import com.exponential.app.ui.settings.AboutScreen
@@ -655,6 +657,20 @@ private fun AuthenticatedNav(
                 // NEW-7: an agent with no conversation of mine yet opens its
                 // empty DM (the first send creates it).
                 onOpenAgent = { id -> navController.navigate(Routes.agentDm(id)) },
+                onOpenSession = { id -> navController.navigate(Routes.session(id)) },
+                onOpenApps = { navController.navigate(Routes.APPS) },
+            )
+        }
+        composable(Routes.APPS) {
+            AppsScreen(
+                onBack = { navController.popBackStack() },
+                onOpenApp = { id -> navController.navigate(Routes.app(id)) },
+            )
+        }
+        composable(Routes.APP_PATTERN) {
+            AppEditorScreen(
+                onBack = { navController.popBackStack() },
+                onOpenIssue = { id -> navController.navigate("issue/$id") },
                 onOpenSession = { id -> navController.navigate(Routes.session(id)) },
             )
         }

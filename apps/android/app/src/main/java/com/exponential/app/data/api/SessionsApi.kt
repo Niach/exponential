@@ -48,6 +48,8 @@ data class SessionsSendInput(
     val repositoryId: String? = null,
     // NEW-2: a message to an AGENT (into the caller's conversation with it).
     val agentId: String? = null,
+    // VAPP-110: a message to an APP = into the caller's editor session with it.
+    val appId: String? = null,
 ) {
     companion object {
         /**
@@ -101,6 +103,17 @@ data class SessionsSendInput(
             agentId = agentId,
             text = text,
             attachmentIds = attachmentIds?.takeIf { it.isNotEmpty() },
+        )
+
+        /**
+         * VAPP-110: a message to the app [appId] = into the caller's OWN
+         * editor session with it (created on first use on [deviceId]; an
+         * ended one continues server-side).
+         */
+        fun toApp(appId: String, text: String, deviceId: String?): SessionsSendInput = SessionsSendInput(
+            appId = appId,
+            deviceId = deviceId,
+            text = text,
         )
 
         /** A CHILD session under [parentId] (a follow-up / sub-session). */

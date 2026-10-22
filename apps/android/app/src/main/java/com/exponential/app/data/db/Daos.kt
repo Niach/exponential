@@ -474,6 +474,40 @@ interface AgentDefinitionDao {
     suspend fun clear()
 }
 
+// VAPP-110: the team's apps (trashed rows hidden) and their versions.
+@Dao
+interface AppDao {
+    @Query("SELECT * FROM apps WHERE team_id = :teamId AND deleted_at IS NULL ORDER BY name COLLATE NOCASE, id")
+    fun observeByTeam(teamId: String): Flow<List<AppEntity>>
+
+    @Query("SELECT * FROM apps WHERE id = :id AND deleted_at IS NULL LIMIT 1")
+    fun observeById(id: String): Flow<AppEntity?>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(item: AppEntity)
+
+    @Query("DELETE FROM apps WHERE id = :id")
+    suspend fun deleteById(id: String)
+
+    @Query("DELETE FROM apps")
+    suspend fun clear()
+}
+
+@Dao
+interface AppVersionDao {
+    @Query("SELECT * FROM app_versions WHERE app_id = :appId ORDER BY number DESC")
+    fun observeByApp(appId: String): Flow<List<AppVersionEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(item: AppVersionEntity)
+
+    @Query("DELETE FROM app_versions WHERE id = :id")
+    suspend fun deleteById(id: String)
+
+    @Query("DELETE FROM app_versions")
+    suspend fun clear()
+}
+
 // NEW-2: the member teams' events, newest first.
 @Dao
 interface EventDao {

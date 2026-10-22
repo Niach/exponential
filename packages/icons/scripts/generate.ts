@@ -1022,6 +1022,12 @@ ${allNames.map((n) => `        "${n}" -> \`${n}\``).join("\n")}
         else -> null
     }
 
+    /** Concept name (\`nav-devices\`) -> glyph. Null for an unknown concept. */
+    public fun byConcept(name: String): ImageVector? = when (name) {
+${semanticKeys.map((k) => `        "${k}" -> \`${registry.semantic[k]}\``).join("\n")}
+        else -> null
+    }
+
 ${semanticKeys
   .map(
     (k) =>

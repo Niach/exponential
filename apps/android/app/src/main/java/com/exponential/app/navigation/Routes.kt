@@ -41,4 +41,10 @@ object Routes {
     const val PROMPT_SETTINGS_PATTERN = "settings/prompt/{promptId}"
     fun promptSettings(promptId: String): String = "settings/prompt/$promptId"
     const val PROMPT_NEW = "settings/prompt-new"
+
+    /** VAPP-110: the selected team's Apps (reached from the Threads tab). */
+    const val APPS = "apps"
+    /** VAPP-110: one app's editor (`builtin` = the built-in Devices app). */
+    const val APP_PATTERN = "app/{appId}"
+    fun app(appId: String): String = "app/$appId"
 }
