@@ -9,8 +9,8 @@
 // the reference): `<serve.ts>` honours `PORT`, answers `/` with a page whose
 // module script is the bundle, and that page reads `?view=…` (kitchen-sink,
 // geometry, overlay, catalog, conditions, tree, controls, specimen, mount,
-// bench, round2) plus theme/mode/rtl/width/echo and exposes the `window.__xui*`
-// probes.
+// bench, round2, primitives = FEED-131's primitives-page.ts) plus
+// theme/mode/rtl/width/echo and exposes the `window.__xui*` probes.
 
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright"
 import { spawn, type ChildProcess } from "node:child_process"

@@ -1,0 +1,13 @@
+{
+  "$comment": "FEED-131: the PRIMITIVE specimens of the web-parity gate (conformance/parity.ts, group `primitive`): `@exponential-at/ui-react/primitives` (Radix + dist/exponential-ui-react.css) = the reference, `@exponential-at/ui-solid/primitives` (+ dist/exponential-ui-solid.css, byte-identical) = the candidate. Each row runs × [exponential light, orange dark] through both harnesses' `?view=primitives&id=<id>&theme=&mode=&width=`; the specimen itself lives in harness/primitives/<primitive>.ts(x) of EACH package (SPECIMENS[id]). The whole <body> is compared (DOM incl. body attributes, every element's computed style + frame, pixels), 0 tolerance.",
+  "$fields": {
+    "id": "`<primitive>/<variant>`, unique; the harness key (SPECIMENS[id]) on both sides",
+    "primitive": "the harness module that owns it: smoke | plain | controls | overlays | data | calendar",
+    "viewport": "{ width, height } of the page (width is also the `width` query)",
+    "open": "true = an overlay opens on mount (the specimen passes defaultOpen); the gate waits for window.__xuiOverlay?.() !== null when the page defines it, then two frames",
+    "interact": "null | \"hover\" | \"focus\": the gate also runs a case that hovers / focuses the FIRST [data-xui-target] inside the specimen on both sides, waits two frames, then dumps"
+  },
+  "specimens": [
+    { "id": "smoke/button", "primitive": "smoke", "viewport": { "width": 900, "height": 600 }, "open": false, "interact": null }
+  ]
+}
