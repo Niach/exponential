@@ -1013,7 +1013,10 @@ impl MenuSearchList {
             return;
         }
         let pick = self.source.pick.clone();
-        if pick(&id, window, cx) {
+        // N-6: the pick belongs to the window the list was built FOR (the
+        // composer's dialog: it toggles a chip there and refits the window),
+        // which is not this one when the menu sits in a menu layer.
+        if crate::menu_window::in_host(window, cx, |window, cx| pick(&id, window, cx)) {
             dismiss_menu(&self.root, cx);
         }
         cx.notify();

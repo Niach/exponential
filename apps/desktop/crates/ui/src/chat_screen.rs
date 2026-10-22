@@ -2094,12 +2094,13 @@ impl ChatScreenView {
         // and (NEW-39) the team's MCP servers loaded: the menu is built when
         // it opens, so a list landing later would photograph without its
         // MCP servers row (web's capture hovers after the page settled).
-        let dev_open = matches!(self.presentation, Presentation::Page)
-            && options.is_some()
+        // N-6: `dialog-implement-issue` is the dialog's turn (its menu opens
+        // in a menu window over the dialog, `composer-dialog-menu`).
+        let dev_open = options.is_some()
             && bounds.size.width > px(0.)
             && crate::navigation::shapes_ready(cx)
             && self.mcp.is_some()
-            && crate::screens::take_dev_composer_menu();
+            && crate::screens::take_dev_composer_menu(matches!(self.presentation, Presentation::Dialog));
         let view = cx.entity().downgrade();
         let trigger = crate::composer::composer_tool("chat-tool-plus", registry::UI_ADD, cx)
             .tooltip(PLUS_TOOLTIP)
@@ -2110,6 +2111,7 @@ impl ChatScreenView {
             }
         })
         .anchor(menu_fit.0)
+        .wanted_height(PLUS_MENU_WANTED_HEIGHT)
         .dev_open(dev_open);
 
         // The picker's anchor: as tall as the + (the fit measures the room

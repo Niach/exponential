@@ -732,6 +732,8 @@ impl DialogShell {
             crate::navigation::remove_window(id, cx);
             crate::repo_resolver::remove_window(id, cx);
             crate::sidebar::remove_window(id, cx);
+            // N-6: a menu layer hung off this dialog goes with it.
+            crate::menu_window::on_host_released(id, cx);
         })
         .detach();
 
