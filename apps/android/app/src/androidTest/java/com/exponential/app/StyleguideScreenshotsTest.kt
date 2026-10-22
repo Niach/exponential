@@ -776,7 +776,9 @@ class StyleguideScreenshotsTest {
         }
         flow.waitFor(childCard, SYNC_TIMEOUT)
         composeRule.onAllNodes(childCard).onFirst().performClick()
-        flow.waitFor(hasTestTag("agent-feed-question"), NETWORK_TIMEOUT)
+        // N-12: the relay's question is a DockCard above the composer, no
+        // longer a feed row.
+        flow.waitFor(hasTestTag("dock-card"), NETWORK_TIMEOUT)
         flow.settle(longer = true)
         flow.screenshot("sg_session")
         // Session → Threads: the session page is a page OF the thread (its

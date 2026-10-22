@@ -1,5 +1,5 @@
 {
-  "$comment": "N-12: THE Dock ×4 (web packages/ui dock.tsx + agent-session.tsx + the thread route, desktop crates/ui dock.rs + steer_viewer.rs + thread_screen.rs, iOS ExpUI Dock.swift + AgentSessionView.swift + ThreadScreen.swift, Android ui/components/Dock.kt + AgentSessionScreen.kt + ThreadScreen.kt; models desktop domain::dock, iOS ExpCore Dock.swift, Android domain/Dock.kt). The transcript is the ONE scroll region of a session and a thread, header to bottom edge; the Dock is the floating band painted OVER its bottom in the composer column: the DockCards, `stack.gap` apart when fanned, then THE composer (always; it never yields its slot, N-12 retires `composerYieldsToCard`). The band's measured height is the transcript's bottom padding and the jump-to-bottom offset; an edge fade sits behind it. A DockCard = the AskCard chrome (`icons`/tint per `kind`, the tinted `label`, the muted `caption`, the trailing muted `meta`) over ONE `title` line and the `open` chevron (`expandable`) or the banner's `action` word; one height per row. SEVERAL cards pile like the toasts (toast-stack.json, `stackLayout` of src/stack.ts with THIS file's `stack`, anchored at the bottom): the front card is the LAST row, the older ones peek out ABOVE it by `stack.peek` and shrink by `stack.scaleStep` per rank, `stack.visible` of them at most (`hidden` = the rest); a pointer hovering the pile or a tap on it FANS it (every card at full size `stack.gap` apart, mode `fanned`); leaving or tapping the pile again re-piles. A tap (pointer: a click) on a card OPENS it: THE bottom sheet (`sheet`): a scrim, the sheet in the composer column on wide screens (`sheet.radius` on its top corners) and edge to edge on phones (the grabber, drag to dismiss), fitting its content up to `sheet.maxHeightFraction` of the viewport; a pinned HEADER (the card's icon, label, caption, the host's meta, trailing `copy.close` as a ghost icon-xs button), ONE scrolling body, a pinned FOOTER for the primary actions; Escape, the scrim, the close glyph or a drag closes it; it slides up with motion `sheet` (slow decelerate in, standard accelerate out; reduce motion = a fade), the pile moves over `motion.pile` with the standard easing, a card enters with `motion.enter` (decelerate) and leaves over `motion.exit` (accelerate). Rows = `dockRows(sources)`, ordered `order` first (queued, tasks, banner, then the asks oldest first by createdAt, ties by id) so the card needing the viewer is in front: `plan` (label ask-dock `planReady`, caption = the asking session's name, meta = `copy.questions` when it has any, title = the plan's first plain line, ask-dock `askDockTitle`), `question` (label ask-dock `question`), `tasks` (THE Queue of task-queue.json: label = the todo title, caption = the completed title, title = the first todo item, meta = its description; opens the full Trace), `queued` (label `copy.queued`, title = the oldest queued message; opens the list with its remove glyphs), `banner` (a status strip of the session view: paused, connection lost, the usage wall, compacting, the rate-limit window, starting; the host's `icon`, `label`, `text` and tone `muted`|`warning`; `action` = its one button word; never expandable). `dock({rows, expanded, openId})` = the view: `mode` none|single|pile|fanned, `rows` top to bottom, `frontId`, `openId` (null unless that row exists and is expandable), `hidden`. AUTO-OPEN: `dockAutoOpen({previous, rows})` = the id of the front-most plan or question NOT in `previous` (the ids seen so far), else null; a host opens that sheet when the view is IN FRONT (visible, the session or thread open) and leaves a card that arrived while away collapsed. The host SEEDS `previous` with every card it shows until its data has loaded (the session view: the relay is live, its history replayed; the thread: its rows arrived) and for `autoOpenGraceMs` after that, so what already waited when the view opened never opens itself; only a card arriving after that does. The relay's own asks (claude's AskUserQuestion) are `question` sources too. Answered cards stay in the transcript, closed. Model = pure `dockRows`, `dock`, `dockAutoOpen` (src/dock.ts); mirrors compare the WHOLE expected object.",
+  "$comment": "N-12: THE Dock ×4 (web packages/ui dock.tsx + agent-session.tsx + the thread route, desktop crates/ui dock.rs + steer_viewer.rs + thread_screen.rs, iOS ExpUI Dock.swift + AgentSessionView.swift + ThreadScreen.swift, Android ui/components/Dock.kt + AgentSessionScreen.kt + ThreadScreen.kt; models desktop domain::dock, iOS ExpCore Dock.swift, Android domain/Dock.kt). The transcript is the ONE scroll region of a session and a thread, header to bottom edge; the Dock is the floating band painted OVER its bottom in the composer column: the DockCards, `stack.gap` apart when fanned, then THE composer (always; it never yields its slot, N-12 retires `composerYieldsToCard`). The band's measured height is the transcript's bottom padding and the jump-to-bottom offset; an edge fade sits behind it. A DockCard = the AskCard chrome (`icons`/tint per `kind`, the tinted `label`, the muted `caption`, the trailing muted `meta`) over ONE `title` line and the `open` chevron (`expandable`) or the banner's `action` word; one height per row. SEVERAL cards pile like the toasts (toast-stack.json, `stackLayout` of src/stack.ts with THIS file's `stack`, anchored at the bottom): the front card is the LAST row, the older ones peek out ABOVE it by `stack.peek` and shrink by `stack.scaleStep` per rank, `stack.visible` of them at most (`hidden` = the rest); a pointer hovering the pile or a tap on it FANS it (every card at full size `stack.gap` apart, mode `fanned`); leaving or tapping the pile again re-piles. A tap (pointer: a click) on a card OPENS it: THE bottom sheet (`sheet`): a scrim, the sheet in the composer column on wide screens (`sheet.radius` on its top corners) and edge to edge on phones (the grabber, drag to dismiss), fitting its content up to `sheet.maxHeightFraction` of the viewport; a pinned HEADER (the card's icon, label, caption, the host's meta, trailing `copy.close` as a ghost icon-xs button), ONE scrolling body, a pinned FOOTER for the primary actions; Escape, the scrim, the close glyph or a drag closes it; it slides up with motion `sheet` (slow decelerate in, standard accelerate out; reduce motion = a fade), the pile moves over `motion.pile` with the standard easing, a card enters with `motion.enter` (decelerate) and leaves over `motion.exit` (accelerate). Rows = `dockRows(sources)`, ordered `order` first (queued, tasks, suggestions, banner, then the asks oldest first by createdAt, ties by id) so the card needing the viewer is in front: `plan` (label ask-dock `planReady`, caption = the asking session's name, meta = `copy.questions` when it has any, title = the plan's first plain line, ask-dock `askDockTitle`), `question` (label ask-dock `question`), `tasks` (THE Queue of task-queue.json: label = the todo title, caption = the completed title, title = the first todo item, meta = its description; opens the full Trace), `queued` (label `copy.queued`, title = the oldest queued message; opens the list with its remove glyphs), `suggestions` (EXP-1323's suggested-tasks card while ANY item is open: label = the header's count (`3 suggested tasks`), caption = its `started` part or null, title = the first open item's title; opens the list: an open item = its title and text, the Start button and the ⋯ menu (Do it here · Start on… · Start with… · File as issue · Dismiss), a started item = the child's session card, here/filed = their one line; the footer = Start all while more than one item is open; a row with no open item stays in the Conversation), `banner` (a status strip of the session view: paused, connection lost, the usage wall, compacting, the rate-limit window, starting; the host's `icon`, `label`, `text` and tone `muted`|`warning`; `action` = its one button word; never expandable). ONE GRAY ×4 (owner 2026-10-22): every card on the band and in the transcript, the composer and the sheet wear the same opaque card fill (the design tokens' `card` composite, web `bg-glass-card-opaque`) under the card hairline; nothing translucent, no second tone. `dock({rows, expanded, openId})` = the view: `mode` none|single|pile|fanned, `rows` top to bottom, `frontId`, `openId` (null unless that row exists and is expandable), `hidden`. AUTO-OPEN: `dockAutoOpen({previous, rows})` = the id of the front-most plan or question NOT in `previous` (the ids seen so far), else null; a host opens that sheet when the view is IN FRONT (visible, the session or thread open) and leaves a card that arrived while away collapsed. The host SEEDS `previous` with every card it shows until its data has loaded (the session view: the relay is live, its history replayed; the thread: its rows arrived) and for `autoOpenGraceMs` after that, so what already waited when the view opened never opens itself; only a card arriving after that does. The relay's own asks (claude's AskUserQuestion) are `question` sources too. Answered cards stay in the transcript, closed. Model = pure `dockRows`, `dock`, `dockAutoOpen` (src/dock.ts); mirrors compare the WHOLE expected object.",
   "copy": {
     "queued": {
       "one": "1 queued",
@@ -18,7 +18,8 @@
     "tasks": "trace-todo",
     "queued": "ui-queued",
     "open": "ui-chevron-right",
-    "close": "ui-close"
+    "close": "ui-close",
+    "suggestions": "ui-checklist"
   },
   "testIds": {
     "dock": "dock",
@@ -48,12 +49,13 @@
   "order": [
     "queued",
     "tasks",
+    "suggestions",
     "banner",
     "ask"
   ],
   "rowCases": [
     {
-      "name": "every kind, in order: queued, tasks, banner, then the asks oldest first",
+      "name": "every kind, in order: queued, tasks, suggestions, banner, then the asks oldest first",
       "sources": [
         {
           "kind": "plan",
@@ -114,6 +116,14 @@
               "text": "then open the PR"
             }
           ]
+        },
+        {
+          "kind": "suggestions",
+          "id": "m4",
+          "label": "3 suggested tasks",
+          "caption": "1 started",
+          "title": "Lazy-load the markdown editor",
+          "open": 2
         }
       ],
       "expected": [
@@ -138,6 +148,18 @@
           "caption": "2 completed",
           "meta": "2m 35s",
           "title": "Measuring on the Galaxy A54",
+          "expandable": true,
+          "action": null
+        },
+        {
+          "id": "m4",
+          "kind": "suggestions",
+          "tint": "muted",
+          "icon": "ui-checklist",
+          "label": "3 suggested tasks",
+          "caption": "1 started",
+          "meta": null,
+          "title": "Lazy-load the markdown editor",
           "expandable": true,
           "action": null
         },
@@ -735,5 +757,92 @@
       "expected": null
     }
   ],
-  "autoOpenGraceMs": 1500
+  "autoOpenGraceMs": 1500,
+  "suggestionCases": [
+    {
+      "name": "open items make the row; the header splits into the label and the started caption",
+      "rows": [
+        {
+          "type": "suggestions",
+          "id": "m4",
+          "header": "3 suggested tasks · 1 started",
+          "items": [
+            {
+              "state": "started",
+              "title": "Measure on the Galaxy A54"
+            },
+            {
+              "state": "open",
+              "title": "Lazy-load the markdown editor"
+            },
+            {
+              "state": "open",
+              "title": "Cache the board icons"
+            }
+          ]
+        },
+        {
+          "type": "message",
+          "id": "m5"
+        }
+      ],
+      "expected": [
+        {
+          "kind": "suggestions",
+          "id": "m4",
+          "label": "3 suggested tasks",
+          "caption": "1 started",
+          "title": "Lazy-load the markdown editor",
+          "open": 2
+        }
+      ]
+    },
+    {
+      "name": "no open item: no card (the row stays in the Conversation)",
+      "rows": [
+        {
+          "type": "suggestions",
+          "id": "m6",
+          "header": "2 suggested tasks · 2 started",
+          "items": [
+            {
+              "state": "started",
+              "title": "A"
+            },
+            {
+              "state": "filed",
+              "title": "B"
+            }
+          ]
+        }
+      ],
+      "expected": []
+    },
+    {
+      "name": "nothing started: no caption",
+      "rows": [
+        {
+          "type": "suggestions",
+          "id": "m7",
+          "header": "1 suggested task",
+          "items": [
+            {
+              "state": "open",
+              "title": "Only one"
+            }
+          ]
+        }
+      ],
+      "expected": [
+        {
+          "kind": "suggestions",
+          "id": "m7",
+          "label": "1 suggested task",
+          "caption": null,
+          "title": "Only one",
+          "open": 1
+        }
+      ]
+    }
+  ]
 }

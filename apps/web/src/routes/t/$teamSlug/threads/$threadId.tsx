@@ -1,4 +1,4 @@
-import { threadPendingAsks, threadSessionNames } from "@exp/domain-contract/ask-dock"
+import { threadSessionNames } from "@exp/domain-contract/ask-dock"
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react"
 import { inArray, useLiveQuery } from "@tanstack/react-db"
 import { createFileRoute, Navigate, redirect, useNavigate } from "@tanstack/react-router"
@@ -16,6 +16,7 @@ import {
   StatusGlyph,
   ThreadChipSubtree,
   ThreadDock,
+  threadDockedIds,
   ThreadConversation,
   ThreadIssueTab,
   ThreadIssueTree,
@@ -815,10 +816,7 @@ function ConversationBody({
   // composer's slot, exactly like a session's card; read-only viewers keep
   // them inline.
   const dockedIds = useMemo(
-    () =>
-      canReply
-        ? new Set(threadPendingAsks(view.rows, () => null).map((pending) => pending.id))
-        : new Set<string>(),
+    () => (canReply ? threadDockedIds(view.rows, () => null) : new Set<string>()),
     [canReply, view.rows]
   )
   const sessionName = useMemo(() => threadSessionNames(view.tabs), [view.tabs])
@@ -902,6 +900,11 @@ function ConversationBody({
           sources={sessionDock.sources}
           renderSheet={sessionDock.renderSheet}
           renderAction={sessionDock.renderAction}
+          suggestions={suggestions}
+          onOpenSession={onOpenSession}
+          renderIssueRef={(_issueId, identifier) =>
+            identifier ? <FiledIssueRef identifier={identifier} /> : null
+          }
           composer={isMobile ? undefined : composer}
           onHeight={setDockHeight}
           phoneClearance={isMobile}

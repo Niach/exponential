@@ -55,13 +55,10 @@ function Composer({
   return (
     <div
       data-slot="composer"
-      className={cn(
-        `flex flex-col rounded-xl border`,
-        opaque
-          ? `border-glass-stroke-strong bg-glass-card-opaque`
-          : `border-glass-stroke-card bg-glass-card`,
-        className
-      )}
+      // N-12: ONE gray ×4: the card composite under the card hairline,
+      // floating or not (`opaque` keeps its API; the look is one).
+      data-opaque={opaque || undefined}
+      className={cn(`flex flex-col rounded-xl border border-glass-stroke-card bg-glass-card-opaque`, className)}
       {...props}
     >
       {leading && (

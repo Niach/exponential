@@ -26,7 +26,7 @@ import {
   threadPendingAsks,
   type PlanOption,
 } from "@exp/domain-contract/ask-dock"
-import { dockRows, type DockRow, type DockSource } from "@exp/domain-contract/dock"
+import { dockRows, suggestionSources, type DockRow, type DockSource } from "@exp/domain-contract/dock"
 import { AgentRunMark, type RunMarkState } from "./agent-brand-mark"
 import {
   answerIssue,
@@ -101,8 +101,8 @@ const CloseIcon = conceptIcon(`ui-close`)
 const SubagentIcon = conceptIcon(`coding-subagent`)
 const ReportIcon = conceptIcon(`notification-reporter-reply`)
 const ChevronRightIcon = conceptIcon(`ui-chevron-right`)
-const ChevronDownIcon = conceptIcon(`ui-chevron-down`)
 const SuggestionsIcon = conceptIcon(`ui-checklist`)
+const MoreIcon = conceptIcon(`ui-more`)
 
 // EXP-1316: THE strip tab box, shared with the issue chips' `tab` size.
 const tabClass = stripTabClass
@@ -1010,10 +1010,13 @@ export function suggestionKey(rowId: string, itemId?: string): string {
 
 /** EXP-1323: THE suggested tasks card ×4 = the Work card's shell: a header
  *  (`3 suggested tasks`, `· 2 started`, Start all while more than one is
- *  open), then hairline-divided items. Open = title, text, × · Options ·
- *  Do it here · Start (phones stack the buttons under the text); started =
- *  the child's session card (its caption under the name) opening it; here =
- *  `Sent here`; filed = `Filed EXP-9`. */
+ *  open), then hairline-divided items. N-12: while any item is open the row
+ *  is a DockCard (`ThreadDock`) and this list is its sheet
+ *  (`ThreadSuggestionsSheet`); in the Conversation the card stays for the
+ *  rows with no open item. Open = title, text, Start and the ⋯ menu (Do it
+ *  here · Start on… · Start with… · File as issue · Dismiss), one row on
+ *  every width; started = the child's session card (its caption under the
+ *  name) opening it; here = `Sent here`; filed = `Filed EXP-9`. */
 export function ThreadSuggestionsCard({
   row,
   actions,
@@ -1029,7 +1032,7 @@ export function ThreadSuggestionsCard({
   return (
     <div
       data-slot="thread-suggestions"
-      className="min-w-0 overflow-clip rounded-lg border border-glass-stroke-card bg-glass-row text-xs"
+      className="min-w-0 overflow-clip rounded-lg border border-glass-stroke-card bg-glass-card-opaque text-xs"
     >
       <div className="flex min-h-9 min-w-0 items-center gap-2 px-3 py-1.5">
         <SuggestionsIcon className="size-3.5 shrink-0 text-muted-foreground" />
@@ -1141,6 +1144,12 @@ function SuggestionItemRow({
   const entries: MenuEntry[] = actions
     ? [
         {
+          kind: `item`,
+          id: `here`,
+          label: SUGGESTIONS_COPY.here,
+          onSelect: () => actions.onHere(rowId, item.id),
+        },
+        {
           kind: `submenu`,
           label: SUGGESTIONS_COPY.startOn,
           disabled: (actions.devices?.length ?? 0) === 0,
@@ -1166,11 +1175,13 @@ function SuggestionItemRow({
         { kind: `separator` },
         {
           kind: `item`,
+          id: `file`,
           label: SUGGESTIONS_COPY.file,
           onSelect: () => actions.onFile(rowId, item.id),
         },
         {
           kind: `item`,
+          id: `dismiss`,
           label: SUGGESTIONS_COPY.dismiss,
           onSelect: () => actions.onDismiss(rowId, item.id),
         },
@@ -1180,34 +1191,14 @@ function SuggestionItemRow({
     <div
       data-slot="thread-suggestion"
       data-state={item.state}
-      className="flex min-w-0 flex-col gap-2 px-3 py-2.5 md:flex-row md:items-start md:gap-3"
+      className="flex min-w-0 items-start gap-3 px-3 py-2.5"
     >
-      <div className="flex min-w-0 flex-1 items-start gap-2">
-        <div className="min-w-0 flex-1">
-          <div className="truncate font-medium text-foreground">{item.title}</div>
-          {item.text && <div className="mt-0.5 text-muted-foreground">{item.text}</div>}
-        </div>
-        {actions && (
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-xs"
-            aria-label={SUGGESTIONS_COPY.dismiss}
-            title={SUGGESTIONS_COPY.dismiss}
-            data-testid="thread-suggestion-dismiss"
-            className="shrink-0 text-muted-foreground hover:text-foreground"
-            disabled={busy}
-            onClick={() => actions.onDismiss(rowId, item.id)}
-          >
-            <CloseIcon className="size-3" />
-          </Button>
-        )}
+      <div className="min-w-0 flex-1">
+        <div className="truncate font-medium text-foreground">{item.title}</div>
+        {item.text && <div className="mt-0.5 text-muted-foreground">{item.text}</div>}
       </div>
       {actions && (
-        <div
-          data-slot="thread-suggestion-actions"
-          className="flex shrink-0 flex-col gap-1.5 md:flex-row md:items-center"
-        >
+        <div data-slot="thread-suggestion-actions" className="flex shrink-0 items-center gap-1.5">
           <Menu
             entries={entries}
             align="end"
@@ -1217,26 +1208,18 @@ function SuggestionItemRow({
             trigger={
               <Button
                 type="button"
-                variant="outline"
-                size="xs"
+                variant="ghost"
+                size="icon-xs"
+                aria-label={SUGGESTIONS_COPY.options}
+                title={SUGGESTIONS_COPY.options}
                 data-testid="thread-suggestion-options"
+                className="text-muted-foreground hover:text-foreground"
                 disabled={busy}
               >
-                {SUGGESTIONS_COPY.options}
-                <ChevronDownIcon />
+                <MoreIcon className="size-3.5" />
               </Button>
             }
           />
-          <Button
-            type="button"
-            variant="outline"
-            size="xs"
-            data-testid="thread-suggestion-here"
-            disabled={busy}
-            onClick={() => actions.onHere(rowId, item.id)}
-          >
-            {SUGGESTIONS_COPY.here}
-          </Button>
           <Button
             type="button"
             size="xs"
@@ -1249,6 +1232,57 @@ function SuggestionItemRow({
         </div>
       )}
     </div>
+  )
+}
+
+/** N-12: THE suggestions sheet (a DockCard opened): the items as the card
+ *  lists them (`SuggestionItemRow`); the footer = Start all while more than
+ *  one is open. */
+export function ThreadSuggestionsSheet({
+  row,
+  actions,
+  onOpenSession,
+  renderIssueRef,
+}: {
+  row: Extract<ThreadRow, { type: `suggestions` }>
+  actions?: ThreadSuggestionActions
+  onOpenSession?: (sessionId: string) => void
+  renderIssueRef?: (issueId: string, identifier: string | null) => ReactNode
+}) {
+  const pending = actions?.pending
+  return (
+    <>
+      <DockSheetBody className="px-1">
+        <div data-slot="thread-suggestions" data-testid="thread-suggestions-sheet" className="divide-y divide-glass-stroke text-xs">
+          {row.items.map((item) => (
+            <SuggestionItemRow
+              key={item.id}
+              rowId={row.id}
+              sessionId={row.sessionId}
+              item={item}
+              actions={actions}
+              onOpenSession={onOpenSession}
+              renderIssueRef={renderIssueRef}
+            />
+          ))}
+        </div>
+      </DockSheetBody>
+      {row.startAll && actions && (
+        <DockSheetFooter>
+          <div className="flex justify-end">
+            <Button
+              type="button"
+              size="sm"
+              data-testid="thread-suggestions-start-all"
+              pending={pending?.has(suggestionKey(row.id)) ?? false}
+              onClick={() => actions.onStartAll(row.id)}
+            >
+              {SUGGESTIONS_COPY.startAll}
+            </Button>
+          </div>
+        </DockSheetFooter>
+      )}
+    </>
   )
 }
 
@@ -1688,6 +1722,9 @@ export function ThreadDock({
   sources,
   renderSheet,
   renderAction,
+  suggestions,
+  onOpenSession,
+  renderIssueRef,
   composer,
   onHeight,
   phoneClearance,
@@ -1710,6 +1747,11 @@ export function ThreadDock({
   /** Those cards' sheets. */
   renderSheet?: (row: DockRow, close: () => void) => ReactNode
   renderAction?: (row: DockRow) => ReactNode
+  /** EXP-1323: the suggested-tasks cards' actions (absent = read-only, and
+   *  the rows stay in the Conversation). */
+  suggestions?: ThreadSuggestionActions
+  onOpenSession?: (sessionId: string) => void
+  renderIssueRef?: (issueId: string, identifier: string | null) => ReactNode
   composer?: ReactNode
   onHeight?: (height: number) => void
   phoneClearance?: boolean
@@ -1731,7 +1773,8 @@ export function ThreadDock({
       ),
     [rows, sessionName]
   )
-  const dockedRows = useMemo(() => dockRows([...asks, ...(sources ?? [])]), [asks, sources])
+  const suggested = useMemo<DockSource[]>(() => (suggestions ? suggestionSources(rows) : []), [rows, suggestions])
+  const dockedRows = useMemo(() => dockRows([...asks, ...suggested, ...(sources ?? [])]), [asks, suggested, sources])
   const [openId, setOpenId] = useState<string | null>(initialOpenId)
   useDockAutoOpen(dockedRows, autoOpen, setOpenId, autoOpenReady)
   return (
@@ -1766,6 +1809,16 @@ export function ThreadDock({
               attachmentSrc={attachmentSrc}
               busy={pending?.has(row.id) ?? false}
               onAnswer={(input) => onAnswer(row.id, input)}
+            />
+          )
+        }
+        if (row?.type === `suggestions`) {
+          return (
+            <ThreadSuggestionsSheet
+              row={row}
+              actions={suggestions}
+              onOpenSession={onOpenSession}
+              renderIssueRef={renderIssueRef}
             />
           )
         }
@@ -1879,4 +1932,16 @@ export function ChannelMessageRow({
       </div>
     </div>
   )
+}
+
+/** N-12: the Conversation rows THE Dock holds (they leave the transcript):
+ *  the waiting asks and the suggestion rows with an open item. */
+export function threadDockedIds(
+  rows: readonly ThreadRow[],
+  sessionName: (sessionId: string) => string | null,
+  withSuggestions = true
+): Set<string> {
+  const ids = new Set(threadPendingAsks(rows, sessionName).map((ask) => ask.id))
+  if (withSuggestions) for (const source of suggestionSources(rows)) ids.add(source.id)
+  return ids
 }

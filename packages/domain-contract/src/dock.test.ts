@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test"
 
 import fixture from "../fixtures/dock.json" with { type: "json" }
 import toastFixture from "../fixtures/toast-stack.json" with { type: "json" }
-import { dock, dockAutoOpen, dockRows, DOCK_AUTO_OPEN_GRACE_MS, DOCK_STACK, type DockKind, type DockRow, type DockSource } from "./dock"
+import { dock, dockAutoOpen, dockRows, suggestionSources, DOCK_AUTO_OPEN_GRACE_MS, DOCK_STACK, type DockKind, type DockRow, type DockSource } from "./dock"
 
 describe(`dockRows`, () => {
   for (const entry of fixture.rowCases) {
@@ -19,6 +19,14 @@ describe(`dock`, () => {
       expect(dock(entry.input as { rows: DockRow[]; expanded: boolean; openId: string | null })).toEqual(
         entry.expected as never
       )
+    })
+  }
+})
+
+describe(`suggestionSources`, () => {
+  for (const entry of fixture.suggestionCases) {
+    test(entry.name, () => {
+      expect(suggestionSources(entry.rows as never)).toEqual(entry.expected as never)
     })
   }
 })

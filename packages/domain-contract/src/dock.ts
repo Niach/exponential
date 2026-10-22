@@ -9,7 +9,7 @@ import fixture from "../fixtures/dock.json" with { type: "json" }
 import { askDockLabel, askDockTitle } from "./ask-dock"
 import type { StackConstants } from "./stack"
 
-export type DockKind = `plan` | `question` | `tasks` | `queued` | `banner`
+export type DockKind = `plan` | `question` | `tasks` | `queued` | `suggestions` | `banner`
 export type DockTint = `plan` | `question` | `muted` | `warning`
 
 export type DockSource =
@@ -35,6 +35,19 @@ export type DockSource =
       } | null
     }
   | { kind: `queued`; messages: readonly { id: string; text: string }[] }
+  | {
+      kind: `suggestions`
+      /** The suggestions row's id (a `messages.id`). */
+      id: string
+      /** The header's count (`3 suggested tasks`). */
+      label: string
+      /** The header's `started` part, else null. */
+      caption: string | null
+      /** The first open item's title. */
+      title: string
+      /** How many items are still open. */
+      open: number
+    }
   | {
       kind: `banner`
       id: string
@@ -89,6 +102,7 @@ export const DOCK_AUTO_OPEN_GRACE_MS = fixture.autoOpenGraceMs
 const ORDER: Record<DockKind, number> = {
   queued: fixture.order.indexOf(`queued`),
   tasks: fixture.order.indexOf(`tasks`),
+  suggestions: fixture.order.indexOf(`suggestions`),
   banner: fixture.order.indexOf(`banner`),
   question: fixture.order.indexOf(`ask`),
   plan: fixture.order.indexOf(`ask`),
@@ -139,6 +153,22 @@ export function dockRows(sources: readonly DockSource[]): DockRow[] {
           caption: source.queue.completed?.title ?? null,
           meta: first.description,
           title: first.label,
+          expandable: true,
+          action: null,
+        },
+      })
+    } else if (source.kind === `suggestions`) {
+      rows.push({
+        createdAt: 0,
+        row: {
+          id: source.id,
+          kind: `suggestions`,
+          tint: `muted`,
+          icon: fixture.icons.suggestions,
+          label: source.label,
+          caption: source.caption,
+          meta: null,
+          title: source.title,
           expandable: true,
           action: null,
         },
@@ -216,4 +246,25 @@ export function dockAutoOpen(input: {
     if ((row.kind === `plan` || row.kind === `question`) && !seen.has(row.id)) return row.id
   }
   return null
+}
+
+/** EXP-1323's suggested-tasks rows with any OPEN item, as Dock sources: the
+ *  header splits at ` · ` into the label (the count) and the started
+ *  caption; the title is the first open item's. A row with no open item is
+ *  none of the Dock's (it stays in the Conversation). */
+export function suggestionSources(
+  rows: readonly (
+    | { type: `suggestions`; id: string; header: string; items: readonly { state: string; title: string }[] }
+    | { type: string; id: string }
+  )[]
+): Extract<DockSource, { kind: `suggestions` }>[] {
+  const out: Extract<DockSource, { kind: `suggestions` }>[] = []
+  for (const row of rows) {
+    if (row.type !== `suggestions` || !(`items` in row)) continue
+    const open = row.items.filter((item) => item.state === `open`)
+    if (open.length === 0) continue
+    const [label, caption] = row.header.split(` · `)
+    out.push({ kind: `suggestions`, id: row.id, label: label ?? row.header, caption: caption ?? null, title: open[0]!.title, open: open.length })
+  }
+  return out
 }

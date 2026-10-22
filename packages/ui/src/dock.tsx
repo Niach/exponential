@@ -284,7 +284,7 @@ export function DockCard({
       data-kind={row.kind}
       data-id={row.id}
       className={cn(
-        `border-glass-stroke-strong bg-glass-card-opaque p-3 outline-none`,
+        `p-3 outline-none`,
         pressable &&
           `cursor-pointer transition-colors duration-fast hover:bg-glass-active focus-visible:ring-[3px] focus-visible:ring-ring/50`,
         className
@@ -428,7 +428,9 @@ export function DockSheet({
         data-testid={DOCK_TEST_IDS.sheet}
         data-id={row.id}
         className={cn(
-          `gap-0 p-0`,
+          // N-12: ONE gray: the sheet wears the card's fill, not the phone
+          // sheet's darker ground.
+          `gap-0 bg-glass-card-opaque p-0`,
           `md:inset-x-auto md:left-1/2 md:w-full md:max-w-4xl md:-translate-x-1/2 md:border-x`
         )}
         style={{
@@ -467,7 +469,7 @@ export function DockSheetSpecimenFrame({
 }) {
   return (
     <div
-      className="flex flex-col overflow-hidden border border-glass-stroke-card bg-glass-bottom"
+      className="flex flex-col overflow-hidden border border-glass-stroke-card bg-glass-card-opaque"
       style={{ height, borderTopLeftRadius: DOCK_SHEET.radius, borderTopRightRadius: DOCK_SHEET.radius }}
     >
       <DockSheetChrome row={row}>{children}</DockSheetChrome>
