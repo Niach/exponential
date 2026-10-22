@@ -34,28 +34,18 @@ env:
 
 jobs:
   # Gate: the production image must never ship on a red typecheck/test run.
+  # EXP-1364: it runs NEXT TO the builds instead of before them (the digests
+  # push untagged; only `merge` tags them, and it needs the gate), and as the
+  # sharded suite web-tests.yml, so a master push is ~7 minutes, not ~21.
+  pick:
+    uses: ./.github/workflows/pick-runner.yml
+    secrets: inherit
+
   test:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-      - run: bun install --frozen-lockfile
-      - name: Typecheck web
-        run: bun run typecheck
-      - name: Web unit tests
-        env:
-          # Unit tests never query the DB, but db/connection.ts throws at
-          # import time without a URL — give it an unreachable dummy.
-          DATABASE_URL: postgresql://ci:ci@127.0.0.1:59999/ci
-        run: bun run test
-      - name: Widget unit tests
-        run: bun run test:widget
-      - name: Steer relay + ticket tests
-        run: bun run test:steer-relay
+    uses: ./.github/workflows/web-tests.yml
 
   build:
-    needs: test
+    needs: pick
     strategy:
       fail-fast: false
       matrix:
@@ -64,7 +54,9 @@ jobs:
             runner: ubuntu-latest
           - platform: linux/arm64
             runner: ubuntu-24.04-arm
-    runs-on: ${{ matrix.runner }}
+    # amd64 builds on the Mint when it is up (pick-runner.yml); arm64 keeps
+    # GitHub's native arm runner.
+    runs-on: ${{ matrix.platform == 'linux/amd64' && fromJSON(needs.pick.outputs.linux) || matrix.runner }}
 
     steps:
       - name: Checkout
@@ -118,7 +110,7 @@ jobs:
           retention-days: 1
 
   merge:
-    needs: build
+    needs: [test, build]
     runs-on: ubuntu-latest
     steps:
       - name: Download digests
