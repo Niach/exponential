@@ -1,4 +1,4 @@
-- Mai rapidă peste tot: aplicația nu se mai sincronizează încontinuu când stă inactivă, iar listele, vizualizarea sesiunii și editoarele fac mult mai puțină muncă la fiecare tastă apăsată și la fiecare ciclu de sincronizare
-- Titlul Threads stă în bara fixă din partea de sus, ca la orice alt tab
-- Mutarea unei sesiuni: dispozitivul sursă își păstrează worktree-ul și branch-ul până când dispozitivul țintă le-a restaurat complet, apoi face curățenie
-- Corecturi din review: un board care încă se sincronizează nu mai face să clipească bannerul "Syncing team", iar un status redenumit ajunge imediat în chipurile #EXP
+- Noul sistem de sesiuni: un thread este o singură sesiune care lucrează singură și este trezită de mesaje, cu un card de plan care pune câte o întrebare pe rând
+- Agenții sunt definiții cu propria conversație pentru fiecare membru, triggere declanșate de server și un flux Events; scrie unui agent direct din composer
+- Prompturile înlocuiesc acțiunile: le găsești în / menu și la Setări → Prompturi
+- Vizualizările de sesiuni, "are nevoie de tine" și în rulare urmează noul sistem pe fiecare ecran

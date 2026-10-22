@@ -1,4 +1,4 @@
-- Mais rápida em todo o lado: a app já não sincroniza sem parar quando está inativa, e as listas, a vista da sessão e os editores trabalham muito menos a cada tecla e a cada ciclo de sincronização
-- O título Threads fica na barra fixa no topo, como em todos os outros separadores
-- Mover uma sessão: o dispositivo de origem mantém o worktree e o branch até o dispositivo de destino os ter restaurado por completo, e só depois faz a limpeza
-- Correções da revisão: um quadro que ainda está a sincronizar já não faz piscar o banner "Syncing team", e um estado renomeado chega de imediato aos chips #EXP
+- O novo sistema de sessões: um thread é uma sessão que trabalha sozinha e é acordada por mensagens, com um cartão de plano que faz uma pergunta de cada vez
+- Os agentes são definições com a sua própria conversa por membro, triggers disparados pelo servidor e um fluxo Events; envie uma mensagem a um agente a partir do composer
+- Os prompts substituem as ações: encontre-os no / menu e em Definições → Prompts
+- As vistas de sessões, precisa de si e em execução seguem o novo sistema em todos os ecrãs

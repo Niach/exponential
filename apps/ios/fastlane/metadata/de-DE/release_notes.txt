@@ -1,4 +1,4 @@
-- Überall schneller: die App synchronisiert im Leerlauf nicht mehr im Dauertakt, und Listen, die Session-Ansicht und die Editoren leisten pro Tastendruck und pro Sync-Takt deutlich weniger Arbeit
-- Der Threads-Titel sitzt oben in der fixierten Leiste, wie bei jedem anderen Tab
-- Session verschieben: das Quellgerät behält Worktree und Branch, bis das Zielgerät beide vollständig wiederhergestellt hat, und räumt erst dann auf
-- Korrekturen aus dem Review: ein Board, das noch synchronisiert, lässt das Banner "Syncing team" nicht mehr aufblitzen, und ein umbenannter Status erreicht die #EXP-Chips sofort
+- Das neue Session-System: ein Thread ist eine Session, die selbst arbeitet und von Nachrichten geweckt wird, mit einer Plan-Karte, die jeweils eine Frage stellt
+- Agents sind Definitionen mit einer eigenen Unterhaltung pro Mitglied, vom Server ausgelösten Triggern und einem Events-Stream; schreib einem Agent direkt aus dem Composer
+- Prompts ersetzen Aktionen: du findest sie im / menu und unter Einstellungen → Prompts
+- Die Ansichten Sessions, Braucht dich und Laufend folgen auf jedem Bildschirm dem neuen System

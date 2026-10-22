@@ -1,4 +1,4 @@
-- Gyorsabb mindenhol: az app tétlenül már nem szinkronizál folyamatosan, a listák, a session nézet és a szerkesztők pedig sokkal kevesebb munkát végeznek billentyűleütésenként és szinkronizálási ciklusonként
-- A Threads cím a felső rögzített sávban van, ahogy minden más fülön is
-- Session áthelyezése: a forráseszköz megtartja a worktree-t és a branchet, amíg a céleszköz teljesen vissza nem állította őket, és csak utána takarít
-- Javítások a review alapján: a még szinkronizáló board már nem villantja fel a "Syncing team" bannert, és az átnevezett állapot azonnal megjelenik az #EXP chipeken
+- Az új session rendszer: a thread egyetlen session, amely önállóan dolgozik és üzenetek ébresztik, egy tervkártyával, amely egyszerre egy kérdést tesz fel
+- Az agentek definíciók, tagonként saját beszélgetéssel, a szerver által indított triggerekkel és egy Events folyammal; írj egy agentnek közvetlenül a composerből
+- A promptok váltják a műveleteket: a / menu alatt és a Beállítások → Promptok helyen találod őket
+- A sessions, "rád vár" és futó nézetek minden képernyőn az új rendszert követik

@@ -1,4 +1,4 @@
-- Faster everywhere: the app no longer syncs on a drumbeat while idle, and lists, the session view and the editors do far less work per keystroke and per sync tick
-- The Threads title sits in the sticky bar at the top, like every other tab
-- Moving a session: the source device keeps its worktree and branch until the target has fully restored them, then cleans up
-- Review fixes: a board that is still syncing no longer flashes the "Syncing team" banner, and a renamed status reaches the #EXP chips at once
+- The new session system: a thread is one session that works itself and is woken by messages, with a plan card that asks one question at a time
+- Agents are definitions with their own conversation per member, server-fired triggers and an Events stream; message an agent from the composer
+- Prompts replace actions: find them in the / menu and under Settings → Prompts
+- Sessions, needs-you and running views follow the new system on every screen
