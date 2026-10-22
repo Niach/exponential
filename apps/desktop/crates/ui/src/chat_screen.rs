@@ -17,8 +17,9 @@
 //! ```
 //!
 //! EXP-1249: the "+" is the composer's ONE tool — a menu (Implement issue ›,
-//! Add file or image | Effort ›, Subagents ›, Ultracode |
-//! MCP servers ›, Computer use).
+//! Add file or image | Effort ›, Ultracode |
+//! MCP servers ›, Computer use). NEW-39: no Subagents › row, like web
+//! (`sessions.send` carries no subagent model).
 //!
 //! **Subject by swap** (decision 2026-09-10): issue chips OR one action chip
 //! OR (NEW-3) one agent chip. Picking one kind while another is picked
@@ -1081,12 +1082,15 @@ impl ChatScreenView {
         if self.team_id == self.repos_team {
             return;
         }
-        self.repos_team = self.team_id.clone();
         self.team_repos = Vec::new();
         self.chat_repo = None;
+        // NEW-39: the marker lands only once the fetch can run, so a team
+        // that syncs before the auth context retries on the next render.
         let (Some(team), Some(trpc)) = (self.team_id.clone(), queries::trpc_client(cx)) else {
+            self.repos_team = None;
             return;
         };
+        self.repos_team = Some(team.clone());
         cx.spawn(async move |this, cx| {
             let loaded = cx
                 .background_executor()
@@ -1119,11 +1123,15 @@ impl ChatScreenView {
         if self.team_id == self.mcp_team {
             return;
         }
-        self.mcp_team = self.team_id.clone();
         self.mcp = None;
+        // NEW-39: the marker lands only once the fetch can run, so a team
+        // that syncs before the auth context retries on the next render
+        // (the "+" menu's MCP servers row).
         let (Some(team), Some(trpc)) = (self.team_id.clone(), queries::trpc_client(cx)) else {
+            self.mcp_team = None;
             return;
         };
+        self.mcp_team = Some(team.clone());
         cx.spawn(async move |this, cx| {
             let loaded = cx
                 .background_executor()
@@ -2082,11 +2090,15 @@ impl ChatScreenView {
         };
         // EXP-1259 (DEV-ONLY, `EXP_DEV_COMPOSER_MENU=implement-issue`): the
         // home page opens its "+" menu once, on the first render that has
-        // the full menu (the launch cluster), synced issues and a measured +.
+        // the full menu (the launch cluster), synced issues, a measured +
+        // and (NEW-39) the team's MCP servers loaded: the menu is built when
+        // it opens, so a list landing later would photograph without its
+        // MCP servers row (web's capture hovers after the page settled).
         let dev_open = matches!(self.presentation, Presentation::Page)
             && options.is_some()
             && bounds.size.width > px(0.)
             && crate::navigation::shapes_ready(cx)
+            && self.mcp.is_some()
             && crate::screens::take_dev_composer_menu();
         let view = cx.entity().downgrade();
         let trigger = crate::composer::composer_tool("chat-tool-plus", registry::UI_ADD, cx)
@@ -2325,6 +2337,10 @@ impl ChatScreenView {
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) -> AnyElement {
+        // NEW-39: retry the per-team fetches that found no tRPC client yet;
+        // both return at once when the team already matches.
+        self.ensure_mcp_loaded(cx);
+        self.ensure_repos_loaded(cx);
         let mcp = self.mcp_options();
         if let Some(launch) = self.launch.as_mut() {
             launch.set_mcp_servers(mcp);
@@ -2696,7 +2712,9 @@ impl ComposerMenuConditions {
         agents: &[domain::session_tree::AgentRow],
     ) -> Self {
         Self {
-            subagent_model: options.subagent_value().is_some(),
+            // NEW-39: like web's composer-plus-menu (EXP-1293), `sessions.send`
+            // carries no subagent model, so the Subagents row hides.
+            subagent_model: false,
             ultracode: options.ultracode.is_some(),
             mcp: !options.mcp_servers.is_empty(),
             computer_use: options.computer_use.is_some(),
@@ -3288,6 +3306,12 @@ mod tests {
             }
             let def_refs: Vec<&domain::rows::AgentDefRow> = defs.iter().collect();
             let rows = domain::session_tree::list_agents(&def_refs, &[], Some("t-1"), None);
+            // NEW-39: off real state the Subagents row always hides (web's
+            // `subagentModel: false`); the fixture's own rows replay above.
+            let expected: Vec<ComposerMenuRow> = expected
+                .into_iter()
+                .filter(|row| *row != ComposerMenuRow::Subagents)
+                .collect();
             assert_eq!(
                 composer_menu_rows(Some(ComposerMenuConditions::of(&menu, &rows))),
                 expected,

@@ -848,7 +848,6 @@ private fun AuthenticatedNav(
                 onOpenSession = { id -> navController.navigate(Routes.session(id)) },
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
                 onOpenThread = { id -> navController.navigate(Routes.thread(id)) },
-                onOpenAgentSettings = { id -> navController.navigate(Routes.agentSettings(id)) },
                 // The "+"'s New issue: filed + linked to this root on create.
                 onNewIssue = { boardId, rootId -> navController.openIssueDraft(boardId, threadId = rootId) },
             )
@@ -893,7 +892,6 @@ private fun AuthenticatedNav(
                         if (here != null) popUpTo(here) { inclusive = true }
                     }
                 },
-                onOpenAgentSettings = { id -> navController.navigate(Routes.agentSettings(id)) },
             )
         }
         composable(Routes.PROMPTS_SETTINGS) {

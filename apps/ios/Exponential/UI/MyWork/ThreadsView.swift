@@ -27,6 +27,7 @@ struct ThreadsView: View {
                     agentConversations: lists.agentConversations,
                     clis: lists.clis,
                     words: lists.words,
+                    prStates: lists.prStates,
                     devices: lists.devices,
                     teams: teamState.teams,
                     onOpen: { rootId in
@@ -70,6 +71,8 @@ struct ThreadsListContent: View {
     var clis: [String: String] = [:]
     /// EXP-1309: a root's quiet word, by root id.
     var words: [String: ThreadRowWord] = [:]
+    /// NEW-41: each root's pull-request states, the lead's PR glyph.
+    var prStates: [String: [String]] = [:]
     /// EXP-1316: a root's device glyph, by root id.
     var devices: [String: ThreadRowDevice] = [:]
     let teams: [TeamEntity]
@@ -202,6 +205,7 @@ struct ThreadsListContent: View {
                 row: row,
                 cli: clis[row.sessionId],
                 word: .some(words[row.sessionId]),
+                prStates: prStates[row.sessionId] ?? [],
                 device: devices[row.sessionId],
                 guide: guide
             )
@@ -235,14 +239,18 @@ struct ThreadsListContent: View {
 /// (`threads-list.json`; Home's Running band). EXP-1309: on the Threads tab
 /// (`word` given, web `ThreadsListView`) the row ends on ONE quiet word
 /// instead (EXP-1339: no lock) and its state moves into the lead: the working mark while busy,
-/// the mark with an amber badge when it needs you, the PR glyph `ready to
-/// merge` names, the violet pr-merged glyph for `merged` (no word).
+/// the mark with an amber badge when it needs you, the emerald pr-open glyph
+/// while the root has an open PR (a stacked one too, NEW-41), the violet
+/// pr-merged glyph once it is merged (no word).
 struct ThreadRowLabel: View {
     let row: ThreadsListRow
     /// The root's agent CLI; nil/empty = claude.
     var cli: String? = nil
     /// nil = Home's row (spinner / dot); `.some` = the Threads tab's row.
     var word: ThreadRowWord?? = nil
+    /// NEW-41: the root's pull-request states; any open one leads emerald
+    /// (a stacked one too), else a merged one violet.
+    var prStates: [String] = []
     /// EXP-1316: the root's device glyph, last on the row (after the
     /// word); nil = none.
     var device: ThreadRowDevice? = nil
@@ -299,7 +307,9 @@ struct ThreadRowLabel: View {
 
     /// Web `rowLead`. EXP-1344: `threadRowMarkState` FIRST at every depth
     /// (needs-you's amber badge beats busy: a parked plan/question keeps
-    /// the device busy), then the PR glyphs.
+    /// the device busy), then the root's PR glyph (NEW-41 ×4: any open PR,
+    /// a stacked one too, = emerald; else a merged one = violet), never the
+    /// word.
     @ViewBuilder
     private func threadsLead(_ word: ThreadRowWord?) -> some View {
         let mark = SessionTree.threadRowMarkState(needsYou: row.needsYou, busy: row.busy)
@@ -307,10 +317,10 @@ struct ThreadRowLabel: View {
             needsYouMark
         } else if mark == .working {
             AgentWorkingMark(agent: cli)
-        } else if word == .readyToMerge {
+        } else if prStates.contains(DomainContract.prStateOpen) {
             AppIcon(AppIcons.prOpen, size: 13)
                 .foregroundStyle(DesignTokens.Semantic.green)
-        } else if word == .merged {
+        } else if prStates.contains(DomainContract.prStateMerged) {
             AppIcon(AppIcons.prMerged, size: 13)
                 .foregroundStyle(DesignTokens.Avatar.violet)
         } else {

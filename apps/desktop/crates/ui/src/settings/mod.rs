@@ -6,9 +6,10 @@
 //! screen mirrors the web's grouped master-detail layout (EXP-146): a fixed
 //! left nav with the groups — **Team** (General, Members, Issues ⟩ Labels, Statuses,
 //! Storage — the EXP-297 owner-only attachment manager), **Boards**
-//! (one entry PER board + New board + Repositories — EXP-288 flattened the
-//! old flat Boards list into per-board detail pages; EXP-1294 put the team's
-//! **Agents** above it the same way, one entry per agent + New agent),
+//! (one entry PER board + New board — EXP-288 flattened the old flat Boards
+//! list into per-board detail pages), **Agents** (EXP-1294: one entry per
+//! agent + New agent, then Repositories — NEW-41, web's `SETTINGS_NAV` — and
+//! Prompts),
 //! **Features** (Widget — EXP-771, MCP servers — EXP-792), the desktop-only
 //! **This device** group (Tools, Coding CLIs, Worktrees, Sessions), and
 //! **Personal** (Account, Notifications, Security, About — EXP-238); the
@@ -289,12 +290,13 @@ struct NavGroup {
 
 /// The STATIC nav skeleton — the web's `SETTINGS_NAV` groups minus the
 /// web-only Billing item, plus the desktop-only "This device" group.
-/// EXP-1294: the Agents group (above Boards) has no static items — its
-/// per-agent rows + "New agent" are injected at render like the boards'.
+/// EXP-1294: the Agents group's per-agent rows + "New agent" are injected at
+/// render like the boards', ahead of its static Repositories + Prompts.
 /// EXP-238 appended the Personal group (Account, Notifications, Security,
 /// About) as ordinary items — web parity again, and last so the fallback
-/// scan below never lands on a personal pane. The Boards group's per-board
-/// rows + "New board" are injected dynamically at render (EXP-288); order
+/// scan below never lands on a personal pane. The Boards group has no static
+/// items: its per-board rows + "New board" are injected at render (EXP-288,
+/// NEW-41 moved Repositories to the Agents group like web); order
 /// defines both the nav and the fallback scan (first visible item).
 const NAV_GROUPS: &[NavGroup] = &[
     NavGroup {
@@ -315,16 +317,17 @@ const NAV_GROUPS: &[NavGroup] = &[
             },
         ],
     },
-    NavGroup {
-        label: "Boards",
-        items: &[NavItem::leaf("Repositories", SettingsSection::Repositories)],
-    },
-    // NEW-6: the web Agents group closes with Prompts (its Repositories
-    // entry sits under Boards here); the per-agent rows + New agent are
-    // injected ahead of it at render.
+    // NEW-41: static-empty like web's (the per-board rows + New board are
+    // injected at render); Repositories moved to the Agents group.
+    NavGroup { label: "Boards", items: &[] },
+    // NEW-6 + NEW-41 (web's `SETTINGS_NAV`): the per-agent rows + New agent
+    // are injected at render, then Repositories, then Prompts close the group.
     NavGroup {
         label: AGENTS_GROUP,
-        items: &[NavItem::leaf(prompts::PROMPTS_TITLE, SettingsSection::Prompts)],
+        items: &[
+            NavItem::leaf("Repositories", SettingsSection::Repositories),
+            NavItem::leaf(prompts::PROMPTS_TITLE, SettingsSection::Prompts),
+        ],
     },
     // EXP-771: the web's Features group, verbatim (SLOP-4: the Helpdesk row
     // is gone with the helpdesk; the widget page is "Widget" now).
@@ -1065,7 +1068,7 @@ impl Render for SettingsNavPanel {
                 .collect();
             // EXP-288: the Boards group's per-board rows are injected ahead
             // of its static items (owner-only, like the pages themselves).
-            let board_group = group.label == "Boards" && owner;
+            let board_group = group.label == "Boards" && owner && team_id.is_some();
             // EXP-1294: the Agents group is every member's (only an agent's
             // Delete is owner-only), so it shows whenever a team is active.
             let agent_group = group.label == AGENTS_GROUP && team_id.is_some();
@@ -1930,14 +1933,17 @@ mod tests {
         );
     }
 
-    /// NEW-6 (web parity): the Agents group closes with Prompts; the list
+    /// NEW-6 (web parity): the Agents group closes with Repositories (NEW-41)
+    /// then Prompts, and the Boards group has no static items; the list
     /// and a prompt's page are member-readable, New prompt owner-only, and
     /// the Prompts row stays lit on both sub-pages.
     #[test]
     fn prompts_sit_in_the_agents_group_like_the_web() {
         let agents = NAV_GROUPS.iter().find(|group| group.label == AGENTS_GROUP).unwrap();
         let labels: Vec<&str> = agents.items.iter().map(|item| item.label).collect();
-        assert_eq!(labels, vec!["Prompts"]);
+        assert_eq!(labels, vec!["Repositories", "Prompts"]);
+        let boards = NAV_GROUPS.iter().find(|group| group.label == "Boards").unwrap();
+        assert!(boards.items.is_empty());
         assert!(section_visible(&SettingsSection::Prompts, false));
         assert!(section_visible(&SettingsSection::Prompt("p-1".into()), false));
         assert!(section_visible(&SettingsSection::NewPrompt, true));

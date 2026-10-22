@@ -66,6 +66,8 @@ object AgentSettings {
     object Copy {
         const val TITLE = "Agents"
         const val NEW_AGENT = "New agent"
+        /** NEW-40: the list's empty state (web `AgentsListBand`, no fixture key). */
+        const val NO_AGENTS = "No agents yet"
         const val NAME_PLACEHOLDER = "Agent name"
         const val INSTRUCTIONS_PLACEHOLDER = "What this agent takes care of…"
         const val ADD_TRIGGER = "Add"

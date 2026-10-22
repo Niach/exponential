@@ -1,6 +1,6 @@
 /* ─── The Agent page (chat_screen.rs, EXP-825/874) — the ONE launcher on
    every client: the suggestion chips over the EMPTY field, one wide composer
-   card (subject chips, the prompt field, the # · ▶ · + tools and the round
+   card (subject chips, the prompt field, the + · # · attach tools and the round
    submit whose tooltip is the contract label: Start chat / Start coding /
    Start batch · N), the muted options line (Device · the agent's brand mark ·
    Model · Plan · ⋯), then the Running band and the folded Recent band. ─── */
@@ -18,7 +18,6 @@ import {
   IcGitMerge,
   IcHash,
   IcMonitor,
-  IcPlay,
   IcPlus,
   IcX,
 } from "./icons"
@@ -131,16 +130,18 @@ export function ChatScreen() {
             onChange={(e) => setText(e.target.value)}
           />
           <div className="ide-cmp-tools">
-            {/* `#` opens the issue picker, ▶ the action picker, the image
-                glyph the file chooser — the three tools, every client. */}
+            {/* The "+" menu (Implement issue, Message an agent, Add file,
+                Effort, Ultracode, MCP servers, Computer use), `#` for an
+                issue ref and the attach glyph — the tools, every client.
+                NEW-2: prompts live in the `/` menu, no ▶ picker. */}
+            <span className="ide-cmp-tool" title="Add">
+              <IcPlus size={13} />
+            </span>
             <span className="ide-cmp-tool" title="Issues">
               <IcHash size={13} />
             </span>
-            <span className="ide-cmp-tool" title="Actions">
-              <IcPlay size={13} />
-            </span>
-            <span className="ide-cmp-tool" title="Attach image">
-              <IcPlus size={13} />
+            <span className="ide-cmp-tool" title="Attach file">
+              <IcFile size={13} />
             </span>
             <div className="ide-flex1" />
             <button

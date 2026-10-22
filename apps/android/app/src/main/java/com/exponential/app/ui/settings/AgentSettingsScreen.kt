@@ -37,6 +37,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import at.exponential.ui.primitives.EmptyStateSize
 import com.exponential.app.data.api.UpdateAgentPatch
 import com.exponential.app.domain.AccountOptions
 import com.exponential.app.domain.AgentSettings
@@ -44,6 +45,7 @@ import com.exponential.app.domain.AgentTrigger
 import com.exponential.app.domain.SessionTree
 import com.exponential.app.ui.components.CircleIconButton
 import com.exponential.app.ui.components.ColorPicker
+import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.ui.components.FailedActionToast
 import com.exponential.app.ui.components.FieldError
 import com.exponential.app.ui.components.GlassAlert
@@ -75,7 +77,8 @@ import com.exponential.app.ui.theme.flatRow
 
 // EXP-1296 (Threads v2, `agent-settings.json`): Team settings → Agents,
 // managed EXACTLY like boards. The list = icon-in-colour + name rows under the
-// "Agents" band, then `New agent` (owner-only, like `New board`). An agent's
+// "Agents" band, whose header carries the `New agent` pill (owner-only,
+// NEW-40: the Prompts band's pattern ×4). An agent's
 // page = the board form's ONE identity field (icon picker + colour swatch +
 // name) over Device, Account, Triggers, Instructions and the owner-only
 // Delete. A NEW agent is a form with a Create button
@@ -98,7 +101,7 @@ internal fun AgentGlyph(icon: String, color: String, modifier: Modifier = Modifi
 
 /**
  * Team settings → Agents, the LIST: one row per agent of the selected team
- * then `New agent` (owner-only). Embeddable (a settings section) — no
+ * under the band whose header carries the `New agent` pill (owner-only). Embeddable (a settings section) — no
  * Scaffold of its own.
  */
 @Composable
@@ -179,7 +182,11 @@ internal fun AgentEventsBand(events: List<AgentEventRow>?, modifier: Modifier = 
     }
 }
 
-/** The stateless list. */
+/**
+ * The stateless list. NEW-40: the Prompts band's pattern ×4 (web
+ * `AgentsListBand`, iOS `TeamAgentsSection`): the `New agent` pill rides the
+ * band header (owner-only), gapless rows, the list-size empty state.
+ */
 @Composable
 internal fun AgentsSettingsListContent(
     agents: List<SessionTree.AgentRow>,
@@ -188,11 +195,25 @@ internal fun AgentsSettingsListContent(
     onNewAgent: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Column(
-        modifier = modifier.testTag(AgentSettings.TEST_ID_LIST),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        SectionHeader(AgentSettings.Copy.TITLE)
+    Column(modifier = modifier.testTag(AgentSettings.TEST_ID_LIST)) {
+        SectionHeader(AgentSettings.Copy.TITLE) {
+            if (canCreate) {
+                GlassPill(
+                    AgentSettings.Copy.NEW_AGENT,
+                    icon = ExpIcons.uiAdd,
+                    size = PillSize.Sm,
+                    onClick = onNewAgent,
+                    modifier = Modifier.testTag("agents-settings-new"),
+                )
+            }
+        }
+        if (agents.isEmpty()) {
+            EmptyState(
+                title = AgentSettings.Copy.NO_AGENTS,
+                icon = ExpIcons.settingsAgents,
+                size = EmptyStateSize.List,
+            )
+        }
         agents.forEach { row ->
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -211,22 +232,6 @@ internal fun AgentsSettingsListContent(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
-            }
-        }
-        if (canCreate) {
-            val muted = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("agents-settings-new")
-                    .flatRow()
-                    .clickable(onClick = onNewAgent)
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
-            ) {
-                Icon(ExpIcons.uiAdd, contentDescription = null, tint = muted, modifier = Modifier.size(16.dp))
-                Text(AgentSettings.Copy.NEW_AGENT, color = muted)
             }
         }
     }

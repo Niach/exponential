@@ -72,7 +72,8 @@ pub(crate) fn thread_word(root_id: &str, busy: bool, needs_you: bool, team_pulls
 /// The lead of a thread row ×4 (threads-list.json, EXP-1344
 /// `threadRowMarkState` first): needs you (the amber badge) beats busy (the
 /// working mark); otherwise the root's Guide PR glyph (open emerald, merged
-/// violet) wearing the badge when it needs you, else the root session's mark.
+/// violet), else the root session's mark. NEW-41: needs you draws the brand
+/// mark with the badge BEFORE the PR glyph, like web's `rowLead`.
 pub(crate) fn thread_row_lead(
     root_id: &str,
     busy: bool,
@@ -83,6 +84,10 @@ pub(crate) fn thread_row_lead(
     let root = session_data::session(root_id, cx);
     let working = thread_row_mark_state(needs_you, busy) == SessionState::Working;
     match root_pull_request(root_id, team_pulls) {
+        _ if needs_you && root.is_some() => {
+            let root = root.as_ref().expect("checked by the guard");
+            crate::thread_screen::root_mark(root, false, true, LEAD_PX, LEAD_BADGE_PX)
+        }
         _ if working => crate::coding_selects::agent_working_mark(root_agent(root.as_ref()), LEAD_PX).into_any_element(),
         Some(pull) => {
             let (glyph, tint) = if pull.is_merged() {

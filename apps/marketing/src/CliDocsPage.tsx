@@ -26,7 +26,7 @@ const COMMANDS: { name: string; desc: string }[] = [
   { name: `exponential status`, desc: `Account, this machine's device row, daemon state, auto-update, installed agents, and git in one summary. With no daemon running it says so plainly: the machine is not a device yet.` },
   { name: `exponential doctor`, desc: `Check git and the agent CLIs, and say what's missing.` },
   { name: `exponential code <ISSUE> [--device <label|id>] [--agent claude|codex] [--model <m>] [--effort <e>] [--plan] [--detach]`, desc: `Start a coding session for an issue, by identifier ("EXP-42") or id. --device starts it on another of your devices instead.` },
-  { name: `exponential run <action> [--device <label|id>] [--team <id>] [--input k=v ...] [--prompt <text>] [--agent <a>] [--model <m>] [--effort <e>] [--plan] [--detach]`, desc: `Run a team action by name or id, or a builtin (chat, fix-conflicts, create-action). --prompt adds instructions, and is the whole request for chat and create-action. The same agent flags apply.` },
+  { name: `exponential run <prompt> [--device <label|id>] [--team <id>] [--prompt <text>] [--agent <a>] [--model <m>] [--effort <e>] [--plan] [--detach]`, desc: `Run one of the team's saved prompts by name or id, as a thread. --prompt adds instructions after its body. The same agent flags apply.` },
   { name: `exponential devices [--team <id>]`, desc: `Your devices (desktop apps and daemons), online or not, with their agents and running sessions. --team adds the servers teammates shared with that team.` },
   { name: `exponential sessions [--device <d>] [--status running|in_review|ended] [--all] [--limit n]`, desc: `Coding sessions, newest first: yours, or your teams' with --all.` },
   { name: `exponential sessions show | log [--follow] | message | kill <id>`, desc: `One session's details and screenshots, its transcript, a message to its agent, or stop it. An id prefix is enough.` },
@@ -48,7 +48,7 @@ export function CliDocsPage() {
           <div className="shell docs-hero-content">
             <h1>CLI &amp; daemon</h1>
             <p>
-              Start coding sessions and run actions from any terminal — and
+              Start coding sessions and run prompts from any terminal — and
               leave a Linux or macOS box running as an always-on agent
               machine your team starts work on from the web.
             </p>
@@ -185,8 +185,7 @@ exponential login --install-token expi_...
             </p>
             <DocsCode language="shell">{`
 exponential code EXP-42 --agent claude --plan
-exponential run "Update the changelog" --prompt "version 1.4.0"
-exponential run fix-conflicts --input pr=EXP-42
+exponential run "Release train" --prompt "version 1.4.0"
 `}</DocsCode>
             <p>
               Either way it&apos;s a real{` `}
@@ -263,12 +262,13 @@ exponential daemon install
               The machine then shows up under{` `}
               <strong>Devices → My devices</strong> in the web app, with its
               online state and the agents it has installed. Start a coding
-              session or an <a href="/docs/actions/">action</a> there and
+              session or a <a href="/docs/actions/">prompt</a> there and
               pick that machine, and it runs on it exactly like it would on
               the desktop app: the same launcher, the same live activity
-              feed, the same steering from web, iOS, or Android. Batch sessions,
-              chat sessions, <a href="/docs/actions/#triggers">triggers</a>{` `}
-              and the built-in <em>Fix merge conflicts</em> action work too.
+              feed, the same steering from web, iOS, or Android. Threads over
+              several issues, free requests and{` `}
+              <a href="/docs/actions/#triggers">team agents</a> with their
+              schedules and events run there too.
             </p>
             <p>
               A session you start on the daemon makes no report, exactly like a
@@ -276,9 +276,10 @@ exponential daemon install
               finishes its turn it waits for your next reply, and the daemon
               keeps its process and worktree alive with no idle timeout. Hit{` `}
               <strong>Stop</strong> on the session in the web or mobile app when
-              you are done with it. Sessions started by a{` `}
-              <a href="/docs/actions/#triggers">trigger</a> are the ones that end
-              themselves when their work is done.
+              you are done with it. Sessions a{` `}
+              <a href="/docs/actions/#triggers">team agent</a> starts on a
+              schedule or an event are the ones that end themselves when
+              their work is done.
             </p>
             <p>
               Sessions belong to you, not to the box — the agent runs under
