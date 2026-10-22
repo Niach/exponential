@@ -8,6 +8,27 @@
     "interact": "null | \"hover\" | \"focus\": the gate also runs a case that hovers / focuses the FIRST [data-xui-target] inside the specimen on both sides, waits two frames, then dumps"
   },
   "specimens": [
-    { "id": "smoke/button", "primitive": "smoke", "viewport": { "width": 900, "height": 600 }, "open": false, "interact": null }
+    { "id": "smoke/button", "primitive": "smoke", "viewport": { "width": 900, "height": 600 }, "open": false, "interact": null },
+    { "id": "plain/button", "primitive": "plain", "viewport": { "width": 1100, "height": 600 }, "open": false, "interact": "hover" },
+    { "id": "plain/badge", "primitive": "plain", "viewport": { "width": 900, "height": 200 }, "open": false, "interact": null },
+    { "id": "plain/alert", "primitive": "plain", "viewport": { "width": 900, "height": 300 }, "open": false, "interact": null },
+    { "id": "plain/card", "primitive": "plain", "viewport": { "width": 900, "height": 400 }, "open": false, "interact": null },
+    { "id": "plain/input-textarea", "primitive": "plain", "viewport": { "width": 900, "height": 700 }, "open": false, "interact": "focus" },
+    { "id": "plain/kbd-separator-skeleton-spinner", "primitive": "plain", "viewport": { "width": 900, "height": 400 }, "open": false, "interact": null },
+    { "id": "plain/empty-state", "primitive": "plain", "viewport": { "width": 900, "height": 800 }, "open": false, "interact": null },
+    { "id": "plain/icon-disc-meter", "primitive": "plain", "viewport": { "width": 900, "height": 300 }, "open": false, "interact": null },
+    { "id": "plain/progress", "primitive": "plain", "viewport": { "width": 900, "height": 200 }, "open": false, "interact": null },
+    { "id": "plain/rings", "primitive": "plain", "viewport": { "width": 900, "height": 200 }, "open": false, "interact": null },
+    { "id": "plain/disclosure-header", "primitive": "plain", "viewport": { "width": 900, "height": 300 }, "open": false, "interact": "hover" },
+    { "id": "plain/choice-tiles", "primitive": "plain", "viewport": { "width": 900, "height": 500 }, "open": false, "interact": null },
+    { "id": "plain/code-block", "primitive": "plain", "viewport": { "width": 900, "height": 700 }, "open": false, "interact": null },
+    { "id": "plain/table", "primitive": "plain", "viewport": { "width": 900, "height": 400 }, "open": false, "interact": null },
+    { "id": "plain/breadcrumb", "primitive": "plain", "viewport": { "width": 900, "height": 200 }, "open": false, "interact": "hover" },
+    { "id": "calendar/single", "primitive": "calendar", "viewport": { "width": 900, "height": 420 }, "open": false, "interact": "focus" },
+    { "id": "calendar/range", "primitive": "calendar", "viewport": { "width": 900, "height": 420 }, "open": false, "interact": null },
+    { "id": "calendar/multiple-two-months", "primitive": "calendar", "viewport": { "width": 900, "height": 420 }, "open": false, "interact": null },
+    { "id": "calendar/dropdown", "primitive": "calendar", "viewport": { "width": 900, "height": 420 }, "open": false, "interact": null },
+    { "id": "calendar/disabled-week-numbers", "primitive": "calendar", "viewport": { "width": 900, "height": 420 }, "open": false, "interact": null },
+    { "id": "calendar/rtl", "primitive": "calendar", "viewport": { "width": 900, "height": 420 }, "open": false, "interact": null }
   ]
 }
