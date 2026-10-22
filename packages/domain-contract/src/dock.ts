@@ -82,6 +82,9 @@ export const DOCK_TEST_IDS = fixture.testIds
 export const DOCK_STACK: StackConstants = fixture.stack
 export const DOCK_SHEET = fixture.sheet
 export const DOCK_MOTION = fixture.motion
+/** How long after a host's data loaded an arriving card still counts as
+ *  "already waiting" (never opens itself). */
+export const DOCK_AUTO_OPEN_GRACE_MS = fixture.autoOpenGraceMs
 
 const ORDER: Record<DockKind, number> = {
   queued: fixture.order.indexOf(`queued`),

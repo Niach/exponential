@@ -937,6 +937,7 @@ private fun RunFaceContent(
         SessionDockCards(
             sessionDock = sessionDock,
             asks = askSources,
+            autoOpenReady = phase == AgentPhase.Live,
             askSheet = { row, scope, _ ->
                 val relay = dockedRow
                 if (relaySource != null && row.id == relaySource.id && relay != null) {
@@ -2526,10 +2527,11 @@ internal fun SessionDockCards(
     asks: List<Dock.Source> = emptyList(),
     askSheet: (@Composable ColumnScope.(Dock.Row, DockSheetScope, () -> Unit) -> Unit)? = null,
     autoOpen: Boolean = true,
+    autoOpenReady: Boolean = true,
 ) {
     val rows = Dock.dockRows(asks + sessionDock.sources)
     var openId by rememberSaveable { mutableStateOf<String?>(null) }
-    DockAutoOpen(rows, autoOpen) { openId = it }
+    DockAutoOpen(rows, autoOpen, autoOpenReady) { openId = it }
     DockCards(
         rows = rows,
         openId = openId,

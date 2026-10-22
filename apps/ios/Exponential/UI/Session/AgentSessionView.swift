@@ -268,8 +268,9 @@ struct AgentSessionView: View {
             bottomBar(model)
         }
         // AUTO-OPEN: a plan or question that arrives while the session is in
-        // front opens its sheet; what already waited stays collapsed.
-        .dockAutoOpen(rows) { dockOpenId = $0 }
+        // front opens its sheet; what already waited (the relay's history
+        // replay, the synced cards) stays collapsed.
+        .dockAutoOpen(rows, ready: model.phase == .live) { dockOpenId = $0 }
         .onChange(of: model.planModeActive) { _, _ in planPick = nil }
         // EXP-1162: the bottom edge strip behind the band — not behind an
         // open composer card, which is opaque and rides the keyboard.

@@ -278,6 +278,7 @@ fun ThreadScreen(
                         dock = { sessionDock ->
                             ThreadDock(
                                 rows = view?.rows.orEmpty(),
+                                autoOpenReady = !view?.rows.isNullOrEmpty(),
                                 sessionName = sessionName,
                                 onAnswer = onAnswer,
                                 onDecidePlan = onDecidePlan,

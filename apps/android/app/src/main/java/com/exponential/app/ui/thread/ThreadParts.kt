@@ -1305,6 +1305,7 @@ fun ThreadDock(
     sessionSheet: (@Composable ColumnScope.(Dock.Row, DockSheetScope, () -> Unit) -> Unit)? = null,
     action: (@Composable (Dock.Row) -> Unit)? = null,
     autoOpen: Boolean = true,
+    autoOpenReady: Boolean = true,
     initialOpenId: String? = null,
     initialExpanded: Boolean = false,
 ) {
@@ -1315,7 +1316,7 @@ fun ThreadDock(
     }
     val docked = Dock.dockRows(asks + sources)
     var openId by remember { mutableStateOf(initialOpenId) }
-    DockAutoOpen(docked, autoOpen) { openId = it }
+    DockAutoOpen(docked, autoOpen, autoOpenReady) { openId = it }
     val byId = remember(rows) { rows.associateBy { it.id } }
     DockCards(
         rows = docked,

@@ -1692,6 +1692,7 @@ export function ThreadDock({
   onHeight,
   phoneClearance,
   autoOpen = true,
+  autoOpenReady = true,
   initialOpenId = null,
   initialExpanded,
   className,
@@ -1713,6 +1714,9 @@ export function ThreadDock({
   onHeight?: (height: number) => void
   phoneClearance?: boolean
   autoOpen?: boolean
+  /** The host's data has loaded (the relay live, the rows in): cards shown
+   *  before that, and shortly after, never open themselves. */
+  autoOpenReady?: boolean
   /** The sheet open on mount (the styleguide's open state). */
   initialOpenId?: string | null
   initialExpanded?: boolean
@@ -1729,7 +1733,7 @@ export function ThreadDock({
   )
   const dockedRows = useMemo(() => dockRows([...asks, ...(sources ?? [])]), [asks, sources])
   const [openId, setOpenId] = useState<string | null>(initialOpenId)
-  useDockAutoOpen(dockedRows, autoOpen, setOpenId)
+  useDockAutoOpen(dockedRows, autoOpen, setOpenId, autoOpenReady)
   return (
     <Dock
       rows={dockedRows}

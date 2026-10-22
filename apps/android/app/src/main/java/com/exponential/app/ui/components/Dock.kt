@@ -449,25 +449,37 @@ fun DockSheetSpecimenFrame(
 
 /**
  * AUTO-OPEN (dock.json): the plan or question that just arrived opens its
- * sheet while the view is in front ([enabled] and the screen resumed); every
- * id seen is remembered so a card never re-opens itself, and what already
- * waited when the view opened stays collapsed.
+ * sheet while the view is in front ([enabled] and the screen resumed). Until
+ * the host's data has loaded ([ready]: the relay live, the thread's rows in)
+ * and for `autoOpenGraceMs` after that, every card shown only seeds the
+ * memory, so what already waited never opens itself; every id seen is
+ * remembered so a card never re-opens.
  */
 @Composable
-fun DockAutoOpen(rows: List<Dock.Row>, enabled: Boolean, onOpen: (String) -> Unit) {
+fun DockAutoOpen(rows: List<Dock.Row>, enabled: Boolean, ready: Boolean = true, onOpen: (String) -> Unit) {
     val seen = remember { mutableSetOf<String>() }
-    var primed by remember { mutableStateOf(false) }
+    var readyAt by remember { mutableStateOf<Long?>(null) }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val open by rememberUpdatedState(onOpen)
     val key = rows.map { it.id to it.kind }
-    LaunchedEffect(key) {
-        if (!primed) {
-            primed = true
-            seen += key.map { it.first }
+    LaunchedEffect(key, ready) {
+        val ids = key.map { it.first }
+        if (!ready) {
+            readyAt = null
+            seen += ids
+            return@LaunchedEffect
+        }
+        val now = System.currentTimeMillis()
+        val since = readyAt ?: now.also { readyAt = it }
+        if (now - since < DOCK_AUTO_OPEN_GRACE_MS) {
+            seen += ids
             return@LaunchedEffect
         }
         val next = Dock.dockAutoOpen(seen, key)
-        seen += key.map { it.first }
+        seen += ids
         if (next != null && enabled && lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) open(next)
     }
 }
+
+/** dock.json `autoOpenGraceMs`. */
+private const val DOCK_AUTO_OPEN_GRACE_MS = 1500L

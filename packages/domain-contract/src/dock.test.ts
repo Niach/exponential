@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test"
 
 import fixture from "../fixtures/dock.json" with { type: "json" }
 import toastFixture from "../fixtures/toast-stack.json" with { type: "json" }
-import { dock, dockAutoOpen, dockRows, DOCK_STACK, type DockKind, type DockRow, type DockSource } from "./dock"
+import { dock, dockAutoOpen, dockRows, DOCK_AUTO_OPEN_GRACE_MS, DOCK_STACK, type DockKind, type DockRow, type DockSource } from "./dock"
 
 describe(`dockRows`, () => {
   for (const entry of fixture.rowCases) {
@@ -30,6 +30,10 @@ describe(`dockAutoOpen`, () => {
       expect(dockAutoOpen({ previous: entry.previous, rows })).toBe(entry.expected)
     })
   }
+})
+
+test(`the auto-open grace is on record`, () => {
+  expect(DOCK_AUTO_OPEN_GRACE_MS).toBe(1500)
 })
 
 test(`the pile is the toast's stack (peek, scale step, visible)`, () => {

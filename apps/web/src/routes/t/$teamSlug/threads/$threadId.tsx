@@ -905,6 +905,7 @@ function ConversationBody({
           composer={isMobile ? undefined : composer}
           onHeight={setDockHeight}
           phoneClearance={isMobile}
+          autoOpenReady={view.rows.length > 0}
         />
       )}
       </div>

@@ -1056,6 +1056,7 @@ export function AgentSessionView({
             composer={composerFloats ? undefined : composer}
             onHeight={setDockHeight}
             phoneClearance={composerFloats}
+            autoOpenReady={live}
           />
         </div>
 

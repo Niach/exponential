@@ -13,6 +13,7 @@ import {
 import {
   dock,
   dockAutoOpen,
+  DOCK_AUTO_OPEN_GRACE_MS,
   DOCK_COPY,
   DOCK_ICONS,
   DOCK_SHEET,
@@ -475,21 +476,29 @@ export function DockSheetSpecimenFrame({
 }
 
 /** AUTO-OPEN (dock.json): the plan or question that just arrived opens its
- *  sheet when the view is in front (`enabled` and the document visible);
- *  every id seen is remembered so a card never re-opens itself. */
+ *  sheet when the view is in front (`enabled` and the document visible).
+ *  Until the host's data has loaded (`ready`: the relay live, the thread's
+ *  rows in) and for `autoOpenGraceMs` after that, every card shown only
+ *  seeds the memory, so what already waited never opens itself; every id
+ *  seen is remembered so a card never re-opens. */
 export function useDockAutoOpen(
   rows: readonly DockRow[],
   enabled: boolean,
-  onOpen: (id: string) => void
+  onOpen: (id: string) => void,
+  ready = true
 ) {
   const seen = useRef<Set<string>>(new Set())
-  const primed = useRef(false)
+  const readyAt = useRef<number | null>(null)
   useEffect(() => {
     const ids = rows.map((row) => row.id)
-    // The first frame seeds the memory: what is already waiting when the
-    // view opens stays collapsed.
-    if (!primed.current) {
-      primed.current = true
+    const now = Date.now()
+    if (!ready) {
+      readyAt.current = null
+      ids.forEach((id) => seen.current.add(id))
+      return
+    }
+    if (readyAt.current === null) readyAt.current = now
+    if (now - readyAt.current < DOCK_AUTO_OPEN_GRACE_MS) {
       ids.forEach((id) => seen.current.add(id))
       return
     }
@@ -498,5 +507,5 @@ export function useDockAutoOpen(
     if (next === null || !enabled) return
     if (typeof document !== `undefined` && document.visibilityState === `hidden`) return
     onOpen(next)
-  }, [rows, enabled, onOpen])
+  }, [rows, enabled, ready, onOpen])
 }

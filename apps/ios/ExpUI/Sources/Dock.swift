@@ -458,29 +458,41 @@ public struct DockSheetSpecimenFrame<Body: View, Footer: View>: View {
 }
 
 /// AUTO-OPEN (dock.json): the plan or question that just arrived opens its
-/// sheet while the view is in front (`enabled` and the app active); every id
-/// seen is remembered so a card never re-opens itself, and the first frame
-/// only seeds the memory (what already waits when the view opens stays
-/// collapsed).
+/// sheet while the view is in front (`enabled` and the app active). Until
+/// the host's data has loaded (`ready`: the relay live, the thread's rows
+/// in) and for `autoOpenGraceMs` after that, every card shown only seeds
+/// the memory, so what already waited never opens itself; every id seen is
+/// remembered so a card never re-opens.
 public struct DockAutoOpen: ViewModifier {
     let rows: [Dock.Row]
     let enabled: Bool
+    let ready: Bool
     let open: (String) -> Void
 
+    /// dock.json `autoOpenGraceMs`.
+    private static let grace: TimeInterval = 1.5
+
     @State private var seen: Set<String> = []
-    @State private var primed = false
+    @State private var readyAt: Date? = nil
     @Environment(\.scenePhase) private var scenePhase
 
     public func body(content: Content) -> some View {
         content
             .onAppear { check(rows) }
             .onChange(of: rows.map(\.id)) { _, _ in check(rows) }
+            .onChange(of: ready) { _, _ in check(rows) }
     }
 
     private func check(_ rows: [Dock.Row]) {
         let ids = rows.map(\.id)
-        guard primed else {
-            primed = true
+        guard ready else {
+            readyAt = nil
+            seen.formUnion(ids)
+            return
+        }
+        let since = readyAt ?? Date()
+        if readyAt == nil { readyAt = since }
+        guard Date().timeIntervalSince(since) >= Self.grace else {
             seen.formUnion(ids)
             return
         }
@@ -492,7 +504,7 @@ public struct DockAutoOpen: ViewModifier {
 }
 
 extension View {
-    public func dockAutoOpen(_ rows: [Dock.Row], enabled: Bool = true, open: @escaping (String) -> Void) -> some View {
-        modifier(DockAutoOpen(rows: rows, enabled: enabled, open: open))
+    public func dockAutoOpen(_ rows: [Dock.Row], enabled: Bool = true, ready: Bool = true, open: @escaping (String) -> Void) -> some View {
+        modifier(DockAutoOpen(rows: rows, enabled: enabled, ready: ready, open: open))
     }
 }

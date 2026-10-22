@@ -747,8 +747,8 @@ class StyleguideScreenshotsTest {
         composeRule.onAllNodes(coldStartRow).onFirst().performClick()
         flow.waitFor(hasTestTag(SessionTree.ThreadCopy.TEST_ID_CONVERSATION), NAV_TIMEOUT)
         flow.waitFor(hasText(COLD_START_REPLY_FRAGMENT, substring = true), SYNC_TIMEOUT)
-        // THE ask dock: the seeded question + the child's plan stack in the composer's slot.
-        flow.waitFor(hasTestTag("ask-dock-row"), SYNC_TIMEOUT)
+        // N-12: THE Dock: the seeded question + the child's plan as DockCards above the composer.
+        flow.waitFor(hasTestTag("dock-card"), SYNC_TIMEOUT)
         flow.waitFor(hasTestTag("thread-strip-chips"), SYNC_TIMEOUT)
         flow.waitFor(hasTestTag("thread-tab-add"), SYNC_TIMEOUT)
         flow.waitFor(hasTestTag("thread-tab-guide"), SYNC_TIMEOUT)
