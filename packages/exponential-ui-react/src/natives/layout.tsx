@@ -6,7 +6,7 @@
 import { memo, useCallback, useContext, useEffect, useMemo, useRef, type KeyboardEvent, type ReactNode } from "react"
 import { listSections, sectionRows, WINDOW_THRESHOLD as CATALOG_WINDOW_THRESHOLD, type ListSection } from "@exponential-at/ui"
 import { InstanceContext, ScopeContext, SurfaceContext, useSurfaceContext } from "../context"
-import { getPointer, LITERAL_ROWS_ROOT, setPointer } from "../data"
+import { getPointer, LITERAL_ROWS_ROOT, setPointer } from "@exponential-at/ui/web"
 import { WindowedList, type WindowedListHandle } from "../list"
 import type { NativeProps } from "../node-view"
 import { NodeView, TemplateItemView, mergeStyle, templateItems } from "../node-view"

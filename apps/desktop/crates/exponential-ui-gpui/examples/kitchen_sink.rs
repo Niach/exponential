@@ -1,6 +1,6 @@
 //! The kitchen sink in a real window, outside the IDE (a visual check of the
 //! painter on any desktop): `cargo run -p exponential-ui-gpui --example
-//! kitchen_sink`. Env: `XUI_THEME=neutral|exponential|playful` (default
+//! kitchen_sink`. Env: `XUI_THEME=neutral|exponential|playful|orange` (default
 //! `exponential`), `XUI_MODE=light|dark|system`, `XUI_LOCALE=<bcp47>` (`ar`
 //! paints RTL), `XUI_DENSITY=compact|comfortable`, `XUI_OPEN=1` (open every
 //! overlay), `XUI_SCROLL=<px>` (pre-scroll), `XUI_SIZE=<w>x<h>`.

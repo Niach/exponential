@@ -3,6 +3,7 @@
 // (`PORT`, default 4181). The browser suites spawn this; `dev:harness` runs
 // it for a human.
 
+import { readFileSync } from "node:fs"
 import { join } from "node:path"
 
 const root = import.meta.dir
@@ -20,6 +21,20 @@ export async function bundleHarness(): Promise<string> {
   return await result.outputs[0].text()
 }
 
+/** `?view=primitives` (FEED-131): the package's OWN compiled stylesheet,
+ *  rebuilt (`build:css`, ~0.2 s) once per serve process so a primitive lane
+ *  never paints against a stale sheet. */
+const SHEET = join(root, `..`, `dist`, `exponential-ui-react.css`)
+let sheetBuilt = false
+function primitivesSheet(): string {
+  if (!sheetBuilt) {
+    const r = Bun.spawnSync([`bun`, `run`, `./scripts/build-css.ts`], { cwd: join(root, `..`), stdout: `pipe`, stderr: `pipe` })
+    if (r.exitCode !== 0) throw new Error(`build:css failed: ${r.stderr.toString()}`)
+    sheetBuilt = true
+  }
+  return readFileSync(SHEET, `utf8`)
+}
+
 const PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Exponential UI · harness</title></head><body><div id="app"></div><script type="module" src="/dist/main.js"></script></body></html>`
 
 if (import.meta.main) {
@@ -29,6 +44,13 @@ if (import.meta.main) {
     async fetch(req) {
       const url = new URL(req.url)
       if (url.pathname === `/` || url.pathname === `/index.html`) return new Response(PAGE, { headers: { "content-type": `text/html; charset=utf-8` } })
+      if (url.pathname === `/dist/primitives.css`) {
+        try {
+          return new Response(primitivesSheet(), { headers: { "content-type": `text/css; charset=utf-8`, "cache-control": `no-store` } })
+        } catch (error) {
+          return new Response(String(error), { status: 500 })
+        }
+      }
       if (url.pathname === `/dist/main.js`) {
         try {
           cached ??= await bundleHarness()

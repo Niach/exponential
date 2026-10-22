@@ -273,17 +273,28 @@ describe.skipIf(!ready.ok)(`the bus: a child's transitions reach its parent`, ()
       card: { kind: `report`, sessionId: childId, summary: `Shipped in PR #3.`, final: true },
     })
 
-    // The device reports the PARENT's process gone (endDeadSessionInTx):
-    // only that row ends; its live child reports later into an ended reader.
+    // FEED-134: the device reporting a ROOT's process gone leaves it idle
+    // (the thread survives an app quit or a crash); a CHILD's process gone
+    // ends that one row (endDeadSessionInTx), and its own live child
+    // reports later into an ended reader.
     const live = await w.child(rootId, `still working`)
     await w.host.claim({ sessionId: rootId })
     await w.host.report({ sessionId: rootId, status: `ended` })
+    expect(await row(rootId)).toMatchObject({ status: `idle`, busy: false })
+    const mid = await w.child(rootId, `a worker`)
+    const grand = await w.child(mid, `its helper`)
+    await w.host.claim({ sessionId: mid })
+    await w.host.report({ sessionId: mid, status: `ended` })
+    expect(await row(mid)).toMatchObject({ status: `ended` })
+    expect(await row(grand)).toMatchObject({ status: `queued` })
+    await w.host.claim({ sessionId: grand })
+    await w.host.report({ sessionId: grand, status: `ended` })
+    const [orphan] = (await fromChild(mid, grand)).filter((m) => cardKind(m) === `report`)
+    expect(orphan!.consumedAt).not.toBeNull()
+    // A person's End still ends the root, its live child with it.
+    await endSession({ userId: w.owner, sessionId: rootId })
     expect(await row(rootId)).toMatchObject({ status: `ended` })
-    expect(await row(live)).toMatchObject({ status: `queued` })
-    await w.host.claim({ sessionId: live })
-    await w.host.report({ sessionId: live, status: `ended` })
-    const [late] = (await fromChild(rootId, live)).filter((m) => cardKind(m) === `report`)
-    expect(late!.consumedAt).not.toBeNull()
+    expect(await row(live)).toMatchObject({ status: `ended` })
   })
 
   it(`a first claim posts an informational session_claimed line; a root's own event line lands on itself`, async () => {

@@ -9,7 +9,8 @@
 // apps/desktop/crates/exponential-ui-gpui/tests/conformance.rs.
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
-import { chromium, type Browser } from "playwright"
+import type { Browser } from "playwright"
+import { launchChromium } from "../../exponential-ui/conformance/browser-page"
 import { spawn, type ChildProcess } from "node:child_process"
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
@@ -43,7 +44,7 @@ beforeAll(async () => {
     if (Date.now() > deadline) throw new Error(`the conformance server did not start`)
     await new Promise((r) => setTimeout(r, 150))
   }
-  browser = await chromium.launch({ args: CHROMIUM_ARGS })
+  browser = await launchChromium(CHROMIUM_ARGS)
 })
 afterAll(async () => {
   await browser?.close()

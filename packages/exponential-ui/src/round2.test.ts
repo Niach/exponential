@@ -313,7 +313,7 @@ describe(`animations.json (§2)`, () => {
 
 describe(`theme, strings, a11y, catalog, prompt (round 2)`, () => {
   test(`every built-in theme resolves the blur group; recipes may blur and animate`, () => {
-    for (const id of [`neutral`, `exponential`, `playful`]) expect(Object.keys(builtinTheme(id).tokens.blur)).toEqual([`sm`, `md`, `lg`, `xl`])
+    for (const id of [`neutral`, `exponential`, `playful`, `orange`]) expect(Object.keys(builtinTheme(id).tokens.blur)).toEqual([`sm`, `md`, `lg`, `xl`])
     const bad = validateTheme({ $schema: THEME_SCHEMA_ID, id: `x`, name: `X`, extends: `neutral`, recipes: { Box: { root: [{ style: { backdropBlur: 4, animation: `wobble` } }] } } }, { themes: [builtinTheme(`neutral`)] })
     expect(bad.map((i) => i.path).sort()).toEqual([`recipes.Box.root[0].style.animation`, `recipes.Box.root[0].style.backdropBlur`])
   })

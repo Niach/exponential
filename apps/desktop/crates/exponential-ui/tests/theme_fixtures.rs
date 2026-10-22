@@ -75,7 +75,7 @@ fn every_built_in_resolves_to_the_recorded_theme_byte_for_byte() {
     let themes = f["themes"].as_object().unwrap();
     let mut ids: Vec<&str> = themes.keys().map(String::as_str).collect();
     ids.sort();
-    assert_eq!(ids, ["exponential", "neutral", "playful"]);
+    assert_eq!(ids, ["exponential", "neutral", "orange", "playful"]);
     for (id, expected) in themes {
         assert_same(&serde_json::to_value(&*theme(id)).unwrap(), expected, id);
     }
@@ -83,10 +83,10 @@ fn every_built_in_resolves_to_the_recorded_theme_byte_for_byte() {
 
 #[test]
 fn the_built_in_sources_load_to_the_recorded_themes() {
-    // Proves the LOADER, not only the embedding: the three source files
+    // Proves the LOADER, not only the embedding: the four source files
     // through `load_theme` over a registry of sources.
     let f = fixture("theme-resolved.json");
-    let ids = ["neutral", "exponential", "playful"];
+    let ids = ["neutral", "exponential", "playful", "orange"];
     let registry: Vec<ThemeRef> = ids.iter().map(|id| ThemeRef::Source(read(&format!("themes/{id}.theme.json")))).collect();
     let options = ThemeOptions::core(&registry);
     for (i, id) in ids.iter().enumerate() {
@@ -109,7 +109,7 @@ fn every_shipped_and_recorded_theme_loads() {
         .filter(|n| n.ends_with(".theme.json"))
         .collect();
     files.sort();
-    assert_eq!(files.len(), 3);
+    assert_eq!(files.len(), 4);
     for file in &files {
         let source = read(&format!("themes/{file}"));
         assert_eq!(source["$schema"].as_str(), Some(THEME_SCHEMA_ID), "{file}");
@@ -157,7 +157,7 @@ fn every_theme_component_part_props_resolves_to_the_recorded_visuals() {
 }
 
 #[test]
-fn the_three_themes_give_the_kitchen_sink_controls_different_looks() {
+fn the_four_themes_give_the_kitchen_sink_controls_different_looks() {
     let cases = recipe_cases();
     let button = cases
         .iter()
@@ -171,7 +171,7 @@ fn the_three_themes_give_the_kitchen_sink_controls_different_looks() {
             unique.push(l);
         }
     }
-    assert_eq!(unique.len(), 3);
+    assert_eq!(unique.len(), 4);
     let card = cases.iter().find(|c| c["component"] == "Card" && c["part"] == "root").unwrap();
     assert!(json::equal(&card["visuals"]["playful"]["light"]["default"]["borderWidth"], &Value::from(0)));
     assert!(json::equal(&card["visuals"]["neutral"]["light"]["default"]["borderWidth"], &Value::from(1)));

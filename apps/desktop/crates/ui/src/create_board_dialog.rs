@@ -23,6 +23,7 @@
 //! Opened by the sidebar's Boards `+` via the [`NewBoard`]
 //! action; [`init`] owns the handler.
 
+use crate::controls::PointerMenuButtonExt as _;
 use gpui::{
     div, px, size, App, AppContext as _, Entity, InteractiveElement as _, IntoElement,
     ParentElement, Render, ScrollHandle, SharedString, StatefulInteractiveElement as _, Styled,
@@ -685,7 +686,7 @@ impl CreateBoardDialogView {
                 Some(label) => crate::surface::picker_value_label(label).into_any_element(),
                 None => crate::feedback::skeleton_value("create-board-repo-placeholder", 120., cx),
             })
-            .dropdown_menu(move |menu, _window, _cx| {
+            .pointer_menu(move |menu, _window, _cx| {
                 let mut menu = crate::pickers::single_select_menu(menu.scrollable(true).max_h(px(320.)));
                 {
                     let view = view.clone();
@@ -904,7 +905,7 @@ impl CreateBoardDialogView {
                     .w_full()
                     .icon(registry::UI_GITHUB)
                     .label("Select a GitHub repository\u{2026}")
-                    .dropdown_menu(move |menu, _window, _cx| {
+                    .pointer_menu(move |menu, _window, _cx| {
                         let mut menu = menu.scrollable(true).max_h(px(320.));
                         for repo in &github_repos {
                             let view = view.clone();

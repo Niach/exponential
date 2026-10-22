@@ -1,7 +1,7 @@
 import * as React from "react"
 import { Avatar as AvatarPrimitive } from "radix-ui"
+import { AVATAR_CLASSES, avatarFallbackColors, avatarFallbackHue } from "@exponential-at/ui/web/primitives"
 
-import { avatarHueIndex } from "./avatar-color"
 import { cn } from "./cn"
 
 function Avatar({
@@ -11,10 +11,7 @@ function Avatar({
   return (
     <AvatarPrimitive.Root
       data-slot="avatar"
-      className={cn(
-        `relative flex size-8 shrink-0 overflow-hidden rounded-full select-none`,
-        className
-      )}
+      className={cn(AVATAR_CLASSES.root, className)}
       {...props}
     />
   )
@@ -27,16 +24,12 @@ function AvatarImage({
   return (
     <AvatarPrimitive.Image
       data-slot="avatar-image"
-      className={cn(`aspect-square size-full`, className)}
+      className={cn(AVATAR_CLASSES.image, className)}
       {...props}
     />
   )
 }
 
-// EXP-698 r4 — a fallback given the person's `userId` paints their hue: the
-// palette colour at 20% behind initials in the same colour, no stroke. Without
-// an id (a repo, a bot, an unresolved reporter) it keeps the muted chrome. The
-// var is read inline because Tailwind v4 cannot see a computed `bg-avatar-N`.
 function AvatarFallback({
   className,
   userId,
@@ -45,27 +38,16 @@ function AvatarFallback({
 }: React.ComponentProps<typeof AvatarPrimitive.Fallback> & {
   userId?: string | null
 }) {
-  const hue =
-    userId === undefined || userId === null
-      ? undefined
-      : `var(--avatar-${avatarHueIndex(userId)})`
+  const hue = avatarFallbackHue(userId)
   return (
     <AvatarPrimitive.Fallback
       data-slot="avatar-fallback"
       className={cn(
-        `flex size-full items-center justify-center rounded-full text-sm`,
-        hue === undefined && `bg-muted text-muted-foreground`,
+        AVATAR_CLASSES.fallback,
+        hue === undefined && AVATAR_CLASSES.fallbackMuted,
         className
       )}
-      style={
-        hue === undefined
-          ? style
-          : {
-              backgroundColor: `color-mix(in srgb, ${hue} 20%, transparent)`,
-              color: hue,
-              ...style,
-            }
-      }
+      style={hue === undefined ? style : { ...avatarFallbackColors(hue), ...style }}
       {...props}
     />
   )

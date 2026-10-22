@@ -358,7 +358,7 @@
       "issues": [
         {
           "path": "extends",
-          "message": "unknown theme \"material\"; known: neutral|exponential|playful"
+          "message": "unknown theme \"material\"; known: neutral|exponential|playful|orange"
         }
       ]
     },

@@ -4356,6 +4356,29 @@
       }
     },
     {
+      "id": "composer-dialog-menu",
+      "group": "coding",
+      "title": "Composer + menu in a dialog",
+      "blurb": "N-6: the launcher composer\u2019s \"+\" menu inside its DIALOG window on desktop. A dialog is a small OS window and a drawn menu cannot leave its window, so the menu opens in a menu window of its own (`menu_window`) laid over the dialog and overhangs its edges, the Implement issue submenu beside it \u2014 the same drawn menu as composer-menu, where it would otherwise have been clipped.",
+      "order": 28,
+      "desktop": {
+        "drive": {
+          "kind": "dialog",
+          "value": "run:$issueA"
+        },
+        "anchorDelayMs": 2500,
+        "env": {
+          "EXP_DEV_COMPOSER_MENU": "dialog-implement-issue"
+        }
+      },
+      "notes": {
+        "web": "No capture: a web dialog is in-page and its menu portals to the page, so nothing can clip it; the menu itself is composer-menu.",
+        "web-mobile": "No capture: on phones the menu is a bottom sheet (composer-menu).",
+        "ios": "No capture: iOS has no dialog window; the composer and its menu are sheets (composer-menu).",
+        "android": "No capture: Android has no dialog window; the composer and its menu are sheets (composer-menu)."
+      }
+    },
+    {
       "id": "composer-slash-menu",
       "group": "coding",
       "title": "Composer / menu",

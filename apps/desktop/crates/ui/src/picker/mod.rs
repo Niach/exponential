@@ -251,6 +251,8 @@ pub(crate) struct Picker<T: Clone> {
     /// SLOP-28: the search field's placeholder (`None` = "Search…"); the
     /// issue pickers say the ×4 `ISSUE_SEARCH_PLACEHOLDER`.
     pub placeholder: Option<SharedString>,
+    /// N-6: the rows open inline under the trigger ([`PickerSurface::Inline`]).
+    pub inline: bool,
 }
 
 /// EXP-1249: what a caller-opened picker runs when its surface closes.
@@ -266,6 +268,12 @@ pub(crate) enum PickerSurface {
     /// MULTI pick always needs it: a menu dismisses on its first click, and
     /// a multi surface has to survive every toggle.
     Search,
+    /// N-6: the search surface's rows IN THE HOST'S FLOW under the trigger
+    /// — no popover. For a host that already is a surface and cannot afford
+    /// a second one (a dialog window): the trigger discloses the rows, the
+    /// host grows with them, a single pick folds them away. `inline()` asks
+    /// for it; the web's `presentation="inline"`.
+    Inline,
 }
 
 impl<T: Clone + PartialEq + 'static> Picker<T> {
@@ -294,6 +302,7 @@ impl<T: Clone + PartialEq + 'static> Picker<T> {
             max: None,
             opened: None,
             placeholder: None,
+            inline: false,
         }
     }
 
@@ -325,6 +334,7 @@ impl<T: Clone + PartialEq + 'static> Picker<T> {
             max: None,
             opened: None,
             placeholder: None,
+            inline: false,
         }
     }
 
@@ -389,6 +399,19 @@ impl<T: Clone + PartialEq + 'static> Picker<T> {
     /// Widen (or narrow) the searchable surface. A caller only reaches for
     /// this when its ROWS are a different shape from a property pick's — the
     /// composer's issue rows are a whole issue line.
+    /// N-6: open the rows INLINE under the trigger instead of in a popover
+    /// ([`PickerSurface::Inline`]) — for a host that already is a surface
+    /// (a dialog window). Both modes, with or without `search`.
+    pub(crate) fn inline(mut self) -> Self {
+        self.inline = true;
+        self
+    }
+
+    /// [`Self::inline`] when `inline` (a host that knows its own flow).
+    pub(crate) fn inline_if(self, inline: bool) -> Self {
+        if inline { self.inline() } else { self }
+    }
+
     pub(crate) fn width(mut self, width: gpui::Pixels) -> Self {
         self.width = Some(width);
         self
@@ -434,6 +457,9 @@ impl<T: Clone + PartialEq + 'static> Picker<T> {
     /// primitive: a caller asks for `search` or for `multi`, never for a
     /// popover.
     pub(crate) fn surface(&self) -> PickerSurface {
+        if self.inline {
+            return PickerSurface::Inline;
+        }
         if self.search
             || self.mode == PickerMode::Multi
             || self.panel.is_some()
@@ -469,10 +495,25 @@ impl<T: Clone + PartialEq + 'static> Picker<T> {
             .id
             .clone()
             .unwrap_or_else(|| ElementId::CodeLocation(*std::panic::Location::caller()));
-        match self.surface() {
+        let in_dialog = crate::native_dialog::is_dialog_window(window, cx);
+        match self.surface_in(in_dialog) {
             PickerSurface::Menu => self.render_menu(id),
             PickerSurface::Search => self.render_search(id, window, cx),
+            PickerSurface::Inline => self.render_inline(id, window, cx),
         }
+    }
+
+    /// N-6 — THE HOST DECIDES: inside a dialog window (a small window that
+    /// already is a surface) every picker opens inline, the web's
+    /// `DialogContent` rule and the phones' sheet rule. A caller-opened
+    /// picker (`opened`, the composer's MCP servers list hung off its "+")
+    /// keeps the surface its caller placed, and asks for `inline()` itself
+    /// where it mounts in the flow.
+    pub(crate) fn surface_in(&self, in_dialog: bool) -> PickerSurface {
+        if in_dialog && self.opened.is_none() {
+            return PickerSurface::Inline;
+        }
+        self.surface()
     }
 
     /// The short single pick: upstream's `PopupMenu`, so a picker keyboard-
@@ -605,8 +646,25 @@ impl<T: Clone + PartialEq + 'static> Picker<T> {
             popover = popover.open(true);
         }
         let caller_open = opened.is_some();
-        let query_for_focus = query.clone();
-        let state_for_focus = state.clone();
+        let parts = Rc::new(SurfaceParts {
+            items,
+            value,
+            on_change,
+            search,
+            empty_text,
+            render_item,
+            panel,
+            fit,
+            rank,
+            footer,
+            max,
+            multi,
+            query: query.clone(),
+            state: state.clone(),
+            scroll,
+            rows_id,
+            caller_open,
+        });
         popover
             .trigger(PickerTrigger::new(key("trigger"), trigger))
             .on_open_change(move |open, window, cx| {
@@ -625,13 +683,423 @@ impl<T: Clone + PartialEq + 'static> Picker<T> {
                 }
             })
             .content(move |_, window, cx| {
+                let popover_state = cx.entity();
+                let dismiss: PickerDismiss = Rc::new(move |window, cx: &mut App| {
+                    popover_state.update(cx, |state, cx| state.dismiss(window, cx));
+                });
+                surface_body(&parts, &dismiss, window, cx)
+            })
+            .into_any_element()
+    }
+
+    /// N-6: the INLINE presentation — the trigger, and under it (while
+    /// disclosed) the SAME rows the search surface draws, in the host's
+    /// flow. No popover: the host (a dialog window) is already a surface and
+    /// grows with the rows. A press on the trigger discloses or folds; a
+    /// single pick, Enter and Escape fold; a multi pick stays. A caller-
+    /// opened picker (`opened`) is disclosed until its body dismisses, which
+    /// tells the caller as the popover would.
+    fn render_inline(self, id: ElementId, window: &mut Window, cx: &mut App) -> AnyElement {
+        let Picker {
+            items,
+            mode,
+            value,
+            on_change,
+            search,
+            trigger,
+            empty_text,
+            render_item,
+            panel,
+            rank,
+            footer,
+            max,
+            opened,
+            placeholder,
+            ..
+        } = self;
+        let multi = mode == PickerMode::Multi;
+        let empty_text = empty_text.unwrap_or_else(|| SharedString::from("No matches"));
+        let key = |suffix: &str| -> ElementId {
+            ElementId::Name(SharedString::from(format!("{id:?}-picker-{suffix}")))
+        };
+        let query = window.use_keyed_state(key("query"), cx, |window, cx| {
+            InputState::new(window, cx)
+                .placeholder(placeholder.unwrap_or_else(|| SharedString::from("Search…")))
+        });
+        let state = window.use_keyed_state(key("state"), cx, |_, _| PickerSurfaceState::default());
+        let scroll = window
+            .use_keyed_state(key("scroll"), cx, |_, _| gpui::ScrollHandle::new())
+            .read(cx)
+            .clone();
+        // N-14 (DEV-ONLY, `EXP_DEV_INLINE_PICKER=<picker id>`): the named
+        // inline picker starts disclosed, for a capture.
+        let dev_open = std::env::var("EXP_DEV_INLINE_PICKER")
+            .ok()
+            .is_some_and(|wanted| !wanted.is_empty() && format!("{id:?}").contains(&wanted));
+        let disclosed = window.use_keyed_state(key("inline-open"), cx, move |_, _| InlineDisclosure {
+            open: dev_open,
+        });
+        let caller_open = opened.is_some();
+        let open = caller_open || disclosed.read(cx).open;
+        let parent_view_id = window.current_view();
+        let parts = Rc::new(SurfaceParts {
+            items,
+            value,
+            on_change,
+            search,
+            empty_text,
+            render_item,
+            panel,
+            fit: None,
+            rank,
+            footer,
+            max,
+            multi,
+            query: query.clone(),
+            state: state.clone(),
+            scroll,
+            rows_id: key("rows"),
+            caller_open,
+        });
+        let dismiss: PickerDismiss = {
+            let disclosed = disclosed.clone();
+            let opened = opened.clone();
+            Rc::new(move |window, cx: &mut App| {
+                disclosed.update(cx, |disclosure, _| disclosure.open = false);
+                if let Some(on_close) = &opened {
+                    on_close(window, cx);
+                }
+                cx.notify(parent_view_id);
+            })
+        };
+        // N-14: inside a row host the rows go to the row's slot, under the
+        // whole row (`picker_placement`).
+        let row_slot = current_row_slot();
+        let toggle = {
+            let disclosed = disclosed.clone();
+            let query = query.clone();
+            let state = state.clone();
+            let dismiss = dismiss.clone();
+            let row_slot = row_slot.clone();
+            move |_: &gpui::MouseDownEvent, window: &mut Window, cx: &mut App| {
+                cx.stop_propagation();
+                if open {
+                    dismiss(window, cx);
+                    return;
+                }
+                // One slot, one picker: the row's open picker folds.
+                if let Some(slot) = &row_slot {
+                    let previous = slot.update(cx, |slot, _| slot.owner.replace(disclosed.clone()));
+                    if let Some(previous) = previous.filter(|previous| *previous != disclosed) {
+                        previous.update(cx, |disclosure, _| disclosure.open = false);
+                    }
+                }
+                // Every disclosure is a fresh pick: an empty filter, the top
+                // row under the cursor, the field focused (the popover's
+                // open handler).
+                query.update(cx, |input, cx| input.set_value("", window, cx));
+                state.update(cx, |state, _| state.reset());
+                disclosed.update(cx, |disclosure, _| disclosure.open = true);
+                if search {
+                    query.read(cx).focus_handle(cx).focus(window, cx);
+                }
+                cx.notify(parent_view_id);
+            }
+        };
+        // N-14: THE COLLAPSED TRIGGER NEVER CHANGES — the caller's trigger
+        // at its own size, exactly as the popover presentation draws it;
+        // nothing wraps it in a stretching column.
+        let trigger = div()
+            .id(key("inline-trigger"))
+            .flex_none()
+            .on_mouse_down(gpui::MouseButton::Left, toggle)
+            .child(PickerTrigger::new(key("trigger"), trigger).selected(open))
+            .into_any_element();
+        if !open {
+            return trigger;
+        }
+        match row_slot {
+            // In a row host: publish the rows into the slot under the row.
+            Some(slot) => {
+                let body: SlotBody = {
+                    let parts = parts.clone();
+                    let dismiss = dismiss.clone();
+                    Rc::new(move |window: &mut Window, cx: &mut App| {
+                        surface_body(&parts, &dismiss, window, cx).into_any_element()
+                    })
+                };
+                slot.update(cx, |slot, _| {
+                    slot.body = Some(body);
+                    slot.owner = Some(disclosed.clone());
+                });
+                trigger
+            }
+            // Elsewhere: the rows directly under the trigger, as wide as the
+            // host column; the trigger keeps its own width.
+            None => v_flex()
+                .w_full()
+                .min_w_0()
+                .items_start()
+                .child(trigger)
+                .child(
+                    v_flex()
+                        .w_full()
+                        .min_w_0()
+                        .child(search_list::hairline(cx).mt_1())
+                        .child(surface_body(&parts, &dismiss, window, cx)),
+                )
+                .into_any_element(),
+        }
+    }
+}
+
+/// N-6: the open state of an inline picker ([`Picker::render_inline`]).
+#[derive(Default)]
+struct InlineDisclosure {
+    open: bool,
+}
+
+/// N-14 (`picker-presentation.json`): the two presentations.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum PickerPresentation {
+    /// The platform's own surface: the popover, or the short menu.
+    Popover,
+    /// The same rows in the host's flow.
+    Inline,
+}
+
+/// N-14: where an open picker's rows go.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum PickerBody {
+    /// The popover / menu surface.
+    Surface,
+    /// Inline, in the slot UNDER THE WHOLE ROW of a row host
+    /// ([`InlinePickerRow`]): the trigger and its siblings never move.
+    RowSlot,
+    /// Inline, directly under the trigger, as wide as the host column.
+    UnderTrigger,
+}
+
+/// N-14 — THE placement rule ×4 (`picker-presentation.json`
+/// `placementCases`): the host decides (a dialog is inline), a caller's
+/// explicit request wins, and an inline picker in a row host opens into
+/// the row's slot.
+pub(crate) fn picker_placement(
+    in_dialog: bool,
+    in_row: bool,
+    requested: Option<PickerPresentation>,
+) -> (PickerPresentation, PickerBody) {
+    let presentation = requested.unwrap_or(if in_dialog {
+        PickerPresentation::Inline
+    } else {
+        PickerPresentation::Popover
+    });
+    let body = match (presentation, in_row) {
+        (PickerPresentation::Popover, _) => PickerBody::Surface,
+        (PickerPresentation::Inline, true) => PickerBody::RowSlot,
+        (PickerPresentation::Inline, false) => PickerBody::UnderTrigger,
+    };
+    (presentation, body)
+}
+
+/// What an open inline picker publishes into its row's slot: its rows.
+type SlotBody = Rc<dyn Fn(&mut Window, &mut App) -> AnyElement>;
+
+/// N-14: a row host's slot — the ONE open picker's rows, drawn under the
+/// row. Cleared at the start of every layout of the row and refilled by
+/// the picker that is open, so a picker that went away takes its rows
+/// with it.
+#[derive(Default)]
+pub(crate) struct RowSlot {
+    body: Option<SlotBody>,
+    /// The open picker's disclosure: opening another picker in the row
+    /// folds it (one slot, one picker).
+    owner: Option<Entity<InlineDisclosure>>,
+}
+
+thread_local! {
+    /// The row hosts currently laying out their rows, innermost last: an
+    /// inline picker rendered inside one publishes into it.
+    static ROW_SLOTS: std::cell::RefCell<Vec<Entity<RowSlot>>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+
+fn current_row_slot() -> Option<Entity<RowSlot>> {
+    ROW_SLOTS.with(|slots| slots.borrow().last().cloned())
+}
+
+/// N-14 — a ROW HOST for inline pickers (THE composer options row):
+/// `row` lays out as given, and while one of the inline pickers in it is
+/// open, that picker's rows are drawn UNDER THE WHOLE ROW, as wide as the
+/// row. The pins never move and never grow; closing folds the rows away.
+/// The web's `ComposerOptionsRow` slot, iOS's and Android's
+/// `InlinePickerRow`.
+pub(crate) struct InlinePickerRow {
+    id: ElementId,
+    row: Option<AnyElement>,
+}
+
+impl InlinePickerRow {
+    pub(crate) fn new(id: impl Into<ElementId>, row: impl IntoElement) -> Self {
+        Self {
+            id: id.into(),
+            row: Some(row.into_any_element()),
+        }
+    }
+}
+
+impl IntoElement for InlinePickerRow {
+    type Element = Self;
+
+    fn into_element(self) -> Self::Element {
+        self
+    }
+}
+
+pub(crate) struct InlinePickerRowLayout {
+    row: AnyElement,
+    body: Option<AnyElement>,
+}
+
+impl gpui::Element for InlinePickerRow {
+    type RequestLayoutState = InlinePickerRowLayout;
+    type PrepaintState = ();
+
+    fn id(&self) -> Option<ElementId> {
+        Some(self.id.clone())
+    }
+
+    fn source_location(&self) -> Option<&'static std::panic::Location<'static>> {
+        None
+    }
+
+    fn request_layout(
+        &mut self,
+        _: Option<&gpui::GlobalElementId>,
+        _: Option<&gpui::InspectorElementId>,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> (gpui::LayoutId, Self::RequestLayoutState) {
+        let slot_id = ElementId::Name(SharedString::from(format!("{:?}-row-slot", self.id)));
+        let slot = window.use_keyed_state(slot_id, cx, |_, _| RowSlot::default());
+        // Every layout starts empty: the open picker refills it below.
+        slot.update(cx, |slot, _| slot.body = None);
+        let mut row = self.row.take().expect("the row is laid out once");
+        ROW_SLOTS.with(|slots| slots.borrow_mut().push(slot.clone()));
+        let row_id = row.request_layout(window, cx);
+        ROW_SLOTS.with(|slots| {
+            slots.borrow_mut().pop();
+        });
+        let mut body = slot.read(cx).body.clone().map(|build| {
+            v_flex()
+                .w_full()
+                .min_w_0()
+                .child(search_list::hairline(cx).mt_1())
+                .child(build(window, cx))
+                .into_any_element()
+        });
+        let mut children = vec![row_id];
+        if let Some(body) = body.as_mut() {
+            children.push(body.request_layout(window, cx));
+        }
+        let mut style = gpui::Style::default();
+        style.display = gpui::Display::Flex;
+        style.flex_direction = gpui::FlexDirection::Column;
+        style.size.width = gpui::relative(1.).into();
+        style.min_size.width = px(0.).into();
+        let layout_id = window.request_layout(style, children, cx);
+        (layout_id, InlinePickerRowLayout { row, body })
+    }
+
+    fn prepaint(
+        &mut self,
+        _: Option<&gpui::GlobalElementId>,
+        _: Option<&gpui::InspectorElementId>,
+        _: gpui::Bounds<gpui::Pixels>,
+        layout: &mut Self::RequestLayoutState,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        layout.row.prepaint(window, cx);
+        if let Some(body) = layout.body.as_mut() {
+            body.prepaint(window, cx);
+        }
+    }
+
+    fn paint(
+        &mut self,
+        _: Option<&gpui::GlobalElementId>,
+        _: Option<&gpui::InspectorElementId>,
+        _: gpui::Bounds<gpui::Pixels>,
+        layout: &mut Self::RequestLayoutState,
+        _: &mut Self::PrepaintState,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        layout.row.paint(window, cx);
+        if let Some(body) = layout.body.as_mut() {
+            body.paint(window, cx);
+        }
+    }
+}
+
+/// What the search surface's body is drawn from — the popover and the
+/// inline presentation share it ([`surface_body`]).
+struct SurfaceParts<T: Clone> {
+    items: Vec<PickerItem<T>>,
+    value: Vec<T>,
+    on_change: OnPickerChange<T>,
+    search: bool,
+    empty_text: SharedString,
+    render_item: Option<PickerRenderItem<T>>,
+    panel: Option<PickerPanel>,
+    fit: Option<(gpui::Anchor, gpui::Pixels)>,
+    rank: Option<PickerRank<T>>,
+    footer: Option<PickerFooter>,
+    max: Option<usize>,
+    multi: bool,
+    query: Entity<InputState>,
+    state: Entity<PickerSurfaceState>,
+    scroll: gpui::ScrollHandle,
+    rows_id: ElementId,
+    caller_open: bool,
+}
+
+/// The search surface's body: the filter field (when `search`), the
+/// scroll-capped rows with the cursor and the selection marks, the footer,
+/// the fade. `dismiss` is what a single pick, Enter and Escape call — the
+/// popover's close, or the inline disclosure's fold.
+fn surface_body<T: Clone + PartialEq + 'static>(
+    parts: &SurfaceParts<T>,
+    dismiss: &PickerDismiss,
+    window: &mut Window,
+    cx: &mut App,
+) -> Div {
+    let items = parts.items.clone();
+    let value = parts.value.clone();
+    let on_change = parts.on_change.clone();
+    let search = parts.search;
+    let empty_text = parts.empty_text.clone();
+    let render_item = parts.render_item.clone();
+    let panel = parts.panel.clone();
+    let fit = parts.fit;
+    let rank = parts.rank.clone();
+    let footer = parts.footer.clone();
+    let max = parts.max;
+    let multi = parts.multi;
+    let query = parts.query.clone();
+    let state = parts.state.clone();
+    let scroll = parts.scroll.clone();
+    let rows_id = parts.rows_id.clone();
+    let caller_open = parts.caller_open;
+    let state_for_focus = state.clone();
+    let query_for_focus = query.clone();
                 // A caller-opened surface never ran the open handler above,
                 // so its field takes focus on the first frame here.
                 if caller_open && search && state_for_focus.update(cx, |state, _| state.claim_focus()) {
                     query_for_focus.read(cx).focus_handle(cx).focus(window, cx);
                 }
                 use gpui::{InteractiveElement as _, StatefulInteractiveElement as _};
-                let popover_state = cx.entity();
                 // The view this popover paints inside: a keyboard or hover
                 // move repaints it, as the base popover repaints itself.
                 let parent_view_id = window.current_view();
@@ -651,11 +1119,7 @@ impl<T: Clone + PartialEq + 'static> Picker<T> {
                 // A panel REPLACES the field and the rows: the icon grid is
                 // its own body, the surface around it still the primitive's.
                 if let Some(panel) = &panel {
-                    let dismiss_state = popover_state.clone();
-                    let dismiss: PickerDismiss = Rc::new(move |window, cx: &mut App| {
-                        dismiss_state.update(cx, |state, cx| state.dismiss(window, cx));
-                    });
-                    return column.child(panel(dismiss, window, cx));
+                    return column.child(panel(dismiss.clone(), window, cx));
                 }
                 let mut visible = match &rank {
                     Some(rank) => rank(&items, &filter, cx),
@@ -735,7 +1199,7 @@ impl<T: Clone + PartialEq + 'static> Picker<T> {
                     ))
                     .capture_action({
                         let on_change = on_change.clone();
-                        let popover_state = popover_state.clone();
+                        let dismiss = dismiss.clone();
                         let value = value.clone();
                         move |action: &gpui_component::input::Enter, window, cx: &mut App| {
                             // Plain Enter picks; shift/cmd+Enter belong to
@@ -748,16 +1212,16 @@ impl<T: Clone + PartialEq + 'static> Picker<T> {
                             };
                             pick(&on_change, multi, &value, target, window, cx);
                             if !multi {
-                                popover_state.update(cx, |state, cx| state.dismiss(window, cx));
+                                dismiss(window, cx);
                             }
                             cx.notify(parent_view_id);
                             cx.stop_propagation();
                         }
                     })
                     .capture_action({
-                        let popover_state = popover_state.clone();
+                        let dismiss = dismiss.clone();
                         move |_: &gpui_component::input::Escape, window, cx: &mut App| {
-                            popover_state.update(cx, |state, cx| state.dismiss(window, cx));
+                            dismiss(window, cx);
                             cx.notify(parent_view_id);
                             cx.stop_propagation();
                         }
@@ -791,7 +1255,7 @@ impl<T: Clone + PartialEq + 'static> Picker<T> {
                     let disabled = !row_enabled(item);
                     let item_value = item.value.clone();
                     let on_change = on_change.clone();
-                    let popover_state = popover_state.clone();
+                    let dismiss = dismiss.clone();
                     let state = state.clone();
                     let value = value.clone();
                     // THE selection language (EXP-1021): a multi pick reads
@@ -870,7 +1334,7 @@ impl<T: Clone + PartialEq + 'static> Picker<T> {
                             // Single closes on the pick; multi stays open,
                             // because a set is several picks.
                             if !multi {
-                                popover_state.update(cx, |state, cx| state.dismiss(window, cx));
+                                dismiss(window, cx);
                             }
                         })
                     };
@@ -907,9 +1371,6 @@ impl<T: Clone + PartialEq + 'static> Picker<T> {
                             )
                         }),
                 )
-            })
-            .into_any_element()
-    }
 }
 
 /// A row's body: the caller's override ([`PickerRenderItem`]) when it has
@@ -1707,6 +2168,65 @@ mod tests {
                 .surface(),
             PickerSurface::Search,
             "a grid cannot live in a PopupMenu"
+        );
+        // N-6: `inline()` wins over everything — a short single pick, a
+        // search, a multi pick all open in the host's flow.
+        assert_eq!(picker(false, PickerMode::Single).inline().surface(), PickerSurface::Inline);
+        assert_eq!(picker(true, PickerMode::Single).inline().surface(), PickerSurface::Inline);
+        assert_eq!(picker(false, PickerMode::Multi).inline().surface(), PickerSurface::Inline);
+    }
+
+    #[test]
+    fn the_placement_rule_replays_the_picker_presentation_fixture() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../../../packages/domain-contract/fixtures/picker-presentation.json"
+        ))
+        .expect("picker-presentation.json parses");
+        assert_eq!(fixture["inlineMaxHeight"].as_f64(), Some(288.));
+        let cases = fixture["placementCases"].as_array().expect("placementCases");
+        assert!(!cases.is_empty());
+        for case in cases {
+            let input = &case["input"];
+            let requested = match input["requested"].as_str() {
+                Some("inline") => Some(PickerPresentation::Inline),
+                Some("popover") => Some(PickerPresentation::Popover),
+                None => None,
+                Some(other) => panic!("unknown requested {other}"),
+            };
+            let (presentation, body) = picker_placement(
+                input["inDialog"].as_bool().unwrap(),
+                input["inRow"].as_bool().unwrap(),
+                requested,
+            );
+            let presentation = match presentation {
+                PickerPresentation::Inline => "inline",
+                PickerPresentation::Popover => "popover",
+            };
+            let body = match body {
+                PickerBody::Surface => "surface",
+                PickerBody::RowSlot => "rowSlot",
+                PickerBody::UnderTrigger => "underTrigger",
+            };
+            assert_eq!(presentation, case["expect"]["presentation"].as_str().unwrap(), "{}", case["name"]);
+            assert_eq!(body, case["expect"]["body"].as_str().unwrap(), "{}", case["name"]);
+        }
+    }
+
+    #[test]
+    fn inside_a_dialog_window_the_host_decides_and_a_picker_opens_inline() {
+        let items = vec![PickerItem::new("a".to_string(), "Alpha")];
+        let noop: OnPickerChange<String> = Rc::new(|_, _, _| {});
+        let picker = || {
+            Picker::single(items.clone(), None, gpui::Empty.into_any_element(), noop.clone())
+        };
+        assert_eq!(picker().surface_in(false), PickerSurface::Menu, "a page keeps its menu");
+        assert_eq!(picker().surface_in(true), PickerSurface::Inline, "a dialog goes inline");
+        assert_eq!(picker().search(true).surface_in(true), PickerSurface::Inline);
+        // A caller-opened surface keeps the placement its caller chose.
+        assert_eq!(
+            picker().open(Rc::new(|_, _| {})).surface_in(true),
+            PickerSurface::Search,
+            "a caller-opened picker is placed by its caller"
         );
     }
 

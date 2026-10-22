@@ -980,14 +980,14 @@
       "size": 0,
       "position": 0,
       "wrap": 0,
-      "onlyRef": 7,
+      "onlyRef": 6,
       "onlyCand": 0
     },
     "kitchen-sink/playful/dark/900/rtl": {
       "size": 0,
       "position": 0,
       "wrap": 0,
-      "onlyRef": 7,
+      "onlyRef": 6,
       "onlyCand": 0
     },
     "kitchen-sink/playful/dark/1280/ltr": {
@@ -1036,14 +1036,14 @@
       "size": 0,
       "position": 0,
       "wrap": 0,
-      "onlyRef": 7,
+      "onlyRef": 6,
       "onlyCand": 0
     },
     "kitchen-sink/playful/light/900/rtl": {
       "size": 0,
       "position": 0,
       "wrap": 0,
-      "onlyRef": 7,
+      "onlyRef": 6,
       "onlyCand": 0
     },
     "kitchen-sink/playful/light/1280/ltr": {
@@ -1058,6 +1058,118 @@
       "position": 0,
       "wrap": 0,
       "onlyRef": 6,
+      "onlyCand": 0
+    },
+    "kitchen-sink/orange/dark/390/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 6,
+      "onlyCand": 0
+    },
+    "kitchen-sink/orange/dark/390/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 6,
+      "onlyCand": 0
+    },
+    "kitchen-sink/orange/dark/600/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 7,
+      "onlyCand": 0
+    },
+    "kitchen-sink/orange/dark/600/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 7,
+      "onlyCand": 0
+    },
+    "kitchen-sink/orange/dark/900/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 8,
+      "onlyCand": 0
+    },
+    "kitchen-sink/orange/dark/900/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 8,
+      "onlyCand": 0
+    },
+    "kitchen-sink/orange/dark/1280/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 7,
+      "onlyCand": 0
+    },
+    "kitchen-sink/orange/dark/1280/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 7,
+      "onlyCand": 0
+    },
+    "kitchen-sink/orange/light/390/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 6,
+      "onlyCand": 0
+    },
+    "kitchen-sink/orange/light/390/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 6,
+      "onlyCand": 0
+    },
+    "kitchen-sink/orange/light/600/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 7,
+      "onlyCand": 0
+    },
+    "kitchen-sink/orange/light/600/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 7,
+      "onlyCand": 0
+    },
+    "kitchen-sink/orange/light/900/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 8,
+      "onlyCand": 0
+    },
+    "kitchen-sink/orange/light/900/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 8,
+      "onlyCand": 0
+    },
+    "kitchen-sink/orange/light/1280/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 7,
+      "onlyCand": 0
+    },
+    "kitchen-sink/orange/light/1280/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 7,
       "onlyCand": 0
     },
     "responsive/exponential/dark/390/ltr": {
@@ -1390,6 +1502,118 @@
       "onlyCand": 0
     },
     "responsive/playful/light/1280/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "responsive/orange/dark/390/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "responsive/orange/dark/390/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "responsive/orange/dark/600/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "responsive/orange/dark/600/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "responsive/orange/dark/900/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "responsive/orange/dark/900/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "responsive/orange/dark/1280/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "responsive/orange/dark/1280/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "responsive/orange/light/390/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "responsive/orange/light/390/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "responsive/orange/light/600/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "responsive/orange/light/600/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "responsive/orange/light/900/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "responsive/orange/light/900/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "responsive/orange/light/1280/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "responsive/orange/light/1280/rtl": {
       "size": 0,
       "position": 0,
       "wrap": 0,
@@ -1731,6 +1955,118 @@
       "wrap": 0,
       "onlyRef": 0,
       "onlyCand": 0
+    },
+    "dashboard/orange/dark/390/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "dashboard/orange/dark/390/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "dashboard/orange/dark/600/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "dashboard/orange/dark/600/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "dashboard/orange/dark/900/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "dashboard/orange/dark/900/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "dashboard/orange/dark/1280/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "dashboard/orange/dark/1280/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "dashboard/orange/light/390/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "dashboard/orange/light/390/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "dashboard/orange/light/600/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "dashboard/orange/light/600/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "dashboard/orange/light/900/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "dashboard/orange/light/900/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "dashboard/orange/light/1280/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "dashboard/orange/light/1280/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
     }
   },
   "survivors": [],
@@ -1738,49 +2074,49 @@
     {
       "id": "accordion.count.1",
       "only": "ref",
-      "cases": 48,
+      "cases": 64,
       "reason": "Accordion count: painted inside the trigger leaf; its room is measured (round2.rs an_accordion_count_is_measured_after_the_title)."
     },
     {
       "id": "audio.controls",
       "only": "ref",
-      "cases": 48,
+      "cases": 64,
       "reason": "AudioPlayer controls row: painted inside the AudioPlayer leaf (its height is the core's)."
     },
     {
       "id": "audio.track",
       "only": "ref",
-      "cases": 48,
+      "cases": 64,
       "reason": "AudioPlayer title line: painted inside the AudioPlayer leaf (its height is the core's)."
     },
     {
       "id": "chip-user.image.fallback",
       "only": "ref",
-      "cases": 20,
+      "cases": 28,
       "reason": "Avatar initials inside a Chip: painted inside the image leaf (the box is compared)."
     },
     {
       "id": "media-img.fallback",
       "only": "ref",
-      "cases": 48,
+      "cases": 64,
       "reason": "Image/fallback: gpui paints the broken-picture glyph inside the Image leaf (the box is compared)."
     },
     {
       "id": "page-1.fallback",
       "only": "ref",
-      "cases": 4,
+      "cases": 8,
       "reason": "Image/fallback of a Carousel page: painted inside the Image leaf; shows only where the web's load fails first."
     },
     {
       "id": "ring.label",
       "only": "ref",
-      "cases": 48,
+      "cases": 64,
       "reason": "Ring centre label: painted inside the Ring leaf."
     },
     {
       "id": "video.controls",
       "only": "ref",
-      "cases": 48,
+      "cases": 64,
       "reason": "Video controls bar: painted inside the Video leaf (16:9 box compared)."
     }
   ]

@@ -18,7 +18,7 @@ import { useSurfaceContext } from "../context"
 import type { NativeProps } from "../node-view"
 import { mergeStyle } from "../node-view"
 import { useElementSize } from "../platform"
-import { tokenVar } from "../theme-css"
+import { tokenVar } from "@exponential-at/ui/web"
 import { arr, bool, num, str, useParts, objects } from "./shared"
 
 interface Series {

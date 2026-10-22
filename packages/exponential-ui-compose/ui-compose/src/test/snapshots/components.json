@@ -3310,6 +3310,592 @@
       }
     ]
   },
+  "ChoiceTiles\/disabled=false" : {
+    "height" : 194.125,
+    "nodes" : [
+      {
+        "component" : "ChoiceTiles",
+        "frame" : [
+          0,
+          0,
+          390,
+          194.13
+        ],
+        "id" : "choice-tiles"
+      },
+      {
+        "bg" : "#ffffff1c",
+        "border" : 2,
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          191,
+          194.13
+        ],
+        "id" : "choice-tiles.tile.0",
+        "part" : "tile",
+        "radius" : 10,
+        "states" : [
+          "selected"
+        ]
+      },
+      {
+        "bg" : "#ffffff0a",
+        "component" : "Image",
+        "frame" : [
+          9,
+          9,
+          173,
+          108.13
+        ],
+        "id" : "choice-tiles.picture.0",
+        "part" : "picture",
+        "radius" : 6
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          9,
+          121.13,
+          173,
+          20
+        ],
+        "id" : "choice-tiles.label.0",
+        "part" : "label"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          9,
+          145.13,
+          173,
+          40
+        ],
+        "id" : "choice-tiles.description.0",
+        "part" : "description"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          199,
+          0,
+          191,
+          194.13
+        ],
+        "id" : "choice-tiles.tile.1",
+        "part" : "tile",
+        "radius" : 10
+      },
+      {
+        "bg" : "#ffffff0a",
+        "component" : "Image",
+        "frame" : [
+          208,
+          9,
+          173,
+          108.13
+        ],
+        "id" : "choice-tiles.picture.1",
+        "part" : "picture",
+        "radius" : 6
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          208,
+          121.13,
+          173,
+          20
+        ],
+        "id" : "choice-tiles.label.1",
+        "part" : "label"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          208,
+          145.13,
+          173,
+          40
+        ],
+        "id" : "choice-tiles.description.1",
+        "part" : "description"
+      }
+    ]
+  },
+  "ChoiceTiles\/disabled=true" : {
+    "height" : 194.125,
+    "nodes" : [
+      {
+        "component" : "ChoiceTiles",
+        "frame" : [
+          0,
+          0,
+          390,
+          194.13
+        ],
+        "id" : "choice-tiles"
+      },
+      {
+        "bg" : "#ffffff1c",
+        "border" : 2,
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          191,
+          194.13
+        ],
+        "id" : "choice-tiles.tile.0",
+        "opacity" : 0.5,
+        "part" : "tile",
+        "radius" : 10,
+        "states" : [
+          "selected",
+          "disabled"
+        ]
+      },
+      {
+        "bg" : "#ffffff0a",
+        "component" : "Image",
+        "frame" : [
+          9,
+          9,
+          173,
+          108.13
+        ],
+        "id" : "choice-tiles.picture.0",
+        "part" : "picture",
+        "radius" : 6
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          9,
+          121.13,
+          173,
+          20
+        ],
+        "id" : "choice-tiles.label.0",
+        "part" : "label"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          9,
+          145.13,
+          173,
+          40
+        ],
+        "id" : "choice-tiles.description.0",
+        "part" : "description"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          199,
+          0,
+          191,
+          194.13
+        ],
+        "id" : "choice-tiles.tile.1",
+        "opacity" : 0.5,
+        "part" : "tile",
+        "radius" : 10,
+        "states" : [
+          "disabled"
+        ]
+      },
+      {
+        "bg" : "#ffffff0a",
+        "component" : "Image",
+        "frame" : [
+          208,
+          9,
+          173,
+          108.13
+        ],
+        "id" : "choice-tiles.picture.1",
+        "part" : "picture",
+        "radius" : 6
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          208,
+          121.13,
+          173,
+          20
+        ],
+        "id" : "choice-tiles.label.1",
+        "part" : "label"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          208,
+          145.13,
+          173,
+          40
+        ],
+        "id" : "choice-tiles.description.1",
+        "part" : "description"
+      }
+    ]
+  },
+  "ChoiceTiles\/example" : {
+    "height" : 194.125,
+    "nodes" : [
+      {
+        "component" : "ChoiceTiles",
+        "frame" : [
+          0,
+          0,
+          390,
+          194.13
+        ],
+        "id" : "choice-tiles"
+      },
+      {
+        "bg" : "#ffffff1c",
+        "border" : 2,
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          191,
+          194.13
+        ],
+        "id" : "choice-tiles.tile.0",
+        "part" : "tile",
+        "radius" : 10,
+        "states" : [
+          "selected"
+        ]
+      },
+      {
+        "bg" : "#ffffff0a",
+        "component" : "Image",
+        "frame" : [
+          9,
+          9,
+          173,
+          108.13
+        ],
+        "id" : "choice-tiles.picture.0",
+        "part" : "picture",
+        "radius" : 6
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          9,
+          121.13,
+          173,
+          20
+        ],
+        "id" : "choice-tiles.label.0",
+        "part" : "label"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          9,
+          145.13,
+          173,
+          40
+        ],
+        "id" : "choice-tiles.description.0",
+        "part" : "description"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          199,
+          0,
+          191,
+          194.13
+        ],
+        "id" : "choice-tiles.tile.1",
+        "part" : "tile",
+        "radius" : 10
+      },
+      {
+        "bg" : "#ffffff0a",
+        "component" : "Image",
+        "frame" : [
+          208,
+          9,
+          173,
+          108.13
+        ],
+        "id" : "choice-tiles.picture.1",
+        "part" : "picture",
+        "radius" : 6
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          208,
+          121.13,
+          173,
+          20
+        ],
+        "id" : "choice-tiles.label.1",
+        "part" : "label"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          208,
+          145.13,
+          173,
+          40
+        ],
+        "id" : "choice-tiles.description.1",
+        "part" : "description"
+      }
+    ]
+  },
+  "ChoiceTiles\/type=multiple" : {
+    "height" : 194.125,
+    "nodes" : [
+      {
+        "component" : "ChoiceTiles",
+        "frame" : [
+          0,
+          0,
+          390,
+          194.13
+        ],
+        "id" : "choice-tiles"
+      },
+      {
+        "bg" : "#ffffff1c",
+        "border" : 2,
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          191,
+          194.13
+        ],
+        "id" : "choice-tiles.tile.0",
+        "part" : "tile",
+        "radius" : 10,
+        "states" : [
+          "selected"
+        ]
+      },
+      {
+        "bg" : "#ffffff0a",
+        "component" : "Image",
+        "frame" : [
+          9,
+          9,
+          173,
+          108.13
+        ],
+        "id" : "choice-tiles.picture.0",
+        "part" : "picture",
+        "radius" : 6
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          9,
+          121.13,
+          173,
+          20
+        ],
+        "id" : "choice-tiles.label.0",
+        "part" : "label"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          9,
+          145.13,
+          173,
+          40
+        ],
+        "id" : "choice-tiles.description.0",
+        "part" : "description"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          199,
+          0,
+          191,
+          194.13
+        ],
+        "id" : "choice-tiles.tile.1",
+        "part" : "tile",
+        "radius" : 10
+      },
+      {
+        "bg" : "#ffffff0a",
+        "component" : "Image",
+        "frame" : [
+          208,
+          9,
+          173,
+          108.13
+        ],
+        "id" : "choice-tiles.picture.1",
+        "part" : "picture",
+        "radius" : 6
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          208,
+          121.13,
+          173,
+          20
+        ],
+        "id" : "choice-tiles.label.1",
+        "part" : "label"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          208,
+          145.13,
+          173,
+          40
+        ],
+        "id" : "choice-tiles.description.1",
+        "part" : "description"
+      }
+    ]
+  },
+  "ChoiceTiles\/type=single" : {
+    "height" : 194.125,
+    "nodes" : [
+      {
+        "component" : "ChoiceTiles",
+        "frame" : [
+          0,
+          0,
+          390,
+          194.13
+        ],
+        "id" : "choice-tiles"
+      },
+      {
+        "bg" : "#ffffff1c",
+        "border" : 2,
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          191,
+          194.13
+        ],
+        "id" : "choice-tiles.tile.0",
+        "part" : "tile",
+        "radius" : 10,
+        "states" : [
+          "selected"
+        ]
+      },
+      {
+        "bg" : "#ffffff0a",
+        "component" : "Image",
+        "frame" : [
+          9,
+          9,
+          173,
+          108.13
+        ],
+        "id" : "choice-tiles.picture.0",
+        "part" : "picture",
+        "radius" : 6
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          9,
+          121.13,
+          173,
+          20
+        ],
+        "id" : "choice-tiles.label.0",
+        "part" : "label"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          9,
+          145.13,
+          173,
+          40
+        ],
+        "id" : "choice-tiles.description.0",
+        "part" : "description"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          199,
+          0,
+          191,
+          194.13
+        ],
+        "id" : "choice-tiles.tile.1",
+        "part" : "tile",
+        "radius" : 10
+      },
+      {
+        "bg" : "#ffffff0a",
+        "component" : "Image",
+        "frame" : [
+          208,
+          9,
+          173,
+          108.13
+        ],
+        "id" : "choice-tiles.picture.1",
+        "part" : "picture",
+        "radius" : 6
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          208,
+          121.13,
+          173,
+          20
+        ],
+        "id" : "choice-tiles.label.1",
+        "part" : "label"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          208,
+          145.13,
+          173,
+          40
+        ],
+        "id" : "choice-tiles.description.1",
+        "part" : "description"
+      }
+    ]
+  },
   "CodeBlock\/copyable=false" : {
     "height" : 76.75,
     "nodes" : [

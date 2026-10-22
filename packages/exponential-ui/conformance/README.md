@@ -95,7 +95,7 @@ theme, a mode or a width there widens every runner at once:
 | axis | values |
 |---|---|
 | fixtures | `kitchen-sink` (every component), `responsive` (the kitchen sink's responsive section, `layout-geometry-round1.json`), `dashboard` (`dashboard.json` + `dashboard.data.json`: an agent project dashboard, VAPP-103) |
-| themes | the built-ins: `exponential`, `neutral`, `playful` |
+| themes | the built-ins: `exponential`, `neutral`, `playful`, `orange` |
 | modes | `dark`, `light` (a mode changes colours only by contract; the light cases lock that no theme mode or recipe moves a box) |
 | widths | 390, 600, 900, 1280 |
 | directions | `ltr`, `rtl` |
@@ -122,6 +122,83 @@ row key>]"` + `data-xui-part` (catalog/recipes.json lists the parts), so the
 web and gpui dumps cover the same nodes. Nunito and Fira Code are real
 faces (`fonts/`, SIL OFL 1.1). `conformance-known.json` carries the
 divergence decisions (`causes`, `rules`) beside the ratchet's counts.
+
+## Shared browser runner
+
+Every WEB renderer runs the manifest through ONE runner,
+[`browser-suites.ts`](browser-suites.ts) `runBrowserSuites(options)`: the
+pure suites through the core and the shared web layer
+(`@exponential-at/ui/web`), the painted ones in headless Chromium against the
+renderer's harness ([`browser-page.ts`](browser-page.ts): `bunHarness`,
+`openPage`, `EXPONENTIAL_UI_CHROME` = an explicit Chromium executable). A
+renderer plugs in with:
+
+- **a harness**: a `serve.ts` that honours `PORT` and answers `/` with a page
+  speaking the React harness's protocol (`?view=` kitchen-sink, geometry,
+  overlay, catalog, conditions, tree, controls, specimen, mount, bench,
+  round2; `theme`/`mode`/`rtl`/`width`/`echo`; the `window.__xui*` probes);
+- **its logic**: `templateItems`, `itemInstance`, `runNodeAction` (the rest
+  is shared).
+
+The function returns `{report, failures}` (no vitest in the core); the
+renderer's `browser/suites.test.ts` writes the report and asserts
+`checkReport`, as React's does in about 30 lines.
+
+## Web parity
+
+A separate, web-only gate (not a manifest suite: the natives keep the
+manifest's list): [`parity.ts`](parity.ts) `runParity({reference,
+candidate})` loads two web renderers side by side in one headless Chromium
+(software raster, `--font-render-hinting=none`, the conformance fonts,
+device scale 1, reduced motion, animations and transitions off) and compares
+every case EXACTLY:
+
+| check | what |
+|---|---|
+| dom | the `.xui-surface` subtrees (tag, attributes by name, text); generated ids (`useId`, Radix, Solid `cl-N`) in id attributes → `#id-N` in first-seen order |
+| style | the full computed style of every `[data-xui-id]` element (and every overlay part) |
+| frame | their `getBoundingClientRect`, 0 px tolerance |
+| pixels | full-page screenshots, pixelmatch threshold 0 (AA excluded): 0 differing pixels; native `<video>`/`<audio>` boxes masked (the browser's own spinner) |
+
+Cases (390): the matrix through `?view=tree` (192), every specimen at 900 px
+(75), the control specimens with `data-xs` forced to hover, focus, pressed,
+checked, open, disabled, invalid on every part (112), the overlay cases open
+(11). The report ([`parity-report.schema.json`](parity-report.schema.json))
+keeps the FIRST difference of each kind per case; differing screenshots land
+in `.conformance/parity/`.
+
+```bash
+bun run --filter @exponential-at/ui conformance:parity              # React vs React, the self-check (~3 min)
+bun run --filter @exponential-at/ui conformance:parity -- --candidate packages/exponential-ui-solid/harness/serve.ts
+bun run --filter @exponential-at/ui parity:check .conformance/exponential-ui-parity-react-react.json
+bun run --filter @exponential-at/ui-solid test:parity               # Solid's gate calls runParity
+```
+
+**Primitive cases (FEED-131, group `primitive`).** The same gate also
+compares the PRIMITIVE sets: `@exponential-at/ui-react/primitives` (Radix +
+`dist/exponential-ui-react.css`) against `@exponential-at/ui-solid/primitives`
+(+ `dist/exponential-ui-solid.css`, compiled from the SAME `tailwind.css`,
+byte-identical: `src/primitives/styles.test.ts`). Every row of
+[`primitive-specimens.json`](../fixtures/primitive-specimens.json) runs ×
+[`exponential` light, `orange` dark] (`primitive:<id>:<theme>-<mode>`, plus
+`…:<hover|focus>` when the row names an `interact`: the first
+`[data-xui-target]` is hovered / focused on both sides) through both
+harnesses' `?view=primitives&id=&theme=&mode=&width=`
+([`primitives-page.ts`](primitives-page.ts): `globalsCss` + the package's
+own sheet in `<head>`, `class="dark"` on `<html>`, `data-xui-parity-root` +
+`data-xui-mode` on `<body>`, the specimen in `<div data-xui-specimen
+style="padding: 16px;">`). On such a page the probe compares the WHOLE
+`<body>` (its attributes too: Radix's scroll lock writes them; `<script>`
+and the gate's own styles skipped) and EVERY element under it, keyed by its
+path (`body/div[0]/button[1]`). Specimens live in one module per lane,
+`harness/primitives/{smoke,plain,controls,overlays,data,calendar}.tsx` in
+BOTH packages (`SPECIMENS: Record<id, component>`); the jsdom twin is
+`expectElementParity` (ui-solid `src/test/parity.ts`).
+
+```bash
+bun run --filter @exponential-at/ui-solid test:parity:primitives    # the primitive group alone (seconds)
+EXPONENTIAL_UI_PARITY_GROUP=matrix,overlay bun run --filter @exponential-at/ui-solid test:parity
+```
 
 ## Listing
 

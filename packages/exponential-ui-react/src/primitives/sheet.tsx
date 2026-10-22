@@ -1,6 +1,7 @@
 import * as React from "react"
 import { XIcon } from "lucide-react"
 import { Dialog as SheetPrimitive } from "radix-ui"
+import { SHEET_CLASSES, isTypeaheadPortalInteraction, type SheetSide } from "@exponential-at/ui/web/primitives"
 
 import { cn } from "./cn"
 import {
@@ -8,7 +9,6 @@ import {
   SheetGrabber,
   useSheetDragHandleProps,
 } from "./sheet-chrome"
-import { isTypeaheadPortalInteraction } from "./typeahead"
 import { useSheetDrag } from "./use-sheet-drag"
 
 function Sheet({ ...props }: React.ComponentProps<typeof SheetPrimitive.Root>) {
@@ -40,10 +40,7 @@ function SheetOverlay({
   return (
     <SheetPrimitive.Overlay
       data-slot="sheet-overlay"
-      className={cn(
-        `fixed inset-0 z-50 bg-black/60 backdrop-blur-sm data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:duration-standard data-[state=closed]:ease-accelerate data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:duration-slow data-[state=open]:ease-decelerate`,
-        className
-      )}
+      className={cn(SHEET_CLASSES.overlay, className)}
       {...props}
     />
   )
@@ -62,7 +59,7 @@ function SheetContent({
   onInteractOutside,
   ...props
 }: React.ComponentProps<typeof SheetPrimitive.Content> & {
-  side?: `top` | `right` | `bottom` | `left`
+  side?: SheetSide
   showCloseButton?: boolean
   /** The drag pill at the top edge. On by default for `bottom`; the two
    * page-like bottom sheets (New issue, search) turn it off. */
@@ -108,24 +105,7 @@ function SheetContent({
         data-slot="sheet-content"
         data-side={side}
         ref={setPanel}
-        className={cn(
-          // The mobile sheet radius (24px = rounded-*-3xl) on the leading
-          // edge. Full-screen consumers (e.g. the search sheet) pass
-          // rounded-none.
-          `group/sheet fixed z-50 flex flex-col gap-4 border-glass-stroke-card shadow-lg motion-sheet`,
-          // Side/top drawers stay frosted glass (EXP-269); the BOTTOM sheet
-          // is the opaque #18181B surface every client shares (EXP-687) — it
-          // covers the screen edge to edge, so there is nothing to blur.
-          side === `right` &&
-            `inset-y-0 right-0 h-full w-3/4 rounded-l-3xl border-l bg-card/85 backdrop-blur-2xl data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right sm:max-w-sm`,
-          side === `left` &&
-            `inset-y-0 left-0 h-full w-3/4 rounded-r-3xl border-r bg-card/85 backdrop-blur-2xl data-[state=closed]:slide-out-to-left data-[state=open]:slide-in-from-left sm:max-w-sm`,
-          side === `top` &&
-            `inset-x-0 top-0 h-auto rounded-b-3xl border-b bg-card/85 backdrop-blur-2xl data-[state=closed]:slide-out-to-top data-[state=open]:slide-in-from-top`,
-          side === `bottom` &&
-            `inset-x-0 bottom-0 h-auto max-h-[90dvh] rounded-t-3xl border-t bg-glass-bottom data-[state=closed]:slide-out-to-bottom data-[state=open]:slide-in-from-bottom`,
-          className
-        )}
+        className={cn(SHEET_CLASSES.content, SHEET_CLASSES.sides[side], className)}
         // A pointer-down on the typeahead's body portal is not "outside"
         // (see DialogContent); the caller's own guard runs first.
         onInteractOutside={(event) => {
@@ -144,15 +124,15 @@ function SheetContent({
                 ref={dragCloseRef}
                 aria-hidden
                 tabIndex={-1}
-                className="hidden"
+                className={SHEET_CLASSES.dragClose}
               />
             </>
           )}
           {children}
           {showCloseButton && (
-            <SheetPrimitive.Close className="absolute top-4 right-4 rounded-xs opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none data-[state=open]:bg-secondary">
-              <XIcon className="size-4" />
-              <span className="sr-only">Close</span>
+            <SheetPrimitive.Close className={SHEET_CLASSES.close}>
+              <XIcon className={SHEET_CLASSES.closeIcon} />
+              <span className={SHEET_CLASSES.srOnly}>Close</span>
             </SheetPrimitive.Close>
           )}
         </SheetDragProvider>
@@ -168,7 +148,7 @@ function SheetHeader({ className, ...props }: React.ComponentProps<`div`>) {
     <div
       data-slot="sheet-header"
       {...drag}
-      className={cn(`flex flex-col gap-1.5 p-4 text-left`, className)}
+      className={cn(SHEET_CLASSES.header, className)}
       {...props}
     />
   )
@@ -178,7 +158,7 @@ function SheetFooter({ className, ...props }: React.ComponentProps<`div`>) {
   return (
     <div
       data-slot="sheet-footer"
-      className={cn(`mt-auto flex flex-col gap-2 p-4`, className)}
+      className={cn(SHEET_CLASSES.footer, className)}
       {...props}
     />
   )
@@ -191,12 +171,7 @@ function SheetTitle({
   return (
     <SheetPrimitive.Title
       data-slot="sheet-title"
-      // Headline weight and size on a phone (EXP-687): the same left-aligned
-      // sheet title on web, iOS (`.headline`) and Android (`titleMedium`).
-      className={cn(
-        `font-semibold text-foreground max-sm:group-data-[side=bottom]/sheet:text-lg max-sm:group-data-[side=bottom]/sheet:leading-none`,
-        className
-      )}
+      className={cn(SHEET_CLASSES.title, className)}
       {...props}
     />
   )
@@ -209,7 +184,7 @@ function SheetDescription({
   return (
     <SheetPrimitive.Description
       data-slot="sheet-description"
-      className={cn(`text-sm text-muted-foreground`, className)}
+      className={cn(SHEET_CLASSES.description, className)}
       {...props}
     />
   )

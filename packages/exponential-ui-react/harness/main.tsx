@@ -11,6 +11,7 @@
 //     &gen=<key>:<n>  adds data[key] = n rows {id: "r<i>", title: "Item <i>"} (long lists without a long URL)
 //   ?view=controls&theme=<id>                            (control-geometry.json, VAPP-91 conformance)
 //   ?view=specimen&id=<id>&theme=<id>&mode=&width=&rtl=1 (one specimens.json entry, VAPP-93)
+//   ?view=primitives&id=<id>&theme=<id>&mode=&width=   (one primitive-specimens.json entry, FEED-131: harness/primitives/)
 //   ?view=mount                                          (__xuiMount / __xuiVList: the round-2 conformance suites)
 //   ?view=bench-suite&scenario=<id>                      (VAPP-105: one scenario of @exponential-at/ui-bench; __xuiBenchSuite drives it)
 // No app code: the SDK, its fixtures and a stub host with a 150 ms echo.
@@ -43,6 +44,7 @@ import benchTable1k from "@exponential-at/ui-bench/scenarios/table-1k.json"
 import { BASE_CSS, ExponentialSurface, WindowedList, useSurface } from "../src/index"
 import type { HostPlugin, SurfaceHandle, SurfaceInputEvent, WindowedListHandle } from "../src/index"
 import { harnessIcons } from "./icons"
+import { mountPrimitives } from "./primitives/mount"
 
 const params = new URLSearchParams(location.search)
 const view = params.get(`view`) ?? `kitchen-sink`
@@ -605,10 +607,13 @@ function App() {
   return <KitchenSink />
 }
 
-document.body.style.margin = `0`
-document.body.style.background = view === `geometry` || view === `overlay` ? `#fff` : mode === `dark` ? `#0f0f11` : `#f4f4f5`
-createRoot(document.getElementById(`app`)!).render(
-  <StrictMode>
-    <App />
-  </StrictMode>
-)
+if (view === `primitives`) void mountPrimitives()
+else {
+  document.body.style.margin = `0`
+  document.body.style.background = view === `geometry` || view === `overlay` ? `#fff` : mode === `dark` ? `#0f0f11` : `#f4f4f5`
+  createRoot(document.getElementById(`app`)!).render(
+    <StrictMode>
+      <App />
+    </StrictMode>
+  )
+}
