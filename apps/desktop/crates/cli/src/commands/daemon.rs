@@ -3881,14 +3881,15 @@ mod tests {
         assert!(begin("s1").is_some(), "a crashed attempt must not wedge its row");
     }
 
-    /// EXP-1292: a wake that handed nothing (the session runs in a
-    /// foreground `code`, or the wake was refused) is not settled, so its
-    /// row backs off instead of replanning at once.
+    /// EXP-1292: a wake that handed nothing (the wake was refused) is not
+    /// settled, so its row backs off instead of replanning at once; NEW-45:
+    /// a claim another process holds backs off the same way (it retries).
     #[test]
     fn a_wake_that_handed_nothing_backs_off() {
         assert!(woke(Ok(vec!["m1".to_string()])));
         assert!(!woke(Ok(Vec::new())));
-        assert!(!woke(Err("brief failed".to_string())));
+        assert!(!woke(Err(coding::pickup::WakeError::Other("brief failed".to_string()))));
+        assert!(!woke(Err(coding::pickup::WakeError::Contended)));
     }
 
     /// A foreground `code`/`run` mid-start holds the gate the pass checks.
