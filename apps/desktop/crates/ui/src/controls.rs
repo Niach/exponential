@@ -539,6 +539,21 @@ pub(crate) fn menu_row_value(value: Option<SharedString>, chevron: bool, cx: &Ap
         .into_any_element()
 }
 
+/// N-6: a row handler bound to the window its menu was BUILT for. A menu
+/// that moved to a menu layer (`menu_window`, dialogs) runs its rows in the
+/// layer window; the handler expects the host (it focuses the composer's
+/// input, opens the file picker over the dialog). `run_in_host` runs it
+/// there; outside a layer this is the handler itself.
+pub(crate) fn host_bound(
+    f: impl Fn(&mut Window, &mut App) + 'static,
+) -> impl Fn(&mut Window, &mut App) + 'static {
+    let f = std::rc::Rc::new(f);
+    move |window: &mut Window, cx: &mut App| {
+        let f = f.clone();
+        crate::menu_window::run_in_host(window, cx, move |window, cx| f(window, cx));
+    }
+}
+
 /// A pointer row that does something: `on_select` runs, then the menu closes
 /// (the crate dismisses after every element row's click).
 pub(crate) fn pointer_menu_item(
@@ -548,6 +563,7 @@ pub(crate) fn pointer_menu_item(
     on_select: impl Fn(&mut Window, &mut App) + 'static,
 ) -> PopupMenuItem {
     let label = label.into();
+    let on_select = host_bound(on_select);
     PopupMenuItem::element(move |_, cx| menu_row(icon.clone(), label.clone(), trailing(cx), false, cx))
         .on_click(move |_, window, cx| on_select(window, cx))
 }
@@ -602,6 +618,7 @@ pub(crate) fn pointer_check_item_with_icon(
     on_select: impl Fn(&mut Window, &mut App) + 'static,
 ) -> PopupMenuItem {
     let label = label.into();
+    let on_select = host_bound(on_select);
     PopupMenuItem::element(move |_, cx| {
         pointer_row_fill(
             gpui_component::h_flex()
@@ -642,6 +659,8 @@ pub(crate) struct PointerMenu<T: gpui_component::Selectable + IntoElement + 'sta
     /// EXP-1259 (DEV-ONLY): open on this render, with the first row
     /// selected (a submenu row = its submenu open), for a capture.
     dev_open: bool,
+    /// N-6: the height the menu wants — the menu layer picks its side by it.
+    wanted: Pixels,
 }
 
 impl<T: gpui_component::Selectable + IntoElement + 'static> PointerMenu<T> {
@@ -661,7 +680,16 @@ impl<T: gpui_component::Selectable + IntoElement + 'static> PointerMenu<T> {
             anchor: Anchor::TopLeft,
             builder: std::rc::Rc::new(builder),
             dev_open: false,
+            wanted: px(crate::menu_window::DEFAULT_WANTED_HEIGHT),
         }
+    }
+
+    /// N-6: the height the menu wants, room permitting (the composer's "+"
+    /// menu says its `PLUS_MENU_WANTED_HEIGHT`). Only the menu layer reads
+    /// it: in-window, `anchor` already encodes the side the caller measured.
+    pub(crate) fn wanted_height(mut self, wanted: f32) -> Self {
+        self.wanted = px(wanted);
+        self
     }
 
     /// EXP-1259 (DEV-ONLY, `EXP_DEV_COMPOSER_MENU`): open the menu on THIS
@@ -702,6 +730,36 @@ impl PointerMenu<gpui_component::button::Button> {
     }
 }
 
+/// N-14: `button.pointer_menu(builder)` — the drop-in for upstream's
+/// `button.dropdown_menu(builder)` that goes through THE IDE menu
+/// ([`PointerMenu`]): rows that point, and inside a dialog window the menu
+/// window, so the menu overhangs the dialog instead of clipping.
+pub(crate) trait PointerMenuButtonExt {
+    fn pointer_menu(
+        self,
+        builder: impl Fn(
+                gpui_component::menu::PopupMenu,
+                &mut Window,
+                &mut gpui::Context<gpui_component::menu::PopupMenu>,
+            ) -> gpui_component::menu::PopupMenu
+            + 'static,
+    ) -> PointerMenu<gpui_component::button::Button>;
+}
+
+impl PointerMenuButtonExt for gpui_component::button::Button {
+    fn pointer_menu(
+        self,
+        builder: impl Fn(
+                gpui_component::menu::PopupMenu,
+                &mut Window,
+                &mut gpui::Context<gpui_component::menu::PopupMenu>,
+            ) -> gpui_component::menu::PopupMenu
+            + 'static,
+    ) -> PointerMenu<gpui_component::button::Button> {
+        PointerMenu::for_button(self, builder)
+    }
+}
+
 /// The open menu entity, kept across frames and dropped on dismiss so the
 /// next open rebuilds it from current state.
 #[derive(Default)]
@@ -709,6 +767,94 @@ struct PointerMenuState {
     menu: Option<gpui::Entity<gpui_component::menu::PopupMenu>>,
     /// EXP-1259: a dev open is waiting for the menu to select its first row.
     dev_select: bool,
+    /// N-6: where the trigger painted last, in window coordinates — the
+    /// menu layer hangs the menu off it.
+    trigger_bounds: gpui::Bounds<Pixels>,
+    /// N-6: the OS refused a menu layer for this trigger: the in-window
+    /// popover opens on the next render and this trigger stays in-window.
+    layer_refused: bool,
+    force_open: bool,
+    /// N-6: a dev open (EXP-1259) is waiting for a measured trigger to open
+    /// its menu layer with the first row selected.
+    dev_layer: bool,
+}
+
+impl<T: gpui_component::Selectable + IntoElement + 'static> PointerMenu<T> {
+    /// N-6: the trigger alone, opening the menu in a menu layer over this
+    /// window (`menu_window`) on a press — the same press the in-window
+    /// popover opens on. A second press, or any press while the layer is
+    /// up, closes it (the layer covers the trigger, so in practice the
+    /// layer's own outside-click dismiss gets there first).
+    fn render_layer_trigger(
+        self,
+        menu_state: gpui::Entity<PointerMenuState>,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> AnyElement {
+        use gpui_component::ElementExt as _;
+        let id = SharedString::from(format!("{:?}", self.id));
+        let open = crate::menu_window::is_open(&id, cx);
+        let builder = self.builder.clone();
+        let wanted = self.wanted;
+        // EXP-1259's dev open, the layer way: once the trigger has painted,
+        // open the layer as a press would, its first row selected.
+        if self.dev_open {
+            menu_state.update(cx, |state, _| state.dev_layer = true);
+        }
+        let measured = menu_state.read(cx).trigger_bounds;
+        if menu_state.read(cx).dev_layer && !open && measured.size.width > px(0.) {
+            menu_state.update(cx, |state, _| state.dev_layer = false);
+            let refused_state = menu_state.clone();
+            crate::menu_window::open(
+                window,
+                cx,
+                crate::menu_window::MenuAnchor { rect: measured, wanted },
+                builder.clone(),
+                id.clone(),
+                true,
+                move |window, cx| {
+                    refused_state.update(cx, |state, _| {
+                        state.layer_refused = true;
+                        state.force_open = true;
+                        state.dev_select = true;
+                    });
+                    window.refresh();
+                },
+            );
+        }
+        let slot = menu_state.clone();
+        div()
+            .id(ElementId::Name(SharedString::from(format!("pointer-menu-layer:{id}"))))
+            .on_prepaint(move |bounds, _, cx| {
+                slot.update(cx, |state, _| state.trigger_bounds = bounds);
+            })
+            .child(self.trigger.selected(open))
+            .on_mouse_down(gpui::MouseButton::Left, move |_, window, cx| {
+                cx.stop_propagation();
+                if open {
+                    crate::menu_window::close(cx);
+                    return;
+                }
+                let rect = menu_state.read(cx).trigger_bounds;
+                let refused_state = menu_state.clone();
+                crate::menu_window::open(
+                    window,
+                    cx,
+                    crate::menu_window::MenuAnchor { rect, wanted },
+                    builder.clone(),
+                    id.clone(),
+                    false,
+                    move |window, cx| {
+                        refused_state.update(cx, |state, _| {
+                            state.layer_refused = true;
+                            state.force_open = true;
+                        });
+                        window.refresh();
+                    },
+                );
+            })
+            .into_any_element()
+    }
 }
 
 impl<T: gpui_component::Selectable + IntoElement + 'static> gpui::RenderOnce for PointerMenu<T> {
@@ -721,12 +867,22 @@ impl<T: gpui_component::Selectable + IntoElement + 'static> gpui::RenderOnce for
         if self.dev_open {
             menu_state.update(cx, |state, _| state.dev_select = true);
         }
+        // N-6: in a dialog window the menu opens in a menu layer over the
+        // window, so it can overhang the dialog's edges. The in-window
+        // popover stays for every other window and once the OS refused a
+        // layer.
+        let layer_mode =
+            !menu_state.read(cx).layer_refused && crate::menu_window::wanted(window, cx);
+        if layer_mode {
+            return self.render_layer_trigger(menu_state, window, cx);
+        }
+        let force_open = menu_state.update(cx, |state, _| std::mem::take(&mut state.force_open));
         let popover = gpui_component::popover::Popover::new(ElementId::Name(SharedString::from(
             format!("pointer-menu-popover:{:?}", self.id),
         )));
         // EXP-1259: controlled for this one render; uncontrolled after, so
         // a pick, Escape or a click outside still closes it.
-        let popover = if self.dev_open { popover.open(true) } else { popover };
+        let popover = if self.dev_open || force_open { popover.open(true) } else { popover };
         popover
         .appearance(false)
         .overlay_closable(false)
@@ -769,6 +925,7 @@ impl<T: gpui_component::Selectable + IntoElement + 'static> gpui::RenderOnce for
                 with_pointer_layer(menu),
             )
         })
+        .into_any_element()
     }
 }
 
@@ -1014,6 +1171,7 @@ impl<E: gpui::ParentElement + Styled + IntoElement + 'static> gpui::Element for 
             element.paint(window, cx);
         }
         let builder = self.builder.clone();
+        let layer_id = self.id.clone();
         self.with_state(id.unwrap(), window, cx, |_, state, window, _| {
             let shared = state.shared.clone();
             let hitbox = hitbox.clone();
@@ -1024,6 +1182,46 @@ impl<E: gpui::ParentElement + Styled + IntoElement + 'static> gpui::Element for 
                 {
                     return;
                 }
+                // N-6: in a dialog window the menu opens in a menu layer
+                // over the window (`menu_window`), hung at the pointer; the
+                // in-window menu below is what a refused layer falls back to.
+                if crate::menu_window::wanted(window, cx) {
+                    let shared = shared.clone();
+                    let builder = builder.clone();
+                    let position = event.position;
+                    crate::menu_window::open(
+                        window,
+                        cx,
+                        crate::menu_window::MenuAnchor {
+                            rect: gpui::Bounds {
+                                origin: position,
+                                size: gpui::size(px(0.), px(0.)),
+                            },
+                            wanted: px(crate::menu_window::DEFAULT_WANTED_HEIGHT),
+                        },
+                        builder.clone(),
+                        SharedString::from(format!("{:?}", layer_id)),
+                        false,
+                        move |window, cx| open_in_window(&shared, &builder, position, window, cx),
+                    );
+                    return;
+                }
+                open_in_window(&shared, &builder, event.position, window, cx);
+            });
+        });
+    }
+}
+
+/// The in-window half of [`PointerContextMenu`]: record the press, build the
+/// menu on the next frame from current state and hand focus back on dismiss.
+fn open_in_window(
+    shared: &std::rc::Rc<std::cell::RefCell<PointerContextShared>>,
+    builder: &ContextMenuBuilder,
+    position: gpui::Point<Pixels>,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    {
                 {
                     let mut state = shared.borrow_mut();
                     // A press while our own menu holds focus keeps the focus
@@ -1041,7 +1239,7 @@ impl<E: gpui::ParentElement + Styled + IntoElement + 'static> gpui::Element for 
                     }
                     state.menu = None;
                     state.subscription = None;
-                    state.position = event.position;
+                    state.position = position;
                     state.open = true;
                 }
                 window.defer(cx, {
@@ -1078,8 +1276,6 @@ impl<E: gpui::ParentElement + Styled + IntoElement + 'static> gpui::Element for 
                         window.refresh();
                     }
                 });
-            });
-        });
     }
 }
 

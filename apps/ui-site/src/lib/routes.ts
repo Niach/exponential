@@ -52,14 +52,14 @@ export const ROUTES: readonly Route[] = [
     `/`,
     () => import("../pages/Home"),
     `Exponential UI · generative UI, native on every platform`,
-    `An open A2UI SDK: an agent sends a surface as JSON, our renderers paint it natively in React, SwiftUI, Jetpack Compose and gpui. Themable at runtime, extensible, Apache-2.0.`,
+    `An open A2UI SDK: an agent sends a surface as JSON, our renderers paint it natively in React, Solid, SwiftUI, Jetpack Compose and gpui. Themable at runtime, extensible, Apache-2.0.`,
     [`src/pages/Home.tsx`, `src/sdk`],
     [
       {
         "@context": `https://schema.org`,
         "@type": `SoftwareSourceCode`,
         name: SITE_NAME,
-        description: `Open A2UI renderers for React, SwiftUI, Jetpack Compose and gpui with a shared core catalog, runtime themes, extensions and a host API.`,
+        description: `Open A2UI renderers for React, Solid, SwiftUI, Jetpack Compose and gpui with a shared core catalog, runtime themes, extensions and a host API.`,
         codeRepository: `https://github.com/Niach/exponential`,
         programmingLanguage: [`TypeScript`, `Swift`, `Kotlin`, `Rust`],
         license: `https://www.apache.org/licenses/LICENSE-2.0`,
@@ -97,7 +97,7 @@ export const ROUTES: readonly Route[] = [
     `/themes/`,
     () => import("../pages/Themes"),
     `Themes · ${SITE_NAME}`,
-    `Runtime themes: tokens and component recipes in one JSON file every renderer loads. The built-in neutral, exponential and playful themes, side by side.`,
+    `Runtime themes: tokens and component recipes in one JSON file every renderer loads. The built-in neutral, exponential, playful and orange themes, side by side.`,
     [`src/pages/Themes.tsx`, `../../packages/exponential-ui/themes`],
     crumbs({ name: `Themes`, path: `/themes/` })
   ),
@@ -113,7 +113,7 @@ export const ROUTES: readonly Route[] = [
     `/guides/`,
     () => import("../pages/Guides"),
     `Guides · ${SITE_NAME}`,
-    `Render A2UI in React, SwiftUI, Compose and gpui; write a theme, an extension or a host plugin; build a vapp; connect an agent. Every example compiles in CI.`,
+    `Render A2UI in React, Solid, SwiftUI, Compose and gpui; write a theme, an extension or a host plugin; build a vapp; connect an agent. Every example compiles in CI.`,
     [`src/pages/Guides.tsx`, `src/lib/guides.ts`],
     crumbs({ name: `Guides`, path: `/guides/` })
   ),

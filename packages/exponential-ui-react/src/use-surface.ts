@@ -7,8 +7,8 @@
 import { useCallback, useMemo, useRef, useState } from "react"
 import { CORE_CATALOG_ID, reduceNested, reduceSurface } from "@exponential-at/ui"
 import type { ExtensionDef, FlatComponent, NestedNode, ReduceIssue, ResolvedTheme, UiNode } from "@exponential-at/ui"
-import { setPointer } from "./data"
-import type { DataModel } from "./data"
+import { setPointer } from "@exponential-at/ui/web"
+import type { DataModel } from "@exponential-at/ui/web"
 
 export interface A2uiMessage {
   version?: string

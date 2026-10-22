@@ -9,6 +9,9 @@
   "types": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
+    "./web": "./src/web/index.ts",
+    "./web/primitives": "./src/web/primitives/index.ts",
+    "./web/primitives/*": "./src/web/primitives/*.ts",
     "./catalog/*": "./catalog/*",
     "./fixtures/*": "./fixtures/*",
     "./docs/*": "./docs/*",
@@ -26,10 +29,17 @@
     "build:builder": "bun build ./builder/main.ts --outdir ./builder/dist --target browser --format esm --define process.env.NODE_ENV='\"production\"'",
     "dev:builder": "bun ./builder/serve.ts",
     "conformance:check": "bun run ./scripts/conformance-check.ts",
+    "conformance:parity": "bun run ./scripts/parity-run.ts",
+    "parity:check": "bun run ./scripts/parity-check.ts",
     "eval": "bun run ./eval/score.ts",
     "eval:record": "bun run ./eval/record.ts",
     "eval:render": "bun run ./eval/render.ts",
     "eval:parity": "bun run ./eval/parity.ts"
+  },
+  "dependencies": {
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "tailwind-merge": "^3.5.0"
   },
   "devDependencies": {
     "@anthropic-ai/sdk": "^1.1.0",

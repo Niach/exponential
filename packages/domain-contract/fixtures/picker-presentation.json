@@ -1,0 +1,41 @@
+{
+  "$comment": "N-14 (refines N-6): WHERE a picker's rows open, x4 (web packages/ui picker + Combobox, IDE crates/ui picker/mod.rs, iOS ExpUI GlassPicker, Android ui/components/picker). Two presentations: `popover` = the platform's own surface (web popover / phone-width sheet, IDE popover or menu, iOS and Android sheet) and `inline` = the SAME rows in the host's flow, no surface. THE HOST DECIDES (N-6): inside a dialog or a sheet (web `DialogContent`, an IDE OS dialog window, a phone `GlassSheet`) every picker is `inline`; everywhere else `popover`; a caller's explicit `requested` presentation wins over the host. N-14 adds two rules. (1) THE COLLAPSED TRIGGER NEVER CHANGES: an inline picker's trigger renders exactly as the same picker's popover trigger (same element, intrinsic size, same style, its open state only marks it selected); no wrapper may stretch it (no full-width column, no `flex-col` that stretches its child, no fillMaxWidth). (2) THE ROWS OPEN DOWNWARDS, at the host's width: a picker inside a ROW host that offers an inline slot (THE composer options row: Device, Account, Model, Plan, Repository, x4) discloses its rows into that slot, directly UNDER THE WHOLE ROW and as wide as the row, so the trigger and its siblings never move; a picker outside a row (a form field in a dialog column) discloses its rows directly under its trigger, as wide as the host column. One slot shows ONE picker's rows: opening another picker in the same row replaces them. Closing (the trigger again, Escape, a single pick, a click outside on pointer platforms) folds the rows and the row is exactly as before. The rows are capped at `inlineMaxHeight` px and scroll past it; the host grows downward with them (the IDE composer dialog follows its content, EXP-1155). `placementCases` replay `pickerPlacement({ inDialog, inRow, requested })` -> `{ presentation, body }` on every platform, `body` = `surface` (popover), `rowSlot` (inline in a row host) or `underTrigger` (inline elsewhere).",
+  "inlineMaxHeight": 288,
+  "placementCases": [
+    {
+      "name": "a picker on a page opens its surface",
+      "input": { "inDialog": false, "inRow": false, "requested": null },
+      "expect": { "presentation": "popover", "body": "surface" }
+    },
+    {
+      "name": "the Home composer's options row (a page) keeps its surfaces",
+      "input": { "inDialog": false, "inRow": true, "requested": null },
+      "expect": { "presentation": "popover", "body": "surface" }
+    },
+    {
+      "name": "a form field in a dialog discloses under its trigger",
+      "input": { "inDialog": true, "inRow": false, "requested": null },
+      "expect": { "presentation": "inline", "body": "underTrigger" }
+    },
+    {
+      "name": "the start-session dialog's pins disclose under the whole row",
+      "input": { "inDialog": true, "inRow": true, "requested": null },
+      "expect": { "presentation": "inline", "body": "rowSlot" }
+    },
+    {
+      "name": "a caller asking for its surface inside a dialog gets it",
+      "input": { "inDialog": true, "inRow": true, "requested": "popover" },
+      "expect": { "presentation": "popover", "body": "surface" }
+    },
+    {
+      "name": "a caller asking for inline on a page gets it under the trigger",
+      "input": { "inDialog": false, "inRow": false, "requested": "inline" },
+      "expect": { "presentation": "inline", "body": "underTrigger" }
+    },
+    {
+      "name": "a caller asking for inline in a row gets the row slot",
+      "input": { "inDialog": false, "inRow": true, "requested": "inline" },
+      "expect": { "presentation": "inline", "body": "rowSlot" }
+    }
+  ]
+}

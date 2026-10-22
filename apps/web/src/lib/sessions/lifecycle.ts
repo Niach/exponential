@@ -199,7 +199,10 @@ export async function endSession(args: {
 
 /** The device reported its process gone: the row ends like an explicit End
  *  of that one session (its live children keep running and report into an
- *  ended parent, pre-consumed). Returns whether THIS call ended it. */
+ *  ended parent, pre-consumed). Returns whether THIS call ended it. Only a
+ *  CHILD gets here: a thread's root and an agent's conversation survive
+ *  their process (`sessions.report` turns their `ended` into `idle`,
+ *  FEED-134) and a message resumes the same row. */
 export async function endDeadSessionInTx(tx: Tx, session: TreeRow): Promise<boolean> {
   const ended = await endRowsInTx(tx, [session])
   return ended.length > 0

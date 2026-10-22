@@ -19,37 +19,18 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # EXP-1364: fork PRs never run here (pick skips, everything needs it); the
+  # desktop + android jobs run on the Mint when it is up.
+  pick:
+    uses: ./.github/workflows/pick-runner.yml
+    secrets: inherit
+
   web:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-      - run: bun install --frozen-lockfile
-      - name: Typecheck web
-        run: bun run typecheck
-      - name: Web unit tests
-        env:
-          # Unit tests never query the DB, but db/connection.ts throws at
-          # import time without a URL — give it an unreachable dummy.
-          DATABASE_URL: postgresql://ci:ci@127.0.0.1:59999/ci
-        run: bun run test
-      # EXP-566: the view-catalog drift gates (catalog ↔ native shot names ↔
-      # recipe registry ↔ route coverage) and the store writer's tests — vitest
-      # doesn't run bun-test packages, so they need their own step.
-      - name: Screenshot store tests
-        run: bun run test:shots
-      - name: Widget unit tests
-        run: bun run test:widget
-      - name: Steer relay + ticket tests
-        run: bun run test:steer-relay
-      # EXP-446: nothing ran the push relay's typecheck in CI before; EXP-1289
-      # added its bun-test suite (transport retry, deep health check, stats).
-      - name: Typecheck push relay
-        run: bun run --filter @exp/push-relay typecheck
-      - name: Push relay tests
-        run: bun run test:push-relay
+    needs: pick
+    uses: ./.github/workflows/web-tests.yml
 
   push-relay-image:
+    needs: pick
     # EXP-446: Dockerfile.push-relay is built by no publish workflow — Coolify
     # builds it from the repo at deploy time, so a broken edit's first
     # validation used to be the deploy itself. Build-only (push: false —
@@ -72,6 +53,7 @@ jobs:
           cache-to: type=gha,mode=max,scope=push-relay
 
   marketing:
+    needs: pick
     # REV2-62: nothing else in CI typechecks or builds apps/marketing — its
     # breaks used to surface only at Coolify deploy time. `build` also runs
     # scripts/prerender.tsx, the Bun SSR canary that hard-fails if remotion
@@ -94,6 +76,7 @@ jobs:
         run: bun run shots:check
 
   migrations:
+    needs: pick
     # EXP-112: drizzle-kit can generate SQL that fails on every real DB
     # (e.g. DROP TABLE CASCADE before its referencing DROP CONSTRAINTs —
     # EXP-111's migration 0023), and nothing else in CI ever executes the
@@ -169,7 +152,8 @@ jobs:
         run: cd apps/web && bunx vitest run src/lib/**/*.real-db.test.ts
 
   desktop:
-    runs-on: ubuntu-latest
+    needs: pick
+    runs-on: ${{ fromJSON(needs.pick.outputs.linux) }}
     steps:
       - uses: actions/checkout@v4
       - name: Linux system deps (wgpu/gpui)
@@ -179,7 +163,9 @@ jobs:
             libssl-dev libfontconfig1-dev pkg-config \
             libx11-dev libxi-dev libxtst-dev libpipewire-0.3-dev clang
       - uses: dtolnay/rust-toolchain@stable
+      # Self-hosted keeps its own sccache (.github/runners/README.md).
       - uses: Swatinem/rust-cache@v2
+        if: runner.environment == 'github-hosted'
         with:
           workspaces: apps/desktop
       - name: Cargo tests
@@ -199,7 +185,8 @@ jobs:
         run: git diff --exit-code -- packages/licenses/inventory/rust.json packages/licenses/inventory/rust-excluded.json
 
   android:
-    runs-on: ubuntu-latest
+    needs: pick
+    runs-on: ${{ fromJSON(needs.pick.outputs.linux) }}
     steps:
       - uses: actions/checkout@v4
       - name: Set up JDK 21
@@ -212,6 +199,7 @@ jobs:
         with:
           packages: 'platforms;android-36 build-tools;35.0.0'
       - name: Cache Gradle packages
+        if: runner.environment == 'github-hosted'
         uses: actions/cache@v4
         with:
           path: |

@@ -10,7 +10,7 @@
 // `disabled` makes every field inert (a disabled fieldset).
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
-import { coreCatalog } from "@exponential-at/ui"
+import { FormRegistry, fieldErrorsVisible, joinIds, validateOnDefault } from "@exponential-at/ui/web"
 import { useSurfaceContext } from "./context"
 import type { NativeProps } from "./node-view"
 import { bool, failingChecks, str, useParts, type PartFn } from "./natives/shared"
@@ -53,53 +53,35 @@ export function FormNative({ node, props, rootProps, emit, children }: NativePro
   const ctx = useSurfaceContext()
   const part = useParts(node, props)
   const closeOverlay = useContext(CloseOnSubmitContext)
-  const fields = useRef(new Set<FieldHandle>())
+  const registry = useRef<FormRegistry<FieldHandle> | null>(null)
+  if (!registry.current) registry.current = new FormRegistry<FieldHandle>()
+  const fields = registry.current
   const [attempts, setAttempts] = useState(0)
   const [summary, setSummary] = useState<{ name: string; message: string }[]>([])
   const disabled = bool(props.disabled)
   const busy = bool(props.busy)
   const busyRef = useRef(busy)
   busyRef.current = busy
-  const register = useCallback((field: FieldHandle) => {
-    fields.current.add(field)
-    return () => void fields.current.delete(field)
-  }, [])
-  const ordered = () =>
-    [...fields.current].sort((a, b) => {
-      const ea = a.element()
-      const eb = b.element()
-      if (!ea || !eb) return 0
-      return ea.compareDocumentPosition(eb) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1
-    })
+  const register = useCallback((field: FieldHandle) => fields.register(field), [fields])
   const submit = useCallback(() => {
     if (busyRef.current) return
-    const list = ordered()
-    const errors: { name: string; message: string }[] = []
-    let first: FieldHandle | null = null
-    for (const f of list) {
-      const errs = f.errors()
-      if (errs.length && !first) first = f
-      for (const message of errs) errors.push({ name: f.name, message })
-    }
-    if (errors.length) {
+    const result = fields.check()
+    if (!result.ok) {
       setAttempts((n) => n + 1)
-      setSummary(errors)
-      first?.focus()
+      setSummary(result.errors)
+      result.first?.focus()
       ctx.announce(ctx.t(`invalidFields`), `assertive`)
-      void emit(`invalid`, { errors })
+      void emit(`invalid`, { errors: result.errors })
       return
     }
     setSummary([])
-    const values: Record<string, unknown> = {}
-    for (const f of list) values[f.name] = f.value()
-    void emit(`submit`, { values })
+    void emit(`submit`, { values: result.values })
     closeOverlay?.()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [emit, ctx, closeOverlay])
+  }, [emit, ctx, closeOverlay, fields])
   const changed = useCallback((name: string, value: unknown) => void emit(`change`, { name, value }), [emit])
   const value = useMemo<FormContextValue>(() => ({ register, submit, changed, disabled, busy, attempts }), [register, submit, changed, disabled, busy, attempts])
   // Summary entries clear as their fields become valid.
-  const live = summary.filter((e) => [...fields.current].some((f) => f.name === e.name && f.errors().includes(e.message)))
+  const live = fields.stillFailing(summary)
   return (
     <FormContext.Provider value={value}>
       <form
@@ -131,13 +113,6 @@ export function FormNative({ node, props, rootProps, emit, children }: NativePro
     </FormContext.Provider>
   )
 }
-
-const VALIDATE_ON: Record<string, string> = Object.fromEntries(
-  Object.entries(coreCatalog.components).flatMap(([name, def]) => {
-    const d = (def.props as Record<string, { default?: unknown }>).validateOn?.default
-    return d === undefined ? [] : [[name, String(d)]]
-  })
-)
 
 export interface FieldOptions {
   node: NativeProps[`node`]
@@ -171,8 +146,8 @@ export function useField({ node, domId, props, value, focusRef }: FieldOptions):
   const [touched, setTouched] = useState(false)
   const [dirty, setDirty] = useState(false)
   const [submitted, setSubmitted] = useState(false)
-  const on = str(props.validateOn, VALIDATE_ON[node.component] ?? `blur`)
-  const show = submitted || (form?.attempts ?? 0) > 0 || (on === `change` ? dirty : on === `blur` ? touched || false : false)
+  const on = str(props.validateOn, validateOnDefault(node.component) ?? `blur`)
+  const show = fieldErrorsVisible({ validateOn: on, submitted, attempts: form?.attempts ?? 0, dirty, touched })
   const latest = useRef({ value, all })
   latest.current = { value, all }
   const name = str(props.name)
@@ -221,10 +196,6 @@ export function FieldErrors({ part, field }: { part: PartFn; field: FieldState }
   )
 }
 
-/** A field label with an optional description (`aria-describedby` ids). */
-export function joinIds(...ids: (string | undefined | false)[]): string | undefined {
-  const out = ids.filter(Boolean).join(` `)
-  return out || undefined
-}
+export { joinIds }
 
 export type { ReactNode }

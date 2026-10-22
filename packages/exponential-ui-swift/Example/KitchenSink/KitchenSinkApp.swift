@@ -5,7 +5,7 @@ import SwiftUI
 /// no Exponential code. It is what `shots/exponential-ui-kitchen-sink/
 /// ios.webp` is captured from (`-shot exponential-ui-kitchen-sink`).
 ///
-/// Launch arguments: `-theme <exponential|neutral|playful|brand>`,
+/// Launch arguments: `-theme <exponential|neutral|playful|orange|brand>`,
 /// `-mode <light|dark>`, `-rtl`, `-width <N>`,
 /// `-shot <view>` (hides the chrome), `-a11yDump` (prints the UIAccessibility
 /// walk VoiceOver would read, two seconds after launch).

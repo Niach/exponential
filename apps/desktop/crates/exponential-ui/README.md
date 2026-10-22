@@ -48,7 +48,7 @@ A2UI messages (JSON) ─▶ reducer ─▶ UiNode tree ─▶ bind pass + layout
    `fixtures/bind-time.json` locks both.
 3. **Theme** (`theme`, `recipes`, `themes`, `geometry`): `load_theme`
    flattens an `extends` chain over the built-ins (`neutral` →
-   `exponential` → `playful`), `resolve_recipe` answers a part's visuals for
+   `exponential` → `playful` → `orange`), `resolve_recipe` answers a part's visuals for
    one mode and state set. Round 1: `breakpoint` (px), `ease` (cubic bezier)
    and `density` token groups, `contrast` overlays, `resolve_mode`
    (`system`), `apply_density`, `apply_contrast`, `resolve_condition_key`.

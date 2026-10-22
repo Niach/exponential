@@ -247,9 +247,10 @@ export default function ConceptsPage({ path }: PageProps) {
           </p>
           <DocsCode language="json">{THEME}</DocsCode>
           <p>
-            <code>extends</code> overrides only what changes. Three themes are built in: <code>neutral</code>{` `}
-            (stock shadcn, the root), <code>exponential</code> (the zinc glass of the Exponential apps) and{` `}
-            <code>playful</code> (deliberately different, the one conformance renders everywhere). See them side by
+            <code>extends</code> overrides only what changes. Four themes are built in: <code>neutral</code>{` `}
+            (stock shadcn, the root), <code>exponential</code> (the zinc glass of the Exponential apps),{` `}
+            <code>playful</code> (deliberately different, the one conformance renders everywhere) and{` `}
+            <code>orange</code> (the exponential look with an orange primary, colours only). See them side by
             side on <a href="/themes/">Themes</a>, build one in the <a href="/themes/builder/">theme builder</a>, or
             follow <a href={guidePath(`themes`)}>Write your own theme</a>.
           </p>
