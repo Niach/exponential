@@ -252,9 +252,9 @@ export const APP_PARITY: readonly AppParity[] = [
       },
       "android": {
         "status": "ok",
-        "symbol": "SessionRow / PrRow over Modifier.flatRow()",
-        "file": "apps/android/app/src/main/java/com/exponential/app/ui/components/SessionRow.kt",
-        "note": "PrRow.kt beside it; caption domain/SessionRow.kt"
+        "symbol": "ThreadListRow / PrRow over Modifier.flatRow()",
+        "file": "apps/android/app/src/main/java/com/exponential/app/ui/threads/ThreadsScreen.kt",
+        "note": "PrRow.kt beside it; caption domain/SessionTree.kt"
       }
     }
   },
@@ -1133,10 +1133,8 @@ export const APP_PARITY: readonly AppParity[] = [
         "note": "EmptyState and ListEmpty are the other two, in the same file"
       },
       "desktop": {
-        "status": "ok",
-        "symbol": "ActionsView::render_nudge",
-        "file": "apps/desktop/crates/ui/src/actions_view.rs",
-        "note": "the same dashed strip under the actions list, opening the creator session"
+        "status": "n/a",
+        "note": "the actions panel's nudge went with actions (N-10); no desktop call site renders this box yet"
       },
       "ios": {
         "status": "n/a",
