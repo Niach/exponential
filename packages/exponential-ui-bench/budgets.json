@@ -1,0 +1,6 @@
+{
+  "$comment": "VAPP-105: the benchmark RATCHET per machine × renderer × scenario × metric (src/ratchet.ts). CI fails when a metric comes out WORSE than its budget, and when a deterministic one (count, bytes) comes out better without its budget lowered here; a timing far under its budget (below `floor` × budget) prints a warning asking to lower it. Rewrite after a fix or a new machine: `bun run --filter @exponential-at/ui-bench ratchet .bench/*.json --write` (timings land at measured × `headroom`, counts exact). A machine with no entry is reported, never gated.",
+  "floor": 0.5,
+  "headroom": 1.5,
+  "machines": {}
+}

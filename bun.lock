@@ -249,6 +249,18 @@
         "typescript": "^5.7.2",
       },
     },
+    "packages/exponential-ui-bench": {
+      "name": "@exponential-at/ui-bench",
+      "version": "0.1.0",
+      "devDependencies": {
+        "@exp/tsconfig": "workspace:*",
+        "@exponential-at/ui": "workspace:*",
+        "@exponential-at/ui-react": "workspace:*",
+        "@types/bun": "latest",
+        "playwright": "^1.54.2",
+        "typescript": "^5.7.2",
+      },
+    },
     "packages/exponential-ui-react": {
       "name": "@exponential-at/ui-react",
       "version": "0.1.0",
@@ -772,6 +784,8 @@
     "@exp/widget": ["@exp/widget@workspace:packages/widget"],
 
     "@exponential-at/ui": ["@exponential-at/ui@workspace:packages/exponential-ui"],
+
+    "@exponential-at/ui-bench": ["@exponential-at/ui-bench@workspace:packages/exponential-ui-bench"],
 
     "@exponential-at/ui-react": ["@exponential-at/ui-react@workspace:packages/exponential-ui-react"],
 
@@ -3423,6 +3437,8 @@
 
     "@exponential-at/ui/@types/bun": ["@types/bun@1.4.3", "", { "dependencies": { "bun-types": "1.4.3" } }, "sha512-N67Pqy8JXbAY/j0tNraS3V5mubGvc6rrrNDmDCtZLlFzccbUJPDb0tvgUBC5q4m8ybkP93Jcn1QB+RYQ6PvBhw=="],
 
+    "@exponential-at/ui-bench/@types/bun": ["@types/bun@1.4.3", "", { "dependencies": { "bun-types": "1.4.3" } }, "sha512-N67Pqy8JXbAY/j0tNraS3V5mubGvc6rrrNDmDCtZLlFzccbUJPDb0tvgUBC5q4m8ybkP93Jcn1QB+RYQ6PvBhw=="],
+
     "@exponential-at/ui-react/@types/bun": ["@types/bun@1.4.3", "", { "dependencies": { "bun-types": "1.4.3" } }, "sha512-N67Pqy8JXbAY/j0tNraS3V5mubGvc6rrrNDmDCtZLlFzccbUJPDb0tvgUBC5q4m8ybkP93Jcn1QB+RYQ6PvBhw=="],
 
     "@google-cloud/storage/google-auth-library": ["google-auth-library@9.15.1", "", { "dependencies": { "base64-js": "^1.3.0", "ecdsa-sig-formatter": "^1.0.11", "gaxios": "^6.1.1", "gcp-metadata": "^6.1.0", "gtoken": "^7.0.0", "jws": "^4.0.0" } }, "sha512-Jb6Z0+nvECVz+2lzSMt9u98UsoakXxA2HGHMCxh+so3n90XgYWkq5dur19JAJV7ONiJY22yBTyJB1TSkvPq9Ng=="],
@@ -3836,6 +3852,8 @@
     "@exp/ui-site/@types/bun/bun-types": ["bun-types@1.4.2", "", { "dependencies": { "@types/node": "*" } }, "sha512-bxV1FgK7yBIzjRe5zBozIM4Bem11ZJcCXSrjWRG3YWLt8yFDePu4cLjpebO8OvPeIE9trbyPF4fuj3Cia4Fj3w=="],
 
     "@exp/view-catalog/@types/bun/bun-types": ["bun-types@1.4.2", "", { "dependencies": { "@types/node": "*" } }, "sha512-bxV1FgK7yBIzjRe5zBozIM4Bem11ZJcCXSrjWRG3YWLt8yFDePu4cLjpebO8OvPeIE9trbyPF4fuj3Cia4Fj3w=="],
+
+    "@exponential-at/ui-bench/@types/bun/bun-types": ["bun-types@1.4.3", "", { "dependencies": { "@types/node": "*", "undici-types": "*" } }, "sha512-tinRJNGOmUN+tEAsn2y2e942n9JHRHR42iUYzDH75NmhJqVBokGSQkkfSFdNWwsANIdrK6ACH9t01M452YyTwg=="],
 
     "@exponential-at/ui-react/@types/bun/bun-types": ["bun-types@1.4.3", "", { "dependencies": { "@types/node": "*", "undici-types": "*" } }, "sha512-tinRJNGOmUN+tEAsn2y2e942n9JHRHR42iUYzDH75NmhJqVBokGSQkkfSFdNWwsANIdrK6ACH9t01M452YyTwg=="],
 

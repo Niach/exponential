@@ -37,3 +37,4 @@ apps/web/public/mcp-apps/
 # shots/**.webp are committed; regenerate with `bun run shots`.
 /.shots-raw/
 .conformance/
+.bench/
