@@ -64,6 +64,15 @@ export type MenuContentProps = {
   side: Side
   align: Align
   sideOffset: number
+  alignOffset?: number
+  /** The popper's collision padding (default `OVERLAY_PADDING`, the natives';
+   *  the primitive set passes Radix's 0). */
+  collisionPadding?: number
+  /** A layer registered in this same mount pass is not visible to this
+   *  content's FIRST style (Radix's default-body portals: the outer layer
+   *  registers one commit after the nested content first renders), so its
+   *  `pointer-events` starts unset. The primitive set passes it. */
+  lagParentLayer?: boolean
   /** Root content: modal (trap, outside pointer events off, scroll lock,
    *  aria-hidden), focus to the content on mount. */
   root: boolean
@@ -149,7 +158,7 @@ export function MenuContent(props: MenuContentProps): JSX.Element {
     if (target) setTimeout(() => target.focus())
   }
   return (
-    <Popper anchor={props.anchor} side={props.side} align={props.align} sideOffset={props.sideOffset} collisionPadding={OVERLAY_PADDING} dir={props.dir}>
+    <Popper anchor={props.anchor} side={props.side} align={props.align} sideOffset={props.sideOffset} alignOffset={props.alignOffset} collisionPadding={props.collisionPadding ?? OVERLAY_PADDING} dir={props.dir}>
       {(popper) => {
         const el = (
           <div
@@ -206,7 +215,7 @@ export function MenuContent(props: MenuContentProps): JSX.Element {
         props.setContent?.(el)
         onCleanup(() => props.setContent?.(undefined))
         popper.setContent(el)
-        bindStyle(el, () => popperContentStyle(props.kind, `trigger`, layer.pointerEvents(registered()), popper.isPositioned(), { outline: `none` }))
+        bindStyle(el, () => popperContentStyle(props.kind, `trigger`, props.lagParentLayer && !registered() ? undefined : layer.pointerEvents(registered()), popper.isPositioned(), { outline: `none` }))
         onMount(() => {
           layer.attach(el)
           setRegistered(true)
