@@ -29,6 +29,10 @@ const SPECS: Spec[] = [
     files: [`dist`, `catalog`, `fixtures`, `themes`, `docs`, `vendor`, `generated`, `conformance`, `README.md`],
     exports: {
       ".": { types: `./dist/types/src/index.d.ts`, import: `./dist/index.js`, default: `./dist/index.js` },
+      "./prompt": { types: `./dist/types/src/entries/prompt.d.ts`, import: `./dist/entries/prompt.js`, default: `./dist/entries/prompt.js` },
+      "./schema": { types: `./dist/types/src/entries/schema.d.ts`, import: `./dist/entries/schema.js`, default: `./dist/entries/schema.js` },
+      "./conformance": { types: `./dist/types/src/conformance.d.ts`, import: `./dist/conformance.js`, default: `./dist/conformance.js` },
+      "./host": { types: `./dist/types/src/host/index.d.ts`, import: `./dist/host/index.js`, default: `./dist/host/index.js` },
       "./catalog/*": `./catalog/*`,
       "./fixtures/*": `./fixtures/*`,
       "./docs/*": `./docs/*`,

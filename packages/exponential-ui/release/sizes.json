@@ -6,10 +6,14 @@
       "host": "darwin-arm64",
       "entries": {
         "@exponential-at/ui/index": {
-          "bytes": 1779676,
-          "gzip": 235448,
+          "bytes": 377329,
+          "gzip": 107099,
           "parts": {
-            "index.js": 1779676
+            "index.js": 71444,
+            "chunks/index-n7yfz8d3.js": 102121,
+            "chunks/index-25j1kwv3.js": 118827,
+            "chunks/index-wjvj62hb.js": 11815,
+            "chunks/index-407pvmyk.js": 73122
           }
         },
         "@exponential-at/ui-react/index": {
@@ -31,6 +35,46 @@
         "@exponential-at/ui-react/styles.css": {
           "bytes": 94122,
           "gzip": 14789
+        },
+        "@exponential-at/ui/prompt": {
+          "bytes": 122856,
+          "gzip": 31732,
+          "parts": {
+            "entries/prompt.js": 6490,
+            "chunks/index-f87say7p.js": 43244,
+            "chunks/index-407pvmyk.js": 73122
+          }
+        },
+        "@exponential-at/ui/schema": {
+          "bytes": 161750,
+          "gzip": 40295,
+          "parts": {
+            "entries/schema.js": 33569,
+            "chunks/index-f87say7p.js": 43244,
+            "chunks/index-407pvmyk.js": 73122,
+            "chunks/index-wjvj62hb.js": 11815
+          }
+        },
+        "@exponential-at/ui/conformance": {
+          "bytes": 1530134,
+          "gzip": 153350,
+          "parts": {
+            "conformance.js": 1326370,
+            "chunks/index-25j1kwv3.js": 118827,
+            "chunks/index-wjvj62hb.js": 11815,
+            "chunks/index-407pvmyk.js": 73122
+          }
+        },
+        "@exponential-at/ui/host": {
+          "bytes": 307591,
+          "gzip": 81078,
+          "parts": {
+            "host/index.js": 1706,
+            "chunks/index-n7yfz8d3.js": 102121,
+            "chunks/index-25j1kwv3.js": 118827,
+            "chunks/index-wjvj62hb.js": 11815,
+            "chunks/index-407pvmyk.js": 73122
+          }
         }
       }
     },

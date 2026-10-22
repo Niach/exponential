@@ -21,10 +21,8 @@ import {
   UNKNOWN_COMPONENT,
   builtinTheme,
   checkGeometry,
-  checkReport,
   clientCapabilities,
   combineDecisions,
-  conformanceManifest,
   decideFunction,
   decideUrl,
   defineExtension,
@@ -53,7 +51,9 @@ import {
   resolveStyleValues,
   styleToCss,
 } from "@exponential-at/ui"
-import type { ChildTemplate, ConformanceReport, Decoded, ExtensionDef, FlatComponent, ModeName, NestedNode, UiNode, VappPackage } from "@exponential-at/ui"
+import type { ChildTemplate, Decoded, ExtensionDef, FlatComponent, ModeName, NestedNode, UiNode, VappPackage } from "@exponential-at/ui"
+import { checkReport, conformanceManifest } from "@exponential-at/ui/conformance"
+import type { ConformanceReport } from "@exponential-at/ui/conformance"
 import { CLIENT_FUNCTIONS, LITERAL_ROWS_ROOT, absolutePath, bindTree as reactBindTree, isBinding, memoFormatter, resolveNodeProps, resolveValue, setPointer, type DataModel, type ResolveContext } from "../src/data"
 import { itemInstance, runNodeAction, templateItems } from "../src/node-view"
 import type { SurfaceContextValue } from "../src/context"

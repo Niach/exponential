@@ -3,7 +3,9 @@
 // every answer is validated before it reaches a client, and a valid surface
 // goes back as A2UI over MCP: an `application/json+a2ui` resource.
 import { createServer } from "node:http"
-import { CORE_CATALOG_ID, ICON_NAMES, catalogPrompt, coreSchema, reduceSurface } from "@exponential-at/ui"
+import { CORE_CATALOG_ID, ICON_NAMES, reduceSurface } from "@exponential-at/ui"
+import { catalogPrompt } from "@exponential-at/ui/prompt"
+import { coreSchema } from "@exponential-at/ui/schema"
 import type { FlatComponent } from "@exponential-at/ui"
 
 const tool = {

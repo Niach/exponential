@@ -9,6 +9,10 @@
   "types": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
+    "./prompt": "./src/entries/prompt.ts",
+    "./schema": "./src/entries/schema.ts",
+    "./conformance": "./src/conformance.ts",
+    "./host": "./src/host/index.ts",
     "./catalog/*": "./catalog/*",
     "./fixtures/*": "./fixtures/*",
     "./docs/*": "./docs/*",

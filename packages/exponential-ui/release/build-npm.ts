@@ -18,7 +18,10 @@ import { existsSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync 
 import { dirname, join, normalize, resolve } from "node:path"
 
 export const ENTRIES: Record<string, Record<string, string>> = {
-  "@exponential-at/ui": { index: `src/index.ts` },
+  // VAPP-106: the root is what a renderer needs; the prompt (+ the described
+  // catalog), the schema emitters, the conformance suite (+ every fixture)
+  // and the host API are entries of their own.
+  "@exponential-at/ui": { index: `src/index.ts`, prompt: `src/entries/prompt.ts`, schema: `src/entries/schema.ts`, conformance: `src/conformance.ts`, host: `src/host/index.ts` },
   "@exponential-at/ui-react": { index: `src/index.ts`, primitives: `src/primitives/index.ts` },
 }
 
