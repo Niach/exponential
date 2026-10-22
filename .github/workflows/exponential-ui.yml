@@ -14,7 +14,10 @@ name: exponential-ui
 # with the KitchenSink example, and the Compose painter runs its instrumented
 # tests on an Android emulator. FEED-128: the Solid renderer runs the same
 # web runner and the web-parity check against React (DOM, computed styles,
-# frames and pixels at zero tolerance, `parity:check`).
+# frames and pixels at zero tolerance, `parity:check`). FEED-130: the custom
+# element `<exponential-surface>` (the Solid painter in light DOM) runs the
+# same web runner through its own vanilla harness, the parity check against
+# React, a standalone-bundle check and its guide.
 #
 # The pull request AND the push to master (path-filtered to the SDK, both).
 
@@ -25,6 +28,7 @@ on:
       - 'packages/exponential-ui/**'
       - 'packages/exponential-ui-react/**'
       - 'packages/exponential-ui-solid/**'
+      - 'packages/exponential-ui-element/**'
       - 'packages/exponential-ui-swift/**'
       - 'packages/exponential-ui-compose/**'
       - 'apps/desktop/crates/exponential-ui/**'
@@ -38,6 +42,7 @@ on:
       - 'packages/exponential-ui/**'
       - 'packages/exponential-ui-react/**'
       - 'packages/exponential-ui-solid/**'
+      - 'packages/exponential-ui-element/**'
       - 'packages/exponential-ui-swift/**'
       - 'packages/exponential-ui-compose/**'
       - 'apps/desktop/crates/exponential-ui/**'
@@ -115,6 +120,39 @@ jobs:
         if: always()
         with:
           name: conformance-solid
+          path: .conformance/
+          include-hidden-files: true  # .conformance/ is a dot-directory; upload-artifact v4 skips hidden paths by default
+
+  element:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: bun install --frozen-lockfile
+      - run: bunx playwright install --with-deps chromium
+      - name: Element tests (jsdom)
+        run: bun run --filter @exponential-at/ui-element test
+      - name: Element conformance (headless Chromium)
+        env:
+          EXPONENTIAL_UI_CONFORMANCE_REPORT: ${{ github.workspace }}/.conformance/exponential-ui-element.json
+        run: bun run --filter @exponential-at/ui-element test:conformance
+      - name: Web parity, React vs the element
+        env:
+          EXPONENTIAL_UI_PARITY_REPORT: ${{ github.workspace }}/.conformance/exponential-ui-parity-react-element.json
+        run: |
+          bun run --filter @exponential-at/ui-element test:parity
+          bun run --filter @exponential-at/ui parity:check "$EXPONENTIAL_UI_PARITY_REPORT"
+      - name: Element API + standalone bundle (headless Chromium)
+        run: bun run --filter @exponential-at/ui-element test:browser browser/element.test.ts browser/standalone.test.ts
+      - name: Guide (element) from a fresh project
+        run: bun apps/ui-site/guides/check.ts element
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: conformance-element
           path: .conformance/
           include-hidden-files: true  # .conformance/ is a dot-directory; upload-artifact v4 skips hidden paths by default
 
@@ -323,7 +361,7 @@ jobs:
           include-hidden-files: true  # .conformance/ is a dot-directory; upload-artifact v4 skips hidden paths by default
 
   conformant:
-    needs: [react, solid, rust, swift, compose]
+    needs: [react, solid, element, rust, swift, compose]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -335,5 +373,5 @@ jobs:
           path: .conformance
           merge-multiple: true
       - name: Every renderer is Exponential UI conformant
-        # The parity report (conformance-solid) is checked in its job, not here.
+        # The parity reports (conformance-solid, conformance-element) are checked in their jobs, not here.
         run: bun run --filter @exponential-at/ui conformance:check $(ls "$GITHUB_WORKSPACE"/.conformance/*.json | grep -v '/exponential-ui-parity-')

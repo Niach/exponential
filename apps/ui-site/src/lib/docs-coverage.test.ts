@@ -86,6 +86,13 @@ const embedded: Record<EmbedTarget, (code: string) => string> = {
   // A JS template literal: evaluate it.
   react: (code) => new Function(`return \`${code.match(/const SURFACE = `([\s\S]*?)`\n\nconst transport/)![1]}\``)() as string,
   solid: (code) => new Function(`return \`${code.match(/const SURFACE = `([\s\S]*?)`\n\nexport function Preview/)![1]}\``)() as string,
+  // A JS template literal inside an HTML <script>: nothing in it may end the element or enter its escaped state.
+  element: (code) => {
+    const body = code.match(/const SURFACE = `([\s\S]*?)`\n\n {2}const el/)![1]!
+    expect(/<\/script|<!--/i.test(body)).toBe(false)
+    expect(code.match(/<\/script/gi)?.length).toBe(2)
+    return new Function(`return \`${body}\``)() as string
+  },
   // A Swift raw multi-line string: no `\#…` escape and no closing delimiter inside.
   swiftui: (code) => {
     const [, h, body] = code.match(/let surface = (#+)"""\n([\s\S]*?)\n"""\1\n/)!
@@ -110,7 +117,7 @@ const embedded: Record<EmbedTarget, (code: string) => string> = {
 test(`embed code round-trips the surface on every platform`, () => {
   const doc = COMPONENT_DOCS.find((d) => d.name === `Button`)!
   const specimen = specimenById(doc.specimenId)
-  const nasty = [`Say "hi" \`now\` \${x} $y`, `a"#b "##c`, `"""# \\#(x) \\(y)`, `back\\slash \\n`, `ünï ✓ 🙂`]
+  const nasty = [`Say "hi" \`now\` \${x} $y`, `a"#b "##c`, `"""# \\#(x) \\(y)`, `back\\slash \\n`, `ünï ✓ 🙂`, `</SCRIPT> <!-- x </script`]
   for (const label of nasty) {
     const messages = surfaceMessages(`preview`, flatten(studioTree(doc, subjectOf(doc, specimen), { label })))
     for (const t of EMBED_TARGETS) {
@@ -135,6 +142,7 @@ test(`embed code follows the studio's direction and width`, () => {
     expect(sized.includes(`390`), t.id).toBe(true)
   }
   expect(embedCode(`react`, { ...opts, direction: `rtl`, width: 390 })).toContain(`direction="rtl" width={390}`)
+  expect(embedCode(`element`, { ...opts, direction: `rtl`, width: 390 })).toContain(`direction="rtl" width="390"`)
 })
 
 test(`index search matches word starts`, async () => {

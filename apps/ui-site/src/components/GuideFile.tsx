@@ -15,6 +15,7 @@ const LANGUAGES: [RegExp, string][] = [
   [/\.kt$/, `kotlin`],
   [/\.rs$/, `rust`],
   [/\.toml$/, `toml`],
+  [/\.html$/, `html`],
 ]
 
 /** One example file of guides/**: exactly what CI compiles, never a copy. */
