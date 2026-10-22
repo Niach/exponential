@@ -1,12 +1,13 @@
 #!/usr/bin/env bun
 // VAPP-108: renders every recorded surface on the web at each corpus width
-// with BOTH web renderers (the React harness and the Solid harness, headless
-// Chromium, the exponential theme, dark), writes the pictures to
-// eval/out/<id>/<renderer>-<width>.png (gitignored) and MEASURES the painted
-// boxes (__xuiFrames): the vertical gaps between the root's children, the
-// left inset of the first text, the painted height, whether anything
-// overflows the viewport sideways. The two renderers' measures must be equal
-// and their pictures pixel-identical (the web-parity gate makes them so); a
+// with EVERY web renderer (the React harness, the Solid harness and the
+// <exponential-surface> element harness, headless Chromium, the exponential
+// theme, dark), writes the pictures to eval/out/<id>/<renderer>-<width>.png
+// (gitignored) and MEASURES the painted boxes (__xuiFrames): the vertical
+// gaps between the root's children, the left inset of the first text, the
+// painted height, whether anything overflows the viewport sideways. React is
+// the reference: every other renderer's measures must equal it and its
+// picture be pixel-identical (the web-parity gate makes them so); a
 // difference is a finding, recorded as `differences`. The measurements go
 // into eval/report.json `render` (committed) so the numbers are on record
 // without the pictures.
@@ -38,18 +39,23 @@ const theme = opt(`theme`, `exponential`)
 const mode = opt(`mode`, `dark`)
 const OUT = join(import.meta.dir, `out`)
 
-/** The two web renderers, each with its harness server (the same page, the
- *  same `?view=tree` query, the same `__xuiFrames` probe). */
-export const RENDERERS = [`react`, `solid`] as const
+/** The web renderers, each with its harness server (the same page, the same
+ *  `?view=tree` query, the same `__xuiFrames` probe). React is the reference. */
+export const RENDERERS = [`react`, `solid`, `element`] as const
 export type Renderer = (typeof RENDERERS)[number]
+export const REFERENCE: Renderer = `react`
+/** The renderers compared against the reference. */
+export const CANDIDATES = RENDERERS.filter((r): r is Candidate => r !== REFERENCE)
+export type Candidate = Exclude<Renderer, typeof REFERENCE>
 const HARNESS: Record<Renderer, string> = {
   react: join(import.meta.dir, `..`, `..`, `exponential-ui-react`, `harness`, `serve.ts`),
   solid: join(import.meta.dir, `..`, `..`, `exponential-ui-solid`, `harness`, `serve.ts`),
+  element: join(import.meta.dir, `..`, `..`, `exponential-ui-element`, `harness`, `serve.ts`),
 }
 
 declare global {
   interface Window {
-    /** The harnesses' box probe (packages/exponential-ui-{react,solid}/harness/main.tsx). */
+    /** The harnesses' box probe (packages/exponential-ui-{react,solid,element}/harness/main.ts*). */
     __xuiFrames?: (rootId?: string) => Frame[]
   }
 }
@@ -79,17 +85,18 @@ export interface RendererMeasure {
   picture: string
 }
 
-/** One surface at one width: both renderers' measures and their comparison. */
+/** One surface at one width: every renderer's measures and each candidate's comparison with React. */
 export interface RenderMeasure {
   width: number
   react: RendererMeasure
   solid: RendererMeasure
-  /** Both renderers measured the same boxes and painted the same pixels. */
+  element: RendererMeasure
+  /** Every candidate measured the same boxes and painted the same pixels as React. */
   equal: boolean
-  /** What differed (empty when `equal`): a measure by name, or the pixel count. */
-  differences: string[]
-  /** Pixels that differ between the two full-page pictures (threshold 0, anti-aliasing excluded). */
-  pixelDiff: { pixels: number; share: number }
+  /** Per candidate, what differed from React (empty when equal): a measure by name, the pixel count, a page error. */
+  differences: Record<Candidate, string[]>
+  /** Per candidate, the pixels that differ from React's full-page picture (threshold 0, anti-aliasing excluded). */
+  pixelDiff: Record<Candidate, { pixels: number; share: number }>
 }
 
 /** Every painted node's box → the measures above. `children` = the root's
@@ -114,12 +121,12 @@ export function measureFrames(frames: Frame[], root: UiNode, width: number): Omi
   }
 }
 
-/** The measures that must agree between the renderers (the picture paths differ by name). */
-export function compareMeasures(react: Omit<RendererMeasure, `picture`>, solid: Omit<RendererMeasure, `picture`>): string[] {
+/** The measures that must agree between a candidate and the reference (the picture paths differ by name). */
+export function compareMeasures(reference: Omit<RendererMeasure, `picture`>, candidate: Omit<RendererMeasure, `picture`>, name: string): string[] {
   const out: string[] = []
   const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
   for (const key of [`height`, `nodes`, `gaps`, `textInset`, `overflowsX`] as const)
-    if (!same(react[key], solid[key])) out.push(`${key}: react ${JSON.stringify(react[key])}, solid ${JSON.stringify(solid[key])}`)
+    if (!same(reference[key], candidate[key])) out.push(`${key}: ${REFERENCE} ${JSON.stringify(reference[key])}, ${name} ${JSON.stringify(candidate[key])}`)
   return out
 }
 
@@ -133,10 +140,10 @@ function textNode(node: UiNode): UiNode | undefined {
 }
 
 async function serveHarness(renderer: Renderer): Promise<{ base: string; stop: () => void }> {
-  const port = 4700 + Math.floor(Math.random() * 300) + (renderer === `solid` ? 300 : 0)
+  const port = 4700 + Math.floor(Math.random() * 200) + RENDERERS.indexOf(renderer) * 200
   const proc = spawn(`bun`, [HARNESS[renderer]], { env: { ...process.env, PORT: String(port) }, stdio: [`ignore`, `ignore`, `inherit`] })
   const base = `http://127.0.0.1:${port}`
-  // The Solid harness bundles with Vite on its first request: give it a minute.
+  // The Solid and element harnesses bundle with Vite on their first request: give them a minute.
   for (let i = 0; i < 400; i++) {
     try {
       if ((await fetch(`${base}/dist/main.js`)).ok) return { base, stop: () => proc.kill() }
@@ -226,7 +233,8 @@ export async function pixelDiff(a: Buffer, b: Buffer): Promise<{ pixels: number;
 
 async function main(): Promise<void> {
   const entries = (corpus as Corpus).prompts.filter((p) => !only.size || only.has(p.id))
-  const servers = { react: await serveHarness(`react`), solid: await serveHarness(`solid`) }
+  const servers = {} as Record<Renderer, { base: string; stop: () => void }>
+  for (const renderer of RENDERERS) servers[renderer] = await serveHarness(renderer)
   const browser = await chromium.launch()
   const render: Record<string, RenderMeasure[]> = (readReport()?.render as Record<string, RenderMeasure[]> | undefined) ?? {}
   let findings = 0
@@ -251,26 +259,33 @@ async function main(): Promise<void> {
           const { frames, png, errors } = await paint(browser, servers[renderer].base, query, width, join(dir, `${renderer}-${width}.png`))
           painted[renderer] = { measure: { ...measureFrames(frames, root, width), picture: relative }, png, errors }
         }
-        const differences = compareMeasures(painted.react.measure, painted.solid.measure)
-        const pixels = await pixelDiff(painted.react.png, painted.solid.png)
-        if (pixels.pixels) differences.push(`pixels: ${pixels.pixels} differ (${(pixels.share * 100).toFixed(2)} %)`)
-        for (const renderer of RENDERERS) for (const e of painted[renderer].errors) differences.push(`${renderer} page error: ${e}`)
-        const measure: RenderMeasure = { width, react: painted.react.measure, solid: painted.solid.measure, equal: differences.length === 0, differences, pixelDiff: pixels }
+        const differences = {} as Record<Candidate, string[]>
+        const pixels = {} as Record<Candidate, { pixels: number; share: number }>
+        for (const e of painted[REFERENCE].errors) for (const c of CANDIDATES) (differences[c] ??= []).push(`${REFERENCE} page error: ${e}`)
+        for (const c of CANDIDATES) {
+          const diffs = (differences[c] ??= [])
+          diffs.push(...compareMeasures(painted[REFERENCE].measure, painted[c].measure, c))
+          pixels[c] = await pixelDiff(painted[REFERENCE].png, painted[c].png)
+          if (pixels[c].pixels) diffs.push(`pixels: ${pixels[c].pixels} differ (${(pixels[c].share * 100).toFixed(2)} %)`)
+          for (const e of painted[c].errors) diffs.push(`${c} page error: ${e}`)
+        }
+        const equal = CANDIDATES.every((c) => differences[c].length === 0)
+        const measure: RenderMeasure = { width, react: painted.react.measure, solid: painted.solid.measure, element: painted.element.measure, equal, differences, pixelDiff: pixels }
         measures.push(measure)
-        if (!measure.equal) findings++
+        if (!equal) findings++
         const m = measure.react
-        console.log(`${entry.id} @${width}: ${m.nodes} nodes, ${m.height}px tall, gaps ${m.distinctGaps.join(`/`) || `–`}, inset ${m.textInset ?? `–`}${m.overflowsX ? `, OVERFLOWS` : ``}; solid ${measure.equal ? `equal` : `DIFFERS: ${differences.join(`; `)}`}`)
+        const verdict = CANDIDATES.map((c) => `${c} ${differences[c].length ? `DIFFERS: ${differences[c].join(`; `)}` : `equal`}`).join(`, `)
+        console.log(`${entry.id} @${width}: ${m.nodes} nodes, ${m.height}px tall, gaps ${m.distinctGaps.join(`/`) || `–`}, inset ${m.textInset ?? `–`}${m.overflowsX ? `, OVERFLOWS` : ``}; ${verdict}`)
       }
       render[entry.id] = measures
     }
   } finally {
     await browser.close()
-    servers.react.stop()
-    servers.solid.stop()
+    for (const renderer of RENDERERS) servers[renderer].stop()
   }
   const report = buildReport({ ...readReport(), render })
   writeFileSync(REPORT_PATH, `${JSON.stringify(report, null, 2)}\n`)
-  console.log(`→ ${REPORT_PATH} (render: ${Object.keys(render).length} surfaces × ${RENDERERS.join(` + `)}; ${findings ? `${findings} width(s) where Solid differs from React` : `Solid equals React everywhere`})`)
+  console.log(`→ ${REPORT_PATH} (render: ${Object.keys(render).length} surfaces × ${RENDERERS.join(` + `)}; ${findings ? `${findings} width(s) where a renderer differs from React` : `every renderer equals React everywhere`})`)
 }
 
 if (import.meta.main) main().catch((e) => {

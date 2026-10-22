@@ -2100,11 +2100,33 @@
           "overflowsX": false,
           "picture": "eval/out/settings-page/solid-1280.png"
         },
+        "element": {
+          "height": 508,
+          "nodes": 27,
+          "gaps": [
+            16
+          ],
+          "distinctGaps": [
+            16
+          ],
+          "textInset": 17,
+          "overflowsX": false,
+          "picture": "eval/out/settings-page/element-1280.png"
+        },
         "equal": true,
-        "differences": [],
+        "differences": {
+          "solid": [],
+          "element": []
+        },
         "pixelDiff": {
-          "pixels": 0,
-          "share": 0
+          "solid": {
+            "pixels": 0,
+            "share": 0
+          },
+          "element": {
+            "pixels": 0,
+            "share": 0
+          }
         }
       }
     ],
@@ -2137,14 +2159,39 @@
           "overflowsX": false,
           "picture": "eval/out/issue-list-filters/solid-1280.png"
         },
+        "element": {
+          "height": 224,
+          "nodes": 38,
+          "gaps": [
+            12
+          ],
+          "distinctGaps": [
+            12
+          ],
+          "textInset": null,
+          "overflowsX": false,
+          "picture": "eval/out/issue-list-filters/element-1280.png"
+        },
         "equal": false,
-        "differences": [
-          "nodes: react 34, solid 38",
-          "pixels: 7145 differ (0.16 %)"
-        ],
+        "differences": {
+          "solid": [
+            "nodes: react 34, solid 38",
+            "pixels: 7145 differ (0.16 %)"
+          ],
+          "element": [
+            "nodes: react 34, element 38",
+            "pixels: 7145 differ (0.16 %)"
+          ]
+        },
         "pixelDiff": {
-          "pixels": 7145,
-          "share": 0.001550564236111111
+          "solid": {
+            "pixels": 7145,
+            "share": 0.001550564236111111
+          },
+          "element": {
+            "pixels": 7145,
+            "share": 0.001550564236111111
+          }
         }
       }
     ],
@@ -2177,11 +2224,33 @@
           "overflowsX": false,
           "picture": "eval/out/device-dashboard/solid-1280.png"
         },
+        "element": {
+          "height": 200,
+          "nodes": 36,
+          "gaps": [
+            12
+          ],
+          "distinctGaps": [
+            12
+          ],
+          "textInset": 36,
+          "overflowsX": false,
+          "picture": "eval/out/device-dashboard/element-1280.png"
+        },
         "equal": true,
-        "differences": [],
+        "differences": {
+          "solid": [],
+          "element": []
+        },
         "pixelDiff": {
-          "pixels": 0,
-          "share": 0
+          "solid": {
+            "pixels": 0,
+            "share": 0
+          },
+          "element": {
+            "pixels": 0,
+            "share": 0
+          }
         }
       }
     ],
@@ -2214,11 +2283,33 @@
           "overflowsX": false,
           "picture": "eval/out/form-validation/solid-1280.png"
         },
+        "element": {
+          "height": 374,
+          "nodes": 18,
+          "gaps": [
+            0
+          ],
+          "distinctGaps": [
+            0
+          ],
+          "textInset": 17,
+          "overflowsX": false,
+          "picture": "eval/out/form-validation/element-1280.png"
+        },
         "equal": true,
-        "differences": [],
+        "differences": {
+          "solid": [],
+          "element": []
+        },
         "pixelDiff": {
-          "pixels": 0,
-          "share": 0
+          "solid": {
+            "pixels": 0,
+            "share": 0
+          },
+          "element": {
+            "pixels": 0,
+            "share": 0
+          }
         }
       }
     ],
@@ -2251,11 +2342,33 @@
           "overflowsX": false,
           "picture": "eval/out/chat/solid-1280.png"
         },
+        "element": {
+          "height": 480,
+          "nodes": 18,
+          "gaps": [
+            8
+          ],
+          "distinctGaps": [
+            8
+          ],
+          "textInset": null,
+          "overflowsX": false,
+          "picture": "eval/out/chat/element-1280.png"
+        },
         "equal": true,
-        "differences": [],
+        "differences": {
+          "solid": [],
+          "element": []
+        },
         "pixelDiff": {
-          "pixels": 0,
-          "share": 0
+          "solid": {
+            "pixels": 0,
+            "share": 0
+          },
+          "element": {
+            "pixels": 0,
+            "share": 0
+          }
         }
       }
     ],
@@ -2290,11 +2403,34 @@
           "overflowsX": false,
           "picture": "eval/out/kanban/solid-1280.png"
         },
+        "element": {
+          "height": 136,
+          "nodes": 42,
+          "gaps": [
+            -136,
+            -136
+          ],
+          "distinctGaps": [
+            -136
+          ],
+          "textInset": 12,
+          "overflowsX": false,
+          "picture": "eval/out/kanban/element-1280.png"
+        },
         "equal": true,
-        "differences": [],
+        "differences": {
+          "solid": [],
+          "element": []
+        },
         "pixelDiff": {
-          "pixels": 0,
-          "share": 0
+          "solid": {
+            "pixels": 0,
+            "share": 0
+          },
+          "element": {
+            "pixels": 0,
+            "share": 0
+          }
         }
       }
     ],
@@ -2327,11 +2463,33 @@
           "overflowsX": false,
           "picture": "eval/out/data-table/solid-1280.png"
         },
+        "element": {
+          "height": 176,
+          "nodes": 33,
+          "gaps": [
+            12
+          ],
+          "distinctGaps": [
+            12
+          ],
+          "textInset": 0,
+          "overflowsX": false,
+          "picture": "eval/out/data-table/element-1280.png"
+        },
         "equal": true,
-        "differences": [],
+        "differences": {
+          "solid": [],
+          "element": []
+        },
         "pixelDiff": {
-          "pixels": 0,
-          "share": 0
+          "solid": {
+            "pixels": 0,
+            "share": 0
+          },
+          "element": {
+            "pixels": 0,
+            "share": 0
+          }
         }
       }
     ],
@@ -2364,11 +2522,33 @@
           "overflowsX": false,
           "picture": "eval/out/wizard/solid-1280.png"
         },
+        "element": {
+          "height": 286,
+          "nodes": 35,
+          "gaps": [
+            0
+          ],
+          "distinctGaps": [
+            0
+          ],
+          "textInset": 17,
+          "overflowsX": false,
+          "picture": "eval/out/wizard/element-1280.png"
+        },
         "equal": true,
-        "differences": [],
+        "differences": {
+          "solid": [],
+          "element": []
+        },
         "pixelDiff": {
-          "pixels": 0,
-          "share": 0
+          "solid": {
+            "pixels": 0,
+            "share": 0
+          },
+          "element": {
+            "pixels": 0,
+            "share": 0
+          }
         }
       }
     ],
@@ -2405,11 +2585,35 @@
           "overflowsX": false,
           "picture": "eval/out/empty-state/solid-1280.png"
         },
+        "element": {
+          "height": 260,
+          "nodes": 6,
+          "gaps": [
+            12,
+            12,
+            12
+          ],
+          "distinctGaps": [
+            12
+          ],
+          "textInset": 584,
+          "overflowsX": false,
+          "picture": "eval/out/empty-state/element-1280.png"
+        },
         "equal": true,
-        "differences": [],
+        "differences": {
+          "solid": [],
+          "element": []
+        },
         "pixelDiff": {
-          "pixels": 0,
-          "share": 0
+          "solid": {
+            "pixels": 0,
+            "share": 0
+          },
+          "element": {
+            "pixels": 0,
+            "share": 0
+          }
         }
       }
     ],
@@ -2442,11 +2646,33 @@
           "overflowsX": false,
           "picture": "eval/out/mobile-list/solid-320.png"
         },
+        "element": {
+          "height": 338,
+          "nodes": 54,
+          "gaps": [
+            0
+          ],
+          "distinctGaps": [
+            0
+          ],
+          "textInset": 12,
+          "overflowsX": false,
+          "picture": "eval/out/mobile-list/element-320.png"
+        },
         "equal": true,
-        "differences": [],
+        "differences": {
+          "solid": [],
+          "element": []
+        },
         "pixelDiff": {
-          "pixels": 0,
-          "share": 0
+          "solid": {
+            "pixels": 0,
+            "share": 0
+          },
+          "element": {
+            "pixels": 0,
+            "share": 0
+          }
         }
       },
       {
@@ -2477,11 +2703,33 @@
           "overflowsX": false,
           "picture": "eval/out/mobile-list/solid-390.png"
         },
+        "element": {
+          "height": 338,
+          "nodes": 54,
+          "gaps": [
+            0
+          ],
+          "distinctGaps": [
+            0
+          ],
+          "textInset": 12,
+          "overflowsX": false,
+          "picture": "eval/out/mobile-list/element-390.png"
+        },
         "equal": true,
-        "differences": [],
+        "differences": {
+          "solid": [],
+          "element": []
+        },
         "pixelDiff": {
-          "pixels": 0,
-          "share": 0
+          "solid": {
+            "pixels": 0,
+            "share": 0
+          },
+          "element": {
+            "pixels": 0,
+            "share": 0
+          }
         }
       },
       {
@@ -2512,11 +2760,33 @@
           "overflowsX": false,
           "picture": "eval/out/mobile-list/solid-768.png"
         },
+        "element": {
+          "height": 338,
+          "nodes": 54,
+          "gaps": [
+            0
+          ],
+          "distinctGaps": [
+            0
+          ],
+          "textInset": 12,
+          "overflowsX": false,
+          "picture": "eval/out/mobile-list/element-768.png"
+        },
         "equal": true,
-        "differences": [],
+        "differences": {
+          "solid": [],
+          "element": []
+        },
         "pixelDiff": {
-          "pixels": 0,
-          "share": 0
+          "solid": {
+            "pixels": 0,
+            "share": 0
+          },
+          "element": {
+            "pixels": 0,
+            "share": 0
+          }
         }
       },
       {
@@ -2547,11 +2817,33 @@
           "overflowsX": false,
           "picture": "eval/out/mobile-list/solid-1280.png"
         },
+        "element": {
+          "height": 338,
+          "nodes": 54,
+          "gaps": [
+            0
+          ],
+          "distinctGaps": [
+            0
+          ],
+          "textInset": 12,
+          "overflowsX": false,
+          "picture": "eval/out/mobile-list/element-1280.png"
+        },
         "equal": true,
-        "differences": [],
+        "differences": {
+          "solid": [],
+          "element": []
+        },
         "pixelDiff": {
-          "pixels": 0,
-          "share": 0
+          "solid": {
+            "pixels": 0,
+            "share": 0
+          },
+          "element": {
+            "pixels": 0,
+            "share": 0
+          }
         }
       }
     ],
@@ -2576,11 +2868,29 @@
           "overflowsX": false,
           "picture": "eval/out/profile-card/solid-1280.png"
         },
+        "element": {
+          "height": 208,
+          "nodes": 22,
+          "gaps": [],
+          "distinctGaps": [],
+          "textInset": 69,
+          "overflowsX": false,
+          "picture": "eval/out/profile-card/element-1280.png"
+        },
         "equal": true,
-        "differences": [],
+        "differences": {
+          "solid": [],
+          "element": []
+        },
         "pixelDiff": {
-          "pixels": 0,
-          "share": 0
+          "solid": {
+            "pixels": 0,
+            "share": 0
+          },
+          "element": {
+            "pixels": 0,
+            "share": 0
+          }
         }
       }
     ],
@@ -2613,11 +2923,33 @@
           "overflowsX": false,
           "picture": "eval/out/login/solid-1280.png"
         },
+        "element": {
+          "height": 409,
+          "nodes": 20,
+          "gaps": [
+            0
+          ],
+          "distinctGaps": [
+            0
+          ],
+          "textInset": 17,
+          "overflowsX": false,
+          "picture": "eval/out/login/element-1280.png"
+        },
         "equal": true,
-        "differences": [],
+        "differences": {
+          "solid": [],
+          "element": []
+        },
         "pixelDiff": {
-          "pixels": 0,
-          "share": 0
+          "solid": {
+            "pixels": 0,
+            "share": 0
+          },
+          "element": {
+            "pixels": 0,
+            "share": 0
+          }
         }
       }
     ],
@@ -2650,11 +2982,33 @@
           "overflowsX": false,
           "picture": "eval/out/pricing/solid-390.png"
         },
+        "element": {
+          "height": 880,
+          "nodes": 29,
+          "gaps": [
+            16
+          ],
+          "distinctGaps": [
+            16
+          ],
+          "textInset": 157,
+          "overflowsX": false,
+          "picture": "eval/out/pricing/element-390.png"
+        },
         "equal": true,
-        "differences": [],
+        "differences": {
+          "solid": [],
+          "element": []
+        },
         "pixelDiff": {
-          "pixels": 0,
-          "share": 0
+          "solid": {
+            "pixels": 0,
+            "share": 0
+          },
+          "element": {
+            "pixels": 0,
+            "share": 0
+          }
         }
       },
       {
@@ -2685,11 +3039,33 @@
           "overflowsX": false,
           "picture": "eval/out/pricing/solid-1280.png"
         },
+        "element": {
+          "height": 348,
+          "nodes": 29,
+          "gaps": [
+            16
+          ],
+          "distinctGaps": [
+            16
+          ],
+          "textInset": 602,
+          "overflowsX": false,
+          "picture": "eval/out/pricing/element-1280.png"
+        },
         "equal": true,
-        "differences": [],
+        "differences": {
+          "solid": [],
+          "element": []
+        },
         "pixelDiff": {
-          "pixels": 0,
-          "share": 0
+          "solid": {
+            "pixels": 0,
+            "share": 0
+          },
+          "element": {
+            "pixels": 0,
+            "share": 0
+          }
         }
       }
     ],
@@ -2722,11 +3098,33 @@
           "overflowsX": false,
           "picture": "eval/out/file-manager/solid-1280.png"
         },
+        "element": {
+          "height": 142,
+          "nodes": 28,
+          "gaps": [
+            12
+          ],
+          "distinctGaps": [
+            12
+          ],
+          "textInset": null,
+          "overflowsX": false,
+          "picture": "eval/out/file-manager/element-1280.png"
+        },
         "equal": true,
-        "differences": [],
+        "differences": {
+          "solid": [],
+          "element": []
+        },
         "pixelDiff": {
-          "pixels": 0,
-          "share": 0
+          "solid": {
+            "pixels": 0,
+            "share": 0
+          },
+          "element": {
+            "pixels": 0,
+            "share": 0
+          }
         }
       }
     ],
@@ -2759,11 +3157,33 @@
           "overflowsX": false,
           "picture": "eval/out/calendar-event/solid-1280.png"
         },
+        "element": {
+          "height": 590,
+          "nodes": 33,
+          "gaps": [
+            0
+          ],
+          "distinctGaps": [
+            0
+          ],
+          "textInset": 17,
+          "overflowsX": false,
+          "picture": "eval/out/calendar-event/element-1280.png"
+        },
         "equal": true,
-        "differences": [],
+        "differences": {
+          "solid": [],
+          "element": []
+        },
         "pixelDiff": {
-          "pixels": 0,
-          "share": 0
+          "solid": {
+            "pixels": 0,
+            "share": 0
+          },
+          "element": {
+            "pixels": 0,
+            "share": 0
+          }
         }
       }
     ],
@@ -2798,11 +3218,34 @@
           "overflowsX": false,
           "picture": "eval/out/analytics-dashboard/solid-1280.png"
         },
+        "element": {
+          "height": 883,
+          "nodes": 82,
+          "gaps": [
+            16,
+            16
+          ],
+          "distinctGaps": [
+            16
+          ],
+          "textInset": 17,
+          "overflowsX": false,
+          "picture": "eval/out/analytics-dashboard/element-1280.png"
+        },
         "equal": true,
-        "differences": [],
+        "differences": {
+          "solid": [],
+          "element": []
+        },
         "pixelDiff": {
-          "pixels": 0,
-          "share": 0
+          "solid": {
+            "pixels": 0,
+            "share": 0
+          },
+          "element": {
+            "pixels": 0,
+            "share": 0
+          }
         }
       }
     ],
@@ -2835,11 +3278,33 @@
           "overflowsX": false,
           "picture": "eval/out/notification-prefs/solid-1280.png"
         },
+        "element": {
+          "height": 226,
+          "nodes": 55,
+          "gaps": [
+            16
+          ],
+          "distinctGaps": [
+            16
+          ],
+          "textInset": 0,
+          "overflowsX": false,
+          "picture": "eval/out/notification-prefs/element-1280.png"
+        },
         "equal": true,
-        "differences": [],
+        "differences": {
+          "solid": [],
+          "element": []
+        },
         "pixelDiff": {
-          "pixels": 0,
-          "share": 0
+          "solid": {
+            "pixels": 0,
+            "share": 0
+          },
+          "element": {
+            "pixels": 0,
+            "share": 0
+          }
         }
       }
     ],
@@ -2864,11 +3329,29 @@
           "overflowsX": false,
           "picture": "eval/out/confirm-delete/solid-1280.png"
         },
+        "element": {
+          "height": 0,
+          "nodes": 8,
+          "gaps": [],
+          "distinctGaps": [],
+          "textInset": null,
+          "overflowsX": false,
+          "picture": "eval/out/confirm-delete/element-1280.png"
+        },
         "equal": true,
-        "differences": [],
+        "differences": {
+          "solid": [],
+          "element": []
+        },
         "pixelDiff": {
-          "pixels": 0,
-          "share": 0
+          "solid": {
+            "pixels": 0,
+            "share": 0
+          },
+          "element": {
+            "pixels": 0,
+            "share": 0
+          }
         }
       }
     ],
@@ -2903,11 +3386,34 @@
           "overflowsX": false,
           "picture": "eval/out/search-results/solid-1280.png"
         },
+        "element": {
+          "height": 238,
+          "nodes": 28,
+          "gaps": [
+            12,
+            12
+          ],
+          "distinctGaps": [
+            12
+          ],
+          "textInset": 12,
+          "overflowsX": false,
+          "picture": "eval/out/search-results/element-1280.png"
+        },
         "equal": true,
-        "differences": [],
+        "differences": {
+          "solid": [],
+          "element": []
+        },
         "pixelDiff": {
-          "pixels": 0,
-          "share": 0
+          "solid": {
+            "pixels": 0,
+            "share": 0
+          },
+          "element": {
+            "pixels": 0,
+            "share": 0
+          }
         }
       }
     ],
@@ -2948,11 +3454,37 @@
           "overflowsX": false,
           "picture": "eval/out/agent-trace/solid-1280.png"
         },
+        "element": {
+          "height": 160,
+          "nodes": 28,
+          "gaps": [
+            8,
+            8,
+            8,
+            8,
+            8
+          ],
+          "distinctGaps": [
+            8
+          ],
+          "textInset": 24,
+          "overflowsX": false,
+          "picture": "eval/out/agent-trace/element-1280.png"
+        },
         "equal": true,
-        "differences": [],
+        "differences": {
+          "solid": [],
+          "element": []
+        },
         "pixelDiff": {
-          "pixels": 0,
-          "share": 0
+          "solid": {
+            "pixels": 0,
+            "share": 0
+          },
+          "element": {
+            "pixels": 0,
+            "share": 0
+          }
         }
       }
     ],
@@ -2985,11 +3517,33 @@
           "overflowsX": false,
           "picture": "eval/out/invite-members/solid-1280.png"
         },
+        "element": {
+          "height": 520,
+          "nodes": 39,
+          "gaps": [
+            16
+          ],
+          "distinctGaps": [
+            16
+          ],
+          "textInset": 17,
+          "overflowsX": false,
+          "picture": "eval/out/invite-members/element-1280.png"
+        },
         "equal": true,
-        "differences": [],
+        "differences": {
+          "solid": [],
+          "element": []
+        },
         "pixelDiff": {
-          "pixels": 0,
-          "share": 0
+          "solid": {
+            "pixels": 0,
+            "share": 0
+          },
+          "element": {
+            "pixels": 0,
+            "share": 0
+          }
         }
       }
     ],
@@ -3014,11 +3568,29 @@
           "overflowsX": false,
           "picture": "eval/out/media-gallery/solid-1280.png"
         },
+        "element": {
+          "height": 314,
+          "nodes": 15,
+          "gaps": [],
+          "distinctGaps": [],
+          "textInset": null,
+          "overflowsX": false,
+          "picture": "eval/out/media-gallery/element-1280.png"
+        },
         "equal": true,
-        "differences": [],
+        "differences": {
+          "solid": [],
+          "element": []
+        },
         "pixelDiff": {
-          "pixels": 0,
-          "share": 0
+          "solid": {
+            "pixels": 0,
+            "share": 0
+          },
+          "element": {
+            "pixels": 0,
+            "share": 0
+          }
         }
       }
     ],
@@ -3057,11 +3629,36 @@
           "overflowsX": false,
           "picture": "eval/out/order-tracking/solid-1280.png"
         },
+        "element": {
+          "height": 357,
+          "nodes": 48,
+          "gaps": [
+            16,
+            16,
+            16,
+            16
+          ],
+          "distinctGaps": [
+            16
+          ],
+          "textInset": 52,
+          "overflowsX": false,
+          "picture": "eval/out/order-tracking/element-1280.png"
+        },
         "equal": true,
-        "differences": [],
+        "differences": {
+          "solid": [],
+          "element": []
+        },
         "pixelDiff": {
-          "pixels": 0,
-          "share": 0
+          "solid": {
+            "pixels": 0,
+            "share": 0
+          },
+          "element": {
+            "pixels": 0,
+            "share": 0
+          }
         }
       }
     ],
@@ -3086,11 +3683,29 @@
           "overflowsX": false,
           "picture": "eval/out/split-view/solid-390.png"
         },
+        "element": {
+          "height": 232,
+          "nodes": 31,
+          "gaps": [],
+          "distinctGaps": [],
+          "textInset": 68,
+          "overflowsX": false,
+          "picture": "eval/out/split-view/element-390.png"
+        },
         "equal": true,
-        "differences": [],
+        "differences": {
+          "solid": [],
+          "element": []
+        },
         "pixelDiff": {
-          "pixels": 0,
-          "share": 0
+          "solid": {
+            "pixels": 0,
+            "share": 0
+          },
+          "element": {
+            "pixels": 0,
+            "share": 0
+          }
         }
       },
       {
@@ -3121,11 +3736,33 @@
           "overflowsX": false,
           "picture": "eval/out/split-view/solid-1280.png"
         },
+        "element": {
+          "height": 232,
+          "nodes": 31,
+          "gaps": [
+            -232
+          ],
+          "distinctGaps": [
+            -232
+          ],
+          "textInset": 388,
+          "overflowsX": false,
+          "picture": "eval/out/split-view/element-1280.png"
+        },
         "equal": true,
-        "differences": [],
+        "differences": {
+          "solid": [],
+          "element": []
+        },
         "pixelDiff": {
-          "pixels": 0,
-          "share": 0
+          "solid": {
+            "pixels": 0,
+            "share": 0
+          },
+          "element": {
+            "pixels": 0,
+            "share": 0
+          }
         }
       }
     ],
@@ -3158,11 +3795,33 @@
           "overflowsX": false,
           "picture": "eval/out/api-keys/solid-1280.png"
         },
+        "element": {
+          "height": 143,
+          "nodes": 28,
+          "gaps": [
+            12
+          ],
+          "distinctGaps": [
+            12
+          ],
+          "textInset": 0,
+          "overflowsX": false,
+          "picture": "eval/out/api-keys/element-1280.png"
+        },
         "equal": true,
-        "differences": [],
+        "differences": {
+          "solid": [],
+          "element": []
+        },
         "pixelDiff": {
-          "pixels": 0,
-          "share": 0
+          "solid": {
+            "pixels": 0,
+            "share": 0
+          },
+          "element": {
+            "pixels": 0,
+            "share": 0
+          }
         }
       }
     ],
@@ -3195,11 +3854,33 @@
           "overflowsX": false,
           "picture": "eval/out/loading-page/solid-1280.png"
         },
+        "element": {
+          "height": 317,
+          "nodes": 36,
+          "gaps": [
+            16
+          ],
+          "distinctGaps": [
+            16
+          ],
+          "textInset": null,
+          "overflowsX": false,
+          "picture": "eval/out/loading-page/element-1280.png"
+        },
         "equal": true,
-        "differences": [],
+        "differences": {
+          "solid": [],
+          "element": []
+        },
         "pixelDiff": {
-          "pixels": 0,
-          "share": 0
+          "solid": {
+            "pixels": 0,
+            "share": 0
+          },
+          "element": {
+            "pixels": 0,
+            "share": 0
+          }
         }
       }
     ],
@@ -3224,11 +3905,29 @@
           "overflowsX": false,
           "picture": "eval/out/feedback-form/solid-1280.png"
         },
+        "element": {
+          "height": 546,
+          "nodes": 31,
+          "gaps": [],
+          "distinctGaps": [],
+          "textInset": 17,
+          "overflowsX": false,
+          "picture": "eval/out/feedback-form/element-1280.png"
+        },
         "equal": true,
-        "differences": [],
+        "differences": {
+          "solid": [],
+          "element": []
+        },
         "pixelDiff": {
-          "pixels": 0,
-          "share": 0
+          "solid": {
+            "pixels": 0,
+            "share": 0
+          },
+          "element": {
+            "pixels": 0,
+            "share": 0
+          }
         }
       }
     ],
@@ -3253,11 +3952,29 @@
           "overflowsX": false,
           "picture": "eval/out/music-player/solid-1280.png"
         },
+        "element": {
+          "height": 454,
+          "nodes": 43,
+          "gaps": [],
+          "distinctGaps": [],
+          "textInset": 125,
+          "overflowsX": false,
+          "picture": "eval/out/music-player/element-1280.png"
+        },
         "equal": true,
-        "differences": [],
+        "differences": {
+          "solid": [],
+          "element": []
+        },
         "pixelDiff": {
-          "pixels": 0,
-          "share": 0
+          "solid": {
+            "pixels": 0,
+            "share": 0
+          },
+          "element": {
+            "pixels": 0,
+            "share": 0
+          }
         }
       }
     ],
@@ -3292,11 +4009,34 @@
           "overflowsX": false,
           "picture": "eval/out/terminal-output/solid-1280.png"
         },
+        "element": {
+          "height": 294,
+          "nodes": 30,
+          "gaps": [
+            8,
+            8
+          ],
+          "distinctGaps": [
+            8
+          ],
+          "textInset": 9,
+          "overflowsX": false,
+          "picture": "eval/out/terminal-output/element-1280.png"
+        },
         "equal": true,
-        "differences": [],
+        "differences": {
+          "solid": [],
+          "element": []
+        },
         "pixelDiff": {
-          "pixels": 0,
-          "share": 0
+          "solid": {
+            "pixels": 0,
+            "share": 0
+          },
+          "element": {
+            "pixels": 0,
+            "share": 0
+          }
         }
       }
     ],
@@ -3329,11 +4069,33 @@
           "overflowsX": false,
           "picture": "eval/out/team-switcher/solid-1280.png"
         },
+        "element": {
+          "height": 48,
+          "nodes": 5,
+          "gaps": [
+            -22
+          ],
+          "distinctGaps": [
+            -22
+          ],
+          "textInset": 113,
+          "overflowsX": false,
+          "picture": "eval/out/team-switcher/element-1280.png"
+        },
         "equal": true,
-        "differences": [],
+        "differences": {
+          "solid": [],
+          "element": []
+        },
         "pixelDiff": {
-          "pixels": 0,
-          "share": 0
+          "solid": {
+            "pixels": 0,
+            "share": 0
+          },
+          "element": {
+            "pixels": 0,
+            "share": 0
+          }
         }
       }
     ]

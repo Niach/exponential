@@ -32,6 +32,8 @@ describe(`rewrite gaps`, () => {
     expect(solid.classes).not.toContain(`macro`)
     expect(solid.classes).toContain(`native`)
     expect(gaps.screens.filter((s) => (solid.classes as string[]).includes(s.class)).length).toBeGreaterThan(0)
+    // The element paints with Solid's painter: the same gaps, none of its own.
+    expect(gaps.renderers.element.inherits).toBe(`solid`)
   })
 
   test(`the counts the issue quotes`, () => {

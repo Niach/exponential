@@ -24,7 +24,10 @@ const SECTIONS: DocsSectionType[] = [
 
 type Row = (typeof report.rows)[number]
 type RendererMeasure = { height: number; nodes: number; gaps: number[]; distinctGaps: number[]; textInset: number | null; overflowsX: boolean }
-type Measure = { width: number; react: RendererMeasure; solid: RendererMeasure; equal: boolean; differences: string[]; pixelDiff: { pixels: number; share: number } }
+type Candidate = `solid` | `element`
+const CANDIDATES: Candidate[] = [`solid`, `element`]
+const RENDERER_LABEL: Record<Candidate, string> = { solid: `Solid`, element: `Element` }
+type Measure = { width: number; react: RendererMeasure; solid: RendererMeasure; element: RendererMeasure; equal: boolean; differences: Record<Candidate, string[]>; pixelDiff: Record<Candidate, { pixels: number; share: number }> }
 type ParityRow = {
   platform: string
   native: { band: { height: number; titleX: number }; firstRow: { titleX: number; gapBelowBand: number } }
@@ -36,8 +39,8 @@ type ParityRow = {
 const a = report.aggregate
 const n = (x: number) => x.toLocaleString(`en-US`)
 const pct = (x: number, d: number) => (d ? `${Math.round((x / d) * 100)} %` : `–`)
-const render = report.render as Record<string, Measure[]>
-const renderFindings = report.rows.flatMap((r) => (render[r.id] ?? []).filter((m) => !m.equal).map((m) => ({ title: r.title, width: m.width, differences: m.differences })))
+const render = report.render as unknown as Record<string, Measure[]>
+const renderFindings = report.rows.flatMap((r) => (render[r.id] ?? []).flatMap((m) => CANDIDATES.filter((c) => m.differences[c].length).map((c) => ({ title: r.title, width: m.width, renderer: RENDERER_LABEL[c], differences: m.differences[c] }))))
 const SOLID_GAP_CLASSES = gaps.renderers.solid.classes as string[]
 const parity = (report.parity as { rows: ParityRow[] }).rows
 const css = (storePx: number) => `${Math.round((storePx / 1.25) * 10) / 10} px`
@@ -79,12 +82,13 @@ export default function EvalPage({ path }: PageProps) {
             empty state, a phone inbox rendered at four widths. <code>record.ts</code> sends each prompt to Claude with{` `}
             <code>catalogPrompt()</code> as the system prompt and caches the reply as a fixture; <code>score.ts</code>{` `}
             validates every reply with the same reducer the renderers use and scores it; <code>render.ts</code> paints
-            it in the React renderer and the Solid renderer, measures the boxes of each and compares the two;{` `}
+            it in the React renderer, the Solid renderer and the <code>{`<exponential-surface>`}</code> element,
+            measures the boxes of each and compares them with React;{` `}
             <code>parity.ts</code> measures the Devices template against the native page on the stored shots.
           </p>
           <DocsCode>{`bun run --filter @exponential-at/ui eval:record   # once, needs ANTHROPIC_API_KEY
 bun run --filter @exponential-at/ui eval          # score the fixtures → eval/report.json
-bun run --filter @exponential-at/ui eval:render   # web renders, React + Solid, at every width (Playwright)
+bun run --filter @exponential-at/ui eval:render   # web renders, React + Solid + element, at every width (Playwright)
 bun run --filter @exponential-at/ui eval:parity   # the Devices template vs the native page`}</DocsCode>
           <p>
             Recorded by: {Object.entries(a.recordedBy).map(([k, v]) => `${v} ${k === `api` ? `over the API` : `by the session's own model from the same prompt`}`).join(`, `)}.
@@ -152,22 +156,23 @@ bun run --filter @exponential-at/ui eval:parity   # the Devices template vs the 
         <DocsSection id="render" num="05" label="Rendered on the web">
           <h2>Rendered on the web</h2>
           <p>
-            Every surface painted by the React renderer and the Solid renderer in the exponential theme at its widths;
-            the gaps are the measured distances between the root&apos;s children, the inset is where the first text
-            starts. The two renderers must measure the same boxes and paint the same pixels (the web-parity gate makes
-            them so); a difference is a finding.
+            Every surface painted by the React renderer, the Solid renderer and the <code>{`<exponential-surface>`}</code>{` `}
+            element in the exponential theme at its widths; the gaps are the measured distances between the
+            root&apos;s children, the inset is where the first text starts. Solid and the element must measure the
+            same boxes and paint the same pixels as React (the web-parity gate makes them so); a difference is a
+            finding.
           </p>
           <DocsTable
-            head={[`Surface`, `Width`, `Painted nodes`, `Height`, `Gaps between root children`, `First text inset`, `Solid`]}
+            head={[`Surface`, `Width`, `Painted nodes`, `Height`, `Gaps between root children`, `First text inset`, `Solid`, `Element`]}
             rows={report.rows.flatMap((r) =>
-              (render[r.id] ?? []).map((m) => [r.title, `${m.width} px`, m.react.nodes, `${m.react.height} px`, m.react.distinctGaps.filter((g) => g >= 0).map((g) => `${g} px`).join(`, `) || `–`, m.react.textInset === null ? `–` : `${m.react.textInset} px`, m.equal ? `equal` : `differs`])
+              (render[r.id] ?? []).map((m) => [r.title, `${m.width} px`, m.react.nodes, `${m.react.height} px`, m.react.distinctGaps.filter((g) => g >= 0).map((g) => `${g} px`).join(`, `) || `–`, m.react.textInset === null ? `–` : `${m.react.textInset} px`, ...CANDIDATES.map((c) => (m.differences[c].length ? `differs` : `equal`))])
             )}
           />
-          <h3>Where Solid differs from React</h3>
+          <h3>Where a renderer differs from React</h3>
           {renderFindings.length ? (
-            <DocsTable head={[`Surface`, `Width`, `What differs`]} rows={renderFindings.map((f) => [f.title, `${f.width} px`, f.differences.join(`; `)])} />
+            <DocsTable head={[`Surface`, `Width`, `Renderer`, `What differs`]} rows={renderFindings.map((f) => [f.title, `${f.width} px`, f.renderer, f.differences.join(`; `)])} />
           ) : (
-            <p>Nowhere: every surface measured and painted the same on both renderers.</p>
+            <p>Nowhere: every surface measured and painted the same on every renderer.</p>
           )}
         </DocsSection>
 
@@ -221,7 +226,8 @@ bun run --filter @exponential-at/ui eval:parity   # the Devices template vs the 
             Two of the classes also concern the Solid renderer: an app extension component exists for React only and
             needs a Solid twin; a new native is a painter every renderer adds. A macro expands in the shared reducer
             and is no renderer work. {gaps.screens.filter((s) => SOLID_GAP_CLASSES.includes(s.class)).length} screens
-            are in those classes.
+            are in those classes. The <code>{`<exponential-surface>`}</code> element paints with Solid&apos;s painter
+            and inherits exactly these gaps, none of its own.
           </p>
           <h3>The candidate macros</h3>
           <DocsTable

@@ -11,7 +11,7 @@
 //            plus the typed DSL from the Solid project (VAPP-108: src/defined.ts run by
 //            node must print a valid surface; src/Defined.tsx feeds it to the renderer)
 //   element  the same as react with @exponential-at/ui-element (plain Vite, no framework),
-//            plus the typed DSL from the plain project (src/defined.ts, src/Defined.ts
+//            plus the typed DSL from the plain project (src/defined.ts; src/mount-defined.ts
 //            feeds it to <exponential-surface>)
 //   agent    the same tarballs, `tsc --noEmit`, then the server started and asked
 //            for a valid and an invalid surface over MCP

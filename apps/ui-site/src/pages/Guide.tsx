@@ -313,6 +313,22 @@ el.plugin = { icons: iconsFromSvg((name) => svgFor(name)), openUrl: (url) => win
         </>
       ),
     },
+    {
+      id: `define`,
+      label: `A surface in TypeScript`,
+      body: (
+        <>
+          <p>
+            <code>defineSurface</code> from <code>@exponential-at/ui</code> works unchanged in a plain Vite project:
+            the typed tree becomes the same messages an agent sends, and <code>apply()</code> on the element takes
+            them. Nothing element-specific is needed; the file compiles under this project&apos;s tsconfig and runs
+            under Node.
+          </p>
+          <GuideFile path="element/src/defined.ts" caption="the typed DSL, as in the TypeScript guide" />
+          <GuideFile path="element/src/mount-defined.ts" caption="painted by <exponential-surface>" />
+        </>
+      ),
+    },
   ],
 
   swiftui: [
