@@ -32,6 +32,11 @@ const unescape = (token: string) => token.replace(/~1/g, `/`).replace(/~0/g, `~`
 
 /** The absolute pointer a binding path names in a scope: `/a/b` stays,
  *  `b/c` joins the scope's base, `` (empty) is the base itself. */
+/** A table's OWN entry for an agent-chosen key, never `Object.prototype`'s. */
+function own<T>(table: Record<string, T> | undefined, key: string): T | undefined {
+  return table !== undefined && Object.prototype.hasOwnProperty.call(table, key) ? table[key] : undefined
+}
+
 export function absolutePath(path: string, scope: DataScope = {}): string {
   if (path.startsWith(`/`)) return path
   const base = scope.base ?? ``
@@ -57,7 +62,10 @@ export function readPath(data: unknown, path: string, scope: DataScope = {}): un
 export function readPointer(data: unknown, pointer: string): unknown {
   if (pointer === `` || pointer === `/`) return data
   let cur: unknown = data
-  for (const raw of pointer.slice(1).split(`/`)) {
+  // VAPP-107 (property-tested): a pointer without its leading slash reads
+  // the same tokens it writes (`writeTokens`, the Rust core's
+  // `pointer_tokens`), not an empty first token.
+  for (const raw of (pointer.startsWith(`/`) ? pointer.slice(1) : pointer).split(`/`)) {
     if (cur === undefined || cur === null || typeof cur !== `object`) return undefined
     const token = unescape(raw)
     if (Array.isArray(cur)) cur = /^[0-9]+$/.test(token) ? cur[Number(token)] : undefined
@@ -208,7 +216,8 @@ export function resolveDynamic(value: unknown, data: unknown, options: ResolveOp
   if (isCall(value)) {
     const args: Record<string, unknown> = {}
     for (const [k, v] of Object.entries(value.args ?? {})) args[k] = resolveDynamic(v, data, options)
-    const fn = options.functions?.[value.call] ?? (FORMAT_NAMES.has(value.call) ? formatTable(options)?.[value.call] : undefined) ?? BIND_FUNCTIONS[value.call]
+    // Own entries only: `{call: "constructor"}` is no function (VAPP-107).
+    const fn = own(options.functions, value.call) ?? (FORMAT_NAMES.has(value.call) ? own(formatTable(options), value.call) : undefined) ?? own(BIND_FUNCTIONS, value.call)
     return fn ? fn(args) : undefined
   }
   if (typeof value === `string`) return options.strings ? resolveString(value, options.strings) : value
