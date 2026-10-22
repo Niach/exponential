@@ -1,5 +1,5 @@
 /* Concepts: A2UI in short, then the epic's vocabulary (catalog, theme,
-   extension, host plugin, vapp) and how the four renderers agree. */
+   extension, host plugin, vapp) and how the six renderers agree. */
 import basicMap from "@exponential-at/ui/catalog/basic-map.json"
 import { DocsCode, DocsLayout, DocsSection, type DocsSection as DocsSectionType } from "@exp/site-shell"
 import { DocsTable } from "../components/Content"
@@ -323,8 +323,9 @@ export default function ConceptsPage({ path }: PageProps) {
           <h2>How the renderers agree</h2>
           <p>
             Two implementations hold the rules: the TypeScript reference in <code>@exponential-at/ui</code> and the
-            Rust core <code>exponential-ui</code>, which replays the same fixtures byte for byte. The React renderer
-            runs on the TypeScript side. SwiftUI and Compose reach the Rust core through a UniFFI facade, and gpui
+            Rust core <code>exponential-ui</code>, which replays the same fixtures byte for byte. The web renderers run
+            on the TypeScript side: React, Solid, and the web component <code>{`<exponential-surface>`}</code>{` `}
+            (the Solid painter inside a custom element). SwiftUI and Compose reach the Rust core through a UniFFI facade, and gpui
             links it directly.
           </p>
           <DocsCode language="text">{`A2UI messages ─▶ reducer ─▶ UiNode tree ─▶ layout (taffy) ─▶ frames + resolved visuals ─▶ painter

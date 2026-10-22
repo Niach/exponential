@@ -228,6 +228,93 @@ const globals = globalsCss(builtinTheme("orange"))   // :root + .dark, put it in
     },
   ],
 
+  element: [
+    {
+      id: `install`,
+      label: `Install`,
+      body: (
+        <>
+          <p>
+            Two packages: <code>@exponential-at/ui</code> (the catalog, themes, reducer and host runtime) and{` `}
+            <code>@exponential-at/ui-element</code> (the custom element <code>{`<exponential-surface>`}</code>). No
+            framework in the page and no framework plugin in Vite; the element brings the Solid painter and its own
+            styles.
+          </p>
+          <DocsCode>{`npm install @exponential-at/ui @exponential-at/ui-element`}</DocsCode>
+          <Unpublished>
+            Until then, pack the tarballs from a checkout of the repo and install those:
+          </Unpublished>
+          <DocsCode>{`bun samples/exponential-ui/pack-local.ts      # → samples/exponential-ui/.packs/*.tgz
+npm install ../exponential/samples/exponential-ui/.packs/exponential-at-ui-0.1.0.tgz \\
+            ../exponential/samples/exponential-ui/.packs/exponential-at-ui-solid-0.1.0.tgz \\
+            ../exponential/samples/exponential-ui/.packs/exponential-at-ui-element-0.1.0.tgz`}</DocsCode>
+          <GuideFile path="element/package.json" caption="the whole dependency list" />
+          <GuideFile path="element/vite.config.ts" />
+          <p>
+            Without a bundler, <code>@exponential-at/ui-element/standalone</code> is one self-contained ES module:
+          </p>
+          <DocsCode language="html">{`<script type="module" src="/vendor/exponential-ui-element/standalone.js"></script>`}</DocsCode>
+        </>
+      ),
+    },
+    {
+      id: `paint`,
+      label: `Paint a surface`,
+      body: (
+        <>
+          <p>
+            Importing <code>@exponential-at/ui-element/define</code> registers the element. Its attributes are the
+            surface's options (<code>theme</code>, <code>mode</code>, <code>density</code>, <code>locale</code>,{` `}
+            <code>direction</code>, <code>width</code>, <code>surface-id</code>); the host box is{` `}
+            <code>display: contents</code>, so the surface root is the box.
+          </p>
+          <GuideFile path="element/index.html" />
+          <p>
+            <code>apply(message)</code> takes A2UI v0.9 server messages; the element keeps the tree and the data
+            model.
+          </p>
+          <GuideFile path="element/src/main.ts" />
+          <p>
+            Everything the user does arrives as a bubbling <code>CustomEvent</code>: <code>xui-action</code>,{` `}
+            <code>xui-input</code> and <code>xui-upload</code> (<code>detail.waitUntil(promise)</code> keeps the
+            control pending), <code>xui-function-call</code> (<code>detail.respond(value)</code>),{` `}
+            <code>xui-open-url</code> (cancelable), <code>xui-ready</code>, <code>xui-status</code>,{` `}
+            <code>xui-paint-error</code>. The DOM, the compiled stylesheet and the themes are the React renderer's,
+            checked case by case in headless Chromium (DOM, computed styles, frames and pixels).
+          </p>
+        </>
+      ),
+    },
+    {
+      id: `with-host`,
+      label: `With a host`,
+      body: (
+        <>
+          <p>
+            <code>src</code> builds an <code>ExponentialHost</code> on the matching transport (<code>transport</code>{` `}
+            = <code>jsonl</code>, <code>sse</code> or <code>ws</code>; <code>ws:</code> URLs pick WebSocket),
+            connects when the element is attached and closes when it is removed; <code>post</code> is where actions
+            go.
+          </p>
+          <DocsCode language="html">{`<exponential-surface src="/a2ui.jsonl" post="/action" surface-id="main" theme="orange"></exponential-surface>`}</DocsCode>
+          <p>
+            Or hand it your own host, a theme JSON and a host plugin as properties:
+          </p>
+          <DocsCode language="ts">{`el.host = new ExponentialHost({ transport: new JsonlStreamTransport({ url: "/a2ui.jsonl", postUrl: "/action" }) })
+el.theme = brandJson
+el.plugin = { icons: iconsFromSvg((name) => svgFor(name)), openUrl: (url) => window.open(url) }`}</DocsCode>
+          <p>
+            Extensions use <code>defineElementExtension</code>: a painter is a plain function from a context (props,
+            theme, mode, <code>applyRootProps</code>, <code>children()</code>) to an <code>Element</code>, run again
+            when they change. More in the{` `}
+            {SDK_README(`packages/exponential-ui-element/README.md`, `web component's README`)}.
+          </p>
+          <GuideFile path="element/src/TrendLine.ts" />
+        </>
+      ),
+    },
+  ],
+
   swiftui: [
     {
       id: `install`,
@@ -466,6 +553,7 @@ cd packages/exponential-ui-compose
             rows={[
               [`React`, <code key="c">{`<HostSurface theme={brandJson} … />`}</code>],
               [`Solid`, <code key="c">{`<ExponentialSurface theme={brandJson} … />`}</code>],
+              [`Web component`, <code key="c">{`<exponential-surface theme="orange"> · el.theme = brandJson`}</code>],
               [`TypeScript`, <code key="c">{`validateTheme(json) · loadTheme(json, { themes: BUILTIN_THEMES })`}</code>],
               [`SwiftUI`, <code key="c">{`ThemeHandle.load(json:) · model.setTheme(…)`}</code>],
               [`Compose`, <code key="c">{`ThemeHandle.load(json, parents) · model.setTheme(…)`}</code>],
@@ -512,6 +600,7 @@ cd packages/exponential-ui-compose
             rows={[
               [`React`, <code key="c">{`defineReactExtension({ catalog, components }) · registerExtension(…)`}</code>],
               [`Solid`, <code key="c">{`defineSolidExtension({ catalog, components }) · registerExtension(…)`}</code>],
+              [`Web component`, <code key="c">{`defineElementExtension({ catalog, components }) · el.extensions = […]`}</code>],
               [`SwiftUI`, <code key="c">{`ExponentialUI.register(extension: json, painters: [kind: painter])`}</code>],
               [`Compose`, <code key="c">{`ExponentialUi.register(extensionJson, mapOf(kind to painter))`}</code>],
               [`gpui`, <code key="c">{`view.register_painter("TrendLine", Box::new(MyTrendLine))`}</code>],
@@ -795,7 +884,7 @@ function CiSection({ slug }: { slug: string }) {
       <DocsCode>{`bun apps/ui-site/guides/check.ts ${check}`}</DocsCode>
       <p>
         For a complete app on this platform, see the{` `}
-        <a href={LINKS.source(`samples/exponential-ui`)}>samples</a>: four hosts rendering the same surface from a
+        <a href={LINKS.source(`samples/exponential-ui`)}>samples</a>: six hosts rendering the same surface from a
         local A2UI server, in a third-party theme, with a custom extension component.
       </p>
     </>

@@ -1,5 +1,5 @@
 /* The content pages' shared data: the packages and their honest release
-   status (packages/exponential-ui/release/README.md), the four renderers,
+   status (packages/exponential-ui/release/README.md), the six renderers,
    the docs-style navs, and which guides/check.ts check compiles each guide. */
 import type { DocsNavEntry } from "@exp/site-shell"
 import { GUIDES, guidePath } from "./guides"
@@ -45,6 +45,13 @@ export const RENDERERS: readonly Renderer[] = [
     pkg: `@exponential-at/ui-solid`,
     source: `packages/exponential-ui-solid`,
     guide: `solid`,
+  },
+  {
+    platform: `Web`,
+    framework: `Web Components`,
+    pkg: `@exponential-at/ui-element`,
+    source: `packages/exponential-ui-element`,
+    guide: `element`,
   },
   {
     platform: `iOS + macOS`,
@@ -97,6 +104,12 @@ export const PACKAGES: readonly PackageRow[] = [
     fromRepo: `the same tarballs, installed with npm`,
   },
   {
+    name: `@exponential-at/ui-element`,
+    registry: `npm`,
+    what: `The custom element <exponential-surface>: the Solid painter inside a web component, no framework in the page.`,
+    fromRepo: `the same tarballs, installed with npm`,
+  },
+  {
     name: `exponential-ui`,
     registry: `crates.io`,
     what: `The Rust core: reducer, themes, taffy layout, layers, lists.`,
@@ -132,6 +145,7 @@ export const PACKAGES: readonly PackageRow[] = [
 export const GUIDE_CHECK: Record<string, string> = {
   react: `react`,
   solid: `solid`,
+  element: `element`,
   swiftui: `swift`,
   compose: `compose`,
   gpui: `gpui`,
@@ -147,6 +161,7 @@ export const GUIDE_CHECK: Record<string, string> = {
 export const CHECK_DIR: Record<string, string> = {
   react: `react`,
   solid: `solid`,
+  element: `element`,
   swift: `swift`,
   compose: `compose`,
   gpui: `gpui`,
