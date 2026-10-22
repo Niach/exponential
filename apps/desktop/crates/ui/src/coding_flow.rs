@@ -426,14 +426,16 @@ impl LocalSessions {
         // EXP-481: a session ending changes the inventory's busy flags.
         crate::device_sync::report_soon(cx);
         if let Some(entry) = removed {
-            // EXP-637: reclaim the run's own worktree — but ONLY when it is
-            // provably clean and carries no commits ([`coding::run_cleanup`]).
-            // Background, because it shells out to git.
+            // EXP-637 → NEW-5: the run's own worktree ends
+            // ([`coding::finish_session_worktree`]): removed, its unpushed
+            // work parked on `origin/exp/leftover-<id8>` and named in the
+            // session's conversation. Background (git + network).
             let data_dir = coding_data_dir(cx);
             if suspended {
                 log::info!("[ui] session {session_id} suspended: its workspace stays for the resume");
             } else if let Some(cleanup) = entry.run_cleanup.clone() {
                 let session_id = entry.session_id.clone();
+                let trpc = crate::queries::trpc_client(cx);
                 cx.spawn(async move |cx| {
                     let verdict = cx
                         .background_executor()
@@ -446,7 +448,20 @@ impl LocalSessions {
                                 // shared data dir (the CLI daemon, another
                                 // desktop).
                                 let live = live.with_registry(&data_dir, &session_id);
-                                coding::remove_if_clean(&cleanup, &live)
+                                match &trpc {
+                                    Some(trpc) => coding::finish_session_worktree(
+                                        trpc,
+                                        &session_id,
+                                        &cleanup,
+                                        &live,
+                                    ),
+                                    // Signed out meanwhile: no line to post.
+                                    None => coding::finish_worktree(
+                                        &cleanup,
+                                        &live,
+                                        &coding::session_id8(&session_id),
+                                    ),
+                                }
                             }
                         })
                         .await;
@@ -888,6 +903,20 @@ pub fn start_codex_fetch(hub: &Entity<CodingHub>, data_dir: PathBuf, cx: &mut Ap
         });
     })
     .detach();
+}
+
+/// NEW-5: what this app's live local sessions hold — the nightly
+/// stale-worktree sweep's shield (every live host on the data dir is added
+/// by the sweep itself).
+pub(crate) fn live_holders(cx: &App) -> coding::LiveHolders {
+    let Some(sessions) = LocalSessions::global_ref(cx) else {
+        return coding::LiveHolders::default();
+    };
+    let sessions = sessions.read(cx);
+    coding::LiveHolders {
+        branches: sessions.held_branches().map(str::to_string).collect(),
+        worktrees: sessions.all().map(|session| session.worktree.clone()).collect(),
+    }
 }
 
 pub fn coding_data_dir(cx: &App) -> PathBuf {

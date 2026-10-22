@@ -1,0 +1,32 @@
+{
+  "$comment": "NEW-1 (plan 3.7): the EXACT issue lifecycle a session drives, ONE rule ×4 (TS reference packages/domain-contract/src/issue-lifecycle.ts; the server applies it in lib/sessions/issue-lifecycle.ts; the natives move no status and only mirror the table when they render it, NEW-7). issueLifecycleTarget(event, state) = the ANCHOR status the issue moves to, or null = nothing moves. Events: `taken` = a WORKER session takes the issue: a session_issues row lands on a session that has a repository (`worker`: its branch comes at claim) through a link, issueIds on a start, a forward, a continuation, or a PERSON's message into such a session that holds it (bus rows never count); `pr_opened` = a PR links it; `pr_merged` = that PR landed in the default branch; `unlinked` = a worker dropped it. State: `status` = the issue's anchor status (contract issueStatus), `openPr` = a live (open or draft) PR links it, `workers` = how many live sessions with a repository still hold it AFTER the event. Nothing else moves status: no settle-back when work stops, no move for a row on a session without a repository, no move on a message from a session. done, cancelled and duplicate never move here (people own them; a merge is the only automation into done). The team's PR automation (prOpened/prMerged targets, 'do nothing') maps the pr_* targets onto its rows as before; taken/unlinked always target the builtins.",
+  "worker": "repository",
+  "rules": [
+    { "event": "taken", "from": ["backlog", "in_review"], "to": "in_progress" },
+    { "event": "pr_opened", "from": ["backlog", "in_progress"], "to": "in_review" },
+    { "event": "pr_merged", "from": ["backlog", "in_progress", "in_review"], "to": "done" },
+    { "event": "unlinked", "from": ["in_progress"], "to": "backlog", "when": "no open PR and no other worker holds it" }
+  ],
+  "cases": [
+    { "name": "a worker takes a backlog issue", "input": { "event": "taken", "status": "backlog", "openPr": false, "workers": 1 }, "expected": "in_progress" },
+    { "name": "a worker takes it again while its PR is open", "input": { "event": "taken", "status": "in_review", "openPr": true, "workers": 1 }, "expected": "in_progress" },
+    { "name": "a worker takes it after its PR was closed without a merge", "input": { "event": "taken", "status": "in_review", "openPr": false, "workers": 1 }, "expected": "in_progress" },
+    { "name": "taken while already in progress moves nothing", "input": { "event": "taken", "status": "in_progress", "openPr": false, "workers": 2 }, "expected": null },
+    { "name": "taken never reopens a done issue", "input": { "event": "taken", "status": "done", "openPr": false, "workers": 1 }, "expected": null },
+    { "name": "taken never touches a cancelled issue", "input": { "event": "taken", "status": "cancelled", "openPr": false, "workers": 1 }, "expected": null },
+    { "name": "taken never touches a duplicate", "input": { "event": "taken", "status": "duplicate", "openPr": false, "workers": 1 }, "expected": null },
+    { "name": "a PR links an issue in progress", "input": { "event": "pr_opened", "status": "in_progress", "openPr": true, "workers": 1 }, "expected": "in_review" },
+    { "name": "a PR links a backlog issue nobody took", "input": { "event": "pr_opened", "status": "backlog", "openPr": true, "workers": 0 }, "expected": "in_review" },
+    { "name": "a second PR on an issue in review moves nothing", "input": { "event": "pr_opened", "status": "in_review", "openPr": true, "workers": 1 }, "expected": null },
+    { "name": "a PR on a done issue moves nothing", "input": { "event": "pr_opened", "status": "done", "openPr": true, "workers": 0 }, "expected": null },
+    { "name": "the merge lands it", "input": { "event": "pr_merged", "status": "in_review", "openPr": false, "workers": 1 }, "expected": "done" },
+    { "name": "a merge of an issue still in progress lands it too", "input": { "event": "pr_merged", "status": "in_progress", "openPr": false, "workers": 1 }, "expected": "done" },
+    { "name": "a merge never un-cancels", "input": { "event": "pr_merged", "status": "cancelled", "openPr": false, "workers": 0 }, "expected": null },
+    { "name": "the last worker drops an issue nobody reviews", "input": { "event": "unlinked", "status": "in_progress", "openPr": false, "workers": 0 }, "expected": "backlog" },
+    { "name": "unlinking while another worker holds it moves nothing", "input": { "event": "unlinked", "status": "in_progress", "openPr": false, "workers": 1 }, "expected": null },
+    { "name": "unlinking while a PR is open moves nothing", "input": { "event": "unlinked", "status": "in_progress", "openPr": true, "workers": 0 }, "expected": null },
+    { "name": "unlinking an issue in review moves nothing", "input": { "event": "unlinked", "status": "in_review", "openPr": true, "workers": 0 }, "expected": null },
+    { "name": "unlinking a backlog issue moves nothing", "input": { "event": "unlinked", "status": "backlog", "openPr": false, "workers": 0 }, "expected": null },
+    { "name": "an unknown status moves nothing", "input": { "event": "taken", "status": "something-new", "openPr": false, "workers": 1 }, "expected": null }
+  ]
+}

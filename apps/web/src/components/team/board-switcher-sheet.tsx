@@ -4,7 +4,6 @@ import { useLiveQuery } from "@tanstack/react-db"
 import { Plus } from "lucide-react"
 import {
   conceptIcon,
-  getActionIcon,
   TeamAvatar,
   GlassRow,
   Sheet,
@@ -20,7 +19,6 @@ import { cn } from "@/lib/utils"
 import { boardCollection } from "@/lib/collections"
 import { useSession } from "@/hooks/use-session"
 import { compareBoards, useTeamMemberships } from "@/hooks/use-team-data"
-import { useOpenComposer } from "@/hooks/use-open-composer"
 import { usePinnedEntries } from "@/hooks/use-pins"
 import { CreateBoardDialog } from "@/components/create-board-dialog"
 import { Empty } from "@/components/empty"
@@ -244,7 +242,6 @@ function PinnedSheetSection({
   onNavigate: () => void
 }) {
   const navigate = useNavigate()
-  const openComposer = useOpenComposer()
   const entries = usePinnedEntries(teamId)
   if (entries.length === 0) return null
   return (
@@ -256,22 +253,15 @@ function PinnedSheetSection({
       {entries.map((entry) => {
         const open = () => {
           onNavigate()
-          if (entry.kind === `issue`) {
-            void navigate({
-              to: `/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier`,
-              params: {
-                teamSlug,
-                boardSlug: entry.boardSlug,
-                issueIdentifier: entry.identifier,
-              },
-            })
-            return
-          }
-          openComposer({ actionId: entry.action.id })
+          void navigate({
+            to: `/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier`,
+            params: {
+              teamSlug,
+              boardSlug: entry.boardSlug,
+              issueIdentifier: entry.identifier,
+            },
+          })
         }
-        // One glyph per kind — the sidebar group's vocabulary.
-        const EntryIcon =
-          entry.kind === `action` ? getActionIcon(entry.action) : NavIssuesIcon
         return (
           <GlassRow
             key={entry.pin.id}
@@ -279,12 +269,10 @@ function PinnedSheetSection({
             className="gap-3"
             onClick={open}
           >
-            <EntryIcon className="size-4 shrink-0 text-muted-foreground" />
-            {entry.kind === `issue` && (
-              <span className="shrink-0 font-mono text-xs text-muted-foreground">
-                {entry.identifier}
-              </span>
-            )}
+            <NavIssuesIcon className="size-4 shrink-0 text-muted-foreground" />
+            <span className="shrink-0 font-mono text-xs text-muted-foreground">
+              {entry.identifier}
+            </span>
             <span className="min-w-0 flex-1 truncate text-sm">
               {entry.title}
             </span>

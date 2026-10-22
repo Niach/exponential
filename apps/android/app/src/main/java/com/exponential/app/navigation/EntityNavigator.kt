@@ -13,9 +13,12 @@ sealed interface EntityTarget {
     data class Issue(val id: String, val commentId: String? = null) : EntityTarget
     data class Board(val id: String) : EntityTarget
     data class Session(val id: String) : EntityTarget
-    /** SLOP-2: an action's own page (Prompt | Triggers | Runs). */
-    data class Action(val id: String) : EntityTarget
-    data object Actions : EntityTarget
+    /** NEW-7: a prompt's Settings page (prompts replaced actions). */
+    data class Prompt(val id: String) : EntityTarget
+    /** NEW-7: Settings → Prompts. */
+    data object Prompts : EntityTarget
+    /** NEW-7: an agent's conversation (the caller's DM with it). */
+    data class Agent(val id: String) : EntityTarget
     data object Devices : EntityTarget
     data object TeamSettings : EntityTarget
     data object Inbox : EntityTarget

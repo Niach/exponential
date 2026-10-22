@@ -12,6 +12,11 @@ package com.exponential.app.domain
 // Mirrors `steer::commands` (desktop), `lib/steer-commands.ts` (web) and
 // ExpCore's `SlashCommands.swift` (iOS) — the matching rules below are the
 // same on all four and are locked by SlashCommandsTest.
+//
+// NEW-2 (owner 2026-10-21): the catalog = ONLY the contract builtins
+// (compact, model, effort). Commands the agent CLI injects (`config_state
+// .commands`: skills, plugins) are HIDDEN on every platform: nothing here
+// merges them in. The team's prompts join the menu beside these rows.
 
 /** One catalog row (a zipped view over the contract's parallel arrays). */
 data class SlashCommand(
@@ -27,6 +32,34 @@ data class SlashCommand(
     /** What accepting the row puts in the composer: a trailing space only when
      *  there is an argument to type. Never auto-sends. */
     val insertion: String get() = if (argHint.isEmpty()) "/$name" else "/$name "
+}
+
+/** NEW-2: a team prompt as the `/` menu lists it (the synced, body-less
+ *  `prompts` row): its icon and name, after the builtins. Web `SlashPrompt`. */
+data class SlashPrompt(
+    val id: String,
+    val name: String,
+    /** Curated registry icon name; null = the generic prompt glyph. */
+    val icon: String? = null,
+) {
+    /** The token it answers to after the slash ([SlashCommands.promptSlashName]). */
+    val slashName: String get() = SlashCommands.promptSlashName(name)
+}
+
+/** One row of the `/` menu (web `SlashCandidate`): a builtin command, or a
+ *  team prompt. Accepting a command rewrites the draft; accepting a prompt is
+ *  the host's (a live session puts its body in the draft, the launch composer
+ *  makes it the new session's subject). */
+sealed interface SlashCandidate {
+    val key: String
+
+    data class Command(val command: SlashCommand) : SlashCandidate {
+        override val key: String get() = "command:${command.name}"
+    }
+
+    data class Prompt(val prompt: SlashPrompt) : SlashCandidate {
+        override val key: String get() = "prompt:${prompt.id}"
+    }
 }
 
 object SlashCommands {
@@ -78,39 +111,6 @@ object SlashCommands {
     }
 
     /**
-     * EXP-746: the `/` menu's catalog for a live ACP run — the CONTRACT rows
-     * first, then the commands the agent itself advertised in `config_state`,
-     * deduped by lowercased name (a contract row always wins: the desktop can
-     * execute it, and the agent's own twin would shadow that). Byte-identical
-     * ordering ×4 (`mergeAgentCommands` on web, iOS/desktop `merged`).
-     *
-     * An agent row carries no [SlashCommand.agents] filter: it came from THIS
-     * run's agent, and the list handed in is already agent-scoped — nothing
-     * re-filters a merged catalog.
-     */
-    fun merged(contract: List<SlashCommand>, agent: List<ConfigCommand>): List<SlashCommand> {
-        if (agent.isEmpty()) return contract
-        val seen = contract.mapTo(mutableSetOf()) { it.name.lowercase() }
-        return contract + agent.mapNotNull { command ->
-            // The wire form may or may not carry the sigil; the catalog never
-            // does (its `insertion` adds it).
-            val name = command.name.removePrefix("/").trim()
-            if (name.isEmpty() || !seen.add(name.lowercase())) {
-                null
-            } else {
-                SlashCommand(
-                    name = name,
-                    description = command.description,
-                    argHint = command.hint.orEmpty(),
-                    agents = emptyList(),
-                    // Only the contract knows which commands discard context.
-                    confirm = false,
-                )
-            }
-        }
-    }
-
-    /**
      * The rows the `/` menu should offer for the CURRENT draft, or an empty
      * list when the menu must stay shut.
      *
@@ -119,18 +119,41 @@ object SlashCommands {
      * or a path never pops it. The filter is a case-insensitive name PREFIX;
      * a bare `/` offers every row for the agent.
      */
-    fun matches(
-        draft: String,
-        agent: String?,
-        /** EXP-746: the run's own advertised commands, appended after the
-         *  contract rows. Empty on a PTY run, which advertises none. */
-        agentCommands: List<ConfigCommand> = emptyList(),
-    ): List<SlashCommand> {
+    fun matches(draft: String, agent: String?): List<SlashCommand> {
         if (!MENU_DRAFT.matches(draft)) return emptyList()
         val query = draft.drop(1)
-        return merged(catalogFor(agent), agentCommands)
-            .filter { it.name.startsWith(query, ignoreCase = true) }
+        return catalogFor(agent).filter { it.name.startsWith(query, ignoreCase = true) }
     }
+
+    /**
+     * NEW-2: the token a prompt answers to after the slash: its name,
+     * lowercased, whitespace runs as `-` (`Fix flaky tests` →
+     * `fix-flaky-tests`), so `/fix` and `/fix-fl` both find it. Web
+     * `promptSlashName`.
+     */
+    fun promptSlashName(name: String): String =
+        name.trim().lowercase().split(WHITESPACE).filter { it.isNotEmpty() }.joinToString("-")
+
+    /**
+     * The prompts a draft offers: a case-insensitive PREFIX filter over the
+     * slash names, the team's order kept, at most [limit] (web
+     * `filterSlashPrompts`); empty when the draft opens no menu.
+     */
+    fun promptMatches(draft: String, prompts: List<SlashPrompt>, limit: Int = 50): List<SlashPrompt> {
+        if (!MENU_DRAFT.matches(draft)) return emptyList()
+        val needle = draft.drop(1).lowercase()
+        return prompts.filter { it.slashName.startsWith(needle) }.take(limit)
+    }
+
+    /**
+     * THE `/` menu's rows ×4 (NEW-2): a live session's builtins for its
+     * [agent] ([matches]), then the team's prompts. CLI-injected commands are
+     * never offered. The launch composer (no session yet) lists the prompts
+     * alone ([promptMatches]).
+     */
+    fun candidates(draft: String, agent: String?, prompts: List<SlashPrompt>): List<SlashCandidate> =
+        matches(draft, agent).map { SlashCandidate.Command(it) } +
+            promptMatches(draft, prompts).map { SlashCandidate.Prompt(it) }
 
     /**
      * The catalog row [text] would run, if any: its first whitespace token
@@ -138,38 +161,17 @@ object SlashCommands {
      * Prose that merely mentions a command, and paths like `/api/foo`, are not
      * commands.
      */
-    fun commandFor(
-        text: String,
-        agent: String?,
-        agentCommands: List<ConfigCommand> = emptyList(),
-    ): SlashCommand? {
+    fun commandFor(text: String, agent: String?): SlashCommand? {
         val trimmed = text.trim()
         if (!trimmed.startsWith("/")) return null
         val head = trimmed.drop(1).takeWhile { !it.isWhitespace() }
         if (head.isEmpty()) return null
-        return merged(catalogFor(agent), agentCommands)
-            .firstOrNull { it.name.equals(head, ignoreCase = true) }
+        return catalogFor(agent).firstOrNull { it.name.equals(head, ignoreCase = true) }
     }
-
-    /** EXP-1323: the contract's aside command (`/btw <question>`). */
-    const val ASIDE_COMMAND: String = "btw"
 
     /** A slash command is the WHOLE message: with attachments around it the
      *  send refuses with this toast — byte-identical ×4 (web `session-composer`). */
     const val COMMAND_WITH_ATTACHMENTS: String = "Remove the attachments to send a command"
-
-    /**
-     * EXP-1323: the question of a `/btw <question>` draft when [agent] offers
-     * the command (contract `steerCommands` `btw`), else null. It never
-     * reaches the session as a message: the session view sends it as an
-     * aside child (`sessions.send({parentId, text, aside: true})`). A bare
-     * `/btw` asks nothing.
-     */
-    fun asideQuestion(text: String, agent: String?): String? {
-        val command = commandFor(text, agent) ?: return null
-        if (command.name != ASIDE_COMMAND) return null
-        return text.trim().drop(1 + command.name.length).trim().takeIf { it.isNotEmpty() }
-    }
 
     /** The confirm dialog's title — byte-identical ×4. */
     fun confirmTitle(name: String): String = "Run /$name?"
@@ -185,4 +187,6 @@ object SlashCommands {
     /** The whole draft is a command being typed: `/`, then name characters
      *  only. The first space closes the menu (the argument is being typed). */
     private val MENU_DRAFT = Regex("^/[A-Za-z0-9-]*$")
+
+    private val WHITESPACE = Regex("\\s+")
 }

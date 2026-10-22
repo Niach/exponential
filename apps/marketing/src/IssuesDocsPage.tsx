@@ -65,8 +65,8 @@ export function IssuesDocsPage() {
               <strong>bulk select</strong> rows, and the bulk bar
               sets <strong>status</strong>, <strong>priority</strong>,{` `}
               <strong>assignee</strong> and <strong>labels</strong>, deletes
-              the selection, or hands the whole thing to an agent as a{` `}
-              <a href="/docs/coding/#batch-runs">batch coding session</a>.
+              the selection, or hands the whole thing to an agent as{` `}
+              <a href="/docs/coding/#batch-runs">one thread</a>.
             </p>
             <h3>Archiving and deleting a board</h3>
             <p>
@@ -229,14 +229,12 @@ export function IssuesDocsPage() {
               and desktop a fixed header holds the title, with the pin and the{` `}
               <strong>…</strong> menu (Copy link, Add relation, Delete) on the
               same line. Under it, a tray holds the properties (status,
-              priority, assignee, labels, due date, board) and ends in the
-              coding action: <strong>Start coding</strong>,{` `}
-              <strong>Stop</strong> or <strong>Resume</strong>, with{` `}
-              <strong>Merge PR</strong> beside it while a pull request is open.
-              The description follows, then this issue&apos;s relations, then
-              the conversation. Once the issue has a session, the header gains an
-              {` `}<strong>Issue | Session</strong> switch, and the session face keeps
-              the very same header. On web and desktop the content area is a
+              priority, assignee, labels, due date, board) and ends in{` `}
+              <strong>Start coding</strong>, which opens the composer with
+              the issue chipped. The description follows, then this
+              issue&apos;s relations, then the conversation. Once a thread
+              works the issue, the header names it: one chip per thread,
+              opening it. On web and desktop the content area is a
               rounded card floating on a darker ground; phones run full-bleed.
             </p>
 
@@ -365,20 +363,12 @@ export function IssuesDocsPage() {
               <strong>Do nothing</strong> and move issues by hand.
             </p>
             <p>
-              The same card carries one more switch,{` `}
-              <strong>&ldquo;When a pull request merges, end its coding
-              sessions&rdquo;</strong>, on by default. Turn it off and a merge
-              leaves live <a href="/docs/coding/">coding sessions</a> running.
-              Either way, the session that merged its own pull request always
-              keeps running.
-            </p>
-            <p>
-              The one exception:{` `}
-              <a href="/docs/coding/#batch-runs">batch coding sessions</a>. A batch
-              works several issues in one session on a shared{` `}
-              <code>exp/batch-&lt;id&gt;</code> branch and opens{` `}
-              <strong>one combined PR linked to every issue</strong> in the
-              batch. Merging that single PR completes them all.
+              A thread that took{` `}
+              <a href="/docs/coding/#batch-runs">several issues</a> opens{` `}
+              <strong>one PR linked to every issue</strong> it worked.
+              Merging that single PR completes them all. Nothing else moves an
+              issue&apos;s status on its own: a merge never ends a running
+              session.
             </p>
           </DocsSection>
         </DocsLayout>

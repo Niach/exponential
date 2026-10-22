@@ -4,10 +4,12 @@ import SwiftUI
 
 /// EXP-1249: the launch composer's ONE "+" menu on a phone — a bottom sheet
 /// of the same rows web's dropdown draws (`ComposerMenu.composerMenuLayout`,
-/// fixture-locked ×4): Implement issue ›, Run action ›, Add file or image |
-/// Effort ›, Ultracode | MCP servers ›, Computer use. Implement issue › and Run action › PUSH their page inside
-/// this sheet, THE search list (`AgentIssuePickerPage`,
-/// `AgentActionPickerPage`) with a back row; the other submenu rows close
+/// fixture-locked ×4): Implement issue ›, Message an agent › (NEW-3, while
+/// the team has agents), Add file or image | Effort ›, Ultracode | MCP
+/// servers ›, Computer use (NEW-2: prompts live in the `/` menu, never
+/// here). Implement issue › and Message an agent › PUSH their page inside
+/// this sheet, THE search list (`AgentIssuePickerPage`, `AgentPickerPage`)
+/// with a back row; the other submenu rows close
 /// this sheet and hand off to their picker (a sheet cannot present while its
 /// sibling is still animating away, so the host opens the picker on this
 /// sheet's dismiss); a toggle flips in place.
@@ -18,11 +20,11 @@ struct ComposerPlusMenu: View {
     /// A hand-off row was picked: the host closes the sheet and opens what
     /// the row names.
     let onPick: (ComposerMenu.RowId) -> Void
-    /// A page finished (an action picked, Implement N issues): the host
+    /// A page finished (an agent picked, Implement N issues): the host
     /// closes the sheet.
     let onClose: () -> Void
 
-    /// The pushed page (Implement issue or Run action), nil = the rows.
+    /// The pushed page (Implement issue or Message an agent), nil = the rows.
     @State private var page: ComposerMenu.RowId?
     @Environment(\.motion) private var motion
 
@@ -35,7 +37,8 @@ struct ComposerPlusMenu: View {
             subagentModel: false,
             ultracode: launch.agent == "claude",
             mcp: !mcpServers.isEmpty,
-            computerUse: model.device?.canToggleComputerUse == true
+            computerUse: model.device?.canToggleComputerUse == true,
+            agents: !model.agents.isEmpty
         )
     }
 
@@ -88,7 +91,7 @@ struct ComposerPlusMenu: View {
             let disabled = row.id == .effort && launch.agent == "claude" && launch.ultracode
                 || row.id == .addFile && (model.attachFull || model.sending)
             Button {
-                if row.id == .implementIssue || row.id == .runAction {
+                if row.id == .implementIssue || row.id == .messageAgent {
                     page = row.id
                 } else {
                     onPick(row.id)
@@ -128,7 +131,7 @@ struct ComposerPlusMenu: View {
             } label: {
                 HStack(spacing: 8) {
                     AppIcon(AppIcons.uiChevronLeft, size: 14)
-                    Text(id == .implementIssue ? "Implement issue" : "Run action")
+                    Text(ComposerMenu.allRows.first { $0.id == id }?.label ?? "")
                         .font(.headline)
                     Spacer(minLength: 0)
                 }
@@ -141,10 +144,10 @@ struct ComposerPlusMenu: View {
             .buttonStyle(.plain)
             .accessibilityLabel("Back")
             .accessibilityIdentifier("agent-composer-submenu-back")
-            if id == .implementIssue {
-                AgentIssuePickerPage(model: model, onClose: onClose)
+            if id == .messageAgent {
+                AgentPickerPage(model: model, onClose: onClose)
             } else {
-                AgentActionPickerPage(model: model, onClose: onClose)
+                AgentIssuePickerPage(model: model, onClose: onClose)
             }
         }
         .frame(maxHeight: .infinity, alignment: .top)
@@ -178,6 +181,8 @@ struct ComposerPlusMenu: View {
             launch.effort == LaunchVocabulary.cliDefault ? "CLI default" : LaunchVocabulary.effortLabel(launch.effort)
         case .mcpServers:
             McpServers.pickedValue(launch.mcpServerIds)
+        case .messageAgent:
+            model.selectedAgent?.name
         default:
             nil
         }
@@ -210,7 +215,38 @@ struct ComposerPlusMenu: View {
         case "action-default": AppIcons.actionDefault
         case "ui-mcp": AppIcons.uiMcp
         case "nav-computer": AppIcons.navComputer
+        case "settings-agents": AppIcons.settingsAgents
         default: AppIcons.uiAdd
         }
+    }
+}
+
+/// NEW-3: Message an agent › — THE Picker rows of the team's agents (the
+/// agent's icon in its colour + its name, single pick; web `PickerMenuRows`,
+/// no search). The pick becomes the composer's subject as ONE agent chip and
+/// closes the menu.
+struct AgentPickerPage: View {
+    let model: AgentComposerModel
+    let onClose: () -> Void
+
+    var body: some View {
+        GlassPickerContent(
+            items: model.agents.map { agent in
+                PickerItem(
+                    value: agent.id,
+                    label: agent.name,
+                    icon: BoardTypeDisplay.iconName(for: agent.icon) ?? SessionTree.ListCopy.agentDefaultIcon,
+                    color: Color(hex: agent.color ?? SessionTree.ListCopy.agentDefaultColor)
+                )
+            },
+            mode: .single,
+            value: Set([model.agentId].compactMap { $0 }),
+            onChange: { picked in
+                guard let id = picked.first else { return }
+                model.pickAgent(id)
+                onClose()
+            }
+        )
+        .accessibilityIdentifier("agent-composer-agents-picker")
     }
 }

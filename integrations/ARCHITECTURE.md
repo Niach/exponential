@@ -26,11 +26,11 @@ Five tools carry an MCP Apps binding (`_meta.ui.resourceUri`, the stable
 
 | Tool | Resource | View |
 | --- | --- | --- |
-| `exponential_issues_show` (+ `_meta["openai/ui"].entrypoints: global`) | `ui://exponential/issues` | issue list, opens an issue in place |
-| `exponential_sessions_get` | `ui://exponential/run` | run report, changes, steer composer |
-| `exponential_sessions_list` | `ui://exponential/runs` | runs list |
-| `exponential_notifications_list` | `ui://exponential/inbox` | inbox |
-| `exponential_devices_list` | `ui://exponential/devices` | devices + agent accounts |
+| `exponential_issues` op `show` (+ `_meta["openai/ui"].entrypoints: global`) | `ui://exponential/issues` | issue list, opens an issue in place |
+| `exponential_sessions` op `get` | `ui://exponential/run` | run report, changes, steer composer |
+| `exponential_sessions` op `list` | `ui://exponential/runs` | runs list |
+| `exponential_notifications` op `list` | `ui://exponential/inbox` | inbox |
+| `exponential_devices` op `list` | `ui://exponential/devices` | devices + agent accounts |
 
 The resource is ONE built document (`packages/mcp-apps`, 1,055,648 bytes on
 prod on 2026-10-07, script and stylesheet inlined) with the view stamped into
@@ -164,12 +164,12 @@ The Exponential plugin (`integrations/claude-code`):
 - mods, each a separate issue:
   - **Issue pane**: the issue of the current `exp/<IDENT>` branch
     (`$.session.repo()` / `git branch --show-current`) with its run status,
-    polled through `exponential_sessions_get`; opens on `/exp:issues`.
-  - **Status line**: the run's PR state from `exponential_issues_get`
+    polled through `exponential_sessions` op `get`; opens on `/exp:issues`.
+  - **Status line**: the run's PR state from `exponential_issues` op `get`
     (`prState`, `prUrl`), `$.ui.status`.
   - **Toast**: a new reviewer comment or review notification from
-    `exponential_notifications_list`, `$.ui.toast`; a `tool.call` hook on
-    `mcp__exponential__exponential_pr_open` toasts the PR link.
+    `exponential_notifications` op `list`, `$.ui.toast`; a `tool.call` hook on
+    `mcp__exponential__exponential_pr` (op `open`) toasts the PR link.
 
 Distribution: a `.claude-plugin/marketplace.json` in a git repository
 (`claude plugin marketplace add Niach/<repo>`, `claude plugin install
@@ -233,7 +233,7 @@ The Exponential package (`integrations/pi`):
   `coding::prepare`: `codingSessions.start` (a device-less row), `git worktree
   add` from the board's default branch on `exp/<IDENT>`, status
   `in_progress`, the MCP entry with the new `X-Exp-Session-Id`, and
-  `exponential_pr_open` at the end.
+  `exponential_pr` op `open` at the end.
 
 Server prerequisite (its own issue): **external-harness sessions**. Today
 `coding_sessions.agent` only accepts `claude`/`codex`, `coding-session-sweep.ts`

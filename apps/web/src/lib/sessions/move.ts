@@ -4,49 +4,26 @@ import { isPersistent } from "@exp/domain-contract/session-kind"
 import { db } from "@/db/connection"
 import { devices, type Device, type Session } from "@/db/schema"
 import { carriedAccountOption, flattenAccounts } from "@/lib/accounts/account-option"
-import { parseVersionTuple } from "@/lib/client-version"
-import { sessionDeviceOwner } from "@/lib/sessions/access"
+import { sessionDeviceOwner } from "@/lib/sessions/host"
 import { effectiveCli, resolveSessionDevice } from "@/lib/sessions/send"
 import { deviceRowIsOnline } from "@/lib/steer-devices"
 
-// EXP-1252: moving a live session to another device. The request is a
-// `sessions.send({sessionId, deviceId})` (synced `move_to_device_id` + the
-// server-only `handoff.request`); the SOURCE host waits for a true idle,
-// uploads the handoff package and calls `sessions.handoff`, which re-stamps
-// the row onto the target (status queued). The refusal copy is byte-
-// identical with every client's (`session-device-move` ×4).
+// NEW-1: moving a session to another device = `sessions.send({sessionId,
+// deviceId})`: a QUEUED row simply re-targets; a LIVE one ends here and
+// continues on the target as a new session on the same branch (the device
+// pushes its branch before it goes, NEW-5). No handoff package, nothing
+// pending on the row. The refusal copy is byte-identical with every
+// client's (`session-device-move` ×4).
 
 export const MOVE_COPY = {
   steer: `Only people who can steer this session can move it.`,
   ended: `This session has ended.`,
   agent: `Agents move from Settings → Agents.`,
-  aside: `An aside stays on its parent's device.`,
   offline: `This device is offline.`,
   visibility: `This device is shared differently, so the session can't move here.`,
   noLogin: `This device has no signed-in login for this agent.`,
-  update: `This device needs an update to receive sessions.`,
-  sourceOffline: `This session's device is offline.`,
-  sourceUpdate: `This session's device needs an update to move it.`,
 } as const
 
-/** The first desktop/CLI that hands a session off (`brief.handoff`,
- *  `sessions.handoff`): an older build as the TARGET would launch the moved
- *  row fresh, as the SOURCE never hand it over. */
-export const MOVE_MIN_VERSION: readonly [number, number, number] = [0, 14, 73]
-
-/** The device's reported version is at least `MOVE_MIN_VERSION` (an
- *  unreported one = an old build). */
-export function deviceCanHandoff(version: string | null | undefined): boolean {
-  if (!version) return false
-  const have = parseVersionTuple(version)
-  if (!have) return false
-  for (let i = 0; i < 3; i++) {
-    if (have[i]! !== MOVE_MIN_VERSION[i]!) return have[i]! > MOVE_MIN_VERSION[i]!
-  }
-  return true
-}
-
-export const movingCaption = (device: string) => `Moving to ${device}…`
 export const movedText = (from: string, to: string) => `Moved from ${from} to ${to}`
 
 type DeviceRow = Pick<
@@ -90,13 +67,10 @@ async function sessionAgent(session: Session): Promise<string> {
   return (await effectiveCli(session)) ?? `claude`
 }
 
-/** The refusals that hold whatever the target is (agent, aside, ended). */
+/** The refusals that hold whatever the target is (agent, ended). */
 export function assertMovable(session: Session): void {
   if (isPersistent(session)) {
     throw new TRPCError({ code: `BAD_REQUEST`, message: MOVE_COPY.agent })
-  }
-  if (session.aside) {
-    throw new TRPCError({ code: `BAD_REQUEST`, message: MOVE_COPY.aside })
   }
   if (session.status === `ended`) {
     throw new TRPCError({ code: `PRECONDITION_FAILED`, message: MOVE_COPY.ended })
@@ -106,7 +80,6 @@ export function assertMovable(session: Session): void {
 export interface MoveTarget {
   deviceId: string
   name: string
-  hostUserId: string | null
   ownerId: string
   /** The login to run on there (a profile id of the target), else null. */
   account: string | null
@@ -114,12 +87,11 @@ export interface MoveTarget {
 
 /**
  * The target of a move: visible to the session's STARTER exactly like a new
- * session's device (own, or shared with the team; `hostUserId` relative to
- * the starter), the SAME visibility (`shared`) as the session, online (when
- * `requireOnline`), on a handoff-capable build (`MOVE_MIN_VERSION`) and
- * signed in for the session's agent. `account` = an
- * explicit pick (must be a signed-in login of that agent there), else the
- * source's login carried by email (`carriedAccountOption`), else null.
+ * session's device (own, or shared with the team), the SAME visibility
+ * (`shared`) as the session, online (when `requireOnline`) and signed in
+ * for the session's agent. `account` = an explicit pick (must be a
+ * signed-in login of that agent there), else the source's login carried by
+ * email (`carriedAccountOption`), else null.
  */
 export async function resolveMoveTarget(
   session: Session,
@@ -142,9 +114,6 @@ export async function resolveMoveTarget(
   if (opts.requireOnline && !deviceRowIsOnline(row.lastSeenAt, opts.now ?? new Date())) {
     throw new TRPCError({ code: `PRECONDITION_FAILED`, message: MOVE_COPY.offline })
   }
-  if (!deviceCanHandoff(row.version)) {
-    throw new TRPCError({ code: `PRECONDITION_FAILED`, message: MOVE_COPY.update })
-  }
   const agent = await sessionAgent(session)
   const options = flattenAccounts(row).filter((option) => option.agent === agent)
   if (options.length === 0) {
@@ -165,7 +134,6 @@ export async function resolveMoveTarget(
   return {
     deviceId,
     name: deviceName(row, deviceId),
-    hostUserId: device.hostUserId,
     ownerId: device.ownerId,
     account,
   }
@@ -179,7 +147,7 @@ async function carriedAccount(
   options: ReturnType<typeof flattenAccounts>
 ): Promise<string | undefined> {
   if (!session.account) return undefined
-  const source = await loadDeviceRow(session.deviceId, sessionDeviceOwner(session))
+  const source = await loadDeviceRow(session.deviceId, await sessionDeviceOwner(session))
   const profile = source?.agentAccounts?.[agent]?.profiles?.find(
     (entry) => entry?.id === session.account
   )

@@ -51,24 +51,6 @@ pub struct SessionBrief {
     /// A child's parent branch: its worktree bases on `origin/<parent>`.
     #[serde(default)]
     pub parent_branch: Option<String>,
-    /// EXP-1252: the session MOVED here from another device and its handoff
-    /// package waits on the server ([`download_handoff`]); `None` = an
-    /// ordinary launch.
-    #[serde(default)]
-    pub handoff: Option<BriefHandoff>,
-}
-
-/// EXP-1252: `sessions.brief`'s `handoff` — the package the source device
-/// uploaded before the move.
-#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct BriefHandoff {
-    #[serde(default)]
-    pub size_bytes: u64,
-    #[serde(default)]
-    pub from_device_id: String,
-    #[serde(default)]
-    pub from_device_name: String,
 }
 
 #[derive(Serialize)]
@@ -131,73 +113,6 @@ pub fn claim(
     Ok(())
 }
 
-/// EXP-1252: how a source device's handoff of a moving session ended.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "lowercase")]
-pub enum HandoffOutcome {
-    /// The package is uploaded: the row moves to the target device.
-    Moved,
-    /// The handoff could not be made: the move is cleared, the session
-    /// stays here untouched.
-    Failed,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct HandoffInput<'a> {
-    session_id: &'a str,
-    device_id: &'a str,
-    outcome: HandoffOutcome,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    reason: Option<&'a str>,
-}
-
-/// EXP-1252: `sessions.handoff` — mutation, the SOURCE device's verdict on a
-/// pending move. `Moved` (after [`upload_handoff`]) re-stamps the row onto
-/// the target (status `queued`); `Failed` clears the move and posts
-/// `reason`.
-pub fn handoff(
-    trpc: &TrpcClient,
-    session_id: &str,
-    device_id: &str,
-    outcome: HandoffOutcome,
-    reason: Option<&str>,
-) -> Result<(), ApiError> {
-    let _: serde::de::IgnoredAny = trpc.mutation(
-        "sessions.handoff",
-        &HandoffInput { session_id, device_id, outcome, reason },
-    )?;
-    Ok(())
-}
-
-/// EXP-1252: `sessions.handoffDone` — mutation, the NEW host restored the
-/// package: the server deletes the blob.
-pub fn handoff_done(trpc: &TrpcClient, session_id: &str) -> Result<(), ApiError> {
-    let _: serde::de::IgnoredAny =
-        trpc.mutation("sessions.handoffDone", &SessionIdInput { session_id })?;
-    Ok(())
-}
-
-/// EXP-1252: the server's cap on a handoff package (64 MiB; larger = 413).
-pub const HANDOFF_MAX_BYTES: u64 = 64 * 1024 * 1024;
-
-/// EXP-1252: the blob route of a session's handoff package.
-pub fn handoff_path(session_id: &str) -> String {
-    format!("/api/sessions/{}/handoff", crate::encode::percent_encode(session_id))
-}
-
-/// EXP-1252: `PUT /api/sessions/<id>/handoff` — the source device uploads
-/// the gzip package (≤ [`HANDOFF_MAX_BYTES`]) while the move is pending.
-pub fn upload_handoff(trpc: &TrpcClient, session_id: &str, package: Vec<u8>) -> Result<(), ApiError> {
-    trpc.put_bytes(&handoff_path(session_id), package, "application/gzip")
-}
-
-/// EXP-1252: `GET /api/sessions/<id>/handoff` — the new host fetches the
-/// package (404 = none).
-pub fn download_handoff(trpc: &TrpcClient, session_id: &str) -> Result<Vec<u8>, ApiError> {
-    trpc.get_bytes_within(&handoff_path(session_id), crate::trpc::TRANSFER_TIMEOUT)
-        .map(|(bytes, _)| bytes)
-}
 
 /// The status a device may report (`sessionStatusSchema` minus `queued`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -527,7 +442,6 @@ mod tests {
                 team_prompt: Some("Be terse.".to_string()),
                 agent_instructions: None,
                 parent_branch: Some("exp/EXP-0".to_string()),
-                handoff: None,
             }
         );
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -557,73 +471,15 @@ mod tests {
         );
     }
 
+    /// NEW-5: a brief from a server that still names a `handoff` decodes
+    /// (the field is ignored; no device restores a package any more).
     #[test]
-    fn handoff_posts_the_source_verdict() {
-        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"txid":3}}}"#);
-        handoff(&client(&base), SESSION, "dev-1", HandoffOutcome::Moved, None).unwrap();
-        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
-        assert!(request.starts_with("POST /api/trpc/sessions.handoff HTTP/1.1"));
-        assert_eq!(
-            body_of(&request),
-            format!(r#"{{"sessionId":"{SESSION}","deviceId":"dev-1","outcome":"moved"}}"#)
-        );
-
-        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"txid":4}}}"#);
-        handoff(&client(&base), SESSION, "dev-1", HandoffOutcome::Failed, Some("Too big")).unwrap();
-        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
-        assert_eq!(
-            body_of(&request),
-            format!(r#"{{"sessionId":"{SESSION}","deviceId":"dev-1","outcome":"failed","reason":"Too big"}}"#)
-        );
-
-        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"txid":5}}}"#);
-        handoff_done(&client(&base), SESSION).unwrap();
-        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
-        assert!(request.starts_with("POST /api/trpc/sessions.handoffDone HTTP/1.1"));
-        assert_eq!(body_of(&request), format!(r#"{{"sessionId":"{SESSION}"}}"#));
-    }
-
-    #[test]
-    fn the_handoff_package_puts_and_gets_on_the_blob_route() {
-        let (base, captured) = one_shot_server(200, "{}");
-        upload_handoff(&client(&base), SESSION, b"\x1f\x8bpkg".to_vec()).unwrap();
-        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
-        assert!(
-            request.starts_with(&format!("PUT /api/sessions/{SESSION}/handoff HTTP/1.1")),
-            "{request}"
-        );
-        assert!(request.to_ascii_lowercase().contains("content-type: application/gzip"), "{request}");
-        assert!(request.contains("Bearer tok"), "{request}");
-
-        let (base, _captured) = one_shot_server(413, r#"{"error":"too large"}"#);
-        assert!(matches!(
-            upload_handoff(&client(&base), SESSION, vec![0; 4]),
-            Err(ApiError::Http { status: 413, .. })
-        ));
-
-        let (base, captured) =
-            crate::trpc::tests::one_shot_server_typed(200, "application/gzip", "PKG");
-        assert_eq!(download_handoff(&client(&base), SESSION).unwrap(), b"PKG".to_vec());
-        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
-        assert!(request.starts_with(&format!("GET /api/sessions/{SESSION}/handoff HTTP/1.1")));
-    }
-
-    #[test]
-    fn the_brief_decodes_a_handoff() {
+    fn a_legacy_brief_handoff_is_ignored() {
         let brief: SessionBrief = serde_json::from_str(
             r#"{"brief":"x","handoff":{"sizeBytes":12,"fromDeviceId":"dev-a","fromDeviceName":"Laptop"}}"#,
         )
         .unwrap();
-        assert_eq!(
-            brief.handoff,
-            Some(BriefHandoff {
-                size_bytes: 12,
-                from_device_id: "dev-a".to_string(),
-                from_device_name: "Laptop".to_string(),
-            })
-        );
-        let plain: SessionBrief = serde_json::from_str(r#"{"brief":"x","handoff":null}"#).unwrap();
-        assert_eq!(plain.handoff, None);
+        assert_eq!(brief.brief, "x");
     }
 
     #[test]

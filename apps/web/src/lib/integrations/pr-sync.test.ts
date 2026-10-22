@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import {
+  mergedHeadDeletable,
   parseIssueIdentifierFromBranch,
   planPrAutomationTransition,
   subIssueReached,
@@ -261,5 +262,31 @@ describe(`the started automation + the issue tree`, () => {
     // A resolution never blocks.
     expect(subIssueReached(`merged`, at(`cancelled`), null)).toBe(true)
     expect(subIssueReached(`merged`, at(`duplicate`), null)).toBe(true)
+  })
+})
+
+describe(`mergedHeadDeletable (NEW-5)`, () => {
+  const base = {
+    head: `exp/EXP-42`,
+    anyBranch: false,
+    isDefaultBranch: false,
+    openChildren: 0,
+    liveOnSameHead: false,
+  }
+
+  it(`a merge seen outside Exponential deletes only exp/ heads`, () => {
+    expect(mergedHeadDeletable(base)).toBe(true)
+    expect(mergedHeadDeletable({ ...base, head: `feature/login` })).toBe(false)
+  })
+
+  it(`our own merge deletes any head`, () => {
+    expect(mergedHeadDeletable({ ...base, head: `feature/login`, anyBranch: true })).toBe(true)
+  })
+
+  it(`never a default branch, an empty head, or a head something still rests on`, () => {
+    expect(mergedHeadDeletable({ ...base, anyBranch: true, isDefaultBranch: true })).toBe(false)
+    expect(mergedHeadDeletable({ ...base, head: `  ` })).toBe(false)
+    expect(mergedHeadDeletable({ ...base, openChildren: 1 })).toBe(false)
+    expect(mergedHeadDeletable({ ...base, liveOnSameHead: true })).toBe(false)
   })
 })

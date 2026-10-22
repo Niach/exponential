@@ -1,12 +1,30 @@
 import { describe, expect, it, vi } from "vitest"
 
-vi.mock(`@/db/connection`, () => ({ db: {} }))
-vi.mock(`@/lib/storage/bun-s3-cleanup`, () => ({ deleteStorageObjectsViaBun: vi.fn() }))
+const mocks = vi.hoisted(() => ({
+  statements: [] as string[],
+  deleteStorageObjectsViaBun: vi.fn(async () => undefined),
+}))
+
+vi.mock(`@/db/connection`, () => ({
+  db: {
+    transaction: async (fn: (tx: unknown) => Promise<unknown>) =>
+      fn({
+        execute: async (query: { queryChunks?: unknown[] }) => {
+          mocks.statements.push(JSON.stringify(query.queryChunks ?? query))
+          return { rows: [{ storage_key: `orphan`, poster_storage_key: null }] }
+        },
+      }),
+  },
+}))
+vi.mock(`@/lib/storage/bun-s3-cleanup`, () => ({
+  deleteStorageObjectsViaBun: mocks.deleteStorageObjectsViaBun,
+}))
 
 const {
   ORPHAN_SESSION_ATTACHMENT_RETENTION_MS,
   isOrphanSessionAttachmentPurgeDue,
   reclaimOrphanSessionAttachmentsInTx,
+  runSessionAttachmentSweep,
 } = await import(`@/lib/session-attachment-sweep`)
 
 const now = new Date(`2026-10-13T12:00:00Z`)
@@ -44,5 +62,19 @@ describe(`reclaimOrphanSessionAttachmentsInTx`, () => {
     const result = await reclaimOrphanSessionAttachmentsInTx(tx as never, now)
     expect(result.storageKeys).toEqual([`a`, `b`, `b.poster`])
     expect(tx.execute).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe(`runSessionAttachmentSweep`, () => {
+  // NEW-43: `sessions.handoff` is gone (NEW-1); the sweep is the attachment
+  // reclaim alone and never touches the sessions table's dropped columns.
+  it(`runs the attachment reclaim only, with no handoff statement`, async () => {
+    mocks.statements.length = 0
+    const result = await runSessionAttachmentSweep(now)
+    expect(result).toEqual({ attachmentsDeleted: 1, objectsDeleted: 1 })
+    expect(mocks.statements).toHaveLength(1)
+    expect(mocks.statements[0]).toContain(`DELETE FROM attachments`)
+    expect(mocks.statements[0]).not.toMatch(/handoff/)
+    expect(mocks.deleteStorageObjectsViaBun).toHaveBeenCalledWith([`orphan`])
   })
 })

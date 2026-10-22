@@ -364,7 +364,7 @@ describe(`issues.create with a draft's thread (EXP-1291)`, () => {
   it(`links the issue into the consumed draft's thread`, async () => {
     await caller.create({ boardId: BOARD_ID, title: `From a thread draft`, draftId: DRAFT_ID })
     expect(h.linkIssues).toHaveBeenCalledWith(tx, {
-      rootId: `root-of-${SESSION_ID}`,
+      sessionId: SESSION_ID,
       issueIds: [ISSUE_ID],
       source: `user`,
       addedBy: `actor`,
@@ -381,7 +381,7 @@ describe(`issues.create with a draft's thread (EXP-1291)`, () => {
       sessionId: OTHER_SESSION,
     })
     expect(h.linkIssues).toHaveBeenCalledTimes(1)
-    expect(h.linkIssues.mock.calls[0]![1]).toMatchObject({ rootId: `root-of-${OTHER_SESSION}` })
+    expect(h.linkIssues.mock.calls[0]![1]).toMatchObject({ sessionId: OTHER_SESSION })
   })
 
   it.each([

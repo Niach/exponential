@@ -157,6 +157,8 @@ struct AgentSessionView: View {
     @State private var slashHighlight = 0
     /// A confirm-gated command waiting on its dialog (`/clear`).
     @State private var slashConfirm: SlashCommand?
+    /// NEW-2: the team's prompts, listed after the builtins in the `/` menu.
+    @State private var slashPrompts = TeamSlashPrompts()
     /// EXP-790: the composer is a folded capsule until it is tapped, and
     /// folds again on blur when nothing would be lost (IssueDetailBottomBar's
     /// rule). A non-empty draft or a pending image keeps it open regardless.
@@ -388,6 +390,9 @@ struct AgentSessionView: View {
     private func withLifecycle(_ content: some View) -> some View {
         content
             .task(id: session.id) { await observeToolAsks() }
+            .task(id: session.teamId) {
+                slashPrompts.bind(accountId: accountId, teamId: session.teamId, db: deps.db)
+            }
             // EXP-1031: the transient outcomes land as toasts.
             .onChange(of: model?.stopError) { _, message in
                 guard let message else { return }
@@ -970,13 +975,10 @@ struct AgentSessionView: View {
             case let .userMessage(_, text, _):
                 // EXP-724: a steered slash command is a control action, not
                 // prose — it renders as a compact pill instead of a bubble.
-                // EXP-746: over the MERGED catalog, so a command the agent
-                // itself advertised gets the pill too (the `/` menu that sent
-                // it reads the same merge).
+                // NEW-2: the contract catalog alone (agent commands hidden).
                 if let command = SlashCommands.command(
                     for: text,
-                    agent: model?.catalogAgent,
-                    extra: model?.sessionConfig?.commands ?? []
+                    agent: model?.catalogAgent
                 ) {
                     CommandPill(command: command, text: text)
                 } else {
@@ -1579,8 +1581,12 @@ struct AgentSessionView: View {
                 )
                 Spacer(minLength: 0)
                 // EXP-849: the wall's PRIMARY move is another login — only
-                // for whoever may steer the session.
-                if model.mayPost {
+                // for whoever may steer the session, and (NEW-1) only for a
+                // USAGE wall: a watchdog flag is not lifted by a login.
+                if model.mayPost,
+                   AgentUsagePresentation.isUsageWall(
+                       AgentUsagePresentation.parseBlocked((model.session ?? session).blocked)
+                   ) {
                     accountSwitchControl(model)
                 }
             }
@@ -1709,10 +1715,10 @@ struct AgentSessionView: View {
         switch composerMenu(model) {
         case .slash:
             SlashCommandMenu(
-                commands: model.slashMatches,
+                candidates: slashCandidates(model),
                 highlighted: slashHighlight
-            ) { command in
-                applySlashCommand(command, model)
+            ) { candidate in
+                applySlashCandidate(candidate, model)
             }
             .padding(.horizontal, 16)
         case .autocomplete:
@@ -1823,8 +1829,34 @@ struct AgentSessionView: View {
     /// The menu is up while the field has focus, the draft matches something,
     /// and it hasn't been dismissed at exactly this draft.
     private func slashMenuVisible(_ model: AgentSessionModel) -> Bool {
-        model.draftEditor.isEditing && !model.slashMatches.isEmpty
+        model.draftEditor.isEditing && !slashCandidates(model).isEmpty
             && slashDismissedFor != model.draftText
+    }
+
+    /// NEW-2: THE `/` menu's rows — the builtins this agent runs, then the
+    /// team's prompts (`SlashCommands.candidates`).
+    private func slashCandidates(_ model: AgentSessionModel) -> [SlashCandidate] {
+        SlashCommands.candidates(draft: model.draftText, agent: model.catalogAgent, prompts: slashPrompts.prompts)
+    }
+
+    /// A command rewrites the draft; a prompt's body (`prompts.get`) REPLACES
+    /// the `/name` draft the menu was open on, to be edited and sent (web
+    /// `session-composer.tsx`). Never sends.
+    private func applySlashCandidate(_ candidate: SlashCandidate, _ model: AgentSessionModel) {
+        switch candidate {
+        case let .command(command):
+            applySlashCommand(command, model)
+        case let .prompt(prompt):
+            slashDismissedFor = model.draftText
+            slashHighlight = 0
+            Task {
+                guard let body = await TeamSlashPrompts.loadBody(prompt, accountId: accountId, deps: deps),
+                      SlashCommands.isSlashDraft(model.draftText)
+                else { return }
+                model.draftText = body
+                focusComposer()
+            }
+        }
     }
 
     /// Accepting a row REWRITES the draft and never sends — `/name ` when the
@@ -1838,15 +1870,15 @@ struct AgentSessionView: View {
     }
 
     /// The row a hardware Return would accept.
-    private func highlightedSlashCommand(_ model: AgentSessionModel) -> SlashCommand? {
-        let matches = model.slashMatches
+    private func highlightedSlashCandidate(_ model: AgentSessionModel) -> SlashCandidate? {
+        let matches = slashCandidates(model)
         guard matches.indices.contains(slashHighlight) else { return matches.first }
         return matches[slashHighlight]
     }
 
     /// ↑/↓ wrap around the list (web/Android/desktop parity).
     private func moveSlashHighlight(_ delta: Int, _ model: AgentSessionModel) {
-        let count = model.slashMatches.count
+        let count = slashCandidates(model).count
         guard count > 0 else { return }
         slashHighlight = ((slashHighlight + delta) % count + count) % count
     }
@@ -1923,8 +1955,8 @@ struct AgentSessionView: View {
     private func handleComposerReturn(_ model: AgentSessionModel) {
         switch composerMenu(model) {
         case .slash:
-            guard let command = highlightedSlashCommand(model) else { return }
-            applySlashCommand(command, model)
+            guard let candidate = highlightedSlashCandidate(model) else { return }
+            applySlashCandidate(candidate, model)
         case .autocomplete:
             let editor = model.draftEditor
             if let member = editor.mentionCandidates.first {
@@ -1945,7 +1977,7 @@ struct AgentSessionView: View {
         // `/clear` discards the whole conversation — ask first, then send
         // exactly what was typed.
         if let command = SlashCommands.command(
-            for: model.draftText, agent: model.catalogAgent, extra: model.sessionConfig?.commands ?? []
+            for: model.draftText, agent: model.catalogAgent
         ) {
             if model.hasPendingAttachments {
                 toaster.error(SlashCommands.attachmentsRefusal)
@@ -3383,7 +3415,7 @@ private struct ExpToolRow: View {
             // The `Open Results` button / the inline tile below the row IS
             // its preview (EXP-933 / EXP-1172).
             EmptyView()
-        case .session, .board, .action, .comment:
+        case .session, .board, .action, .comment, .prompt, .agent, .event:
             // A name/identifier chip — never a bare uuid: an id the reader
             // cannot place says less than the caption already did.
             if let name = preview.title ?? preview.identifier {

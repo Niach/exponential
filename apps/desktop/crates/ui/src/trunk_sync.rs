@@ -488,7 +488,17 @@ impl TrunkSync {
         // until a later edge re-raised it. A policy-less (not-ready) pass
         // keeps the prune trigger alive for the same reason.
         let carried_prune = policy.is_some();
-        if self.start_sync_with_prune(SyncMode::AutoSync, policy, false, cx) {
+        // NEW-5: the nightly stale-worktree sweep rides the AutoSync pass
+        // (its own throttle sweeps the clone once a day).
+        let sweep = StaleSweep {
+            data_dir: crate::coding_flow::coding_data_dir(cx),
+            policy: coding::SweepPolicy {
+                live: crate::coding_flow::live_holders(cx),
+                default_branch: repo.default_branch.clone(),
+                ..coding::SweepPolicy::default()
+            },
+        };
+        if self.start_sync_with_prune(SyncMode::AutoSync, policy, Some(sweep), false, cx) {
             self.pending_merge_sync = false;
             if carried_prune {
                 self.pending_prune_sync = false;
@@ -890,7 +900,7 @@ impl TrunkSync {
     /// failure a toast (FEED-79 `errors`); an automatic pass fails into the
     /// sticky badge alone.
     fn start_sync(&mut self, mode: SyncMode, attended: bool, cx: &mut gpui::Context<Self>) {
-        self.start_sync_with_prune(mode, None, attended, cx);
+        self.start_sync_with_prune(mode, None, None, attended, cx);
     }
 
     /// [`Self::start_sync`] with the auto-sync pass's worktree-prune policy
@@ -902,6 +912,7 @@ impl TrunkSync {
         &mut self,
         mode: SyncMode,
         prune_policy: Option<coding::PrunePolicy>,
+        sweep: Option<StaleSweep>,
         attended: bool,
         cx: &mut gpui::Context<Self>,
     ) -> bool {
@@ -955,7 +966,7 @@ impl TrunkSync {
         // Background worker — token + git op + trunk read (argv-only git).
         cx.background_executor()
             .spawn(async move {
-                run_sync_worker(mode, &trpc, &repo, prune_policy.as_ref(), &tx);
+                run_sync_worker(mode, &trpc, &repo, prune_policy.as_ref(), sweep.as_ref(), &tx);
             })
             .detach();
         true
@@ -1177,11 +1188,20 @@ pub(crate) fn synced_ago_labels(elapsed: Duration) -> (SharedString, SharedStrin
 /// streaming [`SyncMsg`]s to the foreground drain. A conflict left by a
 /// failed rebase is picked up by the trailing trunk read, never auto-aborted
 /// (except by the explicit HardReset hatch).
+/// NEW-5: the nightly stale-worktree sweep an AutoSync pass carries — the
+/// policy (this app's live sessions as its shield) derived on the
+/// foreground, the git work on the worker.
+struct StaleSweep {
+    data_dir: PathBuf,
+    policy: coding::SweepPolicy,
+}
+
 fn run_sync_worker(
     mode: SyncMode,
     trpc: &api::TrpcClient,
     repo: &RepoInfo,
     prune_policy: Option<&coding::PrunePolicy>,
+    sweep: Option<&StaleSweep>,
     tx: &flume::Sender<SyncMsg>,
 ) {
     // A pre-transport failure (mint or ambient-auth install), surfaced
@@ -1288,6 +1308,19 @@ fn run_sync_worker(
                         );
                     }
                     sweep_cargo_target(clone, &repo.full_name);
+                }
+            }
+            // NEW-5: once a day per clone, every finished session's stale
+            // worktree goes through the run finish (leftovers named in their
+            // conversations).
+            if let Some(sweep) = sweep {
+                if let Some(report) = coding::sweep_stale_worktrees_if_due(
+                    clone,
+                    &sweep.data_dir,
+                    std::time::SystemTime::now(),
+                    &sweep.policy,
+                ) {
+                    coding::settle_sweep_report(Some(trpc), &repo.full_name, &report);
                 }
             }
         }

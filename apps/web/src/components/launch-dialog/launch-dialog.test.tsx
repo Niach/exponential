@@ -48,11 +48,11 @@ vi.mock(`@/hooks/use-launch-composer`, () => ({
     composerCalls.push({ teamId: args.teamId, seed: args.seed })
     composerState.onStarted = args.onStarted
     return {
-      subject: { kind: `action`, id: `a1`, inputs: {} },
-      selectedAction: { id: `a1`, name: `Release train` },
-      checkedIssues: [],
+      subject: { kind: `issues`, ids: [`i1`] },
+      selectedPrompt: null,
+      checkedIssues: [{ id: `i1`, identifier: `APP-3` }],
       toggleIssue: vi.fn(),
-      clearAction: vi.fn(),
+      clearPrompt: vi.fn(),
       busy: composerState.busy,
     } as unknown as LaunchComposerModel
   },
@@ -88,12 +88,12 @@ describe(`LaunchDialogHost`, () => {
 
   it(`opens on the seed, names the run, and hands the seed to the composer`, () => {
     render(<LaunchDialogHost team={team} />)
-    act(() => requestLaunchDialog({ issueIds: [], actionId: `a1` }))
+    act(() => requestLaunchDialog({ issueIds: [`i1`] }))
     expect(screen.getByTestId(`launch-dialog`)).toBeTruthy()
     expect(screen.getByTestId(`agent-composer`)).toBeTruthy()
     // The accessible name is the headline, not a generic title.
-    expect(screen.getByText(`Run Release train`)).toBeTruthy()
-    expect(composerCalls[0]?.seed).toEqual({ issueIds: [], actionId: `a1` })
+    expect(screen.getByText(`Implement APP-3`)).toBeTruthy()
+    expect(composerCalls[0]?.seed).toEqual({ issueIds: [`i1`] })
   })
 
   it(`shuts once the session started, not at send time`, () => {
@@ -143,9 +143,9 @@ describe(`LaunchDialogHost`, () => {
 
   it(`hands the request to the composer as its seed`, () => {
     render(<LaunchDialogHost team={team} />)
-    act(() => requestLaunchDialog({ issueIds: [], actionId: `a1` }))
+    act(() => requestLaunchDialog({ issueIds: [`i1`], deviceId: `d1` }))
     expect(remoteCalls[0]).toMatchObject({ teamId: `t1` })
-    expect(composerCalls[0]?.seed).toEqual({ issueIds: [], actionId: `a1` })
+    expect(composerCalls[0]?.seed).toEqual({ issueIds: [`i1`], deviceId: `d1` })
   })
 
   it(`says so instead of doing nothing when the instance has no relay`, () => {

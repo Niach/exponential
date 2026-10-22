@@ -1,6 +1,6 @@
 /* ─── The rail (sidebar.rs RailView, EXP-723/870) — it NEVER leaves the
    window. Labelled it is the 272px left column: the web-style header (team
-   switcher · Search · New issue) · Inbox / Support / Devices / Actions /
+   switcher · Search · New issue) · Inbox / Devices / Threads /
    Reviews / Agent (the live-run dot) · Boards ·
    "This device": Files / Source Control · the What's new card · Getting
    started · the account row with the new-terminal button and the gear.
@@ -13,7 +13,7 @@ import { INBOX_ITEMS, DEMO_BOARD, REVIEWS } from "./data"
 import { isLive, useIde, type Tool } from "./state"
 import {
   IcAlert,
-  IcBot,
+  IcListTree,
   IcChevsUpDown,
   IcCode,
   IcFolder,
@@ -115,7 +115,9 @@ export function Rail({ compact = false }: { compact?: boolean }) {
       onClick: go(`inbox`),
     },
     { key: `devices`, Icon: IcMonitor, label: `Devices` },
-    { key: `actions`, Icon: IcBot, label: `Actions` },
+    /* NEW-2: Threads took the Actions entry's place (prompts live in the
+       composer's `/` menu and Settings → Prompts). */
+    { key: `threads`, Icon: IcListTree, label: `Threads` },
     {
       key: `reviews`,
       Icon: IcGitPullRequest,

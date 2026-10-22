@@ -14,7 +14,7 @@ use gpui::{
     Window,
 };
 
-use crate::actions_view::page_scaffold;
+use crate::scroll_pane::page_scaffold;
 use crate::navigation::{nav_for_window, Navigation};
 
 pub struct DevicesView {

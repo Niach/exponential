@@ -2,8 +2,9 @@ import { z } from "zod"
 import { TRPCError } from "@trpc/server"
 import { contract } from "@exp/domain-contract"
 import {
-  actionInputsSchema,
   CATEGORY_ANCHOR,
+  eventNameSchema,
+  eventPayloadSchema,
   customizableStatusCategoryValues,
   dateOnlySchema,
   DEFAULT_ACCENT_COLOR,
@@ -24,7 +25,6 @@ import {
   QUESTION_CARD_OPTIONS_MAX,
   SESSION_RESULT_REPORT_MAX,
   SESSIONS_SEND_TEXT_MAX,
-  sessionKindValues,
   sessionsSendInputSchema,
   REPLIES_MAX,
   SUGGESTIONS_MAX,
@@ -50,10 +50,11 @@ import {
 import { alias } from "drizzle-orm/pg-core"
 import { db } from "@/db/connection"
 import {
-  actions,
+  prompts,
   attachments,
   comments,
   devices,
+  events,
   issueEvents,
   issueLabels,
   issueRelations,
@@ -135,7 +136,12 @@ import { visibleDeviceRows } from "@/lib/trpc/devices"
 // EXP-1291: the session tree's core (lib/sessions/**) and the PR model
 // (lib/pull-requests.ts). These tools only add grants and resolve the caller.
 import { sendSession } from "@/lib/sessions/send"
-import { assertCanSteer, loadSessionForUser } from "@/lib/sessions/access"
+import {
+  assertCanSteer,
+  isSessionPrincipal,
+  loadSessionForUser,
+  sessionDeviceOwner,
+} from "@/lib/sessions/access"
 import { getSessionTree, listSessions } from "@/lib/sessions/tree"
 import { endSession, stopSession } from "@/lib/sessions/lifecycle"
 import { linkIssues, unlinkIssue } from "@/lib/sessions/issues"
@@ -143,6 +149,8 @@ import { writeGuide } from "@/lib/sessions/guide"
 import { postReplies, postSuggestions } from "@/lib/sessions/suggestions"
 import { buildPlanCard, buildQuestionCard, postAskCard } from "@/lib/sessions/plan"
 import { PLAN_CARD_COPY } from "@exp/domain-contract/plan-card"
+import { loadAgentForUser } from "@/lib/agents/conversation"
+import { emitEventInTx } from "@/lib/events"
 import {
   closePullRequestTx,
   mergePullRequest,
@@ -293,14 +301,14 @@ async function getStatusContext(id: string) {
   return row
 }
 
-// Action id → its team, for grant checks on update/delete.
-async function getActionContext(id: string) {
+// Prompt id → its team, for grant checks.
+async function getPromptContext(id: string) {
   const [row] = await db
-    .select({ teamId: actions.teamId })
-    .from(actions)
-    .where(eq(actions.id, id))
+    .select({ teamId: prompts.teamId })
+    .from(prompts)
+    .where(eq(prompts.id, id))
     .limit(1)
-  if (!row) throw new Error(`Action not found`)
+  if (!row) throw new Error(`Prompt not found`)
   return row
 }
 
@@ -311,7 +319,8 @@ interface CallerSession {
   id: string
   teamId: string
   rootId: string
-  rootKind: string
+  /** NEW-2: the root is an agent's conversation (never ends). */
+  rootAgentId: string | null
   unattended: boolean
   /** EXP-1280: the session plans (`exponential_pr_open` refuses). */
   planMode: boolean
@@ -575,9 +584,6 @@ export function registerExponentialTools(
   async function loadCallerSession(): Promise<CallerSession | null> {
     if (!sessionId) return null
     const root = alias(sessions, `root`)
-    // The host device's row (devices are per (user, deviceId)): its
-    // reported version says whether it feeds the session's own cards.
-    const host = alias(devices, `host`)
     const [row] = await db
       .select({
         id: sessions.id,
@@ -585,36 +591,33 @@ export function registerExponentialTools(
         rootId: sessions.rootId,
         parentId: sessions.parentId,
         userId: sessions.userId,
-        hostUserId: sessions.hostUserId,
-        rootKind: root.kind,
-        rootSpawnedBy: root.spawnedBySessionId,
+        deviceId: sessions.deviceId,
+        rootAgentId: root.agentId,
         planMode: sessions.planMode,
-        hostVersion: host.version,
+        // NEW-1: a live session watches this one (its spawner).
+        watched: sql<boolean>`EXISTS (SELECT 1 FROM sessions w WHERE w.status <> 'ended' AND w.wake_on @> jsonb_build_array(${sessions.id}::text))`,
       })
       .from(sessions)
       .leftJoin(root, eq(root.id, sessions.rootId))
-      .leftJoin(
-        host,
-        and(
-          eq(host.deviceId, sessions.deviceId),
-          eq(
-            host.userId,
-            sql`coalesce(${sessions.hostUserId}, ${sessions.userId})`
-          )
-        )
-      )
       .where(eq(sessions.id, sessionId))
       .limit(1)
     if (!row) return null
-    if (row.userId !== user.id && row.hostUserId !== user.id) return null
+    if (!(await isSessionPrincipal(user.id, row))) return null
+    // The host device's row (devices are per (user, deviceId)): its
+    // reported version says whether it feeds the session's own cards.
+    const [host] = await db
+      .select({ version: devices.version })
+      .from(devices)
+      .where(and(eq(devices.deviceId, row.deviceId), eq(devices.userId, await sessionDeviceOwner(row))))
+      .limit(1)
     return {
       id: row.id,
       teamId: row.teamId,
       rootId: row.rootId,
-      rootKind: row.rootKind ?? `thread`,
-      unattended: row.parentId !== null || row.rootSpawnedBy != null,
+      rootAgentId: row.rootAgentId ?? null,
+      unattended: row.parentId !== null || row.watched === true,
       planMode: row.planMode === true,
-      cards: hostFeedsOwnCards(row.hostVersion),
+      cards: hostFeedsOwnCards(host?.version),
     }
   }
 
@@ -1259,9 +1262,10 @@ export function registerExponentialTools(
           if (target.teamId !== board.teamId) {
             throw new Error(`Session not found in this board's team`)
           }
-          rootId = target.rootId
-        } else if (own && own.teamId === board.teamId && own.rootKind === `thread`) {
-          rootId = own.rootId
+          rootId = target.id
+        } else if (own && own.teamId === board.teamId && own.rootAgentId === null) {
+          // NEW-1: the filer holds the issue (a row on the caller's session).
+          rootId = own.id
         }
         const result = await caller(user, request).issues.create({
           ...rest,
@@ -1275,7 +1279,7 @@ export function registerExponentialTools(
         try {
           await db.transaction((tx) =>
             linkIssues(tx, {
-              rootId: rootId!,
+              sessionId: rootId!,
               issueIds: [result.issue.id],
               source: `agent`,
               addedBy: user.id,
@@ -2176,8 +2180,9 @@ export function registerExponentialTools(
     return session
   }
 
-  /** The thread root a link tool writes on: the named session's root (a
-   * steer right on it), else the caller's own root. */
+  /** The session a link tool writes on (NEW-1: the row sits on the session
+   * that HOLDS the issue): the named session (a steer right on it), else the
+   * caller's own. */
   async function linkTarget(
     sessionIdArg: string | undefined,
     tool: string
@@ -2185,11 +2190,11 @@ export function registerExponentialTools(
     if (sessionIdArg) {
       const session = await loadGrantedSession(sessionIdArg)
       await assertCanSteer(user.id, session)
-      return { rootId: session.rootId, teamId: session.teamId }
+      return { rootId: session.id, teamId: session.teamId }
     }
     const own = await loadCallerSession()
     if (!own) throw new Error(noSessionMessage(tool, `sessionId`))
-    return { rootId: own.rootId, teamId: own.teamId }
+    return { rootId: own.id, teamId: own.teamId }
   }
 
   /** Issue refs (UUID or identifier) → ids, grant-checked and confined to
@@ -2214,11 +2219,12 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_sessions_send`,
     {
-      description: `THE one call for sessions. sessionId = message it (idle resumes, an ended one continues in a child; account alone = switch its claude login; deviceId = move it there after its turn; issueIds = forward them). parentId = start a child (issueIds = its share). Neither = a new thread (text, issueIds, actionId+inputs, repositoryId) or, with agent {name, icon, color, instructions?, triggers?}, a team agent. name = a new session's title. New sessions need deviceId (exponential_devices_list); the other fields pick the runner. teamId defaults to your session's team; @email in text mentions. Queued at once: never resend.`,
+      description: `THE one call for sessions. sessionId = message it (idle resumes; ended = continues on its branch; answer = answer its open question/plan {answer|answers|decision}, first wins; issueIds = forward; account = switch login; deviceId = move; stop = interrupt its turn). agentId = message a team agent (your conversation with it). parentId = start a child. Neither = a new thread (text, issueIds, promptId = a saved prompt's body first, repositoryId); its transitions wake you, as do wakeOn sessions. New threads need deviceId; teamId defaults to yours. Never resend, never wait.`,
       _meta: ALWAYS_LOAD_META,
       inputSchema: strictInput({
         teamId: uuidString.optional(),
         sessionId: uuidString.optional(),
+        agentId: uuidString.optional(),
         parentId: uuidString.optional(),
         deviceId: z.string().optional(),
         cli: z.string().optional(),
@@ -2233,23 +2239,35 @@ export function registerExponentialTools(
         text: z.string().max(SESSIONS_SEND_TEXT_MAX).optional(),
         attachmentIds: z.array(uuidString).max(10).optional(),
         issueIds: z.array(z.string().min(1)).min(1).max(30).optional(),
-        actionId: uuidString.optional(),
-        inputs: z.record(z.string(), z.string()).optional(),
+        promptId: uuidString.optional(),
         repositoryId: uuidString.optional(),
         // Loose for the context budget; sessionsSendInputSchema validates all.
-        agent: z.record(z.string(), z.unknown()).optional(),
+        answer: z.record(z.string(), z.unknown()).optional(),
+        wakeOn: z.array(uuidString).min(1).max(20).optional(),
+        // NEW-4: `stop: true` with sessionId interrupts that session's
+        // running turn (it stays, idle; a message resumes it). Nothing else
+        // rides along.
+        stop: z.boolean().optional(),
       }),
     },
-    async ({ issueIds: issueRefs, ...rest }) => {
+    async ({ issueIds: issueRefs, stop, ...rest }) => {
       try {
         const own = await loadCallerSession()
+        if (stop) {
+          if (!rest.sessionId) throw new Error(`stop needs sessionId.`)
+          if (!access.full) await loadGrantedSession(rest.sessionId)
+          await stopSession({ userId: user.id, sessionId: rest.sessionId })
+          return ok({ ok: true, id: rest.sessionId, stopped: true })
+        }
         // A confined grant: the target session's team, else the named team,
         // else the caller's (the default the core applies).
         if (!access.full) {
           const target = rest.sessionId ?? rest.parentId
           const teamId = target
             ? (await loadGrantedSession(target)).teamId
-            : (rest.teamId ?? own?.teamId)
+            : rest.agentId
+              ? (await loadAgentForUser(user.id, rest.agentId)).teamId
+              : (rest.teamId ?? own?.teamId)
           if (!teamId) throw new Error(`Pass teamId: this connection is confined to chosen teams.`)
           assertTeamFullyGranted(access, teamId)
         }
@@ -2317,15 +2335,15 @@ export function registerExponentialTools(
     `exponential_sessions_list`,
     {
       annotations: READ_ONLY,
-      description: `List root sessions you can see, newest first: kind thread (default) or agent (the team's agents). teamId narrows to one team; live: true = not ended.`,
+      description: `List thread roots you can see, newest first (agentId = your conversations with that agent instead). teamId narrows to one team; live: true = not ended.`,
       inputSchema: strictInput({
-        kind: z.enum(sessionKindValues).default(`thread`),
         teamId: uuidString.optional(),
+        agentId: uuidString.optional(),
         live: z.boolean().optional(),
         ...pageInput,
       }),
     },
-    async ({ kind, teamId, live, limit, offset }) => {
+    async ({ agentId, teamId, live, limit, offset }) => {
       try {
         if (!access.full) {
           if (!teamId) throw new Error(`Pass teamId: this connection is confined to chosen teams.`)
@@ -2333,30 +2351,13 @@ export function registerExponentialTools(
         }
         return ok(
           await listSessions(user.id, {
-            kind: kind ?? `thread`,
+            ...(agentId ? { agentId } : {}),
             ...(teamId ? { teamId } : {}),
             ...(live !== undefined ? { live } : {}),
             limit: limit ?? 50,
             offset: offset ?? 0,
           })
         )
-      } catch (e) {
-        return err(e)
-      }
-    }
-  )
-
-  server.registerTool(
-    `exponential_sessions_stop`,
-    {
-      description: `Stop a session's running turn (by UUID); the session stays, idle, and a message resumes it.`,
-      inputSchema: strictInput({ id: uuidString }),
-    },
-    async ({ id }) => {
-      try {
-        if (!access.full) await loadGrantedSession(id)
-        await stopSession({ userId: user.id, sessionId: id })
-        return ok({ ok: true, id })
       } catch (e) {
         return err(e)
       }
@@ -2558,7 +2559,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_sessions_link`,
     {
-      description: `Link issues (UUIDs or identifiers) to a thread: the root of sessionId, default your own session's. Same team only.`,
+      description: `Link issues (UUIDs or identifiers) to a session (sessionId, default your own): it holds them, a session with a repository takes them (In progress). Same team only.`,
       inputSchema: strictInput({
         issueIds: z.array(z.string().min(1)).min(1).max(30),
         sessionId: uuidString.optional(),
@@ -2571,7 +2572,7 @@ export function registerExponentialTools(
         const own = await loadCallerSession()
         const result = await db.transaction((tx) =>
           linkIssues(tx, {
-            rootId,
+            sessionId: rootId,
             issueIds,
             source: own ? `agent` : `user`,
             addedBy: user.id,
@@ -2589,7 +2590,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_sessions_unlink`,
     {
-      description: `Unlink an issue (UUID or identifier) from a thread: the root of sessionId, default your own session's.`,
+      description: `Unlink an issue (UUID or identifier) from a session (sessionId, default your own; else from whichever session of its thread holds it). Its last worker dropping it sends it back to backlog.`,
       inputSchema: strictInput({
         issueId: z.string().min(1),
         sessionId: uuidString.optional(),
@@ -2602,8 +2603,9 @@ export function registerExponentialTools(
         const own = await loadCallerSession()
         const result = await db.transaction((tx) =>
           unlinkIssue(tx, {
-            rootId,
+            sessionId: rootId,
             issueId: issueId!,
+            removedBy: user.id,
             removedBySessionId: own?.id ?? null,
           })
         )
@@ -3344,24 +3346,24 @@ export function registerExponentialTools(
   )
 
   // -----------------------------------------------------------------------
-  // Actions (EXP-1291: SAVED PROMPTS; run one with exponential_sessions_send
-  // {actionId, inputs})
+  // Prompts (NEW-2: actions became saved PROMPTS; run one with
+  // exponential_sessions_send {promptId, text})
   // -----------------------------------------------------------------------
-  // FULL team grant even for reads: action bodies are executed prompts, not
-  // board-workflow aux data.
+  // FULL team grant even for reads: prompt bodies are executed prompts, not
+  // board-workflow aux data. Owner writes stay in Settings → Prompts.
 
   server.registerTool(
-    `exponential_actions_list`,
+    `exponential_prompts_list`,
     {
       annotations: READ_ONLY,
-      description: `List a team's actions: saved prompts with typed pick inputs. Run one with exponential_sessions_send {actionId, inputs}; exponential_actions_get reads its body.`,
+      description: `List a team's saved prompts (name, icon). Run one with exponential_sessions_send {promptId, text}; exponential_prompts_get reads its body.`,
       inputSchema: strictInput({ teamId: uuidString, ...pageInput }),
     },
     async ({ teamId, limit, offset }) => {
       try {
         if (!access.full) assertTeamFullyGranted(access, teamId)
-        const result = await caller(user, request).actions.list({ teamId })
-        return ok(page(result.actions, limit, offset))
+        const result = await caller(user, request).prompts.list({ teamId })
+        return ok(page(result.prompts, limit, offset))
       } catch (e) {
         return err(e)
       }
@@ -3369,19 +3371,42 @@ export function registerExponentialTools(
   )
 
   server.registerTool(
-    `exponential_actions_get`,
+    `exponential_prompts_get`,
     {
       annotations: READ_ONLY,
-      description: `Read one action by UUID, its markdown body included.`,
+      description: `Read one saved prompt by UUID, its markdown body included.`,
       inputSchema: strictInput({ id: uuidString }),
     },
     async ({ id }) => {
       try {
         if (!access.full) {
-          assertTeamFullyGranted(access, (await getActionContext(id)).teamId)
+          assertTeamFullyGranted(access, (await getPromptContext(id)).teamId)
         }
-        const result = await caller(user, request).actions.get({ id })
-        return ok(result.action)
+        const result = await caller(user, request).prompts.get({ id })
+        return ok(result.prompt)
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  // -----------------------------------------------------------------------
+  // Agents (NEW-2: definitions; message one with exponential_sessions_send
+  // {agentId}) and events (the team's event stream; agent triggers listen)
+  // -----------------------------------------------------------------------
+
+  server.registerTool(
+    `exponential_agents_list`,
+    {
+      annotations: READ_ONLY,
+      description: `List a team's agents: id, name, triggers (schedules and the event names they listen on), device and owner. Message one with exponential_sessions_send {agentId, text}.`,
+      inputSchema: strictInput({ teamId: uuidString, ...pageInput }),
+    },
+    async ({ teamId, limit, offset }) => {
+      try {
+        if (!access.full) assertTeamFullyGranted(access, teamId)
+        const result = await caller(user, request).agents.list({ teamId })
+        return ok(page(result.agents, limit, offset))
       } catch (e) {
         return err(e)
       }
@@ -3389,62 +3414,80 @@ export function registerExponentialTools(
   )
 
   server.registerTool(
-    `exponential_actions_upsert`,
+    `exponential_events_emit`,
     {
-      description: `Create (no id: teamId, name, body required) or update (id; only the fields you pass) a team action. Owner only. body = the markdown prompt; icon = a curated icon name (null clears); inputs = typed picks {key, label, type: repo|board|pr|issue, required?, placeholder?}, whole-array replace; promptPlaceholder = the composer's hint.`,
+      description: `Emit a team event: name (free text, e.g. ui-changed; builtins are issue.created, issue.status_changed, pr.opened, pr.merged, session.ended) plus a JSON payload. Every agent with an event trigger on that name is woken with it; never your own agent. teamId defaults to your session's.`,
       inputSchema: strictInput({
-        id: uuidString.optional(),
         teamId: uuidString.optional(),
-        name: z.string().min(1).max(255).optional(),
-        icon: boardIconEnumSchema.nullable().optional(),
-        body: z.string().min(1).optional(),
-        inputs: actionInputsSchema.optional(),
-        promptPlaceholder: z.string().max(200).nullable().optional(),
-        sortOrder: z.number().finite().optional(),
+        name: z.string().min(1).max(128),
+        payload: z.record(z.string(), z.unknown()).optional(),
       }),
     },
-    async ({ id, teamId, ...fields }) => {
+    async ({ teamId: namedTeam, name, payload }) => {
       try {
-        const trpc = caller(user, request)
-        if (id) {
-          if (teamId) throw new Error(`teamId is fixed: an update takes id only`)
-          if (!access.full) {
-            assertTeamFullyGranted(access, (await getActionContext(id)).teamId)
-          }
-          return ok((await trpc.actions.update({ id, ...fields })).action)
-        }
-        const { name, body, sortOrder: _sortOrder, ...rest } = fields
-        if (!teamId || !name || !body) {
-          throw new Error(`A new action needs teamId, name and body`)
-        }
+        const own = await loadCallerSession()
+        const teamId = namedTeam ?? own?.teamId
+        if (!teamId) throw new Error(`Pass teamId: this call runs outside a session.`)
+        await assertTeamMember(user.id, teamId)
         if (!access.full) assertTeamFullyGranted(access, teamId)
-        return ok((await trpc.actions.create({ teamId, name, body, ...rest })).action)
+        const parsedName = eventNameSchema.parse(name)
+        const parsedPayload = eventPayloadSchema.parse(payload ?? {})
+        const event = await db.transaction((tx) =>
+          emitEventInTx(tx, {
+            teamId,
+            name: parsedName,
+            payload: parsedPayload,
+            emittedBy: own ? { sessionId: own.id } : { userId: user.id },
+          })
+        )
+        return ok({ id: event.id, name: event.name, createdAt: event.createdAt })
       } catch (e) {
         return err(e)
       }
     }
   )
+
+
 
   server.registerTool(
-    `exponential_actions_delete`,
+    `exponential_events_list`,
     {
-      description: `Delete an action by UUID (owner only). Threads that ran it keep its name.`,
-      inputSchema: strictInput({ id: uuidString }),
+      annotations: READ_ONLY,
+      description: `List a team's recent events, newest first: id, name, payload, emitter (session, user or server), createdAt. name filters to one event name. teamId defaults to your session's.`,
+      inputSchema: strictInput({
+        teamId: uuidString.optional(),
+        name: z.string().min(1).max(128).optional(),
+        ...pageInput,
+      }),
     },
-    async ({ id }) => {
+    async ({ teamId: namedTeam, name, limit, offset }) => {
       try {
-        if (!access.full) {
-          assertTeamFullyGranted(access, (await getActionContext(id)).teamId)
-        }
-        await caller(user, request).actions.delete({ id })
-        return ok({ ok: true, id })
+        const own = await loadCallerSession()
+        const teamId = namedTeam ?? own?.teamId
+        if (!teamId) throw new Error(`Pass teamId: this call runs outside a session.`)
+        await assertTeamMember(user.id, teamId)
+        if (!access.full) assertTeamVisible(access, teamId)
+        const rows = await db
+          .select({
+            id: events.id,
+            name: events.name,
+            payload: events.payload,
+            emittedBy: events.emittedBy,
+            sessionId: events.sessionId,
+            userId: events.userId,
+            createdAt: events.createdAt,
+          })
+          .from(events)
+          .where(and(eq(events.teamId, teamId), name ? eq(events.name, name) : undefined))
+          .orderBy(desc(events.createdAt))
+          .limit(limit ?? 50)
+          .offset(offset ?? 0)
+        return ok({ events: rows })
       } catch (e) {
         return err(e)
       }
     }
   )
-
-
 
   // -----------------------------------------------------------------------
   // Boards (delete / retarget repository)

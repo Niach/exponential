@@ -13,7 +13,7 @@ const base = {
   agent: false,
   reportBug: false,
 }
-const ask = `Ask a person with exponential_sessions_ask.`
+const ask = `Ask a person with exponential_session_self {op: "ask"}.`
 
 describe(`mcpServerInstructions — the cards gate`, () => {
   it(`says the ask (and, planning, the gate) by default and when the host feeds cards`, () => {
@@ -29,10 +29,10 @@ describe(`mcpServerInstructions — the cards gate`, () => {
   it(`says neither on a host that cannot deliver a card's answer`, () => {
     for (const planMode of [false, true]) {
       const text = mcpServerInstructions({ ...base, cards: false, planMode })
-      expect(text).not.toContain(`exponential_sessions_ask`)
+      expect(text).not.toContain(`exponential_session_self {op: "ask"}`)
       expect(text).not.toContain(PLAN_CARD_COPY.planModeGate)
       // Everything else stays.
-      expect(text).toContain(`exponential_sessions_end ends this session`)
+      expect(text).toContain(`exponential_sessions {op: "end"} ends this session`)
       expect(text).toContain(`exponential_guide_write`)
     }
   })
@@ -43,7 +43,7 @@ describe(`mcpServerInstructions — the cards gate`, () => {
       inSession: false,
       cards: false,
     })
-    expect(text).not.toContain(`exponential_sessions_ask`)
+    expect(text).not.toContain(`exponential_session_self {op: "ask"}`)
     expect(text).toBe(mcpServerInstructions({ ...base, inSession: false }))
   })
 })

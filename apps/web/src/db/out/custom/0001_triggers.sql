@@ -99,6 +99,11 @@ CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON pull_request_issues
   EXECUTE FUNCTION update_updated_at();
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON repositories FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON actions FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+-- NEW-2: agent definitions and prompts.
+CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON agents FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON prompts FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+-- NEW-3: conversations.
+CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON conversations FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON user_notification_prefs FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON email_deliveries FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON widget_configs FOR EACH ROW EXECUTE FUNCTION update_updated_at();
@@ -418,9 +423,22 @@ CREATE OR REPLACE TRIGGER populate_session_issue_visibility
   BEFORE INSERT ON session_issues
   FOR EACH ROW EXECUTE FUNCTION populate_session_issue_visibility();
 
+-- NEW-3: a row names its conversation OR its session; the other is derived
+-- (a session's conversation is kind `session`, one each). The visibility
+-- mirrors come from the session either way.
 CREATE OR REPLACE FUNCTION populate_message_session_mirrors()
 RETURNS TRIGGER AS $$
 BEGIN
+  IF NEW.session_id IS NULL AND NEW.conversation_id IS NOT NULL THEN
+    SELECT c.session_id INTO NEW.session_id
+    FROM conversations c
+    WHERE c.id = NEW.conversation_id;
+  END IF;
+  IF NEW.conversation_id IS NULL AND NEW.session_id IS NOT NULL THEN
+    SELECT c.id INTO NEW.conversation_id
+    FROM conversations c
+    WHERE c.session_id = NEW.session_id;
+  END IF;
   SELECT s.root_id, s.team_id, s.shared, s.user_id
     INTO NEW.root_id, NEW.team_id, NEW.shared, NEW.owner_id
   FROM sessions s
@@ -432,6 +450,25 @@ $$ LANGUAGE plpgsql;
 CREATE OR REPLACE TRIGGER populate_message_session_mirrors
   BEFORE INSERT ON messages
   FOR EACH ROW EXECUTE FUNCTION populate_message_session_mirrors();
+
+-- NEW-3: every session owns ONE conversation of kind `session`
+-- (`conversations.session_id`), created with the row; its visibility
+-- mirrors (`shared`, `owner_id`, `team_id`) are the session's, stamped once
+-- (a session's `shared` and `user_id` never change). Idempotent: a
+-- conversation inserted by the app first is kept.
+CREATE OR REPLACE FUNCTION create_session_conversation()
+RETURNS TRIGGER AS $$
+BEGIN
+  INSERT INTO conversations (id, team_id, kind, session_id, shared, owner_id)
+  VALUES (gen_random_uuid(), NEW.team_id, 'session', NEW.id, NEW.shared, NEW.user_id)
+  ON CONFLICT (session_id) DO NOTHING;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE TRIGGER create_session_conversation
+  AFTER INSERT ON sessions
+  FOR EACH ROW EXECUTE FUNCTION create_session_conversation();
 
 -- The pre-EXP-1291 run/thread functions (their tables are gone, so are
 -- their triggers): dropped so no stale body lingers.

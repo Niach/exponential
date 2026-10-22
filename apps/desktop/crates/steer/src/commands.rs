@@ -1,7 +1,8 @@
 //! EXP-724: the curated steer slash-command catalog, read straight off the
 //! generated domain contract (`packages/domain-contract/contract.json`
-//! `steerCommands`) — the SAME rows every viewer's `/` menu offers, so what
-//! a client can pick, the publisher can execute.
+//! `steerCommands`: NEW-2 = `compact`, `model`, `effort`) — the SAME rows
+//! every viewer's `/` menu offers, so what a client can pick, the publisher
+//! can execute. The commands the agent CLI injects are never offered.
 //!
 //! A remote message is a command iff its first whitespace token is `/<name>`
 //! for a catalog row applicable to the session's agent; everything else is
@@ -46,9 +47,9 @@ impl ParsedCommand {
 }
 
 // EXP-746: `External`'s id is deliberately one `contract.json`'s
-// `steerCommands` cannot name, so an external ACP agent's catalog is EMPTY and
-// its `/` menu carries only what the agent advertised itself
-// (`config_state.commands`). Never add it to the contract: the curated rows
+// `steerCommands` cannot name, so an external ACP agent's catalog is EMPTY.
+// NEW-2: the agent's own advertised commands are never offered either, so
+// its `/` menu is empty. Never add it to the contract: the curated rows
 // describe claude/codex behaviour we verified.
 fn agent_id(agent: SessionAgent) -> &'static str {
     agent.id()
@@ -124,21 +125,16 @@ mod tests {
         assert!(catalog_for(SessionAgent::Claude)
             .iter()
             .any(|c| c.name == "compact"));
-        // `/clear` is every agent's and confirms; EXP-1330: `/btw` (the
-        // aside) is claude's alone.
-        for (agent, names) in [
-            (SessionAgent::Claude, vec!["compact", "clear", "btw"]),
-            (SessionAgent::Codex, vec!["compact", "clear"]),
-        ] {
+        // NEW-2: compact/model/effort for both agents, none confirms
+        // (`/clear` and `/btw` are gone).
+        for agent in [SessionAgent::Claude, SessionAgent::Codex] {
             let rows = catalog_for(agent);
-            assert_eq!(rows.iter().map(|c| c.name).collect::<Vec<_>>(), names);
-            assert!(rows.iter().any(|c| c.name == "clear" && c.confirm));
-            assert!(rows.iter().any(|c| c.name == "compact" && !c.confirm));
+            assert_eq!(rows.iter().map(|c| c.name).collect::<Vec<_>>(), vec!["compact", "model", "effort"]);
+            assert!(rows.iter().all(|c| !c.confirm));
+            assert_eq!(rows.iter().map(|c| c.arg_hint).collect::<Vec<_>>(), vec!["instructions", "model", "level"]);
         }
-        assert!(catalog_for(SessionAgent::Claude).iter().any(|c| c.name == "btw" && !c.confirm));
         // EXP-746: an external ACP agent matches no contract row, so its
-        // catalog is empty and `/compact` is prose to it — the agent's own
-        // advertised commands are the whole `/` menu there.
+        // catalog is empty and `/compact` is prose to it.
         assert!(catalog_for(SessionAgent::External).is_empty());
         assert_eq!(parse_command("/compact", SessionAgent::External), None);
     }
@@ -153,11 +149,15 @@ mod tests {
             parse_command("  /Compact  ", SessionAgent::Codex).unwrap().text(),
             "/compact"
         );
+        // NEW-2: `/model <alias>` and `/effort <level>` are catalog rows.
+        let model = parse_command("/model opus", SessionAgent::Claude).unwrap();
+        assert_eq!((model.command.name, model.args.as_str()), ("model", "opus"));
+        assert_eq!(parse_command("/effort high", SessionAgent::Codex).unwrap().command.name, "effort");
         // Not in the catalog at all.
         assert_eq!(parse_command("/cost", SessionAgent::Claude), None);
-        assert_eq!(parse_command("/model opus", SessionAgent::Claude), None);
         assert_eq!(parse_command("/new", SessionAgent::Codex), None);
-        assert!(parse_command("/clear", SessionAgent::Codex).is_some());
+        assert_eq!(parse_command("/clear", SessionAgent::Codex), None);
+        assert_eq!(parse_command("/btw why", SessionAgent::Claude), None);
         // Prose, paths and a bare slash are never commands.
         assert_eq!(parse_command("fix /compact later", SessionAgent::Claude), None);
         assert_eq!(parse_command("/api/foo", SessionAgent::Claude), None);

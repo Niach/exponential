@@ -1,4 +1,4 @@
-- Plus rapide partout : l'app ne se synchronise plus en continu au repos, et les listes, la vue de session et les éditeurs travaillent bien moins à chaque frappe et à chaque cycle de synchronisation
-- Le titre Threads se place dans la barre fixe en haut, comme dans tous les autres onglets
-- Déplacer une session : l'appareil source conserve son worktree et sa branche jusqu'à ce que l'appareil cible les ait entièrement restaurés, puis fait le ménage
-- Corrections issues de la revue : un tableau encore en cours de synchronisation ne fait plus clignoter la bannière "Syncing team", et un statut renommé atteint aussitôt les puces #EXP
+- Le nouveau système de sessions : un thread est une session qui travaille seule et que les messages réveillent, avec une carte de plan qui pose une question à la fois
+- Les agents sont des définitions avec leur propre conversation par membre, des déclencheurs lancés par le serveur et un flux Events ; écrivez à un agent depuis le composer
+- Les prompts remplacent les actions : retrouvez-les dans le / menu et dans Réglages → Prompts
+- Les vues sessions, vous attend et en cours suivent le nouveau système sur chaque écran

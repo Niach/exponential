@@ -38,47 +38,44 @@ public enum AgentComposerPrompt {
         case none
         /// `count` checked issues (the new thread's issues).
         case issues(count: Int)
-        /// A team action.
-        case action
+        /// NEW-2: a team prompt picked in the `/` menu (`promptId`).
+        case prompt
+        /// NEW-3: a message into the caller's DM with a team agent
+        /// (`agentId`); composer-menu.json `message-agent`.
+        case agent
     }
 
-    /// The submit label — the ×4 contract: "Start chat" / "Start coding" /
-    /// "Run action".
+    /// The submit label (web `submitLabelFor`): "Start chat" / "Start
+    /// coding" / "Start session" for a prompt / "Send" into an agent's DM.
     public static func submitTitle(for subject: Subject) -> String {
         switch subject {
         case .none: "Start chat"
         case .issues: "Start coding"
-        case .action: "Run action"
+        case .prompt: "Start session"
+        case .agent: "Send"
         }
     }
 
     /// EXP-1038: the composer's HEADLINE verb, above the field and beside the
-    /// subject chips — the contract's `composerUi*` copy ×4: "Run" for an
-    /// action, "Implement" for issue chips, "Ask the agent" for a subjectless
-    /// chat (which has no chips, so the verb stands alone).
+    /// subject chips — the contract's `composerUi*` copy ×4: "Implement" for
+    /// issue chips, "Ask the agent" for a subjectless chat (which has no
+    /// chips, so the verb stands alone). A prompt's or an agent's chip IS the
+    /// headline: no verb (web `launchHeadlineVerb`).
     public static func headline(for subject: Subject) -> String {
         switch subject {
         case .none: DomainContract.composerUiChatHeadline
         case .issues: DomainContract.composerUiImplementHeadline
-        case .action: DomainContract.composerUiRunHeadline
+        case .prompt, .agent: ""
         }
     }
 
-    /// The field's placeholder — web `composerPlaceholder` byte for byte
-    /// (EXP-825, the contract's `composerUi*` copy since EXP-1038): a chat
-    /// asks for the message; a picked action with a non-blank
-    /// `promptPlaceholder` (`actionHint`, trimmed) shows it; every other
-    /// subject asks for what is optional next to it. Issue chips never read
-    /// an action's hint.
-    public static func placeholder(for subject: Subject, actionHint: String?) -> String {
+    /// The field's placeholder — web `composerPlaceholder` (the contract's
+    /// `composerUi*` copy): a chat asks for the message; with any subject up
+    /// the field is the secondary half and asks for what is optional.
+    public static func placeholder(for subject: Subject) -> String {
         switch subject {
-        case .none:
-            return DomainContract.composerUiChatPlaceholder
-        case .action:
-            let hint = actionHint?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            return hint.isEmpty ? DomainContract.composerUiInstructionsPlaceholder : hint
-        case .issues:
-            return DomainContract.composerUiInstructionsPlaceholder
+        case .none: DomainContract.composerUiChatPlaceholder
+        case .issues, .prompt, .agent: DomainContract.composerUiInstructionsPlaceholder
         }
     }
 }

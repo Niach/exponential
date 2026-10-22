@@ -11,14 +11,15 @@ import type { SessionRow } from "@/lib/session-tree"
  *  row (or a test fixture) still passes one. */
 export type TeamLiveRunSession = Pick<
   SessionRow,
-  `teamId` | `userId` | `status` | `needsInput` | `kind` | `rootId`
+  `teamId` | `userId` | `status` | `needsInput` | `agentId` | `rootId`
 >
 
-/** A live session counts only when its ROOT is a thread: a team agent root
- *  (kind `agent`) never ends, and neither does its channel, so the agent and
- *  every session under it stay out of the "something runs" dots. */
+/** A live session counts only when its ROOT is a thread: an agent's
+ *  conversation session (NEW-2: a root with an `agentId`) never ends, so it
+ *  and every session under it (`agentRootIds`) stay out of the "something
+ *  runs" dots. */
 export function countsAsLiveSession(
-  session: Pick<SessionRow, `kind` | `rootId` | `status`>,
+  session: Pick<SessionRow, `agentId` | `rootId` | `status`>,
   agentRootIds: ReadonlySet<string>
 ): boolean {
   if (session.status === `ended`) return false

@@ -1,7 +1,7 @@
 import Foundation
 
 /// EXP-825: what a play button hands the home composer. Every launcher entry
-/// point is NAVIGATION — the issue's Start, the bulk bar, an action's Run, a
+/// point is NAVIGATION — the issue's Start, the bulk bar, a prompt, a
 /// machine's play glyph — and this is the preselection it carries; the send
 /// is ONE `sessions.send` (EXP-1291) in the ACTIVE team.
 ///
@@ -10,9 +10,9 @@ import Foundation
 public struct AgentComposerSeed: Hashable, Sendable {
     /// Pre-checked issue ids (the new thread's `issueIds`).
     public var issueIds: [String]
-    /// A preselected team action. Wins over `issueIds` when both arrive (the
+    /// A preselected team prompt (NEW-2). Wins over `issueIds` when both arrive (the
     /// web rule).
-    public var actionId: String?
+    public var promptId: String?
     /// The machine to preselect (the Devices tab's play glyph).
     public var deviceId: String?
     /// Text dropped into an EMPTY draft.
@@ -25,13 +25,13 @@ public struct AgentComposerSeed: Hashable, Sendable {
 
     public init(
         issueIds: [String] = [],
-        actionId: String? = nil,
+        promptId: String? = nil,
         deviceId: String? = nil,
         text: String? = nil,
         teamId: String? = nil
     ) {
         self.issueIds = issueIds
-        self.actionId = actionId
+        self.promptId = promptId
         self.deviceId = deviceId
         self.text = text
         self.teamId = teamId
@@ -42,12 +42,12 @@ public struct AgentComposerSeed: Hashable, Sendable {
 
     /// Whether the seed names a subject at all.
     public var hasSubject: Bool {
-        actionId != nil || !issueIds.isEmpty
+        promptId != nil || !issueIds.isEmpty
     }
 
-    /// The issue ids the composer should check — EMPTY when an action is
-    /// seeded too, because `action` wins over `issues` (web parity).
+    /// The issue ids the composer should check — EMPTY when a prompt is
+    /// seeded too, because `prompt` wins over `issues` (web parity).
     public var effectiveIssueIds: [String] {
-        actionId == nil ? issueIds : []
+        promptId == nil ? issueIds : []
     }
 }

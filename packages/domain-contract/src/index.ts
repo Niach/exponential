@@ -96,6 +96,8 @@ export interface DomainContract {
    * "online" (devices heartbeat ~30s; the window is three missed beats).
    */
   device: { onlineWindowSeconds: number }
+  /** NEW-1: the server watchdog's thresholds (minutes). */
+  sessionWatchdog: { unclaimedMinutes: number; nudgeMinutes: number; stuckMinutes: number }
   /**
    * EXP-1025: the team prompt's hard byte cap (`teams.agent_prompt`, UTF-8
    * bytes): zod on `teams.update`, the editors' live counter, and the
@@ -230,6 +232,8 @@ export interface DomainContract {
   sessionIssueSource: { values: readonly string[] }
   /** EXP-1291: a conversation row's author — a person, the agent, the server. */
   messageAuthorKind: { values: readonly string[] }
+  /** NEW-3: a conversation's kind (conversations.kind): dm, channel, session. */
+  conversationKind: { values: readonly string[] }
   /** EXP-1291: the card kinds a conversation row may carry (messages.card). */
   messageCardKind: { values: readonly string[] }
   /** EXP-1291: an `event` card's event. */
@@ -263,20 +267,24 @@ export interface DomainContract {
    */
   startPrompt: { maxLength: number; maxImages: number }
   /**
-   * Agent triggers (EXP-530, SLOP-2; on team agents since EXP-1291): the
-   * event kinds a trigger may watch (a subset of issueEventType), the event
-   * sources, the schedule intervals, the cap on each filter id list and on
-   * an agent's triggers, the device-side cooldown and catch-up window —
-   * parity-locked with @exp/db-schema/domain.
+   * NEW-2: agent triggers (on the `agents` definition, fired by the server):
+   * the kinds, the cap per agent, the cron/tz lengths and the catch-up
+   * window — parity-locked with @exp/db-schema/domain.
    */
   agentTrigger: {
-    eventValues: readonly string[]
-    scheduleIntervalValues: readonly string[]
-    eventSourceValues: readonly string[]
-    maxFilterIds: number
+    kindValues: readonly string[]
     maxPerAgent: number
-    cooldownSeconds: number
-    eventCatchupHours: number
+    cronMax: number
+    tzMax: number
+    catchUpHours: number
+  }
+  /** NEW-2: the team event stream: the server builtins, who may emit, caps, retention. */
+  events: {
+    builtinNames: readonly string[]
+    emitterValues: readonly string[]
+    nameMax: number
+    payloadMaxBytes: number
+    retentionDays: number
   }
   /** EXP-1291: `sessions.send`'s caps — parity-locked with @exp/db-schema/domain. */
   sessionsSend: {

@@ -239,7 +239,8 @@
     "values": ["queued", "running", "idle", "ended"]
   },
   "codingSessionBlocked": {
-    "kinds": ["rate_limit"],
+    "$comment": "NEW-1: rate_limit = the usage wall (device-written; FEED-129: the server watchdog clears one whose resetsAt passed); device_offline, unclaimed, stuck = the server watchdog (sessionWatchdog).",
+    "kinds": ["rate_limit", "device_offline", "unclaimed", "stuck"],
     "windows": ["session", "weekly", "model"]
   },
   "codingSession": {
@@ -257,6 +258,12 @@
     "agentInstructionsMaxBytes": 16384,
     "treeMaxDepth": 3,
     "treeMaxSessions": 10
+  },
+  "sessionWatchdog": {
+    "$comment": "NEW-1: the server watchdog (every minute). A queued session nobody claimed for unclaimedMinutes = blocked:unclaimed + Needs you; a live session with pending input older than nudgeMinutes = the device is nudged again; a busy session with no device report for stuckMinutes = blocked:stuck; a host device silent past device.onlineWindowSeconds = its live sessions idle + blocked:device_offline until its next heartbeat; a rate_limit wall whose resetsAt passed = cleared (FEED-129).",
+    "unclaimedMinutes": 5,
+    "nudgeMinutes": 2,
+    "stuckMinutes": 30
   },
   "device": {
     "onlineWindowSeconds": 90
@@ -385,6 +392,10 @@
   "messageAuthorKind": {
     "values": ["user", "agent", "system"]
   },
+  "conversationKind": {
+    "$comment": "NEW-3: conversations.kind. Every session owns ONE conversation of kind `session` (messages.conversation_id; messages.session_id stays as the step-1 read shim). `dm` and `channel` = people talking (step 2, NEW-8); an agent DM is the agent's conversation SESSION for that member.",
+    "values": ["dm", "channel", "session"]
+  },
   "planCard": {
     "$comment": "EXP-1280 custom plan mode: the caps of exponential_plan_propose and exponential_sessions_ask (the card's behaviour = fixtures/plan-card.json). Pictures are named by `label` in the call and uploaded afterwards; until the upload lands the markdown embeds `![alt](upload:<label>)` and an option names its picture by label.",
     "questionsMax": 10,
@@ -399,10 +410,10 @@
     "uploadScheme": "upload:"
   },
   "messageCardKind": {
-    "values": ["question", "plan", "subagent", "session", "picture", "event", "thread_started", "report", "suggestions", "replies"]
+    "values": ["question", "plan", "subagent", "session", "picture", "event", "thread_started", "report", "suggestions", "replies", "ask"]
   },
   "messageEventKind": {
-    "values": ["issue_linked", "issue_filed", "issue_unlinked", "pr_opened", "pr_merged", "pr_closed", "session_ended"]
+    "values": ["issue_linked", "issue_filed", "issue_unlinked", "pr_opened", "pr_merged", "pr_closed", "session_ended", "session_claimed", "session_blocked", "session_unclaimed", "session_stuck", "device_offline", "trigger_fired"]
   },
   "codingAgent": {
     "values": ["claude", "codex"]
@@ -456,21 +467,24 @@
     ]
   },
   "agentTrigger": {
-    "eventValues": [
-      "created",
-      "status_changed",
-      "assignee_changed",
-      "label_added",
-      "priority_changed",
-      "pr_opened",
-      "pr_merged"
-    ],
-    "scheduleIntervalValues": ["daily", "weekly", "monthly"],
-    "eventSourceValues": ["exponential"],
-    "maxFilterIds": 20,
+    "$comment": "NEW-2: triggers live on the `agents` definition and the SERVER fires them every watchdog tick. schedule = a 5-field cron with minutes (`m h dom mon dow`) read in an IANA `tz` (default UTC); a tick missed while the server was down is caught up on the next one within catchUpHours, once; a schedule never stacks while its last firing is unread. event = the name of an `events` row.",
+    "kindValues": ["schedule", "event"],
     "maxPerAgent": 10,
-    "cooldownSeconds": 60,
-    "eventCatchupHours": 24
+    "cronMax": 64,
+    "tzMax": 64,
+    "catchUpHours": 24
+  },
+  "timeZones": {
+    "$comment": "NEW-2: the ONE time-zone list every schedule picker offers (`schedule-picker.json`): UTC, then ICU's canonical IANA zones (Intl.supportedValuesOf('timeZone'), sorted). The server validates a trigger's tz with the same ICU (`timeZoneSchema`), so every row here saves; a stored zone off the list is offered as its own row.",
+    "names": ["UTC", "Africa/Abidjan", "Africa/Accra", "Africa/Addis_Ababa", "Africa/Algiers", "Africa/Asmera", "Africa/Bamako", "Africa/Bangui", "Africa/Banjul", "Africa/Bissau", "Africa/Blantyre", "Africa/Brazzaville", "Africa/Bujumbura", "Africa/Cairo", "Africa/Casablanca", "Africa/Ceuta", "Africa/Conakry", "Africa/Dakar", "Africa/Dar_es_Salaam", "Africa/Djibouti", "Africa/Douala", "Africa/El_Aaiun", "Africa/Freetown", "Africa/Gaborone", "Africa/Harare", "Africa/Johannesburg", "Africa/Juba", "Africa/Kampala", "Africa/Khartoum", "Africa/Kigali", "Africa/Kinshasa", "Africa/Lagos", "Africa/Libreville", "Africa/Lome", "Africa/Luanda", "Africa/Lubumbashi", "Africa/Lusaka", "Africa/Malabo", "Africa/Maputo", "Africa/Maseru", "Africa/Mbabane", "Africa/Mogadishu", "Africa/Monrovia", "Africa/Nairobi", "Africa/Ndjamena", "Africa/Niamey", "Africa/Nouakchott", "Africa/Ouagadougou", "Africa/Porto-Novo", "Africa/Sao_Tome", "Africa/Tripoli", "Africa/Tunis", "Africa/Windhoek", "America/Adak", "America/Anchorage", "America/Anguilla", "America/Antigua", "America/Araguaina", "America/Argentina/La_Rioja", "America/Argentina/Rio_Gallegos", "America/Argentina/Salta", "America/Argentina/San_Juan", "America/Argentina/San_Luis", "America/Argentina/Tucuman", "America/Argentina/Ushuaia", "America/Aruba", "America/Asuncion", "America/Bahia", "America/Bahia_Banderas", "America/Barbados", "America/Belem", "America/Belize", "America/Blanc-Sablon", "America/Boa_Vista", "America/Bogota", "America/Boise", "America/Buenos_Aires", "America/Cambridge_Bay", "America/Campo_Grande", "America/Cancun", "America/Caracas", "America/Catamarca", "America/Cayenne", "America/Cayman", "America/Chicago", "America/Chihuahua", "America/Ciudad_Juarez", "America/Coral_Harbour", "America/Cordoba", "America/Costa_Rica", "America/Coyhaique", "America/Creston", "America/Cuiaba", "America/Curacao", "America/Danmarkshavn", "America/Dawson", "America/Dawson_Creek", "America/Denver", "America/Detroit", "America/Dominica", "America/Edmonton", "America/Eirunepe", "America/El_Salvador", "America/Fort_Nelson", "America/Fortaleza", "America/Glace_Bay", "America/Godthab", "America/Goose_Bay", "America/Grand_Turk", "America/Grenada", "America/Guadeloupe", "America/Guatemala", "America/Guayaquil", "America/Guyana", "America/Halifax", "America/Havana", "America/Hermosillo", "America/Indiana/Knox", "America/Indiana/Marengo", "America/Indiana/Petersburg", "America/Indiana/Tell_City", "America/Indiana/Vevay", "America/Indiana/Vincennes", "America/Indiana/Winamac", "America/Indianapolis", "America/Inuvik", "America/Iqaluit", "America/Jamaica", "America/Jujuy", "America/Juneau", "America/Kentucky/Monticello", "America/Kralendijk", "America/La_Paz", "America/Lima", "America/Los_Angeles", "America/Louisville", "America/Lower_Princes", "America/Maceio", "America/Managua", "America/Manaus", "America/Marigot", "America/Martinique", "America/Matamoros", "America/Mazatlan", "America/Mendoza", "America/Menominee", "America/Merida", "America/Metlakatla", "America/Mexico_City", "America/Miquelon", "America/Moncton", "America/Monterrey", "America/Montevideo", "America/Montserrat", "America/Nassau", "America/New_York", "America/Nome", "America/Noronha", "America/North_Dakota/Beulah", "America/North_Dakota/Center", "America/North_Dakota/New_Salem", "America/Ojinaga", "America/Panama", "America/Paramaribo", "America/Phoenix", "America/Port-au-Prince", "America/Port_of_Spain", "America/Porto_Velho", "America/Puerto_Rico", "America/Punta_Arenas", "America/Rankin_Inlet", "America/Recife", "America/Regina", "America/Resolute", "America/Rio_Branco", "America/Santarem", "America/Santiago", "America/Santo_Domingo", "America/Sao_Paulo", "America/Scoresbysund", "America/Sitka", "America/St_Barthelemy", "America/St_Johns", "America/St_Kitts", "America/St_Lucia", "America/St_Thomas", "America/St_Vincent", "America/Swift_Current", "America/Tegucigalpa", "America/Thule", "America/Tijuana", "America/Toronto", "America/Tortola", "America/Vancouver", "America/Whitehorse", "America/Winnipeg", "America/Yakutat", "Antarctica/Casey", "Antarctica/Davis", "Antarctica/DumontDUrville", "Antarctica/Macquarie", "Antarctica/Mawson", "Antarctica/McMurdo", "Antarctica/Palmer", "Antarctica/Rothera", "Antarctica/Syowa", "Antarctica/Troll", "Antarctica/Vostok", "Arctic/Longyearbyen", "Asia/Aden", "Asia/Almaty", "Asia/Amman", "Asia/Anadyr", "Asia/Aqtau", "Asia/Aqtobe", "Asia/Ashgabat", "Asia/Atyrau", "Asia/Baghdad", "Asia/Bahrain", "Asia/Baku", "Asia/Bangkok", "Asia/Barnaul", "Asia/Beirut", "Asia/Bishkek", "Asia/Brunei", "Asia/Calcutta", "Asia/Chita", "Asia/Colombo", "Asia/Damascus", "Asia/Dhaka", "Asia/Dili", "Asia/Dubai", "Asia/Dushanbe", "Asia/Famagusta", "Asia/Gaza", "Asia/Hebron", "Asia/Hong_Kong", "Asia/Hovd", "Asia/Irkutsk", "Asia/Jakarta", "Asia/Jayapura", "Asia/Jerusalem", "Asia/Kabul", "Asia/Kamchatka", "Asia/Karachi", "Asia/Katmandu", "Asia/Khandyga", "Asia/Krasnoyarsk", "Asia/Kuala_Lumpur", "Asia/Kuching", "Asia/Kuwait", "Asia/Macau", "Asia/Magadan", "Asia/Makassar", "Asia/Manila", "Asia/Muscat", "Asia/Nicosia", "Asia/Novokuznetsk", "Asia/Novosibirsk", "Asia/Omsk", "Asia/Oral", "Asia/Phnom_Penh", "Asia/Pontianak", "Asia/Pyongyang", "Asia/Qatar", "Asia/Qostanay", "Asia/Qyzylorda", "Asia/Rangoon", "Asia/Riyadh", "Asia/Saigon", "Asia/Sakhalin", "Asia/Samarkand", "Asia/Seoul", "Asia/Shanghai", "Asia/Singapore", "Asia/Srednekolymsk", "Asia/Taipei", "Asia/Tashkent", "Asia/Tbilisi", "Asia/Tehran", "Asia/Thimphu", "Asia/Tokyo", "Asia/Tomsk", "Asia/Ulaanbaatar", "Asia/Urumqi", "Asia/Ust-Nera", "Asia/Vientiane", "Asia/Vladivostok", "Asia/Yakutsk", "Asia/Yekaterinburg", "Asia/Yerevan", "Atlantic/Azores", "Atlantic/Bermuda", "Atlantic/Canary", "Atlantic/Cape_Verde", "Atlantic/Faeroe", "Atlantic/Madeira", "Atlantic/Reykjavik", "Atlantic/South_Georgia", "Atlantic/St_Helena", "Atlantic/Stanley", "Australia/Adelaide", "Australia/Brisbane", "Australia/Broken_Hill", "Australia/Darwin", "Australia/Eucla", "Australia/Hobart", "Australia/Lindeman", "Australia/Lord_Howe", "Australia/Melbourne", "Australia/Perth", "Australia/Sydney", "Europe/Amsterdam", "Europe/Andorra", "Europe/Astrakhan", "Europe/Athens", "Europe/Belgrade", "Europe/Berlin", "Europe/Bratislava", "Europe/Brussels", "Europe/Bucharest", "Europe/Budapest", "Europe/Busingen", "Europe/Chisinau", "Europe/Copenhagen", "Europe/Dublin", "Europe/Gibraltar", "Europe/Guernsey", "Europe/Helsinki", "Europe/Isle_of_Man", "Europe/Istanbul", "Europe/Jersey", "Europe/Kaliningrad", "Europe/Kiev", "Europe/Kirov", "Europe/Lisbon", "Europe/Ljubljana", "Europe/London", "Europe/Luxembourg", "Europe/Madrid", "Europe/Malta", "Europe/Mariehamn", "Europe/Minsk", "Europe/Monaco", "Europe/Moscow", "Europe/Oslo", "Europe/Paris", "Europe/Podgorica", "Europe/Prague", "Europe/Riga", "Europe/Rome", "Europe/Samara", "Europe/San_Marino", "Europe/Sarajevo", "Europe/Saratov", "Europe/Simferopol", "Europe/Skopje", "Europe/Sofia", "Europe/Stockholm", "Europe/Tallinn", "Europe/Tirane", "Europe/Ulyanovsk", "Europe/Vaduz", "Europe/Vatican", "Europe/Vienna", "Europe/Vilnius", "Europe/Volgograd", "Europe/Warsaw", "Europe/Zagreb", "Europe/Zurich", "Indian/Antananarivo", "Indian/Chagos", "Indian/Christmas", "Indian/Cocos", "Indian/Comoro", "Indian/Kerguelen", "Indian/Mahe", "Indian/Maldives", "Indian/Mauritius", "Indian/Mayotte", "Indian/Reunion", "Pacific/Apia", "Pacific/Auckland", "Pacific/Bougainville", "Pacific/Chatham", "Pacific/Easter", "Pacific/Efate", "Pacific/Enderbury", "Pacific/Fakaofo", "Pacific/Fiji", "Pacific/Funafuti", "Pacific/Galapagos", "Pacific/Gambier", "Pacific/Guadalcanal", "Pacific/Guam", "Pacific/Honolulu", "Pacific/Kiritimati", "Pacific/Kosrae", "Pacific/Kwajalein", "Pacific/Majuro", "Pacific/Marquesas", "Pacific/Midway", "Pacific/Nauru", "Pacific/Niue", "Pacific/Norfolk", "Pacific/Noumea", "Pacific/Pago_Pago", "Pacific/Palau", "Pacific/Pitcairn", "Pacific/Ponape", "Pacific/Port_Moresby", "Pacific/Rarotonga", "Pacific/Saipan", "Pacific/Tahiti", "Pacific/Tarawa", "Pacific/Tongatapu", "Pacific/Truk", "Pacific/Wake", "Pacific/Wallis"]
+  },
+  "events": {
+    "$comment": "NEW-2: the team's event stream (`events` shape). builtinNames = what the server emits itself; any other name is a custom event (MCP events_emit). Rows older than retentionDays are pruned.",
+    "builtinNames": ["issue.created", "issue.status_changed", "pr.opened", "pr.merged", "session.ended"],
+    "emitterValues": ["session", "user", "server"],
+    "nameMax": 128,
+    "payloadMaxBytes": 16384,
+    "retentionDays": 30
   },
   "actionInputs": {
     "max": 10,
@@ -481,6 +495,7 @@
     "maxImages": 4
   },
   "steerCommands": {
+    "$comment": "NEW-2 (owner 2026-10-21): the composer's `/` menu = the team's PROMPTS (the `prompts` shape, a pick inserts the prompt as the run's first message) plus ONLY these builtins; commands the agent CLI injects from outside Exponential (Claude Code skills, plugins) are hidden on every platform. /model <alias> is sent as text (the CLI switches, config_state reports it), /effort <level> = sessions.configure.",
     "commands": [
       {
         "name": "compact",
@@ -490,17 +505,17 @@
         "confirm": false
       },
       {
-        "name": "clear",
-        "description": "Start a fresh conversation (context is discarded)",
-        "argHint": "",
+        "name": "model",
+        "description": "Switch the model for this session",
+        "argHint": "model",
         "agents": ["claude", "codex"],
-        "confirm": true
+        "confirm": false
       },
       {
-        "name": "btw",
-        "description": "Ask a quick side question, answered read-only without adding to the session",
-        "argHint": "question",
-        "agents": ["claude"],
+        "name": "effort",
+        "description": "Set the reasoning effort for this session",
+        "argHint": "level",
+        "agents": ["claude", "codex"],
         "confirm": false
       }
     ]
@@ -517,52 +532,22 @@
       "action",
       "list",
       "results",
-      "picture"
+      "picture",
+      "prompt",
+      "agent",
+      "event"
     ],
     "tools": [
       {
-        "name": "actions_delete",
-        "title": "Delete action",
-        "blurb": "Removes an action from the team for good.",
-        "progressive": "Deleting action",
-        "done": "Deleted action",
-        "progressiveMany": "Deleting {n} actions",
-        "doneMany": "Deleted {n} actions",
-        "subjectKey": "id",
-        "result": "none"
-      },
-      {
-        "name": "actions_get",
-        "title": "Read action",
-        "blurb": "Reads one action with its prompt body and its inputs.",
-        "progressive": "Reading action",
-        "done": "Read action",
-        "progressiveMany": "Reading {n} actions",
-        "doneMany": "Read {n} actions",
-        "subjectKey": "id",
-        "result": "action"
-      },
-      {
-        "name": "actions_list",
-        "title": "List actions",
-        "blurb": "Lists the team's actions, its saved prompts.",
-        "progressive": "Listing actions",
-        "done": "Listed actions",
-        "progressiveMany": "Listing actions {n} times",
-        "doneMany": "Listed actions {n} times",
+        "name": "team_config_agents_list",
+        "title": "List agents",
+        "blurb": "Lists the team's agents with their triggers, device and owner.",
+        "progressive": "Listing agents",
+        "done": "Listed agents",
+        "progressiveMany": "Listing agents {n} times",
+        "doneMany": "Listed agents {n} times",
         "subjectKey": "",
         "result": "list"
-      },
-      {
-        "name": "actions_upsert",
-        "title": "Save action",
-        "blurb": "Creates an action or edits one: its name, prompt body, icon and inputs.",
-        "progressive": "Saving action",
-        "done": "Saved action",
-        "progressiveMany": "Saving {n} actions",
-        "doneMany": "Saved {n} actions",
-        "subjectKey": "name",
-        "result": "action"
       },
       {
         "name": "attachments_delete",
@@ -741,6 +726,28 @@
         "result": "list"
       },
       {
+        "name": "events_emit",
+        "title": "Emit event",
+        "blurb": "Posts a named event with a payload; the agents listening on that name wake with it.",
+        "progressive": "Emitting event",
+        "done": "Emitted event",
+        "progressiveMany": "Emitting {n} events",
+        "doneMany": "Emitted {n} events",
+        "subjectKey": "name",
+        "result": "event"
+      },
+      {
+        "name": "events_list",
+        "title": "List events",
+        "blurb": "Lists the team's recent events, newest first.",
+        "progressive": "Listing events",
+        "done": "Listed events",
+        "progressiveMany": "Listing events {n} times",
+        "doneMany": "Listed events {n} times",
+        "subjectKey": "",
+        "result": "list"
+      },
+      {
         "name": "guide_write",
         "title": "Write the Guide",
         "blurb": "Writes the thread's Guide: GFM sections with their files and screenshots, the body of every PR.",
@@ -752,7 +759,7 @@
         "result": "results"
       },
       {
-        "name": "invites_create",
+        "name": "people_invites_create",
         "title": "Create invite",
         "blurb": "Creates an invite link for a team, optionally mailed to an address.",
         "progressive": "Creating invite",
@@ -763,7 +770,7 @@
         "result": "none"
       },
       {
-        "name": "invites_list",
+        "name": "people_invites_list",
         "title": "List invites",
         "blurb": "Lists a team's outstanding invites.",
         "progressive": "Listing invites",
@@ -774,7 +781,7 @@
         "result": "list"
       },
       {
-        "name": "invites_revoke",
+        "name": "people_invites_revoke",
         "title": "Revoke invite",
         "blurb": "Kills an invite link before anyone uses it.",
         "progressive": "Revoking invite",
@@ -785,7 +792,7 @@
         "result": "none"
       },
       {
-        "name": "issue_labels_add",
+        "name": "issues_labels_add",
         "title": "Add label to issue",
         "blurb": "Puts one of the team's labels on an issue.",
         "progressive": "Adding labels",
@@ -796,7 +803,7 @@
         "result": "issue"
       },
       {
-        "name": "issue_labels_remove",
+        "name": "issues_labels_remove",
         "title": "Remove label from issue",
         "blurb": "Takes a label back off an issue.",
         "progressive": "Removing labels",
@@ -807,7 +814,7 @@
         "result": "issue"
       },
       {
-        "name": "issue_relations_add",
+        "name": "issues_relations_add",
         "title": "Link issues",
         "blurb": "Relates two issues: blocks, parent, duplicate or related.",
         "progressive": "Linking issues",
@@ -818,7 +825,7 @@
         "result": "issue"
       },
       {
-        "name": "issue_relations_remove",
+        "name": "issues_relations_remove",
         "title": "Unlink issues",
         "blurb": "Drops a relation between two issues.",
         "progressive": "Unlinking issues",
@@ -939,7 +946,7 @@
         "result": "issue"
       },
       {
-        "name": "labels_create",
+        "name": "team_config_labels_create",
         "title": "Create label",
         "blurb": "Adds a label to a team, with its name and its colour.",
         "progressive": "Creating label",
@@ -950,7 +957,7 @@
         "result": "none"
       },
       {
-        "name": "labels_delete",
+        "name": "team_config_labels_delete",
         "title": "Delete label",
         "blurb": "Removes a label from the team and from every issue wearing it.",
         "progressive": "Deleting label",
@@ -961,7 +968,7 @@
         "result": "none"
       },
       {
-        "name": "labels_get",
+        "name": "team_config_labels_get",
         "title": "Read label",
         "blurb": "Reads one label with its name and its colour.",
         "progressive": "Reading label",
@@ -972,7 +979,7 @@
         "result": "none"
       },
       {
-        "name": "labels_list",
+        "name": "team_config_labels_list",
         "title": "List labels",
         "blurb": "Lists a team's labels.",
         "progressive": "Listing labels",
@@ -983,7 +990,7 @@
         "result": "list"
       },
       {
-        "name": "labels_update",
+        "name": "team_config_labels_update",
         "title": "Update label",
         "blurb": "Renames a label or changes its colour.",
         "progressive": "Updating label",
@@ -994,7 +1001,7 @@
         "result": "none"
       },
       {
-        "name": "mcp_servers_add",
+        "name": "team_config_mcp_servers_add",
         "title": "Add MCP server",
         "blurb": "Adds a remote MCP server to the team's registry for coding sessions.",
         "progressive": "Adding MCP server",
@@ -1005,7 +1012,7 @@
         "result": "none"
       },
       {
-        "name": "mcp_servers_list",
+        "name": "team_config_mcp_servers_list",
         "title": "List MCP servers",
         "blurb": "Lists the team's MCP servers and your connection to each.",
         "progressive": "Listing MCP servers",
@@ -1016,7 +1023,7 @@
         "result": "list"
       },
       {
-        "name": "mcp_servers_remove",
+        "name": "team_config_mcp_servers_remove",
         "title": "Remove MCP server",
         "blurb": "Removes an MCP server from the team's registry.",
         "progressive": "Removing MCP server",
@@ -1027,7 +1034,7 @@
         "result": "none"
       },
       {
-        "name": "members_add",
+        "name": "people_add",
         "title": "Add member",
         "blurb": "Adds a person to a team's roster without inviting them.",
         "progressive": "Adding member",
@@ -1038,7 +1045,7 @@
         "result": "none"
       },
       {
-        "name": "members_list",
+        "name": "people_list",
         "title": "List members",
         "blurb": "Lists a team's members with their roles.",
         "progressive": "Listing members",
@@ -1071,7 +1078,7 @@
         "result": "none"
       },
       {
-        "name": "plan_propose",
+        "name": "session_self_plan",
         "title": "Propose a plan",
         "blurb": "Posts the plan card: markdown with pictures, choice questions and an optional surface; a person approves it in the card.",
         "progressive": "Proposing a plan",
@@ -1159,7 +1166,7 @@
         "result": "pr"
       },
       {
-        "name": "report_bug",
+        "name": "session_self_report_bug",
         "title": "Report a bug",
         "blurb": "Files a bug about Exponential itself with the people who build it.",
         "progressive": "Reporting bug to Exponential",
@@ -1170,7 +1177,29 @@
         "result": "none"
       },
       {
-        "name": "repositories_add",
+        "name": "team_config_prompts_get",
+        "title": "Read prompt",
+        "blurb": "Reads one saved prompt with its body.",
+        "progressive": "Reading prompt",
+        "done": "Read prompt",
+        "progressiveMany": "Reading {n} prompts",
+        "doneMany": "Read {n} prompts",
+        "subjectKey": "id",
+        "result": "prompt"
+      },
+      {
+        "name": "team_config_prompts_list",
+        "title": "List prompts",
+        "blurb": "Lists the team's saved prompts.",
+        "progressive": "Listing prompts",
+        "done": "Listed prompts",
+        "progressiveMany": "Listing prompts {n} times",
+        "doneMany": "Listed prompts {n} times",
+        "subjectKey": "",
+        "result": "list"
+      },
+      {
+        "name": "team_config_repositories_add",
         "title": "Add repository",
         "blurb": "Registers a GitHub repository with the team.",
         "progressive": "Adding repository",
@@ -1181,7 +1210,7 @@
         "result": "none"
       },
       {
-        "name": "repositories_list",
+        "name": "team_config_repositories_list",
         "title": "List repositories",
         "blurb": "Lists the repositories the team has registered.",
         "progressive": "Listing repositories",
@@ -1192,7 +1221,7 @@
         "result": "list"
       },
       {
-        "name": "sessions_ask",
+        "name": "session_self_ask",
         "title": "Ask a question",
         "blurb": "Posts one question card with text or picture options, single or multiple choice; a person answers in the card.",
         "progressive": "Asking a question",
@@ -1203,7 +1232,7 @@
         "result": "none"
       },
       {
-        "name": "sessions_compact",
+        "name": "session_self_compact",
         "title": "Compact context",
         "blurb": "Asks the host to compact this session's context at the next turn boundary.",
         "progressive": "Requesting compaction",
@@ -1249,7 +1278,7 @@
       {
         "name": "sessions_list",
         "title": "List sessions",
-        "blurb": "Lists threads or team agents across your teams, newest first.",
+        "blurb": "Lists threads across your teams, newest first, or your conversations with one agent.",
         "progressive": "Listing sessions",
         "done": "Listed sessions",
         "progressiveMany": "Listing sessions {n} times",
@@ -1260,7 +1289,7 @@
       {
         "name": "sessions_send",
         "title": "Send to session",
-        "blurb": "Messages a session, starts a child session, or starts a thread or a team agent.",
+        "blurb": "Messages a session or an agent, starts a child session, or starts a thread.",
         "progressive": "Sending to session",
         "done": "Sent to session",
         "progressiveMany": "Sending to {n} sessions",
@@ -1269,18 +1298,7 @@
         "result": "session"
       },
       {
-        "name": "sessions_stop",
-        "title": "Stop session",
-        "blurb": "Stops a session's running turn; a message resumes it.",
-        "progressive": "Stopping session",
-        "done": "Stopped session",
-        "progressiveMany": "Stopping {n} sessions",
-        "doneMany": "Stopped {n} sessions",
-        "subjectKey": "id",
-        "result": "none"
-      },
-      {
-        "name": "sessions_suggest",
+        "name": "session_self_suggest",
         "title": "Suggest tasks",
         "blurb": "Proposes follow-up tasks as one card a person starts, files or dismisses, or quick replies above the composer.",
         "progressive": "Suggesting tasks",
@@ -1302,7 +1320,7 @@
         "result": "none"
       },
       {
-        "name": "statuses_create",
+        "name": "team_config_statuses_create",
         "title": "Create status",
         "blurb": "Adds a custom status to a team inside one of the six categories.",
         "progressive": "Creating status",
@@ -1313,7 +1331,7 @@
         "result": "none"
       },
       {
-        "name": "statuses_delete",
+        "name": "team_config_statuses_delete",
         "title": "Delete status",
         "blurb": "Removes a custom status once its issues have somewhere else to go.",
         "progressive": "Deleting status",
@@ -1324,7 +1342,7 @@
         "result": "none"
       },
       {
-        "name": "statuses_list",
+        "name": "team_config_statuses_list",
         "title": "List statuses",
         "blurb": "Lists a team's statuses in board order.",
         "progressive": "Listing statuses",
@@ -1335,7 +1353,7 @@
         "result": "list"
       },
       {
-        "name": "statuses_update",
+        "name": "team_config_statuses_update",
         "title": "Update status",
         "blurb": "Renames a status, recolours it or moves it within its category.",
         "progressive": "Updating status",
@@ -1442,17 +1460,14 @@
     "values": [
       "issue", "board", "action", "comment", "session", "label",
       "status", "device", "member", "repository", "team", "invite",
-      "notification", "attachment", "list", "thread"
+      "notification", "attachment", "list", "thread", "prompt", "agent", "event"
     ]
   },
   "expToolPreview": {
     "maxRefs": 8,
     "textMax": 200,
     "tools": [
-      { "name": "actions_delete", "refs": "" },
-      { "name": "actions_get", "refs": "action@" },
-      { "name": "actions_list", "refs": "list:action@" },
-      { "name": "actions_upsert", "refs": "action@" },
+      { "name": "team_config_agents_list", "refs": "list:agent@" },
       { "name": "attachments_delete", "refs": "" },
       { "name": "attachments_get", "refs": "attachment@" },
       { "name": "attachments_list", "refs": "list:attachment@attachments issue@$issueId" },
@@ -1469,14 +1484,16 @@
       { "name": "comments_update", "refs": "comment@ issue@" },
       { "name": "devices_account_login", "refs": "" },
       { "name": "devices_list", "refs": "list:device@" },
+      { "name": "events_emit", "refs": "" },
+      { "name": "events_list", "refs": "list:event@events" },
       { "name": "guide_write", "refs": "" },
-      { "name": "invites_create", "refs": "invite@invite" },
-      { "name": "invites_list", "refs": "list:invite@" },
-      { "name": "invites_revoke", "refs": "" },
-      { "name": "issue_labels_add", "refs": "issue@$issueId label@$labelId" },
-      { "name": "issue_labels_remove", "refs": "issue@$issueId label@$labelId" },
-      { "name": "issue_relations_add", "refs": "issue@$issueId issue@$relatedIssueId" },
-      { "name": "issue_relations_remove", "refs": "issue@$issueId issue@$relatedIssueId" },
+      { "name": "people_invites_create", "refs": "invite@invite" },
+      { "name": "people_invites_list", "refs": "list:invite@" },
+      { "name": "people_invites_revoke", "refs": "" },
+      { "name": "issues_labels_add", "refs": "issue@$issueId label@$labelId" },
+      { "name": "issues_labels_remove", "refs": "issue@$issueId label@$labelId" },
+      { "name": "issues_relations_add", "refs": "issue@$issueId issue@$relatedIssueId" },
+      { "name": "issues_relations_remove", "refs": "issue@$issueId issue@$relatedIssueId" },
       { "name": "issues_activity", "refs": "issue@$issueId" },
       { "name": "issues_create", "refs": "issue@" },
       { "name": "issues_delete", "refs": "" },
@@ -1487,19 +1504,19 @@
       { "name": "issues_unsubscribe", "refs": "issue@" },
       { "name": "issues_update", "refs": "issue@" },
       { "name": "issues_update_status", "refs": "issue@ status@" },
-      { "name": "labels_create", "refs": "label@" },
-      { "name": "labels_delete", "refs": "" },
-      { "name": "labels_get", "refs": "label@" },
-      { "name": "labels_list", "refs": "list:label@" },
-      { "name": "labels_update", "refs": "label@" },
-      { "name": "mcp_servers_add", "refs": "" },
-      { "name": "mcp_servers_list", "refs": "" },
-      { "name": "mcp_servers_remove", "refs": "" },
-      { "name": "members_add", "refs": "member@" },
-      { "name": "members_list", "refs": "list:member@" },
+      { "name": "team_config_labels_create", "refs": "label@" },
+      { "name": "team_config_labels_delete", "refs": "" },
+      { "name": "team_config_labels_get", "refs": "label@" },
+      { "name": "team_config_labels_list", "refs": "list:label@" },
+      { "name": "team_config_labels_update", "refs": "label@" },
+      { "name": "team_config_mcp_servers_add", "refs": "" },
+      { "name": "team_config_mcp_servers_list", "refs": "" },
+      { "name": "team_config_mcp_servers_remove", "refs": "" },
+      { "name": "people_add", "refs": "member@" },
+      { "name": "people_list", "refs": "list:member@" },
       { "name": "notifications_list", "refs": "list:notification@" },
       { "name": "notifications_mark_read", "refs": "" },
-      { "name": "plan_propose", "refs": "" },
+      { "name": "session_self_plan", "refs": "" },
       { "name": "pr_close", "refs": "issue@$issueId" },
       { "name": "pr_files", "refs": "issue@$issueId" },
       { "name": "pr_merge", "refs": "issue@$issueId" },
@@ -1507,23 +1524,24 @@
       { "name": "pr_retarget", "refs": "issue@$issueId" },
       { "name": "pr_unlink", "refs": "issue@$issueId" },
       { "name": "pr_update", "refs": "issue@$issueId" },
-      { "name": "report_bug", "refs": "issue@" },
-      { "name": "repositories_add", "refs": "repository@" },
-      { "name": "repositories_list", "refs": "list:repository@" },
-      { "name": "sessions_ask", "refs": "" },
-      { "name": "sessions_compact", "refs": "" },
+      { "name": "session_self_report_bug", "refs": "issue@" },
+      { "name": "team_config_prompts_get", "refs": "prompt@" },
+      { "name": "team_config_prompts_list", "refs": "list:prompt@" },
+      { "name": "team_config_repositories_add", "refs": "repository@" },
+      { "name": "team_config_repositories_list", "refs": "list:repository@" },
+      { "name": "session_self_ask", "refs": "" },
+      { "name": "session_self_compact", "refs": "" },
       { "name": "sessions_end", "refs": "" },
       { "name": "sessions_get", "refs": "session@root" },
       { "name": "sessions_link", "refs": "session@ issue@$issueIds[]" },
       { "name": "sessions_list", "refs": "list:session@" },
       { "name": "sessions_send", "refs": "session@" },
-      { "name": "sessions_stop", "refs": "session@$id" },
-      { "name": "sessions_suggest", "refs": "" },
+      { "name": "session_self_suggest", "refs": "" },
       { "name": "sessions_unlink", "refs": "session@ issue@$issueId" },
-      { "name": "statuses_create", "refs": "status@" },
-      { "name": "statuses_delete", "refs": "" },
-      { "name": "statuses_list", "refs": "list:status@" },
-      { "name": "statuses_update", "refs": "status@" },
+      { "name": "team_config_statuses_create", "refs": "status@" },
+      { "name": "team_config_statuses_delete", "refs": "" },
+      { "name": "team_config_statuses_list", "refs": "list:status@" },
+      { "name": "team_config_statuses_update", "refs": "status@" },
       { "name": "teams_create", "refs": "team@" },
       { "name": "teams_get", "refs": "team@" },
       { "name": "teams_list", "refs": "list:team@" },

@@ -9,8 +9,8 @@ import {
 import { usePinToggle } from "@/hooks/use-pins"
 import { cn } from "@/lib/utils"
 
-// EXP-778: the small pin toggle beside a title — issue detail, the action
-// editor. Pinned rows land in the sidebar's Pinned group; the glyph is the
+// EXP-778: the small pin toggle beside a title — issue detail (NEW-2: the
+// action editor is gone; a pin of kind `action` never renders). Pinned rows land in the sidebar's Pinned group; the glyph is the
 // shared `ui-pin` / `ui-unpin` concept. EXP-877: a RUN is never pinned any
 // more — a live one is already a top tab — so no session surface offers this.
 // EXP-858: a pin only means something where a sidebar exists, so these
@@ -29,7 +29,7 @@ export function PinToggleButton({
   kind,
   targetId,
   // EXP-850 §10: GHOST is the default now — a pin toggle is a borderless
-  // glyph on every surface (issue header, session header, action dialog); the
+  // glyph on every surface (issue header, session header); the
   // glass capsule is kept only for a caller that still asks for it.
   variant = `ghost`,
   size = `icon-sm`,

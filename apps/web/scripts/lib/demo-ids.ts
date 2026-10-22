@@ -20,7 +20,7 @@
  */
 import { and, eq, inArray } from "drizzle-orm"
 import { db } from "@/db/connection"
-import { actions, boards, devices, issues, sessions, teams } from "@/db/schema"
+import { agents, boards, devices, issues, prompts, sessions, teams } from "@/db/schema"
 import { mintReporterToken } from "@/lib/reporter/token"
 import {
   DEMO_AGENT_ID,
@@ -155,16 +155,16 @@ export async function resolveDemoIds(): Promise<DemoIds> {
     .where(and(eq(issues.id, DEMO_WIDGET_ISSUE_ID), eq(issues.teamId, team.id)))
     .limit(1)
 
-  // The first saved action by sort order — the seed's "Update dependencies",
-  // which is also the row the web action-editor recipe opens.
-  // The action the `action-*` views open; the seed pins its id.
+  // The prompt the `settings-prompt`-style drives open ("Fix flaky tests");
+  // the seed pins its id (NEW-2: prompts replaced actions, the id keeps its
+  // legacy name for the drives' `$action` placeholder).
   const [action] = await db
-    .select({ id: actions.id })
-    .from(actions)
-    .where(and(eq(actions.teamId, team.id), eq(actions.id, DEMO_ACTION_ID)))
+    .select({ id: prompts.id })
+    .from(prompts)
+    .where(and(eq(prompts.teamId, team.id), eq(prompts.id, DEMO_ACTION_ID)))
     .limit(1)
   if (!action) {
-    throw new Error(`team "${TEAM_SLUG}" has no saved actions. ${RESEED}`)
+    throw new Error(`team "${TEAM_SLUG}" has no saved prompts. ${RESEED}`)
   }
 
   // The demo user's OWN machine, as announced by `screenshots:desktop` — pinned
@@ -189,10 +189,15 @@ export async function resolveDemoIds(): Promise<DemoIds> {
     .where(
       and(
         eq(sessions.teamId, team.id),
-        inArray(sessions.id, [DEMO_SESSION_ID, DEMO_THREAD_ID, DEMO_GUIDE_THREAD_ID, DEMO_AGENT_ID])
+        inArray(sessions.id, [DEMO_SESSION_ID, DEMO_THREAD_ID, DEMO_GUIDE_THREAD_ID])
       )
     )
-  const present = new Set(pinned.map((row) => row.id))
+  // NEW-2: the demo agent is an `agents` row.
+  const pinnedAgents = await db
+    .select({ id: agents.id })
+    .from(agents)
+    .where(and(eq(agents.teamId, team.id), eq(agents.id, DEMO_AGENT_ID)))
+  const present = new Set([...pinned, ...pinnedAgents].map((row) => row.id))
   const ifPresent = (id: string) => (present.has(id) ? id : undefined)
 
   return {

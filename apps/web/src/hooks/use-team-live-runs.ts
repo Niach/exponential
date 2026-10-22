@@ -1,5 +1,5 @@
 import { useMemo } from "react"
-import { and, eq, not, useLiveQuery } from "@tanstack/react-db"
+import { and, eq, isNull, not, useLiveQuery } from "@tanstack/react-db"
 import { sessionCollection } from "@/lib/collections"
 import type { SessionRow } from "@/lib/session-tree"
 import {
@@ -7,17 +7,23 @@ import {
   type TeamLiveRuns,
 } from "@/lib/sessions/team-live-runs"
 
-/** The ids of every synced team agent root (kind `agent`): sessions under
- *  them never count as live (`countsAsLiveSession`). */
+/** The ids of every synced agent CONVERSATION root (NEW-2: a root with an
+ *  `agentId`): sessions under them never count as live
+ *  (`countsAsLiveSession`). */
 export function useAgentRootIds(): ReadonlySet<string> {
   const { data } = useLiveQuery((query) =>
     query
       .from({ sessions: sessionCollection })
-      .where(({ sessions }) => eq(sessions.kind, `agent`))
-      .select(({ sessions }) => ({ id: sessions.id }))
+      .where(({ sessions }) => isNull(sessions.parentId))
+      .select(({ sessions }) => ({ id: sessions.id, agentId: sessions.agentId }))
   )
   return useMemo(
-    () => new Set(((data ?? []) as { id: string }[]).map((row) => row.id)),
+    () =>
+      new Set(
+        ((data ?? []) as { id: string; agentId: string | null }[])
+          .filter((row) => row.agentId)
+          .map((row) => row.id)
+      ),
     [data]
   )
 }

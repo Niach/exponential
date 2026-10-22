@@ -71,9 +71,7 @@ import {
 } from "@/components/team/sidebar-rail"
 import { useOpenNewDraft } from "@/hooks/use-open-new-draft"
 import {
-  ACTIONS_LABEL,
   DRAFTS_LABEL,
-  NavActionsIcon,
   NavDraftsIcon,
   useDraftCount,
 } from "@/components/team/sidebar-nav-entries"
@@ -187,7 +185,7 @@ export function TeamSidebar({
     wordOf: (row) => threadWordOf(row, teamPrs.byRoot.get(row.sessionId) ?? [], teamPrs.all),
   }
   const threadsNav = threadsNavState(threadsList.groups)
-  const { agents } = useAgents(team?.id)
+  const { agents } = useAgents(team?.id, session?.user?.id)
   // The guarded /t/$teamSlug layout is the only render site, so a session is
   // guaranteed — the reactive useSession store may still be pending on cold
   // load, and we render the authed chrome throughout rather than flash a
@@ -204,18 +202,6 @@ export function TeamSidebar({
   // row, deep links) drives the same swap, and a direct load lands settled.
   const router = useRouter()
   const locationHref = useRouterState({ select: (s) => s.location.href })
-  // EXP-862: the composer's seeded ACTION (`/t/$teamSlug/agent?action=`). The
-  // pinned row for that action is what reads as active then, so the Agent
-  // entry must NOT — two highlighted rows would both claim the same page.
-  const composerActionId = useRouterState({
-    select: (s) => {
-      const value = (s.location.search as { action?: unknown }).action
-      return typeof value === `string` && value !== `` ? value : null
-    },
-  })
-  const agentPage = useRouterState({
-    select: (s) => s.location.pathname.endsWith(`/agent`),
-  })
   const activeAgentId = useRouterState({
     select: (s) => /\/agents\/([^/]+)$/.exec(s.location.pathname)?.[1] ?? null,
   })
@@ -395,22 +381,12 @@ export function TeamSidebar({
                     <SidebarGroup>
                       <SidebarGroupContent>
                         {/* Nav order ×4 with the IDE rail (EXP-1293): Agent,
-                            Inbox, Threads, Devices, Actions, Drafts (while any). */}
+                            Inbox, Threads, Devices, Drafts (while any). */}
                         <SidebarMenu>
                           {/* EXP-818 / EXP-1293: the Agent page — HOME, the
                               composer. No live dot: Threads carries it. */}
                           <SidebarMenuItem>
-                            <SidebarMenuButton
-                              asChild
-                              density="compact"
-                              className={cn(
-                                // A pinned action is driving the composer: its
-                                // row owns the highlight (EXP-862).
-                                agentPage &&
-                                  composerActionId !== null &&
-                                  `data-[status=active]:bg-transparent data-[status=active]:font-normal data-[status=active]:text-sidebar-foreground`
-                              )}
-                            >
+                            <SidebarMenuButton asChild density="compact">
                               <Link to="/t/$teamSlug/agent" params={{ teamSlug }}>
                                 <NavAgentIcon className="h-4 w-4" />
                                 <span>Agent</span>
@@ -450,21 +426,9 @@ export function TeamSidebar({
                               </Link>
                             </SidebarMenuButton>
                           </SidebarMenuItem>
-                          {/* Actions (authoring; the composer's action
-                              chip RUNS one) and the Drafts pile (EXP-878,
-                              while any) are root entries, as on desktop. */}
-                          <SidebarMenuItem>
-                            <SidebarMenuButton asChild density="compact">
-                              <Link
-                                to="/t/$teamSlug/actions"
-                                params={{ teamSlug }}
-                                data-testid="nav-actions"
-                              >
-                                <NavActionsIcon className="h-4 w-4" />
-                                <span>{ACTIONS_LABEL}</span>
-                              </Link>
-                            </SidebarMenuButton>
-                          </SidebarMenuItem>
+                          {/* The Drafts pile (EXP-878, while any) is a
+                              root entry, as on desktop. NEW-2: no Actions
+                              entry (prompts live in the composer's `/`). */}
                           {draftCount > 0 && (
                             <SidebarMenuItem>
                               <SidebarMenuButton asChild density="compact">

@@ -407,11 +407,46 @@ pub fn create_worktree(
     base_ref: &str,
     url: &TokenUrl,
 ) -> Result<PathBuf, GitError> {
+    create_worktree_with(clone, branch, base_ref, url, Parked::Reclaim)
+}
+
+/// What [`create_worktree_with`] does with a layout dir that exists but is
+/// NOT on `branch` (an agent ran `git checkout <other>` inside it, or
+/// detached its HEAD).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Parked {
+    /// A fresh launch (REV-21): the dir belongs to `branch`, so it is
+    /// checked back out in place; git refuses when uncommitted changes
+    /// conflict — an error surface, never a clobber.
+    Reclaim,
+    /// A resume (FEED-129): the dir is the run's own cwd, left there by the
+    /// agent the resume continues — kept as it stands, whatever branch (or
+    /// detached HEAD) it is on, uncommitted work and all. A checkout here
+    /// refused every resume of a run that had moved to another branch and
+    /// edited files ("Your local changes would be overwritten"), and its
+    /// messages sat unconsumed. The caller reads where the dir is
+    /// ([`carried_branch`]) and lets the row follow.
+    Keep,
+}
+
+/// [`create_worktree`] with an explicit [`Parked`] policy.
+pub fn create_worktree_with(
+    clone: &Path,
+    branch: &str,
+    base_ref: &str,
+    url: &TokenUrl,
+    parked: Parked,
+) -> Result<PathBuf, GitError> {
     let worktree = worktree_path(clone, branch);
     let layout_dir_exists = worktree.join(".git").exists();
     if layout_dir_exists && worktree_head(&worktree).as_deref() == Some(branch) {
         refresh_worktree_stamp(&worktree);
         return Ok(worktree); // reuse — one issue = one worktree
+    }
+    if layout_dir_exists && parked == Parked::Keep {
+        // FEED-129: a resume's own dir, wherever the agent parked it.
+        refresh_worktree_stamp(&worktree);
+        return Ok(worktree);
     }
     // A layout dir whose HEAD is NOT `branch` (REV-21: the EXP-357 agent
     // behavior seen from the original issue's side — `git checkout -b
@@ -500,56 +535,6 @@ default branch and retry.",
         )?;
     }
     Ok(worktree)
-}
-
-/// The layout dir of the clone's ONE dispatcher checkout
-/// (`<clone>.worktrees/_dispatch`): no `exp/` branch sanitizes to it.
-pub const DISPATCH_CHECKOUT_DIR: &str = "_dispatch";
-
-/// The dispatcher checkout of `clone`: a DETACHED worktree at `base_ref`
-/// (`origin/<default>`), shared by every dispatcher root on the repo (they
-/// only read, so one is enough and nothing per session piles up). An
-/// existing one is moved to the fresh `base_ref` best-effort (a refused
-/// checkout keeps the old tree: a slightly stale read beats no session);
-/// a concurrent first launch that lost the `worktree add` race reuses the
-/// winner's.
-pub fn create_detached_worktree(
-    clone: &Path,
-    base_ref: &str,
-    url: &TokenUrl,
-) -> Result<PathBuf, GitError> {
-    validate_branch_arg(base_ref, "dispatcher checkout")?;
-    let worktree = worktrees_dir(clone).join(DISPATCH_CHECKOUT_DIR);
-    if worktree.join(".git").exists() {
-        if let Err(err) = run_git(
-            Some(&worktree),
-            &["checkout", "--quiet", "--detach", base_ref],
-            Some(url),
-            &format!("git checkout --detach {base_ref}"),
-        ) {
-            log::warn!("dispatcher checkout not refreshed to {base_ref}: {}", err.detail);
-        }
-        refresh_worktree_stamp(&worktree);
-        return Ok(worktree);
-    }
-    if let Some(parent) = worktree.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| GitError {
-            op: "prepare worktrees dir for the dispatcher checkout".to_string(),
-            detail: e.to_string(),
-        })?;
-    }
-    let _ = run_git(Some(clone), &["worktree", "prune"], Some(url), "git worktree prune");
-    let worktree_str = worktree.to_string_lossy().into_owned();
-    match run_git(
-        Some(clone),
-        &["worktree", "add", "--detach", &worktree_str, base_ref],
-        Some(url),
-        &format!("git worktree add --detach from {base_ref}"),
-    ) {
-        Ok(_) => Ok(worktree),
-        Err(_) if worktree.join(".git").exists() => Ok(worktree),
-        Err(err) => Err(err),
-    }
 }
 
 /// EXP-478: stamp "a launch (re)claimed this worktree now" — the prune's
@@ -809,6 +794,17 @@ pub fn list_worktrees(clone: &Path) -> Result<Vec<WorktreeEntry>, GitError> {
 
 /// The branch checked out at `worktree` (short name, e.g. `exp/EXP-42`);
 /// `None` when detached or unreadable. Purely local, tokenless.
+/// FEED-129: the branch a resume's worktree ACTUALLY has checked out when
+/// it is not `recorded` — `None` when it is, when the dir is no git
+/// worktree, or when its HEAD is detached (nothing to carry: the row keeps
+/// its branch).
+pub fn carried_branch(worktree: &Path, recorded: &str) -> Option<String> {
+    if !worktree.join(".git").exists() {
+        return None;
+    }
+    worktree_head(worktree).filter(|head| head != recorded)
+}
+
 fn worktree_head(worktree: &Path) -> Option<String> {
     let head = run_git(
         Some(worktree),
@@ -2027,6 +2023,55 @@ fatal: couldn't find remote ref nope\n";
         assert_eq!(String::from_utf8_lossy(&head.stdout).trim(), "exp/EXP-41");
         // The stray branch survives as an ordinary ref — nothing is deleted.
         assert_eq!(rev(&clone, "exp/EXP-42"), rev(&clone, "exp/EXP-41"));
+    }
+
+    /// FEED-129: a RESUME keeps the layout dir where the agent left it — on
+    /// another branch, with uncommitted changes git refuses to carry across
+    /// a checkout — and reads the branch it is on; a launch still reclaims
+    /// the dir (REV-21), and that checkout is the refusal the resume no
+    /// longer makes.
+    #[test]
+    fn create_worktree_keeps_a_parked_dirty_worktree_for_a_resume() {
+        let dir = temp_dir("keep-parked");
+        let origin = seed_origin(&dir.0);
+        let repos_root = dir.0.join("repos");
+        let clone = clone_path(&repos_root, "acme/web");
+        fs::create_dir_all(clone.parent().unwrap()).unwrap();
+        git(
+            &dir.0,
+            &["clone", "--quiet", origin.to_str().unwrap(), clone.to_str().unwrap()],
+        );
+        let url = TokenUrl::new("acme/web", "ghs_dead");
+        let branch = "exp/session-1a2b3c4d";
+
+        let worktree = create_worktree(&clone, branch, "origin/main", &url).unwrap();
+        assert_eq!(carried_branch(&worktree, branch), None);
+        // The agent moved to another branch, committed there, then edited
+        // the same file again: the edit conflicts with a checkout back.
+        git(&worktree, &["checkout", "--quiet", "-b", "exp/NEW-5"]);
+        fs::write(worktree.join("README.md"), "on NEW-5\n").unwrap();
+        git(&worktree, &["commit", "--quiet", "-am", "NEW-5 work"]);
+        fs::write(worktree.join("README.md"), "uncommitted on NEW-5\n").unwrap();
+
+        let err = create_worktree(&clone, branch, "origin/main", &url).unwrap_err();
+        assert!(err.detail.contains("overwritten"), "detail: {}", err.detail);
+
+        let kept = create_worktree_with(&clone, branch, "origin/main", &url, Parked::Keep).unwrap();
+        assert_eq!(kept, worktree);
+        assert_eq!(worktree_head(&worktree).as_deref(), Some("exp/NEW-5"));
+        assert_eq!(
+            fs::read_to_string(worktree.join("README.md")).unwrap(),
+            "uncommitted on NEW-5\n"
+        );
+        assert_eq!(carried_branch(&worktree, branch).as_deref(), Some("exp/NEW-5"));
+
+        // A detached HEAD is kept too, and carries nothing.
+        git(&worktree, &["checkout", "--quiet", "--detach"]);
+        let kept = create_worktree_with(&clone, branch, "origin/main", &url, Parked::Keep).unwrap();
+        assert_eq!(kept, worktree);
+        assert_eq!(carried_branch(&worktree, branch), None);
+        // No worktree at all: nothing to carry either.
+        assert_eq!(carried_branch(&dir.0.join("nowhere"), branch), None);
     }
 
     /// The reclaim's `-b` leg: the agent detached the layout dir's HEAD and

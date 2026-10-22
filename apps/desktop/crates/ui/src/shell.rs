@@ -1678,7 +1678,7 @@ mod tests {
                 session_id: "t1".into(),
             },
             Screen::Agent {
-                session_id: "a1".into(),
+                agent_id: "a1".into(),
             },
             Screen::Home,
             Screen::Threads,

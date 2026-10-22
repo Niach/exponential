@@ -116,8 +116,11 @@ struct ThreadStripTabs: View {
             if tabs.contains(.add), let onAdd {
                 addButton(onAdd)
             }
-            pageTab(.conversation)
-                .fixedSize()
+            // NEW-46: always there (a one-session thread's session page).
+            if tabs.contains(.conversation) {
+                pageTab(.conversation)
+                    .fixedSize()
+            }
             // The room is measured off a flexible spacer the chips overlay,
             // so the chips never widen what they are measured against.
             Color.clear

@@ -402,6 +402,13 @@ public enum AgentUsagePresentation {
         return resetCountdown(resetsAt: window.resetsAt, now: now)
     }
 
+    /// NEW-1: whether the session's wall is a USAGE wall (`rate_limit`, or a
+    /// wall with no kind) — the only one another login can lift, so the
+    /// Switch account control shows for it alone (web `agent-session.tsx`).
+    public static func isUsageWall(_ blocked: SessionBlocked?) -> Bool {
+        (blocked?.kind ?? "rate_limit") == "rate_limit"
+    }
+
     /// EXP-804: the one-line badge for a run's usage wall — `Rate limited ·
     /// resets in 2h`, or bare `Rate limited` when the agent named no reset
     /// time. Nil when the run is not blocked.
@@ -416,7 +423,15 @@ public enum AgentUsagePresentation {
         now: Date = Date()
     ) -> String? {
         guard let blocked else { return nil }
-        let label = (blocked.kind ?? "rate_limit") == "rate_limit"
+        let kind = blocked.kind ?? "rate_limit"
+        // NEW-1: a watchdog flag (device offline, not picked up, stuck)
+        // names itself with the session card's word
+        // (`SessionTree.CardCopy.blockedKinds`); it has no reset to count
+        // down to.
+        if kind != "rate_limit", let word = SessionTree.CardCopy.blockedKinds[kind] {
+            return word
+        }
+        let label = kind == "rate_limit"
             ? "Rate limited"
             : "Blocked"
         guard let countdown = resetCountdown(resetsAt: blocked.resetsAt, now: now) else {

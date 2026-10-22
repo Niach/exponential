@@ -99,15 +99,15 @@ export function SidebarAgentsSection({
       <SidebarGroupContent>
         <SidebarMenu>
           {agents.map((agent) => (
-            <SidebarMenuItem key={agent.sessionId}>
+            <SidebarMenuItem key={agent.agentId}>
               <SidebarMenuButton
                 asChild
                 density="compact"
-                isActive={activeAgentId === agent.sessionId}
+                isActive={activeAgentId === agent.agentId}
               >
                 <Link
                   to="/t/$teamSlug/agents/$agentId"
-                  params={{ teamSlug, agentId: agent.sessionId }}
+                  params={{ teamSlug, agentId: agent.agentId }}
                   data-testid="agents-row"
                 >
                   <AgentIcon agent={agent} />
@@ -119,7 +119,7 @@ export function SidebarAgentsSection({
                 <SidebarMenuAction asChild showOnHover title="Agent settings">
                   <Link
                     to="/t/$teamSlug/settings/agents/$agentId"
-                    params={{ teamSlug, agentId: agent.sessionId }}
+                    params={{ teamSlug, agentId: agent.agentId }}
                     aria-label={`Settings for ${agent.name}`}
                   >
                     <NavSettingsIcon />
@@ -157,11 +157,11 @@ export function SidebarAgentsIcons({
       {separator}
       {agents.map((agent) =>
         renderItem({
-          key: agent.sessionId,
+          key: agent.agentId,
           label: agent.name,
           link: {
             to: `/t/$teamSlug/agents/$agentId`,
-            params: { teamSlug, agentId: agent.sessionId },
+            params: { teamSlug, agentId: agent.agentId },
           },
           icon: (
             <>

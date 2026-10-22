@@ -23,7 +23,7 @@ import org.junit.Test
  * EXP-1291 Threads v2: the session tree is fixture-locked ×4 — every case of
  * `session-card.json`, `session-thread.json` (cases + guidePullRequestCases +
  * composerCases + guideMenuCases) and `threads-list.json` (cases +
- * agentCases + markCases + unreadCases) runs here (TS `session-tree.test.ts`, desktop
+ * agentCases + markCases + unreadCases + recentCases + treeStateCases) runs here (TS `session-tree.test.ts`, desktop
  * `domain::session_tree`, iOS `SessionTreeTests`). Outputs are re-encoded in
  * the fixture's own JSON shape and compared as a WHOLE, so a field the port
  * forgets fails too. The embedded copy is proved equal to the fixtures'.
@@ -49,12 +49,12 @@ class SessionTreeTest {
         teamId = json.str("teamId")!!,
         parentId = json.str("parentId"),
         rootId = json.str("rootId")!!,
-        kind = json.str("kind")!!,
+        kind = json.str("kind") ?: DomainContract.sessionKindThread,
         userId = json.str("userId")!!,
         status = json.str("status")!!,
         busy = json.bool("busy"),
         needsInput = json.bool("needsInput"),
-        blocked = (json["blocked"] as? JsonObject)?.let { SessionTree.Blocked(it.str("window"), it.str("resetsAt")) },
+        blocked = (json["blocked"] as? JsonObject)?.let { SessionTree.Blocked(it.str("window"), it.str("resetsAt"), it.str("kind")) },
         shared = json.bool("shared"),
         title = json.str("title"),
         guide = (json["guide"] as? JsonArray)?.map { entry ->
@@ -73,6 +73,7 @@ class SessionTreeTest {
         deviceId = json.str("deviceId"),
         caption = json.str("caption"),
         aside = (json["aside"] as? JsonPrimitive)?.boolean ?: false,
+        agentId = json.str("agentId"),
     )
 
     private fun read(json: JsonObject) = SessionTree.SessionRead(
@@ -84,7 +85,6 @@ class SessionTreeTest {
         sessionId = json.str("sessionId")!!,
         issueId = json.str("issueId")!!,
         sortOrder = json.getValue("sortOrder").jsonPrimitive.double,
-        assignedSessionId = json.str("assignedSessionId"),
     )
 
     private fun issue(json: JsonObject) = SessionTree.Issue(
@@ -110,6 +110,7 @@ class SessionTreeTest {
     private fun pullRequest(json: JsonObject) = SessionTree.PullRequest(
         id = json.str("id")!!,
         number = json.getValue("number").jsonPrimitive.int,
+        state = json.str("state"),
     )
 
     private fun JsonObject.list(key: String): List<JsonObject> =
@@ -329,6 +330,7 @@ class SessionTreeTest {
         put("liveSessionId", nullable(view.liveSessionId))
         put("busy", view.busy)
         put("needsYou", view.needsYou)
+        put("mainSessionId", nullable(view.mainSessionId))
     }
 
     private fun encode(group: SessionTree.ThreadsListGroup): JsonObject = buildJsonObject {
@@ -358,7 +360,7 @@ class SessionTreeTest {
     }
 
     private fun encode(agent: SessionTree.AgentRow): JsonObject = buildJsonObject {
-        put("sessionId", agent.sessionId)
+        put("agentId", agent.agentId)
         put("teamId", agent.teamId)
         put("name", agent.name)
         put("icon", agent.icon)
@@ -417,8 +419,46 @@ class SessionTreeTest {
                 messages = input.list("messages").map(::message),
                 teamId = input.str("teamId"),
                 reads = input.list("reads").map(::read),
+                now = input.str("now"),
             )
             assertEquals(case.str("name"), case.getValue("expected"), JsonArray(actual.map(::encode)))
+        }
+    }
+
+    @Test
+    fun `every recent window case matches the fixture`() {
+        val cases = listFixture.list("recentCases")
+        assertTrue(cases.isNotEmpty())
+        for (case in cases) {
+            val input = case.getValue("input").jsonObject
+            val groups = SessionTree.partitionThreads(
+                sessions = input.list("sessions").map(::session),
+                sessionIssues = input.list("sessionIssues").map(::sessionIssue),
+                issues = input.list("issues").map(::issue),
+                messages = input.list("messages").map(::message),
+                teamId = input.str("teamId"),
+                reads = input.list("reads").map(::read),
+                now = input.str("now"),
+            )
+            val recent = groups.firstOrNull { it.key == SessionTree.ThreadsGroupKey.Recent }
+            val actual = recent?.rows.orEmpty().filter { it.depth == 0 }.map { it.sessionId }
+            val expected = case.getValue("expected").jsonArray.map { it.jsonPrimitive.content }
+            assertEquals(case.str("name"), expected, actual)
+        }
+    }
+
+    @Test
+    fun `every tree state case matches the fixture`() {
+        val cases = listFixture.list("treeStateCases")
+        assertTrue(cases.isNotEmpty())
+        for (case in cases) {
+            val input = case.getValue("input").jsonObject
+            val actual = SessionTree.treeState(
+                tree = input.list("tree").map(::session),
+                pullRequests = input.list("pullRequests").map(::pullRequest),
+                now = input.str("now")!!,
+            )
+            assertEquals(case.str("name"), case.str("expected"), actual.wire)
         }
     }
 
@@ -459,7 +499,22 @@ class SessionTreeTest {
         assertTrue(cases.isNotEmpty())
         for (case in cases) {
             val input = case.getValue("input").jsonObject
-            val actual = SessionTree.listAgents(input.list("sessions").map(::session), input.str("teamId"))
+            val agents = input.list("agents").map {
+                SessionTree.AgentDefinition(
+                    id = it.str("id")!!,
+                    teamId = it.str("teamId")!!,
+                    name = it.str("name")!!,
+                    icon = it.str("icon"),
+                    color = it.str("color"),
+                    sortOrder = it.getValue("sortOrder").jsonPrimitive.double,
+                )
+            }
+            val actual = SessionTree.listAgents(
+                agents,
+                input.list("sessions").map(::session),
+                input.str("teamId"),
+                input.str("me"),
+            )
             assertEquals(case.str("name"), case.getValue("expected"), JsonArray(actual.map(::encode)))
         }
     }
@@ -594,6 +649,12 @@ class SessionTreeTest {
             cardFixture.getValue("testIds").jsonObject.str("card"),
             SessionTree.CardCopy.TEST_ID_CARD,
         )
+        val blockedKinds = cardFixture.getValue("copy").jsonObject.getValue("blockedKinds").jsonObject
+        assertEquals(blockedKinds.keys, SessionTree.CardCopy.BLOCKED_KINDS.keys)
+        assertEquals(DomainContract.codingSessionBlockedKinds.toSet(), SessionTree.CardCopy.BLOCKED_KINDS.keys)
+        for ((key, value) in blockedKinds) {
+            assertEquals(value.jsonPrimitive.content, SessionTree.CardCopy.BLOCKED_KINDS[key])
+        }
     }
 
     @Test
@@ -665,5 +726,49 @@ class SessionTreeTest {
         assertEquals(testIds.str("list"), SessionTree.ListCopy.TEST_ID_LIST)
         assertEquals(testIds.str("row"), SessionTree.ListCopy.TEST_ID_ROW)
         assertEquals(testIds.str("agentRow"), SessionTree.ListCopy.TEST_ID_AGENT_ROW)
+        val recent = listFixture.getValue("recent").jsonObject
+        assertEquals(recent.getValue("hours").jsonPrimitive.int, SessionTree.ListCopy.RECENT_HOURS)
+        assertEquals(recent.getValue("max").jsonPrimitive.int, SessionTree.ListCopy.RECENT_MAX)
+        assertEquals(
+            listFixture.getValue("treeState").jsonObject.getValue("staleHours").jsonPrimitive.int,
+            SessionTree.ListCopy.STALE_HOURS,
+        )
+        assertEquals(
+            setOf("needs_you", "running", "done", "stale", "idle"),
+            SessionTree.TreeState.entries.map { it.wire }.toSet(),
+        )
     }
+
+    // NEW-1 (TS `sessionKindWord`, session-card.json `copy.blockedKinds`): a
+    // blocked session's state word names WHY; an unknown kind = "Usage limit".
+    private fun blockedSession(kind: String?) = SessionTree.Session(
+        id = "s1", teamId = "t1", parentId = null, rootId = "s1", kind = "thread", userId = "u1",
+        status = "running", busy = false, needsInput = false, blocked = SessionTree.Blocked(kind = kind),
+        shared = true, title = null, guide = null, actionName = null, name = null, icon = null,
+        color = null, sortOrder = 0.0, startedAt = null, endedAt = null,
+        createdAt = "2026-10-21T10:00:00.000Z", updatedAt = "2026-10-21T10:00:00.000Z",
+    )
+
+    private fun blockedWord(kind: String?): String {
+        val session = blockedSession(kind)
+        return SessionTree.sessionCard(session, "S", "2026-10-21T10:05:00.000Z").kindWord
+    }
+
+    @Test
+    fun blockedKindUsageWallReadsUsageLimit() = assertEquals("Usage limit", blockedWord("rate_limit"))
+
+    @Test
+    fun blockedKindMissingReadsUsageLimit() = assertEquals("Usage limit", blockedWord(null))
+
+    @Test
+    fun blockedKindDeviceOfflineReadsItsWord() = assertEquals("Device offline", blockedWord("device_offline"))
+
+    @Test
+    fun blockedKindUnclaimedReadsItsWord() = assertEquals("Not picked up", blockedWord("unclaimed"))
+
+    @Test
+    fun blockedKindStuckReadsItsWord() = assertEquals("Stuck", blockedWord("stuck"))
+
+    @Test
+    fun blockedKindUnknownKeepsUsageLimit() = assertEquals("Usage limit", blockedWord("quota"))
 }

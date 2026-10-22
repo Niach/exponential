@@ -11,6 +11,12 @@ import Foundation
 // desktop recognizes a catalog command by its first token and executes it per
 // agent. There is no new relay frame, and nothing here decides what a command
 // DOES.
+//
+// NEW-2 (owner 2026-10-21): the catalog is the contract `steerCommands` ALONE
+// (compact, model, effort); commands the agent CLI injects (its
+// `config_state.commands`: Claude Code skills, plugins) are HIDDEN on every
+// platform — nothing here merges them, so neither the menu nor the
+// transcript's command lookup ever sees one.
 
 /// One catalog row, zipped out of the generated contract arrays.
 public struct SlashCommand: Equatable, Sendable, Identifiable {
@@ -23,8 +29,8 @@ public struct SlashCommand: Equatable, Sendable, Identifiable {
     public let argHint: String
     /// The agents that can run it — `coding_sessions.agent` values.
     public let agents: [String]
-    /// Destructive enough to need a confirm before it goes out (`/clear`,
-    /// the conversation is discarded).
+    /// Destructive enough to need a confirm before it goes out (contract
+    /// `steerCommandConfirm`; none since `/clear` left with NEW-2).
     public let confirm: Bool
 
     public var id: String { name }
@@ -46,6 +52,40 @@ public struct SlashCommand: Equatable, Sendable, Identifiable {
 
     /// The token a sent message must open with to BE this command.
     public var token: String { "/\(name)" }
+}
+
+/// NEW-2: a team prompt as the `/` menu lists it (the synced, body-less
+/// `prompts` row): its icon and name, after the builtins. Web `SlashPrompt`.
+public struct SlashPrompt: Equatable, Sendable, Identifiable {
+    public let id: String
+    public let name: String
+    /// Curated registry icon name; nil = the generic prompt glyph.
+    public let icon: String?
+
+    public init(id: String, name: String, icon: String? = nil) {
+        self.id = id
+        self.name = name
+        self.icon = icon
+    }
+
+    /// The token it answers to after the slash (`SlashCommands.promptSlashName`).
+    public var slashName: String { SlashCommands.promptSlashName(name) }
+}
+
+/// One row of the `/` menu (web `SlashCandidate`): a builtin command, or a
+/// team prompt. Accepting a command rewrites the draft; accepting a prompt is
+/// the host's (a live session puts its body in the draft, the launch
+/// composer makes it the new session's subject).
+public enum SlashCandidate: Equatable, Sendable, Identifiable {
+    case command(SlashCommand)
+    case prompt(SlashPrompt)
+
+    public var id: String {
+        switch self {
+        case let .command(command): "command:\(command.name)"
+        case let .prompt(prompt): "prompt:\(prompt.id)"
+        }
+    }
 }
 
 public enum SlashCommands {
@@ -120,45 +160,40 @@ public enum SlashCommands {
         }
     }
 
-    /// EXP-746: the `/` menu's catalog for a session whose agent advertises
-    /// commands of its own (`config_state.commands`, ACP
-    /// `available_commands_update`): the CONTRACT rows first, then the agent's
-    /// extras, deduped by lowercased name — a contract name always wins, so an
-    /// agent's `/compact` can never shadow the curated row and its confirm
-    /// copy. `contract` is expected to be agent-filtered already
-    /// (`catalog(for:)`); the extras came off THIS session's agent, so they
-    /// carry no `agents` of their own and never leak into another agent's
-    /// catalog. They also carry `confirm: false`: nothing an agent advertises
-    /// is destructive enough for us to promise a dialog for it.
-    public static func merged(
-        _ contract: [SlashCommand], agent commands: [AgentConfigCommand]
-    ) -> [SlashCommand] {
-        var seen = Set(contract.map { $0.name.lowercased() })
-        var merged = contract
-        for command in commands {
-            let name = command.name.trimmingCharacters(in: .whitespaces)
-                .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-            guard !name.isEmpty, seen.insert(name.lowercased()).inserted else { continue }
-            merged.append(SlashCommand(
-                name: name,
-                description: command.description,
-                argHint: command.hint ?? "",
-                agents: [],
-                confirm: false
-            ))
-        }
-        return merged
+    /// NEW-2: the token a prompt answers to after the slash — its name,
+    /// lowercased, whitespace runs as `-` (`Fix flaky tests` →
+    /// `fix-flaky-tests`), so `/fix` and `/fix-fl` both find it. Web
+    /// `promptSlashName`.
+    public static func promptSlashName(_ name: String) -> String {
+        name.trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .split(whereSeparator: { $0.isWhitespace })
+            .joined(separator: "-")
     }
 
-    /// `matches(draft:agent:)` over the merged catalog (EXP-746).
-    public static func matches(
-        draft: String, agent: String?, extra: [AgentConfigCommand]
-    ) -> [SlashCommand] {
+    /// The prompts a draft offers: a case-insensitive PREFIX filter over the
+    /// slash names, the team's order kept, at most `limit` (web
+    /// `filterSlashPrompts`); empty when the draft opens no menu.
+    public static func promptMatches(draft: String, prompts: [SlashPrompt], limit: Int = 50) -> [SlashPrompt] {
         guard let query = partialName(in: draft) else { return [] }
         let needle = query.lowercased()
-        return merged(catalog(for: agent), agent: extra).filter {
-            needle.isEmpty || $0.name.lowercased().hasPrefix(needle)
-        }
+        return Array(prompts.filter { $0.slashName.hasPrefix(needle) }.prefix(limit))
+    }
+
+    /// Whether the WHOLE draft is a menu-opening `/name` token (web
+    /// `matchSlashDraft(...) !== null`): a picked prompt's body replaces the
+    /// draft only while it still is one.
+    public static func isSlashDraft(_ draft: String) -> Bool {
+        partialName(in: draft) != nil
+    }
+
+    /// THE `/` menu's rows ×4 (NEW-2): a live session's builtins for its
+    /// agent (`matches`), then the team's prompts. CLI-injected commands are
+    /// never offered. The launch composer (no session yet) lists the prompts
+    /// alone (`promptMatches`).
+    public static func candidates(draft: String, agent: String?, prompts: [SlashPrompt]) -> [SlashCandidate] {
+        matches(draft: draft, agent: agent).map(SlashCandidate.command)
+            + promptMatches(draft: draft, prompts: prompts).map(SlashCandidate.prompt)
     }
 
     /// The command a message about to be sent IS, if any: its first
@@ -167,23 +202,9 @@ public enum SlashCommands {
     /// Anything else — `/compactify`, `hello /compact`, `//compact` — is
     /// ordinary prose and goes out untouched.
     public static func command(for text: String, agent: String?) -> SlashCommand? {
-        command(for: text, agent: agent, extra: [])
-    }
-
-    /// EXP-746: `command(for:agent:)` over the MERGED catalog — a command the
-    /// agent advertised in `config_state` is a command here too, so a steered
-    /// `/review` comes back into the transcript as a command pill instead of a
-    /// prose bubble. The menu and the lookup read one catalog, exactly as they
-    /// do on web (`parseSteerCommand` over `mergeAgentCommands`) and Android
-    /// (`SlashCommands.commandFor(text, agent, agentCommands)`). The matching
-    /// rules are unchanged: still the first whitespace token, still exact and
-    /// case-insensitive, and an empty `extra` is the contract catalog.
-    public static func command(
-        for text: String, agent: String?, extra: [AgentConfigCommand]
-    ) -> SlashCommand? {
         guard let token = text.split(whereSeparator: { $0.isWhitespace }).first else { return nil }
         let needle = token.lowercased()
-        return merged(catalog(for: agent), agent: extra).first { $0.token.lowercased() == needle }
+        return catalog(for: agent).first { $0.token.lowercased() == needle }
     }
 
     /// A slash command is the WHOLE message: with attachments in the box the

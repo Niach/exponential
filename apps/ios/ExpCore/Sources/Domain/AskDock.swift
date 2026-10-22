@@ -233,9 +233,9 @@ public enum AskDock {
         return pending
     }
 
-    /// EXP-1280: the Exponential tools that post a card (`plan_propose`,
-    /// `sessions_ask`; web `CARD_TOOLS`).
-    public static let cardTools: Set<String> = ["plan_propose", "sessions_ask"]
+    /// EXP-1280: the Exponential tools that post a card (NEW-4: the display
+    /// rows of `session_self` op plan / op ask; web `CARD_TOOLS`).
+    public static let cardTools: Set<String> = ["session_self_plan", "session_self_ask"]
 
     /// Where the session view paints each tool-posted card (web
     /// `anchorToolCards`): right after the settled call that posted it. Calls

@@ -20,7 +20,7 @@ import {
   UserAvatar,
 } from "@exp/ui"
 import { trpc } from "@/lib/trpc-client"
-import { relationLabel, type RelationDirection } from "@/lib/issue-relations"
+import { relationLabel, type RelationDirection } from "@/lib/issue-relations-pure"
 import {
   issueRelationsView,
   RELATIONS_VIEW_COPY,

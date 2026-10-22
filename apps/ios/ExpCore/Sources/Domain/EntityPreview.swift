@@ -102,6 +102,10 @@ public enum EntityPreview {
         "attachment": "ui-attach",
         "list": "ui-checklist",
         "thread": "work-faces",
+        // NEW-2: prompts (the rocket actions wore), agents, events.
+        "prompt": "nav-actions",
+        "agent": "settings-agents",
+        "event": "trigger-event",
     ]
 
     private static let nouns: [String: (String, String)] = [
@@ -121,6 +125,9 @@ public enum EntityPreview {
         "attachment": ("attachment", "attachments"),
         "list": ("list", "lists"),
         "thread": ("thread", "threads"),
+        "prompt": ("prompt", "prompts"),
+        "agent": ("agent", "agents"),
+        "event": ("event", "events"),
     ]
 
     /// The product noun for a kind: singular for `count` 1, plural otherwise.

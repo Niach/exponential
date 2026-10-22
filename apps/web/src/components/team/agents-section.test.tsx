@@ -1,30 +1,26 @@
 // EXP-1293: the agent settings page's create mode — validation is the
 // contract's `validateAgentForm` (inline FieldError, nothing sent), and a
-// valid form is ONE `sessions.send({teamId, deviceId, agent})`.
+// valid form is ONE `agents.create` (NEW-2: agents are definition rows).
 import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 import type { Team } from "@/db/schema"
 
-const send = vi.hoisted(() => vi.fn())
+const create = vi.hoisted(() => vi.fn())
 
 vi.mock(`@/lib/trpc-client`, () => ({
   trpc: {
-    sessions: {
-      send: { mutate: send },
-      getAgent: { query: vi.fn() },
-      updateAgent: { mutate: vi.fn() },
-      deleteAgent: { mutate: vi.fn() },
+    agents: {
+      create: { mutate: create },
+      get: { query: vi.fn() },
+      update: { mutate: vi.fn() },
+      delete: { mutate: vi.fn() },
     },
   },
 }))
 vi.mock(`@/lib/collections`, () => ({
   deviceCollection: {},
   userCollection: {},
-  sessionCollection: { utils: { awaitTxId: () => Promise.resolve() } },
-  actionCollection: {},
-  boardCollection: {},
-  labelCollection: {},
-  issueStatusCollection: {},
+  agentCollection: { utils: { awaitTxId: () => Promise.resolve() } },
 }))
 vi.mock(`@/hooks/use-session`, () => ({
   useSession: () => ({ data: { user: { id: `me` } } }),
@@ -45,7 +41,7 @@ describe(`AgentSettingsPage (create)`, () => {
     expect(screen.getByTestId(`agent-settings-page`)).toBeTruthy()
     fireEvent.click(screen.getByTestId(`agent-create`))
     await waitFor(() => expect(screen.getByRole(`alert`).textContent).toBe(`Name the agent`))
-    expect(send).not.toHaveBeenCalled()
+    expect(create).not.toHaveBeenCalled()
   })
 
   it(`hides the create button from a member`, () => {

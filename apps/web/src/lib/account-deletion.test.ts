@@ -481,11 +481,11 @@ describe(`guardAndCleanupTeamsForUserDeletion — email residue (REV2-75)`, () =
   })
 })
 
-// ── Cross-account coding sessions (EXP-445) ─────────────────────────────────
+// ── Cross-account coding sessions (EXP-445/NEW-1) ───────────────────────────
 // A shared-device run belongs to the requester (`user_id`) and executes on the
-// host's machine (`host_user_id`). Deleting either account must leave a durable
-// `ended` row behind — the where clauses are asserted by SHAPE, since the fake
-// tx cannot execute them.
+// host's machine (the host is derived from the devices rows, mocked below).
+// Deleting either account must leave a durable `ended` row behind — the where
+// clauses are asserted by SHAPE, since the fake tx cannot execute them.
 
 function whereShape(cond: unknown, out: unknown[] = []): unknown[] {
   if (!cond || typeof cond !== `object`) return out
@@ -521,10 +521,12 @@ describe(`guardAndCleanupTeamsForUserDeletion — sessions (EXP-445/1291)`, () =
     const result = await guardAndCleanupTeamsForUserDeletion(fakeTx, USER, `self`)
 
     const [reassign, ended] = updatesTo(sessions)
-    // user_id := host_user_id, so the row outlives the users-row cascade.
-    expect(whereShape(reassign!.values.userId)).toEqual([`col:host_user_id`])
-    expect(reassign!.values.hostUserId).toBeNull()
-    expect(whereShape(reassign!.where)).toEqual([`col:user_id`, USER, `col:host_user_id`])
+    // user_id := the host (the sharing owner's devices row for the
+    // session's machine), so the row outlives the users-row cascade.
+    expect(whereShape(reassign!.values.userId)).toEqual([`col:device_id`, `col:team_id`])
+    // Only a start on somebody ELSE's machine: no own devices row, a host.
+    expect(whereShape(reassign!.where).slice(0, 2)).toEqual([`col:user_id`, USER])
+    expect(whereShape(reassign!.where)).toContain(`col:device_id`)
     // The visibility mirrors follow, or the cascade would take them.
     expect(updatesTo(messages)).toHaveLength(1)
     expect(updatesTo(sessionIssues)).toHaveLength(1)
@@ -543,12 +545,8 @@ describe(`guardAndCleanupTeamsForUserDeletion — sessions (EXP-445/1291)`, () =
     const hosted = updatesTo(sessions)[1]
     expect(hosted!.values).toMatchObject({ status: `ended`, busy: false })
     expect(`userId` in hosted!.values).toBe(false)
-    expect(whereShape(hosted!.where).slice(0, 4)).toEqual([
-      `col:host_user_id`,
-      USER,
-      `col:user_id`,
-      USER,
-    ])
+    // Someone else's start, on a device this user owns, with no own row.
+    expect(whereShape(hosted!.where).slice(0, 2)).toEqual([`col:user_id`, USER])
     expect(result.endedSessionIds).toEqual([`sess-hosted`])
   })
 

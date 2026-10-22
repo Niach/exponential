@@ -6,16 +6,16 @@ import SwiftUI
 // EXP-1291 Threads v2: the AGENT PAGE — Team settings → Agents, laid out
 // exactly like a board (fixture `agent-settings.json` `fields`, top to
 // bottom): the board form's ONE identity row (icon picker + colour swatch +
-// name), Device (required), Account (the device's logins), Schedule (one row
+// name), Device (required), Account (the device's logins), Triggers (one row
 // per trigger: `AgentSettings.triggerSummary` + its switch, Add opens the
-// trigger editor), Instructions (markdown, server-only: `sessions.getAgent`)
-// and Delete (owner-only, confirmed). Members read; every owner-only control
-// is hidden or disabled for them.
+// trigger editor), Instructions (markdown, server-only: `agents.get`) and
+// Delete (owner-only, confirmed). Members read; every owner-only control is
+// hidden or disabled for them.
 //
-// A new agent is ONE `sessions.send({teamId, deviceId, account, agent})`;
-// after that the fields save through `sessions.updateAgent` — the triggers at
-// once (a WHOLE-ARRAY write per add/edit/toggle/delete), everything else on
-// Save changes.
+// NEW-2: an agent is a DEFINITION row (`agents`), never a session. A new one
+// is ONE `agents.create`; after that the fields save through `agents.update`
+// — the triggers at once (a WHOLE-ARRAY write per add/edit/toggle/delete),
+// everything else on Save changes.
 
 /// The page's editable state, hoisted out of the views (`AgentSettingsForm`
 /// draws it).
@@ -31,13 +31,13 @@ final class AgentSettingsDraft {
     var cli: String?
     /// The picked profile id; nil = unpinned (the device's last used login).
     var account: String?
-    /// An EXISTING agent's CLI: `sessions.updateAgent` cannot change it, so
+    /// An EXISTING agent's CLI: the page never changes it, so
     /// its Account row only offers that CLI's logins. nil = a new agent (any
     /// login, its agent becomes the CLI) or one created unpinned.
     private(set) var lockedCli: String?
     /// The instructions' markdown editor.
     let instructions = IssueEditorModel()
-    /// False while an existing agent's `sessions.getAgent` is in flight.
+    /// False while an existing agent's `agents.get` is in flight.
     var instructionsLoaded = false
     var instructionsFailed = false
     /// Stored order. A trigger added before the agent exists (or before the
@@ -72,8 +72,8 @@ final class AgentSettingsDraft {
     }
 
     /// An existing agent's synced row (once, on first resolve).
-    func seed(from agent: SessionEntity) {
-        name = agent.name ?? ""
+    func seed(from agent: AgentDefinitionEntity) {
+        name = agent.name
         icon = agent.icon ?? SessionTree.ListCopy.agentDefaultIcon
         color = agent.color ?? SessionTree.ListCopy.agentDefaultColor
         deviceId = agent.deviceId
@@ -126,7 +126,7 @@ final class AgentSettingsDraft {
 
     // MARK: - Patch
 
-    /// Only what changed rides `sessions.updateAgent`; the triggers write on
+    /// Only what changed rides `agents.update`; the triggers write on
     /// their own.
     var patch: AgentPatch {
         var patch = AgentPatch()
@@ -244,7 +244,7 @@ struct AgentSettingsPage: View {
     @Environment(\.toaster) private var toaster
 
     @State private var draft = AgentSettingsDraft()
-    @State private var agent: SessionEntity?
+    @State private var agent: AgentDefinitionEntity?
     @State private var allDevices: [SteerDevice] = []
     @State private var seeded = false
     @State private var observation: Task<Void, Never>?
@@ -386,7 +386,7 @@ struct AgentSettingsPage: View {
         observation?.cancel()
         guard let pool = try? deps.db.pool(forAccountId: accountId) else { return }
         let obs = ValueObservation.tracking { db in
-            try SessionQueries.session(db: db, id: agentId)
+            try AgentDefinitionEntity.fetchOne(db, key: agentId)
         }
         observation = Task {
             do {
@@ -409,7 +409,7 @@ struct AgentSettingsPage: View {
         guard let agentId else { return }
         draft.instructionsFailed = false
         do {
-            let details = try await deps.sessionsApi.getAgent(accountId: accountId, sessionId: agentId)
+            let details = try await deps.agentsApi.get(accountId: accountId, id: agentId)
             draft.loadInstructions(details.instructions)
         } catch {
             draft.instructionsFailed = true
@@ -438,8 +438,8 @@ struct AgentSettingsPage: View {
         let inputs = draft.inputs(next)
         Task {
             do {
-                try await deps.sessionsApi.updateAgent(
-                    accountId: accountId, sessionId: agentId, patch: AgentPatch(triggers: inputs)
+                try await deps.agentsApi.update(
+                    accountId: accountId, id: agentId, patch: AgentPatch(triggers: inputs)
                 )
             } catch {
                 draft.triggers = previous
@@ -461,24 +461,21 @@ struct AgentSettingsPage: View {
             if let agentId {
                 let patch = draft.patch
                 guard !patch.isEmpty else { return }
-                try await deps.sessionsApi.updateAgent(
-                    accountId: accountId, sessionId: agentId, patch: patch
-                )
+                try await deps.agentsApi.update(accountId: accountId, id: agentId, patch: patch)
                 draft.snapshotBaseline()
             } else {
-                try await deps.sessionsApi.send(
+                try await deps.agentsApi.create(
                     accountId: accountId,
-                    .newAgent(
+                    AgentCreateInput(
                         teamId: teamId,
+                        name: draft.name.trimmingCharacters(in: .whitespacesAndNewlines),
+                        icon: draft.icon,
+                        color: draft.color,
+                        instructions: draft.instructions.currentMarkdown(),
+                        triggers: draft.inputs(draft.triggers),
                         deviceId: deviceId,
-                        options: SessionLaunchOptions(cli: draft.cli, account: draft.account),
-                        agent: AgentFacetsInput(
-                            name: draft.name.trimmingCharacters(in: .whitespacesAndNewlines),
-                            icon: draft.icon,
-                            color: draft.color,
-                            instructions: draft.instructions.currentMarkdown(),
-                            triggers: draft.inputs(draft.triggers)
-                        )
+                        cli: draft.cli,
+                        account: draft.account
                     )
                 )
                 dismiss()
@@ -498,7 +495,7 @@ struct AgentSettingsPage: View {
         deleting = true
         defer { deleting = false }
         do {
-            try await deps.sessionsApi.deleteAgent(accountId: accountId, sessionId: agentId)
+            try await deps.agentsApi.delete(accountId: accountId, id: agentId)
             dismiss()
         } catch {
             toaster.error(
@@ -683,7 +680,7 @@ struct AgentSettingsForm: View {
     private var scheduleRows: some View {
         if draft.triggers.isEmpty {
             Button { onOpenTrigger(nil) } label: {
-                GlassPickerRowLabel(label("schedule"), value: AgentSettings.Copy.noSchedule)
+                GlassPickerRowLabel(label("triggers"), value: AgentSettings.Copy.noSchedule)
             }
             .buttonStyle(.plain)
             .disabled(!canEdit)

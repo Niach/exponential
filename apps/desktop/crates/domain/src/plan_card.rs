@@ -55,12 +55,23 @@ pub struct PlanCardCopy {
     pub answer_issues: AnswerIssueCopy,
     pub plan_mode_gate: String,
     pub propose_next: String,
+    /// NEW-6: the stepper's step line (`{n}` 1-based, `{m}` the count).
+    pub step_label: String,
+    pub back: String,
+    pub next: String,
+    /// NEW-6: the decision block's prompt.
+    pub decide: String,
 }
 
 impl PlanCardCopy {
     /// `feedback_line` with `{feedback}` filled in.
     pub fn feedback_line(&self, feedback: &str) -> String {
         self.feedback_line.replace("{feedback}", feedback)
+    }
+
+    /// `step_label` for step `n` (1-based) of `m`.
+    pub fn step_label(&self, n: usize, m: usize) -> String {
+        self.step_label.replace("{n}", &n.to_string()).replace("{m}", &m.to_string())
     }
 }
 
@@ -73,6 +84,7 @@ pub struct PlanCardSpecimenCopy {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PlanCardTestIds {
     pub card: String,
     pub question: String,
@@ -82,6 +94,27 @@ pub struct PlanCardTestIds {
     pub surface: String,
     pub feedback: String,
     pub issue: String,
+    pub step: String,
+    pub step_back: String,
+    pub step_next: String,
+    pub decision: String,
+}
+
+/// NEW-6 (N-1): a PENDING card with `min_questions`+ questions shows one
+/// question at a time (Back / Next `button_gap` apart; the last step carries
+/// the decision block).
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlanCardStepper {
+    pub min_questions: usize,
+    pub button_gap: f32,
+}
+
+impl PlanCardStepper {
+    /// Whether a pending card with `questions` questions steps through them.
+    pub fn steps(&self, questions: usize) -> bool {
+        questions >= self.min_questions
+    }
 }
 
 /// The picture tiles' geometry (px, `picture_aspect` = w / h).
@@ -151,11 +184,17 @@ pub struct PlanCardSpec {
     pub card: PlanCardCard,
     pub upload_scheme: String,
     pub answer_text: PlanCardAnswerText,
+    pub stepper: PlanCardStepper,
 }
 
 /// The card's copy, test ids, tile geometry and answer-text templates.
 pub static PLAN_CARD: LazyLock<PlanCardSpec> =
     LazyLock::new(|| serde_json::from_str(PLAN_CARD_JSON).expect("plan-card.json parses"));
+
+/// The stepper (`PLAN_CARD.stepper`).
+pub fn stepper() -> &'static PlanCardStepper {
+    &PLAN_CARD.stepper
+}
 
 /// The card's copy (`PLAN_CARD.copy`).
 pub fn copy() -> &'static PlanCardCopy {
@@ -542,6 +581,16 @@ mod tests {
         assert_eq!(copy().answer_issues.missing, "Answer every question to approve");
         assert_eq!(tiles().columns, 2);
         assert_eq!(test_ids().card, "plan-card");
+    }
+
+    /// NEW-6: the stepper's threshold, its step line and its test ids.
+    #[test]
+    fn the_stepper_parses() {
+        assert!(!stepper().steps(1));
+        assert!(stepper().steps(stepper().min_questions));
+        assert_eq!(copy().step_label(2, 3), "Question 2 of 3");
+        assert_eq!(test_ids().decision, "plan-card-decision");
+        assert!(stepper().button_gap > 0.0);
     }
 
     #[test]

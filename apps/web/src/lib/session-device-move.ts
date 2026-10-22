@@ -1,11 +1,9 @@
 // EXP-1252: moving a live SESSION to another device, from its composer's
 // options line (the launch line's Device pin, placed before Model).
 //
-// A move = ONE `sessions.send({ sessionId, deviceId })` with no text: the
-// server writes the synced `sessions.move_to_device_id` and the source
-// device hands the SAME row over after its current turn (worktree +
-// conversation travel, logins stay). Picking the current device while a
-// move is pending cancels it (the same call).
+// A move = ONE `sessions.send({ sessionId, deviceId })` with no text
+// (NEW-1): a queued row re-targets; a live one ENDS here and continues on
+// the target in a new session on the same branch (logins stay).
 //
 // The rows are THE launch composer's machines for this team (own + shared
 // into it, `useSteerDevices`), each with its refusal. Every sentence is
@@ -26,7 +24,7 @@ export const PICKER_TITLE = `Move to device`
 export const MOVING_LABEL = `Moving to {device}…`
 
 /** What a move does, said once where the move is offered. */
-export const NOTE = `The session moves after its current turn. Its worktree and conversation go with it; logins stay on each device.`
+export const NOTE = `The session ends here and continues on that device on the same branch; its conversation goes with it, logins stay on each device.`
 
 /** A person's failed move (the failedAction toast title). */
 export const MOVE_FAILED_TOAST = `Couldn't move the session`
@@ -60,10 +58,11 @@ export function movingLabel(deviceName: string): string {
   return MOVING_LABEL.replace(`{device}`, deviceName)
 }
 
-/** The pin renders at all: never for an agent (persistent; it moves from
+/** The pin renders at all: never for an agent's conversation (NEW-2: a
+ *  session with `agentId`, persistent; it moves with its agent's device in
  *  Settings → Agents) nor an aside (it stays on its parent's device). */
 export function deviceMoveVisible(session: {
-  kind?: string | null
+  agentId?: string | null
   aside?: boolean | null
 }): boolean {
   return deviceMoveHiddenReason(session) === null
@@ -71,7 +70,7 @@ export function deviceMoveVisible(session: {
 
 /** Why the pin is hidden (the server's refusal for the same request). */
 export function deviceMoveHiddenReason(session: {
-  kind?: string | null
+  agentId?: string | null
   aside?: boolean | null
 }): string | null {
   if (isPersistent(session)) return REASON_AGENT

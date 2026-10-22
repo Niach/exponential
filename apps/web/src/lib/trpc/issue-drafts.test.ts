@@ -347,7 +347,7 @@ describe(`issueDrafts.upsert sessionId`, () => {
 
   it.each([
     [`another team's thread`, { id: THREAD, rootId: THREAD, teamId: `other-team`, kind: `thread` }],
-    [`an agent`, { id: THREAD, rootId: THREAD, teamId: TEAM, kind: `agent` }],
+    [`an agent`, { id: THREAD, rootId: THREAD, teamId: TEAM, kind: `agent`, agentId: THREAD }],
     [`a missing thread`, null],
   ])(`refuses %s before anything is written`, async (_name, thread) => {
     h.loadSessionForUser.mockResolvedValue(thread)

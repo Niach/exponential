@@ -1,3 +1,4 @@
+import { resolveSessionHost } from "@/lib/sessions/host"
 import {
   and,
   desc,
@@ -514,6 +515,8 @@ const PR_SESSION_CANDIDATE_LIMIT = 4
 
 interface PrSessionCandidate {
   userId: string
+  /** NEW-1: the account hosting it (derived from the devices rows), when
+   *  that is someone else. */
   hostUserId: string | null
 }
 
@@ -523,15 +526,26 @@ async function loadPrSessionCandidates(
   const openers = sql`SELECT pr.session_id FROM pull_requests pr
     JOIN pull_request_issues pri ON pri.pull_request_id = pr.id
     WHERE pri.issue_id = ${issue.id} AND pr.session_id IS NOT NULL`
-  return await db
-    .select({ userId: sessions.userId, hostUserId: sessions.hostUserId })
+  const rows = await db
+    .select({
+      userId: sessions.userId,
+      deviceId: sessions.deviceId,
+      teamId: sessions.teamId,
+    })
     .from(sessions)
     .where(
-      sql`${sessions.id} IN (${openers}) OR ${sessions.rootId} IN (SELECT si.session_id FROM session_issues si WHERE si.issue_id = ${issue.id})`
+      // The PR's opener, or any session of a thread holding the issue.
+      sql`${sessions.id} IN (${openers}) OR ${sessions.rootId} IN (SELECT s.root_id FROM session_issues si JOIN sessions s ON s.id = si.session_id WHERE si.issue_id = ${issue.id})`
     )
     // The PR openers outrank the threads that only hold the issue.
     .orderBy(sql`(${sessions.id} IN (${openers})) DESC`, desc(sessions.createdAt))
     .limit(PR_SESSION_CANDIDATE_LIMIT)
+  const out: PrSessionCandidate[] = []
+  for (const row of rows) {
+    const host = await resolveSessionHost(row)
+    out.push({ userId: row.userId, hostUserId: host && host !== row.userId ? host : null })
+  }
+  return out
 }
 
 /**

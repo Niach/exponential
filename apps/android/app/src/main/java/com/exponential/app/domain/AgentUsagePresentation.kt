@@ -440,10 +440,20 @@ object AgentUsagePresentation {
      */
     fun blockedBadgeLabel(blocked: CodingSessionBlocked?, nowMs: Long): String? {
         if (blocked == null) return null
+        // NEW-1: a watchdog flag (device offline, not picked up, stuck) names
+        // itself with the session card's word (`copy.blockedKinds`); it has
+        // no reset to count down to.
+        val kind = blocked.kind ?: "rate_limit"
+        if (kind != "rate_limit") SessionTree.CardCopy.BLOCKED_KINDS[kind]?.let { return it }
         val label = if ((blocked.kind ?: "rate_limit") == "rate_limit") "Rate limited" else "Blocked"
         val countdown = resetCountdown(blocked.resetsAt, nowMs) ?: return label
         return "$label · $countdown"
     }
+
+    /** NEW-1: a USAGE wall (`rate_limit`, or no kind) — the only block a
+     *  switch of account gets out of; a watchdog flag never offers it. */
+    fun isUsageWall(blocked: CodingSessionBlocked?): Boolean =
+        blocked != null && (blocked.kind ?: "rate_limit") == "rate_limit"
 
     // ── Account captions ─────────────────────────────────────────────────────
 

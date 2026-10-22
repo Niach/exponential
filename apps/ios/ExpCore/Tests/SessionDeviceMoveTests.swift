@@ -30,7 +30,7 @@ final class SessionDeviceMoveTests: XCTestCase {
         XCTAssertEqual(SessionDeviceMove.movingLabel("Studio"), "Moving to Studio…")
         XCTAssertEqual(
             SessionDeviceMove.note,
-            "The session moves after its current turn. Its worktree and conversation go with it; logins stay on each device."
+            "The session ends here and continues on that device on the same branch; its conversation goes with it, logins stay on each device."
         )
         XCTAssertEqual(SessionDeviceMove.reasonSteer, "Only people who can steer this session can move it.")
         XCTAssertEqual(SessionDeviceMove.reasonEnded, "This session has ended.")

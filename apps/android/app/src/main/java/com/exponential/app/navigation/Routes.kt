@@ -25,7 +25,20 @@ object Routes {
     fun session(sessionId: String): String = "session/$sessionId"
 
     const val AGENTS_SETTINGS = "settings/agents"
-    const val AGENT_SETTINGS_PATTERN = "settings/agent/{sessionId}"
-    fun agentSettings(agentSessionId: String): String = "settings/agent/$agentSessionId"
+    // NEW-2: an agent = a definition row (`agents.id`).
+    const val AGENT_SETTINGS_PATTERN = "settings/agent/{agentId}"
+    fun agentSettings(agentId: String): String = "settings/agent/$agentId"
     const val AGENT_NEW = "settings/agent-new"
+
+    /** NEW-7: an agent's conversation = the CALLER's DM with it (the root
+     *  session with that `agent_id` and `user_id` = me); none yet = the same
+     *  screen empty, whose composer creates it. */
+    const val AGENT_DM_PATTERN = "agent-dm/{agentId}"
+    fun agentDm(agentId: String): String = "agent-dm/$agentId"
+
+    /** NEW-7: Settings → Prompts (prompts replaced actions). */
+    const val PROMPTS_SETTINGS = "settings/prompts"
+    const val PROMPT_SETTINGS_PATTERN = "settings/prompt/{promptId}"
+    fun promptSettings(promptId: String): String = "settings/prompt/$promptId"
+    const val PROMPT_NEW = "settings/prompt-new"
 }

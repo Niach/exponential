@@ -396,8 +396,8 @@ const CLAUDE = new Map(
   [...LIST, ...NESTED].flatMap((group) => group.rows.map((row) => [row.sessionId, `claude`] as const))
 )
 const AGENTS = [
-  { sessionId: `ag1`, teamId: `t`, name: `Triage`, icon: `bug`, color: `#a78bfa`, busy: false, needsYou: true },
-  { sessionId: `ag2`, teamId: `t`, name: `Designer`, icon: `palette`, color: `#f472b6`, busy: false, needsYou: false },
+  { agentId: `ag1`, teamId: `t`, name: `Triage`, icon: `bug`, color: `#a78bfa`, busy: false, needsYou: true },
+  { agentId: `ag2`, teamId: `t`, name: `Designer`, icon: `palette`, color: `#f472b6`, busy: false, needsYou: false },
 ]
 const deviceGlyph = (deviceId: string | null | undefined) => (deviceId ? DEVICE : null)
 

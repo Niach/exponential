@@ -1,13 +1,70 @@
 {
-  "$comment": "EXP-1341: ONE session model. Every session is a `sessions` row run by the same engine; a root dispatches (its prompt says so, `dispatch` stamped at creation for every root, agents included) and that prompt is the ONLY behavioural difference of a thread. An agent = a root that is `persistent` (never ends: an exit or a refused launch reports `idle`, `sessions.end` refuses it, its scratch dir is kept, a message resumes the SAME row, and its device REVIVES it when it comes back) and carries `triggers`. sessionTraits(kind) reads `kinds`; an unknown kind = `thread`. Mirrors: TS src/session-kind.ts, desktop `domain::session_kind`, iOS ExpCore `SessionKind.swift`, Android `domain/SessionKind.kt`; the server and the device branch on these traits, never on the kind string.",
+  "$comment": "EXP-1341/NEW-2: ONE session model. Every session is a `sessions` row run by the same engine. NEW-2: a team agent is a DEFINITION (`agents`), never a session; it runs as conversation sessions, roots with `agentId` set (one per agent and member). sessionKindOf(session) = `agent` when `agentId` is set, else `thread` (the row's `kind` column is a never-trusted legacy read shim, NEW-8 drops it); sessionTraits(kind) reads `kinds`; an unknown kind = `thread`. A conversation session is `persistent` (never ends: an exit or a refused launch reports `idle`, `sessions.end` refuses it, its scratch dir is kept, a message resumes the SAME row, and its device REVIVES it when it comes back). `triggers` live on the agent definition and are fired by the SERVER (`lib/agents/triggers.ts`), never by the device. Mirrors: TS src/session-kind.ts, desktop `domain::session_kind`, iOS ExpCore `SessionKind.swift`, Android `domain/SessionKind.kt`; the server and the device branch on these traits, never on the kind string.",
   "kinds": {
-    "thread": { "persistent": false, "triggers": false },
-    "agent": { "persistent": true, "triggers": true }
+    "thread": {
+      "persistent": false,
+      "triggers": false
+    },
+    "agent": {
+      "persistent": true,
+      "triggers": true
+    }
   },
   "cases": [
-    { "kind": "thread", "expected": { "persistent": false, "triggers": false } },
-    { "kind": "agent", "expected": { "persistent": true, "triggers": true } },
-    { "kind": "something-new", "expected": { "persistent": false, "triggers": false } },
-    { "kind": null, "expected": { "persistent": false, "triggers": false } }
+    {
+      "kind": "thread",
+      "expected": {
+        "persistent": false,
+        "triggers": false
+      }
+    },
+    {
+      "kind": "agent",
+      "expected": {
+        "persistent": true,
+        "triggers": true
+      }
+    },
+    {
+      "kind": "something-new",
+      "expected": {
+        "persistent": false,
+        "triggers": false
+      }
+    },
+    {
+      "kind": null,
+      "expected": {
+        "persistent": false,
+        "triggers": false
+      }
+    }
+  ],
+  "kindOfCases": [
+    {
+      "session": {
+        "agentId": "a1",
+        "kind": "thread"
+      },
+      "expected": "agent"
+    },
+    {
+      "session": {
+        "agentId": null,
+        "kind": "agent"
+      },
+      "expected": "thread"
+    },
+    {
+      "session": {
+        "agentId": null,
+        "kind": "thread"
+      },
+      "expected": "thread"
+    },
+    {
+      "session": {},
+      "expected": "thread"
+    }
   ]
 }

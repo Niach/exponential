@@ -3,7 +3,6 @@ import { contract } from "@exp/domain-contract"
 import {
   filterSteerCommands,
   matchSlashDraft,
-  mergeAgentCommands,
   parseSteerCommand,
   steerAgentId,
   steerCommandDraft,
@@ -27,10 +26,10 @@ describe(`steerCommandsFor`, () => {
   it(`filters the catalog by agent, in catalog order`, () => {
     const claude = steerCommandsFor(`claude`).map((c) => c.name)
     const codex = steerCommandsFor(`codex`).map((c) => c.name)
-    expect(claude).toEqual([`compact`, `clear`, `btw`])
-    // Both agents see compact + clear (the desktop maps `/clear` per agent);
-    // EXP-1330 `/btw` forks a claude run only.
-    expect(codex).toEqual([`compact`, `clear`])
+    // NEW-2: the builtins are compact, model and effort, on both agents;
+    // `/clear` and `/btw` are gone.
+    expect(claude).toEqual([`compact`, `model`, `effort`])
+    expect(codex).toEqual([`compact`, `model`, `effort`])
     // EXP-849: a retired agent (historical rows still carry `pi`) gets the
     // empty catalog, like any unknown id.
     expect(steerCommandsFor(`pi`)).toEqual([])
@@ -65,15 +64,6 @@ describe(`steerAgentId`, () => {
     expect(contract.codingAgent.values).not.toContain(EXTERNAL_STEER_AGENT)
     expect(steerAgentId(null, true)).toBe(EXTERNAL_STEER_AGENT)
     expect(steerCommandsFor(steerAgentId(null, true))).toEqual([])
-    // Only what the agent advertised reaches the menu — no `/clear`, so no
-    // confirm dialog for a command nothing would run.
-    const merged = mergeAgentCommands(
-      steerCommandsFor(steerAgentId(null, true)),
-      [{ name: `review`, description: `Review the diff` }],
-      steerAgentId(null, true)
-    )
-    expect(merged.map((command) => command.name)).toEqual([`review`])
-    expect(parseSteerCommand(`/clear`, merged)).toBeNull()
   })
 
   it(`a row that names its agent keeps it, ACP or not`, () => {
@@ -140,7 +130,8 @@ describe(`steerCommandDraft`, () => {
 
   it(`leaves a trailing space only for a command that takes an argument`, () => {
     expect(steerCommandDraft(byName(`compact`))).toBe(`/compact `)
-    expect(steerCommandDraft(byName(`clear`))).toBe(`/clear`)
+    expect(steerCommandDraft(byName(`model`))).toBe(`/model `)
+    expect(steerCommandDraft({ ...byName(`compact`), argHint: `` })).toBe(`/compact`)
   })
 })
 
@@ -166,14 +157,14 @@ describe(`parseSteerCommand`, () => {
     expect(parseSteerCommand(`/compactify`, commands)).toBeNull()
     expect(parseSteerCommand(`compact`, commands)).toBeNull()
     expect(parseSteerCommand(``, commands)).toBeNull()
-    // /new, /model, /init, /review are deliberately NOT in the catalog.
-    for (const text of [`/new`, `/model opus`, `/init`, `/review`]) {
+    // /new, /clear, /btw, /init, /review are deliberately NOT in the catalog.
+    for (const text of [`/new`, `/clear`, `/btw why?`, `/init`, `/review`]) {
       expect(parseSteerCommand(text, commands)).toBeNull()
       expect(parseSteerCommand(text, steerCommandsFor(`codex`))).toBeNull()
     }
     expect(
-      parseSteerCommand(`/clear`, steerCommandsFor(`codex`))?.command.name
-    ).toBe(`clear`)
+      parseSteerCommand(`/model opus`, steerCommandsFor(`codex`))
+    ).toMatchObject({ command: { name: `model` }, args: `opus` })
   })
 })
 
@@ -193,92 +184,6 @@ describe(`copy`, () => {
       cancel: `Cancel`,
     })
     expect(steerCommandConfirmCopy(`compact`).title).toBe(`Run /compact?`)
-  })
-})
-
-// EXP-746: on an ACP run the `/` menu is the contract catalog UNION the
-// agent's own advertised commands. Mirrored ×4 with these exact names.
-describe(`mergeAgentCommands`, () => {
-  const claude = steerCommandsFor(`claude`)
-
-  it(`mergeAgentCommands lists the contract commands first`, () => {
-    const merged = mergeAgentCommands(
-      claude,
-      [
-        { name: `review`, description: `Review the diff`, hint: `<path>` },
-        { name: `ship`, description: `Open the PR` },
-      ],
-      `claude`
-    )
-    expect(merged.slice(0, claude.length)).toEqual(claude)
-    expect(merged.slice(claude.length)).toEqual([
-      {
-        name: `review`,
-        description: `Review the diff`,
-        argHint: `<path>`,
-        agents: [`claude`],
-        confirm: false,
-      },
-      {
-        name: `ship`,
-        description: `Open the PR`,
-        argHint: ``,
-        agents: [`claude`],
-        confirm: false,
-      },
-    ])
-    // An agent-less run is a claude run, like everywhere else.
-    expect(
-      mergeAgentCommands([], [{ name: `ship`, description: `` }])[0].agents
-    ).toEqual([DEFAULT_STEER_AGENT])
-  })
-
-  it(`an agent command that shadows a contract name is dropped`, () => {
-    const shadow = claude[0]
-    const merged = mergeAgentCommands(
-      claude,
-      [
-        { name: shadow.name.toUpperCase(), description: `The agent's own` },
-        { name: `   `, description: `blank` },
-      ],
-      `claude`
-    )
-    // The contract's own entry survives untouched — never confirm-flipped by
-    // an agent that happens to ship the same name.
-    expect(merged).toEqual(claude)
-  })
-
-  // The feed's command pill and the `/` menu read ONE catalog: a command the
-  // agent advertised is a command when it comes back down the transcript too,
-  // not a prose bubble. Mirrors Android's `the menu and the command lookup
-  // both see the advertised rows` and iOS's
-  // testTheMenuAndTheCommandLookupBothSeeTheAdvertisedRows.
-  it(`the command lookup sees advertised agent commands`, () => {
-    const advertised = [{ name: `review`, description: `Review the diff` }]
-    const merged = mergeAgentCommands(claude, advertised, `claude`)
-    expect(merged.map((command) => command.name)).toEqual([
-      `compact`,
-      `clear`,
-      `btw`,
-      `review`,
-    ])
-    // The `/` menu offers it...
-    expect(
-      filterSteerCommands(merged, matchSlashDraft(`/rev`) ?? ``).map(
-        (command) => command.name
-      )
-    ).toEqual([`review`])
-    // ...and the sent message resolves back to the same row, argument and all.
-    expect(parseSteerCommand(`/review src/a.ts`, merged)).toMatchObject({
-      command: { name: `review`, confirm: false },
-      args: `src/a.ts`,
-    })
-    expect(parseSteerCommand(`/REVIEW`, merged)?.command.name).toBe(`review`)
-    // Without the advertisement the very same text is prose again.
-    expect(parseSteerCommand(`/review src/a.ts`, claude)).toBeNull()
-    // Prose rules do not soften for an agent row.
-    expect(parseSteerCommand(`please /review this`, merged)).toBeNull()
-    expect(parseSteerCommand(`/reviewer`, merged)).toBeNull()
   })
 })
 

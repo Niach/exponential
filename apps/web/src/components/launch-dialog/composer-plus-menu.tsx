@@ -15,8 +15,8 @@ import {
   agentEffortValues,
   agentSupportsUltracode,
 } from "@/lib/coding-launch-prefs"
-import { ActionPickerList } from "@/components/launch-dialog/action-picker"
 import { ComposerIssuePicker } from "@/components/launch-dialog/issue-picker"
+import { AgentIcon } from "@/components/team/sidebar-agents"
 import {
   CLI_DEFAULT_EFFORT,
   effortLabel,
@@ -31,8 +31,8 @@ import {
   type ComposerMenuRow,
 } from "@/components/launch-dialog/composer-menu"
 
-// EXP-1249: the composer's ONE "+" — the subject (Implement issue ›, Run
-// action ›: THE search list since SLOP-28), the attach, the session's
+// EXP-1249: the composer's ONE "+" — the subject (Implement issue ›: THE
+// search list since SLOP-28; NEW-2: prompts live in the `/` menu), the attach, the session's
 // options (Effort ›, Ultracode; Subagents › hides, `sessions.send` has no
 // field for it) and its tools (MCP servers ›, Computer use), as ONE
 // `Menu`: a dropdown at the "+" from md up, the bottom sheet of the same rows
@@ -44,7 +44,7 @@ const UiAddIcon = conceptIcon(`ui-add`)
 
 const CLI_DEFAULT_LABEL = `CLI default`
 
-/** SLOP-28: Implement issue › and Run action › are ONE surface, the search
+/** SLOP-28: Implement issue › is the search
  *  list (`composer-menu.json` `submenuRowHeight` × `submenuMaxRows`), at one
  *  width. On a pointer they open to the side on hover or →, ← and Escape
  *  close back (`Menu`'s submenu body); on a phone they push as pages. */
@@ -66,12 +66,10 @@ export interface ComposerOptionsBinding {
   mcpServerIds: string[]
   toggleMcpServer: (id: string) => void
   mcpConnectHref: (serverId: string) => string | null
-  /** Hide MCP servers (an action owning its MCP list, FEED-73). */
-  hideMcp?: boolean
 }
 
-/** The launch-only half: the subject rows (Implement issue ›, Run action ›)
- *  exist only BEFORE a start, never inside a session. */
+/** The launch-only half: the subject rows (Implement issue ›, NEW-3
+ *  Message an agent ›) exist only BEFORE a start, never inside a session. */
 export interface ComposerSubjectRows {
   teamId: string
   eligibleIssues: LaunchComposerModel[`eligibleIssues`]
@@ -79,9 +77,11 @@ export interface ComposerSubjectRows {
   /** The picked issue ids' count (the subject's, ahead of the rows). */
   checkedCount: number
   toggleIssue: (issueId: string) => void
-  actions: LaunchComposerModel[`actions`]
-  selectedActionId: string | null
-  pickAction: (actionId: string) => void
+  /** NEW-3: the team's agents (none = no Message an agent › row). */
+  agents: LaunchComposerModel[`agents`]
+  /** The subject agent's id, when the subject is an agent. */
+  pickedAgentId: string | null
+  pickAgent: (agentId: string) => void
 }
 
 /** THE "+" = the composer's options menu (EXP-1334: the same rows before a
@@ -109,7 +109,7 @@ export function ComposerOptionsMenu({
   const { agent } = options
   const ultracodeOn = options.ultracode && agentSupportsUltracode(agent)
   const checkedCount = subject?.checkedCount ?? 0
-  const showMcp = options.mcpServers.length > 0 && !options.hideMcp
+  const showMcp = options.mcpServers.length > 0
 
   const effortOptions: ValueChoice[] = [
     { value: CLI_DEFAULT_EFFORT, label: CLI_DEFAULT_LABEL },
@@ -129,11 +129,13 @@ export function ComposerOptionsMenu({
     ultracode: agentSupportsUltracode(agent),
     mcp: showMcp,
     computerUse: options.computerUseAvailable,
+    // NEW-3: Message an agent › while the team has agents (before a start).
+    agents: (subject?.agents?.length ?? 0) > 0,
   }).filter(
     (row) =>
       subject !== undefined ||
       row.kind === `separator` ||
-      (row.id !== `implement-issue` && row.id !== `run-action`)
+      (row.id !== `implement-issue` && row.id !== `message-agent`)
   )
 
   const entryFor = (row: ComposerMenuRow): MenuEntry | null => {
@@ -176,28 +178,37 @@ export function ComposerOptionsMenu({
             />
           ),
         }
-      case `run-action`:
+      case `message-agent`: {
         if (!subject) return null
+        const agents = subject.agents ?? []
+        const picked = agents.find((row) => row.agentId === subject.pickedAgentId) ?? null
         return {
           ...base,
           kind: `submenu`,
-          contentClassName: SUBMENU_LIST_CLASS,
+          value: picked?.name,
+          contentClassName: `w-[18rem]`,
           body: (
-            <div
-              data-testid="agent-composer-actions-picker"
-              className="flex max-h-[min(24rem,var(--radix-dropdown-menu-content-available-height,24rem))] min-h-0 flex-col"
-            >
-              <ActionPickerList
-                actions={subject.actions}
-                selectedActionId={subject.selectedActionId}
-                onSelect={(actionId) => {
-                  subject.pickAction(actionId)
-                  setOpen(false)
-                }}
-              />
-            </div>
+            <PickerMenuRows
+              mode="single"
+              items={agents.map((row) => ({ value: row.agentId, label: row.name }))}
+              value={subject.pickedAgentId}
+              onChange={(agentId) => {
+                subject.pickAgent(agentId)
+                setOpen(false)
+              }}
+              renderItem={(item) => {
+                const row = agents.find((candidate) => candidate.agentId === item.value)
+                return (
+                  <span className="flex min-w-0 items-center gap-2">
+                    {row && <AgentIcon agent={row} />}
+                    <span className="min-w-0 truncate">{item.label}</span>
+                  </span>
+                )
+              }}
+            />
           ),
         }
+      }
       case `add-file`:
         return { ...base, kind: `item`, onSelect: onAttach }
       case `effort`:
@@ -318,8 +329,6 @@ export function ComposerPlusMenu({
         mcpServerIds: launch.mcpServerIds,
         toggleMcpServer: launch.toggleMcpServer,
         mcpConnectHref: model.mcpConnectHref,
-        // FEED-73: an action brings its own MCP list (the server sets it).
-        hideMcp: subject?.kind === `action`,
       }}
       subject={{
         teamId: model.teamId,
@@ -327,9 +336,9 @@ export function ComposerPlusMenu({
         checkedIssues: model.checkedIssues,
         checkedCount: subject?.kind === `issues` ? subject.ids.length : 0,
         toggleIssue: model.toggleIssue,
-        actions: model.actions,
-        selectedActionId: subject?.kind === `action` ? subject.id : null,
-        pickAction: model.pickAction,
+        agents: model.agents,
+        pickedAgentId: subject?.kind === `agent` ? subject.id : null,
+        pickAgent: model.pickAgent,
       }}
       onAttach={onAttach}
       disabled={disabled}

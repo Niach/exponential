@@ -640,8 +640,9 @@ data class IssueDraftEntity(
 // `root_id` / `depth`). Visible = `shared OR user_id = me` inside the member
 // teams. jsonb columns stay their raw TEXT off the wire (parsed at the
 // consumer, tolerant). Every field but the PK defaults: a column absent on
-// the wire must never drop the row. An agent's `instructions` are
-// server-only (`sessions.getAgent`).
+// the wire must never drop the row. NEW-2: an agent is a definition
+// (`agents`, its `instructions` server-only via `agents.get`); a root with
+// `agent_id` is one member's conversation with it.
 @Entity(
     tableName = "sessions",
     indices = [Index("team_id"), Index("root_id"), Index("parent_id")],
@@ -716,17 +717,86 @@ data class SessionEntity(
     // source host hands the session off after its current turn.
     @ColumnInfo(name = "move_to_device_id") @SerialName("move_to_device_id") @JsonNames("moveToDeviceId")
     val moveToDeviceId: String? = null,
-    // The agent's triggers (contract `agentTrigger`), raw jsonb TEXT.
+    // Legacy read shim (NEW-8 drops): triggers live on `agents` now.
     @ColumnInfo(name = "triggers") @SerialName("triggers")
     @Serializable(with = JsonAsStringSerializer::class) val triggers: String? = null,
     @ColumnInfo(name = "sort_order") @SerialName("sort_order") @JsonNames("sortOrder") val sortOrder: Double = 0.0,
     @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String = "",
     @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String = "",
+    // NEW-2: the agent whose conversation this root is (one per agent and
+    // member); NULL = a thread or a child. The kind derives from it.
+    @ColumnInfo(name = "agent_id") @SerialName("agent_id") @JsonNames("agentId") val agentId: String? = null,
 ) {
     val isRoot: Boolean get() = parentId == null
-    val isAgent: Boolean get() = kind == com.exponential.app.domain.DomainContract.sessionKindAgent
+    /** NEW-2: an agent's conversation session ([SessionKind.sessionKindOf]). */
+    val isAgent: Boolean get() = !agentId.isNullOrEmpty()
     val isEnded: Boolean get() = status == com.exponential.app.domain.DomainContract.sessionStatusEnded
 }
+
+// NEW-2: a team agent = a DEFINITION, never a session. It runs as
+// conversation sessions (`sessions.agent_id`, one per agent and member).
+// `instructions` + `trigger_state` are server-only (tRPC `agents.get`);
+// `triggers` = raw jsonb TEXT of `[{id, enabled, kind: schedule, cron, tz?} |
+// {id, enabled, kind: event, name}]` (contract `agentTrigger`).
+@Entity(
+    tableName = "agents",
+    indices = [Index("team_id")],
+)
+@Serializable
+data class AgentDefinitionEntity(
+    @PrimaryKey val id: String,
+    @ColumnInfo(name = "team_id") @SerialName("team_id") @JsonNames("teamId") val teamId: String = "",
+    val name: String = "",
+    val icon: String? = null,
+    val color: String? = null,
+    @ColumnInfo(name = "triggers") @SerialName("triggers")
+    @Serializable(with = JsonAsStringSerializer::class) val triggers: String? = null,
+    // The steer deviceId its conversations run on, the CLI, account and model.
+    @ColumnInfo(name = "device_id") @SerialName("device_id") @JsonNames("deviceId") val deviceId: String = "",
+    val cli: String? = null,
+    val account: String? = null,
+    val model: String? = null,
+    @ColumnInfo(name = "owner_id") @SerialName("owner_id") @JsonNames("ownerId") val ownerId: String = "",
+    @ColumnInfo(name = "sort_order") @SerialName("sort_order") @JsonNames("sortOrder") val sortOrder: Double = 0.0,
+    @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String = "",
+    @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String = "",
+)
+
+// NEW-2: an event (free-text `name`, raw jsonb `payload`), team-scoped;
+// `emitted_by` = contract `eventEmitter` (session | user | server).
+@Entity(
+    tableName = "events",
+    indices = [Index("team_id")],
+)
+@Serializable
+data class EventEntity(
+    @PrimaryKey val id: String,
+    @ColumnInfo(name = "team_id") @SerialName("team_id") @JsonNames("teamId") val teamId: String = "",
+    val name: String = "",
+    @ColumnInfo(name = "payload") @SerialName("payload")
+    @Serializable(with = JsonAsStringSerializer::class) val payload: String? = null,
+    @ColumnInfo(name = "emitted_by") @SerialName("emitted_by") @JsonNames("emittedBy") val emittedBy: String = "",
+    @ColumnInfo(name = "session_id") @SerialName("session_id") @JsonNames("sessionId") val sessionId: String? = null,
+    @ColumnInfo(name = "user_id") @SerialName("user_id") @JsonNames("userId") val userId: String? = null,
+    @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String = "",
+)
+
+// NEW-2: a saved prompt (replaces actions): name + curated icon; the body is
+// server-only (tRPC `prompts.get`).
+@Entity(
+    tableName = "prompts",
+    indices = [Index("team_id")],
+)
+@Serializable
+data class PromptEntity(
+    @PrimaryKey val id: String,
+    @ColumnInfo(name = "team_id") @SerialName("team_id") @JsonNames("teamId") val teamId: String = "",
+    val name: String = "",
+    val icon: String? = null,
+    @ColumnInfo(name = "sort_order") @SerialName("sort_order") @JsonNames("sortOrder") val sortOrder: Double = 0.0,
+    @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String = "",
+    @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String = "",
+)
 
 // EXP-1291: a thread's issues (n ↔ n), always on the ROOT session. Hidden
 // with the issue's board server-side (static trash/archive predicates).
@@ -764,6 +834,9 @@ data class SessionIssueEntity(
 @Serializable
 data class MessageEntity(
     @PrimaryKey val id: String,
+    // NEW-3: the conversation the row lives in (`session_id` = the step-1 shim).
+    @ColumnInfo(name = "conversation_id") @SerialName("conversation_id") @JsonNames("conversationId")
+    val conversationId: String? = null,
     @ColumnInfo(name = "session_id") @SerialName("session_id") @JsonNames("sessionId") val sessionId: String = "",
     @ColumnInfo(name = "root_id") @SerialName("root_id") @JsonNames("rootId") val rootId: String = "",
     @ColumnInfo(name = "team_id") @SerialName("team_id") @JsonNames("teamId") val teamId: String = "",
@@ -780,6 +853,25 @@ data class MessageEntity(
     @Serializable(with = JsonAsStringSerializer::class) val card: String? = null,
     @ColumnInfo(name = "answered_at") @SerialName("answered_at") @JsonNames("answeredAt") val answeredAt: String? = null,
     @ColumnInfo(name = "consumed_at") @SerialName("consumed_at") @JsonNames("consumedAt") val consumedAt: String? = null,
+    @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String = "",
+    @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String = "",
+)
+
+// NEW-3: the chat primitive. Step 1: every row is a session's own (kind
+// `session`), visible exactly when its session is; dm/channel rows arrive
+// with NEW-8.
+@Entity(
+    tableName = "conversations",
+    indices = [Index("team_id"), Index("session_id")],
+)
+@Serializable
+data class ConversationEntity(
+    @PrimaryKey val id: String,
+    @ColumnInfo(name = "team_id") @SerialName("team_id") @JsonNames("teamId") val teamId: String = "",
+    // Contract `conversationKind`: dm | channel | session.
+    val kind: String = com.exponential.app.domain.DomainContract.conversationKindSession,
+    @ColumnInfo(name = "session_id") @SerialName("session_id") @JsonNames("sessionId") val sessionId: String? = null,
+    val title: String? = null,
     @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String = "",
     @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String = "",
 )

@@ -5,7 +5,7 @@ import Foundation
 // (desktop `domain::session_title`, Android `domain/SessionTitle.kt`), locked
 // by fixtures/session-title.json (`SessionTitleTests`), whose `$comment`
 // holds the rungs: the explicit name (`name`, else `title`) → the session's
-// issues (a root's links, a child's ASSIGNED links) → `Run <action>` → the
+// issues (the session's OWN rows, root or child alike, NEW-1) → `Run <action>` → the
 // first prompt's usable line → `Untitled`.
 
 public enum SessionTitle {
@@ -94,10 +94,8 @@ public enum SessionTitle {
     /// the main actor on every sync tick.
     public struct Index: Sendable {
         let issuesById: [String: TreeIssue]
-        /// A root's own links, in link order.
-        let rootLinks: [String: [TreeSessionIssue]]
-        /// The links ASSIGNED to a child, in link order.
-        let assignedLinks: [String: [TreeSessionIssue]]
+        /// Each session's OWN links (NEW-1: the row sits on its holder), in link order.
+        let ownLinks: [String: [TreeSessionIssue]]
         /// Each session's candidate first prompts, oldest first — `firstPrompt`'s
         /// filter, already sorted.
         let inputsBySession: [String: [Message]]
@@ -109,10 +107,7 @@ public enum SessionTitle {
             let ordered = links.sorted { a, b in
                 a.sortOrder != b.sortOrder ? a.sortOrder < b.sortOrder : a.issueId < b.issueId
             }
-            rootLinks = Dictionary(grouping: ordered, by: \.sessionId)
-            assignedLinks = Dictionary(grouping: ordered.filter { $0.assignedSessionId != nil }) {
-                $0.assignedSessionId ?? ""
-            }
+            ownLinks = Dictionary(grouping: ordered, by: \.sessionId)
             // The input filter, then ONE sort per session on pre-parsed stamps.
             var stamped: [String: [(ms: Double, message: Message)]] = [:]
             for message in messages where !message.hasCard {
@@ -133,9 +128,8 @@ public enum SessionTitle {
             }
         }
 
-        func sessionIssues(id: String, rootId: String) -> [TreeIssue] {
-            let own = id == rootId ? rootLinks[id] : assignedLinks[id]
-            return (own ?? []).compactMap { issuesById[$0.issueId] }
+        func sessionIssues(id: String) -> [TreeIssue] {
+            (ownLinks[id] ?? []).compactMap { issuesById[$0.issueId] }
         }
 
         func firstPrompt(sessionId: String) -> String? {
@@ -146,15 +140,14 @@ public enum SessionTitle {
         }
     }
 
-    /// A root's links, or the links ASSIGNED to a child, in link order
+    /// The session's OWN links (root or child alike, NEW-1), in link order
     /// (`sortOrder`, then `issueId`); unknown issues are skipped.
     public static func sessionIssues(
         id: String,
-        rootId: String,
         links: [TreeSessionIssue],
         issues: [TreeIssue]
     ) -> [TreeIssue] {
-        Index(links: links, issues: issues, messages: []).sessionIssues(id: id, rootId: rootId)
+        Index(links: links, issues: issues, messages: []).sessionIssues(id: id)
     }
 
     /// The first prompt's usable line: a person's text or another session's
@@ -179,7 +172,7 @@ public enum SessionTitle {
         if !name.isEmpty { return name }
         let stored = trimmed(session.title)
         if !stored.isEmpty { return stored }
-        let own = index.sessionIssues(id: session.id, rootId: session.rootId)
+        let own = index.sessionIssues(id: session.id)
         if !own.isEmpty { return issueLabel(own) }
         let action = trimmed(session.actionName)
         if !action.isEmpty { return Copy.action.replacingOccurrences(of: "{action}", with: action) }

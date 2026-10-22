@@ -2,11 +2,11 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { SessionRow } from "@/lib/session-tree"
 
-// EXP-1323 (#EXP-1330): THE session composer dispatches `/btw <question>`
-// as an ASIDE child (`sessions.send({parentId, text, aside})`) — never as a
-// message into the session — exactly as the IDE, iOS and Android do; every
-// other draft is the ordinary `sessions.send({sessionId})`. The relay store,
-// the synced row and tRPC are stubbed: this pins the SEND path.
+// NEW-2: THE session composer's `/` menu = the contract builtins (compact,
+// model, effort) and the team's prompts; `/effort <level>` rides
+// `sessions.configure`, a picked prompt's body (`prompts.get`) lands in the
+// draft, every other draft is the ordinary `sessions.send({sessionId})`. The
+// relay store, the synced row and tRPC are stubbed: this pins the SEND path.
 //
 // EXP-1334: the ONE composer — the "+" is the options menu (never the file
 // chooser), mid-session options ride `sessions.configure`, and the options
@@ -29,6 +29,8 @@ const mocks = vi.hoisted(() => ({
   messages: [] as unknown[],
   sendReply: vi.fn(),
   dismissReplies: vi.fn(),
+  promptGet: vi.fn(),
+  prompts: [] as { id: string; name: string; icon: string | null; sortOrder: number }[],
 }))
 
 vi.mock(`@/lib/trpc-client`, () => ({
@@ -41,7 +43,11 @@ vi.mock(`@/lib/trpc-client`, () => ({
       sendReply: { mutate: mocks.sendReply },
       dismissReplies: { mutate: mocks.dismissReplies },
     },
+    prompts: { get: { query: mocks.promptGet } },
   },
+}))
+vi.mock(`@/hooks/use-prompts`, () => ({
+  usePrompts: () => ({ prompts: mocks.prompts, isReady: true }),
 }))
 vi.mock(`@tanstack/react-db`, async (importOriginal) => {
   const actual = (await importOriginal()) as Record<string, unknown>
@@ -170,54 +176,64 @@ beforeEach(() => {
   mocks.messages = []
   mocks.sendReply.mockReset()
   mocks.dismissReplies.mockReset()
+  mocks.promptGet.mockReset()
+  mocks.prompts = []
 })
 
-describe(`SessionComposer /btw`, () => {
-  it(`lists /btw in the slash menu of a claude session`, () => {
+describe(`SessionComposer / menu (NEW-2)`, () => {
+  it(`lists the builtins, then the team's prompts; never /btw or /clear`, () => {
+    mocks.prompts = [{ id: `p1`, name: `Release train`, icon: null, sortOrder: 1 }]
     const field = renderComposer()
-    type(field, `/bt`)
-    expect(screen.getByText(`/btw`)).toBeTruthy()
+    type(field, `/`)
+    expect(screen.getByText(`/compact`)).toBeTruthy()
+    expect(screen.getByText(`/model`)).toBeTruthy()
+    expect(screen.getByText(`/effort`)).toBeTruthy()
+    expect(screen.getByText(`Release train`)).toBeTruthy()
+    expect(screen.queryByText(`/btw`)).toBeNull()
+    expect(screen.queryByText(`/clear`)).toBeNull()
   })
 
-  it(`sends the question as an aside child, never as a message, and clears the draft`, async () => {
-    mocks.send.mockResolvedValue({ sessionId: `s2`, txid: 1 })
+  it(`a picked prompt's body replaces the draft; nothing is sent`, async () => {
+    mocks.prompts = [{ id: `p1`, name: `Release train`, icon: null, sortOrder: 1 }]
+    mocks.promptGet.mockResolvedValue({ prompt: { id: `p1`, body: `Cut the release.` } })
     const field = renderComposer()
-    type(field, `/btw what does useCart return?`)
+    type(field, `/rel`)
     pressEnter(field)
-    await waitFor(() => expect(mocks.send).toHaveBeenCalledTimes(1))
-    expect(mocks.send.mock.calls[0]![0]).toEqual({
-      teamId: `t1`,
-      parentId: `s1`,
-      text: `what does useCart return?`,
-      aside: true,
-    })
+    await waitFor(() => expect(field.value).toBe(`Cut the release.`))
+    expect(mocks.promptGet).toHaveBeenCalledWith({ id: `p1` })
+    expect(mocks.send).not.toHaveBeenCalled()
+  })
+
+  it(`a failed prompt fetch toasts and keeps the draft`, async () => {
+    mocks.prompts = [{ id: `p1`, name: `Release train`, icon: null, sortOrder: 1 }]
+    mocks.promptGet.mockRejectedValue(new Error(`gone`))
+    const field = renderComposer()
+    type(field, `/rel`)
+    pressEnter(field)
+    await waitFor(() => expect(mocks.toastActionError).toHaveBeenCalledTimes(1))
+    expect(mocks.toastActionError.mock.calls[0]![0]).toBe(`Couldn't load Release train`)
+    expect(field.value).toBe(`/rel`)
+  })
+
+  it(`/effort sets the effort through sessions.configure, never a message`, async () => {
+    mocks.configure.mockResolvedValue({ txid: 1 })
+    const field = renderComposer()
+    type(field, `/effort high`)
+    pressEnter(field)
+    await waitFor(() => expect(mocks.configure).toHaveBeenCalledTimes(1))
+    expect(mocks.configure.mock.calls[0]![0]).toEqual({ sessionId: `s1`, effort: `high` })
+    expect(mocks.send).not.toHaveBeenCalled()
     await waitFor(() => expect(field.value).toBe(``))
   })
 
-  it(`toasts Couldn't ask and keeps the draft when the aside fails`, async () => {
-    mocks.send.mockRejectedValue(new Error(`Device offline`))
-    const field = renderComposer()
-    type(field, `/btw why?`)
-    pressEnter(field)
-    await waitFor(() => expect(mocks.toastActionError).toHaveBeenCalledTimes(1))
-    expect(mocks.toastActionError.mock.calls[0]![0]).toBe(`Couldn't ask the side question`)
-    expect(field.value).toBe(`/btw why?`)
-    expect(mocks.toastError).not.toHaveBeenCalled()
-  })
-
-  it(`a codex session has no /btw: the text rides as a message`, async () => {
-    mocks.row = sessionRow({ cli: `codex` })
+  it(`/model rides as message text`, async () => {
     mocks.send.mockResolvedValue({ txid: 1 })
     const field = renderComposer()
-    type(field, `/btw why?`)
+    type(field, `/model sonnet`)
     pressEnter(field)
     await waitFor(() => expect(mocks.send).toHaveBeenCalledTimes(1))
-    expect(mocks.send.mock.calls[0]![0]).toEqual({
-      teamId: `t1`,
-      sessionId: `s1`,
-      text: `/btw why?`,
-      attachmentIds: undefined,
-    })
+    expect(mocks.send.mock.calls[0]![0]).toMatchObject({ sessionId: `s1`, text: `/model sonnet` })
+    expect(mocks.configure).not.toHaveBeenCalled()
   })
 
   it(`an ordinary draft is the ordinary message`, async () => {

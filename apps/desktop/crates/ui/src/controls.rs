@@ -592,6 +592,36 @@ pub(crate) fn pointer_check_item(
     )
 }
 
+/// [`pointer_check_item`] led by its own `icon`, drawn as given (an agent's
+/// glyph in its colour, NEW-3's Message an agent › rows): the Picker row's
+/// glyph, the label, the trailing check on the picked one.
+pub(crate) fn pointer_check_item_with_icon(
+    icon: impl Fn() -> Icon + 'static,
+    label: impl Into<SharedString>,
+    checked: bool,
+    on_select: impl Fn(&mut Window, &mut App) + 'static,
+) -> PopupMenuItem {
+    let label = label.into();
+    PopupMenuItem::element(move |_, cx| {
+        pointer_row_fill(
+            gpui_component::h_flex()
+                .flex_1()
+                .min_w_0()
+                .gap(px(t::menu::pointer::ITEM_GAP))
+                .items_center()
+                .child(icon().size(px(t::menu::pointer::ICON_SIZE)).flex_shrink_0())
+                .child(div().flex_1().min_w_0().truncate().child(label.clone()))
+                .children(checked.then(|| {
+                    Icon::new(crate::icons::registry::UI_CHECK)
+                        .size(px(14.))
+                        .text_color(cx.theme().foreground)
+                })),
+            false,
+        )
+    })
+    .on_click(move |_, window, cx| on_select(window, cx))
+}
+
 /// THE IDE dropdown menu (EXP-1249): `trigger` opens a `PopupMenu` built by
 /// `builder` (rebuilt on every open, like upstream's `dropdown_menu`), with
 /// the pointer layer over it (see the section note). Same open/dismiss

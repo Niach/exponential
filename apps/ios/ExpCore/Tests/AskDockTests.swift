@@ -193,11 +193,11 @@ final class AskDockTests: XCTestCase {
     /// older than the window is unanchored.
     func testAnchorToolCardsPairsNewestBack() {
         let feed: [AgentFeedItem] = [
-            .tool(id: 1, name: "mcp__exponential__exponential_sessions_ask", detail: nil, subagentId: nil, settled: true),
+            .tool(id: 1, name: "mcp__exponential__exponential_session_self_ask", detail: nil, subagentId: nil, settled: true),
             .tool(id: 2, name: "Edit", detail: "a.ts", subagentId: nil, settled: true),
-            .tool(id: 3, name: "exponential_plan_propose", detail: nil, subagentId: nil, settled: true, failed: true),
-            .tool(id: 4, name: "exponential_plan_propose", detail: nil, subagentId: nil, settled: true),
-            .tool(id: 5, name: "exponential_sessions_ask", detail: nil, subagentId: nil, settled: false),
+            .tool(id: 3, name: "exponential_session_self_plan", detail: nil, subagentId: nil, settled: true, failed: true),
+            .tool(id: 4, name: "exponential_session_self_plan", detail: nil, subagentId: nil, settled: true),
+            .tool(id: 5, name: "exponential_session_self_ask", detail: nil, subagentId: nil, settled: false),
         ]
         let paired = AskDock.anchorToolCards(feed: feed, cardIds: ["m-old", "m-1", "m-4"])
         XCTAssertEqual(paired.anchors, [1: ["m-1"], 4: ["m-4"]])
@@ -205,6 +205,6 @@ final class AskDockTests: XCTestCase {
         let none = AskDock.anchorToolCards(feed: [], cardIds: ["a", "b"])
         XCTAssertEqual(none.anchors, [:])
         XCTAssertEqual(none.unanchored, ["a", "b"])
-        XCTAssertEqual(AskDock.cardTools, ["plan_propose", "sessions_ask"])
+        XCTAssertEqual(AskDock.cardTools, ["session_self_plan", "session_self_ask"])
     }
 }

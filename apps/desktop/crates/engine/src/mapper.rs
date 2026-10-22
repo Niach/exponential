@@ -851,8 +851,7 @@ impl Mapper {
                 }
             }
             SessionUpdate::AvailableCommandsUpdate(update) => {
-                let mapped = self.map_commands(&update.available_commands);
-                self.config_state.commands = Some(mapped);
+                self.config_state.commands = self.map_commands(&update.available_commands);
                 self.emit_config_state(out);
             }
             SessionUpdate::CurrentModeUpdate(update) => {
@@ -1475,8 +1474,7 @@ impl Mapper {
             self.config_state.options = self.map_options(options);
         }
         if !commands.is_empty() {
-            let mapped = self.map_commands(commands);
-            self.config_state.commands = Some(mapped);
+            self.config_state.commands = self.map_commands(commands);
         }
         self.emit_config_state(out);
     }
@@ -2232,6 +2230,10 @@ impl Mapper {
         notification_meta: Option<&BTreeMapLike>,
         out: &mut MapOut,
     ) {
+        // NEW-4: a noun tool's `op` composes the display name once, here.
+        let mut composed = call.clone();
+        composed.title = exp_tool_title(&call.title, call.raw_input.as_ref());
+        let call = &composed;
         let id = steer::truncate(&call.tool_call_id.0, ID_MAX);
         let subagent_id = call
             .meta
@@ -2350,6 +2352,13 @@ impl Mapper {
             .clone()
             .or_else(|| known.map(|state| state.title.clone()))
             .unwrap_or_default();
+        // NEW-4: the `op` may arrive with the input on a later update.
+        let title = exp_tool_title(
+            &title,
+            raw_input
+                .as_ref()
+                .or_else(|| known.and_then(|state| state.raw_input.as_ref())),
+        );
         if let Some(state) = self.tools.get_mut(&id) {
             state.kind = kind;
             state.title.clone_from(&title);
@@ -2780,11 +2789,6 @@ impl Mapper {
             .to_string()
     }
 
-    /// The agent's own `/` commands. EXP-758: their three labels go through
-    /// [`Mapper::clean`] like every other published string: an agent's
-    /// command catalog is built from files in the REPO (claude's
-    /// `.claude/commands`), so a description is exactly as
-    /// likely to quote a token as any other text the run produces.
     /// EXP-877: the agent's option list, wire-shaped. An EMPTY select list
     /// maps to `values: None` — the wire's "read-only on this run" (a menu of
     /// nothing is not a menu), which is exactly what the adapters publish for
@@ -2846,31 +2850,20 @@ impl Mapper {
             .collect()
     }
 
-    fn map_commands(&self, commands: &[AvailableCommand]) -> Vec<steer::ConfigCommand> {
-        commands
-            .iter()
-            .map(|command| steer::ConfigCommand {
-                name: self.clean(&command.name, steer::activity::CONFIG_ID_MAX),
-                description: self.clean(
-                    &command.description,
-                    steer::activity::CONFIG_DESCRIPTION_MAX,
-                ),
-                hint: command.input.as_ref().and_then(|input| match input {
-                    agent_client_protocol::schema::v1::AvailableCommandInput::Unstructured(
-                        unstructured,
-                    ) => Some(self.clean(&unstructured.hint, steer::activity::CONFIG_HINT_MAX)),
-                    _ => None,
-                }),
-            })
-            .collect()
+    /// The agent's own `/` commands (Claude Code skills, plugins, repo
+    /// `.claude/commands`). NEW-2 (owner 2026-10-21): they are HIDDEN on
+    /// every platform: the composer's `/` menu = the team's prompts plus
+    /// the contract's `steerCommands`, so the catalog is parsed off the ACP
+    /// update and never published (`config_state.commands` stays `None`).
+    fn map_commands(&self, _commands: &[AvailableCommand]) -> Option<Vec<steer::ConfigCommand>> {
+        None
     }
 
     fn build_config_state(&self) -> ActivityEvent {
         let mut event = ActivityEvent::ConfigState {
             // EXP-877: the `model` VALUE and nothing else (EXP-772 emptied
-            // this and EXP-790 keeps every option launch-time). Modes (plan
-            // on/off) and the `/` catalog are still the whole mid-session
-            // steering vocabulary.
+            // this and EXP-790 keeps every option launch-time). NEW-2: the
+            // agent's `/` catalog is never published (always `None`).
             options: self.config_state.options.clone(),
             current_mode: self.config_state.current_mode.clone(),
             modes: self.config_state.modes.clone(),
@@ -4007,6 +4000,33 @@ fn wire_tool_kind(kind: ToolKind) -> WireToolKind {
 /// preview.
 fn json_payload(result: &Value) -> Option<Value> {
     crate::exp_tool_refs::tool_result_payload(result)
+}
+
+/// NEW-4: an Exponential MCP call's DISPLAY name. The server's 15 noun
+/// tools take an `op` (`exponential_issues` + `{op: "get"}`); the contract's
+/// display rows are keyed `<noun>_<op>` (`issues_get`), so the mapper composes
+/// that name from the call's title and its input once, here, and every
+/// client's lookup (`steer::exp_tool`) stays keyed by the row. A title that
+/// already names a row (a verb like `sessions_send`, or an older server's
+/// per-operation tool) and any other tool pass through unchanged.
+fn exp_tool_title(title: &str, raw_input: Option<&Value>) -> String {
+    let trimmed = title.trim();
+    if steer::exp_tool::exp_tool_index(trimmed).is_some() {
+        return title.to_string();
+    }
+    let Some(op) = raw_input
+        .and_then(Value::as_object)
+        .and_then(|input| input.get("op"))
+        .and_then(Value::as_str)
+    else {
+        return title.to_string();
+    };
+    let composed = format!("{trimmed}_{}", op.trim());
+    if steer::exp_tool::exp_tool_index(&composed).is_some() {
+        composed
+    } else {
+        title.to_string()
+    }
 }
 
 /// EXP-920: the ACP `raw_input` worth RETAINING on a tool's state — only an
@@ -5330,9 +5350,10 @@ mod tests {
 
     #[test]
     fn config_state_is_one_clamped_whole_snapshot_carrying_the_model_value() {
-        // EXP-877: the snapshot carries modes, commands AND the `model`
-        // option the adapters publish — a VALUE with no `values`, because a
-        // switch is the `/model <alias>` prompt, not a menu pick.
+        // EXP-877: the snapshot carries modes AND the `model` option the
+        // adapters publish — a VALUE with no `values`, because a switch is
+        // the `/model <alias>` prompt, not a menu pick. NEW-2: the agent's
+        // own commands are parsed and never published.
         use agent_client_protocol::schema::v1::{
             SessionConfigOptionCategory, SessionConfigSelectOption, SessionMode, SessionModeId,
         };
@@ -5363,8 +5384,7 @@ mod tests {
                 "modes": [
                     {"id": "plan", "label": "Plan"},
                     {"id": "bypassPermissions", "label": "Build"}
-                ],
-                "commands": [{"name": "compact", "description": "Compact the context"}]
+                ]
             })
         );
 

@@ -219,3 +219,57 @@ impl RenderOnce for SidebarScrollArea {
         sidebar_scroll_pane(self.id, &handle, self.content).min_w_0()
     }
 }
+
+// ---------------------------------------------------------------------------
+// The full-page scaffold (moved here from the retired Actions page, NEW-6)
+// ---------------------------------------------------------------------------
+
+/// The page column's width cap — the web page's `md:max-w-5xl`.
+const PAGE_COLUMN_W: f32 = 1024.;
+
+/// The shared full-page scaffold every rail-navigated page uses (EXP-686 —
+/// Devices, Drafts, Threads): ONE scroll pane holding one centered
+/// column capped at [`PAGE_COLUMN_W`] (block wrapper + `mx_auto`, the
+/// EXP-179-safe centering recipe).
+///
+/// NO `w_full` on the column's CHILDREN (EXP-508): a percent width there
+/// resolves against the UNCLAMPED ancestor available width, so sections
+/// shrink-wrap and content runs off the window (the EXP-436 leak; EXP-179 has
+/// the same drop-`w_full` fix). Auto width + the column's flex-col stretch
+/// resolve the capped column width at every panel width. `min_w_0` rides
+/// every flex hop for the same reason.
+pub(crate) fn page_scaffold(
+    id: &'static str,
+    scroll: &ScrollHandle,
+    column: gpui::Div,
+) -> impl IntoElement {
+    page_scaffold_with(id, scroll, column, PAGE_COLUMN_W)
+}
+
+/// [`page_scaffold`] with an explicit column cap — a list page (EXP-706)
+/// reads as a narrower list than the settings-shaped pages, matching the web
+/// route's `max-w-3xl`. Same flex rules apply verbatim; only the cap moves.
+pub(crate) fn page_scaffold_with(
+    id: &'static str,
+    scroll: &ScrollHandle,
+    column: gpui::Div,
+    width: f32,
+) -> impl IntoElement {
+    gpui_component::v_flex()
+        .size_full()
+        .min_h_0()
+        .min_w_0()
+        .child(crate::scroll_pane::v_scroll_pane(
+            id,
+            scroll,
+            div().w_full().min_w_0().child(
+                column
+                    .w_full()
+                    .min_w_0()
+                    .px_4()
+                    .py_4()
+                    .max_w(px(width))
+                    .mx_auto(),
+            ),
+        ))
+}

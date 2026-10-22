@@ -5,10 +5,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.TeamSelection
 import com.exponential.app.data.routeTeamIdFlow
-import com.exponential.app.data.api.ActionDto
+import com.exponential.app.data.api.PromptDto
 import com.exponential.app.data.api.RepositoriesApi
 import com.exponential.app.data.api.TeamRepo
-import com.exponential.app.data.api.toActionDto
+import com.exponential.app.data.api.toPromptDto
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.DeviceEntity
@@ -47,7 +47,7 @@ import kotlinx.serialization.json.Json
 
 /** Actions-list progress: null [actions] with null [error] = still loading. */
 data class SheetActionsState(
-    val actions: List<ActionDto>? = null,
+    val actions: List<PromptDto>? = null,
     val error: String? = null,
 )
 
@@ -126,8 +126,8 @@ class AgentLaunchDataViewModel @Inject constructor(
     }
 
     /**
-     * The selected team's saved prompts (actions), in server order. EXP-1291:
-     * no builtins — "no subject" on the composer is a plain message.
+     * The selected team's saved prompts (NEW-2: the `prompts` shape), in
+     * server order — "no subject" on the composer is a plain message.
      */
     val actionsState: StateFlow<SheetActionsState> = combine(dbFlow, teamId) { db, teamId ->
         db to teamId
@@ -135,11 +135,33 @@ class AgentLaunchDataViewModel @Inject constructor(
         if (db == null || teamId == null) {
             flowOf(SheetActionsState(actions = emptyList()))
         } else {
-            db.actionDao().observeByTeam(teamId).map { rows ->
-                SheetActionsState(actions = rows.map { it.toActionDto(json) })
+            db.promptDao().observeByTeam(teamId).map { rows ->
+                SheetActionsState(actions = rows.map { it.toPromptDto() })
             }
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SheetActionsState())
+
+    /**
+     * NEW-3: the team's agents (`listAgents`: rail order, icon + colour +
+     * name) — the "+" menu's Message an agent › rows.
+     */
+    val agents: StateFlow<List<com.exponential.app.domain.SessionTree.AgentRow>> =
+        combine(dbFlow, teamId) { db, teamId -> db to teamId }
+            .flatMapLatest { (db, teamId) ->
+                if (db == null || teamId == null) {
+                    flowOf(emptyList())
+                } else {
+                    db.agentDefinitionDao().observeByTeam(teamId).map { rows ->
+                        com.exponential.app.domain.SessionTree.listAgents(
+                            rows.map(com.exponential.app.domain.SessionTree::agentDefinition),
+                            emptyList(),
+                            teamId,
+                            null,
+                        )
+                    }
+                }
+            }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /**
      * The synced worktree inventory (EXP-481) behind the composer's "Resume

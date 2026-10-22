@@ -104,6 +104,7 @@ interface Contract {
   issueRelationSource: Section
   sessionIssueSource: Section
   messageAuthorKind: Section
+  conversationKind: Section
   messageCardKind: Section
   messageEventKind: Section
   codingAgent: Section
@@ -126,13 +127,19 @@ interface Contract {
   actionInputs: { max: number; maxTextLength: number }
   startPrompt: { maxLength: number; maxImages: number }
   agentTrigger: {
-    eventValues: string[]
-    scheduleIntervalValues: string[]
-    eventSourceValues: string[]
-    maxFilterIds: number
+    kindValues: string[]
     maxPerAgent: number
-    cooldownSeconds: number
-    eventCatchupHours: number
+    cronMax: number
+    tzMax: number
+    catchUpHours: number
+  }
+  timeZones: { names: string[] }
+  events: {
+    builtinNames: string[]
+    emitterValues: string[]
+    nameMax: number
+    payloadMaxBytes: number
+    retentionDays: number
   }
   // EXP-1291: sessions.send's caps (one entrypoint ×4).
   sessionsSend: {
@@ -218,12 +225,6 @@ const codingSessionStaleMs = contract.codingSession.staleHours * 60 * 60 * 1000
 // (devices heartbeat ~30s; 90s = three missed beats). Pre-multiplied to ms.
 const deviceOnlineWindowMs = contract.device.onlineWindowSeconds * 1000
 
-// EXP-530/EXP-1291 agent trigger-host tuning, pre-multiplied to ms like the windows above:
-// cooldown after any triggered action start, and how far back an offline
-// device replays issue_events when it reconnects.
-const triggerCooldownMs = contract.agentTrigger.cooldownSeconds * 1000
-const triggerEventCatchupMs =
-  contract.agentTrigger.eventCatchupHours * 60 * 60 * 1000
 
 // EXP-783: the steering transcript's budgets, window and page size — the
 // same numbers on every client, so the byte-budget trim and the rendered
@@ -499,6 +500,7 @@ ${swiftStringArray("issueRelationTypeInverseLabels", contract.issueRelationType.
 ${swiftStringArray("issueRelationSourceValues", contract.issueRelationSource.values)}
 ${swiftStringArray("sessionIssueSourceValues", contract.sessionIssueSource.values)}
 ${swiftStringArray("messageAuthorKindValues", contract.messageAuthorKind.values)}
+${swiftStringArray("conversationKindValues", contract.conversationKind.values)}
 ${swiftStringArray("messageCardKindValues", contract.messageCardKind.values)}
 ${swiftStringArray("messageEventKindValues", contract.messageEventKind.values)}
 ${swiftStringArray("codingAgentValues", contract.codingAgent.values)}
@@ -509,8 +511,10 @@ ${swiftStringArray("codexEffortValues", contract.codexEffort.values)}
 ${swiftStringArray("actionInputTypeValues", contract.actionInputType.values)}
 ${swiftStringArray("mcpTransportValues", contract.mcpTransport.values)}
 ${swiftStringArray("mcpAuthValues", contract.mcpAuth.values)}
-${swiftStringArray("agentTriggerEventValues", contract.agentTrigger.eventValues)}
-${swiftStringArray("agentScheduleIntervalValues", contract.agentTrigger.scheduleIntervalValues)}
+${swiftStringArray("agentTriggerKindValues", contract.agentTrigger.kindValues)}
+${swiftStringArray("timeZoneNames", contract.timeZones.names)}
+${swiftStringArray("eventBuiltinNames", contract.events.builtinNames)}
+${swiftStringArray("eventEmitterValues", contract.events.emitterValues)}
 ${swiftStringArray("steerCommandNames", steerCommandNames)}
 ${swiftStringArray("steerCommandDescriptions", steerCommandDescriptions)}
 ${swiftStringArray("steerCommandArgHints", steerCommandArgHints)}
@@ -579,10 +583,13 @@ ${swiftStringArray("codingSessionLaunchKeys", contract.codingSession.launchKeys)
     public static let actionInputTextMax: Int = ${contract.actionInputs.maxTextLength}
     public static let startPromptMaxLength: Int = ${contract.startPrompt.maxLength}
     public static let startPromptMaxImages: Int = ${contract.startPrompt.maxImages}
-    public static let agentTriggerMaxFilterIds: Int = ${contract.agentTrigger.maxFilterIds}
     public static let agentTriggerMaxPerAgent: Int = ${contract.agentTrigger.maxPerAgent}
-    public static let triggerCooldownMs: Int = ${triggerCooldownMs}
-    public static let triggerEventCatchupMs: Int = ${triggerEventCatchupMs}
+    public static let agentTriggerCronMax: Int = ${contract.agentTrigger.cronMax}
+    public static let agentTriggerTzMax: Int = ${contract.agentTrigger.tzMax}
+    public static let agentTriggerCatchUpHours: Int = ${contract.agentTrigger.catchUpHours}
+    public static let eventNameMax: Int = ${contract.events.nameMax}
+    public static let eventPayloadMaxBytes: Int = ${contract.events.payloadMaxBytes}
+    public static let eventRetentionDays: Int = ${contract.events.retentionDays}
     public static let steerFeedByteCap: Int = ${steerFeed.byteCap}
     public static let steerFeedItemCap: Int = ${steerFeed.itemCap}
     public static let steerFeedTrimTargetPercent: Int = ${steerFeed.trimTargetPercent}
@@ -615,6 +622,7 @@ ${swiftNamedValues("issueRelationType", contract.issueRelationType.values)}
 ${swiftNamedValues("issueRelationSource", contract.issueRelationSource.values)}
 ${swiftNamedValues("sessionIssueSource", contract.sessionIssueSource.values)}
 ${swiftNamedValues("messageAuthorKind", contract.messageAuthorKind.values)}
+${swiftNamedValues("conversationKind", contract.conversationKind.values)}
 ${swiftNamedValues("messageCardKind", contract.messageCardKind.values)}
 ${swiftNamedValues("messageEventKind", contract.messageEventKind.values)}
 }
@@ -659,6 +667,7 @@ ${kotlinStringArray("issueRelationTypeInverseLabels", contract.issueRelationType
 ${kotlinStringArray("issueRelationSourceValues", contract.issueRelationSource.values)}
 ${kotlinStringArray("sessionIssueSourceValues", contract.sessionIssueSource.values)}
 ${kotlinStringArray("messageAuthorKindValues", contract.messageAuthorKind.values)}
+${kotlinStringArray("conversationKindValues", contract.conversationKind.values)}
 ${kotlinStringArray("messageCardKindValues", contract.messageCardKind.values)}
 ${kotlinStringArray("messageEventKindValues", contract.messageEventKind.values)}
 ${kotlinStringArray("codingAgentValues", contract.codingAgent.values)}
@@ -669,8 +678,10 @@ ${kotlinStringArray("codexEffortValues", contract.codexEffort.values)}
 ${kotlinStringArray("actionInputTypeValues", contract.actionInputType.values)}
 ${kotlinStringArray("mcpTransportValues", contract.mcpTransport.values)}
 ${kotlinStringArray("mcpAuthValues", contract.mcpAuth.values)}
-${kotlinStringArray("agentTriggerEventValues", contract.agentTrigger.eventValues)}
-${kotlinStringArray("agentScheduleIntervalValues", contract.agentTrigger.scheduleIntervalValues)}
+${kotlinStringArray("agentTriggerKindValues", contract.agentTrigger.kindValues)}
+${kotlinStringArray("timeZoneNames", contract.timeZones.names)}
+${kotlinStringArray("eventBuiltinNames", contract.events.builtinNames)}
+${kotlinStringArray("eventEmitterValues", contract.events.emitterValues)}
 ${kotlinStringArray("steerCommandNames", steerCommandNames)}
 ${kotlinStringArray("steerCommandDescriptions", steerCommandDescriptions)}
 ${kotlinStringArray("steerCommandArgHints", steerCommandArgHints)}
@@ -739,10 +750,13 @@ ${kotlinStringArray("codingSessionLaunchKeys", contract.codingSession.launchKeys
     const val actionInputTextMax: Int = ${contract.actionInputs.maxTextLength}
     const val startPromptMaxLength: Int = ${contract.startPrompt.maxLength}
     const val startPromptMaxImages: Int = ${contract.startPrompt.maxImages}
-    const val agentTriggerMaxFilterIds: Int = ${contract.agentTrigger.maxFilterIds}
     const val agentTriggerMaxPerAgent: Int = ${contract.agentTrigger.maxPerAgent}
-    const val triggerCooldownMs: Long = ${triggerCooldownMs}L
-    const val triggerEventCatchupMs: Long = ${triggerEventCatchupMs}L
+    const val agentTriggerCronMax: Int = ${contract.agentTrigger.cronMax}
+    const val agentTriggerTzMax: Int = ${contract.agentTrigger.tzMax}
+    const val agentTriggerCatchUpHours: Int = ${contract.agentTrigger.catchUpHours}
+    const val eventNameMax: Int = ${contract.events.nameMax}
+    const val eventPayloadMaxBytes: Int = ${contract.events.payloadMaxBytes}
+    const val eventRetentionDays: Int = ${contract.events.retentionDays}
     const val steerFeedByteCap: Long = ${steerFeed.byteCap}L
     const val steerFeedItemCap: Int = ${steerFeed.itemCap}
     const val steerFeedTrimTargetPercent: Int = ${steerFeed.trimTargetPercent}
@@ -775,6 +789,7 @@ ${kotlinNamedValues("issueRelationType", contract.issueRelationType.values)}
 ${kotlinNamedValues("issueRelationSource", contract.issueRelationSource.values)}
 ${kotlinNamedValues("sessionIssueSource", contract.sessionIssueSource.values)}
 ${kotlinNamedValues("messageAuthorKind", contract.messageAuthorKind.values)}
+${kotlinNamedValues("conversationKind", contract.conversationKind.values)}
 ${kotlinNamedValues("messageCardKind", contract.messageCardKind.values)}
 ${kotlinNamedValues("messageEventKind", contract.messageEventKind.values)}
 }
@@ -821,6 +836,7 @@ ${rustStrSlice("issueRelationTypeInverseLabels", contract.issueRelationType.inve
 ${rustStrSlice("issueRelationSourceValues", contract.issueRelationSource.values)}
 ${rustStrSlice("sessionIssueSourceValues", contract.sessionIssueSource.values)}
 ${rustStrSlice("messageAuthorKindValues", contract.messageAuthorKind.values)}
+${rustStrSlice("conversationKindValues", contract.conversationKind.values)}
 ${rustStrSlice("messageCardKindValues", contract.messageCardKind.values)}
 ${rustStrSlice("messageEventKindValues", contract.messageEventKind.values)}
 ${rustStrSlice("codingAgentValues", contract.codingAgent.values)}
@@ -831,8 +847,10 @@ ${rustStrSlice("codexEffortValues", contract.codexEffort.values)}
 ${rustStrSlice("actionInputTypeValues", contract.actionInputType.values)}
 ${rustStrSlice("mcpTransportValues", contract.mcpTransport.values)}
 ${rustStrSlice("mcpAuthValues", contract.mcpAuth.values)}
-${rustStrSlice("agentTriggerEventValues", contract.agentTrigger.eventValues)}
-${rustStrSlice("agentScheduleIntervalValues", contract.agentTrigger.scheduleIntervalValues)}
+${rustStrSlice("agentTriggerKindValues", contract.agentTrigger.kindValues)}
+${rustStrSlice("timeZoneNames", contract.timeZones.names)}
+${rustStrSlice("eventBuiltinNames", contract.events.builtinNames)}
+${rustStrSlice("eventEmitterValues", contract.events.emitterValues)}
 ${rustStrSlice("steerCommandNames", steerCommandNames)}
 ${rustStrSlice("steerCommandDescriptions", steerCommandDescriptions)}
 ${rustStrSlice("steerCommandArgHints", steerCommandArgHints)}
@@ -904,10 +922,13 @@ pub const ACTION_INPUTS_MAX: usize = ${contract.actionInputs.max};
 pub const ACTION_INPUT_TEXT_MAX: usize = ${contract.actionInputs.maxTextLength};
 pub const START_PROMPT_MAX_LENGTH: usize = ${contract.startPrompt.maxLength};
 pub const START_PROMPT_MAX_IMAGES: usize = ${contract.startPrompt.maxImages};
-pub const AGENT_TRIGGER_MAX_FILTER_IDS: usize = ${contract.agentTrigger.maxFilterIds};
 pub const AGENT_TRIGGER_MAX_PER_AGENT: usize = ${contract.agentTrigger.maxPerAgent};
-pub const TRIGGER_COOLDOWN_MS: i64 = ${triggerCooldownMs};
-pub const TRIGGER_EVENT_CATCHUP_MS: i64 = ${triggerEventCatchupMs};
+pub const AGENT_TRIGGER_CRON_MAX: usize = ${contract.agentTrigger.cronMax};
+pub const AGENT_TRIGGER_TZ_MAX: usize = ${contract.agentTrigger.tzMax};
+pub const AGENT_TRIGGER_CATCH_UP_HOURS: i64 = ${contract.agentTrigger.catchUpHours};
+pub const EVENT_NAME_MAX: usize = ${contract.events.nameMax};
+pub const EVENT_PAYLOAD_MAX_BYTES: usize = ${contract.events.payloadMaxBytes};
+pub const EVENT_RETENTION_DAYS: i64 = ${contract.events.retentionDays};
 pub const STEER_FEED_BYTE_CAP: usize = ${steerFeed.byteCap};
 pub const STEER_FEED_ITEM_CAP: usize = ${steerFeed.itemCap};
 pub const STEER_FEED_TRIM_TARGET_PERCENT: usize = ${steerFeed.trimTargetPercent};
@@ -940,6 +961,7 @@ ${rustNamedValues("issueRelationType", contract.issueRelationType.values)}
 ${rustNamedValues("issueRelationSource", contract.issueRelationSource.values)}
 ${rustNamedValues("sessionIssueSource", contract.sessionIssueSource.values)}
 ${rustNamedValues("messageAuthorKind", contract.messageAuthorKind.values)}
+${rustNamedValues("conversationKind", contract.conversationKind.values)}
 ${rustNamedValues("messageCardKind", contract.messageCardKind.values)}
 ${rustNamedValues("messageEventKind", contract.messageEventKind.values)}
 `

@@ -1,6 +1,6 @@
 // EXP-1293 / EXP-1316: `/sessions/$id` — a thread's session REDIRECTS into
-// its thread (`?tab=session&session=<id>`, `from` kept); a session under a
-// team AGENT keeps its own screen: back to the agent, the session's name,
+// its thread (`?tab=session&session=<id>`, `from` kept); a session under an
+// agent's conversation (NEW-2: a root with `agentId`) keeps its own screen: back to the agent, the session's name,
 // Stop while live, the feed and the reply box. Lives under a `-` prefix so
 // the route generator ignores it.
 import type { ComponentType, ReactNode } from "react"
@@ -71,6 +71,12 @@ vi.mock(`@/hooks/use-session-tree`, () => ({
   useSessionThread: () => ({ view: { title: `Reduce cold start below 800 ms` } }),
   useSessionMessages: () => [],
 }))
+vi.mock(`@/hooks/use-agent-row`, () => ({
+  useAgentRow: (id: string | null) => ({
+    agent: id === `agent-1` ? { id, name: `Triage` } : null,
+    isReady: true,
+  }),
+}))
 vi.mock(`@/lib/page-title`, () => ({
   pageTitle: (...parts: string[]) => parts.join(` `),
   usePageTitle: () => {},
@@ -112,7 +118,8 @@ const row = (over: Record<string, unknown> = {}) => ({
 
 beforeEach(() => {
   mocks.row.current = row()
-  mocks.root.current = { id: `s1`, kind: `agent`, name: `Triage`, rootId: `s1`, teamId: `t1` }
+  // NEW-2: an agent's conversation root = a root with `agentId`.
+  mocks.root.current = { id: `s1`, agentId: `agent-1`, rootId: `s1`, teamId: `t1` }
   mocks.isReady.current = true
   mocks.search.current = {}
   mocks.stop.mockReset()
@@ -121,7 +128,7 @@ beforeEach(() => {
 
 describe(`the session page`, () => {
   it(`redirects a thread's session into its thread, keeping from`, () => {
-    mocks.root.current = { id: `s1`, kind: `thread`, rootId: `s1`, teamId: `t1` }
+    mocks.root.current = { id: `s1`, agentId: null, rootId: `s1`, teamId: `t1` }
     mocks.search.current = { from: `inbox` }
     render(<Page />)
     const target = screen.getByTestId(`navigate`)

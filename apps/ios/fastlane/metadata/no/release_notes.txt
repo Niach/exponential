@@ -1,4 +1,4 @@
-- Raskere overalt: appen synkroniserer ikke lenger i fast takt når den er inaktiv, og lister, sessionsvisningen og redigeringsfeltene gjør langt mindre arbeid per tastetrykk og per synkroniseringsrunde
-- Threads-tittelen sitter i den faste linjen øverst, akkurat som på alle andre faner
-- Flytt en session: kildeenheten beholder worktree og branch til målenheten har gjenopprettet dem helt, og rydder deretter opp
-- Rettelser fra review: et board som fortsatt synkroniserer, får ikke lenger banneret "Syncing team" til å blinke, og en omdøpt status når #EXP-brikkene med en gang
+- Det nye sessionssystemet: en thread er én session som jobber selv og vekkes av meldinger, med et plankort som stiller ett spørsmål om gangen
+- Agenter er definisjoner med egen samtale per medlem, servertriggere og en Events-strøm; send en melding til en agent fra composeren
+- Prompter erstatter handlinger: finn dem i / menu og under Innstillinger → Prompter
+- Visningene for sessions, trenger deg og kjørende følger det nye systemet på alle skjermer

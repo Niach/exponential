@@ -16,8 +16,12 @@ final class SessionListsModel {
     /// Every team's thread groups (`partitionThreads(teamId: nil)` — phones
     /// band the rows per team).
     private(set) var groups: [ThreadsListGroup] = []
-    /// Every team's agents (`listAgents(teamId: nil)`).
+    /// Every team's agents (`listAgents(teamId: nil)`, NEW-2: the synced
+    /// `agents` definitions).
     private(set) var agents: [AgentRow] = []
+    /// NEW-2: my conversation session with each agent (a root with
+    /// `agent_id` I started), by agent id; absent = none yet.
+    private(set) var agentConversations: [String: String] = [:]
     /// Home's Running band: my live threads — needs-you first, then running,
     /// each newest activity first.
     private(set) var running: [ThreadsListRow] = []
@@ -29,6 +33,8 @@ final class SessionListsModel {
     /// EXP-1309: a Threads row's quiet word off its pull requests, by root id
     /// (`SessionTree.threadRowWord`).
     private(set) var words: [String: ThreadRowWord] = [:]
+    /// NEW-41: each root's pull-request states (the Threads tab's lead glyph).
+    private(set) var prStates: [String: [String]] = [:]
     /// EXP-1316: a thread row's device glyph (the ROOT's `device_id` against
     /// the synced devices rows), by root id; absent = no glyph.
     private(set) var devices: [String: ThreadRowDevice] = [:]
@@ -94,6 +100,7 @@ final class SessionListsModel {
         identifiers = [:]
         clis = [:]
         words = [:]
+        prStates = [:]
         devices = [:]
         liveByTeam = [:]
         loaded = false
@@ -110,15 +117,18 @@ final class SessionListsModel {
         var clis: [String: String]
         var pullRequests: [PullRequestEntity]
         var deviceRows: [DeviceEntity]
+        var agents: [AgentLike]
     }
 
     private struct Derived: Sendable, Equatable {
         var groups: [ThreadsListGroup]
         var agents: [AgentRow]
+        var agentConversations: [String: String]
         var running: [ThreadsListRow]
         var identifiers: [String: String]
         var clis: [String: String]
         var words: [String: ThreadRowWord]
+        var prStates: [String: [String]]
         var devices: [String: ThreadRowDevice]
         var liveByTeam: [String: SessionTree.TeamLiveSessions]
     }
@@ -126,10 +136,12 @@ final class SessionListsModel {
     private func apply(_ derived: Derived) {
         groups = derived.groups
         agents = derived.agents
+        agentConversations = derived.agentConversations
         running = derived.running
         identifiers = derived.identifiers
         clis = derived.clis
         words = derived.words
+        prStates = derived.prStates
         devices = derived.devices
         liveByTeam = derived.liveByTeam
         loaded = true
@@ -186,7 +198,8 @@ final class SessionListsModel {
                 uniquingKeysWith: { a, _ in a }
             ),
             pullRequests: try PullRequestEntity.fetchAll(db),
-            deviceRows: try DeviceEntity.fetchAll(db)
+            deviceRows: try DeviceEntity.fetchAll(db),
+            agents: try AgentDefinitionEntity.fetchAll(db).map(AgentLike.init)
         )
     }
 
@@ -223,14 +236,18 @@ final class SessionListsModel {
             $0.rootSessionId ?? ""
         }
         var words: [String: ThreadRowWord] = [:]
+        var prStates: [String: [String]] = [:]
         // EXP-1323: a nested child row carries no word (web + IDE).
         for row in groups.flatMap(\.rows) where row.depth == 0 {
+            let prs = prsByRoot[row.sessionId] ?? []
             words[row.sessionId] = SessionTree.threadRowWord(
                 busy: row.busy,
                 needsYou: row.needsYou,
-                prs: prsByRoot[row.sessionId] ?? [],
+                prs: prs,
                 teamPrs: prsByTeam[row.teamId] ?? []
             )
+            // NEW-41: the lead's PR glyph follows the root's PRs, not the word.
+            prStates[row.sessionId] = prs.map(\.state)
         }
         // The root's device row (the starter's own first, like the session
         // view's host row); an unknown or invisible device draws nothing.
@@ -250,11 +267,23 @@ final class SessionListsModel {
         }
         return Derived(
             groups: groups,
-            agents: SessionTree.listAgents(rows.sessions, teamId: nil),
+            agents: SessionTree.listAgents(
+                agents: rows.agents, sessions: rows.sessions, teamId: nil, me: userId
+            ),
+            agentConversations: Dictionary(
+                rows.sessions.compactMap { session -> (String, String)? in
+                    guard session.parentId == nil, session.userId == userId,
+                          let agentId = session.agentId, !agentId.isEmpty
+                    else { return nil }
+                    return (agentId, session.id)
+                },
+                uniquingKeysWith: { a, _ in a }
+            ),
             running: running,
             identifiers: identifiers,
             clis: rows.clis,
             words: words,
+            prStates: prStates,
             devices: devices,
             liveByTeam: SessionTree.liveByTeam(rows.sessions, userId: userId)
         )

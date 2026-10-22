@@ -45,8 +45,7 @@ final class SessionTitleTests: XCTestCase {
                 TreeSessionIssue(
                     sessionId: try XCTUnwrap($0["sessionId"] as? String),
                     issueId: try XCTUnwrap($0["issueId"] as? String),
-                    sortOrder: try XCTUnwrap($0["sortOrder"] as? Double),
-                    assignedSessionId: $0["assignedSessionId"] as? String
+                    sortOrder: try XCTUnwrap($0["sortOrder"] as? Double)
                 )
             }
             let issues = try XCTUnwrap(input["issues"] as? [[String: Any]]).map {

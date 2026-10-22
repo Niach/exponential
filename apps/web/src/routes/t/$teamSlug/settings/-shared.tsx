@@ -31,6 +31,7 @@ export type SettingsSectionPath =
   | `/t/$teamSlug/settings/import`
   | `/t/$teamSlug/settings/boards/archived`
   | `/t/$teamSlug/settings/repositories`
+  | `/t/$teamSlug/settings/prompts`
   | `/t/$teamSlug/settings/widget`
   | `/t/$teamSlug/settings/mcp-servers`
   | `/t/$teamSlug/settings/account`
@@ -133,6 +134,15 @@ export const SETTINGS_NAV: { group: string; items: SettingsNavItem[] }[] = [
         label: `Repositories`,
         to: `/t/$teamSlug/settings/repositories`,
         icon: conceptIcon(`settings-repositories`),
+        visible: () => true,
+      },
+      // NEW-2: the team's saved PROMPTS (actions became these), run from the
+      // composer's `/` menu. Member-visible (members read them); writes are
+      // owner-only inside the section, like the router behind it.
+      {
+        label: `Prompts`,
+        to: `/t/$teamSlug/settings/prompts`,
+        icon: conceptIcon(`nav-actions`),
         visible: () => true,
       },
     ],

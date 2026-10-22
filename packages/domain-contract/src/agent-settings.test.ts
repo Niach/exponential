@@ -5,9 +5,9 @@ import contract from "../contract.json" with { type: "json" }
 import { agentAccountValue, triggerSummary, validateAgentForm } from "./agent-settings"
 
 describe(`agent settings fixtures (EXP-1291)`, () => {
-  test(`every trigger event has a summary`, () => {
-    for (const event of contract.agentTrigger.eventValues) {
-      expect((fixture.copy.events as Record<string, string>)[event]).toBeTruthy()
+  test(`every builtin event name has a summary`, () => {
+    for (const name of contract.events.builtinNames) {
+      expect((fixture.copy.events as Record<string, string>)[name]).toBeTruthy()
     }
   })
   for (const entry of fixture.summaryCases) {

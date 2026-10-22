@@ -31,12 +31,13 @@
 //!   `listPersonalApiKeys` / `revokePersonalApiKey`, plus the hidden
 //!   auto-minted `expu_` personal key (mint silently on first need, file store
 //!   storage, mint-new-then-revoke-old regenerate — never a UI text field).
-//! - [`repositories`] / [`session_device`] / [`actions`] — the launcher's
+//! - [`repositories`] / [`session_device`] / [`prompts`] / [`agents`] — the launcher's
 //!   typed procs (§7.1): `repositories.forIssue` + `installationToken` (JIT
 //!   GitHub-App token, Debug-redacted, never persisted/logged), the EXP-1292
 //!   device half of `sessions.*` (brief/claim/report/reply/consume — the
-//!   database is the bus, no relay start, no heartbeat), and the EXP-253
-//!   team action prompts (`actions.*` CRUD — saved prompts since EXP-1292).
+//!   database is the bus, no relay start, no heartbeat), NEW-2's saved
+//!   prompts (`prompts.*`, actions are gone) and agent definitions
+//!   (`agents.*`).
 //!
 //! Phase-3 surface (§4.1/§4.2): typed per-router mutation mirrors of
 //! `apps/web/src/lib/trpc/*` — [`issues`] (also carries the §7.8 changed-files
@@ -59,7 +60,7 @@
 //! separate token-store entries.
 
 pub mod accounts;
-pub mod actions;
+pub mod agents;
 pub mod atomic_file;
 pub mod attachments;
 pub mod billing;
@@ -77,6 +78,7 @@ pub mod onboarding;
 pub mod opener;
 pub mod patch;
 pub mod pins;
+pub mod prompts;
 pub mod pull_requests;
 pub mod relations;
 pub mod boards;

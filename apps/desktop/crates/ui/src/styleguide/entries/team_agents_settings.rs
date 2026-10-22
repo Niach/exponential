@@ -55,11 +55,22 @@ pub(crate) fn schedule_value(triggers: &[serde_json::Value]) -> String {
         .unwrap_or_else(|| AGENT_SETTINGS.copy.no_schedule.clone())
 }
 
-/// The demo agent's one trigger: every weekday morning.
+/// `fixtures/agent-settings.json`: its first `summaryCases` row is the demo
+/// agent's one trigger.
+const AGENT_SETTINGS_JSON: &str =
+    include_str!("../../../../../../../packages/domain-contract/fixtures/agent-settings.json");
+
+/// The fixture's first summary case: (trigger, expected Triggers-row text).
+fn first_summary_case() -> (serde_json::Value, String) {
+    let fixture: serde_json::Value = serde_json::from_str(AGENT_SETTINGS_JSON).expect("agent-settings.json parses");
+    let case = &fixture["summaryCases"][0];
+    (case["trigger"].clone(), case["expected"].as_str().unwrap_or_default().to_string())
+}
+
+/// The demo agent's one trigger: the fixture's first schedule (every day at
+/// 09:00), read through the schedule picker's summary.
 fn triggers() -> Vec<serde_json::Value> {
-    vec![serde_json::json!({
-        "kind": "schedule", "interval": "daily", "minuteOfDay": 540, "enabled": true,
-    })]
+    vec![first_summary_case().0]
 }
 
 pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
@@ -222,7 +233,8 @@ mod tests {
     /// empty schedule's copy.
     #[test]
     fn the_demo_reads_the_fixtures_words() {
-        assert_eq!(schedule_value(&triggers()), "Daily at 09:00");
+        assert_eq!(schedule_value(&triggers()), first_summary_case().1);
+        assert_eq!(schedule_value(&triggers()), "Every day at 09:00");
         assert_eq!(schedule_value(&[]), "Waits for messages");
         assert_eq!(label("delete"), "Delete agent");
         assert_eq!(label("instructions"), "Instructions");

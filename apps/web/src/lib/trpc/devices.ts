@@ -13,6 +13,7 @@
 // EXP-432 bends the per-user rule exactly once: a server device may be SHARED
 // with teams (`shared_team_ids`, owner-toggled via `setShared`; FEED-33 made
 // it a set) so their members can remote-start on it.
+import { flagDeadSessionsInTx, restoreDeviceSessionsInTx } from "@/lib/sessions/watchdog"
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
 import {
@@ -657,6 +658,10 @@ export const devicesRouter = router({
         // EXP-1196: the readiness report, sent when it changed; absent =
         // unchanged.
         doctor: deviceDoctorSchema.nullish(),
+        // NEW-5: the session ids this host process runs right now. Present =
+        // a busy session on this device missing from it has a dead process
+        // (flagged `stuck`); absent = no claim.
+        liveSessionIds: z.array(z.string().min(1).max(128)).max(1000).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -692,6 +697,17 @@ export const devicesRouter = router({
         })
       const row = updated[0]
       if (!row) return { ok: false, updateRequested: false }
+
+      // NEW-1: the device is back: its sessions the watchdog parked as
+      // `device_offline` read live again (the device re-claims them).
+      // NEW-5: a busy session the host no longer runs is a dead process.
+      const liveSessionIds = input.liveSessionIds
+      await ctx.db.transaction(async (tx) => {
+        await restoreDeviceSessionsInTx(tx, { deviceId: input.deviceId, userId: ctx.session.user.id })
+        if (liveSessionIds) {
+          await flagDeadSessionsInTx(tx, { deviceId: input.deviceId, liveSessionIds }, now)
+        }
+      })
 
       const pending = await ctx.db
         .select({

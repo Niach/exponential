@@ -49,6 +49,7 @@ export function toTreeSession(row: SessionRow): TreeSession {
     parentId: row.parentId,
     rootId: row.rootId ?? row.id,
     kind: row.kind,
+    agentId: row.agentId ?? null,
     userId: row.userId,
     deviceId: row.deviceId ?? null,
     status: row.status,
@@ -77,7 +78,6 @@ export function toTreeSessionIssue(row: SessionIssueRow): TreeSessionIssue {
     sessionId: row.sessionId,
     issueId: row.issueId,
     sortOrder: row.sortOrder,
-    assignedSessionId: row.assignedSessionId ?? null,
   }
 }
 
@@ -101,5 +101,5 @@ export function toTreeMessage(row: MessageRow): TreeMessage {
 }
 
 export function toTreePullRequest(row: PullRequestRow): TreePullRequest {
-  return { id: row.id, number: row.number }
+  return { id: row.id, number: row.number, state: row.state }
 }

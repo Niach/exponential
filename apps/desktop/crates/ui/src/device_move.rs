@@ -1,9 +1,10 @@
 //! EXP-1252 — moving a live session to ANOTHER device.
 //!
 //! The twin of [`crate::account_switch`]: a move is one
-//! `sessions.send{sessionId, deviceId}` (the server sets the synced
-//! `move_to_device_id`; the source host hands the worktree + transcript to
-//! the target between turns). This module is the decision surface over it:
+//! `sessions.send{sessionId, deviceId}` and the server does the rest
+//! (NEW-1: the session ends here and continues on the target on the same
+//! branch; no device packs or hands anything off). This module is the
+//! decision surface over it:
 //! which devices the session could move to, why a row is refused, what the
 //! pin says while a move is pending, and the one call that asks for it.
 //!
@@ -36,7 +37,7 @@ pub(crate) const MOVING_LABEL: &str = "Moving to {device}…";
 
 /// What a move does, said once where it is offered (the pin's tooltip).
 pub(crate) const NOTE: &str =
-    "The session moves after its current turn. Its worktree and conversation go with it; logins stay on each device.";
+    "The session ends here and continues on that device on the same branch; its conversation goes with it, logins stay on each device.";
 
 pub(crate) const REASON_STEER: &str = "Only people who can steer this session can move it.";
 pub(crate) const REASON_ENDED: &str = "This session has ended.";
@@ -103,7 +104,7 @@ pub(crate) struct MoveCandidate {
     pub version: Option<String>,
 }
 
-/// The first desktop/CLI build that receives a handoff (the server's
+/// The first desktop/CLI build that receives a moved session (the server's
 /// `MOVE_MIN_VERSION`, web `session-device-move.ts`); an unreported version
 /// = an old build.
 pub(crate) const MOVE_MIN_VERSION: (u64, u64, u64) = (0, 14, 73);
@@ -498,7 +499,7 @@ mod tests {
         assert_eq!(MOVING_LABEL, "Moving to {device}\u{2026}");
         assert_eq!(
             NOTE,
-            "The session moves after its current turn. Its worktree and conversation go with it; logins stay on each device."
+            "The session ends here and continues on that device on the same branch; its conversation goes with it, logins stay on each device."
         );
         assert_eq!(REASON_STEER, "Only people who can steer this session can move it.");
         assert_eq!(REASON_ENDED, "This session has ended.");
@@ -556,7 +557,7 @@ mod tests {
     /// Web `deviceCanReceiveSession`: at least 0.14.73, parsed like
     /// `parseVersionTuple`; unreported or unparsable = an old build.
     #[test]
-    fn a_target_needs_the_handoff_build() {
+    fn a_target_needs_the_move_build() {
         for (version, ok) in [
             (Some("0.14.73"), true),
             (Some("0.14.74"), true),

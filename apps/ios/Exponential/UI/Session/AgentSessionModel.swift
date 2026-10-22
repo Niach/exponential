@@ -329,21 +329,6 @@ final class AgentSessionModel {
     /// lines after the image embeds.
     var pendingFiles: [PendingSteerFile] = []
 
-    /// EXP-724: the slash-command rows the composer's menu should show for the
-    /// current draft — empty whenever the menu must not open (the pure rule
-    /// lives in ExpCore's SlashCommands, mirrored ×4).
-    var slashMatches: [SlashCommand] {
-        // EXP-746: the contract catalog UNION whatever the agent itself
-        // advertised on `config_state` (contract first, dedupe by name). An
-        // agent-less run that published one is EXTERNAL, so it contributes no
-        // contract rows at all (`agentId(_:acp:)`).
-        SlashCommands.matches(
-            draft: draftText,
-            agent: catalogAgent,
-            extra: sessionConfig?.commands ?? []
-        )
-    }
-
     /// EXP-772: the run's mode, as the agent advertises it. Nil until the
     /// first `config_state`, and on every run whose agent advertises no modes.
     ///
@@ -515,7 +500,7 @@ final class AgentSessionModel {
     /// asides, no row yet). Rules + copy: `SessionDeviceMove`.
     var devicePin: SessionDevicePin? {
         guard let session,
-              SessionDeviceMove.pinVisible(kind: session.kind, aside: session.aside)
+              SessionDeviceMove.pinVisible(kind: sessionKindOf(agentId: session.agentId), aside: session.aside)
         else { return nil }
         let devices = moveCandidateDevices
         let agent = SessionAccountSwitch.agent(
@@ -1256,20 +1241,6 @@ final class AgentSessionModel {
         let holdsFlag = !steerSending
         if holdsFlag { steerSending = true }
         defer { if holdsFlag { steerSending = false } }
-        // EXP-1323: `/btw <question>` is an ASIDE — a child asked on the
-        // side (`sessions.send({parentId, text, aside})`), never a message
-        // into this conversation; it lands as a session card on the parent.
-        // (A command never carries attachments: the composer refuses the send
-        // first, `SlashCommands.attachmentsRefusal`.)
-        if attachmentIds?.isEmpty ?? true, let question = Self.asideQuestion(text, agent: catalogAgent) {
-            do {
-                try await sessionsApi.send(accountId: accountId, .aside(parentId: sessionId, text: question))
-            } catch {
-                sendError = error.trpcUserMessage
-                return false
-            }
-            return true
-        }
         do {
             try await sessionsApi.send(
                 accountId: accountId,
@@ -1298,16 +1269,6 @@ final class AgentSessionModel {
         // commit re-appends it unless the replay happened to carry it back.
         if isStaging { stagedLocalEchoes.append(text) }
         return true
-    }
-
-    /// EXP-1323: the question of a `/btw <question>` draft (the generated
-    /// steer command, claude only); nil = not an aside (no command, no
-    /// question).
-    static func asideQuestion(_ text: String, agent: String) -> String? {
-        guard let command = SlashCommands.command(for: text, agent: agent), command.name == "btw" else { return nil }
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        let question = trimmed.dropFirst(command.token.count).trimmingCharacters(in: .whitespacesAndNewlines)
-        return question.isEmpty ? nil : question
     }
 
     /// Answer a protocol-v2 question card (EXP-249): ONE semantic `answer`

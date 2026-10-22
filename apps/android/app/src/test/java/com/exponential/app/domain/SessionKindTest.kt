@@ -35,7 +35,23 @@ class SessionKindTest {
             val kind = case["kind"]?.takeUnless { it is JsonNull }?.jsonPrimitive?.content
             val expected = traits(case.getValue("expected").jsonObject)
             assertEquals("kind $kind", expected, SessionKind.sessionTraits(kind))
-            assertEquals("kind $kind", expected.persistent, SessionKind.isPersistent(kind))
+        }
+    }
+
+    @Test
+    fun `every kindOf case derives the kind from agentId`() {
+        val cases = fixture.getValue("kindOfCases").jsonArray.map { it.jsonObject }
+        assertTrue(cases.isNotEmpty())
+        for (case in cases) {
+            val session = case.getValue("session").jsonObject
+            val agentId = session["agentId"]?.takeUnless { it is JsonNull }?.jsonPrimitive?.content
+            val expected = case.getValue("expected").jsonPrimitive.content
+            assertEquals("session $session", expected, SessionKind.sessionKindOf(agentId))
+            assertEquals(
+                "session $session",
+                SessionKind.sessionTraits(expected).persistent,
+                SessionKind.isPersistent(agentId),
+            )
         }
     }
 

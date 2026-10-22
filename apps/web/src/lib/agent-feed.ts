@@ -2779,10 +2779,11 @@ export function scriptCardInput(item: {
 // ── EXP-1280: tool-posted cards in the session view ─────────────────────────
 
 /** The Exponential tools that POST a card (`plan_propose`, `sessions_ask`). */
-const CARD_TOOLS: ReadonlySet<string> = new Set([`plan_propose`, `sessions_ask`])
+// NEW-4: the display rows of `session_self` op plan / op ask.
+const CARD_TOOLS: ReadonlySet<string> = new Set([`session_self_plan`, `session_self_ask`])
 
-/** A synced card a TOOL posted (`exponential_plan_propose` /
- *  `exponential_sessions_ask`): a plan / question card WITHOUT an engine
+/** A synced card a TOOL posted (`exponential_session_self_plan` /
+ *  `exponential_session_self_ask`): a plan / question card WITHOUT an engine
  *  `questionId`. The relay holds no open ask for it, so the session view
  *  renders it off the `messages` shape and answers it through
  *  `sessions.answer` only (never the relay `answer` frame). An engine card

@@ -187,12 +187,13 @@ function ThreadPage() {
     return () => clearTimeout(timer)
   }, [threadId])
 
-  // A team agent's root is no thread: its page is the agent's channel.
-  if (thread.root?.kind === `agent`) {
+  // An agent's conversation (NEW-2: a root with `agentId`) is no thread:
+  // its page is the agent's.
+  if (thread.root?.agentId) {
     return (
       <Navigate
         to="/t/$teamSlug/agents/$agentId"
-        params={{ teamSlug, agentId: thread.root.id }}
+        params={{ teamSlug, agentId: thread.root.agentId }}
         replace
       />
     )
@@ -310,6 +311,9 @@ function ThreadScreen({
   // session marks itself (`session-body.tsx`).
   const treeIds = useMemo(() => rows.map((row) => row.id), [rows])
   useMarkRead(root.id, useNewestAgentMessageAt(treeIds))
+  // NEW-6 (N-1) / NEW-46: on a single-session thread the Conversation tab
+  // IS the root's raw work in place (the default body).
+  const mainSession = view.mainSessionId ? (rowsById.get(view.mainSessionId) ?? null) : null
   const tab =
     search.tab === `issue` && search.issue && issueIds.includes(search.issue)
       ? { kind: `issue` as const, issueId: search.issue }
@@ -317,7 +321,10 @@ function ThreadScreen({
         ? { kind: `guide` as const }
         : search.tab === `session` && focused && focused.id !== root.id
           ? { kind: `session` as const, sessionId: focused.id }
-          : { kind: `conversation` as const }
+          : mainSession
+            ? { kind: `session` as const, sessionId: mainSession.id }
+            : { kind: `conversation` as const }
+  const sessionInPlace = tab.kind === `session` ? (focused?.id === tab.sessionId ? focused : mainSession) : null
 
   const go = (next: ThreadSearch) =>
     void navigate({
@@ -532,8 +539,12 @@ function ThreadScreen({
       variant={isMobile ? `pager` : `bar`}
       conversation={{
         label: THREAD_COPY.conversation,
-        active: tab.kind === `conversation`,
-        onSelect: () => showPage(`conversation`),
+        // NEW-46: on a single-session thread the Conversation tab IS that
+        // session's work in place (`mainSessionId`), active while it shows.
+        active:
+          tab.kind === `conversation` ||
+          (mainSession !== null && tab.kind === `session` && tab.sessionId === mainSession.id),
+        onSelect: () => (mainSession ? go({}) : showPage(`conversation`)),
       }}
       issues={issueItems}
       add={menu.addMenu}
@@ -549,8 +560,8 @@ function ThreadScreen({
 
   // ── The bodies ─────────────────────────────────────────────────────────────
   let body: ReactNode
-  if (tab.kind === `session` && focused) {
-    body = <InPlaceSession row={focused} topInset={topInset} floating={isMobile} />
+  if (tab.kind === `session` && sessionInPlace) {
+    body = <InPlaceSession row={sessionInPlace} topInset={topInset} floating={isMobile} />
   } else if (tab.kind === `issue`) {
     const issue = issuesById.get(tab.issueId)
     const board = issue ? boards.find((row) => row.id === issue.boardId) : undefined
@@ -673,8 +684,8 @@ function ThreadScreen({
   }
 
   const stopPill =
-    focused && focused.status !== `ended` && tab.kind === `session` ? (
-      <SessionStopPill sessionId={focused.id} />
+    sessionInPlace && sessionInPlace.status !== `ended` && tab.kind === `session` ? (
+      <SessionStopPill sessionId={sessionInPlace.id} />
     ) : null
 
   if (isMobile) {
@@ -821,7 +832,7 @@ function ConversationBody({
         pending={pending}
         onAnswer={(id, input) => void answer(id, input)}
         onDecide={(id, input) => void answer(id, input)}
-        className="mx-auto max-w-3xl"
+        className="mx-auto max-w-4xl"
       />
     ) : null
   const composer = canReply && dock === null ? (
@@ -835,7 +846,7 @@ function ConversationBody({
       opaque={isMobile}
       hideReplies={isMobile}
       testId="thread-composer"
-      className="mx-auto max-w-3xl"
+      className="mx-auto max-w-4xl"
     />
   ) : null
 
@@ -852,7 +863,7 @@ function ConversationBody({
         <div
           ref={follow.contentRef}
           className={cn(
-            `mx-auto w-full max-w-3xl px-4 pt-8 pb-8 md:px-6`,
+            `mx-auto w-full max-w-4xl px-4 pt-8 pb-8 md:px-6`,
             isMobile && composer && FLOATING_COMPOSER_CLEARANCE
           )}
         >

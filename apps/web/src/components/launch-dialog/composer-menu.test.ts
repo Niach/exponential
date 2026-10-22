@@ -33,6 +33,7 @@ describe(`composerMenuLayout`, () => {
       ultracode: true,
       mcp: true,
       computerUse: true,
+      agents: true,
     })
     for (const entry of all) {
       if (entry.kind === `separator`) continue

@@ -29,15 +29,15 @@ use serde_json::Value;
 
 use crate::activity_fold::parse_instant;
 use crate::contract::{
-    MESSAGE_AUTHOR_KIND_AGENT, MESSAGE_AUTHOR_KIND_USER, MESSAGE_CARD_KIND_EVENT,
+    MESSAGE_AUTHOR_KIND_AGENT, MESSAGE_AUTHOR_KIND_USER, MESSAGE_CARD_KIND_ASK, MESSAGE_CARD_KIND_EVENT,
     MESSAGE_CARD_KIND_PICTURE, MESSAGE_CARD_KIND_PLAN, MESSAGE_CARD_KIND_QUESTION,
     MESSAGE_CARD_KIND_REPLIES, MESSAGE_CARD_KIND_REPORT, MESSAGE_CARD_KIND_SESSION,
     MESSAGE_CARD_KIND_SUBAGENT,
     MESSAGE_CARD_KIND_SUGGESTIONS, MESSAGE_CARD_KIND_THREAD_STARTED,
-    SESSION_KIND_AGENT, SESSION_KIND_THREAD, SESSION_STATUS_ENDED, SESSION_STATUS_QUEUED,
-    SESSION_STATUS_RUNNING,
+    SESSION_STATUS_ENDED, SESSION_STATUS_QUEUED,
+    SESSION_STATUS_RUNNING, PR_STATE_MERGED,
 };
-use crate::rows::{Issue, MessageRow, PullRequestRow, SessionIssueRow, SessionReadRow, SessionRow};
+use crate::rows::{AgentDefRow, Issue, MessageRow, PullRequestRow, SessionIssueRow, SessionReadRow, SessionRow};
 use crate::session_title::{session_title, session_titles};
 
 /// A resolved title from [`session_titles`] (`""` when absent, TS `?? ''`).
@@ -74,9 +74,13 @@ impl StateStrings {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SessionCardCopy {
     /// The muted state word per state.
     pub states: StateStrings,
+    /// NEW-1: the word per `blocked.kind` (`rate_limit` → `Usage limit`,
+    /// `device_offline`, `unclaimed`, `stuck`).
+    pub blocked_kinds: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -229,6 +233,25 @@ pub struct ThreadsListSpec {
     /// An agent row without its own icon/color.
     pub agent_defaults: AgentDefaults,
     pub test_ids: ThreadsListTestIds,
+    /// NEW-1: the Recent band's window + fill.
+    pub recent: RecentRules,
+    /// NEW-1: [`tree_state`]'s thresholds.
+    pub tree_state: TreeStateRules,
+}
+
+/// NEW-1: `threads-list.json` `recent`: every tree active within `hours`,
+/// filled up to the last `max` by activity.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+pub struct RecentRules {
+    pub hours: i64,
+    pub max: usize,
+}
+
+/// NEW-1: `threads-list.json` `treeState`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TreeStateRules {
+    pub stale_hours: i64,
 }
 
 const SESSION_CARD_JSON: &str =
@@ -287,10 +310,6 @@ fn card_str<'a>(card: &'a Value, key: &str) -> Option<&'a str> {
 
 fn is_root(session: &SessionRow) -> bool {
     session.is_root()
-}
-
-fn kind_is(session: &SessionRow, kind: &str) -> bool {
-    session.kind.as_deref() == Some(kind)
 }
 
 fn status_is(session: &SessionRow, status: &str) -> bool {
@@ -418,6 +437,46 @@ pub struct SessionCard {
     pub test_id: String,
 }
 
+/// NEW-1: the `blocked.kind` of a blocked session (`None` when it carries
+/// none: a usage wall from before the kinds).
+pub fn blocked_kind(session: &SessionRow) -> Option<&str> {
+    session
+        .blocked
+        .as_ref()?
+        .get("kind")?
+        .as_str()
+        .map(str::trim)
+        .filter(|kind| !kind.is_empty())
+}
+
+/// NEW-1: whether a blocked session sits behind a USAGE wall (`rate_limit`,
+/// or no kind at all) — the only block another account can lift (the
+/// Switch account control shows for it alone).
+pub fn is_usage_wall(session: &SessionRow) -> bool {
+    session.blocked.is_some() && blocked_kind(session).is_none_or(|kind| kind == "rate_limit")
+}
+
+/// NEW-1 (TS `sessionKindWord`): the card's state word; a blocked session
+/// names WHY (`copy.blockedKinds[blocked.kind]`; an unknown kind or none =
+/// `states.blocked`).
+pub fn session_kind_word(session: &SessionRow, state: SessionState) -> String {
+    if state == SessionState::Blocked {
+        if let Some(word) = blocked_kind(session).and_then(|kind| SESSION_CARD.copy.blocked_kinds.get(kind)) {
+            return word.clone();
+        }
+    }
+    state.word().to_string()
+}
+
+/// NEW-1 (web `blockedBadgeLabel`): a WATCHDOG flag (`device_offline`,
+/// `unclaimed`, `stuck`) names itself with the card's word and has no reset
+/// to count down to; `None` for a usage wall (or an unknown kind), which
+/// keeps its own label + countdown.
+pub fn watchdog_blocked_word(session: &SessionRow) -> Option<String> {
+    let kind = blocked_kind(session).filter(|kind| *kind != "rate_limit")?;
+    SESSION_CARD.copy.blocked_kinds.get(kind).cloned()
+}
+
 /// The card for `session`; `title` = its [`session_title`] (EXP-1341,
 /// `fixtures/session-title.json`; never `Session N`).
 pub fn session_card(session: &SessionRow, title: &str, now_ms: i64) -> SessionCard {
@@ -445,7 +504,7 @@ pub fn session_card(session: &SessionRow, title: &str, now_ms: i64) -> SessionCa
         session_id: session.id.clone(),
         icon: state.icon().to_string(),
         name,
-        kind_word: state.word().to_string(),
+        kind_word: session_kind_word(session, state),
         state,
         tone: state.tone().to_string(),
         elapsed,
@@ -488,29 +547,41 @@ impl TreeIssue {
     }
 }
 
-/// The issues linked to `root_id`, by link sort order; unsynced issues drop
-/// out.
-pub fn root_issues(
-    root_id: &str,
+/// NEW-1: a thread's issues = the UNION over its tree's rows: the sessions
+/// in tree order (the root first, then creation order, [`tree_order`]), each
+/// one's rows by sort order then issue id, every issue once; unsynced issues
+/// drop out.
+pub fn tree_issues(
+    tree: &[&SessionRow],
     session_issues: &[&SessionIssueRow],
     issues: &[TreeIssue],
 ) -> Vec<TreeIssue> {
     let by_id: HashMap<&str, &TreeIssue> = issues.iter().map(|issue| (issue.id.as_str(), issue)).collect();
-    let mut links: Vec<&SessionIssueRow> = session_issues
-        .iter()
-        .copied()
-        .filter(|link| link.session_id == root_id)
-        .collect();
-    links.sort_by(|a, b| {
-        a.sort_order
-            .unwrap_or(0.0)
-            .partial_cmp(&b.sort_order.unwrap_or(0.0))
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
-    links
-        .into_iter()
-        .filter_map(|link| by_id.get(link.issue_id.as_str()).map(|issue| (*issue).clone()))
-        .collect()
+    let mut seen: HashSet<&str> = HashSet::new();
+    let mut out = Vec::new();
+    for session in tree {
+        let mut links: Vec<&SessionIssueRow> = session_issues
+            .iter()
+            .copied()
+            .filter(|link| link.session_id == session.id)
+            .collect();
+        links.sort_by(|a, b| {
+            a.sort_order
+                .unwrap_or(0.0)
+                .partial_cmp(&b.sort_order.unwrap_or(0.0))
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| a.issue_id.cmp(&b.issue_id))
+        });
+        for link in links {
+            let Some(issue) = by_id.get(link.issue_id.as_str()) else {
+                continue;
+            };
+            if seen.insert(issue.id.as_str()) {
+                out.push((*issue).clone());
+            }
+        }
+    }
+    out
 }
 
 // ---------------------------------------------------------------------------
@@ -988,6 +1059,10 @@ pub struct SessionThreadView {
     pub live_session_id: Option<String>,
     pub busy: bool,
     pub needs_you: bool,
+    /// NEW-6 (N-1): a thread with ONE session (the root alone, no child yet)
+    /// shows that session's raw work as the main thing: its id, and the
+    /// strip carries no Conversation tab. `None` once a second session exists.
+    pub main_session_id: Option<String>,
 }
 
 /// [`build_session_thread`]'s input: what the caller synced.
@@ -1007,19 +1082,32 @@ fn event_text(
     card: &Value,
     issues: &HashMap<&str, &TreeIssue>,
     prs: &HashMap<&str, &PullRequestRow>,
+    session_name: impl Fn(&str) -> Option<String>,
 ) -> Option<String> {
     let event = js_string(card.get("event"));
-    let template = THREAD.copy.events.get(&event)?;
-    if template.contains("{issue}") {
+    let mut text = THREAD.copy.events.get(&event)?.clone();
+    if text.contains("{issue}") {
         let issue = card_str(card, "issueId").and_then(|id| issues.get(id))?;
-        return Some(template.replacen("{issue}", &issue.identifier, 1));
+        text = text.replacen("{issue}", &issue.identifier, 1);
     }
-    if template.contains("{pr}") {
+    if text.contains("{pr}") {
         let pr = card_str(card, "pullRequestId").and_then(|id| prs.get(id))?;
         let number = pr.number?;
-        return Some(template.replacen("{pr}", &format!("#{number}"), 1));
+        text = text.replacen("{pr}", &format!("#{number}"), 1);
     }
-    Some(template.clone())
+    if text.contains("{session}") {
+        // NEW-1: a bus line about a session of the tree; an unsynced one drops.
+        let name = card_str(card, "sessionId").and_then(&session_name)?;
+        text = text.replacen("{session}", &name, 1);
+    }
+    if text.contains("{name}") {
+        // NEW-2: a trigger line names its event (an event trigger) and
+        // nothing else; a schedule firing has no name and draws no line (its
+        // body speaks).
+        let name = card_str(card, "name").filter(|name| !name.trim().is_empty())?;
+        text = text.replacen("{name}", name, 1);
+    }
+    Some(text)
 }
 
 fn guide_dot(guide: Option<&Value>) -> bool {
@@ -1311,7 +1399,7 @@ fn fold_forest<'a, T: ?Sized>(
         }
     }
     let mut seen: HashSet<&'a str> = HashSet::new();
-    let mut fold = |top: &'a T, seen: &mut HashSet<&'a str>| {
+    let fold = |top: &'a T, seen: &mut HashSet<&'a str>| {
         let mut nested = Vec::new();
         seen.insert(id(top));
         walk(id(top), 1, &children, &id, seen, &mut nested);
@@ -1380,7 +1468,7 @@ pub fn build_session_thread(input: SessionThreadInput<'_>, focus: Option<&str>) 
     by_id.insert(root.id.as_str(), root);
     let everyone: Vec<&SessionRow> = by_id.values().copied().collect();
     let titles = session_titles(&everyone, input.session_issues, input.issues, input.messages);
-    let issues = root_issues(&root.id, input.session_issues, input.issues);
+    let issues = tree_issues(&tree, input.session_issues, input.issues);
     let issue_map: HashMap<&str, &TreeIssue> =
         input.issues.iter().map(|issue| (issue.id.as_str(), issue)).collect();
     let pr_map: HashMap<&str, &PullRequestRow> =
@@ -1538,7 +1626,12 @@ pub fn build_session_thread(input: SessionThreadInput<'_>, focus: Option<&str>) 
                 }
             }
             Some(MESSAGE_CARD_KIND_EVENT) => {
-                if let Some(text) = event_text(card, &issue_map, &pr_map) {
+                let session_name = |id: &str| {
+                    by_id
+                        .get(id)
+                        .map(|target| session_card(target, title_of(&titles, &target.id), now).name)
+                };
+                if let Some(text) = event_text(card, &issue_map, &pr_map, session_name) {
                     rows.push(SessionThreadRow::Event {
                         id: message.id.clone(),
                         event: js_string(card.get("event")),
@@ -1546,11 +1639,19 @@ pub fn build_session_thread(input: SessionThreadInput<'_>, focus: Option<&str>) 
                     });
                 }
             }
+            // NEW-1: a child's ask mirrored into its parent: the child's own
+            // card already surfaces in the Conversation, so it draws nothing.
+            Some(MESSAGE_CARD_KIND_ASK) => {}
             _ => {}
         }
     }
 
     let live: Vec<&SessionRow> = tree.iter().copied().filter(|session| !session.is_ended()).collect();
+    // NEW-6 (N-1): the root alone = the thread IS that session.
+    // NEW-6 (N-1): the root alone = the thread IS that session (the
+    // Conversation tab opens its raw work, `main_session_id`); NEW-46: the
+    // tab itself is always in the strip.
+    let single = tree.iter().all(|session| session.id == root.id);
     let mut tabs = vec![ThreadTab::Add, ThreadTab::Conversation];
     tabs.extend(issue_tabs);
     tabs.extend(session_tabs);
@@ -1572,6 +1673,7 @@ pub fn build_session_thread(input: SessionThreadInput<'_>, focus: Option<&str>) 
         live_session_id: (!root.is_ended()).then(|| root.id.clone()),
         busy: live.iter().any(|session| session.busy),
         needs_you: live.iter().any(|session| session.needs_input),
+        main_session_id: single.then(|| root.id.clone()),
     }
 }
 
@@ -1654,6 +1756,64 @@ pub struct ThreadsListInput<'a> {
     pub team_id: Option<&'a str>,
     /// EXP-1323: the viewer's `session_reads` (empty = none read).
     pub reads: &'a [&'a SessionReadRow],
+    /// NEW-1: the clock for Recent's window (epoch ms; `None` = no window:
+    /// the last `recent.max` only).
+    pub now_ms: Option<i64>,
+}
+
+/// NEW-1: a tree's derived state ([`tree_state`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TreeState {
+    NeedsYou,
+    Running,
+    Done,
+    Stale,
+    Idle,
+}
+
+impl TreeState {
+    /// The fixture's wire word.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::NeedsYou => "needs_you",
+            Self::Running => "running",
+            Self::Done => "done",
+            Self::Stale => "stale",
+            Self::Idle => "idle",
+        }
+    }
+}
+
+/// NEW-1 (plan 3.13): a tree's derived state. `needs_you` = a live session
+/// waits on a person (`needs_input`, a usage wall or a watchdog flag
+/// included); `running` = any session queued or running; `done` = every
+/// session ended and every PR of the thread merged (none = never done);
+/// `stale` = nothing touched for `treeState.staleHours`; else `idle`.
+pub fn tree_state(tree: &[&SessionRow], pull_requests: &[&PullRequestRow], now_ms: i64) -> TreeState {
+    let live: Vec<&SessionRow> = tree.iter().copied().filter(|session| !session.is_ended()).collect();
+    if live.iter().any(|session| session.needs_input) {
+        return TreeState::NeedsYou;
+    }
+    if live.iter().any(|session| {
+        status_is(session, SESSION_STATUS_QUEUED) || status_is(session, SESSION_STATUS_RUNNING)
+    }) {
+        return TreeState::Running;
+    }
+    if live.is_empty()
+        && !pull_requests.is_empty()
+        && pull_requests.iter().all(|pr| pr.state.as_deref() == Some(PR_STATE_MERGED))
+    {
+        return TreeState::Done;
+    }
+    let newest = tree
+        .iter()
+        .map(|session| ms_or_zero(session.updated_at.as_deref()))
+        .fold(0, i64::max);
+    if now_ms - newest > THREADS_LIST.tree_state.stale_hours * 60 * 60 * 1000 {
+        return TreeState::Stale;
+    }
+    TreeState::Idle
 }
 
 /// The Threads page: roots of kind `thread` in scope grouped Needs you (a
@@ -1692,7 +1852,9 @@ pub fn partition_threads(input: ThreadsListInput<'_>) -> Vec<ThreadsListGroup> {
     let mut buckets: HashMap<ThreadsListKey, Vec<(ThreadsListRow, Vec<ThreadsListRow>)>> = HashMap::new();
     for root in input.sessions.iter().copied().filter(|session| {
         is_root(session)
-            && kind_is(session, SESSION_KIND_THREAD)
+            // NEW-2: an agent's conversation (a root with `agent_id`) is no
+            // thread.
+            && !session.is_agent()
             && input
                 .team_id
                 .is_none_or(|team| session.team_id.as_deref() == Some(team))
@@ -1785,6 +1947,23 @@ pub fn partition_threads(input: ThreadsListInput<'_>) -> Vec<ThreadsListGroup> {
                     .cmp(&ms_or_zero(Some(&a.activity_at)))
                     .then_with(|| a.session_id.cmp(&b.session_id))
             });
+            if key == ThreadsListKey::Recent {
+                // NEW-1: every tree active in the last `recent.hours`, filled
+                // up to the last `recent.max` by activity.
+                let rules = THREADS_LIST.recent;
+                let window = rules.hours * 60 * 60 * 1000;
+                entries = entries
+                    .into_iter()
+                    .enumerate()
+                    .filter(|(index, (row, _))| {
+                        *index < rules.max
+                            || input
+                                .now_ms
+                                .is_some_and(|at| at - ms_or_zero(Some(&row.activity_at)) <= window)
+                    })
+                    .map(|(_, entry)| entry)
+                    .collect();
+            }
             let rows: Vec<ThreadsListRow> = entries
                 .into_iter()
                 .flat_map(|(row, children)| std::iter::once(row).chain(children))
@@ -1919,13 +2098,15 @@ pub fn rail_threads(
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentRow {
-    pub session_id: String,
+    /// NEW-2: the `agents` definition row.
+    pub agent_id: String,
     pub team_id: String,
     pub name: String,
     /// Icon concept (default `agentDefaults.icon`).
     pub icon: String,
     /// `#rrggbb` (default `agentDefaults.color`).
     pub color: String,
+    /// From the VIEWER's own conversation session with the agent.
     pub busy: bool,
     pub needs_you: bool,
 }
@@ -1935,17 +2116,30 @@ fn locale_cmp(a: &str, b: &str) -> std::cmp::Ordering {
     a.to_lowercase().cmp(&b.to_lowercase()).then_with(|| a.cmp(b))
 }
 
-/// The agent roots of the team (`None` = every team) by `sort_order`, then
-/// name, then id; missing icon/color fall back to the fixture defaults.
-pub fn list_agents(sessions: &[&SessionRow], team_id: Option<&str>) -> Vec<AgentRow> {
-    let mut agents: Vec<&SessionRow> = sessions
+/// NEW-2: the rail's Agents section: one row per `agents` definition of the
+/// team (`None` = every team) by `sort_order`, then name, then id; missing
+/// icon/color fall back to the fixture defaults. The spinner / needs-you
+/// dot read the VIEWER's own conversation session with the agent (a root
+/// with `agent_id` and `user_id == me`); a member without one sees a quiet
+/// row.
+pub fn list_agents(
+    agents: &[&AgentDefRow],
+    sessions: &[&SessionRow],
+    team_id: Option<&str>,
+    me: Option<&str>,
+) -> Vec<AgentRow> {
+    let mut mine: HashMap<&str, &SessionRow> = HashMap::new();
+    for session in sessions {
+        if let Some(agent_id) = session.agent_id.as_deref().filter(|id| !id.is_empty()) {
+            if is_root(session) && me.is_some() && session.user_id.as_deref() == me {
+                mine.insert(agent_id, session);
+            }
+        }
+    }
+    let mut agents: Vec<&AgentDefRow> = agents
         .iter()
         .copied()
-        .filter(|session| {
-            is_root(session)
-                && kind_is(session, SESSION_KIND_AGENT)
-                && team_id.is_none_or(|team| session.team_id.as_deref() == Some(team))
-        })
+        .filter(|agent| team_id.is_none_or(|team| agent.team_id.as_deref() == Some(team)))
         .collect();
     agents.sort_by(|a, b| {
         a.sort_order
@@ -1960,14 +2154,18 @@ pub fn list_agents(sessions: &[&SessionRow], team_id: Option<&str>) -> Vec<Agent
     let defaults = &THREADS_LIST.agent_defaults;
     agents
         .into_iter()
-        .map(|session| AgentRow {
-            session_id: session.id.clone(),
-            team_id: session.team_id.clone().unwrap_or_default(),
-            name: session.name.clone().unwrap_or_default(),
-            icon: session.icon.clone().unwrap_or_else(|| defaults.icon.clone()),
-            color: session.color.clone().unwrap_or_else(|| defaults.color.clone()),
-            busy: session.busy,
-            needs_you: session.needs_input,
+        .map(|agent| {
+            let conversation = mine.get(agent.id.as_str());
+            let live = conversation.is_some_and(|session| !session.is_ended());
+            AgentRow {
+                agent_id: agent.id.clone(),
+                team_id: agent.team_id.clone().unwrap_or_default(),
+                name: agent.name.clone().unwrap_or_default(),
+                icon: agent.icon.clone().unwrap_or_else(|| defaults.icon.clone()),
+                color: agent.color.clone().unwrap_or_else(|| defaults.color.clone()),
+                busy: live && conversation.is_some_and(|session| session.busy),
+                needs_you: live && conversation.is_some_and(|session| session.needs_input),
+            }
         })
         .collect()
 }
@@ -2085,6 +2283,67 @@ mod tests {
         serde_json::from_str(json).unwrap()
     }
 
+    /// NEW-2: a `trigger_fired` line shows for an EVENT firing ({name} =
+    /// the event name); a schedule firing (no name) draws no line.
+    #[test]
+    fn a_trigger_line_names_its_event_and_a_schedule_draws_none() {
+        let issues = HashMap::new();
+        let prs = HashMap::new();
+        let line = |card: Value| event_text(&card, &issues, &prs, |_| None);
+        assert_eq!(
+            line(serde_json::json!({"kind": "event", "event": "trigger_fired", "name": "issue.created", "agentId": "a", "triggerId": "t"}))
+                .as_deref(),
+            Some("Trigger fired: issue.created")
+        );
+        for name in [Value::Null, serde_json::json!("  ")] {
+            assert_eq!(
+                line(serde_json::json!({"kind": "event", "event": "trigger_fired", "name": name, "agentId": "a", "triggerId": "t"})),
+                None
+            );
+        }
+        assert_eq!(line(serde_json::json!({"kind": "event", "event": "trigger_fired"})), None);
+    }
+
+    /// NEW-1 (TS `sessionKindWord` / web `blockedBadgeLabel`): a blocked
+    /// session's word names its kind; an unknown kind or none reads
+    /// `Usage limit`; a watchdog flag has its word as the badge, a usage wall
+    /// none; only a usage wall offers Switch account.
+    #[test]
+    fn a_blocked_session_names_its_kind() {
+        let row = |blocked: serde_json::Value| -> SessionRow {
+            serde_json::from_value(serde_json::json!({"id": "s", "status": "running", "blocked": blocked})).unwrap()
+        };
+        for (kind, word) in [
+            ("rate_limit", "Usage limit"),
+            ("device_offline", "Device offline"),
+            ("unclaimed", "Not picked up"),
+            ("stuck", "Stuck"),
+        ] {
+            let session = row(serde_json::json!({"kind": kind}));
+            assert_eq!(session_state(&session), SessionState::Blocked, "{kind}");
+            assert_eq!(session_kind_word(&session, SessionState::Blocked), word, "{kind}");
+            assert_eq!(session_card(&session, "T", 0).kind_word, word, "{kind}");
+            assert_eq!(SESSION_CARD.copy.blocked_kinds.get(kind).map(String::as_str), Some(word));
+            if kind == "rate_limit" {
+                assert_eq!(watchdog_blocked_word(&session), None);
+                assert!(is_usage_wall(&session));
+            } else {
+                assert_eq!(watchdog_blocked_word(&session).as_deref(), Some(word), "{kind}");
+                assert!(!is_usage_wall(&session), "{kind}");
+            }
+        }
+        let future = row(serde_json::json!({"kind": "future_kind"}));
+        assert_eq!(session_kind_word(&future, SessionState::Blocked), "Usage limit");
+        assert_eq!(watchdog_blocked_word(&future), None);
+        let legacy = row(serde_json::json!({"window": "weekly"}));
+        assert_eq!(session_kind_word(&legacy, SessionState::Blocked), "Usage limit");
+        assert!(is_usage_wall(&legacy));
+        // Not blocked: the plain state word, no wall.
+        let free: SessionRow = serde_json::from_value(serde_json::json!({"id": "s", "status": "running"})).unwrap();
+        assert_eq!(session_kind_word(&free, session_state(&free)), session_state(&free).word());
+        assert!(!is_usage_wall(&free));
+    }
+
     #[test]
     fn the_copy_comes_from_the_fixtures() {
         assert_eq!(SessionState::NeedsYou.word(), "Needs you");
@@ -2094,6 +2353,12 @@ mod tests {
         assert_eq!(THREADS_LIST.copy.title, "Threads");
         assert_eq!(ThreadsListKey::Recent.title(), "Recent");
         assert_eq!(THREADS_LIST.agent_defaults.icon, "bot");
+        assert_eq!(THREADS_LIST.recent, RecentRules { hours: 24, max: 20 });
+        assert_eq!(THREADS_LIST.tree_state.stale_hours, 24);
+        assert_eq!(SESSION_CARD.copy.blocked_kinds.get("rate_limit").map(String::as_str), Some("Usage limit"));
+        for kind in crate::contract::CODING_SESSION_BLOCKED_KINDS {
+            assert!(SESSION_CARD.copy.blocked_kinds.contains_key(*kind), "{kind}");
+        }
     }
 
     /// The fixture's `copy.words` key set IS the struct's: an extra key
@@ -2190,8 +2455,64 @@ mod tests {
                 messages: &messages,
                 team_id: input["teamId"].as_str(),
                 reads: &reads,
+                now_ms: input["now"].as_str().and_then(parse_instant),
             });
             assert_whole(&groups, &case["expected"], name);
+        }
+        let recent_cases = fixture["recentCases"].as_array().unwrap();
+        assert!(!recent_cases.is_empty());
+        for case in recent_cases {
+            let name = case["name"].as_str().unwrap();
+            let input = &case["input"];
+            let sessions: Vec<SessionRow> = rows(&input["sessions"]);
+            let links: Vec<SessionIssueRow> = rows(&input["sessionIssues"]);
+            let issues: Vec<TreeIssue> =
+                serde_json::from_value(input["issues"].clone()).unwrap_or_default();
+            let messages: Vec<MessageRow> = rows(&input["messages"]);
+            let reads: Vec<SessionReadRow> = rows(&input["reads"]);
+            let sessions: Vec<&SessionRow> = sessions.iter().collect();
+            let links: Vec<&SessionIssueRow> = links.iter().collect();
+            let messages: Vec<&MessageRow> = messages.iter().collect();
+            let reads: Vec<&SessionReadRow> = reads.iter().collect();
+            let groups = partition_threads(ThreadsListInput {
+                sessions: &sessions,
+                session_issues: &links,
+                issues: &issues,
+                messages: &messages,
+                team_id: input["teamId"].as_str(),
+                reads: &reads,
+                now_ms: input["now"].as_str().and_then(parse_instant),
+            });
+            let recent: Vec<&str> = groups
+                .iter()
+                .find(|group| group.key == ThreadsListKey::Recent)
+                .map(|group| {
+                    group
+                        .rows
+                        .iter()
+                        .filter(|row| row.depth == 0)
+                        .map(|row| row.session_id.as_str())
+                        .collect()
+                })
+                .unwrap_or_default();
+            let expected: Vec<&str> =
+                case["expected"].as_array().unwrap().iter().map(|id| id.as_str().unwrap()).collect();
+            assert_eq!(recent, expected, "{name}");
+        }
+        let state_cases = fixture["treeStateCases"].as_array().unwrap();
+        assert!(!state_cases.is_empty());
+        for case in state_cases {
+            let name = case["name"].as_str().unwrap();
+            let input = &case["input"];
+            let tree: Vec<SessionRow> = rows(&input["tree"]);
+            let prs: Vec<PullRequestRow> = rows(&input["pullRequests"]);
+            let tree: Vec<&SessionRow> = tree.iter().collect();
+            let prs: Vec<&PullRequestRow> = prs.iter().collect();
+            assert_eq!(
+                tree_state(&tree, &prs, now(&input["now"])).as_str(),
+                case["expected"].as_str().unwrap(),
+                "{name}"
+            );
         }
         let unread_cases = fixture["unreadCases"].as_array().unwrap();
         assert!(!unread_cases.is_empty());
@@ -2204,9 +2525,15 @@ mod tests {
         for case in agent_cases {
             let name = case["name"].as_str().unwrap();
             let input = &case["input"];
+            let agents: Vec<AgentDefRow> = rows(&input["agents"]);
+            let agents: Vec<&AgentDefRow> = agents.iter().collect();
             let sessions: Vec<SessionRow> = rows(&input["sessions"]);
             let sessions: Vec<&SessionRow> = sessions.iter().collect();
-            assert_whole(list_agents(&sessions, input["teamId"].as_str()), &case["expected"], name);
+            assert_whole(
+                list_agents(&agents, &sessions, input["teamId"].as_str(), input["me"].as_str()),
+                &case["expected"],
+                name,
+            );
         }
         let mark_cases = fixture["markCases"].as_array().unwrap();
         assert!(!mark_cases.is_empty());

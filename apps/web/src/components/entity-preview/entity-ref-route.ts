@@ -35,8 +35,9 @@ export interface EntityRefRouteContext {
   teamSlugById: (id: string) => string | null
   /** A synced session's ROOT id (itself for a root); null = not synced. */
   sessionRootId: (id: string) => string | null
-  /** Whether a synced session row is a team AGENT root (kind `agent`). */
-  sessionIsAgent: (id: string) => boolean
+  /** NEW-2: the agent whose CONVERSATION a synced session root is (a root
+   *  with `agentId`); null for a thread, a child or an unsynced row. */
+  sessionAgentId: (id: string) => string | null
 }
 
 function issueRoute(
@@ -80,22 +81,31 @@ export function entityRefRoute(
         ? { to: `/t/$teamSlug/boards/$boardSlug`, params: { teamSlug, boardSlug } }
         : null
     }
+    // NEW-2: prompts replaced actions (same ids): both open the prompt.
     case `action`:
+    case `prompt`:
       return {
-        to: `/t/$teamSlug/actions/$actionId`,
-        params: { teamSlug, actionId: ref.id },
+        to: `/t/$teamSlug/settings/prompts/$promptId`,
+        params: { teamSlug, promptId: ref.id },
       }
     case `comment`: {
       const issueId = ctx.commentIssueId(ref.id)
       return issueId ? issueRoute(teamSlug, ctx.issueById(issueId)) : null
     }
-    case `session`:
-      // EXP-1293: an agent root opens its channel; a thread root IS a thread
-      // (its page); a sub-session opens raw.
-      if (ctx.sessionIsAgent(ref.id)) {
+    case `agent`:
+      // NEW-2: an `agents` row opens the agent's page.
+      return { to: `/t/$teamSlug/agents/$agentId`, params: { teamSlug, agentId: ref.id } }
+    case `event`:
+      // NEW-2: events are listed on the Agents page.
+      return { to: `/t/$teamSlug/settings/agents`, params: { teamSlug } }
+    case `session`: {
+      // EXP-1293 / NEW-2: an agent's conversation root opens the agent's
+      // page; a thread root IS a thread (its page); a sub-session opens raw.
+      const agentId = ctx.sessionAgentId(ref.id)
+      if (agentId) {
         return {
           to: `/t/$teamSlug/agents/$agentId`,
-          params: { teamSlug, agentId: ref.id },
+          params: { teamSlug, agentId },
         }
       }
       return ctx.sessionRootId(ref.id) === ref.id
@@ -107,6 +117,7 @@ export function entityRefRoute(
             to: `/t/$teamSlug/sessions/$sessionId`,
             params: { teamSlug, sessionId: ref.id },
           }
+    }
     case `label`:
       return { to: `/t/$teamSlug/settings/labels`, params: { teamSlug } }
     case `status`:

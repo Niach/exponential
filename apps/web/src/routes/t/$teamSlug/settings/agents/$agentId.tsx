@@ -1,6 +1,6 @@
 import { useEffect } from "react"
 import { createFileRoute, useNavigate } from "@tanstack/react-router"
-import { useSessionRow } from "@/hooks/use-session-tree"
+import { useAgentRow } from "@/hooks/use-agent-row"
 import { AgentSettingsPage } from "@/components/team/agents-section"
 import {
   SettingsSectionGuard,
@@ -15,18 +15,15 @@ export const Route = createFileRoute(`/t/$teamSlug/settings/agents/$agentId`)({
   component: SettingsAgent,
 })
 
-// EXP-1293: one team agent's settings PAGE (the board page's layout), fed the
-// LIVE synced root, so every write reflects via sync and an agent deleted
+// EXP-1293 / NEW-2: one team agent's settings PAGE (the board page's layout),
+// fed the LIVE synced `agents` row (the route id IS the agent id), so every write reflects via sync and an agent deleted
 // out from under the page simply stops rendering. Members read it; the
 // owner-only controls are hidden inside.
 function SettingsAgent() {
   const { teamSlug, agentId } = Route.useParams()
   const { team, permissions, resolved } = useSettingsPage(teamSlug)
-  const { row, isReady } = useSessionRow(agentId)
-  const agent =
-    row && row.kind === `agent` && row.parentId === null && row.teamId === team?.id
-      ? row
-      : null
+  const { agent: row, isReady } = useAgentRow(agentId)
+  const agent = row && row.teamId === team?.id ? row : null
   usePageTitle(agent?.name ? pageTitle(agent.name, `Settings`) : undefined)
   const navigate = useNavigate()
 

@@ -40,7 +40,9 @@ final class SessionTreeTests: XCTestCase {
     private func session(_ object: Any?) throws -> TreeSession {
         let row = try XCTUnwrap(object as? [String: Any])
         let blocked = (row["blocked"] as? [String: Any]).map {
-            TreeSessionBlocked(window: $0["window"] as? String, resetsAt: $0["resetsAt"] as? String)
+            TreeSessionBlocked(
+                kind: $0["kind"] as? String, window: $0["window"] as? String, resetsAt: $0["resetsAt"] as? String
+            )
         }
         let guide = (row["guide"] as? [[String: Any]]).map { entries in
             entries.map { TreeGuideEntry(text: $0["text"] as? String, label: $0["label"] as? String) }
@@ -70,7 +72,8 @@ final class SessionTreeTests: XCTestCase {
             updatedAt: try XCTUnwrap(string(row["updatedAt"])),
             deviceId: string(row["deviceId"]),
             caption: string(row["caption"]),
-            aside: (row["aside"] as? Bool) ?? false
+            aside: (row["aside"] as? Bool) ?? false,
+            agentId: string(row["agentId"])
         )
     }
 
@@ -105,8 +108,7 @@ final class SessionTreeTests: XCTestCase {
             TreeSessionIssue(
                 sessionId: try XCTUnwrap(string($0["sessionId"])),
                 issueId: try XCTUnwrap(string($0["issueId"])),
-                sortOrder: try XCTUnwrap($0["sortOrder"] as? Double),
-                assignedSessionId: string($0["assignedSessionId"])
+                sortOrder: try XCTUnwrap($0["sortOrder"] as? Double)
             )
         }
     }
@@ -143,7 +145,8 @@ final class SessionTreeTests: XCTestCase {
         try XCTUnwrap(value as? [[String: Any]]).map {
             TreePullRequest(
                 id: try XCTUnwrap(string($0["id"])),
-                number: try XCTUnwrap($0["number"] as? Int)
+                number: try XCTUnwrap($0["number"] as? Int),
+                state: string($0["state"])
             )
         }
     }
@@ -259,6 +262,7 @@ final class SessionTreeTests: XCTestCase {
             "liveSessionId": json(view.liveSessionId),
             "busy": view.busy,
             "needsYou": view.needsYou,
+            "mainSessionId": json(view.mainSessionId),
         ]
     }
 
@@ -287,7 +291,7 @@ final class SessionTreeTests: XCTestCase {
 
     private func json(_ agent: AgentRow) -> [String: Any] {
         [
-            "sessionId": agent.sessionId,
+            "agentId": agent.agentId,
             "teamId": agent.teamId,
             "name": agent.name,
             "icon": agent.icon,
@@ -319,6 +323,7 @@ final class SessionTreeTests: XCTestCase {
             XCTAssertEqual(tones[state.rawValue], state.tone, state.rawValue)
         }
         XCTAssertEqual((fixture["testIds"] as? [String: String])?["card"], SessionTree.CardCopy.testId)
+        XCTAssertEqual(copy["blockedKinds"] as? [String: String], SessionTree.CardCopy.blockedKinds)
     }
 
     func testSessionCardReplaysEveryCase() throws {
@@ -332,6 +337,33 @@ final class SessionTreeTests: XCTestCase {
             )
             assertJSON(json(card), testCase["expected"], name)
         }
+    }
+
+    /// NEW-1: a blocked session's card names its kind (`copy.blockedKinds`);
+    /// an unknown or absent kind keeps `states.blocked` (TS
+    /// `sessionKindWord`).
+    func testABlockedCardNamesItsKind() throws {
+        let fixture = try fixture("session-card.json")
+        let base = try XCTUnwrap(try cases(fixture).first {
+            (($0["expected"] as? [String: Any])?["state"] as? String) == "blocked"
+        })
+        let input = try XCTUnwrap(base["input"] as? [String: Any])
+        var row = try XCTUnwrap(input["session"] as? [String: Any])
+        let title = try XCTUnwrap(input["title"] as? String)
+        let now = try date(input["now"])
+        func word(_ blocked: [String: Any]) throws -> String {
+            row["blocked"] = blocked
+            return SessionTree.sessionCard(try session(row), title: title, now: now).kindWord
+        }
+        let kinds = try XCTUnwrap((fixture["copy"] as? [String: Any])?["blockedKinds"] as? [String: String])
+        XCTAssertEqual(try word(["kind": "rate_limit"]), kinds["rate_limit"])
+        XCTAssertEqual(try word(["kind": "device_offline"]), "Device offline")
+        XCTAssertEqual(try word(["kind": "unclaimed"]), "Not picked up")
+        XCTAssertEqual(try word(["kind": "stuck"]), "Stuck")
+        XCTAssertEqual(try word(["kind": "future_kind"]), SessionState.blocked.word)
+        XCTAssertEqual(try word(["window": "weekly"]), SessionState.blocked.word)
+        // The jsonb parse carries the kind.
+        XCTAssertEqual(TreeSessionBlocked.parse(#"{"kind":"stuck"}"#)?.kind, "stuck")
     }
 
     func testFormatsTheElapsedLadder() {
@@ -556,6 +588,49 @@ final class SessionTreeTests: XCTestCase {
         }
     }
 
+    /// NEW-1: `recent` + `treeState` rules match the fixture.
+    func testListRulesMatchTheFixture() throws {
+        let fixture = try fixture("threads-list.json")
+        let recent = try XCTUnwrap(fixture["recent"] as? [String: Any])
+        XCTAssertEqual(recent["hours"] as? Double, SessionTree.ListRules.recentHours)
+        XCTAssertEqual(recent["max"] as? Int, SessionTree.ListRules.recentMax)
+        let state = try XCTUnwrap(fixture["treeState"] as? [String: Any])
+        XCTAssertEqual(state["staleHours"] as? Double, SessionTree.ListRules.staleHours)
+    }
+
+    /// NEW-1: `recentCases` — expected = the Recent group's ROOT ids in order.
+    func testRecentWindowReplaysEveryCase() throws {
+        for testCase in try cases(try fixture("threads-list.json"), "recentCases") {
+            let name = try XCTUnwrap(testCase["name"] as? String)
+            let input = try XCTUnwrap(testCase["input"] as? [String: Any])
+            let groups = SessionTree.partitionThreads(
+                sessions: try XCTUnwrap(input["sessions"] as? [Any]).map(session),
+                sessionIssues: try sessionIssues(input["sessionIssues"]),
+                issues: try issues(input["issues"]),
+                messages: try messages(input["messages"]),
+                teamId: string(input["teamId"]),
+                reads: try reads(input["reads"]),
+                now: string(input["now"])
+            )
+            let recent = groups.first { $0.key == .recent }?.rows.filter { $0.depth == 0 }.map(\.sessionId) ?? []
+            XCTAssertEqual(recent, try XCTUnwrap(testCase["expected"] as? [String]), name)
+        }
+    }
+
+    /// NEW-1: `treeStateCases`.
+    func testTreeStateReplaysEveryCase() throws {
+        for testCase in try cases(try fixture("threads-list.json"), "treeStateCases") {
+            let name = try XCTUnwrap(testCase["name"] as? String)
+            let input = try XCTUnwrap(testCase["input"] as? [String: Any])
+            let state = SessionTree.treeState(
+                try XCTUnwrap(input["tree"] as? [Any]).map(session),
+                pullRequests: try pullRequests(input["pullRequests"]),
+                now: string(input["now"])
+            )
+            XCTAssertEqual(state.rawValue, try XCTUnwrap(testCase["expected"] as? String), name)
+        }
+    }
+
     /// EXP-1323: `unreadCases` — the Threads nav dot.
     func testThreadsUnreadReplaysEveryCase() throws {
         for testCase in try cases(try fixture("threads-list.json"), "unreadCases") {
@@ -575,9 +650,21 @@ final class SessionTreeTests: XCTestCase {
         for testCase in try cases(try fixture("threads-list.json"), "agentCases") {
             let name = try XCTUnwrap(testCase["name"] as? String)
             let input = try XCTUnwrap(testCase["input"] as? [String: Any])
+            let definitions = try XCTUnwrap(input["agents"] as? [[String: Any]]).map { row in
+                AgentLike(
+                    id: try XCTUnwrap(string(row["id"])),
+                    teamId: try XCTUnwrap(string(row["teamId"])),
+                    name: try XCTUnwrap(string(row["name"])),
+                    icon: string(row["icon"]),
+                    color: string(row["color"]),
+                    sortOrder: try XCTUnwrap(row["sortOrder"] as? Double)
+                )
+            }
             let agents = SessionTree.listAgents(
-                try XCTUnwrap(input["sessions"] as? [Any]).map(session),
-                teamId: string(input["teamId"])
+                agents: definitions,
+                sessions: try XCTUnwrap(input["sessions"] as? [Any]).map(session),
+                teamId: string(input["teamId"]),
+                me: string(input["me"])
             )
             assertJSON(agents.map(json), testCase["expected"], name)
         }

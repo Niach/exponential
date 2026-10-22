@@ -70,22 +70,29 @@ fun ThreadsScreen(
     onOpenThread: (rootSessionId: String) -> Unit,
     /** EXP-1323: a nested child row opens that session's view. */
     onOpenSession: (sessionId: String) -> Unit = onOpenThread,
+    /** NEW-7: an agent with no conversation of mine yet = its empty DM. */
+    onOpenAgent: (agentId: String) -> Unit = {},
     viewModel: ThreadsViewModel = hiltViewModel(),
 ) {
     val groups by viewModel.groups.collectAsStateWithLifecycle()
     val agents by viewModel.agents.collectAsStateWithLifecycle()
+    val conversations by viewModel.conversations.collectAsStateWithLifecycle()
     val teams by viewModel.teams.collectAsStateWithLifecycle()
     val meta by viewModel.rowMeta.collectAsStateWithLifecycle()
     val words by viewModel.words.collectAsStateWithLifecycle()
+    val prLeads by viewModel.prLeads.collectAsStateWithLifecycle()
     Scaffold(containerColor = Color.Transparent) { padding ->
         ThreadsContent(
             groups = groups,
             agents = agents,
+            conversations = conversations,
             teams = teams,
             rowMeta = meta,
             words = words,
+            prLeads = prLeads,
             onOpenThread = onOpenThread,
             onOpenSession = onOpenSession,
+            onOpenAgent = onOpenAgent,
             modifier = Modifier.padding(padding),
         )
     }
@@ -96,6 +103,8 @@ fun ThreadsScreen(
 fun ThreadsContent(
     groups: List<SessionTree.ThreadsListGroup>,
     agents: List<SessionTree.AgentRow>,
+    /** NEW-2: the viewer's conversation session per agent id (absent = none yet). */
+    conversations: Map<String, String>,
     teams: List<TeamEntity>,
     rowMeta: Map<String, ThreadRowMeta>,
     /** EXP-1309: each row's quiet word (web `threadRowWord`), by root id. */
@@ -104,6 +113,10 @@ fun ThreadsContent(
     modifier: Modifier = Modifier,
     /** EXP-1323: a nested child row (depth > 0) opens that session. */
     onOpenSession: (sessionId: String) -> Unit = onOpenThread,
+    /** NEW-7: an agent row with no conversation yet opens the empty DM. */
+    onOpenAgent: (agentId: String) -> Unit = {},
+    /** NEW-41: each root's PR glyph (web `rowLead`), by root id. */
+    prLeads: Map<String, ThreadRowPrLead> = emptyMap(),
 ) {
     Column(modifier = modifier.fillMaxSize()) {
         // The root screens' header (Actions parity): a plain large title.
@@ -127,12 +140,15 @@ fun ThreadsContent(
                 item(key = "__agents__") {
                     SectionHeader(SessionTree.ListCopy.AGENTS, leading = { BandGlyph(ExpIcons.settingsAgents, Muted) })
                 }
-                items(agents, key = { "agent_${it.sessionId}" }) { agent ->
-                    AgentListRow(agent, onClick = { onOpenThread(agent.sessionId) })
+                items(agents, key = { "agent_${it.agentId}" }) { agent ->
+                    AgentListRow(
+                        agent,
+                        onClick = { conversations[agent.agentId]?.let(onOpenThread) ?: onOpenAgent(agent.agentId) },
+                    )
                 }
                 item(key = "__agents_gap__") { Spacer(Modifier.height(12.dp)) }
             }
-            threadGroups(groups, teams, rowMeta, words, onOpenThread, onOpenSession)
+            threadGroups(groups, teams, rowMeta, words, prLeads, onOpenThread, onOpenSession)
         }
     }
 }
@@ -145,6 +161,7 @@ private fun LazyListScope.threadGroups(
     teams: List<TeamEntity>,
     rowMeta: Map<String, ThreadRowMeta>,
     words: Map<String, SessionTree.ThreadRowWord>,
+    prLeads: Map<String, ThreadRowPrLead>,
     onOpenThread: (String) -> Unit,
     onOpenSession: (String) -> Unit,
 ) {
@@ -171,6 +188,7 @@ private fun LazyListScope.threadGroups(
                         },
                         threadsTab = true,
                         word = words[entry.row.sessionId],
+                        prLead = prLeads[entry.row.sessionId],
                     )
                 }
             }
@@ -239,8 +257,9 @@ private fun AgentListRow(agent: SessionTree.AgentRow, onClick: () -> Unit) {
  *  ([threadsTab], web `ThreadsListView`) the row ends on ONE quiet [word]
  *  (`merged` = no text), and its state moves into the lead (web `rowLead`): the
  *  badged mark when it needs you (EXP-1344: beats busy), the working mark
- *  while busy, the PR glyph
- *  `ready to merge` / `merged` name, else the mark (dimmed with no word). */
+ *  while busy, the emerald `prOpen` glyph while the root has ANY open PR (a
+ *  stacked one too) / the violet `prMerged` one when it has only merged ones
+ *  (NEW-41, [prLead]), else the mark (dimmed with no word). */
 @Composable
 internal fun ThreadListRow(
     row: SessionTree.ThreadsListRow,
@@ -248,6 +267,7 @@ internal fun ThreadListRow(
     onClick: () -> Unit,
     threadsTab: Boolean = false,
     word: SessionTree.ThreadRowWord? = null,
+    prLead: ThreadRowPrLead? = null,
 ) {
     val state = SessionTree.threadRowMarkState(row.needsYou, row.busy)
     Row(
@@ -261,7 +281,7 @@ internal fun ThreadListRow(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         if (threadsTab) {
-            ThreadsTabLead(row, meta?.agent, word)
+            ThreadsTabLead(row, meta?.agent, word, prLead)
         } else {
             AgentRunMark(agent = meta?.agent, state = state, size = 14.dp, badgeSize = 6.dp)
         }
@@ -311,17 +331,25 @@ internal fun ThreadListRow(
 
 /** Web `rowLead`: a Threads-tab row's state, in its lead. */
 @Composable
-private fun ThreadsTabLead(row: SessionTree.ThreadsListRow, agent: String?, word: SessionTree.ThreadRowWord?) {
+private fun ThreadsTabLead(
+    row: SessionTree.ThreadsListRow,
+    agent: String?,
+    word: SessionTree.ThreadRowWord?,
+    prLead: ThreadRowPrLead?,
+) {
     // EXP-1344 ×4: threadRowMarkState FIRST, at every depth: the amber badge
-    // BEATS busy (a parked plan/question keeps the device busy).
+    // BEATS busy (a parked plan/question keeps the device busy). NEW-41
+    // (`threads-list.json`, web `rowLead`): then the PR glyph off the root's
+    // PRs themselves, not its word: any open PR (`stack` too) = emerald,
+    // else any merged one = violet.
     val mark = SessionTree.threadRowMarkState(row.needsYou, row.busy)
     when {
         mark == SessionTree.SessionState.NeedsYou ->
             AgentRunMark(agent = agent, state = SessionTree.SessionState.NeedsYou, size = 14.dp, badgeSize = 6.dp)
         mark == SessionTree.SessionState.Working -> AgentWorkingMark(agent = agent, size = 14.dp)
-        word == SessionTree.ThreadRowWord.ReadyToMerge ->
+        prLead == ThreadRowPrLead.Open ->
             Icon(ExpIcons.prOpen, contentDescription = null, tint = DesignTokens.Semantic.Green, modifier = Modifier.size(14.dp))
-        word == SessionTree.ThreadRowWord.Merged ->
+        prLead == ThreadRowPrLead.Merged ->
             Icon(ExpIcons.prMerged, contentDescription = null, tint = DesignTokens.Avatar.Violet, modifier = Modifier.size(14.dp))
         else -> AgentRunMark(
             agent = agent,

@@ -7,7 +7,10 @@ import {
   reportTransportResponse,
 } from "@/lib/connectivity"
 import {
-  selectSyncedActionSchema,
+  selectSyncedAgentSchema,
+  selectEventSchema,
+  selectSyncedPromptSchema,
+  selectSyncedConversationSchema,
   selectSyncedSessionSchema,
   selectSyncedSessionIssueSchema,
   selectSyncedMessageSchema,
@@ -142,13 +145,34 @@ export const issueStatusCollection = createCollection(
   })
 )
 
-// The actions shape excludes `body` server-side (EXP-268) — the synced row is
-// the list projection; editors/runs fetch the body via tRPC `actions.get`.
-export const actionCollection = createCollection(
+// NEW-2: the team's agent DEFINITIONS (Settings → Agents, the rail's Agents
+// section); `instructions` stay server-side (tRPC `agents.get`).
+export const agentCollection = createCollection(
   electricCollectionOptions({
-    id: `actions`,
-    shapeOptions: shapeOptions(`/api/shapes/actions`),
-    schema: selectSyncedActionSchema,
+    id: `agents`,
+    shapeOptions: shapeOptions(`/api/shapes/agents`),
+    schema: selectSyncedAgentSchema,
+    getKey: (item) => item.id,
+  })
+)
+
+// NEW-2: the team's event stream (the Agents page lists it).
+export const eventCollection = createCollection(
+  electricCollectionOptions({
+    id: `events`,
+    shapeOptions: shapeOptions(`/api/shapes/events`),
+    schema: selectEventSchema,
+    getKey: (item) => item.id,
+  })
+)
+
+// NEW-2: the team's saved prompts (the composer's `/` menu, Settings →
+// Prompts); the body stays server-side (tRPC `prompts.get`).
+export const promptCollection = createCollection(
+  electricCollectionOptions({
+    id: `prompts`,
+    shapeOptions: shapeOptions(`/api/shapes/prompts`),
+    schema: selectSyncedPromptSchema,
     getKey: (item) => item.id,
   })
 )
@@ -310,6 +334,17 @@ export const sessionIssueCollection = createCollection(
     id: `session_issues`,
     shapeOptions: shapeOptions(`/api/shapes/session-issues`),
     schema: selectSyncedSessionIssueSchema,
+    getKey: (item) => item.id,
+  })
+)
+
+// NEW-3: the chat primitive's rows: a session's own conversation (kind
+// `session`) in step 1; a message names its `conversationId`.
+export const conversationCollection = createCollection(
+  electricCollectionOptions({
+    id: `conversations`,
+    shapeOptions: shapeOptions(`/api/shapes/conversations`),
+    schema: selectSyncedConversationSchema,
     getKey: (item) => item.id,
   })
 )

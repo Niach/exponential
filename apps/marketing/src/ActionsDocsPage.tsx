@@ -1,5 +1,4 @@
 import {
-  DocsCallout,
   DocsLayout,
   DocsSection,
   type DocsSection as DocsSectionType,
@@ -9,13 +8,13 @@ import { IcArrow } from "./components/icons"
 import { DocShot } from "./components/DocShot"
 import { LINKS } from "./lib/links"
 
+/* NEW-2: actions became prompts. The URL stays /docs/actions/ so links keep
+   working; the page documents prompts. */
 const SECTIONS: DocsSectionType[] = [
-  { id: `what`, num: `01`, label: `What an action is` },
-  { id: `authoring`, num: `02`, label: `Authoring` },
-  { id: `inputs`, num: `03`, label: `Inputs` },
-  { id: `running`, num: `04`, label: `Running one` },
-  { id: `triggers`, num: `05`, label: `Triggers` },
-  { id: `builtins`, num: `06`, label: `The builtins` },
+  { id: `what`, num: `01`, label: `What a prompt is` },
+  { id: `settings`, num: `02`, label: `Settings → Prompts` },
+  { id: `composer`, num: `03`, label: `The / menu` },
+  { id: `triggers`, num: `04`, label: `Schedules and events` },
 ]
 
 export function ActionsDocsPage() {
@@ -26,11 +25,10 @@ export function ActionsDocsPage() {
       <main>
         <section className="docs-hero">
           <div className="shell docs-hero-content">
-            <h1>Actions</h1>
+            <h1>Prompts</h1>
             <p>
-              Reusable team prompts your agents run on demand: deploys, code
-              reviews, releases, runbooks. Saved once, run from the desktop,
-              the web, or your phone.
+              Saved team prompts. Write one once, run it from the{` `}
+              <code>/</code> menu.
             </p>
             <div className="docs-hero-cta">
               <a className="btn btn-primary" href={LINKS.downloadPage}>
@@ -41,244 +39,81 @@ export function ActionsDocsPage() {
         </section>
 
         <DocsLayout sections={SECTIONS} currentPath="/docs/actions/">
-          {/* ── 01 What an action is ── */}
-          <DocsSection id="what" num="01" label="What an action is">
-            <h2>What an action is</h2>
+          {/* ── 01 What a prompt is ── */}
+          <DocsSection id="what" num="01" label="What a prompt is">
+            <h2>What a prompt is</h2>
             <p>
-              An action is a markdown prompt owned by the team, run as a full
-              interactive agent session on a member&apos;s own machine. Where a
-              {` `}
-              <a href="/docs/coding/">coding session</a> starts from an issue,
-              an action starts from a saved instruction. That gives the work
-              that isn&apos;t issue-shaped a home too: ship a release, run a
-              migration, restart a service, review a pull request.
-            </p>
-            <p>
-              An action can name a <strong>repository</strong>, in which case
-              the session gets its own git worktree on its own branch{` `}
-              (<code>exp/&lt;slug&gt;-&lt;id&gt;</code>) — never the trunk
-              checkout. Without a repository it runs in a scratch directory.
-              Either way it runs on the member&apos;s own device, with their
-              own agent subscription. Nothing executes on Exponential&apos;s
-              servers, and no team secrets are involved.
-            </p>
-            <p>
-              An action runs on demand, or by itself on a schedule or an
-              event: see <a href="#triggers">Triggers</a>.
+              A prompt is a <strong>name</strong>, an <strong>icon</strong>{` `}
+              and a markdown <strong>body</strong>, owned by the team. That is
+              all it holds. The session you start with it picks its device,
+              agent and repository like any other{` `}
+              <a href="/docs/coding/">coding session</a>.
             </p>
           </DocsSection>
 
-          {/* ── 02 Authoring ── */}
-          <DocsSection id="authoring" num="02" label="Authoring">
-            <h2>Authoring</h2>
+          {/* ── 02 Settings → Prompts ── */}
+          <DocsSection id="settings" num="02" label="Settings → Prompts">
+            <h2>Settings → Prompts</h2>
             <p>
-              There is no form to fill in. You author an action by running the
-              built-in <strong>Create action</strong>. Describe what it should
-              do and the agent writes it, registering it for the team through
-              the MCP API. Editing and deleting are{` `}
-              <strong>owner-only</strong>; running is open to every member.
+              <strong>Settings → Prompts</strong> lists the team&apos;s
+              prompts. <strong>New prompt</strong> opens the editor: icon and
+              name in one row over the body. Opening a row opens it.
             </p>
             <p>
-              Opening an action in the <strong>Actions</strong> list opens its
-              page. It has three parts:
-            </p>
-            <ul>
-              <li>
-                <strong>Prompt</strong>: the name, icon, description, composer
-                hint, repository and the markdown prompt itself.
-              </li>
-              <li>
-                <strong>Triggers</strong>: what starts the action without
-                you, covered <a href="#triggers">below</a>.
-              </li>
-              <li>
-                <strong>Sessions</strong>: every session of the action, newest first.
-              </li>
-            </ul>
-            <p>
-              The desktop app and wide web show the three as sections of one
-              page; phones show them as tabs.
+              Owners create, edit and delete prompts. Every member can read
+              and run them.
             </p>
 
             <DocShot
-              view="action-page"
-              caption="An action's page: Prompt, Triggers, Sessions"
+              view="settings-prompts"
+              caption="Settings → Prompts"
             />
           </DocsSection>
 
-          {/* ── 03 Inputs ── */}
-          <DocsSection id="inputs" num="03" label="Inputs">
-            <h2>Inputs</h2>
+          {/* ── 03 The / menu ── */}
+          <DocsSection id="composer" num="03" label="The / menu">
+            <h2>The / menu</h2>
             <p>
-              An action can declare up to <strong>10 typed pick inputs</strong>,
-              each optional or required. Whoever runs it picks them, and the
-              values are appended to the prompt:
+              In the <strong>Home</strong> composer, type <code>/</code> to
+              list the team&apos;s prompts. Keep typing to filter, then press
+              {` `}
+              <strong>Enter</strong> or click one. The prompt becomes the
+              session&apos;s subject, and the send starts the session with its
+              body plus what you typed.
             </p>
-            <ul>
-              <li>
-                <code>repo</code>: one of the team&apos;s connected
-                repositories.
-              </li>
-              <li>
-                <code>board</code>: one of the team&apos;s boards.
-              </li>
-              <li>
-                <code>pr</code>: an issue with an open pull request.
-              </li>
-              <li>
-                <code>icon</code>: a glyph from the shared icon set.
-              </li>
-            </ul>
+
+            <DocShot
+              view="composer-slash-menu"
+              caption="The Home composer's / menu"
+            />
+
             <p>
-              There is no free-text input type. Whatever the runner wants to
-              add goes into the composer&apos;s{` `}
-              <strong>Additional instructions</strong> box, whose hint text is
-              the action&apos;s prompt placeholder; it lands in the session&apos;s
-              prompt under a heading of that name.
+              In a live session, <code>/</code> lists <code>/compact</code>,
+              {` `}
+              <code>/model</code> and <code>/effort</code>, then the
+              prompts. Picking a prompt puts its body in your draft.
             </p>
+
+            <DocShot
+              view="session-slash-menu"
+              caption="A live session's / menu"
+            />
           </DocsSection>
 
-          {/* ── 04 Running one ── */}
-          <DocsSection id="running" num="04" label="Running one">
-            <h2>Running one</h2>
+          {/* ── 04 Schedules and events ── */}
+          <DocsSection id="triggers" num="04" label="Schedules and events">
+            <h2>Schedules and events</h2>
             <p>
-              On the desktop, actions live in their own rail entry, and the
-              {` `}
-              <a href="/docs/coding/#start-coding">Agent page composer</a>{` `}
-              takes one as a chip (the ▶ button), with the same agent, model
-              and effort pickers as an issue session.
+              Prompts have no triggers. To run work on a schedule or when an
+              event happens, give an <strong>agent</strong> a trigger in{` `}
+              <strong>Settings → Agents</strong>.
             </p>
             <p>
-              From the web (<strong>Actions</strong> in the sidebar) or the{` `}
-              <a href="/docs/apps/">mobile apps</a>, <strong>Run</strong>{` `}
-              hands the action to one of your online desktops and drops you
-              into the live session, the same watch-and-steer view as a coding
-              run. All four clients edit actions in full; the writes are still
-              owner-only. A session that opens a pull request shows{` `}
-              <strong>Merge</strong> in its session view, and the PR is listed
-              under <strong>Agent sessions</strong> in{` `}
-              <a href="/docs/coding/#review-merge">Reviews</a>.
-            </p>
-            <p>
-              Starting from scratch? A curated catalog of{` `}
-              <strong>suggestions</strong>, seeds that prefill the creator
-              session, some carrying a trigger, sits behind the lightbulb next to
-              {` `}
-              <strong>New action</strong> (on desktop web it is Getting
-              started&apos;s <strong>Suggested actions</strong> tab; on the
-              phone it is the <strong>Suggestions</strong> tab beside{` `}
-              <strong>Actions</strong>).
-            </p>
-            <DocsCallout kind="note" title="A machine has to be online">
-              Actions always execute on one of your own machines. Starting one
-              from the web or your phone needs a desktop app, or the{` `}
-              <a href="/docs/cli/#daemon">CLI daemon</a>, online. A start to an
-              offline machine is refused right away rather than queued.
-            </DocsCallout>
-          </DocsSection>
-
-          {/* ── 05 Triggers ── */}
-          <DocsSection id="triggers" num="05" label="Triggers">
-            <h2>Triggers</h2>
-            <p>
-              A trigger starts an action without anyone pressing{` `}
-              <strong>Run</strong>. It is a <strong>schedule</strong> or an
-              {` `}
-              <strong>event</strong>, bound to one <strong>device</strong>,
-              with its own on/off switch. Triggers live in the{` `}
-              <strong>Triggers</strong> part of the action&apos;s page, and
-              adding, editing and deleting them is{` `}
-              <strong>owner-only</strong>.
-            </p>
-            <p>
-              <strong>Add trigger</strong> opens the form:
-            </p>
-            <ul>
-              <li>
-                <strong>Schedule</strong>: daily, weekly on a weekday, or
-                monthly on a day from 1 to 28, at a time in the device&apos;s
-                local time.
-              </li>
-              <li>
-                <strong>Event</strong>: an issue is created, its status,
-                assignee or priority changes, a label is added, or a pull
-                request is opened or merged. Board, label, priority and
-                status filters narrow it.
-              </li>
-              <li>
-                <strong>Device</strong>: the desktop app or{` `}
-                <a href="/docs/cli/#daemon">CLI daemon</a> that starts the
-                run.
-              </li>
-              <li>
-                <strong>Account</strong>, <strong>model</strong> and{` `}
-                <strong>effort</strong>: optional pins for the session.
-              </li>
-            </ul>
-
-            <DocsCallout kind="note" title="A triggered session fills in no inputs">
-              A trigger can only be switched on while every input of its
-              action is optional.
-            </DocsCallout>
-            <p>
-              Triggers run locally. There is no server scheduler: the bound
-              device starts the session itself. If it was offline at a scheduled
-              time, it catches up with one session when it is back. Withdrawing a
-              shared machine from a team pauses the triggers bound to it.
-            </p>
-            <p>
-              In the Actions list, a row shows a clock while its action has a
-              schedule trigger and a bolt while it has an event trigger; the
-              glyph is muted while no trigger of that kind is switched on. A
-              triggered session carries the same glyph under{` `}
-              <strong>Sessions</strong> and stays out of the Agent page&apos;s
-              Recent list.
-            </p>
-          </DocsSection>
-
-          {/* ── 06 The builtins ── */}
-          <DocsSection id="builtins" num="06" label="The builtins">
-            <h2>The builtins</h2>
-            <p>
-              Two builtins ship with the product and can be picked like any
-              action; the composer&apos;s own <strong>Chat</strong> is the
-              third way to run without one. None of them can be edited or
-              deleted, and none carries triggers:
-            </p>
-            <ul>
-              <li>
-                <strong>Create action</strong>: the authoring flow above.
-                Takes a description, plus an optional name, repository and
-                icon. It is the <strong>New action</strong> button rather than
-                a row in the list.
-              </li>
-              <li>
-                <strong>Fix merge conflicts</strong>: takes a pull request,
-                checks out its branch in its own worktree, rebases onto the
-                base branch, resolves the conflicts, force-pushes, and merges.
-                It doesn&apos;t clutter the actions list — you meet it as the
-                {` `}
-                <strong>Fix conflicts</strong> button that replaces{` `}
-                <strong>Merge</strong> on the{` `}
-                <a href="/docs/coding/#review-merge">Reviews</a> queue and in
-                the session view when a merge fails on conflicts.
-              </li>
-            </ul>
-            <p>
-              <strong>Chat</strong> is not an action you pick: it is the{` `}
-              <a href="/docs/coding/#watch-steer">Agent page</a> composer
-              with nothing chipped, a free prompt with no issue attached and
-              no repository required. With a repository picked the session gets
-              its own <code>exp/chat-&lt;id&gt;</code> worktree, without one
-              it runs in a scratch directory. Either way it steers like any
-              other session.
-            </p>
-            <p>
-              Actions and their triggers are scriptable too. See the{` `}
+              Agents read prompts over MCP too: see{` `}
               <a href="/docs/mcp/#tools">
-                <code>exponential_actions_*</code> tools
+                <code>exponential_team_config</code>
               </a>
-              {` `}in the MCP reference.
+              {` `}(<code>prompts_list</code>, <code>prompts_get</code>).
             </p>
           </DocsSection>
         </DocsLayout>

@@ -221,20 +221,8 @@ final class StoreScreenshots: XCTestCase {
         goBack(app)
         goBack(app)
 
-        // ── 06: actions (EXP-253) — the seed inserts three team actions.
-        // EXP-1187: Actions is a tab of its own; no builtins in the list.
-        let actionsTab = app.buttons["tab-actions"]
-        expect(actionsTab, within: Wait.nav, "Actions tab missing")
-        actionsTab.tap()
-        let actionRow = app.descendants(matching: .any)
-            .matching(identifier: "action-row").firstMatch
-        expect(actionRow, within: Wait.sync, "Actions list never showed the seeded actions")
-        expect(
-            app.staticTexts["Update dependencies"].firstMatch,
-            within: Wait.sync,
-            "Seeded team actions never synced"
-        )
-        snapshot("06_actions", settle: 2, popRects: app)
+        // ── 06: retired (NEW-7) — the Actions tab is gone: prompts live in
+        // the composer's `/` menu and Settings → Prompts.
 
         // ── 07: inbox (the Inbox tab, Inbox segment — the default) ──────────
         // Wait for a real notification group — capturing the "You're all

@@ -31,7 +31,7 @@ struct IssueThreadLink: Identifiable, Equatable, Sendable {
     }
 
     private static func links(db: Database, roots: [SessionEntity]) throws -> [IssueThreadLink] {
-        let roots = roots.filter { $0.isRoot && $0.kind == DomainContract.sessionKindThread }
+        let roots = roots.filter { $0.isRoot && !$0.isAgent }
         guard !roots.isEmpty else { return [] }
         var sessions: [TreeSession] = []
         var sessionIssues: [TreeSessionIssue] = []

@@ -54,6 +54,7 @@ import {
   applyPullRequestClosed,
   applyPullRequestDraft,
   applyPullRequestMerged,
+  deleteMergedHeadBranch,
   livePullRequestsOfRepo,
   livePullRequestsOfRoot,
   loadLivePullRequestByHead,
@@ -684,12 +685,17 @@ export async function mergePullRequestOrThrow(args: {
   // only have the slower poller); the webhook's echo degrades to a no-op.
   let txid: number | undefined
   for (const member of landed) {
+    // NEW-5: the merged head branch goes too, with the merge's own token
+    // (best effort, after its children are retargeted; never fails the merge).
     const applied = await applyPullRequestMerged({
       pullRequestId: member.id,
       mergedAt: new Date(),
       actorUserId: args.userId,
       actorViaAgent: viaAgent,
+      deleteHead: { token, anyBranch: true },
     })
+    // The webhook's echo won the claim (it deletes `exp/` heads only).
+    if (!applied.applied) void deleteMergedHeadBranch({ pullRequestId: member.id, token, anyBranch: true })
     if (member.id === pr.id && applied.txid != null) txid = applied.txid
   }
   return { merged: true, mergedIds: landed.map((member) => member.id), ...(txid != null ? { txid } : {}) }
