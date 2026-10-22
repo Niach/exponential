@@ -983,7 +983,9 @@ object SessionTree {
             focusId = focused?.id,
             tabs = buildList {
                 add(ThreadTab.Add)
-                if (!single) add(ThreadTab.Conversation)
+                // NEW-46: the Conversation tab is always in the strip; on a
+                // single-session thread it opens `mainSessionId`'s work.
+                add(ThreadTab.Conversation)
                 addAll(issueTabs)
                 addAll(sessionTabs)
                 add(ThreadTab.Guide(guideDot))

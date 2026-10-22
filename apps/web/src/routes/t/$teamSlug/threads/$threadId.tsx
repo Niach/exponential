@@ -311,8 +311,8 @@ function ThreadScreen({
   // session marks itself (`session-body.tsx`).
   const treeIds = useMemo(() => rows.map((row) => row.id), [rows])
   useMarkRead(root.id, useNewestAgentMessageAt(treeIds))
-  // NEW-6 (N-1): a single-session thread has no Conversation tab: its
-  // default body is the root's raw work in place.
+  // NEW-6 (N-1) / NEW-46: on a single-session thread the Conversation tab
+  // IS the root's raw work in place (the default body).
   const mainSession = view.mainSessionId ? (rowsById.get(view.mainSessionId) ?? null) : null
   const tab =
     search.tab === `issue` && search.issue && issueIds.includes(search.issue)
@@ -352,10 +352,7 @@ function ThreadScreen({
   const swipe = useFaceSwipe(pages, page, showPage)
   /** A chip's pick swaps the tab in place (a page on phones). */
   const pickSession = (sessionId: string) => showPage(`session:${sessionId}`)
-  // NEW-6 (N-1): on a single-session thread (no Conversation tab) the open
-  // issue chip or Guide tab clicked again returns to the session's work.
-  const pickIssue = (issueId: string) =>
-    mainSession && tab.kind === `issue` && tab.issueId === issueId ? go({}) : showPage(`issue:${issueId}`)
+  const pickIssue = (issueId: string) => showPage(`issue:${issueId}`)
 
   const firstIssue = issueTabs[0] ? issuesById.get(issueTabs[0].issueId) : undefined
   const menu = useThreadMenu({
@@ -540,15 +537,15 @@ function ThreadScreen({
   const tabs = (
     <ThreadTabs
       variant={isMobile ? `pager` : `bar`}
-      conversation={
-        mainSession
-          ? undefined
-          : {
-              label: THREAD_COPY.conversation,
-              active: tab.kind === `conversation`,
-              onSelect: () => showPage(`conversation`),
-            }
-      }
+      conversation={{
+        label: THREAD_COPY.conversation,
+        // NEW-46: on a single-session thread the Conversation tab IS that
+        // session's work in place (`mainSessionId`), active while it shows.
+        active:
+          tab.kind === `conversation` ||
+          (mainSession !== null && tab.kind === `session` && tab.sessionId === mainSession.id),
+        onSelect: () => (mainSession ? go({}) : showPage(`conversation`)),
+      }}
       issues={issueItems}
       add={menu.addMenu}
       sessions={sessionItems}
@@ -556,7 +553,7 @@ function ThreadScreen({
         label: THREAD_COPY.guide,
         active: tab.kind === `guide`,
         dot: guideTab?.kind === `guide` && guideTab.dot,
-        onSelect: () => (mainSession && tab.kind === `guide` ? go({}) : showPage(`guide`)),
+        onSelect: () => showPage(`guide`),
       }}
     />
   )

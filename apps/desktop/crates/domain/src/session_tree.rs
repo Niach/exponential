@@ -1648,11 +1648,11 @@ pub fn build_session_thread(input: SessionThreadInput<'_>, focus: Option<&str>) 
 
     let live: Vec<&SessionRow> = tree.iter().copied().filter(|session| !session.is_ended()).collect();
     // NEW-6 (N-1): the root alone = the thread IS that session.
+    // NEW-6 (N-1): the root alone = the thread IS that session (the
+    // Conversation tab opens its raw work, `main_session_id`); NEW-46: the
+    // tab itself is always in the strip.
     let single = tree.iter().all(|session| session.id == root.id);
-    let mut tabs = vec![ThreadTab::Add];
-    if !single {
-        tabs.push(ThreadTab::Conversation);
-    }
+    let mut tabs = vec![ThreadTab::Add, ThreadTab::Conversation];
     tabs.extend(issue_tabs);
     tabs.extend(session_tabs);
     tabs.push(ThreadTab::Guide {

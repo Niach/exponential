@@ -932,9 +932,10 @@ export function buildSessionThread(input: {
     (entry) => (entry.text ?? ``).trim().length > 0 || (entry.label ?? null) !== null
   )
   const live = tree.filter((s) => s.status !== `ended`)
-  // NEW-6 (N-1): the root alone = the thread IS that session (no
-  // Conversation tab, its raw work is the body); a second session brings
-  // the Conversation tab and the chips.
+  // NEW-6 (N-1): the root alone = the thread IS that session: the
+  // Conversation tab opens its raw work in place (`mainSessionId`); a
+  // second session turns the tab into the dispatcher's conversation and
+  // brings the chips. NEW-46: the tab itself is ALWAYS in the strip.
   const single = tree.every((s) => s.id === root.id)
   return {
     rootId: root.id,
@@ -943,7 +944,7 @@ export function buildSessionThread(input: {
     focusId: focus?.id ?? null,
     tabs: [
       { kind: `add` },
-      ...(single ? [] : [{ kind: `conversation` as const }]),
+      { kind: `conversation` as const },
       ...issueTabs,
       ...sessionTabs,
       { kind: `guide`, dot: guideDot },

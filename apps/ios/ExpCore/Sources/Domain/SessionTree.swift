@@ -1536,14 +1536,16 @@ public enum SessionTree {
                 || entry.label != nil
         }
         let live = tree.filter { $0.status != "ended" }
-        // NEW-6 (N-1): the root alone = the thread IS that session.
+        // NEW-6 (N-1): the root alone = the thread IS that session (the
+        // Conversation tab opens its raw work, `mainSessionId`); NEW-46: the
+        // tab itself is always in the strip.
         let single = tree.allSatisfy { $0.id == root.id }
         return SessionThreadView(
             rootId: root.id,
             title: title,
             isPrivate: !root.shared,
             focusId: focused?.id,
-            tabs: [.add] + (single ? [] : [.conversation]) + issueTabs + sessionTabs + [.guide(dot: guideDot)],
+            tabs: [.add, .conversation] + issueTabs + sessionTabs + [.guide(dot: guideDot)],
             rows: rows,
             composer: ThreadComposer(sessionId: root.id, placeholder: ThreadCopy.placeholder),
             live: !live.isEmpty,

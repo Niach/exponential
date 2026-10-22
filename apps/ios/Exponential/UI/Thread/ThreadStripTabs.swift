@@ -116,7 +116,7 @@ struct ThreadStripTabs: View {
             if tabs.contains(.add), let onAdd {
                 addButton(onAdd)
             }
-            // NEW-6 (N-1): a one-session thread has no Conversation tab.
+            // NEW-46: always there (a one-session thread's session page).
             if tabs.contains(.conversation) {
                 pageTab(.conversation)
                     .fixedSize()

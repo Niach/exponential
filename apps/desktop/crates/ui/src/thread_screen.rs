@@ -27,11 +27,11 @@
 //!   and the plan's note; `sessions.answer`), events as muted lines, pictures as tiles; under it
 //!   THE session composer box ([`crate::composer::session_composer_box`])
 //!   sending `sessions.send({sessionId: root})`.
-//! * NEW-6 (N-1): a thread with ONE session (`view.main_session_id`, no
-//!   child yet) has no Conversation tab: its body = that session's raw work
-//!   in place (its own composer, Stop in the header's trailing slot);
-//!   picking the open issue chip / Guide again returns to it. The first
-//!   child brings the Conversation back.
+//! * NEW-6 (N-1) / NEW-46: a thread with ONE session (`view.main_session_id`,
+//!   no child yet): its Conversation tab = that session's raw work in place
+//!   (its own composer, Stop in the header's trailing slot). The tab stays
+//!   in the strip; the first child turns it into the dispatcher's
+//!   conversation.
 //! * An ISSUE child = the issue detail, EMBEDDED (no work header bar, no
 //!   Threads row); the GUIDE child = the Guide page
 //!   ([`crate::session_results::render`]) over the root's guide and its pull
@@ -2963,9 +2963,6 @@ impl ThreadScreenView {
             .map(|session| (session.id, session.cli))
             .collect();
         let this = cx.entity().downgrade();
-        // NEW-6 (N-1): with no Conversation tab, picking the open issue chip
-        // or Guide again returns to the ONE session's work.
-        let single = model.view.main_session_id.is_some();
         let on_pick: OnStripPick = std::rc::Rc::new(move |pick, window, cx| match pick {
             StripPick::Session(session_id) => open_session_in_place(session_id, window, cx),
             other => {
@@ -2974,14 +2971,7 @@ impl ThreadScreenView {
                     StripPick::Guide => ThreadChildSel::Guide,
                     _ => ThreadChildSel::Conversation,
                 };
-                let _ = this.update(cx, |this, cx| {
-                    let child = if single && this.focus.is_none() && this.child == child {
-                        ThreadChildSel::Conversation
-                    } else {
-                        child
-                    };
-                    this.select_child(child, window, cx)
-                });
+                let _ = this.update(cx, |this, cx| this.select_child(child, window, cx));
             }
         });
         let slot = cx.entity().downgrade();
