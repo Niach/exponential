@@ -2084,8 +2084,12 @@
         "settleMs": 800
       },
       "webMobile": "inherit",
+      "ios": {
+        "shot": "sg_apps",
+        "lane": "styleguide"
+      },
       "notes": {
-        "ios": "VAPP-112: the iOS Apps list lands with the phone app host.",
+        "ios": "VAPP-112: the LIVE walk: the Threads tab's Apps button (phones have no sixth tab), gated on the seeded Team dashboard row and the built-in Devices row.",
         "android": "VAPP-116: the Android Apps list lands with the phone app host.",
         "desktop": "VAPP-114: the IDE's Apps screen lands with Screen::Apps."
       }
@@ -2112,9 +2116,13 @@
         },
         "settleMs": 1500
       },
+      "ios": {
+        "shot": "sg_app",
+        "lane": "styleguide"
+      },
       "notes": {
         "web": "`$appSlug` resolves to DEMO_APP_SLUG (apps/web/scripts/screenshot-demo.ts), the seeded Team dashboard app with three versions and the demo user's editor session.",
-        "ios": "VAPP-112: the iOS editor lands with the phone app host.",
+        "ios": "VAPP-112: the LIVE walk: the Apps list's Team dashboard row, the Chat tab gated on the seeded editor chat.",
         "android": "VAPP-116: the Android editor lands with the phone app host.",
         "desktop": "VAPP-114: the IDE's editor lands with Screen::Apps."
       }
