@@ -49,10 +49,28 @@ class ThreadPagesTest {
     }
 
     @Test
-    fun aSingleSessionThreadLeadsWithItsSessionPageAndHasNoConversation() {
-        val tabs = listOf(ThreadTab.Add, ThreadTab.IssueTab("i1", "APP-1"), ThreadTab.Guide(dot = false))
+    fun aSingleSessionThreadsConversationPageIsItsSessionPageInPlace() {
+        val tabs = listOf(
+            ThreadTab.Add,
+            ThreadTab.Conversation,
+            ThreadTab.IssueTab("i1", "APP-1"),
+            ThreadTab.Guide(dot = false),
+        )
         assertEquals(
             listOf("session:root", "issue:i1", "guide"),
+            threadMainPages(threadPages(tabs), "root").map(::threadTabKey),
+        )
+    }
+
+    @Test
+    fun theMainSessionIsOnePageEvenWithItsOwnChip() {
+        val tabs = listOf(
+            ThreadTab.Conversation,
+            ThreadTab.IssueTab("i1", "APP-1"),
+            ThreadTab.SessionTab("root", "Root", SessionTree.SessionState.Working),
+        )
+        assertEquals(
+            listOf("session:root", "issue:i1"),
             threadMainPages(threadPages(tabs), "root").map(::threadTabKey),
         )
     }

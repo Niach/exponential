@@ -336,7 +336,6 @@ fn reclaim_left_behind(
     let mut mid_turn = Vec::new();
     let mut idle = Vec::new();
     for row in sessions.iter().filter(|row| left.contains(&row.id)) {
-        crate::session_registry::settle_left_behind(&row.id);
         let open = row.status_is(domain::contract::SESSION_STATUS_RUNNING)
             || row.status_is(domain::contract::SESSION_STATUS_IDLE);
         if !open
@@ -344,12 +343,18 @@ fn reclaim_left_behind(
             || live.contains_live(&row.id)
             || cx.global::<PickupHost>().in_flight.contains(&row.id)
         {
+            crate::session_registry::settle_left_behind(&row.id);
             continue;
         }
+        // The claim a sibling process still holds stays on the list: the
+        // process that left the row behind may be the one on its way out
+        // (the app before a self-update), its claim stale a few seconds
+        // later — the next pass within the grace re-claims it then.
         if !matches!(pickup::ClaimLock::try_acquire(&data_dir, &row.id), Ok(Some(_))) {
             log::info!("[pickup] reclaim: session {} runs in another process here — skipped", row.id);
             continue;
         }
+        crate::session_registry::settle_left_behind(&row.id);
         match pickup::reclaim_step(row, pending.contains(row.id.as_str())) {
             pickup::ReclaimStep::Replay => {
                 log::info!("[pickup] reclaim: session {} re-claimed — its pending messages replay", row.id);
@@ -460,9 +465,12 @@ pub(crate) fn switch_locally(
 }
 
 /// Did a wake (a Resume, or a delivery that had to re-spawn) hand anything
-/// to an engine? Nothing handed = a stall (another process holds the
-/// session, or the wake was refused for these messages).
-fn woke(session_id: &str, result: Result<Vec<String>, String>) -> StepOutcome {
+/// to an engine? Nothing handed = a stall (the wake was refused for these
+/// messages). A claim another process of this install holds is RETRIED on
+/// the timer, never parked on the row: that process may be on its way out
+/// (the app that just self-updated) and its claim goes stale seconds later
+/// with nothing on the row to re-open the plan.
+fn woke(session_id: &str, result: Result<Vec<String>, pickup::WakeError>) -> StepOutcome {
     match result {
         Ok(delivered) if delivered.is_empty() => {
             log::info!("[pickup] nothing delivered to {session_id}");
@@ -471,6 +479,13 @@ fn woke(session_id: &str, result: Result<Vec<String>, String>) -> StepOutcome {
         Ok(delivered) => {
             log::info!("[pickup] delivered {} message(s) to {session_id}", delivered.len());
             StepOutcome::Progressed
+        }
+        Err(pickup::WakeError::Contended) => {
+            log::info!(
+                "[pickup] {session_id} is held by another process here — retrying in {}s",
+                STEP_RETRY.as_secs()
+            );
+            StepOutcome::Failed
         }
         Err(err) => {
             log::warn!("[pickup] delivering to {session_id} failed: {err}");
@@ -509,7 +524,8 @@ enum StepOutcome {
     /// It changed nothing and retrying unchanged would change nothing either
     /// (a refused or foreign-held claim): wait for the row to move.
     Stalled,
-    /// It failed: wait for the row to move, or [`STEP_RETRY`].
+    /// It failed, or another process here holds the claim: wait for the
+    /// row to move, or [`STEP_RETRY`].
     Failed,
 }
 
@@ -517,7 +533,9 @@ enum StepOutcome {
 const STEP_RETRY: Duration = Duration::from_secs(30);
 
 /// What a stall waits on: the row (its `updated_at` and status) plus the ids
-/// of its queued messages — any change re-opens the session to the plan.
+/// of its pending inputs (a person's queued messages AND another session's,
+/// EXP-1329: both plan a Resume) — any change re-opens the session to the
+/// plan.
 fn fingerprint(row: &SessionRow, messages: &[MessageRow]) -> String {
     let mut at = format!(
         "{}|{}",
@@ -525,7 +543,7 @@ fn fingerprint(row: &SessionRow, messages: &[MessageRow]) -> String {
         row.status.as_deref().unwrap_or_default()
     );
     for message in messages {
-        if message.session_id == row.id && message.is_queued() {
+        if message.session_id == row.id && pickup::is_pending_input(message) {
             at.push('|');
             at.push_str(&message.id);
         }
@@ -638,5 +656,24 @@ mod tests {
         let mut later = row.clone();
         later.updated_at = Some("t2".into());
         assert_ne!(before, fingerprint(&later, &[]));
+    }
+
+    /// EXP-1329: another session's message plans a Resume too, so it moves
+    /// the fingerprint a stalled Resume waits on — a consumed one does not.
+    #[test]
+    fn the_fingerprint_moves_with_another_sessions_pending_input() {
+        let row: SessionRow = serde_json::from_value(serde_json::json!({
+            "id": "s-1", "status": "idle", "updated_at": "t1",
+        }))
+        .unwrap();
+        let before = fingerprint(&row, &[]);
+        let from_agent: MessageRow = serde_json::from_value(serde_json::json!({
+            "id": "m-2", "session_id": "s-1", "root_id": "s-1", "author_kind": "agent",
+            "author_session_id": "s-9",
+        }))
+        .unwrap();
+        assert_ne!(before, fingerprint(&row, &[from_agent.clone()]));
+        let consumed = MessageRow { consumed_at: Some("t2".into()), ..from_agent };
+        assert_eq!(before, fingerprint(&row, &[consumed]));
     }
 }

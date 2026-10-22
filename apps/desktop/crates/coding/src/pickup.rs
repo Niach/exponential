@@ -1601,16 +1601,16 @@ pub fn launch_queued(row: &SessionRow, deps: &PickupDeps) -> Result<LaunchQueued
 ///
 /// `rows` may hold any messages; only this session's pending person rows
 /// count. A resume takes the [`ClaimLock`] (another process holding it runs
-/// the session: nothing is delivered), synthesizes the row's pickers from
-/// the run record (use [`resume_session`] when the row is at hand) and
-/// fetches a fresh `sessions.brief` for the system-append layers. A refused
-/// resume is replied into the conversation, the row reported `idle`, and
-/// not retried until a NEW message arrives.
+/// the session: [`WakeError::Contended`], nothing is delivered), synthesizes
+/// the row's pickers from the run record (use [`resume_session`] when the
+/// row is at hand) and fetches a fresh `sessions.brief` for the
+/// system-append layers. A refused resume is replied into the conversation,
+/// the row reported `idle`, and not retried until a NEW message arrives.
 pub fn deliver_messages(
     session_id: &str,
     rows: &[MessageRow],
     deps: &PickupDeps,
-) -> Result<Vec<String>, String> {
+) -> Result<Vec<String>, WakeError> {
     deliver(session_id, None, rows, deps)
 }
 
@@ -1622,8 +1622,40 @@ pub fn resume_session(
     row: &SessionRow,
     rows: &[MessageRow],
     deps: &PickupDeps,
-) -> Result<Vec<String>, String> {
+) -> Result<Vec<String>, WakeError> {
     deliver(&row.id, Some(row), rows, deps)
+}
+
+/// Why a wake ([`deliver_messages`] / [`resume_session`]) handed nothing.
+///
+/// `Contended` is the one a host must RETRY on a timer, never park on the
+/// row: the holder may be a sibling process of this install on its way out
+/// (the app that just self-updated, a daemon being replaced) whose claim
+/// goes stale seconds later with no row change to re-open the plan — the
+/// N-10 release thread sat idle with a pending message for that reason.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WakeError {
+    /// Another process of this machine holds the session's [`ClaimLock`].
+    Contended,
+    /// The wake failed (network, git, the launcher); the message says how.
+    Other(String),
+}
+
+impl std::fmt::Display for WakeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Contended => write!(f, "the session is held by another process on this machine"),
+            Self::Other(message) => f.write_str(message),
+        }
+    }
+}
+
+impl std::error::Error for WakeError {}
+
+impl From<String> for WakeError {
+    fn from(message: String) -> Self {
+        Self::Other(message)
+    }
 }
 
 fn deliver(
@@ -1631,7 +1663,7 @@ fn deliver(
     row: Option<&SessionRow>,
     rows: &[MessageRow],
     deps: &PickupDeps,
-) -> Result<Vec<String>, String> {
+) -> Result<Vec<String>, WakeError> {
     // EXP-1280: an answered tool card rides a Resume too (its body is the
     // answer text, [`plan`]).
     let mut pending: Vec<&MessageRow> = rows
@@ -1667,7 +1699,7 @@ fn deliver(
     }
     let Some(claim) = ClaimLock::try_acquire(&deps.coding.data_dir, session_id)? else {
         log::debug!("pickup: session {session_id} runs in another process");
-        return Ok(Vec::new());
+        return Err(WakeError::Contended);
     };
     let record = crate::run_registry::get(&deps.coding.data_dir, session_id);
     // EXP-849: only a row AT HAND can ask for a switch (one rebuilt from the
@@ -1678,7 +1710,9 @@ fn deliver(
     let row = match (row, &record) {
         (Some(row), _) => row.clone(),
         (None, Some(record)) => row_from_record(record, &deps.device_id),
-        (None, None) => return Err(format!("session {session_id} has no engine and no run record on this device")),
+        (None, None) => {
+            return Err(format!("session {session_id} has no engine and no run record on this device").into())
+        }
     };
     // A transient failure here leaves everything as it was: the next pass
     // tries again.
@@ -1761,7 +1795,7 @@ fn deliver(
             refused(reason.message());
             Ok(Vec::new())
         }
-        Err(err) => Err(refused(format!("Couldn't resume this session: {err}"))),
+        Err(err) => Err(refused(format!("Couldn't resume this session: {err}")).into()),
     }
 }
 
@@ -1936,9 +1970,13 @@ pub fn continue_after_restart(row: &SessionRow, deps: &PickupDeps) -> Result<boo
 pub fn execute(action: &PickupAction, deps: &PickupDeps) -> Result<(), String> {
     match action {
         PickupAction::Launch { session } => launch_queued(session, deps).map(|_| ()),
-        PickupAction::Resume { session, message } => resume_session(session, std::slice::from_ref(message), deps).map(|_| ()),
+        PickupAction::Resume { session, message } => resume_session(session, std::slice::from_ref(message), deps)
+            .map(|_| ())
+            .map_err(|err| err.to_string()),
         PickupAction::Revive { session } => revive_session(session, deps),
-        PickupAction::Deliver { session_id, messages } => deliver_messages(session_id, messages, deps).map(|_| ()),
+        PickupAction::Deliver { session_id, messages } => deliver_messages(session_id, messages, deps)
+            .map(|_| ())
+            .map_err(|err| err.to_string()),
         PickupAction::Revoke { session_id, message_id } => {
             if let Some(engine) = deps.live.get(session_id) {
                 engine.unqueue(message_id);
@@ -3469,6 +3507,29 @@ mod tests {
             LaunchQueued::Skipped { reason: "not queued" }
         ));
         assert!(requests.lock().unwrap().is_empty());
+    }
+
+    /// The host retries a contended wake on its timer (the holder may be the
+    /// process this one replaced, its claim stale seconds later), so it must
+    /// hear contention apart from "nothing pending" and from a refusal.
+    #[test]
+    fn a_wake_another_process_holds_is_contended_not_refused() {
+        let dir = temp_dir("pickup-wake-contended");
+        let (base, requests) = canned_server_recording(vec![]);
+        let host = host(&base, &dir.0, |_| {});
+        crate::run_registry::record(&dir.0, record(&dir.0, "sess-1"));
+        let held = ClaimLock::try_acquire(&dir.0, "sess-1").unwrap().unwrap();
+        let row = session("sess-1", "idle", DEV, "t");
+        let rows = vec![message("m1", "sess-1", "t")];
+        assert_eq!(resume_session(&row, &rows, &host.deps), Err(WakeError::Contended));
+        assert_eq!(deliver_messages("sess-1", &rows, &host.deps), Err(WakeError::Contended));
+        // No request, no spawn, no reply: nothing was refused.
+        assert!(requests.lock().unwrap().is_empty());
+        assert!(host.spawned.lock().unwrap().is_empty());
+        assert!(!host.deps.live.refused_before("sess-1", &rows.iter().collect::<Vec<_>>()));
+        // Nothing pending is still an EMPTY delivery, not contention.
+        drop(held);
+        assert_eq!(deliver_messages("sess-1", &[], &host.deps), Ok(Vec::new()));
     }
 
     #[test]

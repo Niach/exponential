@@ -133,18 +133,16 @@ struct ThreadScreen: View {
     private var rows: ThreadRows? { model?.rows }
 
     /// The pager's pages: the strip's (an agent channel has the
-    /// Conversation alone). NEW-6 (N-1): a thread with ONE session has no
-    /// Conversation tab: that session's page leads instead (no chip of its
-    /// own), the issue chips and the Guide after it.
+    /// Conversation alone). NEW-46: on a thread with ONE session the
+    /// Conversation tab IS that session's page (one page, not two).
     private func pages(_ rows: ThreadRows, _ view: SessionThreadView) -> [ThreadPage] {
         guard !rows.isAgent else { return [.conversation] }
-        let main: [ThreadPage] = view.mainSessionId.map { [.session($0)] } ?? []
         // EXP-1334: a folded sub-issue is a page too (its chip's subtree);
         // EXP-1343: so is every session chip and every session it folds, in
         // strip order (`+` is never a page).
-        return main + view.tabs.flatMap { tab -> [ThreadPage] in
+        return view.tabs.flatMap { tab -> [ThreadPage] in
             switch tab {
-            case .conversation: [.conversation]
+            case .conversation: [view.mainSessionId.map { .session($0) } ?? .conversation]
             case let .issue(issueId, _, nested): [.issue(issueId)] + nested.map { .issue($0.issueId) }
             case let .session(sessionId, _, _, nested):
                 [.session(sessionId)] + nested.map { .session($0.sessionId) }
@@ -161,8 +159,13 @@ struct ThreadScreen: View {
 
     /// The page a thread lands on: its Conversation, or (NEW-6 N-1) the ONE
     /// session's page of a single-session thread.
-    private var defaultPage: ThreadPage {
-        guard let rows, !rows.isAgent, let main = model?.view?.mainSessionId else { return .conversation }
+    private var defaultPage: ThreadPage { resolved(.conversation) }
+
+    /// NEW-46: the page a tab names: on a single-session thread the
+    /// Conversation tab's page is that session's.
+    private func resolved(_ page: ThreadPage) -> ThreadPage {
+        guard page == .conversation, let rows, !rows.isAgent,
+              let main = model?.view?.mainSessionId else { return page }
         return .session(main)
     }
 
@@ -349,18 +352,13 @@ struct ThreadScreen: View {
         if !rows.isAgent {
             ThreadStripTabs(
                 tabs: view.tabs,
-                selection: page,
+                // NEW-46: the ONE session's page reads as the Conversation tab.
+                selection: view.mainSessionId.map { page == .session($0) } == true ? .conversation : page,
                 issue: { rows.issue(id: $0) },
                 isFresh: { model?.isFresh(issueId: $0) ?? false },
                 onSelect: { next in
                     pendingPage = nil
-                    // NEW-6 (N-1): on a single-session thread the open issue
-                    // chip or Guide tapped again returns to the session.
-                    if let main = view.mainSessionId, next == page, next != .session(main) {
-                        selectPage(.session(main))
-                    } else {
-                        selectPage(next)
-                    }
+                    selectPage(next)
                 },
                 onIssueMenu: { issueId in openMenu(issueId: issueId) },
                 onAdd: canEdit ? { openMenu(issueId: nil) } : nil,
@@ -1225,7 +1223,8 @@ struct ThreadScreen: View {
     }
 
     /// Show `target` now, or hold it until it reaches the strip.
-    private func land(on target: ThreadPage) {
+    private func land(on request: ThreadPage) {
+        let target = resolved(request)
         menuTarget = nil
         guideSection = nil
         if currentPages.contains(target) {
@@ -1241,7 +1240,8 @@ struct ThreadScreen: View {
         withAnimation(motion.standard) { switchPage(next) }
     }
 
-    private func switchPage(_ next: ThreadPage) {
+    private func switchPage(_ request: ThreadPage) {
+        let next = resolved(request)
         guard next != page else { return }
         UIApplication.endEditing()
         page = next

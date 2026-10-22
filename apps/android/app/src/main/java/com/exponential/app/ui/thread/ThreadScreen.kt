@@ -487,16 +487,19 @@ fun ThreadContent(
     // page through EVERY strip tab in strip order, the session chips (and
     // their folded sessions) included.
     // NEW-6 (N-1): a thread with ONE session (the root alone) IS that
-    // session: its page is the main thing (first, the fallback) and the
-    // strip carries no Conversation tab; a second session brings it back.
-    // An agent conversation stays the Conversation.
+    // session. NEW-46: the strip always carries the Conversation tab; on a
+    // single-session thread its page IS the root's session page (one page,
+    // the Conversation tab active while it shows). An agent conversation
+    // stays the Conversation.
     val mainSessionId = if (agent != null) null else view?.mainSessionId
     val pages = remember(agent != null, view?.tabs, mainSessionId) {
         threadMainPages(threadPages(if (agent != null) null else view?.tabs), mainSessionId)
     }
     // A tab that left the strip (an issue unlinked elsewhere) falls back to
     // the first page: the conversation, or the main session's page.
-    val selected = pages.firstOrNull { threadTabKey(it) == selectedKey }
+    // NEW-46: "conversation" on a single-session thread = the main page.
+    val pageKey = if (mainSessionId != null && selectedKey == "conversation") "session:$mainSessionId" else selectedKey
+    val selected = pages.firstOrNull { threadTabKey(it) == pageKey }
         ?: pages.firstOrNull()
         ?: SessionTree.ThreadTab.Conversation
     val pageKeys = remember(pages) { pages.mapTo(mutableSetOf()) { threadTabKey(it) } }
@@ -543,17 +546,12 @@ fun ThreadContent(
                         {
                             ThreadTabStrip(
                                 tabs = view.tabs,
-                                selectedKey = threadTabKey(selected),
-                                // NEW-6: on a single-session thread the open
-                                // chip (or Guide) tapped again returns to the
-                                // session's work.
-                                onSelect = { key ->
-                                    if (mainSessionId != null && key == threadTabKey(selected)) {
-                                        onSelectKey(threadTabKey(pages.first()))
-                                    } else {
-                                        onSelectKey(key)
-                                    }
+                                // NEW-46: the main session's page shows the
+                                // Conversation tab selected.
+                                selectedKey = threadTabKey(selected).let {
+                                    if (mainSessionId != null && it == "session:$mainSessionId") "conversation" else it
                                 },
+                                onSelect = onSelectKey,
                                 onAdd = onAdd,
                                 issueStatus = issueStatus,
                                 issueTitle = issueTitle,
@@ -672,9 +670,9 @@ internal fun threadPages(tabs: List<SessionTree.ThreadTab>?): List<SessionTree.T
 }
 
 /**
- * NEW-6 (N-1): [pages] with the single-session thread's MAIN page first (the
- * root's own session page, never a strip chip); null [mainSessionId] = the
- * pages as they are (the Conversation leads).
+ * NEW-46: [pages] with the single-session thread's Conversation page REPLACED,
+ * in place, by the root's own session page (one page, never a duplicate);
+ * null [mainSessionId] = the pages as they are.
  */
 internal fun threadMainPages(
     pages: List<SessionTree.ThreadTab>,
@@ -682,9 +680,7 @@ internal fun threadMainPages(
 ): List<SessionTree.ThreadTab> {
     if (mainSessionId == null) return pages
     val main = SessionTree.ThreadTab.SessionTab(mainSessionId, name = "", markState = SessionTree.SessionState.Waiting)
-    return listOf(main) + pages.filter {
-        it != SessionTree.ThreadTab.Conversation && threadTabKey(it) != threadTabKey(main)
-    }
+    return pages.map { if (it == SessionTree.ThreadTab.Conversation) main else it }.distinctBy(::threadTabKey)
 }
 
 /** EXP-1307: the Guide `…` for [pr] — [SessionTree.guideMenuEntries] over

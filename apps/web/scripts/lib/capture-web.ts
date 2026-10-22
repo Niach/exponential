@@ -74,7 +74,14 @@ export async function login(
   // EXP-857: the page opens on the Continue list; the password form sits
   // behind "Continue with email" (the capture stack has no mail transport, so
   // that button reveals the password form rather than the code field).
-  await page.getByRole(`button`, { name: `Continue with email` }).click()
+  // NEW-46: a cold dev server can lose the client entry on the first load
+  // (Caddy answers 502 while vite still compiles it) and the page never
+  // hydrates: one reload before the click times out instead of a failed view.
+  const continueWithEmail = page.getByRole(`button`, { name: `Continue with email` })
+  if (!(await continueWithEmail.isVisible({ timeout: 10_000 }).catch(() => false))) {
+    await page.reload()
+  }
+  await continueWithEmail.click()
   await page.fill(`#email`, credentials?.email ?? DEMO_EMAIL)
   await page.fill(`#password`, credentials?.password ?? DEMO_PASSWORD)
   await page.getByRole(`button`, { name: `Continue`, exact: true }).click()
