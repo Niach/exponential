@@ -77,7 +77,6 @@ export async function createEditorSessionInTx(
       parentId: null,
       rootId: id,
       depth: 0,
-      kind: `thread`,
       appId: app.id,
       userId,
       deviceId,

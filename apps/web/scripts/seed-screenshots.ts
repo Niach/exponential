@@ -783,7 +783,6 @@ async function seedSessionTree(ctx: {
       appId: DEMO_APP_ID,
       title: `Team dashboard`,
       repositoryId: null,
-      dispatch: false,
       status: `idle`,
       startedAt: DEMO_APP_CHAT_TIMES.request,
       lastTurnAt: DEMO_APP_CHAT_TIMES.third,
