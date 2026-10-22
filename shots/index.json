@@ -129,6 +129,13 @@
       }
     },
     "app": {
+      "desktop": {
+        "file": "shots/app/desktop.webp",
+        "width": 1800,
+        "height": 1126,
+        "bytes": 82570,
+        "sha256": "e519c05eab4daa3967ed2d62242fb9a966a73b4ea16078ab269774d4f7cd72bd"
+      },
       "web": {
         "file": "shots/app/web.webp",
         "width": 1800,
@@ -3706,6 +3713,13 @@
       }
     },
     "settings-app": {
+      "desktop": {
+        "file": "shots/settings-app/desktop.webp",
+        "width": 1800,
+        "height": 1126,
+        "bytes": 29146,
+        "sha256": "32a429de06425d2b29b74c8c019c1ae15de1f116a5a474ddf5452a7e968fc52e"
+      },
       "web": {
         "file": "shots/settings-app/web.webp",
         "width": 1800,
@@ -3722,6 +3736,13 @@
       }
     },
     "settings-apps": {
+      "desktop": {
+        "file": "shots/settings-apps/desktop.webp",
+        "width": 1800,
+        "height": 1126,
+        "bytes": 26888,
+        "sha256": "6e7ef2da742ae7d857b69f2942fffe14e22b5efdad6a0cf3e3cd7692293c5617"
+      },
       "web": {
         "file": "shots/settings-apps/web.webp",
         "width": 1800,

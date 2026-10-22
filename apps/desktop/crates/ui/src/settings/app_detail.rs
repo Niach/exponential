@@ -134,7 +134,13 @@ impl AppDetailPane {
 
     fn page(&self, cx: &App) -> Option<Loaded> {
         match self.shared.read(cx).settings_section() {
-            SettingsSection::App(id) => Some(Loaded::App(id)),
+            // The dev `app:<slug>` seed names a slug: resolve it to the id.
+            SettingsSection::App(id) => Some(Loaded::App(
+                crate::apps_view::find_app(&id, active_team_id(&self.nav, cx).as_deref(), cx)
+                    .filter(|app| !app.builtin)
+                    .map(|app| app.id)
+                    .unwrap_or(id),
+            )),
             SettingsSection::NewApp => Some(Loaded::New),
             _ => None,
         }
