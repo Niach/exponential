@@ -11,7 +11,7 @@ import { ExponentialSurface } from "./surface"
 import { HostSurface } from "./host-surface"
 import { renderToStaticMarkup } from "react-dom/server"
 import { BuiltinMarkdown, MAX_LINK_DEST, MAX_LINK_NESTING, linkAt, parseList, renderMarkdown } from "./markdown"
-import { clearMediaCache, fetchLimited } from "./media"
+import { clearMediaCache, fetchLimited, fetchStream } from "./media"
 import type { HostPlugin } from "./host"
 
 afterEach(() => {
@@ -190,20 +190,31 @@ describe(`media limits`, () => {
     vi.spyOn(globalThis, `fetch`).mockResolvedValue(new Response(broken, { status: 200 }))
     await expect(fetchLimited(`https://x.test/b.png`, {}, { ...limits, maxBytes: 1000 })).rejects.toThrow(/unreadable/)
   })
-  it(`Video/Audio with headers stream past the byte caps; the poster keeps the image limits`, async () => {
+  it(`Video/Audio with headers skip the pixel check but keep the byte cap (VAPP-107); the poster keeps the image limits`, async () => {
     clearMediaCache()
     let n = 0
     vi.spyOn(URL, `createObjectURL`).mockImplementation(() => `blob:media-${++n}`)
     vi.spyOn(URL, `revokeObjectURL`).mockImplementation(() => {})
-    // Over the 20 MB image cap, as an authed video is.
-    vi.spyOn(globalThis, `fetch`).mockImplementation(async () => new Response(new Uint8Array(8), { status: 200, headers: { "content-length": String(MEDIA_LIMITS.maxBytes + 1) } }))
+    // 8 bytes that are no image: a stream takes them, an image (the poster) refuses them as an unreadable raster.
+    vi.spyOn(globalThis, `fetch`).mockImplementation(async (u) =>
+      String(u).endsWith(`poster.png`)
+        ? new Response(new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), { status: 200, headers: { "content-type": `image/png` } })
+        : new Response(new Uint8Array(8), { status: 200, headers: { "content-type": `video/mp4` } })
+    )
     const host: HostPlugin = { mediaRequest: (src) => ({ url: src, headers: { authorization: `Bearer t` } }) }
     const c = paint({ id: `v`, component: `Video`, props: { src: `https://exponential.at/clip.mp4`, poster: `https://exponential.at/poster.png` } }, host)
     await vi.waitFor(() => expect(c.querySelector(`video`)!.getAttribute(`src`)).toMatch(/^blob:media-/))
+    await new Promise((r) => setTimeout(r, 20))
     expect(c.querySelector(`video`)!.getAttribute(`poster`)).toBeNull()
     cleanup()
     const a = paint({ id: `a`, component: `AudioPlayer`, props: { src: `https://exponential.at/talk.m4a` } }, host)
     await vi.waitFor(() => expect(a.querySelector(`audio`)!.getAttribute(`src`)).toMatch(/^blob:media-/))
+    cleanup()
+    // Over the byte cap, as a whole film is: the whole-fetch fallback fails like a 404 (the host wants mediaStreamUrl).
+    vi.spyOn(globalThis, `fetch`).mockImplementation(async () => new Response(new Uint8Array(8), { status: 200, headers: { "content-length": String(MEDIA_LIMITS.maxBytes + 1) } }))
+    const big = paint({ id: `v`, component: `Video`, props: { src: `https://exponential.at/film.mp4` } }, host)
+    await new Promise((r) => setTimeout(r, 20))
+    expect(big.querySelector(`video`)!.getAttribute(`src`)).toBeNull()
   })
   it(`a host mediaStreamUrl hands the player a header-less url, re-checked by the policy`, async () => {
     const fetchSpy = vi.spyOn(globalThis, `fetch`)
@@ -220,6 +231,29 @@ describe(`media limits`, () => {
     const d = paint({ id: `v`, component: `Video`, props: { src: `https://exponential.at/evil.mp4` } }, host)
     await new Promise((r) => setTimeout(r, 10))
     expect(d.querySelector(`video`)!.getAttribute(`src`)).toBeNull()
+  })
+  it(`VAPP-107: the video/audio whole-fetch fallback keeps the byte cap and a total timeout`, async () => {
+    const body = (n: number) =>
+      new ReadableStream<Uint8Array>({
+        start(c) {
+          c.enqueue(new Uint8Array(n))
+          c.close()
+        },
+      })
+    vi.spyOn(globalThis, `fetch`).mockImplementation(async (u) => new Response(String(u).endsWith(`big.mp4`) ? body(150) : body(50), { status: 200, headers: { "content-type": `video/mp4` } }))
+    await expect(fetchStream(`https://x.test/big.mp4`, {}, { maxBytes: 100, timeoutMs: 1000 })).rejects.toThrow(/over 100 bytes/)
+    const ok = await fetchStream(`https://x.test/clip.mp4`, {}, { maxBytes: 100, timeoutMs: 1000 })
+    expect(ok.size).toBe(50)
+    expect(ok.type).toBe(`video/mp4`)
+    // A download that outlives timeoutMs (the headers came, the body never ends) is aborted.
+    vi.spyOn(globalThis, `fetch`).mockImplementation(async (_u, init) => {
+      const signal = init?.signal as AbortSignal
+      return new Response(new ReadableStream<Uint8Array>({ start: (c) => signal.addEventListener(`abort`, () => c.error(new Error(`aborted mid-body`))) }), { status: 200 })
+    })
+    await expect(fetchStream(`https://x.test/endless.mp4`, {}, { maxBytes: 100, timeoutMs: 10 })).rejects.toThrow(/aborted mid-body/)
+    // An over-long Content-Length is refused before any byte is read.
+    vi.spyOn(globalThis, `fetch`).mockImplementation(async () => new Response(body(1), { status: 200, headers: { "content-length": `999` } }))
+    await expect(fetchStream(`https://x.test/long.mp4`, {}, { maxBytes: 100, timeoutMs: 1000 })).rejects.toThrow(/over 100 bytes/)
   })
   it(`a request past timeoutMs is aborted`, async () => {
     vi.spyOn(globalThis, `fetch`).mockImplementation((_u, init) => new Promise((_, reject) => (init?.signal as AbortSignal).addEventListener(`abort`, () => reject(new Error(`aborted`)))))
