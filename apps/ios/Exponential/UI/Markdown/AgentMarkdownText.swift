@@ -268,7 +268,7 @@ struct AgentMarkdownText: View {
         }
     }
 
-    private static func linkAction(
+    static func linkAction(
         _ tapped: URL, base: URL?, origin: String, accountId: String, deps: AppDependencies
     ) -> (() -> Void)? {
         // F37: a RELATIVE href (`/t/acme/agent`) only means something against

@@ -937,6 +937,18 @@ ${allNames.map((n) => `        "${n}"`).join(",\n")}
         allNames.contains(name) ? "lucide-\\(name)" : nil
     }
 
+    /// VAPP-110: concept id -> registry name (an Exponential UI surface names
+    /// icons by CONCEPT; the app host resolves them here, then raw names).
+    public static let concepts: [String: String] = [
+${semanticKeys.map((k) => `        "${k}": "${registry.semantic[k]}"`).join(",\n")}
+    ]
+
+    /// A concept id or a raw registry name -> the registry name; nil = neither.
+    public static func conceptOrName(_ name: String) -> String? {
+        if let named = concepts[name] { return named }
+        return allNames.contains(name) ? name : nil
+    }
+
 ${semanticKeys
   .map(
     (k) =>

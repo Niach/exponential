@@ -57,6 +57,21 @@ struct ThreadsView: View {
         .navigationTitle(SessionTree.ListCopy.title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
+        // VAPP-110: the team's Apps (web/desktop: the nav entry between
+        // Threads and Devices; the phone bar has no room for a sixth tab).
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                // The Issues header's gear twin (`SettingsToolbarLink`).
+                NavigationLink(value: AppRoute.apps(accountId: accountId)) {
+                    AppIcon(AppIcons.navApps, size: AppIcon.Size.medium)
+                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                        .frame(width: 32, height: 32)
+                        .contentShape(Circle())
+                }
+                .accessibilityLabel(Apps.Copy.nav)
+                .accessibilityIdentifier("nav-apps")
+            }
+        }
     }
 }
 

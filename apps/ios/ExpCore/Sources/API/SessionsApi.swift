@@ -51,7 +51,7 @@ public struct SessionLaunchOptions: Sendable, Equatable {
     }
 }
 
-/// The four forms of `sessions.send`. `teamId` is the ACTIVE team (phones:
+/// The forms of `sessions.send`. `teamId` is the ACTIVE team (phones:
 /// the current board's team).
 public enum SessionsSendInput: Sendable, Equatable {
     /// A new THREAD root: the composer, Start on an issue (`issueIds`), a
@@ -71,6 +71,10 @@ public enum SessionsSendInput: Sendable, Equatable {
     /// session with it (created on first use; it runs on the agent's own
     /// device, so no runner picks). Needs text or files.
     case agent(agentId: String, text: String? = nil, attachmentIds: [String]? = nil)
+    /// VAPP-110: a message to an APP — into the caller's own EDITOR session
+    /// with it (created on first use on `deviceId`, else the caller's default
+    /// device; an ended one continues). Needs text or files.
+    case app(appId: String, deviceId: String?, text: String? = nil, attachmentIds: [String]? = nil)
     /// A CHILD session of `parentId` on any device.
     case child(
         parentId: String,
@@ -98,7 +102,7 @@ extension SessionsSendInput: Encodable {
     private enum Keys: String, CodingKey {
         case teamId, sessionId, parentId, deviceId
         case cli, account, model, effort, planMode, computerUse, ultracode, mcpServerIds
-        case text, attachmentIds, issueIds, promptId, repositoryId, agentId
+        case text, attachmentIds, issueIds, promptId, repositoryId, agentId, appId
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -125,6 +129,11 @@ extension SessionsSendInput: Encodable {
             try c.encodeIfPresent(repositoryId, forKey: .repositoryId)
         case let .agent(agentId, text, attachmentIds):
             try c.encode(agentId, forKey: .agentId)
+            try c.encodeIfPresent(text, forKey: .text)
+            try c.encodeIfPresent(attachmentIds, forKey: .attachmentIds)
+        case let .app(appId, deviceId, text, attachmentIds):
+            try c.encode(appId, forKey: .appId)
+            try c.encodeIfPresent(deviceId, forKey: .deviceId)
             try c.encodeIfPresent(text, forKey: .text)
             try c.encodeIfPresent(attachmentIds, forKey: .attachmentIds)
         case let .child(parentId, deviceId, options, text):

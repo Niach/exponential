@@ -19,6 +19,8 @@ public enum SessionQueries {
         var request = SessionEntity
             .filter(Column("parent_id") == nil)
             .filter(agent ? Column("agent_id") != nil : Column("agent_id") == nil)
+            // VAPP-110: an app's editor session is neither a thread nor an agent.
+            .filter(Column("app_id") == nil)
         if let teamId {
             request = request.filter(Column("team_id") == teamId)
         }
