@@ -118,6 +118,57 @@
           "sortMs": 4
         }
       },
+      "element-chromium": {
+        "cold-start": {
+          "firstPaintMs": 197.2,
+          "nodes": 599,
+          "coldStartMs": 243,
+          "memoryMb": 37.3
+        },
+        "card-grid": {
+          "warmPassMs": 0.7
+        },
+        "list-100k": {
+          "firstPaintMs": 249.9,
+          "scrollToIndexMs": 107.1,
+          "scrollStepMs": 7.6,
+          "renderedItems": 30,
+          "memoryMb": 162.2
+        },
+        "streaming": {
+          "nodes": 607,
+          "applyMs": 16.3,
+          "p95ApplyMs": 34,
+          "totalMs": 3246.5
+        },
+        "theme-switch": {
+          "themeSwitchMs": 44.8,
+          "modeSwitchMs": 10.1
+        },
+        "resize": {
+          "resizeMs": 1.8
+        },
+        "deep-nesting": {
+          "firstPaintMs": 46.2,
+          "warmPassMs": 0.5,
+          "depth": 48
+        },
+        "template-10k": {
+          "firstPaintMs": 715.7,
+          "nodes": 10001,
+          "rebindMs": 822.8
+        },
+        "overlay": {
+          "openMs": 1.7,
+          "closeMs": 1.4
+        },
+        "table-1k": {
+          "firstPaintMs": 50.1,
+          "scrollStepMs": 3.7,
+          "renderedRows": 36,
+          "sortMs": 11.2
+        }
+      },
       "react-chromium": {
         "cold-start": {
           "firstPaintMs": 185.4,

@@ -1,13 +1,15 @@
-// VAPP-105: the ONE web runner behind runners/react.ts and runners/solid.ts.
-// Every scenario of scenarios/manifest.json in headless Chromium through a
-// harness's `bench-suite` view (`window.__xuiBenchSuite`: the React
-// harness's packages/exponential-ui-react/harness/main.tsx and the Solid
-// harness's packages/exponential-ui-solid/harness/main.tsx expose the SAME
-// driver surface, so the page script below measures both the same way). A
-// pass = the change applied through `flush` (React: flushSync; Solid: the
-// synchronous signal write) and the layout read back on the main thread (as
-// scripts/bench-list.ts); a frame is awaited BETWEEN passes, never inside a
-// measurement. Each repeat is a fresh page; the fragment holds the MEDIAN
+// VAPP-105: the ONE web runner behind runners/react.ts, runners/solid.ts
+// and runners/element.ts. Every scenario of scenarios/manifest.json in
+// headless Chromium through a harness's `bench-suite` view
+// (`window.__xuiBenchSuite`: the React harness's
+// packages/exponential-ui-react/harness/main.tsx, the Solid harness's
+// packages/exponential-ui-solid/harness/main.tsx and the element harness's
+// packages/exponential-ui-element/harness/main.ts expose the SAME driver
+// surface, so the page script below measures all three the same way). A
+// pass = the change applied through `flush` (React: flushSync; Solid and
+// the element: the synchronous signal write) and the layout read back on
+// the main thread (as scripts/bench-list.ts); a frame is awaited BETWEEN
+// passes, never inside a measurement. Each repeat is a fresh page; the fragment holds the MEDIAN
 // per metric over the repeats.
 //
 //   runners/<name>.ts [--scenario <id>]… [--repeat <n>]
@@ -46,7 +48,7 @@ declare global {
 }
 
 export interface WebRunner {
-  /** The fragment's renderer id (`react-chromium`, `solid-chromium`). */
+  /** The fragment's renderer id (`react-chromium`, `solid-chromium`, `element-chromium`). */
   renderer: string
   /** The harness bundle, one ES module (the harness's serve.ts `bundleHarness`). */
   bundle: () => Promise<string>

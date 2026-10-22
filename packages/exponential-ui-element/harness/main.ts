@@ -15,6 +15,7 @@
 //   ?view=specimen&id=<id>&theme=<id>&mode=&width=&rtl=1 (one specimens.json entry)
 //   ?view=mount                                          (__xuiMount / __xuiVList)
 //   ?view=bench / ?view=round2
+//   ?view=bench-suite&scenario=<id>                      (VAPP-105: one scenario of @exponential-at/ui-bench; __xuiBenchSuite drives it)
 
 import "@exponential-at/ui-element/define"
 import { CORE_CATALOG_ID, reduceNested, reduceSurface, BUILTIN_THEME_IDS, THEME_SCHEMA_ID, componentDef } from "@exponential-at/ui"
@@ -31,6 +32,17 @@ import specimens from "@exponential-at/ui/fixtures/specimens.json" with { type: 
 // The kitchen sink's data model is the React package's fixture (one file
 // for every harness; a JSON file, not renderer code).
 import sinkData from "../../exponential-ui-react/fixtures/kitchen-sink.data.json" with { type: "json" }
+import benchManifest from "@exponential-at/ui-bench/scenarios/manifest.json" with { type: "json" }
+import benchColdStart from "@exponential-at/ui-bench/scenarios/cold-start.json" with { type: "json" }
+import benchCardGrid from "@exponential-at/ui-bench/scenarios/card-grid.json" with { type: "json" }
+import benchList100k from "@exponential-at/ui-bench/scenarios/list-100k.json" with { type: "json" }
+import benchStreaming from "@exponential-at/ui-bench/scenarios/streaming.json" with { type: "json" }
+import benchThemeSwitch from "@exponential-at/ui-bench/scenarios/theme-switch.json" with { type: "json" }
+import benchResize from "@exponential-at/ui-bench/scenarios/resize.json" with { type: "json" }
+import benchDeepNesting from "@exponential-at/ui-bench/scenarios/deep-nesting.json" with { type: "json" }
+import benchTemplate10k from "@exponential-at/ui-bench/scenarios/template-10k.json" with { type: "json" }
+import benchOverlay from "@exponential-at/ui-bench/scenarios/overlay.json" with { type: "json" }
+import benchTable1k from "@exponential-at/ui-bench/scenarios/table-1k.json" with { type: "json" }
 import { TAG, createSurface } from "@exponential-at/ui-element"
 import type { ExponentialSurfaceElement, HostPlugin, SurfaceHandle } from "@exponential-at/ui-element"
 import { harnessIcons } from "./icons"
@@ -55,6 +67,7 @@ declare global {
     __xuiHandle?: () => SurfaceHandle | null
     __xuiMount?: (tree: NestedNode, options?: MountOptions) => Promise<void>
     __xuiVList?: (c: VListCase) => Promise<VListProbe>
+    __xuiBenchSuite?: BenchSuiteApi
   }
 }
 window.__xuiLog = []
@@ -391,8 +404,137 @@ function Mount(): Node {
   return frag
 }
 
+/** VAPP-105: ONE scenario of the benchmark suite
+ *  (packages/exponential-ui-bench/scenarios/<id>.json) on one
+ *  `<exponential-surface>` driven through its properties and methods only,
+ *  from outside by `window.__xuiBenchSuite` (runners/element.ts): the SAME
+ *  driver surface as the React and Solid harnesses' `BenchSuiteApi`, so one
+ *  page script measures all three. A property set is a signal write the
+ *  Solid painter applies synchronously, so `flush` just runs the mutation;
+ *  one "pass" = the writes applied + a layout read. */
+interface BenchSuiteApi {
+  ready: boolean
+  scenario: string
+  firstPaintMs?: number
+  /** cold-start: from the harness bundle's responseEnd to the first painted frame. */
+  coldStartMs?: number
+  flush: (fn: () => void) => void
+  apply: (message: unknown) => void
+  setData: (path: string, value: unknown) => void
+  setTheme: (id: string) => void
+  setMode: (mode: `light` | `dark`) => void
+  setWidth: (px: number) => void
+  scrollToIndex: (id: string, index: number, align?: `start` | `center` | `end` | `nearest`) => boolean
+  /** Scroll the node's scroller by `by` px (its own box when it scrolls, else its first scrolling descendant) and fire `scroll`. */
+  scroll: (id: string, by: number) => number
+  /** A synchronous layout read on the surface root (ends a pass). */
+  read: () => number
+  nodes: () => number
+  depth: () => number
+  renderedItems: (selector: string) => number
+  has: (selector: string) => boolean
+}
+type BenchScenario = {
+  id: string
+  theme: string
+  mode: `light` | `dark`
+  catalogId: string
+  viewport: { width: number; height: number }
+  surface: { nested: NestedNode } | { components: FlatComponent[] }
+  data?: Record<string, unknown> | { generate: { path: string; count: number; item: Record<string, string> } }
+  steps: Record<string, unknown>
+}
+const BENCH_SCENARIOS: Record<string, BenchScenario> = Object.fromEntries(
+  [benchColdStart, benchCardGrid, benchList100k, benchStreaming, benchThemeSwitch, benchResize, benchDeepNesting, benchTemplate10k, benchOverlay, benchTable1k].map((s) => [s.id, s as unknown as BenchScenario])
+)
+/** src/scenarios.ts generateItems, ported: every field a string. */
+function benchItems(spec: { count: number; item: Record<string, string> }): Record<string, string>[] {
+  const fill = (template: string, i: number) => template.replace(/\{i % (\d+)\}/g, (_, n: string) => String(i % Number(n))).replace(/\{i\}/g, String(i))
+  return Array.from({ length: spec.count }, (_, i) => Object.fromEntries(Object.entries(spec.item).map(([k, t]) => [k, fill(t, i)])))
+}
+function benchData(scenario: BenchScenario): Record<string, unknown> {
+  const data = scenario.data
+  if (!data) return {}
+  if (`generate` in data && typeof data.generate === `object`) {
+    const spec = (data as { generate: { path: string; count: number; item: Record<string, string> } }).generate
+    return { [spec.path.replace(/^\//, ``)]: benchItems(spec) }
+  }
+  return data as Record<string, unknown>
+}
+function BenchSuite(): Node {
+  const id = params.get(`scenario`) ?? ``
+  const scenario = BENCH_SCENARIOS[id]
+  if (!scenario) return div(``, `unknown scenario ${id} (one of ${benchManifest.scenarios.map((s) => s.id).join(`, `)})`)
+  const t0 = performance.now()
+  const surface = createSurface({ surfaceId: `bench`, catalogId: scenario.catalogId, initial: `nested` in scenario.surface ? scenario.surface.nested : undefined, data: benchData(scenario) })
+  // A flat surface (list-100k, streaming, template-10k, table-1k) arrives as
+  // the updateComponents it would be streamed in, applied before the attach
+  // (the React harness's layout effect re-renders before its first paint).
+  if (`components` in scenario.surface) surface.apply({ updateComponents: { surfaceId: `bench`, components: scenario.surface.components } })
+  const el = surfaceEl({ surfaceId: `bench`, surface, plugin: { icons: harnessIcons }, theme: scenario.theme, mode: scenario.mode, width: scenario.viewport.width, viewportHeight: scenario.viewport.height })
+  onAction(el, (e) => void window.__xuiLog.push({ action: e.name, componentId: e.componentId }))
+  const rootEl = div(``, el)
+  rootEl.dataset.testid = `bench-suite`
+  rootEl.dataset.scenario = scenario.id
+  const nodeEl = (id: string) => rootEl.querySelector<HTMLElement>(`[data-xui-id="${CSS.escape(id)}"]`)
+  const scrollerOf = (node: HTMLElement): HTMLElement => {
+    if (node.scrollHeight > node.clientHeight + 1 && /auto|scroll/.test(getComputedStyle(node).overflowY)) return node
+    for (const d of Array.from(node.querySelectorAll<HTMLElement>(`*`))) {
+      if (d.scrollHeight > d.clientHeight + 1 && /auto|scroll/.test(getComputedStyle(d).overflowY)) return d
+    }
+    return node
+  }
+  const api: BenchSuiteApi = {
+    ready: false,
+    scenario: scenario.id,
+    // A property set is applied synchronously: `flush` just runs the writes.
+    flush: (fn) => fn(),
+    apply: (message) => el.apply(message as Parameters<typeof el.apply>[0]),
+    setData: (path, value) => el.setData(path, value),
+    setTheme: (t) => void (el.theme = t),
+    setMode: (m) => void (el.mode = m),
+    setWidth: (w) => void (el.width = w),
+    scrollToIndex: (id, index, align) => el.handle?.scrollToIndex(id, index, align) ?? false,
+    scroll: (id, by) => {
+      const node = nodeEl(id)
+      if (!node) return -1
+      const scroller = scrollerOf(node)
+      scroller.scrollTop += by
+      scroller.dispatchEvent(new Event(`scroll`))
+      void (scroller.querySelector(`.xui-list-window`) ?? scroller).getBoundingClientRect()
+      return scroller.scrollTop
+    },
+    read: () => rootEl.getBoundingClientRect().height,
+    nodes: () => rootEl.querySelectorAll(`[data-xui-id]`).length,
+    depth: () => {
+      let max = 0
+      for (const node of Array.from(rootEl.querySelectorAll<HTMLElement>(`[data-xui-id]`))) {
+        let d = 0
+        for (let p: HTMLElement | null = node; p && p !== rootEl; p = p.parentElement) if (p.hasAttribute(`data-xui-id`)) d++
+        max = Math.max(max, d)
+      }
+      return max
+    },
+    renderedItems: (selector) => rootEl.querySelectorAll(selector).length,
+    has: (selector) => document.querySelector(selector) !== null,
+  }
+  window.__xuiBenchSuite = api
+  // After the element painted on attach (the caller appends it this task).
+  queueMicrotask(() =>
+    requestAnimationFrame(() => {
+      const now = performance.now()
+      api.firstPaintMs = now - t0
+      const bundle = performance.getEntriesByType(`resource`).find((e) => e.name.endsWith(`/dist/main.js`)) as PerformanceResourceTiming | undefined
+      api.coldStartMs = now - (bundle?.responseEnd ?? 0)
+      api.ready = true
+    })
+  )
+  return rootEl
+}
+
 function App(): Node {
   if (view === `bench`) return Bench()
+  if (view === `bench-suite`) return BenchSuite()
   if (view === `round2`) return Round2()
   if (view === `mount`) return Mount()
   if (view === `conditions`) return Conditions()

@@ -375,6 +375,7 @@ export const SCENARIOS: readonly ScenarioDef[] = [
 export const RENDERERS: readonly { id: string; label: string; pass: string }[] = [
   { id: `react-chromium`, label: `React · Chromium`, pass: `the DOM update flushed synchronously and the layout read back (main-thread work, no frame wait)` },
   { id: `solid-chromium`, label: `Solid · Chromium`, pass: `the signal writes applied synchronously (no scheduler) and the layout read back (as React: main-thread work, no frame wait)` },
+  { id: `element-chromium`, label: `Web component · Chromium`, pass: `one <exponential-surface> element: the property writes applied synchronously by the Solid painter underneath and the layout read back (as React and Solid)` },
   { id: `core`, label: `Rust core`, pass: `one layout pass with a fixed fake measure (no text shaping, no painting)` },
   { id: `gpui`, label: `gpui · headless`, pass: `the core pass plus gpui's own layout, prepaint and paint of a full frame (cosmic-text)` },
   { id: `swift-macos`, label: `SwiftUI · macOS`, pass: `the model's pass: the core through the facade, TextKit measurement, nodes and visuals read back (no SwiftUI body)` },

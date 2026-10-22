@@ -10,7 +10,7 @@ and the Numbers page on ui.exponential.at rendered from the results.
 |---|---|
 | `src/scenarios.ts` | the scenarios, hand-written: surface, data (literal or a `generate` spec), viewport, theme, steps, metrics with their kind and sentence |
 | `scenarios/manifest.json`, `scenarios/<id>.json` | GENERATED from it (`bun run generate`; `src/generate.test.ts` gates drift). Every runner reads these |
-| `runners/*.ts` | one bun script per renderer: `react` and `solid` (Playwright Chromium through the React or the Solid harness's `bench-suite` view, both on `runners/web-shared.ts`), `core` and `gpui` (`cargo run --release --example bench_suite`), `swift` (`swift test -c release`), `swift-ios` (`xcodebuild test` on a Simulator or an attached iPhone), `compose-jvm` (Robolectric), `compose-android` (an emulator or device, the fragment read back from logcat) |
+| `runners/*.ts` | one bun script per renderer: `react`, `solid` and `element` (Playwright Chromium through the React, the Solid or the web-component harness's `bench-suite` view, all three on `runners/web-shared.ts`), `core` and `gpui` (`cargo run --release --example bench_suite`), `swift` (`swift test -c release`), `swift-ios` (`xcodebuild test` on a Simulator or an attached iPhone), `compose-jvm` (Robolectric), `compose-android` (an emulator or device, the fragment read back from logcat) |
 | `src/results.ts` | the result format: a runner writes one FRAGMENT `{renderer, platform, device?, date, scenarios: {<id>: {<metric>: n}}}` to `$EXPONENTIAL_UI_BENCH_OUT` (default `.bench/<renderer>.json` at the repo root) |
 | `results/<machine>.json` | the committed record of one machine (every renderer that ran there), written by `bun run bench`; `results/index.ts` lists them for the site (generated) |
 | `budgets.json` + `src/ratchet.ts` | the CI ratchet per machine × renderer × scenario × metric |
@@ -40,8 +40,9 @@ What one **pass** includes differs by renderer and the manifest says it
 (`renderers[].pass`): the core lays out with a fixed fake measure; gpui draws
 a full headless frame; React flushes the DOM update and reads the layout back
 (no frame wait); Solid applies the signal writes synchronously and reads the
-layout back the same way (React and Solid are the one pair whose columns
-compare directly); SwiftUI and Compose run the model's pass (the core through
+layout back the same way, and the web component (`<exponential-surface>`, the
+Solid painter behind element properties) likewise (React, Solid and the
+element are the one group whose columns compare directly); SwiftUI and Compose run the model's pass (the core through
 the facade, the real text measure, nodes and visuals read back) without a
 body or composition. Compare a renderer with itself across scenarios first.
 
@@ -55,7 +56,7 @@ bun run --filter @exponential-at/ui-bench machine                     # the id r
 bun run --filter @exponential-at/ui-bench ratchet .bench/*.json       # the verdicts; --write records budgets
 ```
 
-`bench` picks the runners: React, Solid and the core everywhere, gpui on Linux
+`bench` picks the runners: React, Solid, the web component and the core everywhere, gpui on Linux
 (its headless text system), SwiftUI and the iPhone Simulator on macOS (an
 attached iPhone makes it a device run), Compose on the JVM when an Android SDK
 is around, Compose on a device when `adb devices` lists one. Every runner
@@ -81,5 +82,5 @@ in the style of the Compose conformance budgets:
 Record budgets after a green run from the `bench-results` artifact (or a
 local `.bench/`): `ratchet .bench/*.json --write` puts timings at measured ×
 `headroom` and counts exact. The CI machines are `github-ubuntu-latest`
-(React, Solid, the core, gpui, Compose JVM and the emulator) and `github-macos-26`
+(React, Solid, the web component, the core, gpui, Compose JVM and the emulator) and `github-macos-26`
 (SwiftUI on macOS and the iPhone Simulator).

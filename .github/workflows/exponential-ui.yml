@@ -22,8 +22,8 @@ name: exponential-ui
 # covers the primitive specimens too, and the Solid browser suites drive the
 # primitives' interactions against React's. VAPP-105: every job also runs its
 # renderer's BENCHMARK runner (packages/exponential-ui-bench: the scenario
-# fixtures × the React, Solid, core, gpui, SwiftUI macOS + iPhone Simulator,
-# Compose JVM + emulator runners) and uploads the fragment; `bench` ratchets
+# fixtures × the React, Solid, web-component, core, gpui, SwiftUI macOS +
+# iPhone Simulator, Compose JVM + emulator runners) and uploads the fragment; `bench` ratchets
 # every fragment against budgets.json (worse than the budget fails; a count
 # that got better fails until its budget is lowered; a timing far under its
 # budget warns) and uploads the merged results + the budgets the run suggests.
@@ -205,6 +205,15 @@ jobs:
           name: conformance-element
           path: .conformance/
           include-hidden-files: true  # .conformance/ is a dot-directory; upload-artifact v4 skips hidden paths by default
+      - name: Bench (the web component, headless Chromium)
+        env:
+          EXPONENTIAL_UI_BENCH_MACHINE: github-ubuntu-latest
+        run: bun run --filter @exponential-at/ui-bench bench:element
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bench-element
+          path: .bench/
+          include-hidden-files: true
 
   rust:
     needs: pick
@@ -511,7 +520,7 @@ jobs:
     # artifacts: after a green run, record them with
     # `bun run --filter @exponential-at/ui-bench ratchet .bench/*.json --write`
     # and commit budgets.json (and results/<machine>.json for the record).
-    needs: [react, solid, rust, swift, swift-ios, compose, compose-emulator]
+    needs: [react, solid, element, rust, swift, swift-ios, compose, compose-emulator]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

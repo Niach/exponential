@@ -264,6 +264,7 @@
       "devDependencies": {
         "@exp/tsconfig": "workspace:*",
         "@exponential-at/ui": "workspace:*",
+        "@exponential-at/ui-element": "workspace:*",
         "@exponential-at/ui-react": "workspace:*",
         "@exponential-at/ui-solid": "workspace:*",
         "@types/bun": "latest",

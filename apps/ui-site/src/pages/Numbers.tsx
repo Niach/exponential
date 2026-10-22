@@ -203,7 +203,7 @@ export default function NumbersPage({ path }: PageProps) {
         <DocsSection id="run" num="05" label="Run it, the ratchet">
           <h2>Run it, the ratchet</h2>
           <p>
-            One command runs every runner the machine can (React and Solid in headless Chromium, the Rust core, gpui on Linux, SwiftUI
+            One command runs every runner the machine can (React, Solid and the web component in headless Chromium, the Rust core, gpui on Linux, SwiftUI
             on macOS and the iPhone Simulator, Compose on the JVM, and an attached iPhone or Android device when there is
             one), merges the fragments into <code>results/&lt;machine&gt;.json</code> and prints the ratchet's verdicts:
           </p>
