@@ -34,8 +34,9 @@ ENV
 
 ls "$HOME"/Library/LaunchAgents/actions.runner.*.plist >/dev/null 2>&1 || ./svc.sh install
 PLIST="$(ls "$HOME"/Library/LaunchAgents/actions.runner.*.plist | head -1)"
-# Background QoS + nice: builds yield to whatever you are doing.
-plutil -replace ProcessType -string Background "$PLIST"
+# Nice only: builds yield to whatever you are doing. Never Background QoS:
+# it pins the jobs to the efficiency cores (a 40-minute xcframework build).
+plutil -replace ProcessType -string Standard "$PLIST"
 plutil -replace Nice -integer 10 "$PLIST"
 ./svc.sh stop >/dev/null 2>&1 || true
 ./svc.sh start

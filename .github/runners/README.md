@@ -42,7 +42,7 @@ registration.
 bash .github/runners/mac/install.sh
 ```
 
-A LaunchAgent under your user, background priority. Uses your selected Xcode
+A LaunchAgent under your user, niced (never Background QoS: it pins jobs to the efficiency cores). Uses your selected Xcode
 and Homebrew tuist (test-ios fails loudly if tuist is off the pin).
 `~/actions-runner/svc.sh stop` pauses it; jobs then fall back to GitHub.
 
