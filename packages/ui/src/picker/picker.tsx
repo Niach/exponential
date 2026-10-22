@@ -1,7 +1,12 @@
 import type { ReactNode } from "react"
 
-import { Combobox } from "../combobox"
+import { DialogPresentationContext } from "@exponential-at/ui-react/primitives/dialog"
+import { useContext } from "react"
+
+import { Combobox, type ComboboxPresentation } from "../combobox"
 import { PickerItemBody, type PickerItem } from "./picker-item"
+import { InlinePickerRowContext } from "./inline-picker-row"
+import { pickerPlacement } from "./picker-placement"
 import type { PickerTriggerVariant } from "./picker-trigger"
 
 export * from "./picker-item"
@@ -19,6 +24,13 @@ export * from "./picker-item"
 //             swipe down closes
 //   pointer → a context menu / popover anchored at the trigger
 //             (`MENU_SURFACE_CLASS`, the `Combobox` rows)
+//   inline  → N-6: the SAME rows in the host's flow under the trigger
+//             instead, for a host that already is a surface and cannot
+//             afford a second one: the trigger discloses them, the host
+//             grows, a single pick folds them away. Pointer AND phone. THE
+//             HOST DECIDES: inside a `DialogContent` every picker is inline
+//             (the IDE's dialog windows, the phones' sheets do the same);
+//             `presentation` overrides either way.
 //
 // `search` adds the filter field at the top of either surface. The trigger
 // is whatever chip or button the caller wants opened — the primitive owns
@@ -47,6 +59,9 @@ export * from "./picker-item"
 
 export type PickerMode = `single` | `multi`
 
+/** N-6: the popover-or-sheet pair, or the rows inline under the trigger. */
+export type PickerPresentation = ComboboxPresentation
+
 /** The four popover widths, as the literals Tailwind can scan. */
 export type PickerWidth = `sm` | `md` | `lg` | `xl`
 
@@ -55,6 +70,11 @@ export type PickerWidth = `sm` | `md` | `lg` | `xl`
  *  trigger-less host. Every typed picker extends it, so a call site never has
  *  to drop back to `Combobox` just to place a popover. */
 export interface PickerSurfaceProps {
+  /** N-6: `inline` renders the rows in the host's flow under the trigger
+   *  (no popover, no sheet). Unset = the host decides: `inline` inside a
+   *  dialog, `popover` (or the phone sheet) elsewhere. Forwarded by every
+   *  typed picker. */
+  presentation?: PickerPresentation
   /** The filter field's placeholder (only read while `search`). */
   searchPlaceholder?: string
   /** Popover alignment against the trigger (pointer only). */
@@ -179,6 +199,7 @@ export function Picker<T extends string = string>(props: PickerProps<T>) {
     disabled = false,
     open,
     onOpenChange,
+    presentation,
     align,
     width,
     hideTrigger,
@@ -193,6 +214,17 @@ export function Picker<T extends string = string>(props: PickerProps<T>) {
     renderItem,
   } = props
   const testId = props[`data-testid`]
+  // N-6: the host decides — a picker inside a dialog opens inline. N-14:
+  // inside a row host (the composer options row) the inline rows go into
+  // the slot under the whole row (picker-presentation.json).
+  const inDialog = useContext(DialogPresentationContext) !== null
+  const inRow = useContext(InlinePickerRowContext) !== null
+  const placement = pickerPlacement({
+    inDialog,
+    inRow,
+    requested: presentation ?? null,
+  })
+  const resolvedPresentation: PickerPresentation = placement.presentation
 
   const selection =
     props.mode === `multi`
@@ -217,6 +249,8 @@ export function Picker<T extends string = string>(props: PickerProps<T>) {
       data-slot="picker"
       data-picker-mode={props.mode}
       data-picker-search={search ? `true` : undefined}
+      data-picker-presentation={resolvedPresentation === `inline` ? `inline` : undefined}
+      data-picker-body={placement.body}
       className="contents"
     >
       <Combobox
@@ -244,6 +278,8 @@ export function Picker<T extends string = string>(props: PickerProps<T>) {
         panel={panel}
         open={open}
         onOpenChange={onOpenChange}
+        presentation={resolvedPresentation}
+        inlineBody={placement.body === `surface` ? undefined : placement.body}
         hideTrigger={hideTrigger}
         align={align}
         width={width}

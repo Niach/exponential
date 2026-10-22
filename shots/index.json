@@ -463,6 +463,15 @@
         "sha256": "980b5a03efbd9ff5e673207c2c53ec587e40b5b1c79f0441bb0354283e1f3da5"
       }
     },
+    "composer-dialog-menu": {
+      "desktop": {
+        "file": "shots/composer-dialog-menu/desktop.webp",
+        "width": 1800,
+        "height": 1126,
+        "bytes": 61560,
+        "sha256": "3c25ab51534de6583c518416b70facd89f54df12915c7c8807f4387a7f46412a"
+      }
+    },
     "composer-menu": {
       "android": {
         "file": "shots/composer-menu/android.webp",
