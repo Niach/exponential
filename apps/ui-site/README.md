@@ -2,7 +2,7 @@
 
 The public site of **Exponential UI**, the open (Apache-2.0) generative-UI
 SDK (VAPP-84): an agent sends an A2UI surface, native renderers paint it in
-React, Solid, SwiftUI, Jetpack Compose and gpui. VAPP-93. Same stack and look as
+React, Solid, web components, SwiftUI, Jetpack Compose and gpui. VAPP-93. Same stack and look as
 exponential.at (`apps/marketing`): Vite + React, prerendered to static HTML,
 indexed, the shared chrome and styles of `@exp/site-shell`. Wherever it shows
 components it renders them with the SDK itself (`@exponential-at/ui-react`).
@@ -35,10 +35,10 @@ client entry loads each page type as its own chunk through `src/lib/pages.ts`
 
 | path | page | what |
 |---|---|---|
-| `/` | `Home.tsx` | the live demo (`src/sdk/HomeDemo.tsx`), the five renderers, entry points, packages |
+| `/` | `Home.tsx` | the live demo (`src/sdk/HomeDemo.tsx`), the six renderers, entry points, packages |
 | `/concepts/` | `Concepts.tsx` | A2UI in short, catalog, A2UI basic mapped, themes, extensions, host plugins, vapps, how renderers agree |
 | `/components/` | `ComponentsIndex.tsx` | every component as a live mini render, grouped; search (word starts, `/` focuses), group filter (`?q=`, `?group=`), shot dots |
-| `/components/<slug>/` | `Component.tsx` | studio (theme, mode, LTR/RTL, width 390/768/1280; tabs Preview, A2UI JSON, React, Solid, SwiftUI, Compose, gpui), four shots at equal height, variants gallery, props, events + slots, keyboard (`a11y.json`), recipe parts, app parity, related |
+| `/components/<slug>/` | `Component.tsx` | studio (theme, mode, LTR/RTL, width 390/768/1280; tabs Preview, A2UI JSON, React, Solid, Web component, SwiftUI, Compose, gpui), four shots at equal height, variants gallery, props, events + slots, keyboard (`a11y.json`), recipe parts, app parity, related |
 | `/themes/`, `/themes/builder/` | `Themes.tsx`, `ThemeBuilder.tsx` | the built-in themes; the theme builder |
 | `/guides/`, `/guides/<slug>/` | `Guides.tsx`, `Guide.tsx` | the guides hub; every guide by slug (`src/lib/guides.ts`) |
 | `/playground/` | `Playground.tsx` | paste A2UI, render it in any theme, read the catalog prompt (prerendered) |
@@ -66,15 +66,15 @@ script by hash (`scheme.test.ts`), so editing it means updating the hash.
 
 ## Guides
 
-`guides/` holds the guides' example projects (React, Solid, the agent
-server, a theme, Swift, Compose, gpui). The guide pages show those files verbatim:
+`guides/` holds the guides' example projects (React, Solid, the web
+component, the agent server, a theme, Swift, Compose, gpui). The guide pages show those files verbatim:
 `scripts/guide-sources.ts` bundles them into `src/generated/guide-sources.ts`
 (gitignored; runs before dev, build and typecheck) and pages read them with
 `guideSource("<path under guides/>")`. `guides/check.ts` builds each one from a
 fresh temp project the way a reader would, in CI:
 
 ```bash
-bun apps/ui-site/guides/check.ts [react|solid|agent|theme|swift|compose|gpui|all] [--keep]
+bun apps/ui-site/guides/check.ts [react|solid|element|agent|theme|swift|compose|gpui|all] [--keep]
 ```
 
 ## Deploy

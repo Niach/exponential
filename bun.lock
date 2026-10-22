@@ -265,9 +265,36 @@
         "@exp/tsconfig": "workspace:*",
         "@exponential-at/ui": "workspace:*",
         "@exponential-at/ui-react": "workspace:*",
+        "@exponential-at/ui-solid": "workspace:*",
         "@types/bun": "latest",
         "playwright": "^1.54.2",
         "typescript": "^5.7.2",
+      },
+    },
+    "packages/exponential-ui-element": {
+      "name": "@exponential-at/ui-element",
+      "version": "0.1.0",
+      "dependencies": {
+        "@exponential-at/ui": "workspace:*",
+        "@exponential-at/ui-solid": "workspace:*",
+        "solid-js": "^1.9.17",
+      },
+      "devDependencies": {
+        "@exp/tsconfig": "workspace:*",
+        "@exponential-at/ui-react": "workspace:*",
+        "@testing-library/dom": "^10.4.1",
+        "@types/bun": "latest",
+        "@types/react": "^19.2.0",
+        "@types/react-dom": "^19.2.0",
+        "jsdom": "^27.0.0",
+        "lucide-solid": "0.544.0",
+        "playwright": "^1.54.2",
+        "react": "^19.2.0",
+        "react-dom": "^19.2.0",
+        "typescript": "^5.7.2",
+        "vite": "7.3.3",
+        "vite-plugin-solid": "^2.11.14",
+        "vitest": "4.1.5",
       },
     },
     "packages/exponential-ui-react": {
@@ -830,6 +857,8 @@
     "@exponential-at/ui": ["@exponential-at/ui@workspace:packages/exponential-ui"],
 
     "@exponential-at/ui-bench": ["@exponential-at/ui-bench@workspace:packages/exponential-ui-bench"],
+
+    "@exponential-at/ui-element": ["@exponential-at/ui-element@workspace:packages/exponential-ui-element"],
 
     "@exponential-at/ui-react": ["@exponential-at/ui-react@workspace:packages/exponential-ui-react"],
 
@@ -3505,6 +3534,8 @@
 
     "@exponential-at/ui-bench/@types/bun": ["@types/bun@1.4.3", "", { "dependencies": { "bun-types": "1.4.3" } }, "sha512-N67Pqy8JXbAY/j0tNraS3V5mubGvc6rrrNDmDCtZLlFzccbUJPDb0tvgUBC5q4m8ybkP93Jcn1QB+RYQ6PvBhw=="],
 
+    "@exponential-at/ui-element/@types/bun": ["@types/bun@1.4.3", "", { "dependencies": { "bun-types": "1.4.3" } }, "sha512-N67Pqy8JXbAY/j0tNraS3V5mubGvc6rrrNDmDCtZLlFzccbUJPDb0tvgUBC5q4m8ybkP93Jcn1QB+RYQ6PvBhw=="],
+
     "@exponential-at/ui-react/@types/bun": ["@types/bun@1.4.3", "", { "dependencies": { "bun-types": "1.4.3" } }, "sha512-N67Pqy8JXbAY/j0tNraS3V5mubGvc6rrrNDmDCtZLlFzccbUJPDb0tvgUBC5q4m8ybkP93Jcn1QB+RYQ6PvBhw=="],
 
     "@exponential-at/ui-solid/@types/bun": ["@types/bun@1.4.3", "", { "dependencies": { "bun-types": "1.4.3" } }, "sha512-N67Pqy8JXbAY/j0tNraS3V5mubGvc6rrrNDmDCtZLlFzccbUJPDb0tvgUBC5q4m8ybkP93Jcn1QB+RYQ6PvBhw=="],
@@ -3946,6 +3977,8 @@
     "@exp/view-catalog/@types/bun/bun-types": ["bun-types@1.4.2", "", { "dependencies": { "@types/node": "*" } }, "sha512-bxV1FgK7yBIzjRe5zBozIM4Bem11ZJcCXSrjWRG3YWLt8yFDePu4cLjpebO8OvPeIE9trbyPF4fuj3Cia4Fj3w=="],
 
     "@exponential-at/ui-bench/@types/bun/bun-types": ["bun-types@1.4.3", "", { "dependencies": { "@types/node": "*", "undici-types": "*" } }, "sha512-tinRJNGOmUN+tEAsn2y2e942n9JHRHR42iUYzDH75NmhJqVBokGSQkkfSFdNWwsANIdrK6ACH9t01M452YyTwg=="],
+
+    "@exponential-at/ui-element/@types/bun/bun-types": ["bun-types@1.4.3", "", { "dependencies": { "@types/node": "*", "undici-types": "*" } }, "sha512-tinRJNGOmUN+tEAsn2y2e942n9JHRHR42iUYzDH75NmhJqVBokGSQkkfSFdNWwsANIdrK6ACH9t01M452YyTwg=="],
 
     "@exponential-at/ui-react/@types/bun/bun-types": ["bun-types@1.4.3", "", { "dependencies": { "@types/node": "*", "undici-types": "*" } }, "sha512-tinRJNGOmUN+tEAsn2y2e942n9JHRHR42iUYzDH75NmhJqVBokGSQkkfSFdNWwsANIdrK6ACH9t01M452YyTwg=="],
 

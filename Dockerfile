@@ -12,6 +12,7 @@ COPY packages/emoji/package.json packages/emoji/package.json
 COPY packages/exponential-ui/package.json packages/exponential-ui/package.json
 COPY packages/exponential-ui-react/package.json packages/exponential-ui-react/package.json
 COPY packages/exponential-ui-solid/package.json packages/exponential-ui-solid/package.json
+COPY packages/exponential-ui-element/package.json packages/exponential-ui-element/package.json
 COPY packages/exponential-ui-bench/package.json packages/exponential-ui-bench/package.json
 COPY packages/icons/package.json packages/icons/package.json
 COPY packages/mcp-apps/package.json packages/mcp-apps/package.json
