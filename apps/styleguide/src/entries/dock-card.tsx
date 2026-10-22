@@ -76,10 +76,10 @@ export const entry: StyleguideEntry = {
       note: `model: ExpCore Dock.swift (the pile = ExpCore Stack.layout, shared with ToastStack); the sheet = GlassSheetChrome; hosts: AgentSessionView (SessionDock.swift), ThreadScreen`,
     },
     android: {
-      state: `leftover`,
-      symbol: `Dock`,
+      state: `ok`,
+      symbol: `DockCards / DockPile / DockCard / DockSheet`,
       file: `apps/android/app/src/main/java/com/exponential/app/ui/components/Dock.kt`,
-      note: `N-12: lands with the Android child (the pile = domain/ToastStack's geometry, the sheet = GlassSheet)`,
+      note: `the pile = ToastStack.stackLayout with Dock.STACK, the sheet = GlassSheet; specimen AskDockSpecimenScreen (sg_ask-dock)`,
     },
   },
   island: () => (

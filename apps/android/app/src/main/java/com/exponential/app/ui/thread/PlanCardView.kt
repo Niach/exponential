@@ -66,7 +66,15 @@ import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.markdown.MarkdownView
 import com.exponential.app.ui.session.AnsweredRow
 import com.exponential.app.ui.session.AskCard
-import com.exponential.app.ui.session.LocalAskDockCard
+import com.exponential.app.ui.components.DockSheetBody
+import com.exponential.app.ui.components.DockSheetFooter
+import com.exponential.app.ui.components.DockSheetScope
+import com.exponential.app.ui.components.GlassDropdownMenu
+import com.exponential.app.ui.components.GlassMenuItem
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import com.exponential.app.ui.session.QuestionOptionButton
 import com.exponential.app.ui.theme.GlassTokens
 import kotlinx.serialization.json.JsonObject
@@ -109,29 +117,31 @@ private const val QUESTION_CARD_ID = "question"
  * chat measure (pictures inline; a still-uploading `upload:` image renders
  * nothing), the inline surface, one block per question (prompt + Choose one
  * / Choose any + THE option rows, or picture TILES once any option has a
- * picture, + THE `Other…` field), then a plan's decision rows (ask-dock.json
- * `planOptions`), the issue line and the feedback field, or a question's
- * small Answer button. NEW-6 (N-1, plan-card.json `stepper`): a PENDING plan
- * with [PlanCard.Stepper.MIN_QUESTIONS]+ questions shows ONE question at a
- * time ("Question n of m" above it, Back / Next under it) and only the LAST
- * step carries THE decision block ("Your decision" over THE option rows of
- * `planOptions`, a trailing check on the pick; the feedback field only once
- * the reject row is picked; the small primary button named after the pick,
- * disabled while approving waits on an answer). [initialStep] seeds the
- * step (the styleguide's last-step specimen); the step is local, never
- * synced. Approving waits for every question
- * ([PlanCard.answerIssue]); rejecting never does. ANSWERED = closed: the
- * picks keep an emerald check, the rest inert, the decision + ONE feedback
- * line. Answers go out through `sessions.answer` with `answers` +
+ * picture, + THE `Other…` field), or a question's small Answer button.
+ * N-12 (plan-card.json `stepper`): a PENDING card the viewer decides opens
+ * as THE DockCard sheet ([sheet]): page 0 = the plan (+ its questions below
+ * [PlanCard.Stepper.MIN_QUESTIONS]), else one page per question ("Question
+ * n of m" as the header's meta), the footer Back / Next and on the last page
+ * THE decision ([PlanSheetFooter]); [initialStep] seeds the page (local,
+ * never synced). Approving waits for every question ([PlanCard.answerIssue]);
+ * rejecting never does. In the transcript a pending plan reads (no
+ * decision); ANSWERED = closed: the picks keep an emerald check, the rest
+ * inert, the decision + ONE feedback line. Answers go out through
+ * `sessions.answer` with `answers` +
  * `surfaceData`. Geometry = [PlanCard.Look] / [PlanCard.Tiles].
  */
 @Composable
-internal fun PlanAskCard(
+internal fun ColumnScope.PlanAskCard(
     row: SessionTree.ThreadRow,
     onAnswer: ThreadAnswer,
     onDecidePlan: ThreadPlanDecision,
     modifier: Modifier = Modifier,
     initialStep: Int = 0,
+    /** N-12: drawn as THE DockCard sheet's body + footer (plan-card.json
+     *  `stepper`: the pages, the footer decision); null = the transcript card. */
+    sheet: DockSheetScope? = null,
+    /** The sheet's reject state on mount (the styleguide's specimen). */
+    initialRejecting: Boolean = false,
 ) {
     val plan = row as? SessionTree.ThreadRow.Plan
     val question = row as? SessionTree.ThreadRow.Question
@@ -160,13 +170,9 @@ internal fun PlanAskCard(
     val customText = remember(row.id) { mutableStateMapOf<String, String>() }
     var feedback by remember(row.id) { mutableStateOf("") }
     val surfaceHandle = remember(row.id) { CardSurfaceHandle() }
-    // NEW-6: the decision row picked (ask-dock `planOptions` key; the first
-    // = "Yes" by default, web `choice`) and the stepper's 0-based step.
-    var choice by remember(row.id) { mutableStateOf(AskDock.PLAN_OPTIONS.first().key) }
+    // The sheet's 0-based page.
     var step by remember(row.id) { mutableIntStateOf(initialStep) }
     val stepped = PlanCard.stepperApplies(plan != null, plan?.decision, blocks.size)
-    val current = step.coerceIn(0, (blocks.size - 1).coerceAtLeast(0))
-    val lastStep = !stepped || current == blocks.size - 1
 
     /** A block's answer now (web `questionAnswer`): its picks in option
      *  order; typed text joins a multi's picks and replaces a single's. */
@@ -186,14 +192,145 @@ internal fun PlanAskCard(
         }
     }
 
-    val docked = LocalAskDockCard.current
+    if (sheet != null) {
+        var rejecting by remember(row.id) { mutableStateOf(initialRejecting) }
+        val chat = @Composable { content: @Composable () -> Unit ->
+            CompositionLocalProvider(
+                LocalMarkdownBodyStyle provides TranscriptBodyStyle,
+                LocalInlineCodeStyle provides MdStyle.Chat,
+                content = content,
+            )
+        }
+        // Page 0 = the plan (+ its questions below `minQuestions`), then one
+        // page per question; "Question n of m" is the header's meta.
+        val pages = if (stepped) 1 + blocks.size else 1
+        val page = step.coerceIn(0, pages - 1)
+        val pageBlock = if (stepped && page > 0) blocks[page - 1] else null
+        val meta = if (pageBlock != null) PlanCard.stepLabel(page, blocks.size) else null
+        androidx.compose.runtime.SideEffect { sheet.meta = meta }
+        DockSheetBody {
+            Box(Modifier.fillMaxWidth().testTag(PlanCard.TestIds.CARD)) {
+                chat {
+                    Column(Modifier.fillMaxWidth()) {
+                        if (pageBlock != null) {
+                            ChoiceBlockView(
+                                block = pageBlock,
+                                caption = if (pageBlock.multi) PlanCard.Copy.CHOOSE_ANY else PlanCard.Copy.CHOOSE_ONE,
+                                picked = picks[pageBlock.id].orEmpty(),
+                                typed = null,
+                                answered = false,
+                                enabled = live,
+                                customText = customText[pageBlock.id].orEmpty(),
+                                onToggle = { toggle(pageBlock, it) },
+                                onCustomText = { customText[pageBlock.id] = it },
+                                topPadding = 0.dp,
+                            )
+                        } else {
+                            MarkdownView(PlanCard.withoutPendingUploads(plan?.plan ?: question!!.question))
+                            val surface: CardSurface? = plan?.surface ?: question?.surface
+                            if (surface != null) {
+                                CardSurfaceView(
+                                    surface,
+                                    surfaceHandle,
+                                    inert = !live,
+                                    modifier = Modifier.padding(top = PlanCard.Look.BLOCK_GAP.dp),
+                                )
+                            }
+                            if (!stepped) blocks.forEach { block ->
+                                if (plan == null && block.options.isEmpty() && !block.custom) return@forEach
+                                ChoiceBlockView(
+                                    block = block,
+                                    caption = when {
+                                        plan != null -> if (block.multi) PlanCard.Copy.CHOOSE_ANY else PlanCard.Copy.CHOOSE_ONE
+                                        block.multi && block.options.isNotEmpty() -> PlanCard.Copy.CHOOSE_ANY
+                                        else -> null
+                                    },
+                                    picked = picks[block.id].orEmpty(),
+                                    typed = null,
+                                    answered = false,
+                                    enabled = live,
+                                    customText = customText[block.id].orEmpty(),
+                                    onToggle = { toggle(block, it) },
+                                    onCustomText = { customText[block.id] = it },
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        DockSheetFooter {
+            if (plan != null) {
+                val answers = blocks.associate { it.id to answerOf(it) }
+                val issue = PlanCard.answerIssue(
+                    PlanCard.Card.Plan(plan.questions),
+                    PlanCard.Input(decision = "approved", planAnswers = answers),
+                )
+                PlanSheetFooter(
+                    onBack = if (page > 0) ({ step = page - 1 }) else null,
+                    onNext = if (page < pages - 1) ({ step = page + 1 }) else null,
+                    decide = page == pages - 1 && !answered,
+                    approveIssue = issue,
+                    rejecting = rejecting,
+                    onRejecting = { rejecting = it },
+                    feedback = feedback,
+                    onFeedback = { feedback = it },
+                    busy = locked,
+                    onDecide = { option ->
+                        val approve = option.decision == "approved"
+                        if (live && !(approve && issue != null)) {
+                            state = AnswerState.Sending
+                            onDecidePlan(
+                                plan.id,
+                                PlanAnswer(
+                                    approved = approve,
+                                    fresh = approve && option.fresh,
+                                    feedback = if (approve) null else feedback.trim().takeIf { it.isNotEmpty() },
+                                    answers = answers.filterValues { it.isNotEmpty() }.takeIf { it.isNotEmpty() },
+                                    surfaceData = surfaceHandle.snapshot(),
+                                ),
+                                settle,
+                            )
+                        }
+                    },
+                )
+            } else {
+                val block = blocks.first()
+                val labels = answerOf(block)
+                val issue = PlanCard.answerIssue(
+                    PlanCard.Card.Question(block.options.map { it.label }, block.multi, block.custom),
+                    PlanCard.Input(answers = labels),
+                )
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    if (locked) {
+                        AnsweringLine()
+                    } else {
+                        CardButton(
+                            label = PlanCard.Copy.ANSWER,
+                            enabled = live && issue == null,
+                            modifier = Modifier.testTag("thread-question-answer"),
+                            onClick = {
+                                state = AnswerState.Sending
+                                onAnswer(
+                                    question!!.id,
+                                    AskAnswer(PlanCard.joinAnswers(labels), labels, surfaceHandle.snapshot()),
+                                    settle,
+                                )
+                            },
+                        )
+                    }
+                }
+            }
+        }
+        return
+    }
+
     AskCard(
         plan = plan != null,
         // Only a plan carries a header; a question card is its glyph alone.
         heading = if (plan != null) AskDock.Copy.PLAN_READY else null,
         meta = null,
         modifier = modifier.testTag(PlanCard.TestIds.CARD),
-        onBack = docked?.onBack,
     ) {
         val body = @Composable {
             // The chat measure (14sp, h1 = `card.headingScale` × it), not
@@ -213,7 +350,7 @@ internal fun PlanAskCard(
                             modifier = Modifier.padding(top = PlanCard.Look.BLOCK_GAP.dp),
                         )
                     }
-                    if (!stepped) blocks.forEach { block ->
+                    blocks.forEach { block ->
                         if (plan == null && block.options.isEmpty() && !block.custom) return@forEach
                         ChoiceBlockView(
                             block = block,
@@ -241,66 +378,7 @@ internal fun PlanAskCard(
                 }
             }
         }
-        if (docked != null) {
-            Box(Modifier.fillMaxWidth().heightIn(max = docked.bodyMaxHeight).verticalScroll(rememberScrollState())) { body() }
-        } else {
-            body()
-        }
-
-        // NEW-6: the current question, its step line above, Back / Next under.
-        if (stepped && plan != null) {
-            val block = blocks[current]
-            Text(
-                PlanCard.stepLabel(current + 1, blocks.size),
-                modifier = Modifier.padding(top = PlanCard.Look.BLOCK_GAP.dp).testTag(PlanCard.TestIds.STEP),
-                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Normal),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            CompositionLocalProvider(
-                LocalMarkdownBodyStyle provides TranscriptBodyStyle,
-                LocalInlineCodeStyle provides MdStyle.Chat,
-            ) {
-                ChoiceBlockView(
-                    block = block,
-                    caption = if (block.multi) PlanCard.Copy.CHOOSE_ANY else PlanCard.Copy.CHOOSE_ONE,
-                    picked = picks[block.id].orEmpty(),
-                    typed = null,
-                    answered = false,
-                    enabled = live,
-                    customText = customText[block.id].orEmpty(),
-                    onToggle = { toggle(block, it) },
-                    onCustomText = { customText[block.id] = it },
-                    topPadding = 4.dp,
-                )
-            }
-            val back = current > 0
-            val next = current < blocks.size - 1
-            if (back || next) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(top = PlanCard.Look.BLOCK_GAP.dp),
-                    horizontalArrangement = Arrangement.spacedBy(PlanCard.Stepper.BUTTON_GAP.dp, Alignment.End),
-                ) {
-                    if (back) {
-                        CardButton(
-                            label = PlanCard.Copy.BACK,
-                            enabled = true,
-                            primary = false,
-                            modifier = Modifier.testTag(PlanCard.TestIds.STEP_BACK),
-                            onClick = { step = current - 1 },
-                        )
-                    }
-                    if (next) {
-                        CardButton(
-                            label = PlanCard.Copy.NEXT,
-                            enabled = true,
-                            primary = false,
-                            modifier = Modifier.testTag(PlanCard.TestIds.STEP_NEXT),
-                            onClick = { step = current + 1 },
-                        )
-                    }
-                }
-            }
-        }
+        body()
 
         if (answered) {
             if (plan != null) {
@@ -322,38 +400,7 @@ internal fun PlanAskCard(
                 Box(Modifier.padding(top = 4.dp)) { AnsweredRow(question!!.answer) }
             }
         } else if (plan != null) {
-            if (lastStep && !locked) {
-                val answers = blocks.associate { it.id to answerOf(it) }
-                val issue = PlanCard.answerIssue(
-                    PlanCard.Card.Plan(plan.questions),
-                    PlanCard.Input(decision = "approved", planAnswers = answers),
-                )
-                PlanDecisionBlock(
-                    picked = choice,
-                    onPick = { choice = it },
-                    approveIssue = issue,
-                    feedback = feedback,
-                    onFeedback = { feedback = it },
-                    enabled = live,
-                    onDecide = { option ->
-                        val approve = option.decision == "approved"
-                        if (live && !(approve && issue != null)) {
-                            state = AnswerState.Sending
-                            onDecidePlan(
-                                plan.id,
-                                PlanAnswer(
-                                    approved = approve,
-                                    fresh = approve && option.fresh,
-                                    feedback = if (approve) null else feedback.trim().takeIf { it.isNotEmpty() },
-                                    answers = answers.filterValues { it.isNotEmpty() }.takeIf { it.isNotEmpty() },
-                                    surfaceData = surfaceHandle.snapshot(),
-                                ),
-                                settle,
-                            )
-                        }
-                    },
-                )
-            }
+            // N-12: a pending plan decides in THE Dock's sheet; here it reads.
         } else {
             val block = blocks.first()
             val labels = answerOf(block)
@@ -378,17 +425,189 @@ internal fun PlanAskCard(
             }
         }
         if (locked && !answered) {
-            Row(
-                modifier = Modifier.padding(top = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                CircularProgressIndicator(modifier = Modifier.size(12.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onSurface)
-                Text(
-                    PlanCard.Copy.ANSWERING,
-                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Normal),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+            Box(Modifier.padding(top = 4.dp)) { AnsweringLine() }
+        }
+    }
+}
+
+/** The answer on its way: the small spinner + `copy.answering`. */
+@Composable
+private fun AnsweringLine() {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        CircularProgressIndicator(modifier = Modifier.size(12.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onSurface)
+        Text(
+            PlanCard.Copy.ANSWERING,
+            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Normal),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+/**
+ * N-12: THE plan sheet's pinned footer ×4 (web `PlanCardFooter`): Back
+ * leading, Next trailing (plan-card.json `stepper`); the last page carries
+ * THE decision instead of Next: "No, keep planning" (secondary; picked = the
+ * feedback field above the row, then Cancel + the reject as the primary) and
+ * "Yes" (the primary, its chevron menu holding "Yes, and start with a fresh
+ * context"), disabled while a required answer is missing (the issue line
+ * under the row).
+ */
+@Composable
+internal fun PlanSheetFooter(
+    onBack: (() -> Unit)?,
+    onNext: (() -> Unit)?,
+    decide: Boolean,
+    approveIssue: PlanCard.AnswerIssue?,
+    rejecting: Boolean,
+    onRejecting: (Boolean) -> Unit,
+    feedback: String,
+    onFeedback: (String) -> Unit,
+    busy: Boolean,
+    onDecide: (AskDock.PlanOption) -> Unit,
+) {
+    val approve = AskDock.PLAN_OPTIONS.first { it.key == "approve" }
+    val fresh = AskDock.PLAN_OPTIONS.firstOrNull { it.key == "approve-fresh" }
+    val reject = AskDock.PLAN_OPTIONS.first { it.key == "reject" }
+    if (decide && rejecting) {
+        CardTextField(
+            value = feedback,
+            onValueChange = onFeedback,
+            placeholder = AskDock.Copy.FEEDBACK_PLACEHOLDER,
+            enabled = !busy,
+            singleLine = false,
+            minHeight = PlanCard.Look.FIELD_MIN_HEIGHT.dp,
+            textStyle = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.testTag(PlanCard.TestIds.FEEDBACK),
+        )
+    }
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(PlanCard.Stepper.BUTTON_GAP.dp),
+    ) {
+        if (onBack != null) {
+            CardButton(
+                label = PlanCard.Copy.BACK,
+                enabled = true,
+                primary = false,
+                modifier = Modifier.testTag(PlanCard.TestIds.STEP_BACK),
+                onClick = onBack,
+            )
+        }
+        Spacer(Modifier.weight(1f))
+        when {
+            onNext != null -> CardButton(
+                label = PlanCard.Copy.NEXT,
+                enabled = true,
+                primary = false,
+                modifier = Modifier.testTag(PlanCard.TestIds.STEP_NEXT),
+                onClick = onNext,
+            )
+            !decide -> Unit
+            busy -> AnsweringLine()
+            rejecting -> {
+                CardButton(label = PlanCard.Copy.CANCEL, enabled = true, primary = false, onClick = { onRejecting(false) })
+                CardButton(
+                    label = reject.label,
+                    enabled = true,
+                    modifier = Modifier.testTag("plan-card-decide"),
+                    onClick = { onDecide(reject) },
                 )
+            }
+            else -> {
+                CardButton(
+                    label = reject.label,
+                    enabled = true,
+                    primary = false,
+                    modifier = Modifier.testTag("plan-card-reject"),
+                    onClick = { onRejecting(true) },
+                )
+                ApproveSplitButton(
+                    approve = approve,
+                    fresh = fresh,
+                    enabled = approveIssue == null,
+                    onDecide = onDecide,
+                )
+            }
+        }
+    }
+    if (decide && !rejecting && !busy && approveIssue != null) {
+        Text(
+            approveIssue.text,
+            modifier = Modifier.testTag(PlanCard.TestIds.ISSUE),
+            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Normal),
+            // The warning paint ×4 (web `text-yellow-400`).
+            color = DesignTokens.Semantic.Yellow,
+        )
+    }
+}
+
+/** "Yes" as the small primary button, joined to its chevron that opens the
+ *  menu holding [fresh] (web `rounded-r-none` + the `-ml-px` chevron). */
+@Composable
+private fun ApproveSplitButton(
+    approve: AskDock.PlanOption,
+    fresh: AskDock.PlanOption?,
+    enabled: Boolean,
+    onDecide: (AskDock.PlanOption) -> Unit,
+) {
+    var menuOpen by remember { mutableStateOf(false) }
+    val radius = PlanCard.Look.ROW_RADIUS.dp
+    val shape = RoundedCornerShape(radius)
+    Row(
+        modifier = Modifier
+            .alpha(if (enabled) 1f else PlanCard.Look.INERT_OPACITY)
+            .clip(shape)
+            .background(MaterialTheme.colorScheme.primary, shape)
+            .heightIn(min = PlanCard.Look.ROW_MIN_HEIGHT.dp)
+            .testTag(PlanCard.TestIds.DECISION),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            modifier = Modifier
+                .then(if (enabled) Modifier.clickable(role = Role.Button) { onDecide(approve) } else Modifier)
+                .heightIn(min = PlanCard.Look.ROW_MIN_HEIGHT.dp)
+                .padding(horizontal = 12.dp)
+                .testTag("plan-card-decide"),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(approve.label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onPrimary)
+        }
+        if (fresh != null) {
+            Box(
+                Modifier
+                    .size(width = GlassTokens.Hairline, height = PlanCard.Look.ROW_MIN_HEIGHT.dp)
+                    .background(MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.2f)),
+            )
+            Box {
+                Box(
+                    modifier = Modifier
+                        .then(if (enabled) Modifier.clickable(role = Role.Button) { menuOpen = true } else Modifier)
+                        .heightIn(min = PlanCard.Look.ROW_MIN_HEIGHT.dp)
+                        .padding(horizontal = 6.dp)
+                        .semantics { contentDescription = fresh.label },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        ExpIcons.uiChevronDown,
+                        contentDescription = null,
+                        modifier = Modifier.size(14.dp),
+                        tint = MaterialTheme.colorScheme.onPrimary,
+                    )
+                }
+                GlassDropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    GlassMenuItem(
+                        text = { Text(fresh.label) },
+                        onClick = {
+                            menuOpen = false
+                            onDecide(fresh)
+                        },
+                        modifier = Modifier.testTag("plan-card-decide-fresh"),
+                    )
+                }
             }
         }
     }
@@ -569,95 +788,6 @@ private fun CardButton(
             style = MaterialTheme.typography.labelMedium,
             color = if (primary) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
         )
-    }
-}
-
-/**
- * NEW-6 (N-1): THE plan card's decision block ×4 (web `PlanCardDecision`):
- * "Your decision" (`xs` semibold, like a prompt) over THE option rows of
- * ask-dock `planOptions` (single pick, a trailing check, never pills), the
- * issue line while approving waits on an answer, the feedback field ONLY
- * once the reject row is picked, then the small primary button named after
- * the pick (disabled while approving is blocked).
- */
-@Composable
-private fun PlanDecisionBlock(
-    picked: String,
-    onPick: (String) -> Unit,
-    approveIssue: PlanCard.AnswerIssue?,
-    feedback: String,
-    onFeedback: (String) -> Unit,
-    enabled: Boolean,
-    onDecide: (AskDock.PlanOption) -> Unit,
-) {
-    val option = AskDock.PLAN_OPTIONS.firstOrNull { it.key == picked }
-    val blocked = if (option?.decision == "approved") approveIssue else null
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(top = PlanCard.Look.BLOCK_GAP.dp)
-            .testTag(PlanCard.TestIds.DECISION),
-    ) {
-        Text(
-            PlanCard.Copy.DECIDE,
-            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-            color = MaterialTheme.colorScheme.onSurface,
-        )
-        Column(
-            modifier = Modifier.padding(top = PlanCard.Look.OPTIONS_GAP.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-            AskDock.PLAN_OPTIONS.forEach { row ->
-                val on = row.key == picked
-                Box(Modifier.testTag(PlanCard.TestIds.OPTION)) {
-                    QuestionOptionButton(
-                        option = QuestionOption(row.label, row.key, description = row.description),
-                        ordinal = 0,
-                        primary = false,
-                        selected = on,
-                        checked = null,
-                        enabled = enabled,
-                        dimmed = false,
-                        // A row stays picked (pressing it again keeps it).
-                        onClick = { onPick(row.key) },
-                        trailingCheck = on,
-                    )
-                }
-            }
-        }
-        if (blocked != null) {
-            Text(
-                blocked.text,
-                modifier = Modifier
-                    .padding(top = PlanCard.Look.OPTIONS_GAP.dp)
-                    .testTag(PlanCard.TestIds.ISSUE),
-                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Normal),
-                // The warning paint ×4 (web `text-yellow-400`).
-                color = DesignTokens.Semantic.Yellow,
-            )
-        }
-        if (option?.decision == "rejected") {
-            CardTextField(
-                value = feedback,
-                onValueChange = onFeedback,
-                placeholder = AskDock.Copy.FEEDBACK_PLACEHOLDER,
-                enabled = enabled,
-                singleLine = false,
-                minHeight = PlanCard.Look.FIELD_MIN_HEIGHT.dp,
-                textStyle = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier
-                    .padding(top = 8.dp)
-                    .testTag(PlanCard.TestIds.FEEDBACK),
-            )
-        }
-        if (option != null) {
-            CardButton(
-                label = option.label,
-                enabled = enabled && blocked == null,
-                modifier = Modifier.padding(top = 8.dp).testTag("plan-card-decide"),
-                onClick = { onDecide(option) },
-            )
-        }
     }
 }
 
