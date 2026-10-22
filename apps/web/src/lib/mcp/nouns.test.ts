@@ -29,8 +29,17 @@ vi.mock(`./tools`, () => ({
     )
     server.registerTool(
       `exponential_issues_list`,
-      { description: `List.`, inputSchema: z.strictObject({ limit: z.number().optional() }) },
-      async () => ({ content: [{ type: `text`, text: `listed` }] })
+      {
+        description: `List.`,
+        inputSchema: z.strictObject({
+          limit: z.number().int().min(1).max(200).default(50),
+          includeClosed: z.boolean().default(false),
+          search: z.string().optional(),
+          labelIds: z.array(z.string()).optional(),
+          answer: z.record(z.string(), z.unknown()).optional(),
+        }),
+      },
+      async (args: Record<string, unknown>) => ({ content: [{ type: `text`, text: JSON.stringify(args) }] })
     )
     if (gates.inSession) {
       server.registerTool(
@@ -53,7 +62,15 @@ vi.mock(`./tools`, () => ({
 }))
 
 import { contract } from "@exp/domain-contract"
-import { displayRowNames, legacyNameOfRow, NOUN_TOOLS, opSignature, registerNounTools } from "./nouns"
+import {
+  coerceScalars,
+  displayRowNames,
+  legacyNameOfRow,
+  NOUN_TOOLS,
+  opSignature,
+  registerNounTools,
+  scalarKinds,
+} from "./nouns"
 import { ALL_MCP_TOOL_GATES } from "./gates"
 import { FULL_ACCESS } from "./scope"
 import type { McpUser } from "./server"
@@ -85,7 +102,7 @@ describe(`registerNounTools`, () => {
   it(`routes op to the per-operation handler with its strict schema`, async () => {
     const issues = surface().get(`exponential_issues`)!
     expect(text(await issues.handler({ op: `get`, id: `EXP-1` }))).toBe(`{"got":{"id":"EXP-1"}}`)
-    expect(text(await issues.handler({ op: `list` }))).toBe(`listed`)
+    expect(text(await issues.handler({ op: `list` }))).toBe(`{"limit":50,"includeClosed":false}`)
     // An unknown key is still an error (EXP-705), never a silent drop.
     const unknown = await issues.handler({ op: `get`, id: `EXP-1`, bogus: 1 })
     expect(unknown.isError).toBe(true)
@@ -102,7 +119,7 @@ describe(`registerNounTools`, () => {
   it(`describes every op with its parameters, and only op in the JSON schema`, () => {
     const issues = surface().get(`exponential_issues`)!
     expect(issues.def.description).toContain(`get{id, commentsLimit?}`)
-    expect(issues.def.description).toContain(`list{limit?}`)
+    expect(issues.def.description).toContain(`list{limit?, includeClosed?, search?, labelIds?, answer?}`)
     const json = z.toJSONSchema(issues.def.inputSchema as z.ZodType, { io: `input`, target: `draft-7` }) as {
       properties: Record<string, unknown>
       required: string[]
@@ -124,6 +141,35 @@ describe(`registerNounTools`, () => {
     // In a session the verb is the recorded tool itself.
     expect(text(await surface().get(`exponential_guide_write`)!.handler({ topic: `Summary` }))).toBe(`written`)
     expect(text(await surface().get(`exponential_session_self`)!.handler({ op: `compact` }))).toBe(`compacted`)
+  })
+
+  it(`coerces a stringified number, boolean, array or object into what the op declares (NEW-44)`, async () => {
+    const issues = surface().get(`exponential_issues`)!
+    // Claude Code sends every field beyond `op` as a string.
+    expect(text(await issues.handler({ op: `list`, limit: `20`, includeClosed: `true` }))).toBe(
+      `{"limit":20,"includeClosed":true}`
+    )
+    expect(text(await issues.handler({ op: `get`, id: `EXP-1`, commentsLimit: `5` }))).toBe(
+      `{"got":{"id":"EXP-1","commentsLimit":5}}`
+    )
+    // A string field stays a string, even a numeric one; a non-numeric
+    // string for a number still fails with the schema's message.
+    expect(text(await issues.handler({ op: `list`, search: `42` }))).toBe(`{"limit":50,"includeClosed":false,"search":"42"}`)
+    const bad = await issues.handler({ op: `list`, limit: `many` })
+    expect(bad.isError).toBe(true)
+    expect(text(bad)).toContain(`limit`)
+    // An array or object sent as its JSON text (pr.open's issueIds).
+    expect(text(await issues.handler({ op: `list`, labelIds: `["a", "b"]`, answer: `{"k": 1}` }))).toBe(
+      `{"limit":50,"includeClosed":false,"labelIds":["a","b"],"answer":{"k":1}}`
+    )
+    const broken = await issues.handler({ op: `list`, labelIds: `[a` })
+    expect(broken.isError).toBe(true)
+    expect(text(broken)).toContain(`labelIds`)
+    const kinds = scalarKinds(
+      z.strictObject({ n: z.number().int().positive().optional(), b: z.boolean(), s: z.string(), l: z.array(z.string()) })
+    )
+    expect([...kinds.keys()]).toEqual([`n`, `b`, `l`])
+    expect(coerceScalars({ n: `7`, b: `false`, s: `true` }, kinds)).toEqual({ n: 7, b: false, s: `true` })
   })
 
   it(`opSignature reads required first, then optional with ?`, () => {

@@ -277,6 +277,77 @@ export function nounDescription(
   return `${spec.blurb} op = ${ops.join(` | `)}`
 }
 
+// NEW-44: a noun's JSON schema carries only `op`, so a client passes every
+// other field untyped and Claude Code sends numbers and booleans as strings
+// (`limit: "50"`, `prNumber: "1129"`, `includeClosed: "true"`) and arrays
+// and objects as their JSON text (`issueIds: '["NEW-43"]'`). The ops'
+// strict schemas reject those, so the router coerces a top-level string
+// into the shape the op's schema declares before it parses: a numeric
+// string where a number is expected, `true`/`false` where a boolean is,
+// parsed JSON where an array or object is. Anything else (a non-numeric
+// string, JSON that does not parse) reaches the schema as sent and fails
+// as before.
+type ScalarKinds = Map<string, Set<string>>
+
+const COERCIBLE = new Set([`number`, `integer`, `boolean`, `array`, `object`])
+
+function jsonTypes(node: unknown, into: Set<string>): void {
+  if (!node || typeof node !== `object`) return
+  const schema = node as { type?: string | string[]; anyOf?: unknown[]; oneOf?: unknown[] }
+  if (typeof schema.type === `string`) into.add(schema.type)
+  if (Array.isArray(schema.type)) for (const type of schema.type) into.add(type)
+  for (const branch of [...(schema.anyOf ?? []), ...(schema.oneOf ?? [])]) jsonTypes(branch, into)
+}
+
+/** `field` → the JSON schema types its op declares, for the fields a string
+ *  may be coerced into (number/integer, boolean, array, object). */
+export function scalarKinds(schema: z.ZodType | undefined): ScalarKinds {
+  const kinds: ScalarKinds = new Map()
+  if (!schema) return kinds
+  const json = z.toJSONSchema(schema, { io: `input`, target: `draft-7` }) as {
+    properties?: Record<string, unknown>
+  }
+  for (const [key, node] of Object.entries(json.properties ?? {})) {
+    const types = new Set<string>()
+    jsonTypes(node, types)
+    const scalar = new Set([...types].filter((type) => COERCIBLE.has(type)))
+    if (scalar.size > 0) kinds.set(key, scalar)
+  }
+  return kinds
+}
+
+const NUMERIC = /^-?\d+(\.\d+)?$/
+
+function parseJson(text: string): unknown {
+  try {
+    return JSON.parse(text)
+  } catch {
+    return undefined
+  }
+}
+
+/** The flat arguments with every stringified number, boolean, array or
+ *  object turned into the value its op declares. */
+export function coerceScalars(args: Record<string, unknown>, kinds: ScalarKinds): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...args }
+  for (const [key, types] of kinds) {
+    const value = out[key]
+    if (typeof value !== `string`) continue
+    if ((types.has(`number`) || types.has(`integer`)) && NUMERIC.test(value.trim())) {
+      out[key] = Number(value.trim())
+    } else if (types.has(`boolean`) && (value === `true` || value === `false`)) {
+      out[key] = value === `true`
+    } else if (types.has(`array`) && value.trimStart().startsWith(`[`)) {
+      const parsed = parseJson(value)
+      if (Array.isArray(parsed)) out[key] = parsed
+    } else if (types.has(`object`) && value.trimStart().startsWith(`{`)) {
+      const parsed = parseJson(value)
+      if (parsed && typeof parsed === `object` && !Array.isArray(parsed)) out[key] = parsed
+    }
+  }
+  return out
+}
+
 function unavailable(spec: NounSpec, op: string): string {
   if (spec.name === `session_self` || op === `end`) {
     return `${op} only works inside a session started by the Exponential launcher (missing X-Exp-Session-Id).`
@@ -321,6 +392,7 @@ export function registerNounTools(
     const routes = new Map(
       Object.entries(spec.ops ?? {}).map(([op, name]) => [op, legacy.get(`${PREFIX}${name}`) ?? null])
     )
+    const kinds = new Map([...routes].map(([op, tool]) => [op, scalarKinds(tool?.def.inputSchema)]))
     // The ONE `_meta` of the noun: always-load, plus an op's MCP Apps view
     // binding (`issues_show`'s), which the host opens for the noun's results.
     const viewMeta = [...routes.values()].find((tool) => tool?.def._meta?.ui)?.def._meta
@@ -343,7 +415,7 @@ export function registerNounTools(
         }
         if (tool === null) return err(new Error(unavailable(spec, String(op))))
         const schema = tool.def.inputSchema ?? z.strictObject({})
-        const parsed = schema.safeParse(rest)
+        const parsed = schema.safeParse(coerceScalars(rest, kinds.get(String(op)) ?? new Map()))
         if (!parsed.success) {
           const issues = parsed.error.issues
             .map((issue) => `${issue.path.join(`.`) || `(root)`}: ${issue.message}`)
