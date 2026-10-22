@@ -1,7 +1,9 @@
 /* VAPP-87 — the stylesheet the primitives SHIP. Tailwind is an internal
    build detail of this package: scripts/build-css.ts compiles this file
-   against the primitives' own sources into dist/exponential-ui-react.css, so
-   a consumer imports `@exponential-at/ui-react/styles.css` and never runs
+   against the primitives' sources into dist/exponential-ui-react.css (the
+   @source lines below: FEED-131 moved their class strings into
+   @exponential-at/ui/web/primitives, shared with the Solid twin), so a
+   consumer imports `@exponential-at/ui-react/styles.css` and never runs
    Tailwind. (The Exponential app does NOT use this file: its own
    packages/ui/src/styles.css scans this directory instead.)
 
@@ -16,6 +18,8 @@
 @import "tailwindcss/utilities" layer(utilities);
 
 @source "./**/*.{ts,tsx}";
+@source "../../../exponential-ui/src/web/primitives/**/*.ts";
+@source "../../../exponential-ui-solid/src/primitives/**/*.{ts,tsx}";
 
 /* The app's `dark:` variant is `.dark` on an ancestor; a surface states its
    mode as `data-xui-mode="dark"`. Either one turns the dark arms on. */

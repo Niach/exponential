@@ -55,7 +55,7 @@ The stylesheet and the bind pass come from the core's web layer, `@exponential-a
 | `src/inputs.ts` | `useHostOwnedValue`: the hook around the web layer's `HostOwnedController` (150 ms debounce, revisions, echo rule) |
 | `src/list.tsx` | `WindowedList`: one axis, item key, estimated extent, gap + dividers, overscan, sticky rows, one ResizeObserver, `scrollToIndex` |
 | `src/extensions.ts` | `registerExtension` / `defineReactExtension` |
-| `src/primitives/` | the shadcn set (moved from `@exp/ui`, which re-exports it) + `tailwind.css`; `bun run build:css` → `dist/exponential-ui-react.css` |
+| `src/primitives/` | the shadcn set (moved from `@exp/ui`, which re-exports it) as thin React wrappers over the class recipes of `@exponential-at/ui/web/primitives` (FEED-131: no class literal here, the Solid twin reads the same recipes) + `tailwind.css` (scans the recipes too); `bun run build:css` → `dist/exponential-ui-react.css` |
 | `harness/` | the browser harness the Chromium suites and the screenshot script drive (`dev:harness` → :4181; views kitchen-sink, geometry, overlay, catalog, conditions, tree, round2, bench) |
 | `browser/` | the headless-Chromium suites: geometry, overlays, typing, round 1 (conditions, overlays × breakpoints, kitchen sink × themes × widths, keyboard) (`test:browser`) |
 | `fixtures/kitchen-sink.data.json` | the data model the kitchen sink renders against (harness + the app's view) |
@@ -319,7 +319,8 @@ extension authors share (button, input, select, dialog, sheet, tabs, the glass
 rows, pill, meter, composer, calendar, … plus round 1's alert-dialog,
 breadcrumb, kbd, scroll-area), themed only through the surface's variables;
 only what the app imports lives here (the catalog's natives own Radix
-directly). `@exp/ui` re-exports every one
+directly). Their class strings and pure helpers live in
+`@exponential-at/ui/web/primitives` (FEED-131), shared with the Solid twin. `@exp/ui` re-exports every one
 (its old paths are one-line shims), and its `styles.css` scans this directory
 so the app's Tailwind build still emits their classes. An embedder without
 Tailwind takes the compiled `dist/exponential-ui-react.css`

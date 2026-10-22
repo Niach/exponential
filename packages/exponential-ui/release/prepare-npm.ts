@@ -30,6 +30,7 @@ const SPECS: Spec[] = [
     exports: {
       ".": { types: `./dist/types/src/index.d.ts`, import: `./dist/index.js`, default: `./dist/index.js` },
       "./web": { types: `./dist/types/src/web/index.d.ts`, import: `./dist/web/index.js`, default: `./dist/web/index.js` },
+      "./web/primitives": { types: `./dist/types/src/web/primitives/index.d.ts`, import: `./dist/web/primitives/index.js`, default: `./dist/web/primitives/index.js` },
       "./catalog/*": `./catalog/*`,
       "./fixtures/*": `./fixtures/*`,
       "./docs/*": `./docs/*`,

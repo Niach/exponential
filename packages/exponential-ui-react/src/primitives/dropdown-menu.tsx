@@ -3,19 +3,9 @@
 import * as React from "react"
 import { CheckIcon, ChevronRightIcon, CircleIcon } from "lucide-react"
 import { DropdownMenu as DropdownMenuPrimitive } from "radix-ui"
+import { DROPDOWN_MENU_CLASSES } from "@exponential-at/ui/web/primitives"
 
 import { cn } from "./cn"
-import {
-  MENU_CHECK_ITEM_CLASS,
-  MENU_CHEVRON_CLASS,
-  MENU_CONTENT_CLASS,
-  MENU_ITEM_CLASS,
-  MENU_LABEL_CLASS,
-  MENU_SEPARATOR_CLASS,
-  MENU_SHORTCUT_CLASS,
-  MENU_SUB_TRIGGER_CLASS,
-  MENU_SURFACE_CLASS,
-} from "./menu-surface"
 
 function DropdownMenu({
   ...props
@@ -52,14 +42,7 @@ function DropdownMenuContent({
       <DropdownMenuPrimitive.Content
         data-slot="dropdown-menu-content"
         sideOffset={sideOffset}
-        className={cn(
-          // EXP-698 menu recipe: opaque card composite, 12 radius, NO blur and
-          // NO shadow — see `bg-glass-card-opaque` in styles.css.
-          MENU_SURFACE_CLASS,
-          MENU_CONTENT_CLASS,
-          `max-h-(--radix-dropdown-menu-content-available-height) origin-(--radix-dropdown-menu-content-transform-origin) overflow-x-hidden overflow-y-auto`,
-          className
-        )}
+        className={cn(DROPDOWN_MENU_CLASSES.content, className)}
         {...props}
       />
     </DropdownMenuPrimitive.Portal>
@@ -88,10 +71,7 @@ function DropdownMenuItem({
       data-slot="dropdown-menu-item"
       data-inset={inset}
       data-variant={variant}
-      className={cn(
-        MENU_ITEM_CLASS,
-        className
-      )}
+      className={cn(DROPDOWN_MENU_CLASSES.item, className)}
       {...props}
     />
   )
@@ -106,16 +86,13 @@ function DropdownMenuCheckboxItem({
   return (
     <DropdownMenuPrimitive.CheckboxItem
       data-slot="dropdown-menu-checkbox-item"
-      className={cn(
-        MENU_CHECK_ITEM_CLASS,
-        className
-      )}
+      className={cn(DROPDOWN_MENU_CLASSES.checkItem, className)}
       checked={checked}
       {...props}
     >
-      <span className="pointer-events-none absolute left-2 flex size-3.5 items-center justify-center">
+      <span className={DROPDOWN_MENU_CLASSES.itemIndicator}>
         <DropdownMenuPrimitive.ItemIndicator>
-          <CheckIcon className="size-4" />
+          <CheckIcon className={DROPDOWN_MENU_CLASSES.checkIcon} />
         </DropdownMenuPrimitive.ItemIndicator>
       </span>
       {children}
@@ -142,15 +119,12 @@ function DropdownMenuRadioItem({
   return (
     <DropdownMenuPrimitive.RadioItem
       data-slot="dropdown-menu-radio-item"
-      className={cn(
-        MENU_CHECK_ITEM_CLASS,
-        className
-      )}
+      className={cn(DROPDOWN_MENU_CLASSES.checkItem, className)}
       {...props}
     >
-      <span className="pointer-events-none absolute left-2 flex size-3.5 items-center justify-center">
+      <span className={DROPDOWN_MENU_CLASSES.itemIndicator}>
         <DropdownMenuPrimitive.ItemIndicator>
-          <CircleIcon className="size-2 fill-current" />
+          <CircleIcon className={DROPDOWN_MENU_CLASSES.radioIcon} />
         </DropdownMenuPrimitive.ItemIndicator>
       </span>
       {children}
@@ -169,10 +143,7 @@ function DropdownMenuLabel({
     <DropdownMenuPrimitive.Label
       data-slot="dropdown-menu-label"
       data-inset={inset}
-      className={cn(
-        MENU_LABEL_CLASS,
-        className
-      )}
+      className={cn(DROPDOWN_MENU_CLASSES.label, className)}
       {...props}
     />
   )
@@ -185,7 +156,7 @@ function DropdownMenuSeparator({
   return (
     <DropdownMenuPrimitive.Separator
       data-slot="dropdown-menu-separator"
-      className={cn(MENU_SEPARATOR_CLASS, className)}
+      className={cn(DROPDOWN_MENU_CLASSES.separator, className)}
       {...props}
     />
   )
@@ -198,10 +169,7 @@ function DropdownMenuShortcut({
   return (
     <span
       data-slot="dropdown-menu-shortcut"
-      className={cn(
-        MENU_SHORTCUT_CLASS,
-        className
-      )}
+      className={cn(DROPDOWN_MENU_CLASSES.shortcut, className)}
       {...props}
     />
   )
@@ -230,14 +198,11 @@ function DropdownMenuSubTrigger({
       data-slot="dropdown-menu-sub-trigger"
       data-inset={inset}
       data-variant={variant}
-      className={cn(
-        MENU_SUB_TRIGGER_CLASS,
-        className
-      )}
+      className={cn(DROPDOWN_MENU_CLASSES.subTrigger, className)}
       {...props}
     >
       {children}
-      <ChevronRightIcon className={MENU_CHEVRON_CLASS} />
+      <ChevronRightIcon className={DROPDOWN_MENU_CLASSES.subChevron} />
     </DropdownMenuPrimitive.SubTrigger>
   )
 }
@@ -247,19 +212,10 @@ function DropdownMenuSubContent({
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.SubContent>) {
   return (
-    // Portaled: un-portaled sub content lives inside the parent content's DOM,
-    // and the parent's `glass-panel` backdrop-filter makes it a containing
-    // block whose overflow-x-hidden clips the fixed-positioned submenu to
-    // invisibility in Safari/WebKit (EXP-305).
     <DropdownMenuPrimitive.Portal>
       <DropdownMenuPrimitive.SubContent
         data-slot="dropdown-menu-sub-content"
-        className={cn(
-          MENU_SURFACE_CLASS,
-          MENU_CONTENT_CLASS,
-          `origin-(--radix-dropdown-menu-content-transform-origin) overflow-hidden`,
-          className
-        )}
+        className={cn(DROPDOWN_MENU_CLASSES.subContent, className)}
         {...props}
       />
     </DropdownMenuPrimitive.Portal>

@@ -15,7 +15,7 @@ import { existsSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync 
 import { dirname, join, resolve } from "node:path"
 
 export const ENTRIES: Record<string, Record<string, string>> = {
-  "@exponential-at/ui": { index: `src/index.ts`, web: `src/web/index.ts` },
+  "@exponential-at/ui": { index: `src/index.ts`, web: `src/web/index.ts`, "web/primitives": `src/web/primitives/index.ts` },
   "@exponential-at/ui-react": { index: `src/index.ts`, primitives: `src/primitives/index.ts` },
   "@exponential-at/ui-solid": { index: `src/index.ts` },
 }
