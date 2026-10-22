@@ -859,10 +859,11 @@ impl ChatScreenView {
                     Ok(repo) => RepoState::Ready(repo),
                     Err(err) => RepoState::Error(err.to_string()),
                 };
-                // Unresolvable issues can never launch — uncheck them.
-                if !matches!(state, RepoState::Ready(Some(_))) {
-                    issues.checked.remove(&issue_id);
-                }
+                // #N-15: an unresolvable issue STAYS checked — it is still
+                // the subject the headline names — and the repository gate
+                // (`chat_launch::repo_blocker`) says why it cannot start.
+                // Unchecking it silently left the chip up and the send
+                // blocked on "Select at least one issue.".
                 issues.repos.insert(issue_id, state);
                 cx.notify();
             });
