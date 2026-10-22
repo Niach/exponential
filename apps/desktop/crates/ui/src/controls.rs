@@ -730,6 +730,36 @@ impl PointerMenu<gpui_component::button::Button> {
     }
 }
 
+/// N-14: `button.pointer_menu(builder)` — the drop-in for upstream's
+/// `button.dropdown_menu(builder)` that goes through THE IDE menu
+/// ([`PointerMenu`]): rows that point, and inside a dialog window the menu
+/// window, so the menu overhangs the dialog instead of clipping.
+pub(crate) trait PointerMenuButtonExt {
+    fn pointer_menu(
+        self,
+        builder: impl Fn(
+                gpui_component::menu::PopupMenu,
+                &mut Window,
+                &mut gpui::Context<gpui_component::menu::PopupMenu>,
+            ) -> gpui_component::menu::PopupMenu
+            + 'static,
+    ) -> PointerMenu<gpui_component::button::Button>;
+}
+
+impl PointerMenuButtonExt for gpui_component::button::Button {
+    fn pointer_menu(
+        self,
+        builder: impl Fn(
+                gpui_component::menu::PopupMenu,
+                &mut Window,
+                &mut gpui::Context<gpui_component::menu::PopupMenu>,
+            ) -> gpui_component::menu::PopupMenu
+            + 'static,
+    ) -> PointerMenu<gpui_component::button::Button> {
+        PointerMenu::for_button(self, builder)
+    }
+}
+
 /// The open menu entity, kept across frames and dropped on dismiss so the
 /// next open rebuilds it from current state.
 #[derive(Default)]

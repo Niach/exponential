@@ -13,6 +13,13 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.boolean
+import kotlinx.serialization.json.int
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 
 /**
  * EXP-1029 contract, EXP-1021 implementation — the shared picker API on
@@ -399,9 +406,90 @@ class PickerContractTest {
         assertTrue(picker.contains("primaryAction = primaryAction, content = body)"))
         // The host decides: outside a sheet the default is the sheet; a
         // GlassSheet provides Inline to its content.
-        assertTrue(picker.contains("presentation: PickerPresentation = LocalPickerPresentation.current"))
+        assertTrue(picker.contains("presentation: PickerPresentation? = null"))
+        assertTrue(picker.contains("inDialog = LocalPickerPresentation.current == PickerPresentation.Inline"))
         val sheet = moduleFile("src/main/java/com/exponential/app/ui/components/GlassSheet.kt").readText()
         assertTrue(sheet.contains("LocalPickerPresentation provides PickerPresentation.Inline"))
+    }
+
+    /** N-14: `placementCases` replayed verbatim, `popover` = the sheet. */
+    @Test
+    fun placementCasesMatchTheFixture() {
+        val fixture = Json.parseToJsonElement(contractFixture("picker-presentation.json").readText()).jsonObject
+        assertEquals(PickerDefaults.InlineMaxHeight.value.toInt(), fixture["inlineMaxHeight"]!!.jsonPrimitive.int)
+        val cases = fixture["placementCases"]!!.jsonArray
+        assertTrue(cases.isNotEmpty())
+        fun presentationOf(name: String) = when (name) {
+            "popover" -> PickerPresentation.Sheet
+            "inline" -> PickerPresentation.Inline
+            else -> error("unknown presentation $name")
+        }
+        fun bodyOf(name: String) = when (name) {
+            "surface" -> PickerBody.Surface
+            "rowSlot" -> PickerBody.RowSlot
+            "underTrigger" -> PickerBody.UnderTrigger
+            else -> error("unknown body $name")
+        }
+        for (case in cases.map { it.jsonObject }) {
+            val name = case["name"]!!.jsonPrimitive.content
+            val input = case["input"]!!.jsonObject
+            val expect = case["expect"]!!.jsonObject
+            val requested = input["requested"]!!.let { if (it is JsonNull) null else presentationOf(it.jsonPrimitive.content) }
+            val actual = pickerPlacement(
+                inDialog = input["inDialog"]!!.jsonPrimitive.boolean,
+                inRow = input["inRow"]!!.jsonPrimitive.boolean,
+                requested = requested,
+            )
+            assertEquals(
+                name,
+                PickerPlacement(
+                    presentationOf(expect["presentation"]!!.jsonPrimitive.content),
+                    bodyOf(expect["body"]!!.jsonPrimitive.content),
+                ),
+                actual,
+            )
+        }
+    }
+
+    /**
+     * N-14: ONE slot shows ONE picker's rows — a second claim replaces the
+     * first, a stale release never folds the new owner, the owner's release
+     * folds the row back to exactly what it was (no content, no height).
+     */
+    @Test
+    fun aRowSlotShowsOnePickersRowsAndFoldsOnRelease() {
+        val slot = InlinePickerSlot()
+        val device = Any()
+        val model = Any()
+        assertNull(slot.content)
+        slot.claim(device) {}
+        assertTrue(slot.isShowing(device))
+        slot.claim(model) {}
+        assertFalse("opening another picker replaces the rows", slot.isShowing(device))
+        assertTrue(slot.isShowing(model))
+        slot.release(device)
+        assertTrue("a replaced picker's fold leaves the new rows alone", slot.isShowing(model))
+        slot.release(model)
+        assertNull(slot.owner)
+        assertNull("folded, the slot renders nothing", slot.content)
+    }
+
+    /**
+     * N-14: the collapsed trigger never changes — the picker never wraps it,
+     * a row-slot body is published to the slot instead of beside the trigger,
+     * and THE composer options row is a row host.
+     */
+    @Test
+    fun theOptionsRowIsARowHostAndTheTriggerIsNeverWrapped() {
+        val picker = pickerSource("Picker.kt")
+        assertTrue(picker.contains("trigger { if (enabled) setOpen(if (inline) !isOpen else true) }"))
+        assertTrue(picker.contains("rowSlot.claim(slotKey)"))
+        assertTrue(picker.contains("onDispose { rowSlot.release(slotKey) }"))
+        val row = pickerSource("InlinePickerRow.kt")
+        assertTrue(row.contains("CompositionLocalProvider(LocalInlinePickerSlot provides slot)"))
+        val options = moduleFile("src/main/java/com/exponential/app/ui/agent/AgentOptionsRow.kt").readText()
+        assertTrue(options.contains("InlinePickerRow("))
+        assertFalse("the pins no longer sit in a bare scrolling row", options.contains("horizontalScroll("))
     }
 
     @Test
@@ -544,6 +632,13 @@ class PickerContractTest {
         PickerItem(value = "b", label = "Beta", description = "second"),
         PickerItem(value = "c", label = "Gamma", disabled = true),
     )
+
+    private fun contractFixture(name: String): File =
+        listOf(
+            "../../../packages/domain-contract/fixtures/$name",
+            "../../packages/domain-contract/fixtures/$name",
+            "packages/domain-contract/fixtures/$name",
+        ).map(::File).firstOrNull { it.isFile } ?: error("$name not found from ${File(".").absolutePath}")
 
     private fun pickerSource(name: String): String =
         moduleFile("src/main/java/com/exponential/app/ui/components/picker/$name").readText()

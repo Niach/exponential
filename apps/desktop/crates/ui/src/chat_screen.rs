@@ -45,6 +45,7 @@
 //! becomes the STARTING row (the mark, "Starting on <device>", elapsed)
 //! until the send answers, or the 30 s timeout toast offers Retry.
 
+use crate::controls::PointerMenuButtonExt as _;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 
@@ -2267,7 +2268,7 @@ impl ChatScreenView {
         let view = cx.entity().downgrade();
         Some(
             inline_pin_trigger("chat-pin-repo".into(), label, cx)
-                .dropdown_menu(move |mut menu, _window, _cx| {
+                .pointer_menu(move |mut menu, _window, _cx| {
                     menu = crate::pickers::single_select_menu(menu);
                     for repo in &repos {
                         let view = view.clone();
@@ -2324,7 +2325,14 @@ impl ChatScreenView {
         if matches!(self.subject, Subject::None) {
             row = row.children(self.repo_pin(cx));
         }
-        v_flex().w_full().min_w_0().gap_1().child(row).into_any_element()
+        // N-14: THE options row is a row host — an inline pin (a dialog's
+        // Device or Account) opens its rows UNDER the row, the pins stay.
+        v_flex()
+            .w_full()
+            .min_w_0()
+            .gap_1()
+            .child(crate::picker::InlinePickerRow::new("chat-options-row", row))
+            .into_any_element()
     }
 }
 
