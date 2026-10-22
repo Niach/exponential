@@ -125,6 +125,7 @@ export const GUIDE_CHECK: Record<string, string> = {
   "host-plugins": `react`,
   vapps: `react`,
   agents: `agent`,
+  security: `react`,
 }
 
 /** The directory under apps/ui-site/guides/ a check builds. */
