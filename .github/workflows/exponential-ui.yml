@@ -72,6 +72,8 @@ jobs:
         env:
           EXPONENTIAL_UI_CONFORMANCE_REPORT: ${{ github.workspace }}/.conformance/exponential-ui-react.json
         run: bun run --filter @exponential-at/ui-react test:conformance
+      - name: Size gate (npm entries, VAPP-106)
+        run: bun packages/exponential-ui/release/size.ts npm --check
       - name: Guides (React, agent, theme) from a fresh project
         run: |
           bun apps/ui-site/guides/check.ts react
@@ -108,6 +110,10 @@ jobs:
           EXPONENTIAL_UI_CONFORMANCE_REPORT: ${{ github.workspace }}/.conformance/exponential-ui-gpui.json
         run: cargo test --locked -p exponential-ui-gpui
       - uses: oven-sh/setup-bun@v2
+      - name: Size (host facade + cargo bloat, VAPP-106; a budget exists per host OS)
+        run: |
+          cargo install cargo-bloat --locked
+          bun packages/exponential-ui/release/size.ts crate --check
       - name: Guide (gpui) from a fresh project
         run: bun apps/ui-site/guides/check.ts gpui
       - uses: actions/upload-artifact@v4
@@ -130,6 +136,9 @@ jobs:
           workspaces: apps/desktop
       - name: Build the xcframework (iOS device + simulator + macOS)
         run: bash apps/desktop/crates/exponential-ui-ffi/build-ios.sh
+      - uses: oven-sh/setup-bun@v2
+      - name: Size gate (xcframework slices, VAPP-106)
+        run: bun packages/exponential-ui/release/size.ts xcframework --check
       - name: Hand the xcframework to the simulator job
         uses: actions/upload-artifact@v4
         with:
@@ -141,7 +150,6 @@ jobs:
         env:
           EXPONENTIAL_UI_CONFORMANCE_REPORT: ${{ github.workspace }}/.conformance/exponential-ui-swift.json
         run: swift test
-      - uses: oven-sh/setup-bun@v2
       - name: Guide (SwiftUI) from a fresh project
         run: bun apps/ui-site/guides/check.ts swift
       - uses: actions/upload-artifact@v4
@@ -220,6 +228,9 @@ jobs:
           ABIS: x86_64
           SKIP_BINDINGS: '1'
         run: bash apps/desktop/crates/exponential-ui-ffi/build-android.sh
+      - uses: oven-sh/setup-bun@v2
+      - name: Size gate (the x86_64 .so, VAPP-106; the arm ABIs gate in release-ui.yml)
+        run: bun packages/exponential-ui/release/size.ts android --check
       - name: Gradle cache
         uses: actions/cache@v4
         with:

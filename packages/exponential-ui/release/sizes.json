@@ -1,0 +1,106 @@
+{
+  "$comment": "VAPP-106: the SDK's sizes on record, written by release/size.ts --write (bytes; gzip for what a browser downloads; parts = the chunks of an entry, the thin archs of a slice, the top crates by .text). The budgets live in size-budget.json; CI (exponential-ui.yml) fails a pull request that goes over one.",
+  "measured": {
+    "npm": {
+      "at": "2026-10-22",
+      "host": "darwin-arm64",
+      "entries": {
+        "@exponential-at/ui/index": {
+          "bytes": 1779676,
+          "gzip": 235448,
+          "parts": {
+            "index.js": 1779676
+          }
+        },
+        "@exponential-at/ui-react/index": {
+          "bytes": 207678,
+          "gzip": 65514,
+          "parts": {
+            "index.js": 203747,
+            "chunks/index-zp7aw30j.js": 3931
+          }
+        },
+        "@exponential-at/ui-react/primitives": {
+          "bytes": 83586,
+          "gzip": 21791,
+          "parts": {
+            "primitives/index.js": 79655,
+            "chunks/index-zp7aw30j.js": 3931
+          }
+        },
+        "@exponential-at/ui-react/styles.css": {
+          "bytes": 94122,
+          "gzip": 14789
+        }
+      }
+    },
+    "android": {
+      "at": "2026-10-22",
+      "host": "darwin-arm64",
+      "entries": {
+        "android/arm64-v8a": {
+          "bytes": 4768208
+        },
+        "android/armeabi-v7a": {
+          "bytes": 3491644
+        },
+        "android/x86_64": {
+          "bytes": 5800640
+        }
+      }
+    },
+    "xcframework": {
+      "at": "2026-10-22",
+      "host": "darwin-arm64",
+      "entries": {
+        "xcframework/ios-arm64": {
+          "bytes": 44507248
+        },
+        "xcframework/ios-arm64_x86_64-simulator": {
+          "bytes": 89181376,
+          "parts": {
+            "x86_64": 44680816,
+            "arm64": 44500512
+          }
+        },
+        "xcframework/macos-arm64_x86_64": {
+          "bytes": 90096448,
+          "parts": {
+            "x86_64": 45297760,
+            "arm64": 44798640
+          }
+        }
+      }
+    },
+    "crate": {
+      "at": "2026-10-22",
+      "host": "darwin-arm64",
+      "entries": {
+        "crate/darwin/bench-example": {
+          "bytes": 4149848,
+          "parts": {
+            ".text": 2516582,
+            "exponential_ui": 1782579,
+            "std": 410214,
+            "taffy": 132506,
+            "serde_json": 81203,
+            "serde_core": 14848,
+            "serde": 8499,
+            "hashbrown": 8499,
+            "indexmap": 7475,
+            "bench": 7066,
+            "object": 3277,
+            "[Unknown]": 2970,
+            "zmij": 1434,
+            "stacker": 1229,
+            "itoa": 644,
+            "url": 284
+          }
+        },
+        "crate/darwin/exponential-ui-ffi": {
+          "bytes": 6283680
+        }
+      }
+    }
+  }
+}

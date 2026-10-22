@@ -59,3 +59,28 @@ Licences: everything is Apache-2.0; the vendored A2UI schemas and the
 json-render wording carry their `VENDORED` rows in
 `packages/licenses/curated/supplement.ts` (`bun run notices` regenerates the
 NOTICES; `docs/third-party-licences.md` is the policy).
+
+## Sizes (VAPP-106)
+
+`bun run --filter @exponential-at/ui size` (= `bun packages/exponential-ui/release/size.ts`)
+measures what the SDK ships and `release/sizes.json` is the number on
+record; `release/size-budget.json` is the gate: `size.ts <section> --check`
+fails anything over its budget, and `exponential-ui.yml` runs it per job on
+what that job built (`npm` in the React job, `xcframework` in the Swift
+job, the x86_64 `.so` in the Compose emulator job, `cargo bloat` in the
+Rust job; `release-ui.yml` gates every ABI and every slice before
+publishing).
+
+| section | what | how |
+|---|---|---|
+| `npm` | every entry of `build-npm.ts`, bundled MINIFIED (the release ships them readable + source-mapped): the entry plus the chunks it imports, bytes and gzip; the React stylesheet as built | `bundle()` from `build-npm.ts` into a temp dir |
+| `xcframework` | each slice's static library and its thin archs (`lipo`) | after `build-ios.sh` |
+| `android` | each ABI's `libexponential_ui_ffi.so`, the AAR when Gradle built one | after `build-android.sh` |
+| `crate` | `cargo bloat --crates` on the core's `bench` example (the top crates by `.text`), the host build of the facade | `cargo install cargo-bloat` |
+
+Updating the record: `size.ts <section> --write` rewrites that section of
+`sizes.json`; a change that shrinks something lowers its budget in the same
+commit (the ratchet never loosens by accident), a change that must grow
+something raises the budget and says why in the PR. Native budgets come
+from a macOS build; Linux hosts (CI's Rust job) report without a budget.
+

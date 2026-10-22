@@ -1,0 +1,43 @@
+{
+  "$comment": "VAPP-106: the size budgets release/size.ts --check gates (bytes; gzip where a browser downloads it). Every entry of sizes.json has one, a little above the number on record, so a pull request that grows the SDK past it fails exponential-ui.yml; a change that shrinks something lowers its budget in the same commit (the ratchet). Keys: npm = <package>/<entry> (minified, the entry plus the chunks it imports), xcframework/<slice>, android/<abi>, crate/<host>/<artifact>.",
+  "@exponential-at/ui/index": {
+    "bytes": 1868800,
+    "gzip": 247808
+  },
+  "@exponential-at/ui-react/index": {
+    "bytes": 218112,
+    "gzip": 69632
+  },
+  "@exponential-at/ui-react/primitives": {
+    "bytes": 88064,
+    "gzip": 23552
+  },
+  "@exponential-at/ui-react/styles.css": {
+    "bytes": 99328,
+    "gzip": 16384
+  },
+  "android/arm64-v8a": {
+    "bytes": 5007360
+  },
+  "android/armeabi-v7a": {
+    "bytes": 3666944
+  },
+  "android/x86_64": {
+    "bytes": 6090752
+  },
+  "xcframework/ios-arm64": {
+    "bytes": 46733312
+  },
+  "xcframework/ios-arm64_x86_64-simulator": {
+    "bytes": 93640704
+  },
+  "xcframework/macos-arm64_x86_64": {
+    "bytes": 94602240
+  },
+  "crate/darwin/bench-example": {
+    "bytes": 4358144
+  },
+  "crate/darwin/exponential-ui-ffi": {
+    "bytes": 6598656
+  }
+}

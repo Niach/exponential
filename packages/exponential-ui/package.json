@@ -24,7 +24,8 @@
     "typecheck": "tsc --noEmit",
     "build:builder": "bun build ./builder/main.ts --outdir ./builder/dist --target browser --format esm --define process.env.NODE_ENV='\"production\"'",
     "dev:builder": "bun ./builder/serve.ts",
-    "conformance:check": "bun run ./scripts/conformance-check.ts"
+    "conformance:check": "bun run ./scripts/conformance-check.ts",
+    "size": "bun run ./release/size.ts"
   },
   "devDependencies": {
     "@exp/tsconfig": "workspace:*",

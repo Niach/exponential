@@ -310,6 +310,7 @@ generate time too (never at runtime).
 ```bash
 bun run --filter @exponential-at/ui dev:builder     # the theme builder on :4180
 bun run --filter @exponential-at/ui build:builder   # bundles builder/dist (ignored)
+bun run --filter @exponential-at/ui size            # VAPP-106: bundle + binary sizes vs release/size-budget.json (release/README.md)
 ```
 
 ## Extensions
