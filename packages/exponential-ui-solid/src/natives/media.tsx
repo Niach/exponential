@@ -14,6 +14,7 @@ import { createMediaSource, createMediaSrc } from "../media"
 import { NodeView, mergeStyle, withClass, type NativeProps } from "../node-view"
 import { createBoundState } from "./bound"
 import { bool, BuiltinIcon, css, num, parts, str, type Attrs } from "./shared"
+import { createImageLoadingStatus } from "../behaviors"
 
 /** The media box's intrinsic width (catalog/layout.json
  *  `mediaIntrinsicWidth`: max-content 320, min-content 0), so the box never
@@ -139,33 +140,6 @@ export function seedHue(seed: string): number {
   let h = 0
   for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0
   return h % 360
-}
-
-type LoadingStatus = `idle` | `loading` | `loaded` | `error`
-
-/** Radix Avatar's `useImageLoadingStatus`: a detached `Image` probes the
- *  src; the <img> paints only once it LOADED. */
-function createImageLoadingStatus(src: () => string | undefined): () => LoadingStatus {
-  const [status, setStatus] = createSignal<LoadingStatus>(`idle`)
-  const image = typeof window === `undefined` ? null : new window.Image()
-  const resolve = (s: string | undefined): LoadingStatus => {
-    if (!image) return `idle`
-    if (!s) return `error`
-    if (image.src !== s) image.src = s
-    return image.complete && image.naturalWidth > 0 ? `loaded` : `loading`
-  }
-  createComputed(() => setStatus(resolve(src())))
-  if (image) {
-    const loaded = () => setStatus(`loaded`)
-    const errored = () => setStatus(`error`)
-    image.addEventListener(`load`, loaded)
-    image.addEventListener(`error`, errored)
-    onCleanup(() => {
-      image.removeEventListener(`load`, loaded)
-      image.removeEventListener(`error`, errored)
-    })
-  }
-  return status
 }
 
 export function AvatarNative(props: NativeProps): JSX.Element {

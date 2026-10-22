@@ -4,10 +4,12 @@ The SolidJS renderer of Exponential UI (FEED-128): an A2UI surface in the
 core catalog (`@exponential-at/ui`) painted with the **identical DOM** of the
 React renderer (`@exponential-at/ui-react`), with the same compiled stylesheet
 and runtime themes. Overlays, menus, selects, tabs, accordions and the form
-controls are painted on Kobalte. It depends on `@exponential-at/ui` (the shared
-web layer `@exponential-at/ui/web`), `solid-js`, `@kobalte/core` and
-`lucide-solid`. It imports nothing from the React renderer and nothing from the
-Exponential app.
+controls paint Radix's DOM on plain elements, on a headless layer
+(`src/behaviors/`) that reproduces Radix's machinery: positioning on
+`@floating-ui/dom`, modality on `aria-hidden`. It depends on
+`@exponential-at/ui` (the shared web layer `@exponential-at/ui/web`),
+`solid-js`, `@floating-ui/dom`, `aria-hidden` and `lucide-solid`. It imports
+nothing from the React renderer and nothing from the Exponential app.
 
 ## The invariant
 
@@ -65,20 +67,23 @@ differences:
 | `src/create-surface.ts` | `createSurface`: the reducer as a Solid store (tree and data in two signals) |
 | `src/node-view.tsx` | the bind pass as per-node memos, painter lookup through `<Dynamic>`, `NodeList` (children keyed by id) and `TemplateItems` (keyed by `template.key`), `runNodeAction`, the paint boundary |
 | `src/context.ts` | the surface context (an object of getters; `deriveContext` re-points fields), scope + instance accessors |
-| `src/natives/` | `shared.tsx` (`parts()`, the porting rules), `bound.ts`, `text.tsx`, `layout.tsx`, `pending.tsx` (temporary placeholders), `index.ts` (the 48 keys) |
+| `src/natives/` | `shared.tsx` (`parts()`, the porting rules), `bound.ts`, the painters (`overlays.tsx`, `select.tsx`, `dates.tsx`, `nav.tsx`, `inputs.tsx`…), `index.ts` (the 48 keys) |
+| `src/behaviors/` | the headless Radix machinery the natives and `src/primitives/` share, one concern per module: `portal`, `presence`, `dismissable-layer`, `focus-scope`, `focus-guards`, `scroll-lock`, `modal`, `popper`, `menu`, `roving-focus`, `listbox`, `typeahead`, `collapsible`, `picker-popover`, `bubble-input`, `slider`, `grace-area`, `visually-hidden`, `drag-to-dismiss`, `style-writer`, `element-size`, `image-loading-status`, `search-match` (`index.ts` names the Radix primitive each reproduces). Nothing in it reads the surface context; package-internal |
 | `src/style.ts` | `css()`: React's inline-style semantics (camelCase, px for numbers, unitless list) |
 | `src/icons.tsx` | the fallback glyphs on lucide-solid, painted with lucide-react's exact `<svg>` attributes |
 | `src/form.tsx`, `list.tsx`, `markdown.tsx`, `media.ts`, `inputs.ts`, `platform.ts`, `extensions.ts`, `host*.ts*` | the React files' Solid twins |
 | `harness/` | the same page protocol as React's harness (`dev:harness` serves on :4182, built with Vite + `vite-plugin-solid`) |
 
-## Kobalte vs Radix
+## State attributes: the porting rule
 
-The theme CSS (`STATE_SELECTORS`) targets Radix's attribute names. The
-Solid painters therefore set the Radix-named attributes on the parts
-themselves, and keep a Kobalte attribute only where React's Radix DOM has the
-same one. The full rules are in `src/natives/shared.tsx`.
+The theme CSS (`STATE_SELECTORS`) targets Radix's attribute names, so the
+Solid painters write the Radix-named attributes on the parts themselves. The
+package was first painted on Kobalte, which names the same states
+differently; the dependency is gone, and the Kobalte column stays as the map
+for porting code written against Kobalte (or any non-Radix library). The full
+rules are in `src/natives/shared.tsx`.
 
-| state | Radix (React, the theme CSS) | Kobalte | the Solid painter writes |
+| state | Radix (React, the theme CSS) | Kobalte (history) | the Solid painter writes |
 |---|---|---|---|
 | checked / unchecked | `data-state="checked\|unchecked"` | `data-checked` | `data-state` |
 | open / closed | `data-state="open\|closed"` | `data-expanded`, `data-closed` | `data-state` |
