@@ -2133,13 +2133,14 @@
       "webMobile": "inherit",
       "desktop": {
         "drive": {
-          "kind": "screen",
+          "kind": "settings",
           "value": "apps"
         }
       },
       "notes": {
         "ios": "VAPP-112: the iOS Apps list lands with the phone app host.",
-        "android": "VAPP-116: the Android Apps list lands with the phone app host."
+        "android": "VAPP-116: the Android Apps list lands with the phone app host.",
+        "desktop": "The IDE lists apps the way it lists agents: a rail group, and Settings → Apps whose index is this list band."
       }
     },
     {

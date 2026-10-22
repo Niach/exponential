@@ -486,6 +486,8 @@ impl AppScreenView {
         let frame = div()
             .id(SharedString::from(APPS.test_ids.preview.clone()))
             .relative()
+            .flex()
+            .flex_col()
             .flex_1()
             .min_h_0()
             .rounded(px(APPS.preview.radius))
@@ -673,5 +675,25 @@ mod tests {
         assert_eq!(message["applyTemplate"]["templateId"], APPS.builtin.template_id.as_str());
         assert_eq!(message["applyTemplate"]["packageId"], APPS.builtin.package_id.as_str());
         assert!(apply_template_message(&json!({"id": "x", "templates": {}})).is_none());
+    }
+
+    /// The seeded Team dashboard package (the app catalog's Stack, Grid,
+    /// Card, Progress, Chart, List) installs and paints a surface.
+    #[gpui::test]
+    fn a_team_package_installs_and_applies(cx: &mut gpui::TestAppContext) {
+        cx.update(gpui_component::init);
+        let pkg: Value = serde_json::from_str(include_str!("app_screen.test-package.json")).unwrap();
+        let ide = cx.update(|cx| IdeHost::with_packages(Mode::Dark, std::slice::from_ref(&pkg), None, cx));
+        let host = ide.host.clone();
+        let issues = host.update(cx, |host, cx| {
+            let ops = host.receive(&apply_template_message(&pkg).unwrap(), cx);
+            (ops.len(), format!("{:?}", host.issues()))
+        });
+        cx.run_until_parked();
+        let surface = host.read_with(cx, |host, _| host.surface(&APPS.preview.surface_id));
+        assert!(surface.is_some(), "no surface; ops/issues: {issues:?}");
+        drop((surface, host));
+        cx.update(|_| drop(ide));
+        cx.run_until_parked();
     }
 }

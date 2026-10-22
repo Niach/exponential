@@ -201,7 +201,7 @@ pub(crate) fn build_screen_content(
             .into(),
         // VAPP-110: the Apps page and an editor are never undocked (the
         // editor owns the member's live editor session).
-        Screen::Apps | Screen::App { .. } => cx.new(|_| NeverUndocked).into(),
+        Screen::App { .. } => cx.new(|_| NeverUndocked).into(),
         // VAPP-90: the dev-only kitchen sink is never undocked.
         Screen::ExponentialUiKitchenSink
         | Screen::ExponentialUiSpecimen { .. }
@@ -894,8 +894,6 @@ pub struct ScreensPanel {
     /// VAPP-90: the Exponential UI kitchen sink, built on first use — a
     /// dev-only screen pays its surface build only when opened.
     exponential_ui: Option<Entity<crate::exponential_ui_screen::ExponentialUiKitchenSink>>,
-    /// VAPP-110: the Apps page (the same tab-less full-page mode).
-    apps_page: Entity<crate::apps_view::AppsView>,
     /// VAPP-110: the open app editor, built on entry and DROPPED on every
     /// navigation off it (which ends the member's live editor session).
     app_editor: Option<Entity<crate::app_screen::AppScreenView>>,
@@ -1006,7 +1004,6 @@ impl ScreensPanel {
             cx.new(|cx| crate::issue_draft_screen::IssueDraftView::new(window, cx));
         let chat = cx.new(|cx| crate::chat_screen::ChatScreenView::new(window, cx));
         let threads_page = cx.new(|cx| crate::threads_view::ThreadsView::new(window, cx));
-        let apps_page = cx.new(|cx| crate::apps_view::AppsView::new(window, cx));
         let nav = nav_for_window(window, cx);
         let rail = rail_shared_for_window(window, cx);
         let list = cx.new(|cx| ListPanel::new(ListMode::Screen, window, cx));
@@ -1096,7 +1093,6 @@ impl ScreensPanel {
             chat,
             threads_page,
             exponential_ui: None,
-            apps_page,
             app_editor: None,
             exponential_ui_specimen: None,
             sessions: HashMap::new(),
@@ -1424,7 +1420,6 @@ impl ScreensPanel {
             | Screen::IssueDraft { .. }
             | Screen::Home
             | Screen::Threads
-            | Screen::Apps
             | Screen::App { .. }
             | Screen::ExponentialUiKitchenSink
             | Screen::ExponentialUiSpecimen { .. }
@@ -3210,7 +3205,6 @@ impl Render for ScreensPanel {
             Some(Screen::IssueDraft { .. }) => self.issue_draft.clone().into_any_element(),
             Some(Screen::Home) => self.chat.clone().into_any_element(),
             Some(Screen::Threads) => self.threads_page.clone().into_any_element(),
-            Some(Screen::Apps) => self.apps_page.clone().into_any_element(),
             // VAPP-110: built by `sync_app_editor` on entry.
             Some(Screen::App { .. }) => self
                 .app_editor

@@ -1,15 +1,16 @@
-//! VAPP-110 — the APPS page ([`Screen::Apps`], the rail's `Apps` entry; web
-//! `apps-list.tsx`, fixtures/apps.json): the band `Apps` with `New app` as
+//! VAPP-110 — the APPS list (web `apps-list.tsx`, fixtures/apps.json), drawn
+//! as Settings → Apps' index (the Agents index's twin; the rail lists the
+//! apps as a group like the Agents): the band `Apps` with `New app` as
 //! its trailing pill, then one row per app = its glyph (the board set) +
 //! name + the version pill (`v{n}`, `No version yet` muted, `Built-in` on
 //! the built-in Devices app) + the `…` menu (Rename → the New app form
 //! prefilled, Delete → the confirm). The built-in app sorts first and has no
 //! menu; members manage only their own apps, owners every app. A row opens
-//! the editor ([`Screen::App`]). Tab-less full-page mode like Threads.
+//! the editor ([`Screen::App`]).
 
 use gpui::{
     div, App, ClickEvent, Entity, FontWeight, InteractiveElement as _, IntoElement,
-    MouseButton, ParentElement, Render, ScrollHandle, SharedString, StatefulInteractiveElement as _,
+    MouseButton, ParentElement, Render, SharedString, StatefulInteractiveElement as _,
     Styled, Subscription, Window,
 };
 use gpui_component::{menu::DropdownMenu as _, v_flex, ActiveTheme as _, Icon, Sizable as _};
@@ -20,11 +21,7 @@ use domain::prompts::{Action, Prompt, Role};
 use domain::rows::AppRow;
 
 use crate::icons::registry;
-use crate::navigation::{active_team_id, nav_for_window, Navigation, Screen};
-use crate::scroll_pane::page_scaffold_with;
-
-/// The page column's cap (the web's `md:max-w-5xl`).
-const APPS_COLUMN_W: f32 = 1024.;
+use crate::navigation::{active_team_id, Navigation, Screen};
 
 /// One list entry: a synced app, or the BUILT-IN one every client ships
 /// (the Devices package: no row, no versions, no menu).
@@ -157,7 +154,7 @@ pub(crate) fn delete_prompt(name: &str) -> Prompt {
     }
 }
 
-fn confirm_delete(app_id: String, name: String, window: &mut Window, cx: &mut App) {
+pub(crate) fn confirm_delete(app_id: String, name: String, window: &mut Window, cx: &mut App) {
     let spec = crate::native_dialog::AlertSpec::from_prompt(APPS.copy.menu.delete.clone(), &delete_prompt(&name))
         .on_ok(move |window, cx| {
             let Some(trpc) = crate::queries::trpc_client(cx) else {
@@ -272,8 +269,7 @@ pub(crate) fn apps_list(team_id: Option<&str>, entries: &[AppEntry], me: Option<
             .w_full()
             .min_w_0()
             .children(entries.iter().enumerate().map(|(index, entry)| {
-                let manage = !entry.builtin
-                    && (owner || entry.row.as_ref().and_then(|row| row.created_by.as_deref()).is_some_and(|by| Some(by) == me));
+                let manage = can_manage(entry, me, owner);
                 app_row(index, entry, manage, cx)
             }))
             .into_any_element()
@@ -281,44 +277,58 @@ pub(crate) fn apps_list(team_id: Option<&str>, entries: &[AppEntry], me: Option<
     v_flex().w_full().min_w_0().child(column.child(body))
 }
 
-pub struct AppsView {
+/// Whether the viewer manages `entry`: its creator, or a team owner (never
+/// the built-in app).
+pub(crate) fn can_manage(entry: &AppEntry, me: Option<&str>, owner: bool) -> bool {
+    !entry.builtin && (owner || entry.row.as_ref().and_then(|row| row.created_by.as_deref()).is_some_and(|by| Some(by) == me))
+}
+
+/// The apps of `team_id` the viewer manages (the settings group's rows).
+pub(crate) fn managed_apps(team_id: &str, cx: &App) -> Vec<AppEntry> {
+    let me = crate::queries::active_account(cx).map(|account| account.user_id);
+    let owner = crate::settings::is_owner(cx, team_id);
+    app_entries(team_id, cx)
+        .into_iter()
+        .filter(|entry| can_manage(entry, me.as_deref(), owner))
+        .collect()
+}
+
+/// Settings → Apps, the index (the Agents index's twin): the list band.
+pub struct AppsIndexPane {
     nav: Entity<Navigation>,
-    scroll: ScrollHandle,
     _subscriptions: Vec<Subscription>,
 }
 
-impl AppsView {
-    pub fn new(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
-        let nav = nav_for_window(window, cx);
+impl AppsIndexPane {
+    pub fn new(nav: Entity<Navigation>, cx: &mut gpui::Context<Self>) -> Self {
         let mut subscriptions = vec![cx.observe(&nav, |_, _, cx| cx.notify())];
         if let Some(collections) = Store::try_global(cx).map(|store| store.collections().clone()) {
             subscriptions.push(cx.observe(&collections.apps, |_, _, cx| cx.notify()));
             subscriptions.push(cx.observe(&collections.team_members, |_, _, cx| cx.notify()));
         }
-        Self { nav, scroll: ScrollHandle::new(), _subscriptions: subscriptions }
+        Self { nav, _subscriptions: subscriptions }
     }
 }
 
-impl Render for AppsView {
+impl Render for AppsIndexPane {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let ready = Store::try_global(cx).is_some_and(|store| store.collections().apps.read(cx).is_ready());
         let team_id = active_team_id(&self.nav, cx);
-        let column = if !ready || team_id.is_none() {
+        match team_id.filter(|_| ready) {
             // Skeletons, never "Loading…" (feedback-states.json).
-            v_flex().min_w_0().child(crate::feedback::skeleton_rows(
+            None => v_flex().min_w_0().child(crate::feedback::skeleton_rows(
                 "apps-skeleton",
                 crate::feedback::SKELETON_ROWS,
                 44.,
                 cx,
-            ))
-        } else {
-            let team_id = team_id.unwrap_or_default();
-            let me = crate::queries::active_account(cx).map(|account| account.user_id);
-            let owner = crate::settings::is_owner(cx, &team_id);
-            let entries = app_entries(&team_id, cx);
-            apps_list(Some(&team_id), &entries, me.as_deref(), owner, cx)
-        };
-        page_scaffold_with("apps-screen-scroll", &self.scroll, column, APPS_COLUMN_W)
+            )),
+            Some(team_id) => {
+                let me = crate::queries::active_account(cx).map(|account| account.user_id);
+                let owner = crate::settings::is_owner(cx, &team_id);
+                let entries = app_entries(&team_id, cx);
+                apps_list(Some(&team_id), &entries, me.as_deref(), owner, cx)
+            }
+        }
     }
 }
 
