@@ -2383,6 +2383,7 @@ version = "0.1.0"
 dependencies = [
  "cosmic-text",
  "indexmap 2.14.0",
+ "libc",
  "serde",
  "serde_json",
  "stacker",
