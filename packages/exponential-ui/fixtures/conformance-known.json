@@ -980,14 +980,14 @@
       "size": 0,
       "position": 0,
       "wrap": 0,
-      "onlyRef": 7,
+      "onlyRef": 6,
       "onlyCand": 0
     },
     "kitchen-sink/playful/dark/900/rtl": {
       "size": 0,
       "position": 0,
       "wrap": 0,
-      "onlyRef": 7,
+      "onlyRef": 6,
       "onlyCand": 0
     },
     "kitchen-sink/playful/dark/1280/ltr": {
@@ -1036,14 +1036,14 @@
       "size": 0,
       "position": 0,
       "wrap": 0,
-      "onlyRef": 7,
+      "onlyRef": 6,
       "onlyCand": 0
     },
     "kitchen-sink/playful/light/900/rtl": {
       "size": 0,
       "position": 0,
       "wrap": 0,
-      "onlyRef": 7,
+      "onlyRef": 6,
       "onlyCand": 0
     },
     "kitchen-sink/playful/light/1280/ltr": {
@@ -2092,7 +2092,7 @@
     {
       "id": "chip-user.image.fallback",
       "only": "ref",
-      "cases": 32,
+      "cases": 28,
       "reason": "Avatar initials inside a Chip: painted inside the image leaf (the box is compared)."
     },
     {

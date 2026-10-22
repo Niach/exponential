@@ -829,14 +829,14 @@
     },
     "kitchen-sink/playful/dark/900/ltr" : {
       "onlyCand" : 0,
-      "onlyRef" : 7,
+      "onlyRef" : 6,
       "position" : 0,
       "size" : 0,
       "wrap" : 0
     },
     "kitchen-sink/playful/dark/900/rtl" : {
       "onlyCand" : 0,
-      "onlyRef" : 7,
+      "onlyRef" : 6,
       "position" : 0,
       "size" : 0,
       "wrap" : 0
@@ -885,14 +885,14 @@
     },
     "kitchen-sink/playful/light/900/ltr" : {
       "onlyCand" : 0,
-      "onlyRef" : 7,
+      "onlyRef" : 6,
       "position" : 0,
       "size" : 0,
       "wrap" : 0
     },
     "kitchen-sink/playful/light/900/rtl" : {
       "onlyCand" : 0,
-      "onlyRef" : 7,
+      "onlyRef" : 6,
       "position" : 0,
       "size" : 0,
       "wrap" : 0
