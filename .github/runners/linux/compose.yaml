@@ -1,0 +1,63 @@
+# EXP-1364: two exp-linux runners on the Mint (.github/runners/README.md).
+# `docker compose up -d --build` from this directory; RUNNER_TOKEN only on the
+# first start (the registration lives on in the runner-config volumes).
+x-runner: &runner
+  build: .
+  restart: unless-stopped
+  # Leaves the desktop responsive: the jobs never get more than RUNNER_CPUS.
+  cpus: ${RUNNER_CPUS:-6}
+  environment: &env
+    REPO_URL: https://github.com/Niach/exponential
+    RUNNER_SCOPE: repo
+    RUNNER_TOKEN: ${RUNNER_TOKEN:-}
+    LABELS: exp-linux
+    DISABLE_AUTO_UPDATE: "false"
+    DISABLE_AUTOMATIC_DEREGISTRATION: "true"
+    CONFIGURED_ACTIONS_RUNNER_FILES_DIR: /runner/config
+    AGENT_TOOLSDIRECTORY: /opt/hostedtoolcache
+  # Per service below (compose cannot merge lists): the host docker for
+  # build-web's buildx (only this repo's own branches ever run here, see
+  # pick-runner.yml), sccache, the toolchains and the tool cache.
+services:
+  runner-1:
+    <<: *runner
+    environment:
+      <<: *env
+      RUNNER_NAME: mint-1
+      RUNNER_WORKDIR: /tmp/runner-1/work
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - sccache:/cache/sccache
+      - cargo:/root/.cargo
+      - rustup:/root/.rustup
+      - gradle:/root/.gradle
+      - bun:/root/.bun
+      - toolcache:/opt/hostedtoolcache
+      - config-1:/runner/config
+      - /tmp/runner-1:/tmp/runner-1
+  runner-2:
+    <<: *runner
+    environment:
+      <<: *env
+      RUNNER_NAME: mint-2
+      RUNNER_WORKDIR: /tmp/runner-2/work
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - sccache:/cache/sccache
+      - cargo:/root/.cargo
+      - rustup:/root/.rustup
+      - gradle:/root/.gradle
+      - bun:/root/.bun
+      - toolcache:/opt/hostedtoolcache
+      - config-2:/runner/config
+      - /tmp/runner-2:/tmp/runner-2
+
+volumes:
+  sccache:
+  cargo:
+  rustup:
+  gradle:
+  bun:
+  toolcache:
+  config-1:
+  config-2:

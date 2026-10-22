@@ -54,7 +54,14 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # EXP-1364: fork PRs never run here; the Rust + Compose legs run on the Mint
+  # and the Swift legs on the MacBook when they are up.
+  pick:
+    uses: ./.github/workflows/pick-runner.yml
+    secrets: inherit
+
   react:
+    needs: pick
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -84,7 +91,8 @@ jobs:
           include-hidden-files: true  # .conformance/ is a dot-directory; upload-artifact v4 skips hidden paths by default
 
   rust:
-    runs-on: ubuntu-latest
+    needs: pick
+    runs-on: ${{ fromJSON(needs.pick.outputs.linux) }}
     steps:
       - uses: actions/checkout@v4
       - name: Linux system deps (wgpu/gpui)
@@ -95,6 +103,7 @@ jobs:
             libx11-dev libxi-dev libxtst-dev libpipewire-0.3-dev clang
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+        if: runner.environment == 'github-hosted'
         with:
           workspaces: apps/desktop
       - name: Core + facade tests (core conformance)
@@ -118,7 +127,8 @@ jobs:
 
   swift:
     # Same image as test-ios.yml / build-ios.yml.
-    runs-on: macos-26
+    needs: pick
+    runs-on: ${{ fromJSON(needs.pick.outputs.mac) }}
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
@@ -126,6 +136,7 @@ jobs:
         with:
           targets: aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios,aarch64-apple-darwin,x86_64-apple-darwin
       - uses: Swatinem/rust-cache@v2
+        if: runner.environment == 'github-hosted'
         with:
           workspaces: apps/desktop
       - name: Build the xcframework (iOS device + simulator + macOS)
@@ -154,12 +165,13 @@ jobs:
     # The UIKit paths (`#if canImport(UIKit)`) only compile for iOS: build +
     # test the package on a Simulator against the swift job's xcframework,
     # then build the KitchenSink example.
-    needs: swift
-    runs-on: macos-26
+    needs: [pick, swift]
+    runs-on: ${{ fromJSON(needs.pick.outputs.mac) }}
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - name: Select the newest RELEASE Xcode 26.x
+        if: runner.environment == 'github-hosted'
         run: |
           XCODE_APP="$(ls -d /Applications/Xcode_26.*.app 2>/dev/null | sort -V | tail -1)"
           [ -n "$XCODE_APP" ] || { echo "::error::No release Xcode 26.x on this image" >&2; exit 1; }
@@ -194,6 +206,7 @@ jobs:
   compose-emulator:
     # Instrumented tests (ui-compose/src/androidTest) on an x86_64 emulator
     # against the facade's x86_64 .so.
+    needs: pick
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -202,6 +215,7 @@ jobs:
         with:
           targets: x86_64-linux-android
       - uses: Swatinem/rust-cache@v2
+        if: runner.environment == 'github-hosted'
         with:
           workspaces: apps/desktop
       - name: Set up JDK 21
@@ -221,6 +235,7 @@ jobs:
           SKIP_BINDINGS: '1'
         run: bash apps/desktop/crates/exponential-ui-ffi/build-android.sh
       - name: Gradle cache
+        if: runner.environment == 'github-hosted'
         uses: actions/cache@v4
         with:
           path: |
@@ -251,11 +266,13 @@ jobs:
           script: ./gradlew :ui-compose:connectedDebugAndroidTest --no-daemon
 
   compose:
-    runs-on: ubuntu-latest
+    needs: pick
+    runs-on: ${{ fromJSON(needs.pick.outputs.linux) }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+        if: runner.environment == 'github-hosted'
         with:
           workspaces: apps/desktop
       - name: Host build of the facade (the JVM tests load it through JNA)

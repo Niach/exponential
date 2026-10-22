@@ -14,6 +14,15 @@ on:
           - staging
 
 jobs:
+  # EXP-1364: the Linux legs build on the Mint when it is up (its runner image
+  # is Ubuntu 24.04 too, the same glibc floor). macOS + Windows stay on GitHub:
+  # the .app is signed and notarized there, never on a beta-macOS laptop.
+  pick:
+    uses: ./.github/workflows/pick-runner.yml
+    secrets: inherit
+    with:
+      linux-fallback: ubuntu-24.04
+
   # Compute the build matrix. Tag pushes (and the default dispatch) build BOTH
   # channels; a `workflow_dispatch` with channels=production/staging builds only
   # that channel — so testing a prod build no longer waits on the staging legs.
@@ -113,13 +122,13 @@ jobs:
           command: check licenses
 
   build:
-    needs: [codegen-drift, license-audit, setup]
+    needs: [codegen-drift, license-audit, setup, pick]
     strategy:
       fail-fast: false
       # Built by the `setup` job — one leg per (OS × selected channel). See the
       # matrix comment there.
       matrix: ${{ fromJson(needs.setup.outputs.matrix) }}
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ matrix.os == 'ubuntu-24.04' && fromJSON(needs.pick.outputs.linux) || matrix.os }}
     # Windows is the newest, least-proven target — don't let it block a
     # macOS/Linux release. Remove once a few releases have shipped green.
     continue-on-error: ${{ matrix.os == 'windows-latest' }}
@@ -135,6 +144,7 @@ jobs:
             librsvg2-bin file wget
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+        if: runner.environment == 'github-hosted'
         with:
           workspaces: apps/desktop
           key: ${{ matrix.channel }}
