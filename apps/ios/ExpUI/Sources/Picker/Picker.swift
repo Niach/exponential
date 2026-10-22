@@ -365,6 +365,10 @@ public struct GlassPicker<Value: Hashable & Sendable, Trigger: View>: View {
     /// host decides (`\.pickerPresentation`).
     public let presentation: PickerPresentation?
     @Environment(\.pickerPresentation) private var hostPresentation
+    /// N-14: the enclosing row host's slot, nil outside one.
+    @Environment(\.inlinePickerSlot) private var rowSlot
+    /// N-14: this picker's identity in a row slot.
+    @State private var slotOwner = UUID()
     private let trigger: () -> Trigger
 
     /// The sheet's presentation while no caller controls it. The primitive
@@ -424,11 +428,99 @@ public struct GlassPicker<Value: Hashable & Sendable, Trigger: View>: View {
         open ?? Binding(get: { isPresented }, set: { isPresented = $0 })
     }
 
+    /// N-14: the fixture's placement — the host (a sheet = `inDialog`, a
+    /// row host's slot = `inRow`) decides, the caller's `presentation` wins.
+    private var placement: PickerBodyPlacement {
+        pickerPlacement(
+            inDialog: hostPresentation == .inline,
+            inRow: rowSlot != nil,
+            requested: presentation
+        ).body
+    }
+
     public var body: some View {
-        if (presentation ?? hostPresentation) == .inline {
-            inlineBody
+        switch placement {
+        case .surface: sheetBody
+        case .underTrigger: inlineBody
+        case .rowSlot: rowSlotBody
+        }
+    }
+
+    /// The trigger as the sheet presentation draws it (N-14: the collapsed
+    /// trigger never changes), toggling the disclosure.
+    @ViewBuilder
+    private var inlineTrigger: some View {
+        if !hideTrigger {
+            Button {
+                presented.wrappedValue.toggle()
+            } label: {
+                trigger()
+            }
+            .buttonStyle(.plain)
+            .disabled(disabled)
+        }
+    }
+
+    /// The rows in the host's flow (no sheet); a single pick folds.
+    private var inlineRows: some View {
+        GlassPickerSheetBody(
+            items: items,
+            mode: mode,
+            value: value,
+            onChange: onChange,
+            search: search,
+            emptyText: emptyText,
+            title: title,
+            searchPlaceholder: searchPlaceholder,
+            query: query,
+            loading: loading,
+            panel: panel,
+            footer: footer,
+            footerReplacesEmpty: footerReplacesEmpty,
+            renderMark: renderMark,
+            renderItem: renderItem,
+            inline: true,
+            fold: {
+                presented.wrappedValue = false
+                onDismiss?()
+            }
+        )
+    }
+
+    /// What the published rows depend on: a change republishes them so the
+    /// slot never shows a stale pick (a multi toggle stays open).
+    private var slotContentKey: Int {
+        var hasher = Hasher()
+        hasher.combine(value)
+        hasher.combine(loading)
+        for item in items {
+            hasher.combine(item.value)
+            hasher.combine(item.label)
+            hasher.combine(item.description)
+        }
+        return hasher.finalize()
+    }
+
+    /// N-14: inside a ROW host only the trigger draws here — exactly as
+    /// collapsed — and the rows go to the row's slot, under the whole row.
+    private var rowSlotBody: some View {
+        inlineTrigger
+            .accessibilityIdentifier("picker")
+            .onAppear { syncRowSlot() }
+            .onChange(of: presented.wrappedValue) { _, _ in syncRowSlot() }
+            .onChange(of: slotContentKey) { _, _ in syncRowSlot() }
+            .onDisappear { rowSlot?.clear(owner: slotOwner) }
+    }
+
+    private func syncRowSlot() {
+        guard let rowSlot else { return }
+        if presented.wrappedValue {
+            let presented = presented
+            rowSlot.publish(owner: slotOwner, content: AnyView(inlineRows)) {
+                presented.wrappedValue = false
+            }
         } else {
-            sheetBody
+            rowSlot.clear(owner: slotOwner)
         }
     }
 
@@ -437,39 +529,10 @@ public struct GlassPicker<Value: Hashable & Sendable, Trigger: View>: View {
     /// a single pick folds (`fold`); a multi pick stays.
     private var inlineBody: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if !hideTrigger {
-                Button {
-                    presented.wrappedValue.toggle()
-                } label: {
-                    trigger()
-                }
-                .buttonStyle(.plain)
-                .disabled(disabled)
-            }
+            inlineTrigger
             if presented.wrappedValue {
-                GlassPickerSheetBody(
-                    items: items,
-                    mode: mode,
-                    value: value,
-                    onChange: onChange,
-                    search: search,
-                    emptyText: emptyText,
-                    title: title,
-                    searchPlaceholder: searchPlaceholder,
-                    query: query,
-                    loading: loading,
-                    panel: panel,
-                    footer: footer,
-                    footerReplacesEmpty: footerReplacesEmpty,
-                    renderMark: renderMark,
-                    renderItem: renderItem,
-                    inline: true,
-                    fold: {
-                        presented.wrappedValue = false
-                        onDismiss?()
-                    }
-                )
-                .frame(maxHeight: GlassPickerTokens.inlineMaxHeight)
+                inlineRows
+                    .frame(maxHeight: GlassPickerTokens.inlineMaxHeight)
             }
         }
         .accessibilityIdentifier("picker")

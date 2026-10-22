@@ -8,3 +8,6 @@ android/local.properties
 gpui/target/
 ios/build/
 web/package-lock.json
+web-solid/node_modules/
+web-solid/dist/
+web-solid/package-lock.json

@@ -416,3 +416,27 @@ export function compiledTheme(theme: ResolvedTheme, options?: { extensionMacros?
   }
   return hit
 }
+
+/** FEED-128: the theme as an app's UNSCOPED shadcn globals: the shadcn /
+ *  Tailwind variable names (the same `SHADCN_ALIASES` the surface sheet
+ *  maps) with LITERAL values (hex colours, px radius, font stacks; never a
+ *  `var(--xui-*)`), light under `:root` and dark under `.dark` by default.
+ *  A non-Exponential-UI app (shadcn-solid, plain Tailwind) pastes it as its
+ *  globals.css and wears the theme. */
+export function globalsCss(theme: ResolvedTheme, options: { light?: string; dark?: string } = {}): string {
+  const block = (mode: `light` | `dark`, shared: boolean): string => {
+    const color = theme.modes[mode].color as Record<string, string>
+    const decls: [string, string][] = []
+    for (const [alias, token] of SHADCN_ALIASES) if (color[token] !== undefined) decls.push([alias, color[token]])
+    if (shared) {
+      const radius = (theme.tokens.radius as Record<string, number>).lg
+      if (radius !== undefined) decls.push([`--radius`, `${radius}px`])
+      for (const name of [`sans`, `mono`]) {
+        const family = (theme.tokens.type.family as Record<string, string>)[name]
+        if (family) decls.push([`--font-${name}`, fontStack(family, theme.fonts)])
+      }
+    }
+    return decls.map(([p, v]) => `  ${p}: ${v};`).join(`\n`)
+  }
+  return `${options.light ?? `:root`} {\n${block(`light`, true)}\n}\n\n${options.dark ?? `.dark`} {\n${block(`dark`, false)}\n}\n`
+}

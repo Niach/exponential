@@ -15,10 +15,13 @@ import { useSurfaceContext } from "../context"
 import { FieldErrors, joinIds, useField } from "../form"
 import type { NativeProps } from "../node-view"
 import { useBoundState } from "./bound"
-import { linkHref } from "../urls"
+import { linkHref } from "@exponential-at/ui/web"
 import { useListNavigation } from "./listbox"
-import { partClass } from "../theme-css"
+import { partClass } from "@exponential-at/ui/web"
 import { arr, bool, BuiltinIcon, formatFileSize, num, phrase, str, useParts, TextPart, objects } from "./shared"
+import { acceptsFile } from "@exponential-at/ui/web"
+
+export { acceptsFile }
 
 export function ChipInputNative({ node, props, rootProps, emit, scope, domId }: NativeProps) {
   const part = useParts(node, props)
@@ -166,18 +169,6 @@ interface FileMeta {
   size?: number
   type?: string
   url?: string
-}
-
-/** Does a file match an `accept` list (`image/*,.pdf`)? */
-export function acceptsFile(accept: string, file: { name: string; type: string }): boolean {
-  const rules = accept
-    .split(`,`)
-    .map((r) => r.trim().toLowerCase())
-    .filter(Boolean)
-  if (rules.length === 0) return true
-  const name = file.name.toLowerCase()
-  const type = (file.type || ``).toLowerCase()
-  return rules.some((r) => (r.startsWith(`.`) ? name.endsWith(r) : r.endsWith(`/*`) ? type.startsWith(r.slice(0, -1)) : type === r))
 }
 
 export function FileUploadNative({ node, props, rootProps, emit, scope, domId }: NativeProps) {

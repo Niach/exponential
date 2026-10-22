@@ -1,6 +1,6 @@
 import { PickerList, PickerTrigger, StatusPicker, conceptIcon, statusPickerItems } from "@exp/ui"
 
-import { PickerSpecimen, typedPickerStatus } from "./picker-shared.tsx"
+import { OptionsRowSpecimen, PickerSpecimen, typedPickerStatus } from "./picker-shared.tsx"
 import type { StyleguideEntry } from "./types.ts"
 
 const noop = (): void => {}
@@ -60,6 +60,7 @@ export const entry: StyleguideEntry = {
     android: `StatusPicker.kt`,
   }),
   island: () => (
+    <div className="grid gap-6">
     <PickerSpecimen
       trigger={
         <StatusPicker
@@ -94,5 +95,10 @@ export const entry: StyleguideEntry = {
       }
       caption="The last row is a CUSTOM status: its hex tints the glyph exactly as a builtin's token does. The third cell is the INLINE presentation (N-6): inside a dialog the host decides and every picker opens in the flow under its trigger, the dialog growing with it — the IDE's dialog windows and the phones' sheets do the same."
     />
+    <OptionsRowSpecimen />
+    <p className="text-xs text-muted-foreground">
+      N-14: the start-session dialog's options row, collapsed and with the Model pin open. Collapsed, every pin is its bare trigger; opened, its rows disclose into the one slot under the whole row, as wide as the row, so no pin moves. Opening another pin replaces them.
+    </p>
+    </div>
   ),
 }

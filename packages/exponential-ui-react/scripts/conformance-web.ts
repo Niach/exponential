@@ -11,7 +11,7 @@
 // `bun run --filter @exponential-at/ui conformance` calls this, then the
 // desktop dump, then the comparator.
 
-import { chromium } from "playwright"
+import { launchChromium } from "../../exponential-ui/conformance/browser-page"
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { allCases, MANIFEST_PATH, type ConformanceManifest } from "../../exponential-ui/conformance/dump"
@@ -32,7 +32,7 @@ const shots = arg(`shots`)
 if (shots) mkdirSync(shots, { recursive: true })
 
 const server = startConformanceServer(4700 + Math.floor(Math.random() * 300))
-const browser = await chromium.launch({ args: CHROMIUM_ARGS })
+const browser = await launchChromium(CHROMIUM_ARGS)
 const producer = `Chromium ${browser.version()} headless (playwright), ${CHROMIUM_ARGS.join(` `)}, deviceScaleFactor 1`
 const started = Date.now()
 const dump = { format: `xui-frame-dump/1`, renderer: WEB_RENDERER, fonts: `conformance/fonts.json`, cases: {} as Record<string, import("../../exponential-ui/conformance/dump").CaseDump> }

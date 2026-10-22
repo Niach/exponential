@@ -2076,7 +2076,7 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_exponential_ui_ffi_checksum_constructor_surface_with_theme() != 19728.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_exponential_ui_ffi_checksum_constructor_theme_builtin() != 29878.toShort()) {
+    if (lib.uniffi_exponential_ui_ffi_checksum_constructor_theme_builtin() != 49233.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_exponential_ui_ffi_checksum_constructor_theme_load() != 18071.toShort()) {
@@ -6743,7 +6743,7 @@ open class Theme: Disposable, AutoCloseable, ThemeInterface
     companion object {
         
     /**
-     * A built-in theme (`neutral`, `exponential`, `playful`).
+     * A built-in theme (`neutral`, `exponential`, `playful`, `orange`).
      */
     @Throws(UiException::class) fun `builtin`(`id`: kotlin.String): Theme {
             return FfiConverterTypeTheme.lift(

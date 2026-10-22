@@ -289,6 +289,71 @@ final class PickerContractTests: XCTestCase {
         XCTAssertFalse(PickerSelection.closesOnPick(.multi))
     }
 
+    /// N-14: `placementCases` from fixtures/picker-presentation.json — the
+    /// same rule web, the IDE and Android replay. iOS's `popover` is its
+    /// bottom sheet (`.sheet`).
+    func testPlacementReplaysTheFixture() throws {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()          // ExpUI/Tests/
+            .deletingLastPathComponent()          // ExpUI/
+            .deletingLastPathComponent()          // apps/ios/
+            .deletingLastPathComponent()          // apps/
+            .deletingLastPathComponent()          // the repo root
+            .appendingPathComponent("packages/domain-contract/fixtures/picker-presentation.json")
+        let json = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: try Data(contentsOf: url)) as? [String: Any]
+        )
+        XCTAssertEqual(json["inlineMaxHeight"] as? Double, Double(GlassPickerTokens.inlineMaxHeight))
+        func presentation(_ wire: String?) -> PickerPresentation? {
+            switch wire {
+            case "popover": .sheet
+            case "inline": .inline
+            default: nil
+            }
+        }
+        let cases = try XCTUnwrap(json["placementCases"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for testCase in cases {
+            let name = try XCTUnwrap(testCase["name"] as? String)
+            let input = try XCTUnwrap(testCase["input"] as? [String: Any], name)
+            let expect = try XCTUnwrap(testCase["expect"] as? [String: String], name)
+            let got = pickerPlacement(
+                inDialog: try XCTUnwrap(input["inDialog"] as? Bool, name),
+                inRow: try XCTUnwrap(input["inRow"] as? Bool, name),
+                requested: presentation(input["requested"] as? String)
+            )
+            XCTAssertEqual(got.presentation, presentation(expect["presentation"]), name)
+            XCTAssertEqual(got.body.rawValue, expect["body"], name)
+        }
+    }
+
+    /// N-14: one slot shows ONE picker's rows — an open publishes, a second
+    /// open replaces them and folds the first, a fold clears, and a replaced
+    /// picker's own late fold never clears its successor.
+    func testARowSlotShowsOnePickersRows() {
+        let slot = InlinePickerSlot()
+        XCTAssertFalse(slot.isOpen)
+        XCTAssertNil(slot.content)
+        let device = UUID(), model = UUID()
+        var deviceFolded = 0
+        slot.publish(owner: device, content: AnyView(Text("device rows"))) { deviceFolded += 1 }
+        XCTAssertEqual(slot.owner, device)
+        XCTAssertNotNil(slot.content)
+        // The same picker republishing (a new pick, new rows) folds nothing.
+        slot.publish(owner: device, content: AnyView(Text("device rows"))) { deviceFolded += 1 }
+        XCTAssertEqual(deviceFolded, 0)
+        slot.publish(owner: model, content: AnyView(Text("model rows"))) {}
+        XCTAssertEqual(slot.owner, model)
+        XCTAssertEqual(deviceFolded, 1)
+        slot.clear(owner: device)
+        XCTAssertEqual(slot.owner, model)
+        XCTAssertNotNil(slot.content)
+        slot.clear(owner: model)
+        XCTAssertFalse(slot.isOpen)
+        XCTAssertNil(slot.content)
+        XCTAssertNil(InlinePickerSlotKey.defaultValue)
+    }
+
     func testSingleModeClosesOnAPickMultiModeStaysOpen() {
         XCTAssertTrue(PickerSelection.closesOnPick(.single))
         XCTAssertFalse(PickerSelection.closesOnPick(.multi))

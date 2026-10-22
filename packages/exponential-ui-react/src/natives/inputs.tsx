@@ -10,7 +10,7 @@
 import { useEffect, useId, useMemo, useRef, useState, type ChangeEvent, type KeyboardEvent } from "react"
 import { Checkbox as CheckboxPrimitive, RadioGroup as RadioPrimitive, Slider as SliderPrimitive, Switch as SwitchPrimitive } from "radix-ui"
 import { useSurfaceContext } from "../context"
-import { boundPath, hostPath } from "../data"
+import { boundPath, hostPath } from "@exponential-at/ui/web"
 import { FieldErrors, joinIds, useField } from "../form"
 import { CHROME, IconGlyph } from "../icons"
 import { useHostOwnedValue } from "../inputs"
@@ -19,6 +19,7 @@ import { mergeStyle } from "../node-view"
 import { useBoundState } from "./bound"
 import { bool, BuiltinIcon, num, str, useParts, TextPart, objects } from "./shared"
 import type { SurfaceInputEvent } from "../host"
+import { parseLocaleNumber } from "@exponential-at/ui/web"
 
 export function useInputSender(node: NativeProps[`node`], scope: string, prop: string, domId: string = node.id) {
   const ctx = useSurfaceContext()
@@ -135,38 +136,6 @@ const decimalsOf = (n: number) => {
   const s = String(n)
   const i = s.indexOf(`.`)
   return i < 0 ? 0 : s.length - i - 1
-}
-
-const localeDigits = new Map<string, Map<string, string>>()
-
-/** The locale's own digits (`٠`…`٩` for `ar-EG`) → ASCII `0`…`9`. */
-function digitMap(locale: string): Map<string, string> {
-  let hit = localeDigits.get(locale)
-  if (!hit) {
-    hit = new Map()
-    const fmt = new Intl.NumberFormat(locale, { useGrouping: false })
-    for (let d = 0; d <= 9; d++) {
-      const glyph = fmt.format(d)
-      if (glyph !== String(d)) hit.set(glyph, String(d))
-    }
-    localeDigits.set(locale, hit)
-  }
-  return hit
-}
-
-/** A typed number in the surface locale (its group and decimal separators
- *  AND its digits; ASCII digits are always accepted too) → the number, or
- *  null. */
-export function parseLocaleNumber(text: string, locale: string): number | null {
-  const parts = new Intl.NumberFormat(locale).formatToParts(12345.6)
-  const group = parts.find((p) => p.type === `group`)?.value ?? `,`
-  const decimal = parts.find((p) => p.type === `decimal`)?.value ?? `.`
-  const digits = digitMap(locale)
-  const ascii = digits.size ? Array.from(text, (ch) => digits.get(ch) ?? ch).join(``) : text
-  const clean = ascii.trim().split(group).join(``).replace(/[\s\u200e\u200f\u061c]/g, ``).replace(decimal, `.`).replace(/[−–]/g, `-`)
-  if (clean === `` || clean === `-`) return null
-  const n = Number(clean)
-  return Number.isFinite(n) ? n : null
 }
 
 export function NumberFieldNative({ node, props, rootProps, emit, scope, domId }: NativeProps) {
@@ -544,4 +513,4 @@ export function ComposerNative({ node, props, rootProps, emit, scope, domId }: N
   )
 }
 
-export { CHROME, mergeStyle }
+export { CHROME, mergeStyle, parseLocaleNumber }

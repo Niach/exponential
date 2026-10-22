@@ -39,6 +39,13 @@ export const RENDERERS: readonly Renderer[] = [
     guide: `react`,
   },
   {
+    platform: `Web`,
+    framework: `SolidJS`,
+    pkg: `@exponential-at/ui-solid`,
+    source: `packages/exponential-ui-solid`,
+    guide: `solid`,
+  },
+  {
     platform: `iOS + macOS`,
     framework: `SwiftUI`,
     pkg: `ExponentialUI`,
@@ -83,6 +90,12 @@ export const PACKAGES: readonly PackageRow[] = [
     fromRepo: `the same tarballs, installed with npm`,
   },
   {
+    name: `@exponential-at/ui-solid`,
+    registry: `npm`,
+    what: `The SolidJS renderer, on Kobalte, with the same DOM and stylesheet as React.`,
+    fromRepo: `the same tarballs, installed with npm`,
+  },
+  {
     name: `exponential-ui`,
     registry: `crates.io`,
     what: `The Rust core: reducer, themes, taffy layout, layers, lists.`,
@@ -117,6 +130,7 @@ export const PACKAGES: readonly PackageRow[] = [
 /** The guides/check.ts check that compiles a guide's example from a fresh project. */
 export const GUIDE_CHECK: Record<string, string> = {
   react: `react`,
+  solid: `solid`,
   swiftui: `swift`,
   compose: `compose`,
   gpui: `gpui`,
@@ -130,6 +144,7 @@ export const GUIDE_CHECK: Record<string, string> = {
 /** The directory under apps/ui-site/guides/ a check builds. */
 export const CHECK_DIR: Record<string, string> = {
   react: `react`,
+  solid: `solid`,
   swift: `swift`,
   compose: `compose`,
   gpui: `gpui`,

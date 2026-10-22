@@ -4,6 +4,7 @@
 //! agent settings page + the New agent dialog. Callback-style so each host
 //! owns its own state (dialog draft vs an immediate write).
 
+use crate::controls::PointerMenuButtonExt as _;
 use std::rc::Rc;
 
 use gpui::{
@@ -459,7 +460,7 @@ fn branch_dropdown<V: gpui::Render>(
     // `Fn` closure + per-item handlers: the pick callback is shared, not moved.
     let on_pick = std::rc::Rc::new(on_pick);
     button
-        .dropdown_menu(move |menu, _window, cx| {
+        .pointer_menu(move |menu, _window, cx| {
             let mut menu = crate::pickers::single_select_menu(menu.scrollable(true).max_h(px(320.)));
             let Some(view) = view.upgrade() else {
                 return menu;
