@@ -11,6 +11,9 @@
 //          keeps one node), generated ids normalised (parity-compare.ts);
 //   style  every `[data-xui-id]` element's (and every overlay part's) full
 //          computed style;
+//   (FEED-131: a PRIMITIVE case's page wears `data-xui-parity-root` on
+//   <body>: the dom is the whole body incl. its attributes, and EVERY
+//   element under it is compared, keyed by its path `body/div[0]/button[1]`);
 //   frame  the same elements' getBoundingClientRect, 0 px tolerance;
 //   pixels full-page screenshots through pixelmatch (threshold 0, AA
 //          excluded): 0 differing pixels.
@@ -41,15 +44,53 @@ export const FORCED_STATES = [`hover`, `focus`, `pressed`, `checked`, `open`, `d
 export const CONTROL_COMPONENTS = [`Button`, `Toggle`, `Segmented`, `Input`, `Textarea`, `Select`, `DatePicker`, `Checkbox`, `Radio`, `Switch`, `Slider`, `Tabs`, `NumberField`, `ChipInput`, `TimePicker`, `DateRangePicker`]
 
 export interface ParityCase {
-  /** `matrix:<conformance key>`, `specimen:<id>`, `state:<id>:<state>`, `overlay:<n>`. */
+  /** `matrix:<conformance key>`, `specimen:<id>`, `state:<id>:<state>`,
+   *  `overlay:<n>`, `primitive:<id>:<theme>-<mode>[:<interact>]`. */
   id: string
-  group: `matrix` | `specimen` | `state` | `overlay`
+  group: `matrix` | `specimen` | `state` | `overlay` | `primitive`
   query: Query
   viewport: { width: number; height: number }
   /** A forced state written onto every part before the dump. */
   state?: string
   /** An overlay case: wait for `window.__xuiOverlay()` to place it. */
   overlay?: boolean
+  /** A primitive specimen that opens an overlay on mount: wait for
+   *  `window.__xuiOverlay?.()` (when the page defines it), then two frames. */
+  open?: boolean
+  /** Hover / focus the FIRST `[data-xui-target]` inside the specimen
+   *  before the dump (primitive cases). */
+  interact?: `hover` | `focus`
+}
+
+/** One `primitive-specimens.json` row (FEED-131). */
+export interface PrimitiveSpecimen {
+  /** `<primitive>/<variant>`. */
+  id: string
+  /** The harness module owning it (`harness/primitives/<primitive>.tsx`). */
+  primitive: string
+  viewport: { width: number; height: number }
+  open: boolean
+  interact: `hover` | `focus` | null
+}
+
+/** The theme × mode pairs every primitive specimen runs in. */
+export const PRIMITIVE_THEMES: readonly { theme: string; mode: `light` | `dark` }[] = [
+  { theme: `exponential`, mode: `light` },
+  { theme: `orange`, mode: `dark` },
+]
+
+/** The primitive cases alone (group `primitive`): every specimen × PRIMITIVE_THEMES,
+ *  plus its `interact` variant when the row names one. */
+export function primitiveCases(specimens: readonly PrimitiveSpecimen[] = fixture<{ specimens: PrimitiveSpecimen[] }>(`primitive-specimens.json`).specimens): ParityCase[] {
+  const out: ParityCase[] = []
+  for (const s of specimens)
+    for (const { theme, mode } of PRIMITIVE_THEMES) {
+      const base: ParityCase = { id: `primitive:${s.id}:${theme}-${mode}`, group: `primitive`, query: { view: `primitives`, id: s.id, theme, mode, width: s.viewport.width }, viewport: s.viewport }
+      if (s.open) base.open = true
+      out.push(base)
+      if (s.interact) out.push({ ...base, id: `${base.id}:${s.interact}`, interact: s.interact })
+    }
+  return out
 }
 
 
@@ -85,7 +126,8 @@ const repoJson = async (path: string) => JSON.parse(readFileSync(join(repoRoot, 
  *  widths × directions, each through the harness's `?view=tree` with the
  *  case's tree + data exactly as the conformance page builds them), every
  *  specimen at `specimenWidth`, the control specimens in each forced state,
- *  and every overlay-geometry case with its overlay open. */
+ *  every overlay-geometry case with its overlay open, and the primitive
+ *  specimens (`primitiveCases`). */
 export async function parityCases(opts: { specimenWidth?: number; states?: readonly string[]; controls?: readonly string[] } = {}): Promise<ParityCase[]> {
   const out: ParityCase[] = []
   const manifest = (await repoJson(MANIFEST_PATH)) as ConformanceManifest
@@ -109,16 +151,20 @@ export async function parityCases(opts: { specimenWidth?: number; states?: reado
     for (const state of opts.states ?? FORCED_STATES) out.push({ id: `state:${s.id}:${state}`, group: `state`, query: query(s.id), viewport: { width, height: 900 }, state })
   const overlays = fixture<{ cases: { name: string; viewport: { width: number; height: number } }[] }>(`overlay-geometry.json`).cases
   for (const [i, c] of overlays.entries()) out.push({ id: `overlay:${i}`, group: `overlay`, query: { view: `overlay`, case: i }, viewport: c.viewport, overlay: true })
+  out.push(...primitiveCases())
   return out
 }
 
 /** The in-page probe (a string, so no transpiler helper leaks into it):
  *  `window.__xuiParity` = { dom, table, values, force }. */
 const PROBE = `(() => {
-  const surfaces = () => Array.from(document.querySelectorAll('.xui-surface')).filter((s) => !s.parentElement || !s.parentElement.closest('.xui-surface'));
+  const rooted = () => !!document.body && document.body.hasAttribute('data-xui-parity-root');
+  const skipped = (el) => el.tagName === 'SCRIPT' || (el.tagName === 'STYLE' && el.hasAttribute('data-xui-parity'));
+  const surfaces = () => rooted() ? [document.body] : Array.from(document.querySelectorAll('.xui-surface')).filter((s) => !s.parentElement || !s.parentElement.closest('.xui-surface'));
   const ser = (n) => {
     if (n.nodeType === 3) return n.data.length ? { x: n.data } : null;
     if (n.nodeType !== 1) return null;
+    if (rooted() && skipped(n)) return null;
     const a = Array.from(n.attributes).map((x) => [x.name, x.value]).sort((p, q) => (p[0] < q[0] ? -1 : p[0] > q[0] ? 1 : 0));
     const c = [];
     for (const k of Array.from(n.childNodes)) {
@@ -132,6 +178,15 @@ const PROBE = `(() => {
   };
   const compared = () => {
     const out = [];
+    if (rooted()) {
+      const walk = (el, key) => {
+        out.push([key, el]);
+        let i = 0;
+        for (const k of Array.from(el.children)) if (!skipped(k)) walk(k, key + '/' + k.tagName.toLowerCase() + '[' + i++ + ']');
+      };
+      walk(document.body, 'body');
+      return out;
+    }
     for (const s of surfaces()) for (const el of [s, ...Array.from(s.querySelectorAll('*'))]) {
       const id = el.getAttribute('data-xui-id');
       if (id !== null) { out.push([id, el]); continue; }
@@ -143,7 +198,9 @@ const PROBE = `(() => {
     }
     return out;
   };
-  const properties = () => Array.from(getComputedStyle(document.documentElement));
+  // Sorted on a primitive page: its :root carries custom properties, which
+  // Chromium enumerates in a per-document order (the hash is order-bound).
+  const properties = () => { const p = Array.from(getComputedStyle(document.documentElement)); return rooted() ? p.sort() : p; };
   const hash = (str) => {
     let h1 = 0xdeadbeef, h2 = 0x41c6ce57;
     for (let i = 0; i < str.length; i++) { const ch = str.charCodeAt(i); h1 = Math.imul(h1 ^ ch, 2654435761); h2 = Math.imul(h2 ^ ch, 1597334677); }
@@ -212,14 +269,21 @@ async function openSide(browser: Browser, baseUrl: string, c: ParityCase, fontCs
     if (m.type() === `error` && !m.text().startsWith(`Failed to load resource`)) errors.push(m.text())
   })
   await page.goto(pageUrl(baseUrl, c.query))
-  await page.waitForSelector(`.xui-surface [data-xui-id]`, { state: `attached`, timeout: 30_000 })
+  const primitive = c.group === `primitive`
+  await page.waitForSelector(primitive ? `body[data-xui-parity-root] [data-xui-specimen]` : `.xui-surface [data-xui-id]`, { state: `attached`, timeout: 30_000 })
   await page.evaluate(`(() => { const s = document.createElement('style'); s.setAttribute('data-xui-parity', 'still'); s.textContent = ${JSON.stringify(STILL_CSS)}; document.body.appendChild(s); })()`)
   await page.evaluate(`Promise.all(Array.from(document.fonts).map((f) => f.load().catch(() => undefined))).then(() => document.fonts.ready)`)
   if (c.overlay) await page.waitForFunction(`typeof window.__xuiOverlay === 'function' && window.__xuiOverlay() !== null`, undefined, { timeout: 30_000 })
+  if (c.open) await page.waitForFunction(`typeof window.__xuiOverlay !== 'function' || window.__xuiOverlay() !== null`, undefined, { timeout: 30_000 })
   await frames(page, 2)
   await page.evaluate(PROBE)
   if (c.state) {
     await page.evaluate(`window.__xuiParity.force(${JSON.stringify(c.state)})`)
+    await frames(page, 2)
+  }
+  if (c.interact) {
+    const target = page.locator(`[data-xui-specimen] [data-xui-target]`).first()
+    await (c.interact === `hover` ? target.hover({ force: true }) : target.focus())
     await frames(page, 2)
   }
   return { page, context, errors }
@@ -254,7 +318,7 @@ async function compareCase(browser: Browser, ref: RunningHarness, cand: RunningH
     // the browser's own media controls run a loading spinner in the UA
     // shadow root no author CSS stops; their DOM, style and frames are still
     // compared above.
-    const shot = (p: Page) => p.screenshot({ fullPage: true, animations: `disabled`, caret: `hide`, mask: [p.locator(`.xui-surface video, .xui-surface audio`)], maskColor: `#ff00ff` })
+    const shot = (p: Page) => p.screenshot({ fullPage: true, animations: `disabled`, caret: `hide`, mask: [p.locator(`.xui-surface video, .xui-surface audio, [data-xui-specimen] video, [data-xui-specimen] audio`)], maskColor: `#ff00ff` })
     const [pA, pB] = await Promise.all([shot(a.page), shot(b.page)])
     const [rA, rB] = await Promise.all([raster(pA), raster(pB)])
     const size = `${rA.width}x${rA.height}`

@@ -15,7 +15,7 @@
 // roving tab stop, the slider's thumb wrapper and its in-bounds offset)
 // and, inside a <form>, Radix's hidden BUBBLE inputs after the control.
 
-import { For, Show, createEffect, createMemo, createSignal, createUniqueId, on, onCleanup, onMount, untrack, type Accessor, type JSX } from "solid-js"
+import { For, Show, createEffect, createMemo, createSignal, createUniqueId, onCleanup, onMount, untrack, type JSX } from "solid-js"
 import { boundPath, hostPath, parseLocaleNumber } from "@exponential-at/ui/web"
 import { useSurfaceContext } from "../context"
 import { FieldErrors, createField, joinIds } from "../form"
@@ -25,6 +25,7 @@ import type { NativeProps } from "../node-view"
 import type { SurfaceInputEvent } from "../host"
 import { createBoundState } from "./bound"
 import { bool, BuiltinIcon, css, num, objects, parts, str, TextPart } from "./shared"
+import { BACK_KEYS, BubbleCheck, clampTo, createElementSize, createInForm, decimalCount, inBoundsOffset, KEY_INTENT, linearScale, PAGE_KEYS, percentOf, roundValue, rovingFocusFirst, SliderBubble } from "../behaviors"
 
 /** React's `useInputSender`: the host `onInput` sender of a host-owned
  *  field and its local write-through (the bound data path). */
@@ -43,63 +44,6 @@ export function createInputSender(props: NativeProps, prop: string) {
   }
   return { send, writeLocal, path, name }
 }
-
-/** Radix's `useSize`: the element's border-box size once mounted, then
- *  followed by a ResizeObserver (undefined before the first measure). */
-export function createElementSize(el: Accessor<HTMLElement | undefined>): Accessor<{ width: number; height: number } | undefined> {
-  const [size, setSize] = createSignal<{ width: number; height: number } | undefined>(undefined, { equals: (a, b) => a?.width === b?.width && a?.height === b?.height })
-  createEffect(() => {
-    const node = el()
-    if (!node) return setSize(undefined)
-    setSize({ width: node.offsetWidth, height: node.offsetHeight })
-    if (typeof ResizeObserver === `undefined`) return
-    const ro = new ResizeObserver((entries) => {
-      const entry = entries[0]
-      if (!entry) return
-      let width: number
-      let height: number
-      if (`borderBoxSize` in entry && entry.borderBoxSize) {
-        const box = (Array.isArray(entry.borderBoxSize) ? entry.borderBoxSize[0] : entry.borderBoxSize) as ResizeObserverSize
-        width = box.inlineSize
-        height = box.blockSize
-      } else {
-        width = node.offsetWidth
-        height = node.offsetHeight
-      }
-      setSize({ width, height })
-    })
-    ro.observe(node, { box: `border-box` })
-    onCleanup(() => ro.unobserve(node))
-  })
-  return size
-}
-
-/** Radix's `isFormControl`: the control sits in a <form> (decided once
- *  mounted; Radix renders its bubble input only then). */
-function createInForm(el: Accessor<HTMLElement | undefined>): Accessor<boolean> {
-  const [inForm, setInForm] = createSignal(false)
-  onMount(() => setInForm(Boolean(el()?.closest(`form`))))
-  return inForm
-}
-
-/** Radix's bubble-input effect: a state change replays on the hidden input
- *  (the native setter + a bubbling event) so <form> listeners see it. */
-function bubbleOnChange<T>(input: () => HTMLInputElement | HTMLSelectElement | undefined, value: Accessor<T>, apply: (el: HTMLInputElement | HTMLSelectElement, v: T) => void, event: string, bubbles: () => boolean = () => true) {
-  createEffect(
-    on(
-      value,
-      (v) => {
-        const el = input()
-        if (!el) return
-        apply(el, v)
-        el.dispatchEvent(new Event(event, { bubbles: bubbles() }))
-      },
-      { defer: true }
-    )
-  )
-}
-
-const setChecked = (el: HTMLInputElement | HTMLSelectElement, v: boolean) => Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, `checked`)?.set?.call(el, v)
 
 export function InputNative(p: NativeProps): JSX.Element {
   return <TextFieldNative {...p} multiline={false} />
@@ -372,21 +316,6 @@ export function NumberFieldNative(props: NativeProps): JSX.Element {
 // Checkbox, Switch, Radio, Slider
 // ---------------------------------------------------------------------------
 
-/** Radix's hidden checkbox/radio bubble input (inside a <form> only). */
-function BubbleCheck(props: { type: `checkbox` | `radio`; control: HTMLElement | undefined; checked: boolean; name?: string; value: string; disabled: boolean; transformFirst: boolean; bubbles: () => boolean }): JSX.Element {
-  let input: HTMLInputElement | undefined
-  const size = createElementSize(() => props.control)
-  const initial = untrack(() => props.checked)
-  bubbleOnChange(() => input, () => props.checked, setChecked, `click`, props.bubbles)
-  const style = () => {
-    const s = size()
-    const box = s ? { width: s.width, height: s.height } : {}
-    const fixed = { position: `absolute`, pointerEvents: `none`, opacity: 0, margin: 0 }
-    return css(props.transformFirst ? { transform: `translateX(-100%)`, ...box, ...fixed } : { ...box, ...fixed, transform: `translateX(-100%)` })
-  }
-  return <input ref={input} type={props.type} aria-hidden="true" attr:checked={initial ? `` : undefined} name={props.name} value={props.value} disabled={props.disabled} tabindex={-1} style={style()} />
-}
-
 export function CheckboxNative(props: NativeProps): JSX.Element {
   const part = parts(props)
   const id = createUniqueId()
@@ -514,19 +443,7 @@ interface Option {
   disabled?: boolean
 }
 
-const ROVING_KEYS: Record<string, `prev` | `next` | `first` | `last`> = { ArrowLeft: `prev`, ArrowUp: `prev`, ArrowRight: `next`, ArrowDown: `next`, PageUp: `first`, Home: `first`, PageDown: `last`, End: `last` }
 const ARROWS = [`ArrowUp`, `ArrowDown`, `ArrowLeft`, `ArrowRight`]
-
-/** Radix's `focusFirst`: the first candidate that takes focus. */
-function focusFirst(candidates: (HTMLElement | null | undefined)[]) {
-  const previous = document.activeElement
-  for (const candidate of candidates) {
-    if (!candidate) continue
-    if (candidate === previous) return
-    candidate.focus()
-    if (document.activeElement !== previous) return
-  }
-}
 
 export function RadioNative(props: NativeProps): JSX.Element {
   const part = parts(props)
@@ -589,7 +506,7 @@ export function RadioNative(props: NativeProps): JSX.Element {
             const nodes = itemNodes()
             const active = nodes.find((n) => n.value === untrack(value))
             const current = nodes.find((n) => n.value === untrack(tabStop))
-            focusFirst([active, current, ...nodes])
+            rovingFocusFirst([active, current, ...nodes])
           }
           clickFocus = false
         }}
@@ -642,7 +559,7 @@ export function RadioNative(props: NativeProps): JSX.Element {
                     const vertical = orientation() === `vertical`
                     if (vertical && (key === `ArrowLeft` || key === `ArrowRight`)) return
                     if (!vertical && (key === `ArrowUp` || key === `ArrowDown`)) return
-                    const intent = ROVING_KEYS[key]
+                    const intent = KEY_INTENT[key]
                     if (intent !== undefined) {
                       if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return
                       e.preventDefault()
@@ -653,7 +570,7 @@ export function RadioNative(props: NativeProps): JSX.Element {
                         const at = candidates.indexOf(e.currentTarget)
                         candidates = candidates.map((_, k) => candidates[(at + 1 + k) % candidates.length])
                       }
-                      setTimeout(() => focusFirst(candidates))
+                      setTimeout(() => rovingFocusFirst(candidates))
                     } else if (e.key === `Enter`) e.preventDefault()
                   }}
                   onClick={(e) => {
@@ -681,26 +598,6 @@ export function RadioNative(props: NativeProps): JSX.Element {
       <FieldErrors part={part} field={f} />
     </div>
   )
-}
-
-const PAGE_KEYS = [`PageUp`, `PageDown`]
-const BACK_KEYS: Record<`from-left` | `from-right`, string[]> = { "from-left": [`Home`, `PageDown`, `ArrowDown`, `ArrowLeft`], "from-right": [`Home`, `PageDown`, `ArrowDown`, `ArrowRight`] }
-const linearScale = (input: [number, number], output: [number, number]) => (v: number) => {
-  if (input[0] === input[1] || output[0] === output[1]) return output[0]
-  const ratio = (output[1] - output[0]) / (input[1] - input[0])
-  return output[0] + ratio * (v - input[0])
-}
-const decimalCount = (v: number) => (String(v).split(`.`)[1] || ``).length
-const roundValue = (v: number, decimals: number) => {
-  const r = Math.pow(10, decimals)
-  return Math.round(v * r) / r
-}
-const clampTo = (v: number, [lo, hi]: [number, number]) => Math.min(hi, Math.max(lo, v))
-const percentOf = (v: number, min: number, max: number) => clampTo((100 / (max - min)) * (v - min), [0, 100])
-const inBoundsOffset = (width: number, left: number, direction: number) => {
-  const half = width / 2
-  const offset = linearScale([0, 50], [0, half])
-  return (half - offset(left) * direction) * direction
 }
 
 /** Radix's single-thumb horizontal Slider. */
@@ -827,13 +724,6 @@ export function SliderNative(props: NativeProps): JSX.Element {
       </span>
     </div>
   )
-}
-
-function SliderBubble(props: { name?: string; value: number }): JSX.Element {
-  let input: HTMLInputElement | undefined
-  const initial = untrack(() => String(props.value))
-  bubbleOnChange(() => input, () => props.value, (el, v) => Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, `value`)?.set?.call(el, v), `input`)
-  return <input ref={input} style={css({ display: `none` })} name={props.name} attr:value={initial} />
 }
 
 // ---------------------------------------------------------------------------

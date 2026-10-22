@@ -17,7 +17,7 @@ apps/desktop      gpui IDE; crates/cli = the `exponential` daemon; crates/coding
 packages/db-schema        Drizzle schema + zod/domain types (authoritative; never mirrored here)
 packages/domain-contract  contract.json → per-language enums + the fixtures (×4 replay) + pure TS references
 packages/ui               @exp/ui: theme, shadcn set, shared primitives, islands
-packages/design-tokens · icons (icons.json → TS/Swift/Kotlin/Rust) · emoji · electric-protocol · steer-ticket · widget · view-catalog (views.json, drift-gated) · site-shell · shots (capture pipeline) · exponential-ui{,-react,-solid,-swift,-compose} (the SDK; `-solid` = the Solid renderer, parity-gated against React)
+packages/design-tokens · icons (icons.json → TS/Swift/Kotlin/Rust) · emoji · electric-protocol · steer-ticket · widget · view-catalog (views.json, drift-gated) · site-shell · shots (capture pipeline) · exponential-ui{,-react,-solid,-swift,-compose} (the SDK; `-solid` = the Solid renderer + `./primitives` on `src/behaviors/`, parity-gated against React; both web renderers take their classes from the shared recipes `@exponential-at/ui/web/primitives`)
 shots/            COMMITTED webp store, <view>/<platform>.webp + index.json
 docs/             third-party-licences.md + licences/     selfhost/  pull-an-image compose + INSTALL.md
 ```

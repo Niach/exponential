@@ -12,49 +12,16 @@
 // {nodeId, name})`, the event `upload {files: [{name, size, type}]}`; the
 // attached `files` (bindable) are listed, each removable (`remove {name}`).
 
-import { For, Show, createEffect, createMemo, createSignal, createUniqueId, untrack, type Component, type JSX } from "solid-js"
-import { acceptsFile, linkHref, nextEnabledIndex, partClass } from "@exponential-at/ui/web"
+import { For, Show, createMemo, createSignal, createUniqueId, untrack, type Component, type JSX } from "solid-js"
+import { acceptsFile, linkHref, partClass } from "@exponential-at/ui/web"
 import { useSurfaceContext } from "../context"
 import { FieldErrors, createField, joinIds } from "../form"
 import type { NativeProps } from "../node-view"
 import { createBoundState } from "./bound"
 import { arr, bool, BuiltinIcon, formatFileSize, num, objects, parts, phrase, str, TextPart } from "./shared"
+import { createListNavigation } from "../behaviors"
 
 export { acceptsFile }
-
-/** React's `useListNavigation` (natives/listbox.ts) for a field-driven
- *  listbox: an active option, ArrowUp/Down move it (wrapping, skipping
- *  disabled), Home/End jump, Enter picks. */
-function createListNavigation(options: { count: () => number; isDisabled: (index: number) => boolean; onPick: (index: number) => void }) {
-  const [active, setActive] = createSignal(-1)
-  createEffect(() => {
-    const count = options.count()
-    if (untrack(active) >= count) setActive(count - 1)
-  })
-  const move = (from: number, delta: number) => nextEnabledIndex(untrack(options.count), from, delta, options.isDisabled)
-  const onKeyDown = (e: KeyboardEvent) => {
-    const a = untrack(active)
-    if (e.key === `ArrowDown`) {
-      e.preventDefault()
-      setActive(move(a < 0 ? -1 : a, 1))
-    } else if (e.key === `ArrowUp`) {
-      e.preventDefault()
-      setActive(move(a < 0 ? 0 : a, -1))
-    } else if (e.key === `Home`) {
-      e.preventDefault()
-      setActive(move(-1, 1))
-    } else if (e.key === `End`) {
-      e.preventDefault()
-      setActive(move(0, -1))
-    } else if (e.key === `Enter`) {
-      if (a >= 0 && a < untrack(options.count) && !options.isDisabled(a)) {
-        e.preventDefault()
-        options.onPick(a)
-      }
-    }
-  }
-  return { active, setActive, onKeyDown }
-}
 
 export function ChipInputNative(props: NativeProps): JSX.Element {
   const part = parts(props)

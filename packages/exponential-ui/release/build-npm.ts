@@ -15,15 +15,17 @@
 // dependency, so external): the plain Bun path with code splitting (`.` and
 // `./define` share ONE element class), then `scripts/build-standalone.ts`
 // writes dist/standalone.js, everything inlined.
+// FEED-131: both web renderers ship their primitives' stylesheet
+// (`./styles.css`): the build runs the package's `build:css` into dist/.
 
 import { execSync } from "node:child_process"
 import { existsSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs"
 import { dirname, join, resolve } from "node:path"
 
 export const ENTRIES: Record<string, Record<string, string>> = {
-  "@exponential-at/ui": { index: `src/index.ts`, web: `src/web/index.ts` },
+  "@exponential-at/ui": { index: `src/index.ts`, web: `src/web/index.ts`, "web/primitives": `src/web/primitives/index.ts` },
   "@exponential-at/ui-react": { index: `src/index.ts`, primitives: `src/primitives/index.ts` },
-  "@exponential-at/ui-solid": { index: `src/index.ts` },
+  "@exponential-at/ui-solid": { index: `src/index.ts`, primitives: `src/primitives/index.ts` },
   "@exponential-at/ui-element": { index: `src/index.ts`, define: `src/define.ts` },
 }
 
@@ -32,6 +34,9 @@ const SPLIT = new Set([`@exponential-at/ui-element`])
 
 /** The packages that also ship a self-contained `dist/standalone.js`. */
 const STANDALONE = new Set([`@exponential-at/ui-element`])
+
+/** The packages that ship a compiled stylesheet (`build:css` → dist/<name>.css). */
+const STYLESHEET = new Set([`@exponential-at/ui-react`, `@exponential-at/ui-solid`])
 
 /** The packages whose JSX is Solid's (built with Vite, not Bun). */
 const SOLID = new Set([`@exponential-at/ui-solid`])
@@ -50,6 +55,7 @@ export async function buildNpm(dir: string): Promise<void> {
     const outputs = await buildSolid(dir, entries, external)
     execSync(`bunx tsc -p tsconfig.build.json`, { cwd: dir, stdio: `inherit` })
     fixDeclarationSpecifiers(join(dir, `dist`, `types`))
+    buildStylesheet(dir, pkg.name)
     console.log(`built ${pkg.name}: ${outputs.join(`, `)}`)
     return
   }
@@ -73,7 +79,13 @@ export async function buildNpm(dir: string): Promise<void> {
     const { buildStandalone } = (await import(join(dir, `scripts`, `build-standalone.ts`))) as { buildStandalone: (dir: string) => Promise<string> }
     built.push((await buildStandalone(dir)).replace(`${dir}/`, ``))
   }
+  buildStylesheet(dir, pkg.name)
   console.log(`built ${pkg.name}: ${built.join(`, `)}`)
+}
+
+/** The package's `build:css`, when it ships a stylesheet. */
+function buildStylesheet(dir: string, name: string): void {
+  if (STYLESHEET.has(name)) execSync(`bun run build:css`, { cwd: dir, stdio: `inherit` })
 }
 
 /** Vite library mode with `vite-plugin-solid` (DOM output): one ESM file

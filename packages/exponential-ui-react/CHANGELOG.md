@@ -7,6 +7,9 @@ release together from a `ui-v<version>` tag (`packages/exponential-ui/release/RE
 
 First release.
 
+- The primitives' class strings come from `@exponential-at/ui/web/primitives` (FEED-131), the one source the Solid twins share; the exports keep their names.
+- New primitives: `table`, `command` (no cmdk) and `toast` (no sonner, on the toast stack contract).
+
 - `ExponentialSurface` + `useSurface`: the reference renderer, painting with real CSS on shadcn/Radix at the frames the Rust core computes (geometry-locked to taffy).
 - Runtime themes, light/dark/system mode, locale and time zone, built-in string overrides, and density and contrast settings.
 - Host-owned inputs, overlays on Radix portals, extension registration and the host plugin API.

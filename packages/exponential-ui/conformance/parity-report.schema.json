@@ -21,7 +21,7 @@
         "failed": { "type": "integer" },
         "byGroup": {
           "type": "object",
-          "description": "matrix | specimen | state | overlay",
+          "description": "matrix | specimen | state | overlay | primitive",
           "additionalProperties": { "type": "object", "required": ["cases", "passed"], "properties": { "cases": { "type": "integer" }, "passed": { "type": "integer" } } }
         }
       }
@@ -33,7 +33,7 @@
       "type": "object",
       "required": ["case", "ok", "elapsedMs"],
       "properties": {
-        "case": { "type": "string", "description": "matrix:<conformance key> | specimen:<id> | state:<id>:<state> | overlay:<n>" },
+        "case": { "type": "string", "description": "matrix:<conformance key> | specimen:<id> | state:<id>:<state> | overlay:<n> | primitive:<id>:<theme>-<mode>[:hover|focus]" },
         "ok": { "type": "boolean" },
         "elapsedMs": { "type": "number", "description": "Both pages opened, settled, compared." },
         "error": { "type": "string", "description": "The case could not be compared (page error, timeout)." },

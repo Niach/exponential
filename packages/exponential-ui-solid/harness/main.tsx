@@ -8,6 +8,7 @@
 //   ?view=tree&tree=<json>&data=<json>&width=&height=&viewportHeight=&locale=&dir=&gen=<key>:<n>
 //   ?view=controls&theme=<id>                            (control-geometry.json)
 //   ?view=specimen&id=<id>&theme=<id>&mode=&width=&rtl=1 (one specimens.json entry)
+//   ?view=primitives&id=<id>&theme=<id>&mode=&width=   (one primitive-specimens.json entry, FEED-131: harness/primitives/)
 //   ?view=mount                                          (__xuiMount / __xuiVList)
 //   ?view=bench / ?view=round2
 // Natives not ported yet paint their `data-xui-pending` placeholder.
@@ -30,6 +31,7 @@ import sinkData from "../../exponential-ui-react/fixtures/kitchen-sink.data.json
 import { BASE_CSS, ExponentialSurface, WindowedList, createSurface } from "../src/index"
 import type { HostPlugin, SurfaceHandle, SurfaceInputEvent, WindowedListHandle } from "../src/index"
 import { harnessIcons } from "./icons"
+import { mountPrimitives } from "./primitives/mount"
 
 const params = new URLSearchParams(location.search)
 const view = params.get(`view`) ?? `kitchen-sink`
@@ -435,6 +437,9 @@ function App(): JSX.Element {
   return <KitchenSink />
 }
 
-document.body.style.margin = `0`
-document.body.style.background = view === `geometry` || view === `overlay` ? `#fff` : mode === `dark` ? `#0f0f11` : `#f4f4f5`
-render(() => <App />, document.getElementById(`app`)!)
+if (view === `primitives`) void mountPrimitives()
+else {
+  document.body.style.margin = `0`
+  document.body.style.background = view === `geometry` || view === `overlay` ? `#fff` : mode === `dark` ? `#0f0f11` : `#f4f4f5`
+  render(() => <App />, document.getElementById(`app`)!)
+}

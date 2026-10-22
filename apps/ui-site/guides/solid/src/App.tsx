@@ -2,6 +2,8 @@ import { onCleanup, onMount } from "solid-js"
 import { CORE_CATALOG_ID } from "@exponential-at/ui"
 import { ExponentialSurface, createSurface } from "@exponential-at/ui-solid"
 import type { A2uiMessage } from "@exponential-at/ui-solid"
+import { Button } from "@exponential-at/ui-solid/primitives"
+import "@exponential-at/ui-solid/styles.css"
 
 export function App() {
   // The surface state: A2UI v0.9 server messages in, the tree and data out.
@@ -27,12 +29,18 @@ export function App() {
   })
 
   // Paints it; the theme is data, the mode a prop. Actions go to your agent.
+  // Below it, a primitive from the same set (the stylesheet above styles it).
   return (
-    <ExponentialSurface
-      surface={surface}
-      theme="orange"
-      mode="dark"
-      host={{ onAction: (event) => void fetch(`/action`, { method: `POST`, body: JSON.stringify(event) }) }}
-    />
+    <>
+      <ExponentialSurface
+        surface={surface}
+        theme="orange"
+        mode="dark"
+        host={{ onAction: (event) => void fetch(`/action`, { method: `POST`, body: JSON.stringify(event) }) }}
+      />
+      <Button variant="outline" onClick={() => surface.apply({ updateDataModel: { surfaceId: `main`, path: `/status`, value: `Asked again` } })}>
+        Ask again
+      </Button>
+    </>
   )
 }

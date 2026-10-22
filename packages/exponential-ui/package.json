@@ -10,6 +10,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./web": "./src/web/index.ts",
+    "./web/primitives": "./src/web/primitives/index.ts",
+    "./web/primitives/*": "./src/web/primitives/*.ts",
     "./catalog/*": "./catalog/*",
     "./fixtures/*": "./fixtures/*",
     "./docs/*": "./docs/*",
@@ -28,6 +30,11 @@
     "conformance:check": "bun run ./scripts/conformance-check.ts",
     "conformance:parity": "bun run ./scripts/parity-run.ts",
     "parity:check": "bun run ./scripts/parity-check.ts"
+  },
+  "dependencies": {
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "tailwind-merge": "^3.5.0"
   },
   "devDependencies": {
     "@exp/tsconfig": "workspace:*",

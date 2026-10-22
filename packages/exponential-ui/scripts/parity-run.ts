@@ -8,7 +8,7 @@
 //   --name <candidate name>  default derived from the path (react, solid, …)
 //   --out <report.json>      default <repo>/.conformance/exponential-ui-parity-react-<name>.json
 //   --only <substring>       only the cases whose id contains it
-//   --groups <a,b>           matrix,specimen,state,overlay (default all)
+//   --groups <a,b>           matrix,specimen,state,overlay,primitive (default all)
 //   --concurrency <n>        cases at once (default 4)
 // Exits non-zero unless every case passes (= parity:check on the report).
 

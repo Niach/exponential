@@ -18,6 +18,7 @@ import { IconGlyph } from "../icons"
 import type { NativeProps } from "../node-view"
 import { createBoundState } from "./bound"
 import { bool, BuiltinIcon, css, num, objects, parts, str, type Attrs, type PartFn } from "./shared"
+import { searchMatches } from "../behaviors"
 
 export interface SearchItem {
   label: string
@@ -25,13 +26,6 @@ export interface SearchItem {
   icon?: string
   identifier?: string
   disabled?: boolean
-}
-
-/** Does a row match the query (case-insensitive, label or identifier)?
- *  The core's `search_matches`. */
-export function searchMatches(item: Pick<SearchItem, `label` | `identifier`>, query: string): boolean {
-  const needle = query.trim().toLowerCase()
-  return needle === `` || str(item.label).toLowerCase().includes(needle) || str(item.identifier).toLowerCase().includes(needle)
 }
 
 /** React's `SearchBodyProps` (live getters on Solid: never destructure). */

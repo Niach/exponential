@@ -4,6 +4,7 @@
 import { describe, expect, test } from "bun:test"
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
+import { primitiveCases, PRIMITIVE_THEMES, type PrimitiveSpecimen } from "./parity"
 import { caseSlug, checkParityReport, firstDomDiff, firstFrameDiff, firstStyleDiff, isGeneratedId, normalizeIds, PARITY_FORMAT, type DomNode, type ParityReport, type StyleTable } from "./parity-compare"
 
 const el = (t: string, a: Record<string, string> = {}, c: DomNode[] = []): DomNode => ({ t, a: Object.entries(a).sort(([x], [y]) => (x < y ? -1 : 1)), c })
@@ -110,4 +111,35 @@ describe(`report`, () => {
     expect(Object.keys(schema.$defs.case.properties).sort()).toEqual([`case`, `dom`, `elapsedMs`, `error`, `frame`, `ok`, `pixels`, `style`])
   })
   test(`case slugs are file names`, () => expect(caseSlug(`matrix:kitchen-sink/neutral/dark/390/rtl`)).toBe(`matrix_kitchen-sink_neutral_dark_390_rtl`))
+})
+
+describe(`primitive cases (FEED-131)`, () => {
+  const fixture = JSON.parse(readFileSync(join(import.meta.dir, `..`, `fixtures`, `primitive-specimens.json`), `utf8`)) as { specimens: PrimitiveSpecimen[] }
+  const MODULES = [`smoke`, `plain`, `controls`, `overlays`, `data`, `calendar`]
+
+  test(`every specimen × [exponential light, orange dark], the interact variant beside the base case`, () => {
+    const cases = primitiveCases([
+      { id: `smoke/button`, primitive: `smoke`, viewport: { width: 900, height: 600 }, open: false, interact: null },
+      { id: `overlays/dialog`, primitive: `overlays`, viewport: { width: 900, height: 600 }, open: true, interact: `focus` },
+    ])
+    expect(cases.map((c) => c.id)).toEqual([`primitive:smoke/button:exponential-light`, `primitive:smoke/button:orange-dark`, `primitive:overlays/dialog:exponential-light`, `primitive:overlays/dialog:exponential-light:focus`, `primitive:overlays/dialog:orange-dark`, `primitive:overlays/dialog:orange-dark:focus`])
+    expect(cases[0]).toEqual({ id: `primitive:smoke/button:exponential-light`, group: `primitive`, query: { view: `primitives`, id: `smoke/button`, theme: `exponential`, mode: `light`, width: 900 }, viewport: { width: 900, height: 600 } })
+    expect(cases[3]).toMatchObject({ open: true, interact: `focus`, query: { theme: `exponential`, mode: `light` } })
+  })
+
+  test(`the fixture's rows are well formed and both harnesses define every id`, () => {
+    const ids = new Set<string>()
+    for (const s of fixture.specimens) {
+      expect(MODULES).toContain(s.primitive)
+      expect(s.id.startsWith(`${s.primitive}/`), s.id).toBe(true)
+      expect(ids.has(s.id), s.id).toBe(false)
+      ids.add(s.id)
+      expect([null, `hover`, `focus`]).toContain(s.interact)
+      for (const pkg of [`exponential-ui-react`, `exponential-ui-solid`]) {
+        const src = readFileSync(join(import.meta.dir, `..`, `..`, pkg, `harness`, `primitives`, `${s.primitive}.tsx`), `utf8`)
+        expect(src.includes(`"${s.id}"`), `${pkg} harness/primitives/${s.primitive}.tsx defines "${s.id}"`).toBe(true)
+      }
+    }
+    expect(primitiveCases(fixture.specimens).length).toBeGreaterThanOrEqual(fixture.specimens.length * PRIMITIVE_THEMES.length)
+  })
 })

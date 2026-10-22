@@ -86,6 +86,33 @@ return <ExponentialSurface surface={surface} theme="neutral" mode="light" host={
         </>
       ),
     },
+    {
+      id: `primitives`,
+      label: `Primitives`,
+      body: (
+        <>
+          <p>
+            The app around a surface can use the same components: <code>@exponential-at/ui-react/primitives</code>{` `}
+            is the shadcn set on Radix (button, dialog, select, table, command, toast, calendar…). Import its compiled
+            stylesheet once. Inside a surface they wear its theme; outside one,{` `}
+            <code>globalsCss(theme)</code> from <code>@exponential-at/ui/web</code> writes the theme as shadcn
+            variables.
+          </p>
+          <DocsCode language="tsx">{`import "@exponential-at/ui-react/styles.css"
+import { builtinTheme } from "@exponential-at/ui"
+import { globalsCss } from "@exponential-at/ui/web"
+import { Button, Dialog, DialogContent, DialogTitle, DialogTrigger, Toaster, toast } from "@exponential-at/ui-react/primitives"
+
+const globals = globalsCss(builtinTheme("orange"))   // :root + .dark, put it in a <style>
+<Dialog>
+  <DialogTrigger asChild><Button>Open</Button></DialogTrigger>
+  <DialogContent><DialogTitle>Saved views</DialogTitle></DialogContent>
+</Dialog>
+<Button variant="outline" onClick={() => toast.success("Saved")}>Save</Button>
+<Toaster />`}</DocsCode>
+        </>
+      ),
+    },
   ],
 
   solid: [
@@ -96,7 +123,7 @@ return <ExponentialSurface surface={surface} theme="neutral" mode="light" host={
         <>
           <p>
             Two packages: <code>@exponential-at/ui</code> (the catalog, themes, reducer and host runtime) and{` `}
-            <code>@exponential-at/ui-solid</code> (the renderer, on Kobalte). Solid 1.9 with{` `}
+            <code>@exponential-at/ui-solid</code> (the renderer). Solid 1.9 with{` `}
             <code>vite-plugin-solid</code>; the surface injects its own styles, so there is no stylesheet setup.
           </p>
           <DocsCode>{`npm install @exponential-at/ui @exponential-at/ui-solid solid-js`}</DocsCode>
@@ -148,6 +175,39 @@ return <HostSurface host={host} surfaceId="main" theme="orange" fallback={<p>Wai
             {SDK_README(`packages/exponential-ui-solid/README.md`, `Solid renderer's README`)}.
           </p>
           <GuideFile path="solid/src/TrendLine.tsx" />
+        </>
+      ),
+    },
+    {
+      id: `primitives`,
+      label: `Primitives`,
+      body: (
+        <>
+          <p>
+            <code>@exponential-at/ui-solid/primitives</code> is the React primitive set on Solid, with the same DOM and
+            classes (one set of recipes, checked against React in headless Chromium).{` `}
+            <code>@exponential-at/ui-solid/styles.css</code> is the same stylesheet as React's;{` `}
+            <code>globalsCss(theme)</code> from <code>@exponential-at/ui/web</code> themes them outside a surface.
+            The names differ in three ways: <code>class</code> for <code>className</code>, <code>as</code> for{` `}
+            <code>asChild</code>, and <code>create*</code> for the <code>use*</code> hooks.
+          </p>
+          <DocsCode language="tsx">{`import "@exponential-at/ui-solid/styles.css"
+import { builtinTheme } from "@exponential-at/ui"
+import { globalsCss } from "@exponential-at/ui/web"
+import { Button, Dialog, DialogContent, DialogTitle, DialogTrigger, Toaster, toast } from "@exponential-at/ui-solid/primitives"
+
+const globals = globalsCss(builtinTheme("orange"))   // :root + .dark, put it in a <style>
+<Dialog>
+  <DialogTrigger as={Button}>Open</DialogTrigger>
+  <DialogContent><DialogTitle>Saved views</DialogTitle></DialogContent>
+</Dialog>
+<Button variant="outline" class="ml-2" onClick={() => toast.success("Saved")}>Save</Button>
+<Toaster />`}</DocsCode>
+          <p>
+            Six React modules are the Exponential app's own and have no Solid twin: <code>glass-rows</code>,{` `}
+            <code>typeahead</code>, <code>composer</code>, <code>trace</code>, <code>pill</code> and{` `}
+            <code>segmented-bar</code>.
+          </p>
         </>
       ),
     },

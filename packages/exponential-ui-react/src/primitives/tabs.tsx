@@ -1,30 +1,10 @@
 import * as React from "react"
 import { Tabs as TabsPrimitive } from "radix-ui"
+import { TABS_CLASSES } from "@exponential-at/ui/web/primitives"
 
 import { cn } from "./cn"
 
-// EXP-698 — the ONE segmented control on the web. The Radix tabs below and
-// the route-link strips that can't use Radix semantics (team settings nav,
-// admin nav) all read these two strings, so the capsule can't drift into
-// three hand-mirrored copies again. The strips supply their own active /
-// inactive link colours (`activeProps`), which is the only part Radix owns
-// through `data-[state=active]` instead.
-export const SEGMENTED_LIST = `inline-flex h-9 w-fit items-center justify-center rounded-full border border-glass-stroke-section bg-glass-section p-[3px] text-muted-foreground`
-
-// EXP-851: the strip's ROW. The Inbox / My issues strip and the Support
-// Open / Resolved strip are ONE control at ONE size — same trigger padding
-// (`SEGMENTED_TAB`), same row padding — in the big list views…
-export const SEGMENTED_ROW = `flex shrink-0 items-center justify-between gap-2 px-4 pt-3 pb-2 md:px-6`
-
-// …and in the sidebar's list nav, where the 17rem slot is the only thing that
-// changes (the strip itself is identical).
-export const SEGMENTED_ROW_COMPACT = `flex shrink-0 items-center justify-between gap-2 px-2 pt-2 pb-2`
-
-/** The ONE trigger sizing both strips use — no per-surface `h-8`/`text-xs`
- *  overrides, or the two drift by a pixel again. */
-export const SEGMENTED_TAB = `px-3`
-
-export const SEGMENTED_ITEM = `inline-flex shrink-0 items-center justify-center gap-1.5 rounded-full border border-transparent px-3 py-1 text-sm font-medium whitespace-nowrap transition-colors focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-1 focus-visible:outline-ring [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4`
+export { SEGMENTED_ITEM, SEGMENTED_LIST, SEGMENTED_ROW, SEGMENTED_ROW_COMPACT, SEGMENTED_TAB } from "@exponential-at/ui/web/primitives"
 
 function Tabs({
   className,
@@ -33,7 +13,7 @@ function Tabs({
   return (
     <TabsPrimitive.Root
       data-slot="tabs"
-      className={cn(`flex flex-col gap-2`, className)}
+      className={cn(TABS_CLASSES.root, className)}
       {...props}
     />
   )
@@ -46,7 +26,7 @@ function TabsList({
   return (
     <TabsPrimitive.List
       data-slot="tabs-list"
-      className={cn(SEGMENTED_LIST, className)}
+      className={cn(TABS_CLASSES.list, className)}
       {...props}
     />
   )
@@ -59,11 +39,7 @@ function TabsTrigger({
   return (
     <TabsPrimitive.Trigger
       data-slot="tabs-trigger"
-      className={cn(
-        SEGMENTED_ITEM,
-        `h-[calc(100%-1px)] flex-1 text-foreground dark:text-muted-foreground dark:data-[state=active]:border-glass-stroke-active dark:data-[state=active]:bg-glass-active dark:data-[state=active]:text-foreground disabled:pointer-events-none disabled:opacity-50`,
-        className
-      )}
+      className={cn(TABS_CLASSES.trigger, className)}
       {...props}
     />
   )
@@ -76,7 +52,7 @@ function TabsContent({
   return (
     <TabsPrimitive.Content
       data-slot="tabs-content"
-      className={cn(`flex-1 outline-none`, className)}
+      className={cn(TABS_CLASSES.content, className)}
       {...props}
     />
   )

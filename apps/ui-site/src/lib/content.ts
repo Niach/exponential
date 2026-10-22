@@ -93,13 +93,13 @@ export const PACKAGES: readonly PackageRow[] = [
   {
     name: `@exponential-at/ui-react`,
     registry: `npm`,
-    what: `The React renderer.`,
+    what: `The React renderer and its shadcn primitive set, with a compiled stylesheet.`,
     fromRepo: `the same tarballs, installed with npm`,
   },
   {
     name: `@exponential-at/ui-solid`,
     registry: `npm`,
-    what: `The SolidJS renderer, on Kobalte, with the same DOM and stylesheet as React.`,
+    what: `The SolidJS renderer and the same primitives, with the same DOM and stylesheet as React.`,
     fromRepo: `the same tarballs, installed with npm`,
   },
   {
