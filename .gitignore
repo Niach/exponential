@@ -38,3 +38,4 @@ apps/web/public/mcp-apps/
 /.shots-raw/
 .conformance/
 .bench/
+packages/exponential-ui-swift/Tests/ExponentialUITests/Resources/bench/*.json

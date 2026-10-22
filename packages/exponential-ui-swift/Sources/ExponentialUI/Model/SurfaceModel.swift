@@ -163,6 +163,19 @@ public final class SurfaceModel {
     /// Tests and geometry suites: lay out with the core's fixed fake
     /// measure (8 px per character, 20 px lines) instead of TextKit.
     @ObservationIgnored public var fixedMeasure = false
+    /// VAPP-105: DEBUG counters of the facade traffic, for the benchmark
+    /// suite only. nil (the default, every release path) costs one `if let`
+    /// per facade call; a bench sets `SurfaceModel.benchCounters = .init()`
+    /// and reads it back. `calls` = host → core calls from THIS file (apply,
+    /// setNested, setComponents, setData, layout, nodes, nodesAt, visual,
+    /// visuals, textStyle) plus the measure upcalls a layout made; the
+    /// interaction entry points in Events.swift (scrollTo, scrollToIndex,
+    /// fire) are not counted. `bytesIn` = UTF-8 bytes of the JSON handed to
+    /// the core; `bytesOut` = an ESTIMATE of the records read back: a frame
+    /// 20 B, a visual change index 4 B, a list record 32 B, a delta index
+    /// 4 B, a node its props JSON + 64 B of fixed fields, a visual 96 B, a
+    /// text style 48 B.
+    @ObservationIgnored public static var benchCounters: BenchCounters?
     /// Conformance: called with every node index a `NodeView` paints.
     @ObservationIgnored var paintProbe: ((Int) -> Void)?
     /// The text field that has focus.
@@ -195,13 +208,12 @@ public final class SurfaceModel {
     /// One A2UI server→client message (`updateComponents`, `updateDataModel`…).
     @discardableResult
     public func apply(_ message: JSONValue) throws -> FfiApplyOutcome {
-        let out = try surface.apply(messageJson: message.json)
-        invalidate(structure: out.structureChanged)
-        return out
+        try apply(json: message.json)
     }
 
     @discardableResult
     public func apply(json: String) throws -> FfiApplyOutcome {
+        if var c = Self.benchCounters { c.calls += 1; c.bytesIn += json.utf8.count; Self.benchCounters = c }
         let out = try surface.apply(messageJson: json)
         invalidate(structure: out.structureChanged)
         return out
@@ -210,6 +222,7 @@ public final class SurfaceModel {
     /// The nested authoring form (fixtures, MCP templates).
     @discardableResult
     public func setNested(json: String) throws -> FfiApplyOutcome {
+        if var c = Self.benchCounters { c.calls += 1; c.bytesIn += json.utf8.count; Self.benchCounters = c }
         let out = try surface.setNested(nestedJson: json)
         paintFailures.removeAll()
         invalidate(structure: true)
@@ -219,6 +232,7 @@ public final class SurfaceModel {
     /// A flat component list.
     @discardableResult
     public func setComponents(json: String) throws -> FfiApplyOutcome {
+        if var c = Self.benchCounters { c.calls += 1; c.bytesIn += json.utf8.count; Self.benchCounters = c }
         let out = try surface.setComponents(componentsJson: json)
         paintFailures.removeAll()
         invalidate(structure: true)
@@ -227,7 +241,9 @@ public final class SurfaceModel {
 
     /// Write at a JSON pointer (nil removes).
     public func setData(path: String, value: JSONValue?) {
-        try? surface.setData(path: path, valueJson: value?.json)
+        let json = value?.json
+        if var c = Self.benchCounters { c.calls += 1; c.bytesIn += path.utf8.count + (json?.utf8.count ?? 0); Self.benchCounters = c }
+        try? surface.setData(path: path, valueJson: json)
         invalidate(structure: false)
     }
 
@@ -308,6 +324,11 @@ public final class SurfaceModel {
                 calls += measurer.calls
             }
             layoutNs += out.layoutNs
+            if var c = Self.benchCounters {
+                c.calls += 1 + calls
+                c.bytesOut += out.frames.count * 20 + out.layers.reduce(0) { $0 + $1.frames.count * 20 } + out.visualChanges.count * 4 + out.lists.count * 32 + (out.delta.added.count + out.delta.removed.count + out.delta.changed.count) * 4
+                Self.benchCounters = c
+            }
             for i in out.visualChanges { changed.insert(Int(i)) }
             for i in out.delta.added { changed.insert(Int(i)) }
             for i in out.delta.changed { changed.insert(Int(i)) }
@@ -398,6 +419,7 @@ public final class SurfaceModel {
     /// Every slot from the core (first pass, a compaction, a host edit).
     private func readNodes() {
         let raw = surface.nodes()
+        if var c = Self.benchCounters { c.calls += 1; c.bytesOut += raw.reduce(0) { $0 + $1.propsJson.utf8.count + 64 }; Self.benchCounters = c }
         var list: [NodeInfo] = []
         list.reserveCapacity(raw.count)
         for n in raw { list.append(NodeInfo(n)) }
@@ -421,14 +443,17 @@ public final class SurfaceModel {
         let removed = Set(delta.removed.map(Int.init)).subtracting(fetch)
         if !removed.isEmpty {
             let gone = surface.nodesAt(indices: removed.sorted().map(UInt32.init))
+            if var c = Self.benchCounters { c.calls += 1; c.bytesOut += gone.reduce(0) { $0 + $1.propsJson.utf8.count + 64 }; Self.benchCounters = c }
             for n in gone where Int(n.index) < list.count { list[Int(n.index)] = NodeInfo(n) }
         }
         if !fetch.isEmpty {
             let fresh = surface.nodesAt(indices: fetch.sorted().map(UInt32.init))
+            if var c = Self.benchCounters { c.calls += 1; c.bytesOut += fresh.reduce(0) { $0 + $1.propsJson.utf8.count + 64 }; Self.benchCounters = c }
             if let maxIndex = fresh.map({ Int($0.index) }).max(), maxIndex >= list.count {
                 // New slots past the end: tombstones until fetched (rare gap).
                 let missing = (list.count...maxIndex).map(UInt32.init)
                 let pad = surface.nodesAt(indices: missing)
+                if var c = Self.benchCounters { c.calls += 1; c.bytesOut += pad.reduce(0) { $0 + $1.propsJson.utf8.count + 64 }; Self.benchCounters = c }
                 var byIndex: [Int: NodeInfo] = [:]
                 for n in pad { byIndex[Int(n.index)] = NodeInfo(n) }
                 for i in list.count...maxIndex {
@@ -469,8 +494,11 @@ public final class SurfaceModel {
                 st[i] = surface.visual(index: UInt32(i)).map(PaintStyle.init) ?? PaintStyle()
                 if nodes[i].isLeaf, let t = surface.textStyle(index: UInt32(i)) { ts[i] = TextStyle(t, defaultFamily: theme?.sansFamily) } else { ts[i] = nil }
             }
+            if var c = Self.benchCounters { c.calls += changed.count * 2; c.bytesOut += changed.count * (96 + 48); Self.benchCounters = c }
         } else {
-            st = surface.visuals().map(PaintStyle.init)
+            let visuals = surface.visuals()
+            if var c = Self.benchCounters { c.calls += 1; c.bytesOut += visuals.count * 96; Self.benchCounters = c }
+            st = visuals.map(PaintStyle.init)
             if st.count < nodes.count { st += [PaintStyle](repeating: PaintStyle(), count: nodes.count - st.count) }
             ts = [:]
             // The core resolves a leaf's text style DURING the pass (the
@@ -478,6 +506,7 @@ public final class SurfaceModel {
             for n in nodes where n.isLeaf && !n.removed {
                 if let t = surface.textStyle(index: UInt32(n.index)) { ts[n.index] = TextStyle(t, defaultFamily: theme?.sansFamily) }
             }
+            if var c = Self.benchCounters { let leaves = nodes.lazy.filter { $0.isLeaf && !$0.removed }.count; c.calls += leaves; c.bytesOut += leaves * 48; Self.benchCounters = c }
         }
         if changed == nil || changed?.isEmpty == false || inks.count != nodes.count {
             styles = st
@@ -651,4 +680,13 @@ public struct ScrollJump: Equatable, Sendable {
 
 extension Array {
     subscript(safe i: Int) -> Element? { i >= 0 && i < count ? self[i] : nil }
+}
+
+/// VAPP-105: what crossed the facade while `SurfaceModel.benchCounters`
+/// was set (the benchmark suite's `ffiCalls*` / `ffiBytes*` metrics).
+public struct BenchCounters: Sendable, Equatable {
+    public var calls = 0
+    public var bytesIn = 0
+    public var bytesOut = 0
+    public init() {}
 }
