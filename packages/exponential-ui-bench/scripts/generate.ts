@@ -5,6 +5,7 @@
 import { mkdirSync, writeFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { renderScenarios } from "../src/scenarios"
+import { writeResultsIndex } from "../src/results-index"
 
 const root = join(import.meta.dir, `..`)
 for (const [file, content] of Object.entries(renderScenarios())) {
@@ -13,3 +14,4 @@ for (const [file, content] of Object.entries(renderScenarios())) {
   writeFileSync(path, content)
   console.log(`wrote ${file} (${content.length.toLocaleString(`en-US`)} chars)`)
 }
+console.log(`wrote ${writeResultsIndex()}`)

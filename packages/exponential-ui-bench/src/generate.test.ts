@@ -8,6 +8,7 @@ import { join } from "node:path"
 import { reduceNested, reduceSurface, MAX_DEPTH, MAX_TEMPLATE_ITEMS } from "@exponential-at/ui"
 import type { FlatComponent, NestedNode } from "@exponential-at/ui"
 import { generateItems, renderScenarios, SCENARIOS, type GeneratedData } from "./scenarios"
+import { resultsIndexSource } from "./results-index"
 
 const root = join(import.meta.dir, `..`)
 
@@ -16,6 +17,10 @@ describe(`scenario fixtures (VAPP-105)`, () => {
     for (const [file, content] of Object.entries(renderScenarios())) {
       expect(readFileSync(join(root, file), `utf8`), file).toBe(content)
     }
+  })
+
+  it(`results/index.ts lists every committed results file`, () => {
+    expect(readFileSync(join(root, `results/index.ts`), `utf8`)).toBe(resultsIndexSource())
   })
 
   it(`every surface reduces without issues`, () => {
