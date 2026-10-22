@@ -23,6 +23,13 @@ import {
 import { generateTxId } from "@/lib/trpc"
 import { assertTeamMember, getTeamMember } from "@/lib/auth/membership"
 import { conversationInTx, loadAgentForUser } from "@/lib/agents/conversation"
+import {
+  briefedText,
+  createEditorSessionInTx,
+  defaultDeviceFor,
+  findEditorSession,
+  loadAppForUser,
+} from "@/lib/apps/editor-session"
 import { answerSessionCardInTx } from "@/lib/sessions/answer"
 import {
   assertCanSteer,
@@ -384,6 +391,8 @@ export async function sendSession(args: {
     outcome = await messageSession(starter, uploaderIds, input, caller, extras, args.viaMcp === true)
   } else if (input.agentId) {
     outcome = await messageAgent(starter, uploaderIds, input, caller, extras, args.viaMcp === true)
+  } else if (input.appId) {
+    outcome = await messageApp(starter, uploaderIds, input, caller, extras, args.viaMcp === true)
   } else if (input.parentId) {
     outcome = await startChild(starter, uploaderIds, input, caller, extras)
   } else {
@@ -656,6 +665,46 @@ async function messageAgent(
     }
     const messageId = await postSendMessage(tx, session, input, userId, uploaderIds, from)
     await applyWakeOn(tx, caller, input)
+    await extras.within?.(tx, { sessionId: session.id, messageId, rootId: session.id })
+    return { sessionId: session.id, messageId, status: session.status, txid, queued: created }
+  })
+}
+
+/**
+ * VAPP-110: a message to an APP = into the caller's own EDITOR SESSION with
+ * it. None yet: a fresh root `queued` on `deviceId` (else the caller's
+ * default device), its first message the app brief + the text. Live or
+ * idle: the message resumes it. ENDED (the editor was left): the root
+ * continues as a child of itself (`messageSession` → `continueSession`),
+ * briefed again.
+ */
+async function messageApp(
+  userId: string,
+  uploaderIds: string[],
+  input: SessionsSendInput,
+  caller: Session | null,
+  extras: SendExtras,
+  viaMcp: boolean
+): Promise<SendOutcome> {
+  const app = await loadAppForUser(userId, input.appId!)
+  if (input.teamId && input.teamId !== app.teamId) {
+    throw new TRPCError({ code: `BAD_REQUEST`, message: `The app is in another team` })
+  }
+  const existing = await findEditorSession(db, app.id, userId)
+  if (existing) {
+    const { appId: _appId, ...rest } = input
+    const text = existing.status === `ended` ? briefedText(app, input.text) : input.text
+    return messageSession(userId, uploaderIds, { ...rest, sessionId: existing.id, text }, caller, extras, viaMcp)
+  }
+  const deviceId = input.deviceId ?? (await defaultDeviceFor(userId))
+  if (!deviceId) {
+    throw new TRPCError({ code: `BAD_REQUEST`, message: `Start a device to edit this app` })
+  }
+  return db.transaction(async (tx) => {
+    const txid = await generateTxId(tx)
+    const { session, created } = await createEditorSessionInTx(tx, app, userId, deviceId, runnerFields(input))
+    const from = caller ? { sessionId: caller.id, asSession: viaMcp && caller.id !== session.id } : null
+    const messageId = await postSendMessage(tx, session, { ...input, text: briefedText(app, input.text) }, userId, uploaderIds, from)
     await extras.within?.(tx, { sessionId: session.id, messageId, rootId: session.id })
     return { sessionId: session.id, messageId, status: session.status, txid, queued: created }
   })

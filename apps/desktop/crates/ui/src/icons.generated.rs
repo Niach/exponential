@@ -269,6 +269,7 @@ pub fn icon_by_name(name: &str) -> Option<ExpIcon> {
         "laptop" => ExpIcon::Laptop,
         "layers" => ExpIcon::Layers,
         "layers-2" => ExpIcon::Layers2,
+        "layout-grid" => ExpIcon::LayoutGrid,
         "leaf" => ExpIcon::Leaf,
         "lightbulb" => ExpIcon::Lightbulb,
         "link" => ExpIcon::Link,
@@ -526,6 +527,8 @@ pub const NAV_ACCOUNT: ExpIcon = ExpIcon::CircleUser;
 pub const NAV_ACTIONS: ExpIcon = ExpIcon::Rocket;
 /// Registry concept `nav-admin` -> Lucide `shield`.
 pub const NAV_ADMIN: ExpIcon = ExpIcon::Shield;
+/// Registry concept `nav-apps` -> Lucide `layout-grid`.
+pub const NAV_APPS: ExpIcon = ExpIcon::LayoutGrid;
 /// Registry concept `nav-boards` -> Lucide `folder-kanban`.
 pub const NAV_BOARDS: ExpIcon = ExpIcon::FolderKanban;
 /// Registry concept `nav-changelog` -> Lucide `megaphone`.
@@ -832,6 +835,8 @@ pub const UI_GITHUB: ExpIcon = ExpIcon::Github;
 pub const UI_HELP: ExpIcon = ExpIcon::CircleQuestionMark;
 /// Registry concept `ui-hide` -> Lucide `eye-off`.
 pub const UI_HIDE: ExpIcon = ExpIcon::EyeOff;
+/// Registry concept `ui-history` -> Lucide `history`.
+pub const UI_HISTORY: ExpIcon = ExpIcon::History;
 /// Registry concept `ui-icon-placeholder` -> Lucide `circle-dashed`.
 pub const UI_ICON_PLACEHOLDER: ExpIcon = ExpIcon::CircleDashed;
 /// Registry concept `ui-indeterminate` -> Lucide `circle-minus`.
@@ -1017,6 +1022,7 @@ pub fn concept_by_name(name: &str) -> Option<ExpIcon> {
         "nav-account" => NAV_ACCOUNT,
         "nav-actions" => NAV_ACTIONS,
         "nav-admin" => NAV_ADMIN,
+        "nav-apps" => NAV_APPS,
         "nav-boards" => NAV_BOARDS,
         "nav-changelog" => NAV_CHANGELOG,
         "nav-computer" => NAV_COMPUTER,
@@ -1170,6 +1176,7 @@ pub fn concept_by_name(name: &str) -> Option<ExpIcon> {
         "ui-github" => UI_GITHUB,
         "ui-help" => UI_HELP,
         "ui-hide" => UI_HIDE,
+        "ui-history" => UI_HISTORY,
         "ui-icon-placeholder" => UI_ICON_PLACEHOLDER,
         "ui-indeterminate" => UI_INDETERMINATE,
         "ui-info" => UI_INFO,

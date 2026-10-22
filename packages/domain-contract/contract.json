@@ -409,6 +409,16 @@
     "surfaceMaxComponents": 200,
     "uploadScheme": "upload:"
   },
+  "apps": {
+    "$comment": "VAPP-110 Exponential apps: the caps of an app row and its package (behaviour = fixtures/apps.json). A package is the Exponential UI SDK's package format validated against the core + the app extension catalog; `packageMaxBytes` caps its JSON, `templateMaxComponents` the flat components of ONE template. A slug is lowercase letters, digits and dashes (`slugPattern`), unique per team, the handle in URLs and MCP calls.",
+    "slugPattern": "^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$",
+    "slugMax": 64,
+    "nameMax": 64,
+    "descriptionMax": 2000,
+    "noteMax": 500,
+    "packageMaxBytes": 131072,
+    "templateMaxComponents": 500
+  },
   "messageCardKind": {
     "values": ["question", "plan", "subagent", "session", "picture", "event", "thread_started", "report", "suggestions", "replies", "ask"]
   },
@@ -538,6 +548,61 @@
       "event"
     ],
     "tools": [
+      {
+        "name": "apps_list",
+        "title": "List apps",
+        "blurb": "Lists the team's apps with their head version.",
+        "progressive": "Listing apps",
+        "done": "Listed apps",
+        "progressiveMany": "Listing apps {n} times",
+        "doneMany": "Listed apps {n} times",
+        "subjectKey": "",
+        "result": "list"
+      },
+      {
+        "name": "apps_get",
+        "title": "Read app",
+        "blurb": "Reads one app with its package (the head or a named version).",
+        "progressive": "Reading app",
+        "done": "Read app",
+        "progressiveMany": "Reading {n} apps",
+        "doneMany": "Read {n} apps",
+        "subjectKey": "slug",
+        "result": "none"
+      },
+      {
+        "name": "apps_upsert",
+        "title": "Publish app version",
+        "blurb": "Creates the app or writes a new version of its package; the editor previews it live.",
+        "progressive": "Publishing app version",
+        "done": "Published app version",
+        "progressiveMany": "Publishing {n} app versions",
+        "doneMany": "Published {n} app versions",
+        "subjectKey": "slug",
+        "result": "none"
+      },
+      {
+        "name": "apps_delete",
+        "title": "Delete app",
+        "blurb": "Moves an app to the trash.",
+        "progressive": "Deleting app",
+        "done": "Deleted app",
+        "progressiveMany": "Deleting {n} apps",
+        "doneMany": "Deleted {n} apps",
+        "subjectKey": "slug",
+        "result": "none"
+      },
+      {
+        "name": "apps_catalog",
+        "title": "Read app catalog",
+        "blurb": "Reads the Exponential UI catalog an app package may use.",
+        "progressive": "Reading app catalog",
+        "done": "Read app catalog",
+        "progressiveMany": "Reading app catalog {n} times",
+        "doneMany": "Read app catalog {n} times",
+        "subjectKey": "",
+        "result": "none"
+      },
       {
         "name": "team_config_agents_list",
         "title": "List agents",
@@ -1467,6 +1532,11 @@
     "maxRefs": 8,
     "textMax": 200,
     "tools": [
+      { "name": "apps_catalog", "refs": "" },
+      { "name": "apps_delete", "refs": "" },
+      { "name": "apps_get", "refs": "" },
+      { "name": "apps_list", "refs": "" },
+      { "name": "apps_upsert", "refs": "" },
       { "name": "team_config_agents_list", "refs": "list:agent@" },
       { "name": "attachments_delete", "refs": "" },
       { "name": "attachments_get", "refs": "attachment@" },

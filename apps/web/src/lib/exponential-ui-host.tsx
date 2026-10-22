@@ -17,7 +17,7 @@ import { ExponentialHost } from "@exponential-at/ui"
 import type { FunctionCallInfo, ParsedSource, SourceEmit, Transport } from "@exponential-at/ui"
 import { useHostStatus } from "@exponential-at/ui-react"
 import { Prompt, appExtensionCatalog, devicesPackage, toast } from "@exp/ui"
-import type { VappPackage } from "@exponential-at/ui"
+import type { AppPackage } from "@exponential-at/ui"
 import { getDeviceIconName } from "@exp/ui"
 import { boardCollection, deviceCollection, issueCollection, teamCollection } from "@/lib/collections"
 import { deviceRowIsOnline } from "@/lib/steer-devices"
@@ -197,7 +197,7 @@ export interface AppHostOptions {
   /** harness.openDevice; defaults to a toast with the device's name. */
   openDevice?: (id: string) => void
   transport?: Transport
-  packages?: readonly VappPackage[]
+  packages?: readonly AppPackage[]
 }
 
 export function createAppHost(options: AppHostOptions): ExponentialHost {
@@ -205,7 +205,7 @@ export function createAppHost(options: AppHostOptions): ExponentialHost {
   return new ExponentialHost({
     transport: options.transport,
     extensions: [appExtensionCatalog],
-    packages: [devicesPackage as unknown as VappPackage, ...(options.packages ?? [])],
+    packages: [devicesPackage as unknown as AppPackage, ...(options.packages ?? [])],
     sources: {
       exp: (source, emit) => {
         if (source.name === `devices`) return devicesSource(source, emit)

@@ -71,7 +71,7 @@ export const ROUTES: readonly Route[] = [
     `/concepts/`,
     () => import("../pages/Concepts"),
     `Concepts · ${SITE_NAME}`,
-    `A2UI in short (surfaces, components, the data model, actions, functions), the core catalog and A2UI basic, extensions, themes, host plugins and vapps.`,
+    `A2UI in short (surfaces, components, the data model, actions, functions), the core catalog and A2UI basic, extensions, themes, host plugins and apps.`,
     [`src/pages/Concepts.tsx`],
     crumbs({ name: `Concepts`, path: `/concepts/` })
   ),
@@ -113,7 +113,7 @@ export const ROUTES: readonly Route[] = [
     `/guides/`,
     () => import("../pages/Guides"),
     `Guides · ${SITE_NAME}`,
-    `Render A2UI in React, SwiftUI, Compose and gpui; write a theme, an extension or a host plugin; build a vapp; connect an agent. Every example compiles in CI.`,
+    `Render A2UI in React, SwiftUI, Compose and gpui; write a theme, an extension or a host plugin; build a app; connect an agent. Every example compiles in CI.`,
     [`src/pages/Guides.tsx`, `src/lib/guides.ts`],
     crumbs({ name: `Guides`, path: `/guides/` })
   ),

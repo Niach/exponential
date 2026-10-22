@@ -53,7 +53,7 @@ import {
   resolveStyleValues,
   styleToCss,
 } from "@exponential-at/ui"
-import type { ChildTemplate, ConformanceReport, Decoded, ExtensionDef, FlatComponent, ModeName, NestedNode, UiNode, VappPackage } from "@exponential-at/ui"
+import type { ChildTemplate, ConformanceReport, Decoded, ExtensionDef, FlatComponent, ModeName, NestedNode, UiNode, AppPackage } from "@exponential-at/ui"
 import { CLIENT_FUNCTIONS, LITERAL_ROWS_ROOT, absolutePath, bindTree as reactBindTree, isBinding, memoFormatter, resolveNodeProps, resolveValue, setPointer, type DataModel, type ResolveContext } from "../src/data"
 import { itemInstance, runNodeAction, templateItems } from "../src/node-view"
 import type { SurfaceContextValue } from "../src/context"
@@ -249,7 +249,7 @@ describe(`Exponential UI conformance: @exponential-at/ui-react`, () => {
     for (const c of p.negotiation)
       record(`host-policy`, `negotiation: ${c.extensionIds.length}`, () => canon(supportedCatalogIds(c.extensionIds)) === canon(c.expected.supportedCatalogIds) && canon(clientCapabilities(c.extensionIds)) === canon(c.expected.clientCapabilities))
     const r = fixture(`host-router.json`)
-    const packages = r.packages as Record<string, VappPackage>
+    const packages = r.packages as Record<string, AppPackage>
     for (const v of r.validation) record(`host-router`, `validation: ${v.package}`, () => canon(validatePackage(packages[v.package])) === canon(v.expected))
     for (const flow of r.flows as { name: string; extensionIds?: string[]; packages?: string[]; installIssues?: Record<string, unknown>; steps: { message: unknown; expected: unknown }[] }[])
       record(`host-router`, `flow: ${flow.name}`, () => {

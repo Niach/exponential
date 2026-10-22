@@ -13,7 +13,7 @@ import type { ExtensionDef, FlatComponent, ReduceIssue, UiNode } from "../types"
 import { RENDER_FAILED, actionMessage, errorMessage } from "./contract"
 import type { ClientMessage, HostOp } from "./contract"
 import { clientCapabilities } from "./package"
-import type { PackageIssue, VappPackage } from "./package"
+import type { PackageIssue, AppPackage } from "./package"
 import { combineDecisions, decideFunction, decideUrl, mediaRequest, packagePolicy } from "./policy"
 import type { FunctionDecision, FunctionPolicy, MediaOptions, MediaRequest, UrlPolicy } from "./policy"
 import { HostRouter } from "./router"
@@ -55,7 +55,7 @@ export interface HostOptions {
   functions?: Record<string, HostFunction>
   sources?: SourceResolvers
   extensions?: readonly ExtensionDef[]
-  packages?: readonly VappPackage[]
+  packages?: readonly AppPackage[]
   policy?: HostPolicy
   /** Every client message that leaves (after the transport got it). */
   onSend?: (message: ClientMessage) => void
@@ -279,7 +279,7 @@ export class ExponentialHost {
 
   /** Install a package; its validation issues are returned AND reported
    *  (`issues`, `onIssue`). A package with issues is not installed. */
-  installPackage(pkg: VappPackage): PackageIssue[] {
+  installPackage(pkg: AppPackage): PackageIssue[] {
     const issues = this.router.installPackage(pkg)
     const packageId = typeof pkg?.id === `string` ? pkg.id : undefined
     for (const i of issues) this.report({ code: `PACKAGE_INVALID`, message: i.message, path: i.path, ...(packageId ? { packageId } : {}) })

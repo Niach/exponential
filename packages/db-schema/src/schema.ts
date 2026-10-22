@@ -1754,6 +1754,13 @@ export const sessions = pgTable(
     agentId: uuid(`agent_id`).references((): AnyPgColumn => agents.id, {
       onDelete: `cascade`,
     }),
+    // VAPP-110: the APP this is a member's EDITOR session OF (a root; one
+    // per (app, user_id), live only while that member has the editor open:
+    // leaving ends the tree, the next message continues it). NULL = not an
+    // editor session.
+    appId: uuid(`app_id`).references((): AnyPgColumn => apps.id, {
+      onDelete: `cascade`,
+    }),
     // ── runner ──
     // The STARTER (the real person; a teammate's start on a shared server
     // device stays theirs). Visibility keys on it.
@@ -1853,6 +1860,11 @@ export const sessions = pgTable(
       .on(table.agentId, table.userId)
       .where(sql`agent_id IS NOT NULL AND parent_id IS NULL`),
     index(`idx_sessions_agent`).on(table.agentId),
+    // VAPP-110: one editor session per (app, member).
+    uniqueIndex(`uniq_sessions_app_editor`)
+      .on(table.appId, table.userId)
+      .where(sql`app_id IS NOT NULL AND parent_id IS NULL`),
+    index(`idx_sessions_app`).on(table.appId),
     check(
       `sessions_root_check`,
       sql`(parent_id IS NULL AND depth = 0 AND root_id = id) OR (parent_id IS NOT NULL AND depth > 0)`
@@ -1972,6 +1984,77 @@ export const prompts = pgTable(
   (table) => [
     unique().on(table.teamId, table.name),
     index(`idx_prompts_team`).on(table.teamId),
+  ]
+)
+
+// VAPP-110: Exponential APPS. An app is a DECLARATIVE PACKAGE (the Exponential
+// UI SDK's package format: a manifest + A2UI templates + bindings + a
+// function allowlist, data never code) owned by a team and rendered inside
+// every client by the Exponential UI renderers through the app host. The
+// row carries the HEAD version's package (synced, so the editor's live
+// preview follows every upsert; NULL until the first version lands);
+// `app_versions` keeps every version (no git: the DB is the history).
+// Authoring in slice 1 is agents only: a member's EDITOR session
+// (`sessions.app_id`) writes versions over MCP `apps upsert`. `deleted_at`
+// = the trash mirror of the apps shape. Contract caps: `contract.apps`.
+export type AppPackageJson = Record<string, unknown>
+export const apps = pgTable(
+  `apps`,
+  {
+    id: uuidPk(),
+    teamId: uuid(`team_id`)
+      .notNull()
+      .references(() => teams.id, { onDelete: `cascade` }),
+    // The handle in URLs and MCP calls (`/t/<team>/apps/<slug>`), unique per team.
+    slug: varchar({ length: 64 }).notNull(),
+    name: varchar({ length: 64 }).notNull(),
+    // The board icon set (a curated glyph + colour), like boards and agents.
+    icon: varchar({ length: 64 }),
+    color: varchar({ length: 7 }),
+    description: text().notNull().default(``),
+    // The HEAD version's package; NULL = no version yet.
+    package: jsonb().$type<AppPackageJson>(),
+    headVersion: integer(`head_version`).notNull().default(0),
+    createdBy: text(`created_by`)
+      .notNull()
+      .references(() => users.id, { onDelete: `cascade` }),
+    deletedAt: timestamp(`deleted_at`, { withTimezone: true }),
+    ...timestamps,
+  },
+  (table) => [
+    unique().on(table.teamId, table.slug),
+    index(`idx_apps_team`).on(table.teamId),
+  ]
+)
+
+// VAPP-110: every version of an app's package, numbered from 1 per app. A
+// row is written by `apps upsert` (MCP, from the member's editor session)
+// or by Restore (a new head copying an older one). `package` stays BEHIND
+// the shape (tRPC `apps.version` / MCP `apps get {version}` on demand); the
+// head's package rides on `apps`.
+export const appVersions = pgTable(
+  `app_versions`,
+  {
+    id: uuidPk(),
+    appId: uuid(`app_id`)
+      .notNull()
+      .references(() => apps.id, { onDelete: `cascade` }),
+    teamId: uuid(`team_id`)
+      .notNull()
+      .references(() => teams.id, { onDelete: `cascade` }),
+    number: integer().notNull(),
+    package: jsonb().$type<AppPackageJson>().notNull(),
+    // What changed, one line (the agent's, or `Restored v3`).
+    note: text(),
+    // The editor session that wrote it (NULL = a person's restore).
+    sessionId: uuid(`session_id`).references(() => sessions.id, { onDelete: `set null` }),
+    createdBy: text(`created_by`).references(() => users.id, { onDelete: `set null` }),
+    createdAt: timestamp(`created_at`, { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique().on(table.appId, table.number),
+    index(`idx_app_versions_app`).on(table.appId),
+    index(`idx_app_versions_team`).on(table.teamId),
   ]
 )
 
@@ -3137,6 +3220,15 @@ export const selectSyncedConversationSchema = selectConversationSchema.omit({
   ownerId: true,
 })
 export const selectSyncedPromptSchema = selectPromptSchema.omit({ body: true })
+// VAPP-110: apps (the head package rides along) and their versions (the
+// package stays server-side).
+export const selectAppSchema = createSelectSchema(apps, {
+  package: z.custom<AppPackageJson | null>((value) => value === null || (typeof value === `object` && !Array.isArray(value))),
+})
+export const selectAppVersionSchema = createSelectSchema(appVersions, {
+  package: z.custom<AppPackageJson>((value) => typeof value === `object` && value !== null && !Array.isArray(value)),
+})
+export const selectSyncedAppVersionSchema = selectAppVersionSchema.omit({ package: true })
 export const selectSessionIssueSchema = createSelectSchema(sessionIssues, {
   source: sessionIssueSourceSchema,
 })
@@ -3275,6 +3367,10 @@ export type SyncedAgent = Omit<Agent, `instructions` | `triggerState`>
 export type Event = InferSelectModel<typeof events>
 export type Prompt = InferSelectModel<typeof prompts>
 export type SyncedPrompt = Omit<Prompt, `body`>
+// VAPP-110
+export type App = InferSelectModel<typeof apps>
+export type AppVersion = InferSelectModel<typeof appVersions>
+export type SyncedAppVersion = Omit<AppVersion, `package`>
 export type UserNotificationPrefs = InferSelectModel<
   typeof userNotificationPrefs
 >

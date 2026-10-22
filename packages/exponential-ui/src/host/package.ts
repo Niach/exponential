@@ -1,4 +1,4 @@
-// VAPP-91: catalog negotiation and declarative vapp packages (VAPP-82: a
+// VAPP-91: catalog negotiation and declarative app packages (VAPP-82: a
 // manifest + A2UI templates + bindings, data never code).
 
 import { A2UI_BASIC_CATALOG_ID, CORE_CATALOG_ID, CORE_LITE_CATALOG_ID } from "../catalog"
@@ -25,18 +25,18 @@ export interface TemplateBinding {
   source: string
 }
 
-export interface VappTemplate {
+export interface AppTemplate {
   components: FlatComponent[]
   data?: unknown
   bindings?: TemplateBinding[]
 }
 
-export interface VappPackage {
+export interface AppPackage {
   id: string
   name: string
   version: string
   catalogId: string
-  templates: Record<string, VappTemplate>
+  templates: Record<string, AppTemplate>
   /** Function patterns the package's surfaces may call (allowlist). */
   functions?: string[]
   /** A built-in theme id or a theme JSON. */
@@ -97,7 +97,7 @@ export function validatePackage(pkg: unknown, catalogIds: readonly string[] = su
 
 /** A template as the messages that create it: createSurface, the
  *  components, the merged initial data, one bindDataModel per binding. */
-export function templateMessages(pkg: VappPackage, templateId: string, surfaceId: string, data?: unknown): ServerMessage[] | null {
+export function templateMessages(pkg: AppPackage, templateId: string, surfaceId: string, data?: unknown): ServerMessage[] | null {
   const template = pkg.templates[templateId]
   if (!template) return null
   const version = A2UI_VERSION

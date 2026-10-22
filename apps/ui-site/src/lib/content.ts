@@ -123,7 +123,7 @@ export const GUIDE_CHECK: Record<string, string> = {
   themes: `theme`,
   extensions: `react`,
   "host-plugins": `react`,
-  vapps: `react`,
+  apps: `react`,
   agents: `agent`,
 }
 

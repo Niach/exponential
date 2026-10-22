@@ -1,3 +1,4 @@
+import { APPS_COPY } from "@exp/domain-contract/apps"
 import type * as React from "react"
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router"
 import {
@@ -50,6 +51,7 @@ const NavAdminIcon = conceptIcon(`nav-admin`)
 const NavAgentIcon = conceptIcon(`action-chat`)
 const NavChangelogIcon = conceptIcon(`nav-changelog`)
 const NavDevicesIcon = conceptIcon(`nav-devices`)
+const NavAppsIcon = conceptIcon(`nav-apps`)
 const NavInboxIcon = conceptIcon(`nav-inbox`)
 const NavThreadsIcon = conceptIcon(`nav-threads`)
 const NavSettingsIcon = conceptIcon(`nav-settings`)
@@ -298,6 +300,9 @@ export function TeamSidebarRail({
         <RailItem label="Threads" link={{ to: `/t/$teamSlug/threads`, params }}>
           <NavThreadsIcon className="size-4" />
           <ThreadsLiveBadge state={threadsNav} placement="icon" />
+        </RailItem>
+        <RailItem label={APPS_COPY.nav} link={{ to: `/t/$teamSlug/apps`, params }}>
+          <NavAppsIcon className="size-4" />
         </RailItem>
         <RailItem label="Devices" link={{ to: `/t/$teamSlug/devices`, params }}>
           <NavDevicesIcon className="size-4" />

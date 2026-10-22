@@ -44,7 +44,7 @@
     "$comment": "supportedCatalogIds = the core, the core lite, the A2UI basic catalog, then every registered extension id in registration order, de-duplicated. clientCapabilities = {\"v0.9\": {supportedCatalogIds}}. A createSurface whose catalogId is not in the list → UNSUPPORTED_CATALOG."
   },
   "package": {
-    "$comment": "A declarative vapp package (VAPP-82): data, never code. {id, name, version, catalogId, templates: {<id>: {components: [flat, one `root`], data?, bindings?: [{path, source}]}}, functions?: [allowed patterns], theme?: a theme id or theme JSON, icon?}. Installing one registers its templates with the router (applyTemplate) and turns `functions` into the policy for its surfaces: listed = allow, anything else = deny.",
+    "$comment": "A declarative app package (VAPP-82): data, never code. {id, name, version, catalogId, templates: {<id>: {components: [flat, one `root`], data?, bindings?: [{path, source}]}}, functions?: [allowed patterns], theme?: a theme id or theme JSON, icon?}. Installing one registers its templates with the router (applyTemplate) and turns `functions` into the policy for its surfaces: listed = allow, anything else = deny.",
     "required": ["id", "name", "version", "catalogId", "templates"]
   },
   "paint": {

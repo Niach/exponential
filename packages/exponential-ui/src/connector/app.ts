@@ -1,27 +1,27 @@
-// VAPP-91: running a declarative vapp (VAPP-82) in any host: install the
+// VAPP-91: running a declarative app (VAPP-82) in any host: install the
 // package, apply a template onto a surface, bind its sources (the host's own
 // resolvers, or the Exponential connector's `exp:` ones), and let the
-// package's `functions` list narrow the policy. The vapps product's own host
+// package's `functions` list narrow the policy. The apps product's own host
 // plugin is this plus its theme and extension.
 
 import type { ServerMessage } from "../host/contract"
-import type { PackageIssue, VappPackage } from "../host/package"
+import type { PackageIssue, AppPackage } from "../host/package"
 import { ExponentialHost } from "../host/runtime"
 import type { HostOptions } from "../host/runtime"
 
-export interface VappHostOptions extends HostOptions {
+export interface AppHostOptions extends HostOptions {
   /** The package to run. */
-  package: VappPackage
+  package: AppPackage
 }
 
-export interface VappHost {
+export interface AppHost {
   host: ExponentialHost
   issues: PackageIssue[]
   /** Apply a template of the package onto a surface (default: the first). */
   open(surfaceId: string, templateId?: string, data?: unknown): void
 }
 
-export function createVappHost(options: VappHostOptions): VappHost {
+export function createAppHost(options: AppHostOptions): AppHost {
   const { package: pkg, ...rest } = options
   const host = new ExponentialHost(rest)
   const issues = host.installPackage(pkg)

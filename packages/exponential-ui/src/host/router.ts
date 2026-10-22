@@ -8,7 +8,7 @@ import { A2UI_VERSION } from "../catalog"
 import { errorMessage, MESSAGE_KINDS } from "./contract"
 import type { HostOp, ServerMessage } from "./contract"
 import { supportedCatalogIds, templateMessages, validatePackage } from "./package"
-import type { PackageIssue, VappPackage } from "./package"
+import type { PackageIssue, AppPackage } from "./package"
 import { parseSource } from "./sources"
 import { LIMIT_ISSUES, MAX_MESSAGE_BYTES } from "../limits"
 
@@ -29,7 +29,7 @@ export interface SurfaceInfo {
 export class HostRouter {
   private extensionIds: string[]
   private surfaces = new Map<string, SurfaceInfo>()
-  private packages = new Map<string, VappPackage>()
+  private packages = new Map<string, AppPackage>()
 
   constructor(options: HostRouterOptions = {}) {
     this.extensionIds = [...(options.extensionIds ?? [])]
@@ -45,13 +45,13 @@ export class HostRouter {
 
   /** Install a declarative package: its templates become `applyTemplate`
    *  targets. Returns the validation issues (installed only when none). */
-  installPackage(pkg: VappPackage): PackageIssue[] {
+  installPackage(pkg: AppPackage): PackageIssue[] {
     const issues = validatePackage(pkg, this.supportedCatalogIds)
     if (!issues.length) this.packages.set(pkg.id, pkg)
     return issues
   }
 
-  package(id: string): VappPackage | undefined {
+  package(id: string): AppPackage | undefined {
     return this.packages.get(id)
   }
 
@@ -122,7 +122,7 @@ export class HostRouter {
     return [this.invalid(surfaceId, `unknown message`)]
   }
 
-  private findPackage(templateId: string, packageId?: string): VappPackage | undefined {
+  private findPackage(templateId: string, packageId?: string): AppPackage | undefined {
     if (packageId !== undefined) {
       const pkg = this.packages.get(packageId)
       return pkg && pkg.templates[templateId] ? pkg : undefined

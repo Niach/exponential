@@ -37,6 +37,8 @@ import {
   apikeys,
   attachments,
   agents,
+  apps,
+  appVersions,
   comments,
   devices,
   events,
@@ -97,6 +99,12 @@ import {
   DEMO_AGENT_ID,
   DEMO_AGENT_IDS,
   DEMO_AGENT_REQUEST,
+  DEMO_APP_CHAT_TIMES,
+  DEMO_APP_EDITOR_SESSION_ID,
+  DEMO_APP_EMPTY_ID,
+  DEMO_APP_ID,
+  DEMO_APP_SLUG,
+  DEMO_APP_VERSION_IDS,
   DEMO_AGENT_TRIGGER_ID,
   DEMO_DEVICE_ID,
   DEMO_SERVER_DEVICE_ID,
@@ -683,6 +691,126 @@ async function seedSessionTree(ctx: {
     )
   )
 
+  // ── VAPP-110: the team's apps (the `apps` / `app` views) ──────────────
+  // The Team dashboard app: three versions (the head binds the feedback
+  // board's issues) and the demo user's EDITOR SESSION with it (a root with
+  // `app_id`, idle: the person is in the editor). A second app has no
+  // version yet (the list's "No version yet" pill).
+  const feedbackBoardId = issue(`FB-3`).boardId
+  const appPackage = (version: `1.0.0` | `1.1.0` | `1.2.0`) => {
+    const components: Record<string, unknown>[] = [
+      { id: `root`, component: `Stack`, gap: `md`, children: [`band`, `stats`, ...(version !== `1.0.0` ? [`chart`] : []), ...(version === `1.2.0` ? [`issues`] : [])] },
+      { id: `band`, component: `Section`, title: `Product Feedback`, icon: `nav-threads` },
+      { id: `stats`, component: `Grid`, columns: 2, gap: `sm`, children: [`open`, `rollout`] },
+      { id: `open`, component: `Card`, title: `Open issues`, children: [`openValue`] },
+      { id: `openValue`, component: `Text`, text: { path: `/issues/count` }, variant: `title` },
+      { id: `rollout`, component: `Card`, title: `Rollout`, children: [`bar`] },
+      { id: `bar`, component: `Progress`, value: 72, max: 100, label: `This week`, tone: `primary` },
+    ]
+    if (version !== `1.0.0`) {
+      components.push({
+        id: `chart`,
+        component: `Chart`,
+        kind: `line`,
+        title: `Reports per day`,
+        height: 140,
+        categories: [`Mon`, `Tue`, `Wed`, `Thu`, `Fri`, `Sat`, `Sun`],
+        series: [{ name: `Reports`, values: [4, 7, 5, 9, 6, 3, 2] }],
+      })
+    }
+    if (version === `1.2.0`) {
+      components.push(
+        { id: `issues`, component: `List`, divided: true, children: { componentId: `issueRow`, path: `/issues/rows` } },
+        {
+          id: `issueRow`,
+          component: `Row`,
+          identifier: { path: `identifier` },
+          title: { path: `title` },
+          pressable: true,
+          chevron: `always`,
+          on: { press: { functionCall: { call: `harness.openIssue`, args: { identifier: { path: `identifier` } } } } },
+        }
+      )
+    }
+    return {
+      id: `acme.team-dashboard`,
+      name: `Team dashboard`,
+      version,
+      catalogId: `https://ui.exponential.at/catalogs/exponential-app/v1`,
+      icon: { glyph: `chart-line` },
+      functions: [`harness.openIssue`, `harness.toast`],
+      templates: {
+        dashboard: {
+          data: { issues: { rows: [], count: 0 } },
+          bindings: [{ path: `/issues`, source: `exp:issues?board=${feedbackBoardId}&limit=6` }],
+          components,
+        },
+      },
+    }
+  }
+  await db.insert(apps).values([
+    {
+      id: DEMO_APP_ID,
+      teamId,
+      slug: DEMO_APP_SLUG,
+      name: `Team dashboard`,
+      icon: `chart-line`,
+      color: `#0ea5e9`,
+      description: `Open feedback, this week's rollout and the newest reports at a glance.`,
+      package: appPackage(`1.2.0`),
+      headVersion: 3,
+      createdBy: demoId,
+      createdAt: daysAgo(6),
+      updatedAt: DEMO_APP_CHAT_TIMES.third,
+    },
+    {
+      id: DEMO_APP_EMPTY_ID,
+      teamId,
+      slug: `release-checklist`,
+      name: `Release checklist`,
+      icon: `rocket`,
+      color: `#f59e0b`,
+      description: `The steps before a store release, ticked off per platform.`,
+      package: null,
+      headVersion: 0,
+      createdBy: ctx.jonas,
+      createdAt: daysAgo(1),
+      updatedAt: daysAgo(1),
+    },
+  ])
+  await db.insert(sessions).values([
+    root(DEMO_APP_EDITOR_SESSION_ID, {
+      appId: DEMO_APP_ID,
+      title: `Team dashboard`,
+      repositoryId: null,
+      dispatch: false,
+      status: `idle`,
+      startedAt: DEMO_APP_CHAT_TIMES.request,
+      lastTurnAt: DEMO_APP_CHAT_TIMES.third,
+      createdAt: DEMO_APP_CHAT_TIMES.request,
+      updatedAt: DEMO_APP_CHAT_TIMES.third,
+    }),
+  ])
+  await db.insert(appVersions).values(
+    (
+      [
+        [DEMO_APP_VERSION_IDS[0], 1, `1.0.0`, `First cut: open issues and the rollout`, DEMO_APP_CHAT_TIMES.first],
+        [DEMO_APP_VERSION_IDS[1], 2, `1.1.0`, `Added the reports chart`, DEMO_APP_CHAT_TIMES.second],
+        [DEMO_APP_VERSION_IDS[2], 3, `1.2.0`, `Newest reports as rows, open on tap`, DEMO_APP_CHAT_TIMES.third],
+      ] as const
+    ).map(([id, number, version, note, at]) => ({
+      id,
+      appId: DEMO_APP_ID,
+      teamId,
+      number,
+      package: appPackage(version),
+      note,
+      sessionId: DEMO_APP_EDITOR_SESSION_ID,
+      createdBy: null,
+      createdAt: at,
+    }))
+  )
+
   // ── the thread roots ───────────────────────────────────────────────────
   const batchGuide = [
     guideText(
@@ -1043,6 +1171,44 @@ async function seedSessionTree(ctx: {
         author: `agent`,
         body: `Done, 3 issues labelled android.`,
         at: DEMO_AGENT_CHANNEL_TIMES.reply,
+      },
+      // VAPP-110: the demo user's editor session with the Team dashboard app
+      // (the `app` view's chat), one exchange per version.
+      {
+        sessionId: DEMO_APP_EDITOR_SESSION_ID,
+        author: `user`,
+        body: `A dashboard for Product Feedback: how many issues are open and how far this week's rollout is.`,
+        at: DEMO_APP_CHAT_TIMES.request,
+      },
+      {
+        sessionId: DEMO_APP_EDITOR_SESSION_ID,
+        author: `agent`,
+        body: `Published v1: two cards, open issues bound to the board and the rollout as a progress bar.`,
+        at: DEMO_APP_CHAT_TIMES.first,
+      },
+      {
+        sessionId: DEMO_APP_EDITOR_SESSION_ID,
+        author: `user`,
+        body: `Add a chart of reports per day under the cards.`,
+        at: DEMO_APP_CHAT_TIMES.change,
+      },
+      {
+        sessionId: DEMO_APP_EDITOR_SESSION_ID,
+        author: `agent`,
+        body: `v2 has the line chart, last seven days.`,
+        at: DEMO_APP_CHAT_TIMES.second,
+      },
+      {
+        sessionId: DEMO_APP_EDITOR_SESSION_ID,
+        author: `user`,
+        body: `List the newest reports below it and open one when I tap it.`,
+        at: DEMO_APP_CHAT_TIMES.polish,
+      },
+      {
+        sessionId: DEMO_APP_EDITOR_SESSION_ID,
+        author: `agent`,
+        body: `v3: the six newest issues as rows; a tap opens the issue.`,
+        at: DEMO_APP_CHAT_TIMES.third,
       },
     ].map((spec) => message(spec as MessageSpec))
   )

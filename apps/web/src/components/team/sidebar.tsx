@@ -1,3 +1,4 @@
+import { APPS_COPY } from "@exp/domain-contract/apps"
 import { useEffect, useLayoutEffect, useRef, useState } from "react"
 import type { ReactNode } from "react"
 import {
@@ -110,6 +111,7 @@ import { resolveBoardTarget } from "@/components/team/mobile-tab-bar"
 const NavAgentIcon = conceptIcon(`action-chat`)
 const NavCreateIssueIcon = conceptIcon(`nav-create-issue`)
 const NavDevicesIcon = conceptIcon(`nav-devices`)
+const NavAppsIcon = conceptIcon(`nav-apps`)
 const NavInboxIcon = conceptIcon(`nav-inbox`)
 const NavThreadsIcon = conceptIcon(`nav-threads`)
 const NavSearchIcon = conceptIcon(`nav-search`)
@@ -417,6 +419,15 @@ export function TeamSidebar({
                               </Link>
                             </SidebarMenuButton>
                             <ThreadsLiveBadge state={threadsNav} placement="row" />
+                          </SidebarMenuItem>
+                          {/* VAPP-110: the team's apps (fixtures/apps.json). */}
+                          <SidebarMenuItem>
+                            <SidebarMenuButton asChild density="compact">
+                              <Link to="/t/$teamSlug/apps" params={{ teamSlug }} data-testid="nav-apps">
+                                <NavAppsIcon className="h-4 w-4" />
+                                <span>{APPS_COPY.nav}</span>
+                              </Link>
+                            </SidebarMenuButton>
                           </SidebarMenuItem>
                           <SidebarMenuItem>
                             <SidebarMenuButton asChild density="compact">

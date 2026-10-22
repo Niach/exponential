@@ -1438,6 +1438,11 @@ export const sessionsSendInputSchema = z
     // NEW-2: a message to an AGENT = into the caller's own conversation
     // session with it (created on first use; agents never end).
     agentId: sendUuid.optional(),
+    // VAPP-110: a message to an APP = into the caller's own EDITOR session
+    // with it (created on first use on `deviceId`, else the caller's
+    // default device; an ended one continues). The app brief rides as the
+    // first message's preface.
+    appId: sendUuid.optional(),
     // NEW-1: answer the target session's open question/plan card (first
     // answer wins: a parent answering what it knows, a person the rest).
     answer: sessionAnswerSchema.optional(),
@@ -1450,6 +1455,12 @@ export const sessionsSendInputSchema = z
     const issue = (message: string) =>
       ctx.addIssue({ code: z.ZodIssueCode.custom, message })
     const rootFacets = input.promptId !== undefined || input.repositoryId !== undefined
+    if (input.appId) {
+      if (input.sessionId || input.parentId || input.agentId) issue(`appId is a message to that app's editor session alone`)
+      if (rootFacets || input.name) issue(`a message to an app takes no root facets`)
+      if (!input.text?.trim() && !input.attachmentIds?.length) issue(`a message needs text or attachments`)
+      return
+    }
     if (input.agentId) {
       if (input.sessionId || input.parentId) issue(`agentId is a message to that agent alone`)
       if (rootFacets || input.name) issue(`a message to an agent takes no root facets`)

@@ -128,6 +128,38 @@
         "sha256": "dcd9b1533c47d3ac21b40d2aba4da8e9d2cc328db4b6496e096691cfe3e30ffc"
       }
     },
+    "app": {
+      "web": {
+        "file": "shots/app/web.webp",
+        "width": 1800,
+        "height": 1200,
+        "bytes": 65314,
+        "sha256": "fd20c1b28435b50f457dec4e05bf8a54991009368726492f54f7a6d0b6c836b7"
+      },
+      "web-mobile": {
+        "file": "shots/app/web-mobile.webp",
+        "width": 832,
+        "height": 1800,
+        "bytes": 53196,
+        "sha256": "e9d8aa4f1ea0263fcd1d7ba90e96ccf672b2a8557385181cb4a8e41a1b5f1d12"
+      }
+    },
+    "apps": {
+      "web": {
+        "file": "shots/apps/web.webp",
+        "width": 1800,
+        "height": 1200,
+        "bytes": 34610,
+        "sha256": "9c8e07171f6a64b87f7f4ffb123664185a9ac0dccb893f60e08a415fb5589814"
+      },
+      "web-mobile": {
+        "file": "shots/apps/web-mobile.webp",
+        "width": 832,
+        "height": 1800,
+        "bytes": 17314,
+        "sha256": "9bd12ecf2b5b95220eb66ec0d0daa3f79729949c3dafe4bfcc6e7abfdc9fb706"
+      }
+    },
     "ask-dock": {
       "android": {
         "file": "shots/ask-dock/android.webp",
@@ -1183,29 +1215,6 @@
         "height": 1200,
         "bytes": 16990,
         "sha256": "a20389da2a57d7a51b80f270a49330ee869a21c0aa7f6c444c8b35a1fed89261"
-      }
-    },
-    "exponential-ui-devices": {
-      "desktop": {
-        "file": "shots/exponential-ui-devices/desktop.webp",
-        "width": 1800,
-        "height": 1126,
-        "bytes": 32398,
-        "sha256": "631c2bee57e12937c49443a41e3d55ab853c541dd900f6a85a74d6e5664689d7"
-      },
-      "web": {
-        "file": "shots/exponential-ui-devices/web.webp",
-        "width": 1800,
-        "height": 1200,
-        "bytes": 9408,
-        "sha256": "4f4033acc2f0b3616059b7217cfe4165de0e99c6370ab16048dbf0e3caa84905"
-      },
-      "web-mobile": {
-        "file": "shots/exponential-ui-devices/web-mobile.webp",
-        "width": 832,
-        "height": 1800,
-        "bytes": 12186,
-        "sha256": "c7cd79709dcfc2f8d0728947cdc46fc316646f8438953698209dcee29f85db65"
       }
     },
     "exponential-ui-dialog": {

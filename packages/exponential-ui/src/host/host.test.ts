@@ -33,7 +33,7 @@ import {
   imageDimensions,
   MEDIA_LIMITS,
 } from "."
-import type { ClientMessage, Decoded, FunctionDecision, FunctionPolicy, HostIssue, MediaOptions, TransportStatus, UrlPolicy, VappPackage } from "."
+import type { ClientMessage, Decoded, FunctionDecision, FunctionPolicy, HostIssue, MediaOptions, TransportStatus, UrlPolicy, AppPackage } from "."
 import { neutralTheme } from "../themes"
 import { CORE_CATALOG_ID } from "../catalog"
 import { englishFormatter } from "../format"
@@ -76,7 +76,7 @@ describe(`host-policy.json`, () => {
 })
 
 describe(`host-router.json`, () => {
-  const packages = routerFixture.packages as unknown as Record<string, VappPackage>
+  const packages = routerFixture.packages as unknown as Record<string, AppPackage>
   for (const v of routerFixture.validation) test(`validation: ${v.package}`, () => expect(validatePackage(packages[v.package])).toEqual(v.expected))
   for (const flow of routerFixture.flows as { name: string; extensionIds?: string[]; packages?: string[]; installIssues?: Record<string, unknown>; steps: { message: unknown; expected: unknown }[] }[])
     test(`flow: ${flow.name}`, () => {
@@ -99,7 +99,7 @@ describe(`host-router.json`, () => {
   })
 })
 
-const devicesPackage = routerFixture.packages[`acme.devices`] as unknown as VappPackage
+const devicesPackage = routerFixture.packages[`acme.devices`] as unknown as AppPackage
 
 describe(`ExponentialHost`, () => {
   test(`messages through the in-memory transport build surfaces`, () => {
@@ -295,7 +295,7 @@ describe(`review fixes`, () => {
   })
 
   test(`packages: an unusable one in the options throws; installPackage + TEMPLATE_NOT_FOUND reach a transport-less host`, () => {
-    const broken = routerFixture.packages.broken as unknown as VappPackage
+    const broken = routerFixture.packages.broken as unknown as AppPackage
     expect(() => new ExponentialHost({ packages: [devicesPackage, broken] })).toThrow(PackageError)
     const seen: HostIssue[] = []
     const host = new ExponentialHost({ onIssue: (i) => seen.push(i) })

@@ -264,6 +264,7 @@ public enum AppIcons {
         "laptop",
         "layers",
         "layers-2",
+        "layout-grid",
         "leaf",
         "lightbulb",
         "link",
@@ -524,6 +525,8 @@ public enum AppIcons {
     public static let navActions: String = "rocket"
     /// Concept `nav-admin`.
     public static let navAdmin: String = "shield"
+    /// Concept `nav-apps`.
+    public static let navApps: String = "layout-grid"
     /// Concept `nav-boards`.
     public static let navBoards: String = "folder-kanban"
     /// Concept `nav-changelog`.
@@ -830,6 +833,8 @@ public enum AppIcons {
     public static let uiHelp: String = "circle-question-mark"
     /// Concept `ui-hide`.
     public static let uiHide: String = "eye-off"
+    /// Concept `ui-history`.
+    public static let uiHistory: String = "history"
     /// Concept `ui-icon-placeholder`.
     public static let uiIconPlaceholder: String = "circle-dashed"
     /// Concept `ui-indeterminate`.

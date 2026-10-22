@@ -150,6 +150,8 @@ import { postReplies, postSuggestions } from "@/lib/sessions/suggestions"
 import { buildPlanCard, buildQuestionCard, postAskCard } from "@/lib/sessions/plan"
 import { PLAN_CARD_COPY } from "@exp/domain-contract/plan-card"
 import { loadAgentForUser } from "@/lib/agents/conversation"
+import { loadAppForUser } from "@/lib/apps/editor-session"
+import { appCatalogText } from "@/lib/apps/package"
 import { emitEventInTx } from "@/lib/events"
 import {
   closePullRequestTx,
@@ -2219,12 +2221,13 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_sessions_send`,
     {
-      description: `THE one call for sessions. sessionId = message it (idle resumes; ended = continues on its branch; answer = answer its open question/plan {answer|answers|decision}, first wins; issueIds = forward; account = switch login; deviceId = move; stop = interrupt its turn). agentId = message a team agent (your conversation with it). parentId = start a child. Neither = a new thread (text, issueIds, promptId = a saved prompt's body first, repositoryId); its transitions wake you, as do wakeOn sessions. New threads need deviceId; teamId defaults to yours. Never resend, never wait.`,
+      description: `THE one call for sessions. sessionId = message it (idle resumes; ended = continues on its branch; answer = answer its open question/plan {answer|answers|decision}, first wins; issueIds = forward; account = switch login; deviceId = move; stop = interrupt its turn). agentId = message a team agent (your conversation with it); appId = message an app's editor session (yours). parentId = start a child. Neither = a new thread (text, issueIds, promptId = a saved prompt's body first, repositoryId); its transitions wake you, as do wakeOn sessions. New threads need deviceId; teamId defaults to yours. Never resend, never wait.`,
       _meta: ALWAYS_LOAD_META,
       inputSchema: strictInput({
         teamId: uuidString.optional(),
         sessionId: uuidString.optional(),
         agentId: uuidString.optional(),
+        appId: uuidString.optional(),
         parentId: uuidString.optional(),
         deviceId: z.string().optional(),
         cli: z.string().optional(),
@@ -2267,7 +2270,9 @@ export function registerExponentialTools(
             ? (await loadGrantedSession(target)).teamId
             : rest.agentId
               ? (await loadAgentForUser(user.id, rest.agentId)).teamId
-              : (rest.teamId ?? own?.teamId)
+              : rest.appId
+                ? (await loadAppForUser(user.id, rest.appId)).teamId
+                : (rest.teamId ?? own?.teamId)
           if (!teamId) throw new Error(`Pass teamId: this connection is confined to chosen teams.`)
           assertTeamFullyGranted(access, teamId)
         }
@@ -3384,6 +3389,136 @@ export function registerExponentialTools(
         }
         const result = await caller(user, request).prompts.get({ id })
         return ok(result.prompt)
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  // -----------------------------------------------------------------------
+  // Apps (VAPP-110: a team's declarative Exponential UI packages; an app's
+  // editor session publishes versions here)
+  // -----------------------------------------------------------------------
+
+  // The team an apps op works in: the named one, else the caller session's.
+  const appsTeam = async (teamId: string | undefined): Promise<string> => {
+    const resolved = teamId ?? (await loadCallerSession())?.teamId
+    if (!resolved) throw new Error(`Pass teamId.`)
+    if (!access.full) assertTeamFullyGranted(access, resolved)
+    return resolved
+  }
+  const appSlug = z
+    .string()
+    .trim()
+    .min(1)
+    .max(64)
+    .regex(/^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/, `a slug is lowercase letters, digits and dashes`)
+
+  server.registerTool(
+    `exponential_apps_list`,
+    {
+      annotations: READ_ONLY,
+      description: `List a team's apps (slug, name, head version). teamId defaults to yours.`,
+      inputSchema: strictInput({ teamId: uuidString.optional(), ...pageInput }),
+    },
+    async ({ teamId, limit, offset }) => {
+      try {
+        const result = await caller(user, request).apps.list({ teamId: await appsTeam(teamId) })
+        return ok(page(result.apps, limit, offset))
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  server.registerTool(
+    `exponential_apps_get`,
+    {
+      annotations: READ_ONLY,
+      description: `Read one app by slug with its package (the head, or version = an older one's).`,
+      inputSchema: strictInput({ slug: appSlug, teamId: uuidString.optional(), version: z.number().int().min(1).optional() }),
+    },
+    async ({ slug, teamId, version }) => {
+      try {
+        const result = await caller(user, request).apps.get({ slug, teamId: await appsTeam(teamId), version })
+        const { package: _omit, ...app } = result.app
+        return ok({ ...app, version: result.version, package: result.package })
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  server.registerTool(
+    `exponential_apps_upsert`,
+    {
+      description: `Publish a NEW VERSION of an app's package (the editor previews it live); a new slug creates the app (name required). package = the format exponential_apps {op: "catalog"} describes; note = one line on what changed.`,
+      inputSchema: strictInput({
+        slug: appSlug,
+        teamId: uuidString.optional(),
+        name: z.string().trim().min(1).max(64).optional(),
+        icon: z.string().max(64).optional(),
+        color: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
+        description: z.string().max(2000).optional(),
+        package: z.record(z.string(), z.unknown()),
+        note: z.string().max(500).optional(),
+      }),
+    },
+    async ({ slug, teamId, name, icon, color, description, package: pkg, note }) => {
+      try {
+        const team = await appsTeam(teamId)
+        const api = caller(user, request).apps
+        const own = await loadCallerSession()
+        const sessionId = own?.rootId ?? own?.id ?? undefined
+        const existing = await api.get({ slug, teamId: team }).catch(() => null)
+        if (!existing) {
+          if (!name) throw new Error(`No app with the slug ${slug}: pass name to create it.`)
+          const created = await api.create({
+            teamId: team,
+            slug,
+            name,
+            icon: (icon as never) ?? undefined,
+            color: color ?? undefined,
+            description,
+            package: pkg,
+            note,
+          })
+          return ok({ ok: true, id: created.app.id, slug, version: created.app.headVersion, created: true })
+        }
+        const result = await api.upsertPackage({ slug, teamId: team, package: pkg, note, sessionId })
+        return ok({ ok: true, id: existing.app.id, slug, version: result.version, created: false })
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  server.registerTool(
+    `exponential_apps_delete`,
+    {
+      description: `Move an app to the trash (its creator or a team owner).`,
+      inputSchema: strictInput({ slug: appSlug, teamId: uuidString.optional() }),
+    },
+    async ({ slug, teamId }) => {
+      try {
+        await caller(user, request).apps.delete({ slug, teamId: await appsTeam(teamId) })
+        return ok({ ok: true, slug, deleted: true })
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  server.registerTool(
+    `exponential_apps_catalog`,
+    {
+      annotations: READ_ONLY,
+      description: `The package format, the bindings (exp: sources), the host functions and every Exponential UI component an app may use. Read it once before writing a package.`,
+      inputSchema: strictInput({}),
+    },
+    async () => {
+      try {
+        return ok(appCatalogText())
       } catch (e) {
         return err(e)
       }

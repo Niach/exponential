@@ -5,7 +5,7 @@
 //
 //   react    the npm packages staged + packed (release/prepare-npm.ts), `npm install`
 //            of the tarballs, `tsc --noEmit`, `vite build`, then the extension
-//            (defineExtension + its macro reduced) and the vapp (validatePackage)
+//            (defineExtension + its macro reduced) and the app (validatePackage)
 //            checked at runtime against the packed package
 //   agent    the same tarballs, `tsc --noEmit`, then the server started and asked
 //            for a valid and an invalid surface over MCP
@@ -129,14 +129,14 @@ for (const [name, def] of Object.entries(ext.components)) {
   if (seen.includes("Unknown")) problems.push(name + ": expanded to an Unknown placeholder")
   if (def.kind === "macro" && !seen.includes("TrendLine")) problems.push(name + ": the macro did not expand to its TrendLine")
 }
-const vapp = json("./src/hello.vapp.json")
-problems.push(...validatePackage(vapp).map((i) => "hello.vapp.json" + i.path + ": " + i.message))
-for (const [id, t] of Object.entries(vapp.templates)) {
-  const { issues } = reduceSurface(t.components, { catalogId: vapp.catalogId })
+const app = json("./src/hello.app.json")
+problems.push(...validatePackage(app).map((i) => "hello.app.json" + i.path + ": " + i.message))
+for (const [id, t] of Object.entries(app.templates)) {
+  const { issues } = reduceSurface(t.components, { catalogId: app.catalogId })
   problems.push(...issues.map((i) => "template " + id + ": " + i.id + ": " + i.message))
 }
 if (problems.length) { console.error(problems.join("\\n")); process.exit(1) }
-console.log("extension + vapp: no issues")
+console.log("extension + app: no issues")
 `
   )
   run(`node runtime-check.mjs`, dir)

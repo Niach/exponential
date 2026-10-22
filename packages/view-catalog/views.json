@@ -2070,30 +2070,53 @@
       }
     },
     {
-      "id": "exponential-ui-devices",
-      "group": "exponential-ui",
-      "title": "Exponential UI · Devices template",
-      "blurb": "The Devices page as a declarative package (packages/ui/exponential-ui/templates/devices.json) rendered through the public host API (VAPP-91): the app host's `exp:devices` binding over the synced devices, the app extension's IconDisc + LiveDot painters, a row press through the function policy. VAPP-83 puts it beside the native page on every client.",
-      "order": 2,
+      "id": "apps",
+      "group": "coding",
+      "title": "Apps",
+      "blurb": "VAPP-110: the team's Exponential apps (fixtures/apps.json): the band with New app, one row per app (glyph, name, the version pill, the … menu with Rename and Delete), the built-in Devices app first with its Built-in pill. An app is a declarative Exponential UI package every client renders; the list is where apps are created, renamed, deleted and opened.",
+      "order": 28,
       "web": {
-        "route": "/exponential-ui-devices",
+        "route": "/t/$teamSlug/apps",
         "anchor": {
-          "text": "Devices",
-          "timeoutMs": 20000
+          "testId": "apps-list",
+          "timeoutMs": 30000
         },
         "settleMs": 800
       },
       "webMobile": "inherit",
-      "desktop": {
-        "drive": {
-          "kind": "screen",
-          "value": "exponential-ui-devices"
+      "notes": {
+        "ios": "VAPP-112: the iOS Apps list lands with the phone app host.",
+        "android": "VAPP-116: the Android Apps list lands with the phone app host.",
+        "desktop": "VAPP-114: the IDE's Apps screen lands with Screen::Apps."
+      }
+    },
+    {
+      "id": "app",
+      "group": "coding",
+      "title": "App editor",
+      "blurb": "VAPP-110: one app's editor (fixtures/apps.json): the member's editor session (the chat: channel rows + the composer) beside the live preview of the head package rendered by the Exponential UI renderer through the app host; Versions opens the history (restore = a new head). Phones show Chat | Preview | Versions as a segmented control.",
+      "order": 29,
+      "web": {
+        "route": "/t/$teamSlug/apps/$appSlug",
+        "anchor": {
+          "testId": "app-editor-preview",
+          "timeoutMs": 30000
         },
-        "anchorDelayMs": 800
+        "settleMs": 1500
+      },
+      "webMobile": {
+        "route": "/t/$teamSlug/apps/$appSlug",
+        "anchor": {
+          "testId": "app-editor-tabs",
+          "timeoutMs": 30000
+        },
+        "settleMs": 1500
       },
       "notes": {
-        "ios": "The iOS app does not link the SwiftUI painter yet (VAPP-83).",
-        "android": "The Android app does not link the Compose painter yet (VAPP-83)."
+        "web": "`$appSlug` resolves to DEMO_APP_SLUG (apps/web/scripts/screenshot-demo.ts), the seeded Team dashboard app with three versions and the demo user's editor session.",
+        "ios": "VAPP-112: the iOS editor lands with the phone app host.",
+        "android": "VAPP-116: the Android editor lands with the phone app host.",
+        "desktop": "VAPP-114: the IDE's editor lands with Screen::Apps."
       }
     },
     {

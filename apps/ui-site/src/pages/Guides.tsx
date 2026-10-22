@@ -23,7 +23,7 @@ const GROUPS: { id: string; label: string; title: string; slugs: string[] }[] = 
     id: `build`,
     label: `Build`,
     title: `Build with agents`,
-    slugs: [`vapps`, `agents`],
+    slugs: [`apps`, `agents`],
   },
 ]
 

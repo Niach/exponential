@@ -124,5 +124,5 @@ export * from "./host"
 // VAPP-91: the conformance suite.
 export { CONFORMANCE_VERSION, conformanceManifest, checkReport } from "./conformance"
 export type { ConformanceSuite, ConformanceManifest, ConformanceReport, ReportVerdict } from "./conformance"
-// VAPP-91: declarative vapps in any host + the Exponential connector.
+// VAPP-91: declarative apps in any host + the Exponential connector.
 export * from "./connector"

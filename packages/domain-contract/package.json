@@ -32,6 +32,7 @@
     "./task-queue": "./src/task-queue.ts",
     "./ask-dock": "./src/ask-dock.ts",
     "./plan-card": "./src/plan-card.ts",
+    "./apps": "./src/apps.ts",
     "./fixtures/*": "./fixtures/*"
   }
 }

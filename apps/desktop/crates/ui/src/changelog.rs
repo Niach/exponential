@@ -46,6 +46,20 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-10-22-exponential-apps",
+    date: "2026-10-22",
+    title: "Exponential apps: build small apps with the editor session, previewed live and kept in versions",
+    summary: "A team's Apps are declarative Exponential UI packages rendered inside every client; the editor shows your chat with the app's own session beside a live preview, every published package is a version you can view and restore, and agents publish apps over the new exponential_apps tool.",
+    body: r#"- **Apps**: the new Apps entry lists the team's apps with the built-in Devices app first; New app names it and opens the editor. Rename and delete from the row's menu.
+- **The editor**: your chat with the app's editor session sits beside the live preview; the first message starts the session on your device, leaving the editor ends it, the next message continues it. Phones switch between Chat, Preview and Versions.
+- **Versions**: every package the session publishes is a version with a note; open Versions to preview an older one and restore it as the new head. No git involved.
+- **MCP**: the sixteenth tool, exponential_apps, lists, reads, publishes and deletes apps and hands an agent the catalog of components, bindings and host functions a package may use.
+- **SDK**: the Exponential UI package API is named for apps (AppPackage, createAppHost); the dev-only Devices template route is gone, the Devices package is the built-in app."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_67: ChangelogEntry = ChangelogEntry {
     id: "2026-10-22-new-session-system",
     date: "2026-10-22",
     title: "Release 2026-10-22: the new session system, agents with their own conversations, prompts instead of actions, and 15 MCP tools",

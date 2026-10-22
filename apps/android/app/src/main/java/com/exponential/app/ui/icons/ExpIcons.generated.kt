@@ -4075,6 +4075,45 @@ public object ExpIcons {
         }.build()
     }
 
+    public val `layout-grid`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "layout-grid",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("M4 3H9A1 1 0 0 1 10 4V9A1 1 0 0 1 9 10H4A1 1 0 0 1 3 9V4A1 1 0 0 1 4 3Z"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M15 3H20A1 1 0 0 1 21 4V9A1 1 0 0 1 20 10H15A1 1 0 0 1 14 9V4A1 1 0 0 1 15 3Z"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M15 14H20A1 1 0 0 1 21 15V20A1 1 0 0 1 20 21H15A1 1 0 0 1 14 20V15A1 1 0 0 1 15 14Z"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M4 14H9A1 1 0 0 1 10 15V20A1 1 0 0 1 9 21H4A1 1 0 0 1 3 20V15A1 1 0 0 1 4 14Z"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
     public val `leaf`: ImageVector by lazy {
         ImageVector.Builder(
             name = "leaf",
@@ -8421,6 +8460,7 @@ public object ExpIcons {
         "laptop" -> `laptop`
         "layers" -> `layers`
         "layers-2" -> `layers-2`
+        "layout-grid" -> `layout-grid`
         "leaf" -> `leaf`
         "lightbulb" -> `lightbulb`
         "link" -> `link`
@@ -8677,6 +8717,8 @@ public object ExpIcons {
     public val navActions: ImageVector get() = `rocket`
     /** Concept `nav-admin`. */
     public val navAdmin: ImageVector get() = `shield`
+    /** Concept `nav-apps`. */
+    public val navApps: ImageVector get() = `layout-grid`
     /** Concept `nav-boards`. */
     public val navBoards: ImageVector get() = `folder-kanban`
     /** Concept `nav-changelog`. */
@@ -8983,6 +9025,8 @@ public object ExpIcons {
     public val uiHelp: ImageVector get() = `circle-question-mark`
     /** Concept `ui-hide`. */
     public val uiHide: ImageVector get() = `eye-off`
+    /** Concept `ui-history`. */
+    public val uiHistory: ImageVector get() = `history`
     /** Concept `ui-icon-placeholder`. */
     public val uiIconPlaceholder: ImageVector get() = `circle-dashed`
     /** Concept `ui-indeterminate`. */
