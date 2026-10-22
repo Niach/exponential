@@ -31,6 +31,7 @@ import type { ModeName, RecipeQuery, ResolvedStyle, ResolvedTheme, ThemeSource }
 import type { NestedNode, UiNode } from "../src/types"
 import neutralJson from "../themes/neutral.theme.json" with { type: "json" }
 import playfulJson from "../themes/playful.theme.json" with { type: "json" }
+import orangeJson from "../themes/orange.theme.json" with { type: "json" }
 import exponentialRecipes from "../themes/exponential.recipes.json" with { type: "json" }
 
 const pkgRoot = join(dirname(fileURLToPath(import.meta.url)), `..`)
@@ -157,7 +158,7 @@ export function composeExponential(): ThemeSource {
 // ---------------------------------------------------------------------------
 
 export function builtinSources(): ThemeSource[] {
-  return [neutralJson as unknown as ThemeSource, composeExponential(), playfulJson as unknown as ThemeSource]
+  return [neutralJson as unknown as ThemeSource, composeExponential(), playfulJson as unknown as ThemeSource, orangeJson as unknown as ThemeSource]
 }
 
 export function resolvedBuiltins(): ResolvedTheme[] {

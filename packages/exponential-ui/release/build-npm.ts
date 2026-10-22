@@ -12,18 +12,49 @@
 //
 //   bun packages/exponential-ui/release/build-npm.ts packages/exponential-ui
 //   bun packages/exponential-ui/release/build-npm.ts packages/exponential-ui-react
+//   bun packages/exponential-ui/release/build-npm.ts packages/exponential-ui-solid
+//
+// FEED-128: Solid's JSX needs its compiler (Bun's bundler has none), so
+// `@exponential-at/ui-solid` builds through Vite + `vite-plugin-solid` in
+// library mode into the SAME layout (dist/<entry>.js + dist/types).
+// FEED-131: both web renderers ship their primitives' stylesheet
+// (`./styles.css`): the build runs the package's `build:css` into dist/.
 
 import { execSync } from "node:child_process"
 import { existsSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs"
-import { dirname, join, normalize, resolve } from "node:path"
+import { dirname, join, normalize, relative, resolve } from "node:path"
+
+/** The repository root: the metafile names every input relative to it (the
+ *  way Bun names them from a build run at the root), whichever bundler ran. */
+const REPO = resolve(import.meta.dir, `..`, `..`, `..`)
+const repoRelative = (path: string): string => relative(REPO, resolve(path)).split(`\\`).join(`/`)
 
 export const ENTRIES: Record<string, Record<string, string>> = {
   // VAPP-106: the root is what a renderer needs; the prompt (+ the described
   // catalog), the schema emitters, the conformance suite (+ every fixture)
-  // and the host API are entries of their own.
-  "@exponential-at/ui": { index: `src/index.ts`, prompt: `src/entries/prompt.ts`, schema: `src/entries/schema.ts`, conformance: `src/conformance.ts`, host: `src/host/index.ts` },
+  // and the host API are entries of their own. FEED-128/131: the web layer
+  // and its primitives' recipes are entries the web renderers import.
+  "@exponential-at/ui": {
+    index: `src/index.ts`,
+    prompt: `src/entries/prompt.ts`,
+    schema: `src/entries/schema.ts`,
+    conformance: `src/conformance.ts`,
+    host: `src/host/index.ts`,
+    web: `src/web/index.ts`,
+    "web/primitives": `src/web/primitives/index.ts`,
+  },
   "@exponential-at/ui-react": { index: `src/index.ts`, primitives: `src/primitives/index.ts` },
+  "@exponential-at/ui-solid": { index: `src/index.ts`, primitives: `src/primitives/index.ts` },
 }
+
+/** The packages that ship a compiled stylesheet (`build:css` → dist/<name>.css). */
+export const STYLESHEET: Record<string, string> = {
+  "@exponential-at/ui-react": `dist/exponential-ui-react.css`,
+  "@exponential-at/ui-solid": `dist/exponential-ui-solid.css`,
+}
+
+/** The packages whose JSX is Solid's (built with Vite, not Bun). */
+const SOLID = new Set([`@exponential-at/ui-solid`])
 
 export interface BundleOptions {
   outdir: string
@@ -36,14 +67,29 @@ export interface BundleOutput {
   outputs: Record<string, { bytes: number; inputs: Record<string, number>; imports: string[]; entry?: string }>
 }
 
+interface Manifest {
+  name: string
+  dependencies?: Record<string, string>
+  peerDependencies?: Record<string, string>
+}
+
+/** Every dependency and peer (`d` and `d/*`), and the package's own name:
+ *  a sub-entry (`@exponential-at/ui/web`) imports its root by name, so the
+ *  root's module state stays ONE copy. */
+function externals(pkg: Manifest): string[] {
+  return [pkg.name, ...Object.keys(pkg.dependencies ?? {}), ...Object.keys(pkg.peerDependencies ?? {})].flatMap((d) => [d, `${d}/*`])
+}
+
 /** The package's entries bundled the way the release ships them: ESM for the
  *  browser, every dependency external, JSON inlined, common code in shared
- *  chunks. Returns the metafile the size measurement reads. */
+ *  chunks (Bun) or one file per entry (Vite, for Solid). Returns the metafile
+ *  the size measurement reads. */
 export async function bundle(dir: string, options: BundleOptions): Promise<BundleOutput> {
-  const pkg = JSON.parse(readFileSync(join(dir, `package.json`), `utf8`)) as { name: string; dependencies?: Record<string, string>; peerDependencies?: Record<string, string> }
+  const pkg = JSON.parse(readFileSync(join(dir, `package.json`), `utf8`)) as Manifest
   const entries = ENTRIES[pkg.name]
   if (!entries) throw new Error(`${pkg.name} is not an npm package of the SDK`)
-  const external = [...Object.keys(pkg.dependencies ?? {}), ...Object.keys(pkg.peerDependencies ?? {})].flatMap((d) => [d, `${d}/*`])
+  const external = externals(pkg)
+  if (SOLID.has(pkg.name)) return buildSolid(dir, entries, external, options)
   const result = await Bun.build({
     entrypoints: Object.values(entries).map((e) => join(dir, e)),
     outdir: options.outdir,
@@ -66,7 +112,7 @@ export async function bundle(dir: string, options: BundleOptions): Promise<Bundl
     if (!path.endsWith(`.js`)) continue
     outputs[path] = {
       bytes: out.bytes,
-      inputs: Object.fromEntries(Object.entries(out.inputs).map(([k, v]) => [k, v.bytesInOutput])),
+      inputs: Object.fromEntries(Object.entries(out.inputs).map(([k, v]) => [repoRelative(k), v.bytesInOutput])),
       imports: out.imports.filter((i) => i.kind !== `dynamic-import` || true).map((i) => i.path),
       entry: out.entryPoint,
     }
@@ -75,13 +121,62 @@ export async function bundle(dir: string, options: BundleOptions): Promise<Bundl
 }
 
 export async function buildNpm(dir: string): Promise<void> {
-  const pkg = JSON.parse(readFileSync(join(dir, `package.json`), `utf8`)) as { name: string }
+  const pkg = JSON.parse(readFileSync(join(dir, `package.json`), `utf8`)) as Manifest
   rmSync(join(dir, `dist`, `types`), { recursive: true, force: true })
   for (const f of existsSync(join(dir, `dist`)) ? readdirSync(join(dir, `dist`)) : []) if (f.endsWith(`.js`) || f.endsWith(`.js.map`) || f === `chunks`) rmSync(join(dir, `dist`, f), { recursive: true, force: true })
   const { outputs } = await bundle(dir, { outdir: join(dir, `dist`), sourcemap: true })
   execSync(`bunx tsc -p tsconfig.build.json`, { cwd: dir, stdio: `inherit` })
   fixDeclarationSpecifiers(join(dir, `dist`, `types`))
+  buildStylesheet(dir, pkg.name)
   console.log(`built ${pkg.name}: ${Object.keys(outputs).map((o) => normalize(o)).join(`, `)}`)
+}
+
+/** The package's `build:css`, when it ships a stylesheet. */
+export function buildStylesheet(dir: string, name: string): void {
+  if (STYLESHEET[name]) execSync(`bun run build:css`, { cwd: dir, stdio: `pipe` })
+}
+
+/** Vite library mode with `vite-plugin-solid` (DOM output): one ESM file
+ *  per entry at <outdir>/<name>.js, every dependency external (`d` and
+ *  `d/…`), the entries' shared code in chunks like the Bun build. */
+async function buildSolid(dir: string, entries: Record<string, string>, external: string[], options: BundleOptions): Promise<BundleOutput> {
+  const { build } = await import(`vite`)
+  const { default: solid } = await import(`vite-plugin-solid`)
+  const roots = external.filter((d) => !d.endsWith(`/*`))
+  // Vite's `build()` sets `process.env.NODE_ENV` to "production" when it is
+  // unset, and a child `npm install` spawned later in the same process
+  // (guides/check.ts) would then skip devDependencies: restore it.
+  const nodeEnv = process.env.NODE_ENV
+  const result = await build({
+    configFile: false,
+    root: dir,
+    logLevel: `warn`,
+    plugins: [solid()],
+    define: { "process.env.NODE_ENV": `"production"` },
+    build: {
+      outDir: options.outdir,
+      emptyOutDir: false,
+      minify: options.minify ? `esbuild` : false,
+      target: `es2022`,
+      sourcemap: options.sourcemap ?? false,
+      lib: { entry: Object.fromEntries(Object.entries(entries).map(([name, e]) => [name, join(dir, e)])), formats: [`es`], fileName: (_format, name) => `${name}.js` },
+      rollupOptions: { external: (id) => roots.some((d) => id === d || id.startsWith(`${d}/`)), output: { chunkFileNames: `chunks/[name]-[hash].js` } },
+    },
+  })
+  if (nodeEnv === undefined) delete process.env.NODE_ENV
+  else process.env.NODE_ENV = nodeEnv
+  const chunks = (Array.isArray(result) ? result : [result]).flatMap((r) => (`output` in r ? r.output : [])).filter((o) => o.type === `chunk`)
+  const outputs: BundleOutput[`outputs`] = {}
+  for (const c of chunks) {
+    const path = `./${c.fileName}`
+    outputs[path] = {
+      bytes: Buffer.byteLength(c.code),
+      inputs: Object.fromEntries(Object.entries(c.modules).map(([k, v]) => [repoRelative(k), v.renderedLength])),
+      imports: c.imports.filter((i) => chunks.some((o) => o.fileName === i)).map((i) => `./${i}`),
+      entry: c.isEntry && c.facadeModuleId ? c.facadeModuleId : undefined,
+    }
+  }
+  return { outputs }
 }
 
 /** Every `.d.ts` under `root`. */

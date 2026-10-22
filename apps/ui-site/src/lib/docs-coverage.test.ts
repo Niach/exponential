@@ -85,6 +85,7 @@ test(`variants change exactly one prop and stay valid trees`, () => {
 const embedded: Record<EmbedTarget, (code: string) => string> = {
   // A JS template literal: evaluate it.
   react: (code) => new Function(`return \`${code.match(/const SURFACE = `([\s\S]*?)`\n\nconst transport/)![1]}\``)() as string,
+  solid: (code) => new Function(`return \`${code.match(/const SURFACE = `([\s\S]*?)`\n\nexport function Preview/)![1]}\``)() as string,
   // A Swift raw multi-line string: no `\#…` escape and no closing delimiter inside.
   swiftui: (code) => {
     const [, h, body] = code.match(/let surface = (#+)"""\n([\s\S]*?)\n"""\1\n/)!

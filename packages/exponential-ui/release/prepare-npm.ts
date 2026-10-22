@@ -7,7 +7,7 @@
 // points on dist/, `workspace:*` pinned to the release version).
 //
 //   bun packages/exponential-ui/release/prepare-npm.ts <version> <outDir>
-//   → <outDir>/ui, <outDir>/ui-react   (then `npm publish` / `npm pack` there)
+//   → <outDir>/ui, <outDir>/ui-react, <outDir>/ui-solid   (then `npm publish` / `npm pack` there)
 
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { join, resolve } from "node:path"
@@ -33,6 +33,8 @@ const SPECS: Spec[] = [
       "./schema": { types: `./dist/types/src/entries/schema.d.ts`, import: `./dist/entries/schema.js`, default: `./dist/entries/schema.js` },
       "./conformance": { types: `./dist/types/src/conformance.d.ts`, import: `./dist/conformance.js`, default: `./dist/conformance.js` },
       "./host": { types: `./dist/types/src/host/index.d.ts`, import: `./dist/host/index.js`, default: `./dist/host/index.js` },
+      "./web": { types: `./dist/types/src/web/index.d.ts`, import: `./dist/web/index.js`, default: `./dist/web/index.js` },
+      "./web/primitives": { types: `./dist/types/src/web/primitives/index.d.ts`, import: `./dist/web/primitives/index.js`, default: `./dist/web/primitives/index.js` },
       "./catalog/*": `./catalog/*`,
       "./fixtures/*": `./fixtures/*`,
       "./docs/*": `./docs/*`,
@@ -54,6 +56,20 @@ const SPECS: Spec[] = [
       "./package.json": `./package.json`,
     },
   },
+  {
+    // FEED-128: compiled Solid (DOM) JS; the surface injects the compiled
+    // theme + node sheet itself. FEED-131: the primitives + their stylesheet,
+    // byte-identical to ui-react's.
+    dir: `packages/exponential-ui-solid`,
+    out: `ui-solid`,
+    files: [`dist`, `README.md`],
+    exports: {
+      ".": { types: `./dist/types/index.d.ts`, import: `./dist/index.js`, default: `./dist/index.js` },
+      "./primitives": { types: `./dist/types/primitives/index.d.ts`, import: `./dist/primitives.js`, default: `./dist/primitives.js` },
+      "./styles.css": `./dist/exponential-ui-solid.css`,
+      "./package.json": `./package.json`,
+    },
+  },
 ]
 
 export async function prepareNpm(version: string, outDir: string): Promise<string[]> {
@@ -62,10 +78,6 @@ export async function prepareNpm(version: string, outDir: string): Promise<strin
   for (const spec of SPECS) {
     const dir = join(repo, spec.dir)
     await buildNpm(dir)
-    if (spec.out === `ui-react`) {
-      const { execSync } = await import(`node:child_process`)
-      execSync(`bun run build:css`, { cwd: dir, stdio: `inherit` })
-    }
     const target = join(outDir, spec.out)
     rmSync(target, { recursive: true, force: true })
     mkdirSync(target, { recursive: true })
@@ -88,7 +100,7 @@ export async function prepareNpm(version: string, outDir: string): Promise<strin
       types: (spec.exports[`.`] as { types: string }).types,
       exports: spec.exports,
       files: [...spec.files, `LICENSE`, `NOTICE`],
-      sideEffects: spec.out === `ui-react` ? [`*.css`] : false,
+      sideEffects: [`ui-react`, `ui-solid`].includes(spec.out) ? [`*.css`] : false,
       ...(Object.keys(deps).length ? { dependencies: deps } : {}),
       ...(pkg.peerDependencies ? { peerDependencies: pkg.peerDependencies } : {}),
       publishConfig: { access: `public`, provenance: true },

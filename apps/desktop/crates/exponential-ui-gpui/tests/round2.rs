@@ -481,7 +481,7 @@ fn the_current_step_number_paints_in_its_markers_ink_in_every_theme(cx: &mut Tes
     // (white on white in dark mode).
     use exponential_ui::theme::Mode;
     let tree = json!({"id": "s", "component": "Stepper", "props": {"steps": [{"label": "Account"}, {"label": "Team"}, {"label": "Done"}], "current": 1}});
-    for theme in ["neutral", "exponential", "playful"] {
+    for theme in ["neutral", "exponential", "playful", "orange"] {
         for mode in [Mode::Light, Mode::Dark] {
             let (view, vcx) = themed(cx, tree.clone(), theme, mode);
             let colors = |id: &str| view.read_with(vcx, |v, _| v.painted_colors(id)).unwrap_or_else(|| panic!("{id} not painted"));

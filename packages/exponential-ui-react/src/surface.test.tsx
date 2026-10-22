@@ -9,7 +9,7 @@ import type { NestedNode, ThemeIssue, ThemeSource } from "@exponential-at/ui"
 import { ExponentialSurface, resolveThemeInput } from "./surface"
 import { useSurface } from "./use-surface"
 import { useHostOwnedValue } from "./inputs"
-import { compileTheme } from "./theme-css"
+import { compileTheme } from "@exponential-at/ui/web"
 import { WINDOW_THRESHOLD } from "./natives/layout"
 import type { HostPlugin, SurfaceActionEvent, SurfaceInputEvent } from "./host"
 

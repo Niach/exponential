@@ -13,6 +13,9 @@
     "./schema": "./src/entries/schema.ts",
     "./conformance": "./src/conformance.ts",
     "./host": "./src/host/index.ts",
+    "./web": "./src/web/index.ts",
+    "./web/primitives": "./src/web/primitives/index.ts",
+    "./web/primitives/*": "./src/web/primitives/*.ts",
     "./catalog/*": "./catalog/*",
     "./fixtures/*": "./fixtures/*",
     "./docs/*": "./docs/*",
@@ -23,13 +26,20 @@
   },
   "scripts": {
     "generate": "bun run ./scripts/generate.ts",
-    "test": "bun test ./src ./conformance",
+    "test": "bun test ./src ./conformance ./release",
     "conformance": "bun run ./conformance/run.ts",
     "typecheck": "tsc --noEmit",
     "build:builder": "bun build ./builder/main.ts --outdir ./builder/dist --target browser --format esm --define process.env.NODE_ENV='\"production\"'",
     "dev:builder": "bun ./builder/serve.ts",
     "conformance:check": "bun run ./scripts/conformance-check.ts",
+    "conformance:parity": "bun run ./scripts/parity-run.ts",
+    "parity:check": "bun run ./scripts/parity-check.ts",
     "size": "bun run ./release/size.ts"
+  },
+  "dependencies": {
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "tailwind-merge": "^3.5.0"
   },
   "devDependencies": {
     "@exp/tsconfig": "workspace:*",
@@ -38,8 +48,11 @@
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
     "lucide-react": "^0.544.0",
+    "pixelmatch": "^7.1.0",
+    "playwright": "^1.54.2",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
+    "sharp": "^0.34.4",
     "typescript": "^5.7.2"
   }
 }

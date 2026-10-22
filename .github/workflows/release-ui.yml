@@ -3,7 +3,8 @@ name: release-ui
 # VAPP-91: publishes the Exponential UI SDK on `ui-v<semver>` tags, in the
 # repo's tag-triggered pattern (cli-v*, desktop-v*…). One tag = one version on
 # every registry:
-#   npm          @exponential-at/ui, @exponential-at/ui-react     (NPM_TOKEN)
+#   npm          @exponential-at/ui, @exponential-at/ui-react,
+#                @exponential-at/ui-solid                         (NPM_TOKEN)
 #   crates.io    exponential-ui                                   (CARGO_REGISTRY_TOKEN)
 #   SwiftPM      ExponentialUI: the xcframework zip on this release + the
 #                tagged distribution repo Niach/exponential-ui-swift (SWIFT_DIST_TOKEN)
@@ -64,7 +65,7 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          for p in ui ui-react; do
+          for p in ui ui-react ui-solid; do
             if [ -n "$NODE_AUTH_TOKEN" ]; then (cd dist-npm/$p && npm publish --access public --provenance); \
             else (cd dist-npm/$p && npm pack --pack-destination ../); fi
           done

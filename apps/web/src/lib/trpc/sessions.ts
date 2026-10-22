@@ -96,10 +96,10 @@ const DEVICE_CARD_KINDS = new Set([`question`, `plan`, `subagent`, `picture`])
 // 0.14.71 (the last clients shipped before EXP-1334's link message). Those
 // clients call `linkIssues` as a plain "Link an issue": they know nothing of
 // the `Link #IDENT` message, and on an ENDED root that message would make
-// `sendSession` spawn a continuation child (a queued session their UI never
-// shows, which never runs when the host is offline). For them the link on an
-// ended thread stays silent; current clients, the web app included, keep the
-// continuation. The link itself always lands.
+// `sendSession` revive the thread (FEED-134: the root resumes with the
+// message pending, which never runs when the host is offline). For them the
+// link on an ended thread stays silent; current clients, the web app
+// included, keep the revive. The link itself always lands.
 const LINK_MESSAGE_LEGACY_CLIENTS = {
   ios: `0.14.61`,
   android: `0.14.63`,
@@ -536,9 +536,16 @@ export const sessionsRouter = router({
         // and so are a device's the session moved away from.
         return ctx.db.transaction(async (tx) => ({ txid: await generateTxId(tx) }))
       }
-      // An agent never ends: its process going away leaves it idle.
+      // A session that SURVIVES its process: an agent's conversation never
+      // ends, and neither does a thread's ROOT (FEED-134: the conversation
+      // IS the thread, so an app quit, a daemon stop or a crash leaves it
+      // idle; only a person's End or the agent's own `sessions end` ends
+      // it). A child's process going away still ends it: a worker, whose
+      // report reaches its parent.
       const status =
-        input.status === `ended` && isPersistent(session) ? `idle` : input.status
+        input.status === `ended` && (isPersistent(session) || session.parentId === null)
+          ? `idle`
+          : input.status
       const ending = status === `ended`
       const now = new Date()
       const { handled = false, ...wall } = input.blocked ?? {}

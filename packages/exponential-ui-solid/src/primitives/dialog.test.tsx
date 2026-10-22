@@ -1,0 +1,285 @@
+import { fireEvent, render, screen } from "@solidjs/testing-library"
+import { describe, expect, it, vi } from "vitest"
+import {
+  Dialog,
+  DialogCancel,
+  DialogContent,
+  DialogFooter,
+  DialogTitle,
+} from "./dialog"
+import { Sheet, SheetContent, SheetTitle } from "./sheet"
+
+// EXP-687 (React's dialog.test.tsx on the Solid twin) — the mobile chrome contract. These assertions are about CLASSES
+// rather than pixels because jsdom has no layout: the `max-sm:` arms are the
+// spec (one bottom sheet with a grabber and no ✕, a compact centered alert,
+// a full-screen page only where a lightbox needs one), and a regression shows
+// up here as a missing or extra utility.
+
+function panel(slot: string) {
+  const node = document.querySelector(`[data-slot="${slot}"]`)
+  expect(node, `no ${slot} rendered`).toBeTruthy()
+  return node as HTMLElement
+}
+
+const grabber = () => document.querySelector(`[data-slot="sheet-grabber"]`)
+
+describe(`DialogContent mobile arms`, () => {
+  it(`defaults to the bottom sheet: a grabber, and a ✕ hidden on phones`, () => {
+    render(() => (
+      <Dialog open>
+        <DialogContent>
+          <DialogTitle>Sheet</DialogTitle>
+        </DialogContent>
+      </Dialog>
+    ))
+
+    const content = panel(`dialog-content`)
+    expect(content.getAttribute(`data-mobile`)).toBe(`sheet`)
+    expect(content.className).toContain(`max-sm:bg-glass-bottom`)
+    expect(content.className).toContain(`max-sm:rounded-t-3xl`)
+    // Content-fitted, not the fixed 94dvh detent.
+    expect(content.className).toContain(`max-sm:max-h-[90dvh]`)
+    expect(grabber()).toBeTruthy()
+
+    const close = screen.getByText(`Close`).closest(`button`)!
+    expect(close.className).toContain(`max-sm:hidden`)
+  })
+
+  it(`sheet-full takes the fixed detent`, () => {
+    render(() => (
+      <Dialog open>
+        <DialogContent mobile="sheet-full">
+          <DialogTitle>Tall</DialogTitle>
+        </DialogContent>
+      </Dialog>
+    ))
+    const content = panel(`dialog-content`)
+    expect(content.getAttribute(`data-mobile`)).toBe(`sheet-full`)
+    expect(content.className).toContain(`max-sm:h-[94dvh]`)
+  })
+
+  it(`alert is a compact centered panel with a visible Cancel and no grabber`, () => {
+    render(() => (
+      <Dialog open>
+        <DialogContent mobile="alert">
+          <DialogTitle>Delete?</DialogTitle>
+          <DialogFooter>
+            <DialogCancel />
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    ))
+
+    const content = panel(`dialog-content`)
+    expect(content.className).toContain(`max-sm:max-w-sm`)
+    expect(content.className).not.toContain(`max-sm:bottom-0`)
+    expect(grabber()).toBeNull()
+
+    // Native alert parity: the alert arm is the one that keeps Cancel.
+    const cancel = screen.getByText(`Cancel`)
+    expect(cancel.className).not.toContain(`max-sm:hidden`)
+  })
+
+  it(`hides DialogCancel on a phone for the sheet arms`, () => {
+    render(() => (
+      <Dialog open>
+        <DialogContent>
+          <DialogTitle>Sheet</DialogTitle>
+          <DialogFooter>
+            <DialogCancel />
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    ))
+    expect(screen.getByText(`Cancel`).className).toContain(`max-sm:hidden`)
+  })
+
+  it(`page keeps its ✕ and covers the viewport`, () => {
+    render(() => (
+      <Dialog open>
+        <DialogContent mobile="page">
+          <DialogTitle>Lightbox</DialogTitle>
+        </DialogContent>
+      </Dialog>
+    ))
+    const content = panel(`dialog-content`)
+    expect(content.className).toContain(`max-sm:inset-0`)
+    expect(grabber()).toBeNull()
+    expect(
+      screen.getByText(`Close`).closest(`button`)!.className
+    ).not.toContain(`max-sm:hidden`)
+  })
+
+  it(`the footer turns every action into the full-width lg capsule on phones`, () => {
+    render(() => (
+      <Dialog open>
+        <DialogContent>
+          <DialogTitle>Sheet</DialogTitle>
+          <DialogFooter />
+        </DialogContent>
+      </Dialog>
+    ))
+    expect(panel(`dialog-footer`).className).toContain(
+      `max-sm:[&>[data-slot=button]]:w-full`
+    )
+  })
+})
+
+describe(`SheetContent`, () => {
+  it(`a bottom sheet gets the grabber and drops the ✕`, () => {
+    render(() => (
+      <Sheet open>
+        <SheetContent side="bottom">
+          <SheetTitle>Boards</SheetTitle>
+        </SheetContent>
+      </Sheet>
+    ))
+    expect(grabber()).toBeTruthy()
+    expect(screen.queryByText(`Close`)).toBeNull()
+    expect(panel(`sheet-content`).className).toContain(`bg-glass-bottom`)
+  })
+
+  it(`showGrabber={false} makes it page-like`, () => {
+    render(() => (
+      <Sheet open>
+        <SheetContent side="bottom" showGrabber={false}>
+          <SheetTitle>Search</SheetTitle>
+        </SheetContent>
+      </Sheet>
+    ))
+    expect(grabber()).toBeNull()
+  })
+
+  it(`a side drawer keeps its ✕ and its frosted glass`, () => {
+    render(() => (
+      <Sheet open>
+        <SheetContent side="right">
+          <SheetTitle>Inbox</SheetTitle>
+        </SheetContent>
+      </Sheet>
+    ))
+    expect(grabber()).toBeNull()
+    expect(screen.getByText(`Close`)).toBeTruthy()
+    expect(panel(`sheet-content`).className).toContain(`backdrop-blur-2xl`)
+  })
+})
+
+// The typeahead's anchored arm portals to document.body, outside every
+// modal's subtree, so Radix would take a pointer-down on it as an OUTSIDE
+// interaction and close the dialog under the menu. Both shells ignore that
+// one by default; a caller's own `onInteractOutside` still runs first and
+// its preventDefault stands.
+
+const tick = () => new Promise((resolve) => setTimeout(resolve, 0))
+
+function outsideNode(attrs: Record<string, string> = {}) {
+  const node = document.createElement(`div`)
+  for (const [key, value] of Object.entries(attrs)) {
+    node.setAttribute(key, value)
+  }
+  document.body.appendChild(node)
+  return node
+}
+
+describe(`DialogContent / SheetContent outside interactions`, () => {
+  it(`keeps the dialog open under a pointer-down on the typeahead portal`, async () => {
+    const onOpenChange = vi.fn()
+    render(() => (
+      <Dialog open onOpenChange={onOpenChange}>
+        <DialogContent>
+          <DialogTitle>Edit</DialogTitle>
+        </DialogContent>
+      </Dialog>
+    ))
+    // Radix attaches its document pointerdown listener on a 0ms timer.
+    await tick()
+    const menu = outsideNode({ "data-editor-autocomplete": `` })
+    fireEvent.pointerDown(menu)
+    expect(onOpenChange).not.toHaveBeenCalled()
+
+    const elsewhere = outsideNode()
+    fireEvent.pointerDown(elsewhere)
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+
+  it(`runs the caller's guard first and honours its veto`, async () => {
+    const onOpenChange = vi.fn()
+    const guard = vi.fn((event: { preventDefault: () => void }) =>
+      event.preventDefault()
+    )
+    render(() => (
+      <Dialog open onOpenChange={onOpenChange}>
+        <DialogContent onInteractOutside={guard}>
+          <DialogTitle>Edit</DialogTitle>
+        </DialogContent>
+      </Dialog>
+    ))
+    await tick()
+    fireEvent.pointerDown(outsideNode())
+    expect(guard).toHaveBeenCalledTimes(1)
+    expect(onOpenChange).not.toHaveBeenCalled()
+  })
+
+  it(`the sheet does the same`, async () => {
+    const onOpenChange = vi.fn()
+    render(() => (
+      <Sheet open onOpenChange={onOpenChange}>
+        <SheetContent side="bottom">
+          <SheetTitle>Edit</SheetTitle>
+        </SheetContent>
+      </Sheet>
+    ))
+    await tick()
+    fireEvent.pointerDown(outsideNode({ "data-editor-autocomplete": `` }))
+    expect(onOpenChange).not.toHaveBeenCalled()
+    fireEvent.pointerDown(outsideNode())
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+})
+
+// UI cleanup batch — ONE phone sheet: below `sm` a sheet-arm dialog renders
+// THROUGH `SheetContent` (its grabber, drag, overlay close and surface), not
+// a second copy of that chrome on the centred panel. The alert arm stays the
+// compact card.
+describe(`DialogContent below sm`, () => {
+  function phone(matches: boolean) {
+    vi.stubGlobal(`matchMedia`, (query: string) => ({
+      matches: matches && query.includes(`max-width: 639px`),
+      media: query,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    }))
+  }
+
+  it(`renders the sheet arm as the bottom sheet`, () => {
+    phone(true)
+    render(() => (
+      <Dialog open>
+        <DialogContent mobile="sheet-full">
+          <DialogTitle>Tall</DialogTitle>
+        </DialogContent>
+      </Dialog>
+    ))
+    const content = panel(`dialog-content`)
+    expect(content.getAttribute(`data-side`)).toBe(`bottom`)
+    expect(content.getAttribute(`data-mobile`)).toBe(`sheet-full`)
+    expect(content.className).toContain(`h-[94dvh]`)
+    expect(grabber()).toBeTruthy()
+    // No ✕ on a phone sheet.
+    expect(screen.queryByText(`Close`)).toBeNull()
+    vi.unstubAllGlobals()
+  })
+
+  it(`keeps the alert arm a centred card`, () => {
+    phone(true)
+    render(() => (
+      <Dialog open>
+        <DialogContent mobile="alert">
+          <DialogTitle>Sure?</DialogTitle>
+        </DialogContent>
+      </Dialog>
+    ))
+    expect(panel(`dialog-content`).getAttribute(`data-side`)).toBeNull()
+    vi.unstubAllGlobals()
+  })
+})

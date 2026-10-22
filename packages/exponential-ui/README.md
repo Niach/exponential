@@ -4,10 +4,11 @@ The data half of Exponential UI (VAPP-84): the **core catalog** of
 components an A2UI surface may use, the **A2UI basic catalog** vendored and
 mapped onto it, the **macro table** that turns composite components into
 natives, the **model-facing descriptions** and prompt, the **token names**
-themes must define, the **runtime theme format** with the three built-in
+themes must define, the **runtime theme format** with the four built-in
 themes and the theme builder (VAPP-92), codegen for TypeScript, Swift, Kotlin
 and Rust, and the fixtures every renderer suite locks against. No renderer
-lives here (React: VAPP-87, the Rust core: VAPP-86, painters: VAPP-88/89/90).
+lives here (React: VAPP-87, Solid: FEED-128, the Rust core: VAPP-86,
+painters: VAPP-88/89/90).
 
 It also defines the **host API** every renderer shares (VAPP-91: transport,
 functions, bindings, negotiation, policy, declarative packages, the
@@ -34,7 +35,7 @@ nothing from the Exponential app.
 | `catalog/host.json` | the host API contract (VAPP-91): message kinds, ops, error codes, function decisions, URL schemes, MCP carrier, package format |
 | `catalog/core.schema.json` | generated: the catalog as JSON Schema in A2UI's catalog shape |
 | `catalog/theme.schema.json` | generated: a theme file as JSON Schema |
-| `themes/` | the built-in themes: `neutral` (stock shadcn, the root), `exponential` (GENERATED: design-tokens values + `exponential.recipes.json`), `playful` (the test theme) |
+| `themes/` | the built-in themes: `neutral` (stock shadcn, the root), `exponential` (GENERATED: design-tokens values + `exponential.recipes.json`), `playful` (the test theme), `orange` (the brand reference: `exponential` with an orange primary) |
 | `builder/` | the theme builder page (`dev:builder` / `build:builder`); ui.exponential.at mounts it (VAPP-93) |
 | `src/` | the TS reference implementation (below) |
 | `generated/*.{swift,kt,rs}` | generated constants for the three native targets; `*Themes*` = the built-ins RESOLVED, embedded as JSON; `catalog.descriptions.generated.rs` = the catalog's text for a Rust host behind the crate's `descriptions` feature (VAPP-106) |
@@ -48,7 +49,7 @@ nothing from the Exponential app.
 | `docs/round-3-contract.md` | round 3 (VAPP-102): ONE Row / Section / Chip / Segmented / Menu, the core-computed tree guides (`src/tree-guides.ts`, `fixtures/tree-guides.json`), the 16 names round 4 removed, the lite prune |
 | `src/host/` | the host API reference: router, decoders, policy, sources, packages, the `ExponentialHost` runtime + transports |
 | `src/connector/` | the Exponential connector (MCP OAuth + `exp:` sources over MCP) and `createVappHost` |
-| `conformance/` | the conformance suite: `manifest.json` (generated), `report.schema.json`, the runner guide; round 1's real-font harness beside it (`run.ts`, `dump.ts`, `compare.ts`, `fonts.json`) |
+| `conformance/` | the conformance suite: `manifest.json` (generated), `report.schema.json`, the runner guide; round 1's real-font harness beside it (`run.ts`, `dump.ts`, `compare.ts`, `fonts.json`); the shared web runner (`browser-suites.ts`) and the web-parity check (`parity.ts`: Solid against React) |
 | `release/` | the npm build + staging scripts and the release runbook (all registries) |
 | `vendor/a2ui/` | A2UI v0.9 schemas, byte-pinned (see its README) |
 | `vendor/json-render/` | attribution for the borrowed description wording |
@@ -143,7 +144,10 @@ measure contract (`src/geometry.ts`, `fixtures/control-geometry.json`).
   `styles.css` palettes + `themes/exponential.recipes.json` so the app and
   the SDK cannot drift; `playful` = the deliberately different test theme
   (pill buttons, no card borders, underlined tabs, Nunito) the conformance
-  suite renders on every painter. The natives get all three RESOLVED in
+  suite renders on every painter; `orange` = the brand-coloured reference
+  theme, `extends: exponential` with only the colours changed (primary, ring,
+  the accent pair, the chart scale), the smallest brand theme there is. The
+  natives get all four RESOLVED in
   `generated/ExponentialUIThemes.generated.*` (parse once at startup).
 - **Builder** (`builder/`, `bun run --filter @exponential-at/ui dev:builder`
   → :4180): pick a base, edit tokens and recipes with the recipe sheet and
@@ -181,6 +185,14 @@ measure contract (`src/geometry.ts`, `fixtures/control-geometry.json`).
   components (+ macro templates), no core name shadowed.
 - `catalogPrompt({extensions?, lite?, terse?})` — the compact system prompt.
 - `coreSchema(iconNames)` / `extensionSchema(ext, iconNames)` — JSON Schema.
+
+## The web layer (`@exponential-at/ui/web`)
+
+FEED-128: the FRAMEWORK-FREE half of a web renderer, so React and Solid compile byte-identical stylesheets and share one bind pass. `src/web/`: `theme-css.ts` (`compileTheme`: a resolved theme → one scoped sheet; `globalsCss(theme, {light?, dark?})`: the theme as UNSCOPED shadcn globals with literal values, `:root` + `.dark`, for an app that is not Exponential UI), `box-css.ts` (the per-node sheet), `base-css.ts` (`BASE_CSS`, layer `xui-base`), `data.ts` (JSON pointers, bindings, client functions, `bindTree`), `urls.ts` + `media.ts` (URL/media policy, the bounded blob cache, `fetchLimited`), `host-types.ts` (`HostPlugin<Icon, Markdown>`, the events), and the natives' pure helpers (`coerce`, `table`, `dates`, `inputs` = `HostOwnedController`, `markdown` = the parser to a tree, `form` = the field registry, `list`, `listbox`). Nothing in it imports a UI framework.
+
+FEED-131: `@exponential-at/ui/web/primitives` (`src/web/primitives/`) is the framework-free half of the shadcn primitive set: one module per primitive holding its Tailwind class recipes (cva recipes keep their names, `buttonVariants`, `alertVariants`, `codeBlockVariants`; plain strings are one frozen `<MODULE>_CLASSES` object keyed by part, with conditional fragments as keyed entries; the named constants `MENU_*_CLASS`, `SEGMENTED_*`, `GLASS_CARD_CLASS`, `FIELD_CHROME_CLASS`, `MOBILE_ARMS` stay) plus the pure helpers (`cn`, `getInitials`, `middleTruncate`, `avatarHueIndex`, `ringGeometry`, `choiceToggle`, `isTypeaheadPortalInteraction`, …). The React set and its Solid twin import ONE source of class strings, and `recipes.test.ts` fails if either renderer's file of the same name carries a class literal. A Tailwind build that paints them scans this directory (`@source`).
+
+The DOM contract every web renderer keeps: a `.xui-surface.<scope>` root with `data-xui-mode`; `data-xui-id` (placed nodes and parts), `data-xui-part="<Component>/<part>"`, recipe props as `data-r-*` (natives) / `data-m-*` (macro parts), forced states as `data-xs`; `xui-<Component>-<part>` part classes (`partClass`); and the cascade order `LAYERS` (`xui-base` < `xui-recipe` < `xui-node` < `xui-part`).
 
 ## The host API (VAPP-91)
 
@@ -257,13 +269,14 @@ The Exponential app is a host like any other: web `apps/web/src/lib/exponential-
 card, the app extension's painters from `@exp/ui`, the Devices package
 `packages/ui/exponential-ui/templates/devices.json` on `/exponential-ui-devices`).
 Samples outside the workspace: `samples/exponential-ui/` (a local A2UI
-server, a third-party theme, one extension component, four hosts).
+server, a third-party theme, one extension component, five hosts).
 
 ## Conformance
 
 `conformance/README.md`: 24 suites (version 2); a renderer is conformant
 when `bun run --filter @exponential-at/ui conformance:check <report>` says
-so. All four renderers and the core run it in CI (`exponential-ui.yml`).
+so. All five renderers and the core run it in CI (`exponential-ui.yml`);
+the Solid renderer also passes the web-parity check against React.
 
 ## Fixtures (the contract; the Rust core replays them with these test names)
 

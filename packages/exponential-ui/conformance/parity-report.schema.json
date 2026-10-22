@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ui.exponential.at/conformance/parity-report.schema.json",
+  "title": "Exponential UI web parity report",
+  "description": "FEED-128: what conformance/parity.ts runParity() writes: a candidate web renderer against the reference (React) in one headless Chromium, every case compared exactly on DOM (generated ids normalised), computed style, frames and pixels. parity:check passes only when every case is ok. A web-only gate, not a manifest suite.",
+  "type": "object",
+  "required": ["format", "reference", "candidate", "chromium", "startedAt", "elapsedMs", "summary", "cases"],
+  "properties": {
+    "format": { "const": "xui-web-parity/1" },
+    "reference": { "type": "string", "description": "The reference renderer's name (react)." },
+    "candidate": { "type": "string", "description": "The candidate renderer's name (solid; react for the self-check)." },
+    "chromium": { "type": "string", "description": "The browser build and its settings." },
+    "startedAt": { "type": "string", "description": "ISO 8601." },
+    "elapsedMs": { "type": "number" },
+    "summary": {
+      "type": "object",
+      "required": ["cases", "passed", "failed", "byGroup"],
+      "properties": {
+        "cases": { "type": "integer" },
+        "passed": { "type": "integer" },
+        "failed": { "type": "integer" },
+        "byGroup": {
+          "type": "object",
+          "description": "matrix | specimen | state | overlay | primitive",
+          "additionalProperties": { "type": "object", "required": ["cases", "passed"], "properties": { "cases": { "type": "integer" }, "passed": { "type": "integer" } } }
+        }
+      }
+    },
+    "cases": { "type": "array", "items": { "$ref": "#/$defs/case" } }
+  },
+  "$defs": {
+    "case": {
+      "type": "object",
+      "required": ["case", "ok", "elapsedMs"],
+      "properties": {
+        "case": { "type": "string", "description": "matrix:<conformance key> | specimen:<id> | state:<id>:<state> | overlay:<n> | primitive:<id>:<theme>-<mode>[:hover|focus]" },
+        "ok": { "type": "boolean" },
+        "elapsedMs": { "type": "number", "description": "Both pages opened, settled, compared." },
+        "error": { "type": "string", "description": "The case could not be compared (page error, timeout)." },
+        "dom": {
+          "type": "object",
+          "description": "The FIRST DOM difference: path = surface index / tag[child index]…, @attr or #text for the differing part.",
+          "required": ["path", "reference", "candidate"],
+          "properties": { "path": { "type": "string" }, "reference": { "type": "string" }, "candidate": { "type": "string" } }
+        },
+        "style": {
+          "type": "object",
+          "description": "The FIRST computed-style difference: id = data-xui-id (or <owner>/<part> in an overlay, #<index> + property (element) when the element lists do not line up).",
+          "required": ["id", "property", "reference", "candidate"],
+          "properties": { "id": { "type": "string" }, "property": { "type": "string" }, "reference": { "type": "string" }, "candidate": { "type": "string" } }
+        },
+        "frame": {
+          "type": "object",
+          "description": "The FIRST getBoundingClientRect difference (0 px tolerance).",
+          "required": ["id", "key", "reference", "candidate"],
+          "properties": { "id": { "type": "string" }, "key": { "enum": ["x", "y", "w", "h", "element"] }, "reference": { "type": ["number", "string"] }, "candidate": { "type": ["number", "string"] } }
+        },
+        "pixels": {
+          "type": "object",
+          "description": "Full-page screenshots through pixelmatch (threshold 0, AA excluded); a size mismatch counts the larger area. The PNGs are written only when pixels differ.",
+          "required": ["differing", "size"],
+          "properties": {
+            "differing": { "type": "integer" },
+            "size": { "type": "string" },
+            "referencePng": { "type": "string" },
+            "candidatePng": { "type": "string" },
+            "diffPng": { "type": "string" }
+          }
+        }
+      }
+    }
+  }
+}

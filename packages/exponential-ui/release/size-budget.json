@@ -1,16 +1,16 @@
 {
-  "$comment": "VAPP-106: the size budgets release/size.ts --check gates (bytes; gzip where a browser downloads it). Every entry of sizes.json has one, a little above the number on record, so a pull request that grows the SDK past it fails exponential-ui.yml; a change that shrinks something lowers its budget in the same commit (the ratchet). Keys: npm = <package>/<entry> (minified, the entry plus the chunks it imports), xcframework/<slice>, android/<abi>, crate/<host>/<artifact>.",
+  "$comment": "VAPP-106: the size budgets release/size.ts --check gates (bytes; gzip where a browser downloads it). Every entry of sizes.json has one, a little above the number on record, so a pull request that grows the SDK past it fails exponential-ui.yml; a change that shrinks something lowers its budget in the same commit (the ratchet). Keys: npm = <package>/<entry> (minified, the entry plus the chunks it imports; <package>/styles.css = a web renderer's stylesheet as built), xcframework/<slice>, android/<abi>, crate/<host>/<artifact>.",
   "@exponential-at/ui/index": {
     "bytes": 396288,
     "gzip": 112640
   },
   "@exponential-at/ui-react/index": {
-    "bytes": 218112,
-    "gzip": 69632
+    "bytes": 141312,
+    "gzip": 49152
   },
   "@exponential-at/ui-react/primitives": {
-    "bytes": 88064,
-    "gzip": 23552
+    "bytes": 72704,
+    "gzip": 20992
   },
   "@exponential-at/ui-react/styles.css": {
     "bytes": 99328,
@@ -25,12 +25,32 @@
     "gzip": 43008
   },
   "@exponential-at/ui/conformance": {
-    "bytes": 1606656,
-    "gzip": 161792
+    "bytes": 1822720,
+    "gzip": 172032
   },
   "@exponential-at/ui/host": {
     "bytes": 323584,
     "gzip": 86016
+  },
+  "@exponential-at/ui/web": {
+    "bytes": 84992,
+    "gzip": 23552
+  },
+  "@exponential-at/ui/web/primitives": {
+    "bytes": 55296,
+    "gzip": 15360
+  },
+  "@exponential-at/ui-solid/index": {
+    "bytes": 373760,
+    "gzip": 92160
+  },
+  "@exponential-at/ui-solid/primitives": {
+    "bytes": 261120,
+    "gzip": 64512
+  },
+  "@exponential-at/ui-solid/styles.css": {
+    "bytes": 99328,
+    "gzip": 16384
   },
   "android/arm64-v8a": {
     "bytes": 4864000

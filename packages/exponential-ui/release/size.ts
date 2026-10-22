@@ -5,7 +5,10 @@
 //   npm          every entry of `build-npm.ts` (bundled MINIFIED into a temp
 //                dir, the release ships it readable + source-mapped): the
 //                entry file plus every chunk it imports, minified bytes +
-//                gzip; `@exponential-at/ui-react/styles.css` as built.
+//                gzip; each web renderer's `styles.css` as built. Also the
+//                root-entry split (SPLIT_RULES): a renderer entry that
+//                bundles the described catalog, the prompt, the schema
+//                emitters or a fixture fails, `--check` or not.
 //   xcframework  packages/exponential-ui-swift/Binaries/ExponentialUIFFI.xcframework:
 //                each slice's static library (`build-ios.sh`), the thin
 //                archs inside it (lipo).
@@ -30,7 +33,7 @@ import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, w
 import { tmpdir } from "node:os"
 import { join, normalize, resolve } from "node:path"
 import { gzipSync } from "node:zlib"
-import { ENTRIES, bundle } from "./build-npm"
+import { ENTRIES, STYLESHEET, buildStylesheet, bundle } from "./build-npm"
 
 const repo = resolve(import.meta.dir, `..`, `..`, `..`)
 const here = import.meta.dir
@@ -68,10 +71,57 @@ const gz = (text: string | Uint8Array) => gzipSync(text, { level: 9 }).length
 const NPM_PACKAGES: Record<string, string> = {
   "@exponential-at/ui": `packages/exponential-ui`,
   "@exponential-at/ui-react": `packages/exponential-ui-react`,
+  "@exponential-at/ui-solid": `packages/exponential-ui-solid`,
 }
 
-export async function measureNpm(): Promise<Record<string, Measure>> {
+/** The entries a RENDERER loads: the root (the runtime catalog, the reducer,
+ *  the themes), the host API, the shared web layer and its primitives'
+ *  recipes, and both web renderers' entries. */
+export const RENDERER_ENTRIES: readonly string[] = [
+  `@exponential-at/ui/index`,
+  `@exponential-at/ui/host`,
+  `@exponential-at/ui/web`,
+  `@exponential-at/ui/web/primitives`,
+  `@exponential-at/ui-react/index`,
+  `@exponential-at/ui-react/primitives`,
+  `@exponential-at/ui-solid/index`,
+  `@exponential-at/ui-solid/primitives`,
+]
+
+/** What a renderer entry must never carry (VAPP-106, the root-entry split):
+ *  the catalog's descriptions and examples (`./prompt` and `./schema` attach
+ *  them), the prompt, the schema emitters with the vendored A2UI basic
+ *  catalog, the conformance suite and every fixture under `fixtures/`
+ *  (`./conformance` bundles them). Matched against the bundle's inputs,
+ *  repository-relative. */
+export const SPLIT_RULES: readonly { name: string; input: RegExp }[] = [
+  { name: `the described catalog`, input: /(^|\/)generated\/core\.descriptions\.json$/ },
+  { name: `describeCatalog`, input: /(^|\/)src\/catalog\.described\.ts$/ },
+  { name: `the prompt`, input: /(^|\/)src\/prompt\.ts$/ },
+  { name: `the schema emitters`, input: /(^|\/)src\/schema\.ts$/ },
+  { name: `the vendored A2UI catalog`, input: /(^|\/)vendor\/a2ui\// },
+  { name: `the conformance suite`, input: /(^|\/)src\/conformance\.ts$/ },
+  { name: `the conformance manifest`, input: /(^|\/)conformance\/manifest\.json$/ },
+  { name: `a fixture`, input: /(^|\/)fixtures\/[^/]+\.json$/ },
+]
+
+/** The split rules a renderer entry breaks, as messages (none for the other entries). */
+export function splitViolations(entry: string, inputs: Iterable<string>): string[] {
+  if (!RENDERER_ENTRIES.includes(entry)) return []
+  const problems: string[] = []
+  for (const input of inputs) for (const rule of SPLIT_RULES) if (rule.input.test(input)) problems.push(`${entry} carries ${rule.name}: ${input}`)
+  return problems
+}
+
+export interface NpmMeasure {
+  entries: Record<string, Measure>
+  /** The split rules broken (empty when the renderer entries are clean). */
+  violations: string[]
+}
+
+export async function measureNpm(): Promise<NpmMeasure> {
   const out: Record<string, Measure> = {}
+  const violations: string[] = []
   const tmp = mkdtempSync(join(tmpdir(), `exponential-ui-size-`))
   try {
     for (const [name, rel] of Object.entries(NPM_PACKAGES)) {
@@ -94,18 +144,21 @@ export async function measureNpm(): Promise<Record<string, Measure>> {
         const texts = closure.map((p) => readFileSync(join(outdir, p)))
         const bytes = texts.reduce((s, t) => s + t.length, 0)
         const parts = Object.fromEntries(closure.map((p, i) => [p.replace(/^\.\//, ``), texts[i].length]))
-        out[`${name}/${entry}`] = { bytes, gzip: gz(Buffer.concat(texts)), parts }
+        const key = `${name}/${entry}`
+        out[key] = { bytes, gzip: gz(Buffer.concat(texts)), parts }
+        violations.push(...splitViolations(key, closure.flatMap((p) => Object.keys(byPath.get(p)?.inputs ?? {}))))
       }
-      if (name === `@exponential-at/ui-react`) {
-        execSync(`bun run build:css`, { cwd: dir, stdio: `pipe` })
-        const css = readFileSync(join(dir, `dist`, `exponential-ui-react.css`))
+      const stylesheet = STYLESHEET[name]
+      if (stylesheet) {
+        buildStylesheet(dir, name)
+        const css = readFileSync(join(dir, stylesheet))
         out[`${name}/styles.css`] = { bytes: css.length, gzip: gz(css) }
       }
     }
   } finally {
     rmSync(tmp, { recursive: true, force: true })
   }
-  return out
+  return { entries: out, violations }
 }
 
 // ---------------------------------------------------------------------------
@@ -248,8 +301,11 @@ export async function run(sections: Section[], check: boolean, write: boolean): 
   const budget = readBudget()
   let ok = true
   for (const section of sections) {
-    const entries = section === `npm` ? await measureNpm() : section === `xcframework` ? measureXcframework() : section === `android` ? measureAndroid() : measureCrate()
+    const npm = section === `npm` ? await measureNpm() : undefined
+    const entries = npm ? npm.entries : section === `xcframework` ? measureXcframework() : section === `android` ? measureAndroid() : measureCrate()
     report(section, entries, budget, sizes.measured[section]?.entries)
+    for (const v of npm?.violations ?? []) console.log(`  SPLIT  ${v}`)
+    if (npm?.violations.length) ok = false
     const problems = check ? overBudget(entries, budget) : []
     for (const p of problems) console.log(`  OVER BUDGET  ${p}`)
     if (problems.length) ok = false

@@ -4,10 +4,11 @@
    strings, no SDK import. */
 import type { Message } from "./a2ui"
 
-export type EmbedTarget = `react` | `swiftui` | `compose` | `gpui`
+export type EmbedTarget = `react` | `solid` | `swiftui` | `compose` | `gpui`
 
 export const EMBED_TARGETS: { id: EmbedTarget; label: string; language: string; guide: string }[] = [
   { id: `react`, label: `React`, language: `tsx`, guide: `/guides/react/` },
+  { id: `solid`, label: `Solid`, language: `tsx`, guide: `/guides/solid/` },
   { id: `swiftui`, label: `SwiftUI`, language: `swift`, guide: `/guides/swiftui/` },
   { id: `compose`, label: `Compose`, language: `kotlin`, guide: `/guides/compose/` },
   { id: `gpui`, label: `gpui`, language: `rust`, guide: `/guides/gpui/` },
@@ -18,7 +19,7 @@ export interface EmbedOptions {
   surfaceId: string
   theme: string
   mode: `light` | `dark`
-  /** The studio's Direction switch: React takes it as a prop; the native
+  /** The studio's Direction switch: React and Solid take it as a prop; the native
    *  hosts follow the device locale, so their code says so. */
   direction?: `ltr` | `rtl`
   /** The studio's Width preset (px), as a frame on the surface. */
@@ -58,6 +59,19 @@ host.connect()
 
 export function Preview() {
   return <HostSurface host={host} surfaceId="${surfaceId}" theme="${theme}" mode="${mode}"${rtl ? ` direction="rtl"` : ``}${width ? ` width={${width}}` : ``} />
+}`
+    }
+    case `solid`: {
+      const body = lines.replace(/\\/g, () => `\\\\`).replace(/`/g, () => `\\\``).replace(/\$\{/g, () => `\\\${`)
+      return `import { ExponentialSurface, createSurface } from "@exponential-at/ui-solid"
+import type { A2uiMessage } from "@exponential-at/ui-solid"
+
+const SURFACE = \`${body}\`
+
+export function Preview() {
+  const surface = createSurface({ surfaceId: "${surfaceId}" })
+  for (const line of SURFACE.split("\\n")) surface.apply(JSON.parse(line) as A2uiMessage)
+  return <ExponentialSurface surface={surface} theme="${theme}" mode="${mode}"${rtl ? ` direction="rtl"` : ``}${width ? ` width={${width}}` : ``} />
 }`
     }
     case `swiftui`: {
