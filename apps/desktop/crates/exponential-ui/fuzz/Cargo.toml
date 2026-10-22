@@ -1,0 +1,85 @@
+# VAPP-107: the cargo-fuzz targets of the Exponential UI core, a STANDALONE
+# workspace beside the crate (cargo-fuzz's layout; never a member of the
+# desktop workspace, so `cargo build` there never sees libFuzzer). Run one:
+#   cd apps/desktop/crates/exponential-ui && cargo +nightly fuzz run reduce -- -max_total_time=60
+# The nightly job (.github/workflows/exponential-ui-fuzz.yml) runs every
+# target for a fixed budget; a crash lands as an artifact.
+[package]
+name = "exponential-ui-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+license = "Apache-2.0"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+arbitrary = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
+indexmap = "2"
+
+[dependencies.exponential-ui]
+path = ".."
+
+[[bin]]
+name = "reduce"
+path = "fuzz_targets/reduce.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "expr"
+path = "fuzz_targets/expr.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "pointer"
+path = "fuzz_targets/pointer.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "theme"
+path = "fuzz_targets/theme.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "decoders"
+path = "fuzz_targets/decoders.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "router"
+path = "fuzz_targets/router.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "surface"
+path = "fuzz_targets/surface.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "media"
+path = "fuzz_targets/media.rs"
+test = false
+doc = false
+bench = false
+
+[workspace]
+
+[profile.release]
+debug = 1
