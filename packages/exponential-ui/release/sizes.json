@@ -109,6 +109,26 @@
         "@exponential-at/ui-solid/styles.css": {
           "bytes": 97263,
           "gzip": 15404
+        },
+        "@exponential-at/ui-element/index": {
+          "bytes": 13671,
+          "gzip": 5115,
+          "parts": {
+            "index.js": 369,
+            "chunks/index-anv5vage.js": 13302
+          }
+        },
+        "@exponential-at/ui-element/define": {
+          "bytes": 13750,
+          "gzip": 5140,
+          "parts": {
+            "define.js": 448,
+            "chunks/index-anv5vage.js": 13302
+          }
+        },
+        "@exponential-at/ui-element/standalone.js": {
+          "bytes": 646536,
+          "gzip": 180200
         }
       }
     },

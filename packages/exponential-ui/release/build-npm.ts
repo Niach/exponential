@@ -13,10 +13,16 @@
 //   bun packages/exponential-ui/release/build-npm.ts packages/exponential-ui
 //   bun packages/exponential-ui/release/build-npm.ts packages/exponential-ui-react
 //   bun packages/exponential-ui/release/build-npm.ts packages/exponential-ui-solid
+//   bun packages/exponential-ui/release/build-npm.ts packages/exponential-ui-element
 //
 // FEED-128: Solid's JSX needs its compiler (Bun's bundler has none), so
 // `@exponential-at/ui-solid` builds through Vite + `vite-plugin-solid` in
 // library mode into the SAME layout (dist/<entry>.js + dist/types).
+//
+// FEED-130: `@exponential-at/ui-element` has no JSX (it mounts ui-solid, a
+// dependency, so external): the plain Bun path with code splitting (`.` and
+// `./define` share ONE element class), then `scripts/build-standalone.ts`
+// writes dist/standalone.js, everything inlined.
 // FEED-131: both web renderers ship their primitives' stylesheet
 // (`./styles.css`): the build runs the package's `build:css` into dist/.
 
@@ -45,6 +51,29 @@ export const ENTRIES: Record<string, Record<string, string>> = {
   },
   "@exponential-at/ui-react": { index: `src/index.ts`, primitives: `src/primitives/index.ts` },
   "@exponential-at/ui-solid": { index: `src/index.ts`, primitives: `src/primitives/index.ts` },
+  // FEED-130: `.` and `./define` share one element class through a chunk;
+  // `dist/standalone.js` (everything inlined) is built by the package's script.
+  "@exponential-at/ui-element": { index: `src/index.ts`, define: `src/define.ts` },
+}
+
+/** The packages that also ship a self-contained bundle (`scripts/build-standalone.ts` → dist/standalone.js). */
+export const STANDALONE: Record<string, string> = {
+  "@exponential-at/ui-element": `dist/standalone.js`,
+}
+
+export interface StandaloneBundle {
+  /** The built file. */
+  file: string
+  /** Repository-relative input → its bytes in the file. */
+  inputs: Record<string, number>
+}
+
+/** The package's standalone bundle through its own script, into `outDir`
+ *  (minified; the release adds a sourcemap). */
+export async function bundleStandalone(dir: string, options: { outDir: string; sourcemap?: boolean }): Promise<StandaloneBundle> {
+  const { bundleStandalone: run } = (await import(join(dir, `scripts`, `build-standalone.ts`))) as { bundleStandalone: (dir: string, o: { outDir: string; sourcemap?: boolean }) => Promise<StandaloneBundle> }
+  const out = await run(dir, options)
+  return { file: out.file, inputs: Object.fromEntries(Object.entries(out.inputs).map(([k, v]) => [repoRelative(k), v])) }
 }
 
 /** The packages that ship a compiled stylesheet (`build:css` → dist/<name>.css). */
@@ -127,8 +156,10 @@ export async function buildNpm(dir: string): Promise<void> {
   const { outputs } = await bundle(dir, { outdir: join(dir, `dist`), sourcemap: true })
   execSync(`bunx tsc -p tsconfig.build.json`, { cwd: dir, stdio: `inherit` })
   fixDeclarationSpecifiers(join(dir, `dist`, `types`))
+  const built = Object.keys(outputs).map((o) => normalize(o))
+  if (STANDALONE[pkg.name]) built.push((await bundleStandalone(dir, { outDir: join(dir, `dist`), sourcemap: true })).file.replace(`${dir}/`, ``))
   buildStylesheet(dir, pkg.name)
-  console.log(`built ${pkg.name}: ${Object.keys(outputs).map((o) => normalize(o)).join(`, `)}`)
+  console.log(`built ${pkg.name}: ${built.join(`, `)}`)
 }
 
 /** The package's `build:css`, when it ships a stylesheet. */

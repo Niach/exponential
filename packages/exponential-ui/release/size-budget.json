@@ -1,5 +1,5 @@
 {
-  "$comment": "VAPP-106: the size budgets release/size.ts --check gates (bytes; gzip where a browser downloads it). Every entry of sizes.json has one, a little above the number on record, so a pull request that grows the SDK past it fails exponential-ui.yml; a change that shrinks something lowers its budget in the same commit (the ratchet). Keys: npm = <package>/<entry> (minified, the entry plus the chunks it imports; <package>/styles.css = a web renderer's stylesheet as built), xcframework/<slice>, android/<abi>, crate/<host>/<artifact>.",
+  "$comment": "VAPP-106: the size budgets release/size.ts --check gates (bytes; gzip where a browser downloads it). Every entry of sizes.json has one, a little above the number on record, so a pull request that grows the SDK past it fails exponential-ui.yml; a change that shrinks something lowers its budget in the same commit (the ratchet). Keys: npm = <package>/<entry> (minified, the entry plus the chunks it imports; <package>/styles.css = a web renderer's stylesheet as built, <package>/standalone.js = the element's self-contained file), xcframework/<slice>, android/<abi>, crate/<host>/<artifact>.",
   "@exponential-at/ui/index": {
     "bytes": 396288,
     "gzip": 112640
@@ -51,6 +51,18 @@
   "@exponential-at/ui-solid/styles.css": {
     "bytes": 99328,
     "gzip": 16384
+  },
+  "@exponential-at/ui-element/index": {
+    "bytes": 15360,
+    "gzip": 5632
+  },
+  "@exponential-at/ui-element/define": {
+    "bytes": 15360,
+    "gzip": 5632
+  },
+  "@exponential-at/ui-element/standalone.js": {
+    "bytes": 675840,
+    "gzip": 189440
   },
   "android/arm64-v8a": {
     "bytes": 4864000

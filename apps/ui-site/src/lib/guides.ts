@@ -10,6 +10,7 @@ export interface GuideEntry {
 export const GUIDES: readonly GuideEntry[] = [
   { slug: `react`, title: `Render A2UI in React`, blurb: `Install the two npm packages, connect a host, paint a surface with <HostSurface>.` },
   { slug: `solid`, title: `Render A2UI in Solid`, blurb: `Install the two npm packages, feed createSurface, paint it with <ExponentialSurface>.` },
+  { slug: `element`, title: `Render A2UI as a web component`, blurb: `Install the two npm packages, drop <exponential-surface> in a page, feed it apply().` },
   { slug: `swiftui`, title: `Render A2UI in SwiftUI`, blurb: `Add the Swift package, hand the painter a host, show a surface on iOS and macOS.` },
   { slug: `compose`, title: `Render A2UI in Compose`, blurb: `Add the Maven artifact, connect a host, paint a surface in Jetpack Compose.` },
   { slug: `gpui`, title: `Render A2UI in gpui`, blurb: `Add the crates, give the SurfaceView a host plugin, paint natively on the desktop.` },

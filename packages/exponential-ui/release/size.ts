@@ -5,7 +5,8 @@
 //   npm          every entry of `build-npm.ts` (bundled MINIFIED into a temp
 //                dir, the release ships it readable + source-mapped): the
 //                entry file plus every chunk it imports, minified bytes +
-//                gzip; each web renderer's `styles.css` as built. Also the
+//                gzip; each web renderer's `styles.css` as built; the
+//                element's `standalone.js` (everything inlined). Also the
 //                root-entry split (SPLIT_RULES): a renderer entry that
 //                bundles the described catalog, the prompt, the schema
 //                emitters or a fixture fails, `--check` or not.
@@ -31,9 +32,9 @@
 import { execSync } from "node:child_process"
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join, normalize, resolve } from "node:path"
+import { basename, join, normalize, resolve } from "node:path"
 import { gzipSync } from "node:zlib"
-import { ENTRIES, STYLESHEET, buildStylesheet, bundle } from "./build-npm"
+import { ENTRIES, STANDALONE, STYLESHEET, buildStylesheet, bundle, bundleStandalone } from "./build-npm"
 
 const repo = resolve(import.meta.dir, `..`, `..`, `..`)
 const here = import.meta.dir
@@ -72,6 +73,7 @@ const NPM_PACKAGES: Record<string, string> = {
   "@exponential-at/ui": `packages/exponential-ui`,
   "@exponential-at/ui-react": `packages/exponential-ui-react`,
   "@exponential-at/ui-solid": `packages/exponential-ui-solid`,
+  "@exponential-at/ui-element": `packages/exponential-ui-element`,
 }
 
 /** The entries a RENDERER loads: the root (the runtime catalog, the reducer,
@@ -86,6 +88,9 @@ export const RENDERER_ENTRIES: readonly string[] = [
   `@exponential-at/ui-react/primitives`,
   `@exponential-at/ui-solid/index`,
   `@exponential-at/ui-solid/primitives`,
+  `@exponential-at/ui-element/index`,
+  `@exponential-at/ui-element/define`,
+  `@exponential-at/ui-element/standalone.js`,
 ]
 
 /** What a renderer entry must never carry (VAPP-106, the root-entry split):
@@ -147,6 +152,15 @@ export async function measureNpm(): Promise<NpmMeasure> {
         const key = `${name}/${entry}`
         out[key] = { bytes, gzip: gz(Buffer.concat(texts)), parts }
         violations.push(...splitViolations(key, closure.flatMap((p) => Object.keys(byPath.get(p)?.inputs ?? {}))))
+      }
+      const standalone = STANDALONE[name]
+      if (standalone) {
+        // The self-contained file (every dependency inlined), minified as shipped.
+        const { file, inputs } = await bundleStandalone(dir, { outDir: join(outdir, `standalone`) })
+        const text = readFileSync(file)
+        const key = `${name}/${basename(standalone)}`
+        out[key] = { bytes: text.length, gzip: gz(text) }
+        violations.push(...splitViolations(key, Object.keys(inputs)))
       }
       const stylesheet = STYLESHEET[name]
       if (stylesheet) {

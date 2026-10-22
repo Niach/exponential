@@ -44,8 +44,8 @@ describe(`the root-entry split (VAPP-106)`, () => {
     expect(splitViolations(`@exponential-at/ui/conformance`, [`packages/exponential-ui/fixtures/theme-recipes.json`])).toEqual([])
   })
 
-  test(`the web layer and the Solid renderer are renderer entries`, () => {
-    for (const e of [`@exponential-at/ui/web`, `@exponential-at/ui/web/primitives`, `@exponential-at/ui-solid/index`, `@exponential-at/ui-solid/primitives`]) expect(RENDERER_ENTRIES).toContain(e)
+  test(`the web layer, the Solid renderer and the element are renderer entries`, () => {
+    for (const e of [`@exponential-at/ui/web`, `@exponential-at/ui/web/primitives`, `@exponential-at/ui-solid/index`, `@exponential-at/ui-solid/primitives`, `@exponential-at/ui-element/index`, `@exponential-at/ui-element/define`, `@exponential-at/ui-element/standalone.js`]) expect(RENDERER_ENTRIES).toContain(e)
   })
 })
 
