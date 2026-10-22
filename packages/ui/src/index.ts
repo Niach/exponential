@@ -12,7 +12,8 @@ export * from "./account-picker"
 export * from "./agent-picker"
 export * from "./alert"
 export * from "./ask-card"
-export * from "./ask-dock"
+// N-12: THE Dock (the floating band over the transcript: DockCards, the pile, the sheet).
+export * from "./dock"
 export * from "./ask-dock-specimen"
 // EXP-1280: THE rich plan / question card's form parts + its specimen.
 export * from "./plan-card"

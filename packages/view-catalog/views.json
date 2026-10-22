@@ -2823,6 +2823,39 @@
       }
     },
     {
+      "id": "exponential-ui-dock-card",
+      "group": "exponential-ui-catalog",
+      "title": "Exponential UI · DockCard",
+      "blurb": "N-12: THE DockCard: a one-row floating card (a tinted label, a caption, trailing meta, one title line, the open chevron) that opens its children in a bottom sheet with a pinned footer. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/dock-card/.",
+      "order": 28,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-dock-card",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-dock-card"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-dock-card",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-dock-card",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
       "id": "exponential-ui-popover",
       "group": "exponential-ui-catalog",
       "title": "Exponential UI · Popover",

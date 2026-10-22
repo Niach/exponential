@@ -51,6 +51,10 @@ export interface PickerTriggerProps {
   placeholder?: string
   /** A leading glyph for the `inline` word. */
   icon?: PickerGlyph
+  /** N-12: the `inline` word as its glyph alone (the session composer's
+   *  device pin): the glyph + the chevron, the value only for the
+   *  assistive tree and the tooltip. */
+  iconOnly?: boolean
   disabled?: boolean
   className?: string
 }
@@ -70,6 +74,7 @@ export function PickerTrigger({
   value,
   placeholder,
   icon: Glyph,
+  iconOnly = false,
   disabled = false,
   className,
   ...rest
@@ -84,6 +89,8 @@ export function PickerTrigger({
   const fallback = placeholder ?? label
 
   if (variant === `inline`) {
+    const word = nothingPicked ? fallback : value
+    const spoken = typeof word === `string` ? `${label}: ${word}` : label
     return (
       <button
         type="button"
@@ -92,13 +99,14 @@ export function PickerTrigger({
         // `data-slot`, its classes — is not overwritten by the popover's.
         {...rest}
         data-slot="combobox-inline-trigger"
+        data-icon-only={iconOnly || undefined}
         disabled={disabled}
         className={cn(PICKER_INLINE_TRIGGER, className)}
-        title={label}
-        aria-label={label}
+        title={iconOnly ? spoken : label}
+        aria-label={iconOnly ? spoken : label}
       >
         {Glyph && <Glyph aria-hidden className="size-3.5 shrink-0" />}
-        {nothingPicked ? fallback : value}
+        {iconOnly ? <span className="sr-only">{word}</span> : word}
         <ChevronGlyph aria-hidden className="size-3 shrink-0" />
       </button>
     )

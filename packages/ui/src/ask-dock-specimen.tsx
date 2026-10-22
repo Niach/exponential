@@ -1,30 +1,35 @@
 import type { ReactNode } from "react"
 import type { ThreadRow } from "@exp/domain-contract/session-tree"
-import { ThreadAskDock } from "./session-thread-view"
+import { dockRows, type DockSource } from "@exp/domain-contract/dock"
+import { DockCard, DockPile, DockSheetSpecimenFrame } from "./dock"
+import { ThreadPlanSheet } from "./session-thread-view"
 
-// THE ask dock specimen (fixture `ask-dock.json` ×4): the REAL
-// `ThreadAskDock` in its three states, one waiting plan (the big card), two
-// plans + a question (the stack) and one card focused out of the stack (the
-// back arrow). The styleguide entry and the app's `?dev=ask-dock` capture
-// render it; the natives' specimens draw the same rows.
+// N-12: THE Dock specimen (fixtures/dock.json + ask-dock.json ×4): the
+// DockCards at rest in their four states: one waiting plan (a single card),
+// the pile (a plan, a question, THE Queue, the queued messages: the front
+// card whole, the others peeking out above it), the pile fanned, and a plan
+// card's sheet (the real `ThreadPlanSheet` in the sheet's static frame: the
+// pinned header with "Question 1 of 2", the body, the footer). The
+// styleguide entry and the app's `?dev=ask-dock` capture render it; the
+// natives' specimens draw the same rows.
 
 const LONG_PLAN = [
-  `## Plan: one ask dock ×4`,
+  `## Plan: one Dock ×4`,
   ``,
-  `1. Add \`fixtures/ask-dock.json\` + the TS model, mirrored ×4.`,
-  `2. Move waiting cards out of the transcript into the composer's slot.`,
-  `3. Stack several cards; a tap grows one into the big card.`,
+  `1. Add \`fixtures/dock.json\` + the TS model, mirrored ×4.`,
+  `2. Float the waiting cards above the composer; the transcript is the one scroll.`,
+  `3. Pile several cards like the toasts; a tap opens one as a sheet.`,
   `4. Share THE plan options: Yes · Yes, and start with a fresh context · No.`,
   `5. Styleguide entry + scoped shots on every platform.`,
   `6. Open the PR with the Guide.`,
 ].join(`\n`)
 
-const plan = (id: string, text: string, sessionId: string): ThreadRow => ({
+const plan = (id: string, text: string, sessionId: string, questions: ThreadRow[] = []): ThreadRow => ({
   type: `plan`,
   id,
   sessionId,
   plan: text,
-  questions: [],
+  questions: questions as never,
   surface: null,
   decision: null,
   fresh: false,
@@ -33,30 +38,55 @@ const plan = (id: string, text: string, sessionId: string): ThreadRow => ({
   surfaceData: null,
 })
 
-const STACK: ThreadRow[] = [
-  plan(`p1`, LONG_PLAN, `a`),
-  plan(`p2`, `1. Group the thread list by state\n2. Drop the per-row counters`, `b`),
+const QUESTIONS = [
   {
-    type: `question`,
-    id: `q1`,
-    sessionId: `c`,
-    question: `Ship both fixes in one PR, or split them?`,
-    options: [
-      { label: `One PR`, description: null, attachmentId: null },
-      { label: `Split them`, description: null, attachmentId: null },
-    ],
-    custom: true,
+    id: `q-scope`,
+    prompt: `Which cards move into the Dock first?`,
     multi: false,
-    surface: null,
-    answer: null,
-    answers: null,
-    surfaceData: null,
-    answered: false,
+    custom: true,
+    options: [
+      { label: `Plan and question cards`, description: `The rest follows as its own issue`, attachmentId: null },
+      { label: `Everything`, description: `Plan, question, tasks, queued messages, banners`, attachmentId: null },
+    ],
+  },
+  {
+    id: `q-eui`,
+    prompt: `Should DockCard also go into Exponential UI?`,
+    multi: false,
+    custom: false,
+    options: [
+      { label: `Yes, as DockCard`, description: null, attachmentId: null },
+      { label: `Styleguide only for now`, description: null, attachmentId: null },
+    ],
   },
 ]
 
+const RICH_PLAN = plan(`p1`, LONG_PLAN, `a`, QUESTIONS as never)
+
 const NAMES: Record<string, string> = { a: `Ask dock`, b: `Thread list`, c: `Dock polish` }
-const name = (id: string) => NAMES[id] ?? null
+
+const ASKS: DockSource[] = [
+  { kind: `plan`, id: `p1`, text: LONG_PLAN, sessionName: NAMES.a!, questions: 2, createdAt: 10 },
+  { kind: `question`, id: `q1`, text: `Ship both fixes in one PR, or split them?`, sessionName: NAMES.c!, createdAt: 30 },
+]
+const STATE: DockSource[] = [
+  { kind: `queued`, messages: [{ id: `m1`, text: `also check the watchdog once the root is idle` }, { id: `m2`, text: `then open the PR` }] },
+  {
+    kind: `tasks`,
+    queue: {
+      todo: {
+        title: `3 to do`,
+        items: [
+          { label: `Measuring on the Galaxy A54`, description: `2m 35s`, state: `running` },
+          { label: `Rerun the web captures`, description: null, state: `pending` },
+          { label: `Open the PR with the numbers`, description: null, state: `pending` },
+        ],
+      },
+      completed: { title: `2 completed` },
+    },
+  },
+]
+
 /** A specimen-sized stand-in for the app's GFM renderer: a heading line
  *  reads medium, code ticks drop, everything else is a line of its own. */
 const text = (body: string) => (
@@ -83,24 +113,33 @@ function Case({ label, children }: { label: string; children: ReactNode }) {
   )
 }
 
+/** The pile at rest: `DockPile` with the fixture's rows, piled or fanned. */
+function PileCase({ expanded }: { expanded: boolean }) {
+  const rows = dockRows([...STATE, ...ASKS])
+  return (
+    <div className="flex flex-col gap-1.5">
+      <DockPile rows={rows} expanded={expanded} onExpandedChange={noop} onOpen={noop} />
+    </div>
+  )
+}
+
 export function AskDockSpecimen() {
+  const single = dockRows([ASKS[0]!])
   return (
     <div data-testid="ask-dock-specimen" className="flex max-w-2xl flex-col gap-6 text-sm">
       <Case label="One waiting plan">
-        <ThreadAskDock rows={[STACK[0]!]} sessionName={name} renderText={text} onAnswer={noop} onDecide={noop} />
+        <DockCard row={single[0]!} onOpen={noop} />
       </Case>
-      <Case label="Two plans and a question">
-        <ThreadAskDock rows={STACK} sessionName={name} renderText={text} onAnswer={noop} onDecide={noop} />
+      <Case label="A plan, a question, the Queue and the queued messages, piled">
+        <PileCase expanded={false} />
       </Case>
-      <Case label="Focused out of the stack">
-        <ThreadAskDock
-          rows={STACK}
-          sessionName={name}
-          renderText={text}
-          onAnswer={noop}
-          onDecide={noop}
-          initialFocusedId="p2"
-        />
+      <Case label="The pile fanned (hover or a tap)">
+        <PileCase expanded />
+      </Case>
+      <Case label="The plan's sheet">
+        <DockSheetSpecimenFrame row={single[0]!} height={420}>
+          <ThreadPlanSheet row={RICH_PLAN as never} renderText={text} attachmentSrc={(id) => id} busy={false} onDecide={noop} />
+        </DockSheetSpecimenFrame>
       </Case>
     </div>
   )

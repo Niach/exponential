@@ -44,6 +44,7 @@ pub(crate) mod composer_options;
 pub(crate) mod work_card;
 pub(crate) mod thread_parts;
 pub(crate) mod ask_dock;
+pub(crate) mod dock_card;
 pub(crate) mod plan_card;
 pub(crate) mod script_card;
 pub(crate) mod comment_card;
@@ -61,7 +62,7 @@ pub(crate) mod getting_started;
 /// than a demo. EXP-1268 landed its design draft on the web page first; its
 /// IDE entry says so until the surface is built.
 pub(crate) fn is_placeholder(id: &str) -> bool {
-    id == voice_call_overlay::ID
+    id == voice_call_overlay::ID || id == dock_card::ID
 }
 
 /// A demo: the entry's element, built with the window and the app so it
@@ -125,6 +126,7 @@ pub(crate) const ENTRIES: &[Entry] = &[
     Entry { id: work_card::ID, owner: work_card::OWNER, render: work_card::render },
     Entry { id: thread_parts::ID, owner: thread_parts::OWNER, render: thread_parts::render },
     Entry { id: ask_dock::ID, owner: ask_dock::OWNER, render: ask_dock::render },
+    Entry { id: dock_card::ID, owner: dock_card::OWNER, render: dock_card::render },
     Entry { id: plan_card::ID, owner: plan_card::OWNER, render: plan_card::render },
     Entry { id: script_card::ID, owner: script_card::OWNER, render: script_card::render },
     Entry { id: comment_card::ID, owner: comment_card::OWNER, render: comment_card::render },

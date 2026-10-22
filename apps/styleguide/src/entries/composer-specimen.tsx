@@ -5,7 +5,6 @@ import type { IconConcept } from "@exp/icons"
 import {
   AccountPicker,
   Composer,
-  ComposerEditTools,
   ComposerFrame,
   ComposerOptionsRow,
   ComposerReplies,
@@ -24,8 +23,11 @@ import {
 } from "@exp/ui"
 
 // EXP-1334: THE one composer (start · thread · session) drawn from the real
-// @exp/ui halves the app composes (`ComposerFrame`, `ComposerOptionsRow`,
-// `ComposerEditTools` around the `Composer` card). Shared by the
+// @exp/ui halves the app composes (`ComposerFrame`, `ComposerOptionsRow`
+// around the `Composer` card). N-12 (the iOS row ×4): the "+" is the only
+// tool; in a session the Device pin (its glyph alone) · the model pin · the
+// Plan switch sit IN the card's tool row and the context ring beside Send ⇄
+// Stop; the options line under the card is the start's alone. Shared by the
 // composer-options and composer-dialog entries; not an entry itself.
 
 const noop = (): void => {}
@@ -54,10 +56,49 @@ export const MODELS = contract.codingModel.values.map((value) => ({
 /** EXP-1252 `MOVING_LABEL` (apps/web/src/lib/session-device-move.ts ×4). */
 const movingLabel = (device: string) => `Moving to ${device}…`
 
-/** The options line: before a start device · account · model · Plan ·
- *  repository; in a session device · model · Plan … the context ring.
- *  EXP-1252: the session's Device pin is THE launch pin (a pick moves the
- *  session); `moving` = a move is pending, the pin names the target. */
+/** N-12: the session composer's in-card row: the Device pin as its glyph
+ *  alone (EXP-1252: THE launch pin; a pick moves the session; `moving` = a
+ *  move is pending, the tooltip names the target) · the model pin · the
+ *  Plan switch. */
+export function ComposerSessionRowSpecimen({
+  phase,
+  moving = false,
+}: {
+  phase: Exclude<ComposerPhase, `start`>
+  moving?: boolean
+}) {
+  const target = DEVICES[1]!
+  const current = DEVICES[0]!
+  return (
+    <div className="flex min-w-0 items-center gap-x-2.5 pl-1 text-xs text-muted-foreground">
+      <DevicePicker
+        triggerVariant="inline"
+        mobileTitle="Move to device"
+        devices={DEVICES}
+        value="mint"
+        onChange={noop}
+        width="sm"
+        trigger={
+          <PickerTrigger
+            variant="inline"
+            iconOnly
+            label="Move to device"
+            value={moving ? movingLabel(target.name) : current.name}
+            icon={getDeviceIcon(moving ? target : current)}
+          />
+        }
+      />
+      <ModelPicker models={MODELS} value={phase === `idle` ? `haiku` : `opus`} onChange={noop} />
+      <Label className="gap-1.5 font-normal">
+        <span>Plan</span>
+        <Switch size="sm" checked={phase === `running`} aria-label="Plan mode" />
+      </Label>
+    </div>
+  )
+}
+
+/** The options line under the START composer: device · account · model ·
+ *  Plan · repository. (A session's pins sit in the card: above.) */
 export function ComposerOptionsSpecimen({
   phase,
   moving = false,
@@ -94,7 +135,7 @@ export function ComposerOptionsSpecimen({
         <span>Plan</span>
         <Switch size="sm" checked={phase === `running`} aria-label="Plan mode" />
       </Label>
-      {phase === `start` ? (
+      {phase === `start` && (
         <RepositoryPicker
           triggerVariant="inline"
           width="sm"
@@ -102,17 +143,14 @@ export function ComposerOptionsSpecimen({
           value="exp"
           onChange={noop}
         />
-      ) : (
-        <span className="ml-auto flex items-center">
-          <ContextRing percent={phase === `running` ? 42 : 12} tone="normal" />
-        </span>
       )}
     </ComposerOptionsRow>
   )
 }
 
-/** The whole composer: the card (field, "+" + inline tools, Send ⇄ Stop),
- *  the options line under it. */
+/** The whole composer: the card (the field, the "+", in a session the pins
+ *  row and the context ring beside Send ⇄ Stop); before a start the
+ *  options line under it. */
 export function ComposerSpecimen({
   phase,
   placeholder,
@@ -129,7 +167,7 @@ export function ComposerSpecimen({
   return (
     <ComposerFrame
       className="w-[36rem] max-w-full"
-      options={<ComposerOptionsSpecimen phase={phase} />}
+      options={phase === `start` ? <ComposerOptionsSpecimen phase={phase} /> : undefined}
       replies={replies && <ComposerReplies replies={replies} onSend={() => {}} onDismiss={() => {}} />}
     >
       <Composer
@@ -138,15 +176,18 @@ export function ComposerSpecimen({
             <ComposerTool aria-label={composerMenu.plusLabel} title={composerMenu.plusLabel}>
               <UiAddIcon />
             </ComposerTool>
-            <ComposerEditTools />
+            {phase !== `start` && <ComposerSessionRowSpecimen phase={phase} />}
           </>
         }
         submit={
-          <ComposerSubmit
-            stop={stop}
-            aria-label={stop ? `Stop` : (submitLabel ?? `Send`)}
-            title={stop ? `Stop` : (submitLabel ?? `Send`)}
-          />
+          <>
+            {phase !== `start` && <ContextRing percent={phase === `running` ? 42 : 12} tone="normal" />}
+            <ComposerSubmit
+              stop={stop}
+              aria-label={stop ? `Stop` : (submitLabel ?? `Send`)}
+              title={stop ? `Stop` : (submitLabel ?? `Send`)}
+            />
+          </>
         }
       >
         <div className="min-h-20 px-3 pt-3 text-sm text-muted-foreground">{placeholder}</div>

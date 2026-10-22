@@ -46,6 +46,20 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-10-22-the-dock",
+    date: "2026-10-22",
+    title: "The Dock: one scroll, floating cards above the composer, and plans that open as a sheet",
+    summary: "A session's transcript is the one scroll again; what waits on you (a plan, a question, the task queue, queued messages, a usage wall) floats above the composer as cards that pile like toasts, and a plan opens as a bottom sheet you can scroll, with Yes and No, keep planning in its footer; the composer is one row on every platform.",
+    body: r#"- **One scroll**: the transcript runs from the header to the bottom edge; nothing splits the session view into panes any more, and the plan is never cut off below the window.
+- **The Dock**: a plan, a question, the task queue, the queued messages and the status banners (offline, connection lost, usage wall, compacting, rate limit) are floating cards above the composer; several pile like the toasts and fan out on hover or tap; the composer stays put.
+- **Plans open as a sheet**: a tap (or a plan arriving while you watch) opens a bottom sheet with the plan, one page per question, and the decision in its footer: No, keep planning (with your feedback) or Yes (its menu starts with a fresh context).
+- **One composer row**: the + menu is the only tool; the device glyph, the model pin and Plan sit in the card and the usage ring beside Send, on web, the IDE and the phones alike.
+- **Exponential UI**: DockCard joins the catalog as a one-row card that opens its children in a bottom sheet with a pinned footer."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_67: ChangelogEntry = ChangelogEntry {
     id: "2026-10-22-new-session-system",
     date: "2026-10-22",
     title: "Release 2026-10-22: the new session system, agents with their own conversations, prompts instead of actions, and 15 MCP tools",

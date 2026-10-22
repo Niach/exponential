@@ -6,7 +6,6 @@ import {
   AttachmentThumb,
   Composer,
   ComposerFrame,
-  ComposerOptionsRow,
   ComposerReplies,
   ComposerSubmit,
   ContextRing,
@@ -80,16 +79,17 @@ import { cn } from "@/lib/utils"
 //
 // EXP-1334 (owner: ONE composer, the old session layout): the start, the
 // thread and the session view render the SAME frame (`ComposerFrame`): the
-// card = the field (the `/` menu over it), the "+" = THE options menu
+// card = the field (the `/` menu over it) and ONE tool row. N-12 (owner
+// 2026-10-22, the iOS row ×4): the row = the "+" = THE options menu
 // (composer-menu.json rows minus the subject rows: Effort ›, Ultracode,
-// MCP servers ›, Computer use — changed mid-session through
-// `sessions.configure`), the inline edit tools (image · files · # · emoji)
-// and Send ⇄ Stop; UNDER it the options line: the Device pin (EXP-1252, a
-// pick MOVES the session; `session-device-pin.tsx`) · the model pin (THE
-// ModelPicker; a pick sends `/model <alias>` through `sessions.send`, shown
-// at once until the relay's `config_state` confirms) · the Plan switch …
-// the context ring (its usage popover on click). The live reads (model in
-// force, usage, commands) are the session's relay state
+// MCP servers ›, Computer use, Add file — changed mid-session through
+// `sessions.configure`; the "+" is the only tool, no inline edit tools) ·
+// the Device pin as its glyph alone (EXP-1252, a pick MOVES the session;
+// `session-device-pin.tsx`) · the model pin (THE ModelPicker; a pick sends
+// `/model <alias>` through `sessions.send`, shown at once until the relay's
+// `config_state` confirms) · the Plan switch … the context ring (its usage
+// popover on click) beside Send ⇄ Stop. Nothing under the card. The live
+// reads (model in force, usage, commands) are the session's relay state
 // (`acquireSteerSession`), the synced row the fallback.
 
 /** How long a model pick reads as picked without the relay confirming. */
@@ -420,60 +420,6 @@ export function SessionComposer({
           />
         )
       }
-      options={
-        row && (
-          <ComposerOptionsRow data-testid="session-composer-options">
-            {/* EXP-1252: THE launch line's Device pin — a pick moves the
-                session to that device after its turn. */}
-            <SessionDevicePin teamId={teamId} row={row} />
-            <span data-testid="session-composer-model" data-model={model}>
-              <ModelPicker
-                value={model}
-                models={modelOptions}
-                onChange={(value) => void pickModel(value)}
-                // Codex has no mid-run model prompt: its pin is a label ×4.
-                disabled={options.ended || agent !== `claude`}
-              />
-            </span>
-            {options.planSupported && (
-              <Label className="cursor-pointer gap-1.5 font-normal">
-                <span>Plan</span>
-                <Switch
-                  size="sm"
-                  checked={planOn}
-                  onCheckedChange={options.setPlanMode}
-                  disabled={options.ended}
-                  aria-label="Plan mode"
-                  data-testid="session-composer-plan"
-                />
-              </Label>
-            )}
-            {percent !== null && (
-              <span className="ml-auto flex items-center">
-                <MobilePopover open={usageOpen} onOpenChange={setUsageOpen}>
-                  <MobilePopoverTrigger asChild>
-                    <ContextRing percent={percent} tone={severity(percent)} />
-                  </MobilePopoverTrigger>
-                  <MobilePopoverContent
-                    align="end"
-                    collisionPadding={8}
-                    className="w-80 p-0"
-                    aria-label="Usage"
-                    mobileTitle="Usage"
-                    data-testid="session-usage-popover"
-                  >
-                    <ContextWindowBlock
-                      sessionUsage={usage}
-                      contextLayout={contextLayout}
-                      teamId={teamId}
-                    />
-                  </MobilePopoverContent>
-                </MobilePopover>
-              </span>
-            )}
-          </ComposerOptionsRow>
-        )
-      }
     >
       <Composer
         opaque={opaque}
@@ -512,18 +458,74 @@ export function SessionComposer({
               fieldRef={fieldRef}
               onFiles={addFiles}
               disabled={sending}
+              hidden
             />
+            {row && (
+              <div
+                data-testid="session-composer-options"
+                className="flex min-w-0 items-center gap-x-2.5 pl-1 text-xs text-muted-foreground"
+              >
+                {/* EXP-1252: THE launch line's Device pin — a pick moves the
+                    session to that device after its turn. */}
+                <SessionDevicePin teamId={teamId} row={row} />
+                <span data-testid="session-composer-model" data-model={model}>
+                  <ModelPicker
+                    value={model}
+                    models={modelOptions}
+                    onChange={(value) => void pickModel(value)}
+                    // Codex has no mid-run model prompt: its pin is a label ×4.
+                    disabled={options.ended || agent !== `claude`}
+                  />
+                </span>
+                {options.planSupported && (
+                  <Label className="cursor-pointer gap-1.5 font-normal">
+                    <span>Plan</span>
+                    <Switch
+                      size="sm"
+                      checked={planOn}
+                      onCheckedChange={options.setPlanMode}
+                      disabled={options.ended}
+                      aria-label="Plan mode"
+                      data-testid="session-composer-plan"
+                    />
+                  </Label>
+                )}
+              </div>
+            )}
           </>
         }
         submit={
-          <ComposerSubmit
-            stop={showStop}
-            aria-label={showStop ? `Stop` : `Send`}
-            disabled={!showStop && (empty || sending)}
-            onClick={showStop ? stop : () => void send()}
-          >
-            {sending ? <Spinner size={16} label="Sending" /> : undefined}
-          </ComposerSubmit>
+          <>
+            {percent !== null && (
+              <MobilePopover open={usageOpen} onOpenChange={setUsageOpen}>
+                <MobilePopoverTrigger asChild>
+                  <ContextRing percent={percent} tone={severity(percent)} />
+                </MobilePopoverTrigger>
+                <MobilePopoverContent
+                  align="end"
+                  collisionPadding={8}
+                  className="w-80 p-0"
+                  aria-label="Usage"
+                  mobileTitle="Usage"
+                  data-testid="session-usage-popover"
+                >
+                  <ContextWindowBlock
+                    sessionUsage={usage}
+                    contextLayout={contextLayout}
+                    teamId={teamId}
+                  />
+                </MobilePopoverContent>
+              </MobilePopover>
+            )}
+            <ComposerSubmit
+              stop={showStop}
+              aria-label={showStop ? `Stop` : `Send`}
+              disabled={!showStop && (empty || sending)}
+              onClick={showStop ? stop : () => void send()}
+            >
+              {sending ? <Spinner size={16} label="Sending" /> : undefined}
+            </ComposerSubmit>
+          </>
         }
         onDrop={(event) => {
           if (event.dataTransfer.files.length === 0) return

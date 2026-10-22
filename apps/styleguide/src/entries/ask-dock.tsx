@@ -2,40 +2,41 @@ import { AskDockSpecimen } from "@exp/ui"
 
 import type { StyleguideEntry } from "./types.ts"
 
-// THE ask dock (fixture `ask-dock.json` ×4): `AskDockSpecimen`, the REAL
-// `ThreadAskDock` in its three states (the app's `?dev=ask-dock` capture
-// renders the same board).
+// N-12: THE ask cards on THE Dock (fixtures ask-dock.json + dock.json ×4):
+// `AskDockSpecimen`, the REAL `DockCard` / `DockPile` rows of a waiting
+// plan and question and the plan's sheet (`ThreadPlanSheet` in the sheet's
+// static frame); the app's `?dev=ask-dock` capture renders the same board.
 
 export const entry: StyleguideEntry = {
   id: `ask-dock`,
   section: `special`,
   owner: `EXP-1341`,
   title: `Ask dock`,
-  blurb: `The question and plan cards waiting on you leave the transcript and take the COMPOSER's slot, in a session and a thread alike (a thread with one waiting card looks exactly like a session). One card = THE big card (\`AskCard\` + \`AskPrompt\`), its body capped at 40% of the viewport and scrolling inside. Several (a thread's child sessions) = compact AskCards stacked 6px apart, oldest first: the kind icon, the tinted label, the asking session's name, the plan's first plain line and a chevron; a tap grows one into the big card (height over motion \`standard\`, the content fading in), only that card answers, and the back arrow leading its header returns to the stack. THE plan options ×4: Yes · Yes, and start with a fresh context · No, keep planning (opens the note field). Answered cards stay in the transcript, closed. Model = \`askDock()\`, \`threadPendingAsks()\` (fixture \`ask-dock.json\` ×4).`,
+  blurb: `N-12: a question or plan card waiting on you is a DockCard of THE Dock, floating above the composer in a session and a thread alike (dock-card entry): the kind icon, the tinted label, the asking session's name, a plan's question count, the first plain line of the text and the open chevron; several waiting cards pile with the Queue and the queued messages, the newest ask in front; a plan or question that arrives while you look opens its sheet by itself. The sheet (plan-card.json stepper): page 0 the plan (pictures, the inline surface; fewer than two questions sit under it), then one page per question with "Question n of m" in the header, Back / Next in the pinned footer, and on the last page THE decision ×4: "No, keep planning" (secondary; picked = the feedback field above the footer, Cancel + the reject as the primary) and "Yes" (the primary; its menu holds "Yes, and start with a fresh context"), disabled while a required answer is missing; a question's footer = Answer. Answered cards stay in the transcript, closed. Model = \`askDockTitle\`, \`threadPendingAsks()\` (ask-dock.json) + \`dockRows\` (dock.json) ×4.`,
   status: {
     web: {
       state: `ok`,
-      symbol: `AskDock`,
-      file: `packages/ui/src/ask-dock.tsx`,
-      note: `thread: ThreadAskDock (session-thread-view.tsx); session view: agent-session.tsx`,
+      symbol: `ThreadDock / ThreadPlanSheet / ThreadQuestionSheet`,
+      file: `packages/ui/src/session-thread-view.tsx`,
+      note: `the primitive: dock.tsx; the session view's relay cards: agent-session.tsx`,
     },
     desktop: {
-      state: `ok`,
+      state: `leftover`,
       symbol: `ask_dock`,
       file: `apps/desktop/crates/ui/src/ask_dock.rs`,
-      note: `styleguide/entries/ask_dock.rs`,
+      note: `N-12: still the composer-slot card without a cap; the IDE child moves it onto dock.rs`,
     },
     ios: {
-      state: `ok`,
+      state: `leftover`,
       symbol: `AskDock`,
-      file: `apps/ios/ExpUI/Sources/AskDock.swift`,
-      note: `model: ExpCore AskDock.swift`,
+      file: `apps/ios/Exponential/UI/Session/AskDock.swift`,
+      note: `N-12: still the composer-slot card; the iOS child moves it onto Dock.swift (model: ExpCore AskDock.swift + Dock.swift)`,
     },
     android: {
-      state: `ok`,
+      state: `leftover`,
       symbol: `AskDock`,
       file: `apps/android/app/src/main/java/com/exponential/app/ui/session/AskDock.kt`,
-      note: `model: domain/AskDock.kt`,
+      note: `N-12: still the composer-slot card; the Android child moves it onto Dock.kt (model: domain/AskDock.kt + Dock.kt)`,
     },
   },
   island: () => <AskDockSpecimen />,

@@ -1,15 +1,18 @@
-import { ComposerOptionsSpecimen, ComposerSpecimen } from "./composer-specimen.tsx"
+import { ComposerOptionsSpecimen, ComposerSessionRowSpecimen, ComposerSpecimen } from "./composer-specimen.tsx"
 import type { StyleguideEntry } from "./types.ts"
 
-// UI cleanup batch — the composer's options line, drawn by the REAL words it
-// is made of (apps/web/src/components/launch-dialog/launch-options-line.tsx,
+// UI cleanup batch — the composer's options, drawn by the REAL words they
+// are made of (apps/web/src/components/launch-dialog/launch-options-line.tsx,
 // session-composer.tsx): every word is a typed picker in its `inline`
-// variant. EXP-1334: ONE composer — before a start the line is Device ·
-// Account · Model · Plan · Repository; in a session (the thread = its
-// dispatcher session) Device · Model · Plan … the context ring. EXP-1252:
-// the session's Device pin is THE launch pin; a pick MOVES the session to
-// that device after its turn, "Moving to <device>…" while pending. Effort, Ultracode,
-// MCP servers and Computer use live in the composer's "+" menu.
+// variant. EXP-1334: ONE composer. N-12 (owner 2026-10-22, the iOS row ×4):
+// before a start the line UNDER the card is Device · Account · Model · Plan ·
+// Repository; in a session (the thread = its root session) the Device pin as
+// its glyph alone · Model · Plan sit IN the card's tool row after the "+"
+// (the only tool: no inline image/file/#/emoji tools) and the context ring
+// beside Send ⇄ Stop; nothing under the card. EXP-1252: the session's Device
+// pin is THE launch pin; a pick MOVES the session to that device after its
+// turn, the tooltip reads "Moving to <device>…" while pending. Effort,
+// Ultracode, MCP servers, Computer use and Add file live in the "+" menu.
 
 function Caption({ children }: { children: string }) {
   return <p className="text-xs text-muted-foreground">{children}</p>
@@ -20,44 +23,44 @@ export const entry: StyleguideEntry = {
   section: `special`,
   owner: `EXP-1252`,
   title: `Composer options`,
-  blurb: `The muted line UNDER the one composer card (EXP-1334: the start, the thread and the session view render the same composer), as the real components it is made of. Before a start: DevicePicker, AccountPicker, ModelPicker, the Plan switch, RepositoryPicker (only while a chat has several to choose from), each collapsing to plain text once there is one thing it could say. In a session: the Device pin (EXP-1252: THE launch DevicePicker; a pick moves the session to that device after its current turn, the pin reads Moving to <device>… while pending, picking the current device cancels; hidden for agents and asides), the model pin (a pick sends /model <alias>, shown at once until the run confirms), the Plan switch (live mid-session through sessions.configure) and the context ring pushed right (its usage popover on click). Effort, Ultracode, MCP servers and Computer use are rows of the composer's "+" menu (composer-menu.json ×4).`,
+  blurb: `The one composer's options (EXP-1334: the start, the thread and the session view render the same composer), as the real components they are made of. Before a start the muted line UNDER the card: DevicePicker, AccountPicker, ModelPicker, the Plan switch, RepositoryPicker (only while a chat has several to choose from), each collapsing to plain text once there is one thing it could say. N-12, the iOS row ×4: in a session the pins sit IN the card's tool row after the "+" (the only tool): the Device pin as its glyph alone (EXP-1252: THE launch DevicePicker; a pick moves the session to that device after its current turn, the tooltip reads Moving to <device>… while pending, picking the current device cancels; hidden for agents and asides), the model pin (a pick sends /model <alias>, shown at once until the run confirms), the Plan switch (live mid-session through sessions.configure); the context ring (16px, its usage popover on click) sits beside Send ⇄ Stop; nothing under the card. Effort, Ultracode, MCP servers, Computer use and Add file are rows of the "+" menu (composer-menu.json ×4).`,
   status: {
     web: {
       state: `ok`,
       symbol: `LaunchOptionsLine / SessionComposer`,
       file: `apps/web/src/components/launch-dialog/launch-options-line.tsx`,
-      note: `the row = @exp/ui ComposerOptionsRow (packages/ui/src/composer-frame.tsx); the session line is session-composer.tsx, its Device pin session-device-pin.tsx (rules + copy lib/session-device-move.ts)`,
+      note: `the start line = @exp/ui ComposerOptionsRow (packages/ui/src/composer-frame.tsx); the session row is session-composer.tsx's tool row, its Device pin session-device-pin.tsx (PickerTrigger iconOnly; rules + copy lib/session-device-move.ts)`,
     },
     desktop: {
-      state: `ok`,
+      state: `leftover`,
       symbol: `ChatScreenView::render_options_row`,
       file: `apps/desktop/crates/ui/src/chat_screen.rs`,
-      note: `Effort / Subagents / Ultracode moved into the "+" menu (chat_screen::plus_menu)`,
+      note: `N-12: the session composer (composer.rs) still draws the pins on the options line with the inline tools; the IDE child moves them into the card (icon-only device pin, the ring beside Send)`,
     },
     ios: {
-      state: `ok`,
-      symbol: `AgentOptionsRow`,
-      file: `apps/ios/Exponential/UI/Agent/AgentOptionsRow.swift`,
-      note: `pills in a horizontal scroll, no overflow; Effort / Subagents / Ultracode live in the "+" (ComposerPlusMenu)`,
+      state: `leftover`,
+      symbol: `SessionComposerFooter`,
+      file: `apps/ios/Exponential/UI/Session/SessionComposerFooter.swift`,
+      note: `N-12: the session view already has the in-card row; the thread (ThreadScreen options line) and the device pin's name (icon-only) follow with the iOS child`,
     },
     android: {
-      state: `ok`,
-      symbol: `AgentOptionsRow`,
-      file: `apps/android/app/src/main/java/com/exponential/app/ui/agent/AgentOptionsRow.kt`,
-      note: `same shape, no overflow; Effort / Subagents / Ultracode live in the "+" (ComposerPlusMenuSheet)`,
+      state: `leftover`,
+      symbol: `SessionComposer`,
+      file: `apps/android/app/src/main/java/com/exponential/app/ui/session/AgentSessionScreen.kt`,
+      note: `N-12: the pins and the ring (20dp, should be 16) still sit on the options line; the Android child moves them into the card`,
     },
   },
   island: () => (
     <div className="grid max-w-[40rem] gap-3">
-      <Caption>Before a start (Home / New session): device · account · model · Plan · repository</Caption>
+      <Caption>Before a start (Home / New session): device · account · model · Plan · repository, under the card</Caption>
       <ComposerOptionsSpecimen phase="start" />
-      <Caption>A running session: device · model · Plan (live mid-run) … the context ring</Caption>
-      <ComposerOptionsSpecimen phase="running" />
-      <Caption>A move pending (EXP-1252): the device pin names the target until the handoff</Caption>
-      <ComposerOptionsSpecimen phase="running" moving />
-      <Caption>An idle thread = its dispatcher session: the same line</Caption>
-      <ComposerOptionsSpecimen phase="idle" />
-      <Caption>Under the card, in the one composer</Caption>
+      <Caption>A running session: the pins in the card's tool row — the device glyph · model · Plan (live mid-run)</Caption>
+      <ComposerSessionRowSpecimen phase="running" />
+      <Caption>A move pending (EXP-1252): the device glyph's tooltip names the target until the handoff</Caption>
+      <ComposerSessionRowSpecimen phase="running" moving />
+      <Caption>An idle thread = its root session: the same row</Caption>
+      <ComposerSessionRowSpecimen phase="idle" />
+      <Caption>The one composer in a session: the "+", the pins, the context ring beside Stop; nothing under the card</Caption>
       <ComposerSpecimen phase="running" placeholder="Type / for commands" />
     </div>
   ),

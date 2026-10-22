@@ -10163,6 +10163,2600 @@
       }
     },
     {
+      "name": "DockCard/example",
+      "input": {
+        "id": "dock-card",
+        "component": "DockCard",
+        "props": {
+          "label": "Plan ready",
+          "caption": "Ask dock",
+          "meta": "3 questions",
+          "title": "Fold the composer into the Dock",
+          "icon": "coding-plan",
+          "tone": "primary"
+        },
+        "children": [
+          {
+            "id": "dock-card-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "id": "dock-card",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "dock-card.trigger",
+            "component": "Box",
+            "props": {
+              "pressable": true
+            },
+            "children": [
+              {
+                "id": "dock-card.trigger.icon",
+                "component": "Icon",
+                "props": {
+                  "name": "coding-plan",
+                  "size": "sm",
+                  "tone": "primary"
+                },
+                "children": [],
+                "style": {
+                  "flexShrink": 0
+                },
+                "recipe": {
+                  "macro": "DockCard",
+                  "part": "icon",
+                  "props": {
+                    "tone": "primary"
+                  }
+                }
+              },
+              {
+                "id": "dock-card.trigger.body",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "dock-card.trigger.body.header",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "dock-card.trigger.body.header.label",
+                        "component": "Text",
+                        "props": {
+                          "text": "Plan ready",
+                          "variant": "caption",
+                          "tone": "primary",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "DockCard",
+                          "part": "label",
+                          "props": {
+                            "tone": "primary"
+                          }
+                        }
+                      },
+                      {
+                        "id": "dock-card.trigger.body.header.caption",
+                        "component": "Text",
+                        "props": {
+                          "text": "Ask dock",
+                          "variant": "muted",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "style": {
+                          "flexShrink": 1,
+                          "minWidth": 0
+                        },
+                        "recipe": {
+                          "macro": "DockCard",
+                          "part": "caption",
+                          "props": {
+                            "tone": "primary"
+                          }
+                        }
+                      },
+                      {
+                        "id": "dock-card.trigger.body.header.spacer",
+                        "component": "Box",
+                        "props": {},
+                        "children": [],
+                        "style": {
+                          "flexGrow": 1,
+                          "minWidth": 0
+                        },
+                        "recipe": {
+                          "macro": "DockCard",
+                          "part": "spacer",
+                          "props": {
+                            "tone": "primary"
+                          }
+                        }
+                      },
+                      {
+                        "id": "dock-card.trigger.body.header.meta",
+                        "component": "Text",
+                        "props": {
+                          "text": "3 questions",
+                          "variant": "muted",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "DockCard",
+                          "part": "meta",
+                          "props": {
+                            "tone": "primary"
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "alignItems": "center",
+                      "gap": "$spacing.sm"
+                    },
+                    "recipe": {
+                      "macro": "DockCard",
+                      "part": "header",
+                      "props": {
+                        "tone": "primary"
+                      }
+                    }
+                  },
+                  {
+                    "id": "dock-card.trigger.body.row",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "dock-card.trigger.body.row.title",
+                        "component": "Text",
+                        "props": {
+                          "text": "Fold the composer into the Dock",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "style": {
+                          "flexGrow": 1,
+                          "minWidth": 0
+                        },
+                        "recipe": {
+                          "macro": "DockCard",
+                          "part": "title",
+                          "props": {
+                            "tone": "primary"
+                          }
+                        }
+                      },
+                      {
+                        "id": "dock-card.trigger.body.row.chevron",
+                        "component": "Icon",
+                        "props": {
+                          "name": "ui-chevron-right",
+                          "size": "sm",
+                          "tone": "neutral"
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "DockCard",
+                          "part": "chevron",
+                          "props": {
+                            "tone": "primary"
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "alignItems": "center",
+                      "gap": "$spacing.sm"
+                    },
+                    "recipe": {
+                      "macro": "DockCard",
+                      "part": "row",
+                      "props": {
+                        "tone": "primary"
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "gap": "$spacing.xxs",
+                  "flexGrow": 1,
+                  "minWidth": 0
+                },
+                "recipe": {
+                  "macro": "DockCard",
+                  "part": "body",
+                  "props": {
+                    "tone": "primary"
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "flex-start",
+              "gap": "$spacing.sm",
+              "padding": "$spacing.md",
+              "borderRadius": "$radius.xl"
+            },
+            "recipe": {
+              "macro": "DockCard",
+              "part": "trigger",
+              "props": {
+                "tone": "primary"
+              }
+            },
+            "accessibility": {
+              "role": "button",
+              "label": "Plan ready: Fold the composer into the Dock"
+            }
+          },
+          {
+            "id": "dock-card.sheet",
+            "component": "Drawer",
+            "props": {
+              "title": "Plan ready",
+              "description": "Ask dock",
+              "open": false,
+              "side": "bottom"
+            },
+            "children": [
+              {
+                "id": "dock-card-child",
+                "component": "Text",
+                "props": {
+                  "text": "Child"
+                },
+                "children": []
+              }
+            ],
+            "recipe": {
+              "macro": "DockCard",
+              "part": "sheet",
+              "props": {
+                "tone": "primary"
+              }
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "column"
+        },
+        "recipe": {
+          "macro": "DockCard",
+          "part": "root",
+          "props": {
+            "tone": "primary"
+          }
+        }
+      }
+    },
+    {
+      "name": "DockCard/tone=neutral",
+      "input": {
+        "id": "dock-card",
+        "component": "DockCard",
+        "props": {
+          "label": "Plan ready",
+          "caption": "Ask dock",
+          "meta": "3 questions",
+          "title": "Fold the composer into the Dock",
+          "icon": "coding-plan",
+          "tone": "neutral"
+        },
+        "children": [
+          {
+            "id": "dock-card-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "id": "dock-card",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "dock-card.trigger",
+            "component": "Box",
+            "props": {
+              "pressable": true
+            },
+            "children": [
+              {
+                "id": "dock-card.trigger.icon",
+                "component": "Icon",
+                "props": {
+                  "name": "coding-plan",
+                  "size": "sm",
+                  "tone": "neutral"
+                },
+                "children": [],
+                "style": {
+                  "flexShrink": 0
+                },
+                "recipe": {
+                  "macro": "DockCard",
+                  "part": "icon",
+                  "props": {
+                    "tone": "neutral"
+                  }
+                }
+              },
+              {
+                "id": "dock-card.trigger.body",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "dock-card.trigger.body.header",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "dock-card.trigger.body.header.label",
+                        "component": "Text",
+                        "props": {
+                          "text": "Plan ready",
+                          "variant": "caption",
+                          "tone": "neutral",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "DockCard",
+                          "part": "label",
+                          "props": {
+                            "tone": "neutral"
+                          }
+                        }
+                      },
+                      {
+                        "id": "dock-card.trigger.body.header.caption",
+                        "component": "Text",
+                        "props": {
+                          "text": "Ask dock",
+                          "variant": "muted",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "style": {
+                          "flexShrink": 1,
+                          "minWidth": 0
+                        },
+                        "recipe": {
+                          "macro": "DockCard",
+                          "part": "caption",
+                          "props": {
+                            "tone": "neutral"
+                          }
+                        }
+                      },
+                      {
+                        "id": "dock-card.trigger.body.header.spacer",
+                        "component": "Box",
+                        "props": {},
+                        "children": [],
+                        "style": {
+                          "flexGrow": 1,
+                          "minWidth": 0
+                        },
+                        "recipe": {
+                          "macro": "DockCard",
+                          "part": "spacer",
+                          "props": {
+                            "tone": "neutral"
+                          }
+                        }
+                      },
+                      {
+                        "id": "dock-card.trigger.body.header.meta",
+                        "component": "Text",
+                        "props": {
+                          "text": "3 questions",
+                          "variant": "muted",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "DockCard",
+                          "part": "meta",
+                          "props": {
+                            "tone": "neutral"
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "alignItems": "center",
+                      "gap": "$spacing.sm"
+                    },
+                    "recipe": {
+                      "macro": "DockCard",
+                      "part": "header",
+                      "props": {
+                        "tone": "neutral"
+                      }
+                    }
+                  },
+                  {
+                    "id": "dock-card.trigger.body.row",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "dock-card.trigger.body.row.title",
+                        "component": "Text",
+                        "props": {
+                          "text": "Fold the composer into the Dock",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "style": {
+                          "flexGrow": 1,
+                          "minWidth": 0
+                        },
+                        "recipe": {
+                          "macro": "DockCard",
+                          "part": "title",
+                          "props": {
+                            "tone": "neutral"
+                          }
+                        }
+                      },
+                      {
+                        "id": "dock-card.trigger.body.row.chevron",
+                        "component": "Icon",
+                        "props": {
+                          "name": "ui-chevron-right",
+                          "size": "sm",
+                          "tone": "neutral"
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "DockCard",
+                          "part": "chevron",
+                          "props": {
+                            "tone": "neutral"
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "alignItems": "center",
+                      "gap": "$spacing.sm"
+                    },
+                    "recipe": {
+                      "macro": "DockCard",
+                      "part": "row",
+                      "props": {
+                        "tone": "neutral"
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "gap": "$spacing.xxs",
+                  "flexGrow": 1,
+                  "minWidth": 0
+                },
+                "recipe": {
+                  "macro": "DockCard",
+                  "part": "body",
+                  "props": {
+                    "tone": "neutral"
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "flex-start",
+              "gap": "$spacing.sm",
+              "padding": "$spacing.md",
+              "borderRadius": "$radius.xl"
+            },
+            "recipe": {
+              "macro": "DockCard",
+              "part": "trigger",
+              "props": {
+                "tone": "neutral"
+              }
+            },
+            "accessibility": {
+              "role": "button",
+              "label": "Plan ready: Fold the composer into the Dock"
+            }
+          },
+          {
+            "id": "dock-card.sheet",
+            "component": "Drawer",
+            "props": {
+              "title": "Plan ready",
+              "description": "Ask dock",
+              "open": false,
+              "side": "bottom"
+            },
+            "children": [
+              {
+                "id": "dock-card-child",
+                "component": "Text",
+                "props": {
+                  "text": "Child"
+                },
+                "children": []
+              }
+            ],
+            "recipe": {
+              "macro": "DockCard",
+              "part": "sheet",
+              "props": {
+                "tone": "neutral"
+              }
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "column"
+        },
+        "recipe": {
+          "macro": "DockCard",
+          "part": "root",
+          "props": {
+            "tone": "neutral"
+          }
+        }
+      }
+    },
+    {
+      "name": "DockCard/tone=primary",
+      "input": {
+        "id": "dock-card",
+        "component": "DockCard",
+        "props": {
+          "label": "Plan ready",
+          "caption": "Ask dock",
+          "meta": "3 questions",
+          "title": "Fold the composer into the Dock",
+          "icon": "coding-plan",
+          "tone": "primary"
+        },
+        "children": [
+          {
+            "id": "dock-card-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "id": "dock-card",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "dock-card.trigger",
+            "component": "Box",
+            "props": {
+              "pressable": true
+            },
+            "children": [
+              {
+                "id": "dock-card.trigger.icon",
+                "component": "Icon",
+                "props": {
+                  "name": "coding-plan",
+                  "size": "sm",
+                  "tone": "primary"
+                },
+                "children": [],
+                "style": {
+                  "flexShrink": 0
+                },
+                "recipe": {
+                  "macro": "DockCard",
+                  "part": "icon",
+                  "props": {
+                    "tone": "primary"
+                  }
+                }
+              },
+              {
+                "id": "dock-card.trigger.body",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "dock-card.trigger.body.header",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "dock-card.trigger.body.header.label",
+                        "component": "Text",
+                        "props": {
+                          "text": "Plan ready",
+                          "variant": "caption",
+                          "tone": "primary",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "DockCard",
+                          "part": "label",
+                          "props": {
+                            "tone": "primary"
+                          }
+                        }
+                      },
+                      {
+                        "id": "dock-card.trigger.body.header.caption",
+                        "component": "Text",
+                        "props": {
+                          "text": "Ask dock",
+                          "variant": "muted",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "style": {
+                          "flexShrink": 1,
+                          "minWidth": 0
+                        },
+                        "recipe": {
+                          "macro": "DockCard",
+                          "part": "caption",
+                          "props": {
+                            "tone": "primary"
+                          }
+                        }
+                      },
+                      {
+                        "id": "dock-card.trigger.body.header.spacer",
+                        "component": "Box",
+                        "props": {},
+                        "children": [],
+                        "style": {
+                          "flexGrow": 1,
+                          "minWidth": 0
+                        },
+                        "recipe": {
+                          "macro": "DockCard",
+                          "part": "spacer",
+                          "props": {
+                            "tone": "primary"
+                          }
+                        }
+                      },
+                      {
+                        "id": "dock-card.trigger.body.header.meta",
+                        "component": "Text",
+                        "props": {
+                          "text": "3 questions",
+                          "variant": "muted",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "DockCard",
+                          "part": "meta",
+                          "props": {
+                            "tone": "primary"
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "alignItems": "center",
+                      "gap": "$spacing.sm"
+                    },
+                    "recipe": {
+                      "macro": "DockCard",
+                      "part": "header",
+                      "props": {
+                        "tone": "primary"
+                      }
+                    }
+                  },
+                  {
+                    "id": "dock-card.trigger.body.row",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "dock-card.trigger.body.row.title",
+                        "component": "Text",
+                        "props": {
+                          "text": "Fold the composer into the Dock",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "style": {
+                          "flexGrow": 1,
+                          "minWidth": 0
+                        },
+                        "recipe": {
+                          "macro": "DockCard",
+                          "part": "title",
+                          "props": {
+                            "tone": "primary"
+                          }
+                        }
+                      },
+                      {
+                        "id": "dock-card.trigger.body.row.chevron",
+                        "component": "Icon",
+                        "props": {
+                          "name": "ui-chevron-right",
+                          "size": "sm",
+                          "tone": "neutral"
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "DockCard",
+                          "part": "chevron",
+                          "props": {
+                            "tone": "primary"
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "alignItems": "center",
+                      "gap": "$spacing.sm"
+                    },
+                    "recipe": {
+                      "macro": "DockCard",
+                      "part": "row",
+                      "props": {
+                        "tone": "primary"
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "gap": "$spacing.xxs",
+                  "flexGrow": 1,
+                  "minWidth": 0
+                },
+                "recipe": {
+                  "macro": "DockCard",
+                  "part": "body",
+                  "props": {
+                    "tone": "primary"
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "flex-start",
+              "gap": "$spacing.sm",
+              "padding": "$spacing.md",
+              "borderRadius": "$radius.xl"
+            },
+            "recipe": {
+              "macro": "DockCard",
+              "part": "trigger",
+              "props": {
+                "tone": "primary"
+              }
+            },
+            "accessibility": {
+              "role": "button",
+              "label": "Plan ready: Fold the composer into the Dock"
+            }
+          },
+          {
+            "id": "dock-card.sheet",
+            "component": "Drawer",
+            "props": {
+              "title": "Plan ready",
+              "description": "Ask dock",
+              "open": false,
+              "side": "bottom"
+            },
+            "children": [
+              {
+                "id": "dock-card-child",
+                "component": "Text",
+                "props": {
+                  "text": "Child"
+                },
+                "children": []
+              }
+            ],
+            "recipe": {
+              "macro": "DockCard",
+              "part": "sheet",
+              "props": {
+                "tone": "primary"
+              }
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "column"
+        },
+        "recipe": {
+          "macro": "DockCard",
+          "part": "root",
+          "props": {
+            "tone": "primary"
+          }
+        }
+      }
+    },
+    {
+      "name": "DockCard/tone=success",
+      "input": {
+        "id": "dock-card",
+        "component": "DockCard",
+        "props": {
+          "label": "Plan ready",
+          "caption": "Ask dock",
+          "meta": "3 questions",
+          "title": "Fold the composer into the Dock",
+          "icon": "coding-plan",
+          "tone": "success"
+        },
+        "children": [
+          {
+            "id": "dock-card-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "id": "dock-card",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "dock-card.trigger",
+            "component": "Box",
+            "props": {
+              "pressable": true
+            },
+            "children": [
+              {
+                "id": "dock-card.trigger.icon",
+                "component": "Icon",
+                "props": {
+                  "name": "coding-plan",
+                  "size": "sm",
+                  "tone": "success"
+                },
+                "children": [],
+                "style": {
+                  "flexShrink": 0
+                },
+                "recipe": {
+                  "macro": "DockCard",
+                  "part": "icon",
+                  "props": {
+                    "tone": "success"
+                  }
+                }
+              },
+              {
+                "id": "dock-card.trigger.body",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "dock-card.trigger.body.header",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "dock-card.trigger.body.header.label",
+                        "component": "Text",
+                        "props": {
+                          "text": "Plan ready",
+                          "variant": "caption",
+                          "tone": "success",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "DockCard",
+                          "part": "label",
+                          "props": {
+                            "tone": "success"
+                          }
+                        }
+                      },
+                      {
+                        "id": "dock-card.trigger.body.header.caption",
+                        "component": "Text",
+                        "props": {
+                          "text": "Ask dock",
+                          "variant": "muted",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "style": {
+                          "flexShrink": 1,
+                          "minWidth": 0
+                        },
+                        "recipe": {
+                          "macro": "DockCard",
+                          "part": "caption",
+                          "props": {
+                            "tone": "success"
+                          }
+                        }
+                      },
+                      {
+                        "id": "dock-card.trigger.body.header.spacer",
+                        "component": "Box",
+                        "props": {},
+                        "children": [],
+                        "style": {
+                          "flexGrow": 1,
+                          "minWidth": 0
+                        },
+                        "recipe": {
+                          "macro": "DockCard",
+                          "part": "spacer",
+                          "props": {
+                            "tone": "success"
+                          }
+                        }
+                      },
+                      {
+                        "id": "dock-card.trigger.body.header.meta",
+                        "component": "Text",
+                        "props": {
+                          "text": "3 questions",
+                          "variant": "muted",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "DockCard",
+                          "part": "meta",
+                          "props": {
+                            "tone": "success"
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "alignItems": "center",
+                      "gap": "$spacing.sm"
+                    },
+                    "recipe": {
+                      "macro": "DockCard",
+                      "part": "header",
+                      "props": {
+                        "tone": "success"
+                      }
+                    }
+                  },
+                  {
+                    "id": "dock-card.trigger.body.row",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "dock-card.trigger.body.row.title",
+                        "component": "Text",
+                        "props": {
+                          "text": "Fold the composer into the Dock",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "style": {
+                          "flexGrow": 1,
+                          "minWidth": 0
+                        },
+                        "recipe": {
+                          "macro": "DockCard",
+                          "part": "title",
+                          "props": {
+                            "tone": "success"
+                          }
+                        }
+                      },
+                      {
+                        "id": "dock-card.trigger.body.row.chevron",
+                        "component": "Icon",
+                        "props": {
+                          "name": "ui-chevron-right",
+                          "size": "sm",
+                          "tone": "neutral"
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "DockCard",
+                          "part": "chevron",
+                          "props": {
+                            "tone": "success"
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "alignItems": "center",
+                      "gap": "$spacing.sm"
+                    },
+                    "recipe": {
+                      "macro": "DockCard",
+                      "part": "row",
+                      "props": {
+                        "tone": "success"
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "gap": "$spacing.xxs",
+                  "flexGrow": 1,
+                  "minWidth": 0
+                },
+                "recipe": {
+                  "macro": "DockCard",
+                  "part": "body",
+                  "props": {
+                    "tone": "success"
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "flex-start",
+              "gap": "$spacing.sm",
+              "padding": "$spacing.md",
+              "borderRadius": "$radius.xl"
+            },
+            "recipe": {
+              "macro": "DockCard",
+              "part": "trigger",
+              "props": {
+                "tone": "success"
+              }
+            },
+            "accessibility": {
+              "role": "button",
+              "label": "Plan ready: Fold the composer into the Dock"
+            }
+          },
+          {
+            "id": "dock-card.sheet",
+            "component": "Drawer",
+            "props": {
+              "title": "Plan ready",
+              "description": "Ask dock",
+              "open": false,
+              "side": "bottom"
+            },
+            "children": [
+              {
+                "id": "dock-card-child",
+                "component": "Text",
+                "props": {
+                  "text": "Child"
+                },
+                "children": []
+              }
+            ],
+            "recipe": {
+              "macro": "DockCard",
+              "part": "sheet",
+              "props": {
+                "tone": "success"
+              }
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "column"
+        },
+        "recipe": {
+          "macro": "DockCard",
+          "part": "root",
+          "props": {
+            "tone": "success"
+          }
+        }
+      }
+    },
+    {
+      "name": "DockCard/tone=warning",
+      "input": {
+        "id": "dock-card",
+        "component": "DockCard",
+        "props": {
+          "label": "Plan ready",
+          "caption": "Ask dock",
+          "meta": "3 questions",
+          "title": "Fold the composer into the Dock",
+          "icon": "coding-plan",
+          "tone": "warning"
+        },
+        "children": [
+          {
+            "id": "dock-card-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "id": "dock-card",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "dock-card.trigger",
+            "component": "Box",
+            "props": {
+              "pressable": true
+            },
+            "children": [
+              {
+                "id": "dock-card.trigger.icon",
+                "component": "Icon",
+                "props": {
+                  "name": "coding-plan",
+                  "size": "sm",
+                  "tone": "warning"
+                },
+                "children": [],
+                "style": {
+                  "flexShrink": 0
+                },
+                "recipe": {
+                  "macro": "DockCard",
+                  "part": "icon",
+                  "props": {
+                    "tone": "warning"
+                  }
+                }
+              },
+              {
+                "id": "dock-card.trigger.body",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "dock-card.trigger.body.header",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "dock-card.trigger.body.header.label",
+                        "component": "Text",
+                        "props": {
+                          "text": "Plan ready",
+                          "variant": "caption",
+                          "tone": "warning",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "DockCard",
+                          "part": "label",
+                          "props": {
+                            "tone": "warning"
+                          }
+                        }
+                      },
+                      {
+                        "id": "dock-card.trigger.body.header.caption",
+                        "component": "Text",
+                        "props": {
+                          "text": "Ask dock",
+                          "variant": "muted",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "style": {
+                          "flexShrink": 1,
+                          "minWidth": 0
+                        },
+                        "recipe": {
+                          "macro": "DockCard",
+                          "part": "caption",
+                          "props": {
+                            "tone": "warning"
+                          }
+                        }
+                      },
+                      {
+                        "id": "dock-card.trigger.body.header.spacer",
+                        "component": "Box",
+                        "props": {},
+                        "children": [],
+                        "style": {
+                          "flexGrow": 1,
+                          "minWidth": 0
+                        },
+                        "recipe": {
+                          "macro": "DockCard",
+                          "part": "spacer",
+                          "props": {
+                            "tone": "warning"
+                          }
+                        }
+                      },
+                      {
+                        "id": "dock-card.trigger.body.header.meta",
+                        "component": "Text",
+                        "props": {
+                          "text": "3 questions",
+                          "variant": "muted",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "DockCard",
+                          "part": "meta",
+                          "props": {
+                            "tone": "warning"
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "alignItems": "center",
+                      "gap": "$spacing.sm"
+                    },
+                    "recipe": {
+                      "macro": "DockCard",
+                      "part": "header",
+                      "props": {
+                        "tone": "warning"
+                      }
+                    }
+                  },
+                  {
+                    "id": "dock-card.trigger.body.row",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "dock-card.trigger.body.row.title",
+                        "component": "Text",
+                        "props": {
+                          "text": "Fold the composer into the Dock",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "style": {
+                          "flexGrow": 1,
+                          "minWidth": 0
+                        },
+                        "recipe": {
+                          "macro": "DockCard",
+                          "part": "title",
+                          "props": {
+                            "tone": "warning"
+                          }
+                        }
+                      },
+                      {
+                        "id": "dock-card.trigger.body.row.chevron",
+                        "component": "Icon",
+                        "props": {
+                          "name": "ui-chevron-right",
+                          "size": "sm",
+                          "tone": "neutral"
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "DockCard",
+                          "part": "chevron",
+                          "props": {
+                            "tone": "warning"
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "alignItems": "center",
+                      "gap": "$spacing.sm"
+                    },
+                    "recipe": {
+                      "macro": "DockCard",
+                      "part": "row",
+                      "props": {
+                        "tone": "warning"
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "gap": "$spacing.xxs",
+                  "flexGrow": 1,
+                  "minWidth": 0
+                },
+                "recipe": {
+                  "macro": "DockCard",
+                  "part": "body",
+                  "props": {
+                    "tone": "warning"
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "flex-start",
+              "gap": "$spacing.sm",
+              "padding": "$spacing.md",
+              "borderRadius": "$radius.xl"
+            },
+            "recipe": {
+              "macro": "DockCard",
+              "part": "trigger",
+              "props": {
+                "tone": "warning"
+              }
+            },
+            "accessibility": {
+              "role": "button",
+              "label": "Plan ready: Fold the composer into the Dock"
+            }
+          },
+          {
+            "id": "dock-card.sheet",
+            "component": "Drawer",
+            "props": {
+              "title": "Plan ready",
+              "description": "Ask dock",
+              "open": false,
+              "side": "bottom"
+            },
+            "children": [
+              {
+                "id": "dock-card-child",
+                "component": "Text",
+                "props": {
+                  "text": "Child"
+                },
+                "children": []
+              }
+            ],
+            "recipe": {
+              "macro": "DockCard",
+              "part": "sheet",
+              "props": {
+                "tone": "warning"
+              }
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "column"
+        },
+        "recipe": {
+          "macro": "DockCard",
+          "part": "root",
+          "props": {
+            "tone": "warning"
+          }
+        }
+      }
+    },
+    {
+      "name": "DockCard/tone=danger",
+      "input": {
+        "id": "dock-card",
+        "component": "DockCard",
+        "props": {
+          "label": "Plan ready",
+          "caption": "Ask dock",
+          "meta": "3 questions",
+          "title": "Fold the composer into the Dock",
+          "icon": "coding-plan",
+          "tone": "danger"
+        },
+        "children": [
+          {
+            "id": "dock-card-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "id": "dock-card",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "dock-card.trigger",
+            "component": "Box",
+            "props": {
+              "pressable": true
+            },
+            "children": [
+              {
+                "id": "dock-card.trigger.icon",
+                "component": "Icon",
+                "props": {
+                  "name": "coding-plan",
+                  "size": "sm",
+                  "tone": "danger"
+                },
+                "children": [],
+                "style": {
+                  "flexShrink": 0
+                },
+                "recipe": {
+                  "macro": "DockCard",
+                  "part": "icon",
+                  "props": {
+                    "tone": "danger"
+                  }
+                }
+              },
+              {
+                "id": "dock-card.trigger.body",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "dock-card.trigger.body.header",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "dock-card.trigger.body.header.label",
+                        "component": "Text",
+                        "props": {
+                          "text": "Plan ready",
+                          "variant": "caption",
+                          "tone": "danger",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "DockCard",
+                          "part": "label",
+                          "props": {
+                            "tone": "danger"
+                          }
+                        }
+                      },
+                      {
+                        "id": "dock-card.trigger.body.header.caption",
+                        "component": "Text",
+                        "props": {
+                          "text": "Ask dock",
+                          "variant": "muted",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "style": {
+                          "flexShrink": 1,
+                          "minWidth": 0
+                        },
+                        "recipe": {
+                          "macro": "DockCard",
+                          "part": "caption",
+                          "props": {
+                            "tone": "danger"
+                          }
+                        }
+                      },
+                      {
+                        "id": "dock-card.trigger.body.header.spacer",
+                        "component": "Box",
+                        "props": {},
+                        "children": [],
+                        "style": {
+                          "flexGrow": 1,
+                          "minWidth": 0
+                        },
+                        "recipe": {
+                          "macro": "DockCard",
+                          "part": "spacer",
+                          "props": {
+                            "tone": "danger"
+                          }
+                        }
+                      },
+                      {
+                        "id": "dock-card.trigger.body.header.meta",
+                        "component": "Text",
+                        "props": {
+                          "text": "3 questions",
+                          "variant": "muted",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "DockCard",
+                          "part": "meta",
+                          "props": {
+                            "tone": "danger"
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "alignItems": "center",
+                      "gap": "$spacing.sm"
+                    },
+                    "recipe": {
+                      "macro": "DockCard",
+                      "part": "header",
+                      "props": {
+                        "tone": "danger"
+                      }
+                    }
+                  },
+                  {
+                    "id": "dock-card.trigger.body.row",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "dock-card.trigger.body.row.title",
+                        "component": "Text",
+                        "props": {
+                          "text": "Fold the composer into the Dock",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "style": {
+                          "flexGrow": 1,
+                          "minWidth": 0
+                        },
+                        "recipe": {
+                          "macro": "DockCard",
+                          "part": "title",
+                          "props": {
+                            "tone": "danger"
+                          }
+                        }
+                      },
+                      {
+                        "id": "dock-card.trigger.body.row.chevron",
+                        "component": "Icon",
+                        "props": {
+                          "name": "ui-chevron-right",
+                          "size": "sm",
+                          "tone": "neutral"
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "DockCard",
+                          "part": "chevron",
+                          "props": {
+                            "tone": "danger"
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "alignItems": "center",
+                      "gap": "$spacing.sm"
+                    },
+                    "recipe": {
+                      "macro": "DockCard",
+                      "part": "row",
+                      "props": {
+                        "tone": "danger"
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "gap": "$spacing.xxs",
+                  "flexGrow": 1,
+                  "minWidth": 0
+                },
+                "recipe": {
+                  "macro": "DockCard",
+                  "part": "body",
+                  "props": {
+                    "tone": "danger"
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "flex-start",
+              "gap": "$spacing.sm",
+              "padding": "$spacing.md",
+              "borderRadius": "$radius.xl"
+            },
+            "recipe": {
+              "macro": "DockCard",
+              "part": "trigger",
+              "props": {
+                "tone": "danger"
+              }
+            },
+            "accessibility": {
+              "role": "button",
+              "label": "Plan ready: Fold the composer into the Dock"
+            }
+          },
+          {
+            "id": "dock-card.sheet",
+            "component": "Drawer",
+            "props": {
+              "title": "Plan ready",
+              "description": "Ask dock",
+              "open": false,
+              "side": "bottom"
+            },
+            "children": [
+              {
+                "id": "dock-card-child",
+                "component": "Text",
+                "props": {
+                  "text": "Child"
+                },
+                "children": []
+              }
+            ],
+            "recipe": {
+              "macro": "DockCard",
+              "part": "sheet",
+              "props": {
+                "tone": "danger"
+              }
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "column"
+        },
+        "recipe": {
+          "macro": "DockCard",
+          "part": "root",
+          "props": {
+            "tone": "danger"
+          }
+        }
+      }
+    },
+    {
+      "name": "DockCard/tone=info",
+      "input": {
+        "id": "dock-card",
+        "component": "DockCard",
+        "props": {
+          "label": "Plan ready",
+          "caption": "Ask dock",
+          "meta": "3 questions",
+          "title": "Fold the composer into the Dock",
+          "icon": "coding-plan",
+          "tone": "info"
+        },
+        "children": [
+          {
+            "id": "dock-card-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "id": "dock-card",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "dock-card.trigger",
+            "component": "Box",
+            "props": {
+              "pressable": true
+            },
+            "children": [
+              {
+                "id": "dock-card.trigger.icon",
+                "component": "Icon",
+                "props": {
+                  "name": "coding-plan",
+                  "size": "sm",
+                  "tone": "info"
+                },
+                "children": [],
+                "style": {
+                  "flexShrink": 0
+                },
+                "recipe": {
+                  "macro": "DockCard",
+                  "part": "icon",
+                  "props": {
+                    "tone": "info"
+                  }
+                }
+              },
+              {
+                "id": "dock-card.trigger.body",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "dock-card.trigger.body.header",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "dock-card.trigger.body.header.label",
+                        "component": "Text",
+                        "props": {
+                          "text": "Plan ready",
+                          "variant": "caption",
+                          "tone": "info",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "DockCard",
+                          "part": "label",
+                          "props": {
+                            "tone": "info"
+                          }
+                        }
+                      },
+                      {
+                        "id": "dock-card.trigger.body.header.caption",
+                        "component": "Text",
+                        "props": {
+                          "text": "Ask dock",
+                          "variant": "muted",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "style": {
+                          "flexShrink": 1,
+                          "minWidth": 0
+                        },
+                        "recipe": {
+                          "macro": "DockCard",
+                          "part": "caption",
+                          "props": {
+                            "tone": "info"
+                          }
+                        }
+                      },
+                      {
+                        "id": "dock-card.trigger.body.header.spacer",
+                        "component": "Box",
+                        "props": {},
+                        "children": [],
+                        "style": {
+                          "flexGrow": 1,
+                          "minWidth": 0
+                        },
+                        "recipe": {
+                          "macro": "DockCard",
+                          "part": "spacer",
+                          "props": {
+                            "tone": "info"
+                          }
+                        }
+                      },
+                      {
+                        "id": "dock-card.trigger.body.header.meta",
+                        "component": "Text",
+                        "props": {
+                          "text": "3 questions",
+                          "variant": "muted",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "DockCard",
+                          "part": "meta",
+                          "props": {
+                            "tone": "info"
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "alignItems": "center",
+                      "gap": "$spacing.sm"
+                    },
+                    "recipe": {
+                      "macro": "DockCard",
+                      "part": "header",
+                      "props": {
+                        "tone": "info"
+                      }
+                    }
+                  },
+                  {
+                    "id": "dock-card.trigger.body.row",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "dock-card.trigger.body.row.title",
+                        "component": "Text",
+                        "props": {
+                          "text": "Fold the composer into the Dock",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "style": {
+                          "flexGrow": 1,
+                          "minWidth": 0
+                        },
+                        "recipe": {
+                          "macro": "DockCard",
+                          "part": "title",
+                          "props": {
+                            "tone": "info"
+                          }
+                        }
+                      },
+                      {
+                        "id": "dock-card.trigger.body.row.chevron",
+                        "component": "Icon",
+                        "props": {
+                          "name": "ui-chevron-right",
+                          "size": "sm",
+                          "tone": "neutral"
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "DockCard",
+                          "part": "chevron",
+                          "props": {
+                            "tone": "info"
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "alignItems": "center",
+                      "gap": "$spacing.sm"
+                    },
+                    "recipe": {
+                      "macro": "DockCard",
+                      "part": "row",
+                      "props": {
+                        "tone": "info"
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "gap": "$spacing.xxs",
+                  "flexGrow": 1,
+                  "minWidth": 0
+                },
+                "recipe": {
+                  "macro": "DockCard",
+                  "part": "body",
+                  "props": {
+                    "tone": "info"
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "flex-start",
+              "gap": "$spacing.sm",
+              "padding": "$spacing.md",
+              "borderRadius": "$radius.xl"
+            },
+            "recipe": {
+              "macro": "DockCard",
+              "part": "trigger",
+              "props": {
+                "tone": "info"
+              }
+            },
+            "accessibility": {
+              "role": "button",
+              "label": "Plan ready: Fold the composer into the Dock"
+            }
+          },
+          {
+            "id": "dock-card.sheet",
+            "component": "Drawer",
+            "props": {
+              "title": "Plan ready",
+              "description": "Ask dock",
+              "open": false,
+              "side": "bottom"
+            },
+            "children": [
+              {
+                "id": "dock-card-child",
+                "component": "Text",
+                "props": {
+                  "text": "Child"
+                },
+                "children": []
+              }
+            ],
+            "recipe": {
+              "macro": "DockCard",
+              "part": "sheet",
+              "props": {
+                "tone": "info"
+              }
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "column"
+        },
+        "recipe": {
+          "macro": "DockCard",
+          "part": "root",
+          "props": {
+            "tone": "info"
+          }
+        }
+      }
+    },
+    {
+      "name": "DockCard/open=true",
+      "input": {
+        "id": "dock-card",
+        "component": "DockCard",
+        "props": {
+          "label": "Plan ready",
+          "caption": "Ask dock",
+          "meta": "3 questions",
+          "title": "Fold the composer into the Dock",
+          "icon": "coding-plan",
+          "tone": "primary",
+          "open": true
+        },
+        "children": [
+          {
+            "id": "dock-card-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "id": "dock-card",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "dock-card.trigger",
+            "component": "Box",
+            "props": {
+              "pressable": true
+            },
+            "children": [
+              {
+                "id": "dock-card.trigger.icon",
+                "component": "Icon",
+                "props": {
+                  "name": "coding-plan",
+                  "size": "sm",
+                  "tone": "primary"
+                },
+                "children": [],
+                "style": {
+                  "flexShrink": 0
+                },
+                "recipe": {
+                  "macro": "DockCard",
+                  "part": "icon",
+                  "props": {
+                    "tone": "primary"
+                  }
+                }
+              },
+              {
+                "id": "dock-card.trigger.body",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "dock-card.trigger.body.header",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "dock-card.trigger.body.header.label",
+                        "component": "Text",
+                        "props": {
+                          "text": "Plan ready",
+                          "variant": "caption",
+                          "tone": "primary",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "DockCard",
+                          "part": "label",
+                          "props": {
+                            "tone": "primary"
+                          }
+                        }
+                      },
+                      {
+                        "id": "dock-card.trigger.body.header.caption",
+                        "component": "Text",
+                        "props": {
+                          "text": "Ask dock",
+                          "variant": "muted",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "style": {
+                          "flexShrink": 1,
+                          "minWidth": 0
+                        },
+                        "recipe": {
+                          "macro": "DockCard",
+                          "part": "caption",
+                          "props": {
+                            "tone": "primary"
+                          }
+                        }
+                      },
+                      {
+                        "id": "dock-card.trigger.body.header.spacer",
+                        "component": "Box",
+                        "props": {},
+                        "children": [],
+                        "style": {
+                          "flexGrow": 1,
+                          "minWidth": 0
+                        },
+                        "recipe": {
+                          "macro": "DockCard",
+                          "part": "spacer",
+                          "props": {
+                            "tone": "primary"
+                          }
+                        }
+                      },
+                      {
+                        "id": "dock-card.trigger.body.header.meta",
+                        "component": "Text",
+                        "props": {
+                          "text": "3 questions",
+                          "variant": "muted",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "DockCard",
+                          "part": "meta",
+                          "props": {
+                            "tone": "primary"
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "alignItems": "center",
+                      "gap": "$spacing.sm"
+                    },
+                    "recipe": {
+                      "macro": "DockCard",
+                      "part": "header",
+                      "props": {
+                        "tone": "primary"
+                      }
+                    }
+                  },
+                  {
+                    "id": "dock-card.trigger.body.row",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "dock-card.trigger.body.row.title",
+                        "component": "Text",
+                        "props": {
+                          "text": "Fold the composer into the Dock",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "style": {
+                          "flexGrow": 1,
+                          "minWidth": 0
+                        },
+                        "recipe": {
+                          "macro": "DockCard",
+                          "part": "title",
+                          "props": {
+                            "tone": "primary"
+                          }
+                        }
+                      },
+                      {
+                        "id": "dock-card.trigger.body.row.chevron",
+                        "component": "Icon",
+                        "props": {
+                          "name": "ui-chevron-right",
+                          "size": "sm",
+                          "tone": "neutral"
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "DockCard",
+                          "part": "chevron",
+                          "props": {
+                            "tone": "primary"
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "alignItems": "center",
+                      "gap": "$spacing.sm"
+                    },
+                    "recipe": {
+                      "macro": "DockCard",
+                      "part": "row",
+                      "props": {
+                        "tone": "primary"
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "gap": "$spacing.xxs",
+                  "flexGrow": 1,
+                  "minWidth": 0
+                },
+                "recipe": {
+                  "macro": "DockCard",
+                  "part": "body",
+                  "props": {
+                    "tone": "primary"
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "flex-start",
+              "gap": "$spacing.sm",
+              "padding": "$spacing.md",
+              "borderRadius": "$radius.xl"
+            },
+            "recipe": {
+              "macro": "DockCard",
+              "part": "trigger",
+              "props": {
+                "tone": "primary"
+              }
+            },
+            "accessibility": {
+              "role": "button",
+              "label": "Plan ready: Fold the composer into the Dock"
+            }
+          },
+          {
+            "id": "dock-card.sheet",
+            "component": "Drawer",
+            "props": {
+              "title": "Plan ready",
+              "description": "Ask dock",
+              "open": true,
+              "side": "bottom"
+            },
+            "children": [
+              {
+                "id": "dock-card-child",
+                "component": "Text",
+                "props": {
+                  "text": "Child"
+                },
+                "children": []
+              }
+            ],
+            "recipe": {
+              "macro": "DockCard",
+              "part": "sheet",
+              "props": {
+                "tone": "primary"
+              }
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "column"
+        },
+        "recipe": {
+          "macro": "DockCard",
+          "part": "root",
+          "props": {
+            "tone": "primary"
+          }
+        }
+      }
+    },
+    {
+      "name": "DockCard/open=false",
+      "input": {
+        "id": "dock-card",
+        "component": "DockCard",
+        "props": {
+          "label": "Plan ready",
+          "caption": "Ask dock",
+          "meta": "3 questions",
+          "title": "Fold the composer into the Dock",
+          "icon": "coding-plan",
+          "tone": "primary",
+          "open": false
+        },
+        "children": [
+          {
+            "id": "dock-card-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "id": "dock-card",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "dock-card.trigger",
+            "component": "Box",
+            "props": {
+              "pressable": true
+            },
+            "children": [
+              {
+                "id": "dock-card.trigger.icon",
+                "component": "Icon",
+                "props": {
+                  "name": "coding-plan",
+                  "size": "sm",
+                  "tone": "primary"
+                },
+                "children": [],
+                "style": {
+                  "flexShrink": 0
+                },
+                "recipe": {
+                  "macro": "DockCard",
+                  "part": "icon",
+                  "props": {
+                    "tone": "primary"
+                  }
+                }
+              },
+              {
+                "id": "dock-card.trigger.body",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "dock-card.trigger.body.header",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "dock-card.trigger.body.header.label",
+                        "component": "Text",
+                        "props": {
+                          "text": "Plan ready",
+                          "variant": "caption",
+                          "tone": "primary",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "DockCard",
+                          "part": "label",
+                          "props": {
+                            "tone": "primary"
+                          }
+                        }
+                      },
+                      {
+                        "id": "dock-card.trigger.body.header.caption",
+                        "component": "Text",
+                        "props": {
+                          "text": "Ask dock",
+                          "variant": "muted",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "style": {
+                          "flexShrink": 1,
+                          "minWidth": 0
+                        },
+                        "recipe": {
+                          "macro": "DockCard",
+                          "part": "caption",
+                          "props": {
+                            "tone": "primary"
+                          }
+                        }
+                      },
+                      {
+                        "id": "dock-card.trigger.body.header.spacer",
+                        "component": "Box",
+                        "props": {},
+                        "children": [],
+                        "style": {
+                          "flexGrow": 1,
+                          "minWidth": 0
+                        },
+                        "recipe": {
+                          "macro": "DockCard",
+                          "part": "spacer",
+                          "props": {
+                            "tone": "primary"
+                          }
+                        }
+                      },
+                      {
+                        "id": "dock-card.trigger.body.header.meta",
+                        "component": "Text",
+                        "props": {
+                          "text": "3 questions",
+                          "variant": "muted",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "DockCard",
+                          "part": "meta",
+                          "props": {
+                            "tone": "primary"
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "alignItems": "center",
+                      "gap": "$spacing.sm"
+                    },
+                    "recipe": {
+                      "macro": "DockCard",
+                      "part": "header",
+                      "props": {
+                        "tone": "primary"
+                      }
+                    }
+                  },
+                  {
+                    "id": "dock-card.trigger.body.row",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "dock-card.trigger.body.row.title",
+                        "component": "Text",
+                        "props": {
+                          "text": "Fold the composer into the Dock",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "style": {
+                          "flexGrow": 1,
+                          "minWidth": 0
+                        },
+                        "recipe": {
+                          "macro": "DockCard",
+                          "part": "title",
+                          "props": {
+                            "tone": "primary"
+                          }
+                        }
+                      },
+                      {
+                        "id": "dock-card.trigger.body.row.chevron",
+                        "component": "Icon",
+                        "props": {
+                          "name": "ui-chevron-right",
+                          "size": "sm",
+                          "tone": "neutral"
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "DockCard",
+                          "part": "chevron",
+                          "props": {
+                            "tone": "primary"
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "alignItems": "center",
+                      "gap": "$spacing.sm"
+                    },
+                    "recipe": {
+                      "macro": "DockCard",
+                      "part": "row",
+                      "props": {
+                        "tone": "primary"
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "gap": "$spacing.xxs",
+                  "flexGrow": 1,
+                  "minWidth": 0
+                },
+                "recipe": {
+                  "macro": "DockCard",
+                  "part": "body",
+                  "props": {
+                    "tone": "primary"
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "flex-start",
+              "gap": "$spacing.sm",
+              "padding": "$spacing.md",
+              "borderRadius": "$radius.xl"
+            },
+            "recipe": {
+              "macro": "DockCard",
+              "part": "trigger",
+              "props": {
+                "tone": "primary"
+              }
+            },
+            "accessibility": {
+              "role": "button",
+              "label": "Plan ready: Fold the composer into the Dock"
+            }
+          },
+          {
+            "id": "dock-card.sheet",
+            "component": "Drawer",
+            "props": {
+              "title": "Plan ready",
+              "description": "Ask dock",
+              "open": false,
+              "side": "bottom"
+            },
+            "children": [
+              {
+                "id": "dock-card-child",
+                "component": "Text",
+                "props": {
+                  "text": "Child"
+                },
+                "children": []
+              }
+            ],
+            "recipe": {
+              "macro": "DockCard",
+              "part": "sheet",
+              "props": {
+                "tone": "primary"
+              }
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "column"
+        },
+        "recipe": {
+          "macro": "DockCard",
+          "part": "root",
+          "props": {
+            "tone": "primary"
+          }
+        }
+      }
+    },
+    {
       "name": "AlertDialog/example",
       "input": {
         "id": "alert-dialog",
@@ -20431,6 +23025,1510 @@
         },
         "accessibility": {
           "role": "list"
+        }
+      }
+    },
+    {
+      "name": "DockCard/bound:label",
+      "input": {
+        "id": "dock-card",
+        "component": "DockCard",
+        "props": {
+          "label": {
+            "path": "/label"
+          },
+          "caption": "Ask dock",
+          "meta": "3 questions",
+          "title": "Fold the composer into the Dock",
+          "icon": "coding-plan",
+          "tone": "primary"
+        },
+        "children": [
+          {
+            "id": "dock-card-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "id": "dock-card",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "dock-card.trigger",
+            "component": "Box",
+            "props": {
+              "pressable": true
+            },
+            "children": [
+              {
+                "id": "dock-card.trigger.icon",
+                "component": "Icon",
+                "props": {
+                  "name": "coding-plan",
+                  "size": "sm",
+                  "tone": "primary"
+                },
+                "children": [],
+                "style": {
+                  "flexShrink": 0
+                },
+                "recipe": {
+                  "macro": "DockCard",
+                  "part": "icon",
+                  "props": {
+                    "tone": "primary"
+                  }
+                }
+              },
+              {
+                "id": "dock-card.trigger.body",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "dock-card.trigger.body.header",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "dock-card.trigger.body.header.label",
+                        "component": "Text",
+                        "props": {
+                          "text": {
+                            "path": "/label"
+                          },
+                          "variant": "caption",
+                          "tone": "primary",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "DockCard",
+                          "part": "label",
+                          "props": {
+                            "tone": "primary"
+                          }
+                        }
+                      },
+                      {
+                        "id": "dock-card.trigger.body.header.caption",
+                        "component": "Text",
+                        "props": {
+                          "text": "Ask dock",
+                          "variant": "muted",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "style": {
+                          "flexShrink": 1,
+                          "minWidth": 0
+                        },
+                        "recipe": {
+                          "macro": "DockCard",
+                          "part": "caption",
+                          "props": {
+                            "tone": "primary"
+                          }
+                        }
+                      },
+                      {
+                        "id": "dock-card.trigger.body.header.spacer",
+                        "component": "Box",
+                        "props": {},
+                        "children": [],
+                        "style": {
+                          "flexGrow": 1,
+                          "minWidth": 0
+                        },
+                        "recipe": {
+                          "macro": "DockCard",
+                          "part": "spacer",
+                          "props": {
+                            "tone": "primary"
+                          }
+                        }
+                      },
+                      {
+                        "id": "dock-card.trigger.body.header.meta",
+                        "component": "Text",
+                        "props": {
+                          "text": "3 questions",
+                          "variant": "muted",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "DockCard",
+                          "part": "meta",
+                          "props": {
+                            "tone": "primary"
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "alignItems": "center",
+                      "gap": "$spacing.sm"
+                    },
+                    "recipe": {
+                      "macro": "DockCard",
+                      "part": "header",
+                      "props": {
+                        "tone": "primary"
+                      }
+                    }
+                  },
+                  {
+                    "id": "dock-card.trigger.body.row",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "dock-card.trigger.body.row.title",
+                        "component": "Text",
+                        "props": {
+                          "text": "Fold the composer into the Dock",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "style": {
+                          "flexGrow": 1,
+                          "minWidth": 0
+                        },
+                        "recipe": {
+                          "macro": "DockCard",
+                          "part": "title",
+                          "props": {
+                            "tone": "primary"
+                          }
+                        }
+                      },
+                      {
+                        "id": "dock-card.trigger.body.row.chevron",
+                        "component": "Icon",
+                        "props": {
+                          "name": "ui-chevron-right",
+                          "size": "sm",
+                          "tone": "neutral"
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "DockCard",
+                          "part": "chevron",
+                          "props": {
+                            "tone": "primary"
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "alignItems": "center",
+                      "gap": "$spacing.sm"
+                    },
+                    "recipe": {
+                      "macro": "DockCard",
+                      "part": "row",
+                      "props": {
+                        "tone": "primary"
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "gap": "$spacing.xxs",
+                  "flexGrow": 1,
+                  "minWidth": 0
+                },
+                "recipe": {
+                  "macro": "DockCard",
+                  "part": "body",
+                  "props": {
+                    "tone": "primary"
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "flex-start",
+              "gap": "$spacing.sm",
+              "padding": "$spacing.md",
+              "borderRadius": "$radius.xl"
+            },
+            "recipe": {
+              "macro": "DockCard",
+              "part": "trigger",
+              "props": {
+                "tone": "primary"
+              }
+            },
+            "accessibility": {
+              "role": "button",
+              "label": {
+                "call": "concat",
+                "args": {
+                  "values": [
+                    {
+                      "path": "/label"
+                    },
+                    ": ",
+                    "Fold the composer into the Dock"
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "id": "dock-card.sheet",
+            "component": "Drawer",
+            "props": {
+              "title": {
+                "path": "/label"
+              },
+              "description": "Ask dock",
+              "open": false,
+              "side": "bottom"
+            },
+            "children": [
+              {
+                "id": "dock-card-child",
+                "component": "Text",
+                "props": {
+                  "text": "Child"
+                },
+                "children": []
+              }
+            ],
+            "recipe": {
+              "macro": "DockCard",
+              "part": "sheet",
+              "props": {
+                "tone": "primary"
+              }
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "column"
+        },
+        "recipe": {
+          "macro": "DockCard",
+          "part": "root",
+          "props": {
+            "tone": "primary"
+          }
+        }
+      }
+    },
+    {
+      "name": "DockCard/bound:title",
+      "input": {
+        "id": "dock-card",
+        "component": "DockCard",
+        "props": {
+          "label": "Plan ready",
+          "caption": "Ask dock",
+          "meta": "3 questions",
+          "title": {
+            "path": "/title"
+          },
+          "icon": "coding-plan",
+          "tone": "primary"
+        },
+        "children": [
+          {
+            "id": "dock-card-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "id": "dock-card",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "dock-card.trigger",
+            "component": "Box",
+            "props": {
+              "pressable": true
+            },
+            "children": [
+              {
+                "id": "dock-card.trigger.icon",
+                "component": "Icon",
+                "props": {
+                  "name": "coding-plan",
+                  "size": "sm",
+                  "tone": "primary"
+                },
+                "children": [],
+                "style": {
+                  "flexShrink": 0
+                },
+                "recipe": {
+                  "macro": "DockCard",
+                  "part": "icon",
+                  "props": {
+                    "tone": "primary"
+                  }
+                }
+              },
+              {
+                "id": "dock-card.trigger.body",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "dock-card.trigger.body.header",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "dock-card.trigger.body.header.label",
+                        "component": "Text",
+                        "props": {
+                          "text": "Plan ready",
+                          "variant": "caption",
+                          "tone": "primary",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "DockCard",
+                          "part": "label",
+                          "props": {
+                            "tone": "primary"
+                          }
+                        }
+                      },
+                      {
+                        "id": "dock-card.trigger.body.header.caption",
+                        "component": "Text",
+                        "props": {
+                          "text": "Ask dock",
+                          "variant": "muted",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "style": {
+                          "flexShrink": 1,
+                          "minWidth": 0
+                        },
+                        "recipe": {
+                          "macro": "DockCard",
+                          "part": "caption",
+                          "props": {
+                            "tone": "primary"
+                          }
+                        }
+                      },
+                      {
+                        "id": "dock-card.trigger.body.header.spacer",
+                        "component": "Box",
+                        "props": {},
+                        "children": [],
+                        "style": {
+                          "flexGrow": 1,
+                          "minWidth": 0
+                        },
+                        "recipe": {
+                          "macro": "DockCard",
+                          "part": "spacer",
+                          "props": {
+                            "tone": "primary"
+                          }
+                        }
+                      },
+                      {
+                        "id": "dock-card.trigger.body.header.meta",
+                        "component": "Text",
+                        "props": {
+                          "text": "3 questions",
+                          "variant": "muted",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "DockCard",
+                          "part": "meta",
+                          "props": {
+                            "tone": "primary"
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "alignItems": "center",
+                      "gap": "$spacing.sm"
+                    },
+                    "recipe": {
+                      "macro": "DockCard",
+                      "part": "header",
+                      "props": {
+                        "tone": "primary"
+                      }
+                    }
+                  },
+                  {
+                    "id": "dock-card.trigger.body.row",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "dock-card.trigger.body.row.title",
+                        "component": "Text",
+                        "props": {
+                          "text": {
+                            "path": "/title"
+                          },
+                          "lines": 1
+                        },
+                        "children": [],
+                        "style": {
+                          "flexGrow": 1,
+                          "minWidth": 0
+                        },
+                        "recipe": {
+                          "macro": "DockCard",
+                          "part": "title",
+                          "props": {
+                            "tone": "primary"
+                          }
+                        }
+                      },
+                      {
+                        "id": "dock-card.trigger.body.row.chevron",
+                        "component": "Icon",
+                        "props": {
+                          "name": "ui-chevron-right",
+                          "size": "sm",
+                          "tone": "neutral"
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "DockCard",
+                          "part": "chevron",
+                          "props": {
+                            "tone": "primary"
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "alignItems": "center",
+                      "gap": "$spacing.sm"
+                    },
+                    "recipe": {
+                      "macro": "DockCard",
+                      "part": "row",
+                      "props": {
+                        "tone": "primary"
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "gap": "$spacing.xxs",
+                  "flexGrow": 1,
+                  "minWidth": 0
+                },
+                "recipe": {
+                  "macro": "DockCard",
+                  "part": "body",
+                  "props": {
+                    "tone": "primary"
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "flex-start",
+              "gap": "$spacing.sm",
+              "padding": "$spacing.md",
+              "borderRadius": "$radius.xl"
+            },
+            "recipe": {
+              "macro": "DockCard",
+              "part": "trigger",
+              "props": {
+                "tone": "primary"
+              }
+            },
+            "accessibility": {
+              "role": "button",
+              "label": {
+                "call": "concat",
+                "args": {
+                  "values": [
+                    "Plan ready",
+                    ": ",
+                    {
+                      "path": "/title"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "id": "dock-card.sheet",
+            "component": "Drawer",
+            "props": {
+              "title": "Plan ready",
+              "description": "Ask dock",
+              "open": false,
+              "side": "bottom"
+            },
+            "children": [
+              {
+                "id": "dock-card-child",
+                "component": "Text",
+                "props": {
+                  "text": "Child"
+                },
+                "children": []
+              }
+            ],
+            "recipe": {
+              "macro": "DockCard",
+              "part": "sheet",
+              "props": {
+                "tone": "primary"
+              }
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "column"
+        },
+        "recipe": {
+          "macro": "DockCard",
+          "part": "root",
+          "props": {
+            "tone": "primary"
+          }
+        }
+      }
+    },
+    {
+      "name": "DockCard/bound:caption",
+      "input": {
+        "id": "dock-card",
+        "component": "DockCard",
+        "props": {
+          "label": "Plan ready",
+          "caption": {
+            "path": "/caption"
+          },
+          "meta": "3 questions",
+          "title": "Fold the composer into the Dock",
+          "icon": "coding-plan",
+          "tone": "primary"
+        },
+        "children": [
+          {
+            "id": "dock-card-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "id": "dock-card",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "dock-card.trigger",
+            "component": "Box",
+            "props": {
+              "pressable": true
+            },
+            "children": [
+              {
+                "id": "dock-card.trigger.icon",
+                "component": "Icon",
+                "props": {
+                  "name": "coding-plan",
+                  "size": "sm",
+                  "tone": "primary"
+                },
+                "children": [],
+                "style": {
+                  "flexShrink": 0
+                },
+                "recipe": {
+                  "macro": "DockCard",
+                  "part": "icon",
+                  "props": {
+                    "tone": "primary"
+                  }
+                }
+              },
+              {
+                "id": "dock-card.trigger.body",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "dock-card.trigger.body.header",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "dock-card.trigger.body.header.label",
+                        "component": "Text",
+                        "props": {
+                          "text": "Plan ready",
+                          "variant": "caption",
+                          "tone": "primary",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "DockCard",
+                          "part": "label",
+                          "props": {
+                            "tone": "primary"
+                          }
+                        }
+                      },
+                      {
+                        "id": "dock-card.trigger.body.header.caption",
+                        "component": "Text",
+                        "props": {
+                          "text": {
+                            "path": "/caption"
+                          },
+                          "variant": "muted",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "style": {
+                          "flexShrink": 1,
+                          "minWidth": 0
+                        },
+                        "visible": {
+                          "path": "/caption"
+                        },
+                        "recipe": {
+                          "macro": "DockCard",
+                          "part": "caption",
+                          "props": {
+                            "tone": "primary"
+                          }
+                        }
+                      },
+                      {
+                        "id": "dock-card.trigger.body.header.spacer",
+                        "component": "Box",
+                        "props": {},
+                        "children": [],
+                        "style": {
+                          "flexGrow": 1,
+                          "minWidth": 0
+                        },
+                        "recipe": {
+                          "macro": "DockCard",
+                          "part": "spacer",
+                          "props": {
+                            "tone": "primary"
+                          }
+                        }
+                      },
+                      {
+                        "id": "dock-card.trigger.body.header.meta",
+                        "component": "Text",
+                        "props": {
+                          "text": "3 questions",
+                          "variant": "muted",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "DockCard",
+                          "part": "meta",
+                          "props": {
+                            "tone": "primary"
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "alignItems": "center",
+                      "gap": "$spacing.sm"
+                    },
+                    "recipe": {
+                      "macro": "DockCard",
+                      "part": "header",
+                      "props": {
+                        "tone": "primary"
+                      }
+                    }
+                  },
+                  {
+                    "id": "dock-card.trigger.body.row",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "dock-card.trigger.body.row.title",
+                        "component": "Text",
+                        "props": {
+                          "text": "Fold the composer into the Dock",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "style": {
+                          "flexGrow": 1,
+                          "minWidth": 0
+                        },
+                        "recipe": {
+                          "macro": "DockCard",
+                          "part": "title",
+                          "props": {
+                            "tone": "primary"
+                          }
+                        }
+                      },
+                      {
+                        "id": "dock-card.trigger.body.row.chevron",
+                        "component": "Icon",
+                        "props": {
+                          "name": "ui-chevron-right",
+                          "size": "sm",
+                          "tone": "neutral"
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "DockCard",
+                          "part": "chevron",
+                          "props": {
+                            "tone": "primary"
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "alignItems": "center",
+                      "gap": "$spacing.sm"
+                    },
+                    "recipe": {
+                      "macro": "DockCard",
+                      "part": "row",
+                      "props": {
+                        "tone": "primary"
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "gap": "$spacing.xxs",
+                  "flexGrow": 1,
+                  "minWidth": 0
+                },
+                "recipe": {
+                  "macro": "DockCard",
+                  "part": "body",
+                  "props": {
+                    "tone": "primary"
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "flex-start",
+              "gap": "$spacing.sm",
+              "padding": "$spacing.md",
+              "borderRadius": "$radius.xl"
+            },
+            "recipe": {
+              "macro": "DockCard",
+              "part": "trigger",
+              "props": {
+                "tone": "primary"
+              }
+            },
+            "accessibility": {
+              "role": "button",
+              "label": "Plan ready: Fold the composer into the Dock"
+            }
+          },
+          {
+            "id": "dock-card.sheet",
+            "component": "Drawer",
+            "props": {
+              "title": "Plan ready",
+              "description": {
+                "path": "/caption"
+              },
+              "open": false,
+              "side": "bottom"
+            },
+            "children": [
+              {
+                "id": "dock-card-child",
+                "component": "Text",
+                "props": {
+                  "text": "Child"
+                },
+                "children": []
+              }
+            ],
+            "recipe": {
+              "macro": "DockCard",
+              "part": "sheet",
+              "props": {
+                "tone": "primary"
+              }
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "column"
+        },
+        "recipe": {
+          "macro": "DockCard",
+          "part": "root",
+          "props": {
+            "tone": "primary"
+          }
+        }
+      }
+    },
+    {
+      "name": "DockCard/bound:meta",
+      "input": {
+        "id": "dock-card",
+        "component": "DockCard",
+        "props": {
+          "label": "Plan ready",
+          "caption": "Ask dock",
+          "meta": {
+            "path": "/meta"
+          },
+          "title": "Fold the composer into the Dock",
+          "icon": "coding-plan",
+          "tone": "primary"
+        },
+        "children": [
+          {
+            "id": "dock-card-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "id": "dock-card",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "dock-card.trigger",
+            "component": "Box",
+            "props": {
+              "pressable": true
+            },
+            "children": [
+              {
+                "id": "dock-card.trigger.icon",
+                "component": "Icon",
+                "props": {
+                  "name": "coding-plan",
+                  "size": "sm",
+                  "tone": "primary"
+                },
+                "children": [],
+                "style": {
+                  "flexShrink": 0
+                },
+                "recipe": {
+                  "macro": "DockCard",
+                  "part": "icon",
+                  "props": {
+                    "tone": "primary"
+                  }
+                }
+              },
+              {
+                "id": "dock-card.trigger.body",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "dock-card.trigger.body.header",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "dock-card.trigger.body.header.label",
+                        "component": "Text",
+                        "props": {
+                          "text": "Plan ready",
+                          "variant": "caption",
+                          "tone": "primary",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "DockCard",
+                          "part": "label",
+                          "props": {
+                            "tone": "primary"
+                          }
+                        }
+                      },
+                      {
+                        "id": "dock-card.trigger.body.header.caption",
+                        "component": "Text",
+                        "props": {
+                          "text": "Ask dock",
+                          "variant": "muted",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "style": {
+                          "flexShrink": 1,
+                          "minWidth": 0
+                        },
+                        "recipe": {
+                          "macro": "DockCard",
+                          "part": "caption",
+                          "props": {
+                            "tone": "primary"
+                          }
+                        }
+                      },
+                      {
+                        "id": "dock-card.trigger.body.header.spacer",
+                        "component": "Box",
+                        "props": {},
+                        "children": [],
+                        "style": {
+                          "flexGrow": 1,
+                          "minWidth": 0
+                        },
+                        "recipe": {
+                          "macro": "DockCard",
+                          "part": "spacer",
+                          "props": {
+                            "tone": "primary"
+                          }
+                        }
+                      },
+                      {
+                        "id": "dock-card.trigger.body.header.meta",
+                        "component": "Text",
+                        "props": {
+                          "text": {
+                            "path": "/meta"
+                          },
+                          "variant": "muted",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "visible": {
+                          "path": "/meta"
+                        },
+                        "recipe": {
+                          "macro": "DockCard",
+                          "part": "meta",
+                          "props": {
+                            "tone": "primary"
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "alignItems": "center",
+                      "gap": "$spacing.sm"
+                    },
+                    "recipe": {
+                      "macro": "DockCard",
+                      "part": "header",
+                      "props": {
+                        "tone": "primary"
+                      }
+                    }
+                  },
+                  {
+                    "id": "dock-card.trigger.body.row",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "dock-card.trigger.body.row.title",
+                        "component": "Text",
+                        "props": {
+                          "text": "Fold the composer into the Dock",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "style": {
+                          "flexGrow": 1,
+                          "minWidth": 0
+                        },
+                        "recipe": {
+                          "macro": "DockCard",
+                          "part": "title",
+                          "props": {
+                            "tone": "primary"
+                          }
+                        }
+                      },
+                      {
+                        "id": "dock-card.trigger.body.row.chevron",
+                        "component": "Icon",
+                        "props": {
+                          "name": "ui-chevron-right",
+                          "size": "sm",
+                          "tone": "neutral"
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "DockCard",
+                          "part": "chevron",
+                          "props": {
+                            "tone": "primary"
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "alignItems": "center",
+                      "gap": "$spacing.sm"
+                    },
+                    "recipe": {
+                      "macro": "DockCard",
+                      "part": "row",
+                      "props": {
+                        "tone": "primary"
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "gap": "$spacing.xxs",
+                  "flexGrow": 1,
+                  "minWidth": 0
+                },
+                "recipe": {
+                  "macro": "DockCard",
+                  "part": "body",
+                  "props": {
+                    "tone": "primary"
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "flex-start",
+              "gap": "$spacing.sm",
+              "padding": "$spacing.md",
+              "borderRadius": "$radius.xl"
+            },
+            "recipe": {
+              "macro": "DockCard",
+              "part": "trigger",
+              "props": {
+                "tone": "primary"
+              }
+            },
+            "accessibility": {
+              "role": "button",
+              "label": "Plan ready: Fold the composer into the Dock"
+            }
+          },
+          {
+            "id": "dock-card.sheet",
+            "component": "Drawer",
+            "props": {
+              "title": "Plan ready",
+              "description": "Ask dock",
+              "open": false,
+              "side": "bottom"
+            },
+            "children": [
+              {
+                "id": "dock-card-child",
+                "component": "Text",
+                "props": {
+                  "text": "Child"
+                },
+                "children": []
+              }
+            ],
+            "recipe": {
+              "macro": "DockCard",
+              "part": "sheet",
+              "props": {
+                "tone": "primary"
+              }
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "column"
+        },
+        "recipe": {
+          "macro": "DockCard",
+          "part": "root",
+          "props": {
+            "tone": "primary"
+          }
+        }
+      }
+    },
+    {
+      "name": "DockCard/bound:open",
+      "input": {
+        "id": "dock-card",
+        "component": "DockCard",
+        "props": {
+          "label": "Plan ready",
+          "caption": "Ask dock",
+          "meta": "3 questions",
+          "title": "Fold the composer into the Dock",
+          "icon": "coding-plan",
+          "tone": "primary",
+          "open": {
+            "path": "/open"
+          }
+        },
+        "children": [
+          {
+            "id": "dock-card-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "id": "dock-card",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "dock-card.trigger",
+            "component": "Box",
+            "props": {
+              "pressable": true
+            },
+            "children": [
+              {
+                "id": "dock-card.trigger.icon",
+                "component": "Icon",
+                "props": {
+                  "name": "coding-plan",
+                  "size": "sm",
+                  "tone": "primary"
+                },
+                "children": [],
+                "style": {
+                  "flexShrink": 0
+                },
+                "recipe": {
+                  "macro": "DockCard",
+                  "part": "icon",
+                  "props": {
+                    "tone": "primary"
+                  }
+                }
+              },
+              {
+                "id": "dock-card.trigger.body",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "dock-card.trigger.body.header",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "dock-card.trigger.body.header.label",
+                        "component": "Text",
+                        "props": {
+                          "text": "Plan ready",
+                          "variant": "caption",
+                          "tone": "primary",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "DockCard",
+                          "part": "label",
+                          "props": {
+                            "tone": "primary"
+                          }
+                        }
+                      },
+                      {
+                        "id": "dock-card.trigger.body.header.caption",
+                        "component": "Text",
+                        "props": {
+                          "text": "Ask dock",
+                          "variant": "muted",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "style": {
+                          "flexShrink": 1,
+                          "minWidth": 0
+                        },
+                        "recipe": {
+                          "macro": "DockCard",
+                          "part": "caption",
+                          "props": {
+                            "tone": "primary"
+                          }
+                        }
+                      },
+                      {
+                        "id": "dock-card.trigger.body.header.spacer",
+                        "component": "Box",
+                        "props": {},
+                        "children": [],
+                        "style": {
+                          "flexGrow": 1,
+                          "minWidth": 0
+                        },
+                        "recipe": {
+                          "macro": "DockCard",
+                          "part": "spacer",
+                          "props": {
+                            "tone": "primary"
+                          }
+                        }
+                      },
+                      {
+                        "id": "dock-card.trigger.body.header.meta",
+                        "component": "Text",
+                        "props": {
+                          "text": "3 questions",
+                          "variant": "muted",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "DockCard",
+                          "part": "meta",
+                          "props": {
+                            "tone": "primary"
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "alignItems": "center",
+                      "gap": "$spacing.sm"
+                    },
+                    "recipe": {
+                      "macro": "DockCard",
+                      "part": "header",
+                      "props": {
+                        "tone": "primary"
+                      }
+                    }
+                  },
+                  {
+                    "id": "dock-card.trigger.body.row",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "dock-card.trigger.body.row.title",
+                        "component": "Text",
+                        "props": {
+                          "text": "Fold the composer into the Dock",
+                          "lines": 1
+                        },
+                        "children": [],
+                        "style": {
+                          "flexGrow": 1,
+                          "minWidth": 0
+                        },
+                        "recipe": {
+                          "macro": "DockCard",
+                          "part": "title",
+                          "props": {
+                            "tone": "primary"
+                          }
+                        }
+                      },
+                      {
+                        "id": "dock-card.trigger.body.row.chevron",
+                        "component": "Icon",
+                        "props": {
+                          "name": "ui-chevron-right",
+                          "size": "sm",
+                          "tone": "neutral"
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "DockCard",
+                          "part": "chevron",
+                          "props": {
+                            "tone": "primary"
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "flexDirection": "row",
+                      "alignItems": "center",
+                      "gap": "$spacing.sm"
+                    },
+                    "recipe": {
+                      "macro": "DockCard",
+                      "part": "row",
+                      "props": {
+                        "tone": "primary"
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "gap": "$spacing.xxs",
+                  "flexGrow": 1,
+                  "minWidth": 0
+                },
+                "recipe": {
+                  "macro": "DockCard",
+                  "part": "body",
+                  "props": {
+                    "tone": "primary"
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "flex-start",
+              "gap": "$spacing.sm",
+              "padding": "$spacing.md",
+              "borderRadius": "$radius.xl"
+            },
+            "recipe": {
+              "macro": "DockCard",
+              "part": "trigger",
+              "props": {
+                "tone": "primary"
+              }
+            },
+            "on": {
+              "press": {
+                "functionCall": {
+                  "call": "set",
+                  "args": {
+                    "path": "/open",
+                    "value": true
+                  }
+                }
+              }
+            },
+            "accessibility": {
+              "role": "button",
+              "label": "Plan ready: Fold the composer into the Dock"
+            }
+          },
+          {
+            "id": "dock-card.sheet",
+            "component": "Drawer",
+            "props": {
+              "title": "Plan ready",
+              "description": "Ask dock",
+              "open": {
+                "path": "/open"
+              },
+              "side": "bottom"
+            },
+            "children": [
+              {
+                "id": "dock-card-child",
+                "component": "Text",
+                "props": {
+                  "text": "Child"
+                },
+                "children": []
+              }
+            ],
+            "recipe": {
+              "macro": "DockCard",
+              "part": "sheet",
+              "props": {
+                "tone": "primary"
+              }
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "column"
+        },
+        "recipe": {
+          "macro": "DockCard",
+          "part": "root",
+          "props": {
+            "tone": "primary"
+          }
         }
       }
     },
