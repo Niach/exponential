@@ -8,8 +8,8 @@ Rust core computes (the geometry fixture holds the browser to taffy's
 frames within a pixel). Published to npm from `release/` (VAPP-91); the
 workspace package.json stays private on the sources.
 Its SolidJS twin, `@exponential-at/ui-solid` (`packages/exponential-ui-solid`),
-paints the identical DOM on Kobalte and is gated against this renderer by
-the web-parity check (`@exponential-at/ui/conformance/parity.ts`).
+paints the identical DOM, renderer and primitives, and is gated against this
+renderer by the web-parity check (`@exponential-at/ui/conformance/parity.ts`).
 
 It depends on `@exponential-at/ui`, React 19 (React 18 would keep
 `javascript:` hrefs clickable), `radix-ui` and
@@ -316,11 +316,13 @@ A step = the scroll, the window's render flushed and the layout read back
 
 `src/primitives/` holds the generic shadcn/Radix components the app and
 extension authors share (button, input, select, dialog, sheet, tabs, the glass
-rows, pill, meter, composer, calendar, … plus round 1's alert-dialog,
+rows, pill, meter, composer, calendar, table, command, toast, … plus round 1's alert-dialog,
 breadcrumb, kbd, scroll-area), themed only through the surface's variables;
 only what the app imports lives here (the catalog's natives own Radix
 directly). Their class strings and pure helpers live in
-`@exponential-at/ui/web/primitives` (FEED-131), shared with the Solid twin. `@exp/ui` re-exports every one
+`@exponential-at/ui/web/primitives` (FEED-131), shared with the Solid twin
+(`@exponential-at/ui-solid/primitives`, every module but glass-rows,
+typeahead, composer, trace, pill and segmented-bar). `@exp/ui` re-exports every one
 (its old paths are one-line shims), and its `styles.css` scans this directory
 so the app's Tailwind build still emits their classes. An embedder without
 Tailwind takes the compiled `dist/exponential-ui-react.css`

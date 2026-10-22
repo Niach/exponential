@@ -69,10 +69,38 @@ differences:
 | `src/context.ts` | the surface context (an object of getters; `deriveContext` re-points fields), scope + instance accessors |
 | `src/natives/` | `shared.tsx` (`parts()`, the porting rules), `bound.ts`, the painters (`overlays.tsx`, `select.tsx`, `dates.tsx`, `nav.tsx`, `inputs.tsx`…), `index.ts` (the 48 keys) |
 | `src/behaviors/` | the headless Radix machinery the natives and `src/primitives/` share, one concern per module: `portal`, `presence`, `dismissable-layer`, `focus-scope`, `focus-guards`, `scroll-lock`, `modal`, `popper`, `menu`, `roving-focus`, `listbox`, `typeahead`, `collapsible`, `picker-popover`, `bubble-input`, `slider`, `grace-area`, `visually-hidden`, `drag-to-dismiss`, `style-writer`, `element-size`, `image-loading-status`, `search-match` (`index.ts` names the Radix primitive each reproduces). Nothing in it reads the surface context; package-internal |
+| `src/primitives/` | the React primitive set on Solid (FEED-131), one module per React module but the six app-specific ones, on the shared recipes of `@exponential-at/ui/web/primitives` and on `src/behaviors/`; `index.ts` = `./primitives`; `bun run build:css` → `dist/exponential-ui-solid.css` |
 | `src/style.ts` | `css()`: React's inline-style semantics (camelCase, px for numbers, unitless list) |
 | `src/icons.tsx` | the fallback glyphs on lucide-solid, painted with lucide-react's exact `<svg>` attributes |
 | `src/form.tsx`, `list.tsx`, `markdown.tsx`, `media.ts`, `inputs.ts`, `platform.ts`, `extensions.ts`, `host*.ts*` | the React files' Solid twins |
 | `harness/` | the same page protocol as React's harness (`dev:harness` serves on :4182, built with Vite + `vite-plugin-solid`) |
+
+## Primitives
+
+`@exponential-at/ui-solid/primitives` is the Solid twin of
+`@exponential-at/ui-react/primitives` (FEED-131): button, dialog, select,
+tabs, table, command, toast, calendar and the rest, with the same DOM and
+classes. The class strings come from ONE source, the recipes of
+`@exponential-at/ui/web/primitives`; neither set holds a class literal.
+
+```tsx
+import "@exponential-at/ui-solid/styles.css"          // the compiled primitives sheet
+import { globalsCss } from "@exponential-at/ui/web"
+import { Button, Dialog, DialogContent, DialogTitle, DialogTrigger } from "@exponential-at/ui-solid/primitives"
+```
+
+- `styles.css` is `dist/exponential-ui-solid.css`, compiled by
+  `bun run build:css` from the React package's `tailwind.css`: byte-identical
+  to `@exponential-at/ui-react/styles.css` (`src/primitives/styles.test.ts`).
+- Inside a surface the primitives wear its theme. Outside one,
+  `globalsCss(theme)` writes the theme as shadcn variables (`:root` + `.dark`).
+- The names follow Solid: `class` for `className`, `as` for `asChild` (the
+  element or component the part paints as), `create*` for the `use*` hooks.
+- Six React modules are the Exponential app's own and stay React-only:
+  `glass-rows`, `typeahead`, `composer`, `trace`, `pill`, `segmented-bar`.
+- The web-parity gate compares every specimen of
+  `@exponential-at/ui/fixtures/primitive-specimens.json` with React's over the
+  whole page body: `bun run --filter @exponential-at/ui-solid test:parity:primitives`.
 
 ## State attributes: the porting rule
 
@@ -101,5 +129,8 @@ bun run --filter @exponential-at/ui-solid test          # jsdom: surface, native
 bun run --filter @exponential-at/ui-solid dev:harness   # http://localhost:4182/?view=kitchen-sink&theme=orange
 bun run --filter @exponential-at/ui-solid test:conformance  # the shared web runner → .conformance/exponential-ui-solid.json
 bun run --filter @exponential-at/ui-solid test:parity       # web parity vs React → .conformance/exponential-ui-parity-react-solid.json
+bun run --filter @exponential-at/ui-solid test:parity:primitives  # the primitive specimens only (seconds)
+bun run --filter @exponential-at/ui-solid test:browser      # every headless-Chromium suite (overlays, inputs, tables…)
+bun run --filter @exponential-at/ui-solid build:css         # dist/exponential-ui-solid.css (after ui-react's build:css)
 bun run --filter @exponential-at/ui-solid shots             # the kitchen sink → /tmp/feed128/solid-shots/ (--theme, --mode, --out)
 ```

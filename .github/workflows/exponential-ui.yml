@@ -14,7 +14,10 @@ name: exponential-ui
 # with the KitchenSink example, and the Compose painter runs its instrumented
 # tests on an Android emulator. FEED-128: the Solid renderer runs the same
 # web runner and the web-parity check against React (DOM, computed styles,
-# frames and pixels at zero tolerance, `parity:check`).
+# frames and pixels at zero tolerance, `parity:check`). FEED-131: both web
+# jobs compile the primitives' stylesheet first (`build:css`); the parity run
+# covers the primitive specimens too, and the Solid browser suites drive the
+# primitives' interactions against React's.
 #
 # The pull request AND the push to master (path-filtered to the SDK, both).
 
@@ -70,6 +73,8 @@ jobs:
       - run: bunx playwright install --with-deps chromium
       - name: Catalog package tests (TS reference, host fixtures)
         run: bun run --filter @exponential-at/ui test
+      - name: The primitives' stylesheet
+        run: bun run --filter @exponential-at/ui-react build:css
       - name: React renderer tests
         run: bun run --filter @exponential-at/ui-react test
       - name: React conformance (headless Chromium)
@@ -97,18 +102,24 @@ jobs:
           node-version: '24'
       - run: bun install --frozen-lockfile
       - run: bunx playwright install --with-deps chromium
+      - name: The primitives' stylesheets (React's, then Solid's byte-identical copy)
+        run: bun run --filter @exponential-at/ui-react build:css && bun run --filter @exponential-at/ui-solid build:css
       - name: Solid renderer tests (jsdom, DOM parity with React)
         run: bun run --filter @exponential-at/ui-solid test
       - name: Solid conformance (headless Chromium)
         env:
           EXPONENTIAL_UI_CONFORMANCE_REPORT: ${{ github.workspace }}/.conformance/exponential-ui-solid.json
         run: bun run --filter @exponential-at/ui-solid test:conformance
-      - name: Web parity, React vs Solid
+      - name: Web parity, React vs Solid (renderer + primitives)
         env:
           EXPONENTIAL_UI_PARITY_REPORT: ${{ github.workspace }}/.conformance/exponential-ui-parity-react-solid.json
         run: |
           bun run --filter @exponential-at/ui-solid test:parity
           bun run --filter @exponential-at/ui parity:check "$EXPONENTIAL_UI_PARITY_REPORT"
+      - name: Solid browser suites (overlays, inputs, tables, primitives' interactions vs React)
+        working-directory: packages/exponential-ui-solid
+        # Every browser/*.test.ts but the two runs above.
+        run: bunx vitest run --config vitest.browser.config.ts --exclude browser/suites.test.ts --exclude browser/parity.test.ts
       - name: Guide (Solid) from a fresh project
         run: bun apps/ui-site/guides/check.ts solid
       - uses: actions/upload-artifact@v4

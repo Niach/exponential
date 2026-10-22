@@ -359,10 +359,16 @@ primitive set that moved from `@exp/ui` into `src/primitives/` was already
 ours (MIT-derived shadcn code, recorded with the web app's dependencies).
 The Solid renderer (FEED-128, `@exponential-at/ui-solid`,
 `packages/exponential-ui-solid`) adds none either: its runtime set is
-`solid-js` 1.9 (MIT), `@kobalte/core` 0.13 (MIT) and `lucide-solid` 0.544
-(ISC), each declared in its npm tarball (verified 2026-10-21); no client
-bundles it (only its npm package, the ui.exponential.at guide and the
-`web-solid` sample), so no inventory changes.
+`solid-js` 1.9 (MIT), `@floating-ui/dom` 1.7 (MIT), `aria-hidden` 1.2 (MIT)
+and `lucide-solid` 0.544 (ISC), each declared in its npm tarball (verified
+2026-10-21; FEED-131 dropped `@kobalte/core`); no client bundles it (only its
+npm package, the ui.exponential.at guide and the `web-solid` sample), so no
+inventory changes. Its primitives (FEED-131) are ports of our own React set,
+and its `styles.css` is the React package's compiled sheet. The catalog
+package's new runtime dependencies (FEED-131, the shared primitive recipes),
+`class-variance-authority` 0.7 (Apache-2.0), `clsx` 2.1 (MIT) and
+`tailwind-merge` 3 (MIT), were already in the web app's inventory through
+`@exponential-at/ui-react`, so no inventory changes either.
 The desktop app (VAPP-90), the iOS SwiftUI painter (VAPP-88,
 `packages/exponential-ui-swift`, whose xcframework embeds the same Rust core
 with the generated catalog and themes) and the Android Compose painter

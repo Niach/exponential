@@ -55,7 +55,7 @@ const RUNNERS = [
     command: `bun run --filter @exponential-at/ui-solid test:conformance`,
   },
   {
-    renderer: `@exponential-at/ui-solid (web parity vs React)`,
+    renderer: `@exponential-at/ui-solid (web parity vs React: renderer + primitives)`,
     runner: `packages/exponential-ui-solid/browser/parity.test.ts`,
     command: `bun run --filter @exponential-at/ui-solid test:parity`,
   },
@@ -190,7 +190,7 @@ export default function ConformancePage({ path }: PageProps) {
           <p>
             The core and all five first-party renderers run the full suite. The two web renderers run it in headless
             Chromium, and Solid must also match React exactly: the same DOM, computed styles, frames and pixels for
-            every case.
+            every case and for every primitive specimen, compared over the whole page body.
           </p>
           <DocsTable
             className="conf-runners"
