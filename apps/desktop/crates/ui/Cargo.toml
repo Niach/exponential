@@ -38,6 +38,10 @@ gpui-base.workspace = true
 # Same ropey the pinned gpui-component uses (its `SyntaxHighlighter::update`
 # takes `&ropey::Rope`; two ropey majors in the tree would not unify).
 ropey = "2.0.0-beta.1"
+# VAPP-107: the Exponential UI host opts its own instance origin back into
+# the private-host rule only when that origin is private (the version the
+# core pins, ONE url in the tree).
+url = "2.5"
 # EXP-285: header-only image dimension probe — sizes pasted/dimension-less
 # editor images so gpui's `img` never letterboxes them (already in the tree
 # transitively via gpui).

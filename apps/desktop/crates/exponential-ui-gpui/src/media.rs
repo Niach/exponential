@@ -6,7 +6,8 @@
 //! the app installs one, and it cannot carry per-request headers.
 //!
 //! VAPP-103: every src passes the media policy (`catalog/host.json` media:
-//! schemes, hosts; no local file unless the host lists `file`), and so does
+//! schemes, hosts, VAPP-107's private-host rule with its `allow_private`
+//! opt-ins; no local file unless the host lists `file`), and so does
 //! every redirect hop (the HOST's policy, never an https→http downgrade,
 //! the hop's headers = the rules matching the NEW url). Every image load
 //! keeps the media limits: connect and each read within
@@ -236,7 +237,7 @@ pub fn allowed_request(host: &dyn HostPlugin, src: &str) -> Option<MediaRequest>
     }
     let req = host.media_request(src)?;
     let options = host.media_options();
-    let recheck = MediaOptions { schemes: options.schemes, hosts: options.hosts, ..Default::default() };
+    let recheck = MediaOptions { schemes: options.schemes, hosts: options.hosts, allow_private: options.allow_private, ..Default::default() };
     media_request(&req.url, &recheck).map(|_| req)
 }
 

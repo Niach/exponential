@@ -3,7 +3,9 @@
 // not), markdown links + images, FileUpload file urls, Image / Avatar /
 // Video / Audio. A denied href paints as text; a denied src loads nothing.
 // Relative urls resolve against the host's base (on the web, the
-// document's when the host sets none).
+// document's when the host sets none). VAPP-107: a private, loopback or
+// link-local host is denied unless the host's policy opts it in
+// (`allowPrivate`); a dev app on localhost lists its own origin.
 
 import { DEFAULT_MEDIA_SCHEMES, decideUrl, mediaRequest, safeHref, type MediaRequest, type UrlPolicy } from "@exponential-at/ui"
 import type { HostPlugin } from "./host"
@@ -33,9 +35,10 @@ export function mediaRequestOf(host: HostPlugin, src: unknown): MediaRequest | n
   return mediaUrlAllowed(host, req.url) ? req : null
 }
 
-/** Does an absolute media url pass the media schemes/hosts? */
+/** Does an absolute media url pass the media schemes, hosts and private
+ *  opt-ins (VAPP-107)? */
 export function mediaUrlAllowed(host: HostPlugin, url: string): boolean {
-  return decideUrl({ schemes: host.media?.schemes ?? DEFAULT_MEDIA_SCHEMES, hosts: host.media?.hosts }, url).allowed
+  return decideUrl({ schemes: host.media?.schemes ?? DEFAULT_MEDIA_SCHEMES, hosts: host.media?.hosts, allowPrivate: host.media?.allowPrivate }, url).allowed
 }
 
 /** The default opener: only what the policy allows, in a new tab. */

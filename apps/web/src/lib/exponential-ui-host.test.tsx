@@ -40,7 +40,7 @@ import { HostSurface } from "@exponential-at/ui-react"
 import { appReactExtension } from "@exp/ui"
 import { contract } from "@exp/domain-contract"
 import { exponentialUiConsentPrompt } from "@/lib/prompts"
-import { ConsentCard, HostBanner, LIVENESS_TICK_MS, McpCallError, callMcp, createAppHost, createConsentGate, devicesValue } from "./exponential-ui-host"
+import { ConsentCard, HostBanner, LIVENESS_TICK_MS, McpCallError, callMcp, createAppHost, createConsentGate, devicesValue, ownPrivateHosts } from "./exponential-ui-host"
 
 /** A fetch that answers each tools/call with `answer(id)` (the request's id). */
 const answering = (answer: (id: number) => Response) =>
@@ -50,6 +50,21 @@ const sse = (events: unknown[]) =>
     status: 200,
     headers: { "content-type": `text/event-stream` },
   })
+
+describe(`VAPP-107: the app opts only its own private origin in`, () => {
+  it(`localhost in dev, nothing in the cloud, never the LAN`, () => {
+    expect(ownPrivateHosts(`http://localhost:3000`)).toEqual([`localhost`])
+    expect(ownPrivateHosts(`http://127.0.0.1:5173`)).toEqual([`127.0.0.1`])
+    expect(ownPrivateHosts(`https://app.exponential.at`)).toEqual([])
+    expect(ownPrivateHosts(`nope`)).toEqual([])
+    const host = createAppHost({ consent: createConsentGate(), navigate: () => {} })
+    const origin = window.location.origin
+    expect(host.mediaRequest(`${origin}/api/attachments/a1`)?.url).toBe(`${origin}/api/attachments/a1`)
+    expect(host.mediaRequest(`/api/attachments/a1`)?.url).toBe(`${origin}/api/attachments/a1`)
+    expect(host.mediaRequest(`http://192.168.1.10/cam.jpg`)).toBeNull()
+    expect(host.openUrl(`http://169.254.169.254/latest/meta-data/`)).toBe(false)
+  })
+})
 
 describe(`the app host`, () => {
   it(`renders the Devices package from the synced devices and runs a row press through the policy`, async () => {

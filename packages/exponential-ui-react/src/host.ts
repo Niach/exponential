@@ -62,7 +62,8 @@ export interface HostPlugin {
    *  else the document's. A denied href paints as text. */
   urls?: UrlPolicy
   /** The media policy every src passes when there is no `mediaRequest`
-   *  (schemes, hosts, base, header rules): `catalog/host.json` media. */
+   *  (schemes, hosts, private opt-ins, base, header rules):
+   *  `catalog/host.json` media. */
   media?: MediaOptions
   /** Extra or overriding client functions, React only (`{call, args}` in a
    *  prop; an action naming one runs it). Any OTHER action function name
@@ -75,15 +76,16 @@ export interface HostPlugin {
   /** The media loader's request for a source (absolute url + headers, e.g.
    *  auth for /api/attachments); null = denied. A request WITH headers is
    *  fetched (under the media limits) and shown as a blob url; without, its
-   *  url is used as is. Its url is re-checked against `media`'s schemes and
-   *  hosts. */
+   *  url is used as is. Its url is re-checked against `media`'s schemes,
+   *  hosts and private opt-ins. */
   mediaRequest?: (src: string) => MediaRequest | null
   /** Video/Audio (`catalog/host.json` media: the byte limits do not apply,
    *  they stream): a url the browser's player loads WITHOUT headers for a
    *  request that carries some (a signed or cookie-authed url), so the
    *  player streams and seeks. Its result passes the media policy again.
-   *  Unset = the request is fetched whole into a blob url, without the
-   *  byte/pixel caps (only the response headers are timed). */
+   *  Unset = the request is fetched whole into a blob url under the media
+   *  byte cap and timeout for the WHOLE download (VAPP-107), so a long
+   *  video needs this hook. */
   mediaStreamUrl?: (request: MediaRequest) => string | Promise<string>
   /** A richer markdown renderer than the built-in one. */
   Markdown?: ComponentType<{ text: string; className?: string }>

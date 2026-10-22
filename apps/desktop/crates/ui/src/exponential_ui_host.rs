@@ -434,6 +434,18 @@ fn mcp_fn() -> HostFunction {
     })
 }
 
+/// VAPP-107: the private hosts the IDE's policy opts back in (the web
+/// host's `ownPrivateHosts`): the instance's OWN host when it is private
+/// (a localhost dev instance), else none; the LAN stays denied either way.
+pub(crate) fn own_private_hosts(instance_url: &str) -> Vec<String> {
+    url::Url::parse(instance_url)
+        .ok()
+        .and_then(|u| u.host_str().map(str::to_lowercase))
+        .filter(|h| exponential_ui::host::is_private_host(h))
+        .into_iter()
+        .collect()
+}
+
 /// What the consent window asks (`prompts.json` `exponential-ui-consent`,
 /// Deny focused so Return denies): the tool a `harness.mcp` call runs, else
 /// the function's own name (the web's `ConsentCard`).
@@ -617,6 +629,7 @@ impl IdeHost {
         let instance = sync::Store::try_global(cx)
             .and_then(|_| crate::queries::active_account(cx))
             .map(|a| a.instance_url);
+        let allow_private = instance.as_deref().map(own_private_hosts);
         let mut functions: HashMap<String, HostFunction> = HashMap::new();
         functions.insert("harness.toast".into(), toast_fn());
         functions.insert("harness.openIssue".into(), open_issue_fn());
@@ -645,9 +658,17 @@ impl IdeHost {
                     ..Default::default()
                 }),
                 on_function_call: Some(consent_hook()),
-                urls: Some(UrlPolicy { base_url: instance.clone(), ..Default::default() }),
+                urls: Some(UrlPolicy {
+                    base_url: instance.clone(),
+                    allow_private: allow_private.clone(),
+                    ..Default::default()
+                }),
                 open_url: None,
-                media: Some(MediaOptions { base_url: instance, ..Default::default() }),
+                media: Some(MediaOptions {
+                    base_url: instance,
+                    allow_private,
+                    ..Default::default()
+                }),
             },
             theme: exponential_ui::themes::builtin_theme(THEME_ID),
             mode,
@@ -851,6 +872,14 @@ mod tests {
             mcp_result(r#"{"jsonrpc":"2.0","id":1,"error":{"message":""}}"#, 1).unwrap_err(),
             "MCP error"
         );
+    }
+
+    #[test]
+    fn only_a_private_instance_origin_is_opted_in() {
+        assert_eq!(own_private_hosts("http://localhost:3000"), vec!["localhost".to_string()]);
+        assert_eq!(own_private_hosts("http://127.0.0.1:3000/"), vec!["127.0.0.1".to_string()]);
+        assert!(own_private_hosts("https://app.exponential.at").is_empty());
+        assert!(own_private_hosts("not a url").is_empty());
     }
 
     #[test]

@@ -28,17 +28,21 @@ public struct FunctionPolicy: Sendable, Codable, Equatable {
     }
 }
 
-/// openUrl / Link: allowed schemes (default https, http, mailto, tel),
-/// optional hosts (`example.com`, `*.example.com`), the base relative urls
-/// resolve against.
+/// openUrl / Link: allowed schemes (default https, http, mailto, tel;
+/// `["https"]` = https only), optional hosts (`example.com`,
+/// `*.example.com`), the private hosts opted back in (VAPP-107: localhost,
+/// loopback, link-local and private ranges are denied unless listed here:
+/// exact, `*.suffix` or `*`), the base relative urls resolve against.
 public struct UrlPolicy: Sendable, Codable, Equatable {
     public var schemes: [String]?
     public var hosts: [String]?
+    public var allowPrivate: [String]?
     public var baseUrl: String?
 
-    public init(schemes: [String]? = nil, hosts: [String]? = nil, baseUrl: String? = nil) {
+    public init(schemes: [String]? = nil, hosts: [String]? = nil, allowPrivate: [String]? = nil, baseUrl: String? = nil) {
         self.schemes = schemes
         self.hosts = hosts
+        self.allowPrivate = allowPrivate
         self.baseUrl = baseUrl
     }
 }
@@ -46,8 +50,9 @@ public struct UrlPolicy: Sendable, Codable, Equatable {
 /// The media loader: relative urls resolve against `baseUrl`; the absolute
 /// url must use one of `schemes` (default https, http, data: no `file`
 /// unless listed) and, when `hosts` is set, an http(s) host matching one
-/// (exact or `*.example.com`); every rule whose `prefix` the url starts
-/// with adds its headers.
+/// (exact or `*.example.com`); a private host only when `allowPrivate`
+/// opts it in (VAPP-107); every rule whose `prefix` the url starts with
+/// adds its headers.
 public struct MediaOptions: Sendable, Codable, Equatable {
     public struct Rule: Sendable, Codable, Equatable {
         public var prefix: String
@@ -64,12 +69,15 @@ public struct MediaOptions: Sendable, Codable, Equatable {
     public var schemes: [String]?
     /// http(s) hosts media may load from (nil = any).
     public var hosts: [String]?
+    /// The private hosts media may load from (nil = none).
+    public var allowPrivate: [String]?
 
-    public init(baseUrl: String? = nil, rules: [Rule] = [], schemes: [String]? = nil, hosts: [String]? = nil) {
+    public init(baseUrl: String? = nil, rules: [Rule] = [], schemes: [String]? = nil, hosts: [String]? = nil, allowPrivate: [String]? = nil) {
         self.baseUrl = baseUrl
         self.rules = rules
         self.schemes = schemes
         self.hosts = hosts
+        self.allowPrivate = allowPrivate
     }
 
     public init(from decoder: Decoder) throws {
@@ -78,6 +86,7 @@ public struct MediaOptions: Sendable, Codable, Equatable {
         rules = try c.decodeIfPresent([Rule].self, forKey: .rules) ?? []
         schemes = try c.decodeIfPresent([String].self, forKey: .schemes)
         hosts = try c.decodeIfPresent([String].self, forKey: .hosts)
+        allowPrivate = try c.decodeIfPresent([String].self, forKey: .allowPrivate)
     }
 }
 
@@ -127,11 +136,11 @@ public func policyMediaRequest(_ src: String, options: MediaOptions?) -> URLRequ
     return request
 }
 
-/// Whether an already-built request's url passes the media schemes / hosts
-/// (a host hook can rewrite, never widen).
+/// Whether an already-built request's url passes the media schemes, hosts
+/// and private opt-ins (a host hook can rewrite, never widen).
 func mediaAllowed(_ request: URLRequest, options: MediaOptions?) -> Bool {
     guard let url = request.url?.absoluteString else { return false }
-    let check = MediaOptions(schemes: options?.schemes, hosts: options?.hosts)
+    let check = MediaOptions(schemes: options?.schemes, hosts: options?.hosts, allowPrivate: options?.allowPrivate)
     return policyMediaRequest(url, options: check) != nil
 }
 

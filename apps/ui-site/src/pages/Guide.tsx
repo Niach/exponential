@@ -450,9 +450,17 @@ cd packages/exponential-ui-compose
         <>
           <p>
             <code>openUrl</code> and <code>Link</code> go through the URL policy: allowed schemes (default{` `}
-            <code>https http mailto tel</code>), an optional host allowlist, relative URLs against a base. Media
-            rules add headers to matching image requests, for example an authorization header for your own API and
-            nothing for anyone else's.
+            <code>https http mailto tel</code>; <code>schemes: ["https"]</code> for https only), an optional host
+            allowlist, relative URLs against a base. Media rules add headers to matching image requests, for example
+            an authorization header for your own API and nothing for anyone else's.
+          </p>
+          <p>
+            Private hosts are denied by default, for links and media alike: <code>localhost</code>, <code>*.local</code>
+            , loopback, link-local (the cloud metadata address included) and the private IPv4 and IPv6 ranges. A host
+            opts names back in with <code>allowPrivate: ["localhost"]</code> (a dev setup) or <code>["*"]</code>; a
+            <code>hosts</code> allowlist alone does not. The check is on the literal address after URL normalization
+            and never resolves a name. The whole model, limits included, is on the{` `}
+            <a href="/guides/security/">security page</a>.
           </p>
           <p>
             The rules are the same on every platform: they are written once in{` `}

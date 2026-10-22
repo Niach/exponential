@@ -30,7 +30,12 @@ pub const FUNCTION_DECISIONS: &[&str] = &["allow", "ask", "deny", "not_found"];
 /// The default function policy's `default`.
 pub const DEFAULT_FUNCTION_DECISION: &str = "allow";
 pub const DEFAULT_URL_SCHEMES: &[&str] = &["https", "http", "mailto", "tel"];
+/// VAPP-107: the hosts `decide_url` denies by default (`urls.privateHosts`,
+/// the rule itself is [`super::is_private_host`]).
+pub const PRIVATE_HOSTS: &[&str] = &["localhost", "*.localhost", "*.local", "0.0.0.0/8", "10.0.0.0/8", "127.0.0.0/8", "169.254.0.0/16", "172.16.0.0/12", "192.168.0.0/16", "::", "::1", "fe80::/10", "fc00::/7", "::ffff:<private IPv4>"];
+pub const URL_REASONS: &[&str] = &["invalid", "scheme", "host", "private"];
 pub const MEDIA_RULE_KEYS: &[&str] = &["prefix", "headers"];
+pub const MEDIA_OPTION_KEYS: &[&str] = &["baseUrl", "rules", "schemes", "hosts", "allowPrivate"];
 /// The media loader's schemes when the host lists none (no `file`).
 pub const DEFAULT_MEDIA_SCHEMES: &[&str] = &["https", "http", "data"];
 /// `media.limits`: what every image loader enforces.
@@ -60,9 +65,10 @@ pub fn host_contract() -> Value {
         "ops": {"kinds": OP_KINDS},
         "clientMessages": {"errorCodes": HOST_ERROR_CODES},
         "functions": {"decisions": FUNCTION_DECISIONS, "defaultPolicy": {"allow": [], "ask": [], "deny": [], "default": DEFAULT_FUNCTION_DECISION}},
-        "urls": {"defaultSchemes": DEFAULT_URL_SCHEMES},
+        "urls": {"defaultSchemes": DEFAULT_URL_SCHEMES, "privateHosts": PRIVATE_HOSTS, "reasons": URL_REASONS},
         "media": {
             "ruleKeys": MEDIA_RULE_KEYS,
+            "optionKeys": MEDIA_OPTION_KEYS,
             "defaultSchemes": DEFAULT_MEDIA_SCHEMES,
             "limits": {"maxBytes": MEDIA_MAX_BYTES, "timeoutMs": MEDIA_TIMEOUT_MS, "maxPixels": MEDIA_MAX_PIXELS},
         },

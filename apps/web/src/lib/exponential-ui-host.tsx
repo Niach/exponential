@@ -8,12 +8,14 @@
 //   - extensions: the app extension (`@exp/ui` appExtensionCatalog +
 //     appReactExtension) and its declarative packages (Devices);
 //   - policy: `harness.mcp` asks first (the consent card), urls through the
-//     URL policy (same-origin app links navigate in place);
+//     URL policy (same-origin app links navigate in place; VAPP-107: a
+//     private origin, the localhost dev setup, is opted back in for the
+//     app's own loads and nothing else);
 //   - status: `host_offline` + the catalog-update banner (`HostBanner`).
 // No private hook: if one is ever needed, the SDK's API is incomplete.
 
 import { useSyncExternalStore } from "react"
-import { ExponentialHost } from "@exponential-at/ui"
+import { ExponentialHost, isPrivateHost } from "@exponential-at/ui"
 import type { FunctionCallInfo, ParsedSource, SourceEmit, Transport } from "@exponential-at/ui"
 import { useHostStatus } from "@exponential-at/ui-react"
 import { Prompt, appExtensionCatalog, devicesPackage, toast } from "@exp/ui"
@@ -200,8 +202,21 @@ export interface AppHostOptions {
   packages?: readonly VappPackage[]
 }
 
+/** VAPP-107: the private hosts the app's policy opts back in: its OWN
+ *  origin when that is private (the localhost dev setup), else nothing (the
+ *  cloud origin is public; the LAN stays denied either way). */
+export function ownPrivateHosts(origin: string): string[] {
+  try {
+    const host = new URL(origin).hostname
+    return isPrivateHost(host) ? [host] : []
+  } catch {
+    return []
+  }
+}
+
 export function createAppHost(options: AppHostOptions): ExponentialHost {
   const origin = typeof window === `undefined` ? `http://localhost` : window.location.origin
+  const allowPrivate = ownPrivateHosts(origin)
   return new ExponentialHost({
     transport: options.transport,
     extensions: [appExtensionCatalog],
@@ -230,8 +245,8 @@ export function createAppHost(options: AppHostOptions): ExponentialHost {
     policy: {
       functions: { ask: [`harness.mcp`] },
       onFunctionCall: (call) => options.consent.ask(call),
-      media: { baseUrl: origin },
-      urls: { baseUrl: origin },
+      media: { baseUrl: origin, allowPrivate },
+      urls: { baseUrl: origin, allowPrivate },
       openUrl: (url) => {
         if (url.startsWith(`${origin}/`)) options.navigate(url.slice(origin.length))
         else window.open(url, `_blank`, `noopener,noreferrer`)
