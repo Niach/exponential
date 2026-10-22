@@ -1302,6 +1302,21 @@ impl RailView {
         )
     }
 
+    /// VAPP-110: the Apps entry, between Threads and Devices; lit on the
+    /// Apps page and on any app's editor.
+    fn rail_apps_entry(&self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
+        let active = matches!(resolved_screen(&self.nav, cx), Some(Screen::Apps) | Some(Screen::App { .. }));
+        self.rail_screen_entry_active(
+            "rail-apps",
+            Icon::from(registry::NAV_APPS),
+            domain::apps::APPS.copy.nav.as_str(),
+            Screen::Apps,
+            None,
+            active,
+            cx,
+        )
+    }
+
     /// EXP-1294: one Agents row — the agent root's glyph tinted with its
     /// color (the board rows' recipe), lit while its channel is up, the
     /// Threads entry's dot while it needs you (amber) or works (green).
@@ -2197,7 +2212,7 @@ impl Render for RailView {
             .text_color(cx.theme().sidebar_foreground)
             // Middle zone — scrollable so many boards never push the pinned
             // Settings/Account off small windows. Rail order (EXP-1294):
-            // [Agent, Inbox, Threads, Devices, Actions, Drafts?] / Pinned
+            // [Agent, Inbox, Threads, Apps, Devices, Actions, Drafts?] / Pinned
             // (EXP-778) / Agents + "+" / Boards + "+" / Running (EXP-923).
             // Terminal, Files and Source Control are the footer's Computer
             // menu.
@@ -2226,6 +2241,8 @@ impl Render for RailView {
                     ))
                     // EXP-1294: Threads, the team's sessions list.
                     .child(self.rail_threads_entry(cx))
+                    // VAPP-110: Apps, the team's apps (lit on an editor too).
+                    .child(self.rail_apps_entry(cx))
                     // EXP-686: Devices, the machine list.
                     .child(self.rail_screen_entry(
                         "rail-devices",

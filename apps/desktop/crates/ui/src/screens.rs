@@ -199,9 +199,11 @@ pub(crate) fn build_screen_content(
         Screen::Threads => cx
             .new(|cx| crate::threads_view::ThreadsView::new(window, cx))
             .into(),
+        // VAPP-110: the Apps page and an editor are never undocked (the
+        // editor owns the member's live editor session).
+        Screen::Apps | Screen::App { .. } => cx.new(|_| NeverUndocked).into(),
         // VAPP-90: the dev-only kitchen sink is never undocked.
         Screen::ExponentialUiKitchenSink
-        | Screen::ExponentialUiDevices
         | Screen::ExponentialUiSpecimen { .. }
         | Screen::StyleguideEntry { .. } => {
             cx.new(|_| NeverUndocked).into()
@@ -892,8 +894,11 @@ pub struct ScreensPanel {
     /// VAPP-90: the Exponential UI kitchen sink, built on first use — a
     /// dev-only screen pays its surface build only when opened.
     exponential_ui: Option<Entity<crate::exponential_ui_screen::ExponentialUiKitchenSink>>,
-    /// VAPP-91: the Devices template through the IDE host, built on first use.
-    exponential_ui_devices: Option<Entity<crate::exponential_ui_devices::ExponentialUiDevices>>,
+    /// VAPP-110: the Apps page (the same tab-less full-page mode).
+    apps_page: Entity<crate::apps_view::AppsView>,
+    /// VAPP-110: the open app editor, built on entry and DROPPED on every
+    /// navigation off it (which ends the member's live editor session).
+    app_editor: Option<Entity<crate::app_screen::AppScreenView>>,
     /// VAPP-93: the open specimen (rebuilt when another id opens).
     exponential_ui_specimen: Option<Entity<crate::exponential_ui_screen::ExponentialUiSpecimen>>,
     /// EXP-746: one session screen per session a tab SHOWS, keyed by the
@@ -1001,6 +1006,7 @@ impl ScreensPanel {
             cx.new(|cx| crate::issue_draft_screen::IssueDraftView::new(window, cx));
         let chat = cx.new(|cx| crate::chat_screen::ChatScreenView::new(window, cx));
         let threads_page = cx.new(|cx| crate::threads_view::ThreadsView::new(window, cx));
+        let apps_page = cx.new(|cx| crate::apps_view::AppsView::new(window, cx));
         let nav = nav_for_window(window, cx);
         let rail = rail_shared_for_window(window, cx);
         let list = cx.new(|cx| ListPanel::new(ListMode::Screen, window, cx));
@@ -1016,6 +1022,8 @@ impl ScreensPanel {
             // EXP-1170: point the New issue page at its draft, or pay the
             // draft out when the navigation left it.
             this.sync_issue_draft(window, cx);
+            // VAPP-110: the app editor lives exactly as long as its screen.
+            this.sync_app_editor(window, cx);
             cx.notify();
         }));
         // EXP-288: the rail drives the tab-less center — tool switches swap
@@ -1088,7 +1096,8 @@ impl ScreensPanel {
             chat,
             threads_page,
             exponential_ui: None,
-            exponential_ui_devices: None,
+            apps_page,
+            app_editor: None,
             exponential_ui_specimen: None,
             sessions: HashMap::new(),
             threads: HashMap::new(),
@@ -1111,6 +1120,7 @@ impl ScreensPanel {
         this.sync_tabs(window, cx);
         this.sync_active_screen(cx);
         this.sync_issue_draft(window, cx);
+        this.sync_app_editor(window, cx);
         this.sync_file_viewer(cx);
         // EXP-1192: seed the slide from the CURRENT state, so a window that
         // opens straight onto the Inbox shows no entry animation (the shell
@@ -1133,6 +1143,29 @@ impl ScreensPanel {
                 view.set_draft(draft_id, board_id, status_id, window, cx);
             }),
             _ => self.issue_draft.update(cx, |view, cx| view.leave(cx)),
+        }
+    }
+
+    /// VAPP-110: the app editor follows the navigation — built when a
+    /// [`Screen::App`] comes up (rebuilt for another app), and LEFT (the
+    /// member's live editor session ended) and dropped by every navigation
+    /// off it, a team switch included.
+    fn sync_app_editor(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        match resolved_screen(&self.nav, cx) {
+            Some(Screen::App { app }) => {
+                let current = self.app_editor.as_ref().is_some_and(|view| view.read(cx).requested() == app);
+                if !current {
+                    if let Some(old) = self.app_editor.take() {
+                        old.update(cx, |view, cx| view.leave(cx));
+                    }
+                    self.app_editor = Some(cx.new(|cx| crate::app_screen::AppScreenView::new(app, window, cx)));
+                }
+            }
+            _ => {
+                if let Some(old) = self.app_editor.take() {
+                    old.update(cx, |view, cx| view.leave(cx));
+                }
+            }
         }
     }
 
@@ -1391,8 +1424,9 @@ impl ScreensPanel {
             | Screen::IssueDraft { .. }
             | Screen::Home
             | Screen::Threads
+            | Screen::Apps
+            | Screen::App { .. }
             | Screen::ExponentialUiKitchenSink
-            | Screen::ExponentialUiDevices
             | Screen::ExponentialUiSpecimen { .. }
             | Screen::StyleguideEntry { .. }
             | Screen::Settings => {
@@ -3176,6 +3210,13 @@ impl Render for ScreensPanel {
             Some(Screen::IssueDraft { .. }) => self.issue_draft.clone().into_any_element(),
             Some(Screen::Home) => self.chat.clone().into_any_element(),
             Some(Screen::Threads) => self.threads_page.clone().into_any_element(),
+            Some(Screen::Apps) => self.apps_page.clone().into_any_element(),
+            // VAPP-110: built by `sync_app_editor` on entry.
+            Some(Screen::App { .. }) => self
+                .app_editor
+                .clone()
+                .map(gpui::IntoElement::into_any_element)
+                .unwrap_or_else(|| self.render_syncing(cx)),
             // EXP-1294: built by `sync_tabs` on activation, like a session.
             Some(Screen::Thread { session_id }) => self
                 .threads
@@ -3195,16 +3236,6 @@ impl Render for ScreensPanel {
                 .get_or_insert_with(|| {
                     cx.new(|cx| {
                         crate::exponential_ui_screen::ExponentialUiKitchenSink::new(window, cx)
-                    })
-                })
-                .clone()
-                .into_any_element(),
-            // VAPP-91: the Devices template through the IDE host (dev-only).
-            Some(Screen::ExponentialUiDevices) => self
-                .exponential_ui_devices
-                .get_or_insert_with(|| {
-                    cx.new(|cx| {
-                        crate::exponential_ui_devices::ExponentialUiDevices::new(window, cx)
                     })
                 })
                 .clone()

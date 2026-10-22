@@ -2131,10 +2131,15 @@
         "settleMs": 800
       },
       "webMobile": "inherit",
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "apps"
+        }
+      },
       "notes": {
         "ios": "VAPP-112: the iOS Apps list lands with the phone app host.",
-        "android": "VAPP-116: the Android Apps list lands with the phone app host.",
-        "desktop": "VAPP-114: the IDE's Apps screen lands with Screen::Apps."
+        "android": "VAPP-116: the Android Apps list lands with the phone app host."
       }
     },
     {
@@ -2159,11 +2164,18 @@
         },
         "settleMs": 1500
       },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "app:team-dashboard"
+        },
+        "anchorDelayMs": 1500
+      },
       "notes": {
         "web": "`$appSlug` resolves to DEMO_APP_SLUG (apps/web/scripts/screenshot-demo.ts), the seeded Team dashboard app with three versions and the demo user's editor session.",
         "ios": "VAPP-112: the iOS editor lands with the phone app host.",
         "android": "VAPP-116: the Android editor lands with the phone app host.",
-        "desktop": "VAPP-114: the IDE's editor lands with Screen::Apps."
+        "desktop": "`app:<slug>` opens the editor by slug in the active team: the seeded Team dashboard app (DEMO_APP_SLUG) with its versions and the demo user's editor session."
       }
     },
     {

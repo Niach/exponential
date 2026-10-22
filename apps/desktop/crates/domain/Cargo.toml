@@ -10,3 +10,5 @@ serde.workspace = true
 serde_json.workspace = true
 # EXP-825: the image-message embed/marker patterns (moved here from steer).
 regex = "1"
+# VAPP-110: `apps::slugify` strips diacritics (NFKD), like the TS reference.
+unicode-normalization = "0.1"

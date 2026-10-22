@@ -160,6 +160,27 @@ pub(crate) fn agent_send_input(
     }
 }
 
+/// VAPP-110: a message to an APP (web `AgentComposer`'s app arm): it lands
+/// in the caller's own editor session with it, created on first use on
+/// `device_id` (the caller's default device).
+pub(crate) fn app_send_input(
+    team_id: &str,
+    app_id: &str,
+    device_id: Option<&str>,
+    text: &str,
+    attachment_ids: Vec<String>,
+) -> api::sessions::SendInput {
+    let text = text.trim();
+    api::sessions::SendInput {
+        team_id: Some(team_id.to_string()),
+        app_id: Some(app_id.to_string()),
+        device_id: device_id.map(str::to_string),
+        text: (!text.is_empty()).then(|| text.to_string()),
+        attachment_ids: Some(attachment_ids).filter(|ids| !ids.is_empty()),
+        ..Default::default()
+    }
+}
+
 /// One issue's `repositories.forIssue` probe state.
 #[derive(Clone, Debug)]
 pub(crate) enum RepoState {
