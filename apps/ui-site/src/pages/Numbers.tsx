@@ -203,12 +203,12 @@ export default function NumbersPage({ path }: PageProps) {
         <DocsSection id="run" num="05" label="Run it, the ratchet">
           <h2>Run it, the ratchet</h2>
           <p>
-            One command runs every runner the machine can (React in headless Chromium, the Rust core, gpui on Linux, SwiftUI
+            One command runs every runner the machine can (React and Solid in headless Chromium, the Rust core, gpui on Linux, SwiftUI
             on macOS and the iPhone Simulator, Compose on the JVM, and an attached iPhone or Android device when there is
             one), merges the fragments into <code>results/&lt;machine&gt;.json</code> and prints the ratchet's verdicts:
           </p>
           <DocsCode>{`bun run --filter @exponential-at/ui-bench bench                 # everything this machine can run
-bun run --filter @exponential-at/ui-bench bench -- --renderers react,core --scenario list-100k --repeat 5
+bun run --filter @exponential-at/ui-bench bench -- --renderers react,solid --scenario list-100k --repeat 5
 bun run --filter @exponential-at/ui-bench machine               # the id results are filed under`}</DocsCode>
           <p>
             CI (<a href={LINKS.source(`.github/workflows/exponential-ui.yml`)}>exponential-ui.yml</a>) runs each runner

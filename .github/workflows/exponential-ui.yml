@@ -152,12 +152,21 @@ jobs:
         run: bunx vitest run --config vitest.browser.config.ts --exclude browser/suites.test.ts --exclude browser/parity.test.ts
       - name: Guide (Solid) from a fresh project
         run: bun apps/ui-site/guides/check.ts solid
+      - name: Bench (Solid, headless Chromium)
+        env:
+          EXPONENTIAL_UI_BENCH_MACHINE: github-ubuntu-latest
+        run: bun run --filter @exponential-at/ui-bench bench:solid
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: conformance-solid
           path: .conformance/
           include-hidden-files: true  # .conformance/ is a dot-directory; upload-artifact v4 skips hidden paths by default
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bench-solid
+          path: .bench/
+          include-hidden-files: true
 
   rust:
     needs: pick
@@ -464,7 +473,7 @@ jobs:
     # artifacts: after a green run, record them with
     # `bun run --filter @exponential-at/ui-bench ratchet .bench/*.json --write`
     # and commit budgets.json (and results/<machine>.json for the record).
-    needs: [react, rust, swift, swift-ios, compose, compose-emulator]
+    needs: [react, solid, rust, swift, swift-ios, compose, compose-emulator]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

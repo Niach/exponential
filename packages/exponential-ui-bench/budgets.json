@@ -120,53 +120,104 @@
       },
       "react-chromium": {
         "cold-start": {
-          "firstPaintMs": 177.5,
+          "firstPaintMs": 185.4,
           "nodes": 599,
-          "coldStartMs": 267,
-          "memoryMb": 38.3
+          "coldStartMs": 290.4,
+          "memoryMb": 40
         },
         "card-grid": {
-          "warmPassMs": 10.8
+          "warmPassMs": 11.9
         },
         "list-100k": {
-          "firstPaintMs": 174.2,
-          "scrollToIndexMs": 40.7,
-          "scrollStepMs": 4.3,
+          "firstPaintMs": 203.9,
+          "scrollToIndexMs": 61.8,
+          "scrollStepMs": 4.9,
           "renderedItems": 30,
-          "memoryMb": 192.2
+          "memoryMb": 228.5
         },
         "streaming": {
           "nodes": 607,
-          "applyMs": 31.4,
-          "p95ApplyMs": 54.3,
-          "totalMs": 6260.9
+          "applyMs": 15.8,
+          "p95ApplyMs": 26.7,
+          "totalMs": 3145.7
         },
         "theme-switch": {
-          "themeSwitchMs": 104.9,
-          "modeSwitchMs": 83.2
+          "themeSwitchMs": 56.1,
+          "modeSwitchMs": 44.6
         },
         "resize": {
-          "resizeMs": 75.6
+          "resizeMs": 39.1
         },
         "deep-nesting": {
-          "firstPaintMs": 109.2,
-          "warmPassMs": 9.3,
+          "firstPaintMs": 59.6,
+          "warmPassMs": 5.6,
           "depth": 48
         },
         "template-10k": {
-          "firstPaintMs": 729,
+          "firstPaintMs": 431.9,
           "nodes": 10001,
-          "rebindMs": 950.1
+          "rebindMs": 563.1
         },
         "overlay": {
-          "openMs": 5.4,
+          "openMs": 5.5,
           "closeMs": 5.1
         },
         "table-1k": {
-          "firstPaintMs": 59.3,
-          "scrollStepMs": 2.3,
+          "firstPaintMs": 60.5,
+          "scrollStepMs": 2.6,
           "renderedRows": 36,
           "sortMs": 6.5
+        }
+      },
+      "solid-chromium": {
+        "cold-start": {
+          "firstPaintMs": 213.3,
+          "nodes": 599,
+          "coldStartMs": 266.9,
+          "memoryMb": 38.3
+        },
+        "card-grid": {
+          "warmPassMs": 0.7
+        },
+        "list-100k": {
+          "firstPaintMs": 237.8,
+          "scrollToIndexMs": 90.5,
+          "scrollStepMs": 7.3,
+          "renderedItems": 30,
+          "memoryMb": 150.3
+        },
+        "streaming": {
+          "nodes": 607,
+          "applyMs": 15.8,
+          "p95ApplyMs": 33.5,
+          "totalMs": 3153.3
+        },
+        "theme-switch": {
+          "themeSwitchMs": 44.1,
+          "modeSwitchMs": 9.8
+        },
+        "resize": {
+          "resizeMs": 1.8
+        },
+        "deep-nesting": {
+          "firstPaintMs": 45.3,
+          "warmPassMs": 0.5,
+          "depth": 48
+        },
+        "template-10k": {
+          "firstPaintMs": 692.5,
+          "nodes": 10001,
+          "rebindMs": 810.6
+        },
+        "overlay": {
+          "openMs": 1.7,
+          "closeMs": 1.5
+        },
+        "table-1k": {
+          "firstPaintMs": 49.2,
+          "scrollStepMs": 3.6,
+          "renderedRows": 36,
+          "sortMs": 10.8
         }
       },
       "swift-ios-simulator": {

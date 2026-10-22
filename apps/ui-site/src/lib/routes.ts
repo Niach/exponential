@@ -147,7 +147,7 @@ export const ROUTES: readonly Route[] = [
     `/numbers/`,
     () => import("../pages/Numbers"),
     `Numbers · ${SITE_NAME}`,
-    `The Exponential UI benchmark suite: ten scenarios through every renderer (React, the Rust core, gpui, SwiftUI, Compose), the numbers per machine, the weak points and the CI ratchet.`,
+    `The Exponential UI benchmark suite: ten scenarios through every renderer (React, Solid, the Rust core, gpui, SwiftUI, Compose), the numbers per machine, the weak points and the CI ratchet.`,
     [`src/pages/Numbers.tsx`, `../../packages/exponential-ui-bench/results`, `../../packages/exponential-ui-bench/scenarios`],
     crumbs({ name: `Numbers`, path: `/numbers/` })
   ),

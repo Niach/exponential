@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
-// VAPP-105: `bun run --filter @exponential-at/ui-bench bench [--renderers all|react,core,gpui,swift,swift-ios,compose-jvm,compose-android] [--scenario <id>] [--repeat <n>] [--machine <id>] [--no-merge]`
-// Runs every runner this machine can (default: React + the core everywhere,
+// VAPP-105: `bun run --filter @exponential-at/ui-bench bench [--renderers all|react,solid,core,gpui,swift,swift-ios,compose-jvm,compose-android] [--scenario <id>] [--repeat <n>] [--machine <id>] [--no-merge]`
+// Runs every runner this machine can (default: React, Solid + the core everywhere,
 // gpui on Linux, SwiftUI + the iPhone Simulator on macOS, Compose on the
 // JVM when an Android SDK is around, Compose on a device when `adb devices`
 // lists one; an attached iPhone makes the Swift iOS runner a device run),
@@ -39,7 +39,7 @@ const androidSdk = process.env.ANDROID_HOME || process.env.ANDROID_SDK_ROOT || (
 const adbDevices = androidSdk ? sh(`${join(androidSdk, `platform-tools`, `adb`)} devices`).split(`\n`).slice(1).filter((l) => /\tdevice$/.test(l)) : []
 
 function auto(): string[] {
-  const list = [`react`, `core`]
+  const list = [`react`, `solid`, `core`]
   if (process.platform === `linux`) list.push(`gpui`)
   if (process.platform === `darwin`) list.push(`swift`, `swift-ios`)
   if (androidSdk) list.push(`compose-jvm`)
@@ -47,7 +47,7 @@ function auto(): string[] {
   return list
 }
 
-const runners = mergeOnly ? [] : wanted === `all` ? [`react`, `core`, `gpui`, `swift`, `swift-ios`, `compose-jvm`, `compose-android`] : wanted === `auto` ? auto() : wanted.split(`,`)
+const runners = mergeOnly ? [] : wanted === `all` ? [`react`, `solid`, `core`, `gpui`, `swift`, `swift-ios`, `compose-jvm`, `compose-android`] : wanted === `auto` ? auto() : wanted.split(`,`)
 const started = Date.now()
 const failed: string[] = []
 for (const name of runners) {

@@ -8,6 +8,11 @@
       "pass": "the DOM update flushed synchronously and the layout read back (main-thread work, no frame wait)"
     },
     {
+      "id": "solid-chromium",
+      "label": "Solid · Chromium",
+      "pass": "the signal writes applied synchronously (no scheduler) and the layout read back (as React: main-thread work, no frame wait)"
+    },
+    {
       "id": "core",
       "label": "Rust core",
       "pass": "one layout pass with a fixed fake measure (no text shaping, no painting)"
