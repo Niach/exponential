@@ -15,6 +15,12 @@ html {
 }
 
 @theme inline {
+  /* EXP-787: the transcript's two type rungs as font-size utilities —
+     `text-transcript-body` (14/22) and `text-transcript-tool` (12/18). */
+  --text-transcript-body: var(--transcript-body-size);
+  --text-transcript-body--line-height: var(--transcript-body-line-height);
+  --text-transcript-tool: var(--transcript-tool-size);
+  --text-transcript-tool--line-height: var(--transcript-tool-line-height);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -180,6 +186,24 @@ html {
   --motion-ease-standard: cubic-bezier(0.2, 0, 0, 1);
   --motion-ease-decelerate: cubic-bezier(0, 0, 0.2, 1);
   --motion-ease-accelerate: cubic-bezier(0.3, 0, 1, 1);
+  /* EXP-787 transcript tokens: the agent transcript's reading column and its
+     spacing/type ladder, mirrored from tokens.json `transcript` (parity in
+     design-tokens.test.ts, same flat-declaration rule as the motion vars).
+     `--transcript-column` is derived: the column's outer box, so the gutters
+     sit OUTSIDE the 736px measure. */
+  --transcript-max-width: 736px;
+  --transcript-gutter: 16px;
+  --transcript-gap-turn: 16px;
+  --transcript-gap-block: 12px;
+  --transcript-gap-tool: 12px;
+  --transcript-gap-row: 8px;
+  --transcript-body-size: 14px;
+  --transcript-body-line-height: 22px;
+  --transcript-tool-size: 12px;
+  --transcript-tool-line-height: 18px;
+  --transcript-column: calc(
+    var(--transcript-max-width) + 2 * var(--transcript-gutter)
+  );
 }
 
 .dark {
@@ -473,6 +497,13 @@ html {
 .tiptap-chat .tiptap-content {
   padding: 0;
   min-height: 0;
+}
+
+/* EXP-787: inside the transcript the chat body reads at the ONE body rung —
+   14/22 — instead of the document's 1.625 ratio. */
+.agent-feed .tiptap-chat .tiptap-content {
+  font-size: var(--transcript-body-size);
+  line-height: var(--transcript-body-line-height);
 }
 
 .tiptap-chat .tiptap-content > :first-child {

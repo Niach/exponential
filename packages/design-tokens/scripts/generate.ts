@@ -25,6 +25,8 @@ interface Tokens {
   glass: Record<string, string>
   radius: Record<string, number>
   size: Record<string, number>
+  // EXP-787: the transcript column + its spacing/type ladder (plain numbers).
+  transcript: Record<string, number>
   // Nested, unlike every group above: durations are integer milliseconds and
   // easings are 4-element CSS cubic-bezier control points [x1, y1, x2, y2]
   // (P0 = (0,0) and P3 = (1,1) implicit). The group's `$comment` lives one
@@ -225,6 +227,12 @@ function emitKotlin(): string {
     .filter(([k]) => !k.startsWith(`$`))
     .map(([k, v]) => `        val ${pascalCase(k)}: Dp = ${v}.dp`)
     .join(`\n`)
+  // Plain numbers: the lengths read as dp, the type rungs as sp — the call
+  // site picks the unit (`MaxWidth.dp`, `BodySize.sp`).
+  const transcript = Object.entries(tokens.transcript)
+    .filter(([k]) => !k.startsWith(`$`))
+    .map(([k, v]) => `        const val ${pascalCase(k)}: Int = ${v}`)
+    .join(`\n`)
 
   const motionDuration = motionEntries(tokens.motion.duration)
     .map(([k, v]) => `            const val ${pascalCase(k)}: Int = ${v}`)
@@ -279,6 +287,12 @@ ${radius}
 ${size}
     }
 
+    // The agent transcript's reading column and its spacing/type ladder
+    // (EXP-787) — lengths in dp, the *Size/*LineHeight rungs in sp.
+    object Transcript {
+${transcript}
+    }
+
     // Motion (EXP-523) — durations in MILLISECONDS (Compose's \`tween\` unit),
     // easings as CSS cubic-bezier control points. Read these through
     // ui/theme/Motion.kt, which collapses them to \`snap()\` when the OS has
@@ -330,6 +344,10 @@ function emitSwift(): string {
     .filter(([k]) => !k.startsWith(`$`))
     .map(([k, v]) => `        public static let ${k}: CGFloat = ${v}`)
     .join(`\n`)
+  const transcript = Object.entries(tokens.transcript)
+    .filter(([k]) => !k.startsWith(`$`))
+    .map(([k, v]) => `        public static let ${k}: CGFloat = ${v}`)
+    .join(`\n`)
   const motionDuration = motionEntries(tokens.motion.duration)
     .map(
       ([k, v]) =>
@@ -378,6 +396,12 @@ ${radius}
     // Control geometry, matching the web control heights.
     public enum Size {
 ${size}
+    }
+
+    // The agent transcript's reading column and its spacing/type ladder
+    // (EXP-787), in points.
+    public enum Transcript {
+${transcript}
     }
 
     // Motion (EXP-523) — durations in SECONDS (SwiftUI's unit; tokens.json
@@ -434,6 +458,10 @@ function emitRust(): string {
     .filter(([k]) => !k.startsWith(`$`))
     .map(([k, v]) => `    ${rustF32(k, v)}`)
     .join(`\n`)
+  const transcript = Object.entries(tokens.transcript)
+    .filter(([k]) => !k.startsWith(`$`))
+    .map(([k, v]) => `    ${rustF32(k, v)}`)
+    .join(`\n`)
   const motionDuration = motionEntries(tokens.motion.duration)
     .map(([k, v]) => `        pub const ${screamingSnake(k)}_MS: u64 = ${v};`)
     .join(`\n`)
@@ -475,6 +503,12 @@ ${radius}
 // Control geometry in px, matching the web control heights.
 pub mod size {
 ${size}
+}
+
+// The agent transcript's reading column and its spacing/type ladder (EXP-787),
+// in px.
+pub mod transcript {
+${transcript}
 }
 
 // Motion (EXP-523) — durations in milliseconds (u64, so \`Duration::from_millis\`

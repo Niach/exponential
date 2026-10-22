@@ -1276,6 +1276,77 @@ impl FeedRow<'_> {
             | FeedRow::Subagent { id, .. } => *id,
         }
     }
+
+    /// EXP-787: the row's rhythm class — a tool run and a subagent group are
+    /// tool lines, an ask stepper is a card, a single row is its item.
+    pub fn transcript_kind(&self) -> TranscriptRowKind {
+        match self {
+            FeedRow::Single(item) => transcript_item_kind(&item.kind),
+            FeedRow::ToolRun { .. } | FeedRow::Subagent { .. } => TranscriptRowKind::Tool,
+            FeedRow::Ask { .. } => TranscriptRowKind::Prose,
+        }
+    }
+}
+
+// ── Transcript rhythm (EXP-787) ─────────────────────────────────────────────
+
+/// What a transcript row IS for spacing purposes: a human turn, an agent
+/// block (prose, a card, punctuation), or a tool line. Web
+/// `transcriptRowKind`, iOS/Android mirrors.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TranscriptRowKind {
+    User,
+    Prose,
+    Tool,
+}
+
+/// One rung of the transcript's vertical ladder — the SPACE ABOVE a row,
+/// named after the boundary it marks. The px values are the
+/// `theme::tokens::transcript::GAP_*` tokens; this crate only names the rung.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TranscriptGap {
+    Turn,
+    Block,
+    Tool,
+    Row,
+}
+
+/// The rhythm class of one feed ITEM. Tool lines, permission prompts and
+/// subagent markers all read as the tool rung; everything the agent says (or
+/// asks) is prose; a human turn — a bubble or a command pill — is the other
+/// speaker.
+pub fn transcript_item_kind(kind: &FeedKind) -> TranscriptRowKind {
+    match kind {
+        FeedKind::UserMessage { .. } => TranscriptRowKind::User,
+        FeedKind::Tool { .. } | FeedKind::Permission { .. } | FeedKind::Subagent { .. } => {
+            TranscriptRowKind::Tool
+        }
+        FeedKind::Narration { .. } | FeedKind::Question(_) | FeedKind::Compaction => {
+            TranscriptRowKind::Prose
+        }
+    }
+}
+
+/// The ladder: the speaker changing is a TURN, a tool line meeting anything
+/// that is not one is a TOOL boundary, two agent blocks in a row are a BLOCK
+/// gap, everything else — tool after tool, a human turn after a human turn —
+/// is the default ROW gap. The first row has no space above it (`None`).
+pub fn transcript_gap(
+    previous: Option<TranscriptRowKind>,
+    next: TranscriptRowKind,
+) -> Option<TranscriptGap> {
+    let previous = previous?;
+    let user = |kind: TranscriptRowKind| kind == TranscriptRowKind::User;
+    let tool = |kind: TranscriptRowKind| kind == TranscriptRowKind::Tool;
+    Some(if user(previous) != user(next) {
+        TranscriptGap::Turn
+    } else if tool(previous) != tool(next) {
+        TranscriptGap::Tool
+    } else if previous == TranscriptRowKind::Prose && next == TranscriptRowKind::Prose {
+        TranscriptGap::Block
+    } else {
+        TranscriptGap::Row
+    })
 }
 
 /// Group the flat feed into render rows — a PURE projection: the feed (and
@@ -1323,6 +1394,20 @@ impl FeedRowSpec {
             | FeedRowSpec::ToolRun { id, .. }
             | FeedRowSpec::Ask { id, .. }
             | FeedRowSpec::Subagent { id, .. } => *id,
+        }
+    }
+
+    /// EXP-787: [`FeedRow::transcript_kind`] straight off the spec — one
+    /// item lookup for a single row, none for a group — so a virtualised
+    /// transcript can space a row without resolving its neighbour.
+    pub fn transcript_kind(&self, items: &[FeedItem]) -> TranscriptRowKind {
+        match self {
+            FeedRowSpec::Single { item, .. } => items
+                .get(*item)
+                .map(|item| transcript_item_kind(&item.kind))
+                .unwrap_or(TranscriptRowKind::Prose),
+            FeedRowSpec::ToolRun { .. } | FeedRowSpec::Subagent { .. } => TranscriptRowKind::Tool,
+            FeedRowSpec::Ask { .. } => TranscriptRowKind::Prose,
         }
     }
 
@@ -2838,5 +2923,112 @@ mod tests {
             vec!["marker", "narration", "tool", "user"]
         );
         assert!(matches!(rows[2], FeedRow::Single(_)));
+    }
+
+    // ── EXP-787: the transcript's vertical ladder ───────────────────────────
+
+    #[test]
+    fn items_classify_as_a_human_turn_a_tool_line_or_prose() {
+        use TranscriptRowKind::*;
+        assert_eq!(
+            transcript_item_kind(&FeedKind::UserMessage {
+                text: "hi".into(),
+                subagent_id: None
+            }),
+            User
+        );
+        assert_eq!(
+            transcript_item_kind(&FeedKind::Tool {
+                name: "Edit".into(),
+                detail: None,
+                subagent_id: None
+            }),
+            Tool
+        );
+        assert_eq!(
+            transcript_item_kind(&FeedKind::Permission {
+                tool: "Bash".into(),
+                detail: None
+            }),
+            Tool
+        );
+        assert_eq!(
+            transcript_item_kind(&FeedKind::Narration {
+                text: "prose".into(),
+                message_id: None,
+                subagent_id: None
+            }),
+            Prose
+        );
+        assert_eq!(transcript_item_kind(&FeedKind::Compaction), Prose);
+    }
+
+    #[test]
+    fn the_first_row_has_no_space_above_it() {
+        assert_eq!(transcript_gap(None, TranscriptRowKind::Prose), None);
+        assert_eq!(transcript_gap(None, TranscriptRowKind::User), None);
+    }
+
+    #[test]
+    fn a_change_of_speaker_is_a_turn_whatever_the_agent_side_is() {
+        use TranscriptRowKind::*;
+        for (a, b) in [(User, Prose), (Prose, User), (User, Tool), (Tool, User)] {
+            assert_eq!(transcript_gap(Some(a), b), Some(TranscriptGap::Turn), "{a:?}→{b:?}");
+        }
+    }
+
+    #[test]
+    fn a_tool_line_meeting_prose_is_a_tool_boundary_on_either_side() {
+        use TranscriptRowKind::*;
+        assert_eq!(transcript_gap(Some(Prose), Tool), Some(TranscriptGap::Tool));
+        assert_eq!(transcript_gap(Some(Tool), Prose), Some(TranscriptGap::Tool));
+    }
+
+    #[test]
+    fn two_agent_blocks_are_a_block_gap_and_everything_else_the_default() {
+        use TranscriptRowKind::*;
+        assert_eq!(transcript_gap(Some(Prose), Prose), Some(TranscriptGap::Block));
+        assert_eq!(transcript_gap(Some(Tool), Tool), Some(TranscriptGap::Row));
+        assert_eq!(transcript_gap(Some(User), User), Some(TranscriptGap::Row));
+    }
+
+    #[test]
+    fn a_spec_classifies_like_the_row_it_resolves_to() {
+        let items = vec![
+            FeedItem {
+                id: 1,
+                kind: FeedKind::Tool {
+                    name: "Read".into(),
+                    detail: None,
+                    subagent_id: None,
+                },
+                seq: None,
+            },
+            FeedItem {
+                id: 2,
+                kind: FeedKind::Tool {
+                    name: "Edit".into(),
+                    detail: None,
+                    subagent_id: None,
+                },
+                seq: None,
+            },
+            FeedItem {
+                id: 3,
+                kind: FeedKind::Narration {
+                    text: "done".into(),
+                    message_id: None,
+                    subagent_id: None,
+                },
+                seq: None,
+            },
+        ];
+        let specs = group_feed_row_specs(&items);
+        assert_eq!(specs.len(), 2);
+        for spec in &specs {
+            assert_eq!(spec.transcript_kind(&items), spec.resolve(&items).transcript_kind());
+        }
+        assert_eq!(specs[0].transcript_kind(&items), TranscriptRowKind::Tool);
+        assert_eq!(specs[1].transcript_kind(&items), TranscriptRowKind::Prose);
     }
 }

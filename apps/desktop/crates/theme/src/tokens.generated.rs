@@ -89,6 +89,21 @@ pub mod size {
     pub const ROW_HEIGHT: f32 = 32.0;
 }
 
+// The agent transcript's reading column and its spacing/type ladder (EXP-787),
+// in px.
+pub mod transcript {
+    pub const MAX_WIDTH: f32 = 736.0;
+    pub const GUTTER: f32 = 16.0;
+    pub const GAP_TURN: f32 = 16.0;
+    pub const GAP_BLOCK: f32 = 12.0;
+    pub const GAP_TOOL: f32 = 12.0;
+    pub const GAP_ROW: f32 = 8.0;
+    pub const BODY_SIZE: f32 = 14.0;
+    pub const BODY_LINE_HEIGHT: f32 = 22.0;
+    pub const TOOL_SIZE: f32 = 12.0;
+    pub const TOOL_LINE_HEIGHT: f32 = 18.0;
+}
+
 // Motion (EXP-523) — durations in milliseconds (u64, so `Duration::from_millis`
 // takes them verbatim), easings as CSS cubic-bezier control points. Read these
 // through `theme::motion`, which wraps the millis in `Duration` and SOLVES the

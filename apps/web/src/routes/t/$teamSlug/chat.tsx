@@ -223,7 +223,7 @@ function ChatPage() {
           (its own back header takes over), so there is no floating pill to
           reserve clearance for. */}
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto flex min-h-full w-full max-w-2xl flex-col gap-10 px-4 py-6">
+        <div className="mx-auto flex min-h-full w-full max-w-(--transcript-max-width) flex-col gap-10 px-4 py-6">
           {steerEnabled ? (
             <ChatPrompt
               devices={remote.devices}

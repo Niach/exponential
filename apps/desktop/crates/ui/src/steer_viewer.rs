@@ -2620,7 +2620,7 @@ impl SteerSessionView {
             self.list.clone(),
             cx.processor(|this, ix: usize, window, cx| this.render_list_row(ix, window, cx)),
         )
-        .px_3()
+        .px(px(theme::tokens::transcript::GUTTER))
         .py_2();
         crate::scroll_pane::v_list_pane(list, &self.list).into_any_element()
     }
@@ -2646,32 +2646,46 @@ impl SteerSessionView {
             cx.notify();
         }
         let Some(spec) = self.rows.get(ix) else {
-            return div()
-                .w_full()
+            let working = h_flex()
+                .gap_2()
+                .items_center()
                 .child(
-                    h_flex()
-                        .gap_2()
-                        .items_center()
-                        .py_1p5()
-                        .child(
-                            Icon::new(registry::CODING_ASSISTANT)
-                                .xsmall()
-                                .text_color(muted.opacity(0.6)),
-                        )
-                        .child(div().text_xs().text_color(muted).child("Working…")),
+                    Icon::new(registry::CODING_ASSISTANT)
+                        .xsmall()
+                        .text_color(muted.opacity(0.6)),
                 )
+                .child(div().map(tool_text).text_color(muted).child("Working…"))
                 .into_any_element();
+            return transcript_row(self.row_gap(ix), working);
         };
         let live = self.phase == ViewerPhase::Live;
         let last_row = self.rows.len().saturating_sub(1);
         let row = spec.resolve(self.feed.items());
         let element = self.render_row(&row, ix == last_row && live, &self.active, window, cx);
-        div()
-            .w_full()
-            .min_w_0()
-            .pb_0p5()
-            .child(element)
-            .into_any_element()
+        transcript_row(self.row_gap(ix), element)
+    }
+
+    /// EXP-787: the space above list row `ix` — one rung of the transcript's
+    /// ladder, a function of what the row is and what came before it and
+    /// nothing else (`steer::feed::transcript_gap`, web `rowGap`). Past the
+    /// last spec sits the synthetic "Working…" line, which reads as prose.
+    fn row_gap(&self, ix: usize) -> Option<f32> {
+        let items = self.feed.items();
+        let previous = ix
+            .checked_sub(1)
+            .and_then(|previous| self.rows.get(previous))
+            .map(|spec| spec.transcript_kind(items));
+        let next = self
+            .rows
+            .get(ix)
+            .map(|spec| spec.transcript_kind(items))
+            .unwrap_or(TranscriptRowKind::Prose);
+        transcript_gap(previous, next).map(|gap| match gap {
+            TranscriptGap::Turn => theme::tokens::transcript::GAP_TURN,
+            TranscriptGap::Block => theme::tokens::transcript::GAP_BLOCK,
+            TranscriptGap::Tool => theme::tokens::transcript::GAP_TOOL,
+            TranscriptGap::Row => theme::tokens::transcript::GAP_ROW,
+        })
     }
 
     fn render_row(
@@ -2706,16 +2720,16 @@ impl SteerSessionView {
                 .min_w_0()
                 .gap_2()
                 .items_start()
-                .py_1()
                 .child(
-                    div().mt(px(3.)).flex_shrink_0().child(
+                    // Centred on the first 22px body line (a 12px glyph).
+                    div().mt(px(5.)).flex_shrink_0().child(
                         Icon::new(registry::CODING_ASSISTANT)
                             .xsmall()
                             .text_color(muted.opacity(0.6)),
                     ),
                 )
                 .child(
-                    div().flex_1().min_w_0().text_sm().child(
+                    div().flex_1().min_w_0().map(body_text).child(
                         self.with_issue_chips(
                             crate::markdown::MarkdownView::new(
                                 SharedString::from(format!("steer-narration-{}", item.id)),
@@ -2743,7 +2757,6 @@ impl SteerSessionView {
                     .min_w_0()
                     .justify_end()
                     .pl_8()
-                    .py_1()
                     .child(
                         crate::surface::glass_pill(
                             SharedString::from(format!("steer-command-{}", item.id)),
@@ -2783,7 +2796,6 @@ impl SteerSessionView {
                 .min_w_0()
                 .justify_end()
                 .pl_8()
-                .py_1()
                 .child(
                     div()
                         .min_w_0()
@@ -2793,7 +2805,7 @@ impl SteerSessionView {
                         .bg(theme::tokens::glass::FILL_ACTIVE.to_hsla())
                         .px_3()
                         .py_2()
-                        .text_sm()
+                        .map(body_text)
                         .child(self.render_user_message(item.id, text, cx)),
                 )
                 .into_any_element(),
@@ -2821,7 +2833,6 @@ impl SteerSessionView {
                 v_flex()
                     .w_full()
                     .min_w_0()
-                    .py_0p5()
                     .child(
                         h_flex()
                             .min_w_0()
@@ -2835,7 +2846,7 @@ impl SteerSessionView {
                             .child(
                                 div()
                                     .flex_shrink_0()
-                                    .text_xs()
+                                    .map(tool_text)
                                     .text_color(amber.opacity(0.9))
                                     .child(SharedString::from(format!("Permission · {tool}"))),
                             )
@@ -2874,7 +2885,6 @@ impl SteerSessionView {
                 .gap_1p5()
                 .items_center()
                 .justify_center()
-                .py_1p5()
                 .child(
                     Icon::new(registry::CODING_COMPACT)
                         .xsmall()
@@ -2882,7 +2892,7 @@ impl SteerSessionView {
                 )
                 .child(
                     div()
-                        .text_xs()
+                        .map(tool_text)
                         .text_color(muted)
                         .child(COMPACTED_LABEL),
                 )
@@ -2933,7 +2943,7 @@ impl SteerSessionView {
         let mut column = v_flex()
             .w_full()
             .min_w_0()
-            .line_height(gpui::relative(1.625));
+            .line_height(px(theme::tokens::transcript::BODY_LINE_HEIGHT));
         for (line_number, line) in parsed.text.split('\n').enumerate() {
             let runs = split_image_markers(line, count);
             if runs.is_empty() {
@@ -3123,14 +3133,14 @@ impl SteerSessionView {
     ) -> AnyElement {
         let muted = cx.theme().muted_foreground;
         let expanded = self.expanded_groups.contains(&id);
-        let mut column = v_flex().w_full().min_w_0().child(
+        // EXP-787: the group's lines sit at the default row rung.
+        let mut column = v_flex().w_full().min_w_0().gap_1().child(
             h_flex()
                 .id(("steer-tool-run", id as usize))
                 .w_full()
                 .min_w_0()
                 .gap_2()
                 .items_center()
-                .py_0p5()
                 .cursor_pointer()
                 .text_color(muted)
                 .child(
@@ -3144,7 +3154,7 @@ impl SteerSessionView {
                 .child(Icon::new(registry::CODING_TOOL).xsmall())
                 .child(
                     div()
-                        .text_xs()
+                        .map(tool_text)
                         .child(SharedString::from(format!("{} tool calls", items.len()))),
                 )
                 .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
@@ -3206,7 +3216,6 @@ impl SteerSessionView {
             .min_w_0()
             .gap_2()
             .items_center()
-            .py_0p5()
             .text_color(muted)
             .when(expandable, |this| {
                 this.child(
@@ -3222,7 +3231,7 @@ impl SteerSessionView {
             .child(
                 div()
                     .flex_shrink_0()
-                    .text_xs()
+                    .map(tool_text)
                     .text_color(cx.theme().foreground)
                     .child(SharedString::from(summary.agent_type.clone())),
             )
@@ -3257,7 +3266,7 @@ impl SteerSessionView {
                     cx.notify();
                 }))
         });
-        let mut column = v_flex().w_full().min_w_0().child(header);
+        let mut column = v_flex().w_full().min_w_0().gap_1().child(header);
         if expanded {
             for item in body {
                 match &item.kind {
@@ -3343,7 +3352,6 @@ impl SteerSessionView {
         let mut card = crate::surface::glass_card()
             .w_full()
             .min_w_0()
-            .my_1()
             .gap_1()
             .p_3()
             .child(
@@ -3381,7 +3389,7 @@ impl SteerSessionView {
             Some(item) => {
                 let text = item.question().map(|card| card.text.clone()).unwrap_or_default();
                 card = card
-                    .child(div().w_full().min_w_0().text_sm().child(self.render_body(
+                    .child(div().w_full().min_w_0().map(body_text).child(self.render_body(
                         item.id,
                         &text,
                         cx,
@@ -3490,7 +3498,6 @@ impl SteerSessionView {
         crate::surface::glass_card()
             .w_full()
             .min_w_0()
-            .my_1()
             .gap_1()
             .p_3()
             .child(
@@ -3514,7 +3521,7 @@ impl SteerSessionView {
                 div()
                     .w_full()
                     .min_w_0()
-                    .text_sm()
+                    .map(body_text)
                     .child(if card.plan_mode {
                         self.render_unfolded_body(item.id, &card.text, cx)
                     } else {
@@ -3906,15 +3913,23 @@ impl SteerSessionView {
                     this.send(window, cx);
                 })),
         );
+        // EXP-787: the composer sits in the transcript's reading column.
         div()
             .w_full()
             .flex_shrink_0()
-            .p_2()
+            .px(px(theme::tokens::transcript::GUTTER))
+            .py_2()
             .border_t_1()
             .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
             .child(
-                crate::composer::glass_composer(composer)
-                    .capture_action(cx.listener(Self::on_paste)),
+                div()
+                    .w_full()
+                    .max_w(px(theme::tokens::transcript::MAX_WIDTH))
+                    .mx_auto()
+                    .child(
+                        crate::composer::glass_composer(composer)
+                            .capture_action(cx.listener(Self::on_paste)),
+                    ),
             )
             .into_any_element()
     }
@@ -4363,6 +4378,39 @@ fn status_dot(color: gpui::Hsla) -> impl IntoElement {
         .bg(color)
 }
 
+/// EXP-787: the transcript's prose rung — 14/22 on every client — for
+/// narration, user bubbles and question/plan bodies.
+fn body_text<T: Styled>(element: T) -> T {
+    element
+        .text_size(px(theme::tokens::transcript::BODY_SIZE))
+        .line_height(px(theme::tokens::transcript::BODY_LINE_HEIGHT))
+}
+
+/// EXP-787: the tool-line rung — 12/18 — for tool names, group headers,
+/// permission and subagent lines.
+fn tool_text<T: Styled>(element: T) -> T {
+    element
+        .text_size(px(theme::tokens::transcript::TOOL_SIZE))
+        .line_height(px(theme::tokens::transcript::TOOL_LINE_HEIGHT))
+}
+
+/// EXP-787: one transcript row in its reading column — the ladder's space
+/// above it, then the 736px measure centred in whatever the pane gives.
+fn transcript_row(gap: Option<f32>, element: AnyElement) -> AnyElement {
+    div()
+        .w_full()
+        .min_w_0()
+        .when_some(gap, |this, gap| this.pt(px(gap)))
+        .child(
+            div()
+                .w_full()
+                .max_w(px(theme::tokens::transcript::MAX_WIDTH))
+                .mx_auto()
+                .child(element),
+        )
+        .into_any_element()
+}
+
 fn tool_row(name: &str, detail: Option<&str>, cx: &App) -> impl IntoElement {
     let muted = cx.theme().muted_foreground;
     h_flex()
@@ -4370,7 +4418,6 @@ fn tool_row(name: &str, detail: Option<&str>, cx: &App) -> impl IntoElement {
         .min_w_0()
         .gap_2()
         .items_center()
-        .py_0p5()
         .child(
             Icon::new(registry::CODING_TOOL)
                 .xsmall()
@@ -4379,7 +4426,7 @@ fn tool_row(name: &str, detail: Option<&str>, cx: &App) -> impl IntoElement {
         .child(
             div()
                 .flex_shrink_0()
-                .text_xs()
+                .map(tool_text)
                 .child(SharedString::from(name.to_string())),
         )
         .when_some(detail, |this, detail| {

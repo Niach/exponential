@@ -99,6 +99,21 @@ object DesignTokens {
         val RowHeight: Dp = 32.dp
     }
 
+    // The agent transcript's reading column and its spacing/type ladder
+    // (EXP-787) — lengths in dp, the *Size/*LineHeight rungs in sp.
+    object Transcript {
+        const val MaxWidth: Int = 736
+        const val Gutter: Int = 16
+        const val GapTurn: Int = 16
+        const val GapBlock: Int = 12
+        const val GapTool: Int = 12
+        const val GapRow: Int = 8
+        const val BodySize: Int = 14
+        const val BodyLineHeight: Int = 22
+        const val ToolSize: Int = 12
+        const val ToolLineHeight: Int = 18
+    }
+
     // Motion (EXP-523) — durations in MILLISECONDS (Compose's `tween` unit),
     // easings as CSS cubic-bezier control points. Read these through
     // ui/theme/Motion.kt, which collapses them to `snap()` when the OS has

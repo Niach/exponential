@@ -20,6 +20,7 @@ const tokens = JSON.parse(
   avatar: Record<string, string>
   glass: Record<string, string>
   motion: { duration: Record<string, number>; ease: Record<string, number[]> }
+  transcript: Record<string, number>
 }
 
 const stylesCss = readFileSync(
@@ -175,6 +176,20 @@ describe(`design-tokens parity with web styles.css`, () => {
         rootVars[cssVar],
         `tokens.motion.ease.${key} should equal --${cssVar} in styles.css`
       ).toBe(`cubic-bezier(${curve.join(`, `)})`)
+    }
+  })
+
+  // EXP-787: the transcript column + ladder tokens are theme-invariant like
+  // motion, so they live in :root only as `--transcript-<kebab>: <n>px`.
+  it(`every transcript token matches the corresponding :root CSS variable`, () => {
+    const keys = Object.keys(tokens.transcript).filter((k) => !k.startsWith(`$`))
+    expect(keys.length).toBeGreaterThan(0)
+    for (const key of keys) {
+      const cssVar = `transcript-${kebab(key)}`
+      expect(
+        rootVars[cssVar],
+        `tokens.transcript.${key} should equal --${cssVar} in styles.css`
+      ).toBe(`${tokens.transcript[key]}px`)
     }
   })
 

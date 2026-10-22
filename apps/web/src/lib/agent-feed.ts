@@ -546,6 +546,67 @@ export type FeedRow<T extends { id: number; kind: string }> =
   | { kind: `ask`; id: number; askId: string; items: T[] }
   | { kind: `subagent`; id: number; subagentId: string; items: T[] }
 
+// ── Transcript rhythm (EXP-787) ──────────────────────────────────────────────
+
+/** What a transcript row IS for spacing purposes: a human turn, an agent
+ *  block (prose, a card, punctuation), or a tool line. Mirrored on the
+ *  desktop (`steer::feed::TranscriptRowKind`), iOS and Android. */
+export type TranscriptRowKind = `user` | `prose` | `tool`
+
+/** One rung of the transcript's vertical ladder — the SPACE ABOVE a row,
+ *  named after the boundary it marks. The px values are tokens
+ *  (`tokens.json` `transcript.gap*`; web `--transcript-gap-*`). */
+export type TranscriptGap = `turn` | `block` | `tool` | `row`
+
+/** The rhythm class of one feed ITEM. Tool lines, permission prompts and
+ *  subagent markers all read as the 12px tool rung; everything the agent
+ *  says (or asks) is prose; a human turn — a bubble or a command pill — is
+ *  the other speaker. */
+export function transcriptItemKind(kind: string): TranscriptRowKind {
+  switch (kind) {
+    case `user_message`:
+      return `user`
+    case `tool`:
+    case `permission`:
+    case `subagent`:
+      return `tool`
+    default:
+      return `prose`
+  }
+}
+
+/** The rhythm class of one render ROW: a tool run and a subagent group are
+ *  tool lines, an ask stepper is a card, a single row is its item. */
+export function transcriptRowKind(
+  row: FeedRow<{ id: number; kind: string }>
+): TranscriptRowKind {
+  switch (row.kind) {
+    case `toolRun`:
+    case `subagent`:
+      return `tool`
+    case `ask`:
+      return `prose`
+    case `single`:
+      return transcriptItemKind(row.item.kind)
+  }
+}
+
+/** The ladder: the speaker changing is a TURN (16), a tool line meeting
+ *  anything that is not one is a TOOL boundary (12), two agent blocks in a
+ *  row are a BLOCK gap (12), everything else — tool after tool, a human
+ *  turn after a human turn — is the default ROW gap (8). The first row has
+ *  no space above it (`null`). */
+export function transcriptGap(
+  previous: TranscriptRowKind | null,
+  next: TranscriptRowKind
+): TranscriptGap | null {
+  if (previous === null) return null
+  if ((previous === `user`) !== (next === `user`)) return `turn`
+  if ((previous === `tool`) !== (next === `tool`)) return `tool`
+  if (previous === `prose` && next === `prose`) return `block`
+  return `row`
+}
+
 /** EXP-773: the subagent a row belongs to, or `null` for a main-feed row —
  *  the accessor every caller uses, so a `FeedItem` member without the field
  *  never has to be narrowed at the call site. */

@@ -39,7 +39,9 @@ use crate::navigation::{self, Navigation};
 
 /// The page's one field: wide, rounded, Enter sends and Shift+Enter breaks a
 /// line — the steer composer's rhythm, on a page with nothing else on it.
-const PROMPT_MAX_W: f32 = 640.;
+/// EXP-787: the transcript's reading measure, so the prompt box is exactly as
+/// wide as the conversation it turns into.
+const PROMPT_MAX_W: f32 = theme::tokens::transcript::MAX_WIDTH;
 
 pub(crate) struct ChatScreenView {
     nav: Entity<Navigation>,

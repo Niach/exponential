@@ -24,6 +24,9 @@ import {
   subagentIdOf,
   summarizeSubagentRow,
   spliceBeforeQuestion,
+  transcriptGap,
+  transcriptItemKind,
+  transcriptRowKind,
   upsertQuestion,
   visibleSubagentTabs,
   COMPACTION_TIMEOUT_MS,
@@ -657,6 +660,57 @@ describe(`groupFeedRows`, () => {
       { kind: `single`, item: feed[0] },
       { kind: `single`, item: feed[1] },
     ])
+  })
+})
+
+// EXP-787: the ONE vertical ladder between transcript rows, shared with the
+// desktop, iOS and Android — a row's space above it is a function of what it
+// is and what came before it, nothing else.
+describe(`transcript rhythm`, () => {
+  it(`classifies items: a human turn, a tool line, or agent prose`, () => {
+    expect(transcriptItemKind(`user_message`)).toBe(`user`)
+    for (const kind of [`tool`, `permission`, `subagent`]) {
+      expect(transcriptItemKind(kind)).toBe(`tool`)
+    }
+    for (const kind of [`narration`, `question`, `compaction`]) {
+      expect(transcriptItemKind(kind)).toBe(`prose`)
+    }
+  })
+
+  it(`classifies rows: groups of tools are tool lines, an ask is a card`, () => {
+    const one = { id: 1, kind: `tool` }
+    expect(transcriptRowKind({ kind: `toolRun`, id: 1, items: [one] })).toBe(`tool`)
+    expect(
+      transcriptRowKind({ kind: `subagent`, id: 1, subagentId: `s`, items: [one] })
+    ).toBe(`tool`)
+    expect(
+      transcriptRowKind({ kind: `ask`, id: 1, askId: `a`, items: [{ id: 1, kind: `question` }] })
+    ).toBe(`prose`)
+    expect(transcriptRowKind({ kind: `single`, item: { id: 1, kind: `user_message` } })).toBe(`user`)
+    expect(transcriptRowKind({ kind: `single`, item: { id: 1, kind: `narration` } })).toBe(`prose`)
+  })
+
+  it(`the first row has no space above it`, () => {
+    expect(transcriptGap(null, `prose`)).toBeNull()
+    expect(transcriptGap(null, `user`)).toBeNull()
+  })
+
+  it(`a change of speaker is a turn, whatever the agent side is`, () => {
+    expect(transcriptGap(`user`, `prose`)).toBe(`turn`)
+    expect(transcriptGap(`prose`, `user`)).toBe(`turn`)
+    expect(transcriptGap(`user`, `tool`)).toBe(`turn`)
+    expect(transcriptGap(`tool`, `user`)).toBe(`turn`)
+  })
+
+  it(`a tool line meeting prose is a tool boundary, on either side`, () => {
+    expect(transcriptGap(`prose`, `tool`)).toBe(`tool`)
+    expect(transcriptGap(`tool`, `prose`)).toBe(`tool`)
+  })
+
+  it(`two agent blocks are a block gap; everything else is the default`, () => {
+    expect(transcriptGap(`prose`, `prose`)).toBe(`block`)
+    expect(transcriptGap(`tool`, `tool`)).toBe(`row`)
+    expect(transcriptGap(`user`, `user`)).toBe(`row`)
   })
 })
 

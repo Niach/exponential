@@ -2314,15 +2314,16 @@ impl gpui::RenderOnce for MarkdownView {
         // at a 980px window the whole detail pane collapsed to roughly a
         // third of its correct width (counterfactual screenshots, headless
         // Xvfb A/B). Do not delete without re-running that A/B.
-        // EXP-698: chat bodies read at the web's message rhythm — `text-sm`
-        // over a 1.625 line height with an 8px paragraph gap; documents keep
-        // the tighter 6px block gap and the inherited line height.
+        // EXP-698: chat bodies read at the web's message rhythm — an 8px
+        // paragraph gap; documents keep the tighter 6px block gap and the
+        // inherited line height. EXP-787: the chat rung is the transcript
+        // body token, 14/22, the same number on all four clients.
         let content = v_flex()
             .w_full()
             .when(self.chat, |this| {
                 this.gap_2()
-                    .text_sm()
-                    .line_height(gpui::relative(1.625))
+                    .text_size(px(theme::tokens::transcript::BODY_SIZE))
+                    .line_height(px(theme::tokens::transcript::BODY_LINE_HEIGHT))
             })
             .when(!self.chat, |this| this.gap_1p5())
             .children(children);
