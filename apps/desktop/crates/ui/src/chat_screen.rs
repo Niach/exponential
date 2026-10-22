@@ -2000,6 +2000,32 @@ impl ChatScreenView {
     /// (EXP-1249). A blocked server reads its reason as the second line and
     /// DIMS, but still toggles (the launch starts without it — a warning,
     /// never a blocker).
+    /// N-6: whether this composer's pickers open in its flow — the dialog
+    /// presentation (the host rule, `native_dialog::is_dialog_window`).
+    fn inline_pickers(&self) -> bool {
+        matches!(self.presentation, Presentation::Dialog)
+    }
+
+    /// N-6: the "+" menu's picker, INLINE in the card (the dialog). `None`
+    /// on the page, or while no picker is open.
+    fn inline_picker(&self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
+        if !self.inline_pickers() {
+            return None;
+        }
+        match self.open_picker {
+            Some(ComposerPicker::McpServers) => {
+                let bounds = self.plus_tool_bounds.get();
+                let fit = issue_picker::popover_fit(
+                    bounds,
+                    gpui::size(px(0.), px(0.)),
+                    issue_picker::POPOVER_WANTED_HEIGHT,
+                );
+                self.mcp_picker_surface(div().w(px(0.)).h(px(0.)).into_any_element(), fit, cx)
+            }
+            None => None,
+        }
+    }
+
     fn mcp_picker_surface(
         &self,
         trigger: AnyElement,
@@ -2018,6 +2044,7 @@ impl ChatScreenView {
             .collect();
         let view = cx.entity().downgrade();
         let on_close = self.picker_on_close(cx);
+        let inline = self.inline_pickers();
         Some(
             crate::picker::deferred(move |window, cx| {
                 crate::picker::mcp_server_picker::mcp_server_picker(
@@ -2036,6 +2063,7 @@ impl ChatScreenView {
                 .id("chat-mcp-picker")
                 .open(on_close)
                 .fit(fit)
+                .inline_if(inline)
                 .render_item(move |item, cx| {
                     let body = crate::picker::picker_item_body(item, cx);
                     if dimmed.iter().any(|id| id == &item.value) {
@@ -2094,12 +2122,13 @@ impl ChatScreenView {
         // and (NEW-39) the team's MCP servers loaded: the menu is built when
         // it opens, so a list landing later would photograph without its
         // MCP servers row (web's capture hovers after the page settled).
-        let dev_open = matches!(self.presentation, Presentation::Page)
-            && options.is_some()
+        // N-6: `dialog-implement-issue` is the dialog's turn (its menu opens
+        // in a menu window over the dialog, `composer-dialog-menu`).
+        let dev_open = options.is_some()
             && bounds.size.width > px(0.)
             && crate::navigation::shapes_ready(cx)
             && self.mcp.is_some()
-            && crate::screens::take_dev_composer_menu();
+            && crate::screens::take_dev_composer_menu(matches!(self.presentation, Presentation::Dialog));
         let view = cx.entity().downgrade();
         let trigger = crate::composer::composer_tool("chat-tool-plus", registry::UI_ADD, cx)
             .tooltip(PLUS_TOOLTIP)
@@ -2110,14 +2139,18 @@ impl ChatScreenView {
             }
         })
         .anchor(menu_fit.0)
+        .wanted_height(PLUS_MENU_WANTED_HEIGHT)
         .dev_open(dev_open);
 
         // The picker's anchor: as tall as the + (the fit measures the room
-        // above from it), no width, nothing to hit.
+        // above from it), no width, nothing to hit. N-6: the dialog mounts
+        // it INLINE in the card instead (`inline_picker`).
         let anchor = || div().w(px(0.)).h(bounds.size.height.max(px(24.))).into_any_element();
         let picker = match self.open_picker {
-            Some(ComposerPicker::McpServers) => self.mcp_picker_surface(anchor(), picker_fit, cx),
-            None => None,
+            Some(ComposerPicker::McpServers) if !self.inline_pickers() => {
+                self.mcp_picker_surface(anchor(), picker_fit, cx)
+            }
+            _ => None,
         };
         let slot = self.plus_tool_bounds.clone();
         let view_id = cx.entity_id();
@@ -2384,6 +2417,16 @@ impl ChatScreenView {
             self.images
                 .render_strip("chat-pending-remove", self.sending, Self::remove_image, cx)
         });
+        // N-6: in the DIALOG the "+" menu's MCP servers picker opens INLINE
+        // in the card, above the tools (the host rule: a dialog's pickers
+        // open in its flow and the window follows its content, EXP-1155),
+        // instead of a popover the dialog would clip.
+        let strip = match (strip, self.inline_picker(cx)) {
+            (strip, None) => strip,
+            (strip, Some(picker)) => Some(
+                v_flex().w_full().min_w_0().gap_1().children(strip).child(picker).into_any_element(),
+            ),
+        };
         let mut composer = crate::composer::GlassComposer::new(
             div()
                 .w_full()

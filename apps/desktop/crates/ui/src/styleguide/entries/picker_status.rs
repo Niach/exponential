@@ -35,5 +35,22 @@ pub(crate) fn render(_window: &mut Window, _cx: &mut App) -> Div {
             .id("sg-picker-statuses-surface")
             .render(window, cx)
         }),
+        // N-6: the INLINE presentation — what every picker inside a dialog
+        // window wears (the host rule): the same rows in the host's flow
+        // under the trigger, disclosed here.
+        demo("status — inline (inside a dialog the host decides)", |window, cx| {
+            let statuses = domain::statuses::default_resolved_statuses();
+            crate::picker::status_picker::status_picker(
+                &statuses,
+                crate::picker::PickerMode::Single,
+                vec![statuses[1].group_key.clone()],
+                chip("sg-picker-status-inline", "In Progress", cx),
+                inert(),
+            )
+            .id("sg-picker-status-inline-surface")
+            .inline()
+            .open(std::rc::Rc::new(|_, _| {}))
+            .render(window, cx)
+        }),
     ])
 }

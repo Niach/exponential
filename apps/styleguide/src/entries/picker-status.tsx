@@ -79,7 +79,20 @@ export const entry: StyleguideEntry = {
           onChange={noop}
         />
       }
-      caption="The last row is a CUSTOM status: its hex tints the glyph exactly as a builtin's token does."
+      inline={
+        <StatusPicker
+          statuses={STATUSES}
+          value="in-progress"
+          onChange={noop}
+          presentation="inline"
+          open
+          onOpenChange={noop}
+          trigger={
+            <PickerTrigger variant="field" label="Status" value="In Progress" />
+          }
+        />
+      }
+      caption="The last row is a CUSTOM status: its hex tints the glyph exactly as a builtin's token does. The third cell is the INLINE presentation (N-6): inside a dialog the host decides and every picker opens in the flow under its trigger, the dialog growing with it — the IDE's dialog windows and the phones' sheets do the same."
     />
   ),
 }

@@ -273,6 +273,22 @@ final class PickerContractTests: XCTestCase {
         )
     }
 
+    func testAnInlinePresentationIsTheSheetBodyInTheHostsFlow() {
+        // N-6: the second presentation, same rows, no sheet — the host (a
+        // form sheet) grows with the rows up to the shared cap (web
+        // `max-h-72`, the IDE's rows cap), then they scroll.
+        XCTAssertEqual(PickerPresentation.allCases, [.sheet, .inline])
+        XCTAssertEqual(GlassPickerTokens.inlineMaxHeight, 288)
+        // The host decides: outside a sheet the default is the sheet; a
+        // `GlassSheetChrome` sets `.inline` on its content.
+        XCTAssertEqual(PickerPresentationKey.defaultValue, .sheet)
+        let chrome = try! String(contentsOfFile: #filePath.replacingOccurrences(of: "Tests/PickerContractTests.swift", with: "Sources/GlassSheet.swift"), encoding: .utf8)
+        XCTAssertTrue(chrome.contains(".environment(\\.pickerPresentation, .inline)"))
+        // The fold follows the mode like the sheet's dismiss does.
+        XCTAssertTrue(PickerSelection.closesOnPick(.single))
+        XCTAssertFalse(PickerSelection.closesOnPick(.multi))
+    }
+
     func testSingleModeClosesOnAPickMultiModeStaysOpen() {
         XCTAssertTrue(PickerSelection.closesOnPick(.single))
         XCTAssertFalse(PickerSelection.closesOnPick(.multi))

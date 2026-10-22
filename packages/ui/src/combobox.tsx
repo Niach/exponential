@@ -27,6 +27,8 @@ import {
 } from "./mobile-popover"
 import { PickerItemBody, pickerItemKeywords, type PickerItem } from "./picker/picker-item"
 import { SkeletonRows } from "./skeleton"
+import { Slot } from "radix-ui"
+
 import { useIsMobile } from "./use-mobile"
 import {
   PICKER_INLINE_WORD,
@@ -74,6 +76,9 @@ const WIDTH_CLASS = {
 } as const
 
 type ComboboxWidth = keyof typeof WIDTH_CLASS
+
+/** N-6: the popover-or-sheet pair, or the rows inline under the trigger. */
+type ComboboxPresentation = `popover` | `inline`
 
 /** What both arms of the union share — everything that is not selection. */
 interface ComboboxListBaseProps<TValue extends string> {
@@ -145,6 +150,10 @@ interface ComboboxShellProps<TValue extends string> {
   /** Controlled-open with no trigger element: a host that opens the picker
    *  from its own menu item (the issue row's "Move to board"). */
   hideTrigger?: boolean
+  /** N-6: where the rows open. `popover` (default) = the popover-or-sheet
+   *  pair; `inline` = in the host's flow under the trigger, for a host that
+   *  already is a surface (a dialog window, a phone form sheet). */
+  presentation?: ComboboxPresentation
   /** Extra classes on the SURFACE (the popover panel). `className` styles the
    *  trigger, which a `renderTrigger` caller owns and styles itself — so a
    *  host that builds its own trigger has no other way to size the panel it
@@ -312,6 +321,7 @@ function Combobox<TValue extends string>(props: ComboboxProps<TValue>) {
     triggerVariant = `pill`,
     triggerLabel,
     renderTrigger,
+    presentation = `popover`,
     width = `md`,
     align = triggerVariant === `row` ? `end` : `start`,
     open: openProp,
@@ -409,6 +419,42 @@ function Combobox<TValue extends string>(props: ComboboxProps<TValue>) {
     />
   )
 
+  // N-6: the INLINE presentation — the body in the host's flow under the
+  // trigger, no popover and no sheet. For a host that is already a surface
+  // and cannot afford a second one (a dialog window on the IDE, a sheet of
+  // form rows on a phone): the trigger discloses the same rows below
+  // itself, the host grows with them, a single pick folds them away again.
+  // The rows are the primitive's rows (`ComboboxList`) under the same
+  // markers, so every assertion on a picker holds here too.
+  if (presentation === `inline`) {
+    return (
+      <div
+        data-slot="combobox-inline"
+        data-state={open ? `open` : `closed`}
+        className={cn(`flex min-w-0 flex-col`, surfaceClassName)}
+      >
+        {!hideTrigger && (
+          <Slot.Root
+            aria-expanded={open}
+            data-state={open ? `open` : `closed`}
+            onClick={() => setOpen(!open)}
+          >
+            {trigger}
+          </Slot.Root>
+        )}
+        {open && (
+          <div
+            data-slot="combobox-inline-body"
+            data-testid={testId}
+            className="mt-1 flex max-h-72 min-h-0 flex-col overflow-hidden border-t border-border/50 pt-1"
+          >
+            <ComboboxList {...listProps} className={undefined} />
+          </div>
+        )}
+      </div>
+    )
+  }
+
   return (
     <MobilePopover open={open} onOpenChange={setOpen}>
       {!hideTrigger && (
@@ -436,6 +482,7 @@ function Combobox<TValue extends string>(props: ComboboxProps<TValue>) {
 export { Combobox, ComboboxList, WIDTH_CLASS as COMBOBOX_WIDTH_CLASS }
 export type {
   ComboboxListProps,
+  ComboboxPresentation,
   ComboboxProps,
   ComboboxSelection,
   ComboboxWidth,

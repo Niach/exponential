@@ -135,6 +135,9 @@ public struct GlassSheetChrome<Header: View, Pinned: View, Content: View, Action
             }
         }
         .frame(maxHeight: .infinity, alignment: .top)
+        // N-6: the host rule — a picker inside this sheet opens INLINE in
+        // the sheet's flow, never as a second sheet (`PickerPresentationKey`).
+        .environment(\.pickerPresentation, .inline)
         .onGeometryChange(for: CGFloat.self, of: { $0.safeAreaInsets.bottom }) { inset in
             if inset < 60 { bottomInset = inset }
         }
