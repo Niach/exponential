@@ -189,6 +189,45 @@ describe(`exp:devices liveness`, () => {
 })
 
 describe(`the consent card`, () => {
+  it(`VAPP-107: shows the arguments as compact JSON, a disclosure past the preview, the destructive role for a destructive op`, async () => {
+    const gate = createConsentGate()
+    const view = render(<ConsentCard gate={gate} />)
+    act(() => {
+      gate.ask({ surfaceId: `s`, componentId: `b`, name: `harness.mcp`, args: { tool: `exponential_issues`, arguments: { op: `get`, id: `EXP-12` } } } as never)
+    })
+    const block = await view.findByTestId(`exponential-ui-consent-arguments`)
+    expect(block.textContent).toBe(`{"op":"get","id":"EXP-12"}`)
+    expect(view.getByRole(`button`, { name: `Allow` }).getAttribute(`data-role`)).toBe(`default`)
+    expect(view.queryByTestId(`exponential-ui-consent-show-all`)).toBeNull()
+    // A long argument list previews and discloses.
+    const long = { op: `create`, boardId: `b`.repeat(40), title: `t`.repeat(120), description: `d`.repeat(300) }
+    act(() => {
+      gate.ask({ surfaceId: `s`, componentId: `b`, name: `harness.mcp`, args: { tool: `exponential_issues`, arguments: long } } as never)
+    })
+    const preview = await view.findByTestId(`exponential-ui-consent-arguments`)
+    expect(preview.textContent).toBe(`${JSON.stringify(long).slice(0, 160)}…`)
+    fireEvent.click(view.getByTestId(`exponential-ui-consent-show-all`))
+    // The CodeBlock paints one element per line: the text joins without newlines.
+    expect(view.getByTestId(`exponential-ui-consent-arguments`).textContent).toBe(JSON.stringify(long, null, 2).replace(/\n/g, ``))
+    // A destructive op: the destructive entry (Allow destructive, Deny still focused).
+    act(() => {
+      gate.ask({ surfaceId: `s`, componentId: `b`, name: `harness.mcp`, args: { tool: `exponential_issues`, arguments: { op: `delete`, id: `EXP-12` } } } as never)
+    })
+    await vi.waitFor(() => expect(view.getByTestId(`exponential-ui-consent-arguments`).textContent).toBe(`{"op":"delete","id":"EXP-12"}`))
+    expect(view.getByRole(`button`, { name: `Allow` }).getAttribute(`data-role`)).toBe(`destructive`)
+    expect(document.activeElement).toBe(view.getByRole(`button`, { name: `Deny` }))
+    // No arguments: no block. A plain host function shows its own args.
+    act(() => {
+      gate.ask({ surfaceId: `s`, componentId: `b`, name: `harness.openIssue`, args: { identifier: `EXP-1` } } as never)
+    })
+    expect((await view.findByTestId(`exponential-ui-consent-arguments`)).textContent).toBe(`{"identifier":"EXP-1"}`)
+    act(() => {
+      gate.ask({ surfaceId: `s`, componentId: `b`, name: `harness.mcp`, args: { tool: `exponential_devices` } } as never)
+    })
+    await view.findByText(`Allow this surface to run exponential_devices?`)
+    expect(view.queryByTestId(`exponential-ui-consent-arguments`)).toBeNull()
+  })
+
   it(`reads the contract prompt: Deny focused (Enter denies), Allow a plain default answer`, async () => {
     const gate = createConsentGate()
     const view = render(<ConsentCard gate={gate} />)

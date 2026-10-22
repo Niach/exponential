@@ -446,27 +446,64 @@ pub(crate) fn own_private_hosts(instance_url: &str) -> Vec<String> {
         .collect()
 }
 
+/// VAPP-107 (the consent prompt's `slot`): what the window shows of a call,
+/// derived exactly as the web's `consentWords`: the tool it names (a
+/// `harness.mcp` call's MCP tool, else the function's own name), its
+/// arguments as compact JSON (the MCP `arguments`, else the function's
+/// args; an empty object = none) and whether it sounds destructive.
+pub(crate) struct ConsentWords {
+    pub tool: String,
+    pub args: Option<String>,
+    pub destructive: bool,
+}
+
+/// The desktop shows this many characters of the arguments (the web's
+/// preview length; it has no disclosure in a native alert).
+pub(crate) const CONSENT_ARGS_PREVIEW: usize = 160;
+
+pub(crate) fn consent_words(call: &FunctionCallInfo) -> ConsentWords {
+    let mcp = call.name == "harness.mcp";
+    let tool = if mcp { arg_str(&call.args, "tool") } else { call.name.clone() };
+    let raw = if mcp { call.args.get("arguments") } else { Some(&call.args) };
+    let raw = raw.filter(|v| v.is_object());
+    let args = raw.map(|v| v.to_string()).filter(|s| s != "{}");
+    let op = raw.and_then(|v| v.get("op")).and_then(Value::as_str);
+    ConsentWords { tool: tool.clone(), args, destructive: domain::prompts::destructive_tool(&tool, op) }
+}
+
 /// What the consent window asks (`prompts.json` `exponential-ui-consent`,
 /// Deny focused so Return denies): the tool a `harness.mcp` call runs, else
-/// the function's own name (the web's `ConsentCard`).
+/// the function's own name (the web's `ConsentCard`); a destructive-sounding
+/// call takes the `exponential-ui-consent-destructive` entry.
 pub(crate) fn consent_prompt(call: &FunctionCallInfo) -> domain::prompts::Prompt {
-    let tool = if call.name == "harness.mcp" {
-        arg_str(&call.args, "tool")
+    let words = consent_words(call);
+    if words.destructive {
+        domain::prompts::exponential_ui_consent_destructive(&words.tool)
     } else {
-        call.name.clone()
-    };
-    domain::prompts::exponential_ui_consent(&tool)
+        domain::prompts::exponential_ui_consent(&words.tool)
+    }
+}
+
+/// The arguments line the alert's code block shows: the compact JSON, cut
+/// to [`CONSENT_ARGS_PREVIEW`] characters with an ellipsis past it.
+pub(crate) fn consent_args_preview(args: &str) -> String {
+    match args.char_indices().nth(CONSENT_ARGS_PREVIEW) {
+        Some((at, _)) => format!("{}…", &args[..at]),
+        None => args.to_string(),
+    }
 }
 
 /// `ask` decisions: a native confirm over the active window. No window, a
-/// dismissal or Deny = `false`.
+/// dismissal or Deny = `false`. The arguments (when any) sit under the body
+/// in the CodeBlock (sm, json, no header), like the web card's.
 fn consent_hook() -> ConsentHook {
     Rc::new(|call: &FunctionCallInfo, cx: &mut App| -> Task<bool> {
         let (tx, rx) = flume::bounded::<bool>(1);
         let prompt = consent_prompt(call);
+        let args = consent_words(call).args.map(|a| consent_args_preview(&a));
         crate::navigation::on_active_window(cx, move |window, cx| {
             let (ok, closed) = (tx.clone(), tx);
-            let spec = crate::native_dialog::AlertSpec::from_prompt("Exponential UI", &prompt)
+            let mut spec = crate::native_dialog::AlertSpec::from_prompt("Exponential UI", &prompt)
                 .on_ok(move |_, _| {
                     let _ = ok.try_send(true);
                     true
@@ -474,6 +511,21 @@ fn consent_hook() -> ConsentHook {
                 .on_closed(move |_| {
                     let _ = closed.try_send(false);
                 });
+            if let Some(args) = args {
+                spec = spec.height(gpui::px(300.)).content(move |_, cx| {
+                    crate::code_block::code_block(
+                        crate::code_block::CodeBlockProps {
+                            id: "exponential-ui-consent-arguments".into(),
+                            title: None,
+                            code: args.clone(),
+                            language: "json",
+                            destructive: false,
+                            copyable: false,
+                        },
+                        cx,
+                    )
+                });
+            }
             crate::native_dialog::open_alert(window, cx, spec);
         });
         cx.background_spawn(async move { rx.recv_async().await.unwrap_or(false) })
@@ -892,6 +944,20 @@ mod tests {
         };
         let prompt = consent_prompt(&call);
         assert_eq!(prompt, domain::prompts::exponential_ui_consent("exponential_issues_list"));
+        // VAPP-107: the arguments as compact JSON, a destructive op picks the destructive entry.
+        let get = FunctionCallInfo { surface_id: "s".into(), component_id: "b".into(), name: "harness.mcp".into(), args: json!({"tool": "exponential_issues", "arguments": {"op": "get", "id": "EXP-12"}}) };
+        let words = consent_words(&get);
+        assert_eq!((words.tool.as_str(), words.args.as_deref(), words.destructive), ("exponential_issues", Some(r#"{"op":"get","id":"EXP-12"}"#), false));
+        let delete = FunctionCallInfo { args: json!({"tool": "exponential_issues", "arguments": {"op": "delete", "id": "EXP-12"}}), ..get.clone() };
+        assert!(consent_words(&delete).destructive);
+        assert_eq!(consent_prompt(&delete), domain::prompts::exponential_ui_consent_destructive("exponential_issues"));
+        let none = FunctionCallInfo { args: json!({"tool": "exponential_devices"}), ..get.clone() };
+        assert_eq!(consent_words(&none).args, None);
+        let own = FunctionCallInfo { name: "harness.openIssue".into(), args: json!({"identifier": "EXP-1"}), ..get.clone() };
+        assert_eq!(consent_words(&own).args.as_deref(), Some(r#"{"identifier":"EXP-1"}"#));
+        let long = "x".repeat(400);
+        assert_eq!(consent_args_preview(&long), format!("{}…", "x".repeat(160)));
+        assert_eq!(consent_args_preview("short"), "short");
         assert_eq!(prompt.title, "Allow this surface to run exponential_issues_list?");
         assert_eq!(prompt.body.as_deref(), Some("It acts as you, with your access to this team."));
         // Return denies: Deny = cancel + focused, Allow = a plain default.

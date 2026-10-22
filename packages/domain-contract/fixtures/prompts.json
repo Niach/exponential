@@ -567,6 +567,7 @@
     "exponential-ui-consent": {
       "title": "Allow this surface to run {tool}?",
       "body": "It acts as you, with your access to this team.",
+      "slot": "web + desktop (VAPP-107): the call's ARGUMENTS as a compact JSON code block under the body (the CodeBlock, sm, language json, no header): the MCP tool's `arguments` for a harness.mcp call, else the function's args. Web shows the first 160 characters with a Show all disclosure past them (the whole JSON pretty-printed); desktop shows the first 160 characters. No arguments (an empty object) = no block.",
       "params": [
         {
           "name": "tool",
@@ -583,6 +584,31 @@
           "id": "allow",
           "label": "Allow",
           "role": "default"
+        }
+      ],
+      "focus": "deny"
+    },
+    "exponential-ui-consent-destructive": {
+      "title": "Allow this surface to run {tool}?",
+      "body": "It acts as you, with your access to this team.",
+      "variants": "This entry INSTEAD OF exponential-ui-consent when the call sounds destructive (VAPP-107): a word of the tool name or of its `op` argument (split on anything but letters, lower-cased) is delete, merge, close, end, remove or trash. Same copy and slot; Allow wears the destructive role and Deny keeps focus and Enter.",
+      "slot": "the same arguments block as exponential-ui-consent.",
+      "params": [
+        {
+          "name": "tool",
+          "meaning": "the MCP tool a harness.mcp call runs, else the host function's own name"
+        }
+      ],
+      "actions": [
+        {
+          "id": "deny",
+          "label": "Deny",
+          "role": "cancel"
+        },
+        {
+          "id": "allow",
+          "label": "Allow",
+          "role": "destructive"
         }
       ],
       "focus": "deny"
