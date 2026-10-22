@@ -78,6 +78,43 @@ describe(`openUrl without a host opener: the policy still applies`, () => {
   })
 })
 
+describe(`VAPP-107: a private host is denied unless the host opts it in`, () => {
+  it(`a LAN camera src loads nothing; a Link to a loopback literal paints as text`, () => {
+    const c = paint({ id: `i`, component: `Image`, props: { src: `http://192.168.1.10/cam.jpg`, alt: `cam` } })
+    expect(c.querySelector(`img`)?.getAttribute(`src`) ?? null).toBeNull()
+    cleanup()
+    const l = paint({ id: `l`, component: `Link`, props: { href: `http://127.0.0.1:3000/x`, label: `x`, external: true } })
+    expect(l.querySelector(`a`)!.getAttribute(`href`)).toBeNull()
+  })
+  it(`a host that opts 10.0.0.5 in loads from it, and only from it`, () => {
+    const host: HostPlugin = { media: { allowPrivate: [`10.0.0.5`] }, urls: { allowPrivate: [`10.0.0.5`] } }
+    const c = paint({ id: `i`, component: `Image`, props: { src: `http://10.0.0.5/a.png`, alt: `a` } }, host)
+    expect(c.querySelector(`img`)!.getAttribute(`src`)).toBe(`http://10.0.0.5/a.png`)
+    cleanup()
+    const lan = paint({ id: `i`, component: `Image`, props: { src: `http://10.0.0.6/a.png`, alt: `a` } }, host)
+    expect(lan.querySelector(`img`)?.getAttribute(`src`) ?? null).toBeNull()
+    cleanup()
+    const l = paint({ id: `l`, component: `Link`, props: { href: `http://10.0.0.5/x`, label: `x`, external: true } }, host)
+    expect(l.querySelector(`a`)!.getAttribute(`href`)).toBe(`http://10.0.0.5/x`)
+  })
+  it(`the page's own private origin (jsdom: localhost) is opted in, nothing else private is`, () => {
+    expect(new URL(document.baseURI).hostname).toBe(`localhost`)
+    const c = paint({ id: `i`, component: `Image`, props: { src: `x.png`, alt: `x` } })
+    expect(c.querySelector(`img`)!.getAttribute(`src`)).toBe(`${new URL(document.baseURI).origin}/x.png`)
+    cleanup()
+    const l = paint({ id: `l`, component: `Link`, props: { href: `/docs`, label: `x` } })
+    expect(l.querySelector(`a`)!.getAttribute(`href`)).toBe(`${new URL(document.baseURI).origin}/docs`)
+    cleanup()
+    const other = paint({ id: `i`, component: `Image`, props: { src: `http://127.0.0.1:3000/x.png`, alt: `x` } })
+    expect(other.querySelector(`img`)?.getAttribute(`src`) ?? null).toBeNull()
+  })
+  it(`a host mediaRequest hook cannot widen the private rule`, () => {
+    const host: HostPlugin = { mediaRequest: (src) => ({ url: src, headers: { authorization: `Bearer t` } }) }
+    const c = paint({ id: `i`, component: `Image`, props: { src: `http://169.254.169.254/latest/a.png`, alt: `a` } }, host)
+    expect(c.querySelector(`img`)?.getAttribute(`src`) ?? null).toBeNull()
+  })
+})
+
 describe(`media: every src passes the media policy`, () => {
   it(`a file:// or javascript: Image src never loads; the fallback paints`, () => {
     for (const src of [`file:///etc/passwd`, `javascript:alert(1)`]) {
