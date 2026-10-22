@@ -64,10 +64,10 @@ export const entry: StyleguideEntry = {
       note: `hosts: ThreadDock (session-thread-view.tsx), useSessionDock (apps/web agent-session.tsx)`,
     },
     desktop: {
-      state: `leftover`,
-      symbol: `dock`,
+      state: `ok`,
+      symbol: `dock::band / dock_card / sheet`,
       file: `apps/desktop/crates/ui/src/dock.rs`,
-      note: `N-12: lands with the IDE child (the pile = toast::stack_layout, the sheet = the IDE's first in-window sheet)`,
+      note: `the pile = domain::stack::stack_layout (shared with toast.rs); the sheet = a window layer; hosts: steer_viewer.rs render_session_dock, thread_screen.rs root_dock`,
     },
     ios: {
       state: `leftover`,

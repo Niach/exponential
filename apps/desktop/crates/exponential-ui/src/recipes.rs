@@ -186,8 +186,9 @@ mod tests {
         assert_eq!(parts["Menu"].props, ["openOn"]);
         assert!(parts["Switch"].parts.iter().any(|p| p == "track"));
         assert_eq!(parts["Button"].props, ["variant", "size", "disabled", "loading"]);
-        // EXP-1280: + ChoiceTiles.
-        assert_eq!(parts.len(), 76);
+        // EXP-1280: + ChoiceTiles; N-12: + DockCard.
+        assert_eq!(parts.len(), 77);
+        assert!(parts["DockCard"].parts.iter().any(|p| p == "trigger"));
     }
 
     #[test]

@@ -62,7 +62,7 @@ pub(crate) mod getting_started;
 /// than a demo. EXP-1268 landed its design draft on the web page first; its
 /// IDE entry says so until the surface is built.
 pub(crate) fn is_placeholder(id: &str) -> bool {
-    id == voice_call_overlay::ID || id == dock_card::ID
+    id == voice_call_overlay::ID
 }
 
 /// A demo: the entry's element, built with the window and the app so it
