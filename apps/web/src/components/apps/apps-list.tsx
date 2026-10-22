@@ -25,6 +25,7 @@ import { trpc } from "@/lib/trpc-client"
 // `Built-in` pill and no menu. Manage = create, rename, delete, open.
 
 const NavAppsIcon = conceptIcon(`nav-apps`)
+const NavDevicesIcon = conceptIcon(`nav-devices`)
 const UiAddIcon = conceptIcon(`ui-add`)
 const UiMoreIcon = conceptIcon(`ui-more`)
 const UiEditIcon = conceptIcon(`ui-edit`)
@@ -36,12 +37,15 @@ export function AppsList({
   apps,
   me,
   isOwner,
+  rowsOpen = `editor`,
 }: {
   teamId: string
   teamSlug: string
   apps: readonly AppListEntry[]
   me: string | null
   isOwner: boolean
+  /** Where a row goes: the editor (the Apps page) or the app's settings page (Settings → Apps). */
+  rowsOpen?: `editor` | `settings`
 }) {
   const navigate = useNavigate()
   const [creating, setCreating] = useState(false)
@@ -50,7 +54,9 @@ export function AppsList({
   const [busy, setBusy] = useState(false)
 
   const open = (app: AppListEntry) =>
-    void navigate({ to: `/t/$teamSlug/apps/$appSlug`, params: { teamSlug, appSlug: app.slug } })
+    void (rowsOpen === `settings` && !app.builtin
+      ? navigate({ to: `/t/$teamSlug/settings/apps/$appId`, params: { teamSlug, appId: app.id } })
+      : navigate({ to: `/t/$teamSlug/apps/$appSlug`, params: { teamSlug, appSlug: app.slug } }))
 
   const remove = async () => {
     if (!deleting) return
@@ -91,7 +97,7 @@ export function AppsList({
               className="gap-3 px-3 py-2 text-sm"
               data-testid={`${APPS_TEST_IDS.row}-${app.slug}`}
             >
-              <BoardGlyph board={{ icon: app.icon, color: app.color }} />
+              {app.builtin ? <NavDevicesIcon className="size-4 shrink-0" /> : <BoardGlyph board={{ icon: app.icon, color: app.color }} />}
               <span className="min-w-0 flex-1 truncate font-medium">{app.name}</span>
               <Pill size="sm" className={app.builtin || app.headVersion > 0 ? `tabular-nums` : `text-muted-foreground`}>
                 {app.builtin ? APPS_COPY.builtin : versionLabel(app.headVersion)}

@@ -1,4 +1,5 @@
-import { APPS_COPY } from "@exp/domain-contract/apps"
+import { useApps } from "@/hooks/use-apps"
+import { SidebarAppsSection } from "@/components/team/sidebar-apps"
 import { useEffect, useLayoutEffect, useRef, useState } from "react"
 import type { ReactNode } from "react"
 import {
@@ -111,7 +112,6 @@ import { resolveBoardTarget } from "@/components/team/mobile-tab-bar"
 const NavAgentIcon = conceptIcon(`action-chat`)
 const NavCreateIssueIcon = conceptIcon(`nav-create-issue`)
 const NavDevicesIcon = conceptIcon(`nav-devices`)
-const NavAppsIcon = conceptIcon(`nav-apps`)
 const NavInboxIcon = conceptIcon(`nav-inbox`)
 const NavThreadsIcon = conceptIcon(`nav-threads`)
 const NavSearchIcon = conceptIcon(`nav-search`)
@@ -207,6 +207,10 @@ export function TeamSidebar({
   const activeAgentId = useRouterState({
     select: (s) => /\/agents\/([^/]+)$/.exec(s.location.pathname)?.[1] ?? null,
   })
+  const activeAppSlug = useRouterState({
+    select: (s) => /\/apps\/([^/]+)$/.exec(s.location.pathname)?.[1] ?? null,
+  })
+  const { apps } = useApps(team?.id)
   const occupant = useSidebarOccupant()
   const inSettings = occupant.kind === `settings`
   const listOrigin = occupant.kind === `list` ? occupant.origin : null
@@ -420,15 +424,6 @@ export function TeamSidebar({
                             </SidebarMenuButton>
                             <ThreadsLiveBadge state={threadsNav} placement="row" />
                           </SidebarMenuItem>
-                          {/* VAPP-110: the team's apps (fixtures/apps.json). */}
-                          <SidebarMenuItem>
-                            <SidebarMenuButton asChild density="compact">
-                              <Link to="/t/$teamSlug/apps" params={{ teamSlug }} data-testid="nav-apps">
-                                <NavAppsIcon className="h-4 w-4" />
-                                <span>{APPS_COPY.nav}</span>
-                              </Link>
-                            </SidebarMenuButton>
-                          </SidebarMenuItem>
                           <SidebarMenuItem>
                             <SidebarMenuButton asChild density="compact">
                               <Link to="/t/$teamSlug/devices" params={{ teamSlug }}>
@@ -472,6 +467,19 @@ export function TeamSidebar({
                       isOwner={isOwner}
                       activeAgentId={activeAgentId}
                     />
+
+                    {/* VAPP-110: the team's apps, drawn like the agents
+                        (fixtures/apps.json). */}
+                    {team && (
+                      <SidebarAppsSection
+                        teamId={team.id}
+                        teamSlug={teamSlug}
+                        apps={apps}
+                        me={session?.user?.id ?? null}
+                        isOwner={isOwner}
+                        activeAppSlug={activeAppSlug}
+                      />
+                    )}
 
                     <SidebarGroup>
                       <SidebarGroupLabel>Boards</SidebarGroupLabel>

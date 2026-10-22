@@ -161,6 +161,10 @@
     {
       "route": "/t/$teamSlug/settings/prompts/$promptId",
       "reason": "The same page as `settings-prompt` (captured on /settings/prompts/new) filled from a prompt row; a seeded prompt id is not resolvable by the capture."
+    },
+    {
+      "route": "/t/$teamSlug/settings/apps/new",
+      "reason": "VAPP-110: the app settings page in create mode, the same layout settings-app photographs with an empty form."
     }
   ],
   "views": [
@@ -1932,6 +1936,49 @@
         "ios": "NEW-7: New prompt (the Prompts section's owner pill, `prompts-new`), the same page an existing prompt opens (`PromptSettingsPage`), in create mode so the capture needs no seeded id; the walk takes it right after `sg_settings-prompts`.",
         "android": "NEW-7: New prompt (the Prompts section's owner pill), the same page an existing prompt opens (`settings/prompt/{id}`), in create mode so the capture needs no seeded id.",
         "desktop": "NEW-6: New prompt (`EXP_DEV_SETTINGS=new-prompt`), the same page an existing prompt opens (`prompt:<id>`), in create mode so the capture needs no seeded id."
+      }
+    },
+    {
+      "id": "settings-apps",
+      "group": "settings",
+      "title": "Settings · Apps",
+      "blurb": "VAPP-110: Settings → Apps, the Agents page's twin (fixtures/apps.json): the Apps band (New app) whose rows open the app's settings page; the settings nav lists the team's apps under Agents with New app.",
+      "order": 26,
+      "web": {
+        "route": "/t/$teamSlug/settings/apps",
+        "anchor": {
+          "testId": "apps-list",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "webMobile": "inherit",
+      "notes": {
+        "desktop": "VAPP-114: the IDE's Settings → Apps lands with Screen::Apps.",
+        "ios": "Phones have no settings mirror in slice 1 (the Apps list is the management surface).",
+        "android": "Phones have no settings mirror in slice 1 (the Apps list is the management surface)."
+      }
+    },
+    {
+      "id": "settings-app",
+      "group": "settings",
+      "title": "Settings · App",
+      "blurb": "VAPP-110: one app's settings page (the agent page's layout): icon, colour and name in one row, the description card, Open in the editor, the version pill and Delete app for the creator or an owner.",
+      "order": 27,
+      "web": {
+        "route": "/t/$teamSlug/settings/apps/$appId",
+        "anchor": {
+          "testId": "app-settings-page",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "webMobile": "inherit",
+      "notes": {
+        "web": "`$appId` resolves to DEMO_APP_ID (apps/web/scripts/screenshot-demo.ts), the Team dashboard app.",
+        "desktop": "VAPP-114: the IDE's Settings → App lands with Screen::Apps.",
+        "ios": "Phones have no settings mirror in slice 1.",
+        "android": "Phones have no settings mirror in slice 1."
       }
     },
     {

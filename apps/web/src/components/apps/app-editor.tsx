@@ -48,6 +48,7 @@ import { cn } from "@/lib/utils"
 
 const NavAppsIcon = conceptIcon(`nav-apps`)
 const UiHistoryIcon = conceptIcon(`ui-history`)
+const NavDevicesIcon = conceptIcon(`nav-devices`)
 
 type Tab = `chat` | `preview` | `versions`
 
@@ -201,7 +202,7 @@ export function AppEditor({
       ? navigate({ to: `/t/$teamSlug/threads/$threadId`, params: { teamSlug, threadId: session.id } })
       : navigate({ to: `/t/$teamSlug/sessions/$sessionId`, params: { teamSlug, sessionId: session.id } }))
 
-  const glyph = <BoardGlyph board={{ icon: app.icon, color: app.color }} className="size-5" />
+  const glyph = app.builtin ? <NavDevicesIcon className="size-5 shrink-0" /> : <BoardGlyph board={{ icon: app.icon, color: app.color }} className="size-5" />
   const versionPill = (
     <Pill size="sm" className={app.builtin || head > 0 ? `tabular-nums` : `text-muted-foreground`}>
       {app.builtin ? APPS_COPY.builtin : versionLabel(head)}

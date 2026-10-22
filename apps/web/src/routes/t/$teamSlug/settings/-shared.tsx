@@ -1,3 +1,4 @@
+import { APPS_COPY } from "@exp/domain-contract/apps"
 // Shared model for the team-settings pages (EXP-146): the grouped nav
 // definition consumed by the layout route (sidebar) and the index route
 // (redirect to the first visible section), plus the per-section access guard
@@ -147,6 +148,12 @@ export const SETTINGS_NAV: { group: string; items: SettingsNavItem[] }[] = [
       },
     ],
   },
+  // VAPP-110: the team's APPS are managed like agents: one row per app, then
+  // "New app", injected at render off the synced apps shape (fixture apps.json).
+  {
+    group: `Apps`,
+    items: [],
+  },
   {
     group: `Features`,
     items: [
@@ -246,6 +253,10 @@ export const NEW_BOARD_LABEL = `New board`
 // Members see the agent rows (the pages read-only); "New agent" is owner-only.
 export const SETTINGS_AGENTS_GROUP = `Agents`
 export const NEW_AGENT_LABEL = AGENT_SETTINGS_COPY.newAgent
+
+// VAPP-110: the same injection for the team's apps (fixture apps.json).
+export const SETTINGS_APPS_GROUP = `Apps`
+export const NEW_APP_LABEL = APPS_COPY.newApp
 
 // Everything a settings section page needs. `resolved` flips true only once
 // the current user's own member row has synced — permissions are transiently

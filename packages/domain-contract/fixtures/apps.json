@@ -1,5 +1,5 @@
 {
-  "$comment": "VAPP-110 Exponential apps ×4 (web routes/t/$teamSlug/apps/*, desktop crates/ui apps screens, iOS Apps/*, Android ui/apps/*). An APP = a team-scoped declarative package (the Exponential UI SDK's format: manifest + A2UI templates + bindings + a function allowlist, data never code) rendered by the Exponential UI renderers through the client's app host (`exp:` bindings over the synced store, `harness.*` functions behind the consent card, the URL policy). ONE look ×4. THE LIST (`apps` view, nav entry `copy.nav` between Threads and Devices, the IDE rail alike): a Section band `copy.title` with `copy.newApp` as its trailing action pill, then ListRows = BoardGlyph (icon + colour, the board set) + name (medium) + the version pill `copy.version` (`v{n}`; `copy.noVersion` muted while head_version = 0) + a trailing `…` menu (`copy.menu.*`: Rename → the New app form prefilled, Delete → the confirm prompt `copy.deleteTitle`/`copy.deleteBody`, members may delete only their own apps, owners every app). The BUILT-IN app (`builtin.slug`, the Devices package every client ships) is listed first with `copy.builtin` as its pill, has no menu and no versions. Rows sort: built-in, then name. Empty (a team with no apps): the list-size EmptyState `copy.empty` under the band. NEW APP (`copy.newApp`): a dialog/sheet with the board form's identity row (icon + colour + name) and `copy.descriptionPlaceholder` (multi-line, optional); Create = tRPC `apps.create` (slug derived from the name: `slugify`, de-duplicated with `-2`, `-3`), then the editor opens. THE EDITOR (`app` view, route `/t/$teamSlug/apps/$appSlug`): header = BoardGlyph + name + the version pill + `copy.versions` button (a count badge) + the `…` menu; BODY on web ≥ md and desktop = two panes `panes.chat` : `panes.preview` (fr), a hairline between; on phones (and web < md) a SegmentedControl `copy.tabs.*` under the header (Chat | Preview | Versions) and ONE pane. CHAT = the member's EDITOR SESSION with the app (a root with `sessions.app_id` + `user_id` = me): the same channel rows as a team agent's conversation (ChannelMessageRow: avatar / the app glyph, name, time, body; cards answer in place) and THE composer (`copy.composerPlaceholder`); no session yet = the same pane, empty, whose composer's first send is `sessions.send({appId, text, deviceId})` (the device = the caller's default device, `launch-device`; none online = the composer disabled with `copy.noDevice`). `copy.chatEmpty` sits in the empty chat. LIFETIME: entering the editor starts nothing; leaving it (route change, tab close) ENDS the member's live editor session (`sessions.end` on the root: the tree); the next send continues it (an ended root continues as a child of itself, so the chat is the root's tree messages). PREVIEW = the app host rendering the HEAD package's first template (`applyTemplate`, surface id = the slug) in a frame `preview.radius` px / `preview.padding` px with the theme's background; the apps shape carries the head package, so every MCP `apps upsert` repaints it live. No version yet: the page-size EmptyState `copy.previewEmpty` in the frame. The HostBanner (offline / catalog update) sits above the surface; the consent card is the client's. VERSIONS (`copy.versions`: a Drawer on web ≥ md and desktop, the third tab on phones): rows newest first = `copy.version` (`v{n}`) medium + `note` (muted, `copy.noNote` when empty) + the relative time + who (a person's avatar + name, or `copy.byAgent`); the head row carries `copy.head`. Tapping a row PREVIEWS that version (the preview pane re-renders it; a banner `copy.viewing` with `copy.restore` above the surface; the head row clears it); Restore = tRPC `apps.restore` → a NEW head version `copy.restoredNote` (`Restored v{n}`), toast `copy.restored`. CAPS: contract `apps` (slug, name, description, note, package bytes, components per template). FEEDBACK: a failed create/delete/restore = toast (feedback-states.json); an invalid name inline. Model = pure `apps.ts` (TS reference): every mirror replays `slugifyCases`, `versionLabelCases` and `sortAppsCases`.",
+  "$comment": "VAPP-110 Exponential apps ×4 (web routes/t/$teamSlug/apps/*, desktop crates/ui apps screens, iOS Apps/*, Android ui/apps/*). An APP = a team-scoped declarative package (the Exponential UI SDK's format: manifest + A2UI templates + bindings + a function allowlist, data never code) rendered by the Exponential UI renderers through the client's app host (`exp:` bindings over the synced store, `harness.*` functions behind the consent card, the URL policy). ONE look ×4. THE LIST (`apps` view, nav entry `copy.nav` between Threads and Devices, the IDE rail alike): a Section band `copy.title` with `copy.newApp` as its trailing action pill, then ListRows = BoardGlyph (icon + colour, the board set) + name (medium) + the version pill `copy.version` (`v{n}`; `copy.noVersion` muted while head_version = 0) + a trailing `…` menu (`copy.menu.*`: Rename → the New app form prefilled, Delete → the confirm prompt `copy.deleteTitle`/`copy.deleteBody`, members may delete only their own apps, owners every app). The BUILT-IN app (`builtin.slug`, the Devices package every client ships) is listed first with `copy.builtin` as its pill, has no menu and no versions. Rows sort: built-in, then name. Empty (a team with no apps): the list-size EmptyState `copy.empty` under the band. NEW APP (`copy.newApp`): a dialog/sheet with the board form's identity row (icon + colour + name) and `copy.descriptionPlaceholder` (multi-line, optional); Create = tRPC `apps.create` (slug derived from the name: `slugify`, de-duplicated with `-2`, `-3`), then the editor opens. THE EDITOR (`app` view, route `/t/$teamSlug/apps/$appSlug`): header = BoardGlyph + name + the version pill + `copy.versions` button (a count badge) + the `…` menu; BODY on web ≥ md and desktop = two panes `panes.chat` : `panes.preview` (fr), a hairline between; on phones (and web < md) a SegmentedControl `copy.tabs.*` under the header (Chat | Preview | Versions) and ONE pane. CHAT = the member's EDITOR SESSION with the app (a root with `sessions.app_id` + `user_id` = me): the same channel rows as a team agent's conversation (ChannelMessageRow: avatar / the app glyph, name, time, body; cards answer in place) and THE composer (`copy.composerPlaceholder`); no session yet = the same pane, empty, whose composer's first send is `sessions.send({appId, text, deviceId})` (the device = the caller's default device, `launch-device`; none online = the composer disabled with `copy.noDevice`). `copy.chatEmpty` sits in the empty chat. LIFETIME: entering the editor starts nothing; leaving it (route change, tab close) ENDS the member's live editor session (`sessions.end` on the root: the tree); the next send continues it (an ended root continues as a child of itself, so the chat is the root's tree messages). PREVIEW = the app host rendering the HEAD package's first template (`applyTemplate`, surface id = the slug) in a frame `preview.radius` px / `preview.padding` px with the theme's background; the apps shape carries the head package, so every MCP `apps upsert` repaints it live. No version yet: the page-size EmptyState `copy.previewEmpty` in the frame. The HostBanner (offline / catalog update) sits above the surface; the consent card is the client's. VERSIONS (`copy.versions`: a Drawer on web ≥ md and desktop, the third tab on phones): rows newest first = `copy.version` (`v{n}`) medium + `note` (muted, `copy.noNote` when empty) + the relative time + who (a person's avatar + name, or `copy.byAgent`); the head row carries `copy.head`. Tapping a row PREVIEWS that version (the preview pane re-renders it; a banner `copy.viewing` with `copy.restore` above the surface; the head row clears it); Restore = tRPC `apps.restore` → a NEW head version `copy.restoredNote` (`Restored v{n}`), toast `copy.restored`. CAPS: contract `apps` (slug, name, description, note, package bytes, components per template). FEEDBACK: a failed create/delete/restore = toast (feedback-states.json); an invalid name inline. Model = pure `apps.ts` (TS reference): every mirror replays `slugifyCases`, `versionLabelCases` and `sortAppsCases`. DESKTOP NAV (web ≥ md + the IDE rail): no plain Apps nav row; an APPS sidebar GROUP drawn exactly like Agents and Boards, between them: the label `copy.title`, a `+` group action opening the New app form, one compact row per app (its glyph in its colour + name → the editor; the built-in Devices app first), the hover gear (the creator or an owner) → Settings → Apps → the app. The compact rail shows the app icons after the agent icons. SETTINGS mirrors Agents: an `Apps` settings group listing the apps + `copy.newApp`, the index page = the Apps band whose rows open the app's SETTINGS page (identity row: icon + colour + name with the name a deferred write, the description card saved on blur, `copy.openEditor`, the version pill, Delete for the creator or an owner), `/settings/apps/new` = the same page in create mode (Create opens the editor). PHONES keep the Apps LIST route; the Threads tab's header carries an Apps icon button (`nav-apps`, like the Issues tab's gear) that opens it.",
   "copy": {
     "nav": "Apps",
     "title": "Apps",
@@ -35,7 +35,9 @@
       "chat": "Chat",
       "preview": "Preview",
       "versions": "Versions"
-    }
+    },
+    "openEditor": "Open in the editor",
+    "settingsTitle": "Apps"
   },
   "builtin": {
     "slug": "devices",
@@ -69,27 +71,80 @@
     "viewing": "app-editor-viewing"
   },
   "slugifyCases": [
-    { "name": "Team dashboard", "slug": "team-dashboard" },
-    { "name": "  Spaced   Out  ", "slug": "spaced-out" },
-    { "name": "Ünïcode café", "slug": "unicode-cafe" },
-    { "name": "---", "slug": "app" },
-    { "name": "A very long name that keeps going well past the sixty four character cap for a slug", "slug": "a-very-long-name-that-keeps-going-well-past-the-sixty-four-chara" },
-    { "name": "Devices", "taken": ["devices"], "slug": "devices-2" },
-    { "name": "Devices", "taken": ["devices", "devices-2"], "slug": "devices-3" }
+    {
+      "name": "Team dashboard",
+      "slug": "team-dashboard"
+    },
+    {
+      "name": "  Spaced   Out  ",
+      "slug": "spaced-out"
+    },
+    {
+      "name": "Ünïcode café",
+      "slug": "unicode-cafe"
+    },
+    {
+      "name": "---",
+      "slug": "app"
+    },
+    {
+      "name": "A very long name that keeps going well past the sixty four character cap for a slug",
+      "slug": "a-very-long-name-that-keeps-going-well-past-the-sixty-four-chara"
+    },
+    {
+      "name": "Devices",
+      "taken": [
+        "devices"
+      ],
+      "slug": "devices-2"
+    },
+    {
+      "name": "Devices",
+      "taken": [
+        "devices",
+        "devices-2"
+      ],
+      "slug": "devices-3"
+    }
   ],
   "versionLabelCases": [
-    { "headVersion": 0, "label": "No version yet" },
-    { "headVersion": 1, "label": "v1" },
-    { "headVersion": 12, "label": "v12" }
+    {
+      "headVersion": 0,
+      "label": "No version yet"
+    },
+    {
+      "headVersion": 1,
+      "label": "v1"
+    },
+    {
+      "headVersion": 12,
+      "label": "v12"
+    }
   ],
   "sortAppsCases": [
     {
       "apps": [
-        { "slug": "zeta", "name": "Zeta", "builtin": false },
-        { "slug": "devices", "name": "Devices", "builtin": true },
-        { "slug": "alpha", "name": "alpha", "builtin": false }
+        {
+          "slug": "zeta",
+          "name": "Zeta",
+          "builtin": false
+        },
+        {
+          "slug": "devices",
+          "name": "Devices",
+          "builtin": true
+        },
+        {
+          "slug": "alpha",
+          "name": "alpha",
+          "builtin": false
+        }
       ],
-      "order": ["devices", "alpha", "zeta"]
+      "order": [
+        "devices",
+        "alpha",
+        "zeta"
+      ]
     }
   ]
 }

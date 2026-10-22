@@ -1,4 +1,5 @@
-import { APPS_COPY } from "@exp/domain-contract/apps"
+import { useApps } from "@/hooks/use-apps"
+import { SidebarAppsIcons } from "@/components/team/sidebar-apps"
 import type * as React from "react"
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router"
 import {
@@ -51,7 +52,6 @@ const NavAdminIcon = conceptIcon(`nav-admin`)
 const NavAgentIcon = conceptIcon(`action-chat`)
 const NavChangelogIcon = conceptIcon(`nav-changelog`)
 const NavDevicesIcon = conceptIcon(`nav-devices`)
-const NavAppsIcon = conceptIcon(`nav-apps`)
 const NavInboxIcon = conceptIcon(`nav-inbox`)
 const NavThreadsIcon = conceptIcon(`nav-threads`)
 const NavSettingsIcon = conceptIcon(`nav-settings`)
@@ -266,6 +266,8 @@ export function TeamSidebarRail({
 }) {
   const params = { teamSlug }
   const draftCount = useDraftCount(team?.id)
+  // VAPP-110: the team's apps (the icons after the agents).
+  const { apps } = useApps(team?.id)
   // EXP-862: while a pinned action seeds the composer, its pin owns the
   // highlight — the Agent icon must not claim the page too.
   const composerSeeded = useRouterState({
@@ -301,9 +303,6 @@ export function TeamSidebarRail({
           <NavThreadsIcon className="size-4" />
           <ThreadsLiveBadge state={threadsNav} placement="icon" />
         </RailItem>
-        <RailItem label={APPS_COPY.nav} link={{ to: `/t/$teamSlug/apps`, params }}>
-          <NavAppsIcon className="size-4" />
-        </RailItem>
         <RailItem label="Devices" link={{ to: `/t/$teamSlug/devices`, params }}>
           <NavDevicesIcon className="size-4" />
         </RailItem>
@@ -321,6 +320,18 @@ export function TeamSidebarRail({
         <SidebarAgentsIcons
           teamSlug={teamSlug}
           agents={agents}
+          separator={<Separator className="my-1 w-6! shrink-0" />}
+          renderItem={(item) => (
+            <RailItem key={item.key} label={item.label} link={item.link}>
+              {item.icon}
+            </RailItem>
+          )}
+        />
+
+        {/* VAPP-110: the team's apps, after the agents. */}
+        <SidebarAppsIcons
+          teamSlug={teamSlug}
+          apps={apps}
           separator={<Separator className="my-1 w-6! shrink-0" />}
           renderItem={(item) => (
             <RailItem key={item.key} label={item.label} link={item.link}>

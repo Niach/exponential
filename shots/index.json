@@ -133,15 +133,15 @@
         "file": "shots/app/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 65314,
-        "sha256": "fd20c1b28435b50f457dec4e05bf8a54991009368726492f54f7a6d0b6c836b7"
+        "bytes": 61076,
+        "sha256": "6db4f7e854c11ff5c10a8cb80d5224160dcdbab6f74ff8bd267a35dc88fffe25"
       },
       "web-mobile": {
         "file": "shots/app/web-mobile.webp",
         "width": 832,
         "height": 1800,
-        "bytes": 53196,
-        "sha256": "e9d8aa4f1ea0263fcd1d7ba90e96ccf672b2a8557385181cb4a8e41a1b5f1d12"
+        "bytes": 52678,
+        "sha256": "3f2cbdb950f42fa5a055f67f4fb4d36a82b3bd85fa3adb7418433047c06a2e07"
       }
     },
     "apps": {
@@ -149,15 +149,15 @@
         "file": "shots/apps/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 34610,
-        "sha256": "9c8e07171f6a64b87f7f4ffb123664185a9ac0dccb893f60e08a415fb5589814"
+        "bytes": 32144,
+        "sha256": "71087c04398a4a3b2a459bd2a5b10e43f52988e3298d45ad6383cc42d264e7e3"
       },
       "web-mobile": {
         "file": "shots/apps/web-mobile.webp",
         "width": 832,
         "height": 1800,
-        "bytes": 17314,
-        "sha256": "9bd12ecf2b5b95220eb66ec0d0daa3f79729949c3dafe4bfcc6e7abfdc9fb706"
+        "bytes": 16384,
+        "sha256": "bf6f3ca588d5f75cc2e9e1dd326945bf1369c1dd4d95436f733f0dad1c64f0d5"
       }
     },
     "ask-dock": {
@@ -3705,6 +3705,38 @@
         "sha256": "6c2838ea9be01436f3feadc318bbdb549d79b680167c37c65cd3f970cfaa9491"
       }
     },
+    "settings-app": {
+      "web": {
+        "file": "shots/settings-app/web.webp",
+        "width": 1800,
+        "height": 1200,
+        "bytes": 38126,
+        "sha256": "619f46a443ecf10ba0f3c4c31728c7d76c55586243c0c0b64e66b359b03cd432"
+      },
+      "web-mobile": {
+        "file": "shots/settings-app/web-mobile.webp",
+        "width": 832,
+        "height": 1800,
+        "bytes": 30258,
+        "sha256": "1b935e004c85d89d432351f40ff081b12202a53536a9000edafb2ed00f7d3bf3"
+      }
+    },
+    "settings-apps": {
+      "web": {
+        "file": "shots/settings-apps/web.webp",
+        "width": 1800,
+        "height": 1200,
+        "bytes": 35150,
+        "sha256": "4065792ddcef78fa84f796e23860987abc58cdf9de5d97ac109673823ea193fa"
+      },
+      "web-mobile": {
+        "file": "shots/settings-apps/web-mobile.webp",
+        "width": 832,
+        "height": 1800,
+        "bytes": 24232,
+        "sha256": "c07978badd9c17655707acafd66f5db2b50cd2e66a8981766696409540812a8f"
+      }
+    },
     "settings-boards": {
       "web": {
         "file": "shots/settings-boards/web.webp",
@@ -4354,8 +4386,8 @@
         "file": "shots/threads/web-mobile.webp",
         "width": 832,
         "height": 1800,
-        "bytes": 50910,
-        "sha256": "aee3b8909e1a061139f21a9874159a0cc0b94b7012035f3bb101aeabebad7cbb"
+        "bytes": 51338,
+        "sha256": "4a5017125d0078b9ce4156f03bb30d1241777cda1a9966dabfc535fdecfc7efd"
       }
     },
     "trace": {
