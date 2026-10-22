@@ -279,13 +279,17 @@ export function nounDescription(
 
 // NEW-44: a noun's JSON schema carries only `op`, so a client passes every
 // other field untyped and Claude Code sends numbers and booleans as strings
-// (`limit: "50"`, `prNumber: "1129"`, `includeClosed: "true"`). The ops'
-// strict schemas (z.number(), z.boolean()) reject those, so the router
-// coerces a top-level string into the scalar the op's schema declares before
-// it parses: a numeric string where a number is expected, `true`/`false`
-// where a boolean is. Anything else (a non-numeric string, a nested object)
-// reaches the schema as sent and fails as before.
+// (`limit: "50"`, `prNumber: "1129"`, `includeClosed: "true"`) and arrays
+// and objects as their JSON text (`issueIds: '["NEW-43"]'`). The ops'
+// strict schemas reject those, so the router coerces a top-level string
+// into the shape the op's schema declares before it parses: a numeric
+// string where a number is expected, `true`/`false` where a boolean is,
+// parsed JSON where an array or object is. Anything else (a non-numeric
+// string, JSON that does not parse) reaches the schema as sent and fails
+// as before.
 type ScalarKinds = Map<string, Set<string>>
+
+const COERCIBLE = new Set([`number`, `integer`, `boolean`, `array`, `object`])
 
 function jsonTypes(node: unknown, into: Set<string>): void {
   if (!node || typeof node !== `object`) return
@@ -296,7 +300,7 @@ function jsonTypes(node: unknown, into: Set<string>): void {
 }
 
 /** `field` → the JSON schema types its op declares, for the fields a string
- *  may be coerced into (number/integer, boolean). */
+ *  may be coerced into (number/integer, boolean, array, object). */
 export function scalarKinds(schema: z.ZodType | undefined): ScalarKinds {
   const kinds: ScalarKinds = new Map()
   if (!schema) return kinds
@@ -306,7 +310,7 @@ export function scalarKinds(schema: z.ZodType | undefined): ScalarKinds {
   for (const [key, node] of Object.entries(json.properties ?? {})) {
     const types = new Set<string>()
     jsonTypes(node, types)
-    const scalar = new Set([...types].filter((type) => type === `number` || type === `integer` || type === `boolean`))
+    const scalar = new Set([...types].filter((type) => COERCIBLE.has(type)))
     if (scalar.size > 0) kinds.set(key, scalar)
   }
   return kinds
@@ -314,8 +318,16 @@ export function scalarKinds(schema: z.ZodType | undefined): ScalarKinds {
 
 const NUMERIC = /^-?\d+(\.\d+)?$/
 
-/** The flat arguments with every stringified number/boolean turned into the
- *  scalar its op declares. */
+function parseJson(text: string): unknown {
+  try {
+    return JSON.parse(text)
+  } catch {
+    return undefined
+  }
+}
+
+/** The flat arguments with every stringified number, boolean, array or
+ *  object turned into the value its op declares. */
 export function coerceScalars(args: Record<string, unknown>, kinds: ScalarKinds): Record<string, unknown> {
   const out: Record<string, unknown> = { ...args }
   for (const [key, types] of kinds) {
@@ -325,6 +337,12 @@ export function coerceScalars(args: Record<string, unknown>, kinds: ScalarKinds)
       out[key] = Number(value.trim())
     } else if (types.has(`boolean`) && (value === `true` || value === `false`)) {
       out[key] = value === `true`
+    } else if (types.has(`array`) && value.trimStart().startsWith(`[`)) {
+      const parsed = parseJson(value)
+      if (Array.isArray(parsed)) out[key] = parsed
+    } else if (types.has(`object`) && value.trimStart().startsWith(`{`)) {
+      const parsed = parseJson(value)
+      if (parsed && typeof parsed === `object` && !Array.isArray(parsed)) out[key] = parsed
     }
   }
   return out
