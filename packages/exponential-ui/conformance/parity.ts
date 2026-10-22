@@ -5,7 +5,10 @@
 // conformance font set, reduced motion, animations and transitions off — and
 // every case is compared four ways, all EXACT:
 //   dom    the `.xui-surface` subtrees serialised (tag, attributes by name,
-//          text), generated ids normalised (parity-compare.ts);
+//          text; adjacent text nodes MERGED, as the jsdom helper does: the
+//          HTML parser of Playwright's pinned Chromium splits an innerHTML
+//          text past 65 536 chars, React's `<style>`, where `textContent`
+//          keeps one node), generated ids normalised (parity-compare.ts);
 //   style  every `[data-xui-id]` element's (and every overlay part's) full
 //          computed style;
 //   (FEED-131: a PRIMITIVE case's page wears `data-xui-parity-root` on
@@ -164,7 +167,13 @@ const PROBE = `(() => {
     if (rooted() && skipped(n)) return null;
     const a = Array.from(n.attributes).map((x) => [x.name, x.value]).sort((p, q) => (p[0] < q[0] ? -1 : p[0] > q[0] ? 1 : 0));
     const c = [];
-    for (const k of Array.from(n.childNodes)) { const s = ser(k); if (s) c.push(s); }
+    for (const k of Array.from(n.childNodes)) {
+      const s = ser(k);
+      if (!s) continue;
+      const last = c[c.length - 1];
+      if (s.x !== undefined && last && last.x !== undefined) last.x += s.x;
+      else c.push(s);
+    }
     return { t: n.tagName.toLowerCase(), a, c };
   };
   const compared = () => {
