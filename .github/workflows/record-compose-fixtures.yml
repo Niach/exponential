@@ -12,6 +12,8 @@ name: record-compose-fixtures
 # (`packages/exponential-ui/fixtures/conformance-known.json`): its test only
 # builds on Linux, so after a web baseline rewrite the budget is re-recorded
 # here and uploaded as `gpui-ratchet`.
+# FEED-128 (2026-10-21): re-recorded for the 4th built-in theme `orange`
+# (the Compose golden `kitchen-sink-orange.png` + the gpui budget).
 
 on:
   workflow_dispatch: {}

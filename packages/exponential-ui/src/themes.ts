@@ -1,11 +1,14 @@
-// VAPP-92: the built-in themes, compiled in. `exponential` is GENERATED from
+// VAPP-92: the four built-in themes, compiled in. `exponential` is GENERATED from
 // packages/design-tokens (the app's values) + the hand-authored glass
 // recipes; `neutral` is stock shadcn (light + dark) and the ROOT the others
 // extend; `playful` is the deliberately different test theme (rounded,
-// colourful, another family) the conformance suite renders on every painter.
+// colourful, another family) the conformance suite renders on every painter;
+// `orange` (FEED-128) is the brand-coloured reference: `exponential` with an
+// orange primary, colours only.
 
 import exponentialJson from "../themes/exponential.theme.json" with { type: "json" }
 import neutralJson from "../themes/neutral.theme.json" with { type: "json" }
+import orangeJson from "../themes/orange.theme.json" with { type: "json" }
 import playfulJson from "../themes/playful.theme.json" with { type: "json" }
 import { loadTheme, tryLoadTheme } from "./theme"
 import type { ResolvedTheme, ThemeIssue, ThemeSource } from "./theme-types"
@@ -13,9 +16,10 @@ import type { ResolvedTheme, ThemeIssue, ThemeSource } from "./theme-types"
 export const neutralTheme = neutralJson as unknown as ThemeSource
 export const exponentialTheme = exponentialJson as unknown as ThemeSource
 export const playfulTheme = playfulJson as unknown as ThemeSource
+export const orangeTheme = orangeJson as unknown as ThemeSource
 
 /** Source order = resolution order: a built-in may only extend one before it. */
-export const BUILTIN_THEMES: readonly ThemeSource[] = [neutralTheme, exponentialTheme, playfulTheme]
+export const BUILTIN_THEMES: readonly ThemeSource[] = [neutralTheme, exponentialTheme, playfulTheme, orangeTheme]
 export const BUILTIN_THEME_IDS: readonly string[] = BUILTIN_THEMES.map((t) => t.id)
 export const DEFAULT_THEME_ID = `exponential`
 

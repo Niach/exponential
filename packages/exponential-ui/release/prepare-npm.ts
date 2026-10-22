@@ -7,7 +7,7 @@
 // points on dist/, `workspace:*` pinned to the release version).
 //
 //   bun packages/exponential-ui/release/prepare-npm.ts <version> <outDir>
-//   → <outDir>/ui, <outDir>/ui-react   (then `npm publish` / `npm pack` there)
+//   → <outDir>/ui, <outDir>/ui-react, <outDir>/ui-solid   (then `npm publish` / `npm pack` there)
 
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { join, resolve } from "node:path"
@@ -29,6 +29,7 @@ const SPECS: Spec[] = [
     files: [`dist`, `catalog`, `fixtures`, `themes`, `docs`, `vendor`, `generated`, `conformance`, `README.md`],
     exports: {
       ".": { types: `./dist/types/src/index.d.ts`, import: `./dist/index.js`, default: `./dist/index.js` },
+      "./web": { types: `./dist/types/src/web/index.d.ts`, import: `./dist/web/index.js`, default: `./dist/web/index.js` },
       "./catalog/*": `./catalog/*`,
       "./fixtures/*": `./fixtures/*`,
       "./docs/*": `./docs/*`,
@@ -47,6 +48,17 @@ const SPECS: Spec[] = [
       ".": { types: `./dist/types/index.d.ts`, import: `./dist/index.js`, default: `./dist/index.js` },
       "./primitives": { types: `./dist/types/primitives/index.d.ts`, import: `./dist/primitives/index.js`, default: `./dist/primitives/index.js` },
       "./styles.css": `./dist/exponential-ui-react.css`,
+      "./package.json": `./package.json`,
+    },
+  },
+  {
+    // FEED-128: compiled Solid (DOM) JS, no stylesheet: the surface injects
+    // the compiled theme + node sheet itself.
+    dir: `packages/exponential-ui-solid`,
+    out: `ui-solid`,
+    files: [`dist`, `README.md`],
+    exports: {
+      ".": { types: `./dist/types/index.d.ts`, import: `./dist/index.js`, default: `./dist/index.js` },
       "./package.json": `./package.json`,
     },
   },

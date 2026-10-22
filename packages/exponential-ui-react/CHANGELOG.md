@@ -12,3 +12,4 @@ First release.
 - Host-owned inputs, overlays on Radix portals, extension registration and the host plugin API.
 - Runs the full conformance suite in headless Chromium.
 - Trace lines, the Text shimmer (reduced motion: plain) and CodeBlock's destructive/sm looks; an `ansi` block copies without its escapes.
+- The stylesheet, bind pass and pure helpers come from `@exponential-at/ui/web` (re-exported under the same names), shared with every web renderer.

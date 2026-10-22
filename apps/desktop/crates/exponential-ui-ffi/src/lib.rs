@@ -1840,7 +1840,7 @@ pub struct Theme {
 
 #[uniffi::export]
 impl Theme {
-    /// A built-in theme (`neutral`, `exponential`, `playful`).
+    /// A built-in theme (`neutral`, `exponential`, `playful`, `orange`).
     #[uniffi::constructor]
     pub fn builtin(id: String) -> Result<Arc<Self>, UiError> {
         let inner = exponential_ui::themes::builtin_theme(&id).ok_or_else(|| invalid(format!("unknown built-in theme {id:?}")))?;

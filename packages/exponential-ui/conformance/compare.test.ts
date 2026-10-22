@@ -7,6 +7,7 @@
 import { describe, expect, it } from "bun:test"
 import { existsSync, readFileSync } from "node:fs"
 import { join } from "node:path"
+import { builtinTheme } from "../src/themes"
 import { decodeBaseline, encodeBaseline, type Baseline } from "./baseline"
 import { compareCase, compareDumps, formatCase, formatTable, groupFindings } from "./compare"
 import { allCases, BASELINE_PATH, caseInput, caseKey, dropCollapsed, fontFaceCss, fontFiles, KNOWN_PATH, MANIFEST_PATH, parseCaseKey, type CaseDump, type ConformanceManifest, type Dump, type DumpNode, type FontManifest } from "./dump"
@@ -27,7 +28,7 @@ describe(`the matrix`, () => {
     expect(cases[0].key).toBe(caseKey(cases[0]))
     expect(parseCaseKey(`kitchen-sink/neutral/dark/390/rtl`)).toEqual({ key: `kitchen-sink/neutral/dark/390/rtl`, fixture: `kitchen-sink`, theme: `neutral`, mode: `dark`, width: 390, direction: `rtl` })
     expect(manifest.widths).toEqual([390, 600, 900, 1280])
-    expect(manifest.themes.sort()).toEqual([`exponential`, `neutral`, `playful`])
+    expect(manifest.themes.sort()).toEqual([`exponential`, `neutral`, `orange`, `playful`])
   })
 
   it(`builds each case's input: the root direction is the case's, the data without $comment`, async () => {
@@ -46,7 +47,8 @@ describe(`the font set`, () => {
   it(`names committed files and maps every theme family`, () => {
     for (const f of fontFiles(fonts)) expect(existsSync(join(repoRoot, f)), f).toBe(true)
     for (const id of manifest.themes) {
-      const theme = readRepo(`packages/exponential-ui/themes/${id}.theme.json`) as { tokens: { type: { family: Record<string, string> } } }
+      // Resolved: a theme that only extends (orange) has no tokens of its own.
+      const theme = builtinTheme(id)
       for (const family of Object.values(theme.tokens.type.family)) expect(fonts.families[family], `${id}: ${family}`).toBeDefined()
     }
     for (const spec of Object.values(fonts.families)) if (spec.substitute) expect(fonts.families[spec.substitute]?.faces?.length).toBeGreaterThan(0)

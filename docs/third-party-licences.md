@@ -357,6 +357,12 @@ renderer itself adds no third-party source: its natives are Radix behaviour
 (MIT, in the npm inventory) painted from the theme's recipes, and the shadcn
 primitive set that moved from `@exp/ui` into `src/primitives/` was already
 ours (MIT-derived shadcn code, recorded with the web app's dependencies).
+The Solid renderer (FEED-128, `@exponential-at/ui-solid`,
+`packages/exponential-ui-solid`) adds none either: its runtime set is
+`solid-js` 1.9 (MIT), `@kobalte/core` 0.13 (MIT) and `lucide-solid` 0.544
+(ISC), each declared in its npm tarball (verified 2026-10-21); no client
+bundles it (only its npm package, the ui.exponential.at guide and the
+`web-solid` sample), so no inventory changes.
 The desktop app (VAPP-90), the iOS SwiftUI painter (VAPP-88,
 `packages/exponential-ui-swift`, whose xcframework embeds the same Rust core
 with the generated catalog and themes) and the Android Compose painter
