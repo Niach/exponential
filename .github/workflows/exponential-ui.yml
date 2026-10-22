@@ -160,7 +160,7 @@ jobs:
         env:
           EXPONENTIAL_UI_CONFORMANCE_REPORT: ${{ github.workspace }}/.conformance/exponential-ui.json
         run: cargo test --locked -p exponential-ui -p exponential-ui-ffi
-      - name: The crate's feature gates (VAPP-106: without the non-default themes; with the descriptions)
+      - name: "The crate's feature gates (VAPP-106, without the non-default themes; with the descriptions)"
         working-directory: apps/desktop
         run: |
           cargo test --locked -p exponential-ui --no-default-features --lib --test generated_drift
