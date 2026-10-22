@@ -133,7 +133,7 @@ pub(crate) fn glass_composer(composer: GlassComposer) -> Div {
         .rounded(px(t::radius::XL))
         .border_1()
         .border_color(t::glass::STROKE_CARD.to_hsla())
-        .bg(t::glass::FILL_CARD.to_hsla())
+        .bg(crate::dock::card_fill())
         .children(leading)
         .children(strip);
     // EXP-525: a flex-COLUMN slot, not a nested row — the view child's

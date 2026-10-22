@@ -586,6 +586,7 @@ impl Render for AgentScreenView {
                     "agent",
                     &rows_snapshot,
                     &pending,
+                    None,
                     &self.dock,
                     &composer,
                     &text,

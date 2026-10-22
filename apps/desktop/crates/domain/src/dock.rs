@@ -48,6 +48,7 @@ pub struct DockIcons {
     pub queued: String,
     pub open: String,
     pub close: String,
+    pub suggestions: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -100,6 +101,7 @@ pub enum DockKind {
     Question,
     Tasks,
     Queued,
+    Suggestions,
     Banner,
 }
 
@@ -112,39 +114,55 @@ pub enum DockTint {
     Warning,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DockQueueItem {
     pub label: String,
     pub description: Option<String>,
     pub state: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DockQueueTodo {
     pub title: String,
     pub items: Vec<DockQueueItem>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DockQueueCompleted {
     pub title: String,
 }
 
 /// THE Queue's collapsed facts (task-queue.json `taskQueue`).
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DockQueue {
     pub todo: DockQueueTodo,
     pub completed: Option<DockQueueCompleted>,
 }
 
+/// One item of a suggestions row as [`suggestion_sources`] reads it.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct DockSuggestionItem {
+    /// `open` | `started` | `here` | `filed`.
+    pub state: String,
+    pub title: String,
+}
+
+/// A suggestions row as [`suggestion_sources`] reads it.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct DockSuggestionsRow {
+    pub id: String,
+    pub header: String,
+    pub items: Vec<DockSuggestionItem>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DockQueuedMessage {
     pub id: String,
     pub text: String,
 }
 
 /// What a host hands the Dock.
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum DockSource {
     #[serde(rename_all = "camelCase")]
@@ -163,6 +181,20 @@ pub enum DockSource {
     Question { id: String, text: String, session_name: Option<String>, created_at: i64 },
     Tasks { queue: Option<DockQueue> },
     Queued { messages: Vec<DockQueuedMessage> },
+    /// EXP-1323's suggested-tasks card while ANY item is open
+    /// ([`suggestion_sources`]).
+    Suggestions {
+        /// The suggestions row's id (a `messages.id`).
+        id: String,
+        /// The header's count (`3 suggested tasks`).
+        label: String,
+        /// The header's `started` part.
+        caption: Option<String>,
+        /// The first open item's title.
+        title: String,
+        /// How many items are still open.
+        open: usize,
+    },
     Banner {
         id: String,
         /// Concept icon.
@@ -220,13 +252,14 @@ fn order(kind: DockKind) -> usize {
     let key = match kind {
         DockKind::Queued => "queued",
         DockKind::Tasks => "tasks",
+        DockKind::Suggestions => "suggestions",
         DockKind::Banner => "banner",
         DockKind::Plan | DockKind::Question => "ask",
     };
     DOCK.order.iter().position(|k| k == key).unwrap_or(usize::MAX)
 }
 
-/// The cards, in the Dock's order (queued, tasks, banners, then the asks
+/// The cards, in the Dock's order (queued, tasks, suggestions, banners, then the asks
 /// oldest first, ties by id). An empty queue or no queued message draws
 /// nothing.
 pub fn dock_rows(sources: &[DockSource]) -> Vec<DockRow> {
@@ -270,6 +303,21 @@ pub fn dock_rows(sources: &[DockSource]) -> Vec<DockRow> {
                     0,
                 ));
             }
+            DockSource::Suggestions { id, label, caption, title, .. } => rows.push((
+                DockRow {
+                    id: id.clone(),
+                    kind: DockKind::Suggestions,
+                    tint: DockTint::Muted,
+                    icon: DOCK.icons.suggestions.clone(),
+                    label: label.clone(),
+                    caption: caption.clone(),
+                    meta: None,
+                    title: title.clone(),
+                    expandable: true,
+                    action: None,
+                },
+                0,
+            )),
             DockSource::Banner { id, icon, label, text, tone, action } => rows.push((
                 DockRow {
                     id: format!("banner:{id}"),
@@ -346,6 +394,28 @@ pub fn dock_auto_open<'a>(previous: &[String], rows: impl DoubleEndedIterator<It
         .map(|(id, _)| id.to_string())
 }
 
+/// EXP-1323's suggested-tasks rows with any OPEN item, as Dock sources: the
+/// header splits at ` · ` into the label (the count) and the started
+/// caption; the title is the first open item's. A row with no open item is
+/// none of the Dock's (it stays in the Conversation).
+pub fn suggestion_sources<'a>(rows: impl IntoIterator<Item = &'a DockSuggestionsRow>) -> Vec<DockSource> {
+    rows.into_iter()
+        .filter_map(|row| {
+            let mut open = row.items.iter().filter(|item| item.state == "open");
+            let first = open.next()?;
+            let mut parts = row.header.split(" · ");
+            let label = parts.next().unwrap_or(&row.header).to_string();
+            Some(DockSource::Suggestions {
+                id: row.id.clone(),
+                label,
+                caption: parts.next().map(str::to_string),
+                title: first.title.clone(),
+                open: 1 + open.count(),
+            })
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -396,6 +466,24 @@ mod tests {
             let rows: Vec<(String, DockKind)> = serde_json::from_value(case["rowIds"].clone()).unwrap();
             let got = dock_auto_open(&previous, rows.iter().map(|(id, kind)| (id.as_str(), *kind)));
             assert_eq!(got.as_deref(), case["expected"].as_str(), "{}", case["name"]);
+        }
+    }
+
+    #[test]
+    fn suggestion_sources_match_the_fixture() {
+        let fixture = fixture();
+        let cases = fixture["suggestionCases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let rows: Vec<DockSuggestionsRow> = case["rows"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|row| row["type"] == "suggestions")
+                .map(|row| serde_json::from_value(row.clone()).unwrap())
+                .collect();
+            let got = suggestion_sources(&rows);
+            assert_eq!(serde_json::to_value(&got).unwrap(), case["expected"], "{}", case["name"]);
         }
     }
 

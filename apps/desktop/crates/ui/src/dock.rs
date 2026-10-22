@@ -170,10 +170,10 @@ fn concept(name: &str) -> crate::icons::ExpIcon {
     registry::concept_by_name(name).unwrap_or(registry::UI_INFO)
 }
 
-/// The opaque card composite (web `bg-glass-card-opaque`): the card fill
-/// over the popover surface.
-pub(crate) fn card_fill(cx: &App) -> Hsla {
-    crate::picker::over(cx.theme().popover, t::glass::FILL_CARD.to_hsla())
+/// THE card fill (N-12: ONE gray ×4, web `bg-glass-card-opaque`): the card
+/// fill over the popover surface — every card, the composer, the sheet.
+pub(crate) fn card_fill() -> Hsla {
+    crate::controls::ide_chrome().fill_card_opaque
 }
 
 /// A DockCard collapsed (web `DockCard`): the AskCard chrome (the kind
@@ -230,10 +230,9 @@ pub(crate) fn dock_card(row: &DockRow, hidden: f32, action: Option<AnyElement>, 
         .w_full()
         .min_w_0()
         .p_3()
-        .border_color(t::glass::STROKE_STRONG.to_hsla())
-        .bg(card_fill(cx))
         .when(row.expandable, |card| {
-            card.cursor_pointer().hover(|style| style.bg(t::glass::FILL_ACTIVE.to_hsla()))
+            card.cursor_pointer()
+                .hover(|style| style.bg(crate::picker::over(card_fill(), t::glass::FILL_ACTIVE.to_hsla())))
         })
         .child(
             h_flex()
@@ -543,11 +542,12 @@ pub(crate) fn sheet_chrome(
     out
 }
 
-/// The sheet's surface: the glass bottom fill, the card hairline on the
-/// top and the sides, `sheet.radius` on its top corners.
+/// The sheet's surface: THE card fill (N-12: ONE gray, not a darker
+/// ground), the card hairline on the top and the sides, `sheet.radius` on
+/// its top corners.
 fn sheet_surface() -> Div {
     v_flex()
-        .bg(t::glass::BACKGROUND_BOTTOM.to_hsla())
+        .bg(card_fill())
         .border_t_1()
         .border_l_1()
         .border_r_1()

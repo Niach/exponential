@@ -1061,17 +1061,68 @@ pub(crate) fn pending_sources(pending: &[domain::ask_dock::AskDockPending]) -> V
         .collect()
 }
 
+/// N-12: the suggestions rows with an OPEN item as Dock sources
+/// (`suggestionSources` ×4): the row leaves the Conversation and opens as
+/// [`suggestions_sheet`].
+pub(crate) fn suggestion_sources(rows: &[SessionThreadRow]) -> Vec<DockSource> {
+    use domain::session_tree::SuggestionState;
+    let rows: Vec<domain::dock::DockSuggestionsRow> = rows
+        .iter()
+        .filter_map(|row| match row {
+            SessionThreadRow::Suggestions { id, header, items, .. } => Some(domain::dock::DockSuggestionsRow {
+                id: id.clone(),
+                header: header.clone(),
+                items: items
+                    .iter()
+                    .map(|item| domain::dock::DockSuggestionItem {
+                        state: match item.state {
+                            SuggestionState::Open => "open",
+                            SuggestionState::Started => "started",
+                            SuggestionState::Here => "here",
+                            SuggestionState::Filed => "filed",
+                        }
+                        .into(),
+                        title: item.title.clone(),
+                    })
+                    .collect(),
+            }),
+            _ => None,
+        })
+        .collect();
+    domain::dock::suggestion_sources(&rows)
+}
+
+/// N-12: the Conversation rows THE Dock holds (web `threadDockedIds`): the
+/// waiting asks and, with `suggestions`, the suggestions rows with an open
+/// item.
+pub(crate) fn docked_ids(
+    rows: &[SessionThreadRow],
+    pending: &[domain::ask_dock::AskDockPending],
+    suggestions: bool,
+) -> HashSet<String> {
+    let mut ids: HashSet<String> = pending.iter().map(|ask| ask.id.clone()).collect();
+    if suggestions {
+        ids.extend(suggestion_sources(rows).into_iter().filter_map(|source| match source {
+            DockSource::Suggestions { id, .. } => Some(id),
+            _ => None,
+        }));
+    }
+    ids
+}
+
 /// N-12: THE Dock of a root's Conversation (a thread, an agent channel;
 /// `fixtures/dock.json`): the tree's waiting cards (`pending`, captioned by
 /// their session) plus the root's own cards (THE Queue, the queued
 /// messages, the banners, off the hosted composer view) above THE
-/// composer; returns the band and the open card's sheet. Auto-open runs
-/// here (the screen is in front while it renders).
+/// composer; returns the band and the open card's sheet. `suggestions` =
+/// the root's id when its suggested-tasks cards dock too (the thread).
+/// Auto-open runs here (the screen is in front while it renders).
 #[allow(clippy::too_many_arguments)] // the host's facts
 pub(crate) fn root_dock(
     prefix: &str,
     rows: &[SessionThreadRow],
     pending: &[domain::ask_dock::AskDockPending],
+    suggestions: Option<&str>,
     state: &Entity<crate::dock::DockState>,
     composer: &Entity<crate::steer_viewer::SteerSessionView>,
     text: &ThreadText,
@@ -1080,6 +1131,9 @@ pub(crate) fn root_dock(
     cx: &mut App,
 ) -> (Option<AnyElement>, Option<AnyElement>) {
     let mut sources = pending_sources(pending);
+    if suggestions.is_some() {
+        sources.extend(suggestion_sources(rows));
+    }
     sources.extend(composer.read(cx).session_dock_sources(cx));
     let dock_rows = domain::dock::dock_rows(&sources);
     state.update(cx, |state, _| state.auto_open(&dock_rows, true, true));
@@ -1087,6 +1141,9 @@ pub(crate) fn root_dock(
         Some(open) => match dock_rows.iter().find(|row| row.id == open).cloned() {
             Some(dock_row) => {
                 let content = match rows.iter().find(|row| row.id() == open) {
+                    Some(SessionThreadRow::Suggestions { id, start_all, items, .. }) => {
+                        Some(suggestions_sheet(id, *start_all, items, suggestions.unwrap_or_default(), text.team_id(), cx))
+                    }
                     Some(row) => ask_row_sheet(row, text, images, window, cx),
                     None => composer.update(cx, |composer, cx| composer.render_session_dock_sheet(&dock_row, window, cx)),
                 };
@@ -1311,9 +1368,12 @@ fn file_suggestion(message_id: String, item_id: String, cx: &mut App) {
 
 /// THE suggested tasks card ×4 = the Work card's shell: a header
 /// (`3 suggested tasks`, `· 2 started`, Start all while more than one is
-/// open), then hairline-divided items — open = title, text, × · Options ·
-/// Do it here · Start; started = the child's session card (its caption
-/// under the name) opening it; here = `Sent here`; filed = `Filed EXP-9`.
+/// open), then hairline-divided items. N-12: while any item is open the
+/// row is a DockCard and this list is its sheet ([`suggestions_sheet`]);
+/// the card stays in the Conversation for the rows with none. Open =
+/// title, text, the ⋯ menu ([`suggestion_menu`]) and Start; started = the
+/// child's session card (its caption under the name) opening it; here =
+/// `Sent here`; filed = `Filed EXP-9`.
 pub(crate) fn suggestions_card(
     message_id: &str,
     header: &str,
@@ -1370,7 +1430,7 @@ pub(crate) fn suggestions_card(
         .rounded(px(theme::tokens::radius::LG))
         .border_1()
         .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
-        .bg(theme::tokens::glass::FILL_CARD.to_hsla())
+        .bg(crate::dock::card_fill())
         .text_xs()
         .child(head)
         .children(rows.map(|row| {
@@ -1457,14 +1517,12 @@ fn suggestion_item_row(
             let key = suggestion_key(message_id, Some(&item.id));
             let busy = suggestion_pending(&key, cx);
             let id = |part: &str| SharedString::from(format!("thread-suggestion-{part}-{message_id}-{}", item.id));
-            let (dismiss_message, dismiss_item) = (message_id.to_string(), item.id.clone());
-            let (here_message, here_item) = (message_id.to_string(), item.id.clone());
             let (start_message, start_item) = (message_id.to_string(), item.id.clone());
             let options = Button::new(id("options"))
-                .outline()
-                .web_xs()
-                .label(copy.options.clone())
-                .dropdown_caret(true)
+                .ghost()
+                .web_icon_xs()
+                .icon(Icon::new(registry::UI_MORE))
+                .tooltip(copy.options.clone())
                 .disabled(busy);
             let menu_message = message_id.to_string();
             let menu_item = item.id.clone();
@@ -1478,41 +1536,20 @@ fn suggestion_item_row(
                 .gap_3()
                 .items_start()
                 .child(
-                    h_flex()
+                    v_flex()
                         .flex_1()
                         .min_w_0()
-                        .gap_2()
-                        .items_start()
                         .child(
-                            v_flex()
-                                .flex_1()
+                            div()
                                 .min_w_0()
-                                .child(
-                                    div()
-                                        .min_w_0()
-                                        .truncate()
-                                        .font_weight(FontWeight::MEDIUM)
-                                        .text_color(cx.theme().foreground)
-                                        .child(SharedString::from(item.title.clone())),
-                                )
-                                .when(!text.is_empty(), |this| {
-                                    this.child(
-                                        div().mt_0p5().text_color(muted).child(SharedString::from(text.to_string())),
-                                    )
-                                }),
+                                .truncate()
+                                .font_weight(FontWeight::MEDIUM)
+                                .text_color(cx.theme().foreground)
+                                .child(SharedString::from(item.title.clone())),
                         )
-                        .child(
-                            Button::new(id("dismiss"))
-                                .ghost()
-                                .web_icon_xs()
-                                .icon(Icon::new(registry::UI_CLOSE))
-                                .tooltip(copy.dismiss.clone())
-                                .disabled(busy)
-                                .on_click(move |_, _, cx| {
-                                    cx.stop_propagation();
-                                    dismiss_suggestion(dismiss_message.clone(), dismiss_item.clone(), cx);
-                                }),
-                        ),
+                        .when(!text.is_empty(), |this| {
+                            this.child(div().mt_0p5().text_color(muted).child(SharedString::from(text.to_string())))
+                        }),
                 )
                 .child(
                     h_flex()
@@ -1522,17 +1559,6 @@ fn suggestion_item_row(
                         .child(crate::controls::PointerMenu::for_button(options, move |menu, window, cx| {
                             suggestion_menu(menu, &menu_message, &menu_item, menu_team.as_deref(), window, cx)
                         }))
-                        .child(
-                            Button::new(id("here"))
-                                .outline()
-                                .web_xs()
-                                .label(copy.here.clone())
-                                .disabled(busy)
-                                .on_click(move |_, _, cx| {
-                                    cx.stop_propagation();
-                                    start_suggestion(&here_message, &here_item, true, None, None, cx);
-                                }),
-                        )
                         .child(
                             Button::new(id("start"))
                                 .primary()
@@ -1550,10 +1576,67 @@ fn suggestion_item_row(
     }
 }
 
-/// An open item's Options = THE Menu (web `session-thread-view`): Start on…
-/// (the team's devices that can start NOW — online with a runnable agent;
-/// disabled when there is none) · Start with… (the contract models, never a
-/// default row) · File as issue · Dismiss (plain rows, no glyphs).
+/// N-12: THE suggestions sheet (the DockCard opened, web
+/// `ThreadSuggestionsSheet`): the items exactly as [`suggestions_card`]
+/// lists them, hairline-divided; the footer = Start all while more than
+/// one item is open.
+pub(crate) fn suggestions_sheet(
+    message_id: &str,
+    start_all: bool,
+    items: &[domain::session_tree::SuggestionRow],
+    root_id: &str,
+    team_id: Option<&str>,
+    cx: &App,
+) -> crate::dock::SheetContent {
+    use gpui_component::button::Button;
+    let rows = items.iter().enumerate().map(|(index, item)| {
+        div()
+            .w_full()
+            .min_w_0()
+            .when(index > 0, |row| row.border_t_1().border_color(theme::tokens::glass::STROKE_ROW.to_hsla()))
+            .child(suggestion_item_row(message_id, item, root_id, team_id, cx))
+    });
+    let body = div()
+        .id(SharedString::from(format!("{}-{message_id}", domain::dock::DOCK.test_ids.sheet_body)))
+        .flex_shrink(1.)
+        .min_h_0()
+        .overflow_y_scroll()
+        .px_1()
+        .pb_3()
+        .child(
+            v_flex()
+                .id("thread-suggestions-sheet")
+                .w_full()
+                .min_w_0()
+                .text_xs()
+                .children(rows),
+        )
+        .into_any_element();
+    let footer = start_all.then(|| {
+        let message_id = message_id.to_string();
+        let all_key = suggestion_key(&message_id, None);
+        crate::dock::sheet_footer(
+            h_flex().w_full().justify_end().child(
+                Button::new("thread-suggestions-start-all")
+                    .primary()
+                    .web_sm()
+                    .label(THREAD.copy.suggestions.start_all.clone())
+                    .loading(suggestion_pending(&all_key, cx))
+                    .on_click(move |_, _, cx| {
+                        cx.stop_propagation();
+                        start_all_suggestions(message_id.clone(), cx);
+                    }),
+            ),
+        )
+    });
+    crate::dock::SheetContent { meta: None, body, footer }
+}
+
+/// An open item's ⋯ = THE Menu (web `session-thread-view`): Do it here ·
+/// Start on… (the team's devices that can start NOW — online with a
+/// runnable agent; disabled when there is none) · Start with… (the
+/// contract models, never a default row) · File as issue · Dismiss (plain
+/// rows, no glyphs).
 fn suggestion_menu(
     menu: gpui_component::menu::PopupMenu,
     message_id: &str,
@@ -1570,11 +1653,17 @@ fn suggestion_menu(
         .into_iter()
         .filter(|device| device.can_start_now())
         .collect();
+    let (here_message, here_item) = (message_id.to_string(), item_id.to_string());
     let (device_message, device_item) = (message_id.to_string(), item_id.to_string());
     let (model_message, model_item) = (message_id.to_string(), item_id.to_string());
     let (file_message, file_item) = (message_id.to_string(), item_id.to_string());
     let (dismiss_message, dismiss_item) = (message_id.to_string(), item_id.to_string());
-    let menu = menu.min_w(px(224.));
+    let menu = menu.min_w(px(224.)).item(pointer_menu_item(
+        None,
+        copy.here.clone(),
+        |_| None,
+        move |_, cx| start_suggestion(&here_message, &here_item, true, None, None, cx),
+    ));
     let menu = if devices.is_empty() {
         // No target: the entry stays, disabled (web's disabled submenu).
         menu.item(pointer_label_item(copy.start_on.clone(), true))
@@ -3123,8 +3212,8 @@ impl ThreadScreenView {
             return;
         }
         self.conv.synced = Some(inputs);
-        let docked: HashSet<&str> = if may_message {
-            self.pending_asks.iter().map(|pending| pending.id.as_str()).collect()
+        let docked = if may_message {
+            docked_ids(&model.view.rows, &self.pending_asks, true)
         } else {
             HashSet::new()
         };
@@ -3255,6 +3344,7 @@ impl ThreadScreenView {
                 "thread",
                 &model.view.rows,
                 &self.pending_asks,
+                Some(&self.root_id),
                 &self.dock,
                 &self.composer,
                 &self.text,

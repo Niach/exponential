@@ -2,7 +2,7 @@
 //! (`fixtures/dock.json` ×4), the IDE half of the web entry
 //! (`apps/styleguide/src/entries/dock-card.tsx`), drawn from the REAL
 //! [`crate::dock`] parts: one card, a banner (its action trails, it never
-//! opens), four cards piled (the front one whole, the rest peeking out
+//! opens), five cards piled (the front one whole, the rest peeking out
 //! above it), the pile fanned, and the sheet's face at rest
 //! ([`crate::dock::sheet_frame`]: the pinned header, the scrolling body,
 //! the pinned footer).
@@ -40,6 +40,13 @@ pub(super) fn sources() -> Vec<DockSource> {
                 },
                 completed: Some(DockQueueCompleted { title: "2 completed".into() }),
             }),
+        },
+        DockSource::Suggestions {
+            id: "m4".into(),
+            label: "3 suggested tasks".into(),
+            caption: Some("1 started".into()),
+            title: "Lazy-load the markdown editor".into(),
+            open: 2,
         },
         DockSource::Banner {
             id: "wall".into(),
@@ -83,8 +90,9 @@ pub(super) fn pile_specimen(key: &'static str, rows: &[DockRow], fanned: bool, w
 
 pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
     let rows = dock_rows(&sources());
-    let question = rows[3].clone();
-    let banner = rows[2].clone();
+    let find = |kind: domain::dock::DockKind| rows.iter().find(|row| row.kind == kind).cloned().expect("the kind's card");
+    let question = find(domain::dock::DockKind::Question);
+    let banner = find(domain::dock::DockKind::Banner);
     let sheet = crate::dock::sheet_frame(
         &question,
         SheetContent {
@@ -109,7 +117,7 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
         .child(crate::dock::dock_card(&question, 0., None, cx))
         .child(caption("A banner: never opens; its action word trails", cx))
         .child(crate::dock::dock_card(&banner, 0., Some(switch_button("sg-dock-card-banner")), cx))
-        .child(caption("Four cards piled: the front one whole, the rest peeking out above it", cx))
+        .child(caption("Five cards piled: the front one whole, the rest peeking out above it", cx))
         .child(pile_specimen("sg-dock-card-pile", &rows, false, window, cx))
         .child(caption("The pile fanned (hover or a tap): every card, 6px apart", cx))
         .child(pile_specimen("sg-dock-card-fan", &rows, true, window, cx))

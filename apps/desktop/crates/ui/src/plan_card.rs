@@ -1074,7 +1074,7 @@ fn feedback_field(state: &Entity<TextareaState>, _window: &Window, _cx: &App) ->
         .rounded(px(theme::tokens::radius::XL))
         .border_1()
         .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
-        .bg(theme::tokens::glass::FILL_CARD.to_hsla())
+        .bg(crate::dock::card_fill())
         .child(
             Textarea::new(state)
                 .appearance(false)
