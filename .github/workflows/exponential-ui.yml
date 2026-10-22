@@ -189,6 +189,15 @@ jobs:
           ios=sorted((k for k in d if "iOS" in k), key=lambda k: [int(x) for x in k.rsplit("iOS-",1)[1].split("-")])
           print(next(x["udid"] for k in reversed(ios) for x in d[k] if x["name"].startswith("iPhone")))')"
           echo "id=$DEVICE" >> "$GITHUB_OUTPUT"
+          # Boot it up front: a cold boot inside `xcodebuild test` on a busy
+          # Mac (the self-hosted runner, other simulators up) fails with
+          # "Failed to prepare device ... Invalid connectionUUID".
+          if xcrun simctl list devices | grep "$DEVICE" | grep -q Booted; then
+            echo "booted_here=false" >> "$GITHUB_OUTPUT"
+          else
+            xcrun simctl bootstatus "$DEVICE" -b
+            echo "booted_here=true" >> "$GITHUB_OUTPUT"
+          fi
       - name: Package tests on the iOS Simulator
         working-directory: packages/exponential-ui-swift
         run: |
@@ -202,6 +211,9 @@ jobs:
           xcodebuild build -project KitchenSink.xcodeproj -scheme KitchenSink \
             -destination "platform=iOS Simulator,id=${{ steps.sim.outputs.id }}" \
             -derivedDataPath "$RUNNER_TEMP/dd-sink" CODE_SIGNING_ALLOWED=NO | tail -20
+      - name: Shut the simulator down again (self-hosted)
+        if: always() && runner.environment == 'self-hosted' && steps.sim.outputs.booted_here == 'true'
+        run: xcrun simctl shutdown "${{ steps.sim.outputs.id }}" || true
 
   compose-emulator:
     # Instrumented tests (ui-compose/src/androidTest) on an x86_64 emulator
