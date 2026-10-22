@@ -19,7 +19,13 @@ RUN curl -fsSL "https://github.com/mozilla/sccache/releases/download/${SCCACHE_V
     && install -m 0755 "/tmp/sccache-${SCCACHE_VERSION}-x86_64-unknown-linux-musl/sccache" /usr/local/bin/sccache \
     && rm -rf /tmp/sccache-*
 
+# Jobs run as the image's `runner` user, never root: root walks through file
+# permissions, and the desktop suite asserts a read-only dir refuses an unlink.
+# The cache volumes mount over these dirs and inherit the ownership.
+RUN install -d -o runner -g runner /home/runner/.cargo /home/runner/.rustup \
+      /home/runner/.gradle /home/runner/.bun /home/runner/.cache/sccache
+
 ENV RUSTC_WRAPPER=sccache \
-    SCCACHE_DIR=/cache/sccache \
+    SCCACHE_DIR=/home/runner/.cache/sccache \
     SCCACHE_CACHE_SIZE=40G \
     CARGO_INCREMENTAL=0

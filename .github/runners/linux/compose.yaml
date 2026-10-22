@@ -11,6 +11,9 @@ x-runner: &runner
     RUNNER_SCOPE: repo
     RUNNER_TOKEN: ${RUNNER_TOKEN:-}
     LABELS: exp-linux
+    # The entrypoint matches the docker group to the socket's gid and chowns
+    # the config + work dirs (see the Dockerfile for why not root).
+    RUN_AS_ROOT: "false"
     DISABLE_AUTO_UPDATE: "false"
     DISABLE_AUTOMATIC_DEREGISTRATION: "true"
     CONFIGURED_ACTIONS_RUNNER_FILES_DIR: /runner/config
@@ -27,14 +30,13 @@ services:
       RUNNER_WORKDIR: /tmp/runner-1/work
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - sccache:/cache/sccache
-      - cargo:/root/.cargo
-      - rustup:/root/.rustup
-      - gradle:/root/.gradle
-      - bun:/root/.bun
+      - sccache:/home/runner/.cache/sccache
+      - cargo:/home/runner/.cargo
+      - rustup:/home/runner/.rustup
+      - gradle:/home/runner/.gradle
+      - bun:/home/runner/.bun
       - toolcache:/opt/hostedtoolcache
       - config-1:/runner/config
-      - /tmp/runner-1:/tmp/runner-1
   runner-2:
     <<: *runner
     environment:
@@ -43,14 +45,13 @@ services:
       RUNNER_WORKDIR: /tmp/runner-2/work
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - sccache:/cache/sccache
-      - cargo:/root/.cargo
-      - rustup:/root/.rustup
-      - gradle:/root/.gradle
-      - bun:/root/.bun
+      - sccache:/home/runner/.cache/sccache
+      - cargo:/home/runner/.cargo
+      - rustup:/home/runner/.rustup
+      - gradle:/home/runner/.gradle
+      - bun:/home/runner/.bun
       - toolcache:/opt/hostedtoolcache
       - config-2:/runner/config
-      - /tmp/runner-2:/tmp/runner-2
 
 volumes:
   sccache:
