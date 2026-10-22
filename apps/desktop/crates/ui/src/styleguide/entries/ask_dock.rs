@@ -1,32 +1,58 @@
-//! `ask-dock` (Special components): THE ask dock (`fixtures/ask-dock.json`
-//! ×4), the IDE half of the styleguide entry the web page draws: the
-//! thread's REAL dock (`crate::thread_screen::conversation_dock`) in its
-//! three states: one plan = THE big card in the composer's slot; two plans
-//! and a question of three child sessions = the stack (oldest first, the
-//! session name as caption, a click focuses one); the focused card, with
-//! the back arrow leading its header.
+//! `ask-dock` (Special components): THE ask cards on THE Dock
+//! (`fixtures/ask-dock.json` + `dock.json` ×4), the IDE half of the web
+//! entry (`AskDockSpecimen`, packages/ui/src/ask-dock-specimen.tsx): the
+//! REAL DockCard rows of a waiting plan and question in four states: one
+//! waiting plan (a single card); a plan, a question, THE Queue and the
+//! queued messages piled; the pile fanned; the plan's sheet (the REAL
+//! [`crate::plan_card::plan_sheet`] in the sheet's static frame: "Question
+//! 1 of 2" in the header, the question, Back / Next in the footer).
 
-use domain::session_tree::{QuestionOption, SessionThreadRow};
-use gpui::{div, px, App, Div, InteractiveElement as _, ParentElement as _, SharedString, Styled as _, Window};
+use domain::dock::{dock_rows, DockSource};
+use domain::session_tree::{PlanQuestion, QuestionOption, SessionThreadRow};
+use gpui::{div, px, App, Div, ParentElement as _, Styled as _, Window};
 use gpui_component::{v_flex, ActiveTheme as _};
 
-use crate::ask_dock::AskDockState;
 use crate::markdown::ImageCache;
 
 pub(crate) const ID: &str = "ask-dock";
 pub(crate) const OWNER: &str = "EXP-1341";
 
-// The web `AskDockSpecimen` rows (packages/ui/src/ask-dock-specimen.tsx), line for line.
-const PLAN_A: &str = "## Plan: one ask dock ×4\n\n1. Add `fixtures/ask-dock.json` + the TS model, mirrored ×4.\n2. Move waiting cards out of the transcript into the composer's slot.\n3. Stack several cards; a tap grows one into the big card.\n4. Share THE plan options: Yes · Yes, and start with a fresh context · No.\n5. Styleguide entry + scoped shots on every platform.\n6. Open the PR with the Guide.";
-const PLAN_B: &str = "1. Group the thread list by state\n2. Drop the per-row counters";
-const QUESTION: &str = "Ship both fixes in one PR, or split them?";
+// The web `AskDockSpecimen` rows, line for line.
+const LONG_PLAN: &str = "## Plan: one Dock ×4\n\n1. Add `fixtures/dock.json` + the TS model, mirrored ×4.\n2. Float the waiting cards above the composer; the transcript is the one scroll.\n3. Pile several cards like the toasts; a tap opens one as a sheet.\n4. Share THE plan options: Yes · Yes, and start with a fresh context · No.\n5. Styleguide entry + scoped shots on every platform.\n6. Open the PR with the Guide.";
 
-fn plan(id: &str, session: &str, text: &str) -> SessionThreadRow {
+fn option(label: &str, description: Option<&str>) -> QuestionOption {
+    QuestionOption { label: label.into(), description: description.map(str::to_string), attachment_id: None }
+}
+
+fn questions() -> Vec<PlanQuestion> {
+    vec![
+        PlanQuestion {
+            id: "q-scope".into(),
+            prompt: "Which cards move into the Dock first?".into(),
+            multi: false,
+            custom: true,
+            options: vec![
+                option("Plan and question cards", Some("The rest follows as its own issue")),
+                option("Everything", Some("Plan, question, tasks, queued messages, banners")),
+            ],
+        },
+        PlanQuestion {
+            id: "q-eui".into(),
+            prompt: "Should DockCard also go into Exponential UI?".into(),
+            multi: false,
+            custom: false,
+            options: vec![option("Yes, as DockCard", None), option("Styleguide only for now", None)],
+        },
+    ]
+}
+
+/// The rich plan row the sheet draws.
+pub(super) fn rich_plan(id: &str) -> SessionThreadRow {
     SessionThreadRow::Plan {
         id: id.to_string(),
-        session_id: session.to_string(),
-        plan: text.to_string(),
-        questions: Vec::new(),
+        session_id: "a".into(),
+        plan: LONG_PLAN.to_string(),
+        questions: questions(),
         surface: None,
         decision: None,
         fresh: false,
@@ -36,121 +62,61 @@ fn plan(id: &str, session: &str, text: &str) -> SessionThreadRow {
     }
 }
 
-fn question(id: &str, session: &str) -> SessionThreadRow {
-    SessionThreadRow::Question {
-        id: id.to_string(),
-        session_id: session.to_string(),
-        question: QUESTION.to_string(),
-        options: ["One PR", "Split them"]
-            .into_iter()
-            .map(|label| QuestionOption { label: label.to_string(), description: None, attachment_id: None })
-            .collect(),
-        custom: true,
-        multi: false,
-        surface: None,
-        answer: None,
-        answers: None,
-        surface_data: None,
-        answered: false,
-    }
-}
-
-/// The stack's rows: two plans and a question, three child sessions.
-fn stack_rows(prefix: &str) -> Vec<SessionThreadRow> {
+fn asks() -> Vec<DockSource> {
     vec![
-        plan(&format!("{prefix}-p1"), "s-dock", PLAN_A),
-        plan(&format!("{prefix}-p2"), "s-strip", PLAN_B),
-        question(&format!("{prefix}-q1"), "s-polish"),
+        DockSource::Plan { id: "p1".into(), text: LONG_PLAN.into(), session_name: Some("Ask dock".into()), questions: 2, created_at: 10 },
+        DockSource::Question {
+            id: "q1".into(),
+            text: "Ship both fixes in one PR, or split them?".into(),
+            session_name: Some("Dock polish".into()),
+            created_at: 30,
+        },
     ]
 }
 
-fn session_name(id: &str) -> Option<String> {
-    match id {
-        "s-dock" => Some("Ask dock".into()),
-        "s-strip" => Some("Thread list".into()),
-        "s-polish" => Some("Dock polish".into()),
-        _ => None,
-    }
-}
-
-fn caption(text: &'static str, cx: &App) -> Div {
-    div().text_xs().text_color(cx.theme().muted_foreground).child(text)
-}
-
-fn demo(
-    key: &'static str,
-    label: &'static str,
-    rows: Vec<SessionThreadRow>,
-    state: AskDockState,
-    images: &gpui::Entity<ImageCache>,
-    window: &mut Window,
-    cx: &mut App,
-) -> Div {
-    let state = window.use_keyed_state(SharedString::from(key), cx, move |_, _| state).clone();
-    let dock = crate::thread_screen::conversation_dock(key, &rows, session_name, &state, &crate::thread_screen::ThreadText::default(), images, window, cx)
-        .map(|(dock, _)| dock);
+fn case(label: &'static str, body: impl gpui::IntoElement, cx: &App) -> Div {
     v_flex()
         .w_full()
-        .gap_2()
-        .child(caption(label, cx))
-        .child(div().id(SharedString::from(key)).w_full().children(dock))
+        .gap_1p5()
+        .child(div().text_xs().text_color(cx.theme().muted_foreground).child(label))
+        .child(body)
 }
 
 pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
-    let images = window
-        .use_keyed_state("sg-ask-dock-images", cx, |_, _| ImageCache::new(None))
-        .clone();
+    let images = window.use_keyed_state("sg-ask-dock-images", cx, |_, _| ImageCache::new(None)).clone();
+    let single = dock_rows(&asks()[..1]);
+    let mut all: Vec<DockSource> = super::dock_card::sources().into_iter().take(2).collect();
+    all.extend(asks());
+    let rows = dock_rows(&all);
+    // The sheet opens on its first question page (web: "Question 1 of 2").
+    let plan_row = rich_plan("sg-ask-dock-sheet-plan");
+    crate::plan_card::preset_step("sg-ask-dock-sheet-plan", 1, cx);
+    let sheet = crate::thread_screen::ask_row_sheet(&plan_row, &crate::thread_screen::ThreadText::default(), &images, window, cx)
+        .map(|content| crate::dock::sheet_frame(&single[0], content, 420., cx));
     v_flex()
-        .w(px(720.))
-        .gap_10()
-        .child(demo(
-            "sg-ask-dock-single",
-            "One waiting plan",
-            vec![plan("sg-ask-dock-single-p1", "s-dock", PLAN_A)],
-            AskDockState::default(),
-            &images,
-            window,
+        .w(px(672.))
+        .gap_6()
+        .child(case("One waiting plan", crate::dock::dock_card(&single[0], 0., None, cx), cx))
+        .child(case(
+            "A plan, a question, the Queue and the queued messages, piled",
+            super::dock_card::pile_specimen("sg-ask-dock-pile", &rows, false, window, cx),
             cx,
         ))
-        .child(demo(
-            "sg-ask-dock-stack",
-            "Two plans and a question",
-            stack_rows("sg-ask-dock-stack"),
-            AskDockState::default(),
-            &images,
-            window,
-            cx,
-        ))
-        .child(demo(
-            "sg-ask-dock-focused",
-            "Focused out of the stack",
-            stack_rows("sg-ask-dock-focused"),
-            AskDockState::focused_on("sg-ask-dock-focused-p2"),
-            &images,
-            window,
-            cx,
-        ))
+        .child(case("The pile fanned (hover or a tap)", super::dock_card::pile_specimen("sg-ask-dock-fan", &rows, true, window, cx), cx))
+        .child(case("The plan's sheet", div().w_full().children(sheet), cx))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use domain::ask_dock::{ask_dock, thread_pending_asks, AskDockMode};
 
-    /// The three demos are the dock's three states.
+    /// The pile's rows are the web specimen's, in the Dock's order.
     #[test]
-    fn the_demos_are_single_stack_and_focused() {
-        let single = thread_pending_asks(&[plan("p1", "s-dock", PLAN_A)], session_name);
-        assert_eq!(ask_dock(&single, None).mode, AskDockMode::Single);
-        let rows = stack_rows("x");
-        let pending = thread_pending_asks(&rows, session_name);
-        let stack = ask_dock(&pending, None);
-        assert_eq!(stack.mode, AskDockMode::Stack);
-        assert_eq!(stack.rows.len(), 3);
-        assert_eq!(stack.rows[0].title, "Plan: one ask dock ×4");
-        assert_eq!(stack.rows[2].caption.as_deref(), Some("Dock polish"));
-        let focused = ask_dock(&pending, Some("x-p2"));
-        assert_eq!(focused.mode, AskDockMode::Focused);
-        assert!(focused.back);
+    fn the_pile_is_queued_tasks_then_the_asks() {
+        let mut all: Vec<DockSource> = super::super::dock_card::sources().into_iter().take(2).collect();
+        all.extend(asks());
+        let ids: Vec<String> = dock_rows(&all).into_iter().map(|row| row.id).collect();
+        assert_eq!(ids, ["queued", "tasks", "p1", "q1"]);
+        assert_eq!(dock_rows(&asks()[..1])[0].meta.as_deref(), Some("2 questions"));
     }
 }

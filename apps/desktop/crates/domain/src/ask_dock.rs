@@ -1,11 +1,9 @@
-//! THE ask dock ×4 (`packages/domain-contract/src/ask-dock.ts`'s twin, iOS
-//! ExpCore `AskDock.swift`, Android `domain/AskDock.kt`): the question/plan
-//! cards WAITING on the viewer take the composer's slot, in the session view
-//! AND the thread alike. One pending card = the big card (the composer
-//! hides); several = compact cards stacked in the composer's slot, a click
-//! grows one into the big card (only that one answers), a back arrow
-//! returns to the stack. The plan card's options are ONE list ×4
-//! ([`PLAN_OPTIONS`]). Byte-locked by `fixtures/ask-dock.json`; pure.
+//! THE ask cards ×4 (`packages/domain-contract/src/ask-dock.ts`'s twin, iOS
+//! ExpCore `AskDock.swift`, Android `domain/AskDock.kt`): a question or plan
+//! card waiting on the viewer is a DockCard of THE Dock ([`crate::dock`]);
+//! the composer never leaves. This file keeps the cards' own words: the
+//! row's label and title, the plan options ONE list ×4 ([`plan_options`]), a
+//! thread's waiting cards. Byte-locked by `fixtures/ask-dock.json`; pure.
 
 use std::sync::LazyLock;
 
@@ -25,28 +23,13 @@ pub struct AskDockCopy {
     pub question: String,
     pub back: String,
     pub feedback_placeholder: String,
+    pub cancel: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct AskDockIcons {
     pub plan: String,
     pub question: String,
-    pub back: String,
-    pub open: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-pub struct AskDockTestIds {
-    pub dock: String,
-    pub row: String,
-    pub back: String,
-    pub card: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-pub struct AskDockMotion {
-    pub resize: String,
-    pub enter: String,
 }
 
 /// One of THE plan card's options (`planOptions`).
@@ -67,14 +50,10 @@ pub struct PlanOption {
 pub struct AskDockSpec {
     pub copy: AskDockCopy,
     pub icons: AskDockIcons,
-    pub test_ids: AskDockTestIds,
-    pub motion: AskDockMotion,
-    pub body_max_height_fraction: f32,
-    pub stack_gap: f32,
     pub plan_options: Vec<PlanOption>,
 }
 
-/// The dock's copy, icons, geometry, motion and plan options.
+/// The cards' copy, icons and plan options.
 pub static ASK_DOCK: LazyLock<AskDockSpec> =
     LazyLock::new(|| serde_json::from_str(ASK_DOCK_JSON).expect("ask-dock.json parses"));
 
@@ -82,16 +61,6 @@ pub static ASK_DOCK: LazyLock<AskDockSpec> =
 /// No, keep planning (the last opens the feedback field).
 pub fn plan_options() -> &'static [PlanOption] {
     &ASK_DOCK.plan_options
-}
-
-/// The big card's body cap, a fraction of the window height.
-pub fn body_max_height_fraction() -> f32 {
-    ASK_DOCK.body_max_height_fraction
-}
-
-/// The gap between two stacked compact cards (px).
-pub fn stack_gap() -> f32 {
-    ASK_DOCK.stack_gap
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -112,45 +81,11 @@ pub struct AskDockPending {
     pub text: String,
     /// The asking session's name in a thread; `None` in the session view.
     pub session_name: Option<String>,
-    /// Stack order, oldest first.
+    /// Dock order, oldest first.
     pub created_at: i64,
-}
-
-/// A compact card of the stack.
-#[derive(Debug, Clone, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AskDockRow {
-    pub id: String,
-    pub kind: AskDockKind,
-    /// "Plan ready" / "Question".
-    pub label: String,
-    /// The first plain line of the text (the row truncates it).
-    pub title: String,
-    /// The asking session's name, else `None`.
-    pub caption: Option<String>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum AskDockMode {
-    None,
-    Single,
-    Stack,
-    Focused,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AskDockView {
-    pub mode: AskDockMode,
-    /// Whether the composer yields its slot to the dock.
-    pub composer_hidden: bool,
-    /// The back arrow (only a focused card out of a stack).
-    pub back: bool,
-    /// The big card's id (`single` | `focused`).
-    pub card_id: Option<String>,
-    /// The compact cards (`stack` only), oldest first.
-    pub rows: Vec<AskDockRow>,
+    /// A plan's question count (a question: absent).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub questions: Option<usize>,
 }
 
 /// The option a decided plan card names as its answer.
@@ -209,44 +144,6 @@ pub fn ask_dock_title(text: &str) -> String {
     String::new()
 }
 
-/// The dock's view over the cards waiting on the viewer; `focused_id` = the
-/// card a click grew out of the stack (a stale one is ignored).
-pub fn ask_dock(pending: &[AskDockPending], focused_id: Option<&str>) -> AskDockView {
-    let mut pending: Vec<&AskDockPending> = pending.iter().collect();
-    pending.sort_by(|a, b| a.created_at.cmp(&b.created_at).then_with(|| a.id.cmp(&b.id)));
-    let view = |mode, card_id: Option<&str>, rows| AskDockView {
-        mode,
-        composer_hidden: mode != AskDockMode::None,
-        back: mode == AskDockMode::Focused,
-        card_id: card_id.map(str::to_string),
-        rows,
-    };
-    match pending.as_slice() {
-        [] => view(AskDockMode::None, None, Vec::new()),
-        [only] => view(AskDockMode::Single, Some(&only.id), Vec::new()),
-        _ => {
-            if let Some(focused) = pending.iter().find(|p| Some(p.id.as_str()) == focused_id) {
-                return view(AskDockMode::Focused, Some(&focused.id), Vec::new());
-            }
-            let rows = pending
-                .iter()
-                .map(|p| {
-                    let label = ask_dock_label(p.kind).to_string();
-                    let title = ask_dock_title(&p.text);
-                    AskDockRow {
-                        id: p.id.clone(),
-                        kind: p.kind,
-                        title: if title.is_empty() { label.clone() } else { title },
-                        label,
-                        caption: p.session_name.clone(),
-                    }
-                })
-                .collect();
-            view(AskDockMode::Stack, None, rows)
-        }
-    }
-}
-
 /// A thread's waiting cards, in Conversation order: every plan row with no
 /// decision and every unanswered question row, of ANY session in the tree.
 /// `session_name` names the asking session (`None` = unnamed).
@@ -257,12 +154,12 @@ pub fn thread_pending_asks(
     rows.iter()
         .enumerate()
         .filter_map(|(index, row)| {
-            let (kind, text, session_id) = match row {
-                SessionThreadRow::Plan { decision: None, plan, session_id, .. } => {
-                    (AskDockKind::Plan, plan, session_id)
+            let (kind, text, session_id, questions) = match row {
+                SessionThreadRow::Plan { decision: None, plan, session_id, questions, .. } => {
+                    (AskDockKind::Plan, plan, session_id, Some(questions.len()))
                 }
                 SessionThreadRow::Question { answered: false, question, session_id, .. } => {
-                    (AskDockKind::Question, question, session_id)
+                    (AskDockKind::Question, question, session_id, None)
                 }
                 _ => return None,
             };
@@ -272,6 +169,7 @@ pub fn thread_pending_asks(
                 text: text.clone(),
                 session_name: session_name(session_id),
                 created_at: index as i64,
+                questions,
             })
         })
         .collect()
@@ -306,21 +204,7 @@ mod tests {
     fn spec_parses() {
         assert_eq!(ASK_DOCK.copy.plan_ready, "Plan ready");
         assert_eq!(plan_options().len(), 3);
-        assert_eq!(stack_gap(), 6.);
-        assert!((body_max_height_fraction() - 0.4).abs() < 1e-6);
-    }
-
-    #[test]
-    fn ask_dock_matches_the_fixture() {
-        let fixture = fixture();
-        let cases = fixture["cases"].as_array().unwrap();
-        assert!(!cases.is_empty());
-        for case in cases {
-            let pending: Vec<AskDockPending> =
-                serde_json::from_value(case["input"]["pending"].clone()).unwrap();
-            let view = ask_dock(&pending, case["input"]["focusedId"].as_str());
-            assert_eq!(serde_json::to_value(&view).unwrap(), case["expected"], "{}", case["name"]);
-        }
+        assert_eq!(ASK_DOCK.copy.cancel, "Cancel");
     }
 
     #[test]

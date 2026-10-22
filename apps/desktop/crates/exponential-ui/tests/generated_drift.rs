@@ -20,8 +20,8 @@ fn the_generated_copies_match_the_package() {
 #[test]
 fn the_embedded_catalog_parses_and_the_built_ins_load() {
     use exponential_ui::catalog::{CORE, CORE_MACROS, TOKEN_GROUPS};
-    assert_eq!(CORE.components.len(), 76, "EXP-1280: + ChoiceTiles");
-    assert_eq!(CORE_MACROS.len(), 28);
+    assert_eq!(CORE.components.len(), 77, "EXP-1280: + ChoiceTiles; N-12: + DockCard");
+    assert_eq!(CORE_MACROS.len(), 29);
     assert_eq!(TOKEN_GROUPS.keys().map(String::as_str).collect::<Vec<_>>(), exponential_ui::generated::catalog::TOKEN_GROUPS);
     for id in exponential_ui::themes::BUILTIN_THEME_IDS {
         assert!(exponential_ui::themes::builtin_theme(id).is_some(), "{id}");

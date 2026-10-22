@@ -32,10 +32,10 @@ export const entry: StyleguideEntry = {
       note: `the start line = @exp/ui ComposerOptionsRow (packages/ui/src/composer-frame.tsx); the session row is session-composer.tsx's tool row, its Device pin session-device-pin.tsx (PickerTrigger iconOnly; rules + copy lib/session-device-move.ts)`,
     },
     desktop: {
-      state: `leftover`,
-      symbol: `ChatScreenView::render_options_row`,
-      file: `apps/desktop/crates/ui/src/chat_screen.rs`,
-      note: `N-12: the session composer (composer.rs) still draws the pins on the options line with the inline tools; the IDE child moves them into the card (icon-only device pin, the ring beside Send)`,
+      state: `ok`,
+      symbol: `session_composer_card`,
+      file: `apps/desktop/crates/ui/src/composer.rs`,
+      note: `the start line: ChatScreenView::render_options_row (chat_screen.rs); the glyph-only device pin: device_move.rs session_device_pin`,
     },
     ios: {
       state: `ok`,

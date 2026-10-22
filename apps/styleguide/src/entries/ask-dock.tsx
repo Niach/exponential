@@ -21,10 +21,10 @@ export const entry: StyleguideEntry = {
       note: `the primitive: dock.tsx; the session view's relay cards: agent-session.tsx`,
     },
     desktop: {
-      state: `leftover`,
-      symbol: `ask_dock`,
-      file: `apps/desktop/crates/ui/src/ask_dock.rs`,
-      note: `N-12: still the composer-slot card without a cap; the IDE child moves it onto dock.rs`,
+      state: `ok`,
+      symbol: `root_dock / ask_row_sheet / plan_sheet`,
+      file: `apps/desktop/crates/ui/src/thread_screen.rs`,
+      note: `the primitive: dock.rs; the sheet's pages + footer decision: plan_card.rs; the session view's relay cards: steer_viewer.rs`,
     },
     ios: {
       state: `ok`,
