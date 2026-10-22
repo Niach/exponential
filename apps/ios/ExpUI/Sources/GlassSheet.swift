@@ -53,6 +53,9 @@ public struct GlassSheetChrome<Header: View, Pinned: View, Content: View, Action
     @ViewBuilder let pinnedHeader: () -> Pinned
     @ViewBuilder let content: () -> Content
     @ViewBuilder let primaryAction: () -> Action
+    /// N-12: a full-width hairline above the pinned action slot (THE Dock
+    /// sheet's footer, web `border-t`).
+    var actionDivider = false
 
     // The pieces of a fitted sheet's natural height. Each slot measures itself
     // AFTER its padding, so the sum is the detent.
@@ -71,7 +74,8 @@ public struct GlassSheetChrome<Header: View, Pinned: View, Content: View, Action
         @ViewBuilder headerTrailing: @escaping () -> Header,
         @ViewBuilder pinnedHeader: @escaping () -> Pinned,
         @ViewBuilder content: @escaping () -> Content,
-        @ViewBuilder primaryAction: @escaping () -> Action
+        @ViewBuilder primaryAction: @escaping () -> Action,
+        actionDivider: Bool = false
     ) {
         self.title = title
         self.height = height
@@ -79,6 +83,7 @@ public struct GlassSheetChrome<Header: View, Pinned: View, Content: View, Action
         self.pinnedHeader = pinnedHeader
         self.content = content
         self.primaryAction = primaryAction
+        self.actionDivider = actionDivider
     }
 
     private var hasAction: Bool { Action.self != EmptyView.self }
@@ -131,6 +136,9 @@ public struct GlassSheetChrome<Header: View, Pinned: View, Content: View, Action
                     // safe-area insets, so this is a VStack slot rather than a
                     // `safeAreaInset`.
                     .background(GlassSheetTokens.background)
+                    .overlay(alignment: .top) {
+                        if actionDivider { GlassSheetDivider() }
+                    }
                     .measuredHeight { actionHeight = $0 }
             }
         }
@@ -143,6 +151,17 @@ public struct GlassSheetChrome<Header: View, Pinned: View, Content: View, Action
         .presentationCornerRadius(GlassSheetTokens.cornerRadius)
         .presentationDragIndicator(.visible)
         .presentationContentInteraction(.scrolls)
+    }
+}
+
+/// The sheet's full-width card hairline (THE Dock sheet's footer edge).
+public struct GlassSheetDivider: View {
+    public init() {}
+
+    public var body: some View {
+        Rectangle()
+            .fill(DesignTokens.Glass.strokeCard)
+            .frame(height: 1)
     }
 }
 

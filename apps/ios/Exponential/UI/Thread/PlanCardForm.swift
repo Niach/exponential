@@ -182,108 +182,114 @@ struct PlanCardQuestionBlock: View {
     }
 }
 
-/// NEW-6 (N-1) the stepper's line above the current question
-/// (`copy.stepLabel`, `xs` muted). `step` is 0-based.
-struct PlanCardStepLine: View {
-    let step: Int
-    let count: Int
-
-    var body: some View {
-        Text(PlanCard.Copy.stepLabel(step: step + 1, count: count))
-            .font(.caption)
-            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-            .accessibilityIdentifier(PlanCard.TestIds.step)
+/// N-12: THE sheet's pinned footer (plan-card.json `stepper`): `onBack` /
+/// `onNext` as small secondary buttons (`buttonGap` apart; Back leads the
+/// row, the rest right-aligned); the last page carries THE decision instead
+/// of Next: the reject option as a small secondary button, the approve
+/// option as the small primary button with a trailing chevron menu holding
+/// the fresh option; approving is disabled while `approveIssue` names a
+/// missing answer (the issue line under the row); picking the reject button
+/// shows the feedback field above the row and the row reads Cancel + the
+/// reject as the primary. `decision` nil = a plain pager.
+struct PlanCardFooter: View {
+    struct Decision {
+        /// Why approving waits (`copy.answerIssues`), else nil.
+        let approveIssue: String?
+        /// The reject button was picked: the feedback field shows.
+        @Binding var rejecting: Bool
+        @Binding var feedback: String
+        let onDecide: (AskDock.PlanOption) -> Void
+        /// The answer is on its way (the buttons go inert).
+        var busy = false
     }
-}
 
-/// NEW-6 (N-1): Back / Next under the current question — small secondary
-/// buttons, `stepper.buttonGap` apart, trailing; Back hidden on the first
-/// step, Next on the last. `step` is 0-based.
-struct PlanCardStepButtons: View {
-    let step: Int
-    let count: Int
-    let onStep: (Int) -> Void
+    var onBack: (() -> Void)?
+    var onNext: (() -> Void)?
+    var decision: Decision?
 
-    var body: some View {
-        let back = step > 0
-        let next = step < count - 1
-        if back || next {
-            HStack(spacing: PlanCard.Stepper.buttonGap) {
-                Spacer(minLength: 0)
-                if back {
-                    GlassPill(PlanCard.Copy.back, mode: .action { onStep(step - 1) })
-                        .accessibilityIdentifier(PlanCard.TestIds.stepBack)
-                }
-                if next {
-                    GlassPill(PlanCard.Copy.next, mode: .action { onStep(step + 1) })
-                        .accessibilityIdentifier(PlanCard.TestIds.stepNext)
-                }
-            }
-        }
+    private static func option(_ key: String) -> AskDock.PlanOption? {
+        AskDock.planOptions.first { $0.key == key }
     }
-}
-
-/// NEW-6 (N-1): THE plan card's decision block ×4 (web `PlanCardDecision`):
-/// `copy.decide` (`xs` semibold, like a prompt) over THE option rows of
-/// ask-dock `planOptions` (single pick, a trailing check — never pills), the
-/// issue line while approving waits on an answer, the feedback field ONLY
-/// once the reject row is picked, then the small primary button named after
-/// the pick. `onDecide` nil = read only (the rows inert, no button).
-struct PlanCardDecision: View {
-    /// The picked plan option's key.
-    let picked: String
-    let onPick: (String) -> Void
-    /// Why approving waits (`copy.answerIssues`), else nil.
-    let approveIssue: String?
-    @Binding var feedback: String
-    let onDecide: ((AskDock.PlanOption) -> Void)?
 
     var body: some View {
-        let option = AskDock.planOptions.first { $0.key == picked }
-        let blocked = option?.decision == PlanDecision.approved.rawValue ? approveIssue : nil
-        VStack(alignment: .leading, spacing: PlanCard.Card.optionsGap) {
-            Text(PlanCard.Copy.decide)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.white)
-            VStack(alignment: .leading, spacing: PlanCard.Tiles.labelGap) {
-                ForEach(AskDock.planOptions) { row in
-                    PlanCardOptionRow(
-                        option: TreeQuestionOption(label: row.label, description: row.description),
-                        picked: row.key == picked,
-                        multi: false,
-                        editable: onDecide != nil
-                    ) { onPick(row.key) }
-                    .accessibilityIdentifier("\(PlanCard.TestIds.decision)-\(row.key)")
-                }
-            }
-            if onDecide != nil, let blocked {
-                Text(blocked)
-                    .font(.caption2)
-                    .foregroundStyle(DesignTokens.Semantic.yellow)
-                    .accessibilityIdentifier(PlanCard.TestIds.issue)
-            }
-            if onDecide != nil, option?.decision == PlanDecision.rejected.rawValue {
+        VStack(alignment: .trailing, spacing: PlanCard.Stepper.buttonGap) {
+            if let decision, decision.rejecting {
                 PlanCardField(
                     placeholder: AskDock.Copy.feedbackPlaceholder,
-                    text: $feedback,
+                    text: decision.$feedback,
                     multiline: true,
                     identifier: PlanCard.TestIds.feedback
                 )
             }
-            if let onDecide, let option {
-                GlassPill(
-                    option.label,
-                    mode: .action { onDecide(option) },
-                    primary: true,
-                    enabled: blocked == nil
-                )
-                .padding(.top, 2)
-                .accessibilityIdentifier("plan-card-decide")
+            HStack(spacing: PlanCard.Stepper.buttonGap) {
+                if let onBack {
+                    GlassPill(PlanCard.Copy.back, mode: .action(onBack))
+                        .accessibilityIdentifier(PlanCard.TestIds.stepBack)
+                }
+                Spacer(minLength: 0)
+                if let onNext {
+                    GlassPill(PlanCard.Copy.next, mode: .action(onNext))
+                        .accessibilityIdentifier(PlanCard.TestIds.stepNext)
+                } else if let decision, let reject = Self.option("reject"), let approve = Self.option("approve") {
+                    if decision.rejecting {
+                        GlassPill(PlanCard.Copy.cancel, mode: .action { decision.rejecting = false })
+                        GlassPill(
+                            reject.label, mode: .action { decision.onDecide(reject) }, primary: true,
+                            enabled: !decision.busy
+                        )
+                        .accessibilityIdentifier("plan-card-decide")
+                    } else {
+                        GlassPill(
+                            reject.label, mode: .action { decision.rejecting = true }, enabled: !decision.busy
+                        )
+                        .accessibilityIdentifier("plan-card-reject")
+                        PlanCardApproveButton(
+                            approve: approve,
+                            fresh: Self.option("approve-fresh"),
+                            enabled: decision.approveIssue == nil && !decision.busy,
+                            onDecide: decision.onDecide
+                        )
+                    }
+                }
+            }
+            if let decision, !decision.rejecting, let issue = decision.approveIssue {
+                Text(issue)
+                    .font(.caption2)
+                    .foregroundStyle(DesignTokens.Semantic.yellow)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                    .accessibilityIdentifier(PlanCard.TestIds.issue)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier(PlanCard.TestIds.decision)
+        .frame(maxWidth: .infinity)
+    }
+}
+
+/// "Yes" as the small primary button joined to its trailing chevron, whose
+/// menu holds "Yes, and start with a fresh context" (web split button).
+private struct PlanCardApproveButton: View {
+    let approve: AskDock.PlanOption
+    let fresh: AskDock.PlanOption?
+    let enabled: Bool
+    let onDecide: (AskDock.PlanOption) -> Void
+
+    var body: some View {
+        HStack(spacing: 1) {
+            GlassPill(approve.label, mode: .action { onDecide(approve) }, primary: true, enabled: enabled)
+                .accessibilityIdentifier(PlanCard.TestIds.decision)
+            if let fresh {
+                GlassMenu {
+                    GlassMenuItem(fresh.label) { onDecide(fresh) }
+                } label: {
+                    GlassPill("", primary: true, enabled: enabled) {
+                        AppIcon(AppIcons.uiChevronDown, size: 12)
+                    }
+                    .allowsHitTesting(false)
+                }
+                .disabled(!enabled)
+                .accessibilityLabel(fresh.label)
+                .accessibilityIdentifier("plan-card-decide-fresh")
+            }
+        }
     }
 }
 

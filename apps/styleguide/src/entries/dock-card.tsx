@@ -70,10 +70,10 @@ export const entry: StyleguideEntry = {
       note: `N-12: lands with the IDE child (the pile = toast::stack_layout, the sheet = the IDE's first in-window sheet)`,
     },
     ios: {
-      state: `leftover`,
-      symbol: `Dock`,
+      state: `ok`,
+      symbol: `DockView / DockPile / DockCard / DockSheetChrome`,
       file: `apps/ios/ExpUI/Sources/Dock.swift`,
-      note: `N-12: lands with the iOS child (the pile = ExpCore ToastStack's geometry, the sheet = GlassSheetChrome)`,
+      note: `model: ExpCore Dock.swift (the pile = ExpCore Stack.layout, shared with ToastStack); the sheet = GlassSheetChrome; hosts: AgentSessionView (SessionDock.swift), ThreadScreen`,
     },
     android: {
       state: `leftover`,
