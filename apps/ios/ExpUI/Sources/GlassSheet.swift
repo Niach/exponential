@@ -56,6 +56,9 @@ public struct GlassSheetChrome<Header: View, Pinned: View, Content: View, Action
     /// N-12: a full-width hairline above the pinned action slot (THE Dock
     /// sheet's footer, web `border-t`).
     var actionDivider = false
+    /// The sheet's ground: `GlassSheetTokens.background`, or (N-12, THE Dock
+    /// sheet: ONE gray ×4) the card composite.
+    var background: Color = GlassSheetTokens.background
 
     // The pieces of a fitted sheet's natural height. Each slot measures itself
     // AFTER its padding, so the sum is the detent.
@@ -75,8 +78,10 @@ public struct GlassSheetChrome<Header: View, Pinned: View, Content: View, Action
         @ViewBuilder pinnedHeader: @escaping () -> Pinned,
         @ViewBuilder content: @escaping () -> Content,
         @ViewBuilder primaryAction: @escaping () -> Action,
-        actionDivider: Bool = false
+        actionDivider: Bool = false,
+        background: Color = GlassSheetTokens.background
     ) {
+        self.background = background
         self.title = title
         self.height = height
         self.headerTrailing = headerTrailing
@@ -135,7 +140,7 @@ public struct GlassSheetChrome<Header: View, Pinned: View, Content: View, Action
                     // over the last scrolled row. A `.height` detent excludes
                     // safe-area insets, so this is a VStack slot rather than a
                     // `safeAreaInset`.
-                    .background(GlassSheetTokens.background)
+                    .background(background)
                     .overlay(alignment: .top) {
                         if actionDivider { GlassSheetDivider() }
                     }
@@ -147,7 +152,7 @@ public struct GlassSheetChrome<Header: View, Pinned: View, Content: View, Action
             if inset < 60 { bottomInset = inset }
         }
         .presentationDetents(resolvedDetents)
-        .presentationBackground(GlassSheetTokens.background)
+        .presentationBackground(background)
         .presentationCornerRadius(GlassSheetTokens.cornerRadius)
         .presentationDragIndicator(.visible)
         .presentationContentInteraction(.scrolls)

@@ -48,6 +48,12 @@ final class DockTests: XCTestCase {
                 },
                 completedTitle: (queue["completed"] as? [String: Any])?["title"] as? String
             ))
+        case "suggestions":
+            return .suggestions(
+                id: try XCTUnwrap(raw["id"] as? String), label: try XCTUnwrap(raw["label"] as? String),
+                caption: raw["caption"] as? String, title: try XCTUnwrap(raw["title"] as? String),
+                open: Int(try number(raw["open"]))
+            )
         case "queued":
             return .queued(try XCTUnwrap(raw["messages"] as? [[String: Any]]).map { $0["text"] as? String ?? "" })
         default:
@@ -87,6 +93,7 @@ final class DockTests: XCTestCase {
         XCTAssertEqual(f["icons"] as? [String: String], [
             "plan": Dock.Icons.plan, "question": Dock.Icons.question, "tasks": Dock.Icons.tasks,
             "queued": Dock.Icons.queued, "open": Dock.Icons.open, "close": Dock.Icons.close,
+            "suggestions": Dock.Icons.suggestions,
         ])
         XCTAssertEqual(f["testIds"] as? [String: String], [
             "dock": Dock.TestIds.dock, "pile": Dock.TestIds.pile, "card": Dock.TestIds.card,
@@ -114,6 +121,26 @@ final class DockTests: XCTestCase {
             let got = Dock.rows(try XCTUnwrap(c["sources"] as? [[String: Any]]).map(source))
             let expected = try XCTUnwrap(c["expected"] as? [[String: Any]]).map(row)
             XCTAssertEqual(got, expected, c["name"] as? String ?? "")
+        }
+    }
+
+    /// `suggestionSources`: the rows (any type) in, the WHOLE sources out.
+    func testSuggestionCases() throws {
+        let all = try list("suggestionCases")
+        XCTAssertFalse(all.isEmpty)
+        for c in all {
+            let rows = try XCTUnwrap(c["rows"] as? [[String: Any]]).compactMap { r -> Dock.SuggestionInput? in
+                guard r["type"] as? String == "suggestions" else { return nil }
+                return Dock.SuggestionInput(
+                    id: r["id"] as? String ?? "",
+                    header: r["header"] as? String ?? "",
+                    items: (r["items"] as? [[String: Any]] ?? []).map {
+                        (state: $0["state"] as? String ?? "", title: $0["title"] as? String ?? "")
+                    }
+                )
+            }
+            let expected = try XCTUnwrap(c["expected"] as? [[String: Any]]).map(source)
+            XCTAssertEqual(Dock.suggestionSources(rows), expected, c["name"] as? String ?? "")
         }
     }
 

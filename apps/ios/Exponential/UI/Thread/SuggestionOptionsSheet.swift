@@ -4,12 +4,13 @@ import SwiftUI
 
 /// EXP-1323: a suggested task's Options on a phone — THE Menu in its SHEET
 /// presentation (web `ThreadSuggestionsCard`'s Menu), titled with the item:
-/// Start on… (the runnable devices) · Start with… (contract `codingModel`,
+/// Do it here · Start on… (the runnable devices) · Start with… (contract `codingModel`,
 /// never a default row) · File as issue · Dismiss. A submenu swaps the
 /// sheet's rows in place; a pick hands the action back and the host runs it
 /// once the sheet has dismissed (the `ThreadMenuSheet` rule).
 struct SuggestionOptionsSheet: View {
     enum Action: Equatable {
+        case here
         case startOn(deviceId: String)
         case startWith(model: String)
         case file
@@ -40,6 +41,7 @@ struct SuggestionOptionsSheet: View {
             VStack(spacing: 0) {
                 switch level {
                 case .root:
+                    row(Copy.here, icon: AppIcons.uiSend, id: "here") { onPick(.here) }
                     submenuRow(Copy.startOn, icon: AppIcons.uiDevice, enabled: !(devices ?? []).isEmpty, id: "start-on") {
                         level = .devices
                     }

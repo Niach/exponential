@@ -38,7 +38,8 @@ import SwiftUI
 /// Failed actions toast (`Couldn't link the issue`, feedback-states).
 ///
 /// EXP-1323: a suggested tasks card acts through `sessions.startSuggestion`
-/// & co. (its Options = THE Menu's sheet, `SuggestionOptionsSheet`); the
+/// & co. (its ⋯ = THE Menu's sheet, `SuggestionOptionsSheet`); N-12: while
+/// any item is open the card rides THE Dock and opens as its sheet; the
 /// live root's relay state draws THE bottom strip (Tasks + status lines,
 /// the session view's own) above the composer; opening the screen stamps
 /// the viewer's read of the root (`sessions.markRead`).
@@ -102,12 +103,6 @@ struct ThreadScreen: View {
     // EXP-1323: suggested tasks
     /// In-flight suggestion actions (`ThreadSuggestionActions.key`).
     @State private var suggestionPending: Set<String> = []
-    /// The item whose Options sheet is up.
-    @State private var suggestionOptions: SuggestionOptionsTarget?
-    /// The Options sheet's Start on… rows (loaded as it opens).
-    @State private var suggestionDevices: [SuggestionOptionsSheet.Device]?
-    /// The sheet's pick, run once the sheet has dismissed.
-    @State private var pendingSuggestionAction: (target: SuggestionOptionsTarget, action: SuggestionOptionsSheet.Action)?
     /// EXP-1323: the live tail's claim on the root's socket owner
     /// (`attachSteerModel`, paired with `steerSessions.detach`).
     @State private var liveModel: AgentSessionModel?
@@ -295,13 +290,6 @@ struct ThreadScreen: View {
                 pendingFoldPick = row
                 foldTarget = nil
             }
-        }
-        .sheet(item: $suggestionOptions, onDismiss: runPendingSuggestionAction) { target in
-            SuggestionOptionsSheet(title: target.title, devices: suggestionDevices) { action in
-                pendingSuggestionAction = (target, action)
-                suggestionOptions = nil
-            }
-            .task { await loadSuggestionDevices(teamId: rows?.root.teamId) }
         }
         .sheet(isPresented: $linkSheetOpen) {
             if let rows {
@@ -607,12 +595,13 @@ struct ThreadScreen: View {
     private static let coordSpace = "thread-conversation-scroll"
 
     /// N-12: the Conversation's DockCards: every card of the tree still
-    /// waiting on this reader, then the live root's own (`SessionDock`).
+    /// waiting on this reader, the suggested tasks with an open item, then
+    /// the live root's own (`SessionDock`).
     private func conversationDockRows(rows: ThreadRows, view: SessionThreadView) -> [Dock.Row] {
         guard canEdit else { return [] }
         let asks = AskDock.threadPendingAsks(view.rows, sessionName: AskDock.threadSessionNames(view.tabs))
         let live = liveModel.map { SessionDock.sources($0, session: rows.root) } ?? []
-        return Dock.rows(asks.map(\.dockSource) + live)
+        return Dock.rows(asks.map(\.dockSource) + Dock.suggestionSources(view.rows) + live)
     }
 
     /// A card's sheet: an ask = THE plan / question sheet, the root's Queue
@@ -620,6 +609,24 @@ struct ThreadScreen: View {
     private func conversationDockSheet(
         _ row: Dock.Row, rows: ThreadRows, view: SessionThreadView, close: @escaping () -> Void
     ) -> AnyView? {
+        if case let .suggestions(id, _, _, startAll, items)? = view.rows.first(where: { $0.id == row.id }) {
+            return AnyView(ThreadSuggestionsSheet(
+                row: row,
+                rowId: id,
+                startAll: startAll,
+                items: items,
+                actions: suggestionActions,
+                onOpenSession: { sessionId in
+                    close()
+                    openSession(sessionId)
+                },
+                onOpenIssue: { [deps, accountId, issueOutlet] issueId in
+                    close()
+                    openIssueInnermost(issueId, outlet: issueOutlet, deps: deps, accountId: accountId)
+                },
+                onClose: close
+            ))
+        }
         if let card = view.rows.first(where: { $0.id == row.id }) {
             return card.dockSheet(
                 row,
@@ -923,12 +930,8 @@ struct ThreadScreen: View {
                     try await api.startAllSuggestions(accountId: accountId, messageId: rowId)
                 }
             },
-            onHere: { rowId, itemId in startSuggestion(rowId, itemId, where: .here) },
-            onDismiss: { rowId, itemId in dismissSuggestion(rowId, itemId) },
-            onOptions: { rowId, item in
-                UIApplication.endEditing()
-                suggestionOptions = SuggestionOptionsTarget(rowId: rowId, itemId: item.id, title: item.title)
-            },
+            onMenu: { rowId, itemId, action in runSuggestionMenu(rowId, itemId, action) },
+            devices: { [teamId = rows?.root.teamId] in await loadSuggestionDevices(teamId: teamId) },
             pending: suggestionPending
         )
     }
@@ -974,31 +977,31 @@ struct ThreadScreen: View {
         }
     }
 
-    private func runPendingSuggestionAction() {
-        guard let pending = pendingSuggestionAction else { return }
-        pendingSuggestionAction = nil
-        let target = pending.target
-        switch pending.action {
+    /// A pick of the item's ⋯ menu (run once its sheet has dismissed).
+    private func runSuggestionMenu(_ rowId: String, _ itemId: String, _ action: SuggestionOptionsSheet.Action) {
+        switch action {
+        case .here:
+            startSuggestion(rowId, itemId, where: .here)
         case let .startOn(deviceId):
-            startSuggestion(target.rowId, target.itemId, where: .child, deviceId: deviceId)
+            startSuggestion(rowId, itemId, where: .child, deviceId: deviceId)
         case let .startWith(model):
-            startSuggestion(target.rowId, target.itemId, where: .child, model: model)
+            startSuggestion(rowId, itemId, where: .child, model: model)
         case .file:
-            runSuggestion(ThreadSuggestionActions.key(target.rowId, target.itemId), verb: "file", thing: "the issue") { api, accountId in
-                try await api.fileSuggestion(accountId: accountId, messageId: target.rowId, itemId: target.itemId)
+            runSuggestion(ThreadSuggestionActions.key(rowId, itemId), verb: "file", thing: "the issue") { api, accountId in
+                try await api.fileSuggestion(accountId: accountId, messageId: rowId, itemId: itemId)
             }
         case .dismiss:
-            dismissSuggestion(target.rowId, target.itemId)
+            dismissSuggestion(rowId, itemId)
         }
     }
 
     /// Start on…'s rows: the machines a start can reach right now with an
     /// agent to run (the composer's pool).
-    private func loadSuggestionDevices(teamId: String?) async {
+    private func loadSuggestionDevices(teamId: String?) async -> [SuggestionOptionsSheet.Device] {
         let devices = await DeviceQueries.onlineStartTargets(
             db: deps.db, accountId: accountId, teamId: teamId, userId: deps.auth.userId
         )
-        suggestionDevices = devices.filter(\.hasRunnableAgent).map {
+        return devices.filter(\.hasRunnableAgent).map {
             SuggestionOptionsSheet.Device(
                 id: $0.deviceId, name: $0.deviceLabel, icon: DeviceIconDisplay.iconName(for: $0)
             )
@@ -1252,14 +1255,6 @@ struct ThreadScreen: View {
         page = next
         syncIssueModels()
     }
-}
-
-/// EXP-1323: the suggested task whose Options sheet is up.
-struct SuggestionOptionsTarget: Identifiable {
-    let rowId: String
-    let itemId: String
-    let title: String
-    var id: String { ThreadSuggestionActions.key(rowId, itemId) }
 }
 
 /// What the strip's menu sheet is open for — an issue tab (`issueId`), the
