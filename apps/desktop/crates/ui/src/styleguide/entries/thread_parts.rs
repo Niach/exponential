@@ -4,7 +4,8 @@
 //! contract model (`domain::session_tree::build_session_thread`): the header
 //! twice (`fixtures/session-thread.json`'s first case, then the private one
 //! with its lock): the title and the ONE tab strip (+ · Conversation · the
-//! issue chips · Guide with its dot); then (EXP-1334) the fold case's strip
+//! issue chips · Guide with its dot; NEW-6: the private one is a ONE-session
+//! thread, so no Conversation tab); then (EXP-1334) the fold case's strip
 //! at three widths (wide: every chip full; narrower: identifiers; narrow:
 //! each zone folded into its own "+N", a nested session open), a session
 //! chip's subtree and an issue chip's sub-issues drawn OPEN, and the "+"
@@ -108,7 +109,7 @@ pub(super) fn case(index: usize) -> Case {
 }
 
 /// EXP-1334's case: folded issue + session chips, a child's asks.
-pub(super) const FOLD_CASE: &str = "EXP-1334: the dispatcher";
+pub(super) const FOLD_CASE: &str = "EXP-1334: the root has no chip";
 
 /// EXP-1334: the web entry's two extra issues on the fold case, so each
 /// zone has something to fold: `(id, identifier, title)`.
@@ -556,6 +557,7 @@ pub(super) fn threads_list_case() -> (Vec<ThreadsListGroup>, PrSnapshot) {
         messages: &messages.iter().collect::<Vec<_>>(),
         team_id: input["teamId"].as_str(),
         reads: &reads.iter().collect::<Vec<_>>(),
+        now_ms: None,
     });
     let snapshot = PrSnapshot {
         pulls: list_pull_requests(),
@@ -601,7 +603,12 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
         .gap_10()
         .text_sm()
         .child(header_first)
-        .child(header_private)
+        .child(
+            v_flex()
+                .gap_3()
+                .child(header_private)
+                .child(caption("One session (no child yet): no Conversation tab, the session's own work is the body")),
+        )
         .child(
             v_flex()
                 .w(px(WIDE_W))

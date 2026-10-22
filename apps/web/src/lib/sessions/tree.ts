@@ -13,27 +13,18 @@ import {
 import { getUserTeamIds } from "@/lib/auth/membership"
 import { loadSessionForUser } from "@/lib/sessions/access"
 import { deriveSessionTitles } from "@/lib/sessions/title"
-import type { SessionKind } from "@exp/db-schema/domain"
 
-// EXP-1291: the session tree as one read (MCP `sessions_get`) and the thread
-// / agent lists (MCP `sessions_list`). Same visibility rule as the shapes;
-// the server-only facets (`host_user_id`, `mcp_server_ids`, a dispatcher's
-// `work_launch`, an agent's `instructions`) never leave here.
+// EXP-1291/NEW-1/NEW-2: the session tree as one read (MCP `sessions_get`)
+// and the thread list (MCP `sessions_list`: thread roots; an agent's
+// conversation sessions are listed through `agents_list`). Same visibility
+// rule as the shapes; the server-only facets (`mcp_server_ids`, `wake_on`)
+// never leave here. A root's issues = the UNION over its tree's rows (each
+// row names the session holding it).
 
-export type PublicSession = Omit<
-  Session,
-  `hostUserId` | `mcpServerIds` | `workLaunch` | `instructions` | `handoff`
->
+export type PublicSession = Omit<Session, `mcpServerIds` | `wakeOn`>
 
 export function publicSession(session: Session): PublicSession {
-  const {
-    hostUserId: _host,
-    mcpServerIds: _mcp,
-    workLaunch: _work,
-    instructions: _instructions,
-    handoff: _handoff,
-    ...rest
-  } = session
+  const { mcpServerIds: _mcp, wakeOn: _wake, ...rest } = session
   return rest
 }
 
@@ -45,7 +36,7 @@ export interface SessionAccountView {
   accountHealth: DeviceAgentHealth | null
 }
 
-type AccountKey = Pick<Session, `deviceId` | `userId` | `hostUserId` | `cli` | `account`>
+type AccountKey = Pick<Session, `deviceId` | `userId` | `teamId` | `cli` | `account`>
 
 export async function resolveSessionAccounts(
   rows: readonly (AccountKey & { id: string })[]
@@ -58,6 +49,7 @@ export async function resolveSessionAccounts(
         .select({
           deviceId: devices.deviceId,
           userId: devices.userId,
+          sharedTeamIds: devices.sharedTeamIds,
           agentAccounts: devices.agentAccounts,
           launchDefaults: devices.launchDefaults,
         })
@@ -65,10 +57,14 @@ export async function resolveSessionAccounts(
         .where(inArray(devices.deviceId, deviceIds))
     : []
   for (const row of rows) {
-    const owner = row.hostUserId ?? row.userId
-    const device = deviceRows.find(
-      (entry) => entry.deviceId === row.deviceId && entry.userId === owner
-    )
+    // NEW-1: the host = the starter's own row, else a row sharing the team
+    // (the same rule as `lib/sessions/host.ts`).
+    const machine = deviceRows.filter((entry) => entry.deviceId === row.deviceId)
+    const device =
+      machine.find((entry) => entry.userId === row.userId) ??
+      machine
+        .filter((entry) => (entry.sharedTeamIds ?? []).includes(row.teamId))
+        .sort((a, b) => (a.userId < b.userId ? -1 : 1))[0]
     const agent = row.cli ?? device?.launchDefaults?.defaultAgent ?? null
     const accounts = device?.agentAccounts ?? {}
     const agents = agent ? [agent] : Object.keys(accounts)
@@ -102,6 +98,7 @@ export async function getSessionTree(
 
   const limit = Math.min(Math.max(opts.messages ?? DEFAULT_TREE_MESSAGES, 0), MAX_TREE_MESSAGES)
   const [issueRows, prRows, childRows, messageRows] = await Promise.all([
+    // The union over the tree: each row names the session holding it.
     db
       .select({
         issueId: sessionIssues.issueId,
@@ -109,19 +106,20 @@ export async function getSessionTree(
         title: issues.title,
         status: issues.status,
         source: sessionIssues.source,
+        sessionId: sessionIssues.sessionId,
         addedBySessionId: sessionIssues.addedBySessionId,
-        assignedSessionId: sessionIssues.assignedSessionId,
       })
       .from(sessionIssues)
       .innerJoin(issues, eq(issues.id, sessionIssues.issueId))
+      .innerJoin(sessions, eq(sessions.id, sessionIssues.sessionId))
       .where(
         and(
-          eq(sessionIssues.sessionId, root.id),
+          eq(sessions.rootId, root.id),
           isNull(sessionIssues.boardDeletedAt),
           isNull(sessionIssues.boardArchivedAt)
         )
       )
-      .orderBy(asc(sessionIssues.sortOrder), asc(sessionIssues.createdAt)),
+      .orderBy(asc(sessions.depth), asc(sessionIssues.sortOrder), asc(sessionIssues.createdAt)),
     db
       .select()
       .from(pullRequests)
@@ -172,7 +170,8 @@ export async function getSessionTree(
 export interface SessionListRow {
   id: string
   teamId: string
-  kind: SessionKind
+  /** NEW-2: the agent this is a conversation of (null = a thread). */
+  agentId: string | null
   title: string
   status: Session[`status`]
   busy: boolean
@@ -193,11 +192,12 @@ export interface SessionListRow {
   updatedAt: Date
 }
 
-/** Roots (threads or agents) the caller may see, most recently active
- *  first. `live` = not ended (agents always are). */
+/** Roots the caller may see, most recently active first: threads, or with
+ *  `agentId` the caller's conversations with that agent. `live` = not
+ *  ended. */
 export async function listSessions(
   userId: string,
-  args: { teamId?: string; kind: SessionKind; live?: boolean; limit: number; offset: number }
+  args: { teamId?: string; agentId?: string; live?: boolean; limit: number; offset: number }
 ): Promise<SessionListRow[]> {
   const memberTeams = await getUserTeamIds(userId)
   const teamIds = args.teamId
@@ -209,7 +209,7 @@ export async function listSessions(
     .select({
       id: sessions.id,
       teamId: sessions.teamId,
-      kind: sessions.kind,
+      agentId: sessions.agentId,
       rootId: sessions.rootId,
       title: sessions.title,
       status: sessions.status,
@@ -217,7 +217,6 @@ export async function listSessions(
       needsInput: sessions.needsInput,
       deviceId: sessions.deviceId,
       userId: sessions.userId,
-      hostUserId: sessions.hostUserId,
       shared: sessions.shared,
       cli: sessions.cli,
       account: sessions.account,
@@ -232,7 +231,10 @@ export async function listSessions(
       and(
         inArray(sessions.teamId, teamIds),
         isNull(sessions.parentId),
-        eq(sessions.kind, args.kind),
+        // NEW-2: `agentId` = the caller's OWN conversations with that agent.
+        args.agentId
+          ? and(eq(sessions.agentId, args.agentId), eq(sessions.userId, userId))
+          : isNull(sessions.agentId),
         or(eq(sessions.shared, true), eq(sessions.userId, userId)),
         ...(args.live ? [ne(sessions.status, `ended`)] : [])
       )
@@ -243,7 +245,7 @@ export async function listSessions(
   // EXP-1341: THE title chain (session-title.json), never a SQL copy.
   const titles = await deriveSessionTitles(rows)
   const accounts = await resolveSessionAccounts(rows)
-  return rows.map(({ rootId: _root, hostUserId: _host, ...row }) => ({
+  return rows.map(({ rootId: _root, ...row }) => ({
     ...row,
     title: titles.get(row.id)!,
     ...accounts.get(row.id)!,

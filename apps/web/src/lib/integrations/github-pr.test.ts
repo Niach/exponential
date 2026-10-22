@@ -3,6 +3,7 @@ import {
   branchExists,
   classifyPrBase,
   createPullRequest,
+  deleteBranch,
   diagnoseUnmergeablePr,
   findOpenPullByHead,
   fetchPullState,
@@ -846,5 +847,31 @@ describe(`mergePullRequest`, () => {
       status: 405,
       message: `Pull Request is not mergeable`,
     })
+  })
+})
+
+describe(`deleteBranch (NEW-5)`, () => {
+  it(`DELETEs the head ref, keeping the branch's slashes as path segments`, async () => {
+    const fetchImpl = vi.fn(async (_url: string, _init: unknown) => jsonResponse(204, null))
+    await expect(
+      deleteBranch({ repo: `o/r`, branch: `exp/EXP-42`, token: `tok`, fetchImpl: fetchImpl as unknown as GitHubFetch })
+    ).resolves.toBe(`deleted`)
+    expect(fetchImpl.mock.calls[0][0]).toBe(`https://api.github.com/repos/o/r/git/refs/heads/exp/EXP-42`)
+    expect(fetchImpl.mock.calls[0][1]).toMatchObject({
+      method: `DELETE`,
+      headers: expect.objectContaining({ authorization: `Bearer tok` }),
+    })
+  })
+
+  it(`an already deleted branch is gone, not an error`, async () => {
+    for (const status of [404, 422]) {
+      const fetchImpl = (async () => jsonResponse(status, { message: `Reference does not exist` })) as unknown as GitHubFetch
+      await expect(deleteBranch({ repo: `o/r`, branch: `exp/EXP-42`, token: `tok`, fetchImpl })).resolves.toBe(`gone`)
+    }
+  })
+
+  it(`throws on anything else`, async () => {
+    const fetchImpl = (async () => jsonResponse(403, { message: `Resource not accessible by integration` })) as unknown as GitHubFetch
+    await expect(deleteBranch({ repo: `o/r`, branch: `exp/EXP-42`, token: `tok`, fetchImpl })).rejects.toThrow(/403/)
   })
 })

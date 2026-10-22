@@ -226,7 +226,8 @@ mod tests {
             exp_tool_preview_spec("exponential_pr_open"),
             Some("issue@$issueId issue@$issueIds[]")
         );
-        assert_eq!(exp_tool_preview_spec("exponential_actions_delete"), Some(""));
+        assert_eq!(exp_tool_preview_spec("exponential_events_emit"), Some(""));
+        assert_eq!(exp_tool_preview_spec("exponential_actions_delete"), None, "NEW-2: actions_* are gone");
         assert_eq!(exp_tool_preview_spec("mcp__other__issues_create"), None);
         assert_eq!(exp_tool_preview_spec("Bash"), None);
     }

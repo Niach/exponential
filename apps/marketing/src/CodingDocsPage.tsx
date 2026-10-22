@@ -16,7 +16,7 @@ const SECTIONS: DocsSectionType[] = [
   { id: `setup`, num: `02`, label: `Setup` },
   { id: `start-coding`, num: `03`, label: `Start coding` },
   { id: `single-runs`, num: `04`, label: `Single sessions` },
-  { id: `batch-runs`, num: `05`, label: `Batch sessions` },
+  { id: `batch-runs`, num: `05`, label: `Several issues` },
   { id: `watch-steer`, num: `06`, label: `Watch & steer` },
   { id: `review-merge`, num: `07`, label: `Review & merge` },
   { id: `git-ide`, num: `08`, label: `The git IDE` },
@@ -169,35 +169,37 @@ export function CodingDocsPage() {
             <DocShot
               view="issue-detail"
               platform="desktop"
-              caption="An issue in the desktop IDE with its session live: the Issue | Session switch, the property tray, and Stop"
+              caption="An issue in the desktop IDE: the property tray ending in Start coding, and the chip of the thread already working it"
             />
 
             <UiDemo id="subject-chips" />
             <p className="docs-embed-caption">
               The subject row, drawn by the composer&apos;s own components:
-              issue chips — two or more make a batch — or one action chip,
-              each dropped by its ✕.
+              issue chips, or one prompt chip, each dropped by its ✕.
             </p>
 
             <ul>
               <li>
                 One <strong>subject</strong>, as chips over the prompt:{` `}
-                <strong>issue chips</strong> (one issue codes that issue, two
-                or more make a batch) <em>or</em> one{` `}
-                <strong>action chip</strong> that runs one of the{` `}
-                <a href="/docs/actions/">team&apos;s saved prompts</a>. Picking
-                the other kind swaps it — nothing is ever disabled. The{` `}
-                <strong>#</strong> button opens the issue picker,{` `}
-                <strong>▶</strong> the action picker.
+                <strong>issue chips</strong> (one issue or several, one
+                thread either way), <em>or</em> one <strong>prompt chip</strong>
+                {` `}from the <a href="/docs/actions/">team&apos;s saved
+                prompts</a>, <em>or</em> one <strong>agent chip</strong> that
+                turns the send into a message to that{` `}
+                <a href="/docs/actions/#triggers">team agent</a>. Picking
+                another kind swaps it — nothing is ever disabled. The{` `}
+                <strong>+</strong> menu holds <strong>Implement issue</strong>
+                {` `}(a searchable list) and <strong>Message an agent</strong>;
+                typing <code>/</code> lists the prompts.
               </li>
               <li>
                 <strong>Free text</strong> in the box. With no subject it is
-                the prompt of a plain chat session; beside a subject it is
-                additional instructions. A <strong>Repository</strong> pick
-                appears for a subject-less chat: pick one and it gets its own
-                worktree, leave it out and it runs in a scratch directory with
-                the Exponential MCP tools wired up either way. Images can be
-                dropped or pasted in.
+                the whole request; beside a subject it is additional
+                instructions. A <strong>Repository</strong> pick appears for a
+                free request: pick one and the session gets its own worktree,
+                leave it out and it runs in a scratch directory with the
+                Exponential MCP tools wired up either way. Files and images
+                can be dropped or pasted in.
               </li>
               <li>
                 An <strong>agent picker</strong> on the muted options line
@@ -213,14 +215,17 @@ export function CodingDocsPage() {
                 <strong>Default device</strong> and is preselected.
               </li>
               <li>
-                <strong>Model</strong> and <strong>Effort</strong> pickers, per
+                A <strong>Model</strong> picker on the options line and{` `}
+                <strong>Effort</strong> in the <strong>+</strong> menu, per
                 agent. Each agent offers its own models and its own effort
-                vocabulary (Codex calls it Reasoning). Effort is fixed at
-                launch; a Claude session can still change model from its composer.
+                vocabulary (Codex calls it Reasoning). A live session changes
+                both from its composer, <code>/model</code> and{` `}
+                <code>/effort</code>.
               </li>
               <li>
-                <strong>Ultracode</strong>, Claude only. Lets the session organize
-                its own workflow; it takes over the effort setting.
+                <strong>Ultracode</strong>, Claude only, in the{` `}
+                <strong>+</strong> menu. Lets the session organize its own
+                workflow; it takes over the effort setting.
               </li>
               <li>
                 <strong>Plan mode</strong>, Claude and Codex. It proposes
@@ -235,19 +240,20 @@ export function CodingDocsPage() {
               <li>
                 An <strong>Account</strong> picker on machines that hold more
                 than one login for the agent, and an{` `}
-                <strong>MCP servers</strong> picker once your team has any:
-                pick which of them this session gets. See{` `}
+                <strong>MCP servers</strong> entry in the <strong>+</strong>
+                {` `}menu once your team has any: pick which of them this
+                session gets. See{` `}
                 <a href="/docs/mcp/#your-own-servers">MCP servers</a>.
               </li>
             </ul>
 
             <DocShot
               view="chat-issues"
-              caption="The Agent page composer with two issues chipped above the prompt, the machine and agent pickers under it: one session for a single issue, a batch for several"
+              caption="The Agent page composer with two issues chipped above the prompt, the machine and agent pickers under it: one thread, whether it takes one issue or several"
             />
             <p>
-              Defaults are <strong>per agent, not per mode</strong>: single and
-              batch sessions prefill identically. Out of the box that&apos;s{` `}
+              Defaults are <strong>per agent</strong>: every start prefills
+              the same way. Out of the box that&apos;s{` `}
               <strong>plan mode on</strong> and <strong>ultracode off</strong>.
               Change them under <strong>Settings → This device → Agents</strong> on the
               desktop, per agent, and every future session starts from your values.
@@ -260,7 +266,7 @@ export function CodingDocsPage() {
               Which branch a session starts from is resolved, never assumed: a{` `}
               board&apos;s own <strong>Branch</strong> pin wins, then the
               team&apos;s per-repository default-branch override, then
-              GitHub&apos;s. A batch whose issues would resolve to different
+              GitHub&apos;s. A start whose issues would resolve to different
               base branches is refused.
             </p>
           </DocsSection>
@@ -278,10 +284,10 @@ export function CodingDocsPage() {
                 repo side by side.
               </li>
               <li>
-                The session opens seeded with the
-                issue. On web and desktop it is the <strong>Session</strong> face
-                of the issue&apos;s tab.
-                With plan mode on it <strong>plans first</strong>; you approve
+                The session opens seeded with the issue, as a{` `}
+                <strong>thread</strong>: its Conversation, the issue&apos;s chip,
+                the session&apos;s own work one tab over, and the Guide. With
+                plan mode on it <strong>plans first</strong>; you approve
                 before implementation starts.
               </li>
               <li>
@@ -300,28 +306,27 @@ export function CodingDocsPage() {
             </ol>
           </DocsSection>
 
-          {/* ── 05 Batch sessions ── */}
-          <DocsSection id="batch-runs" num="05" label="Batch sessions">
-            <h2>Batch sessions</h2>
+          {/* ── 05 Several issues ── */}
+          <DocsSection id="batch-runs" num="05" label="Several issues">
+            <h2>Several issues at once</h2>
             <p>
               Chip <strong>two or more issues</strong> in the composer (or
-              use the board&apos;s bulk-select bar) and you get a batch session:{` `}
-              <strong>one agent session</strong> given all the issues at
-              once, working on <strong>one shared branch</strong> (
-              <code>exp/batch-&lt;id&gt;</code>), ending in{` `}
-              <strong>one combined PR</strong> linked to every issue in the
-              batch. Merging that PR completes them all.
+              use the board&apos;s bulk-select bar) and you get{` `}
+              <strong>one thread</strong> given all the issues at once, on{` `}
+              <strong>one branch</strong>, ending in <strong>one PR</strong>
+              {` `}linked to every issue it worked. Merging that PR completes
+              them all.
             </p>
             <p>
-              The batch is deliberately loose. The issues go over as a list
+              The request is deliberately loose. The issues go over as a list
               and the agent organizes the work. Overlapping issues are fine,
               and often the point.
             </p>
-            <h3>When to batch</h3>
+            <h3>When to start them together</h3>
             <ul>
               <li>
                 <strong>Related fixes</strong>: five small bugs in one screen
-                make one coherent session and one reviewable PR.
+                make one coherent thread and one reviewable PR.
               </li>
               <li>
                 <strong>Sweeping changes</strong>: a rename, an API
@@ -330,22 +335,21 @@ export function CodingDocsPage() {
               </li>
               <li>
                 <strong>Feedback triage</strong>: bulk-select a morning&apos;s
-                worth of widget reports and clear them in one session.
+                worth of widget reports and clear them in one thread.
               </li>
             </ul>
-            <DocsCallout kind="note" title="Batch size">
-              A session takes <em>at most 30 issues</em>. Every checked issue adds
-              to the prompt, so big batches are token-hungry.
+            <DocsCallout kind="note" title="Size">
+              A start takes <em>at most 30 issues</em>. Every checked issue adds
+              to the prompt, so big requests are token-hungry.
             </DocsCallout>
             <p>
-              <strong>A session starts sessions for the follow-ups it files.</strong>{` `}
-              Work the agent finds out of scope becomes a new issue, and once
-              its own pull request is open it starts a session for each follow-up
-              it can verify on the same machine, built on its own branch. Those
-              sessions nest under it in every sessions list. Merge such a tree root
-              first: the root&apos;s merge retargets its children onto the
-              default branch. Say <code>no follow-up runs</code> in the prompt
-              to turn it off.
+              <strong>A thread grows as the work does.</strong> The agent
+              starts child sessions for the parts it can run side by side, and
+              work it finds out of scope becomes a new issue. Every session of
+              the tree shows as a card in the thread&apos;s Conversation and
+              nests under it on the Threads page; a child that opens its own
+              pull request stacks it on the root&apos;s, and{` `}
+              <strong>Merge stack</strong> lands them together.
             </p>
           </DocsSection>
 
@@ -353,63 +357,55 @@ export function CodingDocsPage() {
           <DocsSection id="watch-steer" num="06" label="Watch & steer">
             <h2>Watch &amp; steer</h2>
             <p>
-              A session has one address,{` `}
-              <code>/t/&lt;team&gt;/sessions/&lt;id&gt;</code>. What it shows
-              is not a log or a terminal — it is the agent&apos;s own
-              narration, the tool calls it makes (collapsed into lines like
-              &ldquo;Ran 4 commands · edited 2 files&rdquo;, with an
-              edit&apos;s diff foldable under its row), and the cards it wants
-              answered.
+              Every start is a <strong>thread</strong> with one address,{` `}
+              <code>/t/&lt;team&gt;/threads/&lt;id&gt;</code>. Its header is
+              the title over one strip of tabs: <strong>Conversation</strong>,
+              a chip per linked issue, a chip per session of the tree, and the{` `}
+              <strong>Guide</strong>. The Conversation holds your request, one
+              card per session the agent started, its replies, and the
+              questions it asked, answered right in their card. A session chip
+              opens that session&apos;s own work in place, which is not a log
+              or a terminal — it is the agent&apos;s own narration, the tool
+              calls it makes (collapsed into lines like &ldquo;Ran 4 commands ·
+              edited 2 files&rdquo;, with an edit&apos;s diff foldable under
+              its row), and the cards it wants answered.
             </p>
             <p>
-              On web and desktop, work lives in <strong>tabs</strong> along
-              the top of the window. An issue and its session share one tab, and
-              the <strong>Issue | Session</strong> switch in its header flips
-              between them. Both faces use the same header: the title, then
-              the issue&apos;s properties in a tray, with{` `}
-              <strong>Stop</strong> or <strong>Resume</strong> at its end. A
-              session with no issue (a chat, an action, a batch) gets a tab of its
-              own.
-            </p>
-            <p>
-              Every live session of yours gets a tab automatically, grouped by
-              agent at the front of the strip. A live session&apos;s tab
-              can&apos;t be closed. Once the session ends it becomes an ordinary
-              tab you close yourself. The same sessions are listed on the{` `}
-              <strong>Agent</strong> page, <strong>Running</strong> then{` `}
-              <strong>Past</strong>. A row carries no buttons: it opens the
-              session, and merging lives on the session&apos;s{` `}
-              <strong>Changes</strong> face. On a phone the Agent page is
-              where you open them. Live sessions
-              are yours alone — teammates see the status badge on the issue,
-              never the transcript.
+              <strong>Threads</strong> in the sidebar lists every thread of
+              the team in three bands: <strong>Needs you</strong> (a question,
+              a plan or a usage wall waits on a person), <strong>Running</strong>
+              {` `}and <strong>Recent</strong> (the last day, then the last
+              twenty). A row is its mark, its title, one quiet word (question ·
+              ready to merge · stack) and the device it runs on; a live tree
+              nests its sessions under the root. The rail&apos;s{` `}
+              <strong>Active</strong> section keeps the threads that need you
+              or are running one click away, and on web and desktop an open
+              thread is a tab along the top of the window. An unread thread
+              reads bold until you open it.
             </p>
 
             <DocShot
               view="steering"
               platform="desktop"
-              caption="A session in the desktop IDE: the same header as its issue, the transcript, and the agent's question waiting for an answer"
+              caption="A session in the desktop IDE: the thread's strip, the agent's work, and its question waiting for an answer"
             />
 
             <p>What the composer takes:</p>
             <ul>
               <li>
-                Plain text, and up to <strong>four images</strong> per message
-                (attach, or paste and drop on the web) — on every kind of session,
-                chat and action sessions included.
+                Plain text, and up to <strong>four images</strong> and four
+                files per message (attach, or paste and drop on the web) — in
+                every thread, whatever started it.
               </li>
               <li>
-                Agent <strong>slash commands</strong>, from a{` `}
-                <code>/</code> typeahead filtered to what the session&apos;s
-                agent supports. Two are Exponential&apos;s own, on every
-                agent: <code>/compact</code> (&ldquo;Compact the conversation
-                context&rdquo;, optionally with instructions) and{` `}
-                <code>/clear</code> (&ldquo;Start a fresh conversation
-                (context is discarded)&rdquo;, behind a confirm; the worktree
-                files are kept). The rest of the list is whatever the
-                agent itself advertises for the session, so it differs between
-                Claude and Codex. While the agent folds its context the view
-                shows a <strong>Compacting context…</strong> strip, and a{` `}
+                <strong>Slash commands</strong>, from a <code>/</code>{` `}
+                typeahead: <code>/compact</code> (&ldquo;Compact the
+                conversation context&rdquo;, optionally with instructions),{` `}
+                <code>/model</code> and <code>/effort</code>, then the
+                team&apos;s <a href="/docs/actions/">prompts</a>, whose body
+                lands in your draft. Commands the agent CLI injects on its own
+                never show. While the agent folds its context the view shows
+                a <strong>Compacting context…</strong> strip, and a{` `}
                 <strong>Context compacted</strong> marker stays in the
                 transcript.
               </li>
@@ -435,9 +431,10 @@ export function CodingDocsPage() {
               can switch the session to.
             </p>
             <p>
-              Everything else about the session is picked when you start it: the
-              agent, its effort and plan mode. A live session is steered with
-              words.
+              The agent and the machine are picked when you start; effort,
+              ultracode, MCP servers and plan mode change mid-session from the
+              composer&apos;s <strong>+</strong> menu. Everything else is
+              steered with words.
             </p>
             <p>
               The transcript keeps the <strong>whole session</strong>, not the
@@ -448,10 +445,9 @@ export function CodingDocsPage() {
               transcript lives on <em>that</em> machine, never on our servers.
               Past transcripts stay there for as long as that machine&apos;s
               {` `}<strong>Settings → Sessions</strong> allows (unlimited by
-              default). The <strong>Agent</strong> page shows your 20 most
-              recent sessions; when an issue has more than one session of yours, its
-              {` `}<strong>Session</strong> toggle reads <strong>Sessions</strong> and
-              the session&apos;s page carries a picker that opens any of them.
+              default). <strong>Threads</strong> keeps the last day of threads
+              in Recent, then the last twenty; an issue names every thread
+              that worked it, one chip each under its header.
             </p>
             <p>
               A session whose host machine goes offline reads{` `}
@@ -468,36 +464,45 @@ export function CodingDocsPage() {
               A session you started makes no report. When the agent finishes its
               turn it waits for your next reply, in the desktop app and on a
               daemon alike, with no idle timeout. End it yourself with{` `}
-              <strong>Stop</strong>. On web and desktop it sits in the
-              session&apos;s header (in the property tray for an issue session); on a
-              phone it is in the top bar. Once a session has ended,{` `}
-              <strong>Resume</strong> takes its place and relaunches it.
+              <strong>Stop</strong>, in the thread&apos;s header while a
+              session chip is open; on a phone it is in the top bar. Writing
+              to an ended thread continues it in a new session on the same
+              branch.
             </p>
             <p>
-              Sessions a <a href="/docs/actions/#triggers">trigger</a>{` `}
-              started are the ones that <strong>end themselves</strong>: the
-              agent closes the session when its work is done, and the action&apos;s
-              {` `}
-              <strong>Sessions</strong> keeps them.
+              Sessions a <a href="/docs/actions/#triggers">team agent</a>{` `}
+              started on a schedule or an event are the ones that{` `}
+              <strong>end themselves</strong>: the agent closes the session
+              when its work is done, and reports into its own page.
             </p>
 
-            <h3>Chat</h3>
+            <h3>Free requests and agents</h3>
             <p>
               Not every question is an issue. <strong>Agent</strong> in the
               sidebar on web and desktop, and the chat button beside the
-              phone&apos;s tab bar, open the Agent page. With nothing chipped,
-              its composer starts a conversation with your agent that is bound
-              to no issue and needs no repository. It runs on one of your
-              machines like any other session, with the Exponential tools
-              wired up, so it can read and write the tracker while you talk to
-              it. Your sessions are listed under the prompt, running first, then
-              past. Open an ended one to read it back, or to{` `}
-              <strong>Resume</strong> it if its machine still can.
+              phone&apos;s tab bar, open the Agent page: the home of every
+              client, a greeting over the composer and nothing else. With
+              nothing chipped, the send starts a thread bound to no issue
+              that needs no repository. It runs on one of your machines like
+              any other session, with the Exponential tools wired up, so it
+              can read and write the tracker while you talk to it. Every
+              thread lives on the Threads page; open an ended one to read it
+              back, or write to it to continue.
+            </p>
+            <p>
+              A <strong>team agent</strong> is a saved definition: a name and
+              icon, the device and login it runs on, markdown instructions,
+              and triggers (a schedule, or an event such as an issue being
+              created). Every member has a private conversation with each
+              agent — <strong>Message an agent</strong> in the composer&apos;s{` `}
+              <strong>+</strong> menu, or the agent&apos;s row in the sidebar.
+              Its page reads like a chat: the agent&apos;s reports, your
+              messages, and one card per thread it started for you.
             </p>
 
             <DocShot
               view="chat"
-              caption="The Agent page: the composer, the machine and agent it runs on, and your running and past sessions"
+              caption="The Agent page: the greeting and the one composer, with the machine, login and model it will use under it"
             />
           </DocsSection>
 
@@ -507,43 +512,28 @@ export function CodingDocsPage() {
             <p>You never have to leave the IDE to land the work:</p>
             <ul>
               <li>
-                A session&apos;s changes are a full-page face of its tab. Once the
-                session has edited files, its header switch gains a{` `}
-                <strong>+N -M</strong> segment that opens the diff in place of
-                the transcript. A diff card in the transcript opens the same
-                page, scoped to that turn. <strong>Merge PR</strong> sits in
-                the header once the pull request is open.
+                The thread&apos;s <strong>Guide</strong> tab is the pull
+                request&apos;s body, written by the agent: a Summary, then one
+                section per change with its screenshots and a{` `}
+                <strong>Changes</strong> row that opens that part of the diff.
+                The Guide gets a dot in the strip as soon as it holds anything.
               </li>
               <li>
-                The <strong>Reviews</strong> list in the rail collects the
-                team&apos;s open PRs, across every board. Open one, read the
-                diff, and <strong>merge from right there</strong>. The linked
-                issues complete on merge. When a merge fails on conflicts,{` `}
-                <strong>Fix conflicts</strong> replaces{` `}
-                <strong>Merge</strong> in place and hands the PR to the{` `}
-                <a href="/docs/actions/#builtins">Fix merge conflicts</a>{` `}
-                builtin. An issue whose own merge hits a conflict offers the
-                same swap in its header, beside <strong>Retry merge</strong>.
+                While the PR is open the Guide ends in the one{` `}
+                <strong>Merge</strong> capsule; a PR stacked on another open
+                one reads <strong>Merge stack</strong> and lands the whole
+                stack, bottom up. The linked issues complete on merge. The
+                thread header&apos;s <strong>…</strong> menu holds{` `}
+                <strong>Close PR</strong>. On the Threads page a thread whose
+                PR waits reads <strong>ready to merge</strong>, a stacked one{` `}
+                <strong>stack</strong>, and its mark turns green while the PR
+                is open and violet once it is merged.
               </li>
               <li>
-                Pull requests opened by an{` `}
-                <a href="/docs/actions/">action</a> or chat session, with no issue
-                attached, get their own <strong>Agent sessions</strong> group in
-                Reviews, with the action name, branch and PR number, and count
-                toward the Reviews badge. The session itself merges too, from
-                the <strong>Merge</strong> button on its{` `}
-                <strong>Changes</strong> face; the rows in the Agent lists
-                only open the session.
+                A merge that hits conflicts comes back to the thread: write
+                to it and the session rebases, pushes and tries again.
               </li>
             </ul>
-            <p>
-              Merging a PR also <strong>ends the live coding sessions</strong>
-              {` `}on its issues — except the session that merged its own pull
-              request, which always keeps running. Teams that would rather
-              keep every session alive turn the switch off under{` `}
-              <a href="/docs/issues/#branches-prs">Team settings → Statuses</a>
-              .
-            </p>
             <p>
               Prefer GitHub&apos;s review UI? The PR is a completely normal
               pull request. Review and merge it there and the issue completes
@@ -553,7 +543,7 @@ export function CodingDocsPage() {
             <DocShot
               view="guide"
               platform="desktop"
-              caption="A PR's Guide in the desktop IDE: the sections, a Changes row each, Merge in the header"
+              caption="A thread's Guide in the desktop IDE: the sections, a Changes row each, the Merge capsule at the bottom"
             />
           </DocsSection>
 

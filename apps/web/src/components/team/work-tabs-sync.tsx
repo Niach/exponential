@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef } from "react"
 import { useNavigate, useParams, useRouterState } from "@tanstack/react-router"
 import { and, eq, useLiveQuery } from "@tanstack/react-db"
 import type { Board, Issue } from "@/db/schema"
-import { issueCollection, sessionCollection } from "@/lib/collections"
+import { agentCollection, issueCollection, sessionCollection } from "@/lib/collections"
 import {
   isNewRunPath,
   pruneTabs,
@@ -12,6 +12,7 @@ import {
   type RouteTab,
 } from "@/lib/work-tabs"
 import { useSessionRow } from "@/hooks/use-session-tree"
+import { useAgentRow } from "@/hooks/use-agent-row"
 import {
   openNewRunPage,
   updateWorkTabs,
@@ -112,14 +113,10 @@ export function WorkTabsSync({
     [issueBoard?.id, issueIdentifier]
   )
   const routeSessionId =
-    path?.kind === `thread`
-      ? path.threadId
-      : path?.kind === `agent`
-        ? path.agentId
-        : path?.kind === `session`
-          ? path.sessionId
-          : null
+    path?.kind === `thread` ? path.threadId : path?.kind === `session` ? path.sessionId : null
   const { row: sessionRow } = useSessionRow(routeSessionId)
+  // NEW-2: an agent tab names the `agents` row.
+  const { agent: routeAgent } = useAgentRow(path?.kind === `agent` ? path.agentId : null)
   // EXP-1316: `/sessions/<id>` only redirects into its thread (the session
   // opens in place, the THREAD's tab focuses) unless the tree is an agent's.
   const sessionRootId =
@@ -134,15 +131,20 @@ export function WorkTabsSync({
       const issue = ((issueRows ?? []) as Issue[])[0]
       return issue ? { kind: `issue`, issueId: issue.id, from: path.from } : null
     }
+    if (path.kind === `agent`) {
+      return routeAgent && routeAgent.id === path.agentId && routeAgent.teamId === teamId
+        ? path
+        : null
+    }
     if (!sessionRow || sessionRow.id !== routeSessionId || sessionRow.teamId !== teamId) {
       return null
     }
     if (path.kind === `session`) {
       const root = sessionRow.rootId && sessionRow.rootId !== sessionRow.id ? sessionRoot : sessionRow
-      if (root?.kind !== `agent`) return null
+      if (!root?.agentId) return null
     }
     return path
-  }, [path, issueRows, sessionRow, sessionRoot, routeSessionId, teamId])
+  }, [path, issueRows, sessionRow, sessionRoot, routeSessionId, routeAgent, teamId])
   const routeKey = route ? JSON.stringify(route) : null
 
   useEffect(() => {
@@ -178,7 +180,9 @@ export function WorkTabsSync({
     [boards]
   )
   useEffect(() => {
-    if (!issueCollection.isReady() || !sessionCollection.isReady()) return
+    if (!issueCollection.isReady() || !sessionCollection.isReady() || !agentCollection.isReady()) {
+      return
+    }
     if (boardIds.size === 0) return
     updateWorkTabs(teamId, (state) =>
       pruneTabs(state, (tab) => {
@@ -187,6 +191,7 @@ export function WorkTabsSync({
           const issue = issueCollection.get(tab.issueId)
           return issue !== undefined && boardIds.has(issue.boardId)
         }
+        if (tab.kind === `agent`) return agentCollection.get(tab.agentId)?.teamId === teamId
         const sessionId = tabSessionId(tab)
         return sessionId !== null && sessionCollection.get(sessionId)?.teamId === teamId
       })

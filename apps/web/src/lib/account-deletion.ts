@@ -1,15 +1,12 @@
-import { PERSISTENT_KINDS } from "@exp/domain-contract/session-kind"
 import { TRPCError } from "@trpc/server"
 import {
   and,
   eq,
   inArray,
-  isNotNull,
   isNull,
   ne,
   or,
   sql,
-  notInArray,
 } from "drizzle-orm"
 import {
   attachments,
@@ -178,17 +175,28 @@ export async function guardAndCleanupTeamsForUserDeletion(
   const endedSessionIds: string[] = []
   const now = new Date()
 
-  // Sessions this user STARTED on somebody else's machine. `user_id`
-  // cascades, so the delete would VAPORIZE these rows (a shared thread is
-  // team data, and a vanished row is no kill signal for the host's device).
-  // Re-attributing them to the host keeps them as host-owned rows, ended
-  // when live; the visibility mirrors (`owner_id`) follow, or the messages
-  // and issue links would cascade away with the account.
+  // Sessions this user STARTED on somebody else's machine (NEW-1: the host
+  // is derived from the devices rows: no own row for the device, a
+  // teammate's row sharing the team). `user_id` cascades, so the delete
+  // would VAPORIZE these rows (a shared thread is team data, and a vanished
+  // row is no kill signal for the host's device). Re-attributing them to the
+  // host keeps them as host-owned rows, ended when live; the visibility
+  // mirrors (`owner_id`) follow, or the messages and issue links would
+  // cascade away with the account.
+  // The host = the lowest-id owner of a devices row for the session's
+  // machine that shares the session's team (`lib/sessions/host.ts`).
+  const hostOfSession = sql`(SELECT d.user_id FROM devices d WHERE d.device_id = ${sessions.deviceId} AND d.user_id <> ${userId} AND ${sessions.teamId} = ANY(d.shared_team_ids) ORDER BY d.user_id LIMIT 1)`
   const requested = await tx
     .update(sessions)
-    .set({ userId: sql`${sessions.hostUserId}`, hostUserId: null, updatedAt: now })
-    .where(and(eq(sessions.userId, userId), isNotNull(sessions.hostUserId)))
-    .returning({ id: sessions.id, userId: sessions.userId })
+    .set({ userId: hostOfSession, updatedAt: now })
+    .where(
+      and(
+        eq(sessions.userId, userId),
+        sql`NOT EXISTS (SELECT 1 FROM devices d WHERE d.device_id = ${sessions.deviceId} AND d.user_id = ${userId})`,
+        sql`EXISTS ${hostOfSession}`
+      )
+    )
+    .returning({ id: sessions.id })
   if (requested.length > 0) {
     const ids = requested.map((row) => row.id)
     await tx
@@ -202,22 +210,24 @@ export async function guardAndCleanupTeamsForUserDeletion(
     const ended = await tx
       .update(sessions)
       .set({ status: `ended`, endedAt: now, busy: false, needsInput: false })
-      .where(and(inArray(sessions.id, ids), ne(sessions.status, `ended`), notInArray(sessions.kind, [...PERSISTENT_KINDS])))
+      .where(and(inArray(sessions.id, ids), ne(sessions.status, `ended`), isNull(sessions.agentId)))
       .returning({ id: sessions.id })
     endedSessionIds.push(...ended.map((row) => row.id))
   }
 
-  // Live sessions this user HOSTS for a teammate: the device executing them
-  // authenticates as the account being deleted, so they are over.
+  // Live sessions this user HOSTS for a teammate (their device, the
+  // starter owns no row for it): the device executing them authenticates as
+  // the account being deleted, so they are over.
   const hosted = await tx
     .update(sessions)
     .set({ status: `ended`, endedAt: now, busy: false, needsInput: false, updatedAt: now })
     .where(
       and(
-        eq(sessions.hostUserId, userId),
         ne(sessions.userId, userId),
         ne(sessions.status, `ended`),
-        notInArray(sessions.kind, [...PERSISTENT_KINDS])
+        isNull(sessions.agentId),
+        sql`EXISTS (SELECT 1 FROM devices d WHERE d.user_id = ${userId} AND d.device_id = ${sessions.deviceId})`,
+        sql`NOT EXISTS (SELECT 1 FROM devices d WHERE d.user_id = ${sessions.userId} AND d.device_id = ${sessions.deviceId})`
       )
     )
     .returning({ id: sessions.id })

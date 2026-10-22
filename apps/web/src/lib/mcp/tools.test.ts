@@ -17,13 +17,8 @@ const h = vi.hoisted(() => {
     subscriptions: { subscribe: vi.fn(), unsubscribe: vi.fn() },
     notifications: { markRead: vi.fn(), markAllRead: vi.fn() },
     repositories: { list: vi.fn(), add: vi.fn() },
-    actions: {
-      list: vi.fn(),
-      get: vi.fn(),
-      create: vi.fn(),
-      update: vi.fn(),
-      delete: vi.fn(),
-    },
+    prompts: { list: vi.fn(), get: vi.fn() },
+    agents: { list: vi.fn() },
     issues: {
       // EXP-684: statusId passthrough on create.
       create: vi.fn(),
@@ -259,6 +254,12 @@ vi.mock(`@/lib/sessions/send`, () => ({ sendSession: h.sessionsCore.sendSession 
 vi.mock(`@/lib/sessions/access`, () => ({
   loadSessionForUser: h.sessionsCore.loadSessionForUser,
   assertCanSteer: h.sessionsCore.assertCanSteer,
+  // NEW-1: the host is derived from the devices rows; the mocked rows carry
+  // it as `hostUserId` so the cases read as before.
+  isSessionPrincipal: async (userId: string, row: { userId: string; hostUserId?: string | null }) =>
+    row.userId === userId || row.hostUserId === userId,
+  sessionDeviceOwner: async (row: { userId: string; hostUserId?: string | null }) =>
+    row.hostUserId ?? row.userId,
 }))
 vi.mock(`@/lib/sessions/tree`, () => ({
   getSessionTree: h.sessionsCore.getSessionTree,
@@ -288,6 +289,7 @@ import { getSteerRelayConfig, relayPostCompact } from "@/lib/steer"
 import { registerExponentialTools, GUIDE_PICTURE_NEXT_STEP } from "@/lib/mcp/tools"
 import { FULL_ACCESS, type McpAccess } from "@/lib/mcp/scope"
 import { ALL_MCP_TOOL_GATES, type McpToolGates } from "@/lib/mcp/gates"
+import { displayRowNames, legacyNameOfRow } from "@/lib/mcp/nouns"
 import type { McpUser } from "@/lib/mcp/server"
 import { contract } from "@exp/domain-contract"
 import { PLAN_CARD_COPY } from "@exp/domain-contract/plan-card"
@@ -558,14 +560,6 @@ const descriptors: Array<Descriptor> = [
     calledWith: { teamId: WS, fullName: `a/b` },
   },
   {
-    tool: `exponential_actions_delete`,
-    pick: () => caller.actions.delete,
-    args: { id: UUID },
-    resolved: { ok: true },
-    expected: { ok: true, id: UUID },
-    calledWith: { id: UUID },
-  },
-  {
     tool: `exponential_boards_delete`,
     pick: () => caller.boards.delete,
     args: { id: PROJ },
@@ -685,41 +679,30 @@ const descriptors: Array<Descriptor> = [
     expected: { ok: true, id: STATUS, reassigned: 3, reassignedToId: UUID },
     calledWith: { teamId: WS, statusId: STATUS, reassignToId: UUID },
   },
-  // ── EXP-1291: actions = saved prompts ──
+  // ── NEW-2: prompts (actions became saved prompts), agents ──
   {
-    tool: `exponential_actions_list`,
-    pick: () => caller.actions.list,
+    tool: `exponential_prompts_list`,
+    pick: () => caller.prompts.list,
     args: { teamId: WS },
-    resolved: { actions: [{ id: UUID, name: `Code review` }] },
-    // No virtual builtins any more: the rows as the router lists them.
+    resolved: { prompts: [{ id: UUID, name: `Code review` }] },
     expected: [{ id: UUID, name: `Code review` }],
     calledWith: { teamId: WS },
   },
   {
-    tool: `exponential_actions_get`,
-    pick: () => caller.actions.get,
+    tool: `exponential_prompts_get`,
+    pick: () => caller.prompts.get,
     args: { id: UUID },
-    resolved: { action: { id: UUID, name: `Code review`, body: `# Review` } },
+    resolved: { prompt: { id: UUID, name: `Code review`, body: `# Review` } },
     expected: { id: UUID, name: `Code review`, body: `# Review` },
     calledWith: { id: UUID },
   },
   {
-    tool: `exponential_actions_upsert`,
-    pick: () => caller.actions.create,
-    args: { teamId: WS, name: `Code review`, body: `# Review the repo` },
-    resolved: {
-      action: { id: UUID, name: `Code review`, body: `# Review the repo` },
-    },
-    expected: { id: UUID, name: `Code review`, body: `# Review the repo` },
-    calledWith: { teamId: WS, name: `Code review`, body: `# Review the repo` },
-  },
-  {
-    tool: `exponential_actions_upsert`,
-    pick: () => caller.actions.update,
-    args: { id: UUID, name: `Nightly review` },
-    resolved: { action: { id: UUID, name: `Nightly review` } },
-    expected: { id: UUID, name: `Nightly review` },
-    calledWith: { id: UUID, name: `Nightly review` },
+    tool: `exponential_agents_list`,
+    pick: () => caller.agents.list,
+    args: { teamId: WS },
+    resolved: { agents: [{ id: UUID, name: `Triage` }] },
+    expected: [{ id: UUID, name: `Triage` }],
+    calledWith: { teamId: WS },
   },
 ]
 
@@ -1851,6 +1834,9 @@ describe(`expToolDisplay covers the whole tool surface (EXP-846)`, () => {
     // `exponential_report_bug` — a row the contract must describe too, since
     // cloud agents call it.
     vi.stubEnv(`CLOUD_INSTANCE`, `true`)
+    // NEW-4: every per-operation tool must still be reachable as an op of a
+    // noun (nouns.ts routes it), and the contract describes the row
+    // `<noun>_<op>` the engine composes for a call.
     const names = (() => {
       try {
         return [...collectToolDefs().keys()]
@@ -1861,7 +1847,10 @@ describe(`expToolDisplay covers the whole tool surface (EXP-846)`, () => {
     // Every tool this server registers is `exponential_*` — the prefix IS the
     // match rule the clients apply, so a bare name could never be captioned.
     expect(names.filter((name) => !name.startsWith(prefix))).toEqual([])
-    const registered = names.map((name) => name.slice(prefix.length)).sort()
+    const rows = displayRowNames()
+    const routed = rows.map((row) => legacyNameOfRow(row)).sort()
+    expect(routed).toEqual([...names].sort())
+    const registered = [...rows].sort()
     const described = contract.expToolDisplay.tools
       .map((row) => row.name)
       .sort()
@@ -1917,8 +1906,8 @@ describe(`exponential_comments_create audience reporter`, () => {
     parentId: null,
     userId: `user-1`,
     hostUserId: null,
-    rootKind: `thread`,
-    rootSpawnedBy: null,
+    rootAgentId: null,
+    watched: null,
     ...over,
   })
 
@@ -1938,7 +1927,7 @@ describe(`exponential_comments_create audience reporter`, () => {
 
   it.each([
     [`a child session`, { parentId: UUID }],
-    [`a spawned root`, { rootSpawnedBy: UUID }],
+    [`a spawned root`, { watched: true }],
   ])(`refuses an unattended session (%s)`, async (_label, over) => {
     dbRows.current = [ownSession(over)]
     const result = await collectTools(USER, SESSION).get(
@@ -2014,8 +2003,8 @@ const callerRow = (over: Record<string, unknown> = {}) => ({
   parentId: null,
   userId: USER.id,
   hostUserId: null,
-  rootKind: `thread`,
-  rootSpawnedBy: null,
+  rootAgentId: null,
+  watched: null,
   ...over,
 })
 const sessionRow = (over: Record<string, unknown> = {}) => ({
@@ -2054,6 +2043,10 @@ describe(`retired tools (EXP-1291)`, () => {
       `exponential_repositories_branch_diff`,
       `exponential_actions_create`,
       `exponential_actions_update`,
+      `exponential_actions_list`,
+      `exponential_actions_get`,
+      `exponential_actions_upsert`,
+      `exponential_actions_delete`,
     ]) {
       expect(names, name).not.toContain(name)
     }
@@ -2105,7 +2098,7 @@ describe(`exponential_sessions_send`, () => {
   it(`applies the sessions.send rules (a message needs text)`, async () => {
     const result = await tool(`exponential_sessions_send`)({ sessionId: SESSION })
     expect(result.isError).toBe(true)
-    expect(result.content[0].text).toContain(`a message needs text, attachments, issues, an account or a device`)
+    expect(result.content[0].text).toContain(`a message needs text, attachments, issues, an answer, an account or a device`)
     expect(sessionsCore.sendSession).not.toHaveBeenCalled()
   })
 
@@ -2171,17 +2164,16 @@ describe(`exponential_sessions_get / list`, () => {
     expect(result.content[0].text).toContain(`X-Exp-Session-Id`)
   })
 
-  it(`lists threads by default and agents on request`, async () => {
+  it(`lists threads by default and one agent's conversations on request`, async () => {
     sessionsCore.listSessions.mockResolvedValue([{ id: ROOT }])
     await tool(`exponential_sessions_list`)({})
     expect(sessionsCore.listSessions).toHaveBeenCalledWith(USER.id, {
-      kind: `thread`,
       limit: 50,
       offset: 0,
     })
-    await tool(`exponential_sessions_list`)({ kind: `agent`, teamId: WS, live: true })
+    await tool(`exponential_sessions_list`)({ agentId: UUID, teamId: WS, live: true })
     expect(sessionsCore.listSessions).toHaveBeenLastCalledWith(USER.id, {
-      kind: `agent`,
+      agentId: UUID,
       teamId: WS,
       live: true,
       limit: 50,
@@ -2198,11 +2190,11 @@ describe(`exponential_sessions_get / list`, () => {
   })
 })
 
-describe(`exponential_sessions_stop / end`, () => {
-  it(`stops a named session`, async () => {
+describe(`exponential_sessions_send stop / sessions_end`, () => {
+  it(`NEW-4: stop rides sessions_send and interrupts the named session's turn`, async () => {
     sessionsCore.stopSession.mockResolvedValue({ txid: 1 })
-    const result = await tool(`exponential_sessions_stop`)({ id: CHILD })
-    expect(parseOk(result)).toEqual({ ok: true, id: CHILD })
+    const result = await tool(`exponential_sessions_send`)({ sessionId: CHILD, stop: true })
+    expect(parseOk(result)).toEqual({ ok: true, id: CHILD, stopped: true })
     expect(sessionsCore.stopSession).toHaveBeenCalledWith({
       userId: USER.id,
       sessionId: CHILD,
@@ -2248,9 +2240,10 @@ describe(`exponential_sessions_link / unlink`, () => {
     const result = await collectTools(USER, SESSION).get(`exponential_sessions_link`)!({
       issueIds: [UUID],
     })
-    expect(parseOk(result)).toEqual({ sessionId: ROOT, issueIds: [UUID], linked: [UUID] })
+    // NEW-1: the caller's OWN session holds the rows.
+    expect(parseOk(result)).toEqual({ sessionId: SESSION, issueIds: [UUID], linked: [UUID] })
     expect(sessionsCore.linkIssues).toHaveBeenCalledWith(db, {
-      rootId: ROOT,
+      sessionId: SESSION,
       issueIds: [UUID],
       source: `agent`,
       addedBy: USER.id,
@@ -2259,7 +2252,7 @@ describe(`exponential_sessions_link / unlink`, () => {
     expect(noteAgentIssueActivity).toHaveBeenCalledWith(UUID, USER.id)
   })
 
-  it(`writes on a named session's root after the steer check`, async () => {
+  it(`writes on the named session after the steer check`, async () => {
     sessionsCore.loadSessionForUser.mockResolvedValue(
       sessionRow({ id: CHILD, rootId: ROOT, teamId: `ws-1` })
     )
@@ -2268,7 +2261,7 @@ describe(`exponential_sessions_link / unlink`, () => {
     expect(sessionsCore.assertCanSteer).toHaveBeenCalled()
     expect(sessionsCore.linkIssues).toHaveBeenCalledWith(
       db,
-      expect.objectContaining({ rootId: ROOT, source: `user`, addedBySessionId: null })
+      expect.objectContaining({ sessionId: CHILD, source: `user`, addedBySessionId: null })
     )
   })
 
@@ -2286,16 +2279,17 @@ describe(`exponential_sessions_link / unlink`, () => {
     expect(sessionsCore.linkIssues).not.toHaveBeenCalled()
   })
 
-  it(`unlinks from the caller's root`, async () => {
+  it(`unlinks from the caller's own session`, async () => {
     dbRows.current = [callerRow({ teamId: `ws-1` })]
     sessionsCore.unlinkIssue.mockResolvedValue({ unlinked: true })
     const result = await collectTools(USER, SESSION).get(`exponential_sessions_unlink`)!({
       issueId: UUID,
     })
-    expect(parseOk(result)).toEqual({ sessionId: ROOT, issueId: UUID, unlinked: true })
+    expect(parseOk(result)).toEqual({ sessionId: SESSION, issueId: UUID, unlinked: true })
     expect(sessionsCore.unlinkIssue).toHaveBeenCalledWith(db, {
-      rootId: ROOT,
+      sessionId: SESSION,
       issueId: UUID,
+      removedBy: USER.id,
       removedBySessionId: SESSION,
     })
   })
@@ -2319,9 +2313,10 @@ describe(`exponential_issues_create sessionId (EXP-1291)`, () => {
       boardId: PROJ,
       title: `Follow-up`,
     })
-    expect(parseOk(result)).toEqual({ id: UUID, identifier: `EXP-9`, sessionId: ROOT })
+    // NEW-1: the filer holds the issue.
+    expect(parseOk(result)).toEqual({ id: UUID, identifier: `EXP-9`, sessionId: SESSION })
     expect(sessionsCore.linkIssues).toHaveBeenCalledWith(db, {
-      rootId: ROOT,
+      sessionId: SESSION,
       issueIds: [UUID],
       source: `agent`,
       addedBy: USER.id,
@@ -2330,7 +2325,7 @@ describe(`exponential_issues_create sessionId (EXP-1291)`, () => {
     })
   })
 
-  it(`files into a named session's thread after the steer check`, async () => {
+  it(`files into the named session after the steer check`, async () => {
     sessionsCore.loadSessionForUser.mockResolvedValue(
       sessionRow({ id: CHILD, rootId: ROOT, teamId: `ws-1` })
     )
@@ -2342,7 +2337,7 @@ describe(`exponential_issues_create sessionId (EXP-1291)`, () => {
     expect(sessionsCore.assertCanSteer).toHaveBeenCalled()
     expect(sessionsCore.linkIssues).toHaveBeenCalledWith(
       db,
-      expect.objectContaining({ rootId: ROOT, filed: true, addedBySessionId: null })
+      expect.objectContaining({ sessionId: CHILD, filed: true, addedBySessionId: null })
     )
   })
 
@@ -2358,7 +2353,7 @@ describe(`exponential_issues_create sessionId (EXP-1291)`, () => {
   })
 
   it(`never files into a team agent's channel or another team's thread`, async () => {
-    for (const over of [{ teamId: `ws-1`, rootKind: `agent` }, { teamId: WS }]) {
+    for (const over of [{ teamId: `ws-1`, rootAgentId: UUID }, { teamId: WS }]) {
       dbRows.current = [callerRow(over)]
       const result = await collectTools(USER, SESSION).get(`exponential_issues_create`)!({
         boardId: PROJ,
@@ -2607,47 +2602,6 @@ describe(`pull request tools (EXP-1291)`, () => {
       .get(`exponential_pr_merge`)!({ pullRequestId: PR_ID })
     expect(result.isError).toBe(true)
     expect(prs.mergePullRequest).not.toHaveBeenCalled()
-  })
-})
-
-describe(`exponential_actions_upsert`, () => {
-  it(`refuses a create without teamId, name and body`, async () => {
-    const result = await tool(`exponential_actions_upsert`)({ name: `X` })
-    expect(result.isError).toBe(true)
-    expect(caller.actions.create).not.toHaveBeenCalled()
-  })
-
-  it(`refuses moving an action between teams`, async () => {
-    const result = await tool(`exponential_actions_upsert`)({ id: UUID, teamId: WS })
-    expect(result.isError).toBe(true)
-    expect(caller.actions.update).not.toHaveBeenCalled()
-  })
-
-  it(`accepts the issue pick and rejects retired input kinds at the schema`, () => {
-    const schema = collectToolDefs().get(`exponential_actions_upsert`)!.inputSchema!
-    expect(
-      schema.safeParse({
-        teamId: WS,
-        name: `A`,
-        body: `x`,
-        inputs: [{ key: `n`, label: `N`, type: `issue` }],
-      }).success
-    ).toBe(true)
-    for (const type of [`icon`, `text`, `textarea`]) {
-      expect(
-        schema.safeParse({
-          teamId: WS,
-          name: `A`,
-          body: `x`,
-          inputs: [{ key: `n`, label: `N`, type }],
-        }).success,
-        type
-      ).toBe(false)
-    }
-    // Triggers, repository and MCP picks are gone from actions.
-    for (const extra of [{ triggers: [] }, { repositoryId: REPO }, { mcpServerIds: [] }]) {
-      expect(schema.safeParse({ id: UUID, ...extra }).success).toBe(false)
-    }
   })
 })
 

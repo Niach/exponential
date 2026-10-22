@@ -114,6 +114,11 @@ const h = vi.hoisted(() => {
 
 vi.mock(`@/db/connection`, () => ({ db: {} }))
 vi.mock(`@/lib/auth`, () => ({ auth: {} }))
+// NEW-1: the heartbeat restores the watchdog's `device_offline` sessions
+// (watchdog.real-db.test.ts covers it against Postgres).
+vi.mock(`@/lib/sessions/watchdog`, () => ({
+  restoreDeviceSessionsInTx: vi.fn(async () => 0),
+}))
 vi.mock(`@/lib/steer`, () => ({
   getSteerRelayConfig: h.getSteerRelayConfig,
   relayPostNudge: h.relayPostNudge,

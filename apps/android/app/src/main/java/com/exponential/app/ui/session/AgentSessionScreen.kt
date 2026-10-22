@@ -204,7 +204,6 @@ import com.exponential.app.domain.AgentRowClass
 import com.exponential.app.domain.ActivityFeedState
 import com.exponential.app.domain.AgentUsagePresentation
 import com.exponential.app.domain.ContextLayoutPresentation
-import com.exponential.app.domain.ConfigCommand
 import com.exponential.app.domain.ToolCallSummary
 import com.exponential.app.domain.ExpToolDisplay
 import com.exponential.app.domain.ExpToolGroup
@@ -263,12 +262,10 @@ import com.exponential.app.ui.components.CLI_DEFAULT_EFFORT
 import com.exponential.app.ui.components.effortLabel
 import com.exponential.app.ui.components.effortValuesFor
 import com.exponential.app.ui.components.supportsPlanMode
-import com.exponential.app.ui.components.picker.ActionPicker
 import com.exponential.app.ui.components.picker.DevicePicker
 import com.exponential.app.ui.components.picker.DevicePickerDevice
 import com.exponential.app.ui.components.deviceIcon
 import com.exponential.app.domain.SessionDeviceMove
-import com.exponential.app.ui.components.picker.ActionPickerAction
 import com.exponential.app.ui.components.picker.McpServerPicker
 import com.exponential.app.ui.components.picker.Picker
 import com.exponential.app.ui.components.picker.PickerItem
@@ -1147,10 +1144,6 @@ private fun RunFaceContent(
                     answerLabels = answerLabels,
                     // EXP-724: filters the command pill's catalog.
                     agent = catalogAgent,
-                    // EXP-746: the run's own advertised
-                    // commands, so a steered agent command
-                    // renders as a command row, not prose.
-                    agentCommands = sessionConfig?.commands.orEmpty(),
                     // Every answer is one semantic `answer` frame keyed
                     // by the card's wire id (EXP-249).
                     onAnswer = onAnswer,
@@ -1259,6 +1252,48 @@ private fun RunFaceContent(
                     }
                 }
 
+
+                // EXP-804 / NEW-1: the PERSISTED block off the session row
+                // (web `session-blocked-strip`): a usage wall reads `Rate
+                // limited · resets in …` with Switch account; a watchdog flag
+                // (device offline, not picked up, stuck) its card word, no
+                // countdown and no switch.
+                val persistedBlock = AgentUsagePresentation.parseBlocked(session?.blocked)
+                val blockedLabel = AgentUsagePresentation.blockedBadgeLabel(persistedBlock, nowMs)
+                if (blockedLabel != null) {
+                    ReadingColumn {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 6.dp)
+                                .testTag("session-blocked-strip"),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Text(
+                                blockedLabel,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = DesignTokens.Semantic.Yellow,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f),
+                            )
+                            if (session?.isEnded != true &&
+                                AgentUsagePresentation.isUsageWall(persistedBlock) &&
+                                accountSwitch.canSwitchAny(activity.turnState)
+                            ) {
+                                GlassPill(
+                                    SessionAccountSwitch.WALL_SWITCH_LABEL,
+                                    onClick = { usageSheetOpen = true },
+                                    size = PillSize.Sm,
+                                    mode = PillMode.Action,
+                                    icon = ExpIcons.uiSwap,
+                                    modifier = Modifier.testTag("blocked-switch-account"),
+                                )
+                            }
+                        }
+                    }
+                }
 
                 // EXP-784: the agent's rate-limit window — ONE banner from the
                 // latest-wins slot (never a run of identical feed rows), with how
@@ -1868,9 +1903,6 @@ private fun ActivityFeed(
      *  whose first token is one of ITS catalog commands renders as a command
      *  pill instead of prose. */
     agent: String? = null,
-    /** EXP-746: the commands the AGENT advertised on this run — merged behind
-     *  the contract catalog so a steered `/<agent command>` reads as one. */
-    agentCommands: List<ConfigCommand> = emptyList(),
     /** EXP-688: how much of the feed's tail the floating Latest-changes bar
      *  covers. The list pads past it (and so does the Jump-to-bottom pill), so
      *  the last message is never parked underneath it. */
@@ -2155,7 +2187,7 @@ private fun ActivityFeed(
                             is AgentFeedItem.UserMessage -> {
                                 // EXP-724: a steered catalog command reads as one.
                                 val command =
-                                    SlashCommands.commandFor(item.text, agent, agentCommands)
+                                    SlashCommands.commandFor(item.text, agent)
                                 if (command != null) {
                                     CommandRow(command, item.text)
                                 } else {
@@ -4609,7 +4641,6 @@ internal fun SessionComposer(
     // change live (`sessions.configure`).
     val picks by viewModel.configurePicks.collectAsStateWithLifecycle()
     val mcpServers by viewModel.mcpServers.collectAsStateWithLifecycle()
-    val menuActions by viewModel.menuActions.collectAsStateWithLifecycle()
     val canComputerUse by viewModel.hostCanToggleComputerUse.collectAsStateWithLifecycle()
     val configureError by viewModel.configureError.collectAsStateWithLifecycle()
     com.exponential.app.ui.components.FailedActionToast(
@@ -4649,7 +4680,6 @@ internal fun SessionComposer(
                 updatedAt = it.updatedAt,
             )
         },
-        actions = menuActions?.map { ActionPickerAction(id = it.id, name = it.name, icon = it.icon) },
         planMode = picks.planMode
             ?: (planModeBadge(sessionConfig) != null || (sessionConfig == null && session?.planMode == true)),
         // An ENDED session takes no configure: the rows and the Plan switch
@@ -4688,7 +4718,25 @@ internal fun SessionComposer(
     var slashSelected by remember { mutableIntStateOf(0) }
     var slashDismissedFor by remember { mutableStateOf<String?>(null) }
     var slashConfirm by remember { mutableStateOf<SlashCommand?>(null) }
-    val slashMatches by viewModel.slashMatches.collectAsStateWithLifecycle()
+    // NEW-2: the builtins, then the team's prompts (a prompt's pick puts its
+    // body in the draft).
+    val slashMatches by viewModel.slashCandidates.collectAsStateWithLifecycle()
+    val promptFailure by viewModel.promptFailure.collectAsStateWithLifecycle()
+    com.exponential.app.ui.components.FailedActionToast(promptFailure, onShown = viewModel::clearPromptFailure)
+    val acceptSlash: (com.exponential.app.domain.SlashCandidate) -> Unit = { candidate ->
+        when (candidate) {
+            is com.exponential.app.domain.SlashCandidate.Command -> {
+                viewModel.setDraft(candidate.command.insertion)
+                // Accepting closes the menu; it reopens as soon as the
+                // draft changes again (never auto-sends).
+                slashDismissedFor = candidate.command.insertion
+            }
+            is com.exponential.app.domain.SlashCandidate.Prompt -> {
+                slashDismissedFor = draft
+                viewModel.insertPrompt(candidate.prompt.id)
+            }
+        }
+    }
     val slashMenuOpen = slashMatches.isNotEmpty() && slashDismissedFor != draft
     // A changed candidate list can never leave the highlight past its end.
     LaunchedEffect(slashMatches) { slashSelected = 0 }
@@ -4852,14 +4900,9 @@ internal fun SessionComposer(
             when (composerMenu) {
                 ComposerMenu.Slash -> {
                     SlashCommandMenu(
-                        commands = slashMatches,
+                        candidates = slashMatches,
                         selected = slashSelected,
-                        onPick = { command ->
-                            viewModel.setDraft(command.insertion)
-                            // Accepting closes the menu; it reopens as soon as
-                            // the draft changes again (never auto-sends).
-                            slashDismissedFor = command.insertion
-                        },
+                        onPick = acceptSlash,
                     )
                     Spacer(Modifier.height(8.dp))
                 }
@@ -4996,11 +5039,7 @@ internal fun SessionComposer(
                         // Enter ACCEPTS while the menu is open; it never
                         // sends the half-typed command underneath it.
                         Key.Enter, Key.NumPadEnter -> {
-                            val picked = slashMatches.getOrNull(slashSelected)
-                            if (picked != null) {
-                                viewModel.setDraft(picked.insertion)
-                                slashDismissedFor = picked.insertion
-                            }
+                            slashMatches.getOrNull(slashSelected)?.let(acceptSlash)
                             true
                         }
                         Key.Escape -> {
@@ -5238,12 +5277,6 @@ private const val COMPOSER_MENU_MCP = "mcp"
 /** The options line's Plan switch label (composer-menu.json options line). */
 private const val PLAN_LABEL = "Plan"
 
-/** Run action › in a running session: the message names the action. */
-internal fun runActionText(draft: String, action: String): String {
-    val line = "Run the \"$action\" action."
-    return if (draft.isBlank()) line else "${draft.trimEnd()}\n$line"
-}
-
 /**
  * EXP-1334: what THE session composer's "+" offers in a running session —
  * composer-menu.json's rows, the live picks (the synced row, overridden by
@@ -5260,8 +5293,6 @@ internal data class SessionComposerMenu(
     val mcpServers: List<McpServerOption>,
     val mcpServerIds: List<String>,
     val issues: List<IssueOption>,
-    /** null = still loading. */
-    val actions: List<ActionPickerAction>?,
     val planMode: Boolean,
     /** An ended session: the option rows and the Plan switch are read-only. */
     val readOnly: Boolean,
@@ -5529,6 +5560,7 @@ private fun ExpandedSteerComposer(
                     ultracode = claude,
                     mcp = menu.mcpServers.isNotEmpty(),
                     computerUse = menu.canComputerUse,
+                    agents = false,
                 ),
             ),
             codex = menu.agent == "codex",
@@ -5573,26 +5605,6 @@ private fun ExpandedSteerComposer(
                         implementPicks = emptySet()
                         close()
                     },
-                )
-            },
-            // Run action › names the action in the message (the agent reads
-            // it with `actions_get`).
-            actionPage = { close ->
-                ActionPicker(
-                    actions = menu.actions.orEmpty(),
-                    value = null,
-                    onChange = { id ->
-                        val name = menu.actions?.firstOrNull { it.id == id }?.name
-                        if (name != null) {
-                            val text = runActionText(value.text, name)
-                            onValueRewrite(TextFieldValue(text, TextRange(text.length)))
-                        }
-                        close()
-                    },
-                    emptyText = "No matching actions",
-                    loading = menu.actions == null,
-                    inline = true,
-                    modifier = Modifier.testTag("agent-composer-actions-picker"),
                 )
             },
         )
@@ -5870,9 +5882,9 @@ private fun historyStatus(state: HistoryState?, device: String): String = when (
  */
 @Composable
 private fun SlashCommandMenu(
-    commands: List<SlashCommand>,
+    candidates: List<com.exponential.app.domain.SlashCandidate>,
     selected: Int,
-    onPick: (SlashCommand) -> Unit,
+    onPick: (com.exponential.app.domain.SlashCandidate) -> Unit,
 ) {
     GlassMenuSurface(modifier = Modifier.fillMaxWidth()) {
         Column(
@@ -5882,8 +5894,19 @@ private fun SlashCommandMenu(
                 // Scrolls with the content, matching M3's menu padding.
                 .padding(vertical = 4.dp),
         ) {
-            commands.forEachIndexed { index, command ->
+            candidates.forEachIndexed { index, candidate ->
                 val highlighted = index == selected
+                if (candidate is com.exponential.app.domain.SlashCandidate.Prompt) {
+                    // NEW-2: a team prompt — its icon and name (web
+                    // `PromptCandidateRow`).
+                    SlashPromptRow(
+                        prompt = candidate.prompt,
+                        highlighted = highlighted,
+                        onClick = { onPick(candidate) },
+                    )
+                    return@forEachIndexed
+                }
+                val command = (candidate as com.exponential.app.domain.SlashCandidate.Command).command
                 // A command that discards the conversation reads as
                 // destructive here, exactly as its confirm dialog does.
                 val nameColor = if (command.confirm) {
@@ -5902,7 +5925,7 @@ private fun SlashCommandMenu(
                                 Color.Transparent
                             },
                         )
-                        .clickable { onPick(command) }
+                        .clickable { onPick(candidate) }
                         .padding(horizontal = 12.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -5940,6 +5963,40 @@ private fun SlashCommandMenu(
                 }
             }
         }
+    }
+}
+
+/** NEW-2: one team prompt in a `/` menu: its curated glyph and its name. */
+@Composable
+internal fun SlashPromptRow(
+    prompt: com.exponential.app.domain.SlashPrompt,
+    highlighted: Boolean,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 44.dp)
+            .background(if (highlighted) Color.White.copy(alpha = 0.06f) else Color.Transparent)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 8.dp)
+            .testTag("slash-prompt-${prompt.id}"),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            prompt.icon?.let { ExpIcons.byName(it) } ?: ExpIcons.actionDefault,
+            contentDescription = null,
+            modifier = Modifier.size(16.dp),
+            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+        )
+        Spacer(Modifier.width(10.dp))
+        Text(
+            prompt.name,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 

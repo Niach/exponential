@@ -208,7 +208,7 @@ const STALE_TICK: Duration = Duration::from_secs(30);
 /// EXP-724: the `/` command menu over the composer — the catalog entries
 /// matching the typed prefix, and the highlighted one.
 struct SlashMenu {
-    items: Vec<slash_commands::MenuCommand>,
+    items: Vec<slash_commands::SlashItem>,
     selected: usize,
 }
 
@@ -2677,15 +2677,6 @@ impl SteerSessionView {
             .map_or(SessionAgent::Claude, |row| slash_commands::agent_of(row, acp))
     }
 
-    /// The `/` menu's agent half — what the AGENT advertised for this run
-    /// (`config_state.commands`), empty until it says.
-    fn agent_commands(&self) -> Vec<steer::frames::ConfigCommand> {
-        self.feed
-            .config()
-            .map(|config| config.commands.clone())
-            .unwrap_or_default()
-    }
-
     /// EXP-746: the run's context/spend meter (the usage sheet's own block).
     pub(crate) fn usage(&self) -> Option<steer::SessionUsage> {
         self.feed.usage()
@@ -2910,8 +2901,22 @@ impl SteerSessionView {
             return;
         }
         self.slash_dismissed_for = None;
-        // EXP-746: the contract catalog UNION whatever this agent advertised.
-        let items = slash_commands::menu_matches_with(&draft, self.agent(), &self.agent_commands());
+        // NEW-2: the contract catalog, then the team's prompts; the agent's
+        // own commands stay hidden.
+        let prompts: Vec<slash_commands::SlashPrompt> = self
+            .row
+            .as_ref()
+            .and_then(|row| row.team_id.as_deref())
+            .filter(|_| sync::Store::try_global(cx).is_some())
+            .map(|team_id| {
+                crate::queries::team_prompts(cx, team_id)
+                    .0
+                    .iter()
+                    .map(slash_commands::SlashPrompt::from)
+                    .collect()
+            })
+            .unwrap_or_default();
+        let items = slash_commands::slash_items(&draft, Some(self.agent()), &prompts);
         self.slash = if items.is_empty() {
             None
         } else {
@@ -2941,8 +2946,13 @@ impl SteerSessionView {
         let Some(menu) = self.slash.take() else {
             return;
         };
-        let Some(command) = menu.items.get(menu.selected).cloned() else {
-            return;
+        let command = match menu.items.get(menu.selected).cloned() {
+            Some(slash_commands::SlashItem::Command(command)) => command,
+            Some(slash_commands::SlashItem::Prompt(prompt)) => {
+                self.pick_prompt(prompt, window, cx);
+                return;
+            }
+            None => return,
         };
         let draft = slash_commands::insertion(&command);
         let position = crate::markdown::byte_offset_to_position(&draft, draft.len());
@@ -2955,6 +2965,50 @@ impl SteerSessionView {
             state.set_cursor_position(position, window, cx);
         });
         cx.notify();
+    }
+
+    /// NEW-2 (web `session-composer` `pickPrompt`): a picked prompt's BODY
+    /// (`prompts.get`, the only body path: the shape is body-less) REPLACES
+    /// the `/name` draft the menu was open on, to be edited and sent. A draft
+    /// that moved on meanwhile is left alone; a failed fetch is the
+    /// `Couldn't load <name>` toast. The menu stays shut for the draft it
+    /// was picked on either way.
+    fn pick_prompt(
+        &mut self,
+        prompt: slash_commands::SlashPrompt,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        self.slash_dismissed_for = Some(self.input.read(cx).value().to_string());
+        cx.notify();
+        let Some(trpc) = crate::queries::trpc_client(cx) else {
+            crate::action_error::failed_action("load", &prompt.name, None, cx);
+            return;
+        };
+        let id = prompt.id.clone();
+        cx.spawn_in(window, async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move { api::prompts::get(&trpc, &id) })
+                .await;
+            let _ = this.update_in(cx, |this, window, cx| match result {
+                Ok(full) => {
+                    if slash_commands::slash_query(&this.input.read(cx).value()).is_none() {
+                        return;
+                    }
+                    let body = full.body;
+                    let position = crate::markdown::byte_offset_to_position(&body, body.len());
+                    this.slash = None;
+                    this.input.update(cx, |state, cx| {
+                        state.set_value(body, window, cx);
+                        state.set_cursor_position(position, window, cx);
+                    });
+                    cx.notify();
+                }
+                Err(err) => crate::action_error::failed_action_err("load", &prompt.name, &err, cx),
+            });
+        })
+        .detach();
     }
 
     // -- keyboard capture (runs BEFORE the textarea's own handlers) ---------
@@ -3042,8 +3096,8 @@ impl SteerSessionView {
         // pending.
         if let Some(parsed) = parse_command(&text, self.agent()) {
             // A slash command is the WHOLE message (web's rule): staged
-            // attachments would be parked silently (`/btw`) or ride a
-            // command as a message, so the send refuses with the ×4 copy.
+            // attachments would ride a command as a message, so the send
+            // refuses with the ×4 copy.
             if !self.pending_images.is_empty() {
                 crate::toast::show(
                     crate::toast::Toast::error(slash_commands::ATTACHMENTS_BLOCK_COMMAND),
@@ -3120,10 +3174,18 @@ impl SteerSessionView {
         }
         let text = self.input.read(cx).value().to_string();
         self.notice = None;
-        // EXP-1323: `/btw <question>` is an ASIDE child of this session
-        // (`sessions.send({parentId, text, aside})`), never a message to it.
-        if let Some(question) = slash_commands::btw_question(&text, self.agent()) {
-            self.post_message_with(api::sessions::SendInput::aside(&self.session_id, &question), window, cx);
+        // NEW-2: `/effort <level>` changes the launch option exactly like
+        // the "+" menu's Effort pick (`sessions.configure`), never a message.
+        if let Some(level) = slash_commands::effort_level(&text, self.agent()) {
+            self.input.update(cx, |state, cx| state.set_value("", window, cx));
+            self.configure_now(
+                api::sessions::ConfigureInput {
+                    session_id: self.session_id.to_string(),
+                    effort: Some(Some(level)),
+                    ..Default::default()
+                },
+                cx,
+            );
             return;
         }
         if self.pending_images.is_empty() {
@@ -3200,8 +3262,8 @@ impl SteerSessionView {
         self.post_message_with(input, window, cx);
     }
 
-    /// [`Self::post_message`]'s send for any `sessions.send` input (EXP-1323:
-    /// the `/btw` aside rides it too): the draft clears once it is in.
+    /// [`Self::post_message`]'s send for any `sessions.send` input: the draft
+    /// clears once it is in.
     fn post_message_with(
         &mut self,
         input: api::sessions::SendInput,
@@ -4396,6 +4458,7 @@ pub(crate) fn session_status_row(
     id: impl Into<gpui::ElementId>,
     agent: Option<coding::CodingAgent>,
     state: domain::session_tree::SessionState,
+    word: &str,
     cx: &App,
 ) -> AnyElement {
     h_flex()
@@ -4410,7 +4473,7 @@ pub(crate) fn session_status_row(
                 div()
                     .text_sm()
                     .text_color(crate::work_card::session_tone_color(state.tone(), cx))
-                    .child(SharedString::from(state.word())),
+                    .child(SharedString::from(word.to_string())),
             ),
         )
         .into_any_element()
@@ -4442,10 +4505,13 @@ impl SteerSessionView {
     fn render_status_row(&self, cx: &App) -> Option<AnyElement> {
         let row = self.row.as_ref()?;
         let state = self.view_state()?;
+        // NEW-1: a blocked session names its kind (`copy.blockedKinds`).
+        let word = domain::session_tree::session_kind_word(row, state);
         let element = session_status_row(
             "steer-run-status-row",
             crate::run_rows::run_agent(row.cli.as_deref()),
             state,
+            &word,
             cx,
         );
         Some(work_column_row(element).py_2().into_any_element())
@@ -6140,7 +6206,7 @@ impl SteerSessionView {
                 div()
                     .flex_shrink_0()
                     .text_color(crate::work_card::session_tone_color(state.tone(), cx))
-                    .child(SharedString::from(state.word())),
+                    .child(SharedString::from(domain::session_tree::session_kind_word(row, state))),
             )
             .children(caption.map(|caption| div().min_w_0().truncate().text_color(muted).child(caption)));
         Some(
@@ -6507,8 +6573,8 @@ impl SteerSessionView {
 
     /// A card's body: in the transcript the folding chat body (a plan never
     /// folds there: a read-only reader sees it whole, EXP-738); in THE ask
-    /// dock (`docked`) the whole body, capped and scrolling inside
-    /// (ask-dock.json `bodyMaxHeightFraction`, no "Show more").
+    /// dock (`docked`) the whole body, inline (NEW-6: no scroll of its own;
+    /// no "Show more").
     fn render_card_body(
         &self,
         id: FeedItemId,
@@ -7008,6 +7074,16 @@ impl SteerSessionView {
     /// a remote run whose machine this client cannot resolve) — a button that
     /// can only ever explain itself is worse than no button.
     fn switch_account_control(&self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
+        // NEW-1 (web `agent-session`): only a USAGE wall is lifted by
+        // another login; a watchdog flag (device offline, not picked up,
+        // stuck) offers no switch.
+        if self
+            .row
+            .as_ref()
+            .is_some_and(|row| row.blocked.is_some() && !domain::session_tree::is_usage_wall(row))
+        {
+            return None;
+        }
         let agent = self.builtin_agent()?;
         let context = crate::account_switch::SwitchContext {
             session_id: self.session_id.to_string(),

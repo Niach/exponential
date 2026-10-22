@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, within } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 import type { Issue } from "@/db/schema"
-import type { ComposerAction, LaunchComposerModel } from "@/hooks/use-launch-composer"
+import type { ComposerPrompt, LaunchComposerModel } from "@/hooks/use-launch-composer"
 import type { LaunchOptions } from "@/components/launch-dialog/use-launch-options"
 import type { SteerDevice } from "@/lib/steer-devices"
 
@@ -14,7 +14,7 @@ vi.mock(`@tanstack/react-db`, async (importOriginal) => {
   return { ...actual, useLiveQuery: () => ({ data: [] }) }
 })
 vi.mock(`@/lib/collections`, () => ({
-  actionCollection: {},
+  promptCollection: {},
   boardCollection: {},
   issueCollection: {},
   pullRequestCollection: {},
@@ -81,19 +81,8 @@ const issue = (id: string, identifier: string): Issue =>
     boardId: `b1`,
   }) as unknown as Issue
 
-const teamAction = (id: string, name: string, extra: Partial<ComposerAction> = {}) =>
-  ({
-    id,
-    teamId: `t1`,
-    name,
-    description: null,
-    icon: null,
-    inputs: [],
-    repositoryId: null,
-    promptPlaceholder: null,
-    sortOrder: 1,
-    ...extra,
-  }) as unknown as ComposerAction
+const teamPrompt = (id: string, name: string) =>
+  ({ id, teamId: `t1`, name, icon: null, sortOrder: 1 }) as unknown as ComposerPrompt
 
 function fakeLaunch(): LaunchOptions {
   return {
@@ -139,15 +128,17 @@ function fakeModel(overrides: Partial<LaunchComposerModel> = {}): LaunchComposer
   return {
     teamId: `t1`,
     subject: null,
-    selectedAction: null,
-    actions: [teamAction(`act-1`, `Triage`), teamAction(`act-2`, `Release`)],
+    selectedPrompt: null,
+    prompts: [teamPrompt(`pr-1`, `Triage`), teamPrompt(`pr-2`, `Release train`)],
     eligibleIssues: [],
     checkedIssues: [],
     toggleIssue: vi.fn(),
-    pickAction: vi.fn(),
-    clearAction: vi.fn(),
-    setInput: vi.fn(),
-    seedPrIssueId: undefined,
+    agents: [],
+    selectedAgent: null,
+    pickAgent: vi.fn(),
+    clearAgent: vi.fn(),
+    pickPrompt: vi.fn(),
+    clearPrompt: vi.fn(),
     text: ``,
     setText: vi.fn(),
     images: [],
@@ -254,41 +245,56 @@ describe(`LaunchComposer`, () => {
     expect(model.toggleIssue).toHaveBeenCalledWith(`i1`)
   })
 
-  it(`draws the action chip; only its ✕ clears it`, () => {
-    const triage = teamAction(`act-1`, `Triage`)
+  it(`draws the prompt chip as the headline; only its ✕ clears it`, () => {
+    const triage = teamPrompt(`pr-1`, `Triage`)
     const model = fakeModel({
-      subject: { kind: `action`, id: triage.id, inputs: {} },
-      selectedAction: triage,
-      submitLabel: `Run action`,
+      subject: { kind: `prompt`, id: triage.id },
+      selectedPrompt: triage,
     })
     render(<LaunchComposer model={model} users={[]} />)
-    const chip = screen.getByTestId(`agent-composer-chip-action`)
-    expect(chip.textContent).toContain(`Triage`)
+    expect(screen.getByTestId(`agent-composer-headline`).textContent).toBe(`Triage`)
+    const chip = screen.getByTestId(`agent-composer-chip-prompt`)
     fireEvent.click(chip)
-    expect(model.clearAction).not.toHaveBeenCalled()
-    fireEvent.click(screen.getByTestId(`agent-composer-chip-action-remove`))
-    expect(model.clearAction).toHaveBeenCalled()
+    expect(model.clearPrompt).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByTestId(`agent-composer-chip-prompt-remove`))
+    expect(model.clearPrompt).toHaveBeenCalled()
+    // The field is the optional half beside a prompt.
+    expect(screen.getByPlaceholderText(/Additional instructions/)).toBeTruthy()
   })
 
-  // EXP-825: an action's own hint replaces the generic one while it is picked.
-  it(`shows the picked action's composer hint as the field placeholder`, () => {
-    const hinted = teamAction(`act-1`, `Triage`, { promptPlaceholder: `Scope: which platforms` })
-    const model = fakeModel({
-      subject: { kind: `action`, id: hinted.id, inputs: {} },
-      selectedAction: hinted,
-      submitLabel: `Run action`,
-    })
-    render(<LaunchComposer model={model} users={[]} />)
-    expect(screen.getByPlaceholderText(`Scope: which platforms`)).toBeTruthy()
+  // NEW-2: the launch composer's `/` menu = the team's prompts ONLY (no
+  // builtins before a session exists); a pick makes the prompt the subject
+  // and clears the `/name` it was typed as.
+  it(`lists only the team's prompts on /`, () => {
+    render(<LaunchComposer model={fakeModel({ text: `/` })} users={[]} />)
+    const menu = screen.getByTestId(`slash-menu`)
+    expect(within(menu).getByText(`Triage`)).toBeTruthy()
+    expect(within(menu).getByText(`Release train`)).toBeTruthy()
+    expect(within(menu).queryByText(`/compact`)).toBeNull()
+    expect(within(menu).queryByText(`/model`)).toBeNull()
+  })
 
-    const plainAction = teamAction(`act-2`, `Release`)
-    const plain = fakeModel({
-      subject: { kind: `action`, id: plainAction.id, inputs: {} },
-      selectedAction: plainAction,
-      submitLabel: `Run action`,
-    })
-    render(<LaunchComposer model={plain} users={[]} />)
-    expect(screen.getByPlaceholderText(/Additional instructions/)).toBeTruthy()
+  it(`typing /name and Enter picks the prompt instead of sending`, () => {
+    const model = fakeModel({ text: `/release`, blocked: false })
+    render(<LaunchComposer model={model} users={[]} />)
+    const menu = screen.getByTestId(`slash-menu`)
+    expect(within(menu).queryByText(`Triage`)).toBeNull()
+    fireEvent.keyDown(screen.getByTestId(`agent-composer-field`), { key: `Enter` })
+    expect(model.pickPrompt).toHaveBeenCalledWith(`pr-2`)
+    expect(model.setText).toHaveBeenCalledWith(``)
+    expect(model.submit).not.toHaveBeenCalled()
+  })
+
+  it(`picks a prompt with a click`, () => {
+    const model = fakeModel({ text: `/` })
+    render(<LaunchComposer model={model} users={[]} />)
+    fireEvent.click(within(screen.getByTestId(`slash-menu`)).getByText(`Triage`))
+    expect(model.pickPrompt).toHaveBeenCalledWith(`pr-1`)
+  })
+
+  it(`opens no menu without prompts`, () => {
+    render(<LaunchComposer model={fakeModel({ text: `/`, prompts: [] })} users={[]} />)
+    expect(screen.queryByTestId(`slash-menu`)).toBeNull()
   })
 
   it(`Enter sends when not blocked, Shift+Enter breaks the line`, () => {
@@ -361,26 +367,6 @@ describe(`LaunchComposer`, () => {
     expect(setAccountKey).toHaveBeenCalledWith(`codex:only`)
     // The row is where it lives — never the overflow sheet.
     expect(screen.queryByTestId(`agent-options-sheet`)).toBeNull()
-  })
-
-  // EXP-1249: Run action › hosts THE action picker (@exp/ui `PickerList`)
-  // — one action row, curated glyph over the name, description underneath;
-  // a pick sets the subject and closes the menu.
-  it(`picks an action through the + menu's Run action submenu`, () => {
-    const fix = teamAction(`act-1`, `Triage`)
-    const model = fakeModel()
-    render(<LaunchComposer model={model} users={[]} />)
-    openPlus()
-    fireEvent.click(screen.getByTestId(`agent-composer-menu-run-action`))
-    const picker = screen.getByTestId(`agent-composer-actions-picker`)
-    const row = within(picker)
-      .getByText(fix.name)
-      .closest(`[data-slot=command-item]`)!
-    // SLOP-28 (EXP-1259 D5): an action row is its name + icon, no description.
-    expect(row.querySelector(`[data-slot=picker-description]`)).toBeNull()
-    fireEvent.click(row)
-    expect(model.pickAction).toHaveBeenCalledWith(fix.id)
-    expect(screen.queryByTestId(`agent-composer-menu`)).toBeNull()
   })
 
   // EXP-1030: the machine is picked through THE device picker (@exp/ui
@@ -481,7 +467,6 @@ describe(`LaunchComposer + menu`, () => {
     openPlus()
     expect(menuRowIds()).toEqual([
       `implement-issue`,
-      `run-action`,
       `add-file`,
       `-`,
       `effort`,
@@ -531,21 +516,11 @@ describe(`LaunchComposer + menu`, () => {
     expect(screen.getByTestId(`agent-composer-menu`)).toBeTruthy()
   })
 
-  it(`hides the MCP row while an action owns its MCP list`, () => {
-    const model = fakeModel({
-      subject: { kind: `action`, id: `a-real`, inputs: {} },
-      mcpServers: [{ id: `m1`, name: `Linear`, connection: { state: `connected` } }] as never,
-    })
-    render(<LaunchComposer model={model} users={[]} />)
-    openPlus()
-    expect(menuRowIds()).not.toContain(`mcp-servers`)
-  })
-
   it(`says Reasoning and drops the claude-only rows for codex`, () => {
     const model = fakeModel({ launch: { ...fakeLaunch(), agent: `codex` } })
     render(<LaunchComposer model={model} users={[]} />)
     openPlus()
-    expect(menuRowIds()).toEqual([`implement-issue`, `run-action`, `add-file`, `-`, `effort`])
+    expect(menuRowIds()).toEqual([`implement-issue`, `add-file`, `-`, `effort`])
     expect(screen.getByTestId(`agent-composer-menu-effort`).textContent).toContain(
       `Reasoning`
     )

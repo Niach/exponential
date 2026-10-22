@@ -76,7 +76,6 @@ final class PickerContractTests: XCTestCase {
         let typed: [(String, Any.Type)] = [
             ("BoardPicker", BoardPicker<EmptyView>.Body.self),
             ("IssuePicker", IssuePicker<EmptyView>.Body.self),
-            ("ActionPicker", ActionPicker<EmptyView>.Body.self),
             ("AccountPicker", AccountPicker<EmptyView>.Body.self),
             ("DevicePicker", DevicePicker<EmptyView>.Body.self),
             ("ModelPicker", ModelPicker<EmptyView>.Body.self),
@@ -86,7 +85,7 @@ final class PickerContractTests: XCTestCase {
             ("PriorityPicker", PriorityPicker<EmptyView>.Body.self),
             ("LabelPicker", LabelPicker<EmptyView>.Body.self),
         ]
-        XCTAssertEqual(typed.count, 11)
+        XCTAssertEqual(typed.count, 10)
         for (name, body) in typed {
             XCTAssertTrue(
                 String(describing: body).hasPrefix("GlassPicker<"),
@@ -135,10 +134,6 @@ final class PickerContractTests: XCTestCase {
                 trigger: { EmptyView() }
             ).title,
             "Runs on"
-        )
-        XCTAssertEqual(
-            ActionPicker(actions: [], value: nil, onChange: { _ in }, trigger: { EmptyView() }).title,
-            "Action"
         )
         XCTAssertEqual(
             StatusPicker(statuses: [], value: [], onChange: { _ in }, trigger: { EmptyView() }).title,
@@ -435,29 +430,6 @@ final class PickerContractTests: XCTestCase {
         XCTAssertEqual(own.name, "dev-2")
         XCTAssertEqual(own.icon, AppIcons.uiServer)
         XCTAssertNil(own.description)
-    }
-
-    /// The same for an action: the curated glyph through `ActionIconDisplay`
-    /// (unset = the generic action mark, never a hole) — so every action pick
-    /// draws the composer's row.
-    func testAnActionRowIsBridgedOnceWithItsGlyph() {
-        func dto(icon: String?) -> ActionDto {
-            ActionDto(
-                id: "a", teamId: "t", name: "Release",
-                icon: icon, body: "", sortOrder: 1,
-                createdAt: "", updatedAt: ""
-            )
-        }
-        let unset = ActionPickerAction(dto(icon: nil))
-        XCTAssertEqual(unset.id, "a")
-        XCTAssertEqual(unset.name, "Release")
-        XCTAssertEqual(unset.icon, AppIcons.actionDefault)
-        XCTAssertEqual(ActionPickerAction(dto(icon: "rocket")).icon, "rocket")
-        // A name this build has no asset for falls back like an unset one.
-        XCTAssertEqual(
-            ActionPickerAction(dto(icon: "glyph-from-a-newer-registry")).icon,
-            AppIcons.actionDefault
-        )
     }
 
     /// The empty line yields ONLY to a footer that is itself the answer to

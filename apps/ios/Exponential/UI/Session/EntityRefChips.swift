@@ -22,9 +22,11 @@ enum EntityNavigation: Equatable {
     case issue(String)
     case board(String)
     case session(String)
-    /// SLOP-2: one action's page.
-    case action(String)
-    case actions
+    /// NEW-2: one prompt's page (Settings → Prompts); a legacy `action` ref
+    /// resolves to the prompt that kept its id.
+    case prompt(teamId: String, id: String)
+    /// Settings → Prompts (team settings).
+    case prompts
     case devices
     case teamSettings
     case myWork
@@ -79,10 +81,14 @@ struct EntityRefChips: View {
             pushRoute(.board(accountId: accountId, id: id))
         case let .session(id):
             pushRoute(.agentSession(accountId: accountId, sessionId: id))
-        case let .action(id):
-            pushRoute(.action(accountId: accountId, id: id))
-        case .actions:
-            pushRoute(.actions)
+        case let .prompt(teamId, id):
+            pushRoute(.prompt(accountId: accountId, teamId: teamId, id: id))
+        case .prompts:
+            if let context {
+                pushRoute(.teamSettings(accountId: accountId, teamId: context.teamId))
+            } else {
+                pushRoute(.settings)
+            }
         case .devices:
             pushRoute(.agents)
         case .teamSettings:
@@ -262,7 +268,7 @@ enum EntityRefResolver {
             switch ref.kind {
             case "issue": try issueModel(ref, db: db, teamId: teamId)
             case "board": try boardModel(ref, db: db)
-            case "action": try actionModel(ref, db: db)
+            case "action", "prompt": try promptModel(ref, db: db)
             case "comment": try commentModel(ref, db: db, teamId: teamId)
             case "session": try sessionModel(ref, db: db)
             case "label": try labelModel(ref, db: db)
@@ -298,7 +304,7 @@ enum EntityRefResolver {
 
     private static func slimOpen(_ ref: EntityRef) -> EntityNavigation? {
         switch ref.kind {
-        case "action": .actions
+        case "action", "prompt": .prompts
         case "label", "status", "member", "invite", "team", "repository": .teamSettings
         case "device": .devices
         case "notification": .myWork
@@ -383,18 +389,16 @@ enum EntityRefResolver {
         )
     }
 
-    private static func actionModel(_ ref: EntityRef, db: Database) throws -> EntityPreviewModel? {
-        guard let action = try ActionEntity.fetchOne(db, key: ref.id) else { return nil }
-        var facts: [EntityPreviewModel.Fact] = []
-        let inputs = action.inputs.flatMap { try? JSONDecoder().decode([ActionInputDto].self, from: Data($0.utf8)) } ?? []
-        facts.append(.init(id: "inputs", label: "\(inputs.count) \(inputs.count == 1 ? "input" : "inputs")"))
+    /// NEW-2: a prompt (a legacy `action` ref resolves to the prompt that
+    /// kept its id): its glyph and name; the body is server-only.
+    private static func promptModel(_ ref: EntityRef, db: Database) throws -> EntityPreviewModel? {
+        guard let prompt = try PromptEntity.fetchOne(db, key: ref.id) else { return nil }
         return EntityPreviewModel(
-            icon: .glyph(ActionIconDisplay.iconName(for: action.icon), nil),
-            eyebrow: "Action",
-            title: action.name,
+            icon: .glyph(ActionIconDisplay.iconName(for: prompt.icon), nil),
+            eyebrow: "Prompt",
+            title: prompt.name,
             excerpt: nil,
-            facts: facts,
-            open: .action(action.id)
+            open: .prompt(teamId: prompt.teamId, id: prompt.id)
         )
     }
 
@@ -446,7 +450,12 @@ enum EntityRefResolver {
         // EXP-1341: ONE display title for a root and a child alike.
         let title = try SessionTree.sessionTitle(db: db, session: session)
         var facts: [EntityPreviewModel.Fact] = [
-            .init(id: "state", label: state.word, tint: SessionStateDot.color(state)),
+            // NEW-1: a blocked session names WHY (`blockedKinds`).
+            .init(
+                id: "state",
+                label: SessionTree.sessionKindWord(TreeSession(sessionRow: session), state: state),
+                tint: SessionStateDot.color(state)
+            ),
         ]
         if let cli = session.cli, !cli.isEmpty {
             facts.append(.init(id: "agent", label: cli.capitalized))

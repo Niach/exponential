@@ -74,6 +74,7 @@ vi.mock(`@/lib/integrations/pr-sync`, () => ({
   applyPullRequestClosed: vi.fn(async () => ({ applied: true, txid: 6 })),
   applyPullRequestDraft: vi.fn(async () => {}),
   applyPullRequestMerged: vi.fn(async () => ({ applied: true, txid: 7 })),
+  deleteMergedHeadBranch: vi.fn(async () => `deleted`),
   livePullRequestsOfRepo: vi.fn(async () => []),
   livePullRequestsOfRoot: vi.fn(async () => []),
   loadLivePullRequestByHead: vi.fn(async () => null),
@@ -426,6 +427,35 @@ describe(`mergePullRequest`, () => {
       expect.objectContaining({ pullRequestId: `pr-1`, actorUserId: `u-1`, actorViaAgent: false })
     )
     expect(takePrMergeClaim(`o/r`, 7)).toEqual({ userId: `u-1`, viaAgent: false })
+  })
+
+  it(`NEW-5: the merged head branch goes with the merge's token, any name`, async () => {
+    await mergePullRequest({ userId: `u-1`, pullRequestId: `pr-1` })
+    expect(sync.applyPullRequestMerged).toHaveBeenCalledWith(
+      expect.objectContaining({ pullRequestId: `pr-1`, deleteHead: { token: `tok`, anyBranch: true } })
+    )
+    // The apply path owns the deletion when it won the claim.
+    expect(sync.deleteMergedHeadBranch).not.toHaveBeenCalled()
+  })
+
+  it(`NEW-5: when the webhook's echo won the claim, the merge still deletes its head`, async () => {
+    vi.mocked(sync.applyPullRequestMerged).mockResolvedValueOnce({ applied: false, txid: null })
+    const result = await mergePullRequest({ userId: `u-1`, pullRequestId: `pr-1` })
+    expect(result.merged).toBe(true)
+    expect(sync.deleteMergedHeadBranch).toHaveBeenCalledWith({
+      pullRequestId: `pr-1`,
+      token: `tok`,
+      anyBranch: true,
+    })
+  })
+
+  it(`NEW-5: a failed branch deletion never fails the merge`, async () => {
+    vi.mocked(sync.applyPullRequestMerged).mockResolvedValueOnce({ applied: false, txid: null })
+    vi.mocked(sync.deleteMergedHeadBranch).mockResolvedValueOnce(`failed`)
+    await expect(mergePullRequest({ userId: `u-1`, pullRequestId: `pr-1` })).resolves.toEqual({
+      merged: true,
+      mergedIds: [`pr-1`],
+    })
   })
 
   it(`an already merged PR is a no-op success`, async () => {

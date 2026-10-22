@@ -48,7 +48,6 @@ enum PopRects {
         "03_start-coding": ["agent-composer-headline", "agent-composer", "agent-options-row"],
         "04_steering": ["agent-feed-question"],
         "05_review": ["thread-guide-merge"],
-        "06_actions": ["action-row"],
         "07_inbox": ["notification-row"],
     ]
 

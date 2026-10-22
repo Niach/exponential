@@ -12,9 +12,14 @@
 //!   `chooseAny`, the options as THE option rows (text only) or as picture
 //!   TILES ([`crate::controls::choice_tiles`], `plan-card.json` `tiles`),
 //!   and the `custom` free-text row (`copy.custom`);
-//! - the decision row (ask-dock `planOptions`) + the feedback field, the
-//!   approve options disabled while `answer_issue` names a problem (its
-//!   words under them); a question card's Answer button;
+//! - NEW-6 (N-1): a PENDING plan with `stepper.minQuestions`+ questions
+//!   steps through them one at a time (`copy.stepLabel`, Back / Next), the
+//!   LAST step carrying the decision block;
+//! - THE decision block: `copy.decide` over THE option rows of ask-dock
+//!   `planOptions` (single pick, trailing check), the feedback field only
+//!   once the reject row is picked, the small primary button named after
+//!   the pick, disabled while `answer_issue` names a problem (its words
+//!   above it); a question card's Answer button;
 //! - ANSWERED = closed: the picked options highlighted, the rest inert, the
 //!   decision label + the feedback.
 //!
@@ -38,7 +43,7 @@ use gpui::{
     StyledImage as _, Subscription, Window,
 };
 use gpui_component::{
-    button::{Button, ButtonVariants as _},
+    button::{Button, ButtonVariant, ButtonVariants as _},
     input::{InputEvent, InputState, Textarea, TextareaState},
     v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
@@ -202,6 +207,11 @@ struct CardDraft {
     /// The surface view was attempted (a surface that does not parse is
     /// never retried).
     surface_tried: bool,
+    /// NEW-6: the stepper's current question (0-based; local, never synced).
+    step: usize,
+    /// NEW-6: the picked decision row's ask-dock `planOptions` key (`None` =
+    /// the first, approve).
+    choice: Option<String>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -238,6 +248,33 @@ fn custom_text(message_id: &str, key: &str, cx: &App) -> String {
         .and_then(|draft| draft.custom.get(key))
         .map(|state| state.read(cx).value().to_string())
         .unwrap_or_default()
+}
+
+/// NEW-6: the stepper's current question (0-based).
+fn current_step(message_id: &str, cx: &App) -> usize {
+    draft(message_id, cx).map(|draft| draft.step).unwrap_or_default()
+}
+
+fn set_step(message_id: &str, step: usize, cx: &mut App) {
+    draft_mut(message_id, cx).step = step;
+    cx.refresh_windows();
+}
+
+/// NEW-6: open a card on step `step` unless it has a draft already (the
+/// styleguide's last-step specimen).
+pub(crate) fn preset_step(message_id: &str, step: usize, cx: &mut App) {
+    if draft(message_id, cx).is_none() {
+        draft_mut(message_id, cx).step = step;
+    }
+}
+
+/// NEW-6: the picked decision row (default: the first plan option).
+fn decision_choice(message_id: &str, cx: &App) -> &'static domain::ask_dock::PlanOption {
+    let options = domain::ask_dock::plan_options();
+    draft(message_id, cx)
+        .and_then(|draft| draft.choice.as_deref())
+        .and_then(|key| options.iter().find(|option| option.key == key))
+        .unwrap_or(&options[0])
 }
 
 fn feedback_text(message_id: &str, cx: &App) -> String {
@@ -677,6 +714,7 @@ fn question_block(
     question: &PlanQuestion,
     picked: &[String],
     interactive: bool,
+    top: f32,
     images: &Entity<ImageCache>,
     window: &Window,
     cx: &mut App,
@@ -693,7 +731,7 @@ fn question_block(
     let card = model::card();
     v_flex()
         .id(SharedString::from(format!("{}-{message_id}-{}", model::test_ids().question, question.id)))
-        .mt(px(card.block_gap))
+        .mt(px(top))
         .w_full()
         .min_w_0()
         .child(
@@ -771,13 +809,31 @@ pub(crate) fn plan_parts(facts: &PlanFacts, images: &Entity<ImageCache>, window:
     if facts.surface.is_some() {
         content.push(surface_block(message_id, cx));
     }
-    for question in facts.questions {
-        let picked = if closed {
+    let picked_of = |question: &PlanQuestion, cx: &App| {
+        if closed {
             facts.answers.and_then(|answers| answers.get(&question.id).cloned()).unwrap_or_default()
         } else {
             question_answer(&picks(message_id, &question.id, cx), "", question.multi)
-        };
-        content.push(question_block(message_id, question, &picked, interactive, images, window, cx));
+        }
+    };
+    // NEW-6 (N-1): a PENDING plan with `stepper.minQuestions`+ questions
+    // shows ONE at a time (the step line, Back / Next); the LAST step
+    // carries the decision block. A closed card lists every question.
+    let count = facts.questions.len();
+    let stepped = !closed && model::stepper().steps(count);
+    let current = current_step(message_id, cx).min(count.saturating_sub(1));
+    let last_step = !stepped || current + 1 == count;
+    if stepped {
+        let question = &facts.questions[current];
+        let picked = picked_of(question, cx);
+        content.push(step_line(message_id, current, count, cx));
+        content.push(question_block(message_id, question, &picked, interactive, STEPPED_BLOCK_TOP, images, window, cx));
+        content.extend(step_buttons(message_id, current, count));
+    } else {
+        for question in facts.questions {
+            let picked = picked_of(question, cx);
+            content.push(question_block(message_id, question, &picked, interactive, model::card().block_gap, images, window, cx));
+        }
     }
     let controls = match facts.decision {
         Some(decision) => {
@@ -802,61 +858,152 @@ pub(crate) fn plan_parts(facts: &PlanFacts, images: &Entity<ImageCache>, window:
                 .into_any_element()
         }
         None if answering => crate::thread_screen::card_answering(cx),
-        None => decision_row(facts, window, cx),
+        None if last_step => decision_block(facts, window, cx),
+        None => div().into_any_element(),
     };
     (content, controls)
 }
 
-/// THE plan options + the feedback field; approving waits on the answers.
-fn decision_row(facts: &PlanFacts, window: &Window, cx: &mut App) -> AnyElement {
-    let message_id = facts.message_id;
-    let answers = plan_answers(message_id, facts.questions, cx);
-    let issue = approve_issue(facts.questions, &answers);
-    let mut rows = v_flex().mt_3().w_full().min_w_0().gap_1();
-    for (index, option) in domain::ask_dock::plan_options().iter().enumerate() {
-        let reject = option.decision == "rejected";
+/// A stepped question's top gap under its step line (web `mt-1`).
+const STEPPED_BLOCK_TOP: f32 = 4.;
+
+/// NEW-6: the step line above the current question (`copy.stepLabel`, `xs`
+/// muted). `step` is 0-based.
+fn step_line(message_id: &str, step: usize, count: usize, cx: &App) -> AnyElement {
+    div()
+        .id(SharedString::from(format!("{}-{message_id}", model::test_ids().step)))
+        .mt(px(model::card().block_gap))
+        .text_xs()
+        .text_color(cx.theme().muted_foreground)
+        .child(SharedString::from(model::copy().step_label(step + 1, count)))
+        .into_any_element()
+}
+
+/// NEW-6: Back / Next under the current question: small secondary buttons,
+/// `stepper.buttonGap` apart, right-aligned; Back hidden on the first step,
+/// Next on the last.
+fn step_buttons(message_id: &str, step: usize, count: usize) -> Option<AnyElement> {
+    let back = step > 0;
+    let next = step + 1 < count;
+    if !back && !next {
+        return None;
+    }
+    let ids = model::test_ids();
+    let copy = model::copy();
+    let button = |test_id: &str, label: &str, to: usize| {
         let id = message_id.to_string();
-        let fresh = option.fresh;
-        let questions: Rc<Vec<PlanQuestion>> = Rc::new(facts.questions.to_vec());
-        let surface = facts.surface.cloned();
+        Button::new(SharedString::from(format!("{test_id}-{message_id}")))
+            .with_variant(ButtonVariant::Secondary)
+            .small()
+            .cursor_pointer()
+            .label(label.to_string())
+            .on_click(move |_, _, cx| {
+                cx.stop_propagation();
+                set_step(&id, to, cx);
+            })
+    };
+    Some(
+        gpui_component::h_flex()
+            .mt(px(model::card().block_gap))
+            .w_full()
+            .justify_end()
+            .gap(px(model::stepper().button_gap))
+            .when(back, |row| row.child(button(&ids.step_back, &copy.back, step.saturating_sub(1))))
+            .when(next, |row| row.child(button(&ids.step_next, &copy.next, step + 1)))
+            .into_any_element(),
+    )
+}
+
+/// NEW-6 (N-1): THE decision block ×4: `copy.decide` (`xs` semibold, like
+/// a prompt) over THE option rows of ask-dock `planOptions` (single pick,
+/// the trailing check: the rows a question draws, never pills), the issue
+/// line while approving waits on an answer, the feedback field ONLY once the
+/// reject row is picked, then the small primary button named after the pick.
+fn decision_block(facts: &PlanFacts, window: &Window, cx: &mut App) -> AnyElement {
+    let message_id = facts.message_id;
+    let ids = model::test_ids();
+    let card = model::card();
+    let choice = decision_choice(message_id, cx);
+    let reject = choice.decision == "rejected";
+    let answers = plan_answers(message_id, facts.questions, cx);
+    let issue = (!reject).then(|| approve_issue(facts.questions, &answers)).flatten();
+    let mut rows = v_flex().mt(px(card.options_gap)).w_full().min_w_0().gap_1();
+    for option in domain::ask_dock::plan_options() {
+        let (id, key) = (message_id.to_string(), option.key.clone());
         rows = rows.child(
-            crate::steer_viewer::ask_option_button(
+            crate::steer_viewer::ask_choice_button(
                 SharedString::from(format!("thread-plan-{message_id}-{}", option.key)),
                 option.label.clone(),
                 option.description.clone(),
-                index == 0,
+                option.key == choice.key,
                 false,
-                false,
-                index,
                 cx,
             )
-            .disabled(!reject && issue.is_some())
             .on_click(move |_, _, cx| {
                 cx.stop_propagation();
-                send_plan(&id, if reject { "rejected" } else { "approved" }, fresh && !reject, &questions, surface.as_ref(), cx);
+                // A row stays picked (pressing it again keeps it).
+                draft_mut(&id, cx).choice = Some(key.clone());
+                cx.refresh_windows();
             }),
         );
     }
-    if let Some(issue) = issue {
-        rows = rows.child(
+    let mut block = v_flex()
+        .id(SharedString::from(format!("{}-{message_id}", ids.decision)))
+        .mt(px(card.block_gap))
+        .w_full()
+        .min_w_0()
+        .child(
             div()
-                .id(SharedString::from(format!("{}-{message_id}", model::test_ids().issue)))
+                .w_full()
+                .min_w_0()
+                .text_xs()
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(cx.theme().foreground)
+                .child(SharedString::from(model::copy().decide.clone())),
+        )
+        .child(rows);
+    if let Some(issue) = &issue {
+        block = block.child(
+            div()
+                .id(SharedString::from(format!("{}-{message_id}", ids.issue)))
+                .mt_1p5()
                 .text_2xs()
                 .text_color(theme::tokens::YELLOW.to_hsla())
                 .child(SharedString::from(issue.copy().to_string())),
         );
     }
-    if let Some(state) = draft(message_id, cx).and_then(|draft| draft.feedback.clone()) {
-        rows = rows.child(
-            div()
-                .id(SharedString::from(format!("{}-{message_id}", model::test_ids().feedback)))
-                .mt_1()
-                .w_full()
-                .min_w_0()
-                .child(feedback_field(&state, window, cx)),
-        );
+    if reject {
+        if let Some(state) = draft(message_id, cx).and_then(|draft| draft.feedback.clone()) {
+            block = block.child(
+                div()
+                    .id(SharedString::from(format!("{}-{message_id}", ids.feedback)))
+                    .mt_2()
+                    .w_full()
+                    .min_w_0()
+                    .child(feedback_field(&state, window, cx)),
+            );
+        }
     }
-    rows.into_any_element()
+    let id = message_id.to_string();
+    let questions: Rc<Vec<PlanQuestion>> = Rc::new(facts.questions.to_vec());
+    let surface = facts.surface.cloned();
+    let (decision, fresh) = (choice.decision.clone(), choice.fresh && !reject);
+    block
+        .child(
+            div().mt_2().child(
+                Button::new(SharedString::from(format!("thread-plan-{message_id}-decide")))
+                    .primary()
+                    .small()
+                    .cursor_pointer()
+                    .label(choice.label.clone())
+                    .disabled(issue.is_some())
+                    .on_click(move |_, _, cx| {
+                        cx.stop_propagation();
+                        send_plan(&id, &decision, fresh, &questions, surface.as_ref(), cx);
+                    }),
+            ),
+        )
+        .into_any_element()
 }
 
 /// THE feedback field: the multi-line glass field (the theme's input
@@ -878,7 +1025,8 @@ fn send_plan(message_id: &str, decision: &str, fresh: bool, questions: &[PlanQue
     if decision == "approved" && approve_issue(questions, &answers).is_some() {
         return;
     }
-    let feedback = feedback_text(message_id, cx);
+    // NEW-6: the feedback field shows only for a reject; only then is it sent.
+    let feedback = if decision == "rejected" { feedback_text(message_id, cx) } else { String::new() };
     let input = api::sessions::AnswerInput {
         message_id: message_id.to_string(),
         decision: Some(decision.to_string()),

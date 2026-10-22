@@ -1,11 +1,16 @@
 import ExpCore
 import ExpUI
+import GRDB
 import SwiftUI
 
 /// EXP-1295: the phone's ONE screen for a root session (fixture
 /// `session-thread.json`) — a THREAD, or a team AGENT's channel (the same
 /// Conversation, Slack-like, its started threads as session cards).
 ///
+/// * NEW-6 (N-1): a thread with ONE session (the root alone) IS that
+///   session: its page (raw work + composer, Stop in the header while live)
+///   is the main thing and the strip has no Conversation tab; a second
+///   session brings the Conversation tab back.
 /// * Header = the title (plain, never renamed — EXP-1316; a lock when
 ///   private; an agent's icon in its color before its name) and, for a
 ///   thread, THE strip — Conversation · one chip per linked issue · "+" ·
@@ -128,7 +133,8 @@ struct ThreadScreen: View {
     private var rows: ThreadRows? { model?.rows }
 
     /// The pager's pages: the strip's (an agent channel has the
-    /// Conversation alone).
+    /// Conversation alone). NEW-46: on a thread with ONE session the
+    /// Conversation tab IS that session's page (one page, not two).
     private func pages(_ rows: ThreadRows, _ view: SessionThreadView) -> [ThreadPage] {
         guard !rows.isAgent else { return [.conversation] }
         // EXP-1334: a folded sub-issue is a page too (its chip's subtree);
@@ -136,7 +142,7 @@ struct ThreadScreen: View {
         // strip order (`+` is never a page).
         return view.tabs.flatMap { tab -> [ThreadPage] in
             switch tab {
-            case .conversation: [.conversation]
+            case .conversation: [view.mainSessionId.map { .session($0) } ?? .conversation]
             case let .issue(issueId, _, nested): [.issue(issueId)] + nested.map { .issue($0.issueId) }
             case let .session(sessionId, _, _, nested):
                 [.session(sessionId)] + nested.map { .session($0.sessionId) }
@@ -149,6 +155,18 @@ struct ThreadScreen: View {
     private var currentPages: [ThreadPage] {
         guard let rows, let view = model?.view else { return [.conversation] }
         return pages(rows, view)
+    }
+
+    /// The page a thread lands on: its Conversation, or (NEW-6 N-1) the ONE
+    /// session's page of a single-session thread.
+    private var defaultPage: ThreadPage { resolved(.conversation) }
+
+    /// NEW-46: the page a tab names: on a single-session thread the
+    /// Conversation tab's page is that session's.
+    private func resolved(_ page: ThreadPage) -> ThreadPage {
+        guard page == .conversation, let rows, !rows.isAgent,
+              let main = model?.view?.mainSessionId else { return page }
+        return .session(main)
     }
 
     var body: some View {
@@ -190,12 +208,12 @@ struct ThreadScreen: View {
             ToolbarItem(placement: .principal) {
                 if let rows, let view = model?.view {
                     if rows.isAgent {
+                        // NEW-2: the agent DEFINITION's icon (coloured) + name.
                         ThreadHeaderTitle(
-                            title: rows.root.name ?? view.title,
+                            title: rows.agentName.isEmpty ? view.title : rows.agentName,
                             isPrivate: view.isPrivate,
-                            agentIcon: BoardTypeDisplay.iconName(for: rows.root.icon)
-                                ?? SessionTree.ListCopy.agentDefaultIcon,
-                            agentColor: rows.root.color ?? SessionTree.ListCopy.agentDefaultColor
+                            agentIcon: rows.agentIcon,
+                            agentColor: rows.agentColor
                         )
                     } else {
                         ThreadHeaderTitle(title: view.title, isPrivate: view.isPrivate)
@@ -306,7 +324,7 @@ struct ThreadScreen: View {
                 pendingPage = nil
                 selectPage(pending)
             } else if !pages.contains(page) {
-                page = .conversation
+                page = defaultPage
             }
             syncIssueModels()
         }
@@ -334,7 +352,8 @@ struct ThreadScreen: View {
         if !rows.isAgent {
             ThreadStripTabs(
                 tabs: view.tabs,
-                selection: page,
+                // NEW-46: the ONE session's page reads as the Conversation tab.
+                selection: view.mainSessionId.map { page == .session($0) } == true ? .conversation : page,
                 issue: { rows.issue(id: $0) },
                 isFresh: { model?.isFresh(issueId: $0) ?? false },
                 onSelect: { next in
@@ -1083,7 +1102,7 @@ struct ThreadScreen: View {
     }
 
     private func unlink(_ issueId: String) {
-        if page == .issue(issueId) { selectPage(.conversation) }
+        if page == .issue(issueId) { selectPage(defaultPage) }
         let api = deps.sessionsApi
         let accountId = accountId
         let rootId = rootId
@@ -1204,7 +1223,8 @@ struct ThreadScreen: View {
     }
 
     /// Show `target` now, or hold it until it reaches the strip.
-    private func land(on target: ThreadPage) {
+    private func land(on request: ThreadPage) {
+        let target = resolved(request)
         menuTarget = nil
         guideSection = nil
         if currentPages.contains(target) {
@@ -1212,7 +1232,7 @@ struct ThreadScreen: View {
             selectPage(target)
         } else {
             pendingPage = target
-            selectPage(.conversation)
+            selectPage(defaultPage)
         }
     }
 
@@ -1220,7 +1240,8 @@ struct ThreadScreen: View {
         withAnimation(motion.standard) { switchPage(next) }
     }
 
-    private func switchPage(_ next: ThreadPage) {
+    private func switchPage(_ request: ThreadPage) {
+        let next = resolved(request)
         guard next != page else { return }
         UIApplication.endEditing()
         page = next
@@ -1254,6 +1275,14 @@ struct ThreadMenuTarget: Identifiable {
 final class ThreadComposerDraft: SessionComposerDraft {
     let sessionId: String
     let draftEditor = IssueEditorModel()
+    /// NEW-7: Message an agent ›'s pick (composer-menu.json): the send goes
+    /// into the caller's DM with that agent (`sessions.send({agentId})`),
+    /// never into this thread; nil = a message here.
+    var agentId: String?
+    /// The agent a send went to — the host opens that DM and consumes it.
+    var landedAgentId: String?
+    /// The thread's team (an agent message's uploads use the team route).
+    var teamId: String?
     var pendingImages: [PendingSteerImage] = []
     var pendingFiles: [PendingSteerFile] = []
     var steerImageError: String?
@@ -1273,7 +1302,16 @@ final class ThreadComposerDraft: SessionComposerDraft {
     }
 
     func uploadAttachment(data: Data, filename: String, contentType: String) async throws -> UploadedAttachment {
-        try await attachmentsApi.uploadSessionImage(
+        if agentId != nil, let teamId {
+            return try await attachmentsApi.uploadTeamSessionImage(
+                accountId: accountId,
+                teamId: teamId,
+                data: data,
+                filename: filename,
+                contentType: contentType
+            )
+        }
+        return try await attachmentsApi.uploadSessionImage(
             accountId: accountId,
             sessionId: sessionId,
             data: data,
@@ -1287,6 +1325,24 @@ final class ThreadComposerDraft: SessionComposerDraft {
         let holdsFlag = !steerSending
         if holdsFlag { steerSending = true }
         defer { if holdsFlag { steerSending = false } }
+        if let agentId {
+            do {
+                _ = try await sessionsApi.send(
+                    accountId: accountId,
+                    .agent(
+                        agentId: agentId,
+                        text: text.isEmpty ? nil : text,
+                        attachmentIds: attachmentIds?.isEmpty == false ? attachmentIds : nil
+                    )
+                )
+                self.agentId = nil
+                landedAgentId = agentId
+                return true
+            } catch {
+                sendError = error.userFacingMessage
+                return false
+            }
+        }
         do {
             try await sessionsApi.send(
                 accountId: accountId,
@@ -1348,13 +1404,19 @@ struct ThreadComposer: View {
     @State private var slashHighlight = 0
     /// A confirm-gated command waiting on its dialog (`/clear`).
     @State private var slashConfirm: SlashCommand?
+    /// NEW-2: the team's prompts, after the builtins in the `/` menu.
+    @State private var slashPrompts = TeamSlashPrompts()
     // EXP-1334: the "+" (composer-menu.json) and its pickers.
     @State private var showPlusMenu = false
     @State private var plusPick: ComposerMenu.RowId?
     @State private var showEffortPicker = false
     @State private var showMcpPicker = false
+    @State private var showAgentPicker = false
     @State private var linkSheetOpen = false
     @State private var mcpServers: [McpServerRow] = []
+    /// NEW-7: the team's agents (Message an agent ›'s rows).
+    @State private var teamAgents: [AgentDefinitionEntity] = []
+    @Environment(\.pushRoute) private var pushRoute
     /// The picks sent mid-run, shown until the synced row agrees (the MCP
     /// list is server-only: what this composer last sent).
     @State private var picks = ThreadComposerPicks()
@@ -1366,10 +1428,10 @@ struct ThreadComposer: View {
                 VStack(spacing: 8) {
                     if open, slashMenuVisible(draft) {
                         SlashCommandMenu(
-                            commands: slashMatches(draft),
+                            candidates: slashMatches(draft),
                             highlighted: slashHighlight
-                        ) { command in
-                            applySlashCommand(command, draft)
+                        ) { candidate in
+                            applySlashCandidate(candidate, draft)
                         }
                         .padding(.horizontal, 16)
                     }
@@ -1381,6 +1443,9 @@ struct ThreadComposer: View {
                         onExpand: expand
                     ) {
                         VStack(spacing: 6) {
+                        if let agent = pickedAgent(draft) {
+                            agentChip(agent, draft)
+                        }
                         SessionComposerCard(
                             draft: draft,
                             placeholder: placeholder,
@@ -1407,7 +1472,9 @@ struct ThreadComposer: View {
                             fieldIdentifier: "thread-composer-field",
                             onPlus: openPlusMenu
                         )
-                        if let steerModel {
+                        // NEW-7: a message to an agent runs on ITS device and
+                        // login: the options line hides.
+                        if let steerModel, draft.agentId == nil {
                             SessionComposerOptionsLine(controls: controls(steerModel), plan: planBinding)
                         }
                         }
@@ -1420,6 +1487,12 @@ struct ThreadComposer: View {
                 .onChange(of: draft.sendError) { _, message in
                     guard let message else { return }
                     toaster.error(FeedbackStates.Errors.title(verb: "send", thing: "the message"), description: message)
+                }
+                // NEW-7: an agent message opens the caller's DM with it.
+                .onChange(of: draft.landedAgentId) { _, agentId in
+                    guard let agentId else { return }
+                    draft.landedAgentId = nil
+                    pushRoute(.agentChannel(accountId: accountId, agentId: agentId))
                 }
                 .onChange(of: steerModel?.moveError) { _, message in
                     guard let message else { return }
@@ -1452,6 +1525,7 @@ struct ThreadComposer: View {
                     attachmentsApi: deps.attachmentsApi
                 )
             }
+            draft?.teamId = root?.teamId
         }
         .sheet(isPresented: $showPlusMenu, onDismiss: promotePlusPick) {
             ThreadComposerPlusMenu(
@@ -1459,6 +1533,7 @@ struct ThreadComposer: View {
                 agent: agent,
                 effortValue: effortValue,
                 mcpValue: McpServers.pickedValue(picks.mcpServerIds ?? []),
+                agentValue: draft.flatMap { pickedAgent($0)?.name },
                 ultracode: Binding(get: { ultracodeOn }, set: { configure(.init(sessionId: sessionId, ultracode: $0)) }),
                 computerUse: Binding(get: { computerUseOn }, set: { configure(.init(sessionId: sessionId, computerUse: $0)) }),
                 addFileEnabled: draft.map { !$0.attachFull && !$0.steerSending } ?? false,
@@ -1478,7 +1553,12 @@ struct ThreadComposer: View {
         }
         .background { effortPicker }
         .background { mcpPicker }
+        .background { agentPicker }
         .task(id: root?.teamId) { await loadMcpServers() }
+        .task(id: root?.teamId) { await loadAgents() }
+        .task(id: root?.teamId) {
+            slashPrompts.bind(accountId: accountId, teamId: root?.teamId, db: deps.db)
+        }
         // A sync past the configure settles its pick: whenever the row reads
         // what a pick says, the pick goes (web `dropSettled`).
         .onChange(of: settledRow) { _, row in
@@ -1551,7 +1631,7 @@ struct ThreadComposer: View {
 
     /// A sheet or picker of the "+" is up: the blur fold stands down.
     private var plusBusy: Bool {
-        showPlusMenu || plusPick != nil || showEffortPicker || showMcpPicker || linkSheetOpen
+        showPlusMenu || plusPick != nil || showEffortPicker || showMcpPicker || showAgentPicker || linkSheetOpen
     }
 
     /// An ENDED root takes no `sessions.configure` (the server refuses it):
@@ -1563,7 +1643,10 @@ struct ThreadComposer: View {
             subagentModel: false,
             ultracode: agent == "claude" && !ended,
             mcp: !mcpServers.isEmpty && !ended,
-            computerUse: Self.advertises(device, cap: ComposerMenu.computerUseRunCap) && !ended
+            computerUse: Self.advertises(device, cap: ComposerMenu.computerUseRunCap) && !ended,
+            // NEW-7: Message an agent › while the team has agents, like the
+            // launch composer (composer-menu.json).
+            agents: !teamAgents.isEmpty
         )
     }
 
@@ -1617,7 +1700,8 @@ struct ThreadComposer: View {
             withTransaction(transaction) { attach.menu = true }
         case .effort: showEffortPicker = true
         case .mcpServers: showMcpPicker = true
-        case .runAction, .subagents, .ultracode, .computerUse: break
+        case .messageAgent: showAgentPicker = true
+        case .subagents, .ultracode, .computerUse: break
         }
     }
 
@@ -1676,6 +1760,75 @@ struct ThreadComposer: View {
         )
     }
 
+    /// NEW-7: Message an agent › — THE Picker rows of the team's agents
+    /// (icon in its colour + name, single pick); the pick is the subject.
+    private var agentPicker: some View {
+        GlassPicker(
+            items: teamAgents.map { agent in
+                PickerItem(
+                    value: agent.id,
+                    label: agent.name,
+                    icon: BoardTypeDisplay.iconName(for: agent.icon) ?? SessionTree.ListCopy.agentDefaultIcon,
+                    color: Color(hex: agent.color ?? SessionTree.ListCopy.agentDefaultColor)
+                )
+            },
+            mode: .single,
+            value: Set([draft?.agentId].compactMap { $0 }),
+            onChange: { picked in
+                guard let id = picked.first else { return }
+                draft?.agentId = id
+                expanded = true
+            },
+            title: ComposerMenu.allRows.first { $0.id == .messageAgent }?.label,
+            open: $showAgentPicker,
+            hideTrigger: true,
+            sheetIdentifier: "thread-agent-picker",
+            trigger: { EmptyView() }
+        )
+    }
+
+    private func pickedAgent(_ draft: ThreadComposerDraft) -> AgentDefinitionEntity? {
+        guard let id = draft.agentId else { return nil }
+        return teamAgents.first { $0.id == id }
+    }
+
+    /// The ONE agent chip over the card (icon in its colour · name · ✕);
+    /// the ✕ turns the composer back into this thread's.
+    private func agentChip(_ agent: AgentDefinitionEntity, _ draft: ThreadComposerDraft) -> some View {
+        HStack(spacing: 6) {
+            AgentRowIcon(icon: agent.icon ?? "", color: agent.color ?? "")
+            Text(agent.name)
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.white)
+                .lineLimit(1)
+            Button {
+                draft.agentId = nil
+            } label: {
+                AppIcon(AppIcons.uiClose, size: 10)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                    .frame(width: 24, height: 24)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Remove \(agent.name)")
+            .accessibilityIdentifier("agent-composer-chip-agent-remove")
+        }
+        .padding(.leading, 10)
+        .padding(.trailing, 2)
+        .frame(height: 28)
+        .background(GlassTokens.fillCard, in: Capsule())
+        .overlay(Capsule().stroke(GlassTokens.strokeCard, lineWidth: GlassTokens.hairline))
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 4)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("agent-composer-chip-agent")
+    }
+
+    private func loadAgents() async {
+        guard let teamId = root?.teamId, let pool = try? deps.db.pool(forAccountId: accountId) else { return }
+        teamAgents = (try? await pool.read { db in try SessionQueries.agents(db: db, teamId: teamId) }) ?? []
+    }
+
     private func loadMcpServers() async {
         guard let teamId = root?.teamId, !ended else { return }
         let rows = (try? await McpServersApi(trpc: deps.trpc).list(accountId: accountId, teamId: teamId)) ?? []
@@ -1727,12 +1880,28 @@ struct ThreadComposer: View {
         steerModel?.catalogAgent ?? root?.cli
     }
 
-    private func slashMatches(_ draft: ThreadComposerDraft) -> [SlashCommand] {
-        SlashCommands.matches(
-            draft: draft.draftText,
-            agent: catalogAgent,
-            extra: steerModel?.sessionConfig?.commands ?? []
-        )
+    /// NEW-2: the builtins this agent runs, then the team's prompts.
+    private func slashMatches(_ draft: ThreadComposerDraft) -> [SlashCandidate] {
+        SlashCommands.candidates(draft: draft.draftText, agent: catalogAgent, prompts: slashPrompts.prompts)
+    }
+
+    /// A command rewrites the draft; a prompt's body (`prompts.get`) replaces
+    /// the `/name` draft (web `session-composer.tsx`). Never sends.
+    private func applySlashCandidate(_ candidate: SlashCandidate, _ draft: ThreadComposerDraft) {
+        switch candidate {
+        case let .command(command):
+            applySlashCommand(command, draft)
+        case let .prompt(prompt):
+            slashDismissedFor = draft.draftText
+            slashHighlight = 0
+            Task {
+                guard let body = await TeamSlashPrompts.loadBody(prompt, accountId: accountId, deps: deps),
+                      SlashCommands.isSlashDraft(draft.draftText)
+                else { return }
+                draft.draftText = body
+                focus()
+            }
+        }
     }
 
     private func slashMenuVisible(_ draft: ThreadComposerDraft) -> Bool {
@@ -1758,8 +1927,8 @@ struct ThreadComposer: View {
     private func handleReturn(_ draft: ThreadComposerDraft) {
         if slashMenuVisible(draft) {
             let matches = slashMatches(draft)
-            let command = matches.indices.contains(slashHighlight) ? matches[slashHighlight] : matches.first
-            if let command { applySlashCommand(command, draft) }
+            let candidate = matches.indices.contains(slashHighlight) ? matches[slashHighlight] : matches.first
+            if let candidate { applySlashCandidate(candidate, draft) }
             return
         }
         send(draft)
@@ -1771,7 +1940,7 @@ struct ThreadComposer: View {
     private func send(_ draft: ThreadComposerDraft) {
         guard !draft.steerSending else { return }
         if let command = SlashCommands.command(
-            for: draft.draftText, agent: catalogAgent, extra: steerModel?.sessionConfig?.commands ?? []
+            for: draft.draftText, agent: catalogAgent
         ) {
             if draft.hasPendingAttachments {
                 toaster.error(SlashCommands.attachmentsRefusal)

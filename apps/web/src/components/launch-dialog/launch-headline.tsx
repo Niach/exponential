@@ -13,9 +13,9 @@ import { cn } from "@/lib/utils"
 // The subject used to be a chip in the composer card's leading row, level
 // with the text field's chrome, so a prefilled action read as decoration on
 // a prompt box: people did not know the box was now optional and the thing
-// they picked was already loaded. The subject leads instead — "Run <action>",
-// "Implement <issues>" — and the field below it drops to "Additional
-// instructions (optional)…".
+// they picked was already loaded. The subject leads instead — "Implement
+// <issues>", or (NEW-2) a picked prompt's own chip, its name — and the field
+// below it drops to "Additional instructions (optional)…".
 //
 // The verbs are the contract's (`contract.composerUi`, ×4): the same two
 // words on the web dialog, the Agent page, the IDE's start-coding dialog and
@@ -25,10 +25,12 @@ import { cn } from "@/lib/utils"
 
 const { composerUi } = contract
 
-/** The verb in front of the chips: pure, so the cases are a test. */
+/** The verb in front of the chips: pure, so the cases are a test. A prompt
+ *  needs none: its name IS the headline. */
 export function launchHeadlineVerb(subject: LaunchSubject): string {
   if (subject === null) return composerUi.chatHeadline
-  if (subject.kind === `action`) return composerUi.runHeadline
+  // A prompt's name, an agent's chip (NEW-3): the headline IS the chip.
+  if (subject.kind === `prompt` || subject.kind === `agent`) return ``
   return composerUi.implementHeadline
 }
 
@@ -41,9 +43,8 @@ export function launchHeadlineText(model: LaunchComposerModel): string {
   const { subject } = model
   const verb = launchHeadlineVerb(subject)
   if (subject === null) return verb
-  if (subject.kind === `action`) {
-    return `${verb} ${model.selectedAction?.name ?? `action`}`
-  }
+  if (subject.kind === `prompt`) return model.selectedPrompt?.name ?? `Prompt`
+  if (subject.kind === `agent`) return model.selectedAgent?.name ?? `Agent`
   const named = model.checkedIssues.map((issue) => issue.identifier)
   const pending = subject.ids.length - named.length
   const parts = [...named, ...(pending > 0 ? [`${pending} more`] : [])]
@@ -64,7 +65,9 @@ export function LaunchHeadline({
   // an empty composer would just be chrome.
   if (subject === null) return null
   const checkedCount = subject.kind === `issues` ? subject.ids.length : 0
-  const actionSubject = subject.kind === `action`
+  const promptSubject = subject.kind === `prompt`
+  const agentSubject = subject.kind === `agent`
+  const verb = launchHeadlineVerb(subject)
   return (
     <div
       className={cn(
@@ -73,14 +76,17 @@ export function LaunchHeadline({
       )}
       data-testid="agent-composer-headline"
     >
-      <span className="shrink-0">{launchHeadlineVerb(subject)}</span>
+      {verb && <span className="shrink-0">{verb}</span>}
       <SubjectChips
         issues={model.checkedIssues}
         pendingIssueCount={checkedCount - model.checkedIssues.length}
-        action={actionSubject ? model.selectedAction : null}
-        actionPending={actionSubject && model.selectedAction === null}
+        prompt={promptSubject ? model.selectedPrompt : null}
+        promptPending={promptSubject && model.selectedPrompt === null}
+        agent={agentSubject ? model.selectedAgent : null}
+        agentPending={agentSubject && model.selectedAgent === null}
         onRemoveIssue={model.toggleIssue}
-        onClearAction={model.clearAction}
+        onClearPrompt={model.clearPrompt}
+        onClearAgent={model.clearAgent}
         disabled={busy}
       />
     </div>

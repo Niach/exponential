@@ -28,6 +28,7 @@
 // A run with no live publisher, a host that never answers (older than the
 // frame) or a relay that is off are ERRORS, not refusals: the agent must not
 // read "refused" into "nobody was there to ask".
+import { resolveSessionHost } from "@/lib/sessions/host"
 import { eq } from "drizzle-orm"
 import { contract } from "@exp/domain-contract"
 import { sessions } from "@/db/schema"
@@ -85,7 +86,8 @@ const defaultDeps: SessionsCompactDeps = {
       .select({
         id: sessions.id,
         userId: sessions.userId,
-        hostUserId: sessions.hostUserId,
+        teamId: sessions.teamId,
+        deviceId: sessions.deviceId,
         status: sessions.status,
         // EXP-1291: the agent CLI column is `cli` on the session tree.
         agent: sessions.cli,
@@ -93,7 +95,11 @@ const defaultDeps: SessionsCompactDeps = {
       .from(sessions)
       .where(eq(sessions.id, sessionId))
       .limit(1)
-    return row ?? null
+    if (!row) return null
+    // NEW-1: the hosting account is derived from the devices rows.
+    const host = await resolveSessionHost(row)
+    const { teamId: _team, deviceId: _device, ...rest } = row
+    return { ...rest, hostUserId: host && host !== row.userId ? host : null }
   },
   relay: async (sessionId, keep) => {
     const config = getSteerRelayConfig()

@@ -15,6 +15,7 @@
 // no "the fullest one" heuristic any more — a reading habit nobody had.
 
 import { contract } from "@exp/domain-contract"
+import { SESSION_CARD_COPY } from "@exp/domain-contract/session-tree"
 import { relativeTime } from "@/components/comment-rows/format"
 import type { SessionUsageState } from "@/lib/agent-feed"
 import type {
@@ -164,6 +165,13 @@ export function blockedBadgeLabel(
 ): string | null {
   if (!blocked) return null
   const kind = blocked.kind ?? `rate_limit`
+  // NEW-1: a watchdog flag (device offline, not picked up, stuck) names
+  // itself with the session card's word (`copy.blockedKinds`); it has no
+  // reset to count down to.
+  if (kind !== `rate_limit`) {
+    const word = (SESSION_CARD_COPY.blockedKinds as Record<string, string>)[kind]
+    if (word) return word
+  }
   const label = kind === `rate_limit` ? `Rate limited` : `Blocked`
   const countdown = formatResetCountdown(blocked.resetsAt, now)
   return countdown ? `${label} · ${countdown}` : label

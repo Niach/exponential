@@ -47,4 +47,37 @@ class ThreadPagesTest {
     fun anAgentChannelOrNothingLoadedIsTheConversationAlone() {
         assertEquals(listOf<ThreadTab>(ThreadTab.Conversation), threadPages(null))
     }
+
+    @Test
+    fun aSingleSessionThreadsConversationPageIsItsSessionPageInPlace() {
+        val tabs = listOf(
+            ThreadTab.Add,
+            ThreadTab.Conversation,
+            ThreadTab.IssueTab("i1", "APP-1"),
+            ThreadTab.Guide(dot = false),
+        )
+        assertEquals(
+            listOf("session:root", "issue:i1", "guide"),
+            threadMainPages(threadPages(tabs), "root").map(::threadTabKey),
+        )
+    }
+
+    @Test
+    fun theMainSessionIsOnePageEvenWithItsOwnChip() {
+        val tabs = listOf(
+            ThreadTab.Conversation,
+            ThreadTab.IssueTab("i1", "APP-1"),
+            ThreadTab.SessionTab("root", "Root", SessionTree.SessionState.Working),
+        )
+        assertEquals(
+            listOf("session:root", "issue:i1"),
+            threadMainPages(threadPages(tabs), "root").map(::threadTabKey),
+        )
+    }
+
+    @Test
+    fun noMainSessionKeepsThePagesAsTheyAre() {
+        val tabs = listOf(ThreadTab.Conversation, ThreadTab.Guide(dot = false))
+        assertEquals(listOf("conversation", "guide"), threadMainPages(threadPages(tabs), null).map(::threadTabKey))
+    }
 }

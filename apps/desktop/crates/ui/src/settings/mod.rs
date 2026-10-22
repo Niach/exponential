@@ -6,9 +6,10 @@
 //! screen mirrors the web's grouped master-detail layout (EXP-146): a fixed
 //! left nav with the groups — **Team** (General, Members, Issues ⟩ Labels, Statuses,
 //! Storage — the EXP-297 owner-only attachment manager), **Boards**
-//! (one entry PER board + New board + Repositories — EXP-288 flattened the
-//! old flat Boards list into per-board detail pages; EXP-1294 put the team's
-//! **Agents** above it the same way, one entry per agent + New agent),
+//! (one entry PER board + New board — EXP-288 flattened the old flat Boards
+//! list into per-board detail pages), **Agents** (EXP-1294: one entry per
+//! agent + New agent, then Repositories — NEW-41, web's `SETTINGS_NAV` — and
+//! Prompts),
 //! **Features** (Widget — EXP-771, MCP servers — EXP-792), the desktop-only
 //! **This device** group (Tools, Coding CLIs, Worktrees, Sessions), and
 //! **Personal** (Account, Notifications, Security, About — EXP-238); the
@@ -41,6 +42,7 @@ mod add_repository_dialog;
 pub(crate) mod agent_detail;
 mod new_agent;
 mod agents;
+mod agents_index;
 mod api_keys;
 pub(crate) mod doctor_section;
 // EXP-630: THE invite-by-email form (the pane's own and the resend dialog's)
@@ -60,6 +62,8 @@ mod archived_boards;
 mod change_email_dialog;
 mod sign_in_methods;
 mod notifications_prefs;
+// NEW-6: Settings → Prompts (the list + one prompt's page).
+pub(crate) mod prompts;
 mod board_detail;
 mod repositories;
 mod sessions;
@@ -153,6 +157,7 @@ use agents::AgentsPane;
 use archived_boards::ArchivedBoardsPane;
 use board_detail::BoardDetailPane;
 use notifications_prefs::NotificationsPrefsPane;
+use prompts::{PromptPage, PromptsPane};
 use repositories::RepositoriesPane;
 use sessions::SessionsPane;
 use storage::StoragePane;
@@ -207,6 +212,10 @@ pub(crate) enum SettingsSection {
     /// the old Coding pane; EXP-1294 renamed it from `Agents` — "Agents" are
     /// the team's agents now).
     AgentClis,
+    /// NEW-6: the Agents index (web `settings/agents`): the team's agents
+    /// over the team's Events. The Agents group's LABEL opens it.
+    /// Member-visible.
+    Agents,
     /// EXP-1294: one team agent's settings page (the Agents group lists every
     /// agent root as its own nav entry; the payload is the agent's session
     /// id). Member-visible: every member manages agents, only Delete is the
@@ -215,6 +224,16 @@ pub(crate) enum SettingsSection {
     /// EXP-1319: the agent page in CREATE mode (web `settings/agents/new`) —
     /// the Agents group's "New agent" row and the rail's `+`. Owner-only.
     NewAgent,
+    /// NEW-6: the team's saved prompts (web `settings/prompts`) — the
+    /// Agents group's Prompts entry. Member-visible (members read them);
+    /// writes are owner-only inside the pane.
+    Prompts,
+    /// NEW-6: one prompt's page (web `settings/prompts/$promptId`); the
+    /// payload is the prompt id. Member-visible, read-only for members.
+    Prompt(String),
+    /// NEW-6: the prompt page in CREATE mode (web `settings/prompts/new`).
+    /// Owner-only.
+    NewPrompt,
     LocalRepos,
     /// EXP-886: how long this machine keeps finished runs' transcripts and
     /// resume records (`sessionRetentionDays`). Never gated.
@@ -271,12 +290,13 @@ struct NavGroup {
 
 /// The STATIC nav skeleton — the web's `SETTINGS_NAV` groups minus the
 /// web-only Billing item, plus the desktop-only "This device" group.
-/// EXP-1294: the Agents group (above Boards) has no static items — its
-/// per-agent rows + "New agent" are injected at render like the boards'.
+/// EXP-1294: the Agents group's per-agent rows + "New agent" are injected at
+/// render like the boards', ahead of its static Repositories + Prompts.
 /// EXP-238 appended the Personal group (Account, Notifications, Security,
 /// About) as ordinary items — web parity again, and last so the fallback
-/// scan below never lands on a personal pane. The Boards group's per-board
-/// rows + "New board" are injected dynamically at render (EXP-288); order
+/// scan below never lands on a personal pane. The Boards group has no static
+/// items: its per-board rows + "New board" are injected at render (EXP-288,
+/// NEW-41 moved Repositories to the Agents group like web); order
 /// defines both the nav and the fallback scan (first visible item).
 const NAV_GROUPS: &[NavGroup] = &[
     NavGroup {
@@ -297,13 +317,17 @@ const NAV_GROUPS: &[NavGroup] = &[
             },
         ],
     },
-    NavGroup {
-        label: "Boards",
-        items: &[NavItem::leaf("Repositories", SettingsSection::Repositories)],
-    },
+    // NEW-41: static-empty like web's (the per-board rows + New board are
+    // injected at render); Repositories moved to the Agents group.
+    NavGroup { label: "Boards", items: &[] },
+    // NEW-6 + NEW-41 (web's `SETTINGS_NAV`): the per-agent rows + New agent
+    // are injected at render, then Repositories, then Prompts close the group.
     NavGroup {
         label: AGENTS_GROUP,
-        items: &[],
+        items: &[
+            NavItem::leaf("Repositories", SettingsSection::Repositories),
+            NavItem::leaf(prompts::PROMPTS_TITLE, SettingsSection::Prompts),
+        ],
     },
     // EXP-771: the web's Features group, verbatim (SLOP-4: the Helpdesk row
     // is gone with the helpdesk; the widget page is "Widget" now).
@@ -377,8 +401,14 @@ fn section_icon(section: &SettingsSection) -> Icon {
         SettingsSection::Widget => Icon::from(registry::SETTINGS_WIDGET),
         SettingsSection::McpServers => Icon::from(registry::SETTINGS_MCP),
         SettingsSection::Tools => Icon::from(registry::SETTINGS_TOOLS),
-        SettingsSection::AgentClis | SettingsSection::Agent(_) | SettingsSection::NewAgent => {
+        SettingsSection::AgentClis
+        | SettingsSection::Agents
+        | SettingsSection::Agent(_)
+        | SettingsSection::NewAgent => {
             Icon::from(registry::SETTINGS_AGENTS)
+        }
+        SettingsSection::Prompts | SettingsSection::Prompt(_) | SettingsSection::NewPrompt => {
+            Icon::from(registry::NAV_ACTIONS)
         }
         SettingsSection::LocalRepos => Icon::from(registry::SETTINGS_LOCAL_REPOS),
         SettingsSection::Sessions => Icon::from(registry::SETTINGS_SESSIONS),
@@ -401,7 +431,8 @@ fn section_visible(section: &SettingsSection, owner: bool) -> bool {
         | SettingsSection::Board(_)
         | SettingsSection::ArchivedBoards
         | SettingsSection::Widget
-        | SettingsSection::NewAgent => owner,
+        | SettingsSection::NewAgent
+        | SettingsSection::NewPrompt => owner,
         _ => true,
     }
 }
@@ -430,14 +461,14 @@ fn valid_board_ids(
     )
 }
 
-/// EXP-1294: [`valid_board_ids`]' twin for a selected `Agent(id)`: the
-/// synced agent roots of the active team, `None` while the sessions
+/// EXP-1294: [`valid_board_ids`]' twin for a selected `Agent(id)`: NEW-2:
+/// the synced agent DEFINITIONS of the active team, `None` while the agents
 /// collection is still loading.
 fn valid_agent_ids(
     cx: &App,
     nav: &Entity<Navigation>,
 ) -> Option<std::collections::HashSet<String>> {
-    if !Store::global(cx).collections().sessions.read(cx).is_ready() {
+    if !Store::global(cx).collections().agents.read(cx).is_ready() {
         return None;
     }
     let Some(team_id) = active_team_id(nav, cx) else {
@@ -446,12 +477,12 @@ fn valid_agent_ids(
     Some(
         crate::session_data::agents_in_team(&team_id, cx)
             .into_iter()
-            .map(|agent| agent.session_id)
+            .map(|agent| agent.agent_id)
             .collect(),
     )
 }
 
-/// EXP-1294: `Agent("")` (the DEV `EXP_DEV_SETTINGS=agents` seed) = the
+/// EXP-1294: `Agent("")` (the DEV `EXP_DEV_SETTINGS=agent` seed) = the
 /// active team's first agent, or the empty Agents pane while it has none.
 fn first_agent_resolved(
     selected: SettingsSection,
@@ -461,9 +492,22 @@ fn first_agent_resolved(
     match selected {
         SettingsSection::Agent(id) if id.is_empty() => active_team_id(nav, cx)
             .and_then(|team_id| crate::session_data::agents_in_team(&team_id, cx).into_iter().next())
-            .map(|agent| SettingsSection::Agent(agent.session_id))
+            .map(|agent| SettingsSection::Agent(agent.agent_id))
             .unwrap_or(SettingsSection::Agent(id)),
         other => other,
+    }
+}
+
+/// Whether the static nav row for `item` is lit while `effective` shows.
+/// NEW-6: the Prompts row stays lit on one prompt's page and on New prompt
+/// (web: the `/settings/prompts` entry matches its sub-routes).
+fn nav_lit(item: &SettingsSection, effective: &SettingsSection) -> bool {
+    match item {
+        SettingsSection::Prompts => matches!(
+            effective,
+            SettingsSection::Prompts | SettingsSection::Prompt(_) | SettingsSection::NewPrompt
+        ),
+        _ => item == effective,
     }
 }
 
@@ -523,6 +567,14 @@ pub struct SettingsView {
     /// EXP-1319: the New agent page, built FRESH on every entry (and per
     /// team) so a left-behind draft never reappears.
     new_agent: Option<(String, Entity<NewAgentPane>)>,
+    /// NEW-6: the Agents index (the agents + the Events band).
+    agents_index: Entity<agents_index::AgentsIndexPane>,
+    /// NEW-6: the Prompts list (live off the synced `prompts` shape).
+    prompts: Entity<PromptsPane>,
+    /// NEW-6: the open prompt page, keyed by its prompt id (`new:<team>` in
+    /// create mode) — rebuilt on every switch so a draft never leaks into
+    /// another prompt; a create keeps the same page as the new prompt's.
+    prompt_page: Option<(String, Entity<PromptPage>)>,
     repositories: Entity<RepositoriesPane>,
     /// EXP-771 owner-only widget list (fetch-on-open server read —
     /// `widget_configs` is never synced).
@@ -581,6 +633,8 @@ impl SettingsView {
         let agent_detail =
             cx.new(|cx| AgentDetailPane::new(nav.clone(), shared.clone(), window, cx));
         let repositories = cx.new(|cx| RepositoriesPane::new(nav.clone(), window, cx));
+        let prompts = cx.new(|cx| PromptsPane::new(nav.clone(), cx));
+        let agents_index = cx.new(|cx| agents_index::AgentsIndexPane::new(nav.clone(), cx));
         let widget = cx.new(|cx| WidgetPane::new(nav.clone(), cx));
         let mcp_servers = cx.new(|cx| McpServersPane::new(nav.clone(), window, cx));
         let tools = cx.new(|cx| ToolsPane::new(window, cx));
@@ -605,6 +659,9 @@ impl SettingsView {
             cx.observe(&collections.boards, |_, _, cx| cx.notify()),
             // EXP-1294: … and a deleted agent a selected `Agent(id)`.
             cx.observe(&collections.sessions, |_, _, cx| cx.notify()),
+            cx.observe(&collections.agents, |_, _, cx| cx.notify()),
+            // NEW-6: a deleted prompt drops its page back to the list.
+            cx.observe(&collections.prompts, |_, _, cx| cx.notify()),
         ];
 
         Self {
@@ -619,6 +676,9 @@ impl SettingsView {
             board_detail,
             agent_detail,
             new_agent: None,
+            agents_index,
+            prompts,
+            prompt_page: None,
             repositories,
             widget,
             mcp_servers,
@@ -634,6 +694,47 @@ impl SettingsView {
             last_section: None,
             shared,
             _subscriptions: subscriptions,
+        }
+    }
+
+    /// NEW-6: one prompt's page. Reuses the open page while it shows this
+    /// prompt (a create re-points its own page here); otherwise builds one
+    /// off the synced row. The skeleton while the shape syncs; the list once
+    /// the prompt is gone (web: a deleted prompt lands on the list).
+    fn prompt_pane(
+        &mut self,
+        prompt_id: &str,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> gpui::AnyElement {
+        if let Some((_, page)) = self.prompt_page.as_ref() {
+            if page.read(cx).prompt_id() == Some(prompt_id) {
+                if page.read(cx).is_gone(cx) {
+                    self.prompt_page = None;
+                    return self.prompts.clone().into_any_element();
+                }
+                let page = page.clone();
+                self.prompt_page = Some((prompt_id.to_string(), page.clone()));
+                return page.into_any_element();
+            }
+        }
+        let collections = Store::global(cx).collections();
+        let row = collections
+            .prompts
+            .read(cx)
+            .get(prompt_id)
+            .map(api::prompts::from_row);
+        match row {
+            Some(prompt) => {
+                let team_id = prompt.team_id.clone();
+                let page = cx.new(|cx| PromptPage::new(team_id, Some(prompt), window, cx));
+                self.prompt_page = Some((prompt_id.to_string(), page.clone()));
+                page.into_any_element()
+            }
+            None if !collections.prompts.read(cx).is_ready() => {
+                settings_skeleton("prompt-page-skeleton", cx)
+            }
+            None => self.prompts.clone().into_any_element(),
         }
     }
 
@@ -692,6 +793,8 @@ impl Render for SettingsView {
                     self.mcp_servers.update(cx, |pane, cx| pane.mark_stale(cx))
                 }
                 SettingsSection::NewAgent => self.new_agent = None,
+                // A fresh create page on every entry (web: a new route).
+                SettingsSection::NewPrompt => self.prompt_page = None,
                 _ => {}
             }
             // EXP-771: one scroll region for header + pane, so a section
@@ -726,6 +829,21 @@ impl Render for SettingsView {
                     .map(|(_, pane)| pane.clone().into_any_element())
                     .unwrap_or_else(|| div().into_any_element())
             }
+            SettingsSection::Agents => self.agents_index.clone().into_any_element(),
+            SettingsSection::Prompts => self.prompts.clone().into_any_element(),
+            SettingsSection::NewPrompt => {
+                let team_id = active_team_id(&self.nav, cx).unwrap_or_default();
+                let key = format!("new:{team_id}");
+                if self.prompt_page.as_ref().is_none_or(|(k, _)| *k != key) {
+                    let page = cx.new(|cx| PromptPage::new(team_id, None, window, cx));
+                    self.prompt_page = Some((key, page));
+                }
+                self.prompt_page
+                    .as_ref()
+                    .map(|(_, page)| page.clone().into_any_element())
+                    .unwrap_or_else(|| div().into_any_element())
+            }
+            SettingsSection::Prompt(prompt_id) => self.prompt_pane(prompt_id, window, cx),
             SettingsSection::Repositories => self.repositories.clone().into_any_element(),
             SettingsSection::Widget => self.widget.clone().into_any_element(),
             SettingsSection::McpServers => self.mcp_servers.clone().into_any_element(),
@@ -752,7 +870,7 @@ impl Render for SettingsView {
         // The SCROLL REGION stays full width with the scrollbar at the
         // viewport edge — only the content column is capped and centered, the
         // page-scaffold recipe every other full-page screen uses
-        // (`actions_view::page_scaffold_with`).
+        // (`scroll_pane::page_scaffold_with`).
         let team_name = active_team(cx, &self.nav)
             .map(|team| team.name)
             .filter(|name| !name.trim().is_empty())
@@ -849,6 +967,7 @@ impl SettingsNavPanel {
             cx.observe(&collections.boards, |_, _, cx| cx.notify()),
             // EXP-1294: the Agents group lists the live agent roots.
             cx.observe(&collections.sessions, |_, _, cx| cx.notify()),
+            cx.observe(&collections.agents, |_, _, cx| cx.notify()),
         ];
         Self {
             nav,
@@ -949,7 +1068,7 @@ impl Render for SettingsNavPanel {
                 .collect();
             // EXP-288: the Boards group's per-board rows are injected ahead
             // of its static items (owner-only, like the pages themselves).
-            let board_group = group.label == "Boards" && owner;
+            let board_group = group.label == "Boards" && owner && team_id.is_some();
             // EXP-1294: the Agents group is every member's (only an agent's
             // Delete is owner-only), so it shows whenever a team is active.
             let agent_group = group.label == AGENTS_GROUP && team_id.is_some();
@@ -960,14 +1079,38 @@ impl Render for SettingsNavPanel {
                 list = list.child(Self::group_divider());
             }
             first_group = false;
-            list = list.child(Self::group_label(group.label, cx));
+            if agent_group {
+                // NEW-6 (web parity): the label opens the Agents page (the
+                // list + Events), lit while it shows.
+                let lit = effective == SettingsSection::Agents;
+                let foreground = cx.theme().foreground;
+                list = list.child(
+                    div()
+                        .id("settings-agents-index")
+                        .cursor_pointer()
+                        .px_2()
+                        .pt_2()
+                        .pb_0p5()
+                        .text_xs()
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(if lit { foreground } else { cx.theme().muted_foreground })
+                        .hover(move |label| label.text_color(foreground))
+                        .child(group.label)
+                        .on_click(cx.listener(|_, _, window, cx| {
+                            select_settings_section(window, cx, SettingsSection::Agents);
+                            navigate(window, cx, Screen::Settings);
+                        })),
+                );
+            } else {
+                list = list.child(Self::group_label(group.label, cx));
+            }
             if agent_group {
                 for agent in &agents {
-                    let section = SettingsSection::Agent(agent.session_id.clone());
+                    let section = SettingsSection::Agent(agent.agent_id.clone());
                     let selected = section == effective;
                     list = list.child(
                         Self::row(
-                            SharedString::from(format!("settings-nav-agent-{}", agent.session_id)),
+                            SharedString::from(format!("settings-nav-agent-{}", agent.agent_id)),
                             agent.name.clone(),
                             Some(crate::icons::agent_row_icon(agent)),
                             selected,
@@ -1038,7 +1181,7 @@ impl Render for SettingsNavPanel {
             }
             for item in visible {
                 let section = item.section.clone();
-                let selected = section == effective;
+                let selected = nav_lit(&section, &effective);
                 let children: Vec<&NavItem> = item
                     .children
                     .iter()
@@ -1788,5 +1931,34 @@ mod tests {
             effective_selection(SettingsSection::NewAgent, false, |_| true, |_| true),
             SettingsSection::NewAgent
         );
+    }
+
+    /// NEW-6 (web parity): the Agents group closes with Repositories (NEW-41)
+    /// then Prompts, and the Boards group has no static items; the list
+    /// and a prompt's page are member-readable, New prompt owner-only, and
+    /// the Prompts row stays lit on both sub-pages.
+    #[test]
+    fn prompts_sit_in_the_agents_group_like_the_web() {
+        let agents = NAV_GROUPS.iter().find(|group| group.label == AGENTS_GROUP).unwrap();
+        let labels: Vec<&str> = agents.items.iter().map(|item| item.label).collect();
+        assert_eq!(labels, vec!["Repositories", "Prompts"]);
+        let boards = NAV_GROUPS.iter().find(|group| group.label == "Boards").unwrap();
+        assert!(boards.items.is_empty());
+        assert!(section_visible(&SettingsSection::Prompts, false));
+        assert!(section_visible(&SettingsSection::Prompt("p-1".into()), false));
+        assert!(section_visible(&SettingsSection::NewPrompt, true));
+        assert!(!section_visible(&SettingsSection::NewPrompt, false));
+        assert_ne!(
+            effective_selection(SettingsSection::NewPrompt, false, |_| true, |_| true),
+            SettingsSection::NewPrompt
+        );
+        for lit in [
+            SettingsSection::Prompts,
+            SettingsSection::Prompt("p-1".into()),
+            SettingsSection::NewPrompt,
+        ] {
+            assert!(nav_lit(&SettingsSection::Prompts, &lit), "{lit:?}");
+        }
+        assert!(!nav_lit(&SettingsSection::Prompts, &SettingsSection::Repositories));
     }
 }

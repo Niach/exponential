@@ -270,7 +270,7 @@ fn ancestor_branches(clone: &Path, origin_ref: &str) -> HashSet<String> {
 /// commit carrying the branch's whole diff over the merge-base and cherry
 /// THAT, which is the only shape a squash-merged multi-commit branch matches.
 /// The probe writes a dangling commit object; gc reclaims it.
-fn branch_landed(
+pub(crate) fn branch_landed(
     clone: &Path,
     branch: &str,
     origin_ref: &str,
@@ -563,9 +563,247 @@ fn prune_landed_locked(clone: &Path, policy: &PrunePolicy) -> PruneReport {
     report
 }
 
+/// NEW-5: how long a finished session's worktree may sit idle before the
+/// nightly sweep finishes it.
+pub const SWEEP_MAX_AGE: Duration = Duration::from_secs(24 * 60 * 60);
+
+/// What [`sweep_stale_worktrees`] may touch.
+#[derive(Clone, Debug)]
+pub struct SweepPolicy {
+    /// A worktree whose last activity is younger than this stays.
+    pub max_age: Duration,
+    /// The host's own live sessions (desktop `LocalSessions`, the CLI's live
+    /// runs); every live host process on the data dir is added on top.
+    pub live: crate::run_cleanup::LiveHolders,
+    /// The server-resolved default branch — the landed check's base for a
+    /// worktree no run record names (see [`effective_default_branch`]).
+    pub default_branch: Option<String>,
+}
+
+impl Default for SweepPolicy {
+    fn default() -> Self {
+        Self {
+            max_age: SWEEP_MAX_AGE,
+            live: Default::default(),
+            default_branch: None,
+        }
+    }
+}
+
+/// One worktree the sweep put through [`crate::run_cleanup::finish_worktree`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SweptWorktree {
+    pub path: std::path::PathBuf,
+    pub branch: String,
+    /// The newest run record on the worktree, when there is one — the
+    /// session a leftover branch belongs to.
+    pub session_id: Option<String>,
+    pub outcome: crate::run_cleanup::FinishOutcome,
+}
+
+/// Outcome of one [`sweep_stale_worktrees`] pass. Worktrees the sweep did
+/// not consider (live, young, detached, outside the worktrees dir) are not
+/// listed.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SweepReport {
+    pub finished: Vec<SweptWorktree>,
+}
+
+impl SweepReport {
+    /// The `origin` branches unpushed work was parked on, with their session.
+    pub fn leftovers(&self) -> Vec<(Option<&str>, &str)> {
+        self.finished
+            .iter()
+            .filter_map(|swept| match &swept.outcome {
+                crate::run_cleanup::FinishOutcome::Removed { leftover: Some(branch) } => {
+                    Some((swept.session_id.as_deref(), branch.as_str()))
+                }
+                _ => None,
+            })
+            .collect()
+    }
+}
+
+/// NEW-5 — the nightly backstop of the automatic worktree cleanup: every
+/// session worktree under `<clone>.worktrees/` whose session is over goes
+/// through the SAME [`crate::run_cleanup::finish_worktree`] procedure (clean
+/// and pushed → removed; otherwise WIP commit + `exp/leftover-<id8>` push +
+/// removed; no `origin` → kept dirty/ahead).
+///
+/// "Over" = no run record names the worktree, or none of the records that
+/// do has a live host process (`hostPid` cleared at the run's end, or dead).
+/// "Stale" = its last activity — the newer of the `.git` link file's mtime
+/// (refreshed whenever a launch claims the worktree) and the newest record's
+/// `recordedAt` — is older than `policy.max_age`. A live run's dir is never
+/// touched: `policy.live` plus every live host on `data_dir` shield it, and
+/// `finish_worktree` takes the clone's launch gate per worktree.
+///
+/// The leftover id is the newest record's session id (first 8 chars); a
+/// record-less worktree uses its sanitized branch (`exp-EXP-42`). Blocking
+/// (spawned gits, a push per leftover) — run it on a background executor.
+pub fn sweep_stale_worktrees(
+    clone: &Path,
+    data_dir: &Path,
+    now: SystemTime,
+    policy: &SweepPolicy,
+) -> SweepReport {
+    use crate::run_cleanup::{finish_worktree, FinishOutcome, RunCleanup, SkipReason as FinishSkip};
+    let mut report = SweepReport::default();
+    let Ok(entries) = list_worktrees(clone) else {
+        return report;
+    };
+    let canonical = |path: &Path| path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    let root = canonical(&crate::git_worktree::worktrees_dir(clone));
+    let mut live = policy.live.clone();
+    live.worktrees.extend(crate::run_registry::live_host_cwds(data_dir));
+    let records = crate::run_registry::all(data_dir);
+    for entry in entries.iter().skip(1) {
+        let path = canonical(&entry.path);
+        if !path.starts_with(&root) || path == root {
+            continue;
+        }
+        let Some(branch) = entry.branch.clone() else {
+            continue; // detached: no branch to reason about
+        };
+        let mut mine: Vec<&crate::run_registry::RunRecord> = records
+            .iter()
+            .filter(|record| canonical(&record.cwd) == path)
+            .collect();
+        if mine
+            .iter()
+            .any(|record| record.host_pid.is_some_and(crate::process::is_alive))
+        {
+            continue; // the session is still running
+        }
+        mine.sort_by_key(|record| record.recorded_at);
+        let newest = mine.last().copied();
+        let link_mtime = std::fs::metadata(entry.path.join(".git"))
+            .and_then(|meta| meta.modified())
+            .ok();
+        let recorded = newest.map(|record| {
+            std::time::UNIX_EPOCH + Duration::from_secs(record.recorded_at)
+        });
+        let last_activity = link_mtime.into_iter().chain(recorded).max();
+        // Unreadable activity reads as fresh: never sweep what we cannot date.
+        let stale = last_activity.is_some_and(|last| {
+            now.duration_since(last).is_ok_and(|age| age >= policy.max_age)
+        });
+        if !stale {
+            continue;
+        }
+        let base_branch = newest
+            .and_then(|record| record.base_branch.clone())
+            .or_else(|| effective_default_branch(clone, policy.default_branch.as_deref()));
+        let session_id = newest.map(|record| record.session_id.clone());
+        let id8 = match &session_id {
+            Some(id) => id.chars().take(8).collect(),
+            None => crate::git_worktree::sanitize_branch_for_path(&branch),
+        };
+        let outcome = match base_branch {
+            Some(base_branch) => finish_worktree(
+                &RunCleanup {
+                    clone: clone.to_path_buf(),
+                    worktree: entry.path.clone(),
+                    branch: branch.clone(),
+                    base_branch,
+                },
+                &live,
+                &id8,
+            ),
+            None => FinishOutcome::Skipped(FinishSkip::GitFailed(
+                "no base branch to compare against".to_string(),
+            )),
+        };
+        report.finished.push(SweptWorktree {
+            path: entry.path.clone(),
+            branch,
+            session_id,
+            outcome,
+        });
+    }
+    report
+}
+
+/// NEW-5: the nightly cadence — [`sweep_stale_worktrees_if_due`] runs a
+/// clone's sweep at most once per this in one process.
+pub const SWEEP_INTERVAL: Duration = Duration::from_secs(24 * 60 * 60);
+
+/// Whether `clone` is due for its nightly sweep at `now` (`last` = the
+/// clone → last pass map); a due clone is stamped. Pure.
+fn sweep_due(
+    last: &mut std::collections::HashMap<std::path::PathBuf, std::time::Instant>,
+    clone: &Path,
+    now: std::time::Instant,
+) -> bool {
+    if last
+        .get(clone)
+        .is_some_and(|at| now.saturating_duration_since(*at) < SWEEP_INTERVAL)
+    {
+        return false;
+    }
+    last.insert(clone.to_path_buf(), now);
+    true
+}
+
+/// [`sweep_stale_worktrees`] at most once per [`SWEEP_INTERVAL`] per clone
+/// in this process (`None` = not due) — the desktop's AutoSync pass and the
+/// CLI daemon's loop both call it on their own cadence; the first call after
+/// a start sweeps. Blocking: run it off any UI thread.
+pub fn sweep_stale_worktrees_if_due(
+    clone: &Path,
+    data_dir: &Path,
+    now: SystemTime,
+    policy: &SweepPolicy,
+) -> Option<SweepReport> {
+    static LAST: std::sync::Mutex<
+        Option<std::collections::HashMap<std::path::PathBuf, std::time::Instant>>,
+    > = std::sync::Mutex::new(None);
+    {
+        let mut guard = LAST.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if !sweep_due(guard.get_or_insert_with(Default::default), clone, std::time::Instant::now()) {
+            return None;
+        }
+    }
+    Some(sweep_stale_worktrees(clone, data_dir, now, policy))
+}
+
+/// NEW-5: one sweep pass's log line + the ONE conversation line per parked
+/// leftover branch whose session is known
+/// ([`crate::run_cleanup::post_leftover_note`]). `trpc` = `None` (signed
+/// out) posts nothing. Blocking (network).
+pub fn settle_sweep_report(
+    trpc: Option<&api::trpc::TrpcClient>,
+    label: &str,
+    report: &SweepReport,
+) {
+    if report.finished.is_empty() {
+        return;
+    }
+    log::info!("stale-worktree sweep {label}: {:?}", report.finished);
+    let Some(trpc) = trpc else { return };
+    for (session_id, branch) in report.leftovers() {
+        if let Some(session_id) = session_id {
+            crate::run_cleanup::post_leftover_note(trpc, session_id, branch);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    /// NEW-5: the nightly cadence — once per clone per interval.
+    #[test]
+    fn the_stale_sweep_runs_once_a_day_per_clone() {
+        let mut last = std::collections::HashMap::new();
+        let t0 = std::time::Instant::now();
+        let a = std::path::Path::new("/repos/a");
+        let b = std::path::Path::new("/repos/b");
+        assert!(super::sweep_due(&mut last, a, t0));
+        assert!(!super::sweep_due(&mut last, a, t0 + std::time::Duration::from_secs(60)));
+        assert!(super::sweep_due(&mut last, b, t0 + std::time::Duration::from_secs(60)));
+        assert!(super::sweep_due(&mut last, a, t0 + super::SWEEP_INTERVAL));
+    }
+
     use crate::git_worktree::{
         create_worktree, sanitize_branch_for_path, worktrees_dir, TokenUrl,
     };
@@ -1058,5 +1296,124 @@ mod tests {
         assert!(report.deleted_branches.contains(&"exp/OLD-9".to_string()));
         assert!(!wt.exists());
         assert!(!branch_exists(&clone, "exp/OLD-9"));
+    }
+
+    // ---- NEW-5: the nightly sweep ----
+
+    fn age_by(worktree: &Path, by: Duration) {
+        let file = fs::OpenOptions::new()
+            .write(true)
+            .open(worktree.join(".git"))
+            .unwrap();
+        file.set_modified(SystemTime::now() - by).unwrap();
+    }
+
+    fn origin_branch_exists(origin: &Path, branch: &str) -> bool {
+        branch_exists(origin, branch)
+    }
+
+    /// The age rule: only worktrees idle past `max_age` (by the `.git` link
+    /// AND the newest record) are finished; the stale one's unpushed work
+    /// lands on a leftover branch, named after its session's record.
+    #[test]
+    fn the_sweep_finishes_only_stale_worktrees() {
+        let dir = temp_dir("sweep-age");
+        let (origin, clone) = seed(&dir.0);
+        let data_dir = dir.0.join("data");
+        fs::create_dir_all(&data_dir).unwrap();
+        let day = Duration::from_secs(24 * 60 * 60);
+
+        // Stale, recorded (ended: no host pid), unpushed work.
+        let stale = worktree(&clone, "exp/session-aaaa1111");
+        commit_file(&stale, "work.txt", "real work\n", "work");
+        age_by(&stale, 2 * day);
+        let mut record = crate::run_registry::sample_record("aaaa1111-0000-0000-0000-000000000000");
+        record.cwd = stale.clone();
+        record.clone = Some(clone.clone());
+        record.branch = Some("exp/session-aaaa1111".to_string());
+        record.host_pid = None;
+        record.recorded_at = crate::run_registry::now_secs() - 3 * day.as_secs();
+        crate::run_registry::record(&data_dir, record);
+
+        // Old `.git` link, but its record was written an hour ago: fresh.
+        let recent = worktree(&clone, "exp/session-bbbb2222");
+        age_by(&recent, 2 * day);
+        let mut record = crate::run_registry::sample_record("bbbb2222-0000-0000-0000-000000000000");
+        record.cwd = recent.clone();
+        record.host_pid = None;
+        record.recorded_at = crate::run_registry::now_secs() - 3600;
+        crate::run_registry::record(&data_dir, record);
+
+        // Brand new, no record.
+        let young = worktree(&clone, "exp/EXP-60");
+
+        // Stale, no record at all: finished, its id from the branch.
+        let orphan = worktree(&clone, "exp/EXP-61");
+        commit_file(&orphan, "orphan.txt", "orphan work\n", "orphan");
+        age_by(&orphan, 2 * day);
+
+        let report = sweep_stale_worktrees(&clone, &data_dir, SystemTime::now(), &SweepPolicy::default());
+        let mut branches: Vec<&str> = report.finished.iter().map(|swept| swept.branch.as_str()).collect();
+        branches.sort();
+        assert_eq!(branches, vec!["exp/EXP-61", "exp/session-aaaa1111"], "{report:?}");
+        let mut leftovers = report.leftovers();
+        leftovers.sort();
+        assert_eq!(
+            leftovers,
+            vec![
+                (None, "exp/leftover-exp-EXP-61"),
+                (Some("aaaa1111-0000-0000-0000-000000000000"), "exp/leftover-aaaa1111"),
+            ]
+        );
+        assert!(!stale.exists() && !orphan.exists());
+        assert!(recent.exists() && young.exists());
+        assert!(origin_branch_exists(&origin, "exp/leftover-aaaa1111"));
+        assert!(origin_branch_exists(&origin, "exp/leftover-exp-EXP-61"));
+        assert!(!branch_exists(&clone, "exp/session-aaaa1111"));
+
+        // A shorter policy reaches the hour-old one too (clean: no leftover).
+        let short = SweepPolicy { max_age: Duration::from_secs(60), ..SweepPolicy::default() };
+        age_by(&young, 2 * day);
+        let report = sweep_stale_worktrees(&clone, &data_dir, SystemTime::now(), &short);
+        assert_eq!(report.finished.len(), 2, "{report:?}");
+        assert!(report.leftovers().is_empty());
+        assert!(!recent.exists() && !young.exists());
+    }
+
+    /// A live run's worktree is never swept, however old — by its record's
+    /// live host or by the host's own live holders.
+    #[test]
+    fn the_sweep_never_touches_a_live_run() {
+        let dir = temp_dir("sweep-live");
+        let (_origin, clone) = seed(&dir.0);
+        let data_dir = dir.0.join("data");
+        fs::create_dir_all(&data_dir).unwrap();
+        let old = Duration::from_secs(3 * 24 * 60 * 60);
+
+        let running = worktree(&clone, "exp/session-cccc3333");
+        age_by(&running, old);
+        let mut record = crate::run_registry::sample_record("cccc3333");
+        record.cwd = running.clone();
+        record.host_pid = Some(std::process::id());
+        record.recorded_at = 0;
+        crate::run_registry::record(&data_dir, record);
+
+        let held = worktree(&clone, "exp/session-dddd4444");
+        age_by(&held, old);
+        let policy = SweepPolicy {
+            live: crate::run_cleanup::LiveHolders {
+                branches: vec!["exp/session-dddd4444".to_string()],
+                ..Default::default()
+            },
+            ..SweepPolicy::default()
+        };
+
+        let report = sweep_stale_worktrees(&clone, &data_dir, SystemTime::now(), &policy);
+        assert!(running.exists() && held.exists());
+        assert_eq!(report.finished.len(), 1, "{report:?}");
+        assert!(matches!(
+            report.finished[0].outcome,
+            crate::run_cleanup::FinishOutcome::Skipped(crate::run_cleanup::SkipReason::HeldByLiveRun(_))
+        ));
     }
 }

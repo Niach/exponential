@@ -127,6 +127,22 @@ class ThreadViewModel @Inject constructor(
     val isAgent: StateFlow<Boolean> = root.map { it?.isAgent == true }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
+    /** NEW-2: an agent conversation's DEFINITION row (`sessions.agent_id`):
+     *  the header's coloured icon + name come from it, not the session. */
+    val agentDefinition: StateFlow<com.exponential.app.data.db.AgentDefinitionEntity?> =
+        root.map { it?.agentId?.takeIf { id -> id.isNotEmpty() } }
+            .distinctUntilChanged()
+            .flatMapLatest { id ->
+                if (id == null) {
+                    flowOf(null)
+                } else {
+                    dbFlow.scopedQuery<com.exponential.app.data.db.AgentDefinitionEntity?>(null) {
+                        it.agentDefinitionDao().observeById(id)
+                    }
+                }
+            }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
     /** The root's raw Guide (`sessions.guide` jsonb TEXT; parse with
      *  `parseSessionResultGroups`). */
     val guide: StateFlow<String?> = root.map { it?.guide }

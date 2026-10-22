@@ -1,9 +1,13 @@
 import { describe, expect, it } from "vitest"
 import { getTableColumns } from "drizzle-orm"
 import {
+  agents,
+  conversations,
+  events,
   issueDrafts,
   issues,
   messages,
+  prompts,
   pullRequestIssues,
   pullRequests,
   sessionIssues,
@@ -19,6 +23,10 @@ import { MESSAGE_COLUMNS } from "./messages"
 import { SESSION_READ_COLUMNS } from "./session-reads"
 import { PULL_REQUEST_COLUMNS } from "./pull-requests"
 import { PULL_REQUEST_ISSUE_COLUMNS } from "./pull-request-issues"
+import { AGENT_COLUMNS } from "./agents"
+import { EVENT_COLUMNS } from "./events"
+import { PROMPT_COLUMNS } from "./prompts"
+import { CONVERSATION_COLUMNS } from "./conversations"
 
 // A proxy's `columns` allowlist is sent to Electric verbatim: a name the table
 // does not have fails the SHAPE, not the column — the client then syncs none
@@ -36,6 +44,12 @@ const lists = {
   pull_request_issues: [PULL_REQUEST_ISSUE_COLUMNS, pullRequestIssues],
   // EXP-1323
   session_reads: [SESSION_READ_COLUMNS, sessionReads],
+  // NEW-2
+  agents: [AGENT_COLUMNS, agents],
+  events: [EVENT_COLUMNS, events],
+  prompts: [PROMPT_COLUMNS, prompts],
+  // NEW-3
+  conversations: [CONVERSATION_COLUMNS, conversations],
 } as const
 
 describe(`shape column allowlists`, () => {
@@ -48,10 +62,31 @@ describe(`shape column allowlists`, () => {
 })
 
 describe(`sessions allowlist`, () => {
-  it(`syncs a pending move, never the server-only handoff`, () => {
-    expect(SESSION_COLUMNS).toContain(`move_to_device_id`)
-    expect(SESSION_COLUMNS).toContain(`handoff_restored_at`)
-    expect(SESSION_COLUMNS).not.toContain(`handoff`)
-    expect(SESSION_COLUMNS).not.toContain(`host_user_id`)
+  it(`keeps the legacy read shims for the shipped clients, never the server-only columns`, () => {
+    for (const shim of [
+      `dispatch`,
+      `caption`,
+      `aside`,
+      `move_to_device_id`,
+      `handoff_restored_at`,
+      `spawned_by_session_id`,
+    ]) {
+      expect(SESSION_COLUMNS).toContain(shim)
+    }
+    expect(SESSION_COLUMNS).not.toContain(`wake_on`)
+    expect(SESSION_COLUMNS).not.toContain(`mcp_server_ids`)
+    // NEW-2: the agent facets moved to `agents`; their shims stay listed.
+    for (const shim of [`kind`, `name`, `icon`, `color`, `triggers`, `sort_order`, `action_id`, `action_name`, `action_inputs`]) {
+      expect(SESSION_COLUMNS).toContain(shim)
+    }
+    expect(SESSION_COLUMNS).toContain(`agent_id`)
+  })
+  it(`keeps an agent's instructions and trigger bookkeeping server-only`, () => {
+    expect(AGENT_COLUMNS).not.toContain(`instructions`)
+    expect(AGENT_COLUMNS).not.toContain(`trigger_state`)
+    expect(PROMPT_COLUMNS).not.toContain(`body`)
+  })
+  it(`keeps the never-written assignment column the shipped desktop names`, () => {
+    expect(SESSION_ISSUE_COLUMNS).toContain(`assigned_session_id`)
   })
 })

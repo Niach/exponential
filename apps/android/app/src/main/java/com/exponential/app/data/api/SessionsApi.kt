@@ -5,39 +5,23 @@ import javax.inject.Singleton
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.put
 
 // EXP-1291 Threads v2: THE session router (apps/web/src/lib/trpc/sessions.ts)
 // and the PR router beside it. ONE entrypoint starts and messages every
-// session: `sessions.send` (a new thread root, a new team agent, a child, or
-// a message to an existing session), landing in the ACTIVE team. The DB is
+// session: `sessions.send` (a new thread root, a child, a message to an
+// existing session, or NEW-2 a message to an agent = into the caller's own
+// conversation session with it), landing in the ACTIVE team. The DB is
 // the bus: the answer carries ids + a txid this client never awaits; the
 // rows arrive through the sessions / messages shapes. Field names and
 // optionality match `sessionsSendInputSchema` (db-schema/domain.ts) exactly;
 // a null field is OMITTED (the shared Json has explicitNulls = false).
 
 /**
- * An agent's facets on create (`agentFacetsSchema`): [icon] = contract
- * `boardIcon`, [color] = `#rrggbb`, [triggers] = `agentTriggerWireJson`
- * elements (an element without `id` is new).
- */
-@Serializable
-data class AgentFacetsInput(
-    val name: String,
-    val icon: String,
-    val color: String,
-    val instructions: String = "",
-    val triggers: JsonArray = JsonArray(emptyList()),
-)
-
-/**
  * The `sessions.send` input. Build it through the four factories on the
- * companion ([root], [agent], [child], [message]) — the server refuses mixed
- * forms (`sessionId` + `parentId`, root facets on a message, …).
+ * companion ([root], [toAgent], [child], [message]) — the server refuses
+ * mixed forms (`sessionId` + `parentId`, root facets on a message, …).
  */
 @Serializable
 data class SessionsSendInput(
@@ -59,18 +43,16 @@ data class SessionsSendInput(
     val attachmentIds: List<String>? = null,
     // Facets of a NEW root thread.
     val issueIds: List<String>? = null,
-    val actionId: String? = null,
-    val inputs: Map<String, String>? = null,
+    // NEW-2: a new root run from a saved prompt (its body + [text]).
+    val promptId: String? = null,
     val repositoryId: String? = null,
-    // A NEW team agent root.
-    val agent: AgentFacetsInput? = null,
-    // EXP-1323: a `/btw` aside child (with [parentId]; text = the question).
-    val aside: Boolean? = null,
+    // NEW-2: a message to an AGENT (into the caller's conversation with it).
+    val agentId: String? = null,
 ) {
     companion object {
         /**
          * A NEW thread root in [teamId] (the ACTIVE team) on [deviceId]: text,
-         * issues or an action (+ its [inputs]) — at least one of them.
+         * issues or a saved prompt ([promptId]) — at least one of them.
          */
         fun root(
             teamId: String,
@@ -78,8 +60,7 @@ data class SessionsSendInput(
             text: String? = null,
             attachmentIds: List<String>? = null,
             issueIds: List<String>? = null,
-            actionId: String? = null,
-            inputs: Map<String, String>? = null,
+            promptId: String? = null,
             repositoryId: String? = null,
             cli: String? = null,
             account: String? = null,
@@ -103,26 +84,23 @@ data class SessionsSendInput(
             text = text?.takeIf { it.isNotBlank() },
             attachmentIds = attachmentIds?.takeIf { it.isNotEmpty() },
             issueIds = issueIds?.takeIf { it.isNotEmpty() },
-            actionId = actionId,
-            inputs = inputs?.takeIf { actionId != null && it.isNotEmpty() },
+            promptId = promptId,
             repositoryId = repositoryId,
         )
 
-        /** A NEW team agent root (Settings → Agents → New agent). */
-        fun agent(
-            teamId: String,
-            deviceId: String,
-            agent: AgentFacetsInput,
-            account: String? = null,
-            cli: String? = null,
-            model: String? = null,
+        /**
+         * NEW-2: a message to the agent [agentId] = into the caller's OWN
+         * conversation session with it (created on first use; it runs on the
+         * agent's device, so no runner picks). Needs text or attachments.
+         */
+        fun toAgent(
+            agentId: String,
+            text: String,
+            attachmentIds: List<String>? = null,
         ): SessionsSendInput = SessionsSendInput(
-            teamId = teamId,
-            deviceId = deviceId,
-            account = account,
-            cli = cli,
-            model = model,
-            agent = agent,
+            agentId = agentId,
+            text = text,
+            attachmentIds = attachmentIds?.takeIf { it.isNotEmpty() },
         )
 
         /** A CHILD session under [parentId] (a follow-up / sub-session). */
@@ -137,11 +115,6 @@ data class SessionsSendInput(
             text = text,
             attachmentIds = attachmentIds?.takeIf { it.isNotEmpty() },
         )
-
-        /** EXP-1323: `/btw <question>` — a read-only aside child of
-         *  [parentId] (its device, no worktree); ends after its reply. */
-        fun aside(parentId: String, text: String): SessionsSendInput =
-            SessionsSendInput(parentId = parentId, text = text, aside = true)
 
         /**
          * A message to an existing session (resumes an idle one; an ENDED
@@ -253,57 +226,10 @@ data class SessionConfigureInput(
 @Serializable
 data class SessionMcpPicks(val mcpServerIds: List<String> = emptyList())
 
-/** `sessions.getAgent`: the agent's server-only facets. */
-@Serializable
-data class AgentDetails(
-    val sessionId: String,
-    val instructions: String = "",
-)
-
-/**
- * `sessions.updateAgent` patch. An absent field keeps its value; [account]
- * and [model] are NULLABLE server-side — [clearAccount] / [clearModel] send
- * an explicit JSON null (the shared Json would otherwise drop it).
- */
-data class UpdateAgentPatch(
-    val name: String? = null,
-    val icon: String? = null,
-    val color: String? = null,
-    val instructions: String? = null,
-    /** `agentTriggerWireJson` elements; the WHOLE array is replaced. */
-    val triggers: List<JsonObject>? = null,
-    val deviceId: String? = null,
-    val account: String? = null,
-    val clearAccount: Boolean = false,
-    val model: String? = null,
-    val clearModel: Boolean = false,
-    val sortOrder: Double? = null,
-)
-
-internal fun updateAgentInput(sessionId: String, patch: UpdateAgentPatch): JsonObject =
-    buildJsonObject {
-        put("sessionId", sessionId)
-        patch.name?.let { put("name", it) }
-        patch.icon?.let { put("icon", it) }
-        patch.color?.let { put("color", it) }
-        patch.instructions?.let { put("instructions", it) }
-        patch.triggers?.let { put("triggers", JsonArray(it)) }
-        patch.deviceId?.let { put("deviceId", it) }
-        when {
-            patch.account != null -> put("account", patch.account)
-            patch.clearAccount -> put("account", JsonNull)
-        }
-        when {
-            patch.model != null -> put("model", patch.model)
-            patch.clearModel -> put("model", JsonNull)
-        }
-        patch.sortOrder?.let { put("sortOrder", it) }
-    }
-
 @Singleton
 class SessionsApi @Inject constructor(private val trpc: TrpcClient) {
 
-    /** THE entrypoint: start a root / agent / child, or message a session. */
+    /** THE entrypoint: start a root / child, or message a session / agent. */
     suspend fun send(accountId: String, input: SessionsSendInput): SessionsSendResult =
         trpc.mutation(
             accountId,
@@ -435,30 +361,6 @@ class SessionsApi @Inject constructor(private val trpc: TrpcClient) {
             inputSerializer = SuggestionItemInput.serializer(),
         )
     }
-
-    /** The agent's server-only instructions (the settings page). */
-    suspend fun getAgent(accountId: String, sessionId: String): AgentDetails =
-        trpc.query(
-            accountId,
-            path = "sessions.getAgent",
-            input = SessionIdInput(sessionId),
-            inputSerializer = SessionIdInput.serializer(),
-            outputSerializer = AgentDetails.serializer(),
-        )
-
-    /** Owner-only: patch an agent's facets / runner. */
-    suspend fun updateAgent(accountId: String, sessionId: String, patch: UpdateAgentPatch) {
-        trpc.mutationUnit(
-            accountId,
-            path = "sessions.updateAgent",
-            input = updateAgentInput(sessionId, patch),
-            inputSerializer = JsonObject.serializer(),
-        )
-    }
-
-    /** Owner-only: delete an agent (its conversation goes with it). */
-    suspend fun deleteAgent(accountId: String, sessionId: String) =
-        unit(accountId, "sessions.deleteAgent", sessionId)
 
     private suspend fun unit(accountId: String, path: String, sessionId: String) {
         trpc.mutationUnit(

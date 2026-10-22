@@ -1,13 +1,33 @@
-import { useCallback, useMemo, useState } from "react"
+import { useCallback, useMemo, useRef, useState } from "react"
+import { SESSIONS_SEND_TEXT_MAX } from "@exp/db-schema/domain"
 import {
+  AttachmentFileTile,
+  AttachmentThumb,
   BoardGlyph,
   ChannelMessageRow,
+  Composer,
+  ComposerFrame,
+  ComposerSubmit,
   SessionCard,
+  Spinner,
   ThreadConversation,
+  toast,
   UserAvatar,
   userMessageCaption,
 } from "@exp/ui"
 import type { User } from "@/db/schema"
+import type { SyncedAgent } from "@/components/team/agents-section"
+import {
+  ComposerInlineTools,
+  type ComposerInlineToolsHandle,
+} from "@/components/composer-inline-tools"
+import {
+  MentionTextarea,
+  type MentionTextareaHandle,
+} from "@/components/mention-textarea"
+import { uploadTeamSessionImageFile } from "@/lib/storage/issue-image-upload"
+import { sessionCollection } from "@/lib/collections"
+import { cn } from "@/lib/utils"
 import { renderThreadText } from "@/components/thread/thread-markdown"
 import { useNow } from "@/hooks/use-now"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
@@ -22,13 +42,15 @@ import {
 } from "@/lib/session-tree"
 import { trpc } from "@/lib/trpc-client"
 
-// EXP-1293 Threads v2: a team AGENT's channel = a root that stays open. Its
-// messages read as comment rows (avatar or the agent's icon, the name, the
-// time, the body); a thread it started (`thread_started`) or a session it
-// spawned (`session`) is THE session card under it, opening that thread (a
-// root) or that session (a child). Question and plan cards answer in the
-// card. Model = `buildSessionThread` over the agent root with the team's
-// sessions as card targets.
+// EXP-1293 / NEW-2: a team AGENT's conversation = the CALLER's own
+// conversation session with it (a root with `agentId`, `userId` = me) that
+// never ends; none yet = an empty conversation until the first message.
+// Its messages read as comment rows (avatar or the agent's icon, the name,
+// the time, the body); a thread it started (`thread_started`) or a session
+// it spawned (`session`) is THE session card under it, opening that thread
+// (a root) or that session (a child). Question and plan cards answer in the
+// card. Model = `buildSessionThread` over the conversation root with the
+// team's sessions as card targets.
 
 /** A card's answer (`sessions.answer`): a question's text + its picked
  *  labels, or a plan's decision + note + EXP-1280 answers by question id;
@@ -88,13 +110,17 @@ export function useUnqueueMessage(): (messageId: string) => Promise<void> {
 
 export function AgentChannel({
   agent,
+  conversation,
   messages,
   teamSessions,
   users,
   canAnswer,
   onOpenSession,
 }: {
-  agent: SessionRow
+  /** The `agents` definition (name, icon, color). */
+  agent: Pick<SyncedAgent, `name` | `icon` | `color`>
+  /** The caller's conversation session with it; null = none yet. */
+  conversation: SessionRow | null
   messages: readonly MessageRow[]
   /** Every synced session of the team (the cards' targets). */
   teamSessions: readonly SessionRow[]
@@ -108,16 +134,18 @@ export function AgentChannel({
   // channel row (the first one is the agent's first message).
   const rows = useMemo(
     () =>
-      buildSessionThread({
-        root: toTreeSession(agent),
-        sessions: teamSessions.map(toTreeSession),
-        sessionIssues: [],
-        issues: [],
-        messages: messages.map(toTreeMessage),
-        pullRequests: [],
-        now: now.toISOString(),
-      }).rows,
-    [agent, teamSessions, messages, now]
+      conversation
+        ? buildSessionThread({
+            root: toTreeSession(conversation),
+            sessions: teamSessions.map(toTreeSession),
+            sessionIssues: [],
+            issues: [],
+            messages: messages.map(toTreeMessage),
+            pullRequests: [],
+            now: now.toISOString(),
+          }).rows
+        : [],
+    [conversation, teamSessions, messages, now]
   )
   const messagesById = useMemo(() => new Map(messages.map((m) => [m.id, m])), [messages])
   const usersById = useMemo(() => new Map(users.map((user) => [user.id, user])), [users])
@@ -127,7 +155,7 @@ export function AgentChannel({
   )
   const { answer, pending } = useAnswerMessage()
 
-  const agentName = agent.name ?? ``
+  const agentName = agent.name
   const agentLead = (
     <BoardGlyph board={{ icon: agent.icon, color: agent.color }} className="size-4" />
   )
@@ -180,5 +208,163 @@ export function AgentChannel({
     <div data-testid="agent-channel" className="flex flex-col gap-4">
       {rows.map(render)}
     </div>
+  )
+}
+
+interface PendingFile {
+  key: string
+  file: File
+  previewUrl: string | null
+}
+
+/** NEW-2: the agent page's composer while the caller has no conversation
+ *  with the agent yet: THE composer card (text, mentions, files) whose send
+ *  is `sessions.send({agentId, text, attachmentIds})`; the server opens the
+ *  conversation session and the page picks it up as it syncs. */
+export function AgentComposer({
+  teamId,
+  agentId,
+  placeholder,
+  users = [],
+  testId,
+  className,
+  onSent,
+}: {
+  teamId: string
+  agentId: string
+  placeholder: string
+  users?: readonly User[]
+  testId?: string
+  className?: string
+  /** The conversation session the send opened (or reused). */
+  onSent?: (sessionId: string) => void
+}) {
+  const [text, setText] = useState(``)
+  const [files, setFiles] = useState<PendingFile[]>([])
+  const [sending, setSending] = useState(false)
+  const fieldRef = useRef<MentionTextareaHandle>(null)
+  const toolsRef = useRef<ComposerInlineToolsHandle>(null)
+  const empty = text.trim().length === 0 && files.length === 0
+
+  const addFiles = (picked: File[]) => {
+    if (picked.length === 0) return
+    setFiles((current) => [
+      ...current,
+      ...picked.map((file, index) => ({
+        key: `${Date.now()}-${index}-${file.name}`,
+        file,
+        previewUrl: file.type.startsWith(`image/`) ? URL.createObjectURL(file) : null,
+      })),
+    ])
+  }
+  const removeFile = (key: string) =>
+    setFiles((current) => {
+      const gone = current.find((entry) => entry.key === key)
+      if (gone?.previewUrl) URL.revokeObjectURL(gone.previewUrl)
+      return current.filter((entry) => entry.key !== key)
+    })
+
+  const send = async () => {
+    if (sending || empty) return
+    setSending(true)
+    try {
+      const attachmentIds: string[] = []
+      for (const entry of files) {
+        const uploaded = await uploadTeamSessionImageFile(teamId, entry.file)
+        attachmentIds.push(uploaded.id)
+      }
+      const result = await trpc.sessions.send.mutate(
+        {
+          agentId,
+          text: text.trim() || undefined,
+          attachmentIds: attachmentIds.length > 0 ? attachmentIds : undefined,
+        },
+        SKIP_ERROR_TOAST
+      )
+      for (const entry of files) if (entry.previewUrl) URL.revokeObjectURL(entry.previewUrl)
+      setText(``)
+      setFiles([])
+      await sessionCollection.utils.awaitTxId(result.txid, 3000).catch(() => undefined)
+      onSent?.(result.sessionId)
+    } catch {
+      toast.error(`Couldn't send the message`)
+    } finally {
+      setSending(false)
+    }
+  }
+
+  return (
+    <ComposerFrame data-testid={testId} className={cn(`w-full`, className)}>
+      <Composer
+        strip={
+          files.length > 0 ? (
+            <div className="flex flex-wrap gap-2 px-3 pt-3">
+              {files.map((entry) =>
+                entry.previewUrl ? (
+                  <AttachmentThumb
+                    key={entry.key}
+                    src={entry.previewUrl}
+                    alt={entry.file.name}
+                    onRemove={() => removeFile(entry.key)}
+                  />
+                ) : (
+                  <AttachmentFileTile
+                    key={entry.key}
+                    name={entry.file.name}
+                    onRemove={() => removeFile(entry.key)}
+                  />
+                )
+              )}
+            </div>
+          ) : undefined
+        }
+        tools={
+          <ComposerInlineTools
+            ref={toolsRef}
+            fieldRef={fieldRef}
+            onFiles={addFiles}
+            disabled={sending}
+          />
+        }
+        submit={
+          <ComposerSubmit
+            aria-label="Send"
+            disabled={empty || sending}
+            onClick={() => void send()}
+          >
+            {sending ? <Spinner size={16} label="Sending" /> : undefined}
+          </ComposerSubmit>
+        }
+        onDrop={(event) => {
+          if (event.dataTransfer.files.length === 0) return
+          event.preventDefault()
+          addFiles(Array.from(event.dataTransfer.files))
+        }}
+        onDragOver={(event) => {
+          if (event.dataTransfer.types.includes(`Files`)) event.preventDefault()
+        }}
+      >
+        <MentionTextarea
+          ref={fieldRef}
+          value={text}
+          onValueChange={setText}
+          users={users as User[]}
+          onKeyDown={(event) => {
+            if (event.nativeEvent.isComposing) return
+            if (event.key !== `Enter` || event.shiftKey) return
+            event.preventDefault()
+            void send()
+          }}
+          onPaste={(event) => {
+            if (event.clipboardData.files.length === 0) return
+            event.preventDefault()
+            addFiles(Array.from(event.clipboardData.files))
+          }}
+          placeholder={placeholder}
+          className="min-h-20 resize-none border-0 bg-transparent px-3 pt-3 shadow-none focus-visible:ring-0"
+          maxLength={SESSIONS_SEND_TEXT_MAX}
+        />
+      </Composer>
+    </ComposerFrame>
   )
 }

@@ -21,14 +21,13 @@ import {
 } from "@/lib/detail-origin"
 
 // EXP-825: "start something" is ONE call — every play button (issue detail,
-// the bulk bar, an action's Run, a device's play) hands this hook a
+// the bulk bar, a device's play) hands this hook a
 // preselection instead of building its own launcher. ONE place decides what
 // that opens.
 //
 // EXP-1019: what it opens is now a DIALOG over the current surface whenever
-// the seed carries a subject (issues or an action) — navigating away to the
-// Agent page turned "run this action" into "here is a prompt box with a
-// badge on it". A subjectless start still travels to the page, which is the
+// the seed carries a subject (issues) — navigating away to the Agent page
+// turned "implement this" into "here is a prompt box with a badge on it". A subjectless start still travels to the page, which is the
 // home of a plain chat; everything below is about THAT case.
 //
 // EXP-851: the composer also carries the ORIGIN the click came from
@@ -36,7 +35,7 @@ import {
 // launches inherits it — starting from an issue detail keeps that issue's
 // board list beside the run.
 //
-// EXP-870: a context-free caller (a PINNED action) passes `origin: null` —
+// EXP-870: a context-free caller passes `origin: null` —
 // the composer then opens full-width with no list nav, exactly like a pinned
 // issue or session does, instead of inheriting whatever list was up.
 
@@ -54,36 +53,6 @@ export interface OpenComposerOptions {
   /** The list the click came from; `null` = context-free. Omit the KEY to
    *  derive it from the URL. */
   origin?: DetailOrigin | null
-}
-
-/**
- * EXP-1186: start something in a GIVEN team — the phone's cross-team lists
- * (Actions) start in the ROW's team. The route's own team keeps the
- * dialog (`useOpenComposer`); another team's start travels to THAT team's
- * Agent page with the seed in its search, which the page honours as a
- * one-shot like any deep link — the launcher is bound to the route's team.
- */
-export function useOpenComposerInTeam(): (
-  teamSlug: string,
-  seed: Partial<LaunchSeed>
-) => void {
-  const navigate = useNavigate()
-  const { teamSlug: routeSlug } = useParams({ strict: false })
-  const openComposer = useOpenComposer()
-  return useCallback(
-    (teamSlug: string, seed: Partial<LaunchSeed>) => {
-      if (teamSlug === routeSlug) {
-        openComposer(seed)
-        return
-      }
-      void navigate({
-        to: `/t/$teamSlug/agent`,
-        params: { teamSlug },
-        search: searchFromSeed(seed),
-      })
-    },
-    [navigate, routeSlug, openComposer]
-  )
 }
 
 export function useOpenComposer(): (

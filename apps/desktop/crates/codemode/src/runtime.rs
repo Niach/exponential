@@ -182,6 +182,10 @@ pub struct CallRecord {
 /// [`SUBJECT_MAX_CHARS`]; `None` when blank or absent.
 pub fn call_subject(tool: &str, args: &Value, order: &[String]) -> Option<String> {
     let args = args.as_object()?;
+    // NEW-4: a noun tool's row is `<noun>_<op>` (the engine mapper composes
+    // the same name for the feed).
+    let composed = display_tool_name(tool, &Value::Object(args.clone()));
+    let tool = composed.as_str();
     let text = match exp_tool_subject_key(tool) {
         Some("") => None,
         Some(key) => args.get(key).and_then(Value::as_str).map(str::trim).filter(|text| !text.is_empty()),
@@ -192,6 +196,17 @@ pub fn call_subject(tool: &str, args: &Value, order: &[String]) -> Option<String
             .find(|text| !text.is_empty()),
     }?;
     Some(text.chars().take(SUBJECT_MAX_CHARS).collect::<String>().trim_end().to_string())
+}
+
+/// NEW-4: the row name a noun call displays as: `<tool>_<op>` when the
+/// call's `op` composes a contract row, else the tool as called.
+pub fn display_tool_name(tool: &str, args: &Value) -> String {
+    args.as_object()
+        .and_then(|args| args.get("op"))
+        .and_then(Value::as_str)
+        .map(|op| format!("{}_{}", tool.trim(), op.trim()))
+        .filter(|name| exp_tool_subject_key(name).is_some())
+        .unwrap_or_else(|| tool.to_string())
 }
 
 /// `Some(key)` for one of Exponential's own tools (the contract prefix is
@@ -480,12 +495,16 @@ impl EngineIo for Dispatcher {
     fn call(&self, request: CallRequest) -> Result<(), String> {
         let CallRequest { id, server, tool, args, raw, order } = request;
         let subject = call_subject(&tool, &args, &order);
+        // NEW-4: the log names an Exponential noun call by its display row
+        // (`exponential_issues` + `{op: "get"}` → `exponential_issues_get`),
+        // the name the script card labels.
+        let logged_tool = format!("{server}.{}", display_tool_name(&tool, &args));
         // The log slot is taken in CALL order, filled in when the call ends.
         let logged = {
             let mut stats = self.stats.lock().unwrap();
             stats.count += 1;
             (stats.log.len() < LOG_CAP).then(|| {
-                stats.log.push(CallRecord { tool: format!("{server}.{tool}"), subject, ok: false, ms: None });
+                stats.log.push(CallRecord { tool: logged_tool, subject, ok: false, ms: None });
                 stats.log.len() - 1
             })
         };

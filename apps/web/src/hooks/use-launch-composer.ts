@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { eq, inArray, useLiveQuery } from "@tanstack/react-db"
+import { inArray, useLiveQuery } from "@tanstack/react-db"
 import { useNavigate } from "@tanstack/react-router"
 import { actionErrorTitle, toast } from "@exp/ui"
 import {
@@ -7,16 +7,14 @@ import {
   type sessionsSendInputSchema,
 } from "@exp/db-schema/domain"
 import type { z } from "zod"
-import type { Board, Issue, SyncedAction } from "@/db/schema"
+import type { Board, Issue, SyncedPrompt } from "@/db/schema"
 import { useMcpServers } from "@/hooks/use-mcp-servers"
 import { useTeamBoards, useTeamById } from "@/hooks/use-team-data"
 import { useTeamRepos } from "@/hooks/use-team-repos"
-import {
-  actionCollection,
-  issueCollection,
-  sessionCollection,
-} from "@/lib/collections"
-import { buildInputsPayload, missingRequiredInputs } from "@/lib/action-inputs"
+import { usePrompts } from "@/hooks/use-prompts"
+import { useAgents } from "@/hooks/use-session-tree"
+import type { AgentRow } from "@/lib/session-tree"
+import { issueCollection, sessionCollection } from "@/lib/collections"
 import {
   chatRepoOptions,
   defaultChatRepoId,
@@ -54,26 +52,30 @@ import type { LaunchSeed } from "@/lib/launch-seed"
 
 // EXP-825: the ONE launcher's state: the Agent page composer (and the same
 // composer in the launch dialog). What a session is ABOUT is a SUBJECT picked
-// into the composer (issue chips, or one action chip; picking the other kind
-// swaps), the free text is the first message (instructions beside a subject),
+// into the composer (issue chips, or one PROMPT chip off the `/` menu, NEW-2;
+// picking the other kind swaps), the free text is the first message (instructions beside a subject),
 // files ride as attachments, and the options line under the card carries
 // device/account/model/plan with the rest behind the "+".
 //
 // EXP-1293 (Threads v2): a start is ONE `sessions.send` in the ACTIVE team: a
 // new root (a thread) on the picked device, with the subject as its facets
-// (`issueIds` | `actionId`+`inputs` | `repositoryId`). The server writes a
+// (`issueIds` | `promptId` (+ `repositoryId`) | `repositoryId`). The server writes a
 // `queued` row the device picks up; the composer awaits that row's sync
 // (bounded) and opens the thread. No builtins, no resume, no start ids and
 // no landing watch: the row exists the moment the mutation returns.
 
 export type { LaunchSeed }
 
-/** One action as the composer lists it: the synced, body-less row. */
-export type ComposerAction = SyncedAction
+/** One prompt as the composer lists it: the synced, body-less row. */
+export type ComposerPrompt = SyncedPrompt
+/** NEW-3: one agent as the "+" menu lists it (`listAgents`: icon, colour, name). */
+export type ComposerAgent = AgentRow
 
 export type LaunchSubject =
   | { kind: `issues`; ids: string[] }
-  | { kind: `action`; id: string; inputs: Record<string, string> }
+  | { kind: `prompt`; id: string }
+  /** NEW-3: a message into the caller's DM with a team agent. */
+  | { kind: `agent`; id: string }
   | null
 
 /** Hard cap per session: parity with `sessions.send`'s zod cap. */
@@ -91,8 +93,8 @@ const CODEABLE_STATUSES = new Set<string>([`backlog`, `in_progress`, `in_review`
 
 /** The submit's label per subject (its aria-label + tooltip). */
 export function submitLabelFor(subject: LaunchSubject): string {
-  if (subject === null) return `Start session`
-  if (subject.kind === `action`) return `Run action`
+  if (subject?.kind === `agent`) return `Send`
+  if (subject === null || subject.kind === `prompt`) return `Start session`
   return subject.ids.length >= 2
     ? `Start batch · ${subject.ids.length}`
     : `Start coding`
@@ -103,9 +105,9 @@ export type SessionsSendInput = z.input<typeof sessionsSendInputSchema>
 /**
  * The `sessions.send` payload for a NEW root, pure so the mapping is a test:
  * the runner picks off `buildOptions` (`agent` → `cli`; blank model/effort
- * omitted = the CLI default), the text and attachments, then exactly one
- * subject facet (`issueIds`, `actionId`+`inputs`, or the chat's
- * `repositoryId`; repo-less = none).
+ * omitted = the CLI default), the text and attachments, then the subject's
+ * facets (`issueIds`, or `promptId` beside the picked repository, or the
+ * chat's `repositoryId`; repo-less = none).
  */
 export function buildSendInput(args: {
   teamId: string
@@ -114,12 +116,20 @@ export function buildSendInput(args: {
   text: string
   attachmentIds: readonly string[]
   subject: LaunchSubject
-  /** The action's resolved inputs (`buildInputsPayload`). */
-  actionInputs?: Record<string, string>
   repoId: string
 }): SessionsSendInput {
   const { options, subject } = args
   const text = args.text.trim()
+  // NEW-3: an agent subject = a message into the caller's DM with it. The
+  // DM runs on the agent's own device and login: no runner picks ride.
+  if (subject?.kind === `agent`) {
+    return {
+      teamId: args.teamId,
+      agentId: subject.id,
+      ...(text ? { text: args.text } : {}),
+      ...(args.attachmentIds.length > 0 ? { attachmentIds: [...args.attachmentIds] } : {}),
+    }
+  }
   return {
     teamId: args.teamId,
     deviceId: args.deviceId,
@@ -135,16 +145,12 @@ export function buildSendInput(args: {
       : {}),
     ...(text ? { text: args.text } : {}),
     ...(args.attachmentIds.length > 0 ? { attachmentIds: [...args.attachmentIds] } : {}),
-    ...(subject === null
-      ? args.repoId
-        ? { repositoryId: args.repoId }
-        : {}
-      : subject.kind === `issues`
-        ? { issueIds: [...subject.ids] }
-        : {
-            actionId: subject.id,
-            ...(args.actionInputs ? { inputs: args.actionInputs } : {}),
-          }),
+    ...(subject?.kind === `issues`
+      ? { issueIds: [...subject.ids] }
+      : {
+          ...(subject?.kind === `prompt` ? { promptId: subject.id } : {}),
+          ...(args.repoId ? { repositoryId: args.repoId } : {}),
+        }),
   }
 }
 
@@ -185,20 +191,25 @@ async function awaitSynced(txid: number, ms: number): Promise<void> {
 export interface LaunchComposerModel {
   teamId: string
   subject: LaunchSubject
-  /** The subject action's row (null while it is not synced, or no action). */
-  selectedAction: ComposerAction | null
-  /** The team's actions in server order; null while the shape loads. */
-  actions: ComposerAction[] | null
+  /** The subject prompt's row (null while it is not synced, or no prompt). */
+  selectedPrompt: ComposerPrompt | null
+  /** The team's prompts in server order (the `/` menu's rows). */
+  prompts: ComposerPrompt[]
   /** Codeable issues on repo-backed boards, newest first. */
   eligibleIssues: Issue[]
   /** The checked issues' rows (a checked id not synced yet is absent). */
   checkedIssues: Issue[]
   toggleIssue: (issueId: string) => void
-  pickAction: (actionId: string) => void
-  clearAction: () => void
-  setInput: (key: string, value: string) => void
-  /** The PR (or any issue it closes) a `pr` input opens pre-picked on. */
-  seedPrIssueId: string | undefined
+  /** The `/` menu's pick: the prompt becomes the subject. */
+  pickPrompt: (promptId: string) => void
+  clearPrompt: () => void
+  /** NEW-3: the team's agents (the "+" menu's Message an agent › rows). */
+  agents: ComposerAgent[]
+  /** The subject agent's row (null while it is not synced, or no agent). */
+  selectedAgent: ComposerAgent | null
+  /** The "+" menu's pick: the agent becomes the subject (a DM). */
+  pickAgent: (agentId: string) => void
+  clearAgent: () => void
 
   text: string
   setText: (text: string) => void
@@ -210,7 +221,7 @@ export interface LaunchComposerModel {
 
   /** The team's connected repositories (null until fetched). */
   repos: ChatRepoOption[] | null
-  /** No subject only: the repository the session works in. */
+  /** No subject or a prompt: the repository the session works in. */
   repoId: string
   setRepoId: (repoId: string) => void
   repoOptions: { value: string; label: string }[]
@@ -258,7 +269,6 @@ export function useLaunchComposer({
   const [text, setText] = useState(``)
   const [images, setImages] = useState<PendingAttachment[]>([])
   const [repoId, setRepoId] = useState(``)
-  const [seedPrIssueId, setSeedPrIssueId] = useState<string | undefined>()
   const [sending, setSending] = useState(false)
   const imagesRef = useRef(images)
   imagesRef.current = images
@@ -274,21 +284,16 @@ export function useLaunchComposer({
   }, [repos])
   const repoOptions = useMemo(() => chatRepoOptions(repos ?? []), [repos])
 
-  const { data: actionRows } = useLiveQuery(
-    (query) =>
-      query.from({ a: actionCollection }).where(({ a }) => eq(a.teamId, teamId)),
-    [teamId]
-  )
-  const actions = useMemo<ComposerAction[] | null>(() => {
-    if (actionRows === undefined) return null
-    return [...(actionRows as ComposerAction[])].sort(
-      (a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name)
-    )
-  }, [actionRows])
-  const selectedAction =
-    subject?.kind !== `action`
+  const { prompts } = usePrompts(teamId)
+  const selectedPrompt =
+    subject?.kind !== `prompt`
       ? null
-      : ((actions ?? []).find((action) => action.id === subject.id) ?? null)
+      : (prompts.find((prompt) => prompt.id === subject.id) ?? null)
+  // NEW-3: the team's agents, the "+" menu's Message an agent › rows.
+  // (no viewer: the rows need no busy / needs-you state here)
+  const { agents } = useAgents(teamId, null)
+  const selectedAgent =
+    subject?.kind !== `agent` ? null : (agents.find((agent) => agent.agentId === subject.id) ?? null)
 
   // Codeable issues live on boards that HAVE a repo (coding gates on repo
   // presence). Sorted ids keep the dep string stable.
@@ -402,13 +407,8 @@ export function useLaunchComposer({
 
   useEffect(() => {
     if (!seed) return
-    // `action` wins over `issues` when both arrive.
-    if (seed.actionId) {
-      setSubject({ kind: `action`, id: seed.actionId, inputs: {} })
-      setSeedPrIssueId(seed.prIssueId)
-    } else if (seed.issueIds.length > 0) {
+    if (seed.issueIds.length > 0) {
       setSubject({ kind: `issues`, ids: [...new Set(seed.issueIds)] })
-      setSeedPrIssueId(undefined)
     }
     // EXP-836: an explicit machine is a REQUEST that outranks the default.
     if (seed.deviceId) launch.requestDevice(seed.deviceId)
@@ -425,37 +425,34 @@ export function useLaunchComposer({
 
   const toggleIssue = useCallback((issueId: string) => {
     setSubject((current) => {
-      // Picking an issue while an action is the subject SWAPS.
+      // Picking an issue while a prompt is the subject SWAPS.
       if (current?.kind !== `issues`) return { kind: `issues`, ids: [issueId] }
       const ids = current.ids.includes(issueId)
         ? current.ids.filter((id) => id !== issueId)
         : [...current.ids, issueId]
       return ids.length === 0 ? null : { kind: `issues`, ids }
     })
-    setSeedPrIssueId(undefined)
   }, [])
 
-  const pickAction = useCallback((actionId: string) => {
-    setSubject((current) =>
-      current?.kind === `action` && current.id === actionId
-        ? current
-        : // A different action has a different input schema.
-          { kind: `action`, id: actionId, inputs: {} }
-    )
-    setSeedPrIssueId(undefined)
+  // NEW-2: the `/` menu's pick. The prompt replaces whatever subject is up
+  // (issues included: picking the other kind swaps).
+  const pickPrompt = useCallback((promptId: string) => {
+    setSubject({ kind: `prompt`, id: promptId })
   }, [])
 
-  const clearAction = useCallback(() => {
-    setSubject((current) => (current?.kind === `action` ? null : current))
-    setSeedPrIssueId(undefined)
+  const clearPrompt = useCallback(() => {
+    setSubject((current) => (current?.kind === `prompt` ? null : current))
   }, [])
 
-  const setInput = useCallback((key: string, value: string) => {
-    setSubject((current) =>
-      current?.kind === `action`
-        ? { ...current, inputs: { ...current.inputs, [key]: value } }
-        : current
-    )
+  // NEW-3: the "+" menu's Message an agent › pick. The agent replaces
+  // whatever subject is up (issues and prompts included: picking the other
+  // kind swaps).
+  const pickAgent = useCallback((agentId: string) => {
+    setSubject({ kind: `agent`, id: agentId })
+  }, [])
+
+  const clearAgent = useCallback(() => {
+    setSubject((current) => (current?.kind === `agent` ? null : current))
   }, [])
 
   // ── Images and files ──────────────────────────────────────────────────────
@@ -496,9 +493,6 @@ export function useLaunchComposer({
 
   const count = checkedIds.length
   const overCap = count > MAX_ISSUES_PER_RUN
-  const inputDefs = selectedAction?.inputs ?? []
-  const missingInputs =
-    subject?.kind === `action` ? missingRequiredInputs(inputDefs, subject.inputs) : []
   const hasText = text.trim().length > 0
   const busy = sending
   const subjectBlocked =
@@ -507,12 +501,18 @@ export function useLaunchComposer({
         !hasText && images.length === 0
       : subject.kind === `issues`
         ? overCap || spansRepos || spansBranches
-        : !selectedAction || missingInputs.length > 0
+        : subject.kind === `agent`
+          ? // NEW-3: a DM needs the agent's row and something to say.
+            !selectedAgent || (!hasText && images.length === 0)
+          : !selectedPrompt
+  // NEW-3: a DM runs on the agent's device: the composer's machine and its
+  // readiness never gate it.
+  const toAgent = subject?.kind === `agent`
   const blocked =
     busy ||
-    !device ||
+    (!toAgent && !device) ||
     // EXP-773: the picked agent is not ready on the picked machine.
-    launch.agentNotReady ||
+    (!toAgent && launch.agentNotReady) ||
     subjectBlocked
 
   // ── Submit ────────────────────────────────────────────────────────────────
@@ -520,7 +520,7 @@ export function useLaunchComposer({
   const submitRef = useRef<() => Promise<void>>(async () => {})
 
   const submit = async () => {
-    if (blocked || !device) return
+    if (blocked || (!device && !toAgent)) return
     setSending(true)
     const retry = () => void submitRef.current()
     try {
@@ -541,37 +541,38 @@ export function useLaunchComposer({
       const attachmentIds = current
         .map((image) => image.uploadedId)
         .filter((id): id is string => Boolean(id))
-      // FEED-73: a real action owns its MCP list (the server sets it), so
-      // the composer's pick never rides an action start.
-      const options = launch.buildOptions({ omitMcp: subject?.kind === `action` })
+      const options = launch.buildOptions()
       const input = buildSendInput({
         teamId,
-        deviceId: device.deviceId,
+        deviceId: device?.deviceId ?? ``,
         options,
         text,
         attachmentIds,
         subject,
-        actionInputs:
-          subject?.kind === `action`
-            ? buildInputsPayload(inputDefs, subject.inputs)
-            : undefined,
         repoId,
       })
       let result: { sessionId: string; txid: number }
       try {
         result = await trpc.sessions.send.mutate(input, SKIP_ERROR_TOAST)
       } catch (error) {
-        startFailureToast(error, device, options.agent, retry)
+        if (toAgent) failedAction(`send`, `the message`, error, { retry })
+        else startFailureToast(error, device!, options.agent, retry)
         return
       }
       await awaitSynced(result.txid, START_SYNC_WAIT_MS)
+      const agentId = subject?.kind === `agent` ? subject.id : null
       clearDraft()
       onStartedRef.current?.(result.sessionId)
       if (teamSlug) {
-        void navigate({
-          to: `/t/$teamSlug/threads/$threadId`,
-          params: { teamSlug, threadId: result.sessionId },
-        })
+        // NEW-3: a DM opens the agent's conversation, a start its thread.
+        void navigate(
+          agentId
+            ? { to: `/t/$teamSlug/agents/$agentId`, params: { teamSlug, agentId } }
+            : {
+                to: `/t/$teamSlug/threads/$threadId`,
+                params: { teamSlug, threadId: result.sessionId },
+              }
+        )
       }
     } finally {
       setSending(false)
@@ -583,7 +584,6 @@ export function useLaunchComposer({
     setImages([])
     setText(``)
     setSubject(null)
-    setSeedPrIssueId(undefined)
   }
 
   const onStartedRef = useRef(onStarted)
@@ -594,15 +594,17 @@ export function useLaunchComposer({
   return {
     teamId,
     subject,
-    selectedAction,
-    actions,
+    selectedPrompt,
+    prompts,
     eligibleIssues,
     checkedIssues,
     toggleIssue,
-    pickAction,
-    clearAction,
-    setInput,
-    seedPrIssueId,
+    pickPrompt,
+    clearPrompt,
+    agents,
+    selectedAgent,
+    pickAgent,
+    clearAgent,
     text,
     setText,
     images,

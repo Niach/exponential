@@ -175,8 +175,8 @@ pub(crate) fn build_screen_content(
         Screen::Thread { session_id } => cx
             .new(|cx| crate::thread_screen::ThreadScreenView::new(session_id.clone(), window, cx))
             .into(),
-        Screen::Agent { session_id } => cx
-            .new(|cx| crate::agent_screen::AgentScreenView::new(session_id.clone(), window, cx))
+        Screen::Agent { agent_id } => cx
+            .new(|cx| crate::agent_screen::AgentScreenView::new(agent_id.clone(), window, cx))
             .into(),
         // EXP-769: a terminal pops out through `undock::open_undocked_terminal_tab`
         // (the manager keeps the tab; the window renders the same view) —
@@ -193,12 +193,6 @@ pub(crate) fn build_screen_content(
         // EXP-1170: the New issue page is never undocked (one shared view
         // owns the draft's autosave).
         Screen::IssueDraft { .. } => cx.new(|_| NeverUndocked).into(),
-        Screen::Actions => cx
-            .new(|cx| crate::actions_view::ActionsView::new(window, cx))
-            .into(),
-        Screen::Action { .. } => cx
-            .new(|cx| crate::action_view::ActionView::new(window, cx))
-            .into(),
         Screen::Home => cx
             .new(|cx| crate::chat_screen::ChatScreenView::new(window, cx))
             .into(),
@@ -257,7 +251,7 @@ struct TabEntry {
 impl TabEntry {
     fn new(screen: Screen, origin: Option<TabOrigin>, root_id: Option<String>) -> Self {
         let root_id = root_id.or_else(|| match &screen {
-            Screen::Thread { session_id } | Screen::Agent { session_id } => {
+            Screen::Thread { session_id } | Screen::Agent { agent_id: session_id } => {
                 Some(session_id.clone())
             }
             _ => None,
@@ -293,7 +287,7 @@ impl TabEntry {
             return true;
         }
         match screen {
-            Screen::Thread { session_id } | Screen::Agent { session_id } => {
+            Screen::Thread { session_id } | Screen::Agent { agent_id: session_id } => {
                 self.holds_root(session_id)
             }
             _ => false,
@@ -311,7 +305,10 @@ impl TabEntry {
 /// while that row has not synced, and for every other screen).
 fn screen_root(screen: &Screen, cx: &App) -> Option<String> {
     match screen {
-        Screen::Thread { session_id } | Screen::Agent { session_id } => Some(session_id.clone()),
+        Screen::Thread { session_id } => Some(session_id.clone()),
+        // NEW-6: the caller's conversation with the agent (the agent id
+        // until the first message creates it).
+        Screen::Agent { agent_id } => Some(crate::agent_screen::agent_screen_root(agent_id, cx)),
         Screen::Session { session_id } => crate::session_data::session(session_id, cx)
             .map(|row| row.root_id_or_self().to_string()),
         _ => None,
@@ -760,10 +757,11 @@ fn session_chip_content(session_id: &str, cx: &App) -> ChipContent {
     }
 }
 
-/// EXP-1294 — an agent channel's chip: the agent's icon in its colour and
-/// its name.
+/// EXP-1294 — an agent page's chip: the `agents` row's icon in its colour
+/// and its name.
 fn agent_chip_content(agent_id: &str, cx: &App) -> ChipContent {
-    let Some(agent) = crate::session_data::session(agent_id, cx) else {
+    let resolved = crate::agent_screen::resolve_agent_id(agent_id, cx);
+    let Some(agent) = crate::session_data::agent_def(&resolved, cx) else {
         return loading_chip(cx);
     };
     ChipContent {
@@ -774,7 +772,7 @@ fn agent_chip_content(agent_id: &str, cx: &App) -> ChipContent {
         identifier: None,
         title: Some(screen_title(
             &Screen::Agent {
-                session_id: agent_id.to_string(),
+                agent_id: agent_id.to_string(),
             },
             cx,
         )),
@@ -823,7 +821,7 @@ fn chip_content(screen: &Screen, cx: &App) -> ChipContent {
     match screen {
         Screen::Session { session_id } => return session_chip_content(session_id, cx),
         Screen::Thread { session_id } => return thread_chip_content(session_id, cx),
-        Screen::Agent { session_id } => return agent_chip_content(session_id, cx),
+        Screen::Agent { agent_id } => return agent_chip_content(agent_id, cx),
         Screen::Terminal { tab } => return terminal_chip_content(*tab, cx),
         _ => {}
     }
@@ -886,12 +884,6 @@ pub struct ScreensPanel {
     /// like the PR diff ([`Self::sync_issue_draft`]); a navigation off it
     /// pays the draft out.
     issue_draft: Entity<crate::issue_draft_screen::IssueDraftView>,
-    /// The Actions page (EXP-467 — the team's action rows; EXP-480: a
-    /// tab-less full-page mode like Settings).
-    actions: Entity<crate::actions_view::ActionsView>,
-    /// One action's page (SLOP-2 — Prompt · Triggers · Runs). ONE shared
-    /// view that re-points itself off the window's [`Screen::Action`].
-    action: Entity<crate::action_view::ActionView>,
     /// HOME (EXP-772's Chat page — the centred prompt box; the same tab-less
     /// full-page mode).
     chat: Entity<crate::chat_screen::ChatScreenView>,
@@ -1007,8 +999,6 @@ impl ScreensPanel {
         let drafts = cx.new(|cx| crate::drafts_view::DraftsView::new(window, cx));
         let issue_draft =
             cx.new(|cx| crate::issue_draft_screen::IssueDraftView::new(window, cx));
-        let actions = cx.new(|cx| crate::actions_view::ActionsView::new(window, cx));
-        let action = cx.new(|cx| crate::action_view::ActionView::new(window, cx));
         let chat = cx.new(|cx| crate::chat_screen::ChatScreenView::new(window, cx));
         let threads_page = cx.new(|cx| crate::threads_view::ThreadsView::new(window, cx));
         let nav = nav_for_window(window, cx);
@@ -1095,8 +1085,6 @@ impl ScreensPanel {
             devices,
             drafts,
             issue_draft,
-            actions,
-            action,
             chat,
             threads_page,
             exponential_ui: None,
@@ -1389,9 +1377,9 @@ impl ScreensPanel {
                 // EXP-1316 (1b): back on the thread itself.
                 thread.update(cx, |thread, cx| thread.set_focus(None, cx));
             }
-            Screen::Agent { session_id } => {
-                self.agents.entry(session_id.clone()).or_insert_with(|| {
-                    cx.new(|cx| crate::agent_screen::AgentScreenView::new(session_id, window, cx))
+            Screen::Agent { agent_id } => {
+                self.agents.entry(agent_id.clone()).or_insert_with(|| {
+                    cx.new(|cx| crate::agent_screen::AgentScreenView::new(agent_id, window, cx))
                 });
             }
             Screen::BoardIssues { .. }
@@ -1401,8 +1389,6 @@ impl ScreensPanel {
             | Screen::Devices
             | Screen::Drafts
             | Screen::IssueDraft { .. }
-            | Screen::Actions
-            | Screen::Action { .. }
             | Screen::Home
             | Screen::Threads
             | Screen::ExponentialUiKitchenSink
@@ -1707,7 +1693,14 @@ impl ScreensPanel {
             if let Some(view) = self.threads.remove(root_id) {
                 view.update(cx, |view, cx| view.shutdown(cx));
             }
-            self.agents.remove(root_id);
+            // NEW-6: agent views are keyed by the AGENT id; the tab's root
+            // is the caller's conversation with it.
+            self.agents.retain(|agent_id, _| {
+                agent_id != root_id && crate::agent_screen::agent_screen_root(agent_id, cx) != *root_id
+            });
+        }
+        if let Screen::Agent { agent_id } = &tab.screen {
+            self.agents.remove(agent_id);
         }
         // EXP-894: a closed tab's stashed drafts (`crate::tab_state`) go too.
         if let Some(issue_id) = tab.issue_id() {
@@ -2864,9 +2857,7 @@ impl Focusable for ScreensPanel {
 // DEV-ONLY one-shot dialog hook (§11.4 headless verification)
 // ---------------------------------------------------------------------------
 
-/// DEV-ONLY `EXP_DEV_DIALOG` values: `search` |
-/// `action-editor:<uuid>` (a legacy ALIAS — the edit dialog became the action
-/// page, so it navigates to `EXP_DEV_SCREEN=action:<uuid>`) | `create-board` |
+/// DEV-ONLY `EXP_DEV_DIALOG` values: `search` | `create-board` |
 /// `create-team` | `join-team[:<invite-token>]` (a token prefills the paste
 /// field and previews the invite) | `add-server` | `device-settings:<uuid>` |
 /// `duplicate-picker:<issue-uuid>` | `getting-started` (EXP-1259: the rail
@@ -2879,7 +2870,6 @@ impl Focusable for ScreensPanel {
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum DevDialog {
     Search,
-    ActionEditor(String),
     CreateBoard,
     CreateTeam,
     /// EXP-642: an optional invite token — `join-team:<token>` opens the
@@ -2896,8 +2886,7 @@ enum DevDialog {
 
 /// The accepted [`DevDialog`] spellings, for the parse-failure log — a typo
 /// in a capture recipe must name its alternatives, not fail silently.
-const DEV_DIALOG_SPECS: &str = "search | action-editor:<uuid> | \
-    create-board | create-team | join-team[:<invite-token>] | add-server | \
+const DEV_DIALOG_SPECS: &str = "search | create-board | create-team | join-team[:<invite-token>] | add-server | \
     device-settings:<uuid> | duplicate-picker:<issue-uuid> | \
     run:<issue-uuid>[,<issue-uuid>…] | getting-started";
 
@@ -2925,9 +2914,6 @@ fn parse_dev_dialog(spec: &str) -> Option<DevDialog> {
                     (!token.is_empty()).then(|| token.to_string()),
                 ));
             }
-            if let Some(id) = spec.strip_prefix("action-editor:") {
-                return Some(DevDialog::ActionEditor(id.to_string()));
-            }
             if let Some(id) = spec.strip_prefix("device-settings:") {
                 return Some(DevDialog::DeviceSettings(id.to_string()));
             }
@@ -2941,7 +2927,6 @@ fn parse_dev_dialog(spec: &str) -> Option<DevDialog> {
 /// are snapshotted here so the delayed spawn never re-reads the store.
 enum DevDialogTarget {
     Search,
-    ActionEditor { action_id: String },
     CreateBoard { team_id: String },
     CreateTeam,
     JoinTeam { token: Option<String> },
@@ -2955,9 +2940,6 @@ enum DevDialogTarget {
 fn open_dev_dialog(target: DevDialogTarget, window: &mut Window, cx: &mut App) {
     match target {
         DevDialogTarget::Search => crate::search_sheet::open_search(window, cx),
-        DevDialogTarget::ActionEditor { action_id } => {
-            crate::actions_view::open_action_page(window, cx, action_id)
-        }
         DevDialogTarget::CreateBoard { team_id } => {
             crate::create_board_dialog::open(window, cx, team_id)
         }
@@ -3012,12 +2994,6 @@ impl ScreensPanel {
                 }
                 active_team_id(&self.nav, cx)?;
                 DevDialogTarget::Search
-            }
-            DevDialog::ActionEditor(action_id) => {
-                store.collections().actions.read(cx).get(action_id)?;
-                DevDialogTarget::ActionEditor {
-                    action_id: action_id.clone(),
-                }
             }
             DevDialog::CreateBoard => DevDialogTarget::CreateBoard {
                 team_id: active_team_id(&self.nav, cx)?,
@@ -3198,8 +3174,6 @@ impl Render for ScreensPanel {
             Some(Screen::Devices) => self.devices.clone().into_any_element(),
             Some(Screen::Drafts) => self.drafts.clone().into_any_element(),
             Some(Screen::IssueDraft { .. }) => self.issue_draft.clone().into_any_element(),
-            Some(Screen::Actions) => self.actions.clone().into_any_element(),
-            Some(Screen::Action { .. }) => self.action.clone().into_any_element(),
             Some(Screen::Home) => self.chat.clone().into_any_element(),
             Some(Screen::Threads) => self.threads_page.clone().into_any_element(),
             // EXP-1294: built by `sync_tabs` on activation, like a session.
@@ -3209,9 +3183,9 @@ impl Render for ScreensPanel {
                 .cloned()
                 .map(gpui::IntoElement::into_any_element)
                 .unwrap_or_else(|| self.render_syncing(cx)),
-            Some(Screen::Agent { session_id }) => self
+            Some(Screen::Agent { agent_id }) => self
                 .agents
-                .get(session_id)
+                .get(agent_id)
                 .cloned()
                 .map(gpui::IntoElement::into_any_element)
                 .unwrap_or_else(|| self.render_syncing(cx)),
@@ -3691,7 +3665,7 @@ mod tests {
         assert_eq!(early.root_id, None);
         let agent = TabEntry::new(
             Screen::Agent {
-                session_id: "a1".into(),
+                agent_id: "a1".into(),
             },
             None,
             None,
@@ -3943,8 +3917,8 @@ mod tests {
                 _window: &mut Window,
                 _cx: &mut gpui::Context<Self>,
             ) -> impl IntoElement {
-                // The Actions page's real shapes (actions_view.rs /
-                // machines.rs), with production-like text. The action rows
+                // A settings list's real shapes (the retired Actions page's
+                // rows, machines.rs), with production-like text. The action rows
                 // mirror `render_action_row` (EXP-618): full-width, a
                 // truncating middle column, a nowrap trailing control.
                 let action_row = |name: &'static str, blurb: &'static str| {

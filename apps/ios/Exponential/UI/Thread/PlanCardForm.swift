@@ -182,6 +182,111 @@ struct PlanCardQuestionBlock: View {
     }
 }
 
+/// NEW-6 (N-1) the stepper's line above the current question
+/// (`copy.stepLabel`, `xs` muted). `step` is 0-based.
+struct PlanCardStepLine: View {
+    let step: Int
+    let count: Int
+
+    var body: some View {
+        Text(PlanCard.Copy.stepLabel(step: step + 1, count: count))
+            .font(.caption)
+            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+            .accessibilityIdentifier(PlanCard.TestIds.step)
+    }
+}
+
+/// NEW-6 (N-1): Back / Next under the current question — small secondary
+/// buttons, `stepper.buttonGap` apart, trailing; Back hidden on the first
+/// step, Next on the last. `step` is 0-based.
+struct PlanCardStepButtons: View {
+    let step: Int
+    let count: Int
+    let onStep: (Int) -> Void
+
+    var body: some View {
+        let back = step > 0
+        let next = step < count - 1
+        if back || next {
+            HStack(spacing: PlanCard.Stepper.buttonGap) {
+                Spacer(minLength: 0)
+                if back {
+                    GlassPill(PlanCard.Copy.back, mode: .action { onStep(step - 1) })
+                        .accessibilityIdentifier(PlanCard.TestIds.stepBack)
+                }
+                if next {
+                    GlassPill(PlanCard.Copy.next, mode: .action { onStep(step + 1) })
+                        .accessibilityIdentifier(PlanCard.TestIds.stepNext)
+                }
+            }
+        }
+    }
+}
+
+/// NEW-6 (N-1): THE plan card's decision block ×4 (web `PlanCardDecision`):
+/// `copy.decide` (`xs` semibold, like a prompt) over THE option rows of
+/// ask-dock `planOptions` (single pick, a trailing check — never pills), the
+/// issue line while approving waits on an answer, the feedback field ONLY
+/// once the reject row is picked, then the small primary button named after
+/// the pick. `onDecide` nil = read only (the rows inert, no button).
+struct PlanCardDecision: View {
+    /// The picked plan option's key.
+    let picked: String
+    let onPick: (String) -> Void
+    /// Why approving waits (`copy.answerIssues`), else nil.
+    let approveIssue: String?
+    @Binding var feedback: String
+    let onDecide: ((AskDock.PlanOption) -> Void)?
+
+    var body: some View {
+        let option = AskDock.planOptions.first { $0.key == picked }
+        let blocked = option?.decision == PlanDecision.approved.rawValue ? approveIssue : nil
+        VStack(alignment: .leading, spacing: PlanCard.Card.optionsGap) {
+            Text(PlanCard.Copy.decide)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.white)
+            VStack(alignment: .leading, spacing: PlanCard.Tiles.labelGap) {
+                ForEach(AskDock.planOptions) { row in
+                    PlanCardOptionRow(
+                        option: TreeQuestionOption(label: row.label, description: row.description),
+                        picked: row.key == picked,
+                        multi: false,
+                        editable: onDecide != nil
+                    ) { onPick(row.key) }
+                    .accessibilityIdentifier("\(PlanCard.TestIds.decision)-\(row.key)")
+                }
+            }
+            if onDecide != nil, let blocked {
+                Text(blocked)
+                    .font(.caption2)
+                    .foregroundStyle(DesignTokens.Semantic.yellow)
+                    .accessibilityIdentifier(PlanCard.TestIds.issue)
+            }
+            if onDecide != nil, option?.decision == PlanDecision.rejected.rawValue {
+                PlanCardField(
+                    placeholder: AskDock.Copy.feedbackPlaceholder,
+                    text: $feedback,
+                    multiline: true,
+                    identifier: PlanCard.TestIds.feedback
+                )
+            }
+            if let onDecide, let option {
+                GlassPill(
+                    option.label,
+                    mode: .action { onDecide(option) },
+                    primary: true,
+                    enabled: blocked == nil
+                )
+                .padding(.top, 2)
+                .accessibilityIdentifier("plan-card-decide")
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier(PlanCard.TestIds.decision)
+    }
+}
+
 /// THE card's plain field (plan-card.json): the `custom` answer (single
 /// line, `rowMinHeight`) and the plan's feedback (multi-line,
 /// `fieldMinHeight`), `xs` type.

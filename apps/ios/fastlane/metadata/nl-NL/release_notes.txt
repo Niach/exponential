@@ -1,4 +1,4 @@
-- Overal sneller: de app synchroniseert niet meer aan één stuk door als hij inactief is, en lijsten, de sessieweergave en de editors doen veel minder werk per toetsaanslag en per synchronisatieronde
-- De Threads-titel staat in de vaste balk bovenaan, net als bij elk ander tabblad
-- Een sessie verplaatsen: het bronapparaat houdt zijn worktree en branch tot het doelapparaat ze volledig heeft hersteld, en ruimt daarna op
-- Fixes uit de review: een bord dat nog synchroniseert laat de banner "Syncing team" niet meer oplichten, en een hernoemde status bereikt de #EXP-chips meteen
+- Het nieuwe sessiesysteem: een thread is één sessie die zelf werkt en door berichten wordt gewekt, met een plankaart die één vraag tegelijk stelt
+- Agents zijn definities met een eigen gesprek per lid, door de server gestarte triggers en een Events-stroom; stuur een agent een bericht vanuit de composer
+- Prompts vervangen acties: je vindt ze in het / menu en onder Instellingen → Prompts
+- De weergaven sessies, heeft je nodig en actief volgen het nieuwe systeem op elk scherm

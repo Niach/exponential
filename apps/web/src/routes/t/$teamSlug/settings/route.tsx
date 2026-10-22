@@ -11,6 +11,7 @@ import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
 import { cn } from "@/lib/utils"
 import { useTeamBoards } from "@/hooks/use-team-data"
 import { useAgents } from "@/hooks/use-session-tree"
+import { useSession } from "@/hooks/use-session"
 import { CreateBoardDialog } from "@/components/create-board-dialog"
 import {
   flattenSettingsNav,
@@ -52,7 +53,8 @@ function SettingsLayout() {
   const [createOpen, setCreateOpen] = useState(false)
   // EXP-1293: the Agents group, injected the same way (member-visible rows,
   // owner-only "New agent").
-  const { agents } = useAgents(team?.id)
+  const { data: authSession } = useSession()
+  const { agents } = useAgents(team?.id, authSession?.user?.id)
 
   // EXP-698: the strip is wider than a phone, so the section you are ON can
   // start scrolled out of frame ("…torage"). Bring it into view once the row
@@ -147,11 +149,26 @@ function SettingsLayout() {
               )}
               {group.group === SETTINGS_AGENTS_GROUP && (
                 <>
+                  {/* NEW-2: the Agents page (the list + Events). */}
+                  <Link
+                    to="/t/$teamSlug/settings/agents"
+                    params={{ teamSlug }}
+                    activeOptions={{ exact: true }}
+                    className={SEGMENTED_ITEM}
+                    activeProps={{
+                      className: `border-glass-stroke-active bg-glass-active text-foreground`,
+                    }}
+                    inactiveProps={{
+                      className: `border-transparent text-muted-foreground hover:text-foreground`,
+                    }}
+                  >
+                    {SETTINGS_AGENTS_GROUP}
+                  </Link>
                   {agents.map((agent) => (
                     <Link
-                      key={agent.sessionId}
+                      key={agent.agentId}
                       to="/t/$teamSlug/settings/agents/$agentId"
-                      params={{ teamSlug, agentId: agent.sessionId }}
+                      params={{ teamSlug, agentId: agent.agentId }}
                       className={SEGMENTED_ITEM}
                       activeProps={{
                         className: `border-glass-stroke-active bg-glass-active text-foreground`,

@@ -22,7 +22,7 @@ import { accountOptionKey } from "@/lib/accounts/account-option"
 // EXP-825 (variant B, decided with Danny 2026-09-10): ONE muted line under the
 // composer card — Device, Agent, Model as inline pickers, the Plan switch,
 // the Repository
-// picker ONLY while no subject is picked (a chat's anchor, EXP-822), and a
+// picker ONLY while no issue is picked (a chat's or a prompt's anchor, EXP-822), and a
 // `⋯` popover with the rest: Effort, Ultracode (claude), MCP servers
 // (EXP-792). The notes the dialog's option pane used to carry (not ready /
 // no desktop / waiting / the batch guards) live on the same line.
@@ -126,7 +126,7 @@ export function LaunchOptionsLine({ model }: { model: LaunchComposerModel }) {
             />
           </Label>
         )}
-        {subject === null && model.repoOptions.length > 1 && (
+        {subject?.kind !== `issues` && model.repoOptions.length > 1 && (
           /* EXP-993: a choice only when there IS one — several repos. One
              repo is the chat's anchor without a word said, and repo-less is
              not on offer. */

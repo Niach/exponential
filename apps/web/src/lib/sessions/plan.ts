@@ -19,6 +19,7 @@ import { PLAN_CARD_COPY, resolveUpload, type AskCardLike } from "@exp/domain-con
 import { db } from "@/db/connection"
 import { attachments, messages, sessions } from "@/db/schema"
 import { generateTxId } from "@/lib/trpc"
+import { busAsk } from "@/lib/sessions/bus"
 import { postOwnAskCard } from "@/lib/sessions/messages"
 import { mintGuideUploadToken } from "@/lib/storage/guide-upload-token"
 import {
@@ -280,6 +281,7 @@ export async function postAskCard(args: {
     const [session] = await tx
       .select({
         id: sessions.id,
+        parentId: sessions.parentId,
         rootId: sessions.rootId,
         teamId: sessions.teamId,
         shared: sessions.shared,
@@ -315,7 +317,11 @@ export async function postAskCard(args: {
       }
     }
     await generateTxId(tx)
-    return postOwnAskCard(tx, session, args.card)
+    const messageId = await postOwnAskCard(tx, session, args.card)
+    // NEW-1: the card reaches the session's parent and watchers (one row,
+    // two views); a parent may answer what it knows.
+    await busAsk(tx, session, messageId, args.card)
+    return messageId
   })
   return {
     messageId,

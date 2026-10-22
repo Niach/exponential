@@ -1,14 +1,14 @@
 import Foundation
 
-// EXP-1291 Threads v2: a team AGENT carries its triggers (`sessions.triggers`
-// jsonb on the agent root, contract `agentTrigger*`): each element = a stable
-// id + the enabled flag beside its WHEN-part (`TriggerWhen`: schedule or
-// event). The agent's own device fires them; nothing on a phone ever does.
+// NEW-2: a team AGENT definition carries its triggers (`agents.triggers`
+// jsonb, contract `agentTrigger*`): each element = a stable id + the enabled
+// flag beside its WHEN-part (`TriggerWhen`: cron schedule or event name).
+// The SERVER fires them; nothing on a device or a phone ever does.
 //
 // Reads are TOLERANT: an element without an id or with an unreadable
 // when-part is skipped, never a throw. Writes are a WHOLE-ARRAY replace
-// (`sessions.send({agent: {triggers}})` on create, `sessions.updateAgent`
-// after) — `AgentTriggerInput` is one element of that array.
+// (`agents.create({triggers})`, `agents.update({triggers})` after) —
+// `AgentTriggerInput` is one element of that array.
 
 /// One stored trigger of an agent.
 public struct AgentTrigger: Identifiable, Sendable, Equatable {
@@ -23,7 +23,7 @@ public struct AgentTrigger: Identifiable, Sendable, Equatable {
         self.when = when
     }
 
-    /// The Schedule row's text (`AgentSettings.triggerSummary`).
+    /// The Triggers row's text (`AgentSettings.triggerSummary`).
     public var summary: String { AgentSettings.triggerSummary(self) }
 
     // MARK: - Tolerant parse
@@ -64,8 +64,7 @@ public struct AgentTrigger: Identifiable, Sendable, Equatable {
 /// One element of an agent's `triggers` write. The server replaces the WHOLE
 /// array: to add, send the existing triggers plus one WITHOUT `id` (the
 /// server mints it); to edit or toggle, send the array with that element
-/// changed (its `id` kept); to delete, send the array without it. An event
-/// trigger names its `source`.
+/// changed (its `id` kept); to delete, send the array without it.
 public struct AgentTriggerInput: Sendable, Equatable {
     /// nil = a new trigger.
     public var id: String?
@@ -86,16 +85,13 @@ public struct AgentTriggerInput: Sendable, Equatable {
 
 extension AgentTriggerInput: Encodable {
     private enum Keys: String, CodingKey {
-        case id, enabled, source
+        case id, enabled
     }
 
     public func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: Keys.self)
         try c.encodeIfPresent(id, forKey: .id)
         try c.encode(enabled, forKey: .enabled)
-        if !when.isSchedule {
-            try c.encode("exponential", forKey: .source)
-        }
         // The when-part's keys land in the SAME object.
         try when.encode(to: encoder)
     }

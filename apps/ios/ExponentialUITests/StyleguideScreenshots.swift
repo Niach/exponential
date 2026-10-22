@@ -42,9 +42,9 @@ import XCTest
 ///     Recent, each row's quiet word off its pull requests);
 ///     `sg_agent-channel` = the Triage agent's channel off its Agents row;
 ///     `sg_thread` = the cold-start thread (DEMO_THREAD_ID); `sg_session` =
-///     its "Profile the launch path" session card's raw view
-///     (DEMO_SESSION_ID, fed by the relay stub), its pending question in
-///     the composer's place;
+///     its "Profile the launch path" session card's page in that thread
+///     (EXP-1343; DEMO_SESSION_ID, fed by the relay stub), its pending
+///     question in the composer's place;
 ///   * `sg_settings-team-agent` = Settings → team → Agents → Triage;
 ///   * `sg_pr-row` = the issue page's pull-request row, `sg_guide` = the
 ///     Guide tab of APP-15's thread (web's `guide` thread, EXP-1303),
@@ -155,6 +155,8 @@ final class StyleguideScreenshots: XCTestCase {
     private static let agentRequest = "Label the Android ones too"
     /// The cold-start thread's child session (`DEMO_SESSION_ID`).
     private static let sessionTitle = "Profile the launch path"
+    /// Its id (`DEMO_SESSION_ID`): the strip chip of its thread page.
+    private static let sessionId = "7c1f0a52-6f3c-4e19-9a2b-2d5d0f7c8e41"
 
     @MainActor
     func testCaptureStyleguideScreenshots() throws {
@@ -768,6 +770,23 @@ final class StyleguideScreenshots: XCTestCase {
             goBack(app)
             expect(app.staticTexts[Self.seededBoardName], within: Wait.nav, "Did not return to the team settings")
         }
+
+        // ── sg_settings-prompts · sg_settings-prompt: Settings → Prompts ────
+        // NEW-7: the team settings page's Prompts section (the band with New
+        // prompt over one row per prompt) scrolled into view, then New prompt
+        // (the owner pill): the same page an existing prompt opens, in create
+        // mode so the capture needs no seeded id. Nothing is saved.
+        if ScreenshotShots.isWanted("sg_settings-prompts") || ScreenshotShots.isWanted("sg_settings-prompt") {
+            let newPrompt = anyElement(app, identified: "prompts-new")
+            scrollUntilVisible(app, newPrompt, attempts: 10)
+            expect(newPrompt, within: Wait.sync, "Team settings drew no Prompts band with New prompt")
+            snapshot("sg_settings-prompts", settle: 2)
+            newPrompt.tap()
+            expect(anyElement(app, identified: "prompt-form"), within: Wait.nav, "New prompt did not open its form")
+            snapshot("sg_settings-prompt", settle: 2)
+            goBack(app)
+            expect(newPrompt, within: Wait.nav, "Did not return to the team settings")
+        }
         goBack(app)
 
         // ── sg_settings-account: the account / server detail ──────────────────
@@ -949,6 +968,9 @@ final class StyleguideScreenshots: XCTestCase {
         )
         snapshot("sg_agent-channel", settle: 2)
         goBack(app)
+        // A subset run that wants neither of the next two stops here: the
+        // session step needs the relay stub (`bun run screenshots:desktop`).
+        guard ScreenshotShots.isWanted("sg_thread") || ScreenshotShots.isWanted("sg_session") else { return }
 
         // ── sg_thread: the cold-start thread (DEMO_THREAD_ID) ──────────────
         let coldStart = threadRow(app, containing: Self.coldStartThreadTitle)
@@ -969,50 +991,61 @@ final class StyleguideScreenshots: XCTestCase {
             XCTAssertTrue(pinned.isHittable, "\(id) is off screen — the strip must never scroll")
         }
         snapshot("sg_thread", settle: 2)
-
-        // ── sg_session: that card's raw view (DEMO_SESSION_ID) ─────────────
-        // The child's session card sits above; scroll back to it if a long
-        // transcript pushed it off. The relay stub's feed ends on an
-        // UNANSWERED question, whose card takes the composer's place
-        // (EXP-1306). Nothing is answered.
-        let sessionCard = app.descendants(matching: .any)
-            .matching(identifier: "session-card")
-            .matching(NSPredicate(format: "label CONTAINS %@", Self.sessionTitle))
-            .firstMatch
-        for _ in 0..<4 where !(sessionCard.exists && sessionCard.isHittable) {
-            app.swipeDown()
-        }
-        expect(sessionCard, within: Wait.nav, "The cold-start thread drew no \"\(Self.sessionTitle)\" card")
-        sessionCard.tap()
-        // THE ask dock: the card takes the composer's slot once the relay
-        // feed is live and answerable. Poll the dock itself (`ask-dock`,
-        // fixtures/ask-dock.json) over the first-sync wait while the feed
-        // settles, then the question card inside it.
-        expect(
-            anyElement(app, identified: "ask-dock"),
-            within: Wait.firstSync,
-            "The session drew no ask dock — is `bun run screenshots:desktop` publishing its feed?"
-        )
-        expect(
-            anyElement(app, identified: "agent-feed-question"),
-            within: Wait.network,
-            "The session drew no pending question — is `bun run screenshots:desktop` publishing its feed?"
-        )
-        // EXP-1310: the header's back row names the thread, Stop beside it.
-        expect(
-            anyElement(app, identified: "session-back"),
-            within: Wait.sync,
-            "The session header drew no back row to its thread"
-        )
-        expect(anyElement(app, identified: "session-stop"), within: Wait.sync, "The session header drew no Stop")
-        snapshot("sg_session", settle: 2)
-        // Back twice (session → thread → list) on the system back button
-        // (`goBack`: by name, never the bar's Stop, the thread back row or
-        // the thread header's `…`).
-        for _ in 0..<2 {
+        guard ScreenshotShots.isWanted("sg_session") else {
             goBack(app)
             settle(1)
+            return
         }
+
+        // ── sg_session: that session's page in the thread (DEMO_SESSION_ID) ─
+        // The relay stub's feed ends on an UNANSWERED question, whose card
+        // takes the composer's place (EXP-1306). Nothing is answered.
+        // The session's strip chip in the thread header opens the SAME page
+        // as its Conversation card, and it never scrolls: a card scrolled
+        // under the floating header still reads hittable, and XCUITest then
+        // taps the point it finds visible (the header's back button on a Pro
+        // Max), popping the thread instead. The card is the fallback when
+        // the strip folded the chip into a "+N".
+        let sessionChip = anyElement(app, identified: "thread-tab-session-\(Self.sessionId)")
+        if sessionChip.waitForExistence(timeout: Wait.sync), sessionChip.isHittable {
+            sessionChip.tap()
+        } else {
+            let sessionCard = app.descendants(matching: .any)
+                .matching(identifier: "session-card")
+                .matching(NSPredicate(format: "label CONTAINS %@", Self.sessionTitle))
+                .firstMatch
+            for _ in 0..<4 where !(sessionCard.exists && sessionCard.isHittable) {
+                app.swipeDown()
+            }
+            expect(sessionCard, within: Wait.nav, "The cold-start thread drew no \"\(Self.sessionTitle)\" chip or card")
+            sessionCard.tap()
+        }
+        // EXP-1343: a session chip of THIS thread opens as its page under
+        // the thread's ONE header (the thread title, Stop while live) — no
+        // pushed session screen, no back row (Android's `sg_session` is the
+        // same page). THE ask dock: the relay feed's pending question takes
+        // the composer's place once the feed is live and answerable. Gate on
+        // its first option row (`agent-question-option-1`, drawn only by the
+        // relay feed's card; the Conversation's dock draws plan-card rows):
+        // SwiftUI folds the dock's single-child containers into `ask-dock`,
+        // so the card's own `agent-feed-question` id is not queryable here,
+        // and the neighbouring Conversation page's dock is `ask-dock` too.
+        expect(
+            app.buttons["agent-question-option-1"].firstMatch,
+            within: Wait.firstSync,
+            "The session drew no pending question in its ask dock — is `bun run screenshots:desktop` publishing its feed?"
+        )
+        expect(
+            anyElement(app, identified: "thread-tab-session-\(Self.sessionId)"),
+            within: Wait.sync,
+            "The session did not open as the thread's \"\(Self.sessionTitle)\" page"
+        )
+        expect(anyElement(app, identified: "session-stop"), within: Wait.sync, "The thread header drew no Stop for the session")
+        snapshot("sg_session", settle: 2)
+        // Back once (the session page → the Threads list) on the system
+        // back button (`goBack`: by name, never the bar's Stop or `…`).
+        goBack(app)
+        settle(1)
     }
 
     /// A Threads row whose (combined) label contains `fragment`.

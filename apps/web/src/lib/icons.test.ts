@@ -494,7 +494,8 @@ describe(`icon call sites`, () => {
     // EXP-630: + Import (Team), web-only like Billing, and + Issues (Team),
     // the parent entry Labels and Statuses now nest under on both clients.
     // SLOP-4: − Helpdesk (the widget is the one Features entry).
-    expect(webNav.size).toBe(15)
+    // NEW-2: + Prompts (Agents), web-only for now.
+    expect(webNav.size).toBe(16)
     // EXP-262: + About (desktop-only in the settings nav, like Tools/Agents).
     // EXP-500: + Archived boards (EXP-862: on both clients' navs now).
     // EXP-771: + Feedback widget (SLOP-4: labelled Widget; Helpdesk gone).
@@ -503,7 +504,8 @@ describe(`icon call sites`, () => {
     // EXP-886: + Sessions (desktop-only, the This device group).
     // EXP-630: + Issues, the parent pane Labels and Statuses nest under on
     // both clients.
-    expect(desktopNav.size).toBe(19)
+    // NEW-6: Settings → Prompts on the desktop too.
+    expect(desktopNav.size).toBe(20)
 
     // The sections both clients render, web label → desktop variant.
     const shared: [string, string][] = [
@@ -518,6 +520,7 @@ describe(`icon call sites`, () => {
       // at render on both clients).
       [`Archived boards`, `ArchivedBoards`],
       [`Repositories`, `Repositories`],
+      [`Prompts`, `Prompts`],
       [`Widget`, `Widget`],
       // EXP-807: member-visible on both clients, so the pair belongs in the
       // SHARED list — without the row here the gate never bites on it.

@@ -651,6 +651,7 @@ pub fn turn_start_params(
         mode,
         service_tier: None,
         writable_roots,
+        confine_to: None,
     })
 }
 
@@ -737,19 +738,44 @@ pub struct TurnRequest<'a> {
     /// `"fast"` when the model advertises the tier and the chip is on.
     pub service_tier: Option<&'a str>,
     pub writable_roots: &'a [std::path::PathBuf],
+    /// N-5 / NEW-5: a repo-less run's scratch dir ([`super::AdapterSpec::confine_to`]).
+    /// Set, it overrides `mode`: no approvals, and the app-server's
+    /// [`confined_sandbox_policy`] instead of full access.
+    pub confine_to: Option<&'a std::path::Path>,
+}
+
+/// N-5 / NEW-5: `workspaceWrite` rooted at the scratch dir, network on. Codex's
+/// sandbox confines WRITES (and the commands it runs) to `writableRoots`;
+/// reads stay machine-wide — that is codex's own model.
+pub fn confined_sandbox_policy(root: &std::path::Path) -> Value {
+    json!({
+        "type": "workspaceWrite",
+        "writableRoots": [root.display().to_string()],
+        "networkAccess": true,
+    })
 }
 
 /// `turn/start` from a [`TurnRequest`].
 pub fn turn_start_request(request: &TurnRequest) -> Value {
+    let (approval_policy, approvals_reviewer, sandbox_policy) = match request.confine_to {
+        // `never`: a confined run still never stops for a card; a write
+        // outside the root fails inside the sandbox and the model sees it.
+        Some(root) => ("never", "user", confined_sandbox_policy(root)),
+        None => (
+            request.mode.approval_policy(),
+            request.mode.approvals_reviewer(),
+            request.mode.sandbox_policy(request.writable_roots),
+        ),
+    };
     let mut params = json!({
         "threadId": request.thread_id,
         "input": request.input,
         "model": request.model,
         "effort": request.effort,
         "summary": "auto",
-        "approvalPolicy": request.mode.approval_policy(),
-        "approvalsReviewer": request.mode.approvals_reviewer(),
-        "sandboxPolicy": request.mode.sandbox_policy(request.writable_roots),
+        "approvalPolicy": approval_policy,
+        "approvalsReviewer": approvals_reviewer,
+        "sandboxPolicy": sandbox_policy,
     });
     if let (Some(tier), Some(object)) = (request.service_tier, params.as_object_mut()) {
         object.insert("serviceTier".to_string(), json!(tier));
@@ -1604,10 +1630,42 @@ mod wire_tests {
             mode: CodexMode::AgentFullAccess,
             service_tier: Some("fast"),
             writable_roots: &[],
+            confine_to: None,
         });
         assert_eq!(params["serviceTier"], json!("fast"));
         assert_eq!(params["effort"], json!("high"));
         assert_eq!(params["input"][0]["text"], json!("hi"));
+    }
+
+    #[test]
+    fn a_confined_turn_asks_for_workspace_write_rooted_at_the_scratch_dir() {
+        let roots = [std::path::PathBuf::from("/data/scratch/r/s")];
+        let input = [json!({ "type": "text", "text": "hi", "text_elements": [] })];
+        let request = TurnRequest {
+            thread_id: "t1",
+            input: &input,
+            model: None,
+            effort: None,
+            mode: CodexMode::AgentFullAccess,
+            service_tier: None,
+            writable_roots: &roots,
+            confine_to: Some(std::path::Path::new("/data/scratch/r/s")),
+        };
+        let params = turn_start_request(&request);
+        assert_eq!(
+            params["sandboxPolicy"],
+            json!({
+                "type": "workspaceWrite",
+                "writableRoots": ["/data/scratch/r/s"],
+                "networkAccess": true,
+            })
+        );
+        assert_eq!(params["approvalPolicy"], json!("never"));
+        assert_eq!(params["approvalsReviewer"], json!("user"));
+        // Unconfined = today's full access, untouched.
+        let open = turn_start_request(&TurnRequest { confine_to: None, ..request });
+        assert_eq!(open["sandboxPolicy"], json!({ "type": "dangerFullAccess" }));
+        assert_eq!(open["approvalPolicy"], json!("never"));
     }
 
     #[test]

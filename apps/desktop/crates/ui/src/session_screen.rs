@@ -206,13 +206,13 @@ fn local_engine(session_id: &str, cx: &App) -> Option<engine::EngineSession> {
 fn back_target(session_id: &str, cx: &App) -> Option<(Screen, String)> {
     let root = crate::session_data::root_of(session_id, cx)?;
     if root.is_agent() {
-        let name = root.name.clone().unwrap_or_default();
-        return Some((
-            Screen::Agent {
-                session_id: root.id.clone(),
-            },
-            name,
-        ));
+        // NEW-6: the agent's page, under the `agents` row's name.
+        let agent_id = root.agent_id.clone().unwrap_or_else(|| root.id.clone());
+        let name = crate::session_data::agent_def(&agent_id, cx)
+            .map(|agent| crate::agent_screen::agent_def_name(&agent))
+            .or_else(|| root.name.clone())
+            .unwrap_or_default();
+        return Some((Screen::Agent { agent_id }, name));
     }
     let title = crate::session_data::session_title_of(&root.id, cx)
         .unwrap_or_else(|| domain::session_tree::THREAD.copy.untitled.clone());

@@ -65,6 +65,27 @@
       "icon": "notification-issue-comment"
     },
     {
+      "name": "a prompt reads its name (NEW-2)",
+      "ref": { "kind": "prompt", "id": "p-1", "title": "Review PR" },
+      "label": "Review PR",
+      "detail": null,
+      "icon": "nav-actions"
+    },
+    {
+      "name": "an agent reads its name (NEW-2)",
+      "ref": { "kind": "agent", "id": "ag-1", "title": "Triage" },
+      "label": "Triage",
+      "detail": null,
+      "icon": "settings-agents"
+    },
+    {
+      "name": "an event reads its name (NEW-2)",
+      "ref": { "kind": "event", "id": "ev-1", "title": "ui-changed" },
+      "label": "ui-changed",
+      "detail": null,
+      "icon": "trigger-event"
+    },
+    {
       "name": "a label within the cap is not cut",
       "ref": { "kind": "action", "id": "a-1", "title": "Release train: bump, tag, publish, verify, ship" },
       "label": "Release train: bump, tag, publish, verify, ship",

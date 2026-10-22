@@ -90,5 +90,7 @@ fun entityConceptIcon(concept: String): ImageVector? = when (concept) {
     "ui-attach" -> ExpIcons.uiAttach
     "ui-checklist" -> ExpIcons.uiChecklist
     "work-faces" -> ExpIcons.workFaces
+    "settings-agents" -> ExpIcons.settingsAgents
+    "trigger-event" -> ExpIcons.triggerEvent
     else -> null
 }

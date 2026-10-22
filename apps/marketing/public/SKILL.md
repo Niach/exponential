@@ -54,81 +54,52 @@ Two ways in:
    API keys act as the user with their full membership. Guard them
    accordingly. The same key signs the CLI in via `EXP_TOKEN` (below).
 
-## Tool families
+## Tools
 
-Around 80 tools, all named `exponential_<family>_<verb>`:
+15 tools, one per noun, all named `exponential_<noun>`. Every call carries an
+`op` and that op's fields beside it, e.g. `exponential_issues {op: "get", id:
+"ABC-12"}`; each tool's description (from `tools/list`) lists its ops with
+their parameters, so read it instead of a static list.
 
-- **teams**: list, get, create, update the user's teams.
-- **boards**: CRUD boards inside a team; a board can be backed by a GitHub
-  repository (`boards_set_repository`).
-- **issues**: list and filter (boards, `statusId`/`statusCategory`,
-  priority, assignee, labels any/all/unlabeled, `source` user/widget,
-  comment activity, created/updated ranges, title search, each with an
-  `exclude*` twin,
-  plus `sort`, where a `-` prefix descends), get by UUID or identifier
-  ("ABC-12"), create, update, delete, update_status, subscribe,
-  unsubscribe. `issues_list` returns OPEN work unless `includeClosed` (or
-  a status filter) asks for the completed, cancelled and duplicate ones.
-  Every list tool paginates: 50 by default, 200 at most (1000 for
-  `issues_list`).
-- **statuses**: `statuses_list` returns a team's issue statuses (builtin
-  and custom); pass a row's id as `statusId` to `issues_update` to set a
-  custom status precisely. `statuses_create` / `_update` / `_delete`
-  manage the custom ones (builtins are locked; deleting one that issues
-  still use needs a `reassignToId`).
-- **PRs**: `pr_open` links a pushed branch's pull request to one issue, to
-  a whole batch via `issueIds` + `head`, or to nothing at all via
-  `repositoryId` + `head` (a chore PR); `pr_merge` squash-merges through
-  the GitHub App (no gh, no token) and mirrors those three forms
-  (`repositoryId` + `prNumber` for the chore case), with `endSessions`
-  overriding the team's end-sessions-on-merge setting for one call;
-  `pr_retarget` repoints an open PR's base; `issues_pr_files` lists the
-  linked PR's changed files with patches.
-- **labels** and **issue_labels**: team label CRUD; attach and detach.
-- **issue_relations**: `add` / `remove` link two issues as `blocks`,
-  `parent` (sub-issue), `duplicate` or `related`; `inverse: true` states
-  the relation the other way round (blocked by, sub-issue of, duplicated by).
-- **comments**: list, create, update, delete on issues. `comments_create`
-  takes `audience: "reporter"` on a widget-filed issue whose reporter left
-  an email (top-level only): the comment is emailed to them, and the
-  result's `reporterEmailed` says whether that mail went out.
-- **notifications**: list, mark read.
-- **members** and **invites**: list team members (resolve assignee ids),
-  manage invite links (owner only).
-- **repositories**: list and register GitHub repos; `branch_diff` diffs an
-  issue's branch against the repo default branch.
-- **actions**: CRUD reusable team prompts that members run locally.
-  `actions_list` returns each action's `triggers`; `actions_update` takes
-  `triggers` as the WHOLE array (every trigger you keep with its `id`, a
-  new one without). A trigger is `{enabled, deviceId, agent?, account?, model?,
-  effort?}` plus either `{kind:"schedule",
-  interval:"daily"|"weekly"|"monthly", minuteOfDay, weekday?,
-  dayOfMonth?}` (the device's local clock) or `{kind:"event",
-  event:"created"|"status_changed"|"assignee_changed"|"label_added"|
-  "priority_changed"|"pr_opened"|"pr_merged", filters?}`. Writes are
-  owner-only, and a trigger can only be enabled while every input of its
-  action is optional.
-- **attachments**: upload, get, delete images; upload returns the
-  embeddable markdown form.
-- **sessions**: list, get, message (steer), kill, and start a coding,
-  action or chat session on one of the user's own machines. A start
-  targets an ONLINE device (`devices_list` first) — offline devices are
-  refused, never queued. A session may delegate independent work to a second
-  session with `sessions_start`; the child reports back into the starter's
-  session. Inside a launcher-started session four more tools register:
-  `sessions_end` (ends the session: unattended sessions last, attended ones when
-  asked), `sessions_ask_parent` (ask the session that started this one, or the
-  person who owns it), `sessions_results` (the session's report by topic, with
-  screenshots; it becomes the PR body) and `sessions_show` (a picture in the
-  session's transcript while it works). Every launched session also gets a short
-  playbook of these conventions appended to its system prompt.
-- **devices**: `devices_list` shows the user's machines, their online state
-  and the agent CLIs each one can run.
-- **report_bug**: file a bug about Exponential itself with its developers.
-
-Every call is confined to the OAuth grant's scope, or to the API key
-user's membership.
-
+- **issues**: `list` (filters: boards, `statusId`/`statusCategory`, priority,
+  assignee, labels any/all/unlabeled, `source`, comment activity,
+  created/updated ranges, title search, each with an `exclude*` twin, plus
+  `sort`; OPEN work only unless `includeClosed` or a status filter), `get`
+  (UUID or identifier "ABC-12"), `show` (the interactive list in MCP Apps
+  hosts), `create`, `update`, `delete`, `activity`, `update_status`,
+  `subscribe`, `unsubscribe`, `labels_add`, `labels_remove`,
+  `relations_add`, `relations_remove` (`blocks`, `parent`, `duplicate`,
+  `related`; `inverse: true` states it the other way round). List ops
+  paginate: 50 by default, 200 at most (1000 for issues).
+- **comments**: `list`, `create`, `update`, `delete`. `create` takes
+  `audience: "reporter"` on a widget-filed issue with a reporter email: the
+  comment is emailed, `reporterEmailed` says whether the mail went out.
+- **attachments**: `list`, `get`, `upload` (bytes, or a signed URL then a
+  finalize call; returns the embeddable markdown), `delete`.
+- **pr**: `open` (links the session's issues; a stacked base is inferred),
+  `merge` (squash through the GitHub App; `stack: true` lands a stack
+  member and everything beneath it), `close`, `retarget`, `update`,
+  `unlink`, `files`. A PR is named by `pullRequestId`, `issueId` or
+  `repositoryId` + `prNumber`.
+- **teams** (`list`, `get`, `create`, `update`), **boards** (`list`, `get`,
+  `create`, `update`, `delete` = the 48-hour trash, `set_repository`),
+  **people** (`list`, `add`, `invites_list`, `invites_create`,
+  `invites_revoke`), **team_config** (`labels_*`, `statuses_*` — builtins
+  are locked, deleting one in use needs `reassignToId` —, `prompts_list`,
+  `prompts_get`, `agents_list`, `mcp_servers_*`, `repositories_*`).
+- **sessions_send**: THE session verb, no op. `{teamId, deviceId, issueIds?,
+  text}` starts a thread on an ONLINE device (`exponential_devices
+  {op: "list"}` first); `{sessionId, text}` messages a running or idle one;
+  `{sessionId, stop: true}` interrupts a turn; `{agentId, text}` messages a
+  team agent (the caller's own conversation with it); `{parentId, text}`
+  starts a child. Every transition of a session comes back as a message.
+- **sessions**: `get` (a tree: title, issues, PRs, Guide, children, latest
+  messages), `list`, `link`, `unlink`, `end`.
+- **session_self** (inside a launcher-started session only): `ask`, `plan`,
+  `suggest`, `compact`, `report_bug` (cloud).
+- **guide_write**: the thread's one Guide, the body of every PR in it.
+- **devices** (`list`, `account_login`), **events** (`emit`, `list`),
+  **notifications** (`list`, `mark_read`).
 ## Core concepts
 
 - **Teams** hold members, boards, labels, statuses, and actions. Roles are
@@ -151,7 +122,7 @@ user's membership.
   values; `statuses_list` + `statusId` reach the custom rows.
 - **Pull requests**: one PR per issue, on branch `exp/<IDENTIFIER>`. A
   batch of issues fixed on one pushed branch shares one PR via
-  `exponential_pr_open` with `issueIds` + `head`. PR open moves linked
+  `exponential_pr {op: "open"}` with `issueIds` + `head`. PR open moves linked
   issues to the team's configured PR-open status (default In Review);
   merging moves them to the PR-merge status (default Done).
 - **Actions** are reusable markdown prompts (up to 10 typed pick inputs:

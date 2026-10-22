@@ -476,10 +476,11 @@ export const issuesRouter = router({
       // `sessionId` wins; else the consumed draft's own session, under the
       // same rule — but one that vanished since the draft was written is
       // simply no link: a stale draft never fails its create.
+      // NEW-1: the named session HOLDS the new issue (a row on it).
       const threadRootOf = async (sessionId: string) => {
         try {
           const session = await loadSessionForUser(ctx.session.user.id, sessionId)
-          return session.teamId === board.teamId ? session.rootId : null
+          return session.teamId === board.teamId ? session.id : null
         } catch {
           return null
         }
@@ -666,7 +667,7 @@ export const issuesRouter = router({
         if (linkRootId) {
           const origin = eventOrigin(ctx)
           await linkIssues(tx, {
-            rootId: linkRootId,
+            sessionId: linkRootId,
             issueIds: [issue.id],
             source: ctx.viaMcp ? `agent` : `user`,
             addedBy: ctx.session.user.id,

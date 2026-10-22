@@ -127,11 +127,13 @@ pub enum RunKind {
 }
 
 impl RunKind {
-    /// The row's kind (`sessions.kind`; anything but `agent` = a thread).
+    /// The row's kind (NEW-2: derived from `agent_id`, never the legacy
+    /// `kind` shim; anything but an agent's conversation = a thread).
     pub fn of(row: &domain::rows::SessionRow) -> Self {
-        match row.kind.as_deref() {
-            Some(domain::contract::SESSION_KIND_AGENT) => Self::Agent,
-            _ => Self::Thread,
+        if row.is_agent() {
+            Self::Agent
+        } else {
+            Self::Thread
         }
     }
 
@@ -336,18 +338,6 @@ impl RunRecord {
 /// EXP-849: the [`RunRecord::extra`] key of [`RunRecord::honored_row_account`].
 pub const ROW_ACCOUNT_KEY: &str = "row_account";
 
-/// The [`RunRecord::extra`] flag of a DISPATCHER root's run
-/// ([`RunRecord::is_dispatch`]).
-pub const DISPATCH_KEY: &str = "dispatch";
-
-impl RunRecord {
-    /// A dispatcher root's run (`sessions.dispatch`): its cwd is the clone's
-    /// shared, detached checkout, which a resume re-makes rather than needs.
-    pub fn is_dispatch(&self) -> bool {
-        self.extra.get(DISPATCH_KEY).and_then(serde_json::Value::as_bool) == Some(true)
-    }
-}
-
 /// EXP-792: the `extra` entry an account pick writes — empty for an
 /// unpinned slot.
 pub fn account_extra(account: Option<&str>) -> BTreeMap<String, serde_json::Value> {
@@ -507,7 +497,7 @@ impl RunRecord {
     /// resume re-makes its scratch dir where it was (a team agent never
     /// ends, so its channel outlives any purge of the dir).
     pub fn resumable(&self) -> bool {
-        if self.clone.is_none() || self.is_dispatch() {
+        if self.clone.is_none() {
             return true;
         }
         self.branch.is_some() || self.workspace_stands()
@@ -1125,6 +1115,26 @@ mod tests {
                 "{session_id}: {raw}"
             );
         }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// NEW-5: a pre-NEW-1 dispatcher's record (`"dispatch": true`) still
+    /// parses and resumes like any other; nothing writes the flag any more.
+    #[test]
+    fn an_old_dispatcher_record_still_parses() {
+        let dir = temp_dir("legacy-dispatch");
+        let now = now_secs();
+        let json = format!(
+            r#"[{{
+                "sessionId":"disp-1","accountId":"acc-1","agent":"claude","kind":"thread",
+                "cwd":"/repos/owner/name.worktrees/_dispatch","clone":"/repos/owner/name",
+                "recordedAt":{now},"dispatch":true
+            }}]"#
+        );
+        std::fs::write(registry_path(&dir), json).unwrap();
+        let loaded = get(&dir, "disp-1").expect("the old record parses");
+        assert_eq!(loaded.kind, RunKind::Thread);
+        assert_eq!(loaded.extra.get("dispatch"), Some(&serde_json::Value::Bool(true)));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

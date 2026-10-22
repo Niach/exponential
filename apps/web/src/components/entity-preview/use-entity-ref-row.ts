@@ -1,13 +1,14 @@
 import { useMemo } from "react"
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import {
-  actionCollection,
+  agentCollection,
   attachmentCollection,
   boardCollection,
   commentCollection,
   deviceCollection,
   labelCollection,
   notificationCollection,
+  promptCollection,
   sessionCollection,
   teamCollection,
   teamInviteCollection,
@@ -42,8 +43,11 @@ function rowSource(
   switch (kind) {
     case `board`:
       return of(boardCollection)
-    case `action`:
-      return of(actionCollection)
+    // NEW-2: prompts and agents sync; a legacy `action` ref keeps no row.
+    case `prompt`:
+      return of(promptCollection)
+    case `agent`:
+      return of(agentCollection)
     case `comment`:
       return of(commentCollection)
     case `session`:

@@ -53,9 +53,14 @@ import {
   MAX_ACTION_INPUT_TEXT,
   MAX_START_PROMPT,
   MAX_START_PROMPT_IMAGES,
-  agentTriggerEventValues,
-  agentScheduleIntervalValues,
-  MAX_TRIGGER_FILTER_IDS,
+  agentTriggerKindValues,
+  builtinEventNames,
+  eventEmitterValues,
+  CRON_MAX,
+  TZ_MAX,
+  MAX_AGENT_TRIGGERS,
+  EVENT_NAME_MAX,
+  EVENT_PAYLOAD_MAX_BYTES,
   PLAN_CARD_DESCRIPTION_MAX,
   PLAN_CARD_LABEL_KEY_MAX,
   PLAN_CARD_LABEL_MAX,
@@ -330,19 +335,20 @@ describe(`domain-contract parity`, () => {
     expect(MAX_STEER_IMAGES).toBe(contract.startPrompt.maxImages)
   })
 
-  it(`agent trigger vocabulary + filter cap match the contract (EXP-530/1291)`, () => {
-    expect([...agentTriggerEventValues]).toEqual([
-      ...contract.agentTrigger.eventValues,
-    ])
-    expect([...agentScheduleIntervalValues]).toEqual([
-      ...contract.agentTrigger.scheduleIntervalValues,
-    ])
-    expect(MAX_TRIGGER_FILTER_IDS).toBe(contract.agentTrigger.maxFilterIds)
-    // Trigger events are strictly a subset of the issue-event vocabulary the
-    // devices watch (`created` etc. included above).
-    for (const event of contract.agentTrigger.eventValues) {
-      expect(issueEventTypeValues).toContain(event)
-    }
+  // NEW-2: triggers live on the `agents` definition (schedule | event) and
+  // the server fires them; events are the team's stream.
+  it(`agent trigger kinds + caps match the contract (NEW-2)`, () => {
+    expect([...agentTriggerKindValues]).toEqual([...contract.agentTrigger.kindValues])
+    expect(MAX_AGENT_TRIGGERS).toBe(contract.agentTrigger.maxPerAgent)
+    expect(CRON_MAX).toBe(contract.agentTrigger.cronMax)
+    expect(TZ_MAX).toBe(contract.agentTrigger.tzMax)
+  })
+
+  it(`event names, emitters + caps match the contract (NEW-2)`, () => {
+    expect([...builtinEventNames]).toEqual([...contract.events.builtinNames])
+    expect([...eventEmitterValues]).toEqual([...contract.events.emitterValues])
+    expect(EVENT_NAME_MAX).toBe(contract.events.nameMax)
+    expect(EVENT_PAYLOAD_MAX_BYTES).toBe(contract.events.payloadMaxBytes)
   })
 })
 
@@ -371,14 +377,13 @@ describe(`steer command catalog`, () => {
     }
   })
 
-  it(`compact is offered to every agent and the context-discarding commands confirm`, () => {
-    const compact = commands.find((c) => c.name === `compact`)
-    expect(compact?.agents).toEqual(contract.codingAgent.values)
-    expect(commands.find((c) => c.name === `clear`)?.confirm).toBe(true)
-    // Deliberately tiny (2026-09-03): only the ones whose effect every viewer
-    // can see. The desktop maps `clear` per agent; EXP-1330 `btw` (claude
-    // only) posts its aside as a child card.
-    expect(commands.map((c) => c.name)).toEqual([`compact`, `clear`, `btw`])
-    expect(commands.find((c) => c.name === `btw`)?.agents).toEqual([`claude`])
+  // NEW-2 (owner 2026-10-21): the builtins are compact, model and effort,
+  // on every agent, none confirm-gated; `/clear` and `/btw` are gone.
+  it(`is exactly compact, model and effort, for every agent`, () => {
+    expect(commands.map((c) => c.name)).toEqual([`compact`, `model`, `effort`])
+    for (const command of commands) {
+      expect(command.agents).toEqual(contract.codingAgent.values)
+      expect(command.confirm).toBe(false)
+    }
   })
 })

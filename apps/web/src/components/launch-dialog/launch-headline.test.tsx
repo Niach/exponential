@@ -3,14 +3,14 @@ import { contract } from "@exp/domain-contract"
 import { describe, expect, it, vi } from "vitest"
 
 import type { Issue } from "@/db/schema"
-import type { ComposerAction, LaunchComposerModel } from "@/hooks/use-launch-composer"
+import type { ComposerPrompt, LaunchComposerModel } from "@/hooks/use-launch-composer"
 
 vi.mock(`@tanstack/react-db`, async (importOriginal) => {
   const actual = (await importOriginal()) as Record<string, unknown>
   return { ...actual, useLiveQuery: () => ({ data: [] }) }
 })
 vi.mock(`@/lib/collections`, () => ({
-  actionCollection: {},
+  promptCollection: {},
   boardCollection: {},
   issueCollection: {},
 }))
@@ -22,7 +22,7 @@ import {
 } from "@/components/launch-dialog/launch-headline"
 
 // EXP-1019: the launcher's headline — the subject as the MAIN element, in the
-// contract's two verbs.
+// contract's verbs; NEW-2: a picked prompt's headline is its name.
 
 const issue = (id: string, identifier: string): Issue =>
   ({
@@ -37,11 +37,10 @@ const issue = (id: string, identifier: string): Issue =>
 function model(overrides: Partial<LaunchComposerModel>): LaunchComposerModel {
   return {
     subject: null,
-    selectedAction: null,
+    selectedPrompt: null,
     checkedIssues: [],
     toggleIssue: vi.fn(),
-    clearAction: vi.fn(),
-    setInput: vi.fn(),
+    clearPrompt: vi.fn(),
     busy: false,
     ...overrides,
   } as unknown as LaunchComposerModel
@@ -50,9 +49,8 @@ function model(overrides: Partial<LaunchComposerModel>): LaunchComposerModel {
 describe(`launchHeadlineVerb`, () => {
   it(`is the contract's verb per subject`, () => {
     expect(launchHeadlineVerb(null)).toBe(contract.composerUi.chatHeadline)
-    expect(launchHeadlineVerb({ kind: `action`, id: `a1`, inputs: {} })).toBe(
-      contract.composerUi.runHeadline
-    )
+    // A prompt needs no verb: its name IS the headline.
+    expect(launchHeadlineVerb({ kind: `prompt`, id: `p1` })).toBe(``)
     expect(launchHeadlineVerb({ kind: `issues`, ids: [`i1`] })).toBe(
       contract.composerUi.implementHeadline
     )
@@ -60,16 +58,17 @@ describe(`launchHeadlineVerb`, () => {
 })
 
 describe(`launchHeadlineText`, () => {
-  it(`names the action`, () => {
-    const triage = { id: `act-1`, name: `Triage`, icon: null } as unknown as ComposerAction
+  it(`is the prompt's name`, () => {
+    const triage = { id: `p-1`, name: `Triage`, icon: null } as unknown as ComposerPrompt
     expect(
       launchHeadlineText(
-        model({
-          subject: { kind: `action`, id: triage.id, inputs: {} },
-          selectedAction: triage,
-        })
+        model({ subject: { kind: `prompt`, id: triage.id }, selectedPrompt: triage })
       )
-    ).toBe(`Run Triage`)
+    ).toBe(`Triage`)
+    // Not synced yet: the shape, never an empty title.
+    expect(launchHeadlineText(model({ subject: { kind: `prompt`, id: `p-2` } }))).toBe(
+      `Prompt`
+    )
   })
 
   it(`lists the identifiers, and counts the rows that have not synced`, () => {
@@ -115,5 +114,25 @@ describe(`LaunchHeadline`, () => {
         `[data-testid="agent-composer-chip-issue-APP-3-remove"]`
       )
     ).toBeTruthy()
+  })
+
+  it(`draws a picked prompt as its removable chip, with no verb`, () => {
+    const clearPrompt = vi.fn()
+    const triage = { id: `p-1`, name: `Triage`, icon: null } as unknown as ComposerPrompt
+    render(
+      <LaunchHeadline
+        model={model({
+          subject: { kind: `prompt`, id: triage.id },
+          selectedPrompt: triage,
+          clearPrompt,
+        })}
+      />
+    )
+    const headline = screen.getByTestId(`agent-composer-headline`)
+    expect(headline.textContent).toBe(`Triage`)
+    const chip = screen.getByTestId(`agent-composer-chip-prompt`)
+    expect(chip.textContent).toContain(`Triage`)
+    screen.getByTestId(`agent-composer-chip-prompt-remove`).click()
+    expect(clearPrompt).toHaveBeenCalledTimes(1)
   })
 })

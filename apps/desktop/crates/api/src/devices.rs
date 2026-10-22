@@ -130,7 +130,17 @@ pub struct HeartbeatInput<'a> {
     /// CHANGED since the last send (like `agent_usage`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub doctor: Option<&'a serde_json::Value>,
+    /// NEW-5: the session ids this host process runs right now (cap
+    /// [`LIVE_SESSION_IDS_CAP`]). Present = the server treats a `busy`
+    /// session on this device that is NOT listed as a dead process
+    /// (idle + `blocked: stuck`); absent = no claim either way.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub live_session_ids: Option<&'a [String]>,
 }
+
+/// NEW-5: the server's cap on [`HeartbeatInput::live_session_ids`] — a
+/// host with more live sessions omits the field rather than truncate it.
+pub const LIVE_SESSION_IDS_CAP: usize = 1000;
 
 /// EXP-481: one pending owner→device command riding the heartbeat response.
 /// Rows stay pending server-side until `completeCommand` — redelivery on a
@@ -918,6 +928,7 @@ mod tests {
                 agent_accounts: Some(&accounts),
                 agent_usage: Some(&usage),
                 doctor: None,
+                live_session_ids: None,
             },
         )
         .unwrap();
@@ -942,6 +953,48 @@ mod tests {
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(!request.contains("agentAccounts"), "{request}");
         assert!(request.contains(r#""agentUsage""#));
+    }
+
+    /// NEW-5: `liveSessionIds` rides only when the host sets it (an empty
+    /// list included — it claims "nothing runs here"), last in the body.
+    #[test]
+    fn heartbeat_posts_live_session_ids_only_when_set() {
+        let ids = vec!["s-1".to_string(), "s-2".to_string()];
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"ok":true}}}"#);
+        heartbeat(
+            &client(&base),
+            &HeartbeatInput {
+                device_id: "dev-1",
+                active_sessions: 2,
+                live_session_ids: Some(&ids),
+                ..HeartbeatInput::default()
+            },
+        )
+        .unwrap();
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.ends_with(
+            r#"{"deviceId":"dev-1","activeSessions":2,"defaultsSyncedAt":null,"liveSessionIds":["s-1","s-2"]}"#
+        ));
+
+        let empty: Vec<String> = Vec::new();
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"ok":true}}}"#);
+        heartbeat(
+            &client(&base),
+            &HeartbeatInput {
+                device_id: "dev-1",
+                live_session_ids: Some(&empty),
+                ..HeartbeatInput::default()
+            },
+        )
+        .unwrap();
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.ends_with(r#""liveSessionIds":[]}"#), "{request}");
+
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"ok":true}}}"#);
+        heartbeat(&client(&base), &HeartbeatInput { device_id: "dev-1", ..HeartbeatInput::default() })
+            .unwrap();
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(!request.contains("liveSessionIds"), "{request}");
     }
 
     /// EXP-484: registration carries the accounts (never the usage — the

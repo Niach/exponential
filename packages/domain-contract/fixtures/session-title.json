@@ -1,5 +1,5 @@
 {
-  "$comment": "EXP-1341: THE display title of ANY session (root, child or agent; never `Session N`), ONE reference ×4 (TS packages/domain-contract/src/session-title.ts, desktop `domain::session_title`, iOS ExpCore `SessionTitle.swift`, Android `domain/SessionTitle.kt`; the server's `deriveSessionTitle` and `listSessions` call the TS one). sessionTitle(session, links, issues, messages) = the FIRST rung that yields text, every value trimmed: (1) the explicit name: `name` (an agent's facet) else `title` (a name passed to `sessions_send`, else the agent CLI's own auto-title, written once by `sessions.report` into a blank title; both live in `title`, so an explicit name always wins); (2) the session's issues: a ROOT (`id == rootId`) = every link with `sessionId == id`, a CHILD = the links ASSIGNED to it (`assignedSessionId == id`; the rows sit on the root), each ordered by `sortOrder` then `issueId`, resolved through `issues` (unknown ids skipped): one = `titles.issue`, several = `titles.issues` with {more} = n-1; when the label is longer than `titleMax` characters the {title} part alone is cut to fit and ends in `…`; (3) `titles.action` with the trimmed `actionName`; (4) the first prompt: that session's messages with `card == null` that are a person's (`authorKind == user`) or another session's input (`authorSessionId` set and != the session's id), oldest first (`createdAt`, then `id`), the first whose body has a usable line: the first line that is non-blank after trimming and does not start with `![` (an image embed); longer than `titleMax` characters = cut to titleMax-1, trailing whitespace trimmed, `…` appended; (5) `untitled`.",
+  "$comment": "EXP-1341/NEW-1: THE display title of ANY session (root, child or agent; never `Session N`), ONE reference ×4 (TS packages/domain-contract/src/session-title.ts, desktop `domain::session_title`, iOS ExpCore `SessionTitle.swift`, Android `domain/SessionTitle.kt`; the server's `deriveSessionTitle` and `listSessions` call the TS one). sessionTitle(session, links, issues, messages) = the FIRST rung that yields text, every value trimmed: (1) the explicit name: `name` (an agent's facet) else `title` (a name passed to `sessions_send`, else the agent CLI's own auto-title, written once by `sessions.report` into a blank title; both live in `title`, so an explicit name always wins); (2) the session's OWN issues: every `session_issues` row with `sessionId == id` (NEW-1: a row sits on the session that holds the issue, root or child alike; a root's thread strip shows the union over its tree, its title only its own rows), ordered by `sortOrder` then `issueId`, resolved through `issues` (unknown ids skipped): one = `titles.issue`, several = `titles.issues` with {more} = n-1; when the label is longer than `titleMax` characters the {title} part alone is cut to fit and ends in `…`; (3) `titles.action` with the trimmed `actionName`; (4) the first prompt: that session's messages with `card == null` that are a person's (`authorKind == user`) or another session's input (`authorSessionId` set and != the session's id), oldest first (`createdAt`, then `id`), the first whose body has a usable line: the first line that is non-blank after trimming and does not start with `![` (an image embed); longer than `titleMax` characters = cut to titleMax-1, trailing whitespace trimmed, `…` appended; (5) `untitled`. A legacy `assignedSessionId` on a link is ignored.",
   "titles": {
     "issue": "#{identifier} {title}",
     "issues": "#{identifier} {title} + {more}",
@@ -11,9 +11,27 @@
     {
       "name": "an agent's name wins over everything",
       "input": {
-        "session": { "id": "a1", "rootId": "a1", "name": "Triage bot", "title": "Some auto title", "actionName": "Tidy" },
-        "links": [{ "sessionId": "a1", "issueId": "i1", "sortOrder": 1, "assignedSessionId": null }],
-        "issues": [{ "id": "i1", "identifier": "APP-1", "title": "Crash" }],
+        "session": {
+          "id": "a1",
+          "rootId": "a1",
+          "name": "Triage bot",
+          "title": "Some auto title",
+          "actionName": "Tidy"
+        },
+        "links": [
+          {
+            "sessionId": "a1",
+            "issueId": "i1",
+            "sortOrder": 1
+          }
+        ],
+        "issues": [
+          {
+            "id": "i1",
+            "identifier": "APP-1",
+            "title": "Crash"
+          }
+        ],
         "messages": []
       },
       "expected": "Triage bot"
@@ -21,9 +39,27 @@
     {
       "name": "an explicit name or the agent's own title beats the linked issue",
       "input": {
-        "session": { "id": "s1", "rootId": "s1", "name": null, "title": "  Speed up cold start  ", "actionName": null },
-        "links": [{ "sessionId": "s1", "issueId": "i1", "sortOrder": 1, "assignedSessionId": null }],
-        "issues": [{ "id": "i1", "identifier": "APP-1", "title": "Cold start is slow" }],
+        "session": {
+          "id": "s1",
+          "rootId": "s1",
+          "name": null,
+          "title": "  Speed up cold start  ",
+          "actionName": null
+        },
+        "links": [
+          {
+            "sessionId": "s1",
+            "issueId": "i1",
+            "sortOrder": 1
+          }
+        ],
+        "issues": [
+          {
+            "id": "i1",
+            "identifier": "APP-1",
+            "title": "Cold start is slow"
+          }
+        ],
         "messages": []
       },
       "expected": "Speed up cold start"
@@ -31,9 +67,27 @@
     {
       "name": "a blank title falls through to the root's issue",
       "input": {
-        "session": { "id": "s1", "rootId": "s1", "name": "  ", "title": "   ", "actionName": null },
-        "links": [{ "sessionId": "s1", "issueId": "i1", "sortOrder": 1, "assignedSessionId": null }],
-        "issues": [{ "id": "i1", "identifier": "APP-1", "title": "Cold start is slow" }],
+        "session": {
+          "id": "s1",
+          "rootId": "s1",
+          "name": "  ",
+          "title": "   ",
+          "actionName": null
+        },
+        "links": [
+          {
+            "sessionId": "s1",
+            "issueId": "i1",
+            "sortOrder": 1
+          }
+        ],
+        "issues": [
+          {
+            "id": "i1",
+            "identifier": "APP-1",
+            "title": "Cold start is slow"
+          }
+        ],
         "messages": []
       },
       "expected": "#APP-1 Cold start is slow"
@@ -41,61 +95,193 @@
     {
       "name": "a root with several issues takes the first by sortOrder plus the rest's count",
       "input": {
-        "session": { "id": "s1", "rootId": "s1", "name": null, "title": null, "actionName": "Tidy" },
+        "session": {
+          "id": "s1",
+          "rootId": "s1",
+          "name": null,
+          "title": null,
+          "actionName": "Tidy"
+        },
         "links": [
-          { "sessionId": "s1", "issueId": "i2", "sortOrder": 2, "assignedSessionId": "c1" },
-          { "sessionId": "s1", "issueId": "i1", "sortOrder": 1, "assignedSessionId": null },
-          { "sessionId": "s1", "issueId": "i3", "sortOrder": 3, "assignedSessionId": null },
-          { "sessionId": "other", "issueId": "i4", "sortOrder": 0, "assignedSessionId": null }
+          {
+            "sessionId": "s1",
+            "issueId": "i2",
+            "sortOrder": 2
+          },
+          {
+            "sessionId": "s1",
+            "issueId": "i1",
+            "sortOrder": 1
+          },
+          {
+            "sessionId": "s1",
+            "issueId": "i3",
+            "sortOrder": 3
+          },
+          {
+            "sessionId": "other",
+            "issueId": "i4",
+            "sortOrder": 0
+          }
         ],
         "issues": [
-          { "id": "i1", "identifier": "APP-1", "title": "Crash" },
-          { "id": "i2", "identifier": "APP-2", "title": "Lag" },
-          { "id": "i3", "identifier": "APP-3", "title": "Typo" },
-          { "id": "i4", "identifier": "APP-4", "title": "Elsewhere" }
+          {
+            "id": "i1",
+            "identifier": "APP-1",
+            "title": "Crash"
+          },
+          {
+            "id": "i2",
+            "identifier": "APP-2",
+            "title": "Lag"
+          },
+          {
+            "id": "i3",
+            "identifier": "APP-3",
+            "title": "Typo"
+          },
+          {
+            "id": "i4",
+            "identifier": "APP-4",
+            "title": "Elsewhere"
+          }
         ],
         "messages": []
       },
       "expected": "#APP-1 Crash + 2"
     },
     {
-      "name": "a child takes only the issues assigned to it, never the root's whole list",
+      "name": "a child takes only the rows it holds, never the root's or a sibling's",
       "input": {
-        "session": { "id": "c1", "rootId": "s1", "name": null, "title": null, "actionName": null },
+        "session": {
+          "id": "c1",
+          "rootId": "s1",
+          "name": null,
+          "title": null,
+          "actionName": null
+        },
         "links": [
-          { "sessionId": "s1", "issueId": "i1", "sortOrder": 1, "assignedSessionId": "c2" },
-          { "sessionId": "s1", "issueId": "i2", "sortOrder": 2, "assignedSessionId": "c1" },
-          { "sessionId": "s1", "issueId": "i3", "sortOrder": 3, "assignedSessionId": "c1" }
+          {
+            "sessionId": "s1",
+            "issueId": "i1",
+            "sortOrder": 1
+          },
+          {
+            "sessionId": "c2",
+            "issueId": "i4",
+            "sortOrder": 1
+          },
+          {
+            "sessionId": "c1",
+            "issueId": "i2",
+            "sortOrder": 2
+          },
+          {
+            "sessionId": "c1",
+            "issueId": "i3",
+            "sortOrder": 3
+          }
         ],
         "issues": [
-          { "id": "i1", "identifier": "APP-1", "title": "Crash" },
-          { "id": "i2", "identifier": "APP-2", "title": "Lag on scroll" },
-          { "id": "i3", "identifier": "APP-3", "title": "Jank on open" }
+          {
+            "id": "i1",
+            "identifier": "APP-1",
+            "title": "Crash"
+          },
+          {
+            "id": "i2",
+            "identifier": "APP-2",
+            "title": "Lag on scroll"
+          },
+          {
+            "id": "i3",
+            "identifier": "APP-3",
+            "title": "Jank on open"
+          },
+          {
+            "id": "i4",
+            "identifier": "APP-4",
+            "title": "Sibling work"
+          }
         ],
         "messages": [
-          { "id": "m1", "sessionId": "c1", "authorKind": "user", "authorSessionId": null, "body": "Fix the perf issues", "card": null, "createdAt": "2026-10-17T10:00:00.000Z" }
+          {
+            "id": "m1",
+            "sessionId": "c1",
+            "authorKind": "user",
+            "authorSessionId": null,
+            "body": "Fix the perf issues",
+            "card": null,
+            "createdAt": "2026-10-17T10:00:00.000Z"
+          }
         ]
       },
       "expected": "#APP-2 Lag on scroll + 1"
     },
     {
-      "name": "a child with no assigned issue falls to its first prompt (the parent's brief)",
+      "name": "a child holding no issue falls to its first prompt (the parent's brief)",
       "input": {
-        "session": { "id": "c1", "rootId": "s1", "name": null, "title": null, "actionName": null },
-        "links": [{ "sessionId": "s1", "issueId": "i1", "sortOrder": 1, "assignedSessionId": null }],
-        "issues": [{ "id": "i1", "identifier": "APP-1", "title": "Crash" }],
+        "session": {
+          "id": "c1",
+          "rootId": "s1",
+          "name": null,
+          "title": null,
+          "actionName": null
+        },
+        "links": [
+          {
+            "sessionId": "s1",
+            "issueId": "i1",
+            "sortOrder": 1
+          }
+        ],
+        "issues": [
+          {
+            "id": "i1",
+            "identifier": "APP-1",
+            "title": "Crash"
+          }
+        ],
         "messages": [
-          { "id": "m2", "sessionId": "c1", "authorKind": "agent", "authorSessionId": "c1", "body": "My own reply", "card": null, "createdAt": "2026-10-17T10:00:01.000Z" },
-          { "id": "m1", "sessionId": "c1", "authorKind": "agent", "authorSessionId": "s1", "body": "\n  Review the crash fix in PR #12  \nmore detail", "card": null, "createdAt": "2026-10-17T10:00:00.000Z" }
+          {
+            "id": "m2",
+            "sessionId": "c1",
+            "authorKind": "agent",
+            "authorSessionId": "c1",
+            "body": "My own reply",
+            "card": null,
+            "createdAt": "2026-10-17T10:00:01.000Z"
+          },
+          {
+            "id": "m1",
+            "sessionId": "c1",
+            "authorKind": "agent",
+            "authorSessionId": "s1",
+            "body": "\n  Review the crash fix in PR #12  \nmore detail",
+            "card": null,
+            "createdAt": "2026-10-17T10:00:00.000Z"
+          }
         ]
       },
       "expected": "Review the crash fix in PR #12"
     },
     {
-      "name": "an unknown assigned issue is skipped",
+      "name": "an unknown held issue is skipped",
       "input": {
-        "session": { "id": "c1", "rootId": "s1", "name": null, "title": null, "actionName": "Release notes" },
-        "links": [{ "sessionId": "s1", "issueId": "gone", "sortOrder": 1, "assignedSessionId": "c1" }],
+        "session": {
+          "id": "c1",
+          "rootId": "s1",
+          "name": null,
+          "title": null,
+          "actionName": "Release notes"
+        },
+        "links": [
+          {
+            "sessionId": "c1",
+            "issueId": "gone",
+            "sortOrder": 1
+          }
+        ],
         "issues": [],
         "messages": []
       },
@@ -104,14 +290,36 @@
     {
       "name": "a long issue title is cut so the count survives",
       "input": {
-        "session": { "id": "s1", "rootId": "s1", "name": null, "title": null, "actionName": null },
+        "session": {
+          "id": "s1",
+          "rootId": "s1",
+          "name": null,
+          "title": null,
+          "actionName": null
+        },
         "links": [
-          { "sessionId": "s1", "issueId": "i1", "sortOrder": 1, "assignedSessionId": null },
-          { "sessionId": "s1", "issueId": "i2", "sortOrder": 2, "assignedSessionId": null }
+          {
+            "sessionId": "s1",
+            "issueId": "i1",
+            "sortOrder": 1
+          },
+          {
+            "sessionId": "s1",
+            "issueId": "i2",
+            "sortOrder": 2
+          }
         ],
         "issues": [
-          { "id": "i1", "identifier": "APP-1", "title": "The settings page loses unsaved changes when the window regains focus after sleep" },
-          { "id": "i2", "identifier": "APP-2", "title": "Lag" }
+          {
+            "id": "i1",
+            "identifier": "APP-1",
+            "title": "The settings page loses unsaved changes when the window regains focus after sleep"
+          },
+          {
+            "id": "i2",
+            "identifier": "APP-2",
+            "title": "Lag"
+          }
         ],
         "messages": []
       },
@@ -120,14 +328,54 @@
     {
       "name": "the first prompt skips image lines, cards and blank bodies, oldest first",
       "input": {
-        "session": { "id": "s1", "rootId": "s1", "name": null, "title": null, "actionName": null },
+        "session": {
+          "id": "s1",
+          "rootId": "s1",
+          "name": null,
+          "title": null,
+          "actionName": null
+        },
         "links": [],
         "issues": [],
         "messages": [
-          { "id": "m3", "sessionId": "s1", "authorKind": "user", "authorSessionId": null, "body": "Later message", "card": null, "createdAt": "2026-10-17T10:00:03.000Z" },
-          { "id": "m0", "sessionId": "s1", "authorKind": "system", "authorSessionId": null, "body": "", "card": { "kind": "event" }, "createdAt": "2026-10-17T10:00:00.000Z" },
-          { "id": "m1", "sessionId": "s1", "authorKind": "user", "authorSessionId": null, "body": "![shot](/api/attachments/x)\n   ", "card": null, "createdAt": "2026-10-17T10:00:01.000Z" },
-          { "id": "m2", "sessionId": "s1", "authorKind": "user", "authorSessionId": null, "body": "![shot](/api/attachments/y)\nWhy does the sidebar flicker?", "card": null, "createdAt": "2026-10-17T10:00:02.000Z" }
+          {
+            "id": "m3",
+            "sessionId": "s1",
+            "authorKind": "user",
+            "authorSessionId": null,
+            "body": "Later message",
+            "card": null,
+            "createdAt": "2026-10-17T10:00:03.000Z"
+          },
+          {
+            "id": "m0",
+            "sessionId": "s1",
+            "authorKind": "system",
+            "authorSessionId": null,
+            "body": "",
+            "card": {
+              "kind": "event"
+            },
+            "createdAt": "2026-10-17T10:00:00.000Z"
+          },
+          {
+            "id": "m1",
+            "sessionId": "s1",
+            "authorKind": "user",
+            "authorSessionId": null,
+            "body": "![shot](/api/attachments/x)\n   ",
+            "card": null,
+            "createdAt": "2026-10-17T10:00:01.000Z"
+          },
+          {
+            "id": "m2",
+            "sessionId": "s1",
+            "authorKind": "user",
+            "authorSessionId": null,
+            "body": "![shot](/api/attachments/y)\nWhy does the sidebar flicker?",
+            "card": null,
+            "createdAt": "2026-10-17T10:00:02.000Z"
+          }
         ]
       },
       "expected": "Why does the sidebar flicker?"
@@ -135,11 +383,25 @@
     {
       "name": "a long first prompt is cut at titleMax with an ellipsis",
       "input": {
-        "session": { "id": "s1", "rootId": "s1", "name": null, "title": null, "actionName": null },
+        "session": {
+          "id": "s1",
+          "rootId": "s1",
+          "name": null,
+          "title": null,
+          "actionName": null
+        },
         "links": [],
         "issues": [],
         "messages": [
-          { "id": "m1", "sessionId": "s1", "authorKind": "user", "authorSessionId": null, "body": "Please go through every settings screen and make sure the save button is disabled until something changed", "card": null, "createdAt": "2026-10-17T10:00:00.000Z" }
+          {
+            "id": "m1",
+            "sessionId": "s1",
+            "authorKind": "user",
+            "authorSessionId": null,
+            "body": "Please go through every settings screen and make sure the save button is disabled until something changed",
+            "card": null,
+            "createdAt": "2026-10-17T10:00:00.000Z"
+          }
         ]
       },
       "expected": "Please go through every settings screen and make sure the save button is disabl…"
@@ -147,11 +409,25 @@
     {
       "name": "nothing at all = Untitled",
       "input": {
-        "session": { "id": "s1", "rootId": "s1", "name": null, "title": null, "actionName": "  " },
+        "session": {
+          "id": "s1",
+          "rootId": "s1",
+          "name": null,
+          "title": null,
+          "actionName": "  "
+        },
         "links": [],
         "issues": [],
         "messages": [
-          { "id": "m1", "sessionId": "other", "authorKind": "user", "authorSessionId": null, "body": "Not mine", "card": null, "createdAt": "2026-10-17T10:00:00.000Z" }
+          {
+            "id": "m1",
+            "sessionId": "other",
+            "authorKind": "user",
+            "authorSessionId": null,
+            "body": "Not mine",
+            "card": null,
+            "createdAt": "2026-10-17T10:00:00.000Z"
+          }
         ]
       },
       "expected": "Untitled"
@@ -159,9 +435,27 @@
     {
       "name": "a title's replacement patterns ($&, $$, $`, $') land literally",
       "input": {
-        "session": { "id": "s1", "rootId": "s1", "name": null, "title": null, "actionName": null },
-        "links": [{ "sessionId": "s1", "issueId": "i1", "sortOrder": 1, "assignedSessionId": null }],
-        "issues": [{ "id": "i1", "identifier": "APP-7", "title": "Escape $& and $$ and $` and $' in titles" }],
+        "session": {
+          "id": "s1",
+          "rootId": "s1",
+          "name": null,
+          "title": null,
+          "actionName": null
+        },
+        "links": [
+          {
+            "sessionId": "s1",
+            "issueId": "i1",
+            "sortOrder": 1
+          }
+        ],
+        "issues": [
+          {
+            "id": "i1",
+            "identifier": "APP-7",
+            "title": "Escape $& and $$ and $` and $' in titles"
+          }
+        ],
         "messages": []
       },
       "expected": "#APP-7 Escape $& and $$ and $` and $' in titles"

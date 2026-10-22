@@ -18,6 +18,7 @@ import {
   useSessionRow,
   useSessionThread,
 } from "@/hooks/use-session-tree"
+import { useAgentRow } from "@/hooks/use-agent-row"
 import { useMarkRead, useNewestAgentMessageAt } from "@/hooks/use-mark-read"
 import { useTeamUsers } from "@/hooks/use-team-data"
 import { pageTitle, usePageTitle } from "@/lib/page-title"
@@ -114,8 +115,10 @@ export function SessionScreen({ teamSlug, row }: { teamSlug: string; row: Sessio
   const isRoot = rootId === row.id
   const { row: syncedRoot } = useSessionRow(rootId === row.id ? null : rootId)
   const rootRow = isRoot ? row : syncedRoot
-  // Under a team agent the way back is the agent's channel, never /threads.
-  const agentRoot = rootRow?.kind === `agent` ? rootRow : null
+  // Under an agent's conversation (NEW-2: a root with `agentId`) the way
+  // back is the agent's page, never /threads.
+  const rootAgentId = rootRow?.agentId ?? null
+  const { agent: rootAgent } = useAgentRow(rootAgentId)
   const card = useSessionCard(row)
   const { view } = useSessionThread(rootId)
   const threadTitle = view?.title ?? null
@@ -132,15 +135,15 @@ export function SessionScreen({ teamSlug, row }: { teamSlug: string; row: Sessio
       className={cn(WORK_COLUMN_CLASS, WORK_GUTTER_CLASS, `shrink-0 pt-4 pb-2`)}
       data-testid="session-header"
     >
-      {agentRoot ? (
+      {rootAgentId ? (
         <Link
           to="/t/$teamSlug/agents/$agentId"
-          params={{ teamSlug, agentId: agentRoot.id }}
+          params={{ teamSlug, agentId: rootAgentId }}
           className="inline-flex max-w-full min-w-0 items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
           data-testid="session-back"
         >
           <BackIcon className="size-4 shrink-0" />
-          <span className="truncate">{agentRoot.name || `Back`}</span>
+          <span className="truncate">{rootAgent?.name || rootRow?.name || `Back`}</span>
         </Link>
       ) : !isRoot || threadTitle ? (
         <Link

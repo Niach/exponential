@@ -255,7 +255,8 @@ struct ThreadCardsScreen: View {
 }
 
 /// EXP-1334: the thread header's never-scrolling strip (`sg_thread-strip`):
-/// everything fitting, then folded (issue chips identifier-only with a
+/// everything fitting, a one-session thread's (NEW-6: no Conversation tab),
+/// then folded (issue chips identifier-only with a
 /// sub-issue chevron and `› APP-16` open, the session chips with a folded
 /// subtree, each zone's "+N"), the subtree sheet's rows, and THE thread
 /// composer's options line + "+" rows.
@@ -264,6 +265,14 @@ private struct ThreadStripSpecimens: View {
         .add, .conversation,
         .issue(issueId: "i14", identifier: "APP-14", nested: []),
         .session(sessionId: "s1", name: "Web lane", markState: .working, nested: []),
+        .guide(dot: true),
+    ]
+
+    /// NEW-6 (N-1): a ONE-session thread — no Conversation tab; the
+    /// session's own work is the body (no chip of its own).
+    private static let single: [ThreadTab] = [
+        .add,
+        .issue(issueId: "i14", identifier: "APP-14", nested: []),
         .guide(dot: true),
     ]
 
@@ -289,6 +298,8 @@ private struct ThreadStripSpecimens: View {
         VStack(alignment: .leading, spacing: 14) {
             caption("Everything fits")
             strip(Self.fits, selection: .conversation)
+            caption("One session (no child yet): no Conversation tab, the session's own work is the body")
+            strip(Self.single, selection: .session("root"))
             caption("Folded: identifiers only, each zone's +N")
             strip(Self.folded, selection: .conversation)
             caption("A sub-issue open: <chip> › <open one>")
@@ -341,7 +352,7 @@ private struct ThreadStripSpecimens: View {
             }
             .padding(.horizontal, -16)
             ThreadComposerPlusMenu(
-                conditions: ComposerMenu.Conditions(subagentModel: false, ultracode: true, mcp: true, computerUse: true),
+                conditions: ComposerMenu.Conditions(subagentModel: false, ultracode: true, mcp: true, computerUse: true, agents: false),
                 agent: "claude",
                 effortValue: "High",
                 mcpValue: "2",
@@ -454,7 +465,8 @@ private struct AskDockSpecimens: View {
 /// `plan-card`, the IDE's `styleguide:plan-card`): session-thread.json's case
 /// "EXP-1280: a rich plan card…" through the REAL row model
 /// (`ThreadRow.askCard`) and `ThreadAskCard`: the pending plan (a picture in
-/// the body, the inline surface, a picture-tile question + a multiple one),
+/// the body, the inline surface, a picture-tile question + a multiple one;
+/// NEW-6: stepped, so it shows "Question 1 of 2" and Next),
 /// the answered question card (several picks, closed) and the approved plan
 /// with its feedback.
 private struct PlanCardSpecimens: View {

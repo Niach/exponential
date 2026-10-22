@@ -20,6 +20,7 @@ import {
   threadRowMarkState,
   threadRowWord,
   threadsUnread,
+  treeState,
   type ThreadStripLayout,
 } from "./session-tree"
 
@@ -30,6 +31,20 @@ describe(`session-tree fixtures (EXP-1291)`, () => {
       expect(sessionCard(session, title, now)).toEqual(entry.expected as never)
     })
   }
+  test(`session card: a blocked session names its kind (copy.blockedKinds)`, () => {
+    const base = card.cases.find((entry) => entry.expected.state === `blocked`)!.input as never as {
+      session: Record<string, unknown>
+      title: string
+      now: string
+    }
+    const word = (blocked: Record<string, unknown>) =>
+      sessionCard({ ...base.session, blocked } as never, base.title, base.now).kindWord
+    for (const [kind, text] of Object.entries(card.copy.blockedKinds)) {
+      expect(word({ kind })).toBe(text)
+    }
+    expect(word({ kind: `future_kind` })).toBe(card.copy.states.blocked)
+    expect(word({ window: `weekly` })).toBe(card.copy.states.blocked)
+  })
   for (const entry of thread.cases) {
     test(`thread: ${entry.name}`, () => {
       expect(buildSessionThread(entry.input as never, (entry as { options?: never }).options)).toEqual(entry.expected as never)
@@ -66,10 +81,26 @@ describe(`session-tree fixtures (EXP-1291)`, () => {
       expect(partitionThreads(entry.input as never)).toEqual(entry.expected as never)
     })
   }
+  for (const entry of list.recentCases) {
+    test(`recent (NEW-1): ${entry.name}`, () => {
+      const groups = partitionThreads(entry.input as never)
+      const recent = groups.find((group) => group.key === `recent`)
+      expect(recent?.rows.filter((row) => row.depth === 0).map((row) => row.sessionId) ?? []).toEqual(
+        entry.expected
+      )
+    })
+  }
+  for (const entry of list.treeStateCases) {
+    test(`tree state (NEW-1): ${entry.name}`, () => {
+      expect(
+        treeState(entry.input.tree as never, entry.input.pullRequests as never, entry.input.now)
+      ).toBe(entry.expected)
+    })
+  }
   for (const entry of list.agentCases) {
     test(`agents: ${entry.name}`, () => {
-      const { sessions, teamId } = entry.input as never
-      expect(listAgents(sessions, teamId)).toEqual(entry.expected as never)
+      const { agents, sessions, teamId, me } = entry.input as never
+      expect(listAgents(agents, sessions, teamId, me)).toEqual(entry.expected as never)
     })
   }
   for (const entry of list.markCases) {

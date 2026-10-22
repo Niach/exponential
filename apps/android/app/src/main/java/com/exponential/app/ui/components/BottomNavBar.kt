@@ -41,8 +41,9 @@ import com.exponential.app.ui.theme.TextEmphasis
 
 // Linear-style floating bottom navigation: a dark pill with the top-level
 // destinations (Issues, Inbox — the merged Inbox + My Issues personal tab,
-// with an unread dot — Devices — the machines surface — Threads — and
-// Actions, a top-level tab since EXP-1187; Settings = the Issues gear) plus a detached launcher on the right: the Chat arm that
+// with an unread dot — Devices — the machines surface — and Threads; NEW-7:
+// the Actions tab is gone, prompts live in the composer's `/` menu and
+// Settings → Prompts; Settings = the Issues gear) plus a detached launcher on the right: the Chat arm that
 // switches to the Agent page — the app's landing screen and a top-level
 // destination like the tabs, so the arm wears the SELECTED state while it is
 // up — joined by New issue in one capsule, on every tab since EXP-973. The
@@ -91,8 +92,6 @@ fun BottomNavBar(
     agentActive: Boolean,
     issuesActive: Boolean,
     devicesActive: Boolean,
-    /** EXP-1187: lit while the Actions route is up. */
-    actionsActive: Boolean,
     personalActive: Boolean,
     /** EXP-1291: lit while the Threads tab (it replaced Reviews) is up. */
     threadsActive: Boolean,
@@ -109,15 +108,14 @@ fun BottomNavBar(
     composeEnabled: Boolean,
     onIssues: () -> Unit,
     onDevices: () -> Unit,
-    onActions: () -> Unit,
     onPersonal: () -> Unit,
     onThreads: () -> Unit,
     onCompose: () -> Unit,
     onChat: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    // Five fixed tabs (Issues, Inbox, Devices, Threads, Actions).
-    val tabCount = 5
+    // Four fixed tabs (Issues, Inbox, Devices, Threads).
+    val tabCount = 4
     // Every count must still fit a 360dp screen beside the compose circle:
     // the outer padding pulls in with the count. The tab itself is the shared
     // 44dp square on every count (EXP-698).
@@ -182,15 +180,6 @@ fun BottomNavBar(
                     else -> null
                 },
                 onClick = onThreads,
-            )
-            // EXP-1187: Actions is a top-level tab (the More menu is gone;
-            // Settings stays behind the Issues header's gear).
-            TabItem(
-                icon = ExpIcons.navActions,
-                contentDescription = "Actions",
-                testTag = "tab-actions",
-                active = actionsActive,
-                onClick = onActions,
             )
         }
 

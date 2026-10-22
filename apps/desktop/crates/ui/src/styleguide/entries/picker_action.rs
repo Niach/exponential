@@ -1,4 +1,7 @@
-//! EXP-1021 — the `picker-action` styleguide entry: the action picker — the team's actions by curated icon + name.
+//! EXP-1021 — the `picker-action` styleguide entry: rows by curated icon +
+//! name; a row with no icon of its own draws the default glyph. NEW-2:
+//! prompts replaced actions and no app screen opens this picker any more; it
+//! stays for the natives' mirrors until NEW-8.
 //!
 //! Filled by EXP-1021; never edits `entries/mod.rs` nor the index.
 

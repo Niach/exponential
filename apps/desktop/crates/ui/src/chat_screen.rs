@@ -17,12 +17,15 @@
 //! ```
 //!
 //! EXP-1249: the "+" is the composer's ONE tool — a menu (Implement issue ›,
-//! Run action ›, Add file or image | Effort ›, Subagents ›, Ultracode |
-//! MCP servers ›, Computer use).
+//! Add file or image | Effort ›, Ultracode |
+//! MCP servers ›, Computer use). NEW-39: no Subagents › row, like web
+//! (`sessions.send` carries no subagent model).
 //!
-//! **Subject by swap** (decision 2026-09-10): issue chips OR one action chip.
-//! Picking an issue while an action is picked replaces it, and the other way
-//! round. **Free text** is the prompt with no subject and optional additional
+//! **Subject by swap** (decision 2026-09-10): issue chips OR one action chip
+//! OR (NEW-3) one agent chip. Picking one kind while another is picked
+//! replaces it. An AGENT subject (Message an agent › in the "+") hides the
+//! options line, the submit reads `Send`, and the send goes into the
+//! caller's DM with the agent, whose conversation then opens. **Free text** is the prompt with no subject and optional additional
 //! instructions beside one. **Images** ride as attachments, uploaded to the
 //! team route before the session exists.
 //!
@@ -54,7 +57,7 @@ use gpui::{
     SharedString, Styled, Subscription,
     Window,
 };
-use gpui_component::input::{InputEvent, TextareaState};
+use gpui_component::input::{self as input, InputEvent, TextareaState};
 use gpui_component::menu::{DropdownMenu as _, PopupMenuItem};
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::{
@@ -64,7 +67,6 @@ use sync::Store;
 
 use coding::LaunchOptions;
 
-use crate::action_inputs::ActionInputPicks;
 use crate::action_run::{self, ActionRepoRow};
 use crate::chat_launch::{self, RepoState, StartSubject, SubjectKind};
 use crate::coding_flow::{self, CodingHub};
@@ -83,10 +85,9 @@ use crate::surface::{glass_pill, PillMode, PillSize};
 /// line — the steer composer's rhythm, on a page with nothing else on it.
 const PROMPT_MAX_W: f32 = 640.;
 
-/// EXP-1155: the parameter bands' caps — about three rows of issue chips and
-/// four typed action inputs; past them each band scrolls on its own.
+/// EXP-1155: the subject band's cap — about three rows of issue chips; past
+/// it the band scrolls on its own.
 const CHIPS_MAX_H: f32 = 88.;
-const FIELDS_MAX_H: f32 = 280.;
 
 /// FEED-100 (EXP-1249's mark, restored): the DAWN above the page's composer
 /// column — the brand mark's edge, the half of it that shows (a clip of half
@@ -103,7 +104,7 @@ const PAGE_MARK_FADE_STEPS: usize = 12;
 /// menu, the styleguide `menu` entry's composer specimen).
 pub(crate) const PLUS_TOOLTIP: &str = "Add";
 pub(crate) const MENU_IMPLEMENT_ISSUE: &str = "Implement issue";
-pub(crate) const MENU_RUN_ACTION: &str = "Run action";
+pub(crate) const MENU_MESSAGE_AGENT: &str = "Message an agent";
 pub(crate) const MENU_ADD_FILE: &str = "Add file or image";
 pub(crate) const MENU_SUBAGENTS: &str = "Subagents";
 pub(crate) const MENU_ULTRACODE: &str = "Ultracode";
@@ -127,7 +128,7 @@ pub(crate) fn implement_button_label(count: usize) -> String {
 const PLUS_MENU_WANTED_HEIGHT: f32 = 360.;
 
 /// EXP-1249: the searchable picker a "+" menu row opens, anchored to the +
-/// (SLOP-28: Implement issue › and Run action › are submenus now, THE search
+/// (SLOP-28: Implement issue › is a submenu now, THE search
 /// list inside the menu).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ComposerPicker {
@@ -188,10 +189,15 @@ struct IssueSubject {
     repos: HashMap<String, RepoState>,
 }
 
-/// The picked action and its input picks.
+/// The picked saved prompt (NEW-2: prompts replaced actions; no inputs).
 struct ActionSubject {
     action_id: String,
-    picks: ActionInputPicks,
+}
+
+/// NEW-3: the picked team agent — the message goes into the caller's DM
+/// with it (`sessions.send({agentId})`).
+struct AgentSubject {
+    agent_id: String,
 }
 
 /// EXP-868: what [`ChatScreenView::team_pool`] is valid for.
@@ -208,6 +214,8 @@ enum Subject {
     None,
     Issues(IssueSubject),
     Action(ActionSubject),
+    /// NEW-3: a message to a team agent.
+    Agent(AgentSubject),
 }
 
 /// EXP-696: the machine the run starts on.
@@ -235,31 +243,17 @@ struct DevicePick {
 
 /// EXP-825: the field's hint follows the subject — byte-identical to the web
 /// `composerPlaceholder` (components/launch-composer.tsx): a chat asks, a
-/// picked subject takes optional extra instructions, and a picked action
-/// with a non-blank `prompt_placeholder` (the synced column) says what to
-/// type instead.
+/// picked subject takes optional extra instructions (NEW-2: prompts carry
+/// no composer hint).
 /// EXP-1019: both hints are the shared contract's, never local literals.
 /// EXP-1253: with no subject the field asks the home's question.
 const CHAT_PLACEHOLDER: &str = home_greeting::HOME_PLACEHOLDER;
 const SUBJECT_PLACEHOLDER: &str = domain::contract::COMPOSER_UI_INSTRUCTIONS_PLACEHOLDER;
 
-/// The hint for `subject`, given the picked action's row (if the list holds
-/// it). The web `composerPlaceholder` rule, one for one.
-fn placeholder_for_subject(
-    subject: &Subject,
-    action: Option<&api::actions::Action>,
-) -> SharedString {
+/// The hint for `subject`. The web `composerPlaceholder` rule, one for one.
+fn placeholder_for_subject(subject: &Subject) -> SharedString {
     if matches!(subject, Subject::None) {
         return CHAT_PLACEHOLDER.into();
-    }
-    if matches!(subject, Subject::Action(_)) {
-        let hint = action
-            .and_then(|action| action.prompt_placeholder.as_deref())
-            .map(str::trim)
-            .filter(|hint| !hint.is_empty());
-        if let Some(hint) = hint {
-            return SharedString::from(hint.to_string());
-        }
     }
     SUBJECT_PLACEHOLDER.into()
 }
@@ -293,9 +287,9 @@ pub(crate) struct ChatScreenView {
     subject: Subject,
     /// Stale-probe guard (old results must not land after a subject swap).
     probe_generation: u64,
-    /// The team's actions — live off the synced `actions` shape;
+    /// The team's saved prompts — live off the synced `prompts` shape;
     /// `actions_ready` = the shape reached readiness.
-    actions: Vec<api::actions::Action>,
+    actions: Vec<api::prompts::Prompt>,
     actions_ready: bool,
     /// A seed's action preselect, applied once the shape is ready.
     pending_action: Option<String>,
@@ -346,20 +340,22 @@ pub(crate) struct ChatScreenView {
     /// upload still running for that draft drops its result instead of
     /// starting the draft a second time.
     send_epoch: u64,
-    /// A parked accessor target for the pick renderers while no action is
-    /// picked (a menu can outlive the chip it was opened from).
-    spare_picks: ActionInputPicks,
     focus_handle: FocusHandle,
     /// EXP-923: the page's one scroll. It holds the composer and NOTHING
     /// else.
     page_scroll: gpui::ScrollHandle,
-    /// EXP-1155: the two PARAMETER bands that scroll on their own once they
-    /// pass their cap (the subject chips, the action's typed inputs), so the
-    /// rest of the launcher never has to.
+    /// EXP-1155: the subject chips' band scrolls on its own once it passes
+    /// its cap, so the rest of the launcher never has to.
     chips_scroll: gpui::ScrollHandle,
-    fields_scroll: gpui::ScrollHandle,
     /// EXP-1155: the dialog window follows its content (`None` on the page).
     dialog_fit: Option<DialogFit>,
+    /// NEW-2: THE `/` menu over the draft — the team's prompts alone (no
+    /// session yet, so no builtins); `None` = closed.
+    slash: Option<(Vec<crate::slash_commands::SlashItem>, usize)>,
+    slash_scroll: gpui::ScrollHandle,
+    /// The draft the menu was dismissed (or picked) on; it stays shut until
+    /// the draft changes.
+    slash_dismissed_for: Option<String>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -400,8 +396,12 @@ impl ChatScreenView {
                 window,
                 |this, _, event: &InputEvent, window, cx| match event {
                     InputEvent::PressEnter { shift: false, .. } => this.send(window, cx),
-                    // The blocker is a function of the draft.
-                    InputEvent::Change => cx.notify(),
+                    // The blocker is a function of the draft, the `/`
+                    // menu too.
+                    InputEvent::Change => {
+                        this.refresh_slash(cx);
+                        cx.notify();
+                    }
                     _ => {}
                 },
             ),
@@ -409,9 +409,10 @@ impl ChatScreenView {
         ];
         let collections = Store::global(cx).collections();
         let synced_devices = collections.devices.clone();
-        let synced_actions = collections.actions.clone();
+        let synced_actions = collections.prompts.clone();
         let synced_sessions = collections.sessions.clone();
         let synced_worktrees = collections.device_worktrees.clone();
+        let synced_agents = collections.agents.clone();
         let steer_config = queries::steer_config(cx);
         subscriptions.push(cx.observe_in(&steer_config, window, |this: &mut Self, _, window, cx| {
             this.settle_device(window, cx);
@@ -424,7 +425,10 @@ impl ChatScreenView {
             cx.notify();
         }));
         subscriptions.push(cx.observe(&synced_worktrees, |_: &mut Self, _, cx| cx.notify()));
-        // EXP-268: the actions list is a live read of the synced shape.
+        // NEW-3: the "+" menu's Message an agent › rows and the agent chip
+        // read the synced `agents` rows.
+        subscriptions.push(cx.observe(&synced_agents, |_: &mut Self, _, cx| cx.notify()));
+        // NEW-2: the prompts list is a live read of the synced shape.
         subscriptions.push(cx.observe_in(&synced_actions, window, |this: &mut Self, _, window, cx| {
             this.refresh_actions(window, cx);
             cx.notify();
@@ -476,12 +480,13 @@ impl ChatScreenView {
             starting_generation: 0,
             late: None,
             send_epoch: 0,
-            spare_picks: ActionInputPicks::default(),
             focus_handle: cx.focus_handle(),
             page_scroll: gpui::ScrollHandle::new(),
             chips_scroll: gpui::ScrollHandle::new(),
-            fields_scroll: gpui::ScrollHandle::new(),
             dialog_fit: None,
+            slash: None,
+            slash_scroll: gpui::ScrollHandle::new(),
+            slash_dismissed_for: None,
             _subscriptions: subscriptions,
         };
         this.ensure_launch(window, cx);
@@ -522,8 +527,15 @@ impl ChatScreenView {
 
     // ── starting (EXP-1271) ───────────────────────────────────────────────
 
-    /// The device a start goes to, by its picker label.
-    fn start_device_label(&self) -> String {
+    /// The device a start goes to, by its picker label (NEW-3: a message
+    /// to an agent names the agent).
+    fn start_device_label(&self, cx: &App) -> String {
+        if let Subject::Agent(_) = &self.subject {
+            return self
+                .selected_agent(cx)
+                .map(|agent| agent.name)
+                .unwrap_or_else(|| "the agent".to_string());
+        }
         self.selected_device()
             .map(|device| device.label.clone())
             .unwrap_or_else(coding::default_device_label)
@@ -540,7 +552,7 @@ impl ChatScreenView {
         }
         self.starting_generation += 1;
         let generation = self.starting_generation;
-        let device = self.start_device_label();
+        let device = self.start_device_label(cx);
         self.starting = Some(Starting {
             device,
             since: std::time::Instant::now(),
@@ -711,13 +723,6 @@ impl ChatScreenView {
         this.launch.as_mut().expect("the launch cluster is built before it is edited")
     }
 
-    fn picks_access(this: &mut Self) -> &mut ActionInputPicks {
-        match &mut this.subject {
-            Subject::Action(action) => &mut action.picks,
-            _ => &mut this.spare_picks,
-        }
-    }
-
     // ── the seed (every play button) ──────────────────────────────────────
 
     /// Apply a [`ChatSeed`]: an action wins over issues (the web rule),
@@ -874,7 +879,7 @@ impl ChatScreenView {
             self.actions_ready = false;
             return;
         };
-        let (actions, ready) = queries::team_actions(cx, &team_id);
+        let (actions, ready) = queries::team_prompts(cx, &team_id);
         self.actions = actions;
         self.actions_ready = ready;
         if ready {
@@ -889,10 +894,7 @@ impl ChatScreenView {
     fn select_action(&mut self, action_id: String, cx: &mut gpui::Context<Self>) {
         let had_subject = !matches!(self.subject, Subject::None);
         self.probe_generation += 1;
-        self.subject = Subject::Action(ActionSubject {
-            action_id,
-            picks: ActionInputPicks::default(),
-        });
+        self.subject = Subject::Action(ActionSubject { action_id });
         if !had_subject {
             if let Some(launch) = self.launch.as_mut() {
                 launch.reseed_plan_for_subject(true, cx);
@@ -902,13 +904,174 @@ impl ChatScreenView {
     }
 
     /// The picked action's row, if the list holds it.    /// The picked action's row, if the list holds it.
-    fn selected_action(&self) -> Option<&api::actions::Action> {
+    fn selected_action(&self) -> Option<&api::prompts::Prompt> {
         let Subject::Action(subject) = &self.subject else {
             return None;
         };
         self.actions
             .iter()
             .find(|action| action.id == subject.action_id)
+    }
+
+    // ── the `/` menu (NEW-2) ──────────────────────────────────────────────
+
+    /// Re-derive the `/` menu from the draft (web `launch-composer`: the
+    /// team's prompts, no builtins — there is no session yet).
+    fn refresh_slash(&mut self, cx: &mut gpui::Context<Self>) {
+        let draft = self.input.read(cx).value().to_string();
+        if self.slash_dismissed_for.as_deref() == Some(draft.as_str()) {
+            self.slash = None;
+            return;
+        }
+        self.slash_dismissed_for = None;
+        let prompts: Vec<crate::slash_commands::SlashPrompt> = self
+            .actions
+            .iter()
+            .map(crate::slash_commands::SlashPrompt::from)
+            .collect();
+        let items = crate::slash_commands::slash_items(&draft, None, &prompts);
+        self.slash = if items.is_empty() {
+            None
+        } else {
+            let selected = self
+                .slash
+                .as_ref()
+                .map_or(0, |(_, selected)| *selected)
+                .min(items.len() - 1);
+            Some((items, selected))
+        };
+    }
+
+    fn move_slash(&mut self, delta: isize, cx: &mut gpui::Context<Self>) {
+        if let Some((items, selected)) = self.slash.as_mut() {
+            let len = items.len() as isize;
+            if len > 0 {
+                *selected = (*selected as isize + delta).rem_euclid(len) as usize;
+                self.slash_scroll.scroll_to_item(*selected);
+                cx.notify();
+            }
+        }
+    }
+
+    /// A pick makes the prompt the SUBJECT (its chip) and clears the `/name`
+    /// it was typed as; the send then carries `promptId`.
+    fn accept_slash(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let Some((items, selected)) = self.slash.take() else {
+            return;
+        };
+        if let Some(crate::slash_commands::SlashItem::Prompt(prompt)) = items.get(selected).cloned() {
+            self.slash_dismissed_for = Some(String::new());
+            self.select_action(prompt.id, cx);
+            self.input
+                .update(cx, |state, cx| state.set_value("", window, cx));
+        }
+        cx.notify();
+    }
+
+    fn on_slash_up(&mut self, _: &input::MoveUp, _: &mut Window, cx: &mut gpui::Context<Self>) {
+        if self.slash.is_some() {
+            self.move_slash(-1, cx);
+            cx.stop_propagation();
+        }
+    }
+
+    fn on_slash_down(&mut self, _: &input::MoveDown, _: &mut Window, cx: &mut gpui::Context<Self>) {
+        if self.slash.is_some() {
+            self.move_slash(1, cx);
+            cx.stop_propagation();
+        }
+    }
+
+    fn on_slash_escape(&mut self, _: &input::Escape, _: &mut Window, cx: &mut gpui::Context<Self>) {
+        if self.slash.take().is_some() {
+            self.slash_dismissed_for = Some(self.input.read(cx).value().to_string());
+            cx.stop_propagation();
+            cx.notify();
+        }
+    }
+
+    /// With the menu open Enter ACCEPTS, and the field never emits the
+    /// `PressEnter` that starts.
+    fn on_slash_enter(&mut self, action: &input::Enter, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        if self.slash.is_some() && !action.shift {
+            self.accept_slash(window, cx);
+            cx.stop_propagation();
+        }
+    }
+
+    fn on_slash_tab(&mut self, _: &input::IndentInline, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        if self.slash.is_some() {
+            self.accept_slash(window, cx);
+            cx.stop_propagation();
+        }
+    }
+
+    /// THE `/` menu inside the card, above the field (the session
+    /// composer's [`crate::composer::session_slash_menu`]).
+    fn render_slash(&self, window: &Window, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
+        let (items, selected) = self.slash.as_ref()?;
+        Some(crate::composer::session_slash_menu(
+            "chat-slash-menu",
+            "chat-slash-row",
+            items,
+            *selected,
+            &self.slash_scroll,
+            |this: &mut Self, index, cx| {
+                if let Some((_, selected)) = this.slash.as_mut() {
+                    if *selected != index {
+                        *selected = index;
+                        cx.notify();
+                    }
+                }
+            },
+            |this: &mut Self, index, window, cx| {
+                if let Some((_, selected)) = this.slash.as_mut() {
+                    *selected = index;
+                }
+                this.accept_slash(window, cx);
+            },
+            window,
+            cx,
+        ))
+    }
+
+    // ── subject: agent (NEW-3) ────────────────────────────────────────────
+
+    /// The team's agents as the rail lists them (the synced `agents` rows).
+    fn team_agents(&self, cx: &App) -> Vec<domain::session_tree::AgentRow> {
+        self.team_id
+            .as_deref()
+            .map(|team_id| crate::session_data::agents_in_team(team_id, cx))
+            .unwrap_or_default()
+    }
+
+    /// The subject agent's row (`None` while it is not synced, or no agent).
+    fn selected_agent(&self, cx: &App) -> Option<domain::session_tree::AgentRow> {
+        let Subject::Agent(subject) = &self.subject else {
+            return None;
+        };
+        self.team_agents(cx)
+            .into_iter()
+            .find(|agent| agent.agent_id == subject.agent_id)
+    }
+
+    /// Whether the composer is messaging an agent (no device, no options).
+    fn to_agent(&self) -> bool {
+        matches!(self.subject, Subject::Agent(_))
+    }
+
+    /// "+" → Message an agent ›'s pick: the agent becomes the ONE subject
+    /// (issues or a prompt, if any, are swapped out).
+    fn pick_agent(&mut self, agent_id: String, cx: &mut gpui::Context<Self>) {
+        let had_subject = !matches!(self.subject, Subject::None);
+        self.probe_generation += 1;
+        self.subject = Subject::Agent(AgentSubject { agent_id });
+        if !had_subject {
+            if let Some(launch) = self.launch.as_mut() {
+                launch.reseed_plan_for_subject(true, cx);
+            }
+        }
+        cx.notify();
     }
 
     // ── fetches: repos, MCP ───────────────────────────────────────────────
@@ -919,12 +1082,15 @@ impl ChatScreenView {
         if self.team_id == self.repos_team {
             return;
         }
-        self.repos_team = self.team_id.clone();
         self.team_repos = Vec::new();
         self.chat_repo = None;
+        // NEW-39: the marker lands only once the fetch can run, so a team
+        // that syncs before the auth context retries on the next render.
         let (Some(team), Some(trpc)) = (self.team_id.clone(), queries::trpc_client(cx)) else {
+            self.repos_team = None;
             return;
         };
+        self.repos_team = Some(team.clone());
         cx.spawn(async move |this, cx| {
             let loaded = cx
                 .background_executor()
@@ -957,11 +1123,15 @@ impl ChatScreenView {
         if self.team_id == self.mcp_team {
             return;
         }
-        self.mcp_team = self.team_id.clone();
         self.mcp = None;
+        // NEW-39: the marker lands only once the fetch can run, so a team
+        // that syncs before the auth context retries on the next render
+        // (the "+" menu's MCP servers row).
         let (Some(team), Some(trpc)) = (self.team_id.clone(), queries::trpc_client(cx)) else {
+            self.mcp_team = None;
             return;
         };
+        self.mcp_team = Some(team.clone());
         cx.spawn(async move |this, cx| {
             let loaded = cx
                 .background_executor()
@@ -1190,7 +1360,7 @@ impl ChatScreenView {
     // ── the gate ──────────────────────────────────────────────────────────
 
     fn composer_placeholder(&self) -> SharedString {
-        placeholder_for_subject(&self.subject, self.selected_action())
+        placeholder_for_subject(&self.subject)
     }
 
     /// Re-hint the field when the subject (or the picked action's synced
@@ -1212,6 +1382,7 @@ impl ChatScreenView {
                 count: issues.checked.len(),
             },
             Subject::Action(_) => SubjectKind::Action,
+            Subject::Agent(_) => SubjectKind::Agent,
         }
     }
 
@@ -1224,6 +1395,16 @@ impl ChatScreenView {
         }
         if self.team_id.is_none() {
             return Some("Sign in and wait for sync before starting a session.".into());
+        }
+        // NEW-3: a DM runs on the agent's own device and login: the
+        // composer's machine and its readiness never gate it.
+        if self.to_agent() {
+            if self.selected_agent(cx).is_none() {
+                return Some("Select an agent.".into());
+            }
+            let text = self.input.read(cx).value().to_string();
+            return chat_launch::text_blocker(&SubjectKind::Agent, &text, self.images.len())
+                .map(Into::into);
         }
         let Some(launch) = self.launch.as_ref() else {
             return Some("Checking local tools…".into());
@@ -1273,18 +1454,12 @@ impl ChatScreenView {
         let kind = self.subject_kind();
         match &self.subject {
             Subject::None => chat_launch::text_blocker(&kind, &text, self.images.len()).map(Into::into),
-            Subject::Action(subject) => {
+            Subject::Action(_) => {
                 if !self.actions_ready {
                     return Some(chat_launch::ACTIONS_LOADING.into());
                 }
-                let Some(action) = self.selected_action() else {
-                    return Some("Select an action.".into());
-                };
-                if let Some(reason) = crate::action_inputs::unsupported_reason(action) {
-                    return Some(reason.into());
-                }
-                if let Some(input) = subject.picks.missing_required(action) {
-                    return Some(format!("Fill in {}.", input.label).into());
+                if self.selected_action().is_none() {
+                    return Some("Select a prompt.".into());
                 }
                 chat_launch::text_blocker(&kind, &text, self.images.len()).map(Into::into)
             }
@@ -1294,6 +1469,7 @@ impl ChatScreenView {
                 }
                 chat_launch::repo_blocker(&issues.rows, &issues.checked, &issues.repos).map(Into::into)
             }
+            Subject::Agent(_) => None,
         }
     }
 
@@ -1408,6 +1584,11 @@ impl ChatScreenView {
         let Some(team_id) = self.team_id.clone() else {
             return;
         };
+        if let Subject::Agent(subject) = &self.subject {
+            let agent_id = subject.agent_id.clone();
+            self.send_to_agent(team_id, agent_id, text, attachment_ids, window, cx);
+            return;
+        }
         let Some(device_id) = self.selected_device().map(|device| device.device_id.clone()) else {
             self.start_failed("Pick a device to start the session on.".into(), cx);
             return;
@@ -1429,15 +1610,16 @@ impl ChatScreenView {
                 ..Default::default()
             },
             Subject::Action(subject) => {
-                let Some(action) = self.selected_action() else {
+                if self.selected_action().is_none() {
                     return;
-                };
+                }
                 StartSubject {
-                    action_id: Some(subject.action_id.clone()),
-                    inputs: subject.picks.collect(action),
+                    prompt_id: Some(subject.action_id.clone()),
                     ..Default::default()
                 }
             }
+            // Sent by `send_to_agent` above.
+            Subject::Agent(_) => return,
         };
         let Some(trpc) = queries::trpc_client(cx) else {
             self.start_failed("Sign in and wait for sync before starting a session.".into(), cx);
@@ -1495,6 +1677,79 @@ impl ChatScreenView {
             });
         })
         .detach();
+    }
+
+    /// NEW-3 — a message to `agent_id`: ONE `sessions.send({teamId, agentId,
+    /// text, attachmentIds})` into the caller's DM with it (created on
+    /// first use), then the agent's conversation opens (`Screen::Agent`,
+    /// what the rail's agent row opens). A failure = `Couldn't send the
+    /// message` with Retry.
+    fn send_to_agent(
+        &mut self,
+        team_id: String,
+        agent_id: String,
+        text: String,
+        attachment_ids: Vec<String>,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        let Some(trpc) = queries::trpc_client(cx) else {
+            self.message_failed(Some("Sign in and wait for sync before sending.".to_string()), cx);
+            return;
+        };
+        let input = chat_launch::agent_send_input(&team_id, &agent_id, &text, attachment_ids);
+        let generation = self.begin_starting(window, cx);
+        cx.spawn_in(window, async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move { api::sessions::send(&trpc, &input) })
+                .await;
+            let _ = this.update_in(cx, |this, window, cx| match result {
+                Ok(output) => {
+                    let in_dialog = this.in_dialog();
+                    if this.start_landed(generation, window, cx) {
+                        // NEW-6: the agent's page shows the caller's
+                        // conversation (the send created or reused it).
+                        let _ = output.session_id;
+                        navigation::defer_in_result_window(window, cx, move |window, cx| {
+                            let screen = Screen::Agent { agent_id };
+                            if in_dialog {
+                                navigation::navigate(window, cx, screen);
+                            } else {
+                                navigation::navigate_replace(window, cx, screen);
+                            }
+                        });
+                    }
+                }
+                Err(err) => {
+                    let in_time = this
+                        .starting
+                        .as_ref()
+                        .is_some_and(|starting| starting.generation == generation);
+                    if let Some(late) = this.late.take_if(|late| late.generation == generation) {
+                        late.dismiss_toast(cx);
+                    }
+                    if in_time {
+                        this.end_starting(generation, cx);
+                        this.message_failed(Some(err.user_message().to_string()), cx);
+                    }
+                }
+            });
+        })
+        .detach();
+    }
+
+    /// NEW-3 (web `failedAction('send', 'the message')`): a DM that did not
+    /// go out is the error toast; Retry sends the kept draft again.
+    fn message_failed(&mut self, message: Option<String>, cx: &mut gpui::Context<Self>) {
+        crate::action_error::failed_action_with_retry(
+            "send",
+            "the message",
+            message,
+            self.retry_send(cx),
+            cx,
+        );
+        cx.notify();
     }
 
     /// The session is on its way: clear the draft, the images and the
@@ -1562,6 +1817,8 @@ impl ChatScreenView {
             return None;
         }
         let chips = self.render_chips(cx)?;
+        // NEW-3: an agent's chip IS the headline (no verb).
+        let verb = chat_launch::headline(&kind);
         Some(
             h_flex()
                 .w_full()
@@ -1570,14 +1827,14 @@ impl ChatScreenView {
                 .items_center()
                 .gap_2()
                 .px_1()
-                .child(
+                .children((!verb.is_empty()).then(|| {
                     div()
                         .flex_shrink_0()
                         .text_lg()
                         .font_weight(gpui::FontWeight::SEMIBOLD)
                         .text_color(cx.theme().foreground)
-                        .child(chat_launch::headline(&kind)),
-                )
+                        .child(verb)
+                }))
                 .child(chips)
                 .into_any_element(),
         )
@@ -1643,6 +1900,16 @@ impl ChatScreenView {
                         .into_any_element(),
                 );
             }
+            Subject::Agent(_) => {
+                chips.push(
+                    agent_chip(
+                        self.selected_agent(cx).as_ref(),
+                        cx.listener(|this, _: &ClickEvent, _, cx| this.clear_subject(cx)),
+                        cx,
+                    )
+                    .into_any_element(),
+                );
+            }
         }
         // EXP-1155: 30 issue chips wrap into many rows; past the cap
         // they scroll in their own band beside the verb, never the dialog.
@@ -1660,42 +1927,6 @@ impl ChatScreenView {
                     .children(chips),
             )
             .flex_1()
-            .into_any_element(),
-        )
-    }
-
-    /// The picked action's typed inputs (repo/board/pr/issue).
-    fn render_action_fields(&self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
-        let Subject::Action(subject) = &self.subject else {
-            return None;
-        };
-        let action = self.selected_action()?.clone();
-        if action.inputs.is_empty() {
-            return None;
-        }
-        let team_id = action.team_id.clone();
-        let mut fields = v_flex().w_full().gap_2().px_1().py_1();
-        for (ix, input) in action.inputs.iter().enumerate() {
-            fields = fields.child(subject.picks.render_field(
-                "chat-input",
-                ix,
-                input,
-                &team_id,
-                &self.team_repos,
-                Self::picks_access,
-                cx,
-            ));
-        }
-        // EXP-1155: the inputs grow the dialog up to a cap, then scroll in
-        // their own band so the text field and the send stay in view.
-        Some(
-            crate::scroll_pane::capped_v_scroll(
-                "chat-fields-scroll",
-                &self.fields_scroll,
-                px(FIELDS_MAX_H),
-                fields,
-            )
-            .w_full()
             .into_any_element(),
         )
     }
@@ -1850,20 +2081,33 @@ impl ChatScreenView {
         let picker_fit =
             issue_picker::popover_fit(bounds, viewport, issue_picker::POPOVER_WANTED_HEIGHT);
         let options = self.launch.as_ref().map(|launch| launch.composer_menu(cx));
+        // NEW-3: Message an agent › lists the team's agents, the subject's
+        // one checked.
+        let agents = self.team_agents(cx);
+        let picked_agent = match &self.subject {
+            Subject::Agent(subject) => Some(subject.agent_id.clone()),
+            _ => None,
+        };
         // EXP-1259 (DEV-ONLY, `EXP_DEV_COMPOSER_MENU=implement-issue`): the
         // home page opens its "+" menu once, on the first render that has
-        // the full menu (the launch cluster), synced issues and a measured +.
+        // the full menu (the launch cluster), synced issues, a measured +
+        // and (NEW-39) the team's MCP servers loaded: the menu is built when
+        // it opens, so a list landing later would photograph without its
+        // MCP servers row (web's capture hovers after the page settled).
         let dev_open = matches!(self.presentation, Presentation::Page)
             && options.is_some()
             && bounds.size.width > px(0.)
             && crate::navigation::shapes_ready(cx)
+            && self.mcp.is_some()
             && crate::screens::take_dev_composer_menu();
         let view = cx.entity().downgrade();
         let trigger = crate::composer::composer_tool("chat-tool-plus", registry::UI_ADD, cx)
             .tooltip(PLUS_TOOLTIP)
             .disabled(self.sending);
         let menu = crate::controls::PointerMenu::new("chat-tool-plus-menu", trigger, {
-            move |menu, window, cx| plus_menu(menu, &view, options.as_ref(), window, cx)
+            move |menu, window, cx| {
+                plus_menu(menu, &view, options.as_ref(), &agents, picked_agent.as_deref(), window, cx)
+            }
         })
         .anchor(menu_fit.0)
         .dev_open(dev_open);
@@ -2093,6 +2337,10 @@ impl ChatScreenView {
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) -> AnyElement {
+        // NEW-39: retry the per-team fetches that found no tRPC client yet;
+        // both return at once when the team already matches.
+        self.ensure_mcp_loaded(cx);
+        self.ensure_repos_loaded(cx);
         let mcp = self.mcp_options();
         if let Some(launch) = self.launch.as_mut() {
             launch.set_mcp_servers(mcp);
@@ -2101,12 +2349,16 @@ impl ChatScreenView {
         let blocker = self.launch_blocker(cx);
         // EXP-1196: a device/agent failure renders as THE failing readiness
         // row (with its action) instead of a sentence.
-        let readiness = self.readiness_blocker(cx);
+        // NEW-3: a DM runs on the agent's own device: no machine notes.
+        let to_agent = self.to_agent();
+        let readiness = self.readiness_blocker(cx).filter(|_| !to_agent);
         let readiness_summary = readiness
             .as_ref()
             .map(|(row, _)| SharedString::from(device_readiness::summary(row)));
-        let no_session_note = self.no_session_note().filter(|_| readiness.is_none());
-        let request_note = self.device_request_note(cx);
+        let no_session_note = self
+            .no_session_note()
+            .filter(|_| readiness.is_none() && !to_agent);
+        let request_note = self.device_request_note(cx).filter(|_| !to_agent);
         // EXP-827: ICON-ONLY — the ONE round send of `composer::glass_composer`
         // (the steer composer's button, same ring, same 32px hit box). The
         // label the web `submitLabel` mirrors is the TOOLTIP now: the composer
@@ -2125,9 +2377,9 @@ impl ChatScreenView {
         .loading(self.sending || self.start_pending.shown())
         .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.send(window, cx)));
         // EXP-1019: the subject CHIPS moved out of the card into the
-        // headline; the picked action's typed inputs stay in it (they are
-        // fields of the form, not the subject).
-        let leading = self.render_action_fields(cx);
+        // headline (NEW-2: a prompt has no typed inputs). NEW-2: the `/`
+        // menu leads the card, above the field.
+        let leading: Option<AnyElement> = self.render_slash(window, cx);
         let strip = (!self.images.is_empty()).then(|| {
             self.images
                 .render_strip("chat-pending-remove", self.sending, Self::remove_image, cx)
@@ -2136,6 +2388,13 @@ impl ChatScreenView {
             div()
                 .w_full()
                 .min_w_0()
+                // The captures run before the field's own handlers: with the
+                // `/` menu open the keys drive it, never the send.
+                .capture_action(cx.listener(Self::on_slash_up))
+                .capture_action(cx.listener(Self::on_slash_down))
+                .capture_action(cx.listener(Self::on_slash_escape))
+                .capture_action(cx.listener(Self::on_slash_enter))
+                .capture_action(cx.listener(Self::on_slash_tab))
                 .child(self.mention.clone())
                 .into_any_element(),
         )
@@ -2149,8 +2408,12 @@ impl ChatScreenView {
         let headline = self.render_headline(cx);
         // EXP-1271: while a start is on its way the options line is the
         // STARTING row: the mark, "Starting on <device>", the elapsed time.
+        // NEW-3: an agent subject HIDES the options line (Device · Account ·
+        // Model · Plan · Repository): the DM runs on the agent's own device
+        // and login.
         let options = match &self.starting {
-            Some(starting) => div()
+            _ if to_agent => None,
+            Some(starting) => Some(div()
                 .w_full()
                 .min_w_0()
                 .px_1()
@@ -2161,8 +2424,8 @@ impl ChatScreenView {
                     crate::surface::page_ground(),
                     cx,
                 ))
-                .into_any_element(),
-            None => self.render_options_row(cx),
+                .into_any_element()),
+            None => Some(self.render_options_row(cx)),
         };
         let muted = cx.theme().muted_foreground;
         let mut notes = v_flex().w_full().min_w_0().gap_0p5().px_1().text_xs();
@@ -2209,7 +2472,7 @@ impl ChatScreenView {
                 crate::composer::glass_composer(composer)
                     .capture_action(cx.listener(Self::on_paste)),
             )
-            .child(options)
+            .children(options)
             .child(notes)
             .into_any_element()
     }
@@ -2397,7 +2660,9 @@ impl gpui::Global for OpenComposerDialog {}
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ComposerMenuRow {
     ImplementIssue,
-    RunAction,
+    /// NEW-3: Message an agent › (`when: agents`): THE Picker rows of the
+    /// team's agents, single pick.
+    MessageAgent,
     AddFile,
     Separator,
     Effort,
@@ -2412,7 +2677,7 @@ impl ComposerMenuRow {
     pub(crate) fn icon(self) -> Option<crate::icons::ExpIcon> {
         Some(match self {
             Self::ImplementIssue => registry::EDITOR_ISSUE_REF,
-            Self::RunAction => registry::ACTION_RUN,
+            Self::MessageAgent => registry::SETTINGS_AGENTS,
             Self::AddFile => registry::UI_ATTACH,
             Self::Separator => return None,
             Self::Effort => registry::UI_ESTIMATE,
@@ -2435,15 +2700,25 @@ pub(crate) struct ComposerMenuConditions {
     pub(crate) ultracode: bool,
     pub(crate) mcp: bool,
     pub(crate) computer_use: bool,
+    /// NEW-3: the team has at least one agent (`agents` rows).
+    pub(crate) agents: bool,
 }
 
 impl ComposerMenuConditions {
-    fn of(options: &launch_options::ComposerMenu) -> Self {
+    /// The conditions off the launch cluster's menu state and the team's
+    /// agents (the rail's rows, [`crate::session_data::agents_in_team`]).
+    pub(crate) fn of(
+        options: &launch_options::ComposerMenu,
+        agents: &[domain::session_tree::AgentRow],
+    ) -> Self {
         Self {
-            subagent_model: options.subagent_value().is_some(),
+            // NEW-39: like web's composer-plus-menu (EXP-1293), `sessions.send`
+            // carries no subagent model, so the Subagents row hides.
+            subagent_model: false,
             ultracode: options.ultracode.is_some(),
             mcp: !options.mcp_servers.is_empty(),
             computer_use: options.computer_use.is_some(),
+            agents: !agents.is_empty(),
         }
     }
 }
@@ -2456,11 +2731,11 @@ impl ComposerMenuConditions {
 pub(crate) fn composer_menu_rows(conditions: Option<ComposerMenuConditions>) -> Vec<ComposerMenuRow> {
     use ComposerMenuRow::*;
     let Some(when) = conditions else {
-        return vec![ImplementIssue, RunAction, AddFile];
+        return vec![ImplementIssue, AddFile];
     };
     let all = [
         (ImplementIssue, true),
-        (RunAction, true),
+        (MessageAgent, when.agents),
         (AddFile, true),
         (Separator, true),
         (Effort, true),
@@ -2486,11 +2761,14 @@ pub(crate) fn composer_menu_rows(conditions: Option<ComposerMenuConditions>) -> 
 /// EXP-1249 — the "+" menu (web `launch-composer.tsx`'s menu, the
 /// styleguide `menu` entry's composer specimen), row by row off
 /// [`composer_menu_rows`]. `options` is `None` until the launch cluster
-/// exists (then only the first group shows).
+/// exists (then only the first group shows). `agents` = the team's agents
+/// (Message an agent › while any), `picked_agent` the subject's.
 pub(crate) fn plus_menu(
     mut menu: gpui_component::menu::PopupMenu,
     view: &gpui::WeakEntity<ChatScreenView>,
     options: Option<&launch_options::ComposerMenu>,
+    agents: &[domain::session_tree::AgentRow],
+    picked_agent: Option<&str>,
     window: &mut Window,
     cx: &mut gpui::Context<gpui_component::menu::PopupMenu>,
 ) -> gpui_component::menu::PopupMenu {
@@ -2507,7 +2785,7 @@ pub(crate) fn plus_menu(
     };
     let root = cx.entity().downgrade();
     menu = search_list::search_submenu_parent(menu.min_w(px(260.)));
-    for row in composer_menu_rows(options.map(ComposerMenuConditions::of)) {
+    for row in composer_menu_rows(options.map(|options| ComposerMenuConditions::of(options, agents))) {
         menu = match (row, options) {
             (ComposerMenuRow::Separator, _) => menu.separator(),
             // SLOP-28 (EXP-1259 D5): THE search list as a submenu — hover
@@ -2532,25 +2810,23 @@ pub(crate) fn plus_menu(
                     },
                 )
             }
-            (ComposerMenuRow::RunAction, _) => {
+            // NEW-3: THE Picker rows of the team's agents (the glyph in its
+            // colour, the name, the trailing check on the subject's); a
+            // pick makes the agent the subject and closes the menu.
+            (ComposerMenuRow::MessageAgent, _) => {
+                let title = match agents
+                    .iter()
+                    .find(|agent| Some(agent.agent_id.as_str()) == picked_agent)
+                {
+                    Some(agent) => format!("{MENU_MESSAGE_AGENT} · {}", agent.name),
+                    None => MENU_MESSAGE_AGENT.to_string(),
+                };
+                let agents = agents.to_vec();
+                let picked_agent = picked_agent.map(str::to_string);
                 let view = view.clone();
-                let root = root.clone();
-                menu.submenu_with_icon(
-                    Some(row.menu_icon()),
-                    MENU_RUN_ACTION,
-                    window,
-                    cx,
-                    move |sub, window, cx| {
-                        search_list::menu_search_list_submenu(
-                            "chat-run-action",
-                            run_action_source(&view),
-                            sub,
-                            root.clone(),
-                            window,
-                            cx,
-                        )
-                    },
-                )
+                menu.submenu_with_icon(Some(row.menu_icon()), title, window, cx, move |sub, _, _| {
+                    agent_submenu(sub, &agents, picked_agent.as_deref(), &view)
+                })
             }
             (ComposerMenuRow::AddFile, _) => menu.item({
                 let view = view.clone();
@@ -2690,6 +2966,66 @@ pub(crate) fn plus_menu(
     menu
 }
 
+/// NEW-3 — "+" → Message an agent ›: one Picker row per agent (its glyph in
+/// its colour + its name, single pick, the trailing check on the picked
+/// one). Shared with the styleguide's open menu.
+pub(crate) fn agent_submenu(
+    mut sub: gpui_component::menu::PopupMenu,
+    agents: &[domain::session_tree::AgentRow],
+    picked: Option<&str>,
+    view: &gpui::WeakEntity<ChatScreenView>,
+) -> gpui_component::menu::PopupMenu {
+    sub = sub.min_w(px(220.));
+    for agent in agents {
+        let glyph = agent.clone();
+        let agent_id = agent.agent_id.clone();
+        let view = view.clone();
+        sub = sub.item(crate::controls::pointer_check_item_with_icon(
+            move || crate::icons::agent_row_icon(&glyph),
+            agent.name.clone(),
+            picked == Some(agent.agent_id.as_str()),
+            move |window, cx| {
+                if let Some(view) = view.upgrade() {
+                    view.update(cx, |this, cx| {
+                        this.pick_agent(agent_id.clone(), cx);
+                        this.refocus_input(window, cx);
+                    });
+                }
+            },
+        ));
+    }
+    sub
+}
+
+/// NEW-3 — THE agent chip (`agent-composer-chip-agent` + `-remove`): the
+/// prompt chip's capsule with the agent's glyph in its colour, its name and
+/// the ✕ that drops the subject. `None` = the row has not synced (`Agent…`).
+pub(crate) fn agent_chip(
+    agent: Option<&domain::session_tree::AgentRow>,
+    on_remove: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+    cx: &App,
+) -> gpui::Stateful<gpui::Div> {
+    let name = agent
+        .map(|agent| agent.name.clone())
+        .unwrap_or_else(|| "Agent…".to_string());
+    let icon = match agent {
+        Some(agent) => crate::icons::agent_row_icon(agent),
+        None => Icon::new(registry::SETTINGS_AGENTS).text_color(cx.theme().muted_foreground),
+    };
+    glass_pill(AGENT_CHIP_ID, PillSize::Sm, PillMode::Readonly, cx)
+        .child(icon.xsmall())
+        .child(div().text_xs().child(SharedString::from(name)))
+        .child(
+            crate::composer::composer_tool(AGENT_CHIP_REMOVE_ID, registry::UI_CLOSE, cx)
+                .tooltip("Remove")
+                .on_click(on_remove),
+        )
+}
+
+/// NEW-3: the agent chip's test ids (`subject-chips.tsx`).
+pub(crate) const AGENT_CHIP_ID: &str = "agent-composer-chip-agent";
+pub(crate) const AGENT_CHIP_REMOVE_ID: &str = "agent-composer-chip-agent-remove";
+
 /// SLOP-28 — "+" → Implement issue ›: the issue rows (status glyph, mono
 /// identifier, title), the picks pinned first with their check, the repo
 /// probe's note on the rest; a pick toggles and keeps the menu open, the
@@ -2811,61 +3147,6 @@ fn implement_issue_source(view: &gpui::WeakEntity<ChatScreenView>) -> search_lis
     }
 }
 
-/// SLOP-28 — "+" → Run action ›: the team's actions as icon + NAME rows,
-/// no descriptions; a pick sets the subject and closes the menu.
-fn run_action_source(view: &gpui::WeakEntity<ChatScreenView>) -> search_list::MenuListSource {
-    let rows_view = view.clone();
-    let pick_view = view.clone();
-    let loading_view = view.clone();
-    search_list::MenuListSource {
-        placeholder: RUN_ACTION_PLACEHOLDER,
-        rows: Rc::new(move |query: &str, _window: &mut Window, cx: &mut App| {
-            let Some(view) = rows_view.upgrade() else {
-                return Vec::new();
-            };
-            let needle = query.trim().to_lowercase();
-            view.read(cx)
-                .actions
-                .iter()
-                .filter(|action| needle.is_empty() || action.name.to_lowercase().contains(&needle))
-                .map(|action| search_list::MenuListRow {
-                    id: action.id.clone(),
-                    body: search_list::action_row_body(
-                        crate::icons::action_icon(action.icon.as_deref()),
-                        action.name.clone(),
-                        cx,
-                    ),
-                    disabled: false,
-                })
-                .collect()
-        }),
-        pick: Rc::new(move |action_id: &str, window: &mut Window, cx: &mut App| {
-            if let Some(view) = pick_view.upgrade() {
-                view.update(cx, |this, cx| {
-                    this.select_action(action_id.to_string(), cx);
-                    this.refocus_input(window, cx);
-                });
-            }
-            true
-        }),
-        empty: Rc::new(move |query: &str, _cx: &App| {
-            if query.trim().is_empty() {
-                "No actions yet.".into()
-            } else {
-                "No actions match".into()
-            }
-        }),
-        // First load: skeleton rows (EXP-1259 D8).
-        loading: Rc::new(move |cx: &App| {
-            loading_view.upgrade().is_some_and(|view| !view.read(cx).actions_ready)
-        }),
-        footer: None,
-    }
-}
-
-/// The Run action › field's placeholder.
-const RUN_ACTION_PLACEHOLDER: &str = "Search actions";
-
 /// Register the composer a freshly opened dialog window hosts (called by
 /// [`crate::composer_dialog::open`]) so the rail's pinned action row keeps
 /// lighting up while its run is composed.
@@ -2931,7 +3212,7 @@ mod tests {
         assert_eq!(fixture["plusLabel"], PLUS_TOOLTIP);
         let row_of = |id: &str| match id {
             "implement-issue" => (ComposerMenuRow::ImplementIssue, MENU_IMPLEMENT_ISSUE),
-            "run-action" => (ComposerMenuRow::RunAction, MENU_RUN_ACTION),
+            "message-agent" => (ComposerMenuRow::MessageAgent, MENU_MESSAGE_AGENT),
             "add-file" => (ComposerMenuRow::AddFile, MENU_ADD_FILE),
             "effort" => (ComposerMenuRow::Effort, coding::CodingAgent::Claude.effort_label()),
             "subagents" => (ComposerMenuRow::Subagents, MENU_SUBAGENTS),
@@ -2967,6 +3248,7 @@ mod tests {
             ultracode: true,
             mcp: true,
             computer_use: true,
+            agents: true,
         };
         assert_eq!(composer_menu_rows(Some(all)), every, "rows order");
         for case in fixture["cases"].as_array().unwrap() {
@@ -2976,6 +3258,7 @@ mod tests {
                 ultracode: when["ultracode"].as_bool().unwrap(),
                 mcp: when["mcp"].as_bool().unwrap(),
                 computer_use: when["computerUse"].as_bool().unwrap(),
+                agents: when["agents"].as_bool().unwrap(),
             };
             let expected: Vec<ComposerMenuRow> = case["expected"]
                 .as_array()
@@ -2984,6 +3267,57 @@ mod tests {
                 .map(|id| row_of(id.as_str().unwrap()).0)
                 .collect();
             assert_eq!(composer_menu_rows(Some(conditions)), expected, "{}", case["name"]);
+            // NEW-6: the same case off a REAL launch-menu state and the
+            // team's synced `agents` rows (another team's agent never
+            // counts), through the rail's `list_agents`.
+            let menu = launch_options::ComposerMenu {
+                effort_label: "Effort",
+                effort_choices: &[("High", "high")],
+                effort_picked: "high".into(),
+                effort_locked: false,
+                subagent_picked: conditions.subagent_model.then(String::new),
+                ultracode: conditions.ultracode.then_some(false),
+                mcp_servers: if conditions.mcp {
+                    vec![launch_options::McpServerOption {
+                        id: "m-1".into(),
+                        name: "Linear".into(),
+                        blocked: None,
+                        enabled_by_default: true,
+                        url: None,
+                        command: None,
+                    }]
+                } else {
+                    Vec::new()
+                },
+                mcp_selected: Vec::new(),
+                computer_use: conditions.computer_use.then_some(false),
+            };
+            let mut defs: Vec<domain::rows::AgentDefRow> = vec![serde_json::from_value(
+                serde_json::json!({ "id": "a-other", "team_id": "t-2", "name": "Elsewhere" }),
+            )
+            .unwrap()];
+            if conditions.agents {
+                defs.push(
+                    serde_json::from_value(
+                        serde_json::json!({ "id": "a-1", "team_id": "t-1", "name": "Triage" }),
+                    )
+                    .unwrap(),
+                );
+            }
+            let def_refs: Vec<&domain::rows::AgentDefRow> = defs.iter().collect();
+            let rows = domain::session_tree::list_agents(&def_refs, &[], Some("t-1"), None);
+            // NEW-39: off real state the Subagents row always hides (web's
+            // `subagentModel: false`); the fixture's own rows replay above.
+            let expected: Vec<ComposerMenuRow> = expected
+                .into_iter()
+                .filter(|row| *row != ComposerMenuRow::Subagents)
+                .collect();
+            assert_eq!(
+                composer_menu_rows(Some(ComposerMenuConditions::of(&menu, &rows))),
+                expected,
+                "{} (from rows)",
+                case["name"]
+            );
         }
         // The issue picker's footer submit (`implementButton`, its test id
         // and every `implementLabels` case).
@@ -3003,7 +3337,7 @@ mod tests {
         // Before the launch cluster exists: the first group, no separator.
         assert_eq!(
             composer_menu_rows(None),
-            [ComposerMenuRow::ImplementIssue, ComposerMenuRow::RunAction, ComposerMenuRow::AddFile]
+            [ComposerMenuRow::ImplementIssue, ComposerMenuRow::AddFile]
         );
     }
 
@@ -3029,62 +3363,25 @@ mod tests {
     }
 
     /// EXP-825: the field's hint follows the subject like the web
-    /// `composerPlaceholder`: no subject asks the home's question, a picked
-    /// subject takes extra instructions, and a picked action with a
-    /// non-blank `prompt_placeholder` shows that instead; a blank hint, an
-    /// unlisted action or an issue subject fall back.
+    /// `composerPlaceholder`: no subject asks the home's question, any
+    /// picked subject takes extra instructions (NEW-2: prompts carry no
+    /// composer hint).
     #[test]
-    fn composer_placeholder_follows_the_subject_and_the_actions_hint() {
+    fn composer_placeholder_follows_the_subject() {
         // EXP-1253: no subject = the home's question.
         assert_eq!(CHAT_PLACEHOLDER, "What do you want to build?");
         assert_eq!(SUBJECT_PLACEHOLDER, "Additional instructions (optional)…");
-        let action_subject = |id: &str| {
-            Subject::Action(ActionSubject {
-                action_id: id.to_string(),
-                picks: ActionInputPicks::default(),
-            })
-        };
-        let mut action: api::actions::Action = serde_json::from_value(serde_json::json!({
-            "id": "act-1", "teamId": "team-1", "name": "Triage",
-        }))
-        .expect("a minimal action row");
-
-        // No subject: the home's hint, whatever row is offered.
-        assert_eq!(
-            placeholder_for_subject(&Subject::None, Some(&action)),
-            CHAT_PLACEHOLDER
-        );
-        // A picked action without a hint: the generic subject hint.
-        assert_eq!(
-            placeholder_for_subject(&action_subject("act-1"), Some(&action)),
-            SUBJECT_PLACEHOLDER
-        );
-        // The action's hint wins, trimmed.
-        action.prompt_placeholder = Some("  Scope: which platforms, which version  ".to_string());
-        assert_eq!(
-            placeholder_for_subject(&action_subject("act-1"), Some(&action)),
-            "Scope: which platforms, which version"
-        );
-        // A blank hint is no hint.
-        action.prompt_placeholder = Some("   ".to_string());
-        assert_eq!(
-            placeholder_for_subject(&action_subject("act-1"), Some(&action)),
-            SUBJECT_PLACEHOLDER
-        );
-        // An action the list doesn't hold (no row) falls back too.
-        assert_eq!(
-            placeholder_for_subject(&action_subject("act-1"), None),
-            SUBJECT_PLACEHOLDER
-        );
-        // An issue subject never reads an action hint.
+        assert_eq!(placeholder_for_subject(&Subject::None), CHAT_PLACEHOLDER);
+        let prompt = Subject::Action(ActionSubject { action_id: "p-1".to_string() });
+        assert_eq!(placeholder_for_subject(&prompt), SUBJECT_PLACEHOLDER);
         let issues = Subject::Issues(IssueSubject {
             rows: Rc::default(),
             checked: HashSet::new(),
             repos: HashMap::new(),
         });
-        assert_eq!(
-            placeholder_for_subject(&issues, Some(&action)),
-            SUBJECT_PLACEHOLDER
-        );
+        assert_eq!(placeholder_for_subject(&issues), SUBJECT_PLACEHOLDER);
+        // NEW-3: a message to an agent, like the web composer.
+        let agent = Subject::Agent(AgentSubject { agent_id: "a-1".to_string() });
+        assert_eq!(placeholder_for_subject(&agent), SUBJECT_PLACEHOLDER);
     }
 }

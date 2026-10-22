@@ -11,7 +11,7 @@ import org.junit.Test
  * EXP-825: the composer's preselection rides the `agent?…` route's query args.
  * The mint ([agentRoute]) and the read ([AgentComposerSeed.fromArgs]) must be
  * inverses through Navigation's percent-decoding, and the web rules hold:
- * `action` wins over `issues`, empty params are omitted, bad ids are dropped.
+ * `action` (a prompt) wins over `issues`, empty params are omitted, bad ids are dropped.
  */
 class AgentComposerSeedRouteTest {
 
@@ -32,7 +32,7 @@ class AgentComposerSeedRouteTest {
     @Test
     fun `an empty seed is the bare route`() {
         assertEquals("agent", agentRoute(AgentComposerSeed.EMPTY))
-        assertEquals("agent", agentRoute(AgentComposerSeed(text = "", icon = "", actionId = "")))
+        assertEquals("agent", agentRoute(AgentComposerSeed(text = "", icon = "", promptId = "")))
         val parsed = AgentComposerSeed.fromArgs { null }
         assertEquals(AgentComposerSeed.EMPTY, parsed)
         assertFalse(parsed.hasSubject)
@@ -57,7 +57,7 @@ class AgentComposerSeedRouteTest {
         assertEquals("agent?issues=$issueA%2C$issueB", route)
         val parsed = AgentComposerSeed.fromArgs(argsOf(route))
         assertEquals(listOf(issueA, issueB), parsed.issueIds)
-        assertNull(parsed.actionId)
+        assertNull(parsed.promptId)
         assertNull(parsed.deviceId)
         assertNull(parsed.text)
         assertTrue(parsed.hasSubject)
@@ -68,7 +68,7 @@ class AgentComposerSeedRouteTest {
         val text = "Triage the nightly failures\n\nTrigger — call `x` with {\"a\":1}&b=2 +100%"
         val seed = AgentComposerSeed(
             issueIds = listOf(issueA),
-            actionId = "builtin:create-action",
+            promptId = "builtin:create-action",
             deviceId = "dev-1",
             prIssueId = issueB,
             text = text,
@@ -87,7 +87,7 @@ class AgentComposerSeedRouteTest {
 
     @Test
     fun `action wins over issues for the checked set`() {
-        val seed = AgentComposerSeed(issueIds = listOf(issueA), actionId = "builtin:fix-conflicts")
+        val seed = AgentComposerSeed(issueIds = listOf(issueA), promptId = "builtin:fix-conflicts")
         assertTrue(seed.effectiveIssueIds.isEmpty())
         assertTrue(seed.hasSubject)
         assertEquals(listOf(issueA), AgentComposerSeed(issueIds = listOf(issueA)).effectiveIssueIds)
@@ -100,7 +100,7 @@ class AgentComposerSeedRouteTest {
         )
         assertEquals(listOf(issueA), parsed.issueIds)
         assertNull(parsed.prIssueId)
-        assertNull(parsed.actionId)
+        assertNull(parsed.promptId)
         assertNull(parsed.deviceId)
         assertNull(parsed.text)
         assertNull(parsed.icon)
@@ -110,7 +110,7 @@ class AgentComposerSeedRouteTest {
     @Test
     fun `the conflict flag rides as conflict=1`() {
         val seed = AgentComposerSeed(
-            actionId = "11111111-2222-4333-8444-555555555555",
+            promptId = "11111111-2222-4333-8444-555555555555",
             prIssueId = issueA,
             conflict = true,
         )

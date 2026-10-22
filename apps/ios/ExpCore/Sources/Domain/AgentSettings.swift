@@ -10,7 +10,7 @@ import Foundation
 public enum AgentSettings {
     /// One row of the agent page, top to bottom (fixture `fields`).
     public struct Field: Equatable, Sendable, Identifiable {
-        /// identity | device | account | schedule | instructions | delete.
+        /// identity | device | account | triggers | instructions | delete.
         public let key: String
         public let label: String
         /// icon-color-name | device-picker | account-picker | trigger-list |
@@ -35,7 +35,7 @@ public enum AgentSettings {
         Field(key: "identity", label: "Name", control: "icon-color-name", required: true),
         Field(key: "device", label: "Device", control: "device-picker", required: true),
         Field(key: "account", label: "Account", control: "account-picker", required: false),
-        Field(key: "schedule", label: "Schedule", control: "trigger-list", required: false),
+        Field(key: "triggers", label: "Triggers", control: "trigger-list", required: false),
         Field(key: "instructions", label: "Instructions", control: "markdown", required: false),
         Field(key: "delete", label: "Delete agent", control: "danger", required: false, ownerOnly: true),
     ]
@@ -50,23 +50,16 @@ public enum AgentSettings {
         public static let noSchedule = "Waits for messages"
         public static let paused = "Paused"
         public static let deleteConfirm = "Delete this agent? Its conversation is deleted with it."
-        /// 1 = Monday … 7 = Sunday at index `weekday - 1`.
-        public static let weekdays = [
-            "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday",
-        ]
-        public static let scheduleDaily = "Daily at {time}"
-        public static let scheduleWeekly = "Weekly on {weekday} at {time}"
-        public static let scheduleMonthly = "Monthly on day {day} at {time}"
-        /// Contract `agentTriggerEventValues` → the Schedule row's sentence.
+        /// Contract `eventBuiltinNames` → the Triggers row's sentence.
         public static let events: [String: String] = [
-            "created": "When an issue is created",
-            "status_changed": "When an issue's status changes",
-            "assignee_changed": "When an issue is assigned",
-            "label_added": "When a label is added",
-            "priority_changed": "When an issue's priority changes",
-            "pr_opened": "When a pull request opens",
-            "pr_merged": "When a pull request merges",
+            "issue.created": "When an issue is created",
+            "issue.status_changed": "When an issue's status changes",
+            "pr.opened": "When a pull request opens",
+            "pr.merged": "When a pull request merges",
+            "session.ended": "When a session ends",
         ]
+        /// A custom event name's sentence.
+        public static let event = "On {name}"
         public static let nameRequired = "Name the agent"
         public static let nameTooLong = "Use at most 64 characters"
         public static let deviceRequired = "Pick a device"
@@ -81,34 +74,17 @@ public enum AgentSettings {
         public static let page = "agent-settings-page"
     }
 
-    /// `HH:MM`, zero-padded 24h wall clock (device-local), clamped to a day.
-    public static func clock(_ minuteOfDay: Int) -> String {
-        let minutes = max(0, min(1439, minuteOfDay))
-        func pad(_ value: Int) -> String { value < 10 ? "0\(value)" : "\(value)" }
-        return "\(pad(minutes / 60)):\(pad(minutes % 60))"
-    }
-
-    /// One Schedule row's text; a disabled trigger appends ` · Paused`.
+    /// One Triggers row's text (a schedule = `SchedulePicker.scheduleSummary`);
+    /// a disabled trigger appends ` · Paused`.
     public static func triggerSummary(_ when: TriggerWhen, enabled: Bool) -> String {
         let text: String
         switch when {
         case let .schedule(schedule):
-            let time = clock(schedule.minuteOfDay)
-            switch schedule.interval {
-            case "weekly":
-                let weekday = Copy.weekdays[(((schedule.weekday ?? 1) - 1) % 7 + 7) % 7]
-                text = Copy.scheduleWeekly
-                    .replacingOccurrences(of: "{weekday}", with: weekday)
-                    .replacingOccurrences(of: "{time}", with: time)
-            case "monthly":
-                text = Copy.scheduleMonthly
-                    .replacingOccurrences(of: "{day}", with: String(schedule.dayOfMonth ?? 1))
-                    .replacingOccurrences(of: "{time}", with: time)
-            default:
-                text = Copy.scheduleDaily.replacingOccurrences(of: "{time}", with: time)
-            }
+            // NEW-2: THE schedule picker's sentence (`SchedulePicker`).
+            text = SchedulePicker.scheduleSummary(cron: schedule.cron, tz: schedule.tz)
         case let .event(event):
-            text = Copy.events[event.event] ?? event.event
+            text = Copy.events[event.name]
+                ?? Copy.event.replacingOccurrences(of: "{name}", with: event.name)
         }
         return enabled ? text : "\(text) · \(Copy.paused)"
     }

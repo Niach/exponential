@@ -82,6 +82,8 @@ import com.exponential.app.domain.SessionTree
 import com.exponential.app.domain.WorkCardInput
 import com.exponential.app.domain.WorkCardSpec
 import com.exponential.app.domain.WorkCards
+import com.exponential.app.ui.components.AgentRunMark
+import com.exponential.app.ui.components.DEFAULT_AGENT
 import com.exponential.app.ui.components.CircleIconButton
 import com.exponential.app.ui.components.GlassComposer
 import com.exponential.app.ui.components.GlassDropdownMenu
@@ -125,7 +127,6 @@ internal object ThreadUiCopy {
     const val REMOVE_FROM_QUEUE = "Remove from queue"
     const val SEND = "Send"
     const val ADD = "Add"
-    const val SETTINGS = "Agent settings"
     const val PRIVATE = "Private"
 
     fun unlink(identifier: String) = "Unlink $identifier"
@@ -222,15 +223,15 @@ fun ThreadGuideMenuButton(
     }
 }
 
-/** An agent channel's header: back, the agent's icon (its colour) + name,
- *  and the settings affordance. */
+/** An agent channel's header: back, the agent's icon (its colour) + name.
+ *  NEW-41: no settings gear (web/desktop/iOS reach an agent's settings
+ *  through Settings → Agents only). */
 @Composable
 fun AgentChannelHeader(
     name: String,
     icon: String?,
     color: String?,
     onBack: (() -> Unit)?,
-    onSettings: (() -> Unit)?,
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier.fillMaxWidth().testTag("thread-header")) {
@@ -240,11 +241,6 @@ fun AgentChannelHeader(
         ) {
             if (onBack != null) TopBarBackButton(onClick = onBack)
             Spacer(Modifier.weight(1f))
-            if (onSettings != null) {
-                IconButton(onClick = onSettings, modifier = Modifier.testTag("agent-channel-settings")) {
-                    Icon(ExpIcons.navSettings, contentDescription = ThreadUiCopy.SETTINGS, tint = Secondary, modifier = Modifier.size(20.dp))
-                }
-            }
         }
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(top = 2.dp, bottom = 12.dp),
@@ -839,13 +835,12 @@ private val ThreadTabHeight = 32.dp
 /** A session chip's lead: the thread row mark of that session. */
 @Composable
 private fun SessionTabMark(state: SessionTree.SessionState, size: Dp = 14.dp) {
-    val (icon, tint) = when (state) {
-        SessionTree.SessionState.NeedsYou -> ExpIcons.codingNeedsInput to NeedsInputAmber
-        SessionTree.SessionState.Working -> ExpIcons.codingRunning to MaterialTheme.colorScheme.onSurface
-        SessionTree.SessionState.Ended -> ExpIcons.codingEnded to Muted
-        else -> ExpIcons.codingAssistant to Muted
-    }
-    Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(size))
+    // NEW-41 (`sessionTabMarkState` ×4): a session chip's lead = that
+    // session's thread row mark (web `AgentRunMark`, iOS
+    // `ThreadSessionChipMark`): the brand mark, the amber badge while it
+    // needs you, the working mark while it works, dimmed once ended. The
+    // chip names no CLI, so the default brand mark leads (iOS `agent: nil`).
+    AgentRunMark(agent = DEFAULT_AGENT, state = state, size = size, badgeSize = 6.dp)
 }
 
 /** One strip tab. [chip] = an entity chip (issue / session): a bordered

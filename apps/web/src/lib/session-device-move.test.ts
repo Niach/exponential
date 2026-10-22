@@ -102,10 +102,10 @@ const session = (
 
 describe(`the pin's visibility and refusals (EXP-1252)`, () => {
   it(`hides for agents and asides`, () => {
-    expect(deviceMoveVisible({ kind: `thread`, aside: false })).toBe(true)
-    expect(deviceMoveHiddenReason({ kind: `agent`, aside: false })).toBe(REASON_AGENT)
-    expect(deviceMoveVisible({ kind: `agent` })).toBe(false)
-    expect(deviceMoveHiddenReason({ kind: `thread`, aside: true })).toBe(REASON_ASIDE)
+    expect(deviceMoveVisible({ agentId: null, aside: false })).toBe(true)
+    expect(deviceMoveHiddenReason({ agentId: `agent-1`, aside: false })).toBe(REASON_AGENT)
+    expect(deviceMoveVisible({ agentId: `agent-1` })).toBe(false)
+    expect(deviceMoveHiddenReason({ agentId: null, aside: true })).toBe(REASON_ASIDE)
   })
 
   it(`refuses in the ×4 order: steer, then ended`, () => {

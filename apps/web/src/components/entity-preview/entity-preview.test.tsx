@@ -111,7 +111,7 @@ function context(over: Partial<EntityRefRouteContext> = {}): EntityRefRouteConte
     teamSlugById: (id) => (id === `t-2` ? `other` : null),
     sessionRootId: (id) =>
       id === `root-1` || id === `s-1` ? `root-1` : id === `agent-1` ? `agent-1` : null,
-    sessionIsAgent: (id) => id === `agent-1`,
+    sessionAgentId: (id) => (id === `agent-1` ? `agent-def-1` : null),
     ...over,
   }
 }
@@ -141,10 +141,14 @@ describe(`entityRefRoute`, () => {
     expect(route({ kind: `board`, id: `b-9` })).toBeNull()
   })
 
-  it(`opens an action on its page`, () => {
+  it(`opens a prompt (and a legacy action ref, same id) in Settings → Prompts`, () => {
+    expect(route({ kind: `prompt`, id: `a-1` })).toEqual({
+      to: `/t/$teamSlug/settings/prompts/$promptId`,
+      params: { teamSlug: `acme`, promptId: `a-1` },
+    })
     expect(route({ kind: `action`, id: `a-1` })).toEqual({
-      to: `/t/$teamSlug/actions/$actionId`,
-      params: { teamSlug: `acme`, actionId: `a-1` },
+      to: `/t/$teamSlug/settings/prompts/$promptId`,
+      params: { teamSlug: `acme`, promptId: `a-1` },
     })
   })
 
@@ -177,10 +181,18 @@ describe(`entityRefRoute`, () => {
     })
   })
 
-  it(`sends a team agent root to its channel`, () => {
+  it(`sends an agent's conversation root and an agent to the agent's page`, () => {
     expect(route({ kind: `session`, id: `agent-1` })).toEqual({
       to: `/t/$teamSlug/agents/$agentId`,
-      params: { teamSlug: `acme`, agentId: `agent-1` },
+      params: { teamSlug: `acme`, agentId: `agent-def-1` },
+    })
+    expect(route({ kind: `agent`, id: `agent-def-1` })).toEqual({
+      to: `/t/$teamSlug/agents/$agentId`,
+      params: { teamSlug: `acme`, agentId: `agent-def-1` },
+    })
+    expect(route({ kind: `event`, id: `e-1` })).toEqual({
+      to: `/t/$teamSlug/settings/agents`,
+      params: { teamSlug: `acme` },
     })
   })
 

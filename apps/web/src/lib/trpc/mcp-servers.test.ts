@@ -18,6 +18,14 @@ const h = vi.hoisted(() => ({
 
 vi.mock(`@/db/connection`, () => ({ db: {} }))
 vi.mock(`@/lib/auth`, () => ({ auth: {} }))
+// NEW-1: the host of a session is derived from the devices rows; here the
+// seeded session rows carry it as `hostUserId`.
+const seededSessions = vi.hoisted(() => ({ current: [] as Array<Record<string, unknown>> }))
+vi.mock(`@/lib/sessions/host`, () => ({
+  isSessionPrincipal: async (userId: string, row: { id: string; userId: string }) =>
+    row.userId === userId ||
+    seededSessions.current.find((entry) => entry.id === row.id)?.hostUserId === userId,
+}))
 vi.mock(`@/lib/team-membership`, () => ({
   assertTeamMember: h.assertTeamMember,
   assertTeamOwner: h.assertTeamOwner,
@@ -747,6 +755,7 @@ describe(`mcpServers.resolveForLaunch`, () => {
       sessions: over.sessions ?? [run()],
       apikeys: over.apikeys ?? [],
     })
+    seededSessions.current = over.sessions ?? [run()]
   }
   const inRun = (userId = `actor`, keyId?: string) =>
     callerFor(userId, { sessionId: RUN, keyId })
@@ -925,95 +934,3 @@ describe(`mcpServers.setShared (FEED-73)`, () => {
   })
 })
 
-describe(`mcpServers.resolveForLaunch — action runs spend shared connections (FEED-73)`, () => {
-  const RUN = `99999999-9999-4999-8999-999999999999`
-  const ACTION = `88888888-8888-4888-8888-888888888888`
-  const STDIO = `11111111-1111-4111-8111-333333333333`
-  const cred = (userId: string, serverId: string, payload: object, shared = true) => ({
-    id: `c-${userId}-${serverId}`,
-    serverId,
-    userId,
-    teamId: TEAM,
-    ciphertext: encryptCredential(payload, credentialAad(serverId, userId)),
-    expiresAt: null,
-    error: null,
-    shared,
-  })
-  const seed = (run: Record<string, unknown>) => {
-    db = createFakeDb({
-      mcp_servers: [
-        serverRow({ url: MCP_URL }),
-        serverRow({ id: SERVER_B, name: `Grafana`, auth: `secret`, headerNames: [`X-Api-Key`] }),
-        serverRow({ id: STDIO, name: `pg`, transport: `stdio`, url: null, command: `npx`, auth: `secret`, envNames: [`PG_URL`] }),
-      ],
-      team_members: [`actor`, `chris`, `dana`].map((userId) => ({ teamId: TEAM, userId })),
-      users: [
-        { id: `actor`, name: `Actor`, email: `actor@x.io` },
-        { id: `chris`, name: `Chris Doe`, email: `chris@x.io` },
-        { id: `dana`, name: `Dana`, email: `dana@x.io` },
-      ],
-      mcp_credentials: [
-        cred(`actor`, SERVER, { accessToken: `own-tok` }),
-        cred(`chris`, SERVER, { accessToken: `chris-tok` }),
-        cred(`dana`, SERVER, { accessToken: `dana-tok` }, false),
-        cred(`chris`, STDIO, { value: `postgres://chris` }),
-      ],
-      sessions: [
-        {
-          id: RUN,
-          userId: `actor`,
-          hostUserId: null,
-          teamId: TEAM,
-          status: `running`,
-          mcpServerIds: [SERVER, SERVER_B, STDIO],
-          actionId: ACTION,
-          ...run,
-        },
-      ],
-    })
-  }
-  const inRun = () => callerFor(`actor`, { sessionId: RUN })
-
-  it(`returns own entries plus other members' shared http ones, with actors and a roster`, async () => {
-    seed({})
-    const result = await inRun().resolveForLaunch({})
-    expect(result.servers.map((entry) => [entry.id, entry.name, entry.actor])).toEqual([
-      [SERVER, `Linear`, { userId: `actor`, name: `Actor`, shared: false }],
-      [SERVER, `Linear-as-chris`, { userId: `chris`, name: `Chris Doe`, shared: true }],
-    ])
-    expect(result.servers[1]!.headers).toEqual([{ name: `Authorization`, value: `Bearer chris-tok` }])
-    // Never the caller's own row twice, never an unshared one, never a stdio share.
-    expect(JSON.stringify(result.servers)).not.toMatch(/dana-tok|postgres/)
-    expect(result.skipped).toEqual([
-      { id: SERVER_B, name: `Grafana`, reason: `not connected` },
-      { id: STDIO, name: `pg`, reason: `not connected` },
-    ])
-    expect(result.members.map((member) => `${member.serverName}:${member.userId}:${member.state}`)).toEqual([
-      `Grafana:actor:self`,
-      `Grafana:chris:not_connected`,
-      `Grafana:dana:not_connected`,
-      `Linear:actor:self`,
-      `Linear:chris:shared`,
-      `Linear:dana:connected`,
-      `pg:actor:self`,
-      `pg:chris:connected`,
-      `pg:dana:not_connected`,
-    ])
-  })
-
-  it(`resolves only the row's own pick`, async () => {
-    seed({ mcpServerIds: [SERVER] })
-    const result = await inRun().resolveForLaunch({})
-    expect(result.servers.map((entry) => entry.name)).toEqual([`Linear`, `Linear-as-chris`])
-    expect(result.skipped).toEqual([])
-    expect(result.members.every((member) => member.serverId === SERVER)).toBe(true)
-  })
-
-  it(`a non-action run gets no extras and an empty roster`, async () => {
-    seed({ actionId: null })
-    const result = await inRun().resolveForLaunch({})
-    expect(result.servers.map((entry) => entry.name)).toEqual([`Linear`])
-    expect(result.members).toEqual([])
-    expect(JSON.stringify(result)).not.toContain(`chris-tok`)
-  })
-})

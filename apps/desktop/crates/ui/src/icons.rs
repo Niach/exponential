@@ -262,11 +262,6 @@ pub fn agent_icon(icon: Option<&str>, color: Option<&str>) -> Icon {
     Icon::from(agent_glyph(icon)).text_color(agent_tint(color))
 }
 
-/// [`agent_icon`] of an agent root row.
-pub fn agent_session_icon(session: &domain::rows::SessionRow) -> Icon {
-    agent_icon(session.icon.as_deref(), session.color.as_deref())
-}
-
 /// [`agent_icon`] of a rail [`domain::session_tree::AgentRow`] (defaults
 /// already applied).
 pub fn agent_row_icon(row: &domain::session_tree::AgentRow) -> Icon {

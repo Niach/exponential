@@ -424,6 +424,10 @@ public struct SessionEntity: FetchableRecord, PersistableRecord, Identifiable, E
     /// EXP-1252: a pending move to that device (nil = none); the source host
     /// hands the session over after its current turn.
     public let moveToDeviceId: String?
+    /// NEW-2: set = this root is an agent's conversation session (one per
+    /// agent and member); the kind derives from it (`sessionKindOf`), never
+    /// from the legacy `kind` shim.
+    public let agentId: String?
 
     public init(
         id: String,
@@ -467,8 +471,10 @@ public struct SessionEntity: FetchableRecord, PersistableRecord, Identifiable, E
         updatedAt: String,
         caption: String? = nil,
         aside: Bool = false,
-        moveToDeviceId: String? = nil
+        moveToDeviceId: String? = nil,
+        agentId: String? = nil
     ) {
+        self.agentId = agentId
         self.caption = caption
         self.aside = aside
         self.moveToDeviceId = moveToDeviceId
@@ -514,10 +520,11 @@ public struct SessionEntity: FetchableRecord, PersistableRecord, Identifiable, E
     }
 
     public var isRoot: Bool { parentId == nil }
-    public var isAgent: Bool { kind == DomainContract.sessionKindAgent }
+    /// NEW-2: an agent's conversation session (`agentId` set).
+    public var isAgent: Bool { sessionKindOf(agentId: agentId) == DomainContract.sessionKindAgent }
     /// EXP-1341: the kind's traits (`persistent`, `triggers`): branch on
-    /// these, never on the kind string.
-    public var traits: SessionTraits { SessionKind.traits(kind) }
+    /// these, never on the kind string (NEW-2: the kind derives from `agentId`).
+    public var traits: SessionTraits { SessionKind.traits(sessionKindOf(agentId: agentId)) }
     /// Not `ended` (queued, running and idle sessions all take messages).
     public var isLive: Bool { status != DomainContract.sessionStatusEnded }
 
@@ -544,6 +551,7 @@ public struct SessionEntity: FetchableRecord, PersistableRecord, Identifiable, E
         case createdAt = "created_at"
         case updatedAt = "updated_at"
         case moveToDeviceId = "move_to_device_id"
+        case agentId = "agent_id"
     }
 }
 
@@ -597,6 +605,8 @@ extension SessionEntity: Codable {
         caption = try c.decodeIfPresent(String.self, forKey: .caption)
         aside = c.decodeWireBool(forKey: .aside, default: false)
         moveToDeviceId = try c.decodeIfPresent(String.self, forKey: .moveToDeviceId)
+        // NEW-2: absent on a pre-NEW-2 server = a thread.
+        agentId = try c.decodeIfPresent(String.self, forKey: .agentId)
     }
 }
 
@@ -713,6 +723,9 @@ public struct MessageEntity: FetchableRecord, PersistableRecord, Identifiable, E
     /// EXP-1323: the session that posted it (a child asking its parent);
     /// nil = none.
     public let authorSessionId: String?
+    /// NEW-3: the conversation it belongs to (beside the kept `session_id`;
+    /// the server derives either from the other); nil on pre-NEW-3 rows.
+    public let conversationId: String?
 
     public init(
         id: String,
@@ -727,9 +740,11 @@ public struct MessageEntity: FetchableRecord, PersistableRecord, Identifiable, E
         consumedAt: String? = nil,
         createdAt: String,
         updatedAt: String,
-        authorSessionId: String? = nil
+        authorSessionId: String? = nil,
+        conversationId: String? = nil
     ) {
         self.authorSessionId = authorSessionId
+        self.conversationId = conversationId
         self.id = id
         self.sessionId = sessionId
         self.rootId = rootId
@@ -752,6 +767,7 @@ public struct MessageEntity: FetchableRecord, PersistableRecord, Identifiable, E
         case authorKind = "author_kind"
         case authorId = "author_id"
         case authorSessionId = "author_session_id"
+        case conversationId = "conversation_id"
         case answeredAt = "answered_at"
         case consumedAt = "consumed_at"
         case createdAt = "created_at"
@@ -775,6 +791,64 @@ extension MessageEntity: Codable {
         createdAt = try c.decode(String.self, forKey: .createdAt)
         updatedAt = try c.decode(String.self, forKey: .updatedAt)
         authorSessionId = try c.decodeIfPresent(String.self, forKey: .authorSessionId)
+        conversationId = try c.decodeIfPresent(String.self, forKey: .conversationId)
+    }
+}
+
+// MARK: - Conversation (NEW-3)
+
+// The chat primitive's row: `kind` dm | channel | session (contract
+// `conversationKind`). In step 1 every row is a session's own (kind
+// `session`, `session_id` set) and syncs on the session rule; dm/channel
+// readers (`conversation_members`) stay server-only until NEW-8.
+public struct ConversationEntity: FetchableRecord, PersistableRecord, Identifiable, Equatable, Sendable {
+    public static let databaseTableName = "conversations"
+
+    public let id: String
+    public let teamId: String
+    public let kind: String
+    public let sessionId: String?
+    public let title: String?
+    public let createdAt: String
+    public let updatedAt: String
+
+    public init(
+        id: String,
+        teamId: String,
+        kind: String = "session",
+        sessionId: String? = nil,
+        title: String? = nil,
+        createdAt: String,
+        updatedAt: String
+    ) {
+        self.id = id
+        self.teamId = teamId
+        self.kind = kind
+        self.sessionId = sessionId
+        self.title = title
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, kind, title
+        case teamId = "team_id"
+        case sessionId = "session_id"
+        case createdAt = "created_at"
+        case updatedAt = "updated_at"
+    }
+}
+
+extension ConversationEntity: Codable {
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        teamId = try c.decode(String.self, forKey: .teamId)
+        kind = try c.decodeIfPresent(String.self, forKey: .kind) ?? "session"
+        sessionId = try c.decodeIfPresent(String.self, forKey: .sessionId)
+        title = try c.decodeIfPresent(String.self, forKey: .title)
+        createdAt = try c.decode(String.self, forKey: .createdAt)
+        updatedAt = try c.decode(String.self, forKey: .updatedAt)
     }
 }
 
@@ -1051,6 +1125,209 @@ extension ActionEntity: Codable {
         } else {
             inputs = nil
         }
+    }
+}
+
+// MARK: - Agents, events, prompts (NEW-2)
+
+// NEW-2: a team agent is a DEFINITION, never a session; it runs as one
+// conversation session per member (`sessions.agent_id`). The `agents` shape
+// allowlist; `instructions` + `trigger_state` stay server-only. `triggers` =
+// the raw jsonb TEXT (`AgentTriggers.parse` reads it); "[]" = none.
+public struct AgentDefinitionEntity: FetchableRecord, PersistableRecord, Identifiable, Equatable, Sendable {
+    public static let databaseTableName = "agents"
+
+    public let id: String
+    public let teamId: String
+    public let name: String
+    public let icon: String?
+    public let color: String?
+    public let triggers: String
+    /// The steer device its conversations run on; nil = unset.
+    public let deviceId: String?
+    public let cli: String?
+    public let account: String?
+    public let model: String?
+    public let ownerId: String?
+    public let sortOrder: Double
+    public let createdAt: String
+    public let updatedAt: String
+
+    public init(
+        id: String,
+        teamId: String,
+        name: String,
+        icon: String? = nil,
+        color: String? = nil,
+        triggers: String = "[]",
+        deviceId: String? = nil,
+        cli: String? = nil,
+        account: String? = nil,
+        model: String? = nil,
+        ownerId: String? = nil,
+        sortOrder: Double = 0,
+        createdAt: String,
+        updatedAt: String
+    ) {
+        self.id = id
+        self.teamId = teamId
+        self.name = name
+        self.icon = icon
+        self.color = color
+        self.triggers = triggers
+        self.deviceId = deviceId
+        self.cli = cli
+        self.account = account
+        self.model = model
+        self.ownerId = ownerId
+        self.sortOrder = sortOrder
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, icon, color, triggers, cli, account, model
+        case teamId = "team_id"
+        case deviceId = "device_id"
+        case ownerId = "owner_id"
+        case sortOrder = "sort_order"
+        case createdAt = "created_at"
+        case updatedAt = "updated_at"
+    }
+}
+
+extension AgentDefinitionEntity: Codable {
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        teamId = try c.decode(String.self, forKey: .teamId)
+        name = try c.decodeIfPresent(String.self, forKey: .name) ?? ""
+        icon = try c.decodeIfPresent(String.self, forKey: .icon)
+        color = try c.decodeIfPresent(String.self, forKey: .color)
+        triggers = c.decodeWireJsonString(forKey: .triggers) ?? "[]"
+        deviceId = try c.decodeIfPresent(String.self, forKey: .deviceId)
+        cli = try c.decodeIfPresent(String.self, forKey: .cli)
+        account = try c.decodeIfPresent(String.self, forKey: .account)
+        model = try c.decodeIfPresent(String.self, forKey: .model)
+        ownerId = try c.decodeIfPresent(String.self, forKey: .ownerId)
+        sortOrder = try c.decodeWireDouble(forKey: .sortOrder) ?? 0
+        createdAt = try c.decode(String.self, forKey: .createdAt)
+        updatedAt = try c.decode(String.self, forKey: .updatedAt)
+    }
+}
+
+// NEW-2: an event (free-text `name`, jsonb `payload` stored as TEXT) the
+// server, a person or a session emitted; team-scoped, append-only. Agent
+// triggers of kind `event` fire on its name (server-side).
+public struct EventEntity: FetchableRecord, PersistableRecord, Identifiable, Equatable, Sendable {
+    public static let databaseTableName = "events"
+
+    public let id: String
+    public let teamId: String
+    public let name: String
+    /// The raw jsonb TEXT; nil = none.
+    public let payload: String?
+    /// `session` | `user` | `server` (contract `eventEmitterValues`).
+    public let emittedBy: String
+    public let sessionId: String?
+    public let userId: String?
+    public let createdAt: String
+
+    public init(
+        id: String,
+        teamId: String,
+        name: String,
+        payload: String? = nil,
+        emittedBy: String = "server",
+        sessionId: String? = nil,
+        userId: String? = nil,
+        createdAt: String
+    ) {
+        self.id = id
+        self.teamId = teamId
+        self.name = name
+        self.payload = payload
+        self.emittedBy = emittedBy
+        self.sessionId = sessionId
+        self.userId = userId
+        self.createdAt = createdAt
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, payload
+        case teamId = "team_id"
+        case emittedBy = "emitted_by"
+        case sessionId = "session_id"
+        case userId = "user_id"
+        case createdAt = "created_at"
+    }
+}
+
+extension EventEntity: Codable {
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        teamId = try c.decode(String.self, forKey: .teamId)
+        name = try c.decodeIfPresent(String.self, forKey: .name) ?? ""
+        payload = c.decodeWireJsonString(forKey: .payload)
+        emittedBy = try c.decodeIfPresent(String.self, forKey: .emittedBy) ?? "server"
+        sessionId = try c.decodeIfPresent(String.self, forKey: .sessionId)
+        userId = try c.decodeIfPresent(String.self, forKey: .userId)
+        createdAt = try c.decode(String.self, forKey: .createdAt)
+    }
+}
+
+// NEW-2: a saved prompt (replaces actions): the `prompts` shape allowlist;
+// the `body` is server-only (tRPC `prompts.get`).
+public struct PromptEntity: FetchableRecord, PersistableRecord, Identifiable, Equatable, Sendable {
+    public static let databaseTableName = "prompts"
+
+    public let id: String
+    public let teamId: String
+    public let name: String
+    /// Curated registry icon name; nil = the generic prompt glyph.
+    public let icon: String?
+    public let sortOrder: Double
+    public let createdAt: String
+    public let updatedAt: String
+
+    public init(
+        id: String,
+        teamId: String,
+        name: String,
+        icon: String? = nil,
+        sortOrder: Double = 0,
+        createdAt: String,
+        updatedAt: String
+    ) {
+        self.id = id
+        self.teamId = teamId
+        self.name = name
+        self.icon = icon
+        self.sortOrder = sortOrder
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, icon
+        case teamId = "team_id"
+        case sortOrder = "sort_order"
+        case createdAt = "created_at"
+        case updatedAt = "updated_at"
+    }
+}
+
+extension PromptEntity: Codable {
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        teamId = try c.decode(String.self, forKey: .teamId)
+        name = try c.decodeIfPresent(String.self, forKey: .name) ?? ""
+        icon = try c.decodeIfPresent(String.self, forKey: .icon)
+        sortOrder = try c.decodeWireDouble(forKey: .sortOrder) ?? 0
+        createdAt = try c.decode(String.self, forKey: .createdAt)
+        updatedAt = try c.decode(String.self, forKey: .updatedAt)
     }
 }
 

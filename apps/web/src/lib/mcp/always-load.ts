@@ -15,19 +15,14 @@
 //
 // Keep this list short. Each entry costs context on every single session.
 export const ALWAYS_LOAD_TOOLS = [
-  `exponential_issues_get`,
-  `exponential_comments_list`,
-  `exponential_comments_create`,
+  `exponential_issues`,
+  `exponential_comments`,
   `exponential_sessions_send`,
-  `exponential_sessions_end`,
-  `exponential_pr_open`,
-  `exponential_pr_merge`,
+  `exponential_guide_write`,
+  `exponential_pr`,
 ] as const
 
-// Always-loaded WHEN registered: the Guide writes on the caller's own
-// session (gates.inSession), so a human's MCP client never sees it — but a
-// session that is never shown the tool never writes its Guide.
-export const GATED_ALWAYS_LOAD_TOOLS = [`exponential_guide_write`] as const
+export const GATED_ALWAYS_LOAD_TOOLS = [] as const
 
 /** Spread into a `registerTool` config to mark it always-loaded. */
 export const ALWAYS_LOAD_META = { "anthropic/alwaysLoad": true } as const

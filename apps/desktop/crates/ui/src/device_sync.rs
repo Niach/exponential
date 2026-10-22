@@ -408,6 +408,10 @@ struct BeatSnapshot {
     /// the removal guard's input (a live run's account must not be deleted
     /// out from under it).
     live_session_ids: Vec<String>,
+    /// NEW-5: the heartbeat's `liveSessionIds` — every session a process of
+    /// this machine runs (this app's, the pickup's in flight, the ones
+    /// awaiting the startup re-claim, a live sibling's); `None` past the cap.
+    heartbeat_live_ids: Option<Vec<String>>,
     report_requested: bool,
     /// EXP-484: the live settings + doctor report the agent-status collector
     /// runs against. `None` doctor = the first probe has not landed yet;
@@ -474,6 +478,13 @@ fn snapshot_for(account_id: &str, cx: &mut App) -> Result<BeatSnapshot, Snapshot
         sessions.held_branches().map(str::to_string).collect();
     let live_session_ids = sessions.session_ids();
     let active_sessions = live_session_ids.len() as u32;
+    let heartbeat_live_ids = {
+        let mut ids: std::collections::BTreeSet<String> = live_session_ids.iter().cloned().collect();
+        ids.extend(crate::session_pickup::hosted_ids(cx));
+        ids.extend(crate::session_registry::left_behind());
+        ids.extend(crate::session_registry::live_ids(&data_dir));
+        (ids.len() <= api::devices::LIVE_SESSION_IDS_CAP).then(|| ids.into_iter().collect::<Vec<_>>())
+    };
     let hub = CodingHub::global(cx);
     let (settings, doctor) = {
         let hub = hub.read(cx);
@@ -490,6 +501,7 @@ fn snapshot_for(account_id: &str, cx: &mut App) -> Result<BeatSnapshot, Snapshot
         held_branches,
         active_sessions,
         live_session_ids,
+        heartbeat_live_ids,
         report_requested: false,
         settings,
         doctor,
@@ -636,6 +648,9 @@ fn beat(
             agent_accounts: writes.accounts.as_ref(),
             agent_usage: writes.usage.as_ref(),
             doctor: doctor_write.as_ref().map(|(value, _)| value),
+            // NEW-5: a busy row on this device missing from it is a dead
+            // process to the server.
+            live_session_ids: snapshot.heartbeat_live_ids.as_deref(),
         },
     ) {
         Ok(result) => {
@@ -904,6 +919,7 @@ pub(crate) fn push_local_defaults_if_changed(
         held_branches: HashSet::new(),
         active_sessions: 0,
         live_session_ids: Vec::new(),
+        heartbeat_live_ids: None,
         report_requested: false,
         // Defaults-push only — this snapshot never beats, collects or runs
         // a command.

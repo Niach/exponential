@@ -293,10 +293,6 @@ fn run_daemon(args: &[String]) -> CommandResult {
     // process-wide).
     registry::install_end_observer(ctx.data_dir.clone());
 
-    // EXP-229 parity: rows a previous crash left `running` go idle — never
-    // ended (EXP-1292: the next message resumes the SAME row). Pid-guarded —
-    // rows owned by a live sibling process are skipped.
-    reconcile_stale_sessions(&ctx);
     // EXP-757 (desktop parity): reclaim the scratch dirs of repo-less runs
     // nothing runs any more; a live sibling's (the desktop app on this
     // machine) are the keep set. Nothing is live in THIS process yet.
@@ -359,7 +355,7 @@ fn run_daemon(args: &[String]) -> CommandResult {
         Arc::clone(&logins_inflight),
         Arc::clone(&check_in),
     );
-    // EXP-1292: the pickup + trigger host — this daemon's own Electric
+    // EXP-1292: the pickup host — this daemon's own Electric
     // pipeline (a shape subset in `sync-cli.sqlite`, never the GUI's store),
     // ONE delta drain nudging the ONE serialized worker, plus the 30s
     // self-tick below. Sync failing to open is not fatal for the device row
@@ -380,7 +376,17 @@ fn run_daemon(args: &[String]) -> CommandResult {
         device_id: device_id.clone(),
         in_flight: Arc::new(Mutex::new(HashSet::new())),
         backoff: Mutex::new(HashMap::new()),
+        reclaiming: Mutex::new(HashSet::new()),
+        reclaim_until: Instant::now() + RECLAIM_GRACE,
     });
+    // EXP-229 parity, NEW-5: the sessions a previous process of this install
+    // left behind are RE-CLAIMED once the shapes sync ([`DaemonHost::
+    // reconcile_rows`]: a mid-turn row continues, a pending message
+    // replays, the rest idles) — never ended. Pid-guarded: rows owned by a
+    // live sibling process are skipped. Without a sync pipeline nothing can
+    // re-claim them, so they only go idle (the pre-NEW-5 rule).
+    let reclaim = reconcile_stale_sessions(&ctx, sync_manager.is_some());
+    lock_or_recover(&pickup.reclaiming).extend(reclaim);
     let daemon_worker = sync_manager.as_ref().map(|manager| {
         let synced = Arc::new(SyncedShapes::default());
         let worker = spawn_daemon_worker(Arc::clone(&pickup), Arc::clone(&synced));
@@ -477,10 +483,9 @@ fn run_daemon(args: &[String]) -> CommandResult {
     // converges in ~1s (and a restarted daemon corrects a stale count on its
     // first tick) instead of up to a full heartbeat interval.
     let mut reported_sessions: Option<usize> = None;
-    // EXP-530: the worker beat. The pickup and event triggers ride the
-    // delta drain (they act within a second of the row landing); this tick
-    // is what makes SCHEDULES fire — and the catch-up pass after a
-    // sleep/offline stretch, where no delta ever arrives.
+    // EXP-530: the worker beat. The pickup rides the delta drain (it acts
+    // within a second of the row landing); this tick is the catch-up pass
+    // after a sleep/offline stretch, where no delta ever arrives.
     let mut last_worker_tick = Instant::now();
     // EXP-1005: the account-rotation wall beat (every ROTATION_BEAT).
     let mut rotation = RotationHost {
@@ -505,9 +510,10 @@ fn run_daemon(args: &[String]) -> CommandResult {
         // deltas), never here.
         std::thread::sleep(Duration::from_secs(1));
 
-        // EXP-637: a finished RUN reclaims its own worktree — but only when
-        // it is provably clean and carries no commits. Blocking git on the
-        // 1Hz loop is fine: it runs once per finished run, not per tick.
+        // EXP-637 → NEW-5: a finished RUN's worktree ends
+        // ([`coding::finish_session_worktree`]): removed, its unpushed work
+        // parked on `origin/exp/leftover-<id8>` and named in the session's
+        // conversation. The git + push run on a side thread, never the loop.
         // EXP-764: a finished repo-LESS thread has no worktree to judge — it
         // is purged whole: scratch dir, claude trust entries, run record and
         // steer journal. A team agent's is kept (EXP-1292: it only idles).
@@ -551,11 +557,20 @@ fn run_daemon(args: &[String]) -> CommandResult {
                         // the worktree on the recorded branch; the registry's
                         // TTL retires the record.
                         let live = live_holders.clone().with_registry(&ctx.data_dir, &session_id);
-                        let verdict = coding::remove_if_clean(&cleanup, &live);
-                        log::info!(
-                            "run cleanup [{session_id}] on {}: {verdict:?}",
-                            cleanup.branch
-                        );
+                        let trpc = Arc::clone(&ctx.trpc);
+                        let spawned = std::thread::Builder::new()
+                            .name("exp-run-finish".to_string())
+                            .spawn(move || {
+                                let verdict =
+                                    coding::finish_session_worktree(&trpc, &session_id, &cleanup, &live);
+                                log::info!(
+                                    "run cleanup [{session_id}] on {}: {verdict:?}",
+                                    cleanup.branch
+                                );
+                            });
+                        if let Err(err) = spawned {
+                            log::warn!("run cleanup: finish thread failed to spawn: {err}");
+                        }
                     }
                     // EXP-1292: a team agent never ends — its scratch dir and
                     // record are what the next message or firing wakes it in.
@@ -595,16 +610,38 @@ fn run_daemon(args: &[String]) -> CommandResult {
         // EXP-1005: walled runs rotate to another account between turns.
         rotation.tick(&doctor);
         // EXP-1353: the size walk can take seconds — never on this loop nor
-        // the serialized device worker; one sweep thread at a time.
+        // the serialized device worker; one sweep thread at a time. NEW-5:
+        // the nightly stale-worktree sweep rides the same beat (its own
+        // throttle sweeps each clone once a day), shielding this host's
+        // live runs.
         if last_cargo_gc.is_none_or(|at| at.elapsed() >= CARGO_TARGET_GC_BEAT)
             && !cargo_gc_running.swap(true, Ordering::SeqCst)
         {
             last_cargo_gc = Some(Instant::now());
             let repos_root = coding::Settings::load(&coding::Settings::default_path(&ctx.data_dir))
                 .repos_root_path();
+            let live = {
+                let guard = lock_sessions(&sessions);
+                coding::LiveHolders {
+                    branches: guard
+                        .iter()
+                        .filter(|live| !live.session.is_done())
+                        .map(|live| live.branch.clone())
+                        .filter(|branch| !branch.is_empty())
+                        .collect(),
+                    worktrees: guard
+                        .iter()
+                        .filter(|live| !live.session.is_done())
+                        .map(|live| live.session.worktree.clone())
+                        .collect(),
+                }
+            };
+            let data_dir = ctx.data_dir.clone();
+            let trpc = Arc::clone(&ctx.trpc);
             let running = Arc::clone(&cargo_gc_running);
             std::thread::spawn(move || {
                 sweep_cargo_targets(&repos_root);
+                sweep_stale_worktrees(&repos_root, &data_dir, live, &trpc);
                 running.store(false, Ordering::SeqCst);
             });
         }
@@ -666,6 +703,9 @@ fn run_daemon(args: &[String]) -> CommandResult {
                 .then(|| serde_json::to_value(&device_doctor).ok())
                 .flatten();
             let carried_optional = send_accounts || send_usage || doctor_json.is_some();
+            // NEW-5: the sessions this process runs — a busy row on this
+            // device missing from it is a dead process to the server.
+            let live_session_ids = pickup.heartbeat_live_ids();
             match api::devices::heartbeat(
                 &ctx.trpc,
                 &api::devices::HeartbeatInput {
@@ -675,6 +715,7 @@ fn run_daemon(args: &[String]) -> CommandResult {
                     agent_accounts: send_accounts.then_some(accounts_json.as_ref()).flatten(),
                     agent_usage: send_usage.then_some(usage_json.as_ref()).flatten(),
                     doctor: doctor_json.as_ref(),
+                    live_session_ids: live_session_ids.as_deref(),
                 },
             ) {
                 Ok(result) => {
@@ -1285,18 +1326,43 @@ fn sweep_scratch_dirs_now(ctx: &Ctx) {
 }
 
 /// EXP-229 parity, EXP-1292 semantics: the sessions a previous process of
-/// this install left behind go `idle` — never `ended`: the next message
-/// resumes the SAME row from its run record (a crash, a suspend whose idle
-/// report failed; a team agent always idles). Only a thread whose final
-/// `ended` report never resolved (its run record says so) gets that END
-/// again.
-fn reconcile_stale_sessions(ctx: &Ctx) {
+/// this install left behind are never `ended` — the SAME row resumes from
+/// its run record (a crash, a suspend whose idle report failed; a team agent
+/// always idles). Only a thread whose final `ended` report never resolved
+/// (its run record says so) gets that END again.
+///
+/// NEW-5: with `reclaim` (the daemon syncs its shapes) the rest is returned
+/// instead of idled — [`DaemonHost::reconcile_rows`] re-claims them from
+/// their synced rows (a mid-turn one gets a continuation turn), and the
+/// heartbeat counts them live until it has. Their registry entries are
+/// dropped here: a re-claimed run records itself afresh under this pid.
+fn reconcile_stale_sessions(ctx: &Ctx, reclaim: bool) -> HashSet<String> {
     let stale = registry::stale_entries(&ctx.data_dir, &ctx.account.id);
+    let mut reclaimed = HashSet::new();
     if stale.is_empty() {
-        return;
+        return reclaimed;
     }
     let trpc = Arc::clone(&ctx.trpc);
     let data_dir = ctx.data_dir.clone();
+    let owed_end = |id: &str| {
+        coding::run_registry::get(&data_dir, id)
+            .is_some_and(|record| !record.kind.is_persistent() && record.unreported_end())
+    };
+    let stale: Vec<registry::StaleEntry> = stale
+        .into_iter()
+        .filter(|entry| {
+            let take = reclaim && (entry.crashed || !owed_end(&entry.id));
+            if take {
+                log::info!("reclaim: session {} was left behind by an earlier process — re-claiming it", entry.id);
+                registry::remove(&data_dir, &entry.id);
+                reclaimed.insert(entry.id.clone());
+            }
+            !take
+        })
+        .collect();
+    if stale.is_empty() {
+        return reclaimed;
+    }
     std::thread::spawn(move || {
         for entry in stale {
             let owed_end = coding::run_registry::get(&data_dir, &entry.id).is_some_and(|record| {
@@ -1314,6 +1380,7 @@ fn reconcile_stale_sessions(ctx: &Ctx) {
             }
         }
     });
+    reclaimed
 }
 
 // ---------------------------------------------------------------------------
@@ -2237,6 +2304,30 @@ fn sweep_cargo_targets(repos_root: &Path) -> Vec<String> {
     walked
 }
 
+/// NEW-5: the nightly stale-worktree sweep over every clone under
+/// `repos_root` ([`coding::sweep_stale_worktrees_if_due`]: once a day per
+/// clone), logging each report and naming parked leftover branches in their
+/// sessions' conversations. Returns the clones swept this call.
+fn sweep_stale_worktrees(
+    repos_root: &Path,
+    data_dir: &Path,
+    live: coding::LiveHolders,
+    trpc: &api::TrpcClient,
+) -> Vec<String> {
+    let policy = coding::SweepPolicy { live, ..coding::SweepPolicy::default() };
+    let mut swept = Vec::new();
+    for clone in coding::scan_clones(repos_root) {
+        let Some(report) =
+            coding::sweep_stale_worktrees_if_due(&clone.path, data_dir, std::time::SystemTime::now(), &policy)
+        else {
+            continue;
+        };
+        coding::settle_sweep_report(Some(trpc), &clone.full_name, &report);
+        swept.push(clone.full_name);
+    }
+    swept
+}
+
 /// Scan + report the worktree inventory when its fingerprint moved.
 fn report_worktrees(
     ctx: &Ctx,
@@ -2285,22 +2376,21 @@ fn report_worktrees(
 }
 
 // ---------------------------------------------------------------------------
-// EXP-1292: the pickup + trigger host — this daemon's own Electric pipeline
-// (a shape subset in `sync-cli.sqlite`), ONE delta-drain thread, and ONE
-// serialized worker. Each pass runs the session pickup (the database is the
-// bus: `queued` rows naming this device launch, person messages deliver, a
-// row gone `ended` kills — `coding::pickup`) and then the agent trigger pass
-// (team agents' schedule/event triggers bound to this device post their
-// firing into the agent's channel). Sessions it spawns join the normal
+// EXP-1292: the pickup host — this daemon's own Electric pipeline (a shape
+// subset in `sync-cli.sqlite`), ONE delta-drain thread, and ONE serialized
+// worker. Each pass runs the session pickup (the database is the bus:
+// `queued` rows naming this device launch, person messages deliver, a row
+// gone `ended` kills — `coding::pickup`). NEW-2: agent triggers are fired
+// by the SERVER (a message into the agent's conversation session), never
+// here. Sessions it spawns join the normal
 // `Sessions` vec, so heartbeat/parked-update/quit-sweep cover them like any
 // other run.
 // ---------------------------------------------------------------------------
 
 /// What the daemon syncs: the session tree and its conversation (`sessions`,
-/// `messages`, `session_issues` — the pickup's input; the agent rows also
-/// carry the triggers), the event feed (`issue_events`), and the rows the
-/// firing lines, board filters and branch names read (`issues`, `boards`,
-/// `labels`, `issue_statuses`). Deliberately NOT the desktop's whole set — a
+/// `messages`, `session_issues` — the pickup's input) and the rows the
+/// branch names read (`issues`, `boards`). Deliberately NOT the desktop's
+/// whole set — a
 /// headless daemon has no views to hydrate. A name the sync crate has no
 /// spec for is skipped by the pipeline (the v2 specs land with #EXP-1294).
 const DAEMON_SHAPES: &[&str] = &[
@@ -2308,10 +2398,7 @@ const DAEMON_SHAPES: &[&str] = &[
     "messages",
     "session_issues",
     "issues",
-    "issue_events",
     "boards",
-    "labels",
-    "issue_statuses",
 ];
 
 /// The shapes a pickup pass reads. It runs only once BOTH reached
@@ -2319,15 +2406,19 @@ const DAEMON_SHAPES: &[&str] = &[
 /// whose row is missing, so a cold store must never be planned over.
 const PICKUP_SHAPES: &[&str] = &["sessions", "messages"];
 
-/// The worker's self-tick. Deltas drive the pickup and event triggers (they
-/// act within a second of the row landing); this beat is what makes
-/// SCHEDULES fire at all, and it is the catch-up pass after a sleep/offline
-/// stretch where no delta ever arrives.
+/// The worker's self-tick. Deltas drive the pickup (it acts within a second
+/// of the row landing); this beat is the catch-up pass after a
+/// sleep/offline stretch where no delta ever arrives.
 const DAEMON_TICK: Duration = Duration::from_secs(30);
 
 /// How long a failed launch/resume attempt waits before the pass retries it
 /// (a claim that failed over the network leaves the row `queued`).
 const PICKUP_RETRY: Duration = Duration::from_secs(30);
+
+/// NEW-5: how long the heartbeat counts the sessions an earlier process
+/// left behind as live while the startup re-claim waits for the shapes (a
+/// sync that never comes up must not hide a dead turn forever).
+const RECLAIM_GRACE: Duration = Duration::from_secs(5 * 60);
 
 /// EXP-1334: how long a switch / reconfigure that a turn in flight refused
 /// waits before the pass plans it again (the turn's own rows nudge the
@@ -2335,15 +2426,8 @@ const PICKUP_RETRY: Duration = Duration::from_secs(30);
 /// answers and kills with it).
 const SWITCH_BUSY_RETRY: Duration = Duration::from_secs(2);
 
-/// EXP-1252: how soon a move whose engine is not truly idle yet looks again.
-const HANDOFF_WAIT_RETRY: Duration = Duration::from_secs(5);
-
-/// How long a posted trigger firing counts its agent busy before the
-/// `messages` shape shows it (then the row's own `consumed_at` decides).
-const FIRING_SYNC_GRACE: Duration = Duration::from_secs(10 * 60);
-
 /// Open the daemon's shape store and start its pipeline. `None` (logged, not
-/// fatal) leaves the pickup and triggers dormant while every other daemon
+/// fatal) leaves the pickup dormant while every other daemon
 /// duty — heartbeat, worktree commands, history serving — keeps running.
 fn start_daemon_sync(ctx: &Ctx, gated: &Arc<AtomicBool>) -> Option<Arc<sync::SyncManager>> {
     // NEVER `sync-v2.sqlite`: that file belongs to the desktop GUI, and two
@@ -2355,7 +2439,7 @@ fn start_daemon_sync(ctx: &Ctx, gated: &Arc<AtomicBool>) -> Option<Arc<sync::Syn
         .join("sync-cli.sqlite");
     if let Some(parent) = db_path.parent() {
         if let Err(err) = std::fs::create_dir_all(parent) {
-            log::warn!("daemon sync: store dir ({err}) — sessions and triggers disabled");
+            log::warn!("daemon sync: store dir ({err}) — sessions disabled");
             return None;
         }
     }
@@ -2387,22 +2471,17 @@ fn start_daemon_sync(ctx: &Ctx, gated: &Arc<AtomicBool>) -> Option<Arc<sync::Syn
             Some(manager)
         }
         Err(err) => {
-            log::warn!("daemon sync: store failed to open ({err}) — sessions and triggers disabled");
+            log::warn!("daemon sync: store failed to open ({err}) — sessions disabled");
             None
         }
     }
 }
 
-/// Why the worker woke up. Every variant runs the same full pass; they
-/// differ only in whether the (expensive) `issue_events` snapshot has to be
-/// re-read — EXP-562: a beat that nothing eventful scheduled reuses the
-/// cached rows instead of hydrating the table again.
+/// Why the worker woke up. Every variant runs the same full pass.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum DaemonWork {
-    /// A synced `issue_events` batch landed — the cache is stale.
-    EventsChanged,
     /// A `sessions` / `messages` / `session_issues` batch landed (a queued
-    /// start, a message, an agent's triggers edited), or a pickup attempt
+    /// start, a message), or a pickup attempt
     /// settled and the pass should look again.
     Pickup,
     /// The 1s loop's [`DAEMON_TICK`] beat.
@@ -2429,7 +2508,6 @@ impl SyncedShapes {
 /// The work a delta wakes, `None` = nothing the worker reads.
 fn delta_work(shape: &str) -> Option<DaemonWork> {
     match shape {
-        "issue_events" => Some(DaemonWork::EventsChanged),
         "sessions" | "messages" | "session_issues" => Some(DaemonWork::Pickup),
         _ => None,
     }
@@ -2506,6 +2584,11 @@ struct DaemonPickup {
     in_flight: Arc<Mutex<HashSet<String>>>,
     /// A failed attempt's retry floor ([`PICKUP_RETRY`]).
     backoff: Mutex<HashMap<String, Instant>>,
+    /// NEW-5: the sessions an earlier process left behind, awaiting the
+    /// startup re-claim ([`DaemonHost::reconcile_rows`]); the heartbeat
+    /// counts them live until then (at most until `reclaim_until`).
+    reclaiming: Mutex<HashSet<String>>,
+    reclaim_until: Instant,
 }
 
 impl DaemonPickup {
@@ -2530,6 +2613,30 @@ impl DaemonPickup {
     /// [`Self::back_off`] for `wait`.
     fn back_off_for(&self, session_id: &str, wait: Duration) {
         lock_or_recover(&self.backoff).insert(session_id.to_string(), Instant::now() + wait);
+    }
+
+    /// NEW-5: the heartbeat's `liveSessionIds` — every session a process of
+    /// this machine runs: this daemon's runs and engines, its attempts in
+    /// flight, the rows awaiting the startup re-claim, and a live sibling
+    /// process's (a foreground `code`, EXP-229). `None` past the cap.
+    fn heartbeat_live_ids(&self) -> Option<Vec<String>> {
+        let own: Vec<String> = lock_sessions(&self.sessions)
+            .iter()
+            .map(|live| live.session.session_id.clone())
+            .collect();
+        let in_flight: Vec<String> = lock_or_recover(&self.in_flight).iter().cloned().collect();
+        let reclaiming: Vec<String> = if Instant::now() < self.reclaim_until {
+            lock_or_recover(&self.reclaiming).iter().cloned().collect()
+        } else {
+            Vec::new()
+        };
+        live_session_ids([
+            own,
+            self.live.session_ids(),
+            in_flight,
+            reclaiming,
+            registry::live_ids(&self.ctx.data_dir),
+        ])
     }
 
     /// The pass's `in_flight` set: attempts running and attempts backing off.
@@ -2614,20 +2721,12 @@ struct DaemonHost {
     synced: Arc<SyncedShapes>,
     /// The worker's own queue: a settled attempt asks for the next pass.
     nudge: flume::Sender<DaemonWork>,
-    /// EXP-562: the last hydrated event snapshot, reused by every beat no
-    /// `issue_events` batch woke up. `None` = nothing cached (first beat, a
-    /// failed read, or a device with no event trigger at all).
-    event_cache: Option<Vec<coding::triggers::EventRow>>,
     /// The startup reconcile of the store's rows ran (once per process).
     reconciled: bool,
-    /// Trigger firings this daemon posted that the `messages` shape has not
-    /// shown yet: agent id → (message id, posted at). They count the agent
-    /// busy, so a second firing never piles onto an unread first.
-    posted: HashMap<String, (String, Instant)>,
 }
 
 /// The `spawn_device_worker` idiom: unbounded flume + ONE thread, so two
-/// passes never plan (or write trigger state) concurrently.
+/// passes never plan concurrently.
 fn spawn_daemon_worker(
     pickup: Arc<DaemonPickup>,
     synced: Arc<SyncedShapes>,
@@ -2637,34 +2736,20 @@ fn spawn_daemon_worker(
         pickup,
         synced,
         nudge: tx.clone(),
-        event_cache: None,
         reconciled: false,
-        posted: HashMap::new(),
     };
     std::thread::Builder::new()
         .name("exp-daemon-worker".to_string())
         .spawn(move || {
-            while let Ok(first) = rx.recv() {
+            while rx.recv().is_ok() {
                 // Coalesce a burst (a refetch is thousands of rows in a
                 // handful of batches) into ONE pass.
-                let mut batch = vec![first];
-                while let Ok(more) = rx.try_recv() {
-                    batch.push(more);
-                }
-                host.beat(rescan_events(&batch));
+                while rx.try_recv().is_ok() {}
+                host.beat();
             }
         })
         .expect("spawn the daemon worker");
     tx
-}
-
-/// Whether a coalesced burst invalidates the event snapshot: ONE
-/// `issue_events` batch anywhere in it does, a pile of ticks and session
-/// deltas does not.
-fn rescan_events(batch: &[DaemonWork]) -> bool {
-    batch
-        .iter()
-        .any(|work| matches!(work, DaemonWork::EventsChanged))
 }
 
 /// The session a pickup action is about.
@@ -2683,10 +2768,20 @@ fn action_session_id(action: &coding::pickup::PickupAction) -> &str {
 }
 
 /// Did a wake (a Resume, or a delivery that had to re-spawn) hand anything
-/// to an engine? Nothing handed = not settled: the caller backs the row off.
-fn woke(result: Result<Vec<String>, String>) -> bool {
+/// to an engine? Nothing handed = not settled: the caller backs the row off
+/// ([`PICKUP_RETRY`]) — a claim a sibling process holds included, since that
+/// process may be on its way out (a daemon being replaced) and its claim
+/// stale by the retry.
+fn woke(result: Result<Vec<String>, coding::pickup::WakeError>) -> bool {
     match result {
         Ok(handed) => !handed.is_empty(),
+        Err(coding::pickup::WakeError::Contended) => {
+            log::info!(
+                "pickup: the session is held by another process here — retrying in {}s",
+                PICKUP_RETRY.as_secs()
+            );
+            false
+        }
         Err(err) => {
             log::warn!("pickup: {err}");
             false
@@ -2697,16 +2792,15 @@ fn woke(result: Result<Vec<String>, String>) -> bool {
 impl DaemonHost {
     /// One pass. Every failure mode degrades to "do nothing this beat" — the
     /// next nudge or tick retries from fresh state.
-    fn beat(&mut self, rescan: bool) {
+    fn beat(&mut self) {
         let Some(store) = self.pickup.store() else {
             return;
         };
-        let rows = read_shape_rows::<SessionRow>(&store, "sessions");
-        let messages = read_shape_rows::<MessageRow>(&store, "messages");
         if self.synced.ready(PICKUP_SHAPES) {
+            let rows = read_shape_rows::<SessionRow>(&store, "sessions");
+            let messages = read_shape_rows::<MessageRow>(&store, "messages");
             self.pickup_pass(&rows, &messages);
         }
-        self.trigger_pass(&store, &rows, &messages, rescan);
     }
 
     /// The session pickup: plan over the shapes, then act. Launches and
@@ -2739,12 +2833,6 @@ impl DaemonHost {
         // (or whose claim answer was lost) read `running` — plan only
         // launches `queued` ones.
         actions.extend(live.retry_launches(&self.pickup.device_id, rows, &excluded));
-        // EXP-1252: sessions handed off from here that the target claimed.
-        actions.extend(
-            coding::pickup::cleanup_actions(&self.pickup.ctx.data_dir, &self.pickup.device_id, rows)
-                .into_iter()
-                .filter(|action| !excluded.contains(action.session_id())),
-        );
         if actions.is_empty() {
             return;
         }
@@ -2765,10 +2853,7 @@ impl DaemonHost {
                 // EXP-1341: a revive resumes/launches (network + git).
                 | PickupAction::Revive { .. }
                 // EXP-849: a switch suspends + relaunches (network + git).
-                | PickupAction::Switch { .. }
-                // EXP-1252: a move packs + uploads; a cleanup runs git.
-                | PickupAction::Handoff { .. }
-                | PickupAction::Cleanup { .. } => true,
+                | PickupAction::Switch { .. } => true,
                 // A delivery to an engine that just finished wakes it.
                 PickupAction::Deliver { session_id, .. } => !live.contains_live(session_id),
                 _ => false,
@@ -2823,9 +2908,9 @@ impl DaemonHost {
                     // session — a foreground `code` — or the wake was refused
                     // for these messages) backs off too, or every settle
                     // would replan the same Resume at once.
-                    coding::pickup::PickupAction::Resume { session, message } => woke(
-                        coding::pickup::resume_session(session, std::slice::from_ref(message), &deps),
-                    ),
+                    coding::pickup::PickupAction::Resume { session, messages } => {
+                        woke(coding::pickup::resume_session(session, messages, &deps))
+                    }
                     coding::pickup::PickupAction::Deliver { session_id, messages } => {
                         woke(coding::pickup::deliver_messages(session_id, messages, &deps))
                     }
@@ -2861,25 +2946,6 @@ impl DaemonHost {
                             }
                         }
                     }
-                    // EXP-1252: a move waiting for its engine's true idle is
-                    // no failure — it looks again shortly (the 30 min bound
-                    // is the registry's).
-                    coding::pickup::PickupAction::Handoff { session } => {
-                        match coding::pickup::hand_off(session, &deps) {
-                            Ok(coding::pickup::HandedOff::Waiting) => {
-                                pickup.back_off_for(&session_id, HANDOFF_WAIT_RETRY);
-                                true
-                            }
-                            Ok(outcome) => {
-                                log::info!("pickup: move of {session_id}: {outcome:?}");
-                                true
-                            }
-                            Err(err) => {
-                                log::warn!("pickup: move of {session_id} failed: {err}");
-                                false
-                            }
-                        }
-                    }
                     other => match coding::pickup::execute(other, &deps) {
                         Ok(()) => true,
                         Err(err) => {
@@ -2898,163 +2964,126 @@ impl DaemonHost {
         }
     }
 
-    /// EXP-1292's startup reconcile, once the shapes are synced: a row this
-    /// device left `running` with no engine behind it (a crash, a kill -9, a
-    /// reboot) goes `idle` — NEVER `ended`: the next message resumes the SAME
-    /// row from its run record. Rows with a pending message are the pass's
-    /// own Resume; a row another process on this machine holds (a foreground
-    /// `code`) is skipped by its claim lock.
+    /// EXP-1292's startup reconcile, NEW-5's re-claim, once the shapes are
+    /// synced: every row on this device reading `running` (or `busy`) with no
+    /// engine behind it (a crash, a kill -9, a reboot) is taken back — NEVER
+    /// `ended`:
+    /// - a pending input → the pass's own Resume replays it;
+    /// - mid-turn (`busy`) → [`coding::pickup::continue_after_restart`]
+    ///   resumes the recorded run with a continuation turn;
+    /// - between turns → `idle` (a persistent root is then the pass's
+    ///   Revive; anything else waits for its next message).
+    ///
+    /// A row another process on this machine holds (a foreground `code`) is
+    /// skipped by its claim lock (EXP-229).
     fn reconcile_rows(&self, rows: &[SessionRow], messages: &[MessageRow]) {
         let pending = pending_session_ids(messages);
-        let stale: Vec<String> = rows
-            .iter()
-            .filter(|row| {
-                row.on_device(&self.pickup.device_id)
-                    && row.status_is(domain::contract::SESSION_STATUS_RUNNING)
-                    && !self.pickup.live.contains_live(&row.id)
-                    && !pending.contains(row.id.as_str())
-            })
-            .filter(|row| {
-                matches!(
-                    coding::pickup::ClaimLock::try_acquire(&self.pickup.ctx.data_dir, &row.id),
-                    Ok(Some(_))
-                )
-            })
-            .map(|row| row.id.clone())
-            .collect();
+        let left_behind = std::mem::take(&mut *lock_or_recover(&self.pickup.reclaiming));
+        let mut stale = Vec::new();
+        let mut mid_turn = Vec::new();
+        for row in rows {
+            let running = row.status_is(domain::contract::SESSION_STATUS_RUNNING);
+            let idle = row.status_is(domain::contract::SESSION_STATUS_IDLE);
+            if !row.on_device(&self.pickup.device_id)
+                || !(running || (idle && (row.busy || left_behind.contains(&row.id))))
+                || self.pickup.live.contains_live(&row.id)
+            {
+                continue;
+            }
+            if !matches!(
+                coding::pickup::ClaimLock::try_acquire(&self.pickup.ctx.data_dir, &row.id),
+                Ok(Some(_))
+            ) {
+                log::info!("reclaim: session {} runs in another process here — skipped", row.id);
+                // A left-behind row a sibling still holds stays on the list
+                // within the grace: that sibling may be the process being
+                // replaced, its claim stale a few seconds later.
+                if left_behind.contains(&row.id) && Instant::now() < self.pickup.reclaim_until {
+                    lock_or_recover(&self.pickup.reclaiming).insert(row.id.clone());
+                }
+                continue;
+            }
+            match coding::pickup::reclaim_step(row, pending.contains(row.id.as_str())) {
+                coding::pickup::ReclaimStep::Replay => {
+                    log::info!("reclaim: session {} re-claimed — its pending messages replay", row.id);
+                }
+                coding::pickup::ReclaimStep::Continue => mid_turn.push(row.clone()),
+                coding::pickup::ReclaimStep::Idle => {
+                    log::info!("reclaim: session {} re-claimed between turns — idle", row.id);
+                    stale.push(row.id.clone());
+                }
+                coding::pickup::ReclaimStep::Waiting => {
+                    log::info!("reclaim: session {} re-claimed — idle, waiting for its next message", row.id);
+                }
+            }
+        }
+        if !mid_turn.is_empty() {
+            let deps = Arc::new(self.pickup.deps());
+            for row in mid_turn {
+                // In flight BEFORE this pass plans: no Revive/Resume races it.
+                let Some(guard) = self.pickup.begin(&row.id) else {
+                    continue;
+                };
+                let deps = Arc::clone(&deps);
+                let pickup = Arc::clone(&self.pickup);
+                let nudge = self.nudge.clone();
+                let spawned = std::thread::Builder::new()
+                    .name("exp-reclaim".to_string())
+                    .spawn(move || {
+                        let _guard = guard;
+                        let id = row.id.as_str();
+                        match coding::pickup::continue_after_restart(&row, &deps) {
+                            Ok(true) => log::info!(
+                                "reclaim: session {id} was mid-turn — resumed with a continuation turn"
+                            ),
+                            Ok(false) => {
+                                let result = api::session_device::report(
+                                    &pickup.ctx.trpc,
+                                    id,
+                                    &idle_report(),
+                                );
+                                match result {
+                                    Ok(()) => log::info!(
+                                        "reclaim: session {id} was mid-turn with no run record here — now idle"
+                                    ),
+                                    Err(err) => log::warn!("reclaim: session {id} not reported idle: {err}"),
+                                }
+                            }
+                            Err(err) => {
+                                log::warn!("reclaim: session {id} not continued: {err}");
+                                pickup.back_off(id);
+                            }
+                        }
+                        let _ = nudge.send(DaemonWork::Pickup);
+                    });
+                if let Err(err) = spawned {
+                    log::warn!("reclaim: continuation thread failed to spawn: {err}");
+                }
+            }
+        }
         if stale.is_empty() {
             return;
         }
         let trpc = Arc::clone(&self.pickup.ctx.trpc);
         std::thread::spawn(move || {
             for session_id in stale {
-                match api::session_device::report(&trpc, &session_id, &idle_report()) {
-                    Ok(()) => log::info!("reconcile: session {session_id} had no engine here — now idle"),
-                    Err(err) => log::warn!("reconcile: session {session_id} not reported idle: {err}"),
+                if let Err(err) = api::session_device::report(&trpc, &session_id, &idle_report()) {
+                    log::warn!("reclaim: session {session_id} not reported idle: {err}");
                 }
             }
         });
     }
 
-    /// The agent trigger pass: evaluate this device's agents' triggers;
-    /// a firing is persisted FIRST (watermark-at-post), then its text is
-    /// posted into the agent's channel (`sessions.send`) — the pickup then
-    /// delivers it like any message, waking the agent if it idles.
-    fn trigger_pass(
-        &mut self,
-        store: &sync::store::ShapeStore,
-        rows: &[SessionRow],
-        messages: &[MessageRow],
-        rescan: bool,
-    ) {
-        let armed = coding::triggers::bound_agent_triggers(rows.iter(), &self.pickup.device_id);
-        if armed.is_empty() {
-            self.event_cache = None;
-            self.posted.clear();
-            return;
-        }
-        let trigger_store = coding::triggers::TriggerStore::open(
-            &self.pickup.ctx.data_dir,
-            &self.pickup.device_id,
-        );
-        let mut states = coding::triggers::read_states(&trigger_store);
-        let now_local = chrono::Local::now();
-        let now_ms = now_local.timestamp_millis();
+}
 
-        if !coding::triggers::needs_events(&armed) {
-            // Schedule-only device: never touch the events table, and drop
-            // whatever a previously-enabled event trigger left cached.
-            self.event_cache = None;
-        } else if rescan || self.event_cache.is_none() {
-            // A failed read is NOT cached — this beat evaluates with no
-            // events (an event trigger simply decides nothing) and the next
-            // one retries the scan.
-            self.event_cache = read_event_rows(store, now_ms);
-        } else if let Some(cached) = self.event_cache.as_mut() {
-            patch_missing_boards(store, cached);
-        }
-        let events: &[coding::triggers::EventRow] = self.event_cache.as_deref().unwrap_or(&[]);
-        let busy = busy_agent_ids(rows, messages, &mut self.posted, Instant::now());
-
-        let decisions = coding::triggers::evaluate(&coding::triggers::EvalInput {
-            armed: &armed,
-            states: &states,
-            events,
-            busy_agent_ids: &busy,
-            now_ms,
-            now_local,
-        });
-
-        // Re-seeds are pure bookkeeping (a new or edited trigger anchoring
-        // itself) — persist the whole batch in ONE write.
-        let mut reseeded = false;
-        for decision in &decisions {
-            if let coding::triggers::Decision::Reseed {
-                trigger_id,
-                new_state,
-            } = decision
-            {
-                states.insert(trigger_id.clone(), new_state.clone());
-                reseeded = true;
-            }
-        }
-        if reseeded {
-            persist_trigger_states(&trigger_store, &states);
-        }
-
-        let mut fired_agents: HashSet<String> = HashSet::new();
-        for decision in decisions {
-            let coding::triggers::Decision::Fire {
-                trigger_id,
-                firing,
-                new_state,
-            } = decision
-            else {
-                continue;
-            };
-            let Some(armed_trigger) = armed
-                .iter()
-                .find(|candidate| candidate.trigger_id == trigger_id)
-            else {
-                continue;
-            };
-            let agent_id = armed_trigger.agent_id.clone();
-            // Two triggers of one agent in one pass: the second waits for the
-            // next beat (no state written — it re-decides then).
-            if fired_agents.contains(&agent_id) {
-                continue;
-            }
-            // Watermark-at-post (the firing protocol): persist before
-            // posting, so a crash mid-post drops the firing instead of
-            // re-firing the same events forever.
-            states.insert(trigger_id.clone(), new_state.clone());
-            if !persist_trigger_states(&trigger_store, &states) {
-                continue;
-            }
-            fired_agents.insert(agent_id.clone());
-            let lookups = event_lookups(store, &firing);
-            let text = coding::triggers::firing_text(armed_trigger, &firing, &lookups);
-            match api::session_device::post_message(&self.pickup.ctx.trpc, &agent_id, &text) {
-                Ok(message_id) => {
-                    log::info!("trigger {trigger_id} fired into agent {agent_id} (message {message_id})");
-                    self.posted.insert(agent_id, (message_id, Instant::now()));
-                }
-                Err(err) => {
-                    // Poison-pill backoff: the events are already consumed (a
-                    // firing that cannot post must not hot-loop the same
-                    // batch), so only the cooldown moves.
-                    log::warn!("trigger {trigger_id} failed to post into agent {agent_id}: {err}");
-                    let mut backed_off = new_state;
-                    backed_off.cooldown_until = Some(
-                        backed_off.cooldown_until.unwrap_or(now_ms)
-                            + coding::triggers::SEND_FAILURE_BACKOFF_MS,
-                    );
-                    states.insert(trigger_id, backed_off);
-                    persist_trigger_states(&trigger_store, &states);
-                }
-            }
-        }
-    }
+/// NEW-5: one sorted, de-duplicated `liveSessionIds` out of every source;
+/// `None` past [`api::devices::LIVE_SESSION_IDS_CAP`] (the server would
+/// refuse the whole beat — no claim beats a truncated one).
+fn live_session_ids<I: IntoIterator<Item = String>>(
+    sources: impl IntoIterator<Item = I>,
+) -> Option<Vec<String>> {
+    let ids: std::collections::BTreeSet<String> = sources.into_iter().flatten().collect();
+    (ids.len() <= api::devices::LIVE_SESSION_IDS_CAP).then(|| ids.into_iter().collect())
 }
 
 /// EXP-1292: a session with no engine on this device — idle and not working.
@@ -3066,85 +3095,16 @@ fn idle_report() -> api::session_device::SessionReport {
     }
 }
 
-fn persist_trigger_states(
-    store: &coding::triggers::TriggerStore,
-    states: &HashMap<String, coding::triggers::TriggerState>,
-) -> bool {
-    match coding::triggers::write_states(store, states) {
-        Ok(()) => true,
-        Err(err) => {
-            // Without a durable watermark a firing could re-post forever —
-            // skip the fire rather than risk that.
-            log::warn!("triggers: persisting state failed ({err}) — skipping");
-            false
-        }
-    }
-}
-
-/// The agents that must not get another firing yet (pure, unit-tested): a
-/// turn in flight (`busy`), an unconsumed person message in its channel
-/// (an earlier firing included, once synced), or a firing this daemon posted
-/// that the `messages` shape has not shown yet ([`FIRING_SYNC_GRACE`]).
-/// `posted` forgets what the shape now carries (its row decides) or what
-/// outlived the grace.
-fn busy_agent_ids(
-    rows: &[SessionRow],
-    messages: &[MessageRow],
-    posted: &mut HashMap<String, (String, Instant)>,
-    now: Instant,
-) -> HashSet<String> {
-    let synced: HashSet<&str> = messages.iter().map(|message| message.id.as_str()).collect();
-    posted.retain(|_, (message_id, at)| {
-        !synced.contains(message_id.as_str()) && now.saturating_duration_since(*at) < FIRING_SYNC_GRACE
-    });
-    let mut busy: HashSet<String> = posted.keys().cloned().collect();
-    busy.extend(
-        rows.iter()
-            .filter(|row| row.has_triggers() && row.busy)
-            .map(|row| row.id.clone()),
-    );
-    busy.extend(pending_session_ids(messages).into_iter().map(str::to_string));
-    busy
-}
-
 /// The sessions with an input waiting for them — a person's message or one
 /// another session posted (a child's `report`, a child asking its parent):
 /// [`coding::pickup::is_pending_input`], the pickup's own predicate, so the
-/// reconcile's Resume and an agent's firing hold read the same rows.
+/// reconcile's Resume reads the same rows.
 fn pending_session_ids(messages: &[MessageRow]) -> HashSet<&str> {
     messages
         .iter()
         .filter(|message| coding::pickup::is_pending_input(message))
         .map(|message| message.session_id.as_str())
         .collect()
-}
-
-/// The names a firing's event lines render: the matched issues point-read
-/// ([`coding::triggers::firing_issue_ids`]), the two small team-wide tables
-/// whole.
-fn event_lookups(
-    store: &sync::store::ShapeStore,
-    firing: &coding::triggers::Firing,
-) -> coding::triggers::EventLookups {
-    let mut issues = HashMap::new();
-    for issue_id in coding::triggers::firing_issue_ids(firing) {
-        let Some(identifier) = issue_field(store, &issue_id, "identifier") else {
-            continue;
-        };
-        let title = issue_field(store, &issue_id, "title").unwrap_or_default();
-        issues.insert(issue_id, (identifier, title));
-    }
-    coding::triggers::EventLookups {
-        issues,
-        labels: read_shape_rows::<domain::rows::Label>(store, "labels")
-            .into_iter()
-            .map(|label| (label.id, label.name))
-            .collect(),
-        statuses: read_shape_rows::<domain::rows::IssueStatusRow>(store, "issue_statuses")
-            .into_iter()
-            .map(|status| (status.id, status.name))
-            .collect(),
-    }
 }
 
 /// One synced `sessions` row, point-read by primary key (§5.8).
@@ -3204,100 +3164,6 @@ pub(crate) fn read_shape_rows<T: serde::de::DeserializeOwned>(
     }
 }
 
-/// How far BELOW the catch-up cutoff [`event_scan_bound`] aims. The SQL
-/// pre-filter compares raw text, so the margin absorbs everything text order
-/// cannot model — device/server clock skew and a sub-second or offset-suffix
-/// render difference — and keeps the scan a strict superset of the window
-/// the Rust filter then applies exactly.
-const EVENT_SCAN_MARGIN_MS: i64 = 3_600_000;
-
-/// The `created_at >= ?` bound for the event scan: the catch-up cutoff minus
-/// [`EVENT_SCAN_MARGIN_MS`], rendered UTC in the space form Electric emits
-/// (`2026-08-18 06:00:00…`) so a byte compare orders it correctly against
-/// both wire forms — see [`sync::store::ShapeStore::read_where_ge`]. An
-/// unrepresentable instant degrades to the empty bound: a full scan, i.e. the
-/// old behaviour, never a missed row.
-fn event_scan_bound(now_ms: i64) -> String {
-    let floor_ms = now_ms - domain::contract::TRIGGER_EVENT_CATCHUP_MS - EVENT_SCAN_MARGIN_MS;
-    chrono::DateTime::from_timestamp_millis(floor_ms)
-        .map(|at| at.format("%Y-%m-%d %H:%M:%S").to_string())
-        .unwrap_or_default()
-}
-
-/// The candidate event rows: inside the contract catch-up window, with
-/// `board_id` pre-joined from the issue (the `issue_events` shape carries
-/// none, and the engine's board filter needs it — a missing datum
-/// conservatively FAILS a non-empty filter).
-///
-/// SQL narrows the table to the window first (EXP-562 — hydrating every
-/// synced event every beat was the cost); the exact `created_at_ms < cutoff`
-/// filter still runs here, because the text bound is only a superset.
-/// `None` means the read FAILED — the caller evaluates with no events and
-/// caches nothing, so the next beat retries.
-fn read_event_rows(
-    store: &sync::store::ShapeStore,
-    now_ms: i64,
-) -> Option<Vec<coding::triggers::EventRow>> {
-    let spec = sync::shapes::shape_by_name("issue_events")?;
-    let raw = match store.read_where_ge(spec, "created_at", &event_scan_bound(now_ms)) {
-        Ok(raw) => raw,
-        Err(err) => {
-            log::debug!("triggers: scanning the issue_events table failed: {err}");
-            return None;
-        }
-    };
-    let cutoff = now_ms - domain::contract::TRIGGER_EVENT_CATCHUP_MS;
-    let mut boards: HashMap<String, Option<String>> = HashMap::new();
-    Some(
-        raw.into_iter()
-            // §5.5 tolerant decode — an undecodable row is dropped, never fatal.
-            .filter_map(|row| {
-                serde_json::from_value::<domain::rows::IssueEvent>(serde_json::Value::Object(row))
-                    .ok()
-            })
-            .filter_map(|row| {
-                let created_at_ms = row.created_at.as_deref().and_then(parse_epoch_ms)?;
-                if created_at_ms < cutoff {
-                    return None;
-                }
-                let board_id = boards
-                    .entry(row.issue_id.clone())
-                    .or_insert_with(|| issue_field(store, &row.issue_id, "board_id"))
-                    .clone();
-                Some(coding::triggers::EventRow {
-                    id: row.id,
-                    issue_id: row.issue_id,
-                    // The engine fences matching to the action's own team — a
-                    // missing value conservatively never matches.
-                    team_id: row.team_id,
-                    created_at_ms,
-                    kind: row.kind.unwrap_or_default(),
-                    payload: row.payload,
-                    board_id,
-                })
-            })
-            .collect(),
-    )
-}
-
-/// Re-join the `board_id` of CACHED rows that still have none: `issue_events`
-/// routinely syncs ahead of its issue, and an unknown board conservatively
-/// FAILS a board filter — so a miss frozen into the cache would silently
-/// never match, even once the issue lands. Only the misses are point-read
-/// (deduped per issue), so a cached beat stays O(unresolved issues).
-fn patch_missing_boards(
-    store: &sync::store::ShapeStore,
-    rows: &mut [coding::triggers::EventRow],
-) {
-    let mut resolved: HashMap<String, Option<String>> = HashMap::new();
-    for row in rows.iter_mut().filter(|row| row.board_id.is_none()) {
-        row.board_id = resolved
-            .entry(row.issue_id.clone())
-            .or_insert_with(|| issue_field(store, &row.issue_id, "board_id"))
-            .clone();
-    }
-}
-
 /// One column of one issue, point-read by primary key (§5.8).
 fn issue_field(store: &sync::store::ShapeStore, issue_id: &str, column: &str) -> Option<String> {
     let spec = sync::shapes::shape_by_name("issues")?;
@@ -3307,26 +3173,6 @@ fn issue_field(store: &sync::store::ShapeStore, issue_id: &str, column: &str) ->
     row.get(column)
         .and_then(serde_json::Value::as_str)
         .map(str::to_string)
-}
-
-/// Tolerant ISO-8601 → MS epoch (the watermark scale). Electric/Postgres
-/// emit both the RFC 3339 form and the `2026-07-03 10:00:00+00` space form —
-/// the twin of the ui crate's `comments::parse_epoch`, in milliseconds.
-fn parse_epoch_ms(raw: &str) -> Option<i64> {
-    let trimmed = raw.trim();
-    if trimmed.is_empty() {
-        return None;
-    }
-    if let Ok(parsed) = chrono::DateTime::parse_from_rfc3339(trimmed) {
-        return Some(parsed.timestamp_millis());
-    }
-    let t_form = trimmed.replacen(' ', "T", 1);
-    for candidate in [t_form.clone(), format!("{t_form}:00"), format!("{t_form}Z")] {
-        if let Ok(parsed) = chrono::DateTime::parse_from_rfc3339(&candidate) {
-            return Some(parsed.timestamp_millis());
-        }
-    }
-    None
 }
 
 // ---------------------------------------------------------------------------
@@ -3678,6 +3524,23 @@ mod tests {
 
     /// EXP-1353: the daemon offers every clone to the shared GC, and the
     /// shared throttle keeps a second pass within the hour from re-walking.
+    /// NEW-5: the heartbeat's `liveSessionIds` = the union of every live
+    /// source, sorted and de-duplicated; past the cap no claim at all.
+    #[test]
+    fn heartbeat_live_ids_union_the_live_runs() {
+        let ids = live_session_ids([
+            vec!["b".to_string(), "a".to_string()],
+            vec!["a".to_string()],
+            Vec::new(),
+            vec!["c".to_string()],
+        ]);
+        assert_eq!(ids, Some(vec!["a".to_string(), "b".to_string(), "c".to_string()]));
+        assert_eq!(live_session_ids(Vec::<Vec<String>>::new()), Some(Vec::new()));
+        let many: Vec<String> =
+            (0..=api::devices::LIVE_SESSION_IDS_CAP).map(|n| format!("s{n}")).collect();
+        assert_eq!(live_session_ids([many]), None);
+    }
+
     #[test]
     fn sweep_cargo_targets_walks_each_clone_once_per_interval() {
         let nanos = std::time::SystemTime::now()
@@ -3909,14 +3772,8 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // EXP-1292: the pickup + trigger host's pure helpers
+    // EXP-1292: the pickup host's pure helpers
     // -----------------------------------------------------------------------
-
-    fn session(id: &str, json: serde_json::Value) -> SessionRow {
-        let mut value = json;
-        value["id"] = serde_json::json!(id);
-        serde_json::from_value(value).expect("session row decodes")
-    }
 
     fn message(id: &str, session_id: &str, consumed: bool) -> MessageRow {
         serde_json::from_value(serde_json::json!({
@@ -3944,8 +3801,8 @@ mod tests {
     }
 
     /// EXP-1329: a child's pending `report` is an input like a person's
-    /// message — it holds the agent's next firing and marks the row for the
-    /// reconcile's Resume; the session's own reply never does.
+    /// message — it marks the row for the reconcile's Resume; the session's
+    /// own reply never does.
     #[test]
     fn pending_inputs_count_child_reports_never_own_replies() {
         let messages = vec![
@@ -3958,48 +3815,6 @@ mod tests {
         let mut pending: Vec<&str> = pending_session_ids(&messages).into_iter().collect();
         pending.sort_unstable();
         assert_eq!(pending, vec!["s-person", "s-reported"]);
-    }
-
-    /// An agent gets no second firing while it works, while a person message
-    /// (an earlier firing included) waits in its channel, or while a firing
-    /// this daemon posted has not synced back yet; the posted memory lets go
-    /// once the shape carries the row, or after the grace.
-    #[test]
-    fn busy_agents_defer_their_next_firing() {
-        let rows = vec![
-            session("agent-busy", serde_json::json!({"kind": "agent", "busy": "true"})),
-            session("agent-idle", serde_json::json!({"kind": "agent", "busy": "false"})),
-            session("agent-queued", serde_json::json!({"kind": "agent"})),
-            session("agent-posted", serde_json::json!({"kind": "agent"})),
-            session("agent-synced", serde_json::json!({"kind": "agent"})),
-            // EXP-1329: a child's pending report is an input too.
-            session("agent-reported", serde_json::json!({"kind": "agent"})),
-            session("agent-replied", serde_json::json!({"kind": "agent"})),
-            // A busy THREAD is no agent to defer.
-            session("thread", serde_json::json!({"kind": "thread", "busy": "true"})),
-        ];
-        let messages = vec![
-            message("m-pending", "agent-queued", false),
-            message("m-consumed", "agent-idle", true),
-            message("m-synced", "agent-synced", true),
-            agent_message("m-report", "agent-reported", Some("child-1")),
-            // The agent's own reply waits on nobody.
-            agent_message("m-reply", "agent-replied", None),
-        ];
-        let now = Instant::now();
-        let mut posted = HashMap::from([
-            ("agent-posted".to_string(), ("m-unsynced".to_string(), now)),
-            ("agent-synced".to_string(), ("m-synced".to_string(), now)),
-            (
-                "agent-stale".to_string(),
-                ("m-lost".to_string(), now - FIRING_SYNC_GRACE),
-            ),
-        ]);
-        let busy = busy_agent_ids(&rows, &messages, &mut posted, now);
-        let mut busy: Vec<&str> = busy.iter().map(String::as_str).collect();
-        busy.sort_unstable();
-        assert_eq!(busy, vec!["agent-busy", "agent-posted", "agent-queued", "agent-reported"]);
-        assert_eq!(posted.keys().collect::<Vec<_>>(), vec!["agent-posted"]);
     }
 
     /// The branch and label follow the thread's link order — `sort_order`
@@ -4021,14 +3836,14 @@ mod tests {
         assert_eq!(ordered_issue_ids(links, "root"), vec!["i-two", "i-three", "i-ten"]);
     }
 
-    /// The pickup's input shapes wake the pass, the event feed invalidates
-    /// the snapshot, everything else is ignored.
+    /// The pickup's input shapes wake the pass, everything else is ignored
+    /// (NEW-2: no event feed: the server fires agent triggers).
     #[test]
     fn deltas_route_to_the_worker() {
         assert_eq!(delta_work("sessions"), Some(DaemonWork::Pickup));
         assert_eq!(delta_work("messages"), Some(DaemonWork::Pickup));
         assert_eq!(delta_work("session_issues"), Some(DaemonWork::Pickup));
-        assert_eq!(delta_work("issue_events"), Some(DaemonWork::EventsChanged));
+        assert_eq!(delta_work("issue_events"), None);
         assert_eq!(delta_work("labels"), None);
     }
 
@@ -4066,14 +3881,15 @@ mod tests {
         assert!(begin("s1").is_some(), "a crashed attempt must not wedge its row");
     }
 
-    /// EXP-1292: a wake that handed nothing (the session runs in a
-    /// foreground `code`, or the wake was refused) is not settled, so its
-    /// row backs off instead of replanning at once.
+    /// EXP-1292: a wake that handed nothing (the wake was refused) is not
+    /// settled, so its row backs off instead of replanning at once; NEW-45:
+    /// a claim another process holds backs off the same way (it retries).
     #[test]
     fn a_wake_that_handed_nothing_backs_off() {
         assert!(woke(Ok(vec!["m1".to_string()])));
         assert!(!woke(Ok(Vec::new())));
-        assert!(!woke(Err("brief failed".to_string())));
+        assert!(!woke(Err(coding::pickup::WakeError::Other("brief failed".to_string()))));
+        assert!(!woke(Err(coding::pickup::WakeError::Contended)));
     }
 
     /// A foreground `code`/`run` mid-start holds the gate the pass checks.
@@ -4089,55 +3905,6 @@ mod tests {
         drop(held);
         assert!(!foreground_start_held(&dir));
         let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    /// Postgres/Electric timestamp forms → the watermark's ms scale.
-    #[test]
-    fn event_timestamps_parse_in_both_wire_forms() {
-        let expected = 1_754_395_200_000;
-        assert_eq!(parse_epoch_ms("2025-08-05T12:00:00.000Z"), Some(expected));
-        assert_eq!(parse_epoch_ms("2025-08-05T12:00:00Z"), Some(expected));
-        assert_eq!(parse_epoch_ms("2025-08-05 12:00:00+00"), Some(expected));
-        assert_eq!(parse_epoch_ms("2025-08-05 12:00:00+00:00"), Some(expected));
-        assert_eq!(parse_epoch_ms(""), None);
-        assert_eq!(parse_epoch_ms("not-a-date"), None);
-    }
-
-    /// EXP-562: the SQL pre-filter's bound is UTC, second-granular, and a
-    /// margin BELOW the catch-up cutoff — a byte compare against either wire
-    /// form must never exclude a row the exact filter would keep.
-    #[test]
-    fn event_scan_bound_renders_utc_seconds_minus_margin() {
-        // 2025-08-05 12:00:00Z, in a zone whose local time is irrelevant.
-        let now_ms = 1_754_395_200_000;
-        let bound = event_scan_bound(now_ms);
-        assert_eq!(bound, "2025-08-04 11:00:00");
-        assert_eq!(
-            parse_epoch_ms(&format!("{bound}+00")),
-            Some(now_ms - domain::contract::TRIGGER_EVENT_CATCHUP_MS - EVENT_SCAN_MARGIN_MS),
-            "the bound IS the cutoff minus the margin, to the second"
-        );
-        // Both wire forms of a row exactly AT the cutoff sort above it.
-        let cutoff_ms = now_ms - domain::contract::TRIGGER_EVENT_CATCHUP_MS;
-        let at_cutoff = chrono::DateTime::from_timestamp_millis(cutoff_ms).unwrap();
-        assert!(at_cutoff.format("%Y-%m-%d %H:%M:%S%.3f+00").to_string() > bound);
-        assert!(at_cutoff.to_rfc3339() > bound);
-    }
-
-    /// Only an `issue_events` batch invalidates the cached snapshot — ticks
-    /// and session deltas re-decide over the rows already in hand.
-    #[test]
-    fn only_an_events_batch_forces_a_rescan() {
-        assert!(!rescan_events(&[DaemonWork::Tick]));
-        assert!(!rescan_events(&[DaemonWork::Tick, DaemonWork::Pickup]));
-        assert!(rescan_events(&[
-            DaemonWork::Tick,
-            DaemonWork::EventsChanged,
-            DaemonWork::Pickup,
-        ]));
-        // An empty drain can't happen (recv yields the first item), but the
-        // fold must still be total.
-        assert!(!rescan_events(&[]));
     }
 
     /// EXP-746 (D9): the cap LISTS and their three tests moved into

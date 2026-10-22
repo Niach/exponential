@@ -28,7 +28,7 @@ final class ComposerMenuTests: XCTestCase {
 
     func testComposerMenuLayoutMatchesTheFixtureCases() throws {
         let cases = try XCTUnwrap(try fixture()["cases"] as? [[String: Any]])
-        XCTAssertEqual(cases.count, 4)
+        XCTAssertEqual(cases.count, 5)
         for testCase in cases {
             let name = try XCTUnwrap(testCase["name"] as? String)
             let c = try XCTUnwrap(testCase["conditions"] as? [String: Bool], name)
@@ -36,7 +36,8 @@ final class ComposerMenuTests: XCTestCase {
                 subagentModel: c["subagentModel"] ?? false,
                 ultracode: c["ultracode"] ?? false,
                 mcp: c["mcp"] ?? false,
-                computerUse: c["computerUse"] ?? false
+                computerUse: c["computerUse"] ?? false,
+                agents: c["agents"] ?? false
             ))
             XCTAssertEqual(wire(layout), testCase["expected"] as? [String], name)
         }

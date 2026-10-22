@@ -145,9 +145,9 @@ impl RunningSession {
     /// EXP-1292: the run ended by [`Self::suspend`] (an account switch
     /// re-spawns the same row): its workspace — a scratch dir too — stays.
     ///
-    /// EXP-1252: a RELEASED run (handed to another device) keeps it too — the
-    /// handoff packs it, the source's cleanup removes it once the target
-    /// has it ([`engine::keeps_workspace`]).
+    /// EXP-1252: a RELEASED run (its row names another device) keeps it too
+    /// ([`engine::keeps_workspace`]); the nightly stale-worktree sweep and
+    /// the scratch sweep reclaim what nothing runs any more.
     pub fn was_suspended(&self) -> bool {
         self.session
             .wait_timeout(Duration::ZERO)

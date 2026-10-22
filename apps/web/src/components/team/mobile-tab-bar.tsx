@@ -11,7 +11,6 @@ import { useDraftEntries } from "@/hooks/use-issue-drafts"
 import { inboxDotLit } from "@/lib/issue-draft-page"
 import { useThreadsNav } from "@/hooks/use-nav-counts"
 import { useCrossTeamScope } from "@/hooks/use-cross-team-scope"
-import { ACTIONS_LABEL } from "@/components/team/sidebar-nav-entries"
 
 // EXP-317: the cross-client nav glyphs come from the shared registry
 // (packages/icons/icons.json) so web, desktop, iOS and Android agree.
@@ -21,7 +20,6 @@ const NavDevicesIcon = conceptIcon(`nav-devices`)
 const NavInboxIcon = conceptIcon(`nav-inbox`)
 const NavIssuesIcon = conceptIcon(`nav-issues`)
 const NavThreadsIcon = conceptIcon(`nav-threads`)
-const NavActionsIcon = conceptIcon(`nav-actions`)
 
 // Bottom padding for every scroll container that sits under the floating
 // tab bar, so list ends scroll clear of the glass pill. Detail routes hide
@@ -57,11 +55,6 @@ export function useMobileChromeVisible(): boolean {
     to: `/t/$teamSlug/drafts/$draftId`,
     fuzzy: true,
   })
-  // SLOP-2: one action's page is a detail with its own back header.
-  const onActionDetail = matchRoute({
-    to: `/t/$teamSlug/actions/$actionId`,
-    fuzzy: true,
-  })
   // EXP-1293: a thread (its pager under its own header) and an agent's
   // channel are details too.
   const onThreadDetail = matchRoute({
@@ -76,7 +69,6 @@ export function useMobileChromeVisible(): boolean {
   return (
     !onIssueDetail &&
     !onSessionDetail &&
-    !onActionDetail &&
     !onDraftPage &&
     !onThreadDetail &&
     !onAgentChannel
@@ -170,9 +162,10 @@ interface MobileTabBarProps {
 // top-level destinations plus a detached compose FAB, replacing the old
 // sidebar-as-drawer. Desktop keeps the persistent sidebar (`md:hidden`).
 // EXP-686: Search left the bar for the board header (`use-issue-search.tsx`).
-// EXP-1187 / EXP-1293: Issues · Inbox · Devices · Threads · Actions — no More on the
-// phone: Actions is a tab of its own and Settings lives in the topbar's
-// avatar menu (×3 with the iOS and Android bars). The phone OPENS on the
+// EXP-1187 / EXP-1293 / NEW-2: Issues · Inbox · Devices · Threads — no More
+// on the phone and no Actions tab (prompts live in the composer's `/` menu);
+// Settings lives in the topbar's avatar menu (×3 with the iOS and Android
+// bars). The phone OPENS on the
 // Agent page (`routes/index.tsx`), whose entry is the FAB's chat arm.
 export function MobileTabBar({
   teamSlug,
@@ -205,10 +198,6 @@ export function MobileTabBar({
   const onInbox = Boolean(matchRoute({ to: `/t/$teamSlug/inbox`, fuzzy: true }))
   const onDevices = Boolean(
     matchRoute({ to: `/t/$teamSlug/devices`, fuzzy: true })
-  )
-  // EXP-1187: lit on the list AND on one action's page (SLOP-2).
-  const onActions = Boolean(
-    matchRoute({ to: `/t/$teamSlug/actions`, fuzzy: true })
   )
   const onThreads = Boolean(
     matchRoute({ to: `/t/$teamSlug/threads`, fuzzy: true })
@@ -275,17 +264,6 @@ export function MobileTabBar({
         >
           <NavThreadsIcon className="size-5" />
           <ThreadsDot teamIds={scope.teamIds} />
-        </Link>
-        {/* EXP-1187: Actions is a tab; Drafts stay the Inbox's third
-            segment on the phone (EXP-878), Settings the avatar menu's. */}
-        <Link
-          to="/t/$teamSlug/actions"
-          params={{ teamSlug }}
-          aria-label={ACTIONS_LABEL}
-          data-testid="tab-actions"
-          className={tabClass(onActions)}
-        >
-          <NavActionsIcon className="size-5" />
         </Link>
       </nav>
       {/* EXP-631/694: the chat launcher started on Devices and Actions,

@@ -2,82 +2,52 @@ import Foundation
 import XCTest
 @testable import ExpCore
 
-// Triggers (EXP-530; EXP-1291: a team agent carries them): the tolerant
-// when-part parser (any malformation reads as "no trigger", never a crash),
-// the stored `AgentTrigger` element (id + enabled + when) and the wire
-// encoding of the whole-array `triggers` write. The Schedule row's sentence
-// is `AgentSettings.triggerSummary` (`AgentSettingsTests`).
+// NEW-2 agent triggers (`agents.triggers`): the tolerant when-part parser
+// (`{kind: schedule, cron, tz?}` / `{kind: event, name}`; any malformation
+// reads as "no trigger", never a crash), the stored `AgentTrigger` element
+// (id + enabled + when) and the wire encoding of the whole-array `triggers`
+// write. The Triggers row's sentence is `AgentSettings.triggerSummary`
+// (`AgentSettingsTests`).
 final class TriggerWhenTests: XCTestCase {
 
     // MARK: - Tolerant parse
 
-    func testParsesADailySchedule() {
-        let raw = #"{"kind":"schedule","interval":"daily","minuteOfDay":420}"#
+    func testParsesACronSchedule() {
+        let raw = #"{"kind":"schedule","cron":"0 9 * * 1-5"}"#
         guard case let .schedule(s)? = TriggerWhen.parse(raw) else {
             return XCTFail("expected a schedule trigger")
         }
-        XCTAssertEqual(s.interval, "daily")
-        XCTAssertEqual(s.minuteOfDay, 420)
-        XCTAssertNil(s.weekday)
-        XCTAssertNil(s.dayOfMonth)
+        XCTAssertEqual(s.cron, "0 9 * * 1-5")
+        XCTAssertNil(s.tz)
     }
 
-    func testParsesWeeklyAndMonthlySchedules() {
-        let weekly = #"{"kind":"schedule","interval":"weekly","minuteOfDay":540,"weekday":1}"#
-        guard case let .schedule(w)? = TriggerWhen.parse(weekly) else {
-            return XCTFail("expected weekly")
-        }
-        XCTAssertEqual(w.weekday, 1)
-
-        let monthly = #"{"kind":"schedule","interval":"monthly","minuteOfDay":540,"dayOfMonth":5}"#
-        guard case let .schedule(m)? = TriggerWhen.parse(monthly) else {
-            return XCTFail("expected monthly")
-        }
-        XCTAssertEqual(m.dayOfMonth, 5)
+    func testParsesAScheduleInAZone() {
+        let raw = #"{"kind":"schedule","cron":"*/10 * * * *","tz":"Europe/Vienna"}"#
+        XCTAssertEqual(
+            TriggerWhen.parse(raw),
+            .schedule(ScheduleTrigger(cron: "*/10 * * * *", tz: "Europe/Vienna"))
+        )
+        // An empty zone = UTC (none).
+        XCTAssertEqual(
+            TriggerWhen.parse(#"{"kind":"schedule","cron":"0 0 * * *","tz":""}"#),
+            .schedule(ScheduleTrigger(cron: "0 0 * * *"))
+        )
     }
 
     // The when-part reader ignores the keys that sit beside it in a stored
     // trigger.
     func testStoredKeysAreIgnoredByTheWhenPart() {
-        let raw = #"{"id":"tr-1","kind":"schedule","enabled":false,"interval":"daily","minuteOfDay":420}"#
-        guard case let .schedule(s)? = TriggerWhen.parse(raw) else {
-            return XCTFail("expected a schedule trigger")
-        }
-        XCTAssertEqual(s.minuteOfDay, 420)
+        let raw = #"{"id":"tr-1","kind":"schedule","enabled":false,"cron":"0 7 * * *"}"#
+        XCTAssertEqual(TriggerWhen.parse(raw), .schedule(ScheduleTrigger(cron: "0 7 * * *")))
     }
 
-    // SLOP-2: an absent source is Exponential's; any OTHER source is a future
-    // one this build cannot fire on, so the trigger is unreadable.
-    func testEventSourceGate() {
-        XCTAssertNotNil(TriggerWhen.parse(#"{"kind":"event","event":"created"}"#))
-        XCTAssertNotNil(TriggerWhen.parse(
-            #"{"kind":"event","source":"exponential","event":"created"}"#
-        ))
-        XCTAssertNil(TriggerWhen.parse(
-            #"{"kind":"event","source":"github","event":"created"}"#
-        ))
-        XCTAssertNil(TriggerWhen.parse(#"{"kind":"event","source":7,"event":"created"}"#))
-        XCTAssertNil(TriggerWhen.parse(#"{"kind":"event","source":null,"event":"created"}"#))
-    }
-
-    func testParsesAnEventTriggerWithFilters() {
-        let raw = #"""
-        {"kind":"event","event":"status_changed",
-         "filters":{"boardIds":["b1","b2"],"toStatusIds":["s1"]}}
-        """#
-        guard case let .event(e)? = TriggerWhen.parse(raw) else {
-            return XCTFail("expected an event trigger")
-        }
-        XCTAssertEqual(e.event, "status_changed")
-        XCTAssertEqual(e.filters.boardIds, ["b1", "b2"])
-        XCTAssertEqual(e.filters.toStatusIds, ["s1"])
-        XCTAssertEqual(e.filters.totalCount, 3)
-    }
-
-    func testEveryContractEventValueParses() {
-        for event in DomainContract.agentTriggerEventValues {
-            let raw = #"{"kind":"event","event":"\#(event)"}"#
-            XCTAssertNotNil(TriggerWhen.parse(raw), "event \(event) must parse")
+    func testParsesBuiltinAndCustomEventNames() {
+        for name in DomainContract.eventBuiltinNames + ["ui-changed", "deploy:prod"] {
+            XCTAssertEqual(
+                TriggerWhen.parse(#"{"kind":"event","name":"\#(name)"}"#),
+                .event(EventTrigger(name: name)),
+                name
+            )
         }
     }
 
@@ -88,43 +58,30 @@ final class TriggerWhenTests: XCTestCase {
         XCTAssertNil(TriggerWhen.parse(""))
         XCTAssertNil(TriggerWhen.parse("not json"))
         XCTAssertNil(TriggerWhen.parse("[1,2,3]"))
-        // Unknown kind / event.
         XCTAssertNil(TriggerWhen.parse(#"{"kind":"webhook"}"#))
-        XCTAssertNil(TriggerWhen.parse(#"{"kind":"event","event":"issue_teleported"}"#))
-        // Schedule field violations.
-        XCTAssertNil(TriggerWhen.parse(#"{"kind":"schedule","interval":"hourly","minuteOfDay":0}"#))
-        XCTAssertNil(TriggerWhen.parse(#"{"kind":"schedule","interval":"daily","minuteOfDay":1440}"#))
-        XCTAssertNil(TriggerWhen.parse(#"{"kind":"schedule","interval":"daily"}"#))
-        XCTAssertNil(TriggerWhen.parse(#"{"kind":"schedule","interval":"weekly","minuteOfDay":0}"#))
-        XCTAssertNil(TriggerWhen.parse(#"{"kind":"schedule","interval":"monthly","minuteOfDay":0,"dayOfMonth":29}"#))
-    }
-
-    func testUnknownFilterListsAreToleratedAsEmpty() {
-        let raw = #"{"kind":"event","event":"created","filters":{"boardIds":"oops"}}"#
-        guard case let .event(e)? = TriggerWhen.parse(raw) else {
-            return XCTFail("expected an event trigger")
-        }
-        XCTAssertTrue(e.filters.isEmpty)
+        XCTAssertNil(TriggerWhen.parse(#"{"kind":"schedule"}"#))
+        XCTAssertNil(TriggerWhen.parse(#"{"kind":"schedule","cron":""}"#))
+        XCTAssertNil(TriggerWhen.parse(#"{"kind":"schedule","cron":7}"#))
+        XCTAssertNil(TriggerWhen.parse(#"{"kind":"event"}"#))
+        XCTAssertNil(TriggerWhen.parse(#"{"kind":"event","name":""}"#))
+        // The pre-NEW-2 shapes are no triggers any more.
+        XCTAssertNil(TriggerWhen.parse(#"{"kind":"schedule","interval":"daily","minuteOfDay":420}"#))
+        XCTAssertNil(TriggerWhen.parse(#"{"kind":"event","event":"created"}"#))
     }
 
     // MARK: - Stored triggers (id + enabled + when)
 
-    private let daily = TriggerWhen.schedule(ScheduleTrigger(interval: "daily", minuteOfDay: 540))
-    private let created = TriggerWhen.event(EventTrigger(event: "created"))
+    private let daily = TriggerWhen.schedule(ScheduleTrigger(cron: "0 9 * * *"))
+    private let created = TriggerWhen.event(EventTrigger(name: "issue.created"))
 
     func testParsesTheStoredTriggersInOrder() {
         let raw = #"""
-        [{"id":"tr-1","enabled":true,"kind":"schedule","interval":"daily","minuteOfDay":540},
-         {"id":"tr-2","enabled":false,"kind":"event","source":"exponential",
-          "event":"created","filters":{"boardIds":["b1"]}}]
+        [{"id":"tr-1","enabled":true,"kind":"schedule","cron":"0 9 * * *"},
+         {"id":"tr-2","enabled":false,"kind":"event","name":"issue.created"}]
         """#
         XCTAssertEqual(AgentTrigger.parseList(raw), [
             AgentTrigger(id: "tr-1", enabled: true, when: daily),
-            AgentTrigger(
-                id: "tr-2",
-                enabled: false,
-                when: .event(EventTrigger(event: "created", filters: TriggerFilters(boardIds: ["b1"])))
-            ),
+            AgentTrigger(id: "tr-2", enabled: false, when: created),
         ])
     }
 
@@ -132,13 +89,13 @@ final class TriggerWhenTests: XCTestCase {
     // when-part, is SKIPPED — its readable neighbours stay.
     func testUnreadableStoredTriggersAreSkipped() {
         let raw = #"""
-        [{"kind":"schedule","interval":"daily","minuteOfDay":540},
-         {"id":7,"kind":"schedule","interval":"daily","minuteOfDay":540},
-         {"id":"","kind":"schedule","interval":"daily","minuteOfDay":540},
+        [{"kind":"schedule","cron":"0 9 * * *"},
+         {"id":7,"kind":"schedule","cron":"0 9 * * *"},
+         {"id":"","kind":"schedule","cron":"0 9 * * *"},
          {"id":"bad-when","kind":"webhook"},
-         {"id":"future-source","kind":"event","source":"github","event":"created"},
+         {"id":"old-shape","kind":"event","event":"created"},
          "nope", 3, null,
-         {"id":"ok","kind":"event","event":"created"}]
+         {"id":"ok","kind":"event","name":"issue.created"}]
         """#
         XCTAssertEqual(AgentTrigger.parseList(raw).map(\.id), ["ok"])
     }
@@ -148,14 +105,14 @@ final class TriggerWhenTests: XCTestCase {
         XCTAssertEqual(AgentTrigger.parseList(""), [])
         XCTAssertEqual(AgentTrigger.parseList("not json"), [])
         XCTAssertEqual(AgentTrigger.parseList("[]"), [])
-        XCTAssertEqual(AgentTrigger.parseList(#"{"id":"tr-1","kind":"event","event":"created"}"#), [])
+        XCTAssertEqual(AgentTrigger.parseList(#"{"id":"tr-1","kind":"event","name":"issue.created"}"#), [])
     }
 
     // Only an explicit `false` pauses; a missing flag — or anything that is
     // not a JSON boolean — is an enabled trigger.
     func testEnabledDefaults() {
         func parse(_ extra: String) -> AgentTrigger? {
-            AgentTrigger.parseList(#"[{"id":"tr-1","kind":"event","event":"created"\#(extra)}]"#).first
+            AgentTrigger.parseList(#"[{"id":"tr-1","kind":"event","name":"issue.created"\#(extra)}]"#).first
         }
         XCTAssertEqual(parse("")?.enabled, true)
         XCTAssertEqual(parse(#","enabled":true"#)?.enabled, true)
@@ -171,25 +128,30 @@ final class TriggerWhenTests: XCTestCase {
         try JSONSerialization.jsonObject(with: JSONEncoder().encode(value))
     }
 
-    // A NEW element carries no id (the server mints it) and an event names
-    // its source.
+    // A NEW element carries no id (the server mints it); the server's strict
+    // schema takes exactly these keys.
     func testNewTriggerElementEncoding() throws {
         let schedule = try XCTUnwrap(try json(AgentTriggerInput(when: daily)) as? [String: Any])
-        XCTAssertEqual(schedule.keys.sorted(), ["enabled", "interval", "kind", "minuteOfDay"])
+        XCTAssertEqual(schedule.keys.sorted(), ["cron", "enabled", "kind"])
         XCTAssertEqual(schedule["enabled"] as? Bool, true)
         XCTAssertEqual(schedule["kind"] as? String, "schedule")
-        XCTAssertEqual(schedule["minuteOfDay"] as? Int, 540)
+        XCTAssertEqual(schedule["cron"] as? String, "0 9 * * *")
+
+        let zoned = try XCTUnwrap(try json(AgentTriggerInput(
+            when: .schedule(ScheduleTrigger(cron: "0 9 * * *", tz: "Europe/Vienna"))
+        )) as? [String: Any])
+        XCTAssertEqual(zoned.keys.sorted(), ["cron", "enabled", "kind", "tz"])
+        XCTAssertEqual(zoned["tz"] as? String, "Europe/Vienna")
 
         let event = try XCTUnwrap(try json(AgentTriggerInput(
             id: "tr-2",
             enabled: false,
-            when: .event(EventTrigger(event: "status_changed", filters: TriggerFilters(toStatusIds: ["s1"])))
+            when: .event(EventTrigger(name: "pr.merged"))
         )) as? [String: Any])
-        XCTAssertEqual(event.keys.sorted(), ["enabled", "event", "filters", "id", "kind", "source"])
+        XCTAssertEqual(event.keys.sorted(), ["enabled", "id", "kind", "name"])
         XCTAssertEqual(event["id"] as? String, "tr-2")
         XCTAssertEqual(event["enabled"] as? Bool, false)
-        XCTAssertEqual(event["source"] as? String, "exponential")
-        XCTAssertEqual((event["filters"] as? [String: Any])?["toStatusIds"] as? [String], ["s1"])
+        XCTAssertEqual(event["name"] as? String, "pr.merged")
     }
 
     // What is written reads back as the same trigger.
@@ -220,7 +182,38 @@ final class TriggerWhenTests: XCTestCase {
     }
 
     func testSummaryReadsTheAgentSettingsSentence() {
-        XCTAssertEqual(AgentTrigger(id: "a", when: daily).summary, "Daily at 09:00")
+        XCTAssertEqual(AgentTrigger(id: "a", when: daily).summary, "Every day at 09:00")
         XCTAssertEqual(AgentTrigger(id: "b", enabled: false, when: created).summary, "When an issue is created · Paused")
+    }
+
+    // MARK: - The contract constants (NEW-2)
+
+    /// The generated agent-trigger / events constants against contract.json
+    /// (they replaced agentTriggerEventValues, agentScheduleIntervalValues,
+    /// agentTriggerMaxFilterIds, triggerCooldownMs, triggerEventCatchupMs).
+    func testGeneratedTriggerAndEventConstantsMatchTheContract() throws {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()          // ExpCore/Tests/
+            .deletingLastPathComponent()          // ExpCore/
+            .deletingLastPathComponent()          // apps/ios/
+            .deletingLastPathComponent()          // apps/
+            .deletingLastPathComponent()          // the repo root
+            .appendingPathComponent("packages/domain-contract/contract.json")
+        let contract = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any]
+        )
+        let trigger = try XCTUnwrap(contract["agentTrigger"] as? [String: Any])
+        XCTAssertEqual(trigger["kindValues"] as? [String], DomainContract.agentTriggerKindValues)
+        XCTAssertEqual(DomainContract.agentTriggerKindValues, ["schedule", "event"])
+        XCTAssertEqual(trigger["maxPerAgent"] as? Int, DomainContract.agentTriggerMaxPerAgent)
+        XCTAssertEqual(trigger["cronMax"] as? Int, DomainContract.agentTriggerCronMax)
+        XCTAssertEqual(trigger["tzMax"] as? Int, DomainContract.agentTriggerTzMax)
+        XCTAssertEqual(trigger["catchUpHours"] as? Int, DomainContract.agentTriggerCatchUpHours)
+        let events = try XCTUnwrap(contract["events"] as? [String: Any])
+        XCTAssertEqual(events["builtinNames"] as? [String], DomainContract.eventBuiltinNames)
+        XCTAssertEqual(events["emitterValues"] as? [String], DomainContract.eventEmitterValues)
+        XCTAssertEqual(events["nameMax"] as? Int, DomainContract.eventNameMax)
+        XCTAssertEqual(events["payloadMaxBytes"] as? Int, DomainContract.eventPayloadMaxBytes)
+        XCTAssertEqual(events["retentionDays"] as? Int, DomainContract.eventRetentionDays)
     }
 }

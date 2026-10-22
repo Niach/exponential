@@ -8,6 +8,7 @@ import com.exponential.app.data.db.TeamEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.domain.SessionTree
+import com.exponential.app.domain.DomainContract
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.SharingStarted
@@ -62,6 +63,8 @@ class ThreadsViewModel @Inject constructor(
             input.messages,
             teamId = null,
             reads = input.reads,
+            // NEW-1: Recent's 24 h window (read on every input change).
+            now = SessionTree.nowIso(),
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
@@ -108,6 +111,22 @@ class ThreadsViewModel @Inject constructor(
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
     /**
+     * NEW-41 (`threads-list.json`, web `rowLead`): each listed root's PR
+     * glyph off the synced pull requests it opened, by root id: any open PR
+     * (a stacked one too) = [ThreadRowPrLead.Open], else any merged one =
+     * [ThreadRowPrLead.Merged]; none = absent.
+     */
+    val prLeads: StateFlow<Map<String, ThreadRowPrLead>> = combine(
+        groups,
+        dbFlow.scopedQuery(emptyList()) { it.pullRequestDao().observeAll() },
+    ) { g, prs ->
+        val byRoot = prs.filter { it.rootSessionId != null }.groupBy { it.rootSessionId }
+        g.flatMap { it.rows }.filter { it.depth == 0 }.mapNotNull { row ->
+            threadRowPrLead(byRoot[row.sessionId].orEmpty().map { it.state })?.let { row.sessionId to it }
+        }.toMap()
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
+    /**
      * The phone home's Running band (`composer-home.json`: phones keep their
      * Running list of LIVE OWN sessions; never Recent): the caller's own
      * threads in Needs you then Running, every team, list order.
@@ -124,9 +143,19 @@ class ThreadsViewModel @Inject constructor(
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    /** Every member team's agents (rail / Settings order). */
-    val agents: StateFlow<List<SessionTree.AgentRow>> = sessions.map { SessionTree.listAgents(it, teamId = null) }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    private val agentDefinitions = dbFlow.scopedQuery(emptyList()) { it.agentDefinitionDao().observeAll() }
+        .map { rows -> rows.map(SessionTree::agentDefinition) }
+
+    /** NEW-2: every member team's agent DEFINITIONS (rail / Settings order);
+     *  busy / needs-you off the viewer's own conversation session. */
+    val agents: StateFlow<List<SessionTree.AgentRow>> = combine(agentDefinitions, sessions, auth.userId) { defs, s, me ->
+        SessionTree.listAgents(defs, s, teamId = null, me = me)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** NEW-2: the viewer's conversation session per agent id (a row opens it). */
+    val conversations: StateFlow<Map<String, String>> = combine(sessions, auth.userId) { s, me ->
+        SessionTree.conversations(s, me)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
     /** The member teams, name order — the per-team bands. */
     val teams: StateFlow<List<TeamEntity>> = dbFlow.scopedQuery(emptyList()) { it.teamDao().observeAll() }
@@ -145,6 +174,17 @@ class ThreadsViewModel @Inject constructor(
 
 /** A Threads row's extras: the first linked issue's identifier, the root's
  *  agent (its brand mark) and the root's device (the trailing icon). */
+/** NEW-41: the PR glyph a Threads-tab row's lead wears (web `rowLead`). */
+enum class ThreadRowPrLead { Open, Merged }
+
+/** NEW-41 (web `rowLead`): `prs.some(open)` → emerald, else
+ *  `prs.some(merged)` → violet, else none. */
+fun threadRowPrLead(states: List<String>): ThreadRowPrLead? = when {
+    states.any { it == DomainContract.prStateOpen } -> ThreadRowPrLead.Open
+    states.any { it == DomainContract.prStateMerged } -> ThreadRowPrLead.Merged
+    else -> null
+}
+
 data class ThreadRowMeta(
     val identifier: String?,
     val agent: String?,

@@ -36,7 +36,8 @@ extension TreeSession {
             updatedAt: row.updatedAt,
             deviceId: row.deviceId.isEmpty ? nil : row.deviceId,
             caption: row.caption,
-            aside: row.aside
+            aside: row.aside,
+            agentId: row.agentId
         )
     }
 }
@@ -46,8 +47,7 @@ extension TreeSessionIssue {
         self.init(
             sessionId: row.sessionId,
             issueId: row.issueId,
-            sortOrder: row.sortOrder,
-            assignedSessionId: row.assignedSessionId
+            sortOrder: row.sortOrder
         )
     }
 }

@@ -1174,6 +1174,47 @@ pub fn initialize_hooks() -> Value {
     })
 }
 
+/// N-5 / NEW-5: the `PreToolUse` callback a CONFINED run registers
+/// ([`super::AdapterSpec::confine_to`]). Registered ONLY then, so an
+/// unconfined run's hook set stays exactly [`initialize_hooks`].
+pub const HOOK_PRE_TOOL_USE_CONFINE: &str = "exp_pre_tool_use_confine";
+
+/// The file/shell tools a confined run checks — anchored, so an MCP tool whose
+/// name merely contains `Read` never round-trips through the hook.
+pub const CONFINED_TOOL_MATCHER: &str =
+    "^(Read|Edit|Write|MultiEdit|NotebookEdit|NotebookRead|Glob|Grep|LS|Bash)$";
+
+/// [`initialize_hooks`] plus, for a confined run, the `PreToolUse` gate. The
+/// CLI runs `bypassPermissions`, under which most tool calls never raise a
+/// `can_use_tool` at all; a `PreToolUse` hook fires in EVERY mode and its
+/// `deny` reaches the model as the tool's error.
+pub fn initialize_hooks_for(confined: bool) -> Value {
+    let mut hooks = initialize_hooks();
+    if confined {
+        hooks["PreToolUse"] = json!([{
+            "matcher": CONFINED_TOOL_MATCHER,
+            "hookCallbackIds": [HOOK_PRE_TOOL_USE_CONFINE],
+        }]);
+    }
+    hooks
+}
+
+/// A `PreToolUse` hook answer. `None` = carry on (`{continue: true}`), a
+/// reason = deny the call with it.
+pub fn pre_tool_use_answer(deny_reason: Option<&str>) -> Value {
+    match deny_reason {
+        None => json!({ "continue": true }),
+        Some(reason) => json!({
+            "continue": true,
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "deny",
+                "permissionDecisionReason": reason,
+            },
+        }),
+    }
+}
+
 /// `get_usage` without the transcript scan: the behaviours section walks every
 /// transcript touched in the last seven days, and the session screen renders
 /// only the plan windows and the session's own cost.

@@ -66,22 +66,34 @@ object AgentComposerPrompt {
          * request — its own verb and send. Unpicked it is a plain [Action].
          */
         data object FixConflicts : Subject
+
+        /** NEW-3 (composer-menu.json `message-agent`): a message into the
+         *  caller's DM with a team agent. */
+        data object Agent : Subject
     }
 
     /**
      * The submit label — the ×4 contract: "Start chat" / "Start coding" /
-     * "Start batch · N" / "Run action" / (EXP-1233) "Fix conflicts".
+     * "Start batch · N" / "Start session" (a prompt) / (EXP-1233) "Fix conflicts".
      */
     fun submitTitle(subject: Subject): String = when (subject) {
         Subject.None -> "Start chat"
         is Subject.Issues -> if (subject.count > 1) "Start batch · ${subject.count}" else "Start coding"
-        Subject.Action -> "Run action"
+        // NEW-2 (web `submitLabelFor`): a prompt starts a session.
+        Subject.Action -> PROMPT_SUBMIT
         Subject.FixConflicts -> DomainContract.composerUiFixConflictsSubmit
+        Subject.Agent -> AGENT_SUBMIT
     }
+
+    /** NEW-2: the submit while a saved prompt is the subject. */
+    const val PROMPT_SUBMIT = "Start session"
+
+    /** NEW-3: the submit while an agent is the subject (web `submitLabelFor`). */
+    const val AGENT_SUBMIT = "Send"
 
     /**
      * EXP-1038: the composer's HEADLINE verb, above the field and beside the
-     * subject chips — the contract's `composerUi*` copy ×4: "Run" for an
+     * subject chips — the contract's `composerUi*` copy ×4 (none for a prompt or an agent: the chip is the headline): "Run" for an
      * action, "Implement" for issue chips, "Ask the agent" for a subjectless
      * chat (which has no chips, so the verb stands alone). EXP-1233: "Fix
      * merge conflicts" beside the picked pull request's issue chips.
@@ -89,7 +101,10 @@ object AgentComposerPrompt {
     fun headline(subject: Subject): String = when (subject) {
         Subject.None -> DomainContract.composerUiChatHeadline
         is Subject.Issues -> DomainContract.composerUiImplementHeadline
-        Subject.Action -> DomainContract.composerUiRunHeadline
+        // NEW-2 (web `launchHeadlineVerb`): the prompt's chip IS the headline.
+        Subject.Action -> ""
         Subject.FixConflicts -> DomainContract.composerUiFixConflictsHeadline
+        // NEW-3 (web `launchHeadlineVerb`): the agent's chip IS the headline.
+        Subject.Agent -> ""
     }
 }

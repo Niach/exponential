@@ -9,8 +9,8 @@ import SwiftUI
 /// count, over flat gapless rows, no dividers (EXP-1320). EXP-1358: the
 /// title sits in the sticky inline nav bar like every other tab root; in
 /// several teams each TEAM band (avatar + name) is OUTER and the group bands
-/// sit inside it. A row opens the thread, an agent row its channel (the same
-/// thread screen).
+/// sit inside it. A row opens the thread; an agent row (NEW-2: an `agents`
+/// definition) opens the caller's DM with it (`AgentChannelScreen`).
 struct ThreadsView: View {
     @Environment(SessionListsModel.self) private var lists
     @Environment(TeamState.self) private var teamState
@@ -24,8 +24,10 @@ struct ThreadsView: View {
                 ThreadsListContent(
                     groups: lists.groups,
                     agents: lists.agents,
+                    agentConversations: lists.agentConversations,
                     clis: lists.clis,
                     words: lists.words,
+                    prStates: lists.prStates,
                     devices: lists.devices,
                     teams: teamState.teams,
                     onOpen: { rootId in
@@ -34,6 +36,11 @@ struct ThreadsView: View {
                     // EXP-1323: a nested child row opens that session.
                     onOpenSession: { sessionId in
                         pushRoute(.agentSession(accountId: accountId, sessionId: sessionId))
+                    },
+                    // NEW-2: an agent row opens the caller's DM with it (the
+                    // same screen, empty until the first message).
+                    onOpenAgent: { agentId in
+                        pushRoute(.agentChannel(accountId: accountId, agentId: agentId))
                     }
                 )
             } else {
@@ -57,16 +64,25 @@ struct ThreadsView: View {
 struct ThreadsListContent: View {
     let groups: [ThreadsListGroup]
     let agents: [AgentRow]
+    /// NEW-2: my conversation session with each agent, by agent id (kept
+    /// for hosts that open the conversation itself).
+    var agentConversations: [String: String] = [:]
     /// A root's agent CLI (the row's run mark), by root id.
     var clis: [String: String] = [:]
     /// EXP-1309: a root's quiet word, by root id.
     var words: [String: ThreadRowWord] = [:]
+    /// NEW-41: each root's pull-request states, the lead's PR glyph.
+    var prStates: [String: [String]] = [:]
     /// EXP-1316: a root's device glyph, by root id.
     var devices: [String: ThreadRowDevice] = [:]
     let teams: [TeamEntity]
     let onOpen: (String) -> Void
     /// EXP-1323: a nested child row (depth > 0) opens its session view.
     var onOpenSession: (String) -> Void = { _ in }
+    /// NEW-2: an agent row opens the caller's DM with it (by the agent's
+    /// definition id); nil = its conversation through `onOpen`, when one
+    /// exists.
+    var onOpenAgent: ((String) -> Void)?
 
     var body: some View {
         if groups.isEmpty && agents.isEmpty {
@@ -153,7 +169,11 @@ struct ThreadsListContent: View {
         .accessibilityIdentifier("threads-group-agents")
         TeamBandedRows(rows: agents, teams: teams, teamId: \.teamId) { agent in
             Button {
-                onOpen(agent.sessionId)
+                if let onOpenAgent {
+                    onOpenAgent(agent.agentId)
+                } else if let conversation = agentConversations[agent.agentId] {
+                    onOpen(conversation)
+                }
             } label: {
                 // EXP-1309 (web `ThreadsListItem`): the working mark
                 // while it works, `needs input` while it waits on you.
@@ -185,6 +205,7 @@ struct ThreadsListContent: View {
                 row: row,
                 cli: clis[row.sessionId],
                 word: .some(words[row.sessionId]),
+                prStates: prStates[row.sessionId] ?? [],
                 device: devices[row.sessionId],
                 guide: guide
             )
@@ -218,14 +239,18 @@ struct ThreadsListContent: View {
 /// (`threads-list.json`; Home's Running band). EXP-1309: on the Threads tab
 /// (`word` given, web `ThreadsListView`) the row ends on ONE quiet word
 /// instead (EXP-1339: no lock) and its state moves into the lead: the working mark while busy,
-/// the mark with an amber badge when it needs you, the PR glyph `ready to
-/// merge` names, the violet pr-merged glyph for `merged` (no word).
+/// the mark with an amber badge when it needs you, the emerald pr-open glyph
+/// while the root has an open PR (a stacked one too, NEW-41), the violet
+/// pr-merged glyph once it is merged (no word).
 struct ThreadRowLabel: View {
     let row: ThreadsListRow
     /// The root's agent CLI; nil/empty = claude.
     var cli: String? = nil
     /// nil = Home's row (spinner / dot); `.some` = the Threads tab's row.
     var word: ThreadRowWord?? = nil
+    /// NEW-41: the root's pull-request states; any open one leads emerald
+    /// (a stacked one too), else a merged one violet.
+    var prStates: [String] = []
     /// EXP-1316: the root's device glyph, last on the row (after the
     /// word); nil = none.
     var device: ThreadRowDevice? = nil
@@ -282,7 +307,9 @@ struct ThreadRowLabel: View {
 
     /// Web `rowLead`. EXP-1344: `threadRowMarkState` FIRST at every depth
     /// (needs-you's amber badge beats busy: a parked plan/question keeps
-    /// the device busy), then the PR glyphs.
+    /// the device busy), then the root's PR glyph (NEW-41 ×4: any open PR,
+    /// a stacked one too, = emerald; else a merged one = violet), never the
+    /// word.
     @ViewBuilder
     private func threadsLead(_ word: ThreadRowWord?) -> some View {
         let mark = SessionTree.threadRowMarkState(needsYou: row.needsYou, busy: row.busy)
@@ -290,10 +317,10 @@ struct ThreadRowLabel: View {
             needsYouMark
         } else if mark == .working {
             AgentWorkingMark(agent: cli)
-        } else if word == .readyToMerge {
+        } else if prStates.contains(DomainContract.prStateOpen) {
             AppIcon(AppIcons.prOpen, size: 13)
                 .foregroundStyle(DesignTokens.Semantic.green)
-        } else if word == .merged {
+        } else if prStates.contains(DomainContract.prStateMerged) {
             AppIcon(AppIcons.prMerged, size: 13)
                 .foregroundStyle(DesignTokens.Avatar.violet)
         } else {

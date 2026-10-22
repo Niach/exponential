@@ -29,9 +29,7 @@ import {
 } from "@/components/team/sidebar-running"
 import { SidebarAgentsIcons } from "@/components/team/sidebar-agents"
 import {
-  ACTIONS_LABEL,
   DRAFTS_LABEL,
-  NavActionsIcon,
   NavDraftsIcon,
   useDraftCount,
 } from "@/components/team/sidebar-nav-entries"
@@ -282,7 +280,7 @@ export function TeamSidebarRail({
   return (
     <div className="flex h-full w-12 flex-col" data-testid="sidebar-compact-rail">
       <div className="flex min-h-0 flex-1 flex-col items-center gap-1 overflow-x-hidden overflow-y-auto py-2 [scrollbar-width:none]">
-        {/* Order ×4 (EXP-1293): Agent, Inbox, Threads, Devices, Actions, Drafts. */}
+        {/* Order ×4 (EXP-1293, NEW-2): Agent, Inbox, Threads, Devices, Drafts. */}
         <RailItem
           label="Agent"
           link={{ to: `/t/$teamSlug/agent`, params }}
@@ -303,9 +301,6 @@ export function TeamSidebarRail({
         </RailItem>
         <RailItem label="Devices" link={{ to: `/t/$teamSlug/devices`, params }}>
           <NavDevicesIcon className="size-4" />
-        </RailItem>
-        <RailItem label={ACTIONS_LABEL} link={{ to: `/t/$teamSlug/actions`, params }}>
-          <NavActionsIcon className="size-4" />
         </RailItem>
         {draftCount > 0 && (
           <RailItem label={DRAFTS_LABEL} link={{ to: `/t/$teamSlug/drafts`, params }}>

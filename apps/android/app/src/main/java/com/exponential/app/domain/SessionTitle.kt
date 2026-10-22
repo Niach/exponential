@@ -1,6 +1,6 @@
 package com.exponential.app.domain
 
-// EXP-1341: THE display title of any session ×4 (never `Session N`).
+// EXP-1341/NEW-1: THE display title of any session ×4 (never `Session N`).
 // Hand-ported from `packages/domain-contract/src/session-title.ts` and locked
 // to `fixtures/session-title.json` by SessionTitleTest. Mirrors: desktop
 // `domain::session_title`, iOS ExpCore `SessionTitle.swift`.
@@ -23,11 +23,10 @@ object SessionTitle {
     )
 
     data class TitleLink(
+        /** NEW-1: the session that HOLDS the issue (the row sits on it). */
         val sessionId: String,
         val issueId: String,
         val sortOrder: Double,
-        /** The tree session working on it (null = the root's own). */
-        val assignedSessionId: String? = null,
     )
 
     data class TitleIssue(val id: String, val identifier: String, val title: String)
@@ -53,12 +52,11 @@ object SessionTitle {
     private fun firstLine(body: String): String? =
         body.split("\n").map { it.trim() }.firstOrNull { it.isNotEmpty() && !it.startsWith("![") }
 
-    /** A root's links, or the links ASSIGNED to a child, in link order. */
+    /** The session's OWN rows, in link order (root or child alike, NEW-1). */
     fun sessionIssues(session: TitleSession, links: List<TitleLink>, issues: List<TitleIssue>): List<TitleIssue> {
         val byId = issues.associateBy { it.id }
-        val isRoot = session.id == session.rootId
         return links
-            .filter { if (isRoot) it.sessionId == session.id else it.assignedSessionId == session.id }
+            .filter { it.sessionId == session.id }
             .sortedWith(compareBy<TitleLink>({ it.sortOrder }, { it.issueId }))
             .mapNotNull { byId[it.issueId] }
     }

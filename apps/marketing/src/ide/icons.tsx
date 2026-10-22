@@ -56,6 +56,7 @@ import {
   ListFilter,
   ListOrdered,
   ListTodo,
+  ListTree,
   MessageSquare,
   Minus,
   Monitor,
@@ -109,6 +110,7 @@ export const IcSearch = wrap(Search)
 export const IcInbox = wrap(Inbox)
 export const IcCircleUser = wrap(CircleUser)
 export const IcListTodo = wrap(ListTodo)
+export const IcListTree = wrap(ListTree)
 export const IcFolder = wrap(Folder)
 export const IcFolderOpen = wrap(FolderOpen)
 export const IcFile = wrap(File)

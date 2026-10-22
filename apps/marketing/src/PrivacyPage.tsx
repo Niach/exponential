@@ -88,7 +88,7 @@ export function PrivacyPage() {
             </li>
             <li style={listItem}>
               <strong>Coding sessions.</strong> If you run coding sessions, we
-              store a small record of each session (the issue or action it worked
+              store a small record of each session (the issues or prompt it worked
               on, the machine and agent that ran it, its branch or pull
               request, its status and timestamps) so your team can see it. We
               do not store session history: a session&apos;s transcript is kept

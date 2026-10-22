@@ -297,7 +297,6 @@ export interface GrantScopeRow {
   teamId: string | null
   boardId: string | null
   userId?: string | null
-  hostUserId?: string | null
 }
 
 /** The row-level twin of `grantScopeFilter` — same three arms, same order. */
@@ -312,7 +311,6 @@ export function isRowGranted(
   if (row.boardId) return isBoardGranted(access, row.boardId, row.teamId)
   if (isTeamFullyGranted(access, row.teamId)) return true
   if (!callerUserId) return false
-  const own =
-    row.userId === callerUserId || row.hostUserId === callerUserId
+  const own = row.userId === callerUserId
   return own && isTeamVisible(access, row.teamId)
 }

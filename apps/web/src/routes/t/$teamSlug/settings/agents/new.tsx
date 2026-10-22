@@ -12,8 +12,8 @@ export const Route = createFileRoute(`/t/$teamSlug/settings/agents/new`)({
 })
 
 // EXP-1293: "New agent" = the agent page in CREATE mode — every field local
-// until "Create agent" sends `sessions.send({teamId, deviceId, account,
-// agent})`, then the page becomes the new agent's. Owner-only.
+// until "Create agent" sends `agents.create`, then the page becomes the new
+// agent's. Owner-only.
 function SettingsNewAgent() {
   const { teamSlug } = Route.useParams()
   const { team, permissions, resolved } = useSettingsPage(teamSlug)

@@ -36,47 +36,47 @@ export function mcpServerInstructions(gates: {
   reportBug: boolean
 }): string {
   const paragraphs = [
-    // EXP-707 (theme D): status changes are AUTOMATIC — PR open/merge apply
-    // the team's configured status automation; set one only when asked.
-    `Exponential is this team's issue tracker and agent layer: issues on boards; sessions (threads and team agents) with their PRs and Guide. In a coding session: exponential_issues_get, exponential_comments_list, implement, commit and push, exponential_guide_write, then exponential_pr_open. Status changes are automatic. Search for exponential_* tools for boards, members, attachments, actions, sessions, devices, repos and teams.`,
-    `exponential_sessions_send is the one session verb: sessionId messages a session, parentId starts a child, neither starts a thread. exponential_sessions_get (no id) reads your thread. Ping a person with @email in a message. PR tools take pullRequestId, issueId or repositoryId plus prNumber, default your session's newest open PR; merge a tree root first. Merging your own PR never ends your session.`,
+    // NEW-4: 15 tools, one per noun, each with an `op`; statuses change
+    // AUTOMATICALLY on PR open/merge; set one only when asked.
+    `Exponential is this team's issue tracker and agent layer: issues on boards; sessions (threads, team agents) with PRs and a Guide. 15 tools, one per noun, each taking op plus that op's fields (exponential_issues {op: "get", id: "EXP-12"}; its description lists the ops). Coding session: issues get, comments list, implement, commit, push, exponential_guide_write, exponential_pr {op: "open"}. Statuses move automatically. Search for exponential_* tools (devices, events, people).`,
+    `exponential_sessions_send is the one session verb: sessionId messages a session (stop: true interrupts it), agentId a team agent (your conversation), parentId starts a child, neither starts a thread. exponential_sessions {op: "get"} (no id) reads your thread. Ping a person with @email. exponential_pr ops take pullRequestId, issueId or repositoryId + prNumber (default: your newest open PR); merge a tree root first.`,
     // EXP-792: the one registry. An agent asked to "add the Linear MCP"
     // would otherwise write a repo .mcp.json the launcher never reads.
-    `Team MCP servers (Linear, Sentry...) live in exponential_mcp_servers_*, not a repo .mcp.json.`,
+    `Team MCP servers live in exponential_team_config (mcp_servers_*), never .mcp.json.`,
   ]
   if (gates.reportBug) {
     paragraphs.push(
-      `When Exponential ITSELF misbehaves (a tool contradicting its docs, a dropped start, a sync glitch), file it with exponential_report_bug. It reaches Exponential's developers, not the user's project.`
+      `When Exponential ITSELF misbehaves (a tool contradicting its docs, a dropped start, a sync glitch), file it with exponential_session_self {op: "report_bug"}: it reaches Exponential's developers.`
     )
   }
   if (gates.inSession && gates.agent) {
     paragraphs.push(
-      `You are a team agent: you never end. Work arrives as messages and trigger firings; start threads for it with exponential_sessions_send and answer in your reply.`
+      `You are a team agent: you never end. Work arrives as messages, schedule ticks and events (exponential_events {op: "emit"} posts one); start threads with exponential_sessions_send (they report back here); answer in your reply.`
     )
   }
   if (gates.inSession && !gates.agent && gates.unattended) {
     paragraphs.push(
-      `This session is unattended (another session started it). Finish with exponential_sessions_end LAST, worktree clean: its summary (finished, stopped for a human, or changed nothing) is your final message and your parent's report. Never wait for replies; a question only your starter can answer goes to your parent via exponential_sessions_send, then stop.`
+      `This session is unattended (another session started it). Finish with exponential_sessions {op: "end", summary} LAST, worktree clean: the summary (finished, stopped for a human, or changed nothing) is your final message and your parent's report. Never wait or poll: end your turn, messages wake you.`
     )
   }
   if (gates.inSession && !gates.agent && !gates.unattended) {
     paragraphs.push(
-      `exponential_sessions_end ends this session; call it only when the person asks you to end the session.`
+      `exponential_sessions {op: "end"} ends this session; call it only when the person asks you to end the session. Never wait or poll: end your turn, messages wake you.`
     )
   }
-  // EXP-1280: plan mode is Exponential's (a card + the pr_open gate): a
+  // EXP-1280: plan mode is Exponential's (a card + the pr open gate): a
   // planning session gets THE gate sentence (plan-card.json `planModeGate`,
   // the device's plan-mode line says the same), every session the ask —
   // unless the host cannot feed a card's answer back (`cards === false`).
   if (gates.inSession && gates.cards !== false) {
-    const ask = `Ask a person with exponential_sessions_ask.`
+    const ask = `Ask a person with exponential_session_self {op: "ask"}.`
     paragraphs.push(gates.planMode === true ? `${PLAN_CARD_COPY.planModeGate} ${ask}` : ask)
   }
   // EXP-879/1251: LAST, so it is what a truncating client keeps least — but
   // present, because a session never asked for its Guide never writes one.
   if (gates.inSession && !gates.agent) {
     paragraphs.push(
-      `Close out with a Guide, never a chat summary: exponential_guide_write files per topic 2-3 sentences of GFM plus the files it touched ('Summary' first; sections together cover every changed file) and screenshots (one label each). The Guide IS the body of every PR in your thread: write it and screenshot every visible change BEFORE exponential_pr_open.`
+      `Close out with a Guide, never a chat summary: exponential_guide_write files per topic 2-3 sentences of GFM plus the files it touched ('Summary' first; together they cover every changed file) and screenshots (one label each). The Guide IS every PR's body: write it (with screenshots) BEFORE exponential_pr {op: "open"}.`
     )
   }
   return paragraphs.join(`\n\n`)

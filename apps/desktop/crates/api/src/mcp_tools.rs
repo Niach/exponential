@@ -131,6 +131,18 @@ pub fn parse_tool_response(body: &str) -> Result<Value, ApiError> {
 }
 
 /// One `tools/call` against `/api/mcp`, decoded to the tool's JSON output.
+/// NEW-4: the server's noun tools take an `op` beside the op's fields
+/// (`exponential_sessions {op: "list", ...}`); the CLI's typed calls build
+/// their fields and stamp the op here.
+pub fn with_op(op: &str, mut arguments: Value) -> Value {
+    if let Some(object) = arguments.as_object_mut() {
+        object.insert("op".to_string(), Value::String(op.to_string()));
+        arguments
+    } else {
+        serde_json::json!({ "op": op })
+    }
+}
+
 pub fn call_tool(trpc: &TrpcClient, name: &str, arguments: &Value) -> Result<Value, ApiError> {
     let body = trpc.post_json(
         "/api/mcp",
@@ -199,7 +211,7 @@ pub fn devices_list(
     if let Some(team_id) = team_id {
         arguments["teamId"] = Value::String(team_id.to_string());
     }
-    call_typed(trpc, "exponential_devices_list", &arguments)
+    call_typed(trpc, "exponential_devices", &with_op("list", arguments))
 }
 
 // ---------------------------------------------------------------------------
@@ -222,7 +234,7 @@ pub struct RemoteTeam {
 
 /// `exponential_teams_list` — every team the caller belongs to, by name.
 pub fn teams_list(trpc: &TrpcClient) -> Result<Vec<RemoteTeam>, ApiError> {
-    call_typed(trpc, "exponential_teams_list", &serde_json::json!({ "limit": MAX_PAGE }))
+    call_typed(trpc, "exponential_teams", &serde_json::json!({ "op": "list", "limit": MAX_PAGE }))
 }
 
 // ---------------------------------------------------------------------------
@@ -273,7 +285,7 @@ pub struct RemoteSession {
     /// A team agent's display name (`kind = agent` roots only).
     #[serde(default)]
     pub name: Option<String>,
-    /// The action a thread runs, by name.
+    /// The action a thread ran, by name (a legacy read shim).
     #[serde(default)]
     pub action_name: Option<String>,
     #[serde(default)]
@@ -369,7 +381,7 @@ pub fn sessions_list(
     query: &SessionsQuery,
 ) -> Result<Vec<RemoteSession>, ApiError> {
     let arguments = serde_json::to_value(query).map_err(|e| ApiError::Decode(e.to_string()))?;
-    call_typed(trpc, "exponential_sessions_list", &arguments)
+    call_typed(trpc, "exponential_sessions", &with_op("list", arguments))
 }
 
 /// `exponential_sessions_get` — the tree `session_id` belongs to (no
@@ -377,15 +389,16 @@ pub fn sessions_list(
 pub fn sessions_get(trpc: &TrpcClient, session_id: &str) -> Result<RemoteSessionTree, ApiError> {
     call_typed(
         trpc,
-        "exponential_sessions_get",
-        &serde_json::json!({ "id": session_id, "messages": 0 }),
+        "exponential_sessions",
+        &serde_json::json!({ "op": "get", "id": session_id, "messages": 0 }),
     )
 }
 
 /// `exponential_sessions_send` input — the server's `sessionsSendInputSchema`
 /// (web `@exp/db-schema/domain`): message an existing session (`session_id`;
 /// an idle one resumes), start a CHILD (`parent_id`), or start a new ROOT
-/// thread (neither; `issue_ids` / `action_id`+`inputs` / `repository_id`).
+/// thread (neither; `issue_ids` / `prompt_id` / `repository_id`); NEW-2:
+/// `agent_id` messages a team agent (the caller's conversation with it).
 /// A new session names its `device_id`; absent runner pickers = that
 /// device's own launch defaults. Every absent field stays off the wire.
 #[derive(Clone, Debug, Default, Serialize, PartialEq)]
@@ -422,16 +435,17 @@ pub struct SessionsSendInput {
     pub attachment_ids: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub issue_ids: Option<Vec<String>>,
+    /// NEW-2: a new root run from a saved prompt (its body first).
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub action_id: Option<String>,
-    /// Action input values by key (BTreeMap for a deterministic wire order).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub inputs: Option<std::collections::BTreeMap<String, String>>,
+    pub prompt_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub repository_id: Option<String>,
     /// EXP-1341: an explicit name for a new root or child.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    /// NEW-2: a message to a team agent (the caller's conversation with it).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent_id: Option<String>,
 }
 
 /// What `exponential_sessions_send` hands back: the session (new or the one
@@ -460,14 +474,14 @@ pub fn sessions_send(
 /// `exponential_sessions_stop` — interrupt the session's current turn; it
 /// stays live and goes idle (`sessions.stop`).
 pub fn sessions_stop(trpc: &TrpcClient, session_id: &str) -> Result<(), ApiError> {
-    call_tool(trpc, "exponential_sessions_stop", &serde_json::json!({ "id": session_id }))?;
+    call_tool(trpc, "exponential_sessions_send", &serde_json::json!({ "sessionId": session_id, "stop": true }))?;
     Ok(())
 }
 
 /// `exponential_sessions_end` — end a session explicitly (status `ended`;
 /// ending a root ends its whole tree; agents never end).
 pub fn sessions_end(trpc: &TrpcClient, session_id: &str) -> Result<(), ApiError> {
-    call_tool(trpc, "exponential_sessions_end", &serde_json::json!({ "id": session_id }))?;
+    call_tool(trpc, "exponential_sessions", &serde_json::json!({ "op": "end", "id": session_id }))?;
     Ok(())
 }
 
@@ -478,16 +492,31 @@ mod tests {
     use crate::StaticToken;
     use std::sync::Arc;
 
+    /// The captured request's `tools/call` name and arguments, compared as
+    /// VALUES: `serde_json` keeps source order only with `preserve_order`,
+    /// which feature unification turns on for the whole workspace (the
+    /// exponential-ui crate) but not for `cargo test -p api`, so a byte
+    /// comparison of the body passes in one build and fails in the other.
+    fn tool_call(request: &str) -> (String, serde_json::Value) {
+        let body = request.split("\r\n\r\n").nth(1).unwrap_or("");
+        let json: serde_json::Value = serde_json::from_str(body).unwrap_or_else(|err| panic!("{err}: {request}"));
+        let params = &json["params"];
+        (
+            params["name"].as_str().unwrap_or_default().to_string(),
+            params["arguments"].clone(),
+        )
+    }
+
     fn client(base: &str) -> TrpcClient {
         TrpcClient::new(base, Arc::new(StaticToken("tok".to_string())))
     }
 
     #[test]
     fn the_call_body_is_a_bare_tools_call() {
-        let body = tool_call_body("exponential_sessions_get", &serde_json::json!({"id": "s1"}));
+        let body = tool_call_body("exponential_sessions", &serde_json::json!({"id": "s1", "op": "get"}));
         assert_eq!(
             body,
-            r#"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"exponential_sessions_get","arguments":{"id":"s1"}}}"#
+            r#"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"exponential_sessions","arguments":{"id":"s1","op":"get"}}}"#
         );
     }
 
@@ -535,17 +564,15 @@ mod tests {
             &request,
             "Accept: application/json, text/event-stream"
         ));
-        assert!(
-            request.ends_with(r#""arguments":{"limit":200}}}"#),
-            "{request}"
+        assert_eq!(
+            tool_call(&request),
+            ("exponential_devices".to_string(), serde_json::json!({"limit": 200, "op": "list"}))
         );
     }
 
     #[test]
     fn a_send_omits_absent_options() {
         // A new root thread on an issue, run on a named device.
-        let mut inputs = std::collections::BTreeMap::new();
-        inputs.insert("repo".to_string(), "r1".to_string());
         let input = SessionsSendInput {
             device_id: Some("d1".into()),
             issue_ids: Some(vec!["i1".into()]),
@@ -556,18 +583,23 @@ mod tests {
             serde_json::to_string(&input).unwrap(),
             r#"{"deviceId":"d1","text":"hi","issueIds":["i1"]}"#
         );
-        let action = SessionsSendInput {
+        let prompt = SessionsSendInput {
             team_id: Some("t1".into()),
             device_id: Some("d1".into()),
             plan_mode: Some(true),
-            action_id: Some("a1".into()),
-            inputs: Some(inputs),
+            prompt_id: Some("p1".into()),
             ..Default::default()
         };
         assert_eq!(
-            serde_json::to_string(&action).unwrap(),
-            r#"{"teamId":"t1","deviceId":"d1","planMode":true,"actionId":"a1","inputs":{"repo":"r1"}}"#
+            serde_json::to_string(&prompt).unwrap(),
+            r#"{"teamId":"t1","deviceId":"d1","planMode":true,"promptId":"p1"}"#
         );
+        let agent = SessionsSendInput {
+            agent_id: Some("ag1".into()),
+            text: Some("hi".into()),
+            ..Default::default()
+        };
+        assert_eq!(serde_json::to_string(&agent).unwrap(), r#"{"text":"hi","agentId":"ag1"}"#);
     }
 
     #[test]
@@ -589,19 +621,21 @@ mod tests {
         assert_eq!(sent.message_id, None);
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.starts_with("POST /api/mcp HTTP/1.1"), "{request}");
-        assert!(
-            request.ends_with(
-                r#""params":{"name":"exponential_sessions_send","arguments":{"sessionId":"s0","text":"go on"}}}"#
-            ),
-            "{request}"
+        assert_eq!(
+            tool_call(&request),
+            ("exponential_sessions_send".to_string(), serde_json::json!({"sessionId": "s0", "text": "go on"}))
         );
     }
 
     #[test]
     fn sessions_stop_and_end_name_the_session() {
-        for (call, tool) in [
-            (sessions_stop as fn(&TrpcClient, &str) -> Result<(), ApiError>, "exponential_sessions_stop"),
-            (sessions_end, "exponential_sessions_end"),
+        // NEW-4: stop rides `sessions_send`; end is the `sessions` noun's op.
+        for (call, expected) in [
+            (
+                sessions_stop as fn(&TrpcClient, &str) -> Result<(), ApiError>,
+                ("exponential_sessions_send", serde_json::json!({"sessionId": "s1", "stop": true})),
+            ),
+            (sessions_end, ("exponential_sessions", serde_json::json!({"id": "s1", "op": "end"}))),
         ] {
             let (base, captured) = one_shot_server(
                 200,
@@ -609,12 +643,7 @@ mod tests {
             );
             call(&client(&base), "s1").unwrap();
             let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
-            assert!(
-                request.ends_with(&format!(
-                    r#""params":{{"name":"{tool}","arguments":{{"id":"s1"}}}}}}"#
-                )),
-                "{request}"
-            );
+            assert_eq!(tool_call(&request), (expected.0.to_string(), expected.1));
         }
     }
 
@@ -646,11 +675,9 @@ mod tests {
         assert_eq!(tree.session("c1").map(|row| row.depth), Some(1));
         assert!(tree.session("nope").is_none());
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
-        assert!(
-            request.ends_with(
-                r#""params":{"name":"exponential_sessions_get","arguments":{"id":"c1","messages":0}}}"#
-            ),
-            "{request}"
+        assert_eq!(
+            tool_call(&request),
+            ("exponential_sessions".to_string(), serde_json::json!({"id": "c1", "messages": 0, "op": "get"}))
         );
     }
 

@@ -280,6 +280,58 @@ val MIGRATION_90_91: Migration = object : Migration(90, 91) {
     }
 }
 
+/**
+ * v92 (NEW-2): agents are DEFINITIONS (`agents`), conversations are sessions
+ * with `agent_id`; prompts replace actions; events. `sessions.agent_id` lands
+ * NULL, so the sessions shape refetches; the three new tables are created
+ * EMPTY and snapshot from scratch. DDL verbatim from the generated
+ * ExponentialDatabase_Impl.
+ */
+val MIGRATION_91_92: Migration = object : Migration(91, 92) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `sessions` ADD COLUMN `agent_id` TEXT")
+        for (statement in NEW_TABLES_V92) db.execSQL(statement)
+        db.execSQL(
+            "UPDATE `electric_offsets` SET `handle` = '', `offset` = '-1', `is_live` = 0, " +
+                "`needs_refetch` = 1 WHERE `shape` = 'sessions'",
+        )
+    }
+}
+
+// NEW-3: messages.conversation_id + the `conversations` table.
+val MIGRATION_92_93: Migration = object : Migration(92, 93) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `messages` ADD COLUMN `conversation_id` TEXT")
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `conversations` (`id` TEXT NOT NULL, `team_id` TEXT NOT NULL, " +
+                "`kind` TEXT NOT NULL, `session_id` TEXT, `title` TEXT, `created_at` TEXT NOT NULL, " +
+                "`updated_at` TEXT NOT NULL, PRIMARY KEY(`id`))",
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_conversations_team_id` ON `conversations` (`team_id`)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_conversations_session_id` ON `conversations` (`session_id`)")
+        db.execSQL(
+            "UPDATE `electric_offsets` SET `handle` = '', `offset` = '-1', `is_live` = 0, " +
+                "`needs_refetch` = 1 WHERE `shape` = 'messages'",
+        )
+    }
+}
+
+private val NEW_TABLES_V92 = listOf(
+    "CREATE TABLE IF NOT EXISTS `agents` (`id` TEXT NOT NULL, `team_id` TEXT NOT NULL, " +
+        "`name` TEXT NOT NULL, `icon` TEXT, `color` TEXT, `triggers` TEXT, `device_id` TEXT NOT NULL, " +
+        "`cli` TEXT, `account` TEXT, `model` TEXT, `owner_id` TEXT NOT NULL, `sort_order` REAL NOT NULL, " +
+        "`created_at` TEXT NOT NULL, `updated_at` TEXT NOT NULL, PRIMARY KEY(`id`))",
+    "CREATE INDEX IF NOT EXISTS `index_agents_team_id` ON `agents` (`team_id`)",
+    "CREATE TABLE IF NOT EXISTS `events` (`id` TEXT NOT NULL, `team_id` TEXT NOT NULL, " +
+        "`name` TEXT NOT NULL, `payload` TEXT, `emitted_by` TEXT NOT NULL, `session_id` TEXT, " +
+        "`user_id` TEXT, `created_at` TEXT NOT NULL, PRIMARY KEY(`id`))",
+    "CREATE INDEX IF NOT EXISTS `index_events_team_id` ON `events` (`team_id`)",
+    "CREATE TABLE IF NOT EXISTS `prompts` (`id` TEXT NOT NULL, `team_id` TEXT NOT NULL, " +
+        "`name` TEXT NOT NULL, `icon` TEXT, `sort_order` REAL NOT NULL, `created_at` TEXT NOT NULL, " +
+        "`updated_at` TEXT NOT NULL, PRIMARY KEY(`id`))",
+    "CREATE INDEX IF NOT EXISTS `index_prompts_team_id` ON `prompts` (`team_id`)",
+)
+
 private fun rebuild(
     db: SupportSQLiteDatabase,
     table: String,

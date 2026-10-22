@@ -8,7 +8,7 @@
 //! prompt with no subject (required) and optional additional instructions
 //! otherwise.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::HashSet;
 
 use coding::LaunchOptions;
 
@@ -23,17 +23,20 @@ pub(crate) enum SubjectKind {
     Issues { count: usize },
     /// One picked action.
     Action,
+    /// NEW-3: one picked team agent — a message into the caller's DM with it
+    /// (`sessions.send({agentId})`), on the agent's own device and login.
+    Agent,
 }
 
 /// EXP-1019/EXP-1037 — the composer's HEADLINE verb, the launcher's main
-/// element above the text field: `Run` beside an action's chip, `Implement`
-/// beside the issue chips. The strings are the shared contract's
+/// element above the text field: `Implement` beside the issue chips; NEW-2/3
+/// (web `launchHeadlineVerb`): a prompt's or an agent's chip IS the headline. The strings are the shared contract's
 /// (`domain::contract::COMPOSER_UI_*_HEADLINE`, ×4), never local literals.
 pub(crate) fn headline(subject: &SubjectKind) -> &'static str {
     match subject {
         SubjectKind::Chat => domain::contract::COMPOSER_UI_CHAT_HEADLINE,
         SubjectKind::Issues { .. } => domain::contract::COMPOSER_UI_IMPLEMENT_HEADLINE,
-        SubjectKind::Action => domain::contract::COMPOSER_UI_RUN_HEADLINE,
+        SubjectKind::Action | SubjectKind::Agent => "",
     }
 }
 
@@ -43,7 +46,9 @@ pub(crate) fn submit_label(subject: &SubjectKind) -> String {
         SubjectKind::Chat => "Start session".to_string(),
         SubjectKind::Issues { count: 1 } => "Start coding".to_string(),
         SubjectKind::Issues { count } => format!("Start coding · {count}"),
-        SubjectKind::Action => "Run action".to_string(),
+        // NEW-2 (web `submitLabelFor`): a prompt starts a session.
+        SubjectKind::Action => "Start session".to_string(),
+        SubjectKind::Agent => "Send".to_string(),
     }
 }
 
@@ -52,7 +57,9 @@ pub(crate) fn submit_label(subject: &SubjectKind) -> String {
 /// additional instructions.
 pub(crate) fn text_blocker(subject: &SubjectKind, text: &str, image_count: usize) -> Option<&'static str> {
     match subject {
-        SubjectKind::Chat if text.trim().is_empty() && image_count == 0 => Some(TYPE_A_MESSAGE),
+        SubjectKind::Chat | SubjectKind::Agent if text.trim().is_empty() && image_count == 0 => {
+            Some(TYPE_A_MESSAGE)
+        }
         _ => None,
     }
 }
@@ -90,9 +97,8 @@ pub(crate) fn issue_count_blocker(count: usize) -> Option<String> {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct StartSubject {
     pub(crate) issue_ids: Vec<String>,
-    pub(crate) action_id: Option<String>,
-    /// The action's filled picks, key → value.
-    pub(crate) inputs: BTreeMap<String, String>,
+    /// NEW-2: a saved prompt (its body plus the text = the first message).
+    pub(crate) prompt_id: Option<String>,
     pub(crate) repository_id: Option<String>,
 }
 
@@ -128,13 +134,28 @@ pub(crate) fn send_input(
         text: (!text.is_empty()).then(|| text.to_string()),
         attachment_ids: Some(attachment_ids).filter(|ids| !ids.is_empty()),
         issue_ids: Some(subject.issue_ids).filter(|ids| !ids.is_empty()),
-        inputs: subject
-            .action_id
-            .as_ref()
-            .and(Some(subject.inputs))
-            .filter(|inputs| !inputs.is_empty()),
-        action_id: subject.action_id,
+        prompt_id: subject.prompt_id,
         repository_id: subject.repository_id,
+        ..Default::default()
+    }
+}
+
+/// NEW-3 — a message to a team AGENT: one `sessions.send` naming the agent,
+/// which lands in the caller's own conversation with it (created on first
+/// use). The DM runs on the agent's device and login, so no runner pick
+/// rides (web `buildSendInput`'s agent arm).
+pub(crate) fn agent_send_input(
+    team_id: &str,
+    agent_id: &str,
+    text: &str,
+    attachment_ids: Vec<String>,
+) -> api::sessions::SendInput {
+    let text = text.trim();
+    api::sessions::SendInput {
+        team_id: Some(team_id.to_string()),
+        agent_id: Some(agent_id.to_string()),
+        text: (!text.is_empty()).then(|| text.to_string()),
+        attachment_ids: Some(attachment_ids).filter(|ids| !ids.is_empty()),
         ..Default::default()
     }
 }
@@ -226,7 +247,8 @@ mod tests {
         assert_eq!(headline(&SubjectKind::Chat), "Ask the agent");
         assert_eq!(headline(&SubjectKind::Issues { count: 1 }), "Implement");
         assert_eq!(headline(&SubjectKind::Issues { count: 4 }), "Implement");
-        assert_eq!(headline(&SubjectKind::Action), "Run");
+        assert_eq!(headline(&SubjectKind::Action), "");
+        assert_eq!(headline(&SubjectKind::Agent), "");
     }
 
     /// EXP-1294: N issues are ONE session — never a "batch".
@@ -235,7 +257,8 @@ mod tests {
         assert_eq!(submit_label(&SubjectKind::Chat), "Start session");
         assert_eq!(submit_label(&SubjectKind::Issues { count: 1 }), "Start coding");
         assert_eq!(submit_label(&SubjectKind::Issues { count: 3 }), "Start coding · 3");
-        assert_eq!(submit_label(&SubjectKind::Action), "Run action");
+        assert_eq!(submit_label(&SubjectKind::Action), "Start session");
+        assert_eq!(submit_label(&SubjectKind::Agent), "Send");
     }
 
     /// Free text is required with no subject (an image alone counts),
@@ -246,6 +269,9 @@ mod tests {
         assert_eq!(text_blocker(&SubjectKind::Chat, "", 1), None);
         assert_eq!(text_blocker(&SubjectKind::Chat, "hi", 0), None);
         assert_eq!(text_blocker(&SubjectKind::Action, "", 0), None);
+        // NEW-3: a DM needs something to say.
+        assert_eq!(text_blocker(&SubjectKind::Agent, " ", 0), Some(TYPE_A_MESSAGE));
+        assert_eq!(text_blocker(&SubjectKind::Agent, "", 1), None);
         assert_eq!(text_blocker(&SubjectKind::Issues { count: 2 }, "", 0), None);
         assert_eq!(issue_count_blocker(0).as_deref(), Some("Select at least one issue."));
         assert!(issue_count_blocker(1).is_none());
@@ -264,6 +290,21 @@ mod tests {
             note_for_blocker(Some("Select at least one issue.")),
             Some("Select at least one issue.")
         );
+    }
+
+    /// NEW-3: a message to an agent names the team, the agent, the text and
+    /// the uploads, and NO runner pick (the DM runs on the agent's device).
+    #[test]
+    fn the_agent_send_input_carries_no_runner_picks() {
+        let input = agent_send_input("team-1", "agent-1", "  hello \n", vec!["att-1".into()]);
+        assert_eq!(input.team_id.as_deref(), Some("team-1"));
+        assert_eq!(input.agent_id.as_deref(), Some("agent-1"));
+        assert_eq!(input.text.as_deref(), Some("hello"));
+        assert_eq!(input.attachment_ids, Some(vec!["att-1".to_string()]));
+        assert!(input.device_id.is_none() && input.cli.is_none() && input.model.is_none());
+        assert!(input.plan_mode.is_none() && input.ultracode.is_none());
+        let bare = agent_send_input("team-1", "agent-1", " ", Vec::new());
+        assert!(bare.text.is_none() && bare.attachment_ids.is_none());
     }
 
     /// EXP-1294: ONE send per start — the active team, the device, the
@@ -293,15 +334,13 @@ mod tests {
         assert_eq!(issues.attachment_ids, Some(vec!["att-1".to_string()]));
         assert_eq!(issues.issue_ids, Some(vec!["i-1".to_string(), "i-2".to_string()]));
         assert_eq!(issues.repository_id.as_deref(), Some("repo-1"));
-        assert!(issues.action_id.is_none() && issues.inputs.is_none());
+        assert!(issues.prompt_id.is_none());
         // EXP-849: no account picked = the target's last used login; no
         // computer-use pick leaves it to the target.
         assert_eq!(issues.account, None);
         assert_eq!(issues.computer_use, None);
         assert!(issues.session_id.is_none() && issues.parent_id.is_none());
 
-        let mut inputs = BTreeMap::new();
-        inputs.insert("board".to_string(), "board-1".to_string());
         let action = send_input(
             "team-1",
             "dev-1",
@@ -311,15 +350,13 @@ mod tests {
                 ..options()
             },
             StartSubject {
-                action_id: Some("act-1".into()),
-                inputs,
+                prompt_id: Some("p-1".into()),
                 ..Default::default()
             },
             " ",
             Vec::new(),
         );
-        assert_eq!(action.action_id.as_deref(), Some("act-1"));
-        assert_eq!(action.inputs.as_ref().and_then(|map| map.get("board")).map(String::as_str), Some("board-1"));
+        assert_eq!(action.prompt_id.as_deref(), Some("p-1"));
         assert_eq!(action.text, None);
         assert_eq!(action.attachment_ids, None);
         assert_eq!(action.issue_ids, None);

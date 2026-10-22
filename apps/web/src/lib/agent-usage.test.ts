@@ -385,6 +385,12 @@ describe(`blockedBadgeLabel`, () => {
     )
   })
 
+  it(`names a watchdog flag with the session card's word, no countdown`, () => {
+    expect(blockedBadgeLabel(blocked({ kind: `device_offline` }), NOW)).toBe(`Device offline`)
+    expect(blockedBadgeLabel(blocked({ kind: `unclaimed` }), NOW)).toBe(`Not picked up`)
+    expect(blockedBadgeLabel(blocked({ kind: `stuck` }), NOW)).toBe(`Stuck`)
+  })
+
   it(`is null when the run is not blocked`, () => {
     expect(blockedBadgeLabel(null, NOW)).toBeNull()
     expect(blockedBadgeLabel(undefined, NOW)).toBeNull()

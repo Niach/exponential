@@ -1,7 +1,17 @@
 import { describe, expect, test } from "bun:test"
 
 import fixture from "../fixtures/plan-card.json" with { type: "json" }
-import { answerIssue, answerText, optionRows, pictureFor, resolveUpload, type AskCardLike, type CardAnswerInput } from "./plan-card"
+import {
+  answerIssue,
+  answerText,
+  optionRows,
+  pictureFor,
+  resolveUpload,
+  stepLabel,
+  stepperApplies,
+  type AskCardLike,
+  type CardAnswerInput,
+} from "./plan-card"
 
 describe(`plan-card.json`, () => {
   test.each(fixture.answerTextCases)(`answerText: $name`, (c) => {
@@ -41,5 +51,33 @@ describe(`plan-card.json`, () => {
     }
     expect(fixture.tiles.inertOpacity).toBe(fixture.card.inertOpacity)
     expect(fixture.tiles.pictureRadius).toBeLessThan(fixture.tiles.radius)
+  })
+})
+
+describe(`stepper (NEW-6)`, () => {
+  const question = (id: string) => ({ id, prompt: id, multi: false, custom: true, options: [{ label: `x` }] })
+  const plan = (count: number, decision: `approved` | `rejected` | null = null): AskCardLike => ({
+    kind: `plan`,
+    plan: `1. One`,
+    questions: Array.from({ length: count }, (_, i) => question(`q${i}`)),
+    decision,
+  })
+
+  test(`a pending plan with minQuestions or more questions steps`, () => {
+    expect(fixture.stepper.minQuestions).toBe(2)
+    expect(stepperApplies(plan(2))).toBe(true)
+    expect(stepperApplies(plan(3))).toBe(true)
+  })
+
+  test(`fewer questions, a decided plan and a question card never step`, () => {
+    expect(stepperApplies(plan(0))).toBe(false)
+    expect(stepperApplies(plan(1))).toBe(false)
+    expect(stepperApplies(plan(2, `approved`))).toBe(false)
+    expect(stepperApplies(plan(2, `rejected`))).toBe(false)
+    expect(stepperApplies({ kind: `question`, question: `Q?`, options: [`a`, `b`] })).toBe(false)
+  })
+
+  test(`the step line`, () => {
+    expect(stepLabel(1, 2)).toBe(`Question 1 of 2`)
   })
 })

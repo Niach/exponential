@@ -1,0 +1,4 @@
+The new session system: a thread is one session that works itself and is woken by messages.
+Agents are definitions with their own conversation per member, server-fired triggers and an Events stream.
+Prompts replace actions in the / menu and under Settings → Prompts; Message an agent from the composer.
+This update is required: the server no longer serves the previous version.

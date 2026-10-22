@@ -84,9 +84,9 @@ function SessionPage() {
     )
   }
 
-  // The root decides: an agent's tree has no thread page.
+  // The root decides: an agent's conversation tree has no thread page.
   if (!root && !rootReady) return <Loading />
-  if (root?.kind === `agent`) {
+  if (root?.agentId) {
     return <SessionScreen key={row.id} teamSlug={teamSlug} row={row} />
   }
 

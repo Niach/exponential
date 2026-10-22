@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { users } from "@/db/auth-schema"
-import { registerExponentialTools } from "./tools"
+import { registerNounTools } from "./nouns"
 import { registerExponentialApps } from "./apps"
 import { appBaseUrl } from "@/lib/notification-email-policy"
 import { mcpServerInstructions } from "./instructions"
@@ -44,7 +44,8 @@ export function createExponentialMcpServer(
       }),
     }
   )
-  registerExponentialTools(server, user, request, access, sessionId, gates)
+  // NEW-4: the 15 noun tools route `op` to the per-operation definitions.
+  registerNounTools(server, user, request, access, sessionId, gates)
   // EXP-1183: the MCP Apps views the issue/run tools point at. EXP-1212: not
   // for a coding run (it cannot draw them, and reading one would pull the
   // whole inlined page into its context); external MCP Apps hosts only.

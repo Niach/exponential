@@ -206,4 +206,31 @@ class DomainContractLockTest {
             }
         }
     }
+
+    /**
+     * NEW-2: agent triggers (`agentTrigger`) and events (`events`) — the
+     * values the trigger editor and [TriggerWhen] read, plus the caps the
+     * editor enforces at the field. The retired v1 constants (event values,
+     * schedule intervals, filter caps, cooldown / catch-up ms) are gone.
+     */
+    @Test
+    fun agentTriggerAndEventContractMatchesTheClient() {
+        assertEquals(listOf("schedule", "event"), DomainContract.agentTriggerKindValues)
+        assertEquals(
+            listOf("issue.created", "issue.status_changed", "pr.opened", "pr.merged", "session.ended"),
+            DomainContract.eventBuiltinNames,
+        )
+        assertEquals(DomainContract.eventBuiltinNames.toSet(), AgentSettings.Copy.EVENTS.keys)
+        assertEquals(listOf("session", "user", "server"), DomainContract.eventEmitterValues)
+        assertEquals(10, DomainContract.agentTriggerMaxPerAgent)
+        assertEquals(64, DomainContract.agentTriggerCronMax)
+        assertEquals(64, DomainContract.agentTriggerTzMax)
+        assertEquals(24, DomainContract.agentTriggerCatchUpHours)
+        assertEquals(128, DomainContract.eventNameMax)
+        assertEquals(16384, DomainContract.eventPayloadMaxBytes)
+        assertEquals(30, DomainContract.eventRetentionDays)
+        // Every kind the contract names parses into a [TriggerWhen].
+        assertTrue(TriggerWhen.parse("""{"kind":"schedule","cron":"0 9 * * *"}""") is TriggerWhen.Schedule)
+        assertTrue(TriggerWhen.parse("""{"kind":"event","name":"pr.merged"}""") is TriggerWhen.Event)
+    }
 }

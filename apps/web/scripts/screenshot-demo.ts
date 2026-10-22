@@ -317,7 +317,7 @@ export const DEMO_FEED_QUESTION = `Cold start is at 740ms (target <800ms). Lazy-
  *                    value the EXP-740 steered session had, so every lane's
  *                    `/sessions/<id>` address survives the rename.
  *   DEMO_AGENT_ID    the `agent-channel` / `settings-team-agent` views: the
- *                    Triage agent's root.
+ *                    Triage agent (NEW-2: an `agents` row).
  */
 export const DEMO_THREAD_ID = `5d7a2c90-3e41-4b8f-9c16-8a2e4f0b7d13`
 export const DEMO_SESSION_ID = `7c1f0a52-6f3c-4e19-9a2b-2d5d0f7c8e41`
@@ -342,6 +342,17 @@ export const DEMO_AGENT_IDS = {
   designer: `671f2227-1090-4a41-87ec-0ab2138358de`,
   release: `efb92a14-ee7c-4da6-ab07-6697d706ee62`,
 } as const
+
+/** NEW-2: the agents above are `agents` DEFINITION rows; each runs as the
+ *  demo user's CONVERSATION session with it (a root with `agent_id`), keyed
+ *  the same way. DEMO_AGENT_ID stays the agent (the `/agents/$agentId` and
+ *  settings routes); the Triage conversation holds the channel's messages. */
+export const DEMO_AGENT_CONVERSATION_IDS = {
+  triage: `b05f0c49-f063-4b5c-a60e-69b1f7032a74`,
+  designer: `ad6eb9f5-a99b-4b52-9b3f-0aeaa40314c5`,
+  release: `109e239a-2b7a-4a9f-b7e1-200858f803c3`,
+} as const
+export const DEMO_AGENT_CONVERSATION_ID = DEMO_AGENT_CONVERSATION_IDS.triage
 
 /**
  * The other thread roots, one per Threads-list state:
@@ -423,9 +434,10 @@ export const DEMO_AGENT_COMMENT_MINUTES_AGO = 20
  */
 export const DEMO_ACTION_ID = `2b6e4f1c-8a3d-4c7e-9f52-6d1a0b3c7e85`
 
-/** The Triage agent's one schedule trigger (the settings page's Schedule
- *  row), pinned so a reseed writes the same `triggers` jsonb. */
+/** The Triage agent's triggers (the settings page's Triggers rows: a cron
+ *  schedule and an event), pinned so a reseed writes the same jsonb. */
 export const DEMO_AGENT_TRIGGER_ID = `4c9a7e2b-1d56-4f38-a0c4-8e2b5d7f1a63`
+export const DEMO_AGENT_EVENT_TRIGGER_ID = `fa1ef2a0-5312-43d1-8c0a-60317e391c25`
 
 /**
  * The one seeded `blocks` edge, by seed issue title: `[blocker, blocked]`.

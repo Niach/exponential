@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { useLiveQuery } from "@tanstack/react-db"
+import { eq, useLiveQuery } from "@tanstack/react-db"
 import { useNavigate } from "@tanstack/react-router"
 import type {
   AgentTrigger,
@@ -9,6 +9,7 @@ import type {
 import {
   AccountPicker,
   BOARD_ICON_OPTIONS,
+  BoardGlyph,
   Button,
   conceptIcon,
   DevicePicker,
@@ -22,13 +23,23 @@ import {
   Menu,
   Pill,
   Prompt,
+  SETTINGS_LIST_CLASS,
   SkeletonRows,
   Switch,
   Textarea,
   type DevicePickerDevice,
 } from "@exp/ui"
-import type { Device, Team, User } from "@/db/schema"
-import { deviceCollection, sessionCollection, userCollection } from "@/lib/collections"
+import type { Agent, Device, Event as EventRow, Team, User } from "@/db/schema"
+import {
+  agentCollection,
+  deviceCollection,
+  eventCollection,
+  userCollection,
+} from "@/lib/collections"
+import { useSessionTitles, useTeamSessions } from "@/hooks/use-session-tree"
+import { useTeamUsers } from "@/hooks/use-team-data"
+import { compactRelativeTime } from "@/lib/relative-time"
+import { displayUserName } from "@/lib/user-display"
 import { trpc } from "@/lib/trpc-client"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { deleteTriggerPrompt, promptActions } from "@/lib/prompts"
@@ -49,7 +60,7 @@ import {
   triggerSummary,
   validateAgentForm,
   type AgentFormError,
-  type SessionRow,
+  type AgentRow,
 } from "@/lib/session-tree"
 import { useSession } from "@/hooks/use-session"
 import { useNow } from "@/hooks/use-now"
@@ -62,19 +73,24 @@ import {
   type TriggerAccountPin,
 } from "@/components/trigger-fields"
 import { accountOptionsOf } from "@/components/launch-dialog/use-launch-options"
-import { GROUPED_FIELD_ROW } from "@/components/action-prompt-form"
 import agentSettingsFixture from "@exp/domain-contract/fixtures/agent-settings.json"
 
-// EXP-1293 Threads v2: Team settings → Agents (fixtures/agent-settings.json
-// ×4). Agents are managed exactly like boards: the settings nav lists every
-// agent (icon + colour + name) then "New agent", and an agent's page is the
-// board page's layout, `AGENT_SETTINGS_FIELDS` top to bottom — identity
-// (icon + colour + name in ONE row), Device, Account, Schedule,
-// Instructions, Delete. One component serves both an existing agent (every
-// field writes `sessions.updateAgent` as it changes, name and instructions
-// on blur) and the create page (everything local until "Create agent" sends
-// `sessions.send({teamId, deviceId, account, agent})`). Owner-only controls
-// are hidden from members, who read the same page.
+// EXP-1293 / NEW-2: Team settings → Agents (fixtures/agent-settings.json
+// ×4) over the `agents` DEFINITION rows. Agents are managed exactly like
+// boards: the settings nav lists every agent (icon + colour + name) then
+// "New agent", and an agent's page is the board page's layout,
+// `AGENT_SETTINGS_FIELDS` top to bottom — identity (icon + colour + name in
+// ONE row), Device, Account, Triggers, Instructions, Delete. One component
+// serves both an existing agent (every field writes `agents.update` as it
+// changes, name and instructions on blur) and the create page (everything
+// local until "Create agent" sends `agents.create`). Owner-only controls are
+// hidden from members, who read the same page.
+
+/** An `agents` row as the shape syncs it (instructions stay server-side). */
+export type SyncedAgent = Omit<Agent, `instructions` | `triggerState`>
+
+// The grouped form's borderless field row (EXP-694).
+const GROUPED_FIELD_ROW = `rounded-none border-0 bg-transparent text-sm shadow-none focus-visible:border-0 focus-visible:ring-0 md:text-sm px-4 py-3`
 
 const COPY = AGENT_SETTINGS_COPY
 /** The fixture's test ids: the settings nav's agent list + an agent page. */
@@ -84,6 +100,7 @@ const UiMoreIcon = conceptIcon(`ui-more`)
 const UiEditIcon = conceptIcon(`ui-edit`)
 const UiDeleteIcon = conceptIcon(`ui-delete`)
 const SettingsAgentsIcon = conceptIcon(`settings-agents`)
+const TriggerEventIcon = conceptIcon(`trigger-event`)
 
 const DEFAULT_AGENT_COLOR = `#6366f1`
 const DEFAULT_AGENT_ICON: BoardIcon = BOARD_ICON_OPTIONS[0].name
@@ -186,9 +203,7 @@ function withTriggerMeta(
   id: string,
   enabled: boolean
 ): AgentTrigger {
-  return when.kind === `event`
-    ? { ...when, id, enabled, source: `exponential` }
-    : { ...when, id, enabled }
+  return { ...when, id, enabled }
 }
 
 /** Tolerant read: the synced `triggers` jsonb may hold a shape a newer
@@ -211,8 +226,8 @@ export function AgentSettingsPage({
   isOwner,
 }: {
   team: Team
-  /** The live agent root; null = the create page. */
-  agent: SessionRow | null
+  /** The live `agents` row; null = the create page. */
+  agent: SyncedAgent | null
   isOwner: boolean
 }) {
   const navigate = useNavigate()
@@ -287,18 +302,12 @@ export function AgentSettingsPage({
   const device = devices?.find((candidate) => candidate.deviceId === deviceId)
 
   // ── persistence (an existing agent) ──
-  type AgentUpdate = Omit<
-    Parameters<typeof trpc.sessions.updateAgent.mutate>[0],
-    `sessionId`
-  >
+  type AgentUpdate = Omit<Parameters<typeof trpc.agents.update.mutate>[0], `id`>
   const update = useCallback(
     async (patch: AgentUpdate, onFail?: () => void): Promise<void> => {
       if (!agentId) return
       try {
-        await trpc.sessions.updateAgent.mutate(
-          { sessionId: agentId, ...patch },
-          SKIP_ERROR_TOAST
-        )
+        await trpc.agents.update.mutate({ id: agentId, ...patch }, SKIP_ERROR_TOAST)
       } catch (err) {
         onFail?.()
         failedAction(`save`, `the agent`, err, {
@@ -312,7 +321,7 @@ export function AgentSettingsPage({
   const quietly = (promise: Promise<void>) => void promise.catch(() => {})
 
   // ── Account ──
-  // An existing agent's CLI is fixed (`updateAgent` takes no `cli`), so its
+  // An existing agent's CLI stays put (the page never re-picks it), so its
   // Account picker offers only that CLI's logins; no stored CLI = all.
   const lockedCli = creating ? null : (agent?.cli ?? null)
   // EXP-1306: only logins the machine reports (a profile id); the stand-in
@@ -390,8 +399,8 @@ export function AgentSettingsPage({
       draftRef.current = null
       const trimmed = draft.name.trim()
       if (!trimmed || trimmed === seeded) return
-      void trpc.sessions.updateAgent
-        .mutate({ sessionId: agentId, name: trimmed }, SKIP_ERROR_TOAST)
+      void trpc.agents.update
+        .mutate({ id: agentId, name: trimmed }, SKIP_ERROR_TOAST)
         .catch(() => {})
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -432,7 +441,7 @@ export function AgentSettingsPage({
     if (!creating) quietly(update({ color: next }, () => setColor(previous)))
   }
 
-  // ── Schedule ──
+  // ── Triggers ──
   // The editor returns a when-part; the page owns the array. An existing
   // agent writes the whole array, the create page keeps it local.
   const writeTriggers = async (next: AgentTrigger[]) => {
@@ -453,23 +462,23 @@ export function AgentSettingsPage({
     await writeTriggers(next)
   }
 
-  // ── Instructions (server-only: `sessions.getAgent`) ──
+  // ── Instructions (server-only: `agents.get`) ──
   const loadSeq = useRef(0)
   const loadInstructions = useCallback(
     (retried = false) => {
       if (!agentId) return
       const seq = ++loadSeq.current
       setInstructionsLoading(true)
-      trpc.sessions.getAgent
-        .query({ sessionId: agentId })
+      trpc.agents.get
+        .query({ id: agentId })
         .then((res) => {
           if (seq !== loadSeq.current) return
-          setInstructions(res.instructions)
-          setSavedInstructions(res.instructions)
+          setInstructions(res.agent.instructions)
+          setSavedInstructions(res.agent.instructions)
           setInstructionsFailed(false)
           setInstructionsLoading(false)
         })
-        .catch((err) => {
+        .catch((err: unknown) => {
           if (seq !== loadSeq.current) return
           setInstructionsFailed(true)
           setInstructionsLoading(false)
@@ -518,28 +527,26 @@ export function AgentSettingsPage({
     if (found.length > 0 || !deviceId) return
     setCreatingBusy(true)
     try {
-      const result = await trpc.sessions.send.mutate(
+      const result = await trpc.agents.create.mutate(
         {
           teamId: team.id,
+          name: name.trim(),
+          icon,
+          color,
+          instructions,
+          triggers,
           deviceId,
           ...(pin.agent ? { cli: pin.agent } : {}),
           ...(pin.account ? { account: pin.account } : {}),
-          agent: {
-            name: name.trim(),
-            icon,
-            color,
-            instructions,
-            triggers,
-          },
         },
         SKIP_ERROR_TOAST
       )
       // Land on the agent's page once its row has synced (the page resolves
       // the id against the live shape).
-      await sessionCollection.utils.awaitTxId(result.txid).catch(() => {})
+      await agentCollection.utils.awaitTxId(result.txid).catch(() => {})
       void navigate({
         to: `/t/$teamSlug/settings/agents/$agentId`,
-        params: { teamSlug: team.slug, agentId: result.sessionId },
+        params: { teamSlug: team.slug, agentId: result.agent.id },
         replace: true,
       })
     } catch (err) {
@@ -553,7 +560,7 @@ export function AgentSettingsPage({
     if (!agentId) return
     setDeleting(true)
     try {
-      await trpc.sessions.deleteAgent.mutate({ sessionId: agentId }, SKIP_ERROR_TOAST)
+      await trpc.agents.delete.mutate({ id: agentId }, SKIP_ERROR_TOAST)
       draftRef.current = null
       setDeleteOpen(false)
       void navigate({
@@ -633,7 +640,7 @@ export function AgentSettingsPage({
           </div>
         )}
         <div className="flex items-center gap-3 px-4 py-3 text-sm">
-          <span className="shrink-0 text-foreground">Schedule</span>
+          <span className="shrink-0 text-foreground">Triggers</span>
           <span className="ml-auto flex min-w-0 items-center gap-2">
             {triggers.length === 0 && (
               <span className="truncate text-foreground/50">{COPY.noSchedule}</span>
@@ -741,7 +748,6 @@ export function AgentSettingsPage({
               open ? { ...current, open } : { open: false, editing: null }
             )
           }
-          teamId={team.id}
           trigger={triggerDialog.editing}
           onSave={saveTrigger}
         />
@@ -793,7 +799,7 @@ export function AgentSettingsPage({
   )
 }
 
-/** One Schedule row: the trigger's sentence, its switch, and (owners) a ⋯
+/** One Triggers row: the trigger's sentence, its switch, and (owners) a ⋯
  *  with Edit / Delete; the row itself opens the editor. */
 function AgentTriggerRow({
   trigger,
@@ -861,15 +867,17 @@ function AgentTriggerRow({
   )
 }
 
-/** What the section shows while the team has no agents: the nav's
- *  "New agent" as the band's trailing pill (owners) over the list-size
- *  empty state, the board section's twin. */
-export function AgentsEmptyState({
+/** The Agents band: "New agent" as its trailing pill (owners) over the
+ *  team's agents as Settings rows (icon + colour + name, like boards), or
+ *  the list-size empty state while there are none. */
+export function AgentsListBand({
   team,
   isOwner,
+  agents,
 }: {
   team: Team
   isOwner: boolean
+  agents: readonly AgentRow[]
 }) {
   const navigate = useNavigate()
   return (
@@ -893,7 +901,108 @@ export function AgentsEmptyState({
           ) : undefined
         }
       />
-      <EmptyState icon={SettingsAgentsIcon} title="No agents yet" size="list" />
+      {agents.length === 0 ? (
+        <EmptyState icon={SettingsAgentsIcon} title="No agents yet" size="list" />
+      ) : (
+        <div className={SETTINGS_LIST_CLASS}>
+          {agents.map((agent) => (
+            <ListRow
+              key={agent.agentId}
+              interactive
+              onClick={() =>
+                void navigate({
+                  to: `/t/$teamSlug/settings/agents/$agentId`,
+                  params: { teamSlug: team.slug, agentId: agent.agentId },
+                })
+              }
+              className="gap-3 px-3 py-2 text-sm"
+              data-testid={`agents-list-row-${agent.agentId}`}
+            >
+              <BoardGlyph board={{ icon: agent.icon, color: agent.color }} />
+              <span className="min-w-0 flex-1 truncate font-medium">{agent.name}</span>
+            </ListRow>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** The newest events the Events band lists. */
+export const AGENT_EVENTS_CAP = 50
+
+/** Who emitted an event, as its row's caption: the session's title, the
+ *  person's name, or the server. */
+export function eventEmitterLabel(
+  event: Pick<EventRow, `emittedBy` | `sessionId` | `userId`>,
+  lookup: {
+    sessionTitle: (sessionId: string) => string | null
+    userName: (userId: string) => string
+  }
+): string {
+  if (event.emittedBy === `session`) {
+    return (event.sessionId && lookup.sessionTitle(event.sessionId)) || `Session`
+  }
+  if (event.emittedBy === `user`) return event.userId ? lookup.userName(event.userId) : `Someone`
+  return `Exponential`
+}
+
+/** The Events band (NEW-2): the team's event stream newest first, capped at
+ *  `AGENT_EVENTS_CAP`, as flat Settings rows (the trigger-event glyph, the
+ *  name, who emitted it, a relative time). */
+export function AgentEventsBand({ teamId }: { teamId: string }) {
+  const { data, isReady } = useLiveQuery(
+    (query) =>
+      query
+        .from({ events: eventCollection })
+        .where(({ events }) => eq(events.teamId, teamId))
+        .orderBy(({ events }) => events.createdAt, `desc`)
+        .orderBy(({ events }) => events.id, `desc`)
+        .limit(AGENT_EVENTS_CAP),
+    [teamId]
+  )
+  const events = (data ?? []) as EventRow[]
+  // The emitting sessions, titled by THE session title chain.
+  const { rows: teamSessions } = useTeamSessions(teamId)
+  const emitterIds = new Set(events.map((event) => event.sessionId).filter(Boolean))
+  const emitters = useMemo(
+    () => teamSessions.filter((row) => emitterIds.has(row.id)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [teamSessions, [...emitterIds].sort().join(`,`)]
+  )
+  const { titles: sessionTitles } = useSessionTitles(emitters)
+  const { userMap } = useTeamUsers(teamId)
+  const now = useNow(60_000)
+  return (
+    <div data-testid="agent-events">
+      <GlassSectionHeader label="Events" />
+      {!isReady ? (
+        <SkeletonRows className="py-1" />
+      ) : events.length === 0 ? (
+        <EmptyState icon={TriggerEventIcon} title="No events yet" size="list" />
+      ) : (
+        <div className={SETTINGS_LIST_CLASS}>
+          {events.map((event) => (
+            <ListRow
+              key={event.id}
+              className="gap-3 px-3 py-2 text-sm"
+              data-testid={`agent-event-${event.id}`}
+            >
+              <TriggerEventIcon className="size-4 shrink-0 text-muted-foreground" />
+              <span className="min-w-0 truncate font-medium">{event.name}</span>
+              <span className="min-w-0 flex-1 truncate text-muted-foreground">
+                {eventEmitterLabel(event, {
+                  sessionTitle: (id) => sessionTitles.get(id) || null,
+                  userName: (id) => displayUserName(userMap.get(id), id),
+                })}
+              </span>
+              <span className="shrink-0 text-muted-foreground tabular-nums">
+                {compactRelativeTime(event.createdAt, now.getTime())}
+              </span>
+            </ListRow>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

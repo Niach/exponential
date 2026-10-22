@@ -3,10 +3,10 @@ import { sessionTitles, type TitleSession } from "@exp/domain-contract/session-t
 import { db } from "@/db/connection"
 import { issues, messages, sessionIssues } from "@/db/schema"
 
-// EXP-1341: the server's ONE display-title derivation = the contract's
+// EXP-1341/NEW-1: the server's ONE display-title derivation = the contract's
 // `sessionTitle` (fixtures/session-title.json) over the same rows the
-// clients sync: the trees' issue links (a child = its ASSIGNED ones) and each
-// session's input messages. Batched: one read per table for any set.
+// clients sync: each session's OWN issue rows and its input messages.
+// Batched: one read per table for any set.
 
 type Reader = Pick<typeof db, `select`>
 
@@ -15,7 +15,6 @@ export async function deriveSessionTitles(
   database: Reader = db
 ): Promise<Map<string, string>> {
   if (rows.length === 0) return new Map()
-  const rootIds = [...new Set(rows.map((row) => row.rootId))]
   const ids = rows.map((row) => row.id)
   const needsLinks = rows.some((row) => !row.name?.trim() && !row.title?.trim())
   const [links, inputs] = needsLinks
@@ -25,14 +24,13 @@ export async function deriveSessionTitles(
             sessionId: sessionIssues.sessionId,
             issueId: sessionIssues.issueId,
             sortOrder: sessionIssues.sortOrder,
-            assignedSessionId: sessionIssues.assignedSessionId,
             id: issues.id,
             identifier: issues.identifier,
             title: issues.title,
           })
           .from(sessionIssues)
           .innerJoin(issues, sql`${issues.id} = ${sessionIssues.issueId}`)
-          .where(inArray(sessionIssues.sessionId, rootIds)),
+          .where(inArray(sessionIssues.sessionId, ids)),
         database
           .select({
             id: messages.id,

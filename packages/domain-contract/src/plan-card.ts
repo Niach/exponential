@@ -14,6 +14,8 @@ export const PLAN_CARD_GEOMETRY = fixture.card
 export const PLAN_CARD_ANSWER_TEXT = fixture.answerText
 export const PLAN_CARD_UPLOAD_SCHEME = fixture.uploadScheme
 export const PLAN_CARD_CAPS = contractJson.planCard
+/** NEW-6 (N-1): the question stepper (`stepper`: `minQuestions`, `buttonGap`). */
+export const PLAN_CARD_STEPPER = fixture.stepper
 
 export interface PlanCardPicture {
   label: string
@@ -221,4 +223,18 @@ export function optionRows(options: readonly { attachmentId?: string | null }[])
 /** The question card's compat `answer` string for a list of picks. */
 export function joinAnswers(answers: readonly string[]): string {
   return answers.join(fixture.answerText.joiner)
+}
+
+/** NEW-6 (N-1): whether a card shows its questions one at a time: a PENDING
+ *  plan (no decision yet) with `stepper.minQuestions` or more questions. A
+ *  question card, a decided plan and a plan with fewer questions never do. */
+export function stepperApplies(card: AskCardLike): boolean {
+  if (card.kind !== `plan`) return false
+  if (card.decision === `approved` || card.decision === `rejected`) return false
+  return (card.questions ?? []).length >= fixture.stepper.minQuestions
+}
+
+/** The step line `copy.stepLabel`: `step` 1-based of `count`. */
+export function stepLabel(step: number, count: number): string {
+  return fixture.copy.stepLabel.replace(`{n}`, String(step)).replace(`{m}`, String(count))
 }

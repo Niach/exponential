@@ -35,7 +35,7 @@ vi.mock(`@tanstack/react-db`, async (importOriginal) => {
   }
 })
 vi.mock(`@/lib/collections`, () => ({
-  actionCollection: {},
+  promptCollection: {},
   boardCollection: {},
   deviceCollection: {},
   issueCollection: {},
@@ -122,15 +122,13 @@ function fakeModel(): LaunchComposerModel {
   return {
     teamId: `t1`,
     subject: null,
-    selectedAction: null,
-    actions: [],
+    selectedPrompt: null,
+    prompts: [],
     eligibleIssues: [],
     checkedIssues: [],
     toggleIssue: vi.fn(),
-    pickAction: vi.fn(),
-    clearAction: vi.fn(),
-    setInput: vi.fn(),
-    seedPrIssueId: undefined,
+    pickPrompt: vi.fn(),
+    clearPrompt: vi.fn(),
     text: ``,
     setText: vi.fn(),
     images: [],

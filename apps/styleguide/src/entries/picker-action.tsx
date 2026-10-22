@@ -18,7 +18,7 @@ export const entry: StyleguideEntry = {
   section: `general`,
   owner: `EXP-1021`,
   title: `Action picker`,
-  blurb: `The team's actions (saved prompts, EXP-1293; no builtins) by curated icon and name — the home composer's "Run action" list and its action chip. A row with no icon of its own draws the default action glyph rather than nothing.`,
+  blurb: `Rows by curated icon and name; a row with no icon of its own draws the default glyph rather than nothing. NEW-2: prompts replaced actions and no app screen opens this picker any more; it stays for the natives' mirrors until NEW-8.`,
   status: typedPickerStatus(`ActionPicker`, {
     web: `action-picker.tsx`,
     desktop: `action_picker.rs`,

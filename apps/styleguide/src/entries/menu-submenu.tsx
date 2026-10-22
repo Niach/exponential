@@ -21,12 +21,11 @@ import type { StyleguideEntry } from "./types.ts"
 const noop = (): void => {}
 const BackGlyph = conceptIcon(`ui-chevron-left`)
 
-const ACTIONS = [
-  { id: `builtin:fix-conflicts`, name: `Fix merge conflicts`, icon: `git-branch` },
-  { id: `builtin:create-action`, name: `Create action`, icon: `sparkles` },
-  { id: `a1`, name: `Release all`, icon: `rocket` },
-  { id: `a2`, name: `Refresh docs and marketing`, icon: `megaphone` },
-  { id: `a3`, name: `Tidy up`, icon: `wrench` },
+const AGENTS = [
+  { id: `g1`, name: `Release manager`, icon: `rocket` },
+  { id: `g2`, name: `Docs writer`, icon: `megaphone` },
+  { id: `g3`, name: `Triage`, icon: `wrench` },
+  { id: `g4`, name: `Merge conflicts`, icon: `git-branch` },
 ]
 
 /** The "+" menu's first group, straight from the fixture. */
@@ -43,15 +42,15 @@ function plusEntries(): MenuEntry[] {
   })
 }
 
-function ActionList({ density }: { density: `pointer` | `phone` }) {
+function AgentList({ density }: { density: `pointer` | `phone` }) {
   return (
     <SearchList
       mode="single"
       density={density}
-      items={actionPickerItems(ACTIONS)}
+      items={actionPickerItems(AGENTS)}
       value={null}
       onChange={noop}
-      placeholder="Search actions"
+      placeholder="Search agents"
     />
   )
 }
@@ -61,7 +60,7 @@ export const entry: StyleguideEntry = {
   section: `general`,
   owner: `SLOP-28`,
   title: `Menu submenu`,
-  blurb: `A \`Menu\` row with a › opens its submenu: on a pointer to the side of the row, on hover or →, and ← (the caret at the start of its search field) or Escape closes it back to the parent row; on a phone it pushes as a page of the same sheet, a back row on top. The composer's Implement issue › and Run action › bodies are THE search list (Search list above): ONE row height (${composerMenu.submenuRowHeight}px), at most ${composerMenu.submenuMaxRows} rows visible, an action row = its icon and its NAME (no description).`,
+  blurb: `A \`Menu\` row with a › opens its submenu: on a pointer to the side of the row, on hover or →, and ← (the caret at the start of its search field) or Escape closes it back to the parent row; on a phone it pushes as a page of the same sheet, a back row on top. The composer's Implement issue › and Message an agent › bodies are THE search list (Search list above): ONE row height (${composerMenu.submenuRowHeight}px), at most ${composerMenu.submenuMaxRows} rows visible, an agent row = its icon and its NAME (no description).`,
   status: {
     web: {
       state: `ok`,
@@ -95,16 +94,16 @@ export const entry: StyleguideEntry = {
           className={`${MENU_SURFACE_CLASS} flex w-[26rem] flex-col overflow-hidden p-0`}
           style={{ marginTop: 40 }}
         >
-          <ActionList density="pointer" />
+          <AgentList density="pointer" />
         </div>
       </div>
       <div className="flex w-[24rem] flex-col rounded-t-3xl border-t border-glass-stroke-card bg-glass-bottom pt-2 pb-4">
         <div aria-hidden className="mx-auto mb-2 h-1 w-9 rounded-full bg-foreground/20" />
         <div className="flex items-center gap-1 px-3 pb-1 text-base font-semibold">
           <BackGlyph aria-hidden className="size-5 text-muted-foreground" />
-          Run action
+          Message an agent
         </div>
-        <ActionList density="phone" />
+        <AgentList density="phone" />
       </div>
     </div>
   ),

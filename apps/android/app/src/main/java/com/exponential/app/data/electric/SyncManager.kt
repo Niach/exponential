@@ -11,6 +11,10 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.auth.SessionInvalidator
 import com.exponential.app.data.db.ActionEntity
+import com.exponential.app.data.db.AgentDefinitionEntity
+import com.exponential.app.data.db.EventEntity
+import com.exponential.app.data.db.PromptEntity
+import com.exponential.app.data.db.ConversationEntity
 import com.exponential.app.data.db.AttachmentEntity
 import com.exponential.app.data.db.CommentEntity
 import com.exponential.app.data.db.DatabaseHolder
@@ -422,6 +426,10 @@ class SyncManager @Inject constructor(
         val pullRequestDao = db.pullRequestDao()
         val pullRequestIssueDao = db.pullRequestIssueDao()
         val sessionReadDao = db.sessionReadDao()
+        val agentDefinitionDao = db.agentDefinitionDao()
+        val eventDao = db.eventDao()
+        val promptDao = db.promptDao()
+        val conversationDao = db.conversationDao()
 
         val shapes = listOf(
             launchShape(
@@ -668,6 +676,46 @@ class SyncManager @Inject constructor(
                 onInsert = { sessionReadDao.upsert(it) },
                 onDelete = { sessionReadDao.deleteById(it.id) },
                 onRefetch = { sessionReadDao.clear() },
+            ),
+            // NEW-2: the team agents (definitions; instructions server-only).
+            launchShape(
+                shape = "agents", path = "/api/shapes/agents", tableName = "agents",
+                serializer = AgentDefinitionEntity.serializer(),
+                offsetDao = offsetDao, db = db, baseUrl = baseUrl, token = token,
+                reporter = reporter("agents"),
+                onInsert = { agentDefinitionDao.upsert(it) },
+                onDelete = { agentDefinitionDao.deleteById(it.id) },
+                onRefetch = { agentDefinitionDao.clear() },
+            ),
+            // NEW-2: the member teams' events (team-scoped).
+            launchShape(
+                shape = "events", path = "/api/shapes/events", tableName = "events",
+                serializer = EventEntity.serializer(),
+                offsetDao = offsetDao, db = db, baseUrl = baseUrl, token = token,
+                reporter = reporter("events"),
+                onInsert = { eventDao.upsert(it) },
+                onDelete = { eventDao.deleteById(it.id) },
+                onRefetch = { eventDao.clear() },
+            ),
+            // NEW-2: saved prompts (replace actions; body server-only).
+            launchShape(
+                shape = "prompts", path = "/api/shapes/prompts", tableName = "prompts",
+                serializer = PromptEntity.serializer(),
+                offsetDao = offsetDao, db = db, baseUrl = baseUrl, token = token,
+                reporter = reporter("prompts"),
+                onInsert = { promptDao.upsert(it) },
+                onDelete = { promptDao.deleteById(it.id) },
+                onRefetch = { promptDao.clear() },
+            ),
+            // NEW-3: conversations (step 1: a session's own, the session rule).
+            launchShape(
+                shape = "conversations", path = "/api/shapes/conversations", tableName = "conversations",
+                serializer = ConversationEntity.serializer(),
+                offsetDao = offsetDao, db = db, baseUrl = baseUrl, token = token,
+                reporter = reporter("conversations"),
+                onInsert = { conversationDao.upsert(it) },
+                onDelete = { conversationDao.deleteById(it.id) },
+                onRefetch = { conversationDao.clear() },
             ),
         )
         return Pipeline(jobs = shapes.map { it.first }, clients = shapes.map { it.second })

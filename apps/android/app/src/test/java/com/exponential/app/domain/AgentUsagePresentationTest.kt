@@ -523,4 +523,33 @@ class AgentUsagePresentationTest {
     fun `the per-device empty line is the one every client shows`() {
         assertEquals("No login reported", AgentUsagePresentation.NO_LOGIN_REPORTED)
     }
+
+    // NEW-1 (web `blockedBadgeLabel`): a watchdog flag reads its card word
+    // (`copy.blockedKinds`) with no countdown; only a usage wall switches.
+    @Test
+    fun blockedBadgeOfAWatchdogFlagIsItsWordWithNoCountdown() {
+        val now = java.time.Instant.parse("2026-10-21T10:00:00Z").toEpochMilli()
+        val inTwoHours = "2026-10-21T12:00:00.000Z"
+        fun label(kind: String?) = AgentUsagePresentation.blockedBadgeLabel(
+            CodingSessionBlocked(kind = kind, resetsAt = inTwoHours),
+            now,
+        )
+        assertEquals("Device offline", label("device_offline"))
+        assertEquals("Not picked up", label("unclaimed"))
+        assertEquals("Stuck", label("stuck"))
+        assertEquals("Rate limited · resets in 2h", label("rate_limit"))
+        assertEquals("Rate limited · resets in 2h", label(null))
+        assertEquals("Blocked · resets in 2h", label("quota"))
+        assertEquals(null, AgentUsagePresentation.blockedBadgeLabel(null, now))
+    }
+
+    @Test
+    fun onlyAUsageWallOffersTheAccountSwitch() {
+        assertEquals(true, AgentUsagePresentation.isUsageWall(CodingSessionBlocked(kind = "rate_limit")))
+        assertEquals(true, AgentUsagePresentation.isUsageWall(CodingSessionBlocked(kind = null)))
+        for (kind in listOf("device_offline", "unclaimed", "stuck")) {
+            assertEquals(false, AgentUsagePresentation.isUsageWall(CodingSessionBlocked(kind = kind)))
+        }
+        assertEquals(false, AgentUsagePresentation.isUsageWall(null))
+    }
 }

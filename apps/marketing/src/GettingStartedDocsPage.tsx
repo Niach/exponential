@@ -192,10 +192,11 @@ export function GettingStartedDocsPage() {
               Roles are <strong>owner</strong> and <strong>member</strong>.
               Owners manage the team: general settings, members and invites,
               storage, widgets, billing, boards (including archiving and
-              deleting them), actions and their{` `}
-              <a href="/docs/actions/#triggers">triggers</a>. Every
-              member can edit issues, triage feedback, manage comments,
-              connect repositories, run actions, and edit statuses and labels.
+              deleting them), <a href="/docs/actions/">prompts</a> and{` `}
+              <a href="/docs/actions/#triggers">agents</a> with their
+              triggers. Every member can edit issues, triage feedback, manage
+              comments, connect repositories, run prompts, message agents,
+              and edit statuses and labels.
               There is no read-only seat.
             </p>
           </DocsSection>
@@ -239,8 +240,8 @@ export function GettingStartedDocsPage() {
               <strong>Getting started</strong>, in the sidebar footer on
               desktop and inline under an empty board on the phone. It walks
               the same ground — get the desktop app, connect a GitHub repo,
-              invite your team, create a board, start coding with an agent,
-              create an action, set up a server, set up the feedback widget,
+              invite your team, create a board, start a session,
+              set up a server, set up the feedback widget,
               connect your tools via MCP — and each entry
               disappears on its own once it is done, with the whole checklist
               going away when it is complete. There is nothing to dismiss.
