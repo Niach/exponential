@@ -1,0 +1,21 @@
+{
+  "name": "exponential-ui-sample-web-element",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@exponential-at/ui": "file:../.packs/exponential-at-ui-0.1.0.tgz",
+    "@exponential-at/ui-element": "file:../.packs/exponential-at-ui-element-0.1.0.tgz"
+  },
+  "devDependencies": {
+    "vite": "^7.1.0"
+  },
+  "overrides": {
+    "@exponential-at/ui": "file:../.packs/exponential-at-ui-0.1.0.tgz",
+    "@exponential-at/ui-solid": "file:../.packs/exponential-at-ui-solid-0.1.0.tgz"
+  }
+}

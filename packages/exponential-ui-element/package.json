@@ -1,0 +1,51 @@
+{
+  "name": "@exponential-at/ui-element",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Exponential UI as a custom element: <exponential-surface> paints a core A2UI surface with no framework in the host page, on the Solid painter and the shared web layer, with the same DOM, the same compiled stylesheet and the same runtime themes as the React renderer, run through the conformance suite and the web-parity check.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./define": "./src/define.ts",
+    "./standalone": "./src/standalone.ts"
+  },
+  "files": [
+    "src",
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "vitest run",
+    "test:browser": "vitest run --config vitest.browser.config.ts",
+    "test:conformance": "vitest run --config vitest.browser.config.ts browser/suites.test.ts",
+    "test:parity": "vitest run --config vitest.browser.config.ts browser/parity.test.ts",
+    "typecheck": "tsc --noEmit",
+    "dev:harness": "bun ./harness/serve.ts",
+    "build:standalone": "bun run ./scripts/build-standalone.ts"
+  },
+  "dependencies": {
+    "@exponential-at/ui": "workspace:*",
+    "@exponential-at/ui-solid": "workspace:*",
+    "solid-js": "^1.9.17"
+  },
+  "devDependencies": {
+    "@exp/tsconfig": "workspace:*",
+    "@exponential-at/ui-react": "workspace:*",
+    "@testing-library/dom": "^10.4.1",
+    "@types/bun": "latest",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "jsdom": "^27.0.0",
+    "lucide-solid": "0.544.0",
+    "playwright": "^1.54.2",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "typescript": "^5.7.2",
+    "vite": "7.3.3",
+    "vite-plugin-solid": "^2.11.14",
+    "vitest": "4.1.5"
+  }
+}

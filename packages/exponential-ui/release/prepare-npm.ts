@@ -7,7 +7,7 @@
 // points on dist/, `workspace:*` pinned to the release version).
 //
 //   bun packages/exponential-ui/release/prepare-npm.ts <version> <outDir>
-//   → <outDir>/ui, <outDir>/ui-react, <outDir>/ui-solid   (then `npm publish` / `npm pack` there)
+//   → <outDir>/ui, <outDir>/ui-react, <outDir>/ui-solid, <outDir>/ui-element   (then `npm publish` / `npm pack` there)
 
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { join, resolve } from "node:path"
@@ -66,7 +66,28 @@ const SPECS: Spec[] = [
       "./package.json": `./package.json`,
     },
   },
+  {
+    // FEED-130: <exponential-surface> = the Solid painter in a custom
+    // element. `./define` registers it (a side effect); `./standalone` = ONE
+    // self-contained ESM file for pages without a bundler.
+    dir: `packages/exponential-ui-element`,
+    out: `ui-element`,
+    files: [`dist`, `README.md`],
+    exports: {
+      ".": { types: `./dist/types/index.d.ts`, import: `./dist/index.js`, default: `./dist/index.js` },
+      "./define": { types: `./dist/types/define.d.ts`, import: `./dist/define.js`, default: `./dist/define.js` },
+      "./standalone": `./dist/standalone.js`,
+      "./package.json": `./package.json`,
+    },
+  },
 ]
+
+/** `sideEffects` per staged package: the stylesheet, the element's registering entries, else none. */
+const SIDE_EFFECTS: Record<string, string[]> = {
+  "ui-react": [`*.css`],
+  "ui-solid": [`*.css`],
+  "ui-element": [`./dist/define.js`, `./dist/standalone.js`],
+}
 
 export async function prepareNpm(version: string, outDir: string): Promise<string[]> {
   if (!/^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/.test(version)) throw new Error(`not a semver version: ${version}`)
@@ -96,7 +117,7 @@ export async function prepareNpm(version: string, outDir: string): Promise<strin
       types: (spec.exports[`.`] as { types: string }).types,
       exports: spec.exports,
       files: [...spec.files, `LICENSE`, `NOTICE`],
-      sideEffects: [`ui-react`, `ui-solid`].includes(spec.out) ? [`*.css`] : false,
+      sideEffects: SIDE_EFFECTS[spec.out] ?? false,
       ...(Object.keys(deps).length ? { dependencies: deps } : {}),
       ...(pkg.peerDependencies ? { peerDependencies: pkg.peerDependencies } : {}),
       publishConfig: { access: `public`, provenance: true },

@@ -1,0 +1,17 @@
+{
+  "name": "exponential-ui-guide-element",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build"
+  },
+  "dependencies": {
+    "@exponential-at/ui": "^0.1.0",
+    "@exponential-at/ui-element": "^0.1.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2",
+    "vite": "^7.1.0"
+  }
+}
