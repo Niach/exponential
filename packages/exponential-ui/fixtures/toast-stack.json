@@ -1,0 +1,99 @@
+{
+  "_comment": "EXP-1031: THE toast, identical x4 (web packages/ui/src/toast.tsx over sonner, desktop crates/ui/src/toast.rs (its own ToastLayer per window over gpui_base::ToastManager, theme::motion for every transition), iOS ExpCore ToastStack + ExpUI Toast.swift, Android domain/ToastStack.kt + ui/components/Toast.kt). The numbers are sonner 2.0.7's. A toast is one sentence (`title`), an optional `description`, an optional `action` and a `kind` whose colour sits on the ICON alone (concept icons ui-success / ui-error / ui-info / ui-warning, close = ui-close); the card is the opaque glass card fill with the card hairline at radius lg, never a shadow, `width` wide on a pointer and the phone's width minus `mobileViewportOffset` on touch. `placement`: bottom-right on a pointer (web above `touchMaxWidth`, the IDE), `viewportOffset` from the edges; TOP-centre on touch (mobile web, iOS, Android) `mobileViewportOffset` below the status bar, so no bottom sheet, tab bar or keyboard ever covers it. On a top stack the older toasts peek out BELOW the front one and the stack grows downward when expanded; the swipe that dismisses goes up or sideways. The newest toast is in front; the older ones peek out behind it by `peek` and shrink by `scaleStep` per rank, `visible` of them at most. Hover (pointer) or tap (touch) EXPANDS the stack: every toast at full size, `gap` apart, and the auto-dismiss clock (`durationMs`) pauses. Dismiss = the close glyph, a swipe past `swipeThreshold` (touch and web), or the action. `geometry` is per item, oldest first: `offset` = the item's top inside the stack box (anchoredBottom stacks measure from the box's top too), `scale` its width factor, `visible` whether it draws at all; `height` is the stack box. Points (web px = desktop px = iOS pt = Android dp). Locked by packages/ui toast.test.tsx, crates/ui toast.rs tests, ExpCore ToastStackTests, Android ToastStackTest.",
+  "constants": {
+    "width": 356,
+    "gap": 14,
+    "peek": 14,
+    "scaleStep": 0.05,
+    "visible": 3,
+    "durationMs": 4000,
+    "swipeThreshold": 45,
+    "viewportOffset": 24,
+    "mobileViewportOffset": 16,
+    "placement": { "pointer": "bottom-right", "touch": "top-center" },
+    "touchMaxWidth": 600,
+    "kinds": ["success", "error", "info", "warning"]
+  },
+  "geometry": [
+    {
+      "name": "no toast draws nothing",
+      "heights": [],
+      "expanded": false,
+      "anchoredBottom": false,
+      "height": 0,
+      "items": []
+    },
+    {
+      "name": "one toast sits at the origin",
+      "heights": [60],
+      "expanded": false,
+      "anchoredBottom": false,
+      "height": 60,
+      "items": [{ "offset": 0, "scale": 1, "visible": true }]
+    },
+    {
+      "name": "three equal toasts collapsed from the top peek by rank",
+      "heights": [60, 60, 60],
+      "expanded": false,
+      "anchoredBottom": false,
+      "height": 88,
+      "items": [
+        { "offset": 28, "scale": 0.9, "visible": true },
+        { "offset": 14, "scale": 0.95, "visible": true },
+        { "offset": 0, "scale": 1, "visible": true }
+      ]
+    },
+    {
+      "name": "three equal toasts expanded from the top lie gap apart at full size",
+      "heights": [60, 60, 60],
+      "expanded": true,
+      "anchoredBottom": false,
+      "height": 208,
+      "items": [
+        { "offset": 148, "scale": 1, "visible": true },
+        { "offset": 74, "scale": 1, "visible": true },
+        { "offset": 0, "scale": 1, "visible": true }
+      ]
+    },
+    {
+      "name": "four mixed toasts collapsed from the bottom hide the fourth",
+      "heights": [40, 80, 60, 50],
+      "expanded": false,
+      "anchoredBottom": true,
+      "height": 108,
+      "items": [
+        { "offset": 26, "scale": 0.9, "visible": false },
+        { "offset": 0, "scale": 0.9, "visible": true },
+        { "offset": 34, "scale": 0.95, "visible": true },
+        { "offset": 58, "scale": 1, "visible": true }
+      ]
+    },
+    {
+      "name": "four mixed toasts expanded from the bottom stack upward gap apart",
+      "heights": [40, 80, 60, 50],
+      "expanded": true,
+      "anchoredBottom": true,
+      "height": 272,
+      "items": [
+        { "offset": 0, "scale": 1, "visible": true },
+        { "offset": 54, "scale": 1, "visible": true },
+        { "offset": 148, "scale": 1, "visible": true },
+        { "offset": 222, "scale": 1, "visible": true }
+      ]
+    },
+    {
+      "name": "five toasts collapsed show three and keep the rest behind",
+      "heights": [50, 50, 50, 50, 50],
+      "expanded": false,
+      "anchoredBottom": false,
+      "height": 106,
+      "items": [
+        { "offset": 56, "scale": 0.9, "visible": false },
+        { "offset": 42, "scale": 0.9, "visible": false },
+        { "offset": 28, "scale": 0.9, "visible": true },
+        { "offset": 14, "scale": 0.95, "visible": true },
+        { "offset": 0, "scale": 1, "visible": true }
+      ]
+    }
+  ]
+}

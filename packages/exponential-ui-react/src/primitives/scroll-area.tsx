@@ -1,15 +1,13 @@
 import * as React from "react"
 import { ScrollArea as ScrollAreaPrimitive } from "radix-ui"
+import { SCROLL_AREA_CLASSES } from "@exponential-at/ui/web/primitives"
 
 import { cn } from "./cn"
 
-// Round 1: shadcn's ScrollArea on Radix (the catalog's ScrollArea macro is a
-// Box with overflowX/Y; this is the app-side primitive with styled bars).
-
 function ScrollArea({ className, children, ...props }: React.ComponentProps<typeof ScrollAreaPrimitive.Root>) {
   return (
-    <ScrollAreaPrimitive.Root data-slot="scroll-area" className={cn(`relative`, className)} {...props}>
-      <ScrollAreaPrimitive.Viewport data-slot="scroll-area-viewport" className="size-full rounded-[inherit] transition-[color,box-shadow] outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-1">
+    <ScrollAreaPrimitive.Root data-slot="scroll-area" className={cn(SCROLL_AREA_CLASSES.root, className)} {...props}>
+      <ScrollAreaPrimitive.Viewport data-slot="scroll-area-viewport" className={SCROLL_AREA_CLASSES.viewport}>
         {children}
       </ScrollAreaPrimitive.Viewport>
       <ScrollBar />
@@ -23,10 +21,10 @@ function ScrollBar({ className, orientation = `vertical`, ...props }: React.Comp
     <ScrollAreaPrimitive.ScrollAreaScrollbar
       data-slot="scroll-area-scrollbar"
       orientation={orientation}
-      className={cn(`flex touch-none p-px transition-colors select-none`, orientation === `vertical` && `h-full w-2.5 border-l border-l-transparent`, orientation === `horizontal` && `h-2.5 flex-col border-t border-t-transparent`, className)}
+      className={cn(SCROLL_AREA_CLASSES.scrollbar, SCROLL_AREA_CLASSES.orientations[orientation], className)}
       {...props}
     >
-      <ScrollAreaPrimitive.ScrollAreaThumb data-slot="scroll-area-thumb" className="relative flex-1 rounded-full bg-border" />
+      <ScrollAreaPrimitive.ScrollAreaThumb data-slot="scroll-area-thumb" className={SCROLL_AREA_CLASSES.thumb} />
     </ScrollAreaPrimitive.ScrollAreaScrollbar>
   )
 }

@@ -155,7 +155,7 @@ every case EXACTLY:
 
 | check | what |
 |---|---|
-| dom | the `.xui-surface` subtrees (tag, attributes by name, text); generated ids (`useId`, Radix, Kobalte `cl-N`) in id attributes → `#id-N` in first-seen order |
+| dom | the `.xui-surface` subtrees (tag, attributes by name, text); generated ids (`useId`, Radix, Solid `cl-N`) in id attributes → `#id-N` in first-seen order |
 | style | the full computed style of every `[data-xui-id]` element (and every overlay part) |
 | frame | their `getBoundingClientRect`, 0 px tolerance |
 | pixels | full-page screenshots, pixelmatch threshold 0 (AA excluded): 0 differing pixels; native `<video>`/`<audio>` boxes masked (the browser's own spinner) |
@@ -172,6 +172,32 @@ bun run --filter @exponential-at/ui conformance:parity              # React vs R
 bun run --filter @exponential-at/ui conformance:parity -- --candidate packages/exponential-ui-solid/harness/serve.ts
 bun run --filter @exponential-at/ui parity:check .conformance/exponential-ui-parity-react-react.json
 bun run --filter @exponential-at/ui-solid test:parity               # Solid's gate calls runParity
+```
+
+**Primitive cases (FEED-131, group `primitive`).** The same gate also
+compares the PRIMITIVE sets: `@exponential-at/ui-react/primitives` (Radix +
+`dist/exponential-ui-react.css`) against `@exponential-at/ui-solid/primitives`
+(+ `dist/exponential-ui-solid.css`, compiled from the SAME `tailwind.css`,
+byte-identical: `src/primitives/styles.test.ts`). Every row of
+[`primitive-specimens.json`](../fixtures/primitive-specimens.json) runs ×
+[`exponential` light, `orange` dark] (`primitive:<id>:<theme>-<mode>`, plus
+`…:<hover|focus>` when the row names an `interact`: the first
+`[data-xui-target]` is hovered / focused on both sides) through both
+harnesses' `?view=primitives&id=&theme=&mode=&width=`
+([`primitives-page.ts`](primitives-page.ts): `globalsCss` + the package's
+own sheet in `<head>`, `class="dark"` on `<html>`, `data-xui-parity-root` +
+`data-xui-mode` on `<body>`, the specimen in `<div data-xui-specimen
+style="padding: 16px;">`). On such a page the probe compares the WHOLE
+`<body>` (its attributes too: Radix's scroll lock writes them; `<script>`
+and the gate's own styles skipped) and EVERY element under it, keyed by its
+path (`body/div[0]/button[1]`). Specimens live in one module per lane,
+`harness/primitives/{smoke,plain,controls,overlays,data,calendar}.tsx` in
+BOTH packages (`SPECIMENS: Record<id, component>`); the jsdom twin is
+`expectElementParity` (ui-solid `src/test/parity.ts`).
+
+```bash
+bun run --filter @exponential-at/ui-solid test:parity:primitives    # the primitive group alone (seconds)
+EXPONENTIAL_UI_PARITY_GROUP=matrix,overlay bun run --filter @exponential-at/ui-solid test:parity
 ```
 
 ## Listing

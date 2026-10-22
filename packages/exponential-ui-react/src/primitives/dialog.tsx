@@ -1,6 +1,7 @@
 import * as React from "react"
 import { XIcon } from "lucide-react"
 import { Dialog as DialogPrimitive } from "radix-ui"
+import { DIALOG_CLASSES, DIALOG_PHONE_QUERY, isTypeaheadPortalInteraction } from "@exponential-at/ui/web/primitives"
 
 import { cn } from "./cn"
 import { Button } from "./button"
@@ -11,13 +12,8 @@ import {
   useSheetDragHandleProps,
 } from "./sheet-chrome"
 import { SheetContent } from "./sheet"
-import { isTypeaheadPortalInteraction } from "./typeahead"
 import { useMediaQuery } from "./use-media-query"
 import { useSheetDrag } from "./use-sheet-drag"
-
-/** Below `sm` a sheet-arm dialog IS the bottom sheet (EXP-687 → the UI
- *  cleanup batch's "one phone sheet"). */
-const PHONE_QUERY = `(max-width: 639px)`
 
 function Dialog({
   ...props
@@ -50,10 +46,7 @@ function DialogOverlay({
   return (
     <DialogPrimitive.Overlay
       data-slot="dialog-overlay"
-      className={cn(
-        `fixed inset-0 z-50 bg-black/60 backdrop-blur-sm data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:duration-fast data-[state=closed]:ease-accelerate data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:duration-standard data-[state=open]:ease-decelerate`,
-        className
-      )}
+      className={cn(DIALOG_CLASSES.overlay, className)}
       {...props}
     />
   )
@@ -104,7 +97,7 @@ function DialogContent({
     },
     [ref]
   )
-  const isPhone = useMediaQuery(PHONE_QUERY)
+  const isPhone = useMediaQuery(DIALOG_PHONE_QUERY)
 
   if (isSheet && isPhone) {
     // ONE phone sheet: the dialog renders THROUGH `SheetContent` (the same
@@ -118,8 +111,8 @@ function DialogContent({
         data-mobile={mobile}
         ref={ref}
         className={cn(
-          `gap-4 overflow-hidden px-4 pt-0 pb-[max(1rem,env(safe-area-inset-bottom))] outline-none`,
-          mobile === `sheet-full` && `h-[94dvh] max-h-[94dvh]`,
+          DIALOG_CLASSES.phoneSheet,
+          mobile === `sheet-full` && DIALOG_CLASSES.phoneSheetFull,
           className
         )}
         onInteractOutside={onInteractOutside}
@@ -140,31 +133,7 @@ function DialogContent({
         data-mobile={mobile}
         ref={setPanel}
         className={cn(
-          // The panel is a flex COLUMN that never scrolls itself (EXP-369):
-          // header and footer stay pinned and the scrolling happens inside
-          // `DialogBody` (`flex-1 min-h-0 overflow-y-auto`). Any dialog whose
-          // content can outgrow the viewport MUST wrap that content in a
-          // DialogBody — without one, tall content is clipped rather than
-          // scrolled (short confirm dialogs only hit that below ~200px of
-          // viewport height).
-          // Below `sm` the presentation is one of the four arms in
-          // ui/dialog-arms.ts, `sheet` by default (EXP-687): a bottom sheet
-          // with a grabber and no ✕, dismissed by dragging it down or tapping
-          // outside. From `sm` up it is the centered frosted panel (EXP-269),
-          // capped to the viewport — THE SAME for every arm, which is why the
-          // arms own all the padding; the enter is `motion-dialog` (EXP-1243),
-          // the sheet arms swap it for `motion-sheet` below `sm`. Callers that reposition or
-          // re-cap the panel must sm:-prefix those classes so they compose
-          // with (and tailwind-merge away) the sm: base here.
-          // A column flex container also fixes EXP-178 for free: items take
-          // the container's definite width and long nowrap lines (e.g. an
-          // issue title in a picker row) overflow their item instead of
-          // inflating the panel the way a grid track's min-content did.
-          // sm:w-[calc(100%-2rem)] keeps the 1rem side gutter the old
-          // unprefixed max-w-[calc(100%-2rem)] used to give, without sitting in
-          // the max-w-* tailwind-merge group — so a caller's sm:max-w-* still
-          // caps the panel instead of dropping the gutter.
-          `fixed z-50 flex flex-col gap-4 overflow-hidden shadow-lg outline-none motion-dialog sm:inset-auto sm:top-[50%] sm:left-[50%] sm:max-h-[calc(100dvh-2rem)] sm:w-[calc(100%-2rem)] sm:max-w-lg sm:translate-x-[-50%] sm:translate-y-[-50%] sm:rounded-2xl sm:border sm:border-glass-stroke-card sm:bg-card/85 sm:shadow-2xl sm:shadow-black/40 sm:backdrop-blur-2xl`,
+          DIALOG_CLASSES.content,
           MOBILE_ARMS[mobile],
           className
         )}
@@ -184,12 +153,12 @@ function DialogContent({
           <SheetDragProvider value={isSheet ? handleProps : null}>
             {isSheet && (
               <>
-                <SheetGrabber className="hidden max-sm:block" />
+                <SheetGrabber className={DIALOG_CLASSES.grabber} />
                 <DialogPrimitive.Close
                   ref={dragCloseRef}
                   aria-hidden
                   tabIndex={-1}
-                  className="hidden"
+                  className={DIALOG_CLASSES.dragClose}
                 />
               </>
             )}
@@ -198,14 +167,12 @@ function DialogContent({
               <DialogPrimitive.Close
                 data-slot="dialog-close"
                 className={cn(
-                  `absolute top-4 right-4 rounded-xs opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4`,
-                  // Sheets and alerts carry no ✕ on a phone (EXP-687); the
-                  // full-screen page arm is the one that still needs it.
-                  mobile !== `page` && `max-sm:hidden`
+                  DIALOG_CLASSES.close,
+                  mobile !== `page` && DIALOG_CLASSES.closePhoneHidden
                 )}
               >
                 <XIcon />
-                <span className="sr-only">Close</span>
+                <span className={DIALOG_CLASSES.srOnly}>Close</span>
               </DialogPrimitive.Close>
             )}
           </SheetDragProvider>
@@ -222,24 +189,17 @@ function DialogHeader({ className, ...props }: React.ComponentProps<`div`>) {
     <div
       data-slot="dialog-header"
       {...drag}
-      // Left-aligned on every viewport (EXP-687): a centered mobile title
-      // reads as an alert, and sheets are not alerts.
-      className={cn(`flex flex-col gap-2 text-left`, className)}
+      className={cn(DIALOG_CLASSES.header, className)}
       {...props}
     />
   )
 }
 
-// The one scrolling region of a dialog. Everything that can grow — a form's
-// fields, a long list, a wall of explanatory copy — goes in here so the header
-// above it and the footer below it stay pinned to the panel edges. Short
-// content just doesn't scroll: flex-1 only claims free space when the panel is
-// actually height-capped.
 function DialogBody({ className, ...props }: React.ComponentProps<`div`>) {
   return (
     <div
       data-slot="dialog-body"
-      className={cn(`min-h-0 flex-1 overflow-y-auto`, className)}
+      className={cn(DIALOG_CLASSES.body, className)}
       {...props}
     />
   )
@@ -249,13 +209,7 @@ function DialogFooter({ className, ...props }: React.ComponentProps<`div`>) {
   return (
     <div
       data-slot="dialog-footer"
-      className={cn(
-        // On a phone every action is the full-width `lg` capsule pinned to
-        // the bottom of the sheet (EXP-687) — one button shape across web,
-        // iOS `GlassSubmitButton` and Android `GlassSubmitButton`.
-        `flex flex-col-reverse gap-2 max-sm:[&>[data-slot=button]]:h-10 max-sm:[&>[data-slot=button]]:w-full max-sm:[&>[data-slot=button]]:px-6 sm:flex-row sm:justify-end`,
-        className
-      )}
+      className={cn(DIALOG_CLASSES.footer, className)}
       {...props}
     />
   )
@@ -282,7 +236,7 @@ function DialogCancel({
         // Keeps Button's `data-slot="button"`, which DialogFooter's phone
         // sizing keys on; this attribute only names the role.
         data-dialog-cancel=""
-        className={cn(!keepOnMobile && `max-sm:hidden`, className)}
+        className={cn(!keepOnMobile && DIALOG_CLASSES.cancelPhoneHidden, className)}
         {...props}
       >
         {children}
@@ -298,7 +252,7 @@ function DialogTitle({
   return (
     <DialogPrimitive.Title
       data-slot="dialog-title"
-      className={cn(`text-lg leading-none font-semibold`, className)}
+      className={cn(DIALOG_CLASSES.title, className)}
       {...props}
     />
   )
@@ -311,7 +265,7 @@ function DialogDescription({
   return (
     <DialogPrimitive.Description
       data-slot="dialog-description"
-      className={cn(`text-sm text-muted-foreground`, className)}
+      className={cn(DIALOG_CLASSES.description, className)}
       {...props}
     />
   )

@@ -36,10 +36,14 @@ once both have matching crates.io releases).
 
 - **npm**: `bun packages/exponential-ui/release/prepare-npm.ts <version> dist-npm`
   builds each package (`build-npm.ts`: one ESM bundle per entry, dependencies
-  external, JSON inlined, `tsc` declarations; `build:css` for the React
-  stylesheet; Solid's JSX through Vite + `vite-plugin-solid`) and stages a
+  external, JSON inlined, `tsc` declarations; `build:css` for the web
+  renderers' stylesheets; Solid's JSX through Vite + `vite-plugin-solid`) and stages a
   PUBLISHABLE package.json (no `private`, entry points on `dist/`, `workspace:*` pinned to the version, LICENSE + NOTICE).
   The workspace package.json files stay private with `main` on the sources.
+  Entries: `@exponential-at/ui` `.`, `./web`, `./web/primitives` (the
+  primitives' class recipes, FEED-131); `@exponential-at/ui-react` and
+  `@exponential-at/ui-solid` each `.`, `./primitives` and `./styles.css` (the
+  compiled primitives sheet, byte-identical in both).
   Locally: `bun samples/exponential-ui/pack-local.ts` packs the same tarballs.
 - **crates**: `cargo publish -p exponential-ui` (`--dry-run` without the token).
 - **swift**: `build-ios.sh` (device arm64, simulator arm64 + x86_64, macOS

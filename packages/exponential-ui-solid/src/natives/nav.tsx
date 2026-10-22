@@ -13,9 +13,10 @@
 // active panel, the `--radix-accordion-content-*` variables). The DOM the
 // theme CSS and the web-parity check read is Radix's, so the painters
 // reproduce Radix's DOM and its keyboard model (RovingFocusGroup:
-// `focusFirst` in a timeout; Accordion: the root's arrow handler) here.
+// `focusFirst` in a timeout, `createRovingGroup` in ../behaviors; Accordion:
+// the root's arrow handler here, the content = `createCollapsibleContent`).
 
-import { For, Show, createEffect, createMemo, createSignal, createUniqueId, on, onCleanup, onMount, untrack, type Accessor, type Component, type JSX } from "solid-js"
+import { For, Show, createMemo, createSignal, createUniqueId, onCleanup, onMount, untrack, type Accessor, type Component, type JSX } from "solid-js"
 import type { UiNode } from "@exponential-at/ui"
 import { useSurfaceContext } from "../context"
 import { IconGlyph } from "../icons"
@@ -23,6 +24,7 @@ import type { NativeProps } from "../node-view"
 import { NodeView } from "../node-view"
 import { createBoundState } from "./bound"
 import { bool, BuiltinIcon, css, num, objects, parts, str, type PartFn } from "./shared"
+import { createCollapsibleContent, createRovingGroup } from "../behaviors"
 
 interface Tab {
   label: string
@@ -41,84 +43,6 @@ function keysOf<T>(list: Accessor<T[]>, key: (item: T) => string): Accessor<stri
 
 /** The child node at `index`, followed live. */
 const childAt = (node: () => UiNode, index: Accessor<number>) => createMemo(() => node().children[index()] as UiNode | undefined)
-
-// ── RovingFocusGroup (Radix) ────────────────────────────────────────────
-
-type Intent = `first` | `last` | `prev` | `next`
-const KEY_INTENT: Record<string, Intent> = { ArrowLeft: `prev`, ArrowUp: `prev`, ArrowRight: `next`, ArrowDown: `next`, PageUp: `first`, Home: `first`, PageDown: `last`, End: `last` }
-
-function focusIntent(e: KeyboardEvent, orientation: `horizontal` | `vertical` | undefined, dir: `ltr` | `rtl`): Intent | undefined {
-  let key = e.key
-  if (dir === `rtl`) key = key === `ArrowLeft` ? `ArrowRight` : key === `ArrowRight` ? `ArrowLeft` : key
-  if (orientation === `vertical` && (key === `ArrowLeft` || key === `ArrowRight`)) return undefined
-  if (orientation === `horizontal` && (key === `ArrowUp` || key === `ArrowDown`)) return undefined
-  return KEY_INTENT[key]
-}
-
-function focusFirst(candidates: HTMLElement[]): void {
-  const previous = document.activeElement
-  for (const candidate of candidates) {
-    if (candidate === document.activeElement) return
-    candidate.focus({ preventScroll: false })
-    if (document.activeElement !== previous) return
-  }
-}
-
-const wrap = <T,>(list: T[], start: number): T[] => list.map((_, i) => list[(start + i) % list.length]!)
-
-/** Radix's RovingFocusGroup: the group's own attributes + handlers, and
- *  each item's. `items()` = the item elements in order, `focusable(el)`,
- *  `active(el)` = the selected one (the group's entry focus). */
-function createRovingGroup(opts: { orientation?: `horizontal` | `vertical`; dir: () => `ltr` | `rtl`; loop: boolean; items: () => HTMLElement[]; focusable: (el: HTMLElement) => boolean; active: (el: HTMLElement) => boolean }) {
-  const [stop, setStop] = createSignal<HTMLElement | null>(null)
-  const [tabbingBackOut, setTabbingBackOut] = createSignal(false)
-  let clickFocus = false
-  const group = (): Record<string, unknown> => ({ tabindex: tabbingBackOut() ? -1 : 0, "data-orientation": opts.orientation })
-  // React's onFocus/onBlur BUBBLE (focusin/focusout): a click on an item
-  // resets the click flag through the group.
-  const groupHandlers = {
-    onMouseDown: () => void (clickFocus = true),
-    onFocusIn: (e: FocusEvent) => {
-      const keyboard = !clickFocus
-      if (e.target === e.currentTarget && keyboard && !tabbingBackOut()) {
-        const items = opts.items().filter(opts.focusable)
-        const activeItem = items.find(opts.active)
-        const current = items.find((el) => el === stop())
-        focusFirst([activeItem, current, ...items].filter((el): el is HTMLElement => Boolean(el)))
-      }
-      clickFocus = false
-    },
-    onFocusOut: () => setTabbingBackOut(false),
-  }
-  const item = (el: () => HTMLElement | undefined, focusable: () => boolean) => ({
-    tabindex: () => (stop() !== null && stop() === el() ? 0 : -1),
-    onMouseDown: (e: MouseEvent) => {
-      if (!focusable()) e.preventDefault()
-      else setStop(el() ?? null)
-    },
-    onFocus: () => setStop(el() ?? null),
-    onKeyDown: (e: KeyboardEvent) => {
-      if (e.key === `Tab` && e.shiftKey) {
-        setTabbingBackOut(true)
-        return
-      }
-      if (e.target !== e.currentTarget) return
-      const intent = focusIntent(e, opts.orientation, opts.dir())
-      if (intent === undefined) return
-      if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return
-      e.preventDefault()
-      let candidates = opts.items().filter(opts.focusable)
-      if (intent === `last`) candidates.reverse()
-      else if (intent === `prev` || intent === `next`) {
-        if (intent === `prev`) candidates.reverse()
-        const at = candidates.indexOf(e.currentTarget as HTMLElement)
-        candidates = opts.loop ? wrap(candidates, at + 1) : candidates.slice(at + 1)
-      }
-      setTimeout(() => focusFirst(candidates))
-    },
-  })
-  return { group, groupHandlers, item }
-}
 
 // ── Tabs ────────────────────────────────────────────────────────────────
 
@@ -505,99 +429,9 @@ function AccordionRow(props: { part: PartFn; index: Accessor<number>; item: Acce
   const ctx = useSurfaceContext()
   const triggerId = createUniqueId()
   const contentId = createUniqueId()
-  const [present, setPresent] = createSignal(untrack(props.open))
-  const shown = () => props.open() || present()
-  const [dims, setDims] = createSignal<{ h: number; w: number }>({ h: 0, w: 0 })
-  let content: HTMLDivElement | undefined
-  let original: { transitionDuration: string; animationName: string } | null = null
-  let measured = { h: 0, w: 0 }
-  let mountPrevented = untrack(shown)
-  const measure = () => {
-    const node = content
-    if (!node) return
-    original ??= { transitionDuration: node.style.transitionDuration, animationName: node.style.animationName }
-    node.style.transitionDuration = `0s`
-    node.style.animationName = `none`
-    const rect = node.getBoundingClientRect()
-    measured = { h: rect.height, w: rect.width }
-    if (!mountPrevented) {
-      node.style.transitionDuration = original.transitionDuration
-      node.style.animationName = original.animationName
-    }
-  }
-  // Radix Presence: a closing content stays painted while its exit
-  // animation (`xui-accordion-close`) runs, until its `animationend`.
-  let prevAnimation = `none`
-  let waiting: (() => void) | null = null
-  const animationName = () => (content ? getComputedStyle(content).animationName || `none` : `none`)
-  const unmount = () => {
-    measure()
-    if (untrack(present)) {
-      setPresent(false)
-      setDims(measured)
-    }
-  }
-  onMount(() => {
-    measure()
-    // React's surface re-renders once after mount (its measured box): that
-    // render writes the mount measurement.
-    setDims(measured)
-    prevAnimation = untrack(shown) ? animationName() : `none`
-    const onStart = (e: AnimationEvent) => {
-      if (e.target === content) prevAnimation = animationName()
-    }
-    content?.addEventListener(`animationstart`, onStart)
-    const raf = requestAnimationFrame(() => (mountPrevented = false))
-    onCleanup(() => {
-      cancelAnimationFrame(raf)
-      content?.removeEventListener(`animationstart`, onStart)
-      waiting?.()
-    })
-  })
-  createEffect(
-    on(
-      props.open,
-      (o) => {
-        waiting?.()
-        measure()
-        if (o) {
-          if (!untrack(present)) {
-            setPresent(true)
-            setDims(measured)
-          }
-          prevAnimation = animationName()
-          return
-        }
-        const node = content
-        const name = animationName()
-        if (!node || name === `none` || getComputedStyle(node).display === `none` || prevAnimation === name) return unmount()
-        const done = (e: AnimationEvent) => {
-          if (e.target !== node || !animationName().includes(CSS.escape(e.animationName))) return
-          waiting?.()
-          prevAnimation = `none`
-          unmount()
-        }
-        node.addEventListener(`animationend`, done)
-        node.addEventListener(`animationcancel`, done)
-        waiting = () => {
-          node.removeEventListener(`animationend`, done)
-          node.removeEventListener(`animationcancel`, done)
-          waiting = null
-        }
-      },
-      { defer: true }
-    )
-  )
+  const collapsible = createCollapsibleContent(props.open, `accordion`)
+  const shown = collapsible.shown
   const state = () => (props.open() ? `open` : `closed`)
-  const style = () => {
-    const d = dims()
-    const out: Record<string, string> = {}
-    if (d.h) out[`--radix-collapsible-content-height`] = `${d.h}px`
-    if (d.w) out[`--radix-collapsible-content-width`] = `${d.w}px`
-    out[`--radix-accordion-content-height`] = `var(--radix-collapsible-content-height)`
-    out[`--radix-accordion-content-width`] = `var(--radix-collapsible-content-width)`
-    return out
-  }
   return (
     <div data-orientation="vertical" {...props.part.at(`item`, props.index(), props.open() && `open`)} data-state={state()}>
       <div data-orientation="vertical" data-state={state()} style={css({ display: `flex` })}>
@@ -620,7 +454,7 @@ function AccordionRow(props: { part: PartFn; index: Accessor<number>; item: Acce
           <BuiltinIcon slot="Accordion.trigger" size={16} />
         </button>
       </div>
-      <div ref={content} data-state={state()} id={contentId} hidden={!shown()} role="region" aria-labelledby={triggerId} data-orientation="vertical" {...props.part.at(`content`, props.index(), props.open() && `open`)} style={style()}>
+      <div ref={collapsible.ref} data-state={state()} id={contentId} hidden={!shown()} role="region" aria-labelledby={triggerId} data-orientation="vertical" {...props.part.at(`content`, props.index(), props.open() && `open`)} style={collapsible.style()}>
         <Show when={shown() && props.child()}>
           <NodeView node={props.child()!} />
         </Show>
