@@ -4,11 +4,12 @@
    strings, no SDK import. */
 import type { Message } from "./a2ui"
 
-export type EmbedTarget = `react` | `solid` | `swiftui` | `compose` | `gpui`
+export type EmbedTarget = `react` | `solid` | `element` | `swiftui` | `compose` | `gpui`
 
 export const EMBED_TARGETS: { id: EmbedTarget; label: string; language: string; guide: string }[] = [
   { id: `react`, label: `React`, language: `tsx`, guide: `/guides/react/` },
   { id: `solid`, label: `Solid`, language: `tsx`, guide: `/guides/solid/` },
+  { id: `element`, label: `Web component`, language: `html`, guide: `/guides/element/` },
   { id: `swiftui`, label: `SwiftUI`, language: `swift`, guide: `/guides/swiftui/` },
   { id: `compose`, label: `Compose`, language: `kotlin`, guide: `/guides/compose/` },
   { id: `gpui`, label: `gpui`, language: `rust`, guide: `/guides/gpui/` },
@@ -19,7 +20,8 @@ export interface EmbedOptions {
   surfaceId: string
   theme: string
   mode: `light` | `dark`
-  /** The studio's Direction switch: React and Solid take it as a prop; the native
+  /** The studio's Direction switch: React and Solid take it as a prop, the
+   *  web component as an attribute; the native
    *  hosts follow the device locale, so their code says so. */
   direction?: `ltr` | `rtl`
   /** The studio's Width preset (px), as a frame on the surface. */
@@ -73,6 +75,29 @@ export function Preview() {
   for (const line of SURFACE.split("\\n")) surface.apply(JSON.parse(line) as A2uiMessage)
   return <ExponentialSurface surface={surface} theme="${theme}" mode="${mode}"${rtl ? ` direction="rtl"` : ``}${width ? ` width={${width}}` : ``} />
 }`
+    }
+    case `element`: {
+      // A template literal inside an HTML <script>: `</script` would end the
+      // element and `<!--` enter the script's escaped state, so both break
+      // with a backslash the literal drops (`<\/script`, `<\!--`).
+      const body = lines
+        .replace(/\\/g, () => `\\\\`)
+        .replace(/`/g, () => `\\\``)
+        .replace(/\$\{/g, () => `\\\${`)
+        .replace(/<\/(script)/gi, (_, tag: string) => `<\\/${tag}`)
+        .replace(/<!--/g, () => `<\\!--`)
+      return `<script type="module">
+  import "@exponential-at/ui-element/define"
+</script>
+
+<exponential-surface surface-id="${surfaceId}" theme="${theme}" mode="${mode}"${rtl ? ` direction="rtl"` : ``}${width ? ` width="${width}"` : ``}></exponential-surface>
+
+<script type="module">
+  const SURFACE = \`${body}\`
+
+  const el = document.querySelector(\`exponential-surface[surface-id="${surfaceId}"]\`)
+  for (const line of SURFACE.split("\\n")) el.apply(JSON.parse(line))
+</script>`
     }
     case `swiftui`: {
       const h = rawHashes(lines, `"""`, `\\`)

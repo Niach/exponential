@@ -8,6 +8,7 @@
 //            (defineExtension + its macro reduced) and the vapp (validatePackage)
 //            checked at runtime against the packed package
 //   solid    the same as react with `@exponential-at/ui-solid` (Vite + vite-plugin-solid)
+//   element  the same as react with @exponential-at/ui-element (plain Vite, no framework)
 //   agent    the same tarballs, `tsc --noEmit`, then the server started and asked
 //            for a valid and an invalid surface over MCP
 //   theme    validateTheme + loadTheme over the built-ins: no issues
@@ -17,7 +18,7 @@
 //            `:app:compileDebugKotlin` (needs an Android SDK: ANDROID_HOME)
 //   gpui     `cargo check` with the path dependencies made absolute
 //
-//   bun apps/ui-site/guides/check.ts [react|solid|agent|theme|swift|compose|gpui|all] [--keep]
+//   bun apps/ui-site/guides/check.ts [react|solid|element|agent|theme|swift|compose|gpui|all] [--keep]
 
 import { execFileSync, execSync, spawn } from "node:child_process"
 import { cpSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs"
@@ -27,7 +28,7 @@ import { join, resolve } from "node:path"
 const GUIDES = import.meta.dir
 const REPO = resolve(GUIDES, `..`, `..`, `..`)
 const VERSION = `0.1.0`
-const CHECKS = [`react`, `solid`, `agent`, `theme`, `gpui`, `swift`, `compose`] as const
+const CHECKS = [`react`, `solid`, `element`, `agent`, `theme`, `gpui`, `swift`, `compose`] as const
 type Check = (typeof CHECKS)[number]
 
 const args = process.argv.slice(2)
@@ -75,12 +76,13 @@ async function waitFor(what: string, ready: () => boolean, busy: string): Promis
 }
 
 // ---------------------------------------------------------------------------
-// npm tarballs (shared by react, solid + agent)
+// npm tarballs (shared by react, solid, element + agent)
 
 interface Tarballs {
   ui: string
   uiReact: string
   uiSolid: string
+  uiElement: string
 }
 let packed: Tarballs | undefined
 async function tarballs(): Promise<Tarballs> {
@@ -93,8 +95,9 @@ async function tarballs(): Promise<Tarballs> {
   const ui = files.find((f) => f === `exponential-at-ui-${VERSION}.tgz`)
   const uiReact = files.find((f) => f === `exponential-at-ui-react-${VERSION}.tgz`)
   const uiSolid = files.find((f) => f === `exponential-at-ui-solid-${VERSION}.tgz`)
-  if (!ui || !uiReact || !uiSolid) throw new Error(`tarballs missing in ${dir}: ${files.join(`, `)}`)
-  packed = { ui: join(dir, ui), uiReact: join(dir, uiReact), uiSolid: join(dir, uiSolid) }
+  const uiElement = files.find((f) => f === `exponential-at-ui-element-${VERSION}.tgz`)
+  if (!ui || !uiReact || !uiSolid || !uiElement) throw new Error(`tarballs missing in ${dir}: ${files.join(`, `)}`)
+  packed = { ui: join(dir, ui), uiReact: join(dir, uiReact), uiSolid: join(dir, uiSolid), uiElement: join(dir, uiElement) }
   return packed
 }
 
@@ -103,9 +106,10 @@ async function tarballs(): Promise<Tarballs> {
 function useTarballs(dir: string, t: Tarballs): void {
   const path = join(dir, `package.json`)
   const pkg = JSON.parse(readFileSync(path, `utf8`)) as { dependencies: Record<string, string>; overrides?: Record<string, string> }
-  for (const [name, file] of [[`@exponential-at/ui`, t.ui], [`@exponential-at/ui-react`, t.uiReact], [`@exponential-at/ui-solid`, t.uiSolid]] as const)
+  for (const [name, file] of [[`@exponential-at/ui`, t.ui], [`@exponential-at/ui-react`, t.uiReact], [`@exponential-at/ui-solid`, t.uiSolid], [`@exponential-at/ui-element`, t.uiElement]] as const)
     if (pkg.dependencies[name]) pkg.dependencies[name] = `file:${file}`
-  pkg.overrides = { "@exponential-at/ui": `file:${t.ui}` }
+  // The element depends on ui-solid: one copy of each, the local tarballs.
+  pkg.overrides = { "@exponential-at/ui": `file:${t.ui}`, "@exponential-at/ui-solid": `file:${t.uiSolid}` }
   writeFileSync(path, JSON.stringify(pkg, null, 2))
 }
 
@@ -113,8 +117,8 @@ const npmInstall = (dir: string) => run(`npm install --no-audit --no-fund --logl
 
 // ---------------------------------------------------------------------------
 
-/** react + solid: the same build and the same runtime checks. */
-async function webGuide(guide: `react` | `solid`): Promise<void> {
+/** react + solid + element: the same build and the same runtime checks. */
+async function webGuide(guide: `react` | `solid` | `element`): Promise<void> {
   const dir = fresh(guide)
   useTarballs(dir, await tarballs())
   npmInstall(dir)
@@ -152,6 +156,7 @@ console.log("extension + vapp: no issues")
 
 const react = () => webGuide(`react`)
 const solid = () => webGuide(`solid`)
+const element = () => webGuide(`element`)
 
 async function agent(): Promise<void> {
   const dir = fresh(`agent`)
@@ -241,7 +246,7 @@ async function gpui(): Promise<void> {
   run(`cargo check --quiet`, dir)
 }
 
-const RUNNERS: Record<Check, () => Promise<void>> = { react, solid, agent, theme, gpui, swift, compose }
+const RUNNERS: Record<Check, () => Promise<void>> = { react, solid, element, agent, theme, gpui, swift, compose }
 const failed: string[] = []
 for (const name of which === `all` ? CHECKS : [which as Check]) {
   try {
