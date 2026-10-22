@@ -206,7 +206,8 @@ internal fun ColumnScope.PlanAskCard(
         val pages = if (stepped) 1 + blocks.size else 1
         val page = step.coerceIn(0, pages - 1)
         val pageBlock = if (stepped && page > 0) blocks[page - 1] else null
-        sheet.meta = if (pageBlock != null) PlanCard.stepLabel(page, blocks.size) else null
+        val meta = if (pageBlock != null) PlanCard.stepLabel(page, blocks.size) else null
+        androidx.compose.runtime.SideEffect { sheet.meta = meta }
         DockSheetBody {
             Box(Modifier.fillMaxWidth().testTag(PlanCard.TestIds.CARD)) {
                 chat {
