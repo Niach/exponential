@@ -9,6 +9,8 @@
 //            checked at runtime against the packed package
 //   agent    the same tarballs, `tsc --noEmit`, then the server started and asked
 //            for a valid and an invalid surface over MCP
+//   define   the same tarballs, `tsc --noEmit`, then `node surface.ts` must print
+//            a valid surface (VAPP-108: the typed authoring DSL)
 //   theme    validateTheme + loadTheme over the built-ins: no issues
 //   swift    `swift build` against the Swift package by path (macOS; needs
 //            packages/exponential-ui-swift/Binaries/ExponentialUIFFI.xcframework)
@@ -16,7 +18,7 @@
 //            `:app:compileDebugKotlin` (needs an Android SDK: ANDROID_HOME)
 //   gpui     `cargo check` with the path dependencies made absolute
 //
-//   bun apps/ui-site/guides/check.ts [react|agent|theme|swift|compose|gpui|all] [--keep]
+//   bun apps/ui-site/guides/check.ts [react|agent|define|theme|swift|compose|gpui|all] [--keep]
 
 import { execFileSync, execSync, spawn } from "node:child_process"
 import { cpSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs"
@@ -26,7 +28,7 @@ import { join, resolve } from "node:path"
 const GUIDES = import.meta.dir
 const REPO = resolve(GUIDES, `..`, `..`, `..`)
 const VERSION = `0.1.0`
-const CHECKS = [`react`, `agent`, `theme`, `gpui`, `swift`, `compose`] as const
+const CHECKS = [`react`, `agent`, `define`, `theme`, `gpui`, `swift`, `compose`] as const
 type Check = (typeof CHECKS)[number]
 
 const args = process.argv.slice(2)
@@ -184,6 +186,21 @@ async function agent(): Promise<void> {
   }
 }
 
+async function define(): Promise<void> {
+  const dir = fresh(`define`)
+  useTarballs(dir, await tarballs())
+  npmInstall(dir)
+  run(`npx tsc --noEmit`, dir)
+  // The surface it prints must be the valid JSONL a host consumes.
+  const out = execFileSync(`node`, [`surface.ts`], { cwd: dir, encoding: `utf8` })
+  const { reduceSurface } = await import(`../../../packages/exponential-ui/src/index.ts`)
+  const lines = out.trim().split(`\n`).map((l) => JSON.parse(l) as { createSurface?: unknown; updateComponents?: { catalogId?: string; components: never[] } })
+  if (lines.length !== 3 || !lines[0].createSurface || !lines[1].updateComponents) throw new Error(`surface.ts did not print createSurface + updateComponents + updateDataModel:\n${out}`)
+  const { issues } = reduceSurface(lines[1].updateComponents.components, { catalogId: (lines[0].createSurface as { catalogId: string }).catalogId })
+  if (issues.length) throw new Error(`the defined surface has issues: ${issues.map((i) => `${i.id}: ${i.message}`).join(`; `)}`)
+  console.log(`define: tsc clean, node surface.ts printed a valid surface (${lines[1].updateComponents.components.length} components)`)
+}
+
 async function theme(): Promise<void> {
   const { BUILTIN_THEMES, loadTheme, validateTheme } = await import(`../../../packages/exponential-ui/src/index.ts`)
   console.log(`\n── theme`)
@@ -230,7 +247,7 @@ async function gpui(): Promise<void> {
   run(`cargo check --quiet`, dir)
 }
 
-const RUNNERS: Record<Check, () => Promise<void>> = { react, agent, theme, gpui, swift, compose }
+const RUNNERS: Record<Check, () => Promise<void>> = { react, agent, define, theme, gpui, swift, compose }
 const failed: string[] = []
 for (const name of which === `all` ? CHECKS : [which as Check]) {
   try {

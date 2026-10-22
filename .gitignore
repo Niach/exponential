@@ -37,3 +37,6 @@ apps/web/public/mcp-apps/
 # shots/**.webp are committed; regenerate with `bun run shots`.
 /.shots-raw/
 .conformance/
+
+# VAPP-108: the ergonomics eval's web renders (regenerate with `bun run --filter @exponential-at/ui eval:render`)
+/packages/exponential-ui/eval/out/

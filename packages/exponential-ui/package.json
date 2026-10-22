@@ -15,26 +15,35 @@
     "./vendor/*": "./vendor/*",
     "./themes/*": "./themes/*",
     "./generated/*": "./generated/*",
-    "./conformance/*": "./conformance/*"
+    "./conformance/*": "./conformance/*",
+    "./eval/*": "./eval/*"
   },
   "scripts": {
     "generate": "bun run ./scripts/generate.ts",
-    "test": "bun test ./src ./conformance",
+    "test": "bun test ./src ./conformance ./eval",
     "conformance": "bun run ./conformance/run.ts",
     "typecheck": "tsc --noEmit",
     "build:builder": "bun build ./builder/main.ts --outdir ./builder/dist --target browser --format esm --define process.env.NODE_ENV='\"production\"'",
     "dev:builder": "bun ./builder/serve.ts",
-    "conformance:check": "bun run ./scripts/conformance-check.ts"
+    "conformance:check": "bun run ./scripts/conformance-check.ts",
+    "eval": "bun run ./eval/score.ts",
+    "eval:record": "bun run ./eval/record.ts",
+    "eval:render": "bun run ./eval/render.ts",
+    "eval:parity": "bun run ./eval/parity.ts"
   },
   "devDependencies": {
+    "@anthropic-ai/sdk": "^1.1.0",
     "@exp/tsconfig": "workspace:*",
     "@exponential-at/ui-react": "workspace:*",
     "@types/bun": "latest",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
     "lucide-react": "^0.544.0",
+    "pixelmatch": "^7.1.0",
+    "playwright": "^1.54.2",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
+    "sharp": "^0.34.4",
     "typescript": "^5.7.2"
   }
 }

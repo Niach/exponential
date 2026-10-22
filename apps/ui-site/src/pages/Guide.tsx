@@ -535,11 +535,17 @@ cd packages/exponential-ui-compose
               [<code key="v">catalogPrompt()</code>, promptBudget.full.components, `≈ ${promptBudget.full.tokens.toLocaleString(`en-US`)}`],
               [<code key="v">{`{ lite: true }`}</code>, promptBudget.lite.components, `≈ ${promptBudget.lite.tokens.toLocaleString(`en-US`)}`],
               [<code key="v">{`{ terse: true }`}</code>, promptBudget.terse.components, `≈ ${promptBudget.terse.tokens.toLocaleString(`en-US`)}`],
+              [<code key="v">{`{ sections: ["rules", "index", "functions", "style"] }`}</code>, `${promptBudget.index.components} (one line each)`, `≈ ${promptBudget.index.tokens.toLocaleString(`en-US`)}`],
+              [<code key="v">{`{ sections: ["rules"] }`}</code>, `–`, `≈ ${promptBudget.rules.tokens.toLocaleString(`en-US`)}`],
+              [<code key="v">componentPrompt(name)</code>, `1`, `≈ ${promptBudget.perComponent.meanTokens} on average`],
             ]}
           />
           <p>
-            Pass <code>extensions</code> to include yours. The <a href="/playground/">playground</a> shows the
-            prompt in full.
+            The prompt is sectioned: <code>sections</code> picks what to print, <code>only</code> narrows the component
+            blocks to the ones a task needs, and <code>componentPrompt(name)</code> is one component&apos;s block on
+            demand. A host serves the rules and the index first and answers a model&apos;s request for a component with
+            its block, which is how the <a href="/eval/">ergonomics eval</a> measured the cheapest prompt. Pass{` `}
+            <code>extensions</code> to include yours. The <a href="/playground/">playground</a> shows every variant in full.
           </p>
         </>
       ),
@@ -579,6 +585,60 @@ cd packages/exponential-ui-compose
     },
   ],
 }
+
+const DEFINE_SECTIONS: Section[] = [
+  {
+    id: `why`,
+    label: `Why a DSL`,
+    body: (
+      <>
+        <p>
+          A surface is a flat list of JSON components: fine for a model, tedious for a person. <code>defineSurface</code>{` `}
+          takes a nested, typed tree instead. Every component is a factory on <code>ui</code> whose props autocomplete
+          from the catalog (<code>ComponentProps</code>, generated from the same catalog the renderers read), so a
+          misspelt prop or a wrong enum is a type error, and the result is the same flat list an agent would send.
+        </p>
+        <GuideFile path="define/package.json" caption="one dependency" />
+      </>
+    ),
+  },
+  {
+    id: `write`,
+    label: `Write a surface`,
+    body: (
+      <>
+        <p>
+          <code>ui.Stack(props, children)</code> nests; the third argument carries what is not a prop: an explicit{` `}
+          <code>id</code>, <code>style</code>, <code>on</code>, <code>visible</code>, <code>slots</code>. A List renders one
+          template per item of a data path: <code>{`{ template, path, key }`}</code> as its children. <code>bind(path)</code>{` `}
+          reads the data model (relative inside a template), <code>call(name, args)</code> computes, <code>event(name)</code>{` `}
+          sends an action to you and <code>run(name, args)</code> runs a client function.
+        </p>
+        <GuideFile path="define/surface.ts" />
+      </>
+    ),
+  },
+  {
+    id: `validate`,
+    label: `Validate and send`,
+    body: (
+      <>
+        <p>
+          <code>defineSurface</code> never throws on a bad surface: it returns <code>issues</code> from the same reducer
+          the renderers use (a literal-only prop given a binding, an unknown icon, a missing required prop), the flat{` `}
+          <code>components</code>, the <code>messages</code> (createSurface, updateComponents, one updateDataModel per
+          data path) and their <code>jsonl</code>. Hand the messages to any host from the render guides, or embed them in
+          a vapp template. Ids are assigned top-down (<code>root</code>, then <code>row-1</code>, <code>row-2</code>…)
+          unless you name a node.
+        </p>
+        <DocsCode language="ts">{`const surface = defineSurface(tree, { surfaceId: "devices", data: { "/devices": rows } })
+if (surface.issues.length) throw new Error(surface.issues.map((i) => i.id + ": " + i.message).join("\n"))
+host.receive(surface.messages) // or: transport.send(surface.jsonl)`}</DocsCode>
+      </>
+    ),
+  },
+]
+GUIDE_SECTIONS.define = DEFINE_SECTIONS
 
 function CiSection({ slug }: { slug: string }) {
   const check = GUIDE_CHECK[slug]

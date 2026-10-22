@@ -4,9 +4,22 @@
 // extensions in the same shape. fixtures/prompt-budget.json records the size
 // of the full core prompt; prompt.test.ts fails when it grows past the
 // budget — cut descriptions before cutting components.
+// VAPP-108: the prompt is SECTIONED (`sections`): a host serves the rules +
+// the index first and `componentPrompt(name)` on demand, or `only` the
+// components a task needs; eval/ measures what each variant costs.
 
 import { CORE_CATALOG_ID, CORE_LITE_CATALOG_ID, catalogView, coreCatalog, isOffered } from "./catalog"
 import type { ComponentDef, ExtensionDef, PropSchema } from "./types"
+
+/** The sections of the prompt, in print order (VAPP-108): an agent (or the
+ *  host serving it) asks for the ones it needs. `index` = one line per
+ *  component (name, group, description) instead of the full `components`
+ *  blocks: the agent reads the index, then asks for `componentPrompt(name)`
+ *  of the ones it will use. */
+export type PromptSection = `rules` | `components` | `index` | `shapes` | `functions` | `style` | `extensions`
+export const PROMPT_SECTIONS: readonly PromptSection[] = [`rules`, `components`, `index`, `shapes`, `functions`, `style`, `extensions`]
+/** What `catalogPrompt()` prints without `sections`. */
+export const DEFAULT_SECTIONS: readonly PromptSection[] = [`rules`, `components`, `shapes`, `functions`, `style`, `extensions`]
 
 export interface PromptOptions {
   extensions?: readonly ExtensionDef[]
@@ -14,6 +27,10 @@ export interface PromptOptions {
   lite?: boolean
   /** Omit the per-prop lines (names + types only). */
   terse?: boolean
+  /** VAPP-108: which sections to print (default `DEFAULT_SECTIONS`, in that order whatever the order given). */
+  sections?: readonly PromptSection[]
+  /** VAPP-108: print only these components (full blocks) and the shapes they reach; `index` still lists every one. */
+  only?: readonly string[]
 }
 
 /** The rules every surface author (a model) must follow, shared by the core
@@ -105,7 +122,7 @@ function propLine(name: string, schema: PropSchema, enums: Record<string, readon
   return name in COMMON_PROPS ? head : `${head} — ${schema.description}`
 }
 
-function componentBlock(name: string, def: ComponentDef, enums: Record<string, readonly string[]>, terse: boolean): string {
+export function componentBlock(name: string, def: ComponentDef, enums: Record<string, readonly string[]>, terse: boolean): string {
   const head = `${name}${def.kind === `macro` ? `` : ``}: ${def.description}`
   const meta: string[] = []
   if (def.children !== `none`) meta.push(def.children === `one` ? `one child` : `children`)
@@ -153,30 +170,72 @@ export function functionSignatures(): string[] {
   })
 }
 
+/** VAPP-108: one component's full block on demand (the per-component
+ *  section an agent requests after reading the index), with the shapes its
+ *  props reach. Unknown or hidden names give an empty string. */
+export function componentPrompt(name: string, options: Pick<PromptOptions, `extensions` | `terse`> = {}): string {
+  const extensions = options.extensions ?? []
+  const view = catalogView(extensions)
+  const def = view.components[name]
+  if (!def || def.hidden) return ``
+  const defs = { ...coreCatalog.defs, ...Object.fromEntries(extensions.flatMap((e) => Object.entries(e.defs ?? {}))) }
+  const lines = [componentBlock(name, def, view.enums, options.terse ?? false)]
+  const shapes = defsBlock(defs, view.enums, usedShapes([def], defs))
+  if (shapes.length) lines.push(`Shapes: ${shapes.join(`; `)}`)
+  return lines.join(`\n`)
+}
+
+/** VAPP-108: the index — every offered component on one line (name, group, kind, its sentence), grouped. */
+export function catalogIndex(options: Pick<PromptOptions, `extensions` | `lite`> = {}): string[] {
+  const groups = new Map<string, string[]>()
+  const add = (name: string, def: ComponentDef) => {
+    const list = groups.get(def.group) ?? []
+    list.push(`${name}${def.children === `none` ? `` : def.children === `one` ? ` (one child)` : ` (children)`}: ${def.description}`)
+    groups.set(def.group, list)
+  }
+  for (const [name, def] of Object.entries(coreCatalog.components)) {
+    if (!isOffered(def)) continue
+    if (options.lite && !def.lite) continue
+    add(name, def)
+  }
+  for (const ext of options.extensions ?? []) for (const [name, def] of Object.entries(ext.components)) add(name, def)
+  return [...groups.entries()].map(([group, items]) => `${group}: ${items.join(` · `)}`)
+}
+
 /** The system prompt for a surface author. */
 export function catalogPrompt(options: PromptOptions = {}): string {
   const extensions = options.extensions ?? []
   const view = catalogView(extensions)
+  const wanted = new Set(options.sections ?? DEFAULT_SECTIONS)
+  const has = (s: PromptSection) => wanted.has(s)
+  const only = options.only ? new Set(options.only) : undefined
   const lines: string[] = []
   const id = options.lite ? CORE_LITE_CATALOG_ID : CORE_CATALOG_ID
   lines.push(`Catalog ${id}${extensions.length ? ` with extensions ${extensions.map((e) => e.id).join(`, `)}` : ``}.`)
-  lines.push(`Rules:`)
-  for (const rule of PROMPT_RULES) lines.push(`- ${rule}`)
-  lines.push(`Components (props marked * are required, ~ accept a binding, ^ are responsive; =x is the default, else an enum defaults to its first value and a boolean to false):`)
-  if (!options.terse) lines.push(`Common props (no description below): ${Object.entries(COMMON_PROPS).map(([k, v]) => (v ? `${k} (${v})` : k)).join(`, `)}.`)
-  for (const [name, def] of Object.entries(coreCatalog.components)) {
-    if (!isOffered(def)) continue
-    if (options.lite && !def.lite) continue
-    lines.push(componentBlock(name, def, view.enums, options.terse ?? false))
+  if (has(`rules`)) {
+    lines.push(`Rules:`)
+    for (const rule of PROMPT_RULES) lines.push(`- ${rule}`)
   }
-  const listed = Object.values(coreCatalog.components).filter((def) => isOffered(def) && (!options.lite || def.lite))
-  lines.push(`Shapes: ${defsBlock(coreCatalog.defs, view.enums, usedShapes(listed, coreCatalog.defs)).join(`; `)}`)
-  lines.push(`Functions ({call, args}; name(arg:type)→result): ${functionSignatures().join(`, `)}. filter: where = {field: value} (an empty value matches all), query = a case-insensitive substring of fields; bind a List or Table to it.`)
-  lines.push(`Style keys (Box): display, flex*, justifyContent, align*, gap, width, height, min/max sizes, aspectRatio, position (relative|absolute|sticky), top/right/bottom/left, inset*, padding*/margin* (+Horizontal/Vertical/InlineStart/End), grid*, overflow(X/Y), direction, backgroundColor, backgroundGradient {angle, stops}, backdropBlur $blur.*, color, border*, opacity, boxShadow, font*, letterSpacing, text*, transition $motion.*, transform (translate/scale/rotate, paint only), animation (pulse|spin|fade-in|slide-in-up/down/left/right|shimmer), visibility, pointerEvents, userSelect, cursor. Values: px, "N%", "auto", or tokens $spacing.md, $color.primary, $radius.lg, $control.row.`)
-  for (const ext of extensions) {
-    lines.push(`Extension ${ext.id} (${ext.name}):`)
-    for (const [name, def] of Object.entries(ext.components)) lines.push(componentBlock(name, def, view.enums, options.terse ?? false))
-    if (ext.defs && Object.keys(ext.defs).length) lines.push(`Shapes: ${defsBlock(ext.defs, view.enums).join(`; `)}`)
+  const offered = Object.entries(coreCatalog.components).filter(([, def]) => isOffered(def) && (!options.lite || def.lite))
+  const listed = offered.filter(([name]) => !only || only.has(name))
+  if (has(`components`)) {
+    lines.push(`Components (props marked * are required, ~ accept a binding, ^ are responsive; =x is the default, else an enum defaults to its first value and a boolean to false${only ? `; ask for any other component by name` : ``}):`)
+    if (!options.terse) lines.push(`Common props (no description below): ${Object.entries(COMMON_PROPS).map(([k, v]) => (v ? `${k} (${v})` : k)).join(`, `)}.`)
+    for (const [name, def] of listed) lines.push(componentBlock(name, def, view.enums, options.terse ?? false))
+  }
+  if (has(`index`)) {
+    lines.push(`Index (every component; ask for one by name to get its props):`)
+    for (const line of catalogIndex({ extensions, lite: options.lite })) lines.push(`- ${line}`)
+  }
+  if (has(`shapes`) && has(`components`)) lines.push(`Shapes: ${defsBlock(coreCatalog.defs, view.enums, usedShapes(listed.map(([, def]) => def), coreCatalog.defs)).join(`; `)}`)
+  if (has(`functions`)) lines.push(`Functions ({call, args}; name(arg:type)→result): ${functionSignatures().join(`, `)}. filter: where = {field: value} (an empty value matches all), query = a case-insensitive substring of fields; bind a List or Table to it.`)
+  if (has(`style`)) lines.push(`Style keys (Box): display, flex*, justifyContent, align*, gap, width, height, min/max sizes, aspectRatio, position (relative|absolute|sticky), top/right/bottom/left, inset*, padding*/margin* (+Horizontal/Vertical/InlineStart/End), grid*, overflow(X/Y), direction, backgroundColor, backgroundGradient {angle, stops}, backdropBlur $blur.*, color, border*, opacity, boxShadow, font*, letterSpacing, text*, transition $motion.*, transform (translate/scale/rotate, paint only), animation (pulse|spin|fade-in|slide-in-up/down/left/right|shimmer), visibility, pointerEvents, userSelect, cursor. Values: px, "N%", "auto", or tokens $spacing.md, $color.primary, $radius.lg, $control.row.`)
+  if (has(`extensions`) && has(`components`)) {
+    for (const ext of extensions) {
+      lines.push(`Extension ${ext.id} (${ext.name}):`)
+      for (const [name, def] of Object.entries(ext.components)) lines.push(componentBlock(name, def, view.enums, options.terse ?? false))
+      if (ext.defs && Object.keys(ext.defs).length) lines.push(`Shapes: ${defsBlock(ext.defs, view.enums).join(`; `)}`)
+    }
   }
   return lines.join(`\n`)
 }

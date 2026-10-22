@@ -80,8 +80,11 @@ export { reduceSurface, reduceNested, preorder, RESERVED_KEYS, validVisible, slo
 export type { ReduceOptions, ReduceResult } from "./reducer"
 export { defineExtension, validateExtension } from "./extension"
 export { coreSchema, extensionSchema } from "./schema"
-export { catalogPrompt, estimateTokens, PROMPT_RULES, CHARS_PER_TOKEN } from "./prompt"
-export type { PromptOptions } from "./prompt"
+export { catalogPrompt, componentPrompt, catalogIndex, estimateTokens, PROMPT_RULES, PROMPT_SECTIONS, DEFAULT_SECTIONS, CHARS_PER_TOKEN } from "./prompt"
+export type { PromptOptions, PromptSection } from "./prompt"
+// VAPP-108: the typed authoring DSL (defineSurface + the ui factories).
+export { defineSurface, flattenSurface, ui, el, bind, call, event, run } from "./define"
+export type { SurfaceNode, TemplateChildren, DefineOptions, DefinedSurface, Factory } from "./define"
 // VAPP-92: themes
 export * from "./theme-types"
 export { parseColor, toHex, toThemeHex, isThemeHex, luminance, contrast } from "./color"
