@@ -27,10 +27,10 @@ export const entry: StyleguideEntry = {
       note: `N-12: still the composer-slot card without a cap; the IDE child moves it onto dock.rs`,
     },
     ios: {
-      state: `leftover`,
-      symbol: `AskDock`,
-      file: `apps/ios/Exponential/UI/Session/AskDock.swift`,
-      note: `N-12: still the composer-slot card; the iOS child moves it onto Dock.swift (model: ExpCore AskDock.swift + Dock.swift)`,
+      state: `ok`,
+      symbol: `ThreadPlanSheet / ThreadQuestionSheet / PlanCardFooter`,
+      file: `apps/ios/Exponential/UI/Thread/ThreadDockSheets.swift`,
+      note: `the primitive: ExpUI Dock.swift; the session view's relay cards: AgentSessionView dockSheet; model: ExpCore AskDock.swift + Dock.swift`,
     },
     android: {
       state: `leftover`,

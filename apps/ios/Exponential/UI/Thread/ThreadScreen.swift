@@ -75,6 +75,8 @@ struct ThreadScreen: View {
     @State private var pendingFoldPick: ThreadStripFold.Row?
     /// The question / plan answer in flight.
     @State private var answeringId: String?
+    /// N-12: THE Dock's open sheet (a card id).
+    @State private var dockOpenId: String?
     /// The Conversation follows its newest row (EXP-1316 1n).
     @State private var atBottom = true
     /// The composer expanded on a pinned reader: the keyboard's inset re-pins.
@@ -533,24 +535,21 @@ struct ThreadScreen: View {
                     withAnimation(motion.standard) { scroller.scrollTo(Self.bottomId, anchor: .bottom) }
                 }
                 .safeAreaInset(edge: .bottom) {
-                    VStack(spacing: 0) {
-                        // THE ask dock (fixtures/ask-dock.json): every card
-                        // of the tree still waiting on this reader takes the
-                        // composer's slot — one = the big card, several =
-                        // the stack; the composer is back once none waits.
-                        let asks = canEdit
-                            ? AskDock.threadPendingAsks(view.rows, sessionName: AskDock.threadSessionNames(view.tabs))
-                            : []
-                        if !asks.isEmpty {
-                            askDock(asks, rows: rows, view: view)
+                    // N-12: THE Dock over the Conversation's bottom edge: the
+                    // tree's waiting cards, the live root's Queue, queued
+                    // messages and banners, then THE composer (always).
+                    let dockRows = conversationDockRows(rows: rows, view: view)
+                    DockView(
+                        rows: dockRows,
+                        openId: $dockOpenId,
+                        renderSheet: { row, close in conversationDockSheet(row, rows: rows, view: view, close: close) },
+                        renderAction: { row in
+                            row.id == "banner:closed" ? liveModel.map(SessionDock.reconnect) : nil
                         }
+                    ) {
                         // EXP-1211: the agent's quick replies, directly above
-                        // the composer; hidden with it while the dock shows.
-                        if asks.isEmpty {
-                            SessionComposerReplies(sessionId: view.composer.sessionId)
-                        }
-                        // Hidden, never unmounted, while the dock holds the
-                        // slot: its draft survives until the composer is back.
+                        // the composer.
+                        SessionComposerReplies(sessionId: view.composer.sessionId)
                         ThreadComposer(
                             sessionId: view.composer.sessionId,
                             root: rows.root,
@@ -564,12 +563,11 @@ struct ThreadScreen: View {
                                 pinOnInset = atBottom
                             }
                         )
-                        .frame(height: asks.isEmpty ? nil : 0, alignment: .top)
-                        .clipped()
-                        .opacity(asks.isEmpty ? 1 : 0)
-                        .allowsHitTesting(asks.isEmpty)
-                        .accessibilityHidden(!asks.isEmpty)
                     }
+                    .floatingBarEdge(!dockRows.isEmpty)
+                    // AUTO-OPEN: a plan or question that arrives while the
+                    // Conversation is in front opens its sheet.
+                    .dockAutoOpen(dockRows) { dockOpenId = $0 }
                     // EXP-1316 (Android 247c806b33): the floating composer's
                     // MEASURED height (capsule or open card, + its edge) is
                     // the conversation's bottom inset; a pinned conversation
@@ -607,26 +605,32 @@ struct ThreadScreen: View {
 
     private static let coordSpace = "thread-conversation-scroll"
 
-    /// THE ask dock in the composer's slot: the waiting cards' big card or
-    /// stack (`AskDockView`), each card THE thread card (`ThreadAskCard`)
-    /// with the asking session's tab name as its caption.
-    private func askDock(_ asks: [AskDock.Pending], rows: ThreadRows, view: SessionThreadView) -> some View {
-        AskDockView(pending: asks) { id, onBack, cap in
-            if let row = view.rows.first(where: { $0.id == id }) {
-                ThreadAskCard(
-                    row: row,
-                    canAnswer: canEdit,
-                    answeringId: answeringId,
-                    markdownContext: askMarkdownContext(rows: rows),
-                    onBack: onBack,
-                    bodyMaxHeight: cap,
-                    onSubmit: submitAnswer
-                )
-            }
+    /// N-12: the Conversation's DockCards: every card of the tree still
+    /// waiting on this reader, then the live root's own (`SessionDock`).
+    private func conversationDockRows(rows: ThreadRows, view: SessionThreadView) -> [Dock.Row] {
+        guard canEdit else { return [] }
+        let asks = AskDock.threadPendingAsks(view.rows, sessionName: AskDock.threadSessionNames(view.tabs))
+        let live = liveModel.map { SessionDock.sources($0, session: rows.root) } ?? []
+        return Dock.rows(asks.map(\.dockSource) + live)
+    }
+
+    /// A card's sheet: an ask = THE plan / question sheet, the root's Queue
+    /// and queued messages their lists.
+    private func conversationDockSheet(
+        _ row: Dock.Row, rows: ThreadRows, view: SessionThreadView, close: @escaping () -> Void
+    ) -> AnyView? {
+        if let card = view.rows.first(where: { $0.id == row.id }) {
+            return card.dockSheet(
+                row,
+                canAnswer: canEdit,
+                busy: answeringId == card.id,
+                markdownContext: askMarkdownContext(rows: rows),
+                // The answered card leaves the Dock, and its sheet with it.
+                onSubmit: submitAnswer,
+                onClose: close
+            )
         }
-        .padding(.vertical, 8)
-        .transcriptColumn()
-        .floatingBarEdge()
+        return liveModel.flatMap { SessionDock.sheet(row, model: $0, close: close) }
     }
 
     /// The Conversation's markdown context (attachments through the
@@ -1449,9 +1453,11 @@ struct ThreadComposer: View {
                         SessionComposerCard(
                             draft: draft,
                             placeholder: placeholder,
-                            // EXP-1334: the model / Plan / usage ride UNDER
-                            // the card (`SessionComposerOptionsLine`).
-                            controls: nil,
+                            // N-12: THE composer row ×4: the device glyph,
+                            // the model, Plan and the ring ride IN the card;
+                            // NEW-7: a message to an agent runs on ITS device
+                            // and login, so the root's picks hide.
+                            controls: steerModel.flatMap { draft.agentId == nil ? controls($0) : nil },
                             attach: $attach,
                             sendEnabled: !draft.steerSending,
                             showsStop: !busySessionIds.isEmpty && !draft.hasContent,
@@ -1472,11 +1478,6 @@ struct ThreadComposer: View {
                             fieldIdentifier: "thread-composer-field",
                             onPlus: openPlusMenu
                         )
-                        // NEW-7: a message to an agent runs on ITS device and
-                        // login: the options line hides.
-                        if let steerModel, draft.agentId == nil {
-                            SessionComposerOptionsLine(controls: controls(steerModel), plan: planBinding)
-                        }
                         }
                     }
                 }
@@ -1621,7 +1622,10 @@ struct ThreadComposer: View {
             ended: row?.status == DomainContract.sessionStatusEnded,
             planModeFallback: model.sessionConfig == nil && row?.planMode == true,
             // EXP-1252: the root's Device pin (move to another device).
-            devicePin: model.devicePin
+            devicePin: model.devicePin,
+            // N-12: the Plan switch rides the card's row (`row?.dispatch`
+            // roots have none).
+            plan: row?.dispatch == true ? nil : planBinding
         )
     }
 

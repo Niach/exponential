@@ -38,10 +38,10 @@ export const entry: StyleguideEntry = {
       note: `N-12: the session composer (composer.rs) still draws the pins on the options line with the inline tools; the IDE child moves them into the card (icon-only device pin, the ring beside Send)`,
     },
     ios: {
-      state: `leftover`,
+      state: `ok`,
       symbol: `SessionComposerFooter`,
       file: `apps/ios/Exponential/UI/Session/SessionComposerFooter.swift`,
-      note: `N-12: the session view already has the in-card row; the thread (ThreadScreen options line) and the device pin's name (icon-only) follow with the iOS child`,
+      note: `the session view and the thread (ThreadComposer) share the in-card row; the device pin icon-only (SessionDevicePinView iconOnly), the Plan switch SessionPlanSwitch`,
     },
     android: {
       state: `leftover`,

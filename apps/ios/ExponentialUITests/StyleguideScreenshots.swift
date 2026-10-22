@@ -907,8 +907,8 @@ final class StyleguideScreenshots: XCTestCase {
         snapshot("sg_trace", settle: 2)
         openThreadCards(app, "code-block")
         snapshot("sg_code-block", settle: 2)
-        // ── sg_ask-dock: THE ask dock (fixtures/ask-dock.json): one plan,
-        // a stack of three, a focused card with the back arrow.
+        // ── sg_ask-dock: THE Dock (fixtures/dock.json + ask-dock.json): one
+        // plan card, the pile, the pile fanned, the plan's sheet.
         openThreadCards(app, "ask-dock")
         snapshot("sg_ask-dock", settle: 2)
         // ── sg_plan-card: THE rich plan / question card (EXP-1280,
@@ -976,12 +976,12 @@ final class StyleguideScreenshots: XCTestCase {
         let coldStart = threadRow(app, containing: Self.coldStartThreadTitle)
         expect(coldStart, within: Wait.nav, "Did not return to the Threads list")
         coldStart.tap()
-        // THE ask dock: the seeded question + the child's plan wait on the
-        // viewer, stacked in the composer's slot.
+        // N-12: THE Dock: the seeded question + the child's plan wait on the
+        // viewer as DockCards piled above the composer.
         expect(
-            anyElement(app, identified: "ask-dock-row"),
+            anyElement(app, identified: "dock-card"),
             within: Wait.sync,
-            "The cold-start thread drew no ask dock stack"
+            "The cold-start thread drew no DockCard"
         )
         // EXP-1334: the strip never scrolls — the "+" and Conversation pinned
         // left, Guide pinned right, the chips folded between them.
@@ -999,7 +999,7 @@ final class StyleguideScreenshots: XCTestCase {
 
         // ── sg_session: that session's page in the thread (DEMO_SESSION_ID) ─
         // The relay stub's feed ends on an UNANSWERED question, whose card
-        // takes the composer's place (EXP-1306). Nothing is answered.
+        // waits in THE Dock (N-12). Nothing is answered.
         // The session's strip chip in the thread header opens the SAME page
         // as its Conversation card, and it never scrolls: a card scrolled
         // under the floating header still reads hittable, and XCUITest then
@@ -1023,17 +1023,19 @@ final class StyleguideScreenshots: XCTestCase {
         // EXP-1343: a session chip of THIS thread opens as its page under
         // the thread's ONE header (the thread title, Stop while live) — no
         // pushed session screen, no back row (Android's `sg_session` is the
-        // same page). THE ask dock: the relay feed's pending question takes
-        // the composer's place once the feed is live and answerable. Gate on
-        // its first option row (`agent-question-option-1`, drawn only by the
-        // relay feed's card; the Conversation's dock draws plan-card rows):
-        // SwiftUI folds the dock's single-child containers into `ask-dock`,
-        // so the card's own `agent-feed-question` id is not queryable here,
-        // and the neighbouring Conversation page's dock is `ask-dock` too.
-        expect(
-            app.buttons["agent-question-option-1"].firstMatch,
-            within: Wait.firstSync,
-            "The session drew no pending question in its ask dock — is `bun run screenshots:desktop` publishing its feed?"
+        // same page). N-12: the relay feed's pending question waits as a
+        // DockCard ("Question: …") above the composer once the feed is live
+        // and answerable; the neighbouring Conversation page's cards are
+        // off screen, so gate on a HITTABLE one.
+        let relayCard = app.buttons
+            .matching(NSPredicate(format: "identifier == %@ AND label BEGINSWITH %@", "dock-card", "Question"))
+        let deadline = Date().addingTimeInterval(Wait.firstSync)
+        while Date() < deadline, !relayCard.allElementsBoundByIndex.contains(where: \.isHittable) {
+            settle(1)
+        }
+        XCTAssertTrue(
+            relayCard.allElementsBoundByIndex.contains(where: \.isHittable),
+            "The session drew no pending question in its Dock — is `bun run screenshots:desktop` publishing its feed?"
         )
         expect(
             anyElement(app, identified: "thread-tab-session-\(Self.sessionId)"),
