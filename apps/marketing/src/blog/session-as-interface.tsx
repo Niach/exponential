@@ -12,7 +12,7 @@ export const meta: PostMeta = {
   description: `The tracker's MCP server runs inside the coding agent's session, and the session view knows the tools: a call is drawn by its kind, an issue reference is a chip, a surface is painted natively, and sessions message each other.`,
   date: `2026-10-23`,
   author: { name: `Danny`, url: `https://github.com/Niach` },
-  cover: { src: COVER.src, alt: `A session feed: a workflow card, a code-mode script, a comment written through MCP, the queue`, width: COVER.frame.w, height: COVER.frame.h },
+  cover: { src: COVER.src, alt: `A session feed: a code-mode script card, a comment written through MCP, the queue`, width: COVER.frame.w, height: COVER.frame.h },
   readingMinutes: 3,
   ogImage: `/og/og-blog-session-as-interface.png`,
   sources: [`src/blog/session-as-interface.tsx`, `src/components/blog`, `../../shots/script-card`, `../../shots/composer-menu`, `../../shots/trace`, `../../shots/thread`, `../../shots/plan-card`, `../../shots/guide`, `../../shots/ask-dock`, `../../shots/thread-replies`, `../../shots/agent-channel`],
@@ -25,7 +25,7 @@ export function Post() {
         <h2>The tracker's MCP inside the session</h2>
         <p>
           Claude Code or Codex starts with the tracker's MCP server in its config and a header that names the
-          session. Every call the agent makes arrives as that session: it reads its issue, comments, links a pull
+          session (a thread is the top session of a tree). Every call the agent makes arrives as that session: it reads its issue, comments, links a pull
           request, asks a question or messages another session. The session view knows these tools and draws each
           result by its kind.
         </p>
@@ -69,8 +69,8 @@ export function Post() {
         <p>
           A plan or a question can carry an A2UI surface: the agent describes a screen as JSON and the card paints it
           with the Exponential UI renderer, native on web, iPhone, Android and the desktop app
-          (<IssueLink id="EXP-1280" />). There is no webview or HTML in between, and what the person sets in the
-          surface travels back with the answer.
+          (<IssueLink id="EXP-1280" />). On the native platforms there is no webview in between, on the web the
+          renderer emits DOM, and what the person sets in the surface travels back with the answer.
         </p>
         <Shot view="plan-card" platform="web" caption="A plan card: a picture, the agent's surface as a live preview, a choice question." />
         <ShotRow>
@@ -93,8 +93,8 @@ export function Post() {
         <h2>A question waits at the composer</h2>
         <p>
           When the agent asks, the question does not scroll away in the transcript: it waits as a card at the
-          composer, with its options and a text field, and several wait together. The thread moves under Needs you,
-          the inbox gets the entry, the phones get the push, and an email mention notifies a person. The agent can
+          composer, with its options and a text field, and several can wait at once. The thread moves under Needs
+          you, the inbox gets the entry, the phones get the push, and an @email mention notifies that person. The agent can
           also offer quick replies, which send on one tap.
         </p>
         <Shot view="ask-dock" platform="web" caption="Waiting plans and a question at the composer." />

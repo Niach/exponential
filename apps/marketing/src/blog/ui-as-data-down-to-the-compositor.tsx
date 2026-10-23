@@ -32,12 +32,12 @@ export function Post() {
       <Section id="data" num="01" label="Data">
         <h2>A screen as data <StatusChip status="shipped" /></h2>
         <p>
-          A2UI is a wire format for user interfaces: a flat list of components from a fixed catalog, a data model
-          they bind to, and the actions they send back. A language model can write one, because the catalog fits
-          in a prompt, and a renderer paints it with the platform's own views, not a webview. The implementation
-          here is Exponential UI (<IssueLink id="VAPP-84" />): one Rust core lays out the tree, painters for SwiftUI,
-          Compose and gpui draw it, and the React, Solid and web-component renderers match the same frames. One
-          conformance suite replays on every renderer; a theme is a JSON file loaded at runtime.
+          A2UI is an open wire format for user interfaces, started at Google: a flat list of components from a
+          fixed catalog, a data model they bind to, and the actions they send back. A language model can write one,
+          because the catalog fits in a prompt, and a renderer paints it with each platform's own toolkit: SwiftUI,
+          Compose, gpui, the DOM. Exponential UI (<IssueLink id="VAPP-84" />) is one implementation. A Rust core
+          lays out the tree, three native painters draw it, and the React, Solid and web-component renderers pass
+          the same conformance replays. A theme is a JSON file loaded at runtime.
         </p>
         <p>
           The form below is painted in this page by the React renderer from nine components. It returns in the
@@ -60,12 +60,12 @@ export function Post() {
         </p>
         <ul>
           <li>
-            <strong>Anything can be changed while it is shown.</strong> Moving the clock or adding a tray item is an
-            edit to a file, by a person or by an agent.
+            <strong>Every painted part can be changed while it is shown.</strong> Moving the clock or adding a tray
+            item is an edit to a file, by a person or by an agent.
           </li>
           <li>
-            <strong>Agents work in the background, several at once.</strong> Each gets a workspace and its own seat,
-            so your pointer and keyboard are never borrowed.
+            <strong>Agents work in the background, several at once,</strong> each on its own workspace; how their
+            input is kept apart from yours is the next section.
           </li>
           <li>
             <strong>UI is built when asked.</strong> A request becomes a window whose content the agent streams as a
@@ -73,9 +73,11 @@ export function Post() {
           </li>
         </ul>
         <p>
-          Voice lives in the tray, so the assistant is one key away. Push-to-talk or a wake word opens the mic,
-          speech-to-text and a small intent router run on the CPU (<IssueLink id="NEW-9" />), short commands act at
-          once, and the rest becomes a message to the assistant session, whose reply is spoken back.
+          Voice sits in the tray, one key away: push-to-talk or a wake word, local speech-to-text, short commands
+          acted on at once, everything else sent to the assistant session and answered aloud
+          (<IssueLink id="NEW-9" />). Today, computer use runs in the foreground on Linux (X11), macOS and Windows,
+          with your input held and Esc to take it back (<IssueLink id="EXP-1196" />); a second pointer on X11 was
+          tried and removed after it fought the person's cursor (<IssueLink id="EXP-1273" />).
         </p>
         <ConceptFigure id="desktop" still="desktop-concept" caption="Draft of the desktop: two agents in their own windows with their own seats, the expense form streaming in from a request, the mic in the tray.">
           <DesktopConcept />
@@ -86,20 +88,20 @@ export function Post() {
         <h2>The compositor's tree is the API <StatusChip status="planned" /></h2>
         <p>
           Every system draws from a tree; what differs is how deep an agent may reach into it. macOS gives the
-          accessibility tree where an application exposes one and pixels where it does not, Windows gives UI
-          Automation, X11 gives pixels and synthetic input, and a stock Wayland compositor gives the accessibility
-          bus only. A second pointer on X11 was tried here and removed after it fought the person's cursor
-          (<IssueLink id="EXP-1273" />); today's computer use runs in the foreground, with your input held and Esc to
-          take it back (<IssueLink id="EXP-1196" />).
+          accessibility tree where an application exposes one and pixels where it does not, and Windows gives UI
+          Automation. X11 gives pixels, synthetic input and AT-SPI where the toolkit supports it; Wayland keeps
+          AT-SPI but routes capture and input through portals, one permission prompt at a time.
         </p>
         <p>
-          A compositor written for this owns the tree from the outputs down: outputs, workspaces, toplevels,
+          A compositor written for this owns one tree from the outputs down: outputs, workspaces, toplevels,
           surfaces, and inside a painted window the components themselves, each with an id, a role, a value and its
-          actions. An agent addresses a node by path and acts on it. Input reaches a window through the agent's own
-          seat, so it never moves your pointer, and capture is per window, which works when the window is covered or
-          on a screen you are not looking at. The limits are plain: a native application stays opaque below its
-          surface, and a compositor is years of edge cases, which argues for a library such as Smithay rather than a
-          blank page.
+          actions. An agent addresses a node by path and acts on it. Below its surface a native application offers
+          pixels and whatever AT-SPI tree it exposes; the full depth exists only for windows painted from A2UI.
+          What the compositor adds is joining the two into one tree, with per-seat input and per-window capture:
+          an agent's seat never moves your pointer, and a covered window or one on a screen you are not looking at
+          still captures. The risks are plain: multi-seat is in the protocol but poorly exercised by toolkits, X
+          clients through Xwayland see one seat, and a compositor is years of edge cases, which argues for a
+          library such as Smithay rather than a blank page.
         </p>
         <ConceptFigure id="tree" still="compositor-tree" caption="The tree an agent addresses: a native window ends at its surface, a painted window continues to its components.">
           <CompositorTree />
@@ -110,12 +112,16 @@ export function Post() {
         <h2>Watching an agent work <StatusChip status="planned" /></h2>
         <p>
           Background work needs a window into it, or it is a trust exercise. The draft below is the watch view for
-          one task (<IssueLink id="EXP-1369" />): the live window as a per-window capture, the agent's cursor drawn
-          by the viewer rather than by the operating system, the target outlined before the click lands, and under
-          it the steps with how each was done. A step that moves money or deletes something waits for a
-          confirmation. The run is recorded as timestamped A2UI messages, a few kilobytes that scrub like a video
-          (<IssueLink id="VAPP-81" />), and the spoken caption can stay over a fullscreen game while the agent works
-          on another screen.
+          one task: the live window as a per-window capture, the agent's cursor drawn by the viewer rather than by
+          the operating system, the target outlined before the click lands, and under it the steps with how each
+          was done. Which windows an agent may capture or drive is a per-window grant; the game in the tree above
+          is watch-only.
+        </p>
+        <p>
+          A step the agent marks as irreversible, or that matches a rule you set (payments, deletes), waits for
+          confirmation. The step line and the agent's messages are recorded as timestamped A2UI messages, a few
+          kilobytes you can scrub (<IssueLink id="VAPP-81" />); the window capture itself is video, or a keyframe per
+          step. The spoken caption is the same line the tray reads aloud.
         </p>
         <ConceptFigure id="watch" still="watch-view" caption="Draft of the watch view: the live window with the agent's cursor and its target, the step line, the spoken caption.">
           <WatchView />
@@ -126,10 +132,10 @@ export function Post() {
         <h2>What exists</h2>
         <ul>
           <li><strong>A screen as data:</strong> shipped. Six renderers, one conformance suite, themes as files.</li>
-          <li><strong>The desktop:</strong> a plan, nothing beyond the renderer it would use.</li>
-          <li><strong>The compositor:</strong> a plan; the tree above is the proposal.</li>
-          <li><strong>The watch view:</strong> a drawing. Foreground computer use is shipped on Linux (X11), macOS and Windows; the background path waits for the compositor.</li>
-          <li><strong>Voice:</strong> the models run on a CPU; the pipeline is a plan.</li>
+          <li><strong>The desktop:</strong> planned; nothing exists beyond the renderer it would use.</li>
+          <li><strong>The compositor:</strong> planned; the tree above is a draft.</li>
+          <li><strong>The watch view:</strong> a draft; the background path waits for the compositor.</li>
+          <li><strong>Voice:</strong> planned. Speech-to-text and an intent router small enough for a CPU exist as open models; nothing is wired up.</li>
         </ul>
         <Callout kind="note" title="Sources">
           Each item is an issue on a public board, linked where it is named. The renderer's source and docs are at{` `}

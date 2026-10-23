@@ -79,7 +79,7 @@ export function WatchView() {
           <em className="wv-current--5">5 · Wait for download</em>
           <em className="wv-current--6">6 · Attach CSV to #S-1</em>
         </span>
-        <span className="wv-time">01:23 / 02:14 · A2UI replay</span>
+        <span className="wv-time">01:23 / 02:14 · step replay</span>
       </div>
 
       <p className="wv-caption">
