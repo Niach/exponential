@@ -412,6 +412,7 @@ public enum AppIcons {
         "action-repository": "git-branch",
         "action-run": "play",
         "action-suggestion": "lightbulb",
+        "app-editor-chat": "message-square",
         "auth-passkey": "fingerprint",
         "coding-assistant": "sparkles",
         "coding-command": "square-slash",
@@ -604,6 +605,7 @@ public enum AppIcons {
         "ui-device": "monitor",
         "ui-device-default": "star",
         "ui-device-offline": "monitor-off",
+        "ui-dock-side": "panel-left-open",
         "ui-docs": "book-open",
         "ui-download": "download",
         "ui-due-date": "calendar-days",
@@ -614,6 +616,7 @@ public enum AppIcons {
         "ui-external-link": "external-link",
         "ui-favorite-off": "heart-off",
         "ui-file": "file",
+        "ui-float": "panel-left-close",
         "ui-folder": "folder",
         "ui-folder-open": "folder-open",
         "ui-fullscreen": "maximize-2",
@@ -700,6 +703,8 @@ public enum AppIcons {
     public static let actionRun: String = "play"
     /// Concept `action-suggestion`.
     public static let actionSuggestion: String = "lightbulb"
+    /// Concept `app-editor-chat`.
+    public static let appEditorChat: String = "message-square"
     /// Concept `auth-passkey`.
     public static let authPasskey: String = "fingerprint"
     /// Concept `coding-assistant`.
@@ -1084,6 +1089,8 @@ public enum AppIcons {
     public static let uiDeviceDefault: String = "star"
     /// Concept `ui-device-offline`.
     public static let uiDeviceOffline: String = "monitor-off"
+    /// Concept `ui-dock-side`.
+    public static let uiDockSide: String = "panel-left-open"
     /// Concept `ui-docs`.
     public static let uiDocs: String = "book-open"
     /// Concept `ui-download`.
@@ -1104,6 +1111,8 @@ public enum AppIcons {
     public static let uiFavoriteOff: String = "heart-off"
     /// Concept `ui-file`.
     public static let uiFile: String = "file"
+    /// Concept `ui-float`.
+    public static let uiFloat: String = "panel-left-close"
     /// Concept `ui-folder`.
     public static let uiFolder: String = "folder"
     /// Concept `ui-folder-open`.

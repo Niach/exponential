@@ -142,6 +142,9 @@ function issuesSource(source: ParsedSource, emit: SourceEmit): () => void {
     emit({ rows, count: rows.length })
   }
   const sub = issueCollection.subscribeChanges(push, { includeInitialState: true })
+  // A change subscription alone never starts the shape: an app opened
+  // before any board would bind an empty list for good (VAPP-110).
+  void issueCollection.preload().then(push)
   push()
   return () => sub.unsubscribe()
 }

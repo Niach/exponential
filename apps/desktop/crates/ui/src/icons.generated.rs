@@ -417,6 +417,8 @@ pub const ACTION_REPOSITORY: ExpIcon = ExpIcon::GitBranch;
 pub const ACTION_RUN: ExpIcon = ExpIcon::Play;
 /// Registry concept `action-suggestion` -> Lucide `lightbulb`.
 pub const ACTION_SUGGESTION: ExpIcon = ExpIcon::Lightbulb;
+/// Registry concept `app-editor-chat` -> Lucide `message-square`.
+pub const APP_EDITOR_CHAT: ExpIcon = ExpIcon::MessageSquare;
 /// Registry concept `auth-passkey` -> Lucide `fingerprint`.
 pub const AUTH_PASSKEY: ExpIcon = ExpIcon::Fingerprint;
 /// Registry concept `coding-assistant` -> Lucide `sparkles`.
@@ -801,6 +803,8 @@ pub const UI_DEVICE: ExpIcon = ExpIcon::Monitor;
 pub const UI_DEVICE_DEFAULT: ExpIcon = ExpIcon::Star;
 /// Registry concept `ui-device-offline` -> Lucide `monitor-off`.
 pub const UI_DEVICE_OFFLINE: ExpIcon = ExpIcon::MonitorOff;
+/// Registry concept `ui-dock-side` -> Lucide `panel-left-open`.
+pub const UI_DOCK_SIDE: ExpIcon = ExpIcon::PanelLeftOpen;
 /// Registry concept `ui-docs` -> Lucide `book-open`.
 pub const UI_DOCS: ExpIcon = ExpIcon::BookOpen;
 /// Registry concept `ui-download` -> Lucide `download`.
@@ -821,6 +825,8 @@ pub const UI_EXTERNAL_LINK: ExpIcon = ExpIcon::ExternalLink;
 pub const UI_FAVORITE_OFF: ExpIcon = ExpIcon::HeartOff;
 /// Registry concept `ui-file` -> Lucide `file`.
 pub const UI_FILE: ExpIcon = ExpIcon::File;
+/// Registry concept `ui-float` -> Lucide `panel-left-close`.
+pub const UI_FLOAT: ExpIcon = ExpIcon::PanelLeftClose;
 /// Registry concept `ui-folder` -> Lucide `folder`.
 pub const UI_FOLDER: ExpIcon = ExpIcon::Folder;
 /// Registry concept `ui-folder-open` -> Lucide `folder-open`.
@@ -967,6 +973,7 @@ pub fn concept_by_name(name: &str) -> Option<ExpIcon> {
         "action-repository" => ACTION_REPOSITORY,
         "action-run" => ACTION_RUN,
         "action-suggestion" => ACTION_SUGGESTION,
+        "app-editor-chat" => APP_EDITOR_CHAT,
         "auth-passkey" => AUTH_PASSKEY,
         "coding-assistant" => CODING_ASSISTANT,
         "coding-command" => CODING_COMMAND,
@@ -1159,6 +1166,7 @@ pub fn concept_by_name(name: &str) -> Option<ExpIcon> {
         "ui-device" => UI_DEVICE,
         "ui-device-default" => UI_DEVICE_DEFAULT,
         "ui-device-offline" => UI_DEVICE_OFFLINE,
+        "ui-dock-side" => UI_DOCK_SIDE,
         "ui-docs" => UI_DOCS,
         "ui-download" => UI_DOWNLOAD,
         "ui-due-date" => UI_DUE_DATE,
@@ -1169,6 +1177,7 @@ pub fn concept_by_name(name: &str) -> Option<ExpIcon> {
         "ui-external-link" => UI_EXTERNAL_LINK,
         "ui-favorite-off" => UI_FAVORITE_OFF,
         "ui-file" => UI_FILE,
+        "ui-float" => UI_FLOAT,
         "ui-folder" => UI_FOLDER,
         "ui-folder-open" => UI_FOLDER_OPEN,
         "ui-fullscreen" => UI_FULLSCREEN,

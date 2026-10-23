@@ -8603,6 +8603,7 @@ public object ExpIcons {
         "action-repository" -> `git-branch`
         "action-run" -> `play`
         "action-suggestion" -> `lightbulb`
+        "app-editor-chat" -> `message-square`
         "auth-passkey" -> `fingerprint`
         "coding-assistant" -> `sparkles`
         "coding-command" -> `square-slash`
@@ -8795,6 +8796,7 @@ public object ExpIcons {
         "ui-device" -> `monitor`
         "ui-device-default" -> `star`
         "ui-device-offline" -> `monitor-off`
+        "ui-dock-side" -> `panel-left-open`
         "ui-docs" -> `book-open`
         "ui-download" -> `download`
         "ui-due-date" -> `calendar-days`
@@ -8805,6 +8807,7 @@ public object ExpIcons {
         "ui-external-link" -> `external-link`
         "ui-favorite-off" -> `heart-off`
         "ui-file" -> `file`
+        "ui-float" -> `panel-left-close`
         "ui-folder" -> `folder`
         "ui-folder-open" -> `folder-open`
         "ui-fullscreen" -> `maximize-2`
@@ -8886,6 +8889,8 @@ public object ExpIcons {
     public val actionRun: ImageVector get() = `play`
     /** Concept `action-suggestion`. */
     public val actionSuggestion: ImageVector get() = `lightbulb`
+    /** Concept `app-editor-chat`. */
+    public val appEditorChat: ImageVector get() = `message-square`
     /** Concept `auth-passkey`. */
     public val authPasskey: ImageVector get() = `fingerprint`
     /** Concept `coding-assistant`. */
@@ -9270,6 +9275,8 @@ public object ExpIcons {
     public val uiDeviceDefault: ImageVector get() = `star`
     /** Concept `ui-device-offline`. */
     public val uiDeviceOffline: ImageVector get() = `monitor-off`
+    /** Concept `ui-dock-side`. */
+    public val uiDockSide: ImageVector get() = `panel-left-open`
     /** Concept `ui-docs`. */
     public val uiDocs: ImageVector get() = `book-open`
     /** Concept `ui-download`. */
@@ -9290,6 +9297,8 @@ public object ExpIcons {
     public val uiFavoriteOff: ImageVector get() = `heart-off`
     /** Concept `ui-file`. */
     public val uiFile: ImageVector get() = `file`
+    /** Concept `ui-float`. */
+    public val uiFloat: ImageVector get() = `panel-left-close`
     /** Concept `ui-folder`. */
     public val uiFolder: ImageVector get() = `folder`
     /** Concept `ui-folder-open`. */

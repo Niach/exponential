@@ -4,12 +4,24 @@
 
 import fixture from "../fixtures/apps.json" with { type: "json" }
 import contract from "../contract.json" with { type: "json" }
+import { askDockTitle } from "./ask-dock"
+import type { DockRow } from "./dock"
 
 export const APPS_COPY = fixture.copy
 export const APPS_BUILTIN = fixture.builtin
 export const APPS_PANES = fixture.panes
 export const APPS_PREVIEW = fixture.preview
 export const APPS_TEST_IDS = fixture.testIds
+export const APPS_LAYOUT = fixture.layout
+export const APPS_DOCK_CARD = fixture.dockCard
+
+/** VAPP-129: the editor's layout on web ≥ md and the IDE. */
+export type AppEditorLayout = `floating` | `docked`
+
+/** A stored layout, else the default. */
+export function editorLayout(stored: string | null | undefined): AppEditorLayout {
+  return stored === `floating` || stored === `docked` ? stored : (APPS_LAYOUT.default as AppEditorLayout)
+}
 
 export const APP_SLUG_MAX = contract.apps.slugMax
 export const APP_NAME_MAX = contract.apps.nameMax
@@ -68,4 +80,24 @@ export function editorBrief(app: { name: string; slug: string; headVersion: numb
     `An app is a declarative Exponential UI package (manifest + A2UI templates + bindings + a function allowlist; data, never code). Read the current package with exponential_apps {op: "get", slug: "${app.slug}"}; learn the components, bindings and functions with exponential_apps {op: "catalog"}; publish every change as a new version with exponential_apps {op: "upsert", slug: "${app.slug}", package, note}. The person sees the live preview beside this chat, so keep replies to one or two lines and publish early.`,
   ]
   return lines.join(`\n`)
+}
+
+/** VAPP-129: the floating editor's ONE DockCard (kind `chat`): the newest
+ *  message's first plain line (else the empty chat copy), `Working` while
+ *  the editor session is busy. `messages` = the bodies, oldest first. */
+export function chatCard(messages: readonly string[], busy: boolean): DockRow {
+  const newest = [...messages].reverse().map(askDockTitle).find((line) => line.length > 0)
+  return {
+    id: APPS_DOCK_CARD.id,
+    kind: `chat`,
+    tint: `muted`,
+    icon: APPS_DOCK_CARD.icon,
+    label: APPS_COPY.tabs.chat,
+    caption: busy ? APPS_COPY.working : null,
+    meta: null,
+    title: newest ?? APPS_COPY.chatEmpty,
+    expandable: true,
+    // The card opens (the chevron); "Move to the side" is the sheet's.
+    action: null,
+  }
 }

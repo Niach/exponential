@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import fixture from "../fixtures/apps.json" with { type: "json" }
-import { editorBrief, slugify, sortApps, versionLabel } from "./apps"
+import { chatCard, editorBrief, editorLayout, slugify, sortApps, versionLabel } from "./apps"
 
 describe(`apps (VAPP-110)`, () => {
   test.each(fixture.slugifyCases)(`slugify %j`, (c) => {
@@ -17,5 +17,16 @@ describe(`apps (VAPP-110)`, () => {
     expect(brief).toContain(`slug \`team-dashboard\``)
     expect(brief).toContain(`v3`)
     for (const op of [`"get"`, `"catalog"`, `"upsert"`]) expect(brief).toContain(op)
+  })
+  test.each(fixture.chatCardCases)(`chatCard %j`, (c) => {
+    const row = chatCard(c.messages, c.busy)
+    expect(row.title).toBe(c.title)
+    expect(row.caption).toBe(c.caption)
+    expect(row).toMatchObject({ id: fixture.dockCard.id, kind: `chat`, tint: `muted`, expandable: true, action: null })
+  })
+  test(`the layout falls back to the default`, () => {
+    expect(editorLayout(null)).toBe(fixture.layout.default)
+    expect(editorLayout(`docked`)).toBe(`docked`)
+    expect(editorLayout(`sideways`)).toBe(fixture.layout.default)
   })
 })

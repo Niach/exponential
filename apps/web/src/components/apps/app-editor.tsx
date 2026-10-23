@@ -1,11 +1,22 @@
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { useNavigate } from "@tanstack/react-router"
-import { APPS_COPY, APPS_PANES, APPS_TEST_IDS, versionLabel } from "@exp/domain-contract/apps"
 import {
-
+  APPS_COPY,
+  APPS_DOCK_CARD,
+  APPS_LAYOUT,
+  APPS_PANES,
+  APPS_TEST_IDS,
+  chatCard,
+  editorLayout,
+  versionLabel,
+  type AppEditorLayout,
+} from "@exp/domain-contract/apps"
+import {
   BoardGlyph,
   Button,
   conceptIcon,
+  Dock,
+  DockSheetBody,
   EmptyState,
   JumpToBottomButton,
   ListRow,
@@ -19,6 +30,7 @@ import {
   toast,
   useIsMobile,
   UserAvatar,
+  useDockSheetMeta,
   userMessageCaption,
 } from "@exp/ui"
 import type { SyncedAppVersion, User } from "@/db/schema"
@@ -43,12 +55,65 @@ import { cn } from "@/lib/utils"
 // (the member's editor session: AgentChannel rows + the composer) beside
 // the live preview; on phones a Chat | Preview | Versions segmented control
 // and one pane. Leaving the editor ENDS the member's live editor session
-// (the tree); the next send continues it. Versions preview read-only with
+// (the tree); the next send revives it. Versions preview read-only with
 // a Restore banner; Restore = a new head.
+//
+// VAPP-129 (md+, apps.json `layout`): FLOATING = the preview fills the body
+// and the chat lives in THE Dock (N-12) over its bottom edge: ONE chat
+// DockCard (`chatCard`) over the composer; the card opens the chat as the
+// Dock sheet; its action (and the sheet's header button) docks it to the
+// side = DOCKED, today's two panes, whose Minimize floats it back. The
+// choice is kept per browser.
 
 const NavAppsIcon = conceptIcon(`nav-apps`)
 const UiHistoryIcon = conceptIcon(`ui-history`)
 const NavDevicesIcon = conceptIcon(`nav-devices`)
+const DockSideIcon = conceptIcon(APPS_DOCK_CARD.dockIcon as Parameters<typeof conceptIcon>[0])
+const FloatIcon = conceptIcon(APPS_DOCK_CARD.floatIcon as Parameters<typeof conceptIcon>[0])
+
+/** The stored layout (apps.json `layout.storageKey`), per browser. */
+function useEditorLayout(): [AppEditorLayout, (next: AppEditorLayout) => void] {
+  const [layout, setLayout] = useState<AppEditorLayout>(() =>
+    editorLayout(typeof window === `undefined` ? null : window.localStorage.getItem(APPS_LAYOUT.storageKey))
+  )
+  const set = useCallback((next: AppEditorLayout) => {
+    setLayout(next)
+    try {
+      window.localStorage.setItem(APPS_LAYOUT.storageKey, next)
+    } catch {
+      // Private mode: the choice lasts this visit.
+    }
+  }, [])
+  return [layout, set]
+}
+
+/** The "Move to the side" button: the chat card's action and the sheet's
+ *  header meta. */
+function DockToSideButton({ onClick }: { onClick: () => void }) {
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      className="h-7 gap-1.5 px-2 text-xs"
+      onClick={(event) => {
+        event.stopPropagation()
+        onClick()
+      }}
+      data-testid={APPS_TEST_IDS.dockToSide}
+    >
+      <DockSideIcon className="size-3.5" />
+      {APPS_COPY.dockToSide}
+    </Button>
+  )
+}
+
+/** The chat card's sheet: the channel rows as the ONE scrolling body; its
+ *  header's meta slot carries "Move to the side". */
+function ChatSheet({ onDock, children }: { onDock: () => void; children: ReactNode }) {
+  const meta = useMemo(() => <DockToSideButton onClick={onDock} />, [onDock])
+  useDockSheetMeta(meta)
+  return <DockSheetBody>{children}</DockSheetBody>
+}
 
 type Tab = `chat` | `preview` | `versions`
 
@@ -130,6 +195,9 @@ export function AppEditor({
   const [viewing, setViewing] = useState<number | null>(null)
   const [viewingPackage, setViewingPackage] = useState<Record<string, unknown> | null>(null)
   const [restoring, setRestoring] = useState(false)
+  const [layout, setLayout] = useEditorLayout()
+  const [chatOpen, setChatOpen] = useState(false)
+  const [bandHeight, setBandHeight] = useState(0)
 
   const { users } = useTeamUsers(teamId)
   const { root, teamSessions } = useEditorSession(teamId, app.builtin ? null : app.id, me)
@@ -222,6 +290,52 @@ export function AppEditor({
     if (isMobile) setTab(`preview`)
   }
 
+  // VAPP-129: md+ and never the built-in app: the chat floats in THE Dock.
+  const floating = !isMobile && !app.builtin && layout === `floating`
+
+  const channel =
+    root && messages.length > 0 ? (
+      <AgentChannel
+        agent={{ name: app.name, icon: app.icon, color: app.color }}
+        conversation={root}
+        messages={messages}
+        teamSessions={teamSessions}
+        users={users as User[]}
+        canAnswer={isMember}
+        onOpenSession={openSession}
+      />
+    ) : (
+      <div className="flex flex-1 items-center justify-center py-12">
+        <EmptyState icon={NavAppsIcon} title={APPS_COPY.chatEmpty} size="list" />
+      </div>
+    )
+
+  const composer = isMember ? (
+    root ? (
+      <SessionComposer
+        teamId={teamId}
+        sessionId={root.id}
+        placeholder={APPS_COPY.composerPlaceholder}
+        users={users as User[]}
+        busy={root.busy}
+        canStop
+        testId="app-composer"
+        className={floating ? undefined : `mx-auto max-w-3xl`}
+      />
+    ) : (
+      <AgentComposer
+        teamId={teamId}
+        appId={app.id}
+        deviceId={deviceId ?? undefined}
+        disabled={!deviceId}
+        placeholder={deviceId ? APPS_COPY.composerPlaceholder : APPS_COPY.noDevice}
+        users={users as User[]}
+        testId="app-composer"
+        className={floating ? undefined : `mx-auto max-w-3xl`}
+      />
+    )
+  ) : null
+
   const chat = app.builtin ? (
     <div className="flex h-full items-center justify-center p-6">
       <EmptyState icon={NavAppsIcon} title={APPS_COPY.builtin} size="page" />
@@ -231,21 +345,7 @@ export function AppEditor({
       <div className="relative min-h-0 flex-1">
         <div ref={follow.scrollRef} onScroll={follow.onScroll} className="h-full overflow-y-auto overscroll-contain">
           <div ref={follow.contentRef} className="mx-auto flex min-h-full w-full max-w-3xl flex-col justify-end px-4 pt-6 pb-6">
-            {root && messages.length > 0 ? (
-              <AgentChannel
-                agent={{ name: app.name, icon: app.icon, color: app.color }}
-                conversation={root}
-                messages={messages}
-                teamSessions={teamSessions}
-                users={users as User[]}
-                canAnswer={isMember}
-                onOpenSession={openSession}
-              />
-            ) : (
-              <div className="flex flex-1 items-center justify-center py-12">
-                <EmptyState icon={NavAppsIcon} title={APPS_COPY.chatEmpty} size="list" />
-              </div>
-            )}
+            {channel}
           </div>
         </div>
         <JumpToBottomButton
@@ -254,38 +354,26 @@ export function AppEditor({
           onClick={follow.jumpToBottom}
         />
       </div>
-      {isMember && (
+      {composer && (
         <div className="shrink-0 px-4 pt-2 pb-4" data-testid={APPS_TEST_IDS.composer}>
-          {root ? (
-            <SessionComposer
-              teamId={teamId}
-              sessionId={root.id}
-              placeholder={APPS_COPY.composerPlaceholder}
-              users={users as User[]}
-              busy={root.busy}
-              canStop
-              testId="app-composer"
-              className="mx-auto max-w-3xl"
-            />
-          ) : (
-            <AgentComposer
-              teamId={teamId}
-              appId={app.id}
-              deviceId={deviceId ?? undefined}
-              disabled={!deviceId}
-              placeholder={deviceId ? APPS_COPY.composerPlaceholder : APPS_COPY.noDevice}
-              users={users as User[]}
-              testId="app-composer"
-              className="mx-auto max-w-3xl"
-            />
-          )}
+          {composer}
         </div>
       )}
     </div>
   )
 
+  // VAPP-129: the floating chat's ONE DockCard.
+  const chatRow = useMemo(
+    () => chatCard(messages.map((message) => message.body ?? ``), root?.busy === true),
+    [messages, root?.busy]
+  )
+  const dockToSide = useCallback(() => {
+    setChatOpen(false)
+    setLayout(`docked`)
+  }, [setLayout])
+
   const preview = (
-    <div className="flex h-full min-h-0 flex-col gap-3 p-4">
+    <div className="flex h-full min-h-0 flex-col gap-3 p-4" style={floating ? { paddingBottom: bandHeight + 16 } : undefined}>
       {viewing !== null && (
         <div
           className="flex items-center gap-3 rounded-md border border-border px-3 py-2 text-sm"
@@ -353,13 +441,48 @@ export function AppEditor({
         <div className="flex-1" />
         {versionsButton}
       </div>
-      <div
-        className="grid min-h-0 flex-1"
-        style={{ gridTemplateColumns: `minmax(${APPS_PANES.chatMinWidth}px, ${APPS_PANES.chat}fr) ${APPS_PANES.preview}fr` }}
-      >
-        <div className="min-h-0 border-r border-border">{chat}</div>
-        <div className="min-h-0">{preview}</div>
-      </div>
+      {app.builtin ? (
+        <div className="min-h-0 flex-1">{preview}</div>
+      ) : floating ? (
+        <div className="relative min-h-0 flex-1" data-layout="floating">
+          {preview}
+          <Dock
+            rows={[chatRow]}
+            openId={chatOpen ? chatRow.id : null}
+            onOpenChange={(id) => setChatOpen(id !== null)}
+            renderSheet={() => <ChatSheet onDock={dockToSide}>{channel}</ChatSheet>}
+            composer={composer ? <div data-testid={APPS_TEST_IDS.composer}>{composer}</div> : undefined}
+            onHeight={setBandHeight}
+          />
+        </div>
+      ) : (
+        <div
+          className="grid min-h-0 flex-1"
+          data-layout="docked"
+          style={{ gridTemplateColumns: `minmax(${APPS_PANES.chatMinWidth}px, ${APPS_PANES.chat}fr) ${APPS_PANES.preview}fr` }}
+        >
+          <div className="flex min-h-0 flex-col border-r border-border">
+            <div
+              className="flex shrink-0 items-center justify-between border-b border-border px-4 text-sm text-muted-foreground"
+              style={{ height: APPS_PANES.headerHeight }}
+            >
+              <span>{APPS_COPY.tabs.chat}</span>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label={APPS_COPY.float}
+                title={APPS_COPY.float}
+                onClick={() => setLayout(`floating`)}
+                data-testid={APPS_TEST_IDS.float}
+              >
+                <FloatIcon />
+              </Button>
+            </div>
+            <div className="min-h-0 flex-1">{chat}</div>
+          </div>
+          <div className="min-h-0">{preview}</div>
+        </div>
+      )}
       <Sheet open={versionsOpen} onOpenChange={setVersionsOpen}>
         <SheetContent side="right" className="w-full sm:max-w-md">
           <SheetHeader>
