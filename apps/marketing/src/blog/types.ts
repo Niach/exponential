@@ -51,6 +51,12 @@ export function formatDate(iso: string): string {
   return `${MONTHS[m - 1]} ${d}, ${y}`
 }
 
+/** `2026-10-23` → `October 23` (for a list grouped by year). */
+export function formatMonthDay(iso: string): string {
+  const [, m, d] = iso.split(`-`).map(Number)
+  return `${MONTHS[m - 1]} ${d}`
+}
+
 /** Word count → minutes, never below one. */
 export function readingMinutesOf(words: number): number {
   return Math.max(1, Math.round(words / READING_WPM))

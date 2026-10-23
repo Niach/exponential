@@ -3,60 +3,85 @@
    (@exp/site-shell/styles/docs.css `.docs-content`), so an article reads
    like a docs page; everything here is the frame around it. ─── */
 
-/* ── Index: a heading and the rows ── */
+/* ── Index: a heading, one line, the posts by year ── */
 .blog-index {
-  padding: 56px 0 72px;
+  padding: 48px 0 72px;
 }
 
 .blog-index-inner {
-  max-width: 760px;
+  max-width: 680px;
 }
 
 .blog-index h1 {
-  margin: 0 0 24px;
-  font-size: clamp(30px, 4.4vw, 44px);
+  margin: 0 0 10px;
+  font-size: 28px;
   font-weight: 600;
-  letter-spacing: -0.03em;
-  line-height: 1.08;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
 }
 
-.blog-index-rss {
-  margin: 24px 0 0;
+.blog-index-intro {
+  margin: 0 0 36px;
+  font-size: 15.5px;
+  line-height: 1.6;
+  color: var(--fg);
+}
+
+.blog-index-intro a {
+  color: var(--fg-muted);
+  border-bottom: 1px solid var(--input);
+}
+
+/* A plain group, not a page section (site.css pads every <section>). */
+.blog-year {
+  margin: 0 0 28px;
+  padding: 0;
+}
+
+.blog-year-label {
+  margin: 0 0 8px;
   font-size: 13px;
+  font-weight: 500;
   color: var(--fg-dim);
 }
 
-.blog-index-rss a {
-  color: var(--fg-muted);
-}
-
-/* ── Rows (the index, a post's footer, the home strip) ── */
+/* ── Rows (the index, a post's footer, the home list) ── */
 .blog-rows {
   list-style: none;
   margin: 0;
   padding: 0;
-  border-top: 1px solid var(--border);
 }
 
 .blog-rows li {
   margin: 0;
-  border-bottom: 1px solid var(--border);
 }
 
 .blog-row {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 24px;
-  padding: 16px 0;
+  align-items: center;
+  gap: 14px;
+  padding: 7px 0;
   color: var(--fg);
   border-bottom: 0 !important;
 }
 
+.blog-row-thumb {
+  flex-shrink: 0;
+  width: 72px;
+  height: 48px;
+  object-fit: cover;
+  object-position: top left;
+  border: 1px solid var(--glass-stroke-card);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elev);
+}
+
 .blog-row-title {
-  font-size: 17px;
+  flex: 1;
+  min-width: 0;
+  font-size: 16px;
   font-weight: 500;
-  letter-spacing: -0.015em;
+  letter-spacing: -0.01em;
   line-height: 1.35;
 }
 
@@ -66,9 +91,13 @@
   text-decoration-color: var(--fg-dim);
 }
 
-.blog-row-meta,
-.blog-eyebrow {
+.blog-row-date {
   flex-shrink: 0;
+  font-size: 13.5px;
+  color: var(--fg-dim);
+}
+
+.blog-eyebrow {
   font-family: var(--font-mono);
   font-size: 11px;
   letter-spacing: 0.04em;
@@ -331,7 +360,7 @@
 }
 
 .blog-strip-inner {
-  max-width: 760px;
+  max-width: 680px;
 }
 
 .blog-strip-all {
@@ -346,8 +375,16 @@
 
 @media (max-width: 600px) {
   .blog-row {
-    flex-direction: column;
-    gap: 4px;
+    flex-wrap: wrap;
+    row-gap: 2px;
+  }
+
+  .blog-row-title {
+    flex-basis: calc(100% - 86px);
+  }
+
+  .blog-row-date {
+    padding-left: 86px;
   }
 }
 
