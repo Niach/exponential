@@ -16,6 +16,7 @@ import at.exponential.ui.extension.ExtensionPainter
 import at.exponential.ui.extension.ExtensionRegistry
 import at.exponential.ui.format.IcuFormatter
 import at.exponential.ui.ffi.FfiApplyOutcome
+import at.exponential.ui.ffi.FfiDelta
 import at.exponential.ui.ffi.FfiLayout
 import at.exponential.ui.ffi.FfiSettings
 import at.exponential.ui.ffi.HostFormatter
@@ -282,9 +283,12 @@ class SurfaceModel(
     var children: List<List<Int>> by mutableStateOf(emptyList(), neverEqualPolicy())
         private set
 
-    /** Node id → index. */
-    var byId: Map<String, Int> = emptyMap()
-        private set
+    /** Node id → index (live nodes). */
+    val byId: Map<String, Int> get() = ids
+    private var ids = HashMap<String, Int>()
+
+    /** Extension node id → its kind (what the measurer sizes extensions by). */
+    private var kinds = HashMap<String, String>()
     var structureVersion: Long by mutableStateOf(-1L)
         private set
 
@@ -325,6 +329,12 @@ class SurfaceModel(
         internal set
 
     internal var nodesDirty = true
+
+    /** The next pass reads every node (a theme switch moves `hoverStyled` without a delta). */
+    private var nodesFull = true
+
+    /** The next pass reads every visual and text style (theme, mode, settings, fonts). */
+    private var paintFull = true
     internal var layoutNeeded = true
     internal val mirrors = HashMap<String, Mirror>()
     internal val interaction = HashMap<String, InteractionState>()
@@ -387,14 +397,14 @@ class SurfaceModel(
     fun setSettings(settings: SurfaceSettings) {
         if (settings == this.settings) return
         this.settings = settings
-        if (applySettings()) invalidate(true)
+        if (applySettings()) fullInvalidate()
     }
 
     /** What the device says changed (locale, zone, dark, font scale, motion, pointer, insets). */
     fun setEnvironment(environment: SurfaceEnvironment) {
         if (environment == this.environment) return
         this.environment = environment
-        if (applySettings()) invalidate(true)
+        if (applySettings()) fullInvalidate()
     }
 
     /**
@@ -526,12 +536,23 @@ class SurfaceModel(
         // Without a viewport no pass reads the nodes: read them for the signature.
         if (nodesDirty && width <= 0f) readNodes()
         paintFailures[componentId] = message
-        failedProps[componentId] = signature(componentId)
+        // A measure inside a pass sees the previous pass's nodes: the
+        // signature waits for this pass's read.
+        if (inPass) pendingSignatures.add(componentId) else failedProps[componentId] = signature(componentId)
         host.onPaintError(PaintError(id, componentId, message))
     }
 
+    /** Failed components whose signature the running pass fills in. */
+    private val pendingSignatures = HashSet<String>()
+    private var inPass = false
+    private var passAgain = false
+
     /** Per node: a failed component whose props changed, or that left the surface, paints (and may report) again. */
     private fun reconcilePaintFailures() {
+        if (pendingSignatures.isNotEmpty()) {
+            for (cid in pendingSignatures) failedProps[cid] = signature(cid)
+            pendingSignatures.clear()
+        }
         if (paintFailures.isEmpty()) return
         for (cid in paintFailures.keys.toList()) {
             val now = signature(cid)
@@ -561,6 +582,8 @@ class SurfaceModel(
         themeState = theme
         benchCounters?.sent(0)
         surface.setTheme(theme.theme)
+        paintFull = true
+        nodesFull = true
         refreshEffectiveTheme()
         primitiveTokens = effectiveTheme?.primitiveTokens(mode) ?: PrimitiveTokens.SYSTEM
         measureGeneration += 1
@@ -578,6 +601,7 @@ class SurfaceModel(
             appliedSettings = appliedSettings?.copy(mode = mode.wire)
         }
         primitiveTokens = effectiveTheme?.primitiveTokens(this.mode) ?: PrimitiveTokens.SYSTEM
+        paintFull = true
         invalidate(true)
     }
 
@@ -587,7 +611,15 @@ class SurfaceModel(
      */
     fun invalidateMeasures() {
         measureGeneration += 1
+        paintFull = true
         invalidate(false)
+    }
+
+    /** Settings moved (density, contrast, font scale, the effective theme): every node and visual is re-read. */
+    private fun fullInvalidate() {
+        paintFull = true
+        nodesFull = true
+        invalidate(true)
     }
 
     /**
@@ -597,7 +629,7 @@ class SurfaceModel(
     fun register(extensionJson: String, painters: Map<String, ExtensionPainter>) {
         surface.registerExtension(extensionJson)
         for ((kind, painter) in painters) extensions.register(kind, painter)
-        invalidate(true)
+        fullInvalidate()
     }
 
     internal fun invalidate(structure: Boolean) {
@@ -668,18 +700,68 @@ class SurfaceModel(
     /** Run one layout pass (the core, the measurer, the caches). */
     fun pass() {
         if (width <= 0f) return
+        if (inPass) {
+            // Asked from inside the pass (a host callback): once more after it.
+            passAgain = true
+            return
+        }
+        inPass = true
+        try {
+            runPass()
+            if (passAgain) {
+                passAgain = false
+                runPass()
+            }
+        } finally {
+            inPass = false
+            passAgain = false
+        }
+        layersChanged()
+        reportUnknowns()
+        echoFields()
+        syncToasts()
+    }
+
+    /**
+     * VAPP-138: the nodes come from the layout's delta (`nodesAt` for the
+     * added and changed slots, the rest kept), the visuals and text styles
+     * from the slots that changed and the leaves under them; a full read
+     * only on the first pass, a renumbering, a theme or settings change.
+     */
+    private fun runPass() {
         val t0 = System.nanoTime()
         benchCounters?.sent(0)
         surface.setViewport(width, viewportHeight, maxHeight)
-        if (nodesDirty) readNodes()
-        var measurer: SurfaceMeasurer? = null
-        val out: FfiLayout = (if (fixedMeasure) runCatching { surface.layoutFixed(null, true) }.getOrNull() else null)
-            ?: SurfaceMeasurer(effectiveTheme, mode, extensions, extensionKinds(), measureGeneration, textShaper(), liveTexts(), ::ownerComponentOf, ::paintFailed) { mediaRequest(it) != null }.let {
-                measurer = it
-                surface.layout(it)
+        var measureCalls = 0
+        var tries = 0
+        val touched = HashSet<Int>()
+        var out: FfiLayout
+        while (true) {
+            val used: Map<String, String> = if (kinds.isEmpty()) emptyMap() else HashMap(kinds)
+            var measurer: SurfaceMeasurer? = null
+            out = (if (fixedMeasure) runCatching { surface.layoutFixed(null, true) }.getOrNull() else null)
+                ?: SurfaceMeasurer(effectiveTheme, mode, extensions, used, measureGeneration, textShaper(), liveTexts(), ::ownerComponentOf, ::paintFailed) { mediaRequest(it) != null }.let {
+                    measurer = it
+                    surface.layout(it)
+                }
+            measureCalls += measurer?.calls ?: 0
+            benchCounters?.layout(out, measurer?.calls ?: 0)
+            for (i in out.visualChanges) touched.add(i.toInt())
+            val d = out.delta
+            if (nodes.isEmpty() || nodesFull || d.renumbered || (nodesDirty && out.frames.isEmpty() && out.layers.isEmpty())) {
+                readNodes()
+                paintFull = true
+            } else {
+                patchNodes(d, out.structureVersion.toLong(), touched)
             }
-        benchCounters?.layout(out, measurer?.calls ?: 0)
-        if (out.structureVersion.toLong() != structureVersion || nodesDirty) readNodes()
+            tries += 1
+            // An extension leaf measured before its kind was known (its
+            // first pass): measure it again now that the slots know it.
+            if (fixedMeasure || tries >= 3) break
+            val unknown = kinds.filter { (id, _) -> used[id] == null }.mapNotNull { (id, _) -> ids[id] }
+            if (unknown.isEmpty()) break
+            for (i in unknown) surface.markDirty(i.toUInt())
+        }
         val count = nodes.size
         val f = ArrayList<Rect>(count)
         repeat(count) { f.add(Rect.Zero) }
@@ -709,25 +791,38 @@ class SurfaceModel(
         if (ts != toasts) toasts = ts
         if (out.direction != direction) direction = out.direction
         if (out.breakpoint != breakpoint) breakpoint = out.breakpoint
-        if (passCount == 0 || out.visualChanges.isNotEmpty() || styles.size != nodes.size) {
-            readVisuals()
-            // The core resolves a leaf's text style DURING the pass (the
-            // recipe's font); read it after, never from the pre-pass nodes.
-            readTextStyles()
+        // The core resolves a leaf's text style DURING the pass (the
+        // recipe's font); read it after, never from the pre-pass nodes.
+        if (paintFull || passCount == 0 || styles.size != nodes.size) {
+            readPaint(null)
+        } else if (touched.isNotEmpty()) {
+            readPaint(touched)
         }
+        paintFull = false
         val size = Size(out.surfaceWidth, out.surfaceHeight)
         if (size != surfaceSize) surfaceSize = size
-        stats = PassStats(out.layoutNs.toLong(), System.nanoTime() - t0, out.upcalls.toInt(), out.measureRounds.toInt(), measurer?.calls ?: 0, nodes.size, out.restyled.toInt())
+        stats = PassStats(out.layoutNs.toLong(), System.nanoTime() - t0, out.upcalls.toInt(), out.measureRounds.toInt(), measureCalls, nodes.size, out.restyled.toInt())
         if (pinnedDirty) {
             pinnedDirty = false
-            scrollPinned = nodes.filter { n -> styles.getOrNull(n.index)?.sticky == true || n.props["stickyHeaders"]?.bool == true || n.props["stickyHeader"]?.bool == true }.map { it.index }
+            scrollPinned = nodes.filter { n -> !n.removed && (styles.getOrNull(n.index)?.sticky == true || n.props["stickyHeaders"]?.bool == true || n.props["stickyHeader"]?.bool == true) }.map { it.index }
         }
         layoutNeeded = false
         passCount += 1
-        layersChanged()
-        reportUnknowns()
-        echoFields()
-        syncToasts()
+        if (verifyDelta) checkDelta()
+    }
+
+    /** [verifyDelta]: the patched nodes and paint equal a full read, else throws. */
+    private fun checkDelta() {
+        val full = surface.nodes().map(::NodeInfo)
+        check(full.size == nodes.size) { "delta drift: ${nodes.size} slots, the core has ${full.size}" }
+        for (n in full) check(n.signature == nodes[n.index].signature) { "delta drift at ${n.index}: ${nodes[n.index].signature} != ${n.signature}" }
+        val raw = surface.visuals()
+        for ((i, v) in raw.withIndex()) if (i < styles.size) check(PaintStyle(v) == styles[i]) { "visual drift at $i (${nodes.getOrNull(i)})" }
+        for (n in full) {
+            val want = if (!n.isLeaf || n.removed) null else surface.textStyle(n.index.toUInt())?.let { ResolvedTextStyle(it) }
+            check(want == textStyles[n.index]) { "text style drift at ${n.index} ($n): ${textStyles[n.index]} != $want" }
+        }
+        check(byId == full.filter { !it.removed }.associate { it.id to it.index }) { "byId drift" }
     }
 
     /**
@@ -754,60 +849,182 @@ class SurfaceModel(
         return m
     }
 
-    private fun extensionKinds(): Map<String, String> {
-        val k = HashMap<String, String>()
-        for (n in nodes) n.extensionKind?.let { k[n.id] = it }
-        return k
-    }
-
+    /** Every slot from the core (the first pass, a renumbering, a theme or settings change, no viewport). */
     private fun readNodes() {
         val raw = surface.nodes()
         benchCounters?.received(raw.sumOf { 64 + it.id.length + it.propsJson.length })
         val list = ArrayList<NodeInfo>(raw.size)
-        val ch = ArrayList<MutableList<Int>>(raw.size)
-        repeat(raw.size) { ch.add(ArrayList(2)) }
-        val ids = HashMap<String, Int>(raw.size * 2)
-        for (n in raw) {
-            val info = NodeInfo(n)
-            info.parent?.let { p -> if (p < ch.size) ch[p].add(info.index) }
-            ids[info.id] = info.index
-            list.add(info)
+        for (n in raw) list.add(NodeInfo(n))
+        // `nodes()[i].index == i`; guard a sparse answer anyway.
+        if (list.withIndex().any { (i, n) -> n.index != i }) list.sortBy { it.index }
+        val byIds = HashMap<String, Int>(raw.size * 2)
+        val k = HashMap<String, String>()
+        for (n in list) {
+            if (n.removed) continue
+            byIds[n.id] = n.index
+            n.extensionKind?.let { k[n.id] = it }
         }
-        byId = ids
-        children = ch
+        ids = byIds
+        kinds = k
+        children = list.map { it.children }
         nodes = list
         structureVersion = surface.structureVersion().toLong()
         nodesDirty = false
+        nodesFull = false
         pinnedDirty = true
         pruneFields()
         reconcilePaintFailures()
     }
 
-    private fun readTextStyles() {
-        val ts = HashMap<Int, ResolvedTextStyle>()
-        for (n in nodes) {
-            if (!n.isLeaf) continue
-            benchCounters?.received(48)
-            surface.textStyle(n.index.toUInt())?.let { ts[n.index] = ResolvedTextStyle(it) }
+    /**
+     * A pass's node delta: the `added` and `changed` slots fetched again
+     * (`nodesAt`), `removed` ones turned into tombstones; their indices
+     * join `touched` (their visuals and text styles are re-read).
+     */
+    private fun patchNodes(delta: FfiDelta, version: Long, touched: MutableSet<Int>) {
+        nodesDirty = false
+        if (delta.added.isEmpty() && delta.removed.isEmpty() && delta.changed.isEmpty()) {
+            // The node set moved without a delta (never expected): read it all.
+            if (version != structureVersion) {
+                readNodes()
+                paintFull = true
+            }
+            return
         }
-        if (ts != textStyles) textStyles = ts
+        val fetch = java.util.TreeSet<UInt>()
+        fetch.addAll(delta.added)
+        fetch.addAll(delta.changed)
+        for (r in delta.removed) if (!fetch.contains(r)) fetch.add(r)
+        val fresh = surface.nodesAt(fetch.toList())
+        benchCounters?.received(fresh.sumOf { 64 + it.id.length + it.propsJson.length })
+        val list = ArrayList(nodes)
+        val ch = ArrayList(children)
+        val byIds = ids
+        val k = kinds
+        val patched = ArrayList<NodeInfo>(fresh.size)
+        for (n in fresh) {
+            val info = NodeInfo(n)
+            val i = info.index
+            if (i > list.size) {
+                // A gap past the end the delta did not name: read everything.
+                readNodes()
+                paintFull = true
+                return
+            }
+            if (i < list.size) {
+                val old = list[i]
+                if (!old.removed && byIds[old.id] == i) byIds.remove(old.id)
+                if (!old.removed && k[old.id] != null && byIds[old.id] == null) k.remove(old.id)
+                list[i] = info
+                ch[i] = info.children
+            } else {
+                list.add(info)
+                ch.add(info.children)
+            }
+            patched.add(info)
+            touched.add(i)
+        }
+        for (info in patched) {
+            if (info.removed) continue
+            byIds[info.id] = info.index
+            info.extensionKind?.let { k[info.id] = it } ?: k.remove(info.id)
+        }
+        children = ch
+        nodes = list
+        structureVersion = version
+        pinnedDirty = true
+        pruneFields()
+        reconcilePaintFailures()
     }
 
-    private fun readVisuals() {
-        val raw = surface.visuals()
-        benchCounters?.received(raw.size * 96)
-        val st = ArrayList<PaintStyle>(kotlin.math.max(raw.size, nodes.size))
-        for (v in raw) st.add(PaintStyle(v))
-        while (st.size < nodes.size) st.add(PaintStyle.EMPTY)
+    /**
+     * The visuals and text styles of every slot (`touched` null) or of the
+     * touched slots and the leaves under them (a text style inherits down
+     * the tree); then the inherited text colours.
+     */
+    private fun readPaint(touched: Set<Int>?) {
+        val count = nodes.size
+        val st: ArrayList<PaintStyle>
+        val ts: HashMap<Int, ResolvedTextStyle>
+        if (touched == null) {
+            val raw = surface.visuals()
+            benchCounters?.received(raw.size * 96)
+            st = ArrayList(kotlin.math.max(raw.size, count))
+            for (v in raw) st.add(PaintStyle(v))
+            while (st.size < count) st.add(PaintStyle.EMPTY)
+            ts = HashMap()
+            for (n in nodes) {
+                if (!n.isLeaf || n.removed) continue
+                benchCounters?.received(48)
+                surface.textStyle(n.index.toUInt())?.let { ts[n.index] = ResolvedTextStyle(it) }
+            }
+        } else {
+            // The touched slots and every node under them (pre-order walk).
+            val mark = BooleanArray(count)
+            val order = ArrayList<Int>()
+            val stack = ArrayList<Int>()
+            for (i in touched) {
+                if (i >= count || mark[i]) continue
+                stack.add(i)
+                while (stack.isNotEmpty()) {
+                    val j = stack.removeAt(stack.size - 1)
+                    if (j >= count || mark[j]) continue
+                    mark[j] = true
+                    order.add(j)
+                    for (c in children[j]) stack.add(c)
+                }
+            }
+            st = ArrayList(styles)
+            while (st.size < count) st.add(PaintStyle.EMPTY)
+            ts = HashMap(textStyles)
+            // One `visuals()` beats many `visual(i)` calls past a quarter of the slots.
+            if (touched.size * 4 > count) {
+                val raw = surface.visuals()
+                benchCounters?.received(raw.size * 96)
+                for (i in touched) if (i < count) st[i] = raw.getOrNull(i)?.let(::PaintStyle) ?: PaintStyle.EMPTY
+            } else {
+                for (i in touched) {
+                    if (i >= count) continue
+                    benchCounters?.received(96)
+                    st[i] = surface.visual(i.toUInt())?.let(::PaintStyle) ?: PaintStyle.EMPTY
+                }
+            }
+            for (i in order) {
+                val n = nodes[i]
+                if (!n.isLeaf || n.removed) {
+                    ts.remove(i)
+                    continue
+                }
+                benchCounters?.received(48)
+                val t = surface.textStyle(i.toUInt())
+                if (t != null) ts[i] = ResolvedTextStyle(t) else ts.remove(i)
+            }
+        }
         styles = st
+        if (ts != textStyles) textStyles = ts
         pinnedDirty = true
+        computeInks()
+    }
+
+    /** Text colour inheritance in TREE order (a reused slot may sit before its parent). */
+    private fun computeInks() {
         val fallback = effectiveTheme?.ink(mode) ?: if (mode == Mode.Dark) Color.White else Color.Black
-        val ink = ArrayList<Color>(nodes.size)
-        repeat(nodes.size) { ink.add(fallback) }
+        val count = nodes.size
+        val ink = ArrayList<Color>(count)
+        repeat(count) { ink.add(fallback) }
+        val st = styles
+        val stack = ArrayList<Int>()
         for (n in nodes) {
-            val c = st[n.index].color
-            val p = n.parent
-            if (c != null) ink[n.index] = c else if (p != null && p < n.index) ink[n.index] = ink[p]
+            if (n.removed || n.parent != null) continue
+            stack.add(n.index)
+            while (stack.isNotEmpty()) {
+                val i = stack.removeAt(stack.size - 1)
+                val node = nodes[i]
+                val c = st.getOrNull(i)?.color
+                val p = node.parent
+                if (c != null) ink[i] = c else if (p != null && p < count) ink[i] = ink[p]
+                for (k in children.getOrNull(i) ?: emptyList()) if (k < count) stack.add(k)
+            }
         }
         inks = ink
     }
@@ -1002,6 +1219,14 @@ class SurfaceModel(
          */
         @JvmStatic
         var benchCounters: BenchCounters? = null
+
+        /**
+         * Tests (`exponential.ui.verifyDelta=1`): after every pass, compare
+         * the delta-patched nodes, visuals and text styles with a full read
+         * and throw on any drift. Never set in an app.
+         */
+        @JvmStatic
+        var verifyDelta: Boolean = System.getProperty("exponential.ui.verifyDelta") == "1"
 
         /** Viewport growth (dp) that applies at once ([autoViewportHeight]). */
         const val VIEWPORT_STEP = 48f
