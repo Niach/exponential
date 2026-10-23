@@ -25,6 +25,10 @@ on:
       version:
         description: "Version to build (dry run: nothing is published without the secrets)"
         required: true
+      dry_run:
+        description: "Dry run: build, verify and upload the artifacts, publish nothing, create no release (VAPP-109)"
+        type: boolean
+        default: true
 
 permissions:
   contents: write
@@ -32,6 +36,9 @@ permissions:
 
 env:
   VERSION: ${{ github.event.inputs.version || '' }}
+  # A dispatched dry run keeps every publish step off even when the secrets
+  # are set; a tag push always publishes.
+  DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run == true }}
 
 jobs:
   version:
@@ -66,9 +73,10 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           for p in ui ui-react ui-solid ui-element; do
-            if [ -n "$NODE_AUTH_TOKEN" ]; then (cd dist-npm/$p && npm publish --access public --provenance); \
+            if [ -n "$NODE_AUTH_TOKEN" ] && [ "$DRY_RUN" != "true" ]; then (cd dist-npm/$p && npm publish --access public --provenance); \
             else (cd dist-npm/$p && npm pack --pack-destination ../); fi
           done
+          [ "$DRY_RUN" != "true" ] || echo "::notice::dry run: packed, not published"
           [ -n "$NODE_AUTH_TOKEN" ] || echo "::warning::NPM_TOKEN is not set (the @exponential-at org must exist first): packed, not published"
       - uses: actions/upload-artifact@v4
         with:
@@ -87,8 +95,8 @@ jobs:
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: |
-          if [ -n "$CARGO_REGISTRY_TOKEN" ]; then cargo publish --locked -p exponential-ui; \
-          else cargo publish --locked -p exponential-ui --dry-run; echo "::warning::CARGO_REGISTRY_TOKEN is not set: dry run only"; fi
+          if [ -n "$CARGO_REGISTRY_TOKEN" ] && [ "$DRY_RUN" != "true" ]; then cargo publish --locked -p exponential-ui; \
+          else cargo publish --locked -p exponential-ui --dry-run; [ "$DRY_RUN" = "true" ] && echo "::notice::dry run: cargo publish --dry-run only" || echo "::warning::CARGO_REGISTRY_TOKEN is not set: dry run only"; fi
 
   swift:
     needs: version
@@ -158,6 +166,7 @@ jobs:
           PASS: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
           SIGNED: ${{ secrets.SIGNING_KEY != '' }}
         run: |
+          if [ "$DRY_RUN" = "true" ]; then echo "::notice::dry run: the Central bundle is an artifact, not uploaded"; exit 0; fi
           if [ -z "$USER" ] || [ "$SIGNED" != "true" ]; then echo "::warning::Maven Central credentials or the signing key are not set: the bundle is an artifact, not uploaded"; exit 0; fi
           curl --fail -X POST "https://central.sonatype.com/api/v1/publisher/upload?publishingType=AUTOMATIC&name=exponential-ui-${{ needs.version.outputs.version }}" \
             -H "Authorization: Bearer $(printf '%s:%s' "$USER" "$PASS" | base64 -w0)" \
@@ -183,7 +192,14 @@ jobs:
           cp artifacts/npm/*.tgz out/ 2>/dev/null || true
           cp LICENSE NOTICE out/
           (cd out && sha256sum * > SHA256SUMS)
+          ls -l out
+      - uses: actions/upload-artifact@v4
+        if: env.DRY_RUN == 'true'
+        with:
+          name: release-files
+          path: out/
       - name: GitHub release
+        if: env.DRY_RUN != 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ui-v${{ needs.version.outputs.version }}
@@ -195,6 +211,7 @@ jobs:
     # After the release: the distribution package's binaryTarget url points
     # at the zip this release just uploaded.
     needs: [version, release]
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.dry_run == true) }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
