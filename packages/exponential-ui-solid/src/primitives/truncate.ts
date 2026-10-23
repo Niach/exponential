@@ -1,1 +1,1 @@
-export { middleTruncate } from "@exponential-at/ui/web/primitives"
+export { middleTruncate } from "@exponential_app/ui/web/primitives"

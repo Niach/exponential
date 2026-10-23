@@ -25,14 +25,14 @@
 //     straight full-height vertical at that level's gutter centre;
 //   * a parent row draws nothing of its own; a folded subtree draws nothing.
 
-// VAPP-102: the RULE lives once, in the SDK (`@exponential-at/ui`
+// VAPP-102: the RULE lives once, in the SDK (`@exponential_app/ui`
 // `treeGuides`, the core's post-expansion pass fills a catalog Row's guides
 // with it; Rust `tree_guides.rs`, fixture `tree-guides.json`). The app
 // re-exports it rather than keeping a second copy. The geometry numbers below
 // stay the app's own literals (its pixels are shots-locked) and are asserted
 // equal to the catalog's layout numbers in tree-guides.test.ts.
-export { treeGuides, type TreeGuide } from "@exponential-at/ui"
-import type { TreeGuide } from "@exponential-at/ui"
+export { treeGuides, type TreeGuide } from "@exponential_app/ui"
+import type { TreeGuide } from "@exponential_app/ui"
 
 /** 14px per nesting level — the ×4 indent (= the catalog's
  *  `TREE_GUIDE_COLUMN`). */

@@ -1,5 +1,5 @@
 // FEED-128: ONE normalized node → its painted DOM (React's node-view.tsx on
-// Solid). The BIND pass (`@exponential-at/ui` `bindTree` is the reference)
+// Solid). The BIND pass (`@exponential_app/ui` `bindTree` is the reference)
 // is a set of memos per node: a node whose `visible` resolves falsy is not
 // rendered at all; props, dynamic style values and macro recipe props
 // resolve against the data model, `$string.<id>` through the string table;
@@ -17,9 +17,9 @@
 
 import { ErrorBoundary, For, Show, createComputed, createEffect, createMemo, on, onCleanup, onMount, untrack, type Accessor, type JSX } from "solid-js"
 import { Dynamic } from "solid-js/web"
-import { UNKNOWN_COMPONENT, catalogView, instanceSegment, isResponsiveValue, nativeRecipeProps, responsiveAt, templateItemKeys, templateSiteKey, withOwnWrites } from "@exponential-at/ui"
-import type { ExtensionDef, UiNode } from "@exponential-at/ui"
-import { absolutePath, ariaAttributes, cssValue, dynamicStyleEntries, getPointer, isMacroComponent, nodeClass, partClass, propAttribute, queryToken, resolveAccessibility, resolveNodeProps, resolveValue, resolveVisible, styleDirection, type ResolveContext } from "@exponential-at/ui/web"
+import { UNKNOWN_COMPONENT, catalogView, instanceSegment, isResponsiveValue, nativeRecipeProps, responsiveAt, templateItemKeys, templateSiteKey, withOwnWrites } from "@exponential_app/ui"
+import type { ExtensionDef, UiNode } from "@exponential_app/ui"
+import { absolutePath, ariaAttributes, cssValue, dynamicStyleEntries, getPointer, isMacroComponent, nodeClass, partClass, propAttribute, queryToken, resolveAccessibility, resolveNodeProps, resolveValue, resolveVisible, styleDirection, type ResolveContext } from "@exponential_app/ui/web"
 import { InstanceContext, ScopeContext, SurfaceContext, deriveContext, resolveContextOf, useInstance, useScope, useSurfaceContext, type SurfaceContextValue } from "./context"
 import { extensionComponent, extensionMacroNames } from "./extensions"
 import type { ExtensionComponentProps, SurfaceActionEvent } from "./host"

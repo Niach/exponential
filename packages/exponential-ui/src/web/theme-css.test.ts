@@ -1,7 +1,7 @@
 // VAPP-87: the theme → CSS compiler.
 
 import { describe, expect, it } from "bun:test"
-import { builtinTheme, loadTheme, BUILTIN_THEMES, THEME_SCHEMA_ID } from "@exponential-at/ui"
+import { builtinTheme, loadTheme, BUILTIN_THEMES, THEME_SCHEMA_ID } from "@exponential_app/ui"
 import { compileTheme, cssValue, declarations, ruleSelectors, themeScope, tokenVar } from "./theme-css"
 import { nodeSheet } from "./box-css"
 

@@ -1,7 +1,7 @@
 // N-12: THE DockCard and THE Dock pile of the primitive sets: the class
 // recipes and the pile's geometry both renderers bind (React
-// @exponential-at/ui-react/primitives `DockCard`/`DockPile`, Solid
-// @exponential-at/ui-solid/primitives, the same markup). A DockCard is a
+// @exponential_app/ui-react/primitives `DockCard`/`DockPile`, Solid
+// @exponential_app/ui-solid/primitives, the same markup). A DockCard is a
 // one-row floating card: the kind glyph and the tinted label, a muted
 // caption, trailing meta, ONE title line and the open chevron (or a trailing
 // action); several pile like the toasts (`stackGeometry` with the Dock's

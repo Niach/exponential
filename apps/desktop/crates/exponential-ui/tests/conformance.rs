@@ -4,7 +4,7 @@
 //! and writes the report (`conformance/report.schema.json`) to
 //! `$EXPONENTIAL_UI_CONFORMANCE_REPORT`, default
 //! `<CARGO_TARGET_DIR or target>/exponential-ui-conformance/exponential-ui.json`.
-//! Check it with `bun run --filter @exponential-at/ui conformance:check <report>`.
+//! Check it with `bun run --filter @exponential_app/ui conformance:check <report>`.
 
 mod support;
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-// `bun run --filter @exponential-at/ui conformance` — the renderer
+// `bun run --filter @exponential_app/ui conformance` — the renderer
 // conformance harness, everything this machine can run:
 //   1. the WEB dump: the React renderer in headless Chromium with the
 //      conformance fonts (packages/exponential-ui-react/scripts/conformance-web.ts),

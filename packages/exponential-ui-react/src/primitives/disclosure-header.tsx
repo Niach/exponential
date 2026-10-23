@@ -1,6 +1,6 @@
 import * as React from "react"
 import { ChevronDown, ChevronRight } from "lucide-react"
-import { DISCLOSURE_HEADER_CLASSES } from "@exponential-at/ui/web/primitives"
+import { DISCLOSURE_HEADER_CLASSES } from "@exponential_app/ui/web/primitives"
 
 import { cn } from "./cn"
 

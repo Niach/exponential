@@ -1,6 +1,6 @@
 import { Show, createContext, splitProps, useContext, type ComponentProps, type JSX } from "solid-js"
 import { X } from "lucide-solid"
-import { DIALOG_CLASSES, DIALOG_PHONE_QUERY, isTypeaheadPortalInteraction } from "@exponential-at/ui/web/primitives"
+import { DIALOG_CLASSES, DIALOG_PHONE_QUERY, isTypeaheadPortalInteraction } from "@exponential_app/ui/web/primitives"
 
 import {
   DialogClosePart,

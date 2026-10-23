@@ -6,8 +6,8 @@
 
 import { describe, expect, it } from "vitest"
 import { act } from "react"
-import fixture from "@exponential-at/ui/fixtures/catalog-components.json"
-import type { NestedNode } from "@exponential-at/ui"
+import fixture from "@exponential_app/ui/fixtures/catalog-components.json"
+import type { NestedNode } from "@exponential_app/ui"
 import { expectDomParity, renderReact, renderSolidSurface, serializeDom, type ParityCase } from "../test/parity"
 
 const tick = () => new Promise((r) => setTimeout(r, 0))

@@ -9,7 +9,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { join } from "node:path"
 import type { Browser, Page } from "playwright"
-import round4 from "@exponential-at/ui/fixtures/round4-contract.json"
+import round4 from "@exponential_app/ui/fixtures/round4-contract.json"
 import { bunHarness, launchChromium, openPage, type Query, type RunningHarness } from "../../exponential-ui/conformance/browser-page"
 import { firstDomDiff, normalizeIds, type DomNode } from "../../exponential-ui/conformance/parity-compare"
 

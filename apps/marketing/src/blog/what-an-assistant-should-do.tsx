@@ -115,7 +115,7 @@ export function Post() {
         </ul>
         <Callout kind="note" title="Follow along">
           Every item is an issue on a public board. The renderer is on npm and crates.io under{` `}
-          <code>exponential-at</code>; <a href="https://ui.exponential.at/">ui.exponential.at</a> shows how to paint
+          <code>exponential_app</code>; <a href="https://ui.exponential.at/">ui.exponential.at</a> shows how to paint
           a surface on each platform.
         </Callout>
       </Section>

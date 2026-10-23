@@ -1,6 +1,6 @@
-// @exponential-at/ui-solid/primitives (FEED-131): the shadcn set on Solid, the
-// twin of @exponential-at/ui-react/primitives on the shared recipes
-// (@exponential-at/ui/web/primitives). One line per module, relative imports.
+// @exponential_app/ui-solid/primitives (FEED-131): the shadcn set on Solid, the
+// twin of @exponential_app/ui-react/primitives on the shared recipes
+// (@exponential_app/ui/web/primitives). One line per module, relative imports.
 export * from "./alert"
 export * from "./alert-dialog"
 export * from "./avatar"

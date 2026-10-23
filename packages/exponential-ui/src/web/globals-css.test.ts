@@ -1,7 +1,7 @@
 // FEED-128: the theme as an app's unscoped shadcn globals.
 
 import { describe, expect, it } from "bun:test"
-import { builtinTheme } from "@exponential-at/ui"
+import { builtinTheme } from "@exponential_app/ui"
 import { globalsCss } from "./theme-css"
 
 describe(`globalsCss`, () => {

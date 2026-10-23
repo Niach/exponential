@@ -8,7 +8,7 @@
 
 Round 1 makes one A2UI surface render faithfully, responsively and
 accessibly on web, desktop, iOS and Android. This file is the CONTRACT half:
-what changed in `@exponential-at/ui` (catalog, macros, style, tokens,
+what changed in `@exponential_app/ui` (catalog, macros, style, tokens,
 themes, the TS reference, fixtures, generated constants) and what each
 renderer (React, the Rust core, gpui, SwiftUI, Compose) must implement to
 match. Everything below is locked by a fixture or a test in this package;
@@ -579,7 +579,7 @@ generated outputs carry the new token groups and `contrast`.
 
 ## 9. Per-renderer checklists
 
-### React (`@exponential-at/ui-react`, the reference renderer)
+### React (`@exponential_app/ui-react`, the reference renderer)
 1. Media: map every condition (`min/max-width|height` → `@container xui (width >= N)` / `(width < N)` with `$breakpoint` resolved from the theme; orientation via the container's aspect: emit both `(orientation: …)` container queries; `hover`/`prefers-reduced-motion` → real `@media`). States `:hover` → `:hover` (and `[data-xs~=hover]`), `:focus-visible` → `:focus-visible`, `:pressed` → `:active, [data-xs~=pressed]`, emitted after the media rules in that order.
 2. Bind pass: run `bindTree` semantics in the binding layer (props along the schema with DATA props verbatim, styles, recipe props, `accessibility`, `$string`), drop falsy `visible`, honour template `key` as the React key; Table slot cells per row (`bindRowSlot`); map `accessibility` (role, states, `autoFocus`) to ARIA; mirror `rtlMirroredIcons` under rtl.
 3. Actions: `runAction` order; implement `set` against the surface data model.

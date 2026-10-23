@@ -1,6 +1,6 @@
 import * as React from "react"
 import type { VariantProps } from "class-variance-authority"
-import { ALERT_CLASSES, alertVariants } from "@exponential-at/ui/web/primitives"
+import { ALERT_CLASSES, alertVariants } from "@exponential_app/ui/web/primitives"
 
 import { cn } from "./cn"
 

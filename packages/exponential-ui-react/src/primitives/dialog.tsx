@@ -1,7 +1,7 @@
 import * as React from "react"
 import { XIcon } from "lucide-react"
 import { Dialog as DialogPrimitive } from "radix-ui"
-import { DIALOG_CLASSES, DIALOG_PHONE_QUERY, isTypeaheadPortalInteraction } from "@exponential-at/ui/web/primitives"
+import { DIALOG_CLASSES, DIALOG_PHONE_QUERY, isTypeaheadPortalInteraction } from "@exponential_app/ui/web/primitives"
 
 import { cn } from "./cn"
 import { Button } from "./button"

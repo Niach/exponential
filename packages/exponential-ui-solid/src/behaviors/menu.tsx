@@ -8,7 +8,7 @@
 
 import { createContext, createSignal, onCleanup, onMount, untrack, useContext, type Accessor, type JSX } from "solid-js"
 import type { VirtualElement } from "@floating-ui/dom"
-import { OVERLAY_PADDING } from "@exponential-at/ui"
+import { OVERLAY_PADDING } from "@exponential_app/ui"
 import { createLayer, LayerContext, type OutsideEvent } from "./dismissable-layer"
 import { createFocusScope, focusFirst } from "./focus-scope"
 import { useFocusGuards } from "./focus-guards"

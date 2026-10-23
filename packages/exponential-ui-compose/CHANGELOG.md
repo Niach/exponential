@@ -3,6 +3,10 @@
 All notable changes to this package. The SDK packages share one version and
 release together from a `ui-v<version>` tag (`packages/exponential-ui/release/README.md`).
 
+## 0.1.1 (2026-10-23)
+
+- Version-only release: the SDK's npm packages moved to the `@exponential_app` scope and every package shares one version. Coordinates unchanged (`at.exponential:ui-compose`, `at.exponential:ui-compose-primitives`); same contents as 0.1.0.
+
 ## 0.1.0 (2026-10-23)
 
 First release.

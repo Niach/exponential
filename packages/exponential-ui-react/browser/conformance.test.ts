@@ -3,7 +3,7 @@
 // Chromium with the conformance font set must reproduce the committed web
 // baseline (fixtures/conformance-baseline.json) node for node within the
 // matrix's tolerance — a React layout change shows up here as the nodes it
-// moved. Intended changes: `bun run --filter @exponential-at/ui conformance
+// moved. Intended changes: `bun run --filter @exponential_app/ui conformance
 // -- --write-baseline`, then review the baseline diff. The desktop half
 // gates against the same baseline in
 // apps/desktop/crates/exponential-ui-gpui/tests/conformance.rs.

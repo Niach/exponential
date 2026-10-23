@@ -1,1 +1,1 @@
-export * from "@exponential-at/ui-react/primitives/sheet"
+export * from "@exponential_app/ui-react/primitives/sheet"

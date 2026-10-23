@@ -1,5 +1,5 @@
 import { createContext, splitProps, useContext, type ComponentProps, type JSX } from "solid-js"
-import { ALERT_DIALOG_CLASSES } from "@exponential-at/ui/web/primitives"
+import { ALERT_DIALOG_CLASSES } from "@exponential_app/ui/web/primitives"
 
 import {
   DialogClosePart,

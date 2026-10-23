@@ -1,1 +1,1 @@
-export { cn, getInitials } from "@exponential-at/ui/web/primitives"
+export { cn, getInitials } from "@exponential_app/ui/web/primitives"

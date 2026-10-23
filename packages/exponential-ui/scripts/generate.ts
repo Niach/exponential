@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 // VAPP-85: emits everything derived from catalog/*.json. Run from the repo
-// root with `bun run --filter @exponential-at/ui generate`; generate.test.ts
+// root with `bun run --filter @exponential_app/ui generate`; generate.test.ts
 // re-renders in memory and fails on any committed drift.
 //
 // Outputs (all committed):

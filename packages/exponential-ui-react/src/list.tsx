@@ -1,7 +1,7 @@
 // VAPP-87 + round 2 (docs/round-2-contract.md §5): the WINDOWED list on ONE
 // axis (vertical or horizontal). The numbers are the core's (`itemOffsets`,
 // `virtualWindow`, `scrollOffsetForIndex`, `stickyHeader` from
-// `@exponential-at/ui`): rows sit end to end with `gap` between them (a
+// `@exponential_app/ui`): rows sit end to end with `gap` between them (a
 // divided list adds the hairline to the gap and draws the divider centred
 // in it), unmeasured rows take the measured mean, or the estimate (`$control.row`) before any is measured. Rows are
 // positioned absolutely inside a spacer as long as the content; ONE
@@ -17,8 +17,8 @@
 // | end | nearest) minus the pinned header.
 
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react"
-import { itemExtents, itemOffsets, scrollOffsetForIndex, stickyHeader, virtualWindow, WINDOW_OVERSCAN, type ScrollAlign } from "@exponential-at/ui"
-import { listViewport as viewportOf, scrollParent, type ListAxis } from "@exponential-at/ui/web"
+import { itemExtents, itemOffsets, scrollOffsetForIndex, stickyHeader, virtualWindow, WINDOW_OVERSCAN, type ScrollAlign } from "@exponential_app/ui"
+import { listViewport as viewportOf, scrollParent, type ListAxis } from "@exponential_app/ui/web"
 
 export type { ListAxis }
 

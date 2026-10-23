@@ -17,8 +17,8 @@
 // surfaces on one page can wear two themes and a host page's own
 // Tailwind/shadcn variables are never touched.
 
-import { ANIMATIONS, animatesOpacity, coreCatalog, easingCss, parseTokenRef, shadowCss } from "@exponential-at/ui"
-import type { Easing, FontSpec, RecipeRule, ResolvedTheme, Shadow } from "@exponential-at/ui"
+import { ANIMATIONS, animatesOpacity, coreCatalog, easingCss, parseTokenRef, shadowCss } from "@exponential_app/ui"
+import type { Easing, FontSpec, RecipeRule, ResolvedTheme, Shadow } from "@exponential_app/ui"
 
 export const LAYERS = `@layer xui-base, xui-recipe, xui-node, xui-part;`
 

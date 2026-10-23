@@ -199,7 +199,7 @@ fn gpui_matches_the_web_baseline_within_the_known_budget() {
     let mut by_origin: BTreeMap<String, (String, String, Vec<String>)> = BTreeMap::new();
     let mut one_sided: BTreeMap<(String, &str), usize> = BTreeMap::new();
     for case in &cases {
-        let reference = baseline.get(&case.key).unwrap_or_else(|| panic!("{}: not in the baseline (rewrite it: bun run --filter @exponential-at/ui conformance -- --write-baseline)", case.key));
+        let reference = baseline.get(&case.key).unwrap_or_else(|| panic!("{}: not in the baseline (rewrite it: bun run --filter @exponential_app/ui conformance -- --write-baseline)", case.key));
         let cand = &dump.cases[&case.key];
         let r = compare_case(reference, cand, px, text_lines);
         let origins: Vec<&Diff> = r.diffs.iter().filter(|d| d.origin).collect();

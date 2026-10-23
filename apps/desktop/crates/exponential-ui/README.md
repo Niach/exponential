@@ -1,7 +1,7 @@
 # `exponential-ui` — the Exponential UI core
 
 The Rust engine behind every native Exponential UI painter (gpui, SwiftUI,
-Compose), VAPP-86. It is the native half of [`@exponential-at/ui`]
+Compose), VAPP-86. It is the native half of [`@exponential_app/ui`]
 (`packages/exponential-ui`): the same catalog, macro table, basic-catalog map
 and built-in themes, EMBEDDED by the same generator, replaying the same
 fixtures byte for byte. The mobile facade is the sibling crate
@@ -277,7 +277,7 @@ Forms, scroll clamping, hover cards, inert disabled controls, template key
 collisions, per-node direction, `%` font sizes, snapshots mid-pass).
 
 `src/generated/{catalog,themes}.rs` are COPIES written by
-`bun run --filter @exponential-at/ui generate` (the package's
+`bun run --filter @exponential_app/ui generate` (the package's
 `generate.test.ts` gates them); never edit them.
 
 ## Numbers

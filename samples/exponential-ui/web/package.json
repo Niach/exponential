@@ -8,8 +8,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@exponential-at/ui": "file:../.packs/exponential-at-ui-0.1.0.tgz",
-    "@exponential-at/ui-react": "file:../.packs/exponential-at-ui-react-0.1.0.tgz",
+    "@exponential_app/ui": "file:../.packs/exponential_app-ui-0.1.1.tgz",
+    "@exponential_app/ui-react": "file:../.packs/exponential_app-ui-react-0.1.1.tgz",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
   },
@@ -18,6 +18,6 @@
     "vite": "^7.1.0"
   },
   "overrides": {
-    "@exponential-at/ui": "file:../.packs/exponential-at-ui-0.1.0.tgz"
+    "@exponential_app/ui": "file:../.packs/exponential_app-ui-0.1.1.tgz"
   }
 }

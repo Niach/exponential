@@ -4,11 +4,11 @@
 // negatives, gaps, labels, a full pie, a title), dark + rtl + forced states.
 
 import { describe, expect, it } from "vitest"
-import type { NestedNode } from "@exponential-at/ui"
-import components from "@exponential-at/ui/fixtures/catalog-components.json"
-import specimens from "@exponential-at/ui/fixtures/specimens.json"
-import dashboard from "@exponential-at/ui/fixtures/dashboard.json"
-import dashboardData from "@exponential-at/ui/fixtures/dashboard.data.json"
+import type { NestedNode } from "@exponential_app/ui"
+import components from "@exponential_app/ui/fixtures/catalog-components.json"
+import specimens from "@exponential_app/ui/fixtures/specimens.json"
+import dashboard from "@exponential_app/ui/fixtures/dashboard.json"
+import dashboardData from "@exponential_app/ui/fixtures/dashboard.data.json"
 import { renderBoth, renderReact, renderSolidSurface, serializeDom, type ParityCase } from "../test/parity"
 
 // src/test/parity.ts's GENERATED_ID misses React 19.2's `useId` form

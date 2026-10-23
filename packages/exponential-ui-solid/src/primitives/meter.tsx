@@ -1,10 +1,10 @@
 import { splitProps } from "solid-js"
-import { METER_CLASSES, type MeterTone } from "@exponential-at/ui/web/primitives"
+import { METER_CLASSES, type MeterTone } from "@exponential_app/ui/web/primitives"
 
 import { Progress, type ProgressProps } from "./progress"
 import { cn } from "./cn"
 
-export type { MeterTone } from "@exponential-at/ui/web/primitives"
+export type { MeterTone } from "@exponential_app/ui/web/primitives"
 
 export function Meter(
   props: Omit<ProgressProps, `value`> & {

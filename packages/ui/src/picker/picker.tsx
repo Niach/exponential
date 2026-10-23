@@ -1,6 +1,6 @@
 import type { ReactNode } from "react"
 
-import { DialogPresentationContext } from "@exponential-at/ui-react/primitives/dialog"
+import { DialogPresentationContext } from "@exponential_app/ui-react/primitives/dialog"
 import { useContext } from "react"
 
 import { Combobox, type ComboboxPresentation } from "../combobox"

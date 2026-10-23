@@ -5,11 +5,11 @@
 // denied one is a failed load.
 
 import { createEffect, createMemo, createSignal, onCleanup, type Accessor } from "solid-js"
-import { openMediaSource, type MediaKind } from "@exponential-at/ui/web"
+import { openMediaSource, type MediaKind } from "@exponential_app/ui/web"
 import type { HostPlugin } from "./host"
 
-export { clearMediaCache, fetchLimited, fetchStream, mediaCacheStats, MEDIA_CACHE_IDLE_MAX } from "@exponential-at/ui/web"
-export type { MediaKind } from "@exponential-at/ui/web"
+export { clearMediaCache, fetchLimited, fetchStream, mediaCacheStats, MEDIA_CACHE_IDLE_MAX } from "@exponential_app/ui/web"
+export type { MediaKind } from "@exponential_app/ui/web"
 
 export interface MediaSourceState {
   url: string | undefined

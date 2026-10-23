@@ -16,7 +16,7 @@
 // (their items render under the template node's own class), so a templated
 // row wears its author and macro styles (audit bug B).
 
-import { parseMediaCondition, parseTokenRef, type FontSpec, type ResolvedTheme, type UiNode } from "@exponential-at/ui"
+import { parseMediaCondition, parseTokenRef, type FontSpec, type ResolvedTheme, type UiNode } from "@exponential_app/ui"
 import { hasDynamic } from "./data"
 import { declarations, rule, shimmerRule } from "./theme-css"
 

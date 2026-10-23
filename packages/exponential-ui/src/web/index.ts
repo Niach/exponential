@@ -1,4 +1,4 @@
-// @exponential-at/ui/web — FEED-128: the FRAMEWORK-FREE web layer every web
+// @exponential_app/ui/web — FEED-128: the FRAMEWORK-FREE web layer every web
 // renderer (React, Solid) shares: the theme → CSS compiler (+ the base sheet
 // and the per-node box sheet), the data model and bind pass, the URL/media
 // policy plumbing, the host plugin types, and the pure helpers natives need

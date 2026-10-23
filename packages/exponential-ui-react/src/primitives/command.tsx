@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { CircleXIcon, SearchIcon } from "lucide-react"
-import { COMMAND_CLASSES, COMMAND_LABEL_STYLE, COMMAND_SELECT_EVENT, commandItemValue, createCommandStore, observeCommandListHeight, type CommandFilter, type CommandStore } from "@exponential-at/ui/web/primitives"
+import { COMMAND_CLASSES, COMMAND_LABEL_STYLE, COMMAND_SELECT_EVENT, commandItemValue, createCommandStore, observeCommandListHeight, type CommandFilter, type CommandStore } from "@exponential_app/ui/web/primitives"
 
 import { cn } from "./cn"
 

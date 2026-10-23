@@ -1,4 +1,4 @@
-// @exponential-at/ui-react/primitives: the shadcn set + the generic
+// @exponential_app/ui-react/primitives: the shadcn set + the generic
 // primitives the Exponential app shares (VAPP-87). Every module, one line
 // each; intra-package imports stay RELATIVE so this barrel is never a cycle.
 export * from "./alert"

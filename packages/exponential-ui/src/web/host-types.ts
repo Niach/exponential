@@ -7,7 +7,7 @@
 // icon registry name maps to, `Markdown` = a richer markdown renderer), so
 // React and Solid share ONE plugin shape.
 
-import type { FunctionCallInfo, MediaOptions, MediaRequest, ThemeIssue, UiNode, UrlPolicy } from "@exponential-at/ui"
+import type { FunctionCallInfo, MediaOptions, MediaRequest, ThemeIssue, UiNode, UrlPolicy } from "@exponential_app/ui"
 import type { ClientFunction } from "./data"
 
 /** A registry name → the renderer's icon component (a map or a lookup). */

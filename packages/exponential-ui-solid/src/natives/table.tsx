@@ -13,8 +13,8 @@
 // Home/End move it BY INDEX, Enter presses, Space selects.
 
 import { For, Index, Show, createEffect, createMemo, createSignal, onCleanup, onMount, untrack, type Accessor, type Component, type JSX } from "solid-js"
-import { displayString, tableRowKeys, WINDOW_THRESHOLD, type UiNode } from "@exponential-at/ui"
-import { boundPath, getPointer, LITERAL_ROWS_ROOT, partClass, setPointer, sortRows, type TableColumn, type TableSort as Sort } from "@exponential-at/ui/web"
+import { displayString, tableRowKeys, WINDOW_THRESHOLD, type UiNode } from "@exponential_app/ui"
+import { boundPath, getPointer, LITERAL_ROWS_ROOT, partClass, setPointer, sortRows, type TableColumn, type TableSort as Sort } from "@exponential_app/ui/web"
 import { InstanceContext, ScopeContext, SurfaceContext, deriveContext, useInstance, useSurfaceContext } from "../context"
 import { bindAttrs } from "../bind-attrs"
 import { WindowedList, type WindowedListHandle } from "../list"

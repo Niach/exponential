@@ -1,5 +1,5 @@
 // FEED-128: THE DOM-parity pattern. One nested tree, rendered by the React
-// renderer (`@exponential-at/ui-react`, a dev dependency for tests only) and
+// renderer (`@exponential_app/ui-react`, a dev dependency for tests only) and
 // by this one, both in jsdom; the surface roots serialised with their
 // attributes SORTED and the framework-generated ids (Radix `radix-…`,
 // React `:r0:`/`«r0»`/`_r_0_`, Solid `cl-…`) renamed in order of
@@ -16,15 +16,15 @@
 // `style="pointer-events: none"` / `data-scroll-locked`), `<script>`
 // skipped, with the same canonical rules; portals and body attributes are
 // cleaned up after each side. The id rules are the browser gate's
-// (@exponential-at/ui/conformance/parity-compare.ts), one list.
+// (@exponential_app/ui/conformance/parity-compare.ts), one list.
 
 import { expect } from "vitest"
 import { act, createElement, type FunctionComponent, type ReactElement } from "react"
 import { createRoot } from "react-dom/client"
 import { createComponent, type JSX } from "solid-js"
 import { render as renderSolid } from "solid-js/web"
-import { CORE_CATALOG_ID, reduceNested } from "@exponential-at/ui"
-import type { NestedNode } from "@exponential-at/ui"
+import { CORE_CATALOG_ID, reduceNested } from "@exponential_app/ui"
+import type { NestedNode } from "@exponential_app/ui"
 import { ExponentialSurface as SolidSurface } from "../surface"
 import type { HostPlugin as SolidHostPlugin } from "../host"
 import { ID_ATTRIBUTES, isGeneratedId } from "../../../exponential-ui/conformance/parity-compare"
@@ -43,7 +43,7 @@ const generatedId = (token: string) => isGeneratedId(token) || JSDOM_GENERATED_I
  *  host plugin is typed loosely for the same reason. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type ReactHostPlugin = Record<string, any>
-const REACT_RENDERER = `@exponential-at/ui-react`
+const REACT_RENDERER = `@exponential_app/ui-react`
 let reactSurface: FunctionComponent<Record<string, unknown>> | undefined
 async function ReactSurfaceComponent(): Promise<FunctionComponent<Record<string, unknown>>> {
   reactSurface ??= ((await import(/* @vite-ignore */ REACT_RENDERER)) as { ExponentialSurface: FunctionComponent<Record<string, unknown>> }).ExponentialSurface

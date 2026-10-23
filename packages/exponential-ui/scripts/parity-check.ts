@@ -1,4 +1,4 @@
-// FEED-128: `bun run --filter @exponential-at/ui parity:check <report.json>…`
+// FEED-128: `bun run --filter @exponential_app/ui parity:check <report.json>…`
 // — exits non-zero unless every case of every web parity report passed
 // (conformance/parity.ts; conformance/README.md "Web parity").
 import { existsSync, readFileSync } from "node:fs"

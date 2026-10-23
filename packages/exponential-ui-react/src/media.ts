@@ -1,16 +1,16 @@
 // VAPP-91: the media loader on React. The policy, the bounded blob-url
 // cache and the limited fetchers are the web layer's
-// (`@exponential-at/ui/web` media.ts, FEED-128); this is the hook around
+// (`@exponential_app/ui/web` media.ts, FEED-128); this is the hook around
 // `openMediaSource`: a fetched source loads once per mounted consumer set
 // (the cache holds it while any consumer is mounted), a direct one is used
 // as is, a denied one is a failed load.
 
 import { useEffect, useState } from "react"
-import { openMediaSource, type MediaKind } from "@exponential-at/ui/web"
+import { openMediaSource, type MediaKind } from "@exponential_app/ui/web"
 import type { HostPlugin } from "./host"
 
-export { clearMediaCache, fetchLimited, fetchStream, mediaCacheStats, MEDIA_CACHE_IDLE_MAX } from "@exponential-at/ui/web"
-export type { MediaKind } from "@exponential-at/ui/web"
+export { clearMediaCache, fetchLimited, fetchStream, mediaCacheStats, MEDIA_CACHE_IDLE_MAX } from "@exponential_app/ui/web"
+export type { MediaKind } from "@exponential_app/ui/web"
 
 /** A media source's state: the url to use (undefined while a fetched one
  *  loads or after it failed) and whether the fetch failed (so an Image can

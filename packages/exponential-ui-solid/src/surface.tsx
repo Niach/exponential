@@ -25,9 +25,9 @@ import {
   textDirection,
   DEFAULT_LOCALE,
   DEFAULT_THEME_ID,
-} from "@exponential-at/ui"
-import type { ModeName, ResolvedTheme, ScrollAlign, ThemeIssue, ThemeSource, UiNode, SurfaceCommand } from "@exponential-at/ui"
-import { BASE_CSS, CLIENT_FUNCTIONS, compileNodeSheet, compiledTheme, memoFormatter, nodeSheetBatches, openAllowed, queryToken, setPointer, share, surfaceClass, walkNodes, type DataModel, type NodeSheetBatch } from "@exponential-at/ui/web"
+} from "@exponential_app/ui"
+import type { ModeName, ResolvedTheme, ScrollAlign, ThemeIssue, ThemeSource, UiNode, SurfaceCommand } from "@exponential_app/ui"
+import { BASE_CSS, CLIENT_FUNCTIONS, compileNodeSheet, compiledTheme, memoFormatter, nodeSheetBatches, openAllowed, queryToken, setPointer, share, surfaceClass, walkNodes, type DataModel, type NodeSheetBatch } from "@exponential_app/ui/web"
 import { SurfaceContext, type SurfaceContextValue } from "./context"
 import { extensionCatalogs, extensionMacroNames, registeredExtensions, type SolidExtension } from "./extensions"
 import type { HostPlugin } from "./host"

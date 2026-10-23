@@ -5,7 +5,7 @@
 // runners/web-shared.ts drives it. A pass = the change applied inside
 // flushSync and the layout read back on the main thread.
 //
-//   bun run --filter @exponential-at/ui-bench bench:react [--scenario <id>]… [--repeat <n>]
+//   bun run --filter @exponential_app/ui-bench bench:react [--scenario <id>]… [--repeat <n>]
 //
 // Writes `{ renderer: "react-chromium", platform: "web", … }` to
 // $EXPONENTIAL_UI_BENCH_OUT (default .bench/react-chromium.json).

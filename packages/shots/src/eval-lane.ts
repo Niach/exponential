@@ -8,7 +8,7 @@
  * specimens, but OUTSIDE the catalog and the store: the pictures go to
  * `eval/out/<id>/<platform>.webp` (gitignored, beside the web renders), the
  * frames each host dumps to `eval/out/<id>/<platform>.frames.json`, and
- * `bun run --filter @exponential-at/ui eval:natives` measures them into
+ * `bun run --filter @exponential_app/ui eval:natives` measures them into
  * `eval/report.json`.
  *
  *   bun run shots -- --platform android --views eval              (every surface)

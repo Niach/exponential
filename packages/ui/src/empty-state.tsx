@@ -1,1 +1,1 @@
-export * from "@exponential-at/ui-react/primitives/empty-state"
+export * from "@exponential_app/ui-react/primitives/empty-state"

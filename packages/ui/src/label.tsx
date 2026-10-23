@@ -1,1 +1,1 @@
-export * from "@exponential-at/ui-react/primitives/label"
+export * from "@exponential_app/ui-react/primitives/label"

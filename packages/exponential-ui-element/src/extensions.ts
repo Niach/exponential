@@ -9,8 +9,8 @@
 
 import { children as resolveChildren, createMemo, getOwner, runWithOwner, untrack } from "solid-js"
 import type { JSX } from "solid-js"
-import type { ExtensionDef, ModeName, ResolvedTheme, UiNode } from "@exponential-at/ui"
-import { defineSolidExtension, registerExtension as registerSolidExtension, type ExtensionComponent, type ExtensionComponentProps, type RegisterExtensionOptions, type SolidExtension } from "@exponential-at/ui-solid"
+import type { ExtensionDef, ModeName, ResolvedTheme, UiNode } from "@exponential_app/ui"
+import { defineSolidExtension, registerExtension as registerSolidExtension, type ExtensionComponent, type ExtensionComponentProps, type RegisterExtensionOptions, type SolidExtension } from "@exponential_app/ui-solid"
 
 export interface ElementPaintContext {
   node: UiNode

@@ -15,11 +15,11 @@ import { useSurfaceContext } from "../context"
 import { FieldErrors, joinIds, useField } from "../form"
 import type { NativeProps } from "../node-view"
 import { useBoundState } from "./bound"
-import { linkHref } from "@exponential-at/ui/web"
+import { linkHref } from "@exponential_app/ui/web"
 import { useListNavigation } from "./listbox"
-import { partClass } from "@exponential-at/ui/web"
+import { partClass } from "@exponential_app/ui/web"
 import { arr, bool, BuiltinIcon, formatFileSize, num, phrase, str, useParts, TextPart, objects } from "./shared"
-import { acceptsFile } from "@exponential-at/ui/web"
+import { acceptsFile } from "@exponential_app/ui/web"
 
 export { acceptsFile }
 

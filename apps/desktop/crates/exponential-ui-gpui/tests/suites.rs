@@ -7,7 +7,7 @@
 //! links directly (no FFI). Writes the report to
 //! `$EXPONENTIAL_UI_CONFORMANCE_REPORT`, default
 //! `<repo>/.conformance/exponential-ui-gpui.json`; check it with
-//! `bun run --filter @exponential-at/ui conformance:check <report>`.
+//! `bun run --filter @exponential_app/ui conformance:check <report>`.
 //!
 //! The headless window shapes text with gpui's NoopTextSystem: text widths
 //! are not CoreText's, so control-geometry checks the BORDER BOX the

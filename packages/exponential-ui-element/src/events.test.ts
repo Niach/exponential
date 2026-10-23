@@ -4,7 +4,7 @@
 // is cancelable, and `xui-ready` fires once per mount.
 
 import { afterEach, describe, expect, it, vi } from "vitest"
-import type { NestedNode } from "@exponential-at/ui"
+import type { NestedNode } from "@exponential_app/ui"
 import { defineElementExtension, type ExponentialSurfaceElement, type SurfaceActionDetail, type SurfaceInputDetail } from "./index"
 import { joinPending } from "./events"
 import { cardTree, cleanup, mount, tick, tree } from "./test/helpers"

@@ -36,21 +36,21 @@ export const RENDERERS: readonly Renderer[] = [
   {
     platform: `Web`,
     framework: `React`,
-    pkg: `@exponential-at/ui-react`,
+    pkg: `@exponential_app/ui-react`,
     source: `packages/exponential-ui-react`,
     guide: `react`,
   },
   {
     platform: `Web`,
     framework: `SolidJS`,
-    pkg: `@exponential-at/ui-solid`,
+    pkg: `@exponential_app/ui-solid`,
     source: `packages/exponential-ui-solid`,
     guide: `solid`,
   },
   {
     platform: `Web`,
     framework: `Web Components`,
-    pkg: `@exponential-at/ui-element`,
+    pkg: `@exponential_app/ui-element`,
     source: `packages/exponential-ui-element`,
     guide: `element`,
   },
@@ -87,28 +87,28 @@ export interface PackageRow {
 
 export const PACKAGES: readonly PackageRow[] = [
   {
-    name: `@exponential-at/ui`,
+    name: `@exponential_app/ui`,
     registry: `npm`,
     what: `The catalog, themes, TypeScript reducer, host API and conformance suite.`,
-    install: `npm install @exponential-at/ui`,
+    install: `npm install @exponential_app/ui`,
   },
   {
-    name: `@exponential-at/ui-react`,
+    name: `@exponential_app/ui-react`,
     registry: `npm`,
     what: `The React renderer and its shadcn primitive set, with a compiled stylesheet.`,
-    install: `npm install @exponential-at/ui-react`,
+    install: `npm install @exponential_app/ui-react`,
   },
   {
-    name: `@exponential-at/ui-solid`,
+    name: `@exponential_app/ui-solid`,
     registry: `npm`,
     what: `The SolidJS renderer and the same primitives, with the same DOM and stylesheet as React.`,
-    install: `npm install @exponential-at/ui-solid`,
+    install: `npm install @exponential_app/ui-solid`,
   },
   {
-    name: `@exponential-at/ui-element`,
+    name: `@exponential_app/ui-element`,
     registry: `npm`,
     what: `The custom element <exponential-surface>: the Solid painter inside a web component, no framework in the page.`,
-    install: `npm install @exponential-at/ui-element`,
+    install: `npm install @exponential_app/ui-element`,
   },
   {
     name: `exponential-ui`,
@@ -132,13 +132,13 @@ export const PACKAGES: readonly PackageRow[] = [
     name: `ExponentialUI`,
     registry: `SwiftPM`,
     what: `The SwiftUI painter (iOS 17, macOS 14), from github.com/Niach/exponential-ui-swift.`,
-    install: `.package(url: "https://github.com/Niach/exponential-ui-swift", from: "0.1.0")`,
+    install: `.package(url: "https://github.com/Niach/exponential-ui-swift", from: "0.1.1")`,
   },
   {
     name: `at.exponential:ui-compose`,
     registry: `Maven Central`,
     what: `The Compose painter (minSdk 26), with ui-compose-primitives.`,
-    install: `implementation("at.exponential:ui-compose:0.1.0")`,
+    install: `implementation("at.exponential:ui-compose:0.1.1")`,
   },
 ]
 

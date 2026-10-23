@@ -1,1 +1,1 @@
-export * from "@exponential-at/ui-react/primitives/composer"
+export * from "@exponential_app/ui-react/primitives/composer"

@@ -1,6 +1,6 @@
 import { Show, splitProps, type ComponentProps, type JSX } from "solid-js"
 import { X } from "lucide-solid"
-import { SHEET_CLASSES, isTypeaheadPortalInteraction, type SheetSide } from "@exponential-at/ui/web/primitives"
+import { SHEET_CLASSES, isTypeaheadPortalInteraction, type SheetSide } from "@exponential_app/ui/web/primitives"
 
 import {
   DialogClosePart,

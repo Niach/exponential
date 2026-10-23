@@ -1,1 +1,1 @@
-export * from "@exponential-at/ui-react/primitives/checkbox"
+export * from "@exponential_app/ui-react/primitives/checkbox"

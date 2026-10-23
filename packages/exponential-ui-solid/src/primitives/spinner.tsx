@@ -1,6 +1,6 @@
 import { splitProps, type JSX } from "solid-js"
 import { LoaderCircle } from "lucide-solid"
-import { SPINNER_CLASSES } from "@exponential-at/ui/web/primitives"
+import { SPINNER_CLASSES } from "@exponential_app/ui/web/primitives"
 
 import { PaintIcon } from "../icons"
 import { css } from "../style"

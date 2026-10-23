@@ -1,9 +1,9 @@
 import { splitProps, type ComponentProps } from "solid-js"
-import { INPUT_CLASSES } from "@exponential-at/ui/web/primitives"
+import { INPUT_CLASSES } from "@exponential_app/ui/web/primitives"
 
 import { cn } from "./cn"
 
-export { BARE_FIELD_CLASS, FIELD_CHROME_CLASS } from "@exponential-at/ui/web/primitives"
+export { BARE_FIELD_CLASS, FIELD_CHROME_CLASS } from "@exponential_app/ui/web/primitives"
 
 /** React reflects a controlled `value` as the attribute too (shared.tsx
  *  rule 2): `attr:value` mirrors it. */

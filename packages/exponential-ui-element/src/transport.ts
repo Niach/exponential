@@ -15,9 +15,9 @@
 // their http(s) twins (the policy knows http hosts). Denied = no host, no
 // request; the element reports `closed` with the reason.
 
-import { DEFAULT_URL_SCHEMES, ExponentialHost, JsonlStreamTransport, SseTransport, WebSocketTransport, decideUrl } from "@exponential-at/ui"
-import type { ExtensionDef, Transport, UrlDecision, UrlPolicy } from "@exponential-at/ui"
-import { ownPrivateHosts } from "@exponential-at/ui/web"
+import { DEFAULT_URL_SCHEMES, ExponentialHost, JsonlStreamTransport, SseTransport, WebSocketTransport, decideUrl } from "@exponential_app/ui"
+import type { ExtensionDef, Transport, UrlDecision, UrlPolicy } from "@exponential_app/ui"
+import { ownPrivateHosts } from "@exponential_app/ui/web"
 
 export type TransportKind = `jsonl` | `sse` | `ws`
 

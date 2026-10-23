@@ -15,11 +15,11 @@
 // No private hook: if one is ever needed, the SDK's API is incomplete.
 
 import { useState, useSyncExternalStore } from "react"
-import { ExponentialHost, isPrivateHost } from "@exponential-at/ui"
-import type { FunctionCallInfo, ParsedSource, SourceEmit, Transport } from "@exponential-at/ui"
-import { useHostStatus } from "@exponential-at/ui-react"
+import { ExponentialHost, isPrivateHost } from "@exponential_app/ui"
+import type { FunctionCallInfo, ParsedSource, SourceEmit, Transport } from "@exponential_app/ui"
+import { useHostStatus } from "@exponential_app/ui-react"
 import { Button, CodeBlock, CodeBlockContent, Collapsible, CollapsibleContent, CollapsibleTrigger, Prompt, appExtensionCatalog, devicesPackage, toast } from "@exp/ui"
-import type { AppPackage } from "@exponential-at/ui"
+import type { AppPackage } from "@exponential_app/ui"
 import { getDeviceIconName } from "@exp/ui"
 import { boardCollection, deviceCollection, issueCollection, teamCollection } from "@/lib/collections"
 import { deviceRowIsOnline } from "@/lib/steer-devices"

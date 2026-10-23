@@ -1,7 +1,7 @@
 import { defineConfig } from "vitest/config"
 import solid from "vite-plugin-solid"
 
-// Headless-Chromium suites (`bun run --filter @exponential-at/ui-solid
+// Headless-Chromium suites (`bun run --filter @exponential_app/ui-solid
 // test:browser`): each test builds the harness with Vite, serves it on a
 // loopback port and drives it with Playwright. They need the Playwright
 // Chromium build on the machine (`bunx playwright install chromium`).

@@ -10,7 +10,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { join } from "node:path"
 import type { Browser, Page } from "playwright"
-import { panelExtents } from "@exponential-at/ui"
+import { panelExtents } from "@exponential_app/ui"
 import { bunHarness, launchChromium, openPage, type Query, type RunningHarness } from "../../exponential-ui/conformance/browser-page"
 import { firstDomDiff, normalizeIds, type DomNode } from "../../exponential-ui/conformance/parity-compare"
 

@@ -11,7 +11,7 @@
 import { Show, createEffect, createSignal, on, onCleanup, onMount, untrack, type JSX } from "solid-js"
 import { Portal } from "solid-js/web"
 import { autoUpdate, computePosition, flip, limitShift, offset, shift, size, type Placement } from "@floating-ui/dom"
-import { OVERLAY_OFFSET, OVERLAY_PADDING } from "@exponential-at/ui"
+import { OVERLAY_OFFSET, OVERLAY_PADDING } from "@exponential_app/ui"
 import { transformOrigin } from "./popper"
 
 const TABBABLE = `button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),a[href],[tabindex]`

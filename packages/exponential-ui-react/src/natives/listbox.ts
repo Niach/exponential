@@ -5,7 +5,7 @@
 // keys type-ahead by label when the list owns focus.
 
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react"
-import { nextEnabledIndex, typeaheadStep } from "@exponential-at/ui/web"
+import { nextEnabledIndex, typeaheadStep } from "@exponential_app/ui/web"
 
 export interface ListNavOptions {
   count: number

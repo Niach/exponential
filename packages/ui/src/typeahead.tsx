@@ -1,1 +1,1 @@
-export * from "@exponential-at/ui-react/primitives/typeahead"
+export * from "@exponential_app/ui-react/primitives/typeahead"

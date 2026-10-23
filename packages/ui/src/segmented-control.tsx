@@ -1,1 +1,1 @@
-export * from "@exponential-at/ui-react/primitives/segmented-control"
+export * from "@exponential_app/ui-react/primitives/segmented-control"
