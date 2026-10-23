@@ -1382,7 +1382,7 @@
                     "style": {
                       "display": "flex",
                       "flexDirection": "column",
-                      "gap": "$spacing.xs"
+                      "gap": "$spacing.sm"
                     },
                     "recipe": {
                       "macro": "Section",
@@ -2382,7 +2382,7 @@
                       "flexDirection": "row",
                       "flexWrap": "nowrap",
                       "gap": "$spacing.sm",
-                      "alignItems": "stretch",
+                      "alignItems": "center",
                       "justifyContent": "start",
                       "marginInlineStart": "auto"
                     },
@@ -6633,7 +6633,7 @@
                       "flexDirection": "row",
                       "flexWrap": "nowrap",
                       "gap": "$spacing.sm",
-                      "alignItems": "stretch",
+                      "alignItems": "center",
                       "justifyContent": "end"
                     },
                     "recipe": {
@@ -6875,7 +6875,7 @@
           "flexDirection": "row",
           "flexWrap": "wrap",
           "gap": "$spacing.sm",
-          "alignItems": "stretch",
+          "alignItems": "center",
           "justifyContent": "start"
         },
         "recipe": {

@@ -131,7 +131,8 @@ describe(`responsive props (§2)`, () => {
     const stack = expand({ id: `s`, component: `Stack`, props: { direction: { base: `vertical`, md: `horizontal` }, gap: { base: `sm`, lg: `lg` } } })
     expect(stack.style).toEqual({
       display: `flex`, flexDirection: `column`, flexWrap: `nowrap`, gap: `$spacing.sm`, alignItems: `stretch`, justifyContent: `start`,
-      "@media (min-width: $breakpoint.md)": { flexDirection: `row` },
+      // VAPP-128: an unset `align` follows the direction (a row centres).
+      "@media (min-width: $breakpoint.md)": { flexDirection: `row`, alignItems: `center` },
       "@media (min-width: $breakpoint.lg)": { gap: `$spacing.lg` },
     })
     const grid = expand({ id: `g`, component: `Grid`, props: { columns: { base: 1, sm: 2, lg: 3 } } })

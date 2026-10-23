@@ -42,7 +42,8 @@ export const PROMPT_RULES: readonly string[] = [
   `An action (on: {event: action}) = {event: {name, context?}} (sent to you; context values may be bindings, read AFTER the component's own write) and/or {functionCall: {call, args}} (runs on the client: a function below, or a namespaced host function like app.toast).`,
   `Lay out with Page, Stack, Grid, Card, SplitView, Sidebar and List (anything longer than a screen); a row of controls is a Toolbar, fields side by side a FieldGroup, the Cancel/submit row FormActions; Box + style only for the rest. Wrap fields in Form; a valid submit closes the Dialog or Drawer around it.`,
   `Responsive: a ^ prop also takes {base, sm?, md?, lg?, xl?} (from that breakpoint up). Style conditions, one level, narrow first: "@media (min-width: $breakpoint.md)": {…} (also max-width, min-height, max-height in px or $breakpoint.sm|md|lg|xl; orientation: portrait|landscape; hover: hover|none; prefers-reduced-motion: reduce), then ":hover", ":focus-visible", ":pressed". display: "none" hides.`,
-  `Prefer catalog components over Markdown, labels and tones over colours; a colour is a $color.* token, never #hex (light and dark both apply). Built-in copy (Cancel, Search…) is localized: leave it unset.`,
+  `Prefer catalog components over Markdown (feature lists = List + Row, not bullets), labels and tones over colours; a colour is a $color.* token, never #hex (light and dark both apply). Built-in copy (Cancel, Search…) is localized: leave it unset.`,
+  `One default Button per screen (the FormActions submit or the main action); the rest outline, secondary or ghost.`,
 ]
 
 /** Props whose meaning is the same everywhere: described ONCE in the full

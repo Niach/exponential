@@ -8,6 +8,7 @@
 // `bun run eval:parity` after a shots refresh).
 
 import { describe, expect, test } from "bun:test"
+import { join } from "node:path"
 import corpus from "./corpus.json" with { type: "json" }
 import report from "./report.json" with { type: "json" }
 import { RUBRICS, aggregate, authoredDepth, parseReply, rubricScores, scoreFixture, spacingStats, surfaceOf, type Corpus } from "./lib"
@@ -215,7 +216,7 @@ describe(`the parser and the rubric`, () => {
   test(`the rubric counts what it says`, () => {
     const components = [
       { id: `root`, component: `Stack`, children: [`row`, `box`, `md`, `list`, `empty`, `form`, `lone`] },
-      { id: `row`, component: `Stack`, direction: `horizontal`, children: [`t`, `b1`] },
+      { id: `row`, component: `Stack`, direction: `horizontal`, align: `stretch`, children: [`t`, `b1`] },
       { id: `t`, component: `Text`, text: `x` },
       { id: `b1`, component: `Button`, label: `Go` },
       { id: `box`, component: `Box`, style: { padding: 12, gap: `$spacing.md`, "@media (min-width: $breakpoint.md)": { paddingTop: 7 } } },
@@ -236,5 +237,14 @@ describe(`the parser and the rubric`, () => {
     expect(row.findings).toContain(`1 of 2 fields outside a Form`)
     expect(row.findings).toContain(`2 raw px spacing value(s): 7, 12`)
     expect(row.issues.length).toBe(0)
+  })
+})
+
+describe(`the VAPP-128 baseline (eval/baseline-1181)`, () => {
+  test(`VAPP-125's prompt through the same recorder scores what the Guide states, with today's rubric`, () => {
+    const { rows, missing } = scoreAll(join(import.meta.dir, `baseline-1181`))
+    expect(missing).toEqual([])
+    const a = aggregate(rows)
+    expect([a.validatorClean, a.issuesTotal, a.components.total]).toEqual([10, 43, 469])
   })
 })

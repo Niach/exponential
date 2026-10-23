@@ -39,19 +39,25 @@ impl Builder<'_, '_> {
         let kind = owner.component.clone();
         let context_menu = is_context_menu(&owner.component, &owner.props);
         let press_menu = kind == "Menu" && !context_menu;
-        // Round 2 §7: the overlay is LAYOUT-TRANSPARENT, its frame is the
-        // trigger's. A control trigger (Button, Toggle) keeps its own size;
-        // any other trigger (a Link, a Box) is the flex item: the wrapper
-        // takes the parent's alignment and the trigger fills it. A press
-        // Menu's trigger is its ONE child (no `trigger` slot).
+        // Round 2 §7: the overlay is LAYOUT-TRANSPARENT: the wrapper is the
+        // flex item and takes the parent's alignment. A control trigger
+        // (Button, Toggle) keeps its own size at the wrapper's start (VAPP-128:
+        // the wrapper is no longer pinned to flex-start, so a Menu button in
+        // a centred or end-aligned row lines up with its siblings); any other
+        // trigger (a Link, a Box) fills the wrapper. A press Menu's trigger
+        // is its ONE child (no `trigger` slot).
         let slot_trigger = if press_menu { node.children.first() } else { node.slots.as_ref().and_then(|s| s.get("trigger")) };
         let fills = slot_trigger.is_some_and(|t| !matches!(t.component.as_str(), "Button" | "Toggle"));
         if context_menu {
             self.style_default(index, &[("display", json!("flex")), ("flexDirection", json!("column"))]);
         } else if fills {
             self.style_default(index, &[("display", json!("flex")), ("flexDirection", json!("row")), ("alignItems", json!("stretch"))]);
-        } else {
+        } else if slot_trigger.is_none() && !press_menu && kind != "Tooltip" {
+            // No trigger at all (a DockCard's sheet, a controlled Dialog): the
+            // wrapper lays out nothing, pinned to the start at zero size.
             self.style_default(index, &[("display", json!("flex")), ("flexDirection", json!("row")), ("alignSelf", json!("flex-start"))]);
+        } else {
+            self.style_default(index, &[("display", json!("flex")), ("flexDirection", json!("row")), ("alignItems", json!("flex-start"))]);
         }
         let mut anchor: Option<u32> = None;
         if let Some(trigger) = slot_trigger {

@@ -104,8 +104,7 @@
           "required": false,
           "bindable": true,
           "responsive": true,
-          "default": "stretch",
-          "description": "Cross-axis alignment of the children."
+          "description": "Unset: `center` in a row, `stretch` in a column."
         },
         {
           "name": "justify",
@@ -114,7 +113,7 @@
           "bindable": true,
           "responsive": true,
           "default": "start",
-          "description": "Main-axis distribution of the children."
+          "description": "Main-axis distribution."
         },
         {
           "name": "wrap",
@@ -143,8 +142,7 @@
         "id": "example",
         "component": "Stack",
         "direction": "horizontal",
-        "gap": "sm",
-        "align": "center"
+        "gap": "sm"
       },
       "macro": "Expands to natives (see catalog/macros.json); the theme styles its parts by recipe Stack/<part>."
     },
@@ -346,7 +344,7 @@
           "required": false,
           "bindable": false,
           "responsive": false,
-          "description": "Groups consecutive template items by this field; slot `section` = each header (scope {value, count})."
+          "description": "Groups consecutive items by this field; slot `section` = each header ({value, count})."
         },
         {
           "name": "stickyHeaders",
@@ -1018,7 +1016,7 @@
           "bindable": false,
           "responsive": false,
           "default": "off",
-          "description": "Announces text changes to screen readers (`assertive` interrupts)."
+          "description": "Announces changes (`assertive` interrupts)."
         },
         {
           "name": "style",
@@ -1911,7 +1909,7 @@
           "bindable": false,
           "responsive": false,
           "default": "segmented",
-          "description": "A pill track, bare `toggles`, joined `outline` buttons, or a full-width `bar` with icons over labels."
+          "description": "Pill track, bare toggles, joined outline buttons, or a full-width icon `bar`."
         },
         {
           "name": "size",
@@ -2929,7 +2927,7 @@
           "bindable": false,
           "responsive": false,
           "default": "info",
-          "description": "The severity, picking icon and tone (`error` interrupts screen readers)."
+          "description": "Severity: icon and tone (`error` interrupts readers)."
         },
         {
           "name": "open",
@@ -3782,7 +3780,7 @@
           "required": true,
           "bindable": true,
           "responsive": false,
-          "description": "One per line, bar group or pie ring; coloured $color.chart1..8 unless toned."
+          "description": "One per line, bar group or pie ring."
         },
         {
           "name": "title",
@@ -6172,7 +6170,7 @@
           "bindable": true,
           "responsive": false,
           "default": "none",
-          "description": "A trailing disclosure (`right`) or picker (`selector`) glyph."
+          "description": "Trailing disclosure or picker glyph."
         },
         {
           "name": "selected",
@@ -6217,7 +6215,7 @@
           "bindable": false,
           "responsive": false,
           "default": 0,
-          "description": "Nesting depth under a tree Section (0 = root); the guides come from the rows around it."
+          "description": "Depth under a tree Section (0 = root)."
         }
       ],
       "accessibility": {

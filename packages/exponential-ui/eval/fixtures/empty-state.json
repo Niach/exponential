@@ -4,13 +4,13 @@
   "prompt": "The empty state of a board with no issues yet: say so, explain what a board is for in one sentence and offer to create the first issue.",
   "model": "claude-opus-5-5",
   "promptVariant": "full",
-  "recordedAt": "2026-10-23T05:11:39.842Z",
+  "recordedAt": "2026-10-23T10:57:07.196Z",
   "recordedBy": "claude-cli",
   "usage": {
-    "inputTokens": 8242,
-    "outputTokens": 429,
-    "cacheReadInputTokens": 7698,
+    "inputTokens": 11964,
+    "outputTokens": 335,
+    "cacheReadInputTokens": 11386,
     "estimated": false
   },
-  "text": "{\"version\":\"v0.9\",\"createSurface\":{\"surfaceId\":\"board-empty\",\"catalogId\":\"https://ui.exponential.at/catalogs/core/v1\"}}\n{\"version\":\"v0.9\",\"updateDataModel\":{\"surfaceId\":\"board-empty\",\"path\":\"/board\",\"value\":{\"name\":\"Mobile App Launch\",\"issues\":[]}}}\n{\"version\":\"v0.9\",\"updateComponents\":{\"surfaceId\":\"board-empty\",\"components\":[{\"id\":\"root\",\"component\":\"Stack\",\"gap\":\"none\",\"children\":[\"appbar\",\"body\"]},{\"id\":\"appbar\",\"component\":\"AppBar\",\"title\":{\"path\":\"/board/name\"},\"subtitle\":\"Board\"},{\"id\":\"body\",\"component\":\"Box\",\"style\":{\"padding\":\"$spacing.xl\",\"display\":\"flex\",\"justifyContent\":\"center\",\"alignItems\":\"center\",\"minHeight\":\"360px\"},\"children\":[\"empty\"]},{\"id\":\"empty\",\"component\":\"EmptyState\",\"icon\":\"kanban\",\"size\":\"page\",\"title\":\"No issues yet\",\"description\":\"A board lets you track your team's work at a glance by moving issues through stages from to-do to done.\",\"actionLabel\":\"Create first issue\",\"on\":{\"press\":{\"event\":{\"name\":\"createIssue\",\"context\":{\"board\":{\"path\":\"/board/name\"}}}}}}]}}"
+  "text": "{\"createSurface\":{\"surfaceId\":\"board-empty\",\"catalogId\":\"https://ui.exponential.at/catalogs/core/v1\"}}\n{\"updateComponents\":{\"surfaceId\":\"board-empty\",\"components\":[{\"id\":\"root\",\"component\":\"Page\",\"title\":{\"path\":\"/board/name\"},\"subtitle\":{\"path\":\"/board/team\"},\"children\":[\"empty\"]},{\"id\":\"empty\",\"component\":\"EmptyState\",\"size\":\"page\",\"icon\":\"square-kanban\",\"title\":\"No issues yet\",\"description\":\"A board lays out your team's issues in columns by status, so everyone can see what's planned, in progress and done at a glance.\",\"actionLabel\":\"Create first issue\",\"on\":{\"press\":{\"event\":{\"name\":\"createIssue\",\"context\":{\"boardId\":{\"path\":\"/board/id\"}}}}}}]}}\n{\"updateDataModel\":{\"surfaceId\":\"board-empty\",\"path\":\"/board\",\"value\":{\"id\":\"board-42\",\"name\":\"Product Roadmap\",\"team\":\"Platform team\"}}}"
 }

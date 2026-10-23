@@ -25,7 +25,20 @@
             ]
           },
           "gap": "$spacing.{props.gap|md}",
-          "alignItems": "{props.align|stretch}",
+          "alignItems": {
+            "$coalesce": [
+              "{props.align}",
+              {
+                "$map": {
+                  "from": "props.direction",
+                  "cases": {
+                    "horizontal": "center"
+                  },
+                  "default": "stretch"
+                }
+              }
+            ]
+          },
           "justifyContent": {
             "$map": {
               "from": "props.justify",
@@ -178,7 +191,7 @@
         "style": {
           "display": "flex",
           "flexDirection": "column",
-          "gap": "$spacing.xs"
+          "gap": "$spacing.sm"
         },
         "children": [
           {

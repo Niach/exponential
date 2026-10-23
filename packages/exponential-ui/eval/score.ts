@@ -10,7 +10,7 @@
 //   bun eval/score.ts [--print]
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs"
-import { join } from "node:path"
+import { join, resolve } from "node:path"
 import budget from "../fixtures/prompt-budget.json" with { type: "json" }
 import corpus from "./corpus.json" with { type: "json" }
 import { CORE_CATALOG_ID } from "../src/catalog"
@@ -48,8 +48,8 @@ export function buildSpecimens(): SpecimensFile {
   }
 }
 
-export function readFixture(id: string): EvalFixture | undefined {
-  const file = join(FIXTURES, `${id}.json`)
+export function readFixture(id: string, dir: string = FIXTURES): EvalFixture | undefined {
+  const file = join(dir, `${id}.json`)
   if (!existsSync(file)) return undefined
   const { $comment: _, ...fixture } = JSON.parse(readFileSync(file, `utf8`)) as EvalFixture & { $comment?: string }
   return fixture
@@ -57,11 +57,11 @@ export function readFixture(id: string): EvalFixture | undefined {
 
 /** Every corpus prompt scored against its fixture (missing fixtures are
  *  reported, never scored). */
-export function scoreAll(): { rows: ScoreRow[]; missing: string[] } {
+export function scoreAll(dir: string = FIXTURES): { rows: ScoreRow[]; missing: string[] } {
   const rows: ScoreRow[] = []
   const missing: string[] = []
   for (const entry of (corpus as Corpus).prompts) {
-    const fixture = readFixture(entry.id)
+    const fixture = readFixture(entry.id, dir)
     if (!fixture) missing.push(entry.id)
     else rows.push(scoreFixture(entry, fixture))
   }
@@ -102,7 +102,16 @@ export function printSummary(report: EvalReport): string {
   return lines.join(`\n`)
 }
 
-if (import.meta.main) {
+/** VAPP-128: `--fixtures <dir>` scores another recording of the corpus
+ *  (e.g. eval/baseline-1181/, the same fixture shape) and prints its summary
+ *  without touching report.json: the before side of a before/after. */
+const fixturesArg = process.argv.indexOf(`--fixtures`)
+if (import.meta.main && fixturesArg >= 0) {
+  const dir = resolve(process.argv[fixturesArg + 1] ?? ``)
+  const { rows, missing } = scoreAll(dir)
+  if (missing.length) throw new Error(`${dir}: no fixture for ${missing.join(`, `)}`)
+  console.log(printSummary({ ...(readReport() ?? buildReport()), aggregate: aggregate(rows), rows }))
+} else if (import.meta.main) {
   const report = buildReport(readReport())
   writeFileSync(REPORT_PATH, `${JSON.stringify(report, null, 2)}\n`)
   writeFileSync(SPECIMENS_PATH, `${JSON.stringify(buildSpecimens(), null, 2)}\n`)

@@ -1055,8 +1055,8 @@ function promptBudget() {
     $comment: `${HEADER} The size of catalogPrompt() on record: prompt.test.ts fails when the full prompt passes budgetTokens (cut descriptions before components) or when these numbers drift from the catalog without being regenerated. tokens = chars / ${4}, an estimate. VAPP-108: \`index\` = sections rules + index + functions + style (the components then come one at a time through componentPrompt, \`perComponent\`), \`rules\` = the rules alone.`,
     // EXP-1259: SearchList joined the catalog (descriptions trimmed first).
     // EXP-1324: Trace + TraceItem (descriptions trimmed first).
-    // VAPP-126 (a named budget exception, see the Guide): the six layout macros: +1,396 chars / +349 tokens, the budget set to the measured total (7,349), no slack.
-    budgetTokens: 7349,
+    // VAPP-126 (a named budget exception, see the Guide): the six layout macros: +1,396 chars / +349 tokens; VAPP-128 trims nine prop descriptions; the budget is the measured total (7,335), no slack.
+    budgetTokens: 7335,
     full: { components: visible.length, ...size(full) },
     lite: { components: lite.length, ...size(liteText) },
     terse: { components: visible.length, ...size(terse) },

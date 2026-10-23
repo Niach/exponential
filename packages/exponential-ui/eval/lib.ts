@@ -186,6 +186,8 @@ const CONTROL_COMPONENTS = new Set([`Button`, `Input`, `Select`, `Badge`, `Chip`
 const SPACING_KEYS = /^(padding|margin|gap|rowGap|columnGap)/
 
 function isPrimaryButton(c: FlatComponent): boolean {
+  // VAPP-126: a FormActions draws ONE default Button (its submit) unless destructive.
+  if (c.component === `FormActions`) return c.destructive !== true
   return c.component === `Button` && (c.variant === undefined || c.variant === `default`)
 }
 
@@ -257,7 +259,8 @@ export function rubricScores(components: readonly FlatComponent[]): RubricScores
     }
     if ((c.component === `List` || c.component === `Table` || c.component === `Grid`) && (c.component === `Table` || (c.children && !Array.isArray(c.children)))) r.lists++
     if (OVERLAY_COMPONENTS.has(c.component)) r.overlays++
-    if (c.component === `Stack` && c.direction === `horizontal` && c.align === undefined && Array.isArray(c.children)) {
+    // VAPP-128: an unset `align` centres a row, so only an explicit `stretch` stretches its controls.
+    if (c.component === `Stack` && c.direction === `horizontal` && c.align === `stretch` && Array.isArray(c.children)) {
       const kids = c.children.map((k) => byId.get(k)?.component ?? ``)
       if (kids.length > 1 && kids.every((k) => CONTROL_COMPONENTS.has(k)) && !kids.every((k) => k === `Button`)) r.unalignedRows++
     }
@@ -304,7 +307,7 @@ export function scoreFixture(entry: CorpusEntry, fixture: EvalFixture): ScoreRow
     expects.overlay = rubric.overlays > 0
     if (!expects.overlay) findings.push(`no overlay`)
   }
-  if (rubric.unalignedRows) findings.push(`${rubric.unalignedRows} horizontal Stack(s) of controls without align`)
+  if (rubric.unalignedRows) findings.push(`${rubric.unalignedRows} horizontal Stack(s) of controls stretched`)
   if (spacing.raw) findings.push(`${spacing.raw} raw px spacing value(s): ${spacing.rawValues.join(`, `)}`)
   if (rubric.hexColours) findings.push(`${rubric.hexColours} #hex colour(s)`)
   if (rubric.markdownForUi) findings.push(`Markdown used for a list or heading ×${rubric.markdownForUi}`)

@@ -377,12 +377,41 @@ export function describeSurface(row: SurfaceParityRow): string {
   return `${row.surface} vs ${row.appView} (${row.platform}): inset ${row.template.inset} vs ${row.native.inset} (Δ ${row.delta.inset}), median gap ${row.template.medianGap} vs ${row.native.medianGap} (Δ ${row.delta.medianGap}), gaps ${row.template.gaps.join(`/`)} vs ${row.native.gaps.join(`/`)} (${Math.round(row.sharedGaps * 100)} % shared) css px`
 }
 
+/** VAPP-128: the Section macro's own rhythm on its specimen shot (view
+ *  `exponential-ui-section`, the first case: a titled band over tree rows):
+ *  the band and the gap from its bottom to the first row's title, store px. */
+export interface SectionBand {
+  platform: Platform
+  band: Geometry[`band`]
+  gapBelowBand: number
+}
+
+export async function sectionBand(platform: Platform): Promise<SectionBand> {
+  const g = measure(await raw(join(SHOTS, `exponential-ui-section`, `${platform}.webp`)), { top: platform === `desktop` ? 0.06 : 0.02 })
+  return { platform, band: g.band, gapBelowBand: g.firstRow.gapBelowBand }
+}
+
 if (import.meta.main) {
-  const rows = [await compare(`web`), await compare(`desktop`)]
+  // VAPP-128: the template's own view (exponential-ui-devices) left the store
+  // with its dev routes in VAPP-111 (the template now runs as the built-in
+  // Devices app inside the editor); without its shot a platform's row stays
+  // the one on record.
+  const recorded = ((readReport() as { parity?: { rows?: ParityRow[] } }).parity?.rows ?? []) as ParityRow[]
+  const rows: ParityRow[] = []
+  for (const platform of [`web`, `desktop`] as const) {
+    if (existsSync(join(SHOTS, `exponential-ui-devices`, `${platform}.webp`))) rows.push(await compare(platform))
+    else {
+      const kept = recorded.find((r) => r.platform === platform)
+      console.log(`${platform}: no exponential-ui-devices shot; the row on record stays`)
+      if (kept) rows.push(kept)
+    }
+  }
   for (const row of rows) console.log(describe(row))
   const surfaces = await compareSurfaces()
   for (const row of surfaces) console.log(describeSurface(row))
-  const report = buildReport({ ...readReport(), parity: { $comment: `Devices template (exponential-ui-devices) vs the native Devices page (agents), on the stored shots; store px (1 css px = ${STORE_SCALE} store px). \`surfaces\` (VAPP-127): every corpus surface naming an appView vs that app screen's stored shot, per platform where the eval has a picture (web: render.ts; android / ios / desktop: the shots pipeline's eval lane), the spacing both draw in css px.`, rows, surfaces } })
+  const section = [await sectionBand(`web`), await sectionBand(`desktop`)]
+  for (const s of section) console.log(`${s.platform}: Section specimen band ${s.band.height} tall, gap below band ${s.gapBelowBand} store px (${css(s.gapBelowBand)} css)`)
+  const report = buildReport({ ...readReport(), parity: { $comment: `Devices template (exponential-ui-devices) vs the native Devices page (agents), on the stored shots; store px (1 css px = ${STORE_SCALE} store px). \`surfaces\` (VAPP-127): every corpus surface naming an appView vs that app screen's stored shot, per platform where the eval has a picture (web: render.ts; android / ios / desktop: the shots pipeline's eval lane), the spacing both draw in css px. VAPP-128: \`section\` = the Section macro's band and the gap under it on its specimen shot (exponential-ui-section).`, rows, surfaces, section } })
   writeFileSync(REPORT_PATH, `${JSON.stringify(report, null, 2)}\n`)
   console.log(`→ ${REPORT_PATH}`)
 }
