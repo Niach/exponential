@@ -375,7 +375,9 @@ export const messageCollection = createCollection(
   electricCollectionOptions({
     id: `messages`,
     shapeOptions: shapeOptions(`/api/shapes/messages`),
-    schema: selectSyncedMessageSchema,
+    // NEW-8: a message is keyed through its conversation; the legacy
+    // `session_id` the server still serves is optional and never read here.
+    schema: selectSyncedMessageSchema.partial({ sessionId: true }),
     getKey: (item) => item.id,
   })
 )

@@ -9,6 +9,7 @@ import type {
   selectSyncedSessionIssueSchema,
   selectSyncedSessionSchema,
 } from "@exp/db-schema/schema"
+import { keyMessagesBySession } from "@exp/domain-contract/message-conversation"
 import type {
   TreeIssue,
   TreeMessage,
@@ -18,6 +19,11 @@ import type {
 } from "@exp/domain-contract/session-tree"
 
 export * from "@exp/domain-contract/session-tree"
+export {
+  conversationSessions,
+  keyMessagesBySession,
+  type MessageConversation,
+} from "@exp/domain-contract/message-conversation"
 export {
   guideViewer,
   type GuideViewerEntry,
@@ -36,7 +42,12 @@ export {
 
 export type SessionRow = z.infer<typeof selectSyncedSessionSchema>
 export type SessionIssueRow = z.infer<typeof selectSyncedSessionIssueSchema>
-export type MessageRow = z.infer<typeof selectSyncedMessageSchema>
+/** A synced `messages` row. NEW-8: its legacy `sessionId` is never read on
+ *  the client; the conversation decides (`keyMessageRows`). */
+export type SyncedMessageRow = Omit<z.infer<typeof selectSyncedMessageSchema>, `sessionId`>
+/** A message keyed to its conversation's session (`keyMessagesBySession`,
+ *  fixture `message-conversation.json`): `sessionId` is the RESOLVED one. */
+export type MessageRow = SyncedMessageRow & { sessionId: string }
 export type PullRequestRow = z.infer<typeof selectPullRequestSchema>
 
 const iso = (value: Date | string | null | undefined): string | null =>
@@ -91,6 +102,33 @@ export function toTreeMessage(row: MessageRow): TreeMessage {
     createdAt: iso(row.createdAt) ?? new Date(0).toISOString(),
     authorSessionId: row.authorSessionId ?? null,
   }
+}
+
+/** NEW-8: the synced rows keyed through `conversations` (conversation id →
+ *  session id), oldest first; a dm/channel message or one whose
+ *  conversation has not synced yet is held back. */
+export function keyMessageRows(
+  rows: readonly SyncedMessageRow[],
+  conversations: ReadonlyMap<string, string>
+): MessageRow[] {
+  return keyMessagesBySession(rows, conversations).sort(
+    (a, b) =>
+      new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime() || (a.id < b.id ? -1 : 1)
+  )
+}
+
+/** NEW-8: the conversation ids of `sessionIds` (each session's own), sorted:
+ *  what a live query filters `messages.conversationId` on. */
+export function sessionConversationIds(
+  conversations: ReadonlyMap<string, string>,
+  sessionIds: Iterable<string>
+): string[] {
+  const wanted = new Set(sessionIds)
+  const ids: string[] = []
+  for (const [conversationId, sessionId] of conversations) {
+    if (wanted.has(sessionId)) ids.push(conversationId)
+  }
+  return ids.sort()
 }
 
 export function toTreePullRequest(row: PullRequestRow): TreePullRequest {

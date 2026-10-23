@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef } from "react"
 import { and, eq, inArray, useLiveQuery } from "@tanstack/react-db"
 import { SKIP_ERROR_TOAST } from "@/lib/action-error"
+import { useConversationSessions } from "@/hooks/use-session-tree"
 import { messageCollection } from "@/lib/collections"
-import type { MessageRow } from "@/lib/session-tree"
+import { keyMessageRows, sessionConversationIds, type SyncedMessageRow } from "@/lib/session-tree"
 import { trpc } from "@/lib/trpc-client"
 
 // EXP-1323: opening a thread or a session marks it read
@@ -14,29 +15,31 @@ import { trpc } from "@/lib/trpc-client"
 /** How long a view must stay open before it counts as read. */
 const MARK_READ_DELAY_MS = 600
 
-/** The newest agent-authored message among `sessionIds` (ISO), or null. */
+/** The newest agent-authored message among `sessionIds` (ISO), or null.
+ *  NEW-8: the sessions' own conversations' messages, keyed through them. */
 export function useNewestAgentMessageAt(sessionIds: readonly string[]): string | null {
-  const key = [...sessionIds].sort().join(`,`)
+  const { conversations } = useConversationSessions()
+  const conversationIds = sessionConversationIds(conversations, sessionIds)
+  const key = conversationIds.join(`,`)
   const { data } = useLiveQuery(
     (query) =>
-      sessionIds.length > 0
+      conversationIds.length > 0
         ? query
             .from({ messages: messageCollection })
             .where(({ messages }) =>
-              and(inArray(messages.sessionId, [...sessionIds]), eq(messages.authorKind, `agent`))
+              and(inArray(messages.conversationId, conversationIds), eq(messages.authorKind, `agent`))
             )
-            .select(({ messages }) => ({ createdAt: messages.createdAt }))
         : undefined,
     [key]
   )
   return useMemo(() => {
     let newest: number | null = null
-    for (const row of (data ?? []) as Pick<MessageRow, `createdAt`>[]) {
+    for (const row of keyMessageRows((data ?? []) as SyncedMessageRow[], conversations)) {
       const at = new Date(row.createdAt).getTime()
       if (Number.isFinite(at) && (newest === null || at > newest)) newest = at
     }
     return newest === null ? null : new Date(newest).toISOString()
-  }, [data])
+  }, [data, conversations])
 }
 
 /** Mark `sessionId` read once it has been open a beat, and again when
